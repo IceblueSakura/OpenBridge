@@ -32,6 +32,10 @@ impl SafeHeaders {
         self.0.insert(name, value);
         Ok(())
     }
+
+    pub(super) fn into_inner(self) -> HeaderMap {
+        self.0
+    }
 }
 
 impl fmt::Debug for SafeHeaders {
@@ -59,6 +63,16 @@ impl SensitiveHeaders {
 
     pub(super) fn insert(&mut self, name: HeaderName, value: Zeroizing<String>) {
         self.0.insert(name, value);
+    }
+
+    pub(super) fn append_to(self, headers: &mut HeaderMap) -> Result<(), ProviderFailure> {
+        for (name, value) in self.0 {
+            let mut value = HeaderValue::from_str(value.as_str())
+                .map_err(|_| ProviderFailure::InvalidAuthenticationHeader)?;
+            value.set_sensitive(true);
+            headers.insert(name, value);
+        }
+        Ok(())
     }
 }
 

@@ -95,7 +95,7 @@ Principal / ProxyKey
 **范围**
 
 - 验证 HTTP method/content type/body 上限，并只接受配置允许的 public model。
-- 将 public model 映射成一个预置 deployment；转发允许的请求字段，保留 upstream HTTP status、`x-request-id`、rate-limit headers 和错误 body 的安全子集。
+- 将 public model 映射成一个预置 deployment；转发允许的请求字段，保留 upstream HTTP status、`openai-request-id`、rate-limit headers 和错误 body 的安全子集，同时保留 proxy 自己的 `x-request-id`。
 - 非流式 JSON 透明返回；流式按 SSE event 转发，不能将网络 chunk 当 event/JSON 边界。
 - 客户端取消必须取消上游 HTTP request；EOF 未见协议终态必须记录为不完整 stream，而不是伪造成功。
 - 每个成功、失败和 SSE 请求生成稳定的 proxy `x-request-id`；在尚未写出下游 SSE bytes 前，使用 OpenAI 风格 JSON error envelope 返回失败，并保留安全的 `retry-after` / `x-should-retry` 语义。

@@ -5,9 +5,12 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use openbridge::{
-    config::{ConfigManager, load_registry},
-    ingress::build_router,
+    config::{ConfigManager, RegistrySnapshot, load_registry},
+    ingress::{AppState, StaticBearerCredential, build_router},
+    provider::CredentialSource,
+    transport::upstream::UpstreamClient,
 };
+use secrecy::SecretString;
 use tower::ServiceExt;
 
 const BOOTSTRAP: &str = r#"
@@ -57,10 +60,28 @@ name = "code-primary"
 candidates = ["openai-main"]
 "#;
 
+fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
+    let upstream = UpstreamClient::new(
+        snapshot.upstream_policy().connect_timeout(),
+        snapshot.upstream_policy().pool_idle_timeout(),
+        snapshot.upstream_policy().pool_max_idle_per_host(),
+    )
+    .unwrap();
+    build_router(AppState::new(
+        Arc::new(ConfigManager::new(snapshot)),
+        Arc::new(upstream),
+        StaticBearerCredential::new(SecretString::from("downstream-test-token".to_owned())),
+        CredentialSource::fixed(
+            "OPENAI_API_KEY",
+            SecretString::from("upstream-test-token".to_owned()),
+        ),
+    ))
+}
+
 #[tokio::test]
 async fn health_reports_snapshot_version_and_sets_a_request_id() {
     let snapshot = load_registry(BOOTSTRAP, ROUTES).unwrap();
-    let app = build_router(Arc::new(ConfigManager::new(snapshot)));
+    let app = test_app(snapshot);
     let request = Request::builder()
         .uri("/healthz")
         .header(AUTHORIZATION, "Bearer must-not-be-reflected")
@@ -86,7 +107,7 @@ async fn requests_over_the_bootstrap_body_limit_are_rejected() {
         "max_request_body_bytes = 8",
     );
     let snapshot = load_registry(&bootstrap, ROUTES).unwrap();
-    let app = build_router(Arc::new(ConfigManager::new(snapshot)));
+    let app = test_app(snapshot);
     let request = Request::builder()
         .uri("/healthz")
         .header("content-length", "9")

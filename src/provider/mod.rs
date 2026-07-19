@@ -6,7 +6,7 @@ pub use contracts::{
     EventDisposition, HeaderAdapter, ProviderErrorClass, ResponseAdapter, RetryHint, SafeHeaders,
     SensitiveHeaders,
 };
-pub use credential::CredentialLease;
+pub use credential::{CredentialLease, CredentialSource, CredentialSourceError};
 
 use bytes::Bytes;
 use http::{
@@ -119,6 +119,8 @@ pub enum ProviderFailure {
     SensitiveHeaderInSafeSet,
     #[error("requested capabilities are not supported by the provider adapter")]
     UnsupportedCapabilities,
+    #[error("provider authentication material cannot be encoded as an HTTP header")]
+    InvalidAuthenticationHeader,
 }
 
 pub struct UpstreamRequestParts {
@@ -163,6 +165,16 @@ impl ProviderAdapter {
         match self {
             Self::OpenAi(_) => ProviderKind::OpenAi.descriptor(),
         }
+    }
+
+    pub(crate) fn build_outbound_headers(
+        &self,
+        credential: &CredentialLease,
+    ) -> Result<http::HeaderMap, ProviderFailure> {
+        let mut headers = self.build_headers()?.into_inner();
+        self.build_auth_headers(credential)?
+            .append_to(&mut headers)?;
+        Ok(headers)
     }
 }
 

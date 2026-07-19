@@ -12,7 +12,7 @@
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
 
-本项目当前处于 **Phase 0 契约基线开发阶段**。目前只实现严格配置加载、编译期 provider catalog 骨架、不可变配置快照、共享 SSE framing 和 loopback `/healthz`；尚未承诺 Chat/Responses 转发、OAuth flow 或上游私有接口的生产可用性。
+本项目当前处于 **Phase 1 原生转发开发阶段**。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证和共享 upstream 连接池；尚未完成 retry/cancellation 状态机、SDK compatibility、OAuth、审计与协议转换，因此不代表生产可用。
 
 文档目录说明见 [`docs/README.md`](docs/README.md)。
 
@@ -21,8 +21,12 @@
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 和 [`config/routes.toml`](config/routes.toml) 是无明文凭证的开发配置。启动服务：
 
 ```bash
+export OPENBRIDGE_DOWNSTREAM_TOKEN='replace-with-a-local-client-token'
+export OPENAI_API_KEY='replace-with-an-upstream-api-key'
 cargo run --locked
 ```
+
+`OPENBRIDGE_DOWNSTREAM_TOKEN` 在启动时读取一次，当前仅作为临时静态下游 Bearer credential；它不是 Phase 4 设计的可签发、可撤销 proxy key。`OPENAI_API_KEY` 由 [`config/routes.toml`](config/routes.toml) 中的 `env://OPENAI_API_KEY` binding 在业务请求时解析。两者都不得写入仓库或普通日志。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -30,7 +34,18 @@ cargo run --locked
 curl -i http://127.0.0.1:8080/healthz
 ```
 
-响应只包含状态和当前配置版本，并生成 `x-request-id`。配置文件路径可通过 `OPENBRIDGE_BOOTSTRAP_CONFIG` 和 `OPENBRIDGE_ROUTES_CONFIG` 覆盖；`RUST_LOG` 控制日志过滤。当前健康检查不会解析 `env://OPENAI_API_KEY`，真实 provider 调用尚未实现。
+响应只包含状态和当前配置版本，并生成 `x-request-id`。配置文件路径可通过 `OPENBRIDGE_BOOTSTRAP_CONFIG` 和 `OPENBRIDGE_ROUTES_CONFIG` 覆盖；`RUST_LOG` 控制日志过滤。健康检查公开且不会解析 upstream credential。
+
+原生请求示例：
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
+```
+
+`POST /v1/chat/completions` 与 `POST /v1/responses` 使用 alias 选择预配置 deployment，只将请求中的 `model` 改写为 `upstream_model`；其余 JSON 字段和 upstream JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能指定 upstream URL 或任意出站 header。
 
 ## 推荐阅读顺序
 
@@ -38,8 +53,8 @@ curl -i http://127.0.0.1:8080/healthz
 |---|---|---|
 | [初版需求](docs/requirements/proxy-requirements.md) | 产品范围、功能/安全/兼容性需求、初始验收集与调研 backlog | 初稿，待确认 |
 | [架构与路线](docs/architecture/architecture-and-roadmap.md) | 目标架构、控制面/数据面边界、分阶段开发门与验收标准 | 已同步 |
-| [开发计划](docs/plans/development-plan.md) | 已确认的可执行开发计划、阶段任务、退出条件、风险与非目标 | 已确认，待实施 |
-| [Rust provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Rust trait adapter、编译期 provider catalog、数据流 pipeline、配置边界与性能门 | 已确认，待实施 |
+| [开发计划](docs/plans/development-plan.md) | 已确认的可执行开发计划、阶段任务、退出条件、风险与非目标 | 实施中 |
+| [Rust provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Rust trait adapter、编译期 provider catalog、数据流 pipeline、配置边界与性能门 | 实施中 |
 | [Codex OAuth 凭证边界](docs/design/codex-oauth-credential-boundary.md) | proxy 自主管理单一 Codex OAuth credential 的边界、生命周期与 preflight | 已同步 |
 | [控制面、模型、密钥与可观测性](docs/architecture/control-plane-models-keys-and-observability.md) | 模型别名/路由、proxy-issued API key、审计和日志设计 | 目标设计，待实施 |
 | [Hermes Agent 协议分析](docs/research/hermes/chat-responses-analysis.md) | Hermes 的 Chat/Responses adapter 与 continuation state | 已有 |

@@ -3,8 +3,10 @@ use std::{env, fs, sync::Arc};
 use anyhow::{Context, Result};
 use openbridge::{
     config::{ConfigManager, load_registry},
-    ingress::build_router,
+    ingress::{AppState, StaticBearerCredential, build_router},
+    transport::upstream::UpstreamClient,
 };
+use secrecy::SecretString;
 use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -27,13 +29,29 @@ async fn main() -> Result<()> {
     let snapshot = load_registry(&bootstrap, &routes).context("configuration validation failed")?;
     let listen = snapshot.listen();
     let config_version = snapshot.version().as_str().to_owned();
+    let upstream = UpstreamClient::new(
+        snapshot.upstream_policy().connect_timeout(),
+        snapshot.upstream_policy().pool_idle_timeout(),
+        snapshot.upstream_policy().pool_max_idle_per_host(),
+    )
+    .context("failed to initialize upstream HTTP client")?;
+    let downstream_token = env::var("OPENBRIDGE_DOWNSTREAM_TOKEN")
+        .context("OPENBRIDGE_DOWNSTREAM_TOKEN must be configured")?;
+    if downstream_token.is_empty() {
+        anyhow::bail!("OPENBRIDGE_DOWNSTREAM_TOKEN must not be empty");
+    }
     let config = Arc::new(ConfigManager::new(snapshot));
+    let app_state = AppState::with_environment_credentials(
+        config,
+        upstream,
+        StaticBearerCredential::new(SecretString::from(downstream_token)),
+    );
     let listener = TcpListener::bind(listen)
         .await
         .with_context(|| format!("failed to bind OpenBridge to {listen}"))?;
 
     info!(%listen, %config_version, "OpenBridge listening");
-    axum::serve(listener, build_router(config))
+    axum::serve(listener, build_router(app_state))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("OpenBridge server stopped unexpectedly")

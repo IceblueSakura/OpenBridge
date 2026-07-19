@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，实施中。** Phase 0 已落地 loopback health service、strict typed config/route snapshot、shared SSE framing、闭合 provider catalog 与 provider trait/credential lease contracts；Chat/Responses 业务端点、真实 credential store 和 OAuth upstream 尚未实现。
+**已确认，实施中。** Phase 0 契约基线已落地。Phase 1 已实现 Chat/Responses native endpoint、alias/model rewrite、静态下游 Bearer 认证、标准 API-key upstream 和共享连接池；retry/cancellation 状态机、SDK compatibility 与完整 conformance 尚未完成。真实 credential store 和 OAuth upstream 仍未实现。
 
 ## 1. 目标和已确认决策
 

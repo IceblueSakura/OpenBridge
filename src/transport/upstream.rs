@@ -2,6 +2,7 @@ use std::{fmt, time::Duration};
 
 use axum::body::Body;
 use bytes::Bytes;
+use futures_util::future::BoxFuture;
 use http::{HeaderMap, Method, StatusCode};
 use thiserror::Error;
 use url::Url;
@@ -14,8 +15,19 @@ pub enum UpstreamError {
     ClientBuild(#[source] reqwest::Error),
     #[error("upstream request failed")]
     Request(#[source] reqwest::Error),
+    #[error("upstream request timed out")]
+    Timeout,
     #[error("provider adapter produced an invalid relative upstream target")]
     InvalidTarget,
+}
+
+pub trait UpstreamTransport: Send + Sync {
+    fn send<'a>(
+        &'a self,
+        deployment: &'a ResolvedDeployment,
+        request: UpstreamRequestParts,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
 }
 
 pub struct UpstreamClient {
@@ -76,7 +88,13 @@ impl UpstreamClient {
             .timeout(request.timeout)
             .send()
             .await
-            .map_err(UpstreamError::Request)?;
+            .map_err(|error| {
+                if error.is_timeout() {
+                    UpstreamError::Timeout
+                } else {
+                    UpstreamError::Request(error)
+                }
+            })?;
         let status = response.status();
         let headers = response.headers().clone();
         let body = Body::from_stream(response.bytes_stream());
@@ -85,6 +103,17 @@ impl UpstreamClient {
             headers,
             body,
         })
+    }
+}
+
+impl UpstreamTransport for UpstreamClient {
+    fn send<'a>(
+        &'a self,
+        deployment: &'a ResolvedDeployment,
+        request: UpstreamRequestParts,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        Box::pin(async move { UpstreamClient::send(self, deployment, request, headers).await })
     }
 }
 
@@ -128,6 +157,14 @@ pub struct UpstreamResponse {
 }
 
 impl UpstreamResponse {
+    pub fn new(status: StatusCode, headers: HeaderMap, body: Body) -> Self {
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
     pub fn status(&self) -> StatusCode {
         self.status
     }

@@ -151,7 +151,7 @@ client-supplied base URL / header forwarding rule
 | 阶段 | Rust / trait / dataflow 交付 |
 |---|---|
 | Phase 0 | `core`/`protocol` 边界；shared SSE framing；闭合 `ProviderKind`/`ProviderAdapter` catalog；typed route snapshot；provider trait/descriptor contracts；opaque `CredentialLease` 值对象与 fixture tests |
-| Phase 1 | 第一个标准 OpenAI-compatible adapter；native Chat/Responses request/response pipeline；retry/cancel/backpressure 测试 |
+| Phase 1 | 已有标准 OpenAI-compatible adapter、native Chat/Responses request/response pipeline 与共享连接池；retry/cancel/SDK compatibility/backpressure 完整验收仍在实施 |
 | Phase 2 | Codex `AuthAdapter`/`HeaderAdapter`；credential store/vault、login、refresh state machine；token 不流入 audit payload |
 | Phase 3 | 扩展多 provider catalog；alias/routing policy；多 provider conformance suite |
 | Phase 4 | `AuthorizedRequest` stage、opaque key verifier、principal scope/limit stage；不影响 provider trait |

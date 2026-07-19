@@ -1,6 +1,7 @@
-use std::fmt;
+use std::{env, fmt};
 
 use secrecy::{ExposeSecret, SecretString};
+use thiserror::Error;
 
 use super::ProviderKind;
 
@@ -52,5 +53,77 @@ impl fmt::Debug for CredentialLease {
             .field("secret_version", &self.secret_version)
             .field("secret", &"[REDACTED]")
             .finish()
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum CredentialSourceError {
+    #[error("upstream credential is unavailable")]
+    Unavailable,
+    #[error("static upstream credential does not match the configured binding")]
+    BindingMismatch,
+}
+
+pub enum CredentialSource {
+    Environment,
+    Fixed {
+        locator: String,
+        secret: SecretString,
+    },
+}
+
+impl CredentialSource {
+    pub fn environment() -> Self {
+        Self::Environment
+    }
+
+    pub fn fixed(locator: impl Into<String>, secret: SecretString) -> Self {
+        Self::Fixed {
+            locator: locator.into(),
+            secret,
+        }
+    }
+
+    pub fn resolve(
+        &self,
+        provider: ProviderKind,
+        binding_id: &str,
+        locator: &str,
+    ) -> Result<CredentialLease, CredentialSourceError> {
+        let (secret, version) = match self {
+            Self::Environment => {
+                let secret = env::var(locator).map_err(|_| CredentialSourceError::Unavailable)?;
+                if secret.is_empty() {
+                    return Err(CredentialSourceError::Unavailable);
+                }
+                (SecretString::from(secret), "environment")
+            }
+            Self::Fixed {
+                locator: expected_locator,
+                secret,
+            } => {
+                if locator != expected_locator {
+                    return Err(CredentialSourceError::BindingMismatch);
+                }
+                (
+                    SecretString::from(secret.expose_secret().to_owned()),
+                    "fixed",
+                )
+            }
+        };
+        Ok(CredentialLease::new(provider, binding_id, version, secret))
+    }
+}
+
+impl fmt::Debug for CredentialSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Environment => formatter.write_str("CredentialSource::Environment"),
+            Self::Fixed { locator, .. } => formatter
+                .debug_struct("CredentialSource::Fixed")
+                .field("locator", locator)
+                .field("secret", &"[REDACTED]")
+                .finish(),
+        }
     }
 }
