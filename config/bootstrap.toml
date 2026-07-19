@@ -1,0 +1,5 @@
+schema_version = 1
+listen = "127.0.0.1:8080"
+allowed_origins = ["https://api.openai.com"]
+max_request_body_bytes = 1048576
+max_sse_event_bytes = 262144

@@ -1,0 +1,33 @@
+schema_version = 1
+config_version = "dev-1"
+
+[[providers]]
+id = "openai"
+kind = "openai"
+
+[providers.credential]
+id = "openai-primary"
+kind = "api_key"
+secret_ref = "env://OPENAI_API_KEY"
+
+[[deployments]]
+id = "openai-main"
+provider = "openai"
+upstream_model = "configured-model"
+endpoint_profile = "public-api"
+base_url = "https://api.openai.com"
+request_timeout_ms = 120000
+
+[deployments.capabilities]
+chat = true
+responses = true
+streaming = true
+function_tools = true
+structured_output = false
+previous_response_id = false
+background = false
+response_store = false
+
+[[aliases]]
+name = "code-primary"
+candidates = ["openai-main"]

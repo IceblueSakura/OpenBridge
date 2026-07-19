@@ -12,9 +12,25 @@
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
 
-本项目当前是**设计和验证阶段**，尚未承诺任一端点、OAuth flow 或上游私有接口的生产可用性。
+本项目当前处于 **Phase 0 契约基线开发阶段**。目前只实现严格配置加载、编译期 provider catalog 骨架、不可变配置快照、共享 SSE framing 和 loopback `/healthz`；尚未承诺 Chat/Responses 转发、OAuth flow 或上游私有接口的生产可用性。
 
 文档目录说明见 [`docs/README.md`](docs/README.md)。
+
+## 当前可运行基线
+
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 和 [`config/routes.toml`](config/routes.toml) 是无明文凭证的开发配置。启动服务：
+
+```bash
+cargo run --locked
+```
+
+默认监听 `127.0.0.1:8080`。健康检查：
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+```
+
+响应只包含状态和当前配置版本，并生成 `x-request-id`。配置文件路径可通过 `OPENBRIDGE_BOOTSTRAP_CONFIG` 和 `OPENBRIDGE_ROUTES_CONFIG` 覆盖；`RUST_LOG` 控制日志过滤。当前健康检查不会解析 `env://OPENAI_API_KEY`，真实 provider 调用尚未实现。
 
 ## 推荐阅读顺序
 
