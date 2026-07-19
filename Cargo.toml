@@ -1,0 +1,7 @@
+[package]
+name = "openbridge"
+version = "0.1.0"
+edition = "2024"
+description = "A secure OpenAI-compatible model gateway and protocol bridge."
+
+[dependencies]

@@ -1,0 +1,59 @@
+# OpenBridge 设计与调研索引
+
+## 目标
+
+构建一个面向 OpenAI-compatible 客户端的 proxy，逐步支持：
+
+1. 原生转发 `POST /v1/chat/completions` 和 `POST /v1/responses`；
+2. proxy 自主管理单一 Codex OAuth credential（真实 OAuth 契约与条款 preflight 是硬门）；
+3. 多 provider、多 deployment 与稳定模型别名；
+4. Rust 编译期 provider adapter 与有类型异步数据流 pipeline；
+5. proxy 自行签发的 API key 校验和授权；
+6. 隐私可控的请求审计与运行日志；
+7. Chat Completions 与 Responses 的双向协议转换。
+
+本项目当前是**设计和验证阶段**，尚未承诺任一端点、OAuth flow 或上游私有接口的生产可用性。
+
+文档目录说明见 [`docs/README.md`](docs/README.md)。
+
+## 推荐阅读顺序
+
+| 文档 | 内容 | 状态 |
+|---|---|---|
+| [初版需求](docs/requirements/proxy-requirements.md) | 产品范围、功能/安全/兼容性需求、初始验收集与调研 backlog | 初稿，待确认 |
+| [架构与路线](docs/architecture/architecture-and-roadmap.md) | 目标架构、控制面/数据面边界、分阶段开发门与验收标准 | 已同步 |
+| [开发计划](docs/plans/development-plan.md) | 已确认的可执行开发计划、阶段任务、退出条件、风险与非目标 | 已确认，待实施 |
+| [Rust provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Rust trait adapter、编译期 provider catalog、数据流 pipeline、配置边界与性能门 | 已确认，待实施 |
+| [Codex OAuth 凭证边界](docs/design/codex-oauth-credential-boundary.md) | proxy 自主管理单一 Codex OAuth credential 的边界、生命周期与 preflight | 已同步 |
+| [控制面、模型、密钥与可观测性](docs/architecture/control-plane-models-keys-and-observability.md) | 模型别名/路由、proxy-issued API key、审计和日志设计 | 目标设计，待实施 |
+| [Hermes Agent 协议分析](docs/research/hermes/chat-responses-analysis.md) | Hermes 的 Chat/Responses adapter 与 continuation state | 已有 |
+| [LiteLLM 协议分析](docs/research/litellm/chat-responses-analysis.md) | LiteLLM 的双向 bridge 和 provider gateway | 已有 |
+| [Chat/Responses 转换设计](docs/design/chat-responses-conversion.md) | Canonical IR、转换器与 stream state machine 建议 | 已有 |
+| [OpenAI API 规范目录](docs/specifications/openai/api-specification-catalog.md) | OpenAI 端点和规范地图 | 已有 |
+| [Chat Completions 协议](docs/specifications/openai/chat-completions-protocol.md) | Chat Completions wire contract | 已有 |
+| [Responses 协议](docs/specifications/openai/responses-protocol.md) | Responses wire contract 与资源生命周期 | 已有 |
+| [LiteLLM Proxy 调用链](docs/research/litellm/proxy-call-chain-analysis.md) | LiteLLM Proxy 调用链 | 已有 |
+| [LiteLLM Proxy 性能分析](docs/research/litellm/proxy-performance-bottlenecks.md) | LiteLLM 性能观察；仅作参考，非本项目现状 | 已有 |
+
+## 非目标（当前阶段）
+
+- 不代理 OpenAI 的全部资源 API、Realtime、Files、Conversations 或管理面。
+- 不把 Chat ↔ Responses 转换承诺为无损；每个语义降级必须可检测。
+- 不把 Codex 的本地 auth cache、ChatGPT access token 或 refresh token 暴露给下游客户端。
+- 不允许客户端通过 `base_url`、任意 header 或模型名指定任意上游 URL/凭证。
+- 不在未完成入站认证和最小审计前暴露到非受信网络。
+
+## 关键术语
+
+- **Public model / alias**：客户端请求的稳定模型名，例如 `code-primary`；不等于 provider 原始模型名。
+- **Deployment**：一个可调用上游目标，绑定 provider、上游 model、endpoint、credential binding 和 capabilities。
+- **Credential binding**：仅由控制面引用的上游认证材料；数据面不得接收或返回其值。
+- **Proxy-issued opaque key**：proxy 自行生成、可撤销的高熵 bearer key；它不是 JWT，也不是上游 OpenAI/Codex OAuth token。
+- **Canonical IR**：Chat 和 Responses 之间转换时使用的有序、异构内部表示；详见 [Chat/Responses 转换设计](docs/design/chat-responses-conversion.md)。
+
+## 证据和更新原则
+
+- OpenAI HTTP/SSE 行为以官方 API Reference、guides 和 OpenAPI 为准。
+- Codex 登录的用户行为以官方 Codex 文档为准；未公开的 ChatGPT backend 协议不得作为稳定依赖。
+- LiteLLM/Hermes/Codex 的源码分析是设计参考，不等同于本项目的依赖或实现承诺。
+- 每次上游 SDK/OpenAPI 更新后，应运行兼容 fixture 并更新文档的版本/日期，而不是按模型名称猜测能力。
