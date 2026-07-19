@@ -5,3 +5,12 @@ edition = "2024"
 description = "A secure OpenAI-compatible model gateway and protocol bridge."
 
 [dependencies]
+arc-swap = "1.9"
+bytes = "1.12"
+http = "1.4"
+secrecy = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+toml = "1.1"
+url = "2.5"
+zeroize = "1.9"
