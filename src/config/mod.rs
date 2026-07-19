@@ -68,6 +68,7 @@ pub struct RegistrySnapshot {
     listen: SocketAddr,
     allowed_origins: BTreeSet<Url>,
     limits: RuntimeLimits,
+    upstream_policy: UpstreamPolicy,
     providers: BTreeMap<String, ResolvedProvider>,
     deployments: BTreeMap<String, ResolvedDeployment>,
     aliases: BTreeMap<String, ResolvedAlias>,
@@ -86,6 +87,10 @@ impl RegistrySnapshot {
         &self.limits
     }
 
+    pub fn upstream_policy(&self) -> &UpstreamPolicy {
+        &self.upstream_policy
+    }
+
     pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
         self.providers.get(id)
     }
@@ -102,6 +107,7 @@ impl RegistrySnapshot {
         self.listen == other.listen
             && self.allowed_origins == other.allowed_origins
             && self.limits == other.limits
+            && self.upstream_policy == other.upstream_policy
     }
 }
 
@@ -207,6 +213,27 @@ impl RuntimeLimits {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct UpstreamPolicy {
+    connect_timeout: Duration,
+    pool_idle_timeout: Duration,
+    pool_max_idle_per_host: usize,
+}
+
+impl UpstreamPolicy {
+    pub fn connect_timeout(&self) -> Duration {
+        self.connect_timeout
+    }
+
+    pub fn pool_idle_timeout(&self) -> Duration {
+        self.pool_idle_timeout
+    }
+
+    pub fn pool_max_idle_per_host(&self) -> usize {
+        self.pool_max_idle_per_host
+    }
+}
+
 #[derive(Debug)]
 pub struct ResolvedDeployment {
     provider_id: String,
@@ -266,6 +293,18 @@ pub fn load_registry(
     validate_schema("routes", routes.schema_version)?;
     validate_nonzero_limit("max_request_body_bytes", bootstrap.max_request_body_bytes)?;
     validate_nonzero_limit("max_sse_event_bytes", bootstrap.max_sse_event_bytes)?;
+    validate_nonzero_millis(
+        "upstream_connect_timeout_ms",
+        bootstrap.upstream_connect_timeout_ms,
+    )?;
+    validate_nonzero_millis(
+        "upstream_pool_idle_timeout_ms",
+        bootstrap.upstream_pool_idle_timeout_ms,
+    )?;
+    validate_nonzero_limit(
+        "upstream_pool_max_idle_per_host",
+        bootstrap.upstream_pool_max_idle_per_host,
+    )?;
     let listen = bootstrap
         .listen
         .parse::<SocketAddr>()
@@ -442,6 +481,11 @@ pub fn load_registry(
             max_request_body_bytes: bootstrap.max_request_body_bytes,
             max_sse_event_bytes: bootstrap.max_sse_event_bytes,
         },
+        upstream_policy: UpstreamPolicy {
+            connect_timeout: Duration::from_millis(bootstrap.upstream_connect_timeout_ms),
+            pool_idle_timeout: Duration::from_millis(bootstrap.upstream_pool_idle_timeout_ms),
+            pool_max_idle_per_host: bootstrap.upstream_pool_max_idle_per_host,
+        },
         providers,
         deployments,
         aliases,
@@ -457,6 +501,14 @@ fn validate_schema(document: &'static str, actual: u32) -> Result<(), ConfigErro
 }
 
 fn validate_nonzero_limit(name: &'static str, value: usize) -> Result<(), ConfigError> {
+    if value == 0 {
+        Err(ConfigError::InvalidLimit { name })
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_nonzero_millis(name: &'static str, value: u64) -> Result<(), ConfigError> {
     if value == 0 {
         Err(ConfigError::InvalidLimit { name })
     } else {
@@ -502,6 +554,9 @@ struct RawBootstrap {
     allowed_origins: Vec<String>,
     max_request_body_bytes: usize,
     max_sse_event_bytes: usize,
+    upstream_connect_timeout_ms: u64,
+    upstream_pool_idle_timeout_ms: u64,
+    upstream_pool_max_idle_per_host: usize,
 }
 
 #[derive(Deserialize)]

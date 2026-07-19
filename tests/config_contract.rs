@@ -9,6 +9,9 @@ listen = "127.0.0.1:8080"
 allowed_origins = ["https://api.openai.com"]
 max_request_body_bytes = 1048576
 max_sse_event_bytes = 262144
+upstream_connect_timeout_ms = 5000
+upstream_pool_idle_timeout_ms = 90000
+upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
@@ -63,6 +66,15 @@ fn valid_config_builds_a_resolved_registry() {
     );
     assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
     assert_eq!(registry.limits().max_sse_event_bytes(), 262_144);
+    assert_eq!(
+        registry.upstream_policy().connect_timeout(),
+        Duration::from_secs(5)
+    );
+    assert_eq!(
+        registry.upstream_policy().pool_idle_timeout(),
+        Duration::from_secs(90)
+    );
+    assert_eq!(registry.upstream_policy().pool_max_idle_per_host(), 16);
     let deployment = registry.deployment("openai-main").unwrap();
     assert_eq!(deployment.provider_id(), "openai");
     assert_eq!(deployment.upstream_model(), "test-model");
@@ -104,6 +116,10 @@ fn reload_rejects_bootstrap_policy_changes() {
         BOOTSTRAP.replace(
             "max_request_body_bytes = 1048576",
             "max_request_body_bytes = 2048",
+        ),
+        BOOTSTRAP.replace(
+            "upstream_pool_max_idle_per_host = 16",
+            "upstream_pool_max_idle_per_host = 8",
         ),
     ];
     let updated_routes = ROUTES.replace("test-1", "test-2");
@@ -231,6 +247,21 @@ fn zero_runtime_limits_are_rejected() {
         load_registry(&bootstrap, ROUTES).unwrap_err(),
         ConfigError::InvalidLimit {
             name: "max_sse_event_bytes"
+        }
+    ));
+}
+
+#[test]
+fn zero_upstream_pool_policy_values_are_rejected() {
+    let bootstrap = BOOTSTRAP.replace(
+        "upstream_pool_idle_timeout_ms = 90000",
+        "upstream_pool_idle_timeout_ms = 0",
+    );
+
+    assert!(matches!(
+        load_registry(&bootstrap, ROUTES).unwrap_err(),
+        ConfigError::InvalidLimit {
+            name: "upstream_pool_idle_timeout_ms"
         }
     ));
 }
