@@ -12,7 +12,7 @@
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
 
-本项目当前仍处于 **Phase 1 原生转发开发阶段**，并已开始交付 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、下游断开时的上游 stream 取消传播、仅在下游业务 SSE 前执行的有界 retry、SSE framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback。尚未完成 OpenAI Python/Node SDK compatibility、完整 conformance、真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换，因此不代表生产可用。
+本项目当前仍处于 **Phase 1 原生转发开发阶段**，并已开始交付 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、下游断开时的上游 stream 取消传播、仅在下游业务 SSE 前执行的有界 retry、SSE framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback；OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 的两端点 stream/non-stream loopback fixture 已通过。尚未完成完整 conformance、真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换，因此不代表生产可用。
 
 文档目录说明见 [`docs/README.md`](docs/README.md)。
 
@@ -46,6 +46,16 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 ```
 
 `POST /v1/chat/completions` 与 `POST /v1/responses` 使用 alias 选择预配置 deployment，只将请求中的 `model` 改写为 `upstream_model`；其余 JSON 字段和 upstream JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能指定 upstream URL 或任意出站 header。
+
+## SDK compatibility fixture
+
+`tests/sdk_compatibility.rs` 会启动 loopback proxy 与 mock upstream，然后使用 OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 消费 Chat/Responses 的 stream 与 non-stream fixture。它是 ignored integration test，以免默认 `cargo test` 下载 SDK：
+
+```bash
+cargo test --locked --test sdk_compatibility -- --ignored
+```
+
+测试不访问真实 provider，也不需要真实 credential。它使用 `uv` 临时解析 Python SDK，并在系统临时目录安装 Node SDK；如果 Windows 子进程无法从当前 `PATH` 解析工具，可用 `OPENBRIDGE_UV`、`OPENBRIDGE_NPM`、`OPENBRIDGE_NODE` 指向对应可执行文件。
 
 ## 推荐阅读顺序
 
