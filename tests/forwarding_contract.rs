@@ -1,6 +1,9 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use axum::{
@@ -81,6 +84,18 @@ struct TimeoutTransport;
 
 struct InvalidSseTransport;
 
+struct PendingSseTransport {
+    dropped: Arc<AtomicBool>,
+}
+
+struct DropSignal(Arc<AtomicBool>);
+
+impl Drop for DropSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 #[derive(Default)]
 struct FailoverTransport {
     attempted_models: Mutex<Vec<String>>,
@@ -113,6 +128,30 @@ impl UpstreamTransport for InvalidSseTransport {
                 Body::from_stream(stream::iter(vec![Ok::<_, Infallible>(Bytes::from_static(
                     b"data: \xff\n\n",
                 ))])),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for PendingSseTransport {
+    fn send<'a>(
+        &'a self,
+        _deployment: &'a ResolvedDeployment,
+        _request: UpstreamRequestParts,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        let signal = DropSignal(self.dropped.clone());
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let body = Body::from_stream(stream::once(async move {
+                let _signal = signal;
+                std::future::pending::<Result<Bytes, Infallible>>().await
+            }));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                body,
             ))
         })
     }
@@ -374,6 +413,27 @@ response_store = false
         transport.attempted_models.lock().unwrap().as_slice(),
         ["upstream-model", "upstream-model"]
     );
+}
+
+#[tokio::test]
+async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let app = app_with_transport(Arc::new(PendingSseTransport {
+        dropped: dropped.clone(),
+    }));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    drop(response);
+    assert!(dropped.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

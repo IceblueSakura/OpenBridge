@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，实施中。** Phase 0 契约基线已落地。Phase 1 已实现 Chat/Responses native endpoint、alias/model rewrite、静态下游 Bearer 认证、标准 API-key upstream、共享连接池，以及仅限下游尚未收到业务 SSE 的有界 retry/SSE 校验。Phase 3 已有有序多 deployment candidate、逐 candidate capability gate、受保护的 `/v1/models` 和同协议 streaming fallback；尚未实现多 provider catalog、health/weight 路由策略或 principal 级 alias 过滤。SDK compatibility、完整 conformance、真实 credential store 和 OAuth upstream 仍未完成。
+**已确认，实施中。** Phase 0 契约基线已落地。Phase 1 已实现 Chat/Responses native endpoint、alias/model rewrite、静态下游 Bearer 认证、标准 API-key upstream、共享连接池、下游断开时的上游 stream 取消传播，以及仅限下游尚未收到业务 SSE 的有界 retry/SSE 校验。Phase 3 已有有序多 deployment candidate、逐 candidate capability gate、受保护的 `/v1/models` 和同协议 streaming fallback；尚未实现多 provider catalog、health/weight 路由策略或 principal 级 alias 过滤。SDK compatibility、完整 conformance、真实 credential store 和 OAuth upstream 仍未完成。
 
 ## 1. 目标和已确认决策
 
