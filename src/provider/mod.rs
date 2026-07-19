@@ -123,6 +123,7 @@ pub enum ProviderFailure {
     InvalidAuthenticationHeader,
 }
 
+#[derive(Clone)]
 pub struct UpstreamRequestParts {
     method: Method,
     relative_uri: Uri,
@@ -150,6 +151,7 @@ pub trait RequestAdapter {
     ) -> Result<UpstreamRequestParts, ProviderFailure>;
 }
 
+#[derive(Clone, Copy)]
 pub enum ProviderAdapter {
     OpenAi(OpenAiAdapter),
 }
@@ -189,6 +191,7 @@ impl RequestAdapter for ProviderAdapter {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct OpenAiAdapter;
 
 impl RequestAdapter for OpenAiAdapter {

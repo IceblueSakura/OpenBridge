@@ -118,3 +118,48 @@ fn native_routing_rejects_features_disabled_by_the_deployment() {
 
     assert!(matches!(error, RouteError::UnsupportedCapabilities));
 }
+
+#[test]
+fn native_routing_selects_the_first_capability_compatible_candidate() {
+    let routes = ROUTES
+        .replace("function_tools = true", "function_tools = false")
+        .replace(
+            "[[aliases]]",
+            r#"[[deployments]]
+id = "openai-tools"
+provider = "openai"
+upstream_model = "tool-capable-model"
+endpoint_profile = "public-api"
+base_url = "https://api.openai.com"
+request_timeout_ms = 120000
+[deployments.capabilities]
+chat = true
+responses = true
+streaming = true
+function_tools = true
+structured_output = false
+previous_response_id = false
+background = false
+response_store = false
+
+[[aliases]]"#,
+        )
+        .replace(
+            "candidates = [\"openai-main\"]",
+            "candidates = [\"openai-main\", \"openai-tools\"]",
+        );
+    let snapshot = load_registry(BOOTSTRAP, &routes).unwrap();
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{"type": "function", "function": {"name": "probe"}}]
+    }))
+    .unwrap();
+
+    let prepared = prepare_native_request(&snapshot, Protocol::ChatCompletions, body.into())
+        .expect("a later compatible candidate should be selected");
+    let rewritten: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+
+    assert_eq!(prepared.deployment_id(), "openai-tools");
+    assert_eq!(rewritten["model"], "tool-capable-model");
+}

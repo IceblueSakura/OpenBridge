@@ -103,6 +103,10 @@ impl RegistrySnapshot {
         self.aliases.get(name)
     }
 
+    pub fn public_aliases(&self) -> impl Iterator<Item = &str> {
+        self.aliases.keys().map(String::as_str)
+    }
+
     fn has_same_bootstrap_policy(&self, other: &Self) -> bool {
         self.listen == other.listen
             && self.allowed_origins == other.allowed_origins

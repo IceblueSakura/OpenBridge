@@ -27,21 +27,60 @@ pub enum RouteError {
 
 #[derive(Debug)]
 pub struct PreparedNativeRequest {
+    candidates: Vec<PreparedNativeCandidate>,
+    is_streaming: bool,
+    allows_fallback: bool,
+}
+
+#[derive(Debug)]
+pub struct PreparedNativeCandidate {
     deployment_id: String,
     request: ValidatedRequest,
 }
 
 impl PreparedNativeRequest {
     pub fn deployment_id(&self) -> &str {
+        self.primary().deployment_id()
+    }
+
+    pub fn request(&self) -> &ValidatedRequest {
+        self.primary().request()
+    }
+
+    pub fn candidates(&self) -> &[PreparedNativeCandidate] {
+        &self.candidates
+    }
+
+    pub fn is_streaming(&self) -> bool {
+        self.is_streaming
+    }
+
+    pub fn allows_fallback(&self) -> bool {
+        self.allows_fallback
+    }
+
+    pub fn into_request(self) -> ValidatedRequest {
+        self.candidates
+            .into_iter()
+            .next()
+            .expect("prepared request always has a candidate")
+            .request
+    }
+
+    fn primary(&self) -> &PreparedNativeCandidate {
+        self.candidates
+            .first()
+            .expect("prepared request always has a candidate")
+    }
+}
+
+impl PreparedNativeCandidate {
+    pub fn deployment_id(&self) -> &str {
         &self.deployment_id
     }
 
     pub fn request(&self) -> &ValidatedRequest {
         &self.request
-    }
-
-    pub fn into_request(self) -> ValidatedRequest {
-        self.request
     }
 }
 
@@ -50,34 +89,14 @@ pub fn prepare_native_request(
     protocol: Protocol,
     body: Bytes,
 ) -> Result<PreparedNativeRequest, RouteError> {
-    let mut document: Value = serde_json::from_slice(&body).map_err(|_| RouteError::InvalidJson)?;
-    let object = document.as_object_mut().ok_or(RouteError::InvalidJson)?;
+    let document: Value = serde_json::from_slice(&body).map_err(|_| RouteError::InvalidJson)?;
+    let object = document.as_object().ok_or(RouteError::InvalidJson)?;
     let public_model = object
         .get("model")
         .and_then(Value::as_str)
         .filter(|model| !model.is_empty())
         .ok_or(RouteError::MissingModel)?;
-    let deployment_id = snapshot
-        .alias(public_model)
-        .ok_or(RouteError::UnknownModel)?
-        .candidates()
-        .first()
-        .ok_or(RouteError::NoDeployment)?
-        .clone();
-    let deployment = snapshot
-        .deployment(&deployment_id)
-        .ok_or(RouteError::NoDeployment)?;
-    let capabilities = deployment.capabilities();
-    let protocol_supported = match protocol {
-        Protocol::ChatCompletions => capabilities.chat,
-        Protocol::Responses => capabilities.responses,
-    };
-    if !protocol_supported {
-        return Err(RouteError::UnsupportedProtocol);
-    }
-    if object.get("stream").and_then(Value::as_bool) == Some(true) && !capabilities.streaming {
-        return Err(RouteError::StreamingUnsupported);
-    }
+    let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     let requested_features = CapabilitySet {
         chat: false,
         responses: false,
@@ -93,21 +112,72 @@ pub fn prepare_native_request(
         background: object.get("background").and_then(Value::as_bool) == Some(true),
         response_store: object.get("store").and_then(Value::as_bool) == Some(true),
     };
-    if !requested_features.is_subset_of(*capabilities) {
-        return Err(RouteError::UnsupportedCapabilities);
+    let candidates = snapshot
+        .alias(public_model)
+        .ok_or(RouteError::UnknownModel)?
+        .candidates();
+    let mut first_error = None;
+    let mut prepared_candidates = Vec::new();
+    for deployment_id in candidates {
+        let deployment = snapshot
+            .deployment(deployment_id)
+            .ok_or(RouteError::NoDeployment)?;
+        if let Some(error) = candidate_error(
+            protocol,
+            object,
+            requested_features,
+            deployment.capabilities(),
+        ) {
+            first_error.get_or_insert(error);
+            continue;
+        }
+        let mut candidate_document = document.clone();
+        candidate_document
+            .as_object_mut()
+            .expect("request document was validated as an object")
+            .insert(
+                "model".to_owned(),
+                Value::String(deployment.upstream_model().to_owned()),
+            );
+        let candidate_body = serde_json::to_vec(&candidate_document)
+            .map(Bytes::from)
+            .map_err(|_| RouteError::InvalidJson)?;
+        prepared_candidates.push(PreparedNativeCandidate {
+            deployment_id: deployment_id.clone(),
+            request: ValidatedRequest::new(protocol, candidate_body),
+        });
     }
-    object.insert(
-        "model".to_owned(),
-        Value::String(deployment.upstream_model().to_owned()),
-    );
-    let body = serde_json::to_vec(&document)
-        .map(Bytes::from)
-        .map_err(|_| RouteError::InvalidJson)?;
+    if prepared_candidates.is_empty() {
+        return Err(first_error.unwrap_or(RouteError::NoDeployment));
+    }
 
     Ok(PreparedNativeRequest {
-        deployment_id,
-        request: ValidatedRequest::new(protocol, body),
+        candidates: prepared_candidates,
+        is_streaming,
+        allows_fallback: !requested_features.previous_response_id,
     })
+}
+
+fn candidate_error(
+    protocol: Protocol,
+    object: &serde_json::Map<String, Value>,
+    requested_features: CapabilitySet,
+    capabilities: &CapabilitySet,
+) -> Option<RouteError> {
+    let protocol_supported = match protocol {
+        Protocol::ChatCompletions => capabilities.chat,
+        Protocol::Responses => capabilities.responses,
+    };
+    if !protocol_supported {
+        return Some(RouteError::UnsupportedProtocol);
+    }
+    if object.get("stream").and_then(Value::as_bool) == Some(true) && !capabilities.streaming {
+        return Some(RouteError::StreamingUnsupported);
+    }
+    if !requested_features.is_subset_of(*capabilities) {
+        return Some(RouteError::UnsupportedCapabilities);
+    }
+    None
 }
 
 fn requests_structured_output(object: &serde_json::Map<String, Value>) -> bool {

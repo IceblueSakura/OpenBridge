@@ -12,7 +12,7 @@
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
 
-本项目当前处于 **Phase 1 原生转发开发阶段**。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证和共享 upstream 连接池；尚未完成 retry/cancellation 状态机、SDK compatibility、OAuth、审计与协议转换，因此不代表生产可用。
+本项目当前仍处于 **Phase 1 原生转发开发阶段**，并已开始交付 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、仅在下游业务 SSE 前执行的有界 retry、SSE framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback。尚未完成 OpenAI Python/Node SDK compatibility、完整 conformance、真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换，因此不代表生产可用。
 
 文档目录说明见 [`docs/README.md`](docs/README.md)。
 
