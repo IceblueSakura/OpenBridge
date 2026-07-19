@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，待实施。** 本文描述目标实现，不代表当前已有代码或可调用的 OAuth upstream。
+**已确认，实施中。** Phase 0 已落地 loopback health service、strict typed config/route snapshot、shared SSE framing、闭合 provider catalog 与 provider trait/credential lease contracts；Chat/Responses 业务端点、真实 credential store 和 OAuth upstream 尚未实现。
 
 ## 1. 目标和已确认决策
 
@@ -131,7 +131,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 
 **任务**
 
-1. 建立编译期 `ProviderKind`/`ProviderAdapter` catalog 与运行时小型 route config：`Provider`、`ProviderCredential`、`Deployment`、`PublicModelAlias`、`CapabilityProfile`、`RoutingPolicy`。配置只能选已编译 provider，不能定义 JSON provider 行为或任意 header。
+1. 扩展 Phase 0 已建立的编译期 `ProviderKind`/`ProviderAdapter` catalog 与 typed route snapshot，加入 `CapabilityProfile`、`RoutingPolicy` 和更多 provider。配置只能选已编译 provider，不能定义 JSON provider 行为或任意 header。
 2. public alias 映射到一个 model group/多个 candidate deployments；`/v1/models` 只展示可公开且当前 principal 可访问的 alias。
 3. 初期支持 priority、weight、health 和同协议 fallback。
 4. capability gate 在上游调用前验证 Chat/Responses、streaming、tools、structured output、background、continuation 等能力。

@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，待实施。** 本文规定 Rust 实现的扩展边界；它不代表当前已有 Rust crate 或 provider adapter。
+**已确认，实施中。** 当前已有 Rust crate、闭合 provider catalog、typed route snapshot、provider trait/credential lease contracts 与 shared SSE framing；完整 provider transport/pipeline 仍按后续阶段实施。
 
 ## 1. 决策
 
@@ -120,6 +120,8 @@ SSE framing 与 JSON event decoding 属于 transport/response stage；业务层�
 
 ## 6. 运行时配置的允许范围
 
+当前 bootstrap policy（listen、upstream origin allowlist、request/SSE size limits）只在启动时建立；显式 reload 仅允许替换 route config。bootstrap policy 变化必须拒绝 reload，直到 router 与 runtime policy 能作为同一原子 snapshot 一起替换。
+
 允许以 TOML/YAML/环境变量等静态配置承载**数据**：
 
 ```text
@@ -148,10 +150,10 @@ client-supplied base URL / header forwarding rule
 
 | 阶段 | Rust / trait / dataflow 交付 |
 |---|---|
-| Phase 0 | `core`/`protocol`/`pipeline` 边界；shared SSE framing；provider trait contracts；mock adapter；stage 和 stream fixture tests |
+| Phase 0 | `core`/`protocol` 边界；shared SSE framing；闭合 `ProviderKind`/`ProviderAdapter` catalog；typed route snapshot；provider trait/descriptor contracts；opaque `CredentialLease` 值对象与 fixture tests |
 | Phase 1 | 第一个标准 OpenAI-compatible adapter；native Chat/Responses request/response pipeline；retry/cancel/backpressure 测试 |
-| Phase 2 | Codex `AuthAdapter`/`HeaderAdapter`；`CredentialLease`；vault、login、refresh state machine；token 不流入 audit payload |
-| Phase 3 | `ProviderKind`/`ProviderAdapter` compiled catalog；typed route config → `RouteSnapshot`；capability gate；多 provider contract suite |
+| Phase 2 | Codex `AuthAdapter`/`HeaderAdapter`；credential store/vault、login、refresh state machine；token 不流入 audit payload |
+| Phase 3 | 扩展多 provider catalog；alias/routing policy；多 provider conformance suite |
 | Phase 4 | `AuthorizedRequest` stage、opaque key verifier、principal scope/limit stage；不影响 provider trait |
 | Phase 5 | `AuditObservation` side flow、bounded outbox、redaction、metrics；不阻塞 egress stream |
 | Phase 6 | `Canonical IR` source/sink adapter；Chat/Responses renderer；conversion notice 与 provider capability gate |
