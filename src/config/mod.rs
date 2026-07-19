@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
     sync::Arc,
+    time::Duration,
 };
 
 use arc_swap::ArcSwap;
@@ -9,22 +10,29 @@ use serde::Deserialize;
 use thiserror::Error;
 use url::Url;
 
-use crate::{core::CapabilitySet, provider::ProviderKind};
+use crate::{
+    core::CapabilitySet,
+    provider::{CredentialKind, ProviderKind},
+};
 
 const CONFIG_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("invalid bootstrap configuration: {0}")]
-    BootstrapParse(#[source] toml::de::Error),
-    #[error("invalid route configuration: {0}")]
-    RouteParse(#[source] toml::de::Error),
+    #[error("invalid bootstrap configuration")]
+    BootstrapParse,
+    #[error("invalid route configuration")]
+    RouteParse,
+    #[error("bootstrap policy cannot change during route reload")]
+    BootstrapPolicyChanged,
     #[error("unsupported {document} schema version {actual}")]
     UnsupportedSchema { document: &'static str, actual: u32 },
     #[error("listen address '{listen}' must be a valid loopback socket address")]
     NonLoopbackListen { listen: String },
     #[error("provider '{provider}' credential must use a supported secret reference")]
     InvalidSecretReference { provider: String },
+    #[error("provider '{provider}' uses unsupported credential kind '{kind}'")]
+    UnsupportedCredentialKind { provider: String, kind: String },
     #[error("unknown provider kind '{kind}'")]
     UnknownProviderKind { kind: String },
     #[error("duplicate {entity} id '{id}'")]
@@ -42,8 +50,14 @@ pub enum ConfigError {
     OriginNotAllowed { deployment: String, origin: String },
     #[error("deployment '{deployment}' uses unsupported endpoint profile '{profile}'")]
     UnsupportedEndpointProfile { deployment: String, profile: String },
+    #[error("deployment '{deployment}' request timeout must be greater than zero")]
+    InvalidRequestTimeout { deployment: String },
     #[error("deployment '{deployment}' enables capabilities unsupported by its adapter")]
     CapabilityElevation { deployment: String },
+    #[error("runtime limit '{name}' must be greater than zero")]
+    InvalidLimit { name: &'static str },
+    #[error("alias '{alias}' contains duplicate deployment candidate '{candidate}'")]
+    DuplicateAliasCandidate { alias: String, candidate: String },
     #[error("alias '{alias}' must contain at least one deployment candidate")]
     EmptyAlias { alias: String },
 }
@@ -52,6 +66,8 @@ pub enum ConfigError {
 pub struct RegistrySnapshot {
     version: ConfigVersion,
     listen: SocketAddr,
+    allowed_origins: BTreeSet<Url>,
+    limits: RuntimeLimits,
     providers: BTreeMap<String, ResolvedProvider>,
     deployments: BTreeMap<String, ResolvedDeployment>,
     aliases: BTreeMap<String, ResolvedAlias>,
@@ -66,6 +82,10 @@ impl RegistrySnapshot {
         self.listen
     }
 
+    pub fn limits(&self) -> &RuntimeLimits {
+        &self.limits
+    }
+
     pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
         self.providers.get(id)
     }
@@ -76,6 +96,12 @@ impl RegistrySnapshot {
 
     pub fn alias(&self, name: &str) -> Option<&ResolvedAlias> {
         self.aliases.get(name)
+    }
+
+    fn has_same_bootstrap_policy(&self, other: &Self) -> bool {
+        self.listen == other.listen
+            && self.allowed_origins == other.allowed_origins
+            && self.limits == other.limits
     }
 }
 
@@ -96,6 +122,9 @@ impl ConfigManager {
 
     pub fn reload(&self, bootstrap_toml: &str, routes_toml: &str) -> Result<(), ConfigError> {
         let next = load_registry(bootstrap_toml, routes_toml)?;
+        if !self.snapshot().has_same_bootstrap_policy(&next) {
+            return Err(ConfigError::BootstrapPolicyChanged);
+        }
         self.current.store(Arc::new(next));
         Ok(())
     }
@@ -113,24 +142,104 @@ impl ConfigVersion {
 #[derive(Debug)]
 pub struct ResolvedProvider {
     kind: ProviderKind,
+    credential: ResolvedCredential,
 }
 
 impl ResolvedProvider {
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
+
+    pub fn credential(&self) -> &ResolvedCredential {
+        &self.credential
+    }
+}
+
+#[derive(Debug)]
+pub struct ResolvedCredential {
+    id: String,
+    kind: CredentialKind,
+    secret_reference: SecretReference,
+}
+
+impl ResolvedCredential {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn kind(&self) -> CredentialKind {
+        self.kind
+    }
+
+    pub fn secret_reference(&self) -> &SecretReference {
+        &self.secret_reference
+    }
+}
+
+#[derive(Debug)]
+pub struct SecretReference {
+    locator: String,
+}
+
+impl SecretReference {
+    pub fn scheme(&self) -> &'static str {
+        "env"
+    }
+
+    pub fn locator(&self) -> &str {
+        &self.locator
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct RuntimeLimits {
+    max_request_body_bytes: usize,
+    max_sse_event_bytes: usize,
+}
+
+impl RuntimeLimits {
+    pub fn max_request_body_bytes(&self) -> usize {
+        self.max_request_body_bytes
+    }
+
+    pub fn max_sse_event_bytes(&self) -> usize {
+        self.max_sse_event_bytes
+    }
 }
 
 #[derive(Debug)]
 pub struct ResolvedDeployment {
+    provider_id: String,
+    upstream_model: String,
+    endpoint_profile: String,
     origin: Url,
-    #[allow(dead_code)]
+    request_timeout: Duration,
     capabilities: CapabilitySet,
 }
 
 impl ResolvedDeployment {
+    pub fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    pub fn upstream_model(&self) -> &str {
+        &self.upstream_model
+    }
+
+    pub fn endpoint_profile(&self) -> &str {
+        &self.endpoint_profile
+    }
+
     pub fn origin(&self) -> &Url {
         &self.origin
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        self.request_timeout
+    }
+
+    pub fn capabilities(&self) -> &CapabilitySet {
+        &self.capabilities
     }
 }
 
@@ -150,11 +259,13 @@ pub fn load_registry(
     routes_toml: &str,
 ) -> Result<RegistrySnapshot, ConfigError> {
     let bootstrap: RawBootstrap =
-        toml::from_str(bootstrap_toml).map_err(ConfigError::BootstrapParse)?;
-    let routes: RawRoutes = toml::from_str(routes_toml).map_err(ConfigError::RouteParse)?;
+        toml::from_str(bootstrap_toml).map_err(|_| ConfigError::BootstrapParse)?;
+    let routes: RawRoutes = toml::from_str(routes_toml).map_err(|_| ConfigError::RouteParse)?;
 
     validate_schema("bootstrap", bootstrap.schema_version)?;
     validate_schema("routes", routes.schema_version)?;
+    validate_nonzero_limit("max_request_body_bytes", bootstrap.max_request_body_bytes)?;
+    validate_nonzero_limit("max_sse_event_bytes", bootstrap.max_sse_event_bytes)?;
     let listen = bootstrap
         .listen
         .parse::<SocketAddr>()
@@ -175,24 +286,50 @@ pub fn load_registry(
         .collect::<Result<BTreeSet<_>, _>>()?;
 
     let mut providers = BTreeMap::new();
+    let mut credential_ids = BTreeSet::new();
     for provider in routes.providers {
         let kind = ProviderKind::from_config(&provider.kind).ok_or_else(|| {
             ConfigError::UnknownProviderKind {
                 kind: provider.kind.clone(),
             }
         })?;
-        if providers
-            .insert(provider.id.clone(), ResolvedProvider { kind })
-            .is_some()
-        {
+        let credential_kind =
+            CredentialKind::from_config(&provider.credential.kind).ok_or_else(|| {
+                ConfigError::UnsupportedCredentialKind {
+                    provider: provider.id.clone(),
+                    kind: provider.credential.kind.clone(),
+                }
+            })?;
+        if !kind.accepts_credential_kind(credential_kind) {
+            return Err(ConfigError::UnsupportedCredentialKind {
+                provider: provider.id,
+                kind: provider.credential.kind,
+            });
+        }
+        let secret_reference =
+            parse_secret_reference(&provider.credential.secret_ref).ok_or_else(|| {
+                ConfigError::InvalidSecretReference {
+                    provider: provider.id.clone(),
+                }
+            })?;
+        if !credential_ids.insert(provider.credential.id.clone()) {
+            return Err(ConfigError::DuplicateId {
+                entity: "credential",
+                id: provider.credential.id,
+            });
+        }
+        let resolved = ResolvedProvider {
+            kind,
+            credential: ResolvedCredential {
+                id: provider.credential.id,
+                kind: credential_kind,
+                secret_reference,
+            },
+        };
+        if providers.insert(provider.id.clone(), resolved).is_some() {
             return Err(ConfigError::DuplicateId {
                 entity: "provider",
                 id: provider.id,
-            });
-        }
-        if !is_supported_secret_reference(&provider.credential.secret_ref) {
-            return Err(ConfigError::InvalidSecretReference {
-                provider: provider.id,
             });
         }
     }
@@ -208,6 +345,11 @@ pub fn load_registry(
                     target: "provider",
                     reference: deployment.provider.clone(),
                 })?;
+        if deployment.request_timeout_ms == 0 {
+            return Err(ConfigError::InvalidRequestTimeout {
+                deployment: deployment.id,
+            });
+        }
         if !provider
             .kind
             .accepts_endpoint_profile(&deployment.endpoint_profile)
@@ -236,7 +378,11 @@ pub fn load_registry(
             });
         }
         let resolved = ResolvedDeployment {
+            provider_id: deployment.provider,
+            upstream_model: deployment.upstream_model,
+            endpoint_profile: deployment.endpoint_profile,
             origin,
+            request_timeout: Duration::from_millis(deployment.request_timeout_ms),
             capabilities: deployment.capabilities,
         };
         if deployments
@@ -255,7 +401,14 @@ pub fn load_registry(
         if alias.candidates.is_empty() {
             return Err(ConfigError::EmptyAlias { alias: alias.name });
         }
+        let mut unique_candidates = BTreeSet::new();
         for candidate in &alias.candidates {
+            if !unique_candidates.insert(candidate) {
+                return Err(ConfigError::DuplicateAliasCandidate {
+                    alias: alias.name,
+                    candidate: candidate.clone(),
+                });
+            }
             if !deployments.contains_key(candidate) {
                 return Err(ConfigError::UnknownReference {
                     entity: "alias",
@@ -284,6 +437,11 @@ pub fn load_registry(
     Ok(RegistrySnapshot {
         version: ConfigVersion(routes.config_version),
         listen,
+        allowed_origins,
+        limits: RuntimeLimits {
+            max_request_body_bytes: bootstrap.max_request_body_bytes,
+            max_sse_event_bytes: bootstrap.max_sse_event_bytes,
+        },
         providers,
         deployments,
         aliases,
@@ -298,11 +456,25 @@ fn validate_schema(document: &'static str, actual: u32) -> Result<(), ConfigErro
     }
 }
 
-fn is_supported_secret_reference(value: &str) -> bool {
-    ["env://", "vault://"].iter().any(|prefix| {
-        value
-            .strip_prefix(prefix)
-            .is_some_and(|name| !name.is_empty() && !name.chars().any(char::is_whitespace))
+fn validate_nonzero_limit(name: &'static str, value: usize) -> Result<(), ConfigError> {
+    if value == 0 {
+        Err(ConfigError::InvalidLimit { name })
+    } else {
+        Ok(())
+    }
+}
+
+fn parse_secret_reference(value: &str) -> Option<SecretReference> {
+    let locator = value.strip_prefix("env://")?;
+    let mut characters = locator.chars();
+    let first = characters.next()?;
+    if !(first == '_' || first.is_ascii_alphabetic())
+        || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(SecretReference {
+        locator: locator.to_owned(),
     })
 }
 
@@ -326,12 +498,9 @@ fn normalize_origin(value: &str) -> Option<Url> {
 #[serde(deny_unknown_fields)]
 struct RawBootstrap {
     schema_version: u32,
-    #[allow(dead_code)]
     listen: String,
     allowed_origins: Vec<String>,
-    #[allow(dead_code)]
     max_request_body_bytes: usize,
-    #[allow(dead_code)]
     max_sse_event_bytes: usize,
 }
 
@@ -356,11 +525,8 @@ struct RawProvider {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawCredential {
-    #[allow(dead_code)]
     id: String,
-    #[allow(dead_code)]
     kind: String,
-    #[allow(dead_code)]
     secret_ref: String,
 }
 
@@ -369,11 +535,9 @@ struct RawCredential {
 struct RawDeployment {
     id: String,
     provider: String,
-    #[allow(dead_code)]
     upstream_model: String,
     endpoint_profile: String,
     base_url: String,
-    #[allow(dead_code)]
     request_timeout_ms: u64,
     capabilities: CapabilitySet,
 }

@@ -75,3 +75,22 @@ async fn health_reports_snapshot_version_and_sets_a_request_id() {
         r#"{"status":"ok","config_version":"health-test"}"#
     );
 }
+
+#[tokio::test]
+async fn requests_over_the_bootstrap_body_limit_are_rejected() {
+    let bootstrap = BOOTSTRAP.replace(
+        "max_request_body_bytes = 1048576",
+        "max_request_body_bytes = 8",
+    );
+    let snapshot = load_registry(&bootstrap, ROUTES).unwrap();
+    let app = build_router(Arc::new(ConfigManager::new(snapshot)));
+    let request = Request::builder()
+        .uri("/healthz")
+        .header("content-length", "9")
+        .body(Body::from("123456789"))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}

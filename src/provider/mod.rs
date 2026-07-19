@@ -9,6 +9,20 @@ pub enum ProviderKind {
     OpenAi,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialKind {
+    ApiKey,
+}
+
+impl CredentialKind {
+    pub(crate) fn from_config(value: &str) -> Option<Self> {
+        match value {
+            "api_key" => Some(Self::ApiKey),
+            _ => None,
+        }
+    }
+}
+
 impl ProviderKind {
     pub(crate) fn from_config(value: &str) -> Option<Self> {
         match value {
@@ -35,6 +49,12 @@ impl ProviderKind {
     pub(crate) fn accepts_endpoint_profile(self, profile: &str) -> bool {
         match self {
             Self::OpenAi => profile == "public-api",
+        }
+    }
+
+    pub(crate) fn accepts_credential_kind(self, credential: CredentialKind) -> bool {
+        match self {
+            Self::OpenAi => credential == CredentialKind::ApiKey,
         }
     }
 }
