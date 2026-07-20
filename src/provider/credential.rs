@@ -1,3 +1,8 @@
+//! 上游 secret 的短时 lease 与当前 credential source。
+//!
+//! `CredentialLease` 让 adapter 获取认证 header 所需的最小信息，并通过 `SecretString`、
+//! redacted `Debug` 和 crate-private exposure 把明文的可见范围限制在 provider egress。
+
 use std::{env, fmt};
 
 use secrecy::{ExposeSecret, SecretString};
@@ -5,6 +10,10 @@ use thiserror::Error;
 
 use super::ProviderKind;
 
+/// 一次上游调用期间持有的 credential 视图。
+///
+/// binding id/version 可用于未来审计或 vault rotation，而 secret 本身不能离开 provider
+/// 模块；目前仅 adapter 的认证 header 构造可访问其文本。
 pub struct CredentialLease {
     provider: ProviderKind,
     binding_id: String,

@@ -1,3 +1,9 @@
+//! 增量 SSE framing decoder。
+//!
+//! 网络 chunk 不是 UTF-8、行或 SSE event 边界。本 decoder 只负责把 byte stream 组织成
+//! 完整 `SseEvent`：支持 CRLF、注释、多行 `data:` 和 event size 上限；具体 event 的协议
+//! 含义由 provider `ResponseAdapter` 判定。
+
 use bytes::BytesMut;
 use thiserror::Error;
 
@@ -35,6 +41,10 @@ impl SseEvent {
     }
 }
 
+/// 保留未完成行/事件状态的增量 decoder。
+///
+/// `max_event_bytes` 按正在组装的 SSE event 计量而不是按网络 chunk 计量，防止攻击者通过
+/// 无限分片规避内存限制。
 pub struct SseDecoder {
     max_event_bytes: usize,
     buffered: BytesMut,

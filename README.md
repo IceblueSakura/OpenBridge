@@ -62,6 +62,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | 文档 | 内容 | 状态 |
 |---|---|---|
 | [初版需求](docs/requirements/proxy-requirements.md) | 产品范围、功能/安全/兼容性需求、初始验收集与调研 backlog | 初稿，待确认 |
+| [当前实现说明](docs/implementation/current-implementation.md) | 当前代码、API、配置、路由、SSE 语义、测试证据与未实现边界 | 已同步 |
 | [架构与路线](docs/architecture/architecture-and-roadmap.md) | 目标架构、控制面/数据面边界、分阶段开发门与验收标准 | 已同步 |
 | [开发计划](docs/plans/development-plan.md) | 已确认的可执行开发计划、阶段任务、退出条件、风险与非目标 | 实施中 |
 | [Rust provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Rust trait adapter、编译期 provider catalog、数据流 pipeline、配置边界与性能门 | 实施中 |

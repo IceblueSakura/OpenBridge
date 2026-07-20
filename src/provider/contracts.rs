@@ -1,3 +1,8 @@
+//! provider adapter 使用的安全 header、SSE 与错误分类契约。
+//!
+//! `SafeHeaders` 和 `SensitiveHeaders` 被故意分开：前者不能承载认证/host/cookie，后者
+//! 只在 egress 前转换成标记为 sensitive 的 HTTP header，并在释放时清零字符串内容。
+
 use std::{collections::HashMap, fmt};
 
 use http::{
@@ -141,6 +146,10 @@ pub enum ProviderErrorClass {
     UpstreamFailure,
 }
 
+/// adapter 对 HTTP status 给出的重试边界，而非“总是重试”的指令。
+///
+/// ingress 还会叠加 streaming、attempt 上限、candidate 顺序和是否已经下游输出等条件；
+/// `BeforeFirstEvent` 的含义是绝不能用于拼接已开始的 token stream。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetryHint {
     Never,

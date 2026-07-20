@@ -1,5 +1,9 @@
 use serde::Deserialize;
 
+/// 部署的布尔能力上界。
+///
+/// route 配置只能把 provider descriptor 已支持的能力关闭，不能把未实现的能力打开；请求
+/// routing 使用同一集合在网络调用前拒绝不受支持的 feature。
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilitySet {

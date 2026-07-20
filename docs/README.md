@@ -7,6 +7,7 @@
 | [`requirements/`](requirements/) | 产品范围、外部契约、验收方向与调研缺口 | [初版需求](requirements/proxy-requirements.md) |
 | [`architecture/`](architecture/) | 目标架构、实现边界与长期技术决策 | [架构与路线](architecture/architecture-and-roadmap.md)、[控制面](architecture/control-plane-models-keys-and-observability.md)、[Rust adapter 与数据流](architecture/rust-provider-adapter-dataflow.md) |
 | [`design/`](design/) | 跨协议转换与 OAuth 凭证等专项设计 | [Chat/Responses 转换](design/chat-responses-conversion.md)、[Codex OAuth 凭证边界](design/codex-oauth-credential-boundary.md) |
+| [`implementation/`](implementation/) | 当前代码、API、配置、路由、SSE 语义与验证证据 | [当前实现说明](implementation/current-implementation.md) |
 | [`plans/`](plans/) | 已确认、待实施的分阶段工作计划 | [开发计划](plans/development-plan.md) |
 | [`research/hermes/`](research/hermes/) | Hermes Agent 源码调研 | [Chat/Responses 分析](research/hermes/chat-responses-analysis.md) |
 | [`research/litellm/`](research/litellm/) | LiteLLM 源码调研、调用链与性能观察 | [协议分析](research/litellm/chat-responses-analysis.md)、[调用链](research/litellm/proxy-call-chain-analysis.md)、[性能分析](research/litellm/proxy-performance-bottlenecks.md) |

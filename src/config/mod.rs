@@ -1,3 +1,10 @@
+//! 启动与路由配置的解析、校验和原子快照管理。
+//!
+//! `bootstrap.toml` 是进程级安全策略（监听地址、出站 origin allowlist、资源上限与
+//! 连接池策略），reload 时不能改变；`routes.toml` 只描述已经编译进程序的 provider、
+//! deployment 和 public alias。两者先完整校验再形成 `RegistrySnapshot`，因此请求
+//! 不会看到半更新的路由，也不能通过配置获得任意出站目标或 provider 行为。
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
@@ -62,6 +69,10 @@ pub enum ConfigError {
     EmptyAlias { alias: String },
 }
 
+/// 一次完整校验后可供请求路径只读使用的路由视图。
+///
+/// alias 保存有序 candidate deployment；排序本身是当前路由策略的一部分。snapshot
+/// 被 `ArcSwap` 整体替换，已开始的请求持有自己的 `Arc`，不会随 reload 改变路由。
 #[derive(Debug)]
 pub struct RegistrySnapshot {
     version: ConfigVersion,
@@ -115,6 +126,11 @@ impl RegistrySnapshot {
     }
 }
 
+/// 持有当前 route snapshot，并提供 fail-closed 的显式 reload。
+///
+/// bootstrap policy 目前不能热替换：HTTP router、body limit 和共享 upstream client 都在
+/// 启动阶段按该策略构造。允许只替换 routes，避免配置文件声称已更新而运行时组件仍使用
+/// 旧安全边界。
 pub struct ConfigManager {
     current: ArcSwap<RegistrySnapshot>,
 }
@@ -130,6 +146,7 @@ impl ConfigManager {
         self.current.load_full()
     }
 
+    /// 校验新文档后原子替换 routes；任何 bootstrap policy 差异都会拒绝整个 reload。
     pub fn reload(&self, bootstrap_toml: &str, routes_toml: &str) -> Result<(), ConfigError> {
         let next = load_registry(bootstrap_toml, routes_toml)?;
         if !self.snapshot().has_same_bootstrap_policy(&next) {
@@ -186,6 +203,10 @@ impl ResolvedCredential {
     }
 }
 
+/// 对 secret 的非敏感引用；snapshot 从不保存 credential 明文。
+///
+/// 当前仅接受 `env://NAME`，并限制名称语法，以免把路径、URL 或表达式解释成可读取的
+/// secret locator。后续 vault 实现可扩展 scheme，但必须保持“引用而非值”的边界。
 #[derive(Debug)]
 pub struct SecretReference {
     locator: String,
@@ -285,6 +306,11 @@ impl ResolvedAlias {
     }
 }
 
+/// 将 bootstrap 与 route 文档解析为可安全使用的 snapshot。
+///
+/// 校验顺序刻意在任何网络 I/O 前完成：先固定 schema/资源上限/loopback listener，
+/// 再验证 provider、credential、allowlisted origin、capability 上界和 alias 引用。
+/// 成功返回即表示数据面只需按 id 查询，不需要重新解释不可信配置文本。
 pub fn load_registry(
     bootstrap_toml: &str,
     routes_toml: &str,
@@ -534,6 +560,10 @@ fn parse_secret_reference(value: &str) -> Option<SecretReference> {
     })
 }
 
+/// 接受仅包含 HTTPS scheme、host 和可选端口的 origin，并规范为根路径。
+///
+/// 拒绝用户信息、query、fragment 与非根 path，避免 deployment 配置把 URL join 变成
+/// 隐式路径前缀或凭证承载通道；最终 egress 仍只会拼接 adapter 给出的相对 URI。
 fn normalize_origin(value: &str) -> Option<Url> {
     let mut url = Url::parse(value).ok()?;
     if url.scheme() != "https"

@@ -1,3 +1,8 @@
+//! 共享上游 HTTP transport。
+//!
+//! client 复用连接池、禁用重定向，并只接受 adapter 生成的相对 URI 与配置验证过的 origin。
+//! response body 以流形式交给 ingress；不预读或缓冲 token，因此下游取消会 drop 上游流。
+
 use std::{fmt, time::Duration};
 
 use axum::body::Body;
@@ -50,6 +55,10 @@ impl UpstreamClient {
         Ok(Self { client })
     }
 
+    /// 将相对 target 与 deployment origin 合成为唯一 egress URL。
+    ///
+    /// 这里再次拒绝 scheme/authority/path 不合法的 URI，即使 adapter 是编译期代码；配置
+    /// allowlist 与该检查共同避免未来 adapter 修改意外扩大 SSRF 出站面。
     pub async fn send(
         &self,
         deployment: &ResolvedDeployment,

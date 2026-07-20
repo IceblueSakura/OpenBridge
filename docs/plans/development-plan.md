@@ -125,7 +125,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - token 不出现在 HTTP response、audit、trace、error、queue、普通 DB 字段或 crash diagnostic。
 - provider 的 401 只触发一次受控 refresh/retry，且仅在下游尚未收到业务 stream event 时允许。
 
-### Phase 3：多 provider、稳定 alias 和单 credential 路由
+### Phase 3：多 provider、稳定 alias 和单 credential 路由（路由基线已完成）
 
 **目标**：聚合多个 provider；每个 provider 仍只对应一个 active credential。
 

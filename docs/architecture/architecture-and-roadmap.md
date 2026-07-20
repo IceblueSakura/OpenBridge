@@ -2,7 +2,7 @@
 
 ## 状态
 
-本文定义目标架构、阶段边界和验收意图。具体实施任务与退出条件以[开发计划](../plans/development-plan.md)为准；两者出现表述差异时，以开发计划的可执行定义优先。
+本文定义目标架构、阶段边界和验收意图。当前已实现的 API、配置、路由和 SSE 行为见[当前实现说明](../implementation/current-implementation.md)；具体实施任务与退出条件以[开发计划](../plans/development-plan.md)为准。两者出现表述差异时，以当前实现说明（现状）和开发计划（后续工作）的分工为准。
 
 ## 1. 结论
 
@@ -88,7 +88,7 @@ Principal / ProxyKey
 - 任何日志/异常中不存在 `Authorization`、cookie、OAuth token、refresh token 或完整 API key。
 - 仅监听 loopback；配置不能让请求指定任意出站 URL。
 
-### Phase 1：Chat 与 Responses 的原生转发
+### Phase 1：Chat 与 Responses 的原生转发（已完成）
 
 **目标**：支持 `POST /v1/chat/completions` 和 `POST /v1/responses` 到一个已配置上游 deployment 的透明转发；不做模式转换。
 
@@ -132,7 +132,7 @@ Principal / ProxyKey
 - token 不出现在 HTTP response、audit、trace、error、queue、普通 DB 字段或 crash diagnostic。
 - 若真实 OAuth preflight 不通过，真实 Codex OAuth 接入停止在 mock adapter；Phase 1 的标准 API-key upstream 路径保持可用。
 
-### Phase 3：多 provider、deployment 和稳定模型别名
+### Phase 3：多 provider、deployment 和稳定模型别名（路由基线已完成）
 
 **目标**：一个 public model 可解析为多个同能力 deployment，并在明确策略下选择上游。
 

@@ -1,3 +1,8 @@
+//! 当前 Phase 1 使用的静态下游 Bearer 认证。
+//!
+//! 这是启动时读取的单一开发/受信网络 credential，不是 Phase 4 的 proxy-issued key 管理
+//! 系统；比较使用 constant-time equality，且 `Debug` 永不输出 secret。
+
 use std::fmt;
 
 use http::{HeaderMap, header::AUTHORIZATION};

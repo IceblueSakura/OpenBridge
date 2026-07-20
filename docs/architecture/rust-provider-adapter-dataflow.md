@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，实施中。** 当前已有 Rust crate、闭合 provider catalog、typed route snapshot、provider trait/credential lease contracts 与 shared SSE framing；完整 provider transport/pipeline 仍按后续阶段实施。
+**已确认，实施中。** 当前代码已经完成原生转发所需的闭合 provider catalog、typed route snapshot、provider trait/credential lease contracts、共享 HTTP transport、SSE framing、OpenAI adapter、Chat/Responses pipeline 与 Phase 1 conformance。Phase 3 当前只有有序 multi-deployment candidate、capability gate、`/v1/models` 和输出前 fallback 基线；第二 provider、health/priority/weight、principal 授权与审计仍待实施。
 
 ## 1. 决策
 
@@ -151,7 +151,7 @@ client-supplied base URL / header forwarding rule
 | 阶段 | Rust / trait / dataflow 交付 |
 |---|---|
 | Phase 0 | `core`/`protocol` 边界；shared SSE framing；闭合 `ProviderKind`/`ProviderAdapter` catalog；typed route snapshot；provider trait/descriptor contracts；opaque `CredentialLease` 值对象与 fixture tests |
-| Phase 1 | 已有标准 OpenAI-compatible adapter、native Chat/Responses request/response pipeline 与共享连接池；retry/cancel/SDK compatibility/backpressure 完整验收仍在实施 |
+| Phase 1 | 已有标准 OpenAI-compatible adapter、native Chat/Responses request/response pipeline、共享连接池、输出前 retry/fallback、取消传播与 Python/Node SDK conformance；不做协议转换 |
 | Phase 2 | Codex `AuthAdapter`/`HeaderAdapter`；credential store/vault、login、refresh state machine；token 不流入 audit payload |
 | Phase 3 | 扩展多 provider catalog；alias/routing policy；多 provider conformance suite |
 | Phase 4 | `AuthorizedRequest` stage、opaque key verifier、principal scope/limit stage；不影响 provider trait |

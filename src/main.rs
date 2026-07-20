@@ -1,3 +1,8 @@
+//! 进程启动、配置装载与优雅关闭。
+//!
+//! 启动阶段一次性构造 bootstrap-bound HTTP router 和共享 upstream client；路由中的
+//! credential 只保留 `env://` 引用，实际 API key 在每个业务请求发送前才解析。
+
 use std::{env, fs, sync::Arc};
 
 use anyhow::{Context, Result};

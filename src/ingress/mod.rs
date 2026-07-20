@@ -1,3 +1,10 @@
+//! OpenAI-compatible HTTP ingress 与原生转发编排。
+//!
+//! 此模块只接受配置允许的 public model，并在进入上游前完成下游 Bearer 认证、body
+//! 上限、capability routing 和 provider adapter 选择。它不会接受客户端给出的上游 URL、
+//! 认证头或 provider 规则；streaming response 保持字节透明，同时用 SSE decoder 只作
+//! framing/terminal 校验，不重新渲染业务 event。
+
 mod auth;
 
 pub use auth::StaticBearerCredential;
@@ -40,6 +47,11 @@ use crate::{
     },
 };
 
+/// handler 依赖的不可变服务句柄。
+///
+/// `ConfigManager` 提供 request 开始时固定的 route snapshot；上游 transport 与 credential
+/// source 以 trait/值对象注入，因此 contract test 可以验证 HTTP/SSE 边界而无需真实
+/// provider 或明文环境 secret。
 #[derive(Clone)]
 pub struct AppState {
     config: Arc<ConfigManager>,
@@ -77,6 +89,11 @@ impl AppState {
     }
 }
 
+/// 构造公开 health endpoint 与受静态 Bearer 保护的 OpenAI-compatible API。
+///
+/// body limit 和 request id 在认证前统一施加；`Authorization` 被标为 sensitive，避免
+/// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
+/// 从而不暴露内部 alias/deployment 信息给匿名请求。
 pub fn build_router(state: AppState) -> Router {
     let max_request_body_bytes = state.config.snapshot().limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
@@ -195,6 +212,13 @@ fn unsupported_media_type() -> Response {
     )
 }
 
+/// 将一个已经过 HTTP 输入检查的原生请求送往有序 candidate。
+///
+/// 每次调用先获取一个 snapshot，整个循环都使用它，因此 route reload 不会改变正在执行的
+/// 请求。仅 streaming 请求可在**尚未返回任何下游 body**时重试：一旦 `UpstreamResponse`
+/// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
+/// 上游尝试。`previous_response_id` 等 provider-bound state 会令 pipeline 关闭跨 candidate
+/// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
 async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Response {
     const MAX_UPSTREAM_ATTEMPTS: usize = 2;
 
@@ -327,6 +351,11 @@ fn should_retry_error(error: &UpstreamError) -> bool {
     matches!(error, UpstreamError::Timeout | UpstreamError::Request(_))
 }
 
+/// 将上游 status、白名单响应头和 body 交给下游。
+///
+/// SSE 仅在原请求要求 streaming、上游返回成功状态且 `Content-Type` 确为
+/// `text/event-stream` 时验证。错误响应即使对应 streaming request 也可能是 JSON 或其他
+/// 诊断 body；对其做 SSE 解码会破坏可见的 HTTP 错误语义。
 fn upstream_response(
     upstream: crate::transport::upstream::UpstreamResponse,
     validate_sse: bool,
@@ -357,6 +386,12 @@ fn upstream_response(
     response
 }
 
+/// 在不重写原始 bytes 的前提下观察上游 SSE 生命周期。
+///
+/// decoder 仅用于处理跨网络 chunk 的 UTF-8/SSE framing，并委托 provider adapter 识别协议
+/// terminal event。合法 EOF 但未看到 terminal 会保留已收到的 bytes 并记录 warning；无效
+/// framing、无效 UTF-8 或上游 body error 则以 stream error 关闭。body 被下游丢弃时，
+/// `source` 一并 drop，从而取消 reqwest 的上游字节流。
 fn validate_sse_body(
     body: axum::body::Body,
     protocol: Protocol,
@@ -443,6 +478,10 @@ fn observe_sse_events(
     Ok(())
 }
 
+/// 仅透传 OpenAI-compatible client 需要且不会改变 proxy 安全边界的上游响应头。
+///
+/// 不透传 cookie、认证、连接管理或任意自定义 header；这样上游无法借 proxy 向客户端设置
+/// 会话状态，也不会泄露内部 transport 细节。
 fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
     let mut filtered = HeaderMap::new();
     for (name, value) in upstream {

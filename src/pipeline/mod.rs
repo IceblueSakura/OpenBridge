@@ -1,3 +1,10 @@
+//! 将 OpenAI-compatible 请求解析为固定 snapshot 下的原生上游 candidate。
+//!
+//! pipeline 不转换 Chat/Responses 语义：它只验证 JSON、提取 public `model` 与请求实际
+//! 使用的 capability，然后为每个兼容 deployment 复制请求并替换 `model`。这使 ingress
+//! 能在不丢字段的前提下选择或回退 candidate，同时保留 provider-bound continuation 的
+//! 亲和性约束。
+
 use bytes::Bytes;
 use serde_json::Value;
 use thiserror::Error;
@@ -25,6 +32,10 @@ pub enum RouteError {
     UnsupportedCapabilities,
 }
 
+/// 已完成 alias/capability 解析的原生请求。
+///
+/// candidates 保持 route 配置顺序；`allows_fallback` 不是一般性的重试开关，而是保护
+/// `previous_response_id` 等 provider-issued opaque state 不被重放到其他 deployment。
 #[derive(Debug)]
 pub struct PreparedNativeRequest {
     candidates: Vec<PreparedNativeCandidate>,
@@ -84,6 +95,11 @@ impl PreparedNativeCandidate {
     }
 }
 
+/// 解析 public alias，并生成每个兼容 deployment 的原生请求副本。
+///
+/// 请求字段除 `model` 外保持原样。capability gate 在这里完成，确保不支持的 tools、
+/// structured output、background/store 或 continuation 请求不会被静默删字段后发往
+/// upstream。若前序 candidate 不兼容，保留第一个确定错误以给客户端稳定的 4xx 语义。
 pub fn prepare_native_request(
     snapshot: &RegistrySnapshot,
     protocol: Protocol,

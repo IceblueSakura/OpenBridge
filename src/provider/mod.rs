@@ -1,3 +1,9 @@
+//! 编译期 provider catalog 与 OpenAI-compatible adapter。
+//!
+//! 路由配置只能选择 `ProviderKind` 中已经编译的变体；adapter 负责相对 path、安全/敏感
+//! header 的分离、认证材料组装、SSE terminal 判定和重试分类。HTTP ingress 不需要知道
+//! provider 认证格式，也不能用运行时配置注入任意 header 或请求转换。
+
 mod contracts;
 mod credential;
 
@@ -21,6 +27,10 @@ use crate::{
     transport::sse::SseEvent,
 };
 
+/// 可由 route 配置引用的闭合 provider 集合。
+///
+/// 新 provider 必须新增 enum 变体及其 adapter/tests；未知字符串在配置加载时失败，不能
+/// 退化为“通用 HTTP provider”。这让认证与协议行为保持可审查、可编译的边界。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
     OpenAi,
@@ -40,6 +50,10 @@ impl CredentialKind {
     }
 }
 
+/// provider 的静态能力与可配置范围。
+///
+/// deployment capability 只能收窄此描述符，不能自行声明 adapter 未实现的特性；endpoint
+/// profile 与 credential kind 同样由这里限制，避免 route TOML 变成动态 provider DSL。
 #[derive(Debug)]
 pub struct ProviderDescriptor {
     kind: ProviderKind,
@@ -123,6 +137,10 @@ pub enum ProviderFailure {
     InvalidAuthenticationHeader,
 }
 
+/// 已经选择协议、但尚未绑定 deployment origin 的上游请求。
+///
+/// adapter 只能产生相对 URI；transport 将其与配置中已 allowlist 的 origin 拼接。这是阻止
+/// provider adapter 或下游请求绕过 egress allowlist 的第二道边界。
 #[derive(Clone)]
 pub struct UpstreamRequestParts {
     method: Method,
