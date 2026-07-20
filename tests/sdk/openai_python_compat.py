@@ -18,7 +18,7 @@ chat_events = list(
         stream=True,
     )
 )
-assert [event.choices[0].delta.content for event in chat_events[:-1]] == ["hel", "lo"]
+assert [event.choices[0].delta.content for event in chat_events[:-1]] == ["hé", "llo"]
 assert chat_events[-1].choices[0].finish_reason == "stop"
 
 response = client.responses.create(model="public-model", input="hello")
@@ -31,5 +31,5 @@ assert [event.type for event in response_events] == [
     "response.output_text.delta",
     "response.completed",
 ]
-assert response_events[0].delta == "hello"
+assert response_events[0].delta == "héllo"
 assert response_events[-1].response.id == "resp_stream"

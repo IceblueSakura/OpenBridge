@@ -12,7 +12,7 @@
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
 
-本项目当前仍处于 **Phase 1 原生转发开发阶段**，并已开始交付 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、下游断开时的上游 stream 取消传播、仅在下游业务 SSE 前执行的有界 retry、SSE framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback；OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 的两端点 stream/non-stream loopback fixture 已通过。尚未完成完整 conformance、真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换，因此不代表生产可用。
+本项目已完成 **Phase 1 单上游原生转发**，并正在推进 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、下游断开时的上游 stream 取消传播、仅在下游业务 SSE 前执行的有界 retry、按实际 SSE response 进行 framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback。Phase 1 conformance 覆盖 429/5xx、timeout、EOF、partial-stream failure、断开的 UTF-8、多 event 同 chunk、跨 chunk event 和多行 `data:`；OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 的两端点 stream/non-stream loopback fixture 已通过。真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换仍未完成，因此不代表生产可用。
 
 文档目录说明见 [`docs/README.md`](docs/README.md)。
 
@@ -49,7 +49,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 ## SDK compatibility fixture
 
-`tests/sdk_compatibility.rs` 会启动 loopback proxy 与 mock upstream，然后使用 OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 消费 Chat/Responses 的 stream 与 non-stream fixture。它是 ignored integration test，以免默认 `cargo test` 下载 SDK：
+`tests/sdk_compatibility.rs` 会启动 loopback proxy 与 mock upstream，然后使用 OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 消费 Chat/Responses 的 stream 与 non-stream fixture。stream fixture 特意覆盖断开的 UTF-8、多 event 同 chunk、单 event 跨 chunk 及多行 `data:`。它是 ignored integration test，以免默认 `cargo test` 下载 SDK：
 
 ```bash
 cargo test --locked --test sdk_compatibility -- --ignored

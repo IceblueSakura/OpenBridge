@@ -2,7 +2,7 @@
 
 ## 状态
 
-**已确认，实施中。** Phase 0 契约基线已落地。Phase 1 已实现 Chat/Responses native endpoint、alias/model rewrite、静态下游 Bearer 认证、标准 API-key upstream、共享连接池、下游断开时的上游 stream 取消传播，以及仅限下游尚未收到业务 SSE 的有界 retry/SSE 校验；OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 已通过两个端点的 stream/non-stream loopback fixture。Phase 3 已有有序多 deployment candidate、逐 candidate capability gate、受保护的 `/v1/models` 和同协议 streaming fallback；尚未实现多 provider catalog、health/weight 路由策略或 principal 级 alias 过滤。完整 conformance、真实 credential store 和 OAuth upstream 仍未完成。
+**已确认，实施中。** Phase 0 契约基线与 Phase 1 单上游原生转发已完成：Chat/Responses native endpoint、alias/model rewrite、静态下游 Bearer 认证、标准 API-key upstream、共享连接池、下游断开时的上游 stream 取消传播，以及仅限下游尚未收到业务 SSE 的有界 retry/SSE 校验均已落地。其 conformance 覆盖 429/5xx、timeout、EOF、partial-stream failure、断开的 UTF-8、多 event 同 chunk、跨 chunk event 与多行 `data:`；OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 已通过两个端点的 stream/non-stream loopback fixture。Phase 3 已有有序多 deployment candidate、逐 candidate capability gate、受保护的 `/v1/models` 和同协议 streaming fallback；尚未实现多 provider catalog、health/weight 路由策略或 principal 级 alias 过滤。真实 credential store 和 OAuth upstream 仍未完成。
 
 ## 1. 目标和已确认决策
 
@@ -81,7 +81,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - service 仅监听 loopback，出站目标严格 allowlist。
 - OAuth preflight 得出“可实施”或“阻塞”的明确结论。
 
-### Phase 1：单上游原生转发
+### Phase 1：单上游原生转发（已完成）
 
 **目标**：透明支持一个预配置 provider/deployment 的 Chat 与 Responses，不进行模式转换。
 

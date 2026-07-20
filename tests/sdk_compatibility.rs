@@ -150,11 +150,22 @@ fn app() -> axum::Router {
 }
 
 fn fixture_response(path: &str, stream_requested: bool) -> UpstreamResponse {
-    let (content_type, body) = match (path, stream_requested) {
-        ("/v1/chat/completions", false) => ("application/json", chat_completion().to_string()),
-        ("/v1/chat/completions", true) => ("text/event-stream", chat_stream()),
-        ("/v1/responses", false) => ("application/json", response("resp_nonstream").to_string()),
-        ("/v1/responses", true) => ("text/event-stream", responses_stream()),
+    let (content_type, chunks) = match (path, stream_requested) {
+        ("/v1/chat/completions", false) => (
+            "application/json",
+            vec![Bytes::from(chat_completion().to_string())],
+        ),
+        ("/v1/chat/completions", true) => {
+            ("text/event-stream", fragmented_sse_chunks(chat_stream()))
+        }
+        ("/v1/responses", false) => (
+            "application/json",
+            vec![Bytes::from(response("resp_nonstream").to_string())],
+        ),
+        ("/v1/responses", true) => (
+            "text/event-stream",
+            fragmented_sse_chunks(responses_stream()),
+        ),
         _ => panic!("unexpected OpenAI SDK path {path}"),
     };
     let mut headers = HeaderMap::new();
@@ -162,8 +173,21 @@ fn fixture_response(path: &str, stream_requested: bool) -> UpstreamResponse {
     UpstreamResponse::new(
         StatusCode::OK,
         headers,
-        Body::from_stream(stream::iter(vec![Ok::<_, Infallible>(Bytes::from(body))])),
+        Body::from_stream(stream::iter(chunks.into_iter().map(Ok::<_, Infallible>))),
     )
+}
+
+fn fragmented_sse_chunks(body: String) -> Vec<Bytes> {
+    let body = body.into_bytes();
+    let split = body
+        .windows(2)
+        .position(|window| window == [0xc3, 0xa9])
+        .expect("fixture contains a multi-byte UTF-8 character")
+        + 1;
+    vec![
+        Bytes::copy_from_slice(&body[..split]),
+        Bytes::copy_from_slice(&body[split..]),
+    ]
 }
 
 fn chat_completion() -> Value {
@@ -187,14 +211,14 @@ fn chat_stream() -> String {
         "object": "chat.completion.chunk",
         "created": 0,
         "model": "upstream-model",
-        "choices": [{"index": 0, "delta": {"content": "hel"}, "finish_reason": null}]
+        "choices": [{"index": 0, "delta": {"content": "hé"}, "finish_reason": null}]
     });
     let second = json!({
         "id": "chatcmpl_stream",
         "object": "chat.completion.chunk",
         "created": 0,
         "model": "upstream-model",
-        "choices": [{"index": 0, "delta": {"content": "lo"}, "finish_reason": null}]
+        "choices": [{"index": 0, "delta": {"content": "llo"}, "finish_reason": null}]
     });
     let terminal = json!({
         "id": "chatcmpl_stream",
@@ -226,7 +250,7 @@ fn responses_stream() -> String {
         "item_id": "msg_stream",
         "output_index": 0,
         "content_index": 0,
-        "delta": "hello",
+        "delta": "héllo",
         "logprobs": []
     });
     let completed = json!({
@@ -234,8 +258,14 @@ fn responses_stream() -> String {
         "sequence_number": 2,
         "response": response("resp_stream")
     });
+    let delta = delta.to_string();
+    let split = delta
+        .find(",\"delta\"")
+        .expect("fixture delta has a second JSON property");
     format!(
-        "event: response.output_text.delta\ndata: {delta}\n\nevent: response.completed\ndata: {completed}\n\n"
+        "event: response.output_text.delta\ndata: {}\ndata: {}\n\nevent: response.completed\ndata: {completed}\n\n",
+        &delta[..split],
+        &delta[split..],
     )
 }
 

@@ -336,7 +336,15 @@ fn upstream_response(
 ) -> Response {
     let status = upstream.status();
     let response_headers = filtered_upstream_headers(upstream.headers());
-    let body = if validate_sse {
+    let is_sse = upstream
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_some_and(|content_type| {
+            content_type
+                .to_str()
+                .is_ok_and(|value| value.starts_with("text/event-stream"))
+        });
+    let body = if validate_sse && status.is_success() && is_sse {
         validate_sse_body(upstream.into_body(), protocol, adapter, max_sse_event_bytes)
     } else {
         upstream.into_body()
@@ -442,6 +450,7 @@ fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
         if name == CONTENT_TYPE
             || name == RETRY_AFTER
             || name_text == "openai-request-id"
+            || name_text == "x-should-retry"
             || name_text.starts_with("x-ratelimit-")
         {
             filtered.append(name.clone(), value.clone());

@@ -2,7 +2,7 @@ use std::{
     convert::Infallible,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -82,7 +82,20 @@ struct RecordingTransport {
 
 struct TimeoutTransport;
 
+struct NonSseErrorTransport;
+
+#[derive(Default)]
+struct RateLimitedTransport {
+    attempts: Mutex<usize>,
+}
+
 struct InvalidSseTransport;
+
+struct EofWithoutTerminalTransport;
+
+struct PartialStreamFailureTransport {
+    attempts: AtomicUsize,
+}
 
 struct PendingSseTransport {
     dropped: Arc<AtomicBool>,
@@ -112,6 +125,47 @@ impl UpstreamTransport for TimeoutTransport {
     }
 }
 
+impl UpstreamTransport for NonSseErrorTransport {
+    fn send<'a>(
+        &'a self,
+        _deployment: &'a ResolvedDeployment,
+        _request: UpstreamRequestParts,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::BAD_REQUEST,
+                response_headers,
+                Body::from(Bytes::from_static(b"\xff")),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for RateLimitedTransport {
+    fn send<'a>(
+        &'a self,
+        _deployment: &'a ResolvedDeployment,
+        _request: UpstreamRequestParts,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        *self.attempts.lock().unwrap() += 1;
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            response_headers.insert("retry-after", HeaderValue::from_static("2"));
+            response_headers.insert("x-should-retry", HeaderValue::from_static("true"));
+            Ok(UpstreamResponse::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                response_headers,
+                Body::from(r#"{"error":{"message":"rate limited"}}"#),
+            ))
+        })
+    }
+}
+
 impl UpstreamTransport for InvalidSseTransport {
     fn send<'a>(
         &'a self,
@@ -128,6 +182,51 @@ impl UpstreamTransport for InvalidSseTransport {
                 Body::from_stream(stream::iter(vec![Ok::<_, Infallible>(Bytes::from_static(
                     b"data: \xff\n\n",
                 ))])),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for EofWithoutTerminalTransport {
+    fn send<'a>(
+        &'a self,
+        _deployment: &'a ResolvedDeployment,
+        _request: UpstreamRequestParts,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from(Bytes::from_static(
+                    b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hi\",\"logprobs\":[]}\n\n",
+                )),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for PartialStreamFailureTransport {
+    fn send<'a>(
+        &'a self,
+        _deployment: &'a ResolvedDeployment,
+        _request: UpstreamRequestParts,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let event = b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hi\",\"logprobs\":[]}\n\n";
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from_stream(stream::iter(vec![
+                    Ok::<_, std::io::Error>(Bytes::from_static(event)),
+                    Err(std::io::Error::other("upstream connection reset")),
+                ])),
             ))
         })
     }
@@ -437,6 +536,56 @@ async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
 }
 
 #[tokio::test]
+async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
+    let app = app_with_transport(Arc::new(EofWithoutTerminalTransport));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    assert!(
+        std::str::from_utf8(&body)
+            .unwrap()
+            .contains("response.output_text.delta")
+    );
+    assert!(
+        !std::str::from_utf8(&body)
+            .unwrap()
+            .contains("response.completed")
+    );
+    assert!(!std::str::from_utf8(&body).unwrap().contains("[DONE]"));
+}
+
+#[tokio::test]
+async fn partial_upstream_stream_failures_close_without_a_retry() {
+    let transport = Arc::new(PartialStreamFailureTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let app = app_with_transport(transport.clone());
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(to_bytes(response.into_body(), 4096).await.is_err());
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
     let app = app_with_transport(Arc::new(InvalidSseTransport));
     let request = Request::post("/v1/responses")
@@ -451,6 +600,52 @@ async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(to_bytes(response.into_body(), 4096).await.is_err());
+}
+
+#[tokio::test]
+async fn streaming_requests_preserve_non_sse_error_bodies() {
+    let app = app_with_transport(Arc::new(NonSseErrorTransport));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    assert_eq!(
+        to_bytes(response.into_body(), 4096).await.unwrap(),
+        b"\xff".as_slice()
+    );
+}
+
+#[tokio::test]
+async fn streaming_rate_limits_retry_before_output_and_preserve_retry_headers() {
+    let transport = Arc::new(RateLimitedTransport::default());
+    let app = app_with_transport(transport.clone());
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(transport.attempts.lock().unwrap().to_owned(), 2);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    assert_eq!(response.headers()["retry-after"], "2");
+    assert_eq!(response.headers()["x-should-retry"], "true");
+    assert_eq!(
+        to_bytes(response.into_body(), 4096).await.unwrap(),
+        r#"{"error":{"message":"rate limited"}}"#
+    );
 }
 
 #[tokio::test]

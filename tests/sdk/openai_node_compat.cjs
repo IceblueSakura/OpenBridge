@@ -21,7 +21,7 @@ const client = new OpenAI({ apiKey: "downstream-token", baseURL });
   for await (const event of chatStream) {
     chatEvents.push(event);
   }
-  if (chatEvents.map((event) => event.choices[0].delta.content ?? "").join("") !== "hello") {
+  if (chatEvents.map((event) => event.choices[0].delta.content ?? "").join("") !== "héllo") {
     throw new Error("stream Chat completion deltas were not decoded");
   }
   if (chatEvents.at(-1).choices[0].finish_reason !== "stop") {
@@ -45,7 +45,7 @@ const client = new OpenAI({ apiKey: "downstream-token", baseURL });
   if (responseEvents.map((event) => event.type).join(",") !== "response.output_text.delta,response.completed") {
     throw new Error("stream Response events were not decoded");
   }
-  if (responseEvents[0].delta !== "hello" || responseEvents.at(-1).response.id !== "resp_stream") {
+  if (responseEvents[0].delta !== "héllo" || responseEvents.at(-1).response.id !== "resp_stream") {
     throw new Error("stream Response payload was not decoded");
   }
 })();
