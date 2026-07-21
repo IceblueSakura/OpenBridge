@@ -188,17 +188,20 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 
 **任务**
 
-1. 实现 `wire → Canonical IR → wire` 的 request、final response 和 SSE renderer。
-2. 为 Chat 和 Responses 各自维护 stream assembler，追踪 response/item/call/output-index identity、tool argument buffer 与 terminal owner。
-3. 加入 re-entry guard，避免 bridge 递归选择另一 bridge。
-4. 对 built-in tools、background/resource APIs、`previous_response_id`、opaque reasoning、status 等不等价能力返回明确错误或 `ConversionNotice`。
-5. 不执行有副作用的 tool call；仅保持 wire-level conversion。
+1. 实现 `wire → Canonical IR → wire` 的 request、final response 和 SSE renderer；首个 bridge slice 只覆盖文本与 function tool schema/call/result。
+2. source tools 解析后创建每请求 `ToolConversionContext`，由 request、final response 与 SSE renderer 共享；其记录 source kind/name/schema 到 target tool name/schema 的映射和所有 conversion notice，不得依赖 provider 名称猜测或全局 cache。
+3. Responses→Chat 必须按 `input[]` 顺序处理：连续 function calls 合并为一条 assistant `tool_calls` message，`function_call_output` 前 flush call group，并以不可变 `call_id` 关联对应 `role=tool` message。
+4. 为 Chat 和 Responses 各自维护 stream assembler，分别追踪 response/item/call/output-index identity、Chat tool index、fragmented argument buffer、late/empty id/name、usage 与 terminal owner；arguments 只在 complete/done 后 parse、canonicalize 与 validate。
+5. 引入 issuer/deployment-bound continuation ledger。只有同 issuer、同 deployment、未过期的 `previous_response_id` 命中才能补回 Chat 上游所需的完整 assistant call group；禁止以全局唯一 `call_id` 或跨 candidate fallback 猜测恢复。
+6. 加入 re-entry guard，避免 bridge 递归选择另一 bridge；不执行有副作用的 tool call，仅保持 wire-level conversion。
+7. 对 built-in/custom/namespace/tool-search、background/resource APIs、opaque reasoning、`previous_response_id`、schema adaptation 与 status 等不等价能力返回明确错误或 `ConversionNotice`；最小 function-tool slice 不静默降级为这些工具类型。
 
 **退出条件**
 
-- 文本、并行 function calls、tool output、usage、structured output、cancel、error、EOF fixture 通过。
-- `output_item.done` 不提前结束 Responses stream；tool arguments 仅在完整后 parse/validate。
-- 每个有损转换都有 machine-readable notice 和 audit record。
+- 文本、连续/并行 function calls、tool output、usage、structured output、cancel、error、EOF、fragmented arguments、late/empty tool identity 与工具/文本交错 fixture 通过。
+- `output_item.done` 不提前结束 Responses stream；并行 call 的 `output_index` 按 source logical index 稳定排序；tool arguments 仅在完整后 parse/canonicalize/validate。
+- `previous_response_id` 的同 issuer/deployment call-group 恢复、跨 route/过期/歧义拒绝和 re-entry guard fixture 通过。
+- 每个有损转换都有 machine-readable notice 和 metadata-only audit record。
 
 ## 4. 质量门
 
@@ -238,6 +241,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - [架构与路线](../architecture/architecture-and-roadmap.md)：HTTP/SSE、路由、key 与 observability 方案。
 - [Codex OAuth 凭证边界](../design/codex-oauth-credential-boundary.md)：Codex OAuth 参考实现、credential lifecycle 与安全边界。
 - [控制面、模型、密钥与可观测性](../architecture/control-plane-models-keys-and-observability.md)：alias、proxy key、审计策略。
+- [cc-switch 协议与工具转换分析](../research/cc-switch/chat-responses-tool-conversion-analysis.md)：Responses↔Chat tool context、call-group recovery、Chat SSE→Responses assembler 与不可直接采用的缓存边界。
 - OpenAI Codex auth：https://developers.openai.com/codex/auth
 - OpenAI API streaming：https://platform.openai.com/docs/guides/streaming-responses
 - OAuth 2.0 Security BCP：https://datatracker.ietf.org/doc/html/rfc9700

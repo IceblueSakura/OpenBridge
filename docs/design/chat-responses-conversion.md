@@ -13,7 +13,7 @@ Wire request/event
   -> target wire renderer
 ```
 
-Hermes 证明了**为多轮 replay 保存 opaque state**的重要性；LiteLLM 证明了**双向 bridge、provider fallback 和 SSE 事件状态机**必须独立建模。推荐以 LiteLLM 的双向层次为骨架，以 Hermes 的 issuer-aware continuation state 作为安全要求。
+Hermes 证明了**为多轮 replay 保存 opaque state**的重要性；LiteLLM 证明了**双向 bridge、provider fallback 和 SSE 事件状态机**必须独立建模；cc-switch 则给出了 Codex agent tool loop 在 `Responses -> Chat -> Responses` 路径中所需的每请求 tool mapping、跨轮 call-group 恢复与 Chat SSE assembler 证据。推荐以 LiteLLM 的双向层次为骨架，以 Hermes 的 issuer-aware continuation state 作为安全要求，并以 cc-switch 的 tool lifecycle 作为 Phase 6 function-tool 切片的实现约束。
 
 本文比较的源码快照：
 
@@ -21,6 +21,7 @@ Hermes 证明了**为多轮 replay 保存 opaque state**的重要性；LiteLLM �
 |---|---|---|
 | Hermes Agent | `c48d53413aa2c09f6d5703082361c2754f1d5350` | agent 消费端；内部 Chat 历史编译为 Responses 请求，保留 replay state |
 | LiteLLM | `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35` | provider gateway；双向转换和对外 Responses proxy |
+| cc-switch | `08710d51fc04843ce217c58749677d84cf62740b` | 本地 agent proxy；Codex Responses 到 Chat/Anthropic 的转换、tool context、tool history 与 SSE 反向组装 |
 
 ## 1. 两个项目的策略对比
 
@@ -46,6 +47,9 @@ Hermes 证明了**为多轮 replay 保存 opaque state**的重要性；LiteLLM �
 - LiteLLM 的 Responses -> Chat fallback handler：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/handler.py:23`。
 - LiteLLM 的 Responses SSE -> Chat SSE：`F:/codespace/litellm/litellm/completion_extras/litellm_responses_transformation/transformation.py:1074`。
 - LiteLLM 的 Chat SSE -> Responses SSE 状态机：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/streaming_iterator.py:51`。
+- cc-switch 的 Responses request -> Chat request 与 `CodexToolContext`：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/transform_codex_chat.rs:236`、`:260`。
+- cc-switch 的跨请求 call-group 恢复：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/codex_chat_history.rs:48`。
+- cc-switch 的 Chat SSE -> Responses SSE tool-call assembler：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/streaming_codex_chat.rs:66`、`:335`、`:486`。
 
 ## 2. 为什么直接字段改名一定会出错
 
@@ -81,7 +85,14 @@ ConversationRequest
   instructions: optional text
   items: ordered InputItem[]
   tools: ToolDefinition[]
+  tool_context: ToolConversionContext?
   continuation: ContinuationRef?
+
+ToolConversionContext                 # per bridge request; never persisted as route config
+  source_protocol, target_protocol
+  source_tool_id/kind <-> target_tool_name/schema
+  target tool name -> original namespace/custom metadata
+  call_id policy, conversion notices
 
 InputItem
   kind: message | function_call | function_result | reasoning | builtin_result | reference
@@ -104,6 +115,7 @@ StreamEvent
 
 - `items` 和 `output` 必须是**有序异构列表**，不能提前扁平为文本。
 - `call_id` 是 client tool invocation 与 tool result 的唯一关联键；`item_id`、`response_id`、`output_index` 分别用于对象、response、流排序，不能互换。
+- `ToolConversionContext` 在解析 source tools 后、渲染目标 request 前创建，并由 final-response 与 SSE renderer 共享。它记录每个名称扁平化、schema adaptation 或工具种类降级，不能由全局 provider cache 或 route 配置隐式推断。
 - `provider_data` 是 typed envelope，至少有 `issuer`、`protocol`、`replay_policy`、`payload`；禁止把它同普通内容一起跨 provider 透传。
 - 任何降级必须写入 `ConversionNotice`，例如 `dropped_builtin_tool`、`status_approximated`、`previous_response_id_not_supported`。
 - `ConversationRequest` 是已完成认证和路由后的协议内部表示，不承载 `AuthenticatedPrincipal` 或完整 `RouteSnapshot`。这些不可变控制上下文由 converter 外层持有，并在转换前完成授权与 capability 决策；接口边界见[控制面、模型、密钥与可观测性](../architecture/control-plane-models-keys-and-observability.md)。
@@ -114,9 +126,9 @@ StreamEvent
 
 1. 验证 Chat messages role 与 tool-result 对应关系。
 2. system/developer 转为 `instructions` 或保留为 role message；选择应是 endpoint capability，而非全局硬编码。
-3. assistant `tool_calls[]` 展开为有序 function-call items。
-4. `role=tool` 转 function-result item；必须有对应 `call_id`。
-5. chat function tool 解嵌套为 Responses function tool。
+3. assistant `tool_calls[]` 按出现顺序展开为 function-call items；每个生成的 item 保留原 `tool_call.id` 作为 `call_id`。
+4. `role=tool` 转 function-result item；必须有对应 `tool_call_id`/`call_id`，且不可用 message position 或 tool name 猜测关联。
+5. chat function tool 解嵌套为 Responses function tool；schema 只按目标 `CapabilityProfile` 的显式规则适配，`null`/缺失/非 object schema 不得由通用 IR 静默修复。
 6. 将 `response_format` 转 `text.format`，将 token limit 转 `max_output_tokens`。
 7. 仅当 continuation 的 issuer 与当前 endpoint 一致且 capability 支持时 replay opaque item。
 8. 通过最终 wire schema validator；未知字段不要默默透传。
@@ -125,10 +137,10 @@ StreamEvent
 
 ### 4.2 Responses -> Canonical -> Chat
 
-1. 按原始 `input[]` 顺序解析；不要先按 role group。
-2. function call -> assistant tool call，连续调用合并为一条 assistant message。
-3. function call output -> tool message；缺少或无法恢复 `call_id` 时返回显式 validation error，不要猜错关联。
-4. responses-only tools 依据 capability：映射、模拟、转本地 tool 或拒绝。不能静默变成功。
+1. 按原始 `input[]` 顺序解析；不要先按 role group。source tools 解析后立即创建 `ToolConversionContext`，并将它交给 request、final response 与 stream renderer。
+2. function call -> assistant tool call；仅合并连续、目标 Chat 可表达的调用。每个调用仍保留独立 `call_id`，并在 `function_call_output` 前 flush 成同一条 assistant message。
+3. function call output -> tool message；缺少或无法恢复 `call_id` 时返回显式 validation error，不要猜错关联。若 Chat 上游要求 assistant call 紧邻 tool result，只有 issuer/deployment-bound continuation ledger 命中时才补回完整 call group。
+4. Phase 6 的最小 bridge 只支持 function tools。responses-only built-in、custom、namespace 与 tool-search 必须由 capability 明确映射或拒绝；不能按 cc-switch 的 provider 特例静默降级。
 5. output[] 的多个 message/tool/reasoning items 按 renderer 规则压缩；在 provider metadata 中保留原 item。
 6. 将不可精确表达的 status 映射为一个明确策略，并带 transformation notice。
 
@@ -164,6 +176,9 @@ output_items_by_index
 text_buffer_by_item
 reasoning_buffer_by_item
 call_id -> {output_index, name, arguments_buffer, item_id}
+chat_tool_index -> call_id
+pending_tool_calls_by_index
+tool_context
 terminal_seen
 usage
 provider_data
@@ -176,6 +191,8 @@ provider_data
 3. terminal event 前必须 flush 已缓冲的 tool argument 与 message item。
 4. 终态只能发一次；重复 event idempotent 处理。
 5. event 到达顺序以 provider sequence 或接收序号记录，不能用 text 拼接顺序推断。
+6. Chat tool delta 的空 id/name fragment 不得覆盖已解析身份；仅在 call id 与 name 均已确定、且较早的连续 index 已可表达时发 `output_item.added`。最终 arguments 在 complete/done 前 canonicalize、parse 并按 target schema validate；不在 partial delta 上解析 JSON。
+7. 并行 tool call 的 Responses `output_index` 按 source Chat `index` 的逻辑顺序确定，而非“哪个 call 最先收齐”。不完整或缺 name 的 call 只能明确丢弃/失败并产生 notice，不能污染同一 response 内其他有效 call。
 
 LiteLLM 的 Chat->Responses iterator 已显示 `call_id -> output_index`、argument buffer、pending queue 的必要形态：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/streaming_iterator.py:71`、`:138`。其反向 iterator 证明 terminal 应归属 `response.completed`：`F:/codespace/litellm/litellm/completion_extras/litellm_responses_transformation/transformation.py:1253`、`:1305`。
 
@@ -208,19 +225,21 @@ CapabilityProfile
 
 - 定义上面的 Canonical IR、strict request validator、转换错误模型。
 - 支持 system/user/assistant 文本、function tool schema、function call、function result、非流式 usage。
-- 保存 `call_id`，拒绝无对应关联的 tool result。
-- 用 fixture 做 Chat->Responses->Chat 与 Responses->Chat->Responses 的语义 round-trip；断言允许的有损项。
+- 保存 `call_id`，拒绝无对应关联的 tool result；将 `item_id`、`response_id` 与 `output_index` 保持为不同字段。
+- 在 source tools 解析后创建每请求 `ToolConversionContext`，供 request、final response 和 SSE renderer 共用；Phase 1 不支持 custom/namespace/tool-search 映射。
+- 用 fixture 做 Chat->Responses->Chat 与 Responses->Chat->Responses 的语义 round-trip；覆盖连续 calls -> 单一 Chat assistant `tool_calls`、紧邻 tool result 和允许的有损项。
 
 ### Phase 2: 正确的双向 SSE
 
 - 实现两个独立 iterator；一条处理 Chat delta -> Responses events，另一条处理 Responses events -> Chat chunks。
-- 添加并行 tools、文字后 tools、tools 后文字、arguments 分片、终态/错误/取消、usage 的 fixture。
+- 添加并行 tools、文字后 tools、tools 后文字、arguments 分片、late/empty id/name delta、终态/错误/取消、usage 的 fixture。
+- 断言 Chat `index` 与 Responses `output_index` 的稳定排序，argument buffer 只在 done 时 JSON parse/canonicalize，且 `output_item.done` 不结束 response。
 - 先交付 deterministic event ordering，再做 token 分片模拟。
 
 ### Phase 3: continuation 和 provider capabilities
 
-- 引入 `ContinuationRef` 与 issuer bound opaque data。
-- 实现 `previous_response_id` 的 native/emulated/unsupported 明确策略。
+- 引入 `ContinuationRef` 与 issuer/deployment-bound continuation ledger，保存 ordered call group、route snapshot version 与 expiry。
+- 实现 `previous_response_id` 的 native/emulated/unsupported 明确策略；emulated 恢复只允许同 issuer + 同 deployment 命中，禁止 cc-switch 式全局 unique-`call_id` fallback。
 - 用 capability profile 控制 builtin tools、file search、background、schema quirks。
 - 为每次降级写 trace/log/response metadata，便于调用方调试。
 
@@ -237,9 +256,11 @@ CapabilityProfile
 |---|---|
 | 信息完整性 | text、image/file part、tool name/arguments/call_id、usage、annotation 的预期保存/降级被记录 |
 | tool 关联 | 并行多个 calls 能以同一 call_id 收到各自 result；没有 call_id 的 result 被拒绝 |
+| tool context | 每请求 tool name/schema/kind mapping 同时用于 request、final response 与 SSE；unknown/builtin tool 的 map/reject/notice 可断言 |
 | continuation | 同 issuer opaque token 可 replay；不同 issuer/不支持 endpoint 一定不会发出 |
+| continuation call group | `previous_response_id` 只在同 issuer/deployment、未过期的 ledger 中补回完整 assistant call group；跨 route、歧义 call id 或缺失 ledger 一定不猜测恢复 |
 | status | text stop、tool calls、length、filter、failed、cancelled、reasoning-only 的 policy 固定 |
-| stream | item done 不结束；completed 才结束；末尾先 flush 缓冲工具参数；终态只一次 |
+| stream | item done 不结束；completed 才结束；末尾先 flush 缓冲工具参数；并行 index 有序、空 id/name 不覆盖已解析身份、终态只一次 |
 | fallback | Native Responses、Chat bridge、无能力拒绝三条路径产出可区分 metadata |
 | resource | background/poll/get/delete/cancel 不与 transient stream state 混用 |
 

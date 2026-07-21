@@ -189,16 +189,19 @@ Principal / ProxyKey
 
 **范围**
 
-- 实现 `wire → Canonical IR → wire` 的双向 request、final response 和 SSE renderer；Canonical IR 详见 [Chat/Responses 转换设计](../design/chat-responses-conversion.md)。
-- 两个独立 stream assembler；维护 item/call/response/output-index identity 和 terminal owner。
+- 实现 `wire → Canonical IR → wire` 的双向 request、final response 和 SSE renderer；首个切片只支持文本与 function tool schema/call/result。Canonical IR 详见 [Chat/Responses 转换设计](../design/chat-responses-conversion.md)。
+- source tools 解析后创建 per-request `ToolConversionContext`，在 request、final response 和 SSE renderer 间共享 source kind/name/schema 到 target tool name/schema 的映射；不以 provider/model 名称或全局 cache 推断恢复关系。
+- 两个独立 stream assembler；维护 item/call/response/output-index identity、Chat tool index、fragmented arguments、late/empty id/name、usage 与 terminal owner。
+- 当 Responses `function_call_output` 只有 `previous_response_id` 关联时，仅可由 issuer/deployment-bound、带 expiry 的 continuation ledger 补回完整 assistant call group；禁止跨 route 或 global unique-`call_id` fallback。
 - re-entry guard，防止 Responses→Chat fallback 又被再次选择为 Chat→Responses bridge。
-- 对 built-in tools、background/resource APIs、`previous_response_id`、opaque reasoning 和 status 的不等价情况返回明确 capability error 或 conversion notice。
+- 对 built-in/custom/namespace/tool-search、background/resource APIs、`previous_response_id`、opaque reasoning、schema adaptation 和 status 的不等价情况返回明确 capability error 或 conversion notice。
 
 **验收门**
 
-- Chat↔Responses 的文本、并行 function calls、tool result、usage、structured output、stream terminal/error/cancel fixtures 通过。
-- `output_item.done` 不会结束 Responses stream；tool arguments 只在完整后 parse/validate。
-- 每个有损转换都有 machine-readable `ConversionNotice` 和审计记录；不得静默伪造 native lifecycle。
+- Chat↔Responses 的文本、连续/并行 function calls、tool result、usage、structured output、fragmented arguments、late/empty tool identity、stream terminal/error/cancel fixtures 通过。
+- `output_item.done` 不会结束 Responses stream；并行 calls 的 `output_index` 保持 source logical order；tool arguments 只在完整后 parse/canonicalize/validate。
+- `previous_response_id` 的同 issuer/deployment call-group 恢复、跨 route/过期/歧义拒绝与 re-entry guard fixture 通过。
+- 每个有损转换都有 machine-readable `ConversionNotice` 和 metadata-only 审计记录；不得静默伪造 native lifecycle。
 
 ## 4. 质量门和测试层次
 
