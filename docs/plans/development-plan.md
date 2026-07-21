@@ -15,6 +15,7 @@
 5. proxy-issued opaque API key、授权与限流；
 6. metadata-first 审计、指标和隐私策略；
 7. Chat Completions 与 Responses 的双向转换。
+8. 将经过能力与授权验证的 provider-hosted tool 作为 MCP tool 暴露。
 
 ### 已确认决策
 
@@ -203,6 +204,28 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - `previous_response_id` 的同 issuer/deployment call-group 恢复、跨 route/过期/歧义拒绝和 re-entry guard fixture 通过。
 - 每个有损转换都有 machine-readable notice 和 metadata-only audit record。
 
+### Phase 7：Provider-hosted tool 的 MCP facade
+
+**目标**：将已确认能力的 provider-hosted tool 规范化为 MCP local tool result；初始目标为 OpenAI Responses `web_search`。这不是让 proxy 执行通用 model function，也不是将 hosted item 伪装成 client-side `function_call`。
+
+**前置条件**：Phase 3 的 capability/routing、Phase 4 的 principal authorization、Phase 5 的 metadata audit，以及 Phase 6 的协议 bridge 基线均已完成。首个 route 必须原生支持 OpenAI Responses `web_search` 与 citation 输出。
+
+**任务**
+
+1. 定义 `HostedToolKind`、`HostedToolPolicy`、MCP input/output schema 与 capability gate；初始仅注册具名 `openai_web_search`，禁止通用 function-name/URL executor。
+2. 通过现有 RouteSnapshot、provider adapter 与 credential binding 发起 native Responses source run；MCP request 不能指定 provider、model、upstream URL、header 或 credential。
+3. 按 response-level terminal state 处理 provider run，解析 answer、`url_citation` 与可选 source list；`web_search_call` 仅为 provider activity，不触发 local executor 或 `function_call_output`。
+4. 返回 schema-valid MCP `structuredContent` 和等价 text content；citation range 仅绑定 facade `answer`，source list 与实际 citation 分离建模。
+5. 复用 principal scope、rate/concurrency/cost limit、cancellation、timeout 与 metadata-only audit；MCP server 初始只支持受信本机 `stdio` transport。
+6. 为至少一个目标 MCP client 验证 citation 的可点击展示或明确的 `citation_delivery_unsupported` 降级；不得将无来源纯文本视为同等完成。
+
+**退出条件**
+
+- 具备 OpenAI native web-search capability 的 route 可由 MCP reference client 列举并调用；正常与错误结果均符合声明的 output schema。
+- 无 capability、无 principal scope、非法 domain、超时、429、5xx、incomplete response、malformed citation 与 client cancellation 在上游调用/终态上可预测处理。
+- fixture 证明没有伪造 `function_call`/`function_call_output`，citation/source 的区分保持，且 logs/audit/错误不含 secret、完整 prompt 或原始 provider payload。
+- 目标 MCP client 最终 UI/导出结果可取得可点击 citation，或在无法实现时显式拒绝该 integration。
+
 ## 4. 质量门
 
 | 层次 | 最小验证 | 阶段 |
@@ -211,6 +234,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 | Fixture/contract | Chat/Responses JSON、SSE transcript、未知字段、EOF、cancel | 0、1、6 |
 | Mock integration | OAuth issuer、provider HTTP、retry、cancellation、admin credential API | 0–2 |
 | SDK compatibility | OpenAI Python/Node 调用 proxy | 1、6 |
+| MCP contract/integration | MCP schema、structuredContent/text 等价、citation/source、scope/cancellation | 7 |
 | Security | secret scan、authorization matrix、SSRF allowlist、redaction、rate limit | 0、2、4、5 |
 | Load/soak | concurrent streams、slow consumers、refresh storm、audit backpressure | 2、4、5、6 |
 
@@ -222,6 +246,7 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - 全部 OpenAI resources、Realtime、Files、Conversations 和管理 API。
 - 默认记录完整 prompt/response。
 - 对协议转换承诺无损语义或支持所有 Responses resource/background 生命周期。
+- 任意第三方 MCP catalog、任意 function-to-HTTP executor，或未经独立 capability/安全设计的 hosted tool。
 
 ## 6. 主要风险与退出策略
 
@@ -242,7 +267,10 @@ ProxyKey ──→ Principal ──→ allowed aliases/endpoints/limits
 - [Codex OAuth 凭证边界](../design/codex-oauth-credential-boundary.md)：Codex OAuth 参考实现、credential lifecycle 与安全边界。
 - [控制面、模型、密钥与可观测性](../architecture/control-plane-models-keys-and-observability.md)：alias、proxy key、审计策略。
 - [cc-switch 协议与工具转换分析](../research/cc-switch/chat-responses-tool-conversion-analysis.md)：Responses↔Chat tool context、call-group recovery、Chat SSE→Responses assembler 与不可直接采用的缓存边界。
+- [Hosted tool MCP 暴露需求](../requirements/hosted-tools-mcp.md)：Provider-hosted tool 作为 MCP local tool result 的范围、citation、策略与 Phase 7 验收。
 - OpenAI Codex auth：https://developers.openai.com/codex/auth
+- OpenAI Web search：https://platform.openai.com/docs/guides/tools-web-search
+- Model Context Protocol Tools：https://modelcontextprotocol.io/specification/2025-06-18/server/tools
 - OpenAI API streaming：https://platform.openai.com/docs/guides/streaming-responses
 - OAuth 2.0 Security BCP：https://datatracker.ietf.org/doc/html/rfc9700
 - PKCE：https://datatracker.ietf.org/doc/html/rfc7636

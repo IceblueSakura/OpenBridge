@@ -4,7 +4,7 @@
 
 | 目录 | 内容 | 主要文档 |
 |---|---|---|
-| [`requirements/`](requirements/) | 产品范围、外部契约、验收方向与调研缺口 | [初版需求](requirements/proxy-requirements.md) |
+| [`requirements/`](requirements/) | 产品范围、外部契约、验收方向与调研缺口 | [初版需求](requirements/proxy-requirements.md)、[Hosted tool MCP 暴露](requirements/hosted-tools-mcp.md) |
 | [`architecture/`](architecture/) | 目标架构、实现边界与长期技术决策 | [架构与路线](architecture/architecture-and-roadmap.md)、[控制面](architecture/control-plane-models-keys-and-observability.md)、[Rust adapter 与数据流](architecture/rust-provider-adapter-dataflow.md) |
 | [`design/`](design/) | 跨协议转换与 OAuth 凭证等专项设计 | [Chat/Responses 转换](design/chat-responses-conversion.md)、[Codex OAuth 凭证边界](design/codex-oauth-credential-boundary.md) |
 | [`implementation/`](implementation/) | 当前代码、API、配置、路由、SSE 语义与验证证据 | [当前实现说明](implementation/current-implementation.md) |

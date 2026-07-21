@@ -29,6 +29,7 @@ proxy 的价值不只是统一 URL：它必须把 provider、上游模型、认�
 - OpenAI-compatible function tool definitions、tool calls 与 tool outputs。
 - Chat ↔ Responses 的请求、最终响应和 SSE 事件转换；每次有损转换均可检测。
 - metadata-first 审计、请求关联、速率/并发限制和控制面管理接口。
+- 在 capability、authorization 与 citation 契约明确后，将受控 provider-hosted tool 作为 MCP local tool result 暴露；初始目标为 OpenAI `web_search`，详见[Hosted tool MCP 暴露需求](hosted-tools-mcp.md)。
 
 ### 2.3 当前非目标
 
@@ -100,6 +101,17 @@ proxy 的价值不只是统一 URL：它必须把 provider、上游模型、认�
 | FR-24 | 默认只记录 metadata：request ids、principal/key locator、public alias、deployment、credential state/id、outcome、error class、attempt、TTFT、duration、usage 与 conversion notice。 | secret scan 和 redaction 测试证明不含 OAuth material、API key、cookie、完整 prompt/response、tool arguments。 |
 | FR-25 | audit/metrics 写入必须经有界异步 outbox；stream 热路径不得逐 token 同步落库。 | audit sink 故障、队列饱和和慢 client 有确定的 fail-open/fail-closed 策略，无无界内存增长。 |
 
+### 4.6 Provider-hosted tool 的 MCP facade
+
+| ID | 需求 | 验收方向 |
+|---|---|---|
+| FR-26 | OpenBridge 可将经过 capability 和 principal scope 验证的 provider-hosted tool 作为 MCP tool 暴露；初始仅支持 `openai_web_search`。 | route 不具备原生 Responses/web search/citation 能力时，在上游调用前返回可识别错误。 |
+| FR-27 | MCP facade 必须使用 OpenBridge 的 RouteSnapshot、provider adapter、credential binding、限流和 metadata audit；不得自行读取上游 credential、接受任意 base URL/header 或复制 OAuth/HTTP adapter。 | MCP 请求不能扩大出站目标、credential 或 route 权限；facade audit 可关联 proxy request。 |
+| FR-28 | provider-hosted tool 的 `*_call` 由 provider 执行；facade 只消费 terminal response 并返回 MCP ToolResult，不得伪造 client-side `function_call` 或 `function_call_output`。 | fixture 证明 `web_search_call` 不触发本地 tool executor，也不会生成伪 tool output。 |
+| FR-29 | MCP tool 必须声明 input/output schema，并返回同时包含 text content 和 schema-valid `structuredContent` 的稳定结果；OpenAI web search 结果至少含 answer、citation、source list 与安全的 request correlation id。 | MCP reference client 可验证 schema；不支持 structured content 的 client 仍能从 text content 读取等价 JSON。 |
+| FR-30 | citation 的 URL、标题与相对 `answer` 的范围必须在 facade 输出中保留；source list 与实际 citation 语义必须区分。 | 真实或脱敏 fixture 的多 citation、重复 URL、无 source list 与 malformed annotation 有明确、可测试结果。 |
+| FR-31 | 面向最终用户展示的 citation 由 MCP client/UI 负责；若目标 integration 无法保留可点击来源，必须明确降级或拒绝，而非静默输出无来源文本。 | 至少一个目标 MCP client 完成可点击 citation 的端到端验证，或明确报告 `citation_delivery_unsupported`。 |
+
 ## 5. 质量、安全与兼容性要求
 
 ### 5.1 安全
@@ -132,6 +144,7 @@ proxy 的价值不只是统一 URL：它必须把 provider、上游模型、认�
 | P1 | Responses resource semantics | `store`、retrieve/delete/input_items/cancel/background 的 native、proxy-store、reject 决策 | resource API 的权限、TTL、删除、重启恢复规则成文。 |
 | P1 | 错误、重试与幂等性 | 统一错误分类、retry matrix、已输出 stream 和 tool side effect 边界 | 所有错误类都有 API、SSE、audit 和 retry 预期。 |
 | P1 | 容量与背压 | 并发 stream、slow client、credential refresh storm、outbox 饱和的测量与上限 | 负载/soak 基线和拒绝/降级策略通过。 |
+| P1 | Hosted tools as MCP | OpenAI `web_search` 的 MCP input/output schema、provider response/citation fixture、scope/route/audit/cancellation 策略 | `stdio` MCP reference client 能消费 schema-valid 结果；无原生能力/权限时 fail closed。 |
 
 ## 7. 初始验收集
 
@@ -163,6 +176,7 @@ proxy 的价值不只是统一 URL：它必须把 provider、上游模型、认�
 - [架构与路线](../architecture/architecture-and-roadmap.md)
 - [开发计划](../plans/development-plan.md)
 - [Chat/Responses 转换设计](../design/chat-responses-conversion.md)
+- [Hosted tool MCP 暴露需求](hosted-tools-mcp.md)
 - [Codex OAuth 凭证边界](../design/codex-oauth-credential-boundary.md)
 - [控制面、模型、密钥与可观测性](../architecture/control-plane-models-keys-and-observability.md)
 - [Hermes Agent 协议分析](../research/hermes/chat-responses-analysis.md)

@@ -11,6 +11,7 @@
 5. proxy 自行签发的 API key 校验和授权；
 6. 隐私可控的请求审计与运行日志；
 7. Chat Completions 与 Responses 的双向协议转换。
+8. 将已确认能力的 provider-hosted tool 作为受控 MCP tool 暴露。
 
 本项目已完成 **Phase 1 单上游原生转发**，并正在推进 Phase 3 路由基线。已实现严格配置、不可变 route snapshot、OpenAI-compatible Chat/Responses 原生转发、静态下游 Bearer 认证、共享 upstream 连接池、下游断开时的上游 stream 取消传播、仅在下游业务 SSE 前执行的有界 retry、按实际 SSE response 进行 framing 校验，以及有序多 deployment candidate、capability gate、受保护的 `/v1/models` 与同协议 streaming fallback。Phase 1 conformance 覆盖 429/5xx、timeout、EOF、partial-stream failure、断开的 UTF-8、多 event 同 chunk、跨 chunk event 和多行 `data:`；OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 的两端点 stream/non-stream loopback fixture 已通过。真正的多 provider catalog、health/weight 路由、OAuth、审计与协议转换仍未完成，因此不代表生产可用。
 
@@ -62,6 +63,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | 文档 | 内容 | 状态 |
 |---|---|---|
 | [初版需求](docs/requirements/proxy-requirements.md) | 产品范围、功能/安全/兼容性需求、初始验收集与调研 backlog | 初稿，待确认 |
+| [Hosted tool MCP 暴露需求](docs/requirements/hosted-tools-mcp.md) | 将已确认的 provider-hosted tool 规范化为 MCP local tool result；初始目标为 OpenAI `web_search` | 提议，后续 Phase 7 |
 | [当前实现说明](docs/implementation/current-implementation.md) | 当前代码、API、配置、路由、SSE 语义、测试证据与未实现边界 | 已同步 |
 | [架构与路线](docs/architecture/architecture-and-roadmap.md) | 目标架构、控制面/数据面边界、分阶段开发门与验收标准 | 已同步 |
 | [开发计划](docs/plans/development-plan.md) | 已确认的可执行开发计划、阶段任务、退出条件、风险与非目标 | 实施中 |

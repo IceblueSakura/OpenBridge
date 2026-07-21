@@ -203,6 +203,24 @@ Principal / ProxyKey
 - `previous_response_id` 的同 issuer/deployment call-group 恢复、跨 route/过期/歧义拒绝与 re-entry guard fixture 通过。
 - 每个有损转换都有 machine-readable `ConversionNotice` 和 metadata-only 审计记录；不得静默伪造 native lifecycle。
 
+### Phase 7：Provider-hosted tool 的 MCP facade
+
+**目标**：以独立、受控的 MCP server 将 provider-native hosted tool 规范化为 MCP local tool result；首个 tool 为 OpenAI Responses `web_search`。该 facade 调用 provider 并解析其 hosted output，不是通用 function executor，也不把 `web_search_call` 转为 `function_call_output`。
+
+**范围**
+
+- MCP server 复用数据面的 route snapshot、capability gate、provider adapter、credential binding、取消与限额，以及控制面的 principal scope 和 metadata audit。
+- 返回 answer、结构化 citation、source list 与安全的 proxy correlation id；citation range 仅绑定 facade answer，不可直接套用到外层 Agent 改写后的最终回答。
+- 初始仅提供受信本机 `stdio` MCP transport；远程 MCP transport 必须单独完成认证、tenant isolation、限流和内容保留设计。
+
+**验收门**
+
+- native Responses/web-search/citation capability 与 principal scope 缺一不可；不满足时上游调用前 fail closed。
+- MCP `structuredContent` 与兼容 text content 均符合公开 output schema；不会暴露完整 provider payload、credential、URL 配置或未经授权的内容。
+- 至少一个目标 MCP client 可保留可点击 citation，或显式报告 citation delivery 不受支持。
+
+完整契约、错误模型和实施切片见[Hosted tool MCP 暴露需求](../requirements/hosted-tools-mcp.md)。
+
 ## 4. 质量门和测试层次
 
 | 层次 | 最小验证 | 适用阶段 |
