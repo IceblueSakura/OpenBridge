@@ -11,6 +11,7 @@
 | [`plans/`](plans/) | 已确认、待实施的分阶段工作计划 | [开发计划](plans/development-plan.md) |
 | [`research/hermes/`](research/hermes/) | Hermes Agent 源码调研 | [Chat/Responses 分析](research/hermes/chat-responses-analysis.md) |
 | [`research/litellm/`](research/litellm/) | LiteLLM 源码调研、调用链与性能观察 | [协议分析](research/litellm/chat-responses-analysis.md)、[调用链](research/litellm/proxy-call-chain-analysis.md)、[性能分析](research/litellm/proxy-performance-bottlenecks.md) |
+| [`research/cc-switch/`](research/cc-switch/) | cc-switch 的 Codex Responses ↔ Chat bridge、agent tool context、跨请求 tool-call 恢复与 SSE 状态机调研 | [协议与工具转换分析](research/cc-switch/chat-responses-tool-conversion-analysis.md) |
 | [`research/codex/`](research/codex/) | Codex 本地客户端 OAuth 与 Responses tool lifecycle 源码调研 | [OAuth 与工具调用](research/codex/oauth-and-tool-call-analysis.md) |
 | [`research/chatgpt-oauth/`](research/chatgpt-oauth/) | Hermes 与 LiteLLM 的 ChatGPT/Codex subscription OAuth 实现调研 | [OAuth 实现对比](research/chatgpt-oauth/hermes-and-litellm-oauth-analysis.md) |
 | [`specifications/openai/`](specifications/openai/) | OpenAI 官方 API 的协议与规范快照 | [规范目录](specifications/openai/api-specification-catalog.md)、[Chat Completions](specifications/openai/chat-completions-protocol.md)、[Responses](specifications/openai/responses-protocol.md) |

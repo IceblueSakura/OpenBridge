@@ -70,6 +70,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [控制面、模型、密钥与可观测性](docs/architecture/control-plane-models-keys-and-observability.md) | 模型别名/路由、proxy-issued API key、审计和日志设计 | 目标设计，待实施 |
 | [Hermes Agent 协议分析](docs/research/hermes/chat-responses-analysis.md) | Hermes 的 Chat/Responses adapter 与 continuation state | 已有 |
 | [LiteLLM 协议分析](docs/research/litellm/chat-responses-analysis.md) | LiteLLM 的双向 bridge 和 provider gateway | 已有 |
+| [cc-switch 协议与工具转换分析](docs/research/cc-switch/chat-responses-tool-conversion-analysis.md) | cc-switch 的 Codex Responses ↔ Chat bridge、tool context、history recovery 与 SSE 状态机；仅作设计参考 | 已有 |
 | [Chat/Responses 转换设计](docs/design/chat-responses-conversion.md) | Canonical IR、转换器与 stream state machine 建议 | 已有 |
 | [OpenAI API 规范目录](docs/specifications/openai/api-specification-catalog.md) | OpenAI 端点和规范地图 | 已有 |
 | [Chat Completions 协议](docs/specifications/openai/chat-completions-protocol.md) | Chat Completions wire contract | 已有 |
