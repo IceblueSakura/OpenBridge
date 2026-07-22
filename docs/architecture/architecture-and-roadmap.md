@@ -1,251 +1,423 @@
-# OpenAI API Proxy：目标架构与分阶段路线
+# OpenBridge 单用户 Provider 聚合代理：目标架构与收敛路线
 
 ## 状态
 
-本文定义目标架构、阶段边界和验收意图。当前已实现的 API、配置、路由和 SSE 行为见[当前实现说明](../implementation/current-implementation.md)；具体实施任务与退出条件以[开发计划](../plans/development-plan.md)为准。两者出现表述差异时，以当前实现说明（现状）和开发计划（后续工作）的分工为准。
+**Working hypothesis。** 部分 HTTP/SSE、route snapshot、capability gate 和 fallback 假设已由原型验证；Provider 抽象、目标客户端契约和 bridge 状态模型仍需外部反例与真实 fixture 收敛。
 
-## 1. 结论
+## 1. 架构结论
 
-推荐把 proxy 拆为**数据面**和**控制面**：数据面只负责已授权请求的解析、路由、转发、SSE/协议转换和最小审计；控制面管理上游凭证、deployment、模型别名、proxy key、策略和日志投递。不要让 HTTP handler 同时承担 OAuth、密钥存储、模型管理和协议转换。
+OpenBridge 默认是一个单进程、单用户、单配置所有者的服务。它不拆分独立控制面和数据面，也不建立 tenant/principal/配额/合规审计系统。
 
-```mermaid
-flowchart LR
-    C[OpenAI-compatible client] --> I[Ingress: request id / size limit]
-    I --> A[Inbound auth + authorization]
-    A --> V[Protocol validation]
-    V --> M[Public model resolver]
-    M --> R[Route selector + capability gate]
-    R --> P[Native forwarder or protocol bridge]
-    P --> U[Provider adapter]
-    U --> X[Upstream provider]
-    X --> U --> P --> C
-
-    K[Key control] --> A
-    D[Deployment / alias registry] --> M
-    D --> R
-    S[Credential vault] --> U
-    L[Audit / metrics sink] <-- I
-    L <-- A
-    L <-- R
-    L <-- P
-```
-
-## 2. 边界和不变量
-
-### 2.1 数据面
-
-数据面是请求热路径，输入只有 HTTP request、已验证 principal 和不可变的 route snapshot。它必须：
-
-- 不读取明文上游 credential；只按 credential binding id 向受控 provider client 取临时认证头。
-- 在首次对外可用前即生成 `proxy_request_id`；将客户端 `X-Client-Request-Id` 作为可记录的外部关联值，而不是授权依据。
-- 对请求 body、SSE event 和缓冲区设置上限；按协议而非网络 chunk 解析 SSE。
-- 固定 `model → alias → deployment candidates` 的解析结果，避免同一 stream 中控制面配置改变导致路由漂移。
-- 不信任或透传客户端提供的 provider、`api_base`、proxy 配置、上游 credential、内部 metadata 和调试 header。
-- Rust provider 扩展通过 [Rust provider adapter 与数据流](rust-provider-adapter-dataflow.md) 定义的 trait 组合注入；数据流 stage 不按 provider name 写分支，也不解释运行时 JSON Registry 规则。
-
-### 2.2 控制面
-
-控制面管理慢变化配置和敏感状态：
+逻辑架构：
 
 ```text
-Provider
-  └─ CredentialBinding (secret reference, issuer/account/expiry/status)
-       └─ Deployment (upstream endpoint + upstream model + capability profile)
-            └─ PublicModelAlias (stable name + routing policy)
-
-Principal / ProxyKey
-  └─ grants: allowed aliases, endpoints, RPM/TPM, expiry, audit policy
+Codex / Hermes / OpenAI-compatible client
+                    │
+                    ▼
+┌────────────────────────────────────────────┐
+│ HTTP ingress (JSON/SSE)                    │
+│ /v1/responses  /v1/chat/completions        │
+│ body limit / request id / optional token   │
+└──────────────────────┬─────────────────────┘
+                       ▼
+┌────────────────────────────────────────────┐
+│ Request classifier                         │
+│ protocol / alias / requested capabilities  │
+└──────────────────────┬─────────────────────┘
+                       ▼
+┌────────────────────────────────────────────┐
+│ Route planner                              │
+│ alias → ordered candidates                 │
+│ capability filter / state affinity         │
+│ native-or-bridge decision                  │
+└───────────────┬────────────────────────────┘
+                │ immutable RoutePlan
+         ┌──────┴────────┐
+         ▼               ▼
+┌────────────────┐  ┌────────────────────────┐
+│ Native Path    │  │ Protocol Bridge        │
+│ minimal rewrite│  │ wire → Bridge IR → wire│
+│ preserve wire  │  │ supported subset only  │
+└───────┬────────┘  └───────────┬────────────┘
+        └────────────┬──────────┘
+                     ▼
+┌────────────────────────────────────────────┐
+│ Provider adapter + shared HTTP/SSE transport│
+└──────────────────────┬─────────────────────┘
+                       ▼
+                 Upstream Provider
 ```
 
-控制面写入必须有 audit event；数据面只读已验证、带版本的 snapshot。第一版可以是受版本控制的本地配置和单进程内存 cache，不要在模型路由尚未稳定前先建设完整管理 UI。
+同一个进程内可以存在配置、usage sink 和 future hosted-tool 模块，但它们不形成企业级控制平面。首版下游 transport 是 HTTP JSON/SSE；Responses WebSocket 保留为显式扩展点，而不是默认兼容承诺。
 
-### 2.3 两类认证绝不混用
+## 2. 核心数据模型
 
-| 认证对象 | 作用 | 可出现的位置 | 禁止事项 |
+### 2.1 Provider Family
+
+代码中实现的一类协议和认证行为：
+
+```text
+ProviderFamily
+  id
+  native_protocols
+  request adapter(s)
+  response/SSE adapter(s)
+  auth/header adapter(s)
+  error classifier
+  capability upper bound
+```
+
+首批建议：
+
+```text
+openai
+openai-compatible
+anthropic
+```
+
+一个 Provider Family 可以服务多个运行时 deployment。对轻微 header/path 差异优先复用公共 adapter，而不是复制完整 transport。
+
+### 2.2 Deployment
+
+受信配置中的一个上游目标：
+
+```text
+Deployment
+  id
+  provider_family
+  base_url
+  credential_ref
+  upstream_model
+  native_protocols
+  native_transports
+  capabilities
+  timeout
+  enabled
+```
+
+服务所有者可以配置 base URL 和 adapter 明确允许的少量非认证 header。业务请求不能覆盖这些值。
+
+### 2.3 Public Model Alias
+
+下游客户端使用的稳定名称：
+
+```text
+PublicModelAlias
+  name
+  candidates: ordered deployment ids
+```
+
+第一版 candidate 顺序就是确定性优先级。alias 不应隐式承诺所有 candidate 完全等价；route planner 仍需按协议、请求 feature 和 state affinity 过滤。
+
+### 2.4 RoutePlan / RouteSnapshot
+
+单次请求固定的不可变结果：
+
+```text
+RoutePlan
+  request_id
+  public_alias
+  selected_deployment
+  remaining_eligible_candidates
+  downstream_protocol
+  downstream_transport
+  upstream_protocol
+  upstream_transport
+  mode: native | bridge
+  capability_decision
+  credential_binding_id
+  continuation_binding
+  fallback_boundary
+  config_version
+```
+
+配置 reload 只影响后续请求；进行中的 stream 继续持有原 snapshot。
+
+## 3. Native Path 与 Protocol Bridge
+
+### 3.1 Native Path
+
+适用于：
+
+```text
+Responses → Responses
+Chat Completions → Chat Completions
+```
+
+行为：
+
+- 解析路由所需的 `model`、`stream` 和 feature indicators；
+- 将 public alias 改写为 `upstream_model`；
+- 构造受信 URL、认证和必要 Provider header；
+- 尽量保留未知但合法的 request/response 字段；
+- 对 SSE 做 framing、terminal/error 识别和取消传播；
+- 不先完整转换为通用 IR 再重新渲染。
+
+这样可降低新字段丢失、目标客户端版本漂移和不必要分配。
+
+### 3.2 Protocol Bridge
+
+适用于：
+
+```text
+Responses → Chat Completions
+Chat Completions → Responses
+Chat/Responses → Anthropic Messages
+```
+
+只转换明确支持的语义。首个 bridge slice：
+
+- text message/item；
+- function tool schema；
+- function call；
+- tool result；
+- usage；
+- terminal outcome 的最小映射。
+
+以下默认不是首个 slice 的等价能力：
+
+- Provider-hosted tool；
+- resource/background API；
+- Provider-bound continuation；
+- opaque reasoning/encrypted content；
+- 未知 source-specific item；
+- 无法保持 identity 的并行工具调用；
+- 未经验证的 multimodal item。
+
+详见 [Chat/Responses bridge 设计](../design/chat-responses-conversion.md)。
+
+## 4. Provider adapter 与共享 transport
+
+建议模块边界：
+
+```text
+src/
+  core/           # IDs, RoutePlan, errors, capability
+  config/         # trusted owner configuration and snapshots
+  ingress/        # HTTP endpoints, request id, body limits, static token
+  routing/        # alias resolution, eligibility, selection, fallback policy
+  protocol/       # wire models and Bridge IR
+  bridge/         # protocol-pair converters and stream assemblers
+  provider/       # adapter traits and ProviderFamily catalog
+  providers/      # concrete provider families
+  transport/      # shared HTTP client, SSE framing, cancellation
+  usage/          # optional bounded UsageRecord sink
+```
+
+依赖方向应避免 ingress/router 识别具体 Provider header 或 token 形状。Provider adapter 也不应自行决定 public alias 和 candidate 顺序。
+
+共享 transport 负责：
+
+- 连接池；
+- 禁止不受控 redirect；
+- request/response body limits；
+- SSE framing；
+- deadline 与 cancellation；
+- 首输出前 retry boundary；
+- 安全响应 header 保留。
+
+Provider adapter 负责：
+
+- path/query/body 差异；
+- auth 与固定/受限 header；
+- Provider wire response/SSE event；
+- terminal 和错误分类；
+- capability upper bound。
+
+## 5. Capability 模型
+
+能力分成两层：
+
+1. deployment/model 记录上游原生协议、transport 和 feature 能力：`Supported | Unsupported | Unknown`，并受 Provider Family 的 capability upper bound 约束；
+2. route planner 针对具体下游协议和请求 feature 计算有效结果：
+
+```text
+Native | Bridged | Unsupported | Unknown
+```
+
+`Bridged` 不是服务所有者可以凭配置声明的 Provider 事实；它必须由已实现的协议对 converter、目标协议和 feature preservation rule 推导。
+
+route planner 的判断顺序：
+
+```text
+alias candidates
+→ endpoint/protocol/transport eligibility
+→ requested-feature capability
+→ continuation/state affinity
+→ enabled/cooldown state
+→ ordered selection
+```
+
+`Unknown` fail closed；只有明确 fixture 或官方契约支持后才升为 `Native`/`Bridged`。
+
+能力不是 Provider 名称的静态布尔值，至少受 deployment、model、endpoint/API version 和 feature combination 影响。第一版可以用显式配置和测试固定结果，不必建立动态能力发现服务。
+
+## 6. 路由、attempt 与 fallback
+
+将“路由”拆成四个步骤：
+
+1. **Eligibility**：协议、capability、credential 和 state 是否允许；
+2. **Selection**：从合格 candidate 中按配置顺序选第一个；
+3. **Attempt policy**：哪些首输出前失败允许重试/下一个 candidate；
+4. **Continuation policy**：有状态请求是否必须回到 issuing deployment。
+
+核心第一版允许 fallback 的典型情况：
+
+- connect/DNS/TLS failure；
+- 明确 429 或配置允许的 5xx；
+- response body 尚未交给下游时的 timeout；
+- 上游未产生任何可观察业务输出。
+
+禁止透明 fallback：
+
+- 已输出任何业务 JSON/SSE；
+- 请求携带 `previous_response_id` 或 Provider resource ID；
+- tool result 正在回复特定 issuing call；
+- 上游可能已执行有副作用的 Provider-hosted action；
+- 无法判断上游是否已接受请求且重复可能产生副作用。
+
+可在核心后加入被动 cooldown，不需要主动健康检查集群。
+
+## 7. 状态所有权
+
+| 状态 | 所有者 | 生命周期 | 可否跨 deployment |
 |---|---|---|---|
-| 入站 proxy key | 识别和限制调用 proxy 的 client | 标准 HTTP bearer header；仅在入站校验层使用 | 不能作为上游 OpenAI/Codex credential |
-| 上游 provider credential | 代表 proxy 访问一个 provider/deployment | credential vault → provider adapter | 不返回给 client；不入请求/响应日志 |
-| Codex/ChatGPT OAuth token | 特定 issuer/account 的上游凭证或 Codex client 认证材料 | 仅专用 credential adapter | 不跨账户、issuer、endpoint 或 provider replay |
+| RoutePlan | OpenBridge request | 单请求/stream | 否 |
+| SSE assembly | protocol adapter/bridge | 单 stream | 否 |
+| Tool identity map | Protocol Bridge | 单请求或明确 continuation ledger | 默认否 |
+| `previous_response_id` | issuing Provider/deployment | Provider 定义 | 否 |
+| Credential material | service owner + credential source | 配置/refresh 生命周期 | 仅绑定对应 deployment |
+| UsageRecord | optional local sink | 请求结束后 | 可聚合，但不参与路由 |
+| Hosted tool session | future facade | 单 tool call/Provider contract | 默认否 |
 
-## 3. 分阶段路线
+任何跨请求 ledger 都必须有 issuer、deployment、expiry 和歧义拒绝规则。第一版可以对无法安全恢复的 continuation 直接拒绝，而不是为了兼容而建立隐式全局 cache。
 
-用户的六项目标保留，但需要增加 Phase 0，并将“可公开运行”的安全门前移。Phase 1–3 只能绑定 loopback 或私有开发网络；Phase 4 完成前不得作为共享 proxy 暴露。
+## 8. 配置与网络边界
 
-### Phase 0：契约基线和可替换骨架
+配置分两类：
 
-**目标**：在真正转发前固定可测试的公共边界。
+### 启动级配置
 
-**范围**
+- listen address；
+- request/SSE limits；
+- upstream origin policy；
+- connection pool；
+- optional downstream static token reference；
+- route config path。
 
-- 创建 request context、统一错误模型、provider client interface、route snapshot、SSE parser interface。
-- 导入 Chat/Responses 非流式与流式 fixtures；标记 native-pass-through 和 conversion 两种期望。
-- 建立 `/healthz` 与只读配置版本诊断；不泄露 deployment URL 或 credential 状态细节。
-- 实现 request size、stream event size、idle timeout、取消传播和 outbound allowlist 的基础设施。
+### 可 reload 路由配置
 
-**验收门**
+- deployments；
+- credential references；
+- model aliases；
+- capability declarations/overrides；
+- timeout、enable state 和 candidate 顺序。
 
-- 不连真实 provider 的 contract test 可验证解析、错误和 SSE framing。
-- 任何日志/异常中不存在 `Authorization`、cookie、OAuth token、refresh token 或完整 API key。
-- 仅监听 loopback；配置不能让请求指定任意出站 URL。
+reload 必须构建并验证完整新 snapshot 后原子替换。受信配置可定义兼容 endpoint，但不能注入任意代码、模板转换或动态脚本。
 
-### Phase 1：Chat 与 Responses 的原生转发（已完成）
+详细配置设计见[本地配置、路由与使用量](local-configuration-routing-and-usage.md)。
 
-**目标**：支持 `POST /v1/chat/completions` 和 `POST /v1/responses` 到一个已配置上游 deployment 的透明转发；不做模式转换。
+## 9. 目标客户端
 
-**范围**
+- Codex：P0 native Responses over HTTP/SSE；使用独立 custom Provider id，并显式配置 `supports_websockets = false`；
+- Hermes：P0 native Chat，P1 native Responses；
+- bridge 优先解决 Codex Responses → Chat-only Provider，再验证 Hermes Chat → Responses-only Provider。
 
-- 验证 HTTP method/content type/body 上限，并只接受配置允许的 public model。
-- 将 public model 映射成一个预置 deployment；转发允许的请求字段，保留 upstream HTTP status、`openai-request-id`、rate-limit headers 和错误 body 的安全子集，同时保留 proxy 自己的 `x-request-id`。
-- 非流式 JSON 透明返回；流式按 SSE event 转发，不能将网络 chunk 当 event/JSON 边界。
-- 客户端取消必须取消上游 HTTP request；EOF 未见协议终态必须记录为不完整 stream，而不是伪造成功。
-- 每个成功、失败和 SSE 请求生成稳定的 proxy `x-request-id`；在尚未写出下游 SSE bytes 前，使用 OpenAI 风格 JSON error envelope 返回失败，并保留安全的 `retry-after` / `x-should-retry` 语义。
-- 上游 retry 仅可发生在尚未向下游发出业务 SSE event 前；已输出部分 stream 后不得重试并拼接第二次结果。
+测试以完整 Agent tool loop 为核心，不以“SDK 能解析一次响应”替代。详见[目标客户端契约](../design/target-client-contracts.md)。
 
-**明确不做**
+## 10. 调研与实施收敛路线
 
-- 多 provider fallback、动态别名、OAuth login、公开 API key、Chat ↔ Responses 转换、Responses resource emulation。
+### Gate C0：范围与客户端契约
 
-**验收门**
+产物：
 
-- OpenAI SDK Python/Node 的 Chat/Responses 非流式与 `stream=true` fixture 均可消费。
-- Chat 流保留 `choices[].delta` 与终态 `finish_reason`；Responses 流保留 JSON `type` 和 `response.completed/failed/incomplete`。
-- 用断开的 UTF-8、多 SSE event 同 chunk、一个 event 跨多个 chunk、多行 `data:`、取消和 idle timeout fixtures 验证。
+- 单用户核心/非目标；
+- 固定 Codex 与 Hermes 版本；Codex 同时固定 custom Provider 配置和 HTTP/SSE transport profile；
+- native/bridge 兼容矩阵；
+- 原始请求与 SSE corpus 结构。
 
-**SDK 兼容性注意**：SSE 标准允许只含 `id`/`retry`/`event` 的 metadata frame，但当前 OpenAI Python SDK 的 stream loop 会对其 decoder 产出的每个 event 调用 JSON decode；首版 proxy 不应主动生成无 `data` 的 metadata-only frame。此限制是 SDK 互操作策略，不是把 metadata frame 误判为非法协议。已核对源码快照 `openai/openai-python@d4dceb221b9a92c55c232d5b330ae89beb539415`：[stream loop](https://github.com/openai/openai-python/blob/d4dceb221b9a92c55c232d5b330ae89beb539415/src/openai/_streaming.py#L57-L101)、[SSE field decoder](https://github.com/openai/openai-python/blob/d4dceb221b9a92c55c232d5b330ae89beb539415/src/openai/_streaming.py#L333-L386)。
+### Gate C1：双 Native Path
 
-### Phase 2：proxy 自主管理单一 Codex OAuth credential
+产物：
 
-**目标**：不通过 Codex CLI 中转；proxy 自己完成 provider 的 browser PKCE login、加密保存、refresh、revoke 和 re-login。当前每个 provider 只允许一个 active credential；详见 [Codex OAuth 凭证边界](../design/codex-oauth-credential-boundary.md) 与 [开发计划](../plans/development-plan.md)。
+```text
+Codex Responses HTTP/SSE → OpenAI Responses-compatible upstream
+Hermes Chat → OpenAI-compatible Chat upstream
+```
 
-**范围**
+退出条件：两个目标 Agent 各完成一个真实多轮 function tool loop，并覆盖 cancel/error/EOF；Codex 诊断确认 custom Provider 未启用 WebSocket。
 
-- 建立 `ProviderCredential`、secret vault、短时 `LoginSession` 和 provider adapter；普通数据库只保存 secret reference/version/expiry/account fingerprint/state。
-- 先实现 browser authorization-code + PKCE；device code 仅在真实 OAuth 契约确认支持且适用后加入。
-- 每 provider 单飞 refresh lock + secret version CAS；`invalid_grant`、token reuse、撤销或 issuer/account mismatch 进入 `NeedsReauth`。
-- provider adapter 仅向配置 allowlist deployment 临时构造认证头；数据面、日志、route resolver 不接触明文 token。
-- 提供受信 admin login/callback/status/revoke 接口；不导入 `auth.json`，不使用 CLI 作为 token relay。
+### Gate C2：Provider 聚合核心
 
-**验收门**
+产物：
 
-- mock issuer 验证 PKCE/state、redirect/issuer substitution、rotation、并发 refresh、`invalid_grant`、revoke 和 restart。
-- browser login → encrypted persistence → request → refresh → revoke 的真实链路只有在 OAuth client registration、endpoint、scope/resource、条款 preflight 通过后实现。
-- token 不出现在 HTTP response、audit、trace、error、queue、普通 DB 字段或 crash diagnostic。
-- 若真实 OAuth preflight 不通过，真实 Codex OAuth 接入停止在 mock adapter；Phase 1 的标准 API-key upstream 路径保持可用。
+- Provider Family + Deployment + Alias + RoutePlan；
+- 至少两个 Provider Family；
+- capability filtering；
+- ordered candidate 与首输出前 fallback；
+- state affinity。
 
-### Phase 3：多 provider、deployment 和稳定模型别名（路由基线已完成）
+### Gate C3：最小双向 Bridge
 
-**目标**：一个 public model 可解析为多个同能力 deployment，并在明确策略下选择上游。
+先后顺序：
 
-**范围**
+1. Responses → Chat；
+2. Chat → Responses。
 
-- 静态 registry：`Provider`、`Deployment`、`PublicModelAlias`、`CapabilityProfile`、`RoutingPolicy`；当前每个 provider 只绑定一个 active credential。
-- 只读 `/v1/models` 从 public aliases 生成；不暴露上游 credential 或内部 provider route。
-- alias 解析、权限过滤、健康状态、优先级/权重、有限的同协议 fallback。
-- 每个 deployment 标注 `chat/responses`、streaming、tool kinds、structured output、background、continuation replay 等能力。
+只承诺文本和普通 function tool loop。每个不等价能力有 reject/approximation classification。
 
-**验收门**
+### Gate C4：异构 Provider 验证
 
-- alias 解析是确定性的：相同 snapshot + principal + request 产生相同 candidate set。
-- 无能力的参数在调用前返回可解释的 4xx/`unsupported_feature`，不会静默删除。
-- fallback 不跨 protocol、不跨 issuer replay opaque state，且把尝试次数/最终 route 写入审计。
+引入 Anthropic Messages 或等价 archetype，验证：
 
-### Phase 4：入站 proxy-issued API key 和授权
+- 内容块；
+- tool use/tool result identity；
+- stop reason；
+- streaming event；
+- Provider-specific error。
 
-**目标**：让 proxy 可安全供受信 client 使用；详见 [控制面、模型、密钥与可观测性](control-plane-models-keys-and-observability.md)。
+如果 Provider Family、Bridge IR 或 state model 必须调整，应在此 gate 完成，而不是继续堆叠 Provider。
 
-**范围**
+### Enhancement E1+
 
-- 签发、显示一次、验证、撤销、过期、轮换 proxy-issued opaque key。
-- principal → aliases/endpoints/scopes/RPM/TPM/concurrency/日志策略的授权决策。
-- auth 失败的恒定时间比较、最小错误信息、IP/principal 限流、防暴力尝试和管理操作审计。
+核心稳定后依次考虑：
 
-**验收门**
+1. UsageRecord JSONL/SQLite；
+2. 被动 cooldown；
+3. Hosted Tool Facade；
+4. Tool Bridge/MCP；
+5. optional OAuth；
+6. UI。
 
-- 数据库和日志均没有明文 key；撤销和过期在 cache 失效预算内生效。
-- 一个 key 不能访问未授权 alias、管理 API、未授权 endpoint 或其他 principal 的 resource。
-- 负载测试确认 Argon2/verification 与 rate limiter 不会阻塞 SSE/请求事件循环。
+Hosted tool 不依赖 Protocol Bridge 完成；其前置是 native hosted-tool Provider route、能力声明、取消/超时、结果/citation 契约和最小使用量记录。
 
-### Phase 5：请求审计、指标和隐私策略
+## 11. 质量门
 
-**目标**：可关联、可排障、默认不记录 prompt/response 内容的观测能力；详见 [控制面、模型、密钥与可观测性](control-plane-models-keys-and-observability.md)。
+| 层次 | 最小验证 |
+|---|---|
+| Unit | config、alias、capability、SSE parser、error classification |
+| Contract fixture | 每个 Provider Family 的 JSON/SSE/tool/error corpus |
+| Client compatibility | 固定 Codex/Hermes 版本的完整 tool loop |
+| Bridge property | identity、ordering、terminal、round-trip preservation class |
+| Security boundary | client 不能覆盖 URL/header/credential；secret scan；non-loopback token |
+| Resource behavior | cancellation、slow consumer、有界 buffer、首输出前 fallback |
 
-**范围**
+## 12. 已拒绝或延期的方向
 
-- 结构化 audit event、metrics、trace correlation、SSE terminal/TTFT/耗时/usage/route/result 分类。
-- 默认 metadata-only；内容捕获必须是显式、受权限控制、有保留期和 redaction 的独立策略。
-- 日志入队异步化，避免在 token stream 热路径同步写数据库。
+- **所有请求统一进入 Canonical IR**：拒绝作为默认路径；Native Path 应保留 wire 兼容性。
+- **完全运行时 JSON Provider 行为**：当前拒绝；协议/auth/转换仍由代码实现，运行时只配置 deployment 数据。
+- **每个兼容 endpoint 都编译成独立 Provider enum**：拒绝；同一 Provider Family 应允许多个受信 deployment。
+- **企业级 key/principal/配额/审计作为核心**：拒绝；不符合单用户目标。
+- **真实 Codex subscription OAuth 作为主线前置**：延期/Blocked；API key 路径独立推进。
+- **Responses WebSocket 作为首版核心 transport**：延期；先验证 Codex custom Provider 的 HTTP/SSE profile，触发条件见目标客户端契约。
+- **Hosted Tool/MCP 进入核心关键路径**：延期；在聚合和 bridge 核心稳定后实施。
 
-**验收门**
+## 13. 关联文档
 
-- 能通过 `proxy_request_id` 关联入站、路由、上游 `x-request-id`、最终状态和重试。
-- redaction 测试证明不会记录 bearer token、cookie、OAuth material、完整 API key、工具 secret 或未授权内容。
-- audit sink 不可用时有明确 fail-open/fail-closed policy，且不会无界占用内存。
-
-### Phase 6：Chat Completions ↔ Responses 转换
-
-**目标**：在明确 capabilities 和可观测的降级策略下实现双向转换。
-
-**前置条件**：Phase 1 的 native forwarding、Phase 3 capability profile、Phase 5 observability 都已完成。
-
-**范围**
-
-- 实现 `wire → Canonical IR → wire` 的双向 request、final response 和 SSE renderer；首个切片只支持文本与 function tool schema/call/result。Canonical IR 详见 [Chat/Responses 转换设计](../design/chat-responses-conversion.md)。
-- source tools 解析后创建 per-request `ToolConversionContext`，在 request、final response 和 SSE renderer 间共享 source kind/name/schema 到 target tool name/schema 的映射；不以 provider/model 名称或全局 cache 推断恢复关系。
-- 两个独立 stream assembler；维护 item/call/response/output-index identity、Chat tool index、fragmented arguments、late/empty id/name、usage 与 terminal owner。
-- 当 Responses `function_call_output` 只有 `previous_response_id` 关联时，仅可由 issuer/deployment-bound、带 expiry 的 continuation ledger 补回完整 assistant call group；禁止跨 route 或 global unique-`call_id` fallback。
-- re-entry guard，防止 Responses→Chat fallback 又被再次选择为 Chat→Responses bridge。
-- 对 built-in/custom/namespace/tool-search、background/resource APIs、`previous_response_id`、opaque reasoning、schema adaptation 和 status 的不等价情况返回明确 capability error 或 conversion notice。
-
-**验收门**
-
-- Chat↔Responses 的文本、连续/并行 function calls、tool result、usage、structured output、fragmented arguments、late/empty tool identity、stream terminal/error/cancel fixtures 通过。
-- `output_item.done` 不会结束 Responses stream；并行 calls 的 `output_index` 保持 source logical order；tool arguments 只在完整后 parse/canonicalize/validate。
-- `previous_response_id` 的同 issuer/deployment call-group 恢复、跨 route/过期/歧义拒绝与 re-entry guard fixture 通过。
-- 每个有损转换都有 machine-readable `ConversionNotice` 和 metadata-only 审计记录；不得静默伪造 native lifecycle。
-
-### Phase 7：Provider-hosted tool 的 MCP facade
-
-**目标**：以独立、受控的 MCP server 将 provider-native hosted tool 规范化为 MCP local tool result；首个 tool 为 OpenAI Responses `web_search`。该 facade 调用 provider 并解析其 hosted output，不是通用 function executor，也不把 `web_search_call` 转为 `function_call_output`。
-
-**范围**
-
-- MCP server 复用数据面的 route snapshot、capability gate、provider adapter、credential binding、取消与限额，以及控制面的 principal scope 和 metadata audit。
-- 返回 answer、结构化 citation、source list 与安全的 proxy correlation id；citation range 仅绑定 facade answer，不可直接套用到外层 Agent 改写后的最终回答。
-- 初始仅提供受信本机 `stdio` MCP transport；远程 MCP transport 必须单独完成认证、tenant isolation、限流和内容保留设计。
-
-**验收门**
-
-- native Responses/web-search/citation capability 与 principal scope 缺一不可；不满足时上游调用前 fail closed。
-- MCP `structuredContent` 与兼容 text content 均符合公开 output schema；不会暴露完整 provider payload、credential、URL 配置或未经授权的内容。
-- 至少一个目标 MCP client 可保留可点击 citation，或显式报告 citation delivery 不受支持。
-
-完整契约、错误模型和实施切片见[Hosted tool MCP 暴露需求](../requirements/hosted-tools-mcp.md)。
-
-## 4. 质量门和测试层次
-
-| 层次 | 最小验证 | 适用阶段 |
-|---|---|---|
-| Unit | validation、alias resolver、key verifier、token state machine、SSE parser | 全部 |
-| Fixture/contract | 官方 Chat/Responses JSON 与 SSE transcript；断流/错误/未知字段 | 0、1、6 |
-| Mock provider integration | HTTP headers、cancellation、retry、OAuth refresh、route fallback | 1–4 |
-| SDK compatibility | OpenAI Python/Node SDK 调用 proxy 的非流式/流式场景 | 1、6 |
-| Security | secret scan、authorization matrix、redaction、SSRF/URL allowlist、rate limit | 0、2、4、5 |
-| Soak/load | 并发 SSE、slow consumer、credential refresh storm、audit sink backpressure | 2、4、5、6 |
-
-## 5. 已否决或延期的方案
-
-- **先做转换后做 native forwarding**：否决。缺少透明基线时无法定位问题来自 adapter、provider 还是 converter。
-- **把所有 provider 都伪装成原生 Responses**：否决。Responses 有 resource、background、built-in tool 和 continuation 语义；不能只返回一个 JSON 外形。
-- **将 OAuth token 当作客户端 API key**：否决。生命周期、授权边界、撤销和审计语义不同，且扩大泄露面。
-- **在 Phase 4 前公网开放**：否决。未认证转发会成为共享上游 credential 的滥用通道。
-- **默认记录完整 prompts/responses 以便调试**：否决。先记录 metadata 和关联 id；内容记录只作为受控诊断能力。
-
-## 6. 一手参考
-
-- OpenAI API overview（authentication、request IDs、rate limit headers、向前兼容）：https://platform.openai.com/docs/api-reference/introduction
-- OpenAI streaming guide（Responses typed events 与 Chat data-only chunks）：https://platform.openai.com/docs/guides/streaming-responses
-- OpenAI Responses streaming event reference：https://platform.openai.com/docs/api-reference/responses-streaming
-- LiteLLM virtual keys（模型范围、key 生命周期、spend tracking 的参考）：https://docs.litellm.ai/docs/proxy/virtual_keys
-- LiteLLM logging（correlation id、metadata-only/redaction 的参考）：https://docs.litellm.ai/docs/proxy/logging
-- OpenAI Python SDK（SSE decoder、retry/error contract 的实现参考）：https://github.com/openai/openai-python
-- OpenAI Node SDK（SSE decoder、retry/error contract 的实现参考）：https://github.com/openai/openai-node
+- [核心需求](../requirements/proxy-requirements.md)
+- [目标客户端契约](../design/target-client-contracts.md)
+- [Rust Provider adapter 与数据流](rust-provider-adapter-dataflow.md)
+- [本地配置、路由与使用量](local-configuration-routing-and-usage.md)
+- [Chat/Responses bridge](../design/chat-responses-conversion.md)
+- [开发与调研收敛计划](../plans/development-plan.md)
+- [当前实现说明](../implementation/current-implementation.md)

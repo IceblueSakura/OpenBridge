@@ -1,165 +1,191 @@
-# Codex OAuth：proxy 自主管理凭证的边界与实施前验证
+# Codex OAuth：可选 credential adapter 的边界与实施前验证
+
+## 状态
+
+**Deferred / Blocked。** OAuth 不是 OpenBridge 单用户 Provider 聚合核心的前置条件。核心先使用标准 Provider API key；只有公开、适用的 OAuth client registration、redirect、scope/resource、token/refresh contract 与条款均确认后，才实施真实 Codex/ChatGPT OAuth。
 
 ## 1. 结论
 
-本项目的已确认目标是：**不通过 Codex CLI 中转；proxy 自己完成登录、加密存储 credential，并 refresh token。** 当前每个 provider 只维护一个 active credential，不考虑同 provider 的多账号、多 workspace、多 credential 选路或 credential pool。
+OpenBridge 可以研究由 proxy 自主管理的 refreshable OAuth credential，但必须保持以下边界：
 
-这会把客户端迁移负担集中到 proxy，但也把 OAuth 协议漂移、token rotation、secret storage、撤销和合规责任集中到 proxy。Codex CLI 的实现可用于学习 PKCE、storage 与 refresh state machine；它不是可直接复制为生产 OAuth client 的授权。
+- 不通过 Codex CLI 中转登录、refresh 或 token storage；
+- 不导入、复制或监视 `~/.codex/auth.json`；
+- 不复用未经确认可供第三方 proxy 使用的 Codex CLI client identity、私有 endpoint 或 scope；
+- 不把上游 OAuth token 当作下游 OpenBridge Bearer token；
+- OAuth 失败或长期阻塞不影响 API-key Provider、native forwarding、routing 或 Protocol Bridge。
 
-真实 OAuth client registration、redirect URI、scope/resource、token endpoint、refresh 行为和适用条款是 **Phase 2 的硬门**。如果无法确认，真实 Codex OAuth 接入必须暂停；不得退回到导入 `auth.json`、复用未确认的 Codex CLI 内部 client ID/endpoint，或将 Codex CLI 作为中转依赖。
+Codex 源码可用于学习 PKCE、secret storage、rotation 和 refresh state machine，但不能替代正式授权契约。
 
-## 2. 范围和非目标
+## 2. 适用范围
 
-### 当前范围
+若未来启用，一个 deployment 绑定一个明确 credential reference：
 
 ```text
-Provider ── 1:1 ── ActiveCredential
-                    └─ Deployment(s)
+Deployment
+  └─ CredentialBinding
+       ├─ ApiKey
+       └─ RefreshableOAuth   # optional
 ```
 
-- proxy 发起 browser authorization-code + PKCE login；device code 仅在确认支持后加入。
-- proxy 在 secret vault 中保存 access/refresh token，以 secret reference + version 供 provider adapter 使用。
-- proxy refresh token、处理 rotation、进入 `NeedsReauth`、提供 revoke/re-login。
-- 任何上游认证头仅由 provider adapter 在调用前短时构造。
+首个 OAuth adapter 只需支持单用户、单 active credential；不提前设计：
 
-### 当前非目标
-
-- Codex CLI 的 login、auth cache 或 refresh 中转。
-- 导入、复制或上传 `~/.codex/auth.json`。
-- 同 provider 多 credential、多 token 轮换、多账号/工作区路由或按 credential 负载均衡。
-- 将 proxy 实现为 `auth.openai.com` OAuth issuer、browser MITM 或通用 OAuth relay。
-- 把 Codex OAuth token 当作下游 client 的 proxy API key。
+- 多账号池；
+- workspace/tenant routing；
+- credential priority/weight；
+- 多账号 failover；
+- subscription account aggregation。
 
 ## 3. Credential 与 secret 边界
 
 ```text
-ProviderCredential
-  provider_id                    // unique: one active credential per provider
-  kind: oauth | api_key
+OAuthCredentialMetadata
+  provider_family
+  deployment_id
   issuer
-  account_ref                    // non-secret fingerprint only
-  scopes / resource              // provider-specific metadata
-  state: NeedsLogin | Active | Refreshing | NeedsReauth | Revoked
+  account_fingerprint       # non-secret
+  scopes/resource           # confirmed contract only
+  state
   expires_at
-  secret_ref                     // vault entry, not token value
+  secret_ref
   secret_version
   refreshed_at
   last_error_code
 ```
 
-数据库或配置层对 `provider_id` 必须设唯一约束。不要为未来多 credential 提前增加 selector、priority、weight、fallback 或 collection；当前 adapter 只取该 provider 的一个 active binding。
+secret store 中保存完整 rotated credential bundle；普通配置/数据库只保存 reference 和非 secret metadata。
 
-- 普通 database、日志、trace、queue、error 和管理 API 不保存或返回 access token、refresh token、authorization code、完整 callback URL query。
-- token 采用 envelope encryption 或 secret manager 保存；服务进程仅在 provider adapter 构造上游请求时临时解密。
-- `account_ref` 仅用于审计、账户切换检测和显式 binding；不要把未经验证的 JWT payload 当作授权依据。
-- issuer、resource/audience、deployment allowlist 与 provider 必须绑定；token 不得被转发到 client 指定的任意 URL 或其他 provider。
+不得进入普通日志、HTTP response、fixture 或错误：
 
-## 4. 登录流程
+- authorization code；
+- PKCE verifier；
+- access token；
+- refresh token；
+- cookie；
+- 完整 callback query；
+- 可重放 account/session material。
 
-### 4.1 默认：browser authorization-code + PKCE
+Provider、issuer、resource/audience、account fingerprint 和 deployment 必须绑定。token 不能发送到业务请求指定的 URL。
+
+## 4. 登录方式
+
+### 4.1 Browser authorization-code + PKCE
+
+仅在官方契约确认支持时：
 
 ```text
-POST admin/providers/{provider}/credential/login
-  → LoginSession(id, provider_id, state, sealed_pkce_verifier, expires_at)
-  → authorization URL
-
-GET admin/oauth/callback/{provider}
-  → validate state + provider + redirect policy
-  → exchange code once
-  → write encrypted secret version
-  → credential state = Active
-  → emit metadata-only audit event
+start login
+→ short-lived LoginSession
+→ authorization URL
+→ callback validates provider/state/redirect/issuer
+→ one-time code exchange
+→ atomically persist secret bundle
+→ credential becomes Active
 ```
 
-必须满足：
+要求：
 
-- 使用 PKCE S256；`state` 必须高熵、单次、短 TTL，并绑定发起管理员会话与 provider。
-- callback URI 仅允许预注册 HTTPS 地址；本地开发 loopback callback 必须显式开启，且不得监听所有接口。
-- authorization code、verifier、state、access/refresh token 不出现在常规日志或 callback response。
-- 登录成功后校验 issuer、目标 account/workspace（如真实契约提供）和 deployment binding，再激活 credential。
+- PKCE S256；
+- state 高熵、短 TTL、单次消费；
+- callback 绑定发起会话和 Provider；
+- redirect URI 必须在注册范围内；
+- callback response 和日志不包含 token/code/verifier；
+- 成功后校验 issuer、audience/resource 和可获得的 account binding。
 
-### 4.2 Device code：条件支持
+### 4.2 Device authorization
 
-仅当真实 provider 的 device-code 契约、client registration 与适用条款确认后实现。它必须遵循 server interval、`slow_down`、denied、expired、timeout 和用户取消语义。未确认前不调用或仿造 Codex CLI 的私有 `/api/accounts/deviceauth/*` 路径。
+只有在公开契约和条款确认允许第三方 OpenBridge client 后才考虑。不得直接仿造 Codex CLI 的私有 device endpoints。
 
-## 5. Refresh 与状态机
+## 5. Refresh 状态机
 
-```mermaid
-stateDiagram-v2
-    [*] --> NeedsLogin
-    NeedsLogin --> Active: verified login persisted
-    Active --> Refreshing: near expiry or eligible upstream 401
-    Refreshing --> Active: CAS secret version committed
-    Refreshing --> NeedsReauth: invalid_grant / revoked / reused / mismatch
-    Active --> Revoked: explicit revoke
-    NeedsReauth --> Active: fresh login
-    Revoked --> NeedsLogin
+```text
+NeedsLogin
+→ Active
+→ Refreshing
+→ Active | NeedsReauth
+→ Revoked
 ```
 
 规则：
 
-1. 每个 provider 一把 refresh lock；当前没有 credential selection 或多锁调度。
-2. refresh 以 secret version compare-and-swap 提交；旧 refresh result 不能覆盖新登录/新 refresh。
-3. access token 近过期时预刷新。上游 401 最多触发一次受控 refresh，并且仅在下游尚未输出业务 SSE event 时重试原请求。
-4. `invalid_grant`、refresh token reused/invalidated/expired、issuer/account mismatch 进入 `NeedsReauth`；停止自动 refresh，要求管理员重新登录。
-5. revoke/logout 删除或禁用 vault secret，失效 provider client cache，并写 metadata-only audit event。
+1. 同一 credential 使用 single-flight refresh；
+2. refresh 以 secret version CAS 提交，旧结果不能覆盖新登录/新 refresh；
+3. near-expiry 可预刷新；
+4. 上游 401 最多触发一次受控 refresh/retry，且只允许在下游尚未收到业务输出时；
+5. `invalid_grant`、rotation/reuse 错误、issuer/account mismatch 进入 `NeedsReauth`；
+6. revoke 使 secret reference 不可再解析，并清理 adapter cache。
 
-## 6. 最小管理接口
+## 6. 单用户管理面
+
+若实施，可先采用 loopback-only 的最小接口或 CLI command：
 
 ```text
-GET  /admin/providers/{provider}/credential/status
-POST /admin/providers/{provider}/credential/login
-GET  /admin/oauth/callback/{provider}
-POST /admin/providers/{provider}/credential/revoke
+credential status
+start login
+callback
+revoke
 ```
 
-status 只包含 provider、credential state、account fingerprint、expiry、last refresh time、last error code 和 config version；不得输出 secret、token、authorization code 或 vault content。
+它不要求企业级 admin control plane。status 只显示 Provider、状态、account fingerprint、expiry、last refresh 和 error code。
 
-管理接口需要独立于后续 client API key 的 admin authorization；在 Phase 2 前只能运行于受信本地/私网环境。
+非 loopback 暴露登录 callback/管理接口前，必须另行设计静态管理员认证与 TLS；核心阶段可以完全不提供远程管理面。
 
-## 7. 验证门
+## 7. Mock issuer 实验
 
-### Mock issuer
+在真实契约确认前，可以使用 mock issuer 验证通用 credential lifecycle：
 
 | 场景 | 必须断言 |
 |---|---|
-| authorization-code success | state、PKCE verifier、issuer、redirect URI 被验证；secret 仅进入 vault |
-| state replay / expiry | 拒绝且不创建/覆盖 credential |
-| issuer / redirect substitution | 拒绝 |
-| refresh rotation | 新 secret version 生效；旧版本不能覆盖 |
-| concurrent refresh | 一个 provider 同一时间只有一次 token endpoint call |
-| `invalid_grant` / reused / revoked | 进入 `NeedsReauth`，不无限 retry |
-| revoke | secret 不可再取用，adapter cache 失效 |
-| observability | log、trace、error、DB 均无 OAuth material |
+| authorization-code success | state、PKCE、issuer、redirect 被验证；secret 只进入 store |
+| state replay/expiry | 拒绝且不覆盖 credential |
+| issuer/redirect substitution | 拒绝 |
+| refresh rotation | 新 secret version 原子生效 |
+| concurrent refresh | 只发生一次 token endpoint call |
+| `invalid_grant`/revoked | 进入 `NeedsReauth`，不无限 retry |
+| revoke | adapter 不再获得 secret |
+| secret scan | log、error、fixture 无 OAuth material |
 
-### 真实 OAuth preflight
+该实验只证明 state machine 和 secret boundary，不证明真实 Codex OAuth 可合法接入。
 
-进入真实 OAuth 实现前，必须确认：
+## 8. 真实 OAuth preflight
 
-- 可用于自建 proxy 的 OAuth client registration / client ID；
-- 允许的 redirect URI、issuer、authorization/token endpoint、scope/resource；
-- refresh token 的 rotation、expiry、revocation 与账户/workspace 行为；
-- token audience 是否只可用于预期 deployment；
-- 账户、workspace、组织和服务条款是否允许此 credential-owner 模式。
+实施前必须获得适用于 OpenBridge 的明确答案：
 
-没有明确、适用的答案时，真实 integration 是阻塞项，不得用 CLI 内部实现细节绕过。
+- OAuth client 如何注册，client identity 是否允许自建 proxy；
+- redirect URI、issuer、authorization/token/refresh/revocation endpoint；
+- scope/resource/audience；
+- refresh rotation、expiry、revoke 与 account/workspace 行为；
+- token 可调用的正式 Provider API；
+- 服务条款是否允许该单用户 credential-owner 模式。
 
-## 8. Codex 源码参考与风险
+结果只能是：
 
-已核对 `openai/codex@0fb559f0f6e231a88ac02ea002d3ecd248e2b515`：
+```text
+Implementable
+Blocked
+Rejected
+Insufficient evidence
+```
 
-- [PKCE](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/pkce.rs#L12-L26)：64-byte verifier、S256 challenge。
-- [browser callback / state](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/server.rs#L329-L391)：loopback callback 与 state check。
-- [token exchange](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/server.rs#L784-L857)：authorization code + verifier exchange。
-- [device code](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/device_code_auth.rs#L62-L146)：仅作协议参考。
-- [storage](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/auth/storage.rs#L38-L61)：`auth.json`、keyring/file/ephemeral storage。
-- [refresh lock](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/auth/manager.rs#L2362-L2455)：single-flight refresh 与永久失败缓存。
+没有明确结论时保持 API-key baseline，不使用源码逆向细节绕过。
 
-这些实现说明需要 PKCE、短时 state、secret storage、单飞 refresh、rotation protection 与 re-login 状态；但 client ID、私有 device endpoints、scope、claims 和 backend header 会随 Codex 演进，不能视作稳定公开接口。
+## 9. Codex 源码参考与限制
 
-## 9. 一手参考
+已核对的既有调研快照：`openai/codex@0fb559f0f6e231a88ac02ea002d3ecd248e2b515`。
+
+- [PKCE](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/pkce.rs#L12-L26)
+- [browser callback/state](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/server.rs#L329-L391)
+- [token exchange](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/server.rs#L784-L857)
+- [device code](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/device_code_auth.rs#L62-L146)
+- [storage](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/auth/storage.rs#L38-L61)
+- [refresh lock](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/login/src/auth/manager.rs#L2362-L2455)
+
+这些源码说明 PKCE、state、storage、single-flight refresh 和 rotation protection 的工程需求；不证明其中的 client ID、endpoint、scope、claims 或 backend header 是第三方稳定接口。
+
+## 10. 一手参考
 
 - Codex authentication：https://developers.openai.com/codex/auth
 - OAuth 2.0 Security Best Current Practice：https://datatracker.ietf.org/doc/html/rfc9700
 - PKCE：https://datatracker.ietf.org/doc/html/rfc7636
 - Codex source：https://github.com/openai/codex
+- [本仓库 Codex OAuth 源码调研](../research/codex/oauth-and-tool-call-analysis.md)
+- [Hermes/LiteLLM subscription OAuth 调研](../research/chatgpt-oauth/hermes-and-litellm-oauth-analysis.md)

@@ -1,341 +1,266 @@
-# Hosted tool 的 MCP 暴露需求
+# Provider-hosted tool facade：核心后的增强需求
 
 ## 状态
 
-**提议；后续能力，未实现。** 本文定义 OpenBridge 将受控 provider 的 hosted tool 封装为 MCP tool 的产品边界与验收方向。它不表示当前 proxy、provider adapter 或 MCP server 已具备此功能；实施顺序见[开发计划](../plans/development-plan.md)。
+**Deferred enhancement。** 本能力不属于 OpenBridge Provider 聚合核心，也不依赖 Chat/Responses Protocol Bridge 完成。只有 native Provider route、capability、取消/超时和目标客户端契约稳定后才实施。
 
-初始目标 tool 是 OpenAI Responses API 的 `web_search`，对外名称为 `openai_web_search`。其他 hosted tools 仅能在分别完成 capability、数据边界和结果契约设计后加入，不能因复用此框架而自动可用。
+初始候选是将 OpenAI Responses 原生 `web_search` 结果规范化为本地 MCP tool 或显式 OpenBridge tool endpoint。
 
-## 1. 问题与目标
+## 1. 术语
 
-OpenAI `web_search` 是 provider-hosted tool：OpenAI 在同一 Responses run 内执行搜索，返回 `web_search_call`、assistant message 及 `url_citation` annotation；调用方不执行工具，也不回传 `function_call_output`。
+必须区分三类能力：
 
-现有 OpenBridge 的职责是 OpenAI-compatible HTTP/SSE relay 和协议 bridge。它不执行模型请求的通用 function tool，也不应把 provider-hosted item 伪造成 client-side function call。因此，直接将 hosted `web_search` 交给任意 Agent client 会面临两个问题：
-
-1. 不是所有 Agent/adapter 都能保真消费 `web_search_call`、source list 和 citation annotation；
-2. 即使能够消费最终文本，也未必能把 citation 在最终用户 UI 中正确展示。
-
-本功能提供一个受控 MCP facade：MCP server 自己调用 OpenBridge 的 provider-native hosted tool 路径，解析最终消息与 citation，并向 MCP client 返回稳定的本地 tool result。这样，Hermes 等 MCP client 只需执行常规 MCP tool loop；OpenBridge 仍持有上游 credential、route、capability、限流与审计边界。
-
-```text
-MCP client / Agent
-  → tools/call openai_web_search
-  → OpenBridge Hosted Tool MCP Server
-  → route snapshot + native hosted-tool capability gate
-  → OpenAI Responses API: tools=[{type:web_search}]
-  → web_search_call + message + url_citation
-  → normalized MCP ToolResult
-  → Agent synthesis / client citation rendering
-```
-
-## 2. 范围与非目标
-
-### 2.1 初始范围
-
-- 作为 OpenBridge 受控组件提供 MCP server；首个受支持 transport 为本地 `stdio`。远程 HTTP MCP transport 需单独定义认证与部署边界。
-- 暴露一个 `openai_web_search` MCP tool，调用 OpenAI Responses 原生 `web_search`。
-- 通过 OpenBridge 的 `RouteSnapshot`、provider adapter、credential binding、capability gate、限流和 metadata audit 选择上游；MCP server 不复制 credential resolver 或自行持有上游 API key。
-- 返回结构化搜索结论、citation、可选 source list 与安全的 OpenBridge request correlation id。
-- 将 OpenAI hosted `web_search` 的结果转化为 MCP **本地 tool result**，而不是向 MCP client 暴露一条伪 Responses SSE stream。
-
-### 2.2 明确非目标
-
-- 不实现任意 function name → 任意 HTTP 请求的通用工具执行器。
-- 不把 `web_search_call` 改写成下游 Responses `function_call`，也不产生伪造的 `function_call_output`。
-- 不承诺原样透传 OpenAI response、provider item id、内部 reasoning、完整搜索上下文或网页正文。
-- 不承诺 MCP client 的最终自然语言回答自动保留 citation；该客户端展示责任必须由单独的 UI/Agent integration 满足。
-- 不以此功能绕过 `RouteSnapshot`、principal scope、provider capability、出站 allowlist、上下游限流或审计策略。
-- 不将任意 MCP server、任意第三方搜索 API、网页抓取或内网检索自动纳入同一能力。
-
-## 3. 术语与执行责任
-
-| 术语 | 定义 |
+| 名称 | 责任 |
 |---|---|
-| hosted tool | 由 provider（初期为 OpenAI）执行的工具，例如 Responses `web_search`。 |
-| MCP facade | OpenBridge 提供的 MCP server；对 MCP client 看起来是本地、可调用的 tool。 |
-| source run | MCP facade 发起的一次 provider Responses request。 |
-| normalized result | facade 从 provider 输出中提取并按 MCP `outputSchema` 返回的稳定结果；不是原始 provider DTO。 |
-| citation | 绑定在 `answer` 文本范围上的 OpenAI `url_citation`，含 URL、标题和字符范围。 |
-| source list | provider 搜索过程使用或返回的完整 URL 集合；它不等同于最终答案实际引用的 citation 集合。 |
+| Protocol Bridge | 在 Chat、Responses、Messages 等模型协议之间转换 wire-level message/tool call/result。 |
+| Tool Bridge | 将本地函数或 MCP server 的工具提供给 Agent，并由客户端/本地执行器执行。 |
+| Hosted Tool Facade | OpenBridge 调用 Provider 原生托管工具，解析 Provider 执行结果，再返回独立工具结果。 |
 
-执行责任必须保持清晰：
+Provider 返回的 `web_search_call` 等 hosted item 不是普通 client-side `function_call`，不能伪造对应 `function_call_output`。
 
-```text
-OpenAI 执行 hosted web_search。
-MCP facade 执行“调用 OpenAI + 解析/规范化结果”。
-MCP client 执行 openai_web_search MCP tool call。
-Agent 不执行网页搜索 HTTP 请求，也不向 OpenAI 回传 tool output。
-```
+## 2. 目标
 
-## 4. 目标架构与边界
+- 复用 OpenBridge 已配置的 Provider、deployment、credential、HTTP transport 和 cancellation；
+- 仅暴露经过显式 capability 验证的 hosted tool；
+- 将 Provider-specific output 规范化为稳定、可测试的 ToolResult；
+- 保留 answer、citation/source 和安全 request correlation；
+- 在单用户本地环境中提供简单超时、最大输出和可选成本上限；
+- 不把任意 Provider 请求或任意 URL 变成通用代理工具。
 
-### 4.1 服务边界
+## 3. 初始范围
 
-MCP facade 可以作为独立进程、sidecar 或 OpenBridge 受控子命令启动，但其业务实现必须复用 OpenBridge 的 route/capability/provider 边界：
+首个候选：
 
 ```text
-McpRequest
-  → McpInputValidator
-  → Principal + HostedToolPolicy
-  → RouteSnapshot
-  → HostedToolCapabilityGate
-  → ProviderAdapter.execute_hosted_tool
-  → HostedToolResultNormalizer
-  → McpToolResult
+openai_web_search
+  → native OpenAI Responses request with web_search tool
+  → wait for terminal response
+  → extract answer, citations and sources
+  → return MCP ToolResult / structured result
 ```
 
-禁止的实现方式：
+第一版：
 
-- MCP server 从环境变量直接读取另一个未纳入 OpenBridge 控制面的 `OPENAI_API_KEY`；
-- MCP request 指定任意 OpenAI `base_url`、model、header 或 credential；
-- 在 facade 中复制 provider-specific HTTP、OAuth refresh 或 secret storage 逻辑；
-- 把上游未解析的 JSON 直接塞入 `content` 并让 Agent 猜测 schema。
+- 只使用一个明确配置的 native Responses deployment；
+- 只支持单次、无会话的 search request；
+- 使用 `stdio` MCP transport 或同进程模块；
+- 返回 text content 和 schema-valid structured content；
+- 记录轻量 UsageRecord；
+- 不支持远程多用户 MCP transport。
 
-### 4.2 capability gate
+## 4. 非目标
 
-每个 deployment 的 `CapabilityProfile` 至少新增或细化以下事实：
+- 通用 Provider request tunnel；
+- 任意 URL/header/credential 输入；
+- 将 hosted tool 转换成模型 function tool 的假等价；
+- 代表 Agent 自动执行任意网页动作或有副作用操作；
+- 多租户 scope、配额、计费或合规审计；
+- 在 OpenBridge 核心未收敛前建立复杂 MCP gateway；
+- 保证所有 MCP client 都能把 citation 渲染为可点击 UI。
 
-```text
-supports_mcp_hosted_tool_facade: bool
-supported_hosted_tool_kinds: set
-hosted_tool_result_mode: native | unsupported
-supports_web_search_citations: bool
-supports_web_search_sources: bool
-```
+## 5. 前置条件
 
-MCP facade 仅可在 route 选定 deployment 原生支持目标 hosted tool、相关结果字段且 principal 获得该 tool scope 时发起上游调用。否则必须在**上游调用前**返回可识别错误。
+Hosted Tool Facade 的真实前置条件：
 
-`web_search` 不能通过 Chat↔Responses bridge 获得等价性：若 route 只有 Chat 或目标 provider 不支持 OpenAI hosted web search，初版一律拒绝，不将它降级为本地 function、普通网页抓取或另一个未声明的 provider。
+1. 至少一个 deployment 原生支持目标 hosted tool；
+2. Provider adapter 能识别请求、输出、terminal、error、cancel 和 usage；
+3. capability 明确为 `Native`，不能由 Protocol Bridge 推断；
+4. 非 loopback 使用静态下游 token/TLS；
+5. 单次调用的 timeout、最大结果、并发上限和可选成本上限已配置；
+6. 至少一个目标 MCP client 完成结构化结果和 citation 消费实验。
 
-## 5. MCP tool 契约
+Chat/Responses bridge 不是硬前置。相反，`web_search` 首版必须走 native Responses route。
 
-### 5.1 名称与输入
+## 6. 组件边界
 
-首个工具名固定为 `openai_web_search`，避免与 Hermes/其他 MCP server 的通用 `web_search` 发生语义或名称混淆。
+候选部署形态：
+
+| 方案 | 优点 | 缺点 | 当前倾向 |
+|---|---|---|---|
+| 同进程模块 | 复用 config/transport 最直接，部署简单 | MCP runtime 与 proxy 生命周期耦合 | 首版候选 |
+| 独立 sidecar | 故障和依赖隔离 | 需要本地认证与额外进程 | 后续候选 |
+| 独立 MCP server 调用 OpenBridge | 边界最清晰 | 需要定义额外内部 API | 待比较 |
+| 不提供 MCP，只保留 native API | 范围最小 | 客户端需自行支持 hosted tool | 始终保留的退路 |
+
+无论形态如何，不复制 credential 解析和 Provider HTTP adapter。
+
+## 7. Tool 契约
+
+候选输入：
 
 ```json
 {
-  "name": "openai_web_search",
-  "description": "Search the public web through OpenAI hosted web_search and return a cited briefing. Use for current public facts; not for private systems or actions.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 4000,
-        "description": "Focused factual web-research query."
-      },
-      "allowed_domains": {
-        "type": "array",
-        "items": { "type": "string" },
-        "maxItems": 100,
-        "description": "Optional domain allowlist without scheme; intersected with server policy."
-      },
-      "search_context_size": {
-        "type": "string",
-        "enum": ["low", "medium", "high"],
-        "description": "Requested search depth, subject to principal policy."
-      }
-    },
-    "required": ["query"],
-    "additionalProperties": false
+  "query": "string",
+  "max_results": 5,
+  "search_context_size": "low|medium|high",
+  "user_location": {
+    "country": "optional",
+    "city": "optional",
+    "region": "optional",
+    "timezone": "optional"
   }
 }
 ```
 
-`external_web_access`、`return_token_budget`、`background`、精确 `user_location`、provider model 和上游 URL 不属于初始 MCP input。它们分别影响网络访问、成本、异步资源、隐私或路由安全，必须由 server-side policy 决定。
+所有字段都必须有大小/枚举限制。客户端不能提供：
 
-### 5.2 OpenAI source run
+- Provider/model/base URL；
+- Authorization/cookie/header；
+- redirect/callback；
+- arbitrary HTTP method/body；
+- credential reference。
 
-facade 应创建一次 provider-native Responses request。示意：
+候选结构化输出：
 
 ```json
 {
-  "input": "Research the query below. Produce a concise factual answer and cite sources.\n\n<validated query>",
-  "tools": [
+  "answer": "...",
+  "citations": [
     {
-      "type": "web_search",
-      "search_context_size": "<validated value>",
-      "filters": { "allowed_domains": ["<policy-intersected domains>"] }
+      "start": 0,
+      "end": 12,
+      "url": "https://example.com",
+      "title": "Example"
     }
   ],
-  "tool_choice": "required",
-  "include": ["web_search_call.action.sources"]
-}
-```
-
-`tool_choice: "required"` 的目的是保证本 MCP tool 的语义是“执行网页搜索”，而不是让 source model 在无需检索时直接生成无搜索回答。调用完成后，facade 以 response-level terminal state 判定成功或失败；单个 `web_search_call` item 的状态不得单独充当整个 run 的终态。
-
-### 5.3 输出 schema
-
-MCP server 必须声明 `outputSchema`，并在 `structuredContent` 中返回符合该 schema 的对象；同时在 `content` 返回该对象的 JSON 序列化文本，以兼容只消费 text content 的 MCP client。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "answer": { "type": "string" },
-    "citations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "url": { "type": "string" },
-          "title": { "type": "string" },
-          "start_index": { "type": "integer", "minimum": 0 },
-          "end_index": { "type": "integer", "minimum": 0 }
-        },
-        "required": ["url", "title", "start_index", "end_index"],
-        "additionalProperties": false
-      }
-    },
-    "sources": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "url": { "type": "string" },
-          "title": { "type": "string" }
-        },
-        "required": ["url"],
-        "additionalProperties": false
-      }
-    },
-    "search": {
-      "type": "object",
-      "properties": {
-        "query": { "type": "string" },
-        "used_hosted_web_search": { "type": "boolean" },
-        "proxy_request_id": { "type": "string" }
-      },
-      "required": ["query", "used_hosted_web_search", "proxy_request_id"],
-      "additionalProperties": false
+  "sources": [
+    {
+      "url": "https://example.com",
+      "title": "Example"
     }
-  },
-  "required": ["answer", "citations", "sources", "search"],
-  "additionalProperties": false
+  ],
+  "provider": "openai",
+  "deployment": "openai-search",
+  "request_id": "obr_...",
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0
+  }
 }
 ```
 
-约束：
+`citations` 表示 answer 中的具体引用范围；`sources` 是来源集合，二者不能混为一谈。
 
-- `citation.start_index` / `end_index` 只相对于同一 result 的 `answer` 字符串有效；不能被解释为外层 Agent 最终改写回答的字符范围。
-- `citations` 是回答中实际标注的来源；`sources` 是搜索 run 的来源集合，可能更多且不应自动视为回答证据。
-- 若 provider 未返回 source list，但能返回 citations，`sources` 可以由去重 citation URL 构成；该合成必须在 audit 中标记为 `sources_derived_from_citations`。
-- 不返回完整 provider response、未引用网页内容、prompt、reasoning、OAuth material 或上游 Authorization/header。
+MCP 返回同时包含：
 
-## 6. citation 与用户可见性
+- 人类可读 text content；
+- 与 output schema 一致的 `structuredContent`。
 
-OpenAI 要求向最终用户展示 web-search 内容或结果时，将 inline citation 清晰、可点击地呈现。MCP facade 能保证**结果中存在结构化 citation**，但不能单独保证调用它的 Agent 会把 citation 带入最终文本。
+## 8. Citation 语义
 
-初始策略：
+- citation range 只相对于 facade 返回的 `answer`；
+- 外层 Agent 改写 answer 后，原 range 不再自动有效；
+- URL、title、annotation 和 source list 都按不可信 Provider/网页输入处理；
+- 不把网页标题或 URL 放入日志格式字符串/HTML 而不转义；
+- malformed range、重复 URL、缺失 title/source 必须有确定处理；
+- 若目标 MCP client 无法保留 citation，可返回结构化 sources，但必须标明 UI delivery 未验证。
 
-1. facade 返回 `answer`、`citations` 和 `sources`；
-2. tool description 要求 Agent 在使用结果生成面向用户的结论时保留相应来源；
-3. 支持 MCP structured result 的 client 应独立渲染 citation，而不是依赖 Agent 重写后的字符 offset；
-4. 不支持 citation rendering 的 client 必须至少保留可点击 URL 列表，或拒绝启用需要严格 citation UX 的此能力。
+## 9. 状态与错误
 
-后续若 OpenBridge 提供自己的 Agent UI/API，必须定义从 `McpToolResult.citations` 到最终 UI 的 provenance binding；不能把 provider citation silently flatten 成无来源纯文本。
-
-## 7. 状态、错误与审计
-
-### 7.1 状态机
-
-```mermaid
-stateDiagram-v2
-    [*] --> Validating
-    Validating --> Rejected: invalid input / policy / capability
-    Validating --> Routed: route snapshot accepted
-    Routed --> CallingProvider: native hosted tool request
-    CallingProvider --> Normalizing: response terminal success
-    CallingProvider --> Failed: timeout / upstream error / incomplete
-    Normalizing --> Completed: schema-valid MCP result
-    Normalizing --> Failed: malformed provider output
-    Rejected --> [*]
-    Failed --> [*]
-    Completed --> [*]
-```
-
-`web_search_call` 是 `CallingProvider` 内部的 provider activity record，不是 MCP client 应执行的后续 work item。MCP server 不会向 OpenAI 提交 `function_call_output`。
-
-### 7.2 错误契约
-
-- MCP arguments 违反 input schema：JSON-RPC invalid-params/protocol error。
-- 合法请求但 policy、scope 或 capability 不允许：MCP tool result `isError: true`，使用稳定的公开错误码，例如 `hosted_tool_not_allowed`、`hosted_tool_unsupported`。
-- 上游超时、429、5xx、异常 response 或 output 无法归一化：MCP tool result `isError: true`，使用 `upstream_timeout`、`upstream_rate_limited`、`upstream_failed`、`hosted_tool_result_invalid`。
-- 错误结果不得泄露 upstream body、credential、cookie、内部 route、provider URL、完整 prompt 或未脱敏 stack trace。
-
-### 7.3 审计
-
-沿用 metadata-first 策略，至少记录：
+建议单次状态：
 
 ```text
-proxy_request_id
-principal/key locator
-MCP server/tool name
-route/deployment/provider
-capability decision
-query length and policy outcome (not query text by default)
-upstream HTTP/error class
-response terminal outcome
-duration / TTFT where applicable
-citation count / source count
-normalization mode
+Accepted
+→ ProviderRunning
+→ Completed | Failed | Cancelled | TimedOut
 ```
 
-完整 query、answer、URL 或 source title 是否记录必须服从独立的内容 capture policy；默认不记录。审计不能包含 API key、OAuth material、Authorization、cookie 或完整 provider payload。
+错误分类：
 
-## 8. 安全与运行约束
+```text
+hosted_tool_unsupported
+invalid_tool_input
+provider_auth_error
+provider_rate_limited
+provider_error
+provider_stream_incomplete
+tool_timeout
+tool_cancelled
+citation_parse_error
+result_too_large
+```
 
-- MCP server 必须将外部网页、搜索摘要、citation 标题和 URL 视为不可信数据；不得把网页中内容当作 server instruction。
-- `allowed_domains` 只能收窄、不能扩大 principal/server policy；输入中提供的列表与 server allowlist 取交集。
-- 对每 principal/MCP session 配置 invocation、并发、query length、source/result size、wall-clock timeout 与总成本预算。
-- source run 必须绑定不可变 `RouteSnapshot`；运行中不因控制面变更切换 provider/deployment。
-- MCP server 的上游访问只能通过 OpenBridge credential binding；不得接收用户提供的 bearer token、base URL 或 header。
-- 初始 `stdio` deployment 仅授予本机受信 MCP client；未来远程 transport 必须先定义 mTLS/OAuth、tenant isolation、rate limit 和日志保留策略。
+已收到部分 Provider output 时，不自动切换到另一个 Provider 拼接答案。首版可以完全不做 hosted-tool fallback。
 
-## 9. 实施切片与退出条件
+## 10. 最小安全和资源约束
 
-此功能属于项目后续 **Phase 7**。Phase 3 capability/routing、Phase 4 principal authorization、Phase 5 metadata audit 和 Phase 6 protocol conversion 基线是进入该阶段的前置条件；它不是 Phase 6 的 built-in-tool bridge 扩展。
+即使是单用户，也必须：
 
-### Slice 1：契约与 capability
+- 不接受任意出站 URL/header/credential；
+- 禁用不受控 redirect；
+- 限制 query、Provider response、citation/source 数量；
+- 设置 call timeout 和最大并发；
+- 支持 client cancellation；
+- 不记录完整 credential、cookie 或 Provider payload；
+- 仅在用户明确配置的 deployment 上执行；
+- 对可能产生明显费用的 context size/结果规模提供本地上限。
 
-- 定义 `HostedToolKind`、`HostedToolPolicy`、`McpToolDescriptor`、`HostedToolResult` 和上文的输入/输出 schema。
-- 将 `openai_web_search` 作为唯一初始 capability；缺失 native Responses/web search/citation capability 时 fail closed。
-- 明确 `ConversionNotice`/audit 对 native hosted execution、source derivation 和拒绝的表示。
+这些是单用户服务的资源保护，不是多租户配额系统。
 
-**退出条件**：schema 与 capability fixture 覆盖有效输入、未知字段、策略拒绝、无原生能力拒绝和不支持 tool kind；无上游调用发生在拒绝路径。
+## 11. 使用量
 
-### Slice 2：OpenAI adapter 与结果规范化
+请求结束后可写入普通 `UsageRecord`：
 
-- 通过受控 provider adapter 发起 Responses `web_search` source run。
-- 按 response-level terminal state 处理成功/失败；提取 assistant output text、`url_citation` 和可选 source list。
-- 生成 schema-valid `structuredContent` 与兼容的 text content；绝不把 hosted item 转为 local `function_call_output`。
+```text
+request id
+tool name
+provider/deployment
+outcome
+latency
+input/output tokens
+estimated cost
+citation/source counts
+```
 
-**退出条件**：脱敏 fixture 覆盖无搜索、单/多 citation、无 source list、重复 URL、provider item `in_progress` 但 response completed、timeout、429、5xx、malformed annotation 与 response incomplete。
+默认不记录 query/answer 正文。JSONL/SQLite sink 故障不应阻塞已完成的 tool result。
 
-### Slice 3：MCP runtime、授权与可观测性
+## 12. 实施切片
 
-- 提供本地 stdio MCP server，并将 tool call 映射到 Slice 2 service。
-- 复用 principal scope、route snapshot、rate/concurrency limit、timeout、cancellation 和 metadata audit。
-- 验证 MCP `content` 与 `structuredContent` 的一致性，且错误不泄露 secret/provider internals。
+### Slice H0：产品与客户端验证
 
-**退出条件**：Hermes 或另一个 MCP reference client 可列举、调用、消费正常与错误结果；并发、取消、scope 拒绝和 secret scan 通过。
+- 选择目标 MCP client；
+- 验证 output schema 和 citation UI；
+- 确认 hosted tool 对实际 Codex/Hermes 工作流的价值；
+- 比较同进程、sidecar、独立 MCP server 和不实施四种方案。
 
-### Slice 4：citation 消费验证
+### Slice H1：Native Provider fixture
 
-- 为至少一个目标 MCP client 定义其 citation 展示/保留策略，并以集成测试验证可点击 URL 仍可获取。
-- 若目标客户端不能消费 structured citation，则记录明确降级或拒绝，不以无来源文本假装完成。
+- 收集真实/脱敏 web search request、terminal response、citation/source、usage、error 和 cancel corpus；
+- 不接入 MCP runtime。
 
-**退出条件**：端到端测试证明最终 UI 或可导出结果保留可点击 citation，或对该 client 返回明确 `citation_delivery_unsupported`。
+### Slice H2：结果规范化
 
-## 10. 外部依据与关联文档
+- Provider output → stable ToolResult；
+- citation range/URL/title/source tests；
+- result size 与 malformed annotation tests。
 
-- OpenAI Web search：hosted `web_search` 的 Responses 调用、`web_search_call`、`url_citation`、source list、filters、live access 与限制。<https://platform.openai.com/docs/guides/tools-web-search>
-- OpenAI Function calling：本地 function call/result 的 `call_id` loop；它与 provider-hosted tool 的执行责任不同。<https://platform.openai.com/docs/guides/function-calling?api-mode=responses>
-- Model Context Protocol Tools：`inputSchema`、`outputSchema`、`structuredContent`、text content、error 和 server/client security responsibilities。<https://modelcontextprotocol.io/specification/2025-06-18/server/tools>
-- [初版需求](proxy-requirements.md)：OpenBridge 的控制面、安全、capability、SSE 与 audit 基线。
-- [开发计划](../plans/development-plan.md)：Phase 7 的项目级前置条件和执行位置。
-- [Chat/Responses 转换设计](../design/chat-responses-conversion.md)：provider-native/builtin tools 不能在缺少等价能力时静默桥接的约束。
-- [当前实现说明](../implementation/current-implementation.md)：当前可运行的 native forwarding 基线；本需求不代表其已实现。
+### Slice H3：本地 MCP transport
+
+- `stdio` tool declaration；
+- structured/text content；
+- cancel/timeout；
+- 目标客户端 E2E。
+
+### Slice H4：Usage 与可选部署拆分
+
+- UsageRecord；
+- 评估是否需要 sidecar/独立进程；
+- 不因该增强修改核心 Protocol Bridge 语义。
+
+## 13. 接受条件
+
+- hosted tool 只走 native capability；
+- 业务输入不能扩大出站目标或 credential 权限；
+- terminal/error/cancel/timeout 行为可重复；
+- citation 和 source 结构通过真实 fixture；
+- 至少一个目标 MCP client 消费结构化结果；
+- 无法支持时可关闭该模块，不影响核心 Chat/Responses proxy；
+- 不引入 principal、配额、合规审计或独立控制面作为强依赖。
+
+## 14. 关联文档
+
+- [核心需求](proxy-requirements.md)
+- [目标架构与路线](../architecture/architecture-and-roadmap.md)
+- [本地配置、路由与使用量](../architecture/local-configuration-routing-and-usage.md)
+- [Protocol Bridge 设计](../design/chat-responses-conversion.md)
+- MCP tools specification：https://modelcontextprotocol.io/specification/2025-06-18/server/tools

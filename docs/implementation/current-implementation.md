@@ -2,12 +2,12 @@
 
 ## 状态与范围
 
-本文只描述当前 `main` 分支已经存在并有测试证据的行为；路线图中的 Phase 2–6 设计不因本文而成为可用功能。
+本文只描述当前 `main` 分支已经存在并有测试证据的行为。当前代码是**设计假设的实验性验证版本**：它能证明列出的 HTTP/SSE、路由和取消行为，不证明最终 Provider Family、配置 schema、目标客户端兼容范围或 Protocol Bridge 已经收敛。
 
-- **Phase 0：已完成的基础**：严格 TOML 配置、loopback listener、origin allowlist、请求/SSE 大小上限、request id、共享 HTTP client、SSE framing、编译期 provider catalog 与 provider adapter 契约。
-- **Phase 1：已完成**：一个 `openai` API-key upstream 的 Chat Completions/Responses 原生转发、静态下游 Bearer 认证、流式 conformance 和 OpenAI SDK compatibility fixture。
-- **Phase 3：已完成的路由基线**：有序 deployment candidate、capability gate、`GET /v1/models` 和同协议、输出前的 streaming fallback。
-- **未完成**：真实 Codex OAuth、第二 provider adapter、health/priority/weight 路由、principal 级授权、proxy-issued key、审计/指标、Chat ↔ Responses 转换和 Responses resource API。
+- **已验证基础**：严格 TOML 配置、loopback listener、origin allowlist、请求/SSE 大小上限、request id、共享 HTTP client、SSE framing、typed provider/route contracts。
+- **已验证原生转发**：一个 `openai` API-key upstream 的 Chat Completions/Responses HTTP JSON/SSE 原生转发、静态下游 Bearer 认证、流式 conformance 和 OpenAI SDK compatibility fixture。
+- **已验证路由基线**：有序 deployment candidate、capability gate、`GET /v1/models` 和同协议、输出前的 streaming fallback。
+- **尚未验证**：第二 Provider Family、Codex/Hermes 真实 Agent tool loop、受信自定义 endpoint 的最终配置边界、Chat ↔ Responses bridge、Anthropic Messages、usage、hosted tool 和真实 OAuth。
 
 ## 运行模型
 
@@ -37,7 +37,7 @@ cargo run --locked
 | `POST /v1/chat/completions` | 原生转发 Chat JSON/SSE；只改写 `model`。 | 静态 Bearer |
 | `POST /v1/responses` | 原生转发 Responses JSON/SSE；只改写 `model`。 | 静态 Bearer |
 
-业务 endpoint 只接受一个 `Content-Type: application/json`。未知 alias、缺失 `model`、非 JSON body、无能力 candidate 等错误在上游调用前返回 OpenAI-style JSON error envelope。`OPENBRIDGE_DOWNSTREAM_TOKEN` 是临时单一 credential；它不具备 Phase 4 的签发、撤销、principal 或授权范围能力。
+业务 endpoint 只接受一个 `Content-Type: application/json`。未知 alias、缺失 `model`、非 JSON body、无能力 candidate 等错误在上游调用前返回 OpenAI-style JSON error envelope。`OPENBRIDGE_DOWNSTREAM_TOKEN` 是面向单用户部署的单一静态 credential；当前没有多 key、签发、撤销列表、principal 或 scope。
 
 ## 请求、路由与上游调用
 
@@ -83,15 +83,17 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 ## 当前安全边界和限制
 
-- 当前 bootstrap listener 强制为 loopback；在 Phase 4 前不得公开为共享 proxy。
+- 当前 bootstrap listener 强制为 loopback。未来允许非 loopback 时，必须至少要求静态高熵 token，并由 TLS 或可信反向代理保护。
 - 当前只有 `ProviderKind::OpenAi` 和 API-key credential；真实 OAuth 不存在。
 - 当前 route 配置可完整校验和原子 reload，但服务入口尚未暴露 reload 管理 API。
-- 没有 audit outbox、指标、principal 授权、限流、health check 路由策略或真实多 provider health/fallback 证据。
-- 不支持 Chat ↔ Responses conversion、Realtime、Files、Conversations、Responses retrieve/delete/background/cancel/store 等资源语义。
+- 没有 usage sink、被动 health/cooldown、第二 Provider Family 或真实多 Provider fallback 证据；多租户授权、配额和合规审计不属于当前核心目标。
+- 不支持 Chat ↔ Responses conversion、Responses WebSocket、Realtime、Files、Conversations、Responses retrieve/delete/background/cancel/store 等资源语义。
 
 ## 相关资源
 
 - [项目入口](../../README.md)
 - [开发计划](../plans/development-plan.md)
 - [目标架构与路线](../architecture/architecture-and-roadmap.md)
-- [Rust provider adapter 与数据流架构](../architecture/rust-provider-adapter-dataflow.md)
+- [Rust Provider adapter 与数据流架构](../architecture/rust-provider-adapter-dataflow.md)
+- [目标客户端契约](../design/target-client-contracts.md)
+- [本地配置、路由与使用量](../architecture/local-configuration-routing-and-usage.md)

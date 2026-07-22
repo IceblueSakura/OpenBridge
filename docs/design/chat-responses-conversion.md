@@ -1,273 +1,483 @@
-# Chat Completions 与 Responses：转换策略对比及协议/状态转换器设计
+# Chat Completions 与 Responses：Protocol Bridge 设计
+
+## 状态
+
+**Working hypothesis。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。
 
 ## 结论
 
-若目标是实现可靠的 OpenAI Chat Completions <-> Responses proxy，不应把它设计成两个 JSON mapper。应设计为：
+OpenBridge 不应让所有请求都经过统一 Canonical IR。
 
 ```text
-Wire request/event
-  -> parse + validate
-  -> Canonical Conversation IR + Capability Profile + State Ledger
-  -> provider request/event adapter
-  -> Canonical result/event
-  -> target wire renderer
+same protocol
+  → Native Path
+  → minimal rewrite / preserve wire
+
+different protocol
+  → Protocol Bridge
+  → parse → Bridge IR → render
 ```
 
-Hermes 证明了**为多轮 replay 保存 opaque state**的重要性；LiteLLM 证明了**双向 bridge、provider fallback 和 SSE 事件状态机**必须独立建模；cc-switch 则给出了 Codex agent tool loop 在 `Responses -> Chat -> Responses` 路径中所需的每请求 tool mapping、跨轮 call-group 恢复与 Chat SSE assembler 证据。推荐以 LiteLLM 的双向层次为骨架，以 Hermes 的 issuer-aware continuation state 作为安全要求，并以 cc-switch 的 tool lifecycle 作为 Phase 6 function-tool 切片的实现约束。
+Native Path 是兼容性基线；Bridge IR 只负责跨协议可表达的公共语义。这样避免把每个 Provider 新字段都强行塞入一个“万能协议”，也避免原生请求因 IR 不认识字段而丢失能力。
 
-本文比较的源码快照：
+首个 bridge slice 只承诺：
 
-| 项目 | 提交 | 对此问题的主要角色 |
+- text；
+- 普通 function tool schema；
+- function call；
+- tool result；
+- usage；
+- 最小 terminal outcome。
+
+Provider-hosted tools、resource/background API、opaque reasoning、Provider-bound continuation 和未知 item 默认不等价。
+
+## 1. 设计边界
+
+### 1.1 Native Path
+
+当上下游协议一致：
+
+- 保留原始 JSON/未知合法字段；
+- 只解析 route/capability 所需字段；
+- 改写 `model`、URL、认证和必要 header；
+- 按原协议识别 SSE event、error 和 terminal；
+- 不生成 Bridge IR；
+- 不生成 OpenBridge 自定义 SSE event。
+
+典型路径：
+
+```text
+Codex Responses → OpenAI Responses
+Hermes Chat → OpenAI-compatible Chat
+Hermes Responses → Responses Provider
+```
+
+### 1.2 Protocol Bridge
+
+当上下游协议不同：
+
+```text
+source wire
+→ source parser/validator
+→ Bridge IR + ConversionPlan
+→ target renderer
+→ target Provider
+→ target response/stream assembler
+→ Bridge IR events/result
+→ source renderer
+```
+
+每个协议对有显式 converter。不要让 Provider adapter、HTTP handler 或全局 router 以零散字段 rename 实现 bridge。
+
+## 2. 转换结果等级
+
+每个 feature/item 必须分类：
+
+| 等级 | 定义 | 行为 |
 |---|---|---|
-| Hermes Agent | `c48d53413aa2c09f6d5703082361c2754f1d5350` | agent 消费端；内部 Chat 历史编译为 Responses 请求，保留 replay state |
-| LiteLLM | `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35` | provider gateway；双向转换和对外 Responses proxy |
-| cc-switch | `08710d51fc04843ce217c58749677d84cf62740b` | 本地 agent proxy；Codex Responses 到 Chat/Anthropic 的转换、tool context、tool history 与 SSE 反向组装 |
+| `exact` | 身份、顺序、内容和状态语义均保持 | 正常转换 |
+| `structure_preserving` | wire 外形不同，但客户端可观察语义保持 | 正常转换并可记录说明 |
+| `approximate` | 可执行，但存在明确可观察差异 | 仅在显式允许时转换，并返回 machine-readable notice |
+| `unsupported` | 无法安全表达或会破坏状态 | 上游调用前拒绝 |
 
-## 1. 两个项目的策略对比
+`Unknown` 等同于未验证，不能自动降级为 `approximate`。
 
-| 维度 | Hermes Agent | LiteLLM | 对新转换器的建议 |
-|---|---|---|---|
-| 主内部形状 | Chat 风格 `messages`，附加 Codex metadata | `ModelResponse`/typed Responses object，两边都可作中间层 | 独立定义 Canonical IR；不要把任一 wire DTO 当 domain model |
-| 模式选择 | `api_mode` + provider/model/URL 推断 | model metadata + native provider config + flags | 使用显式 `ProtocolMode` 与可观测 `CapabilityProfile` |
-| Chat -> Responses | system->instructions，tool/result 转 input items | 同时转换 messages、tools、response_format、reasoning | 两个方向各自实现，不能靠自动序列化 |
-| Responses -> Chat | 响应归一化给 agent loop | input/response/SSE 三层均有 mapper | 明确区分 request、final response、stream event 三种转换 |
-| 多轮推理 | 持久化 encrypted reasoning 与 issuer，跨 issuer 丢弃 | 保存 reasoning items，但桥更偏 API 兼容 | opaque state 必须有 origin binding 和 replay policy |
-| tool identity | 保存 `call_id` + `response_item_id`，必要时确定性生成 | cache/repair tool call，维护 stream output index | 将 `call_id` 设为不可变 correlation key；item id/index 仅为附属键 |
-| 流终止 | 内部直读 Responses stream，归一化后复用 agent loop | 明确以 `response.completed` 作为 terminal owner | 终态只能由 protocol terminal event 或 final aggregate 决定 |
-| provider 特例 | 深嵌 adapter（xAI/GitHub/Codex） | config/transform/provider 分层 | 将差异迁至 profile/hook，核心状态机只读 capabilities |
-| 对外生命周期 | 不实现 Responses resource API | create/get/delete/cancel/background/polling | 若对外声称 Responses 兼容，必须决定资源与 background 语义 |
+## 3. 为什么字段 rename 不够
 
-### 1.1 可直接学习的源码证据
+### 3.1 输入结构不同
 
-- Hermes 的 mode 路由：`F:/codespace/hermes-agent/agent/agent_init.py:440`。
-- Hermes 的 chat history -> Responses `input[]`：`F:/codespace/hermes-agent/agent/codex_responses_adapter.py:313`。
-- Hermes 的 issuer-aware opaque reasoning replay：`F:/codespace/hermes-agent/agent/codex_responses_adapter.py:352`。
-- Hermes 的 Responses output -> normal form：`F:/codespace/hermes-agent/agent/codex_responses_adapter.py:1109`。
-- LiteLLM 的 Chat -> Responses bridge 选择：`F:/codespace/litellm/litellm/main.py:983`、`F:/codespace/litellm/litellm/main.py:5402`。
-- LiteLLM 的 Responses -> Chat fallback handler：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/handler.py:23`。
-- LiteLLM 的 Responses SSE -> Chat SSE：`F:/codespace/litellm/litellm/completion_extras/litellm_responses_transformation/transformation.py:1074`。
-- LiteLLM 的 Chat SSE -> Responses SSE 状态机：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/streaming_iterator.py:51`。
-- cc-switch 的 Responses request -> Chat request 与 `CodexToolContext`：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/transform_codex_chat.rs:236`、`:260`。
-- cc-switch 的跨请求 call-group 恢复：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/codex_chat_history.rs:48`。
-- cc-switch 的 Chat SSE -> Responses SSE tool-call assembler：`F:/codespace/cc-switch/src-tauri/src/proxy/providers/streaming_codex_chat.rs:66`、`:335`、`:486`。
-
-## 2. 为什么直接字段改名一定会出错
-
-### 2.1 输入的结构不同
-
-Chat 是 `messages[]` 的 role 序列；Responses 的 `input[]` 是异构 item 流。它可以同时含 message、function call、function call output、reasoning、item reference 和 provider 内置工具项。一个 Chat assistant tool-call message 在 Responses 中可拆成多个 `function_call` item；一个 Responses tool result 有时需要生成 Chat assistant tool-call wrapper 再跟 tool message，才能满足下游 provider 的相邻顺序约束。
-
-LiteLLM 在 Responses->Chat 时合并连续 tool calls 并修复 tool-result 对应关系，见 `F:/codespace/litellm/litellm/responses/litellm_completion_transformation/transformation.py:405`、`:741`。这说明转换存在状态和相邻项依赖。
-
-### 2.2 输出的基数不同
-
-Chat 通常把一次 completion 表达为 `choices[]` 中的一条 assistant message；Responses 把 text、reasoning、多个 tool calls、computer/image/file-search 等表示为独立 `output[]` items。把它压缩回 Chat 时，item 顺序和原生类型可能不可逆。
-
-### 2.3 完成状态不同
-
-Chat 的 `finish_reason` 是结果级摘要；Responses 有 response-level status、item-level status 和事件序列。LiteLLM 将 `stop/tool_calls/function_call` 映射为 completed，`length/content_filter/refusal` 映射为 incomplete：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/transformation.py:1458`。这只是 emulation policy，不是数学等价。
-
-Hermes 更进一步会检查 reasoning-only、commentary phase 和 server-side `*_call`，见 `F:/codespace/hermes-agent/agent/codex_responses_adapter.py:1431`。因此必须把“是否可继续/是否应执行本地工具/是否终止 stream”建模为独立状态决策。
-
-### 2.4 存在不可迁移的 opaque continuation data
-
-`reasoning.encrypted_content`、provider 签名、server item id 和 `previous_response_id` 都可能绑定模型、账户、连接或 endpoint。Hermes 的跨 issuer 丢弃策略有直接的失败模式依据：不同端点不能解密对方发出的 opaque content，见 `F:/codespace/hermes-agent/agent/codex_responses_adapter.py:352`。
-
-将这些字段视为普通 JSON 并在任意 fallback 间转发，会让一个本来可恢复的模型切换变为后续每轮稳定 400。
-
-## 3. 推荐的 Canonical IR
-
-推荐 IR 保留“协议事实”而非以 Chat 或 Responses 为中心：
+Chat 常以角色消息序列表达：
 
 ```text
-ConversationRequest
-  request_id, route_id, target_protocol, model, controls
-  instructions: optional text
-  items: ordered InputItem[]
-  tools: ToolDefinition[]
-  tool_context: ToolConversionContext?
-  continuation: ContinuationRef?
-
-ToolConversionContext                 # per bridge request; never persisted as route config
-  source_protocol, target_protocol
-  source_tool_id/kind <-> target_tool_name/schema
-  target tool name -> original namespace/custom metadata
-  call_id policy, conversion notices
-
-InputItem
-  kind: message | function_call | function_result | reasoning | builtin_result | reference
-  item_id: optional provider item id
-  role: optional system | developer | user | assistant | tool
-  parts: ContentPart[]
-  call_id: optional immutable correlation id
-  function: optional {name, arguments_json}
-  status: optional queued | in_progress | completed | incomplete | failed | cancelled
-  provider_data: opaque, origin-scoped only
-
-CompletionResult
-  response_id, status, output: ordered OutputItem[], usage, error
-
-StreamEvent
-  sequence, response_id, output_index, item_id, event_kind, payload, terminal
+system/user/assistant/tool messages
+assistant.tool_calls[]
+role=tool + tool_call_id
 ```
 
-关键约束：
+Responses 使用有序异构 items：
 
-- `items` 和 `output` 必须是**有序异构列表**，不能提前扁平为文本。
-- `call_id` 是 client tool invocation 与 tool result 的唯一关联键；`item_id`、`response_id`、`output_index` 分别用于对象、response、流排序，不能互换。
-- `ToolConversionContext` 在解析 source tools 后、渲染目标 request 前创建，并由 final-response 与 SSE renderer 共享。它记录每个名称扁平化、schema adaptation 或工具种类降级，不能由全局 provider cache 或 route 配置隐式推断。
-- `provider_data` 是 typed envelope，至少有 `issuer`、`protocol`、`replay_policy`、`payload`；禁止把它同普通内容一起跨 provider 透传。
-- 任何降级必须写入 `ConversionNotice`，例如 `dropped_builtin_tool`、`status_approximated`、`previous_response_id_not_supported`。
-- `ConversationRequest` 是已完成认证和路由后的协议内部表示，不承载 `AuthenticatedPrincipal` 或完整 `RouteSnapshot`。这些不可变控制上下文由 converter 外层持有，并在转换前完成授权与 capability 决策；接口边界见[控制面、模型、密钥与可观测性](../architecture/control-plane-models-keys-and-observability.md)。
-
-## 4. 协议转换规则
-
-### 4.1 Chat -> Canonical -> Responses
-
-1. 验证 Chat messages role 与 tool-result 对应关系。
-2. system/developer 转为 `instructions` 或保留为 role message；选择应是 endpoint capability，而非全局硬编码。
-3. assistant `tool_calls[]` 按出现顺序展开为 function-call items；每个生成的 item 保留原 `tool_call.id` 作为 `call_id`。
-4. `role=tool` 转 function-result item；必须有对应 `tool_call_id`/`call_id`，且不可用 message position 或 tool name 猜测关联。
-5. chat function tool 解嵌套为 Responses function tool；schema 只按目标 `CapabilityProfile` 的显式规则适配，`null`/缺失/非 object schema 不得由通用 IR 静默修复。
-6. 将 `response_format` 转 `text.format`，将 token limit 转 `max_output_tokens`。
-7. 仅当 continuation 的 issuer 与当前 endpoint 一致且 capability 支持时 replay opaque item。
-8. 通过最终 wire schema validator；未知字段不要默默透传。
-
-这与 Hermes 的 converter/preflight 两阶段做法相符：`F:/codespace/hermes-agent/agent/codex_responses_adapter.py:313`、`:823`。
-
-### 4.2 Responses -> Canonical -> Chat
-
-1. 按原始 `input[]` 顺序解析；不要先按 role group。source tools 解析后立即创建 `ToolConversionContext`，并将它交给 request、final response 与 stream renderer。
-2. function call -> assistant tool call；仅合并连续、目标 Chat 可表达的调用。每个调用仍保留独立 `call_id`，并在 `function_call_output` 前 flush 成同一条 assistant message。
-3. function call output -> tool message；缺少或无法恢复 `call_id` 时返回显式 validation error，不要猜错关联。若 Chat 上游要求 assistant call 紧邻 tool result，只有 issuer/deployment-bound continuation ledger 命中时才补回完整 call group。
-4. Phase 6 的最小 bridge 只支持 function tools。responses-only built-in、custom、namespace 与 tool-search 必须由 capability 明确映射或拒绝；不能按 cc-switch 的 provider 特例静默降级。
-5. output[] 的多个 message/tool/reasoning items 按 renderer 规则压缩；在 provider metadata 中保留原 item。
-6. 将不可精确表达的 status 映射为一个明确策略，并带 transformation notice。
-
-LiteLLM 对 unsupported built-ins 的告警/丢弃逻辑展示了 capability gate 的必要性：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/transformation.py:1252`。
-
-## 5. Streaming 状态机
-
-不要把 SSE 当成无状态的逐行 transform。推荐每个请求一个单线程 `StreamAssembly`：
-
-```mermaid
-stateDiagram-v2
-    [*] --> Accepted
-    Accepted --> Running: response.created / upstream connected
-    Running --> EmittingText: text delta
-    Running --> EmittingTool: tool item added
-    EmittingTool --> EmittingTool: argument delta
-    EmittingText --> Running
-    EmittingTool --> Running: item done (not terminal)
-    Running --> Completed: response.completed / final Chat response
-    Running --> Failed: response.failed / transport error
-    Running --> Cancelled: client cancellation / explicit cancel result
-    Completed --> [*]
-    Failed --> [*]
-    Cancelled --> [*]
+```text
+message
+function_call
+function_call_output
+reasoning
+hosted-tool items
+provider-specific items
 ```
 
-每个 stream state 至少维护：
+一个 assistant Chat message 可以包含文本和多个并行 tool calls；Responses 则可能把它们拆为多个 output item。
+
+### 3.2 身份不同
+
+常见 identity：
 
 ```text
 response_id
-next_sequence
-output_items_by_index
-text_buffer_by_item
-reasoning_buffer_by_item
-call_id -> {output_index, name, arguments_buffer, item_id}
-chat_tool_index -> call_id
-pending_tool_calls_by_index
-tool_context
-terminal_seen
-usage
-provider_data
+item_id
+call_id
+output_index
+chat tool index
 ```
 
-必须强制的 invariant：
+它们不是可互换字段：
 
-1. `output_item.done` 不是 terminal；协议 SSE 终态仅由 `response.completed`、`response.incomplete`、`response.failed` 或无 stream 的最终 response 决定。client cancellation / explicit cancel result 是独立的本地终态，不应伪装成不存在的 `response.cancelled` SSE terminal。若 provider 缺失 terminal frame，只能进入明确标记的 recovery 分支：要求已收集完整/可验证 output，保留 `terminal_missing` 诊断，且不得伪造正常 lifecycle。Hermes 的恢复逻辑在 `F:/codespace/hermes-agent/agent/codex_runtime.py:1140-1162`，但它默认返回 `status="completed"` 而无此诊断；新实现应改进这一点。
-2. 一个 `call_id` 在一次 response 内只能绑定一个 logical tool call；重用 index 但出现不同 call id 时，禁用不安全的 index fallback。
-3. terminal event 前必须 flush 已缓冲的 tool argument 与 message item。
-4. 终态只能发一次；重复 event idempotent 处理。
-5. event 到达顺序以 provider sequence 或接收序号记录，不能用 text 拼接顺序推断。
-6. Chat tool delta 的空 id/name fragment 不得覆盖已解析身份；仅在 call id 与 name 均已确定、且较早的连续 index 已可表达时发 `output_item.added`。最终 arguments 在 complete/done 前 canonicalize、parse 并按 target schema validate；不在 partial delta 上解析 JSON。
-7. 并行 tool call 的 Responses `output_index` 按 source Chat `index` 的逻辑顺序确定，而非“哪个 call 最先收齐”。不完整或缺 name 的 call 只能明确丢弃/失败并产生 notice，不能污染同一 response 内其他有效 call。
+- `call_id` 关联 invocation 与 tool output；
+- `item_id` 标识 Responses item；
+- `output_index` 表示 Responses output 的逻辑顺序；
+- Chat tool index 只属于流式 `choices[].delta.tool_calls[]` 组装。
 
-LiteLLM 的 Chat->Responses iterator 已显示 `call_id -> output_index`、argument buffer、pending queue 的必要形态：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/streaming_iterator.py:71`、`:138`。其反向 iterator 证明 terminal 应归属 `response.completed`：`F:/codespace/litellm/litellm/completion_extras/litellm_responses_transformation/transformation.py:1253`、`:1305`。
+### 3.3 完成状态不同
 
-## 6. Capability Profile，而不是 provider 名称 if/else
+- Chat streaming 常通过 `finish_reason` 与 `[DONE]` 收束；
+- Responses 有 response/item/content/arguments 等多层事件；
+- `response.output_item.done` 不是 response terminal；
+- usage 可能在不同位置或独立 final chunk/event 出现。
 
-建议每个实际 deployment/route 解析为：
+### 3.4 continuation 不同
+
+`previous_response_id`、opaque reasoning、encrypted content 或 Provider resource ID 可能依赖 issuing backend。将它们转成无状态 Chat 历史后，未必能再次恢复等价状态。
+
+## 4. Bridge IR
+
+Bridge IR 只表达首批协议真正共有的语义，并允许有类型扩展；不放任通用 `provider_data: JsonValue` 成为逃生舱。
+
+```rust
+struct BridgeRequest {
+    instructions: Vec<Instruction>,
+    turns: Vec<TurnItem>,
+    tools: Vec<FunctionTool>,
+    tool_choice: ToolChoice,
+    output_contract: Option<OutputContract>,
+    stream: bool,
+    source_state: SourceState,
+}
+
+enum TurnItem {
+    Message(MessageItem),
+    FunctionCall(FunctionCallItem),
+    FunctionResult(FunctionResultItem),
+    ReasoningSummary(ReasoningSummaryItem),
+    Extension(TypedExtension),
+}
+
+struct FunctionCallItem {
+    call_id: CallId,
+    source_item_id: Option<ItemId>,
+    name: String,
+    arguments_json: String,
+    logical_index: usize,
+}
+
+struct FunctionResultItem {
+    call_id: CallId,
+    output: ToolOutput,
+}
+
+struct TypedExtension {
+    namespace: String,
+    version: String,
+    payload: JsonValue,
+    preservation: PreservationClass,
+}
+```
+
+### 4.1 三层表示
 
 ```text
-CapabilityProfile
-  accepts_chat: bool
-  accepts_responses: bool
-  supports_streaming: bool
-  supports_previous_response_id: native | emulated | none
-  supports_opaque_reasoning_replay: bool
-  opaque_state_issuer: string
-  supported_tool_kinds: set
-  supports_builtin_web_search: bool
-  supports_background: bool
-  supports_response_resource_store: native | proxy | none
-  max_item_id_length: optional int
+Core Semantic IR
+  只放跨协议稳定语义
+
+Typed Protocol Extensions
+  明确 namespace / issuer / version
+
+ConversionPlan
+  本次哪些能力 exact / approximate / unsupported
 ```
 
-它可表达 Hermes 中 GitHub id 不可 replay、xAI 工具 schema 需要清洗、Azure 留在 Chat 等实际差异，而不污染核心转换器。协议 renderer 只读取 capabilities，provider adapter 负责生成 profile。
+renderer 不认识某个 typed extension 时必须拒绝或按明确定义忽略，不能把任意 JSON 偷渡给不兼容 Provider。
 
-## 7. 项目 Phase 6 内部的分阶段实现建议
+## 5. ConversionPlan 与 notice
 
-以下 Phase 1–4 仅为协议转换器在项目 Phase 6 内的建议性交付切片，不替代项目级 Phase 0–6 编号或实施顺序。开始这些切片前，应先满足[开发计划](../plans/development-plan.md)中项目 Phase 6 的前置条件。
+请求进入 bridge 后先形成：
 
-### Phase 1: 最小可靠文字 + function tool 桥
+```text
+ConversionPlan
+  source_protocol
+  target_protocol
+  supported_features
+  item mappings
+  identity mappings
+  approximation notices
+  rejected features
+  continuation decision
+```
 
-- 定义上面的 Canonical IR、strict request validator、转换错误模型。
-- 支持 system/user/assistant 文本、function tool schema、function call、function result、非流式 usage。
-- 保存 `call_id`，拒绝无对应关联的 tool result；将 `item_id`、`response_id` 与 `output_index` 保持为不同字段。
-- 在 source tools 解析后创建每请求 `ToolConversionContext`，供 request、final response 和 SSE renderer 共用；Phase 1 不支持 custom/namespace/tool-search 映射。
-- 用 fixture 做 Chat->Responses->Chat 与 Responses->Chat->Responses 的语义 round-trip；覆盖连续 calls -> 单一 Chat assistant `tool_calls`、紧邻 tool result 和允许的有损项。
+建议 notice：
 
-### Phase 2: 正确的双向 SSE
+```json
+{
+  "code": "reasoning_summary_approximated",
+  "source_protocol": "responses",
+  "target_protocol": "chat_completions",
+  "action": "approximate",
+  "item_id": "rs_...",
+  "message": "reasoning summary was rendered as an assistant text block"
+}
+```
 
-- 实现两个独立 iterator；一条处理 Chat delta -> Responses events，另一条处理 Responses events -> Chat chunks。
-- 添加并行 tools、文字后 tools、tools 后文字、arguments 分片、late/empty id/name delta、终态/错误/取消、usage 的 fixture。
-- 断言 Chat `index` 与 Responses `output_index` 的稳定排序，argument buffer 只在 done 时 JSON parse/canonicalize，且 `output_item.done` 不结束 response。
-- 先交付 deterministic event ordering，再做 token 分片模拟。
+对目标客户端：
 
-### Phase 3: continuation 和 provider capabilities
+- 不在 SSE 中注入未知 OpenBridge event；
+- 可在非流式安全响应 header、可选 response metadata（仅当目标协议/客户端已验证）或本地结构化日志中暴露；
+- `unsupported` 必须在上游调用前返回明确错误。
 
-- 引入 `ContinuationRef` 与 issuer/deployment-bound continuation ledger，保存 ordered call group、route snapshot version 与 expiry。
-- 实现 `previous_response_id` 的 native/emulated/unsupported 明确策略；emulated 恢复只允许同 issuer + 同 deployment 命中，禁止 cc-switch 式全局 unique-`call_id` fallback。
-- 用 capability profile 控制 builtin tools、file search、background、schema quirks。
-- 为每次降级写 trace/log/response metadata，便于调用方调试。
+## 6. Chat → Responses
 
-### Phase 4: 对外 Responses resource 语义
+### 6.1 请求
 
-- 仅在已定义存储边界后实现 GET/DELETE/input_items/cancel/background；不能仅伪造 response id。
-- 确定 `store` 是直通、proxy-managed 还是拒绝，并为每种情况定义权限、TTL、清理与重启恢复。
+按原消息顺序处理：
 
-## 8. 不变量与测试清单
+- system/developer instruction → Responses instructions 或相应 message item；
+- user/assistant text → message item；
+- assistant `tool_calls[]` → 多个有序 `function_call` item；
+- `role=tool` + `tool_call_id` → `function_call_output`；
+- function tool schema → Responses function tool schema；
+- 无法识别的 Chat extension → capability decision。
 
-至少建立这些 tests：
+必须保留并行 call 顺序和 call/result 关联。若 Chat 历史缺少 assistant tool call，却出现 `role=tool`，不能凭字符串猜测 issuing call。
 
-| 类别 | 断言 |
+### 6.2 响应
+
+Responses output 转回 Chat 时：
+
+- text/content items → assistant content；
+- 连续 function calls → 同一 assistant message 的 `tool_calls[]`；
+- `call_id` → Chat `tool_calls[].id`；
+- stop/terminal → `finish_reason`；
+- usage → Chat usage；
+- hosted-tool/reasoning/provider item → exact/approximate/unsupported 规则。
+
+`output_item.done` 只能完成一个 item，不能结束整个 Chat stream。
+
+## 7. Responses → Chat
+
+### 7.1 请求
+
+按 `input[]` 顺序处理：
+
+1. message → Chat role message；
+2. 连续 `function_call` items 暂存为一个 assistant `tool_calls` group；
+3. 遇到 `function_call_output` 前 flush 对应 assistant call group；
+4. 将 output 转为 `role=tool`，使用不可变 `call_id`；
+5. 遇到普通 message/terminal 也先 flush pending calls；
+6. 不把 Responses `item_id` 伪装成 Chat `tool_call_id`。
+
+### 7.2 continuation
+
+若请求只提供 `previous_response_id` + 新 tool outputs，而 Chat 上游需要完整历史，只有两种安全选择：
+
+- 命中 issuer/deployment-bound、未过期且无歧义的 continuation ledger，补回完整 assistant call group；
+- 明确拒绝并要求客户端发送完整可转换历史。
+
+禁止：
+
+- 仅以全局 `call_id` 猜测历史；
+- 跨 Provider/deployment 查找；
+- fallback 后继续使用原 continuation；
+- 从日志正文隐式重建。
+
+第一版可以完全拒绝需要 ledger 的路径，先完成无状态 bridge。
+
+### 7.3 Chat 响应转回 Responses
+
+- Chat text delta → Responses content delta；
+- Chat tool call index → per-stream call assembly；
+- late/empty id/name 在完成前暂存，完成后仍无 identity 则报错；
+- arguments fragments 只拼接字符串，直到完整事件后再 parse/validate；
+- finish reason → response terminal mapping；
+- usage-only final chunk 不得生成空文本 item；
+- `[DONE]` 只在已完成必要 terminal assembly 后结束。
+
+## 8. Stream state machines
+
+Chat 与 Responses 必须有独立 assembler。
+
+### 8.1 Chat assembler
+
+追踪：
+
+```text
+choice index
+assistant text buffer/state
+tool index → {id, name, arguments buffer, completion state}
+finish reason
+usage
+terminal emitted
+```
+
+### 8.2 Responses assembler
+
+追踪：
+
+```text
+response id
+output index
+item id/type/status
+content index
+call id
+arguments buffer
+usage
+response terminal owner
+```
+
+### 8.3 共同不变量
+
+- 每个 request/stream 独立 state；
+- arguments 可能跨任意网络 chunk 和 SSE event；
+- item done 不等于 response done；
+- terminal 只发一次；
+- EOF before terminal 不伪装成功；
+- unknown event 的保留/忽略/拒绝由 source adapter 明确；
+- client cancel 终止上游和 assembler；
+- 超限 arguments/content fail closed。
+
+## 9. Tool conversion context
+
+每次 bridge 请求建立：
+
+```text
+ToolConversionContext
+  source tool declarations
+  source ↔ target name mapping
+  source ↔ target call identity mapping
+  schema adaptations
+  conversion notices
+```
+
+它在 request renderer、response parser 和 stream assembler 间共享，但不成为全局 cache。
+
+若需要 namespace/name 改写：
+
+- 映射必须确定且可逆；
+- 碰撞在调用前拒绝；
+- schema adaptation 记录 exact/approximate；
+- tool result 只按映射后的 immutable call identity 关联。
+
+## 10. Capability 决策
+
+bridge 不按 Provider 名称猜测能力。至少判断：
+
+```text
+source/target protocol
+streaming
+function tools
+parallel tools
+structured output
+reasoning
+multimodal input
+hosted tools
+continuation
+usage streaming
+```
+
+典型规则：
+
+| 能力 | Responses → Chat 首版 |
 |---|---|
-| 信息完整性 | text、image/file part、tool name/arguments/call_id、usage、annotation 的预期保存/降级被记录 |
-| tool 关联 | 并行多个 calls 能以同一 call_id 收到各自 result；没有 call_id 的 result 被拒绝 |
-| tool context | 每请求 tool name/schema/kind mapping 同时用于 request、final response 与 SSE；unknown/builtin tool 的 map/reject/notice 可断言 |
-| continuation | 同 issuer opaque token 可 replay；不同 issuer/不支持 endpoint 一定不会发出 |
-| continuation call group | `previous_response_id` 只在同 issuer/deployment、未过期的 ledger 中补回完整 assistant call group；跨 route、歧义 call id 或缺失 ledger 一定不猜测恢复 |
-| status | text stop、tool calls、length、filter、failed、cancelled、reasoning-only 的 policy 固定 |
-| stream | item done 不结束；completed 才结束；末尾先 flush 缓冲工具参数；并行 index 有序、空 id/name 不覆盖已解析身份、终态只一次 |
-| fallback | Native Responses、Chat bridge、无能力拒绝三条路径产出可区分 metadata |
-| resource | background/poll/get/delete/cancel 不与 transient stream state 混用 |
+| text | structure-preserving |
+| function tools | structure-preserving，需 identity fixtures |
+| parallel function tools | candidate，需目标 Provider 实测 |
+| structured output | candidate/approximate，取决于 target schema support |
+| reasoning summary | approximate 或 unsupported |
+| opaque reasoning/encrypted content | unsupported |
+| hosted `web_search` | unsupported；不能伪装成 client function call |
+| `previous_response_id` | unsupported，除非命中受限 ledger |
+| resource/background | unsupported |
 
-本地验证证据：Hermes adapter test 为 `27 passed`，LiteLLM bridge test 为 `45 passed`；具体命令和范围见 [Hermes Agent 协议分析](../research/hermes/chat-responses-analysis.md) 与 [LiteLLM 协议分析](../research/litellm/chat-responses-analysis.md)。
+## 11. Bridge re-entry 与路由
 
-## 9. 最终推荐
+RoutePlan 在进入 converter 前已决定 source/target protocol 和 selected deployment。bridge 内不得重新调用全局 alias resolver。
 
-采用“**Canonical item log + 双向 renderer + per-request stream assembly + issuer-bound continuation ledger + capability profiles**”。
+```text
+RoutePlan(mode=bridge, source=responses, target=chat, deployment=X)
+```
 
-不要采用“请求字段 rename + 响应字段 rename”的方案。它能通过最简单的文本 demo，但会在第二轮 tool result、reasoning replay、并行 tool stream、provider fallback 或 background response 上破坏状态关联，而且故障通常表现为下一轮 400、静默丢工具调用或过早结束流。双向 bridge 还必须有 re-entry guard，避免 Responses fallback 到 Chat 后又因模型规则被转回 Responses；LiteLLM 以 `_skip_responses_api_bridge` 实现该约束：`F:/codespace/litellm/litellm/responses/litellm_completion_transformation/handler.py:62`。
+若目标 Provider 调用失败：
+
+- 只能在首输出前考虑剩余、同 target protocol 且 capability 等价的 candidates；
+- continuation/source state 不允许跨 candidate 时直接停止；
+- 不允许 Responses→Chat converter 的输出再次被选中进入 Chat→Responses converter。
+
+## 12. 实施切片
+
+### Slice B0：Corpus 与不变量
+
+- 固定 Codex/Hermes 版本；
+- 收集 native Chat/Responses tool-loop corpus；
+- 建立 identity、ordering、terminal 和 error fixtures；
+- 从 CLIProxyAPI、LiteLLM、cc-switch/Hermes issues 收集负面案例。
+
+### Slice B1：Responses → Chat 非流式
+
+只支持 text + function tool loop，不支持 continuation ledger。
+
+### Slice B2：Responses → Chat 流式
+
+实现 Responses assembler 和 Chat renderer；覆盖并行 calls、arguments delta、usage 和 terminal。
+
+### Slice B3：Chat → Responses 非流式/流式
+
+实现 Chat assembler、Responses renderer 和 tool identity mapping。
+
+### Slice B4：Continuation 决策
+
+先比较：
+
+1. 要求完整历史；
+2. 本地 issuer/deployment-bound ledger；
+3. 仅支持 native continuation。
+
+没有充分证据前不默认实现全局 ledger。
+
+### Slice B5：异构 Provider
+
+通过 Anthropic Messages 或等价协议验证 Core IR、typed extension 和 stop/tool semantics。
+
+## 13. 测试性质
+
+除示例 fixture 外，建议加入 property/invariant tests：
+
+- `parse_A(render_A(parse_A(x)))` 在声明的 exact subset 内稳定；
+- Chat tool call/result 的 `call_id` 关联完整；
+- source logical order 在 target 中可预测；
+- terminal event 最多一次；
+- unknown/unsupported item 不会静默消失；
+- bridge notice 与实际 approximation 一致；
+- arguments 分片在任意边界下得到同一完整字符串；
+- continuation 不跨 issuer/deployment/expiry；
+- re-entry guard 阻止递归 bridge；
+- 已输出业务事件后不 fallback/stitch。
+
+## 14. 开放问题
+
+- reasoning summary 在 Chat 下应拒绝、转为普通 assistant text，还是使用已验证 extension？
+- structured output 的共同子集如何定义？
+- 多模态 content part 的首批范围是什么？
+- Codex/Hermes 是否需要 OpenBridge 在响应 body 暴露 conversion notice，还是 header/本地日志足够？
+- 是否需要 continuation ledger，还是要求完整历史更符合单用户核心？
+- Chat → Anthropic 与 Responses → Anthropic 是否共享同一 Core IR，还是需要协议对专用扩展？
+
+这些问题必须由目标客户端和真实 Provider corpus 决定，而不是为了“支持更多字段”提前扩展 IR。
+
+## 15. 证据与关联文档
+
+- [核心需求](../requirements/proxy-requirements.md)
+- [目标客户端契约](target-client-contracts.md)
+- [Hermes Chat/Responses 分析](../research/hermes/chat-responses-analysis.md)
+- [LiteLLM Chat/Responses 分析](../research/litellm/chat-responses-analysis.md)
+- [cc-switch 协议与工具转换分析](../research/cc-switch/chat-responses-tool-conversion-analysis.md)
+- [OpenAI Chat Completions 协议](../specifications/openai/chat-completions-protocol.md)
+- [OpenAI Responses 协议](../specifications/openai/responses-protocol.md)
+- CLIProxyAPI repository：https://github.com/router-for-me/CLIProxyAPI
+- Chat → Codex tool state failure example：https://github.com/router-for-me/CLIProxyAPI/issues/2132
+- Responses state affinity failure examples：https://github.com/router-for-me/CLIProxyAPI/issues/2594 和 https://github.com/router-for-me/CLIProxyAPI/issues/2596
