@@ -4,7 +4,7 @@
 
 **Working scope；用于设计收敛，不代表最终实现已经确定。**
 
-本文定义 OpenBridge 核心产品边界、外部契约和验收方向。当前代码是实验性验证版本；具体调研问题、决策门与候选实施顺序见[开发与调研收敛计划](../plans/development-plan.md)。
+本文定义 OpenBridge 核心产品边界、外部契约和验收方向。当前代码是实验性验证版本；阶段目标、证据门和研究约束见[阶段交付与研究需求](delivery-requirements.md)，单阶段执行规则见[需求索引与阶段治理](README.md)。
 
 ## 1. 产品目标
 
@@ -73,7 +73,7 @@ OpenBridge 的核心价值不是企业级治理，而是：
 
 ## 4. 当前非目标
 
-- 多租户、principal/ACL、团队成员、虚拟 key 管理、RPM/TPM 配额、计费与合规审计；
+- 多租户、principal/ACL、团队成员、虚拟 key 管理、面向下游用户/key 的 RPM/TPM 配额、计费与合规审计；上游 deployment 的限流恢复见[Provider 韧性需求](provider-resilience.md)；
 - 同 Provider 多账号池、credential pool、账号轮转或账号级负载均衡；
 - 独立控制面/数据面、数据库驱动管理 API、集群和高可用一致性；
 - OpenAI 全部资源 API、Realtime、Files、Conversations 或管理 API；
@@ -130,7 +130,7 @@ OpenBridge 的核心价值不是企业级治理，而是：
 | BRG-01 | 只有上下游协议不一致时使用 `wire → Bridge IR → wire`。 | Native Path 的 benchmark/fixture 不经过 Bridge IR。 |
 | BRG-02 | 每个转换按 `exact`、`structure_preserving`、`approximate`、`unsupported` 分类。 | 不支持能力在上游调用前拒绝；近似转换有 machine-readable result。 |
 | BRG-03 | `call_id`、item/response identity、output index、tool index 和 terminal ownership 不得混用。 | 并行 call、arguments 分片、文本/tool 交错和 late identity fixtures 通过。 |
-| BRG-04 | bridge 第一切片只承诺文本与普通 function tool loop。 | hosted tool、resource/background、opaque continuation 和未知 item 默认拒绝。 |
+| BRG-04 | bridge 第一切片只承诺文本与普通 function tool loop，且保持无状态。 | hosted tool、resource/background、opaque continuation、`previous_response_id` 驱动的跨轮恢复和未知 item 均在上游调用前拒绝；continuation ledger 只能作为独立后续能力。详见[Agent Loop 兼容与 Bridge 状态契约](../design/agent-loop-bridge-contract.md)。 |
 | BRG-05 | bridge 具备 re-entry guard，不能递归选择另一 bridge。 | 所有 protocol pair 有无递归 fixture。 |
 
 ### 6.5 Stream、取消与 fallback
@@ -140,7 +140,12 @@ OpenBridge 的核心价值不是企业级治理，而是：
 | STR-01 | 下游 disconnect 必须取消/关闭上游请求并释放 stream state。 | Codex/Hermes/SDK cancellation fixture 与 mock upstream 观察通过。 |
 | STR-02 | EOF、idle timeout、transport error、provider error、client cancel 和正常 terminal 是不同 outcome。 | 每个 case 有唯一终止记录；不伪造完成。 |
 | STR-03 | fallback 仅在尚未输出业务响应、没有 provider-bound continuation，且失败分类允许时发生。 | 已输出事件、`previous_response_id` 和 tool continuation 禁止跨 candidate。 |
-| STR-04 | 第一版允许只实现连接失败、明确 429/5xx 或首字节前失败的有界 fallback。 | 不要求复杂 health/weight 系统即可完成核心。 |
+| STR-04 | 429、adapter 明确认可的临时 5xx 和安全的连接失败使用次数、等待与总耗时均有上限的 retry budget。 | 不允许无限重试；下游取消中止 backoff；已输出或重复安全性不明时停止。 |
+| STR-05 | 明确 429/临时不可用会为对应 deployment 建立有界被动 cooldown；新无状态请求在到期前跳过它。 | `Retry-After`/rate-limit reset 优先；无 header 时使用有界 backoff + jitter；不建立复杂主动健康集群。 |
+| STR-06 | cooldown、retry 和 fallback 不能覆盖 state affinity、immutable RoutePlan 或 no-stream-stitching。 | 有状态请求不跨 deployment；全部 candidate cooling down 时返回明确 429，而不是静默降级。 |
+| STR-07 | 恢复耗尽后向下游保留安全且有效的 Provider 错误。 | 保留 allowlist 内的 status、error fields、request id、`Retry-After` 和 rate-limit header；不泄露 secret、内部 URL 或候选身份。 |
+
+详细分类、配置边界和验收矩阵见[Provider 限流、冷却、重试与错误传播需求](provider-resilience.md)。
 
 ### 6.6 Credential 与最小网络安全
 
@@ -205,7 +210,8 @@ effective route decision:
 
 - 未知上游字段在 Native Path 尽量保留；
 - 未知 SSE event 的处理必须按协议路径显式定义；
-- 错误尽量保留安全的上游 status、request id、retry header 和可诊断 message；
+- 错误尽量保留安全的上游 status、request id、retry header、rate-limit header 和可诊断 error fields；
+- 全部 eligible candidate 因 cooldown 被跳过时，返回稳定的 OpenAI-compatible 429 code 和可确定的最早 `Retry-After`；
 - 不把 HTTP 200 中的 provider error event 当正常 token 输出。
 
 ## 9. P0 调研与实验 backlog
@@ -228,7 +234,7 @@ OpenBridge 核心方向在以下条件满足后可视为基本收敛：
 1. Codex custom Provider（Responses HTTP/SSE、`supports_websockets = false`）→ Responses Provider 的 native tool loop 通过；
 2. Hermes → Chat Provider 的 native tool loop 通过；
 3. 至少两个不同 Provider Family 可由 alias 聚合；
-4. ordered candidate、capability gate、首输出前 fallback 和 state affinity 通过；
+4. ordered candidate、capability gate、有限 retry、被动 cooldown、首输出前 fallback、最终错误传播和 state affinity 通过；
 5. Responses → Chat 的最小 bridge 支持文本与 function tool loop；
 6. Chat → Responses 的最小 bridge 支持文本与 function tool loop；
 7. Anthropic Messages 或等价异构 Provider 验证 adapter/Bridge IR 边界；
@@ -241,13 +247,13 @@ OpenBridge 核心方向在以下条件满足后可视为基本收敛：
 建议顺序：
 
 1. 轻量使用量/成本记录（JSONL 或 SQLite）；
-2. 被动健康冷却与更丰富的 fallback reason；
+2. 核心最小 cooldown 之上的高级健康观测、主动探测与自适应路由；
 3. Provider-hosted tool facade；
 4. 本地/MCP Tool Bridge；
 5. 可选 OAuth credential adapter；
 6. 简单 Web UI 与更多模型/成本展示。
 
-这些增强不得反向要求核心引入多租户、配额、合规审计或独立控制面。
+这些增强不得反向要求核心引入多租户、下游配额、合规审计或独立控制面。最小 deployment cooldown、有限 retry 和最终错误传播已属于 C2 核心，不得延期到增强阶段。
 
 ## 12. 关联文档
 
@@ -256,6 +262,8 @@ OpenBridge 核心方向在以下条件满足后可视为基本收敛：
 - [Rust Provider adapter 与数据流](../architecture/rust-provider-adapter-dataflow.md)
 - [本地配置、路由与使用量](../architecture/local-configuration-routing-and-usage.md)
 - [Chat/Responses bridge](../design/chat-responses-conversion.md)
-- [开发与调研收敛计划](../plans/development-plan.md)
+- [Provider 限流、冷却、重试与错误传播](provider-resilience.md)
+- [阶段交付与研究需求](delivery-requirements.md)
+- [需求索引与阶段治理](README.md)
 - [参考项目比较矩阵](../research/project-comparison-matrix.md)
 - [当前实现说明](../implementation/current-implementation.md)

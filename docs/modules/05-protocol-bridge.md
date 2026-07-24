@@ -31,8 +31,11 @@ source wire → source adapter → Bridge IR → target adapter → target wire
 
 已有详细设计和外部项目反例，运行时代码尚未实现。
 
+首个 bridge 明确采用无状态 Agent Loop 兼容边界：只转换普通 function tool 的 call/result；需要 `previous_response_id`、opaque reasoning 或跨轮 tool-call 恢复的请求在上游调用前拒绝。后续 ledger 必须独立通过 issuer/deployment/TTL binding 门，不能采用全局 `call_id` 猜测。详见[Agent Loop 兼容与 Bridge 状态契约](../design/agent-loop-bridge-contract.md)。
+
 ## 详细资料
 
 - [Chat/Responses Bridge 设计](../design/chat-responses-conversion.md)
+- [Agent Loop 兼容与 Bridge 状态契约](../design/agent-loop-bridge-contract.md)
 - [LiteLLM 协议分析](../research/litellm/chat-responses-analysis.md)
 - [cc-switch 转换分析](../research/cc-switch/chat-responses-tool-conversion-analysis.md)

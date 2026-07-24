@@ -12,7 +12,7 @@ OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API �
 2. 聚合多个 Provider、deployment 与稳定模型 alias；
 3. 以编译期 Provider Family 承载协议行为，以受信运行时配置定义 deployment；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
-5. 正确处理 SSE、tool-call identity、continuation state、取消与首输出前 fallback；
+5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、deployment cooldown、首输出前 fallback 与最终错误传播；
 6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile 与 Hermes Chat/Responses 的真实 Agent tool loop 兼容性。
 
 核心稳定后再考虑：
@@ -62,28 +62,33 @@ cargo test --locked
 cargo clippy --locked -- -D warnings
 ```
 
-`tests/sdk_compatibility.rs` 使用 OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 消费两个端点的 stream/non-stream loopback fixture：
+`tests/sdk_compatibility.rs` 使用 OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 消费两个端点的 stream/non-stream、单/并行 function-tool 往返、流式 arguments 和 fixture 429 error：
 
 ```bash
 cargo test --locked --test sdk_compatibility -- --ignored
 ```
 
-这些 fixture 证明特定模拟输出可被对应 SDK 消费；它们不替代真实 Provider corpus、Codex/Hermes 完整 tool loop 或异构协议 bridge 验证。
+这些 fixture 证明特定模拟输出可被对应 SDK 消费；它们不替代真实 Provider corpus、Codex/Hermes 完整 tool loop、并行 Agent tool 调度、真实 client cancel 或异构协议 bridge 验证。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
+
+[`upstream-fixture-server`](tools/upstream-fixture-server/README.md) 是独立的 Native Path 验收上游：默认离线 mock Chat/Responses；复制其 [`.env.example`](tools/upstream-fixture-server/.env.example) 为同目录 `.env`，填入 `UPSTREAM_FIXTURE_API_BASE`、`UPSTREAM_FIXTURE_API_KEY` 与可选 `UPSTREAM_FIXTURE_MODEL` 后可切换到真实上游 proxy，且不会记录密钥或 request/response body。
 
 ## 推荐阅读顺序
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| [文档总索引](docs/README.md) | 按功能模块和实施阶段组织全部文档 | 项目级入口 |
+| [文档总索引](docs/README.md) | 按需求、阶段契约、当前实现与单阶段计划组织全部文档 | 项目级入口 |
+| [需求索引与阶段治理](docs/requirements/README.md) | 产品需求、阶段交付需求与单阶段计划规则 | 工作基线 |
 | [功能模块索引](docs/modules/README.md) | 产品边界、客户端、路由、Provider、Native、Bridge、安全与增强 | 当前功能视图 |
-| [实施阶段索引](docs/phases/README.md) | C0–C6 和增强阶段的目标、测试与退出条件 | 当前实施视图 |
+| [阶段契约索引](docs/phases/README.md) | C0–C6 和增强阶段的进入条件、非目标、测试与退出条件 | 阶段需求视图 |
 | [核心需求](docs/requirements/proxy-requirements.md) | 单用户部署、核心范围、非目标与验收方向 | 工作基线，待调研收敛 |
+| [Provider 韧性需求](docs/requirements/provider-resilience.md) | 上游 RPM/TPM/429、临时故障、cooldown、retry 与错误传播 | C2 Working requirement |
 | [目标客户端契约](docs/design/target-client-contracts.md) | Codex 与 Hermes 的协议优先级、测试矩阵和版本固定规则 | 工作假设 |
 | [目标架构与路线](docs/architecture/architecture-and-roadmap.md) | 单服务架构、原生/桥接双路径、路由与状态边界 | 工作假设 |
 | [Rust Provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Provider Family、deployment 配置、typed pipeline 与 conformance | 工作假设，原型部分验证 |
 | [本地配置、路由与使用量](docs/architecture/local-configuration-routing-and-usage.md) | 单用户配置模型、alias、静态入站 token 与可选 usage sink | 目标设计 |
 | [Chat/Responses bridge](docs/design/chat-responses-conversion.md) | bridge-only IR、状态机、tool identity 与降级边界 | 工作假设 |
-| [开发与调研收敛计划](docs/plans/development-plan.md) | 调研问题、实验、决策门和候选实施顺序 | 实施中 |
+| [阶段交付与研究需求](docs/requirements/delivery-requirements.md) | 跨阶段目标、研究要求、证据门和依赖关系 | Working requirements |
+| [当前阶段实施计划](docs/plans/implementation-plan.md) | 仅展开唯一 `Active` 阶段 | Active |
 | [参考项目比较矩阵](docs/research/project-comparison-matrix.md) | Codex、Hermes、LiteLLM、cc-switch、Bifrost、CLIProxyAPI 的研究职责 | 持续更新 |
 | [当前实现说明](docs/implementation/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 已同步 |
 | [Hosted tool 增强需求](docs/requirements/hosted-tools-mcp.md) | 核心稳定后的 Provider-hosted tool facade | 延期增强 |
@@ -93,7 +98,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 ## 当前非目标
 
-- 多租户、团队成员、principal/ACL、配额、计费、合规审计和独立控制面；
+- 多租户、团队成员、principal/ACL、面向下游用户/key 的配额、计费、合规审计和独立控制面；
 - 同 Provider 多账号池、credential 轮换池或账号级负载均衡；
 - OpenAI 全部资源 API、Realtime、Files、Conversations 或管理 API；
 - 首版 Responses WebSocket transport；Codex 基线使用独立 custom Provider，并显式配置 `supports_websockets = false`；

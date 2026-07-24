@@ -83,6 +83,8 @@ Artifacts：
 
 ## 优先实验
 
+- [EXP-0001：OpenAI SDK 原生 Chat/Responses tool-loop loopback](EXP-0001-openai-sdk-native-protocol.md)：已确认 SDK-first 的有限 Native Path 假设；不替代真实 Codex/Hermes/Provider corpus。
+
 1. Codex custom Provider 的 Responses HTTP/SSE text/function-tool/cancel/error corpus，并记录 `supports_websockets = false` 的诊断证据；
 2. Hermes Chat native text/function-tool/strict-endpoint corpus；
 3. Native Path 与完整 IR round-trip 的未知字段保留比较；

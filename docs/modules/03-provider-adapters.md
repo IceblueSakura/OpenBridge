@@ -32,10 +32,13 @@ Deployment 只提供受信运行时数据，不注入任意认证逻辑、转换
 - JSON/SSE response；
 - terminal、error、EOF 和 cancel；
 - capability 上界；
-- timeout、retry 和 fallback 边界。
+- rate-limit/temporary failure/ambiguous failure 分类；
+- safe error fields、Provider request id、`Retry-After` 和 rate-limit header allowlist；
+- timeout、retry、cooldown 和 fallback 边界。
 
 ## 详细资料
 
 - [Rust Provider adapter 与数据流](../architecture/rust-provider-adapter-dataflow.md)
+- [Provider 韧性需求](../requirements/provider-resilience.md)
 - [当前实现](../implementation/current-implementation.md)
 - [参考项目比较矩阵](../research/project-comparison-matrix.md)

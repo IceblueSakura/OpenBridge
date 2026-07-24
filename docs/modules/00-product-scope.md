@@ -18,6 +18,7 @@ OpenBridge 是单用户、单服务部署的多 Provider Agent API 聚合代理�
 ### P1：多 Provider 协议桥核心
 
 - 至少两个 Provider Family；
+- deployment 级有限 retry、被动 cooldown、fallback 和安全错误传播；
 - Responses → Chat 和 Chat → Responses 最小工具循环；
 - 非 OpenAI wire dialect 的异构 Provider 验证；
 - Provider conformance suite；
@@ -26,7 +27,7 @@ OpenBridge 是单用户、单服务部署的多 Provider Agent API 聚合代理�
 ### P2：核心后增强
 
 - usage/成本记录；
-- 被动健康与冷却；
+- 最小 cooldown 之上的高级健康观测与自适应路由；
 - Provider-hosted tool facade；
 - 本地/MCP Tool Bridge；
 - 可选 OAuth；
@@ -34,7 +35,7 @@ OpenBridge 是单用户、单服务部署的多 Provider Agent API 聚合代理�
 
 ## 非目标
 
-- 多租户、团队、ACL、配额、计费和合规控制面；
+- 多租户、团队、ACL、面向下游用户/key 的配额、计费和合规控制面；
 - 多账号 credential pool 和账号轮换；
 - OpenAI 全资源 API、Realtime、Files、Conversations 和管理 API；
 - 首版 Responses WebSocket；
@@ -45,5 +46,6 @@ OpenBridge 是单用户、单服务部署的多 Provider Agent API 聚合代理�
 ## 详细资料
 
 - [核心需求](../requirements/proxy-requirements.md)
+- [Provider 韧性需求](../requirements/provider-resilience.md)
 - [目标架构](../architecture/architecture-and-roadmap.md)
 - [Hosted tool 增强需求](../requirements/hosted-tools-mcp.md)

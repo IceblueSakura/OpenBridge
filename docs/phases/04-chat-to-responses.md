@@ -6,7 +6,13 @@
 
 ## 当前状态
 
-`Not started`。依赖 C3 的 Bridge IR、状态和错误边界先通过真实 E2E。
+`Blocked by C3`。依赖 C3 的 Bridge IR、状态和错误边界先通过真实 E2E。
+
+## 进入条件
+
+- C3 已 `Accepted`；
+- Bridge IR、identity、reject matrix 和 stream lifecycle 已由 Codex → Chat-only Provider E2E 验证；
+- Hermes Chat 固定版本 corpus 与一个授权 Responses-only Provider 环境可重跑。
 
 ## 首版范围
 
@@ -16,6 +22,15 @@
 - text/tool stream；
 - usage、error、cancel 和 terminal；
 - stateful continuation 默认拒绝。
+
+具体的 Agent/tool 边界、identity、state owner、stream lifecycle 和 future ledger 门见[Agent Loop 兼容与 Bridge 状态契约](../design/agent-loop-bridge-contract.md)。
+
+## 非目标
+
+- 重写 C3 已接受的 Bridge IR，除非反向 corpus 提供明确反证；
+- stateful continuation ledger、hosted/custom tool 或 opaque item 转换；
+- 引入 Provider 名称分支修补 renderer；
+- 同时开展异构 Provider onboarding。
 
 ## 实现切片
 

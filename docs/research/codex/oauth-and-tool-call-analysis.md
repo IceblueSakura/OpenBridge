@@ -166,6 +166,6 @@ Responses SSE / websocket item
 - [初版需求](../../requirements/proxy-requirements.md)
 - [Codex OAuth 凭证边界](../../design/codex-oauth-credential-boundary.md)
 - [Chat/Responses 转换设计](../../design/chat-responses-conversion.md)
-- [开发计划](../../plans/development-plan.md)
+- [阶段交付与研究需求](../../requirements/delivery-requirements.md)
 - [Hermes Agent 协议分析](../hermes/chat-responses-analysis.md)
 - [Hermes 与 LiteLLM ChatGPT OAuth 实现调研](../chatgpt-oauth/hermes-and-litellm-oauth-analysis.md)

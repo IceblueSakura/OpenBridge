@@ -35,6 +35,7 @@
 ## 详细资料
 
 - [当前实现](../implementation/current-implementation.md)
+- [Provider 韧性需求](../requirements/provider-resilience.md)
 - [目标架构](../architecture/architecture-and-roadmap.md)
 - [Responses 协议](../specifications/openai/responses-protocol.md)
 - [Chat Completions 协议](../specifications/openai/chat-completions-protocol.md)

@@ -11,7 +11,13 @@ Hermes Chat → OpenAI-compatible Chat Provider
 
 ## 当前状态
 
-`In progress`。原生 JSON/SSE 转发、模型改写、SSE framing、取消、错误和 SDK loopback 已实现；真实 Agent tool loop 和真实 Provider corpus 尚未完成。
+`Blocked by C0`。已有原生 JSON/SSE 转发、模型改写、SSE framing、取消、错误和 SDK loopback 原型证据，但 C0 尚未固定真实客户端版本与 corpus，因此本阶段不能成为当前实施计划。
+
+## 进入条件
+
+- C0 已 `Accepted`；
+- Codex/Hermes 的固定版本、配置、脱敏规则和可重跑 corpus 目录已经确定；
+- 两条 P0 Native Path 的 wire contract 已足以区分实现缺陷与环境/Provider 差异。
 
 ## 实现范围
 
@@ -22,6 +28,13 @@ Hermes Chat → OpenAI-compatible Chat Provider
 - unknown native fields/events；
 - client disconnect；
 - request/SSE 资源上限。
+
+## 非目标
+
+- 新增第二 Provider Family 或重构 Provider 聚合核心；
+- 实现任何 Chat ↔ Responses 转换；
+- 引入 continuation ledger、动态健康/权重、OAuth、Hosted Tool/MCP 或 UI；
+- 为适配单一 Provider 而加入未经需求与 corpus 支持的名称启发式。
 
 ## 测试条目
 

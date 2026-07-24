@@ -1,10 +1,12 @@
-# OpenBridge 开发与调研收敛计划
+# OpenBridge 阶段交付与研究需求
 
 ## 状态
 
-**实施中；当前是调研—实验—决策计划，不是已冻结的功能路线图。**
+**Working requirements；定义阶段目标、证据门和研究约束，不是可直接执行的多阶段计划。**
 
 OpenBridge 的最终实现方向尚未完全收敛。当前 Rust 代码用于验证设计假设；阶段完成与否应由证据和决策门判断，而不是由代码量或已有模块名称判断。
+
+本文保存跨阶段仍然有效的研究问题、证据门、阶段目标和架构决策约束。执行工作只使用[当前阶段实施计划](../plans/implementation-plan.md)；该计划一次只能覆盖一个 `Active` 阶段。
 
 ## 1. 核心目标
 
@@ -17,11 +19,11 @@ OpenBridge 的最终实现方向尚未完全收敛。当前 Rust 代码用于验
 5. 正确处理 SSE、tool identity、continuation、取消和首输出前 fallback；
 6. 核心稳定后增加 usage、Hosted Tool Facade、Tool Bridge/MCP 和可选 OAuth。
 
-当前明确不以多租户、principal/ACL、配额、计费、合规审计或独立控制面为目标。
+当前明确不以多租户、principal/ACL、面向下游用户/key 的配额、计费、合规审计或独立控制面为目标。
 
 ## 2. 设计声明状态
 
-计划和设计文档使用：
+需求、阶段契约和设计文档使用：
 
 | 状态 | 说明 |
 |---|---|
@@ -58,7 +60,7 @@ OpenBridge 的最终实现方向尚未完全收敛。当前 Rust 代码用于验
 - continuation ledger 可以延期，首版 bridge 可要求完整历史或拒绝 stateful path；
 - Codex 首版可通过 custom Provider 的 `supports_websockets = false` 稳定使用 HTTP/SSE，Responses WebSocket 可延期。
 
-## 4. 研究工作流
+## 4. 研究与证据要求
 
 每个关键问题使用统一记录：
 
@@ -146,7 +148,8 @@ Hermes Chat → OpenAI-compatible Chat Provider
 - 至少两个 Provider Family；
 - ordered candidate；
 - capability filtering；
-- 首输出前 fallback；
+- 有限 retry、deployment cooldown 与首输出前 fallback；
+- 安全的最终 Provider 错误传播；
 - state affinity。
 
 **退出条件**
@@ -155,6 +158,8 @@ Hermes Chat → OpenAI-compatible Chat Provider
 - 业务请求不能改变 URL/header/credential；
 - 相同 config + request 产生确定 route；
 - `previous_response_id`/tool continuation 不跨 candidate；
+- 429/临时不可用按 deployment 冷却，attempt 次数、等待和总耗时有上限；
+- 所有 candidate 不可用时返回安全、可诊断且带有效 retry hint 的最终错误；
 - Provider conformance suite 可复用。
 
 ### Gate C3：Responses → Chat Bridge
@@ -223,7 +228,7 @@ Anthropic Messages，或另一个不是 OpenAI wire dialect 的 Provider。
 - 原型代码与目标设计差异已列出；
 - 剩余问题不再影响 Provider onboarding 和双向最小 tool loop。
 
-## 6. 外部项目调研计划
+## 6. 外部项目证据要求
 
 ### 核心参考
 
@@ -285,9 +290,9 @@ Artifacts/tests
 
 示例：OpenAI SDK loopback fixture 可证明特定输出形状被 SDK 消费，但不证明真实 Provider、Codex/Hermes tool loop、异构 bridge 或未来 SDK 版本等价。
 
-## 9. 候选实施顺序
+## 9. 阶段依赖关系
 
-在当前证据下，候选顺序是：
+在当前证据下，阶段依赖关系是：
 
 ```text
 C0 target client corpus
@@ -299,7 +304,7 @@ C0 target client corpus
 → C6 core acceptance
 ```
 
-它是当前工作假设，不是不可修改的线性 Phase。某个独立调研（例如 OAuth）被阻塞时，不应阻塞其他核心工作流。
+该关系用于声明进入条件，不是把所有阶段展开成一份执行计划。某个独立调研（例如 OAuth）被阻塞时，不应阻塞不依赖它的当前阶段；任何依赖关系变化先修改本需求，再重新基线化当前阶段计划。
 
 ## 10. 核心后的增强
 
@@ -310,10 +315,10 @@ C0 target client corpus
 - tokens、TTFT、latency、route、outcome 和估算成本；
 - 默认不记录 prompt/response/tool 正文。
 
-### E2：被动健康与更丰富 fallback
+### E2：高级健康观测与自适应路由
 
-- 临时错误 cooldown；
-- route reason；
+- 核心 C2 已提供最小 deployment cooldown、有限 retry 和 route reason；
+- 增强阶段可增加主动探测、跨进程状态和更丰富健康观测；
 - 不覆盖 state affinity；
 - 不引入复杂动态权重作为首个版本。
 
@@ -405,6 +410,7 @@ cargo clippy --locked -- -D warnings
 ## 14. 关联文档
 
 - [核心需求](../requirements/proxy-requirements.md)
+- [当前阶段实施计划](../plans/implementation-plan.md)
 - [目标客户端契约](../design/target-client-contracts.md)
 - [目标架构与路线](../architecture/architecture-and-roadmap.md)
 - [Rust Provider adapter 与数据流](../architecture/rust-provider-adapter-dataflow.md)

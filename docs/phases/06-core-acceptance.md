@@ -6,7 +6,13 @@
 
 ## 当前状态
 
-`Blocked`，依赖 C1–C5 Accepted。
+`Blocked by C1–C5`。
+
+## 进入条件
+
+- C1–C5 均已 `Accepted`；
+- 产品需求、阶段契约、当前实现与兼容矩阵没有已知冲突；
+- 阻塞发布的安全、资源、部署与回滚需求已经有明确责任归属。
 
 ## 接受范围
 
@@ -18,6 +24,13 @@
 - Provider onboarding、配置、排障、安全部署、发布和回滚文档；
 - 配置 schema 与版本策略；
 - release artifact、checksum、smoke 和 rollback 演练。
+
+## 非目标
+
+- 新增 Provider、协议、工具或管理功能；
+- 借发布准备重新打开已接受阶段的功能范围；
+- 将 Deferred 增强提升为核心接受条件；
+- 用“后续可修复”替代安全、资源和回滚基线。
 
 ## 测试条目
 

@@ -7,7 +7,7 @@
 - **已验证基础**：严格 TOML 配置、loopback listener、origin allowlist、请求/SSE 大小上限、request id、共享 HTTP client、SSE framing、typed provider/route contracts。
 - **已验证原生转发**：一个 `openai` API-key upstream 的 Chat Completions/Responses HTTP JSON/SSE 原生转发、静态下游 Bearer 认证、流式 conformance 和 OpenAI SDK compatibility fixture。
 - **已验证路由基线**：有序 deployment candidate、capability gate、`GET /v1/models` 和同协议、输出前的 streaming fallback。
-- **尚未验证**：第二 Provider Family、Codex/Hermes 真实 Agent tool loop、受信自定义 endpoint 的最终配置边界、Chat ↔ Responses bridge、Anthropic Messages、usage、hosted tool 和真实 OAuth。
+- **尚未验证**：跨请求 deployment cooldown、配置化 retry budget/backoff、all-candidates-cooling-down 错误、第二 Provider Family、Codex/Hermes 真实 Agent tool loop、受信自定义 endpoint 的最终配置边界、Chat ↔ Responses bridge、Anthropic Messages、usage、hosted tool 和真实 OAuth。
 
 ## 运行模型
 
@@ -61,6 +61,8 @@ cargo run --locked
 
 对 `stream=true`，429、5xx、连接错误或 timeout 仅在尚未把上游 response body 返回给下游时允许有限重试；每个 candidate 最多两次。耗尽同一 candidate 的可重试失败后，可进入下一个兼容 candidate（除 provider-bound state 外）。最终 HTTP 错误保留安全的 `Content-Type`、`Retry-After`、`x-should-retry`、`openai-request-id` 和 `x-ratelimit-*` 头；非 SSE 错误体不会被错误当成 SSE 解码。
 
+这是单请求内的固定次数原型，不满足[Provider 韧性需求](../requirements/provider-resilience.md)新增的跨请求 cooldown、可取消 backoff、次数/等待/总耗时联合预算、重复安全性分类和全部 candidate cooling down 错误契约。
+
 ## 已验证的契约
 
 默认验证命令：
@@ -73,27 +75,31 @@ cargo clippy --locked -- -D warnings
 
 `tests/` 覆盖配置/allowlist/capability 上界、静态下游认证、原生请求改写、`/v1/models`、候选 fallback、provider-bound state、429 retry header、timeout、取消传播、断裂 UTF-8、EOF、partial-stream failure 与安全响应头。
 
-`tests/sdk_compatibility.rs` 是 ignored integration test。它启动 loopback OpenBridge 与 mock upstream，再以 OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 消费两个 endpoint 的 stream/non-stream fixture；fixture 包含断开的 UTF-8、多 event 同 chunk、单 event 跨 chunk 和多行 `data:`：
+`tests/sdk_compatibility.rs` 是 ignored integration test。它启动 loopback OpenBridge 与 mock upstream，再以 OpenAI Python `2.46.0` 和 Node `6.48.0` SDK 消费两个 endpoint 的 stream/non-stream、单/并行 function-tool call/result 往返、流式 arguments 及 fixture 429 error；fixture 包含断开的 UTF-8、多 event 同 chunk、单 event 跨 chunk 和多行 `data:`：
 
 ```bash
 cargo test --locked --test sdk_compatibility -- --ignored
 ```
 
-该测试不访问真实 provider。Windows 中若子进程无法从 `PATH` 找到工具，可通过 `OPENBRIDGE_UV`、`OPENBRIDGE_NPM` 与 `OPENBRIDGE_NODE` 指向可执行文件。
+[`tools/upstream-fixture-server`](../../tools/upstream-fixture-server/README.md) 是与被测 transport 分离的 loopback 验收上游。它在 `mock` 模式离线提供两个 endpoint 的确定性 JSON/SSE/429；在显式 `proxy` 模式从被忽略的 `tools/upstream-fixture-server/.env` 或进程环境读取 `UPSTREAM_FIXTURE_API_BASE`、`UPSTREAM_FIXTURE_API_KEY` 与可选 `UPSTREAM_FIXTURE_MODEL`，以原生请求体访问授权真实上游。默认模型只补全缺失字段，不覆盖调用方模型；它不 bridge 协议、不记录 API key 或 request/response body，也不等同于真实 Provider 或真实 Agent client 验收。
+
+该测试不访问真实 provider，也不代表 Codex/Hermes 已验收。Windows 中若子进程无法从 `PATH` 找到工具，可通过 `OPENBRIDGE_UV`、`OPENBRIDGE_NPM` 与 `OPENBRIDGE_NODE` 指向可执行文件；`OPENBRIDGE_PNPM` 可作为 Node SDK 的临时安装器。
 
 ## 当前安全边界和限制
 
 - 当前 bootstrap listener 强制为 loopback。未来允许非 loopback 时，必须至少要求静态高熵 token，并由 TLS 或可信反向代理保护。
 - 当前只有 `ProviderKind::OpenAi` 和 API-key credential；真实 OAuth 不存在。
 - 当前 route 配置可完整校验和原子 reload，但服务入口尚未暴露 reload 管理 API。
-- 没有 usage sink、被动 health/cooldown、第二 Provider Family 或真实多 Provider fallback 证据；多租户授权、配额和合规审计不属于当前核心目标。
+- 没有 usage sink、跨请求 deployment cooldown、第二 Provider Family 或真实多 Provider fallback 证据；多租户授权、面向下游用户/key 的配额和合规审计不属于当前核心目标。
 - 不支持 Chat ↔ Responses conversion、Responses WebSocket、Realtime、Files、Conversations、Responses retrieve/delete/background/cancel/store 等资源语义。
 
 ## 相关资源
 
 - [项目入口](../../README.md)
-- [开发计划](../plans/development-plan.md)
+- [阶段交付与研究需求](../requirements/delivery-requirements.md)
+- [当前阶段实施计划](../plans/implementation-plan.md)
 - [目标架构与路线](../architecture/architecture-and-roadmap.md)
 - [Rust Provider adapter 与数据流架构](../architecture/rust-provider-adapter-dataflow.md)
 - [目标客户端契约](../design/target-client-contracts.md)
+- [Provider 韧性需求](../requirements/provider-resilience.md)
 - [本地配置、路由与使用量](../architecture/local-configuration-routing-and-usage.md)

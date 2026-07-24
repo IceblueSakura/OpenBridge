@@ -6,7 +6,13 @@
 
 ## 当前状态
 
-`In progress`。产品范围和客户端契约已成文，固定版本、真实 corpus 和 gate review 尚未完成。
+`Active`，是当前唯一允许存在详细实施计划的阶段。产品范围和客户端契约已成文，固定版本、真实 corpus 和 gate review 尚未完成。
+
+## 进入条件
+
+- 单用户、单服务的产品定位已明确；
+- Codex 与 Hermes 已确定为首批目标客户端；
+- 本阶段可以只通过需求、配置、fixture 和实验记录完成，不要求新增业务能力。
 
 ## 工作范围
 
@@ -16,6 +22,14 @@
 - Hermes 以 Chat 为 P0，Responses 为后续对照；
 - 建立成功、错误、EOF、partial stream、cancel 和 tool-loop corpus；
 - 每个 fixture 记录环境、配置、原始/脱敏 wire、预期结果和证明边界。
+
+## 非目标
+
+- 修复或扩展 Native Path 运行时代码；
+- 实现第二 Provider Family、Protocol Bridge 或 continuation ledger；
+- 启动 OAuth、Hosted Tool/MCP、usage 或 UI；
+- 用 SDK/mock 证据替代真实客户端和真实 Provider corpus；
+- 因发现后续实现事项而新增或展开新的 phase。
 
 ## 测试条目
 

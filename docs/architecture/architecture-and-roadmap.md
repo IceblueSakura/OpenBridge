@@ -6,7 +6,7 @@
 
 ## 1. 架构结论
 
-OpenBridge 默认是一个单进程、单用户、单配置所有者的服务。它不拆分独立控制面和数据面，也不建立 tenant/principal/配额/合规审计系统。
+OpenBridge 默认是一个单进程、单用户、单配置所有者的服务。它不拆分独立控制面和数据面，也不建立 tenant/principal/下游配额/合规审计系统。
 
 逻辑架构：
 
@@ -250,6 +250,8 @@ alias candidates
 
 `Unknown` fail closed；只有明确 fixture 或官方契约支持后才升为 `Native`/`Bridged`。
 
+`enabled/cooldown state` 是运行时 availability overlay，不写回配置 snapshot。RoutePlan 固定 candidate identity、顺序、credential binding 和 fallback 边界；attempt manager 在实际调用前读取最新 cooldown，以避免把动态 Provider 状态伪装成静态 capability。
+
 能力不是 Provider 名称的静态布尔值，至少受 deployment、model、endpoint/API version 和 feature combination 影响。第一版可以用显式配置和测试固定结果，不必建立动态能力发现服务。
 
 ## 6. 路由、attempt 与 fallback
@@ -258,13 +260,13 @@ alias candidates
 
 1. **Eligibility**：协议、capability、credential 和 state 是否允许；
 2. **Selection**：从合格 candidate 中按配置顺序选第一个；
-3. **Attempt policy**：哪些首输出前失败允许重试/下一个 candidate；
+3. **Attempt policy**：哪些首输出前失败允许在次数、等待和总耗时预算内重试/下一个 candidate；
 4. **Continuation policy**：有状态请求是否必须回到 issuing deployment。
 
 核心第一版允许 fallback 的典型情况：
 
 - connect/DNS/TLS failure；
-- 明确 429 或配置允许的 5xx；
+- 明确 429 或 adapter 认可的临时 5xx；
 - response body 尚未交给下游时的 timeout；
 - 上游未产生任何可观察业务输出。
 
@@ -276,7 +278,9 @@ alias candidates
 - 上游可能已执行有副作用的 Provider-hosted action；
 - 无法判断上游是否已接受请求且重复可能产生副作用。
 
-可在核心后加入被动 cooldown，不需要主动健康检查集群。
+核心 C2 提供最小被动 cooldown：429 与明确临时不可用会使 deployment 在有界时间内退出无状态 selection，优先使用 `Retry-After`/rate-limit reset，没有有效 header 时使用有界 backoff + jitter。所有 candidate cooling down 时返回明确 429 和可确定的最早恢复时间。
+
+主动探测、跨进程 cooldown、一致性限流和自适应权重仍属于核心后的增强。详细错误分类、retry budget、state affinity 和下游错误传播见[Provider 韧性需求](../requirements/provider-resilience.md)。
 
 ## 7. 状态所有权
 
@@ -386,7 +390,7 @@ Hermes Chat → OpenAI-compatible Chat upstream
 核心稳定后依次考虑：
 
 1. UsageRecord JSONL/SQLite；
-2. 被动 cooldown；
+2. 主动健康观测、跨进程 cooldown 与自适应路由；
 3. Hosted Tool Facade；
 4. Tool Bridge/MCP；
 5. optional OAuth；
@@ -410,7 +414,7 @@ Hosted tool 不依赖 Protocol Bridge 完成；其前置是 native hosted-tool P
 - **所有请求统一进入 Bridge IR**：拒绝作为默认路径；Native Path 应保留 wire 兼容性。
 - **完全运行时 JSON Provider 行为**：当前拒绝；协议/auth/转换仍由代码实现，运行时只配置 deployment 数据。
 - **每个兼容 endpoint 都编译成独立 Provider enum**：拒绝；同一 Provider Family 应允许多个受信 deployment。
-- **企业级 key/principal/配额/审计作为核心**：拒绝；不符合单用户目标。
+- **企业级 key/principal/下游配额/审计作为核心**：拒绝；不符合单用户目标。
 - **真实 Codex subscription OAuth 作为主线前置**：延期/Blocked；API key 路径独立推进。
 - **Responses WebSocket 作为首版核心 transport**：延期；先验证 Codex custom Provider 的 HTTP/SSE profile，触发条件见目标客户端契约。
 - **Hosted Tool/MCP 进入核心关键路径**：延期；在聚合和 bridge 核心稳定后实施。
@@ -422,5 +426,5 @@ Hosted tool 不依赖 Protocol Bridge 完成；其前置是 native hosted-tool P
 - [Rust Provider adapter 与数据流](rust-provider-adapter-dataflow.md)
 - [本地配置、路由与使用量](local-configuration-routing-and-usage.md)
 - [Chat/Responses bridge](../design/chat-responses-conversion.md)
-- [开发与调研收敛计划](../plans/development-plan.md)
+- [阶段交付与研究需求](../requirements/delivery-requirements.md)
 - [当前实现说明](../implementation/current-implementation.md)

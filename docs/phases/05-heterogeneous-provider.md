@@ -6,7 +6,13 @@
 
 ## 当前状态
 
-`Not started`。
+`Blocked by C4`。在双向最小 bridge 被接受前，不以新增 Provider 为由提前修改核心抽象。
+
+## 进入条件
+
+- C3 与 C4 已 `Accepted`；
+- 双向 Native/Bridge corpus 可作为抽象反证的回归基线；
+- 已选择一个非 OpenAI wire dialect，并固定 Provider/API/模型版本与脱敏 corpus 规则。
 
 ## 验证范围
 
@@ -18,6 +24,13 @@
 - native/bridge boundary；
 - capability preflight；
 - state 和 fallback。
+
+## 非目标
+
+- 同时支持多个新异构 Provider；
+- 把 Bridge IR 扩展成所有 wire DTO 的无界并集；
+- 为通过单一 Provider fixture 而在核心 router 加名称分支；
+- 引入 hosted tool、OAuth、usage 或 UI。
 
 ## 测试条目
 

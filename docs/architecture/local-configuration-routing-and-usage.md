@@ -178,7 +178,9 @@ client model
 - distributed health；
 - per-user budget。
 
-被动 cooldown 可作为增强：某 deployment 在明确临时错误后短期跳过，但不能覆盖 continuation affinity。
+最小被动 cooldown 属于 C2 核心：某 deployment 在明确 429 或 adapter 认可的临时错误后短期跳过，优先遵循 `Retry-After`/rate-limit reset，并受本地最大冷却时间约束。它不能覆盖 continuation affinity；主动探测、跨进程共享和自适应权重仍属于增强。
+
+可选 deployment capacity hint 可描述 owner 已知的 RPM/TPM/concurrency 上限，用于保守 admission/pacing；由于 Provider 可能按账号、模型、区域或外部流量共享配额，本地 hint 不是权威配额计数。具体要求见[Provider 韧性需求](../requirements/provider-resilience.md)。
 
 ## 6. 最小入站认证
 
@@ -202,7 +204,7 @@ client model
 - revoke list；
 - 多 key；
 - principal/scopes；
-- RPM/TPM 限额。
+- 面向下游用户/key 的 RPM/TPM 配额。
 
 需要轮换时，服务所有者更新 secret reference 并 reload/restart。
 

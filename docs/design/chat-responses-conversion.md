@@ -4,6 +4,8 @@
 
 **Working hypothesis。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。
 
+Agent Loop 的职责边界、request/stream state owner、首版 continuation 拒绝规则和后续 ledger 门见[Agent Loop 兼容与 Bridge 状态契约](agent-loop-bridge-contract.md)。本文保留协议转换的通用表示与算法边界。
+
 ## 结论
 
 OpenBridge 不应让所有请求都经过统一 Bridge IR。

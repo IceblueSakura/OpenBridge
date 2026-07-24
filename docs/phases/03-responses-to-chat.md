@@ -6,7 +6,13 @@
 
 ## 当前状态
 
-`Not started`。已有设计和研究，尚无运行时代码。
+`Blocked by C2`。已有设计和研究，尚无运行时代码；在 Provider 聚合核心接受前不得进入当前实施计划。
+
+## 进入条件
+
+- C2 已 `Accepted`；
+- Native Path、RoutePlan、capability、fallback 和 state affinity 已有稳定回归证据；
+- Codex 的固定 Responses corpus 与一个授权 Chat-only Provider 环境可重跑。
 
 ## 首版范围
 
@@ -16,6 +22,16 @@
 - stream terminal；
 - 不支持 stateful continuation ledger；
 - hosted tool、resource/background 和 opaque item 默认拒绝。
+
+具体的 Agent/tool 边界、identity、state owner、stream lifecycle 和 future ledger 门见[Agent Loop 兼容与 Bridge 状态契约](../design/agent-loop-bridge-contract.md)。
+
+## 非目标
+
+- Chat → Responses 反向 bridge；
+- stateful continuation ledger、历史猜测恢复或跨 deployment state；
+- hosted/custom tool、background/resource 和 opaque reasoning 转换；
+- 修改 Native Path 使其经过 Bridge IR；
+- 因无法表达的语义而扩大首版 bridge 承诺。
 
 ## 实现切片
 

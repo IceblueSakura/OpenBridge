@@ -38,7 +38,7 @@
 - 运行时加载 Rust plugin、动态库或第三方脚本；
 - 通过业务请求注入上游 host、header 或 credential；
 - 同 Provider 多账号池和 credential selector；
-- 为多租户授权、配额或合规审计提前污染 Provider trait；
+- 为多租户授权、下游用户/key 配额或合规审计提前污染 Provider trait；
 - 将每个 Provider 能力塞入一个巨型 trait；
 - 为每个 Provider 复制完整 HTTP/SSE client。
 
@@ -128,7 +128,7 @@ Provider Family 定义 capability 上界；deployment 配置可以选择或收�
 | `HeaderAdapter` | deployment/request metadata → safe headers | adapter 明确允许的非认证 header |
 | `NativeResponseAdapter` | upstream response/SSE → downstream wire/outcome | 原生协议 terminal/error/header 规则 |
 | `BridgeResponseAdapter` | upstream response/SSE → Bridge IR events | 跨协议解析和 identity/state assembly |
-| `ErrorAdapter` | upstream failure → error class | retryability、safe envelope、attempt boundary |
+| `ErrorAdapter` | upstream failure → error class | retryability、cooldown hint、safe error/header allowlist、attempt boundary |
 | `CapabilityAdapter` | request features + deployment + bridge catalog → decision | 从原生 profile 推导 `Native/Bridged/Unsupported/Unknown` |
 
 同协议请求不应被迫使用 `BridgeRequestAdapter`/`BridgeResponseAdapter`。
@@ -334,6 +334,7 @@ enum/trait dispatch 微优化不是当前首要问题，必须以 benchmark 而�
 ## 14. 关联文档
 
 - [核心需求](../requirements/proxy-requirements.md)
+- [Provider 韧性需求](../requirements/provider-resilience.md)
 - [目标架构与路线](architecture-and-roadmap.md)
 - [本地配置、路由与使用量](local-configuration-routing-and-usage.md)
 - [Chat/Responses bridge](../design/chat-responses-conversion.md)
