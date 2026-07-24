@@ -4,14 +4,14 @@
 
 cc-switch 的 Codex 路径证明：面向 agent 的 `Responses -> Chat -> Responses` bridge 必须同时处理**请求上下文、跨请求 tool-call 关联和流式事件生命周期**，不能只做字段替换。
 
-它对 OpenBridge Phase 6 最有价值的参考不是其 JSON 代码本身，而是以下四个可验证的实现要点：
+它对 OpenBridge C3/C4 Protocol Bridge 最有价值的参考不是其 JSON 代码本身，而是以下四个可验证的实现要点：
 
 1. 在开始转换前，从原始 Responses request 提取一个**每请求的 tool context**，用于请求降级和响应/流式反向恢复。
 2. 将 Responses 的连续 function/custom/tool-search calls 组装为一个 Chat assistant `tool_calls` message；tool result 使用不变的 `call_id` 回接。
 3. 对 Chat SSE 维护每个 text、reasoning 和 tool call 的独立状态，累积 fragmented arguments，并按 `output_index` 重新发出完整 Responses lifecycle。
 4. 当 Chat 上游要求“assistant tool call 紧邻 tool result”而 Codex 只发送 `previous_response_id + function_call_output` 时，保存前轮 call item 并在下一轮补回。
 
-OpenBridge 应吸收这些状态机和 fixture 覆盖面，但仍应遵循既定的 **Canonical IR + `CapabilityProfile` + issuer-bound continuation ledger + `ConversionNotice`** 设计。cc-switch 的实现服务于本地桌面代理和 Codex 兼容性，包含 provider/model 名称启发式、行为性配置与未加 issuer/route binding 的 history fallback；这些不适合作为 OpenBridge 的通用核心契约。
+OpenBridge 应吸收这些状态机和 fixture 覆盖面，但仍应遵循既定的 **Bridge IR + `CapabilityProfile` + issuer-bound continuation ledger + `ConversionNotice`** 设计。cc-switch 的实现服务于本地桌面代理和 Codex 兼容性，包含 provider/model 名称启发式、行为性配置与未加 issuer/route binding 的 history fallback；这些不适合作为 OpenBridge 的通用核心契约。
 
 ## 1. 调研范围与证据边界
 
@@ -67,7 +67,7 @@ Codex client /v1/responses
 
 `function_call_output` 到达前会 flush pending calls，形成一个 assistant message，其后再发 Chat `role=tool` message（`transform_codex_chat.rs:602-765`）。这符合多数 Chat 上游要求的相邻结构：assistant `tool_calls[]` 必须在其 tool result 之前。
 
-**对 OpenBridge 的含义**：Canonical IR 的有序 `InputItem[]` 不能按 role 预分组。Chat renderer 应将相邻的可合并 function calls 聚为一个 assistant message，但 `call_id` 必须保持为每个调用的不可变关联键。
+**对 OpenBridge 的含义**：Bridge IR 的有序 `InputItem[]` 不能按 role 预分组。Chat renderer 应将相邻的可合并 function calls 聚为一个 assistant message，但 `call_id` 必须保持为每个调用的不可变关联键。
 
 ### 3.2 Tool context 是可逆映射的必要条件
 
@@ -82,7 +82,7 @@ Codex client /v1/responses
 
 对应实现包括 `build_codex_tool_context_from_request`（:236）、`responses_function_tool_to_chat_tool`（:1162）以及 response item 恢复函数 `response_tool_call_item_from_chat_name`（:1574）。流式 renderer 接收同一 context，才能把扁平 namespace/custom/tool-search 的 Chat tool call 恢复为适合 Codex 的 Responses item。
 
-**对 OpenBridge 的含义**：`ToolDefinition` 之外需要每请求 `ToolConversionContext`，但其应是 Canonical IR renderer 的内部产物，而非将 provider 逻辑写入 route 配置。它至少要保存：
+**对 OpenBridge 的含义**：`ToolDefinition` 之外需要每请求 `ToolConversionContext`，但其应是 Bridge IR renderer 的内部产物，而非将 provider 逻辑写入 route 配置。它至少要保存：
 
 ```text
 source_tool_id / source kind
@@ -103,7 +103,7 @@ cc-switch 会填充空/缺失 tool `parameters` 为 object schema，并通过 pr
 - `codex.rs:336-495` 按 base URL、provider name 与 model name 推断 reasoning 参数；同名模型在不同 hosted gateway 的行为可能不同。
 - Chat renderer 会为特定上游重排/合并 system messages（`transform_codex_chat.rs:493-523`）。
 
-OpenBridge 应将已证实的上游差异编译进对应 `ProviderAdapter`/`CapabilityProfile`，保持 `Canonical IR` 和通用 Chat/Responses renderer 不读取 provider 名称字符串。当前 `ProviderDescriptor` 与闭合 `ProviderKind` 的边界已在 `src/provider/mod.rs:30-124` 建立。
+OpenBridge 应将已证实的上游差异编译进对应 `ProviderAdapter`/`CapabilityProfile`，保持 Bridge IR 和通用 Chat/Responses renderer 不读取 provider 名称字符串。当前 `ProviderDescriptor` 与闭合 `ProviderKind` 的边界已在 `src/provider/mod.rs:30-124` 建立。
 
 ## 4. 跨请求 continuation：cc-switch 解决的问题与不可照搬部分
 
@@ -126,13 +126,13 @@ Codex 有时只在下一轮发送：
 
 cc-switch 的 history store 是进程内、最多 512 个 response 的 `HashMap<response_id, CachedResponse>`，并额外以全局 `call_id` 做“唯一时才使用”的 fallback（`codex_chat_history.rs:10-23`、`:261-307`）。该结构没有 issuer、provider、deployment、route snapshot、principal 或 TTL 字段。
 
-即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 已明确规定不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/mod.rs:35-44`、`:170-174`；[开发计划](../../plans/development-plan.md) §Phase 3）。
+即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 已明确规定不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/mod.rs:35-44`、`:170-174`；[C2 Provider 聚合](../../phases/02-provider-aggregation.md)）。
 
 OpenBridge 的 continuation ledger 至少应以以下信息绑定：
 
 ```text
 response_id, issuer/provider, deployment_id, route_snapshot_version,
-principal scope (when Phase 4 exists), protocol, created/expires_at,
+protocol, created/expires_at,
 ordered call items, opaque replay policy
 ```
 
@@ -171,22 +171,22 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 因此 OpenBridge 不应直接复用此格式，也不应把任何 upstream-signed/provider-issued field 当作 proxy 可以自行重新签发的普通 JSON。应沿用既定 `provider_data` envelope：明确 `issuer`、`protocol`、`replay_policy` 与 payload；仅当 issuer 与实际 endpoint 一致且 capability 允许时 replay，并对丢弃或拒绝写 `ConversionNotice`。
 
-## 7. 对 OpenBridge Phase 6 的落地建议
+## 7. 对 OpenBridge C3/C4 的落地建议
 
 | 优先级 | 采用项 | 目标模块/边界 | 不采用项 |
 |---|---|---|---|
 | P1 | per-request `ToolConversionContext` 和 Responses item 顺序 renderer | 新建 `protocol/` / `pipeline/` 转换层；不放 ingress | provider name/model 猜测 |
 | P1 | `call_id`、`item_id`、`output_index` 分离的 stream assembler | Chat->Responses 与 Responses->Chat 各自 iterator | 用一个 mapper 同时处理 final JSON 与 SSE |
-| P1 | fragmented tool args、并行 calls、late id/name、tool-result adjacency fixtures | Phase 6 fixture/contract tests | 成功时静默删除无效或未知 tool |
+| P1 | fragmented tool args、并行 calls、late id/name、tool-result adjacency fixtures | C3/C4 fixture/contract tests | 成功时静默删除无效或未知 tool |
 | P2 | issuer-bound continuation ledger，仅为确有 Chat 上游相邻项约束的 route 启用 | control/pipeline 外围状态；TTL 和容量必须配置 | cc-switch 的全局 unique-`call_id` fallback |
-| P2 | tool schema normalization 作为特定 provider adapter 的显式规则 | `ProviderAdapter` + `CapabilityProfile` | 在 Canonical IR 中硬编码第三方 gateway quirks |
+| P2 | tool schema normalization 作为特定 provider adapter 的显式规则 | `ProviderAdapter` + `CapabilityProfile` | 在 Bridge IR 中硬编码第三方 gateway quirks |
 | P3 | reasoning/item replay 条件与转换 notice | `ContinuationRef` / `ConversionNotice` | Base64 伪装为 provider signature 的无绑定 envelope |
 
 建议的最小实现切片不变：先只支持文本 + function tool schema/call/result 的双向非流式转换，再分别实现两个 SSE iterator，最后才引入 continuation 和非 function built-in tools。cc-switch 的大体量模块说明这些 concerns 最终会增长，但不应在 OpenBridge 初期复制其桌面应用、计费、provider fallback 或私有协议兼容分支。
 
-## 8. 由 cc-switch 补充的 Phase 6 fixture 清单
+## 8. 由 cc-switch 补充的 C3/C4 fixture 清单
 
-在现有 [转换设计的测试清单](../../design/chat-responses-conversion.md#8-不变量与测试清单) 之外，至少补充：
+在现有 [转换设计的测试要求](../../design/chat-responses-conversion.md#13-测试性质) 之外，至少补充：
 
 1. **连续与并行 tool calls**：多个 `function_call` 先合并为一个 Chat assistant message；每个 `function_call_output` 仍按原 `call_id` 关联。
 2. **fragmented Chat tool delta**：id、name、arguments 分多帧到达；后续空字符串 fragment 不得擦除先前身份。
@@ -201,6 +201,6 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 - [Chat/Responses 转换设计](../../design/chat-responses-conversion.md)
 - [Rust provider adapter 与数据流](../../architecture/rust-provider-adapter-dataflow.md)
-- [开发计划（含 Phase 6）](../../plans/development-plan.md)
+- [实施阶段索引](../../phases/README.md)
 - [OpenAI Responses 协议](../../specifications/openai/responses-protocol.md)
 - [Codex OAuth 与工具调用分析](../codex/oauth-and-tool-call-analysis.md)

@@ -145,7 +145,7 @@ Responses SSE / websocket item
 | Credential model | OAuth credential 必须把 token rotation、issuer、account/workspace identity 和必需 header policy 作为同一原子 route context 管理。 |
 | Refresh | 单实例 mutex 不足；proxy 需要 distributed/single-flight refresh + vault version CAS。401 retry 只能在未输出业务 SSE 前进行一次。 |
 | Capability Matrix | 增加 `auth_context_headers`、`account/workspace binding`、`provider-native/custom tools`、`tool argument delta` 和 `tool output ordering` 列。 |
-| Canonical IR | `call_id` 为必填关联键；`item_id`、`response_id`、`output_index` 不得替代。应表达 function/custom/tool-search/native-tool 的不同类别。 |
+| Bridge IR | `call_id` 为必填关联键；`item_id`、`response_id`、`output_index` 不得替代。应表达 function/custom/tool-search/native-tool 的不同类别。 |
 | SSE fixtures | 增加：call item added、argument delta、item done、并行 calls、工具启动早于 response completed、tool failure/abort output、EOF before terminal。 |
 | Agent compatibility | Codex 场景须验证 function/custom tool 类型、并行度、tool output 顺序、cancel/abort output 与 `call_id` 关联。 |
 

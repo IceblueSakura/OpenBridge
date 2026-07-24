@@ -6,7 +6,7 @@
 
 ## 结论
 
-OpenBridge 不应让所有请求都经过统一 Canonical IR。
+OpenBridge 不应让所有请求都经过统一 Bridge IR。
 
 ```text
 same protocol

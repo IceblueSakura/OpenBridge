@@ -74,6 +74,9 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
+| [文档总索引](docs/README.md) | 按功能模块和实施阶段组织全部文档 | 项目级入口 |
+| [功能模块索引](docs/modules/README.md) | 产品边界、客户端、路由、Provider、Native、Bridge、安全与增强 | 当前功能视图 |
+| [实施阶段索引](docs/phases/README.md) | C0–C6 和增强阶段的目标、测试与退出条件 | 当前实施视图 |
 | [核心需求](docs/requirements/proxy-requirements.md) | 单用户部署、核心范围、非目标与验收方向 | 工作基线，待调研收敛 |
 | [目标客户端契约](docs/design/target-client-contracts.md) | Codex 与 Hermes 的协议优先级、测试矩阵和版本固定规则 | 工作假设 |
 | [目标架构与路线](docs/architecture/architecture-and-roadmap.md) | 单服务架构、原生/桥接双路径、路由与状态边界 | 工作假设 |

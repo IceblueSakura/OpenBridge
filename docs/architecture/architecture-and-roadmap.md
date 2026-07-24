@@ -357,16 +357,15 @@ Hermes Chat → OpenAI-compatible Chat upstream
 - ordered candidate 与首输出前 fallback；
 - state affinity。
 
-### Gate C3：最小双向 Bridge
+### Gate C3：Responses → Chat Bridge
 
-先后顺序：
+让 Codex Responses HTTP/SSE 通过 Chat-only Provider 完成文本和普通 function tool loop。每个不等价能力有明确的 reject/approximation classification。
 
-1. Responses → Chat；
-2. Chat → Responses。
+### Gate C4：Chat → Responses Bridge
 
-只承诺文本和普通 function tool loop。每个不等价能力有 reject/approximation classification。
+让 Hermes Chat transport 通过 Responses-only Provider 完成文本和普通 function tool loop，并验证反向 identity、status 和 stream renderer。
 
-### Gate C4：异构 Provider 验证
+### Gate C5：异构 Provider 验证
 
 引入 Anthropic Messages 或等价 archetype，验证：
 
@@ -377,6 +376,10 @@ Hermes Chat → OpenAI-compatible Chat upstream
 - Provider-specific error。
 
 如果 Provider Family、Bridge IR 或 state model 必须调整，应在此 gate 完成，而不是继续堆叠 Provider。
+
+### Gate C6：核心接受
+
+固定目标客户端 corpus、至少三个 Provider archetype、安全与资源基线、Provider onboarding、操作文档和发布/回滚流程，形成可发布的核心版本。
 
 ### Enhancement E1+
 
@@ -404,7 +407,7 @@ Hosted tool 不依赖 Protocol Bridge 完成；其前置是 native hosted-tool P
 
 ## 12. 已拒绝或延期的方向
 
-- **所有请求统一进入 Canonical IR**：拒绝作为默认路径；Native Path 应保留 wire 兼容性。
+- **所有请求统一进入 Bridge IR**：拒绝作为默认路径；Native Path 应保留 wire 兼容性。
 - **完全运行时 JSON Provider 行为**：当前拒绝；协议/auth/转换仍由代码实现，运行时只配置 deployment 数据。
 - **每个兼容 endpoint 都编译成独立 Provider enum**：拒绝；同一 Provider Family 应允许多个受信 deployment。
 - **企业级 key/principal/配额/审计作为核心**：拒绝；不符合单用户目标。

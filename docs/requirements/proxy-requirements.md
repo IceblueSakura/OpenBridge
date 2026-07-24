@@ -85,7 +85,7 @@ OpenBridge 的核心价值不是企业级治理，而是：
 
 ## 5. 核心不变量
 
-1. **Native first**：同协议请求不经过通用 Canonical IR；只做路由所需解析、模型/URL/认证改写和必要兼容修正。
+1. **Native first**：同协议请求不经过 Bridge IR；只做路由所需解析、模型/URL/认证改写和必要兼容修正。
 2. **Capability before call**：endpoint、transport、stream、tools、structured output、reasoning、hosted tool 和 continuation 等能力在上游调用前判断。
 3. **State affinity**：`previous_response_id`、opaque reasoning、provider resource ID、tool continuation 等状态绑定 issuing deployment/issuer，不跨 route 猜测重放。
 4. **Immutable RoutePlan**：请求开始后固定 alias、deployment、协议模式、credential binding、capability decision 和 fallback 边界。

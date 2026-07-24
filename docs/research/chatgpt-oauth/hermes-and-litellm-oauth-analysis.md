@@ -190,4 +190,4 @@ uv run pytest -q tests/hermes_cli/test_auth_codex_provider.py \
 - [Codex OAuth 与工具调用源码调研](../codex/oauth-and-tool-call-analysis.md)
 - [Hermes Agent Chat/Responses 分析](../hermes/chat-responses-analysis.md)
 - [LiteLLM Chat/Responses 分析](../litellm/chat-responses-analysis.md)
-- [控制面、模型、密钥与可观测性](../../architecture/control-plane-models-keys-and-observability.md)
+- [本地配置、路由与使用量](../../architecture/local-configuration-routing-and-usage.md)
