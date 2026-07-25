@@ -3,7 +3,7 @@ use http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
 };
 use openbridge::{
-    core::{CapabilitySet, Protocol},
+    core::{CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities},
     provider::{
         AuthAdapter, CapabilityAdapter, CredentialLease, ErrorAdapter, EventDisposition,
         HeaderAdapter, ProviderAdapter, ProviderErrorClass, ProviderFailure, ProviderKind,
@@ -102,7 +102,7 @@ fn provider_descriptor_is_compile_time_metadata() {
     let descriptor = adapter.descriptor();
 
     assert_eq!(descriptor.kind(), ProviderKind::OpenAi);
-    assert!(descriptor.capabilities().chat);
+    assert!(descriptor.capabilities().chat_completions.enabled);
     assert!(descriptor.endpoint_profiles().contains(&"public-api"));
 }
 
@@ -110,11 +110,17 @@ fn provider_descriptor_is_compile_time_metadata() {
 fn capability_adapter_rejects_feature_elevation_before_egress() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
     let supported = CapabilitySet {
-        chat: true,
+        chat_completions: ProtocolCapabilities {
+            enabled: true,
+            ..ProtocolCapabilities::default()
+        },
         ..CapabilitySet::default()
     };
     let elevated = CapabilitySet {
-        background: true,
+        responses: ResponsesCapabilities {
+            background: true,
+            ..ResponsesCapabilities::default()
+        },
         ..CapabilitySet::default()
     };
 

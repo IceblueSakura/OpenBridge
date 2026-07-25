@@ -1,0 +1,91 @@
+//! 显式执行上游模型发现与协议能力 probe 的本地 CLI。
+//!
+//! 该工具只输出 JSON report，不启动下游 HTTP 服务，也不修改 routes.toml。
+
+use std::env;
+
+use anyhow::{Context, Result};
+use openbridge::{
+    config::ConfigPaths,
+    probe::{ProbeSelection, probe_deployment},
+    provider::CredentialSource,
+    transport::upstream::UpstreamClient,
+};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let arguments = ProbeArguments::parse(env::args().skip(1))?;
+    let snapshot = ConfigPaths::from_environment()
+        .load()
+        .context("failed to load OpenBridge configuration")?;
+    let upstream = UpstreamClient::new(
+        snapshot.upstream_policy().connect_timeout(),
+        snapshot.upstream_policy().pool_idle_timeout(),
+        snapshot.upstream_policy().pool_max_idle_per_host(),
+    )
+    .context("failed to initialize upstream HTTP client")?;
+    let report = probe_deployment(
+        &snapshot,
+        &arguments.deployment_id,
+        &upstream,
+        &CredentialSource::environment(),
+        arguments.selection,
+    )
+    .await
+    .context("probe could not be prepared")?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("probe report is serializable")
+    );
+    Ok(())
+}
+
+struct ProbeArguments {
+    deployment_id: String,
+    selection: ProbeSelection,
+}
+
+impl ProbeArguments {
+    fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
+        let mut deployment_id = None;
+        let mut selection = ProbeSelection::default();
+        let mut arguments = arguments.into_iter();
+        while let Some(argument) = arguments.next() {
+            match argument.as_str() {
+                "--deployment" => {
+                    let value = arguments
+                        .next()
+                        .context("--deployment requires a configured deployment id")?;
+                    deployment_id = Some(value);
+                }
+                "--list-models" => selection.list_models = true,
+                "--chat" => selection.chat = true,
+                "--responses" => selection.responses = true,
+                "--function-calling" => selection.function_calling = true,
+                "--all" => selection = ProbeSelection::all(),
+                "--help" | "-h" => {
+                    print_usage();
+                    std::process::exit(0);
+                }
+                _ => anyhow::bail!("unknown argument '{argument}'; run with --help"),
+            }
+        }
+        let deployment_id = deployment_id.context("--deployment is required")?;
+        if selection.is_empty() {
+            selection = ProbeSelection::all();
+        }
+        Ok(Self {
+            deployment_id,
+            selection,
+        })
+    }
+}
+
+fn print_usage() {
+    println!(
+        "Usage: cargo run --bin openbridge-probe -- --deployment <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
+         \n\
+         No probe selector runs --all. The command only prints a report; it never rewrites routes.toml."
+    );
+}

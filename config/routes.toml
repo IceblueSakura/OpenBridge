@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 config_version = "dev-1"
 
 [[providers]]
@@ -18,15 +18,32 @@ endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
 
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+# The sample does not claim that this placeholder model supports concurrent calls or image input.
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
+
+# Maintain verified limits manually for each real upstream model. Omit either value when it is
+# not yet known; OpenBridge then does not impose a local limit for that dimension.
+# [deployments.model_limits]
+# context_window_tokens = 128000
+# max_output_tokens = 16384
 
 [[aliases]]
 name = "code-primary"

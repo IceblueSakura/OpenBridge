@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
-use openbridge::config::{ConfigError, ConfigManager, load_registry};
+use openbridge::config::{ConfigError, ConfigFileError, ConfigManager, ConfigPaths, load_registry};
 use openbridge::provider::{CredentialKind, ProviderKind};
 
 const BOOTSTRAP: &str = r#"
@@ -15,7 +15,7 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 1
+schema_version = 2
 config_version = "test-1"
 
 [[providers]]
@@ -35,15 +35,25 @@ endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
 
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 
 [[aliases]]
 name = "code-primary"
@@ -80,12 +90,115 @@ fn valid_config_builds_a_resolved_registry() {
     assert_eq!(deployment.upstream_model(), "test-model");
     assert_eq!(deployment.endpoint_profile(), "public-api");
     assert_eq!(deployment.request_timeout(), Duration::from_secs(120));
-    assert!(deployment.capabilities().responses);
-    assert_eq!(deployment.origin().as_str(), "https://api.openai.com/");
+    assert!(deployment.capabilities().responses.enabled);
+    assert_eq!(deployment.model_limits().context_window_tokens(), None);
+    assert_eq!(deployment.model_limits().max_output_tokens(), None);
+    assert_eq!(
+        deployment.endpoint_base().as_str(),
+        "https://api.openai.com/"
+    );
     assert_eq!(
         registry.alias("code-primary").unwrap().candidates(),
         &["openai-main"]
     );
+}
+
+#[test]
+fn config_paths_load_the_same_owner_controlled_document_pair_for_server_and_cli() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let paths = ConfigPaths::new(
+        root.join("config/bootstrap.toml"),
+        root.join("config/routes.toml"),
+    );
+
+    let snapshot = paths.load().expect("checked-in config should load");
+
+    assert_eq!(snapshot.version().as_str(), "dev-1");
+    assert!(paths.bootstrap().ends_with("config/bootstrap.toml"));
+    assert!(paths.routes().ends_with("config/routes.toml"));
+
+    let missing = ConfigPaths::new(root.join("config/missing-bootstrap.toml"), paths.routes());
+    assert!(matches!(
+        missing.load().unwrap_err(),
+        ConfigFileError::Read {
+            document: "bootstrap",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn protocol_scoped_capabilities_require_routes_schema_v2() {
+    let old_version = ROUTES.replacen("schema_version = 2", "schema_version = 1", 1);
+
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &old_version).unwrap_err(),
+        ConfigError::UnsupportedSchema {
+            document: "routes",
+            actual: 1
+        }
+    ));
+}
+
+#[test]
+fn deployment_model_limits_are_manual_optional_values_and_reject_zero() {
+    let configured = ROUTES.replace(
+        "[[aliases]]",
+        r#"[deployments.model_limits]
+context_window_tokens = 128000
+max_output_tokens = 8192
+
+[[aliases]]"#,
+    );
+    let registry = load_registry(BOOTSTRAP, &configured).unwrap();
+    let limits = registry.deployment("openai-main").unwrap().model_limits();
+    assert_eq!(limits.context_window_tokens(), Some(128_000));
+    assert_eq!(limits.max_output_tokens(), Some(8_192));
+
+    let invalid = configured.replace("max_output_tokens = 8192", "max_output_tokens = 0");
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &invalid).unwrap_err(),
+        ConfigError::InvalidModelLimit { deployment, limit }
+            if deployment == "openai-main" && limit == "max_output_tokens"
+    ));
+}
+
+#[test]
+fn deployment_base_url_may_include_a_trusted_path_prefix() {
+    for base_url in [
+        "https://api.openai.com/openai",
+        "https://api.openai.com/openai/",
+    ] {
+        let routes = ROUTES.replace("https://api.openai.com", base_url);
+
+        let registry = load_registry(BOOTSTRAP, &routes)
+            .expect("a deployment may use a trusted path prefix under an allowlisted origin");
+
+        assert_eq!(
+            registry
+                .deployment("openai-main")
+                .unwrap()
+                .endpoint_base()
+                .as_str(),
+            "https://api.openai.com/openai/"
+        );
+    }
+}
+
+#[test]
+fn deployment_base_url_rejects_unsafe_path_prefixes() {
+    for base_url in [
+        "https://api.openai.com/openai?target=attacker.invalid",
+        "https://api.openai.com/openai//admin",
+        "https://api.openai.com/openai/%2Fadmin",
+    ] {
+        let routes = ROUTES.replace("https://api.openai.com", base_url);
+
+        assert!(matches!(
+            load_registry(BOOTSTRAP, &routes).unwrap_err(),
+            ConfigError::InvalidBaseUrl { deployment } if deployment == "openai-main"
+        ));
+    }
 }
 
 #[test]

@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::{
     config::RegistrySnapshot,
-    core::{CapabilitySet, Protocol, ValidatedRequest},
+    core::{Protocol, ProtocolCapabilities, ValidatedRequest},
 };
 
 #[derive(Debug, Error)]
@@ -30,6 +30,8 @@ pub enum RouteError {
     StreamingUnsupported,
     #[error("selected deployment does not support requested capabilities")]
     UnsupportedCapabilities,
+    #[error("requested maximum output exceeds the configured model limit")]
+    OutputLimitExceeded,
 }
 
 /// 已完成 alias/capability 解析的原生请求。
@@ -47,6 +49,16 @@ pub struct PreparedNativeRequest {
 pub struct PreparedNativeCandidate {
     deployment_id: String,
     request: ValidatedRequest,
+}
+
+/// 单次请求实际使用的能力。它不等同于 deployment 配置：`protocol` 是两个端点共享的
+/// 需求，Responses 专有状态单独保留，避免被误用于 Chat Completions 路由。
+#[derive(Clone, Copy, Debug)]
+struct RequestedCapabilities {
+    protocol: ProtocolCapabilities,
+    unmodeled_tools: bool,
+    previous_response_id: bool,
+    background: bool,
 }
 
 impl PreparedNativeRequest {
@@ -113,20 +125,33 @@ pub fn prepare_native_request(
         .filter(|model| !model.is_empty())
         .ok_or(RouteError::MissingModel)?;
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
-    let requested_features = CapabilitySet {
-        chat: false,
-        responses: false,
-        streaming: false,
-        function_tools: object
-            .get("tools")
-            .and_then(Value::as_array)
-            .is_some_and(|tools| !tools.is_empty()),
-        structured_output: requests_structured_output(object),
-        previous_response_id: object
-            .get("previous_response_id")
-            .is_some_and(|value| !value.is_null()),
-        background: object.get("background").and_then(Value::as_bool) == Some(true),
-        response_store: object.get("store").and_then(Value::as_bool) == Some(true),
+    let requested_output_tokens = requested_output_tokens(object);
+    let requests_function_calling = object
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| tools.iter().any(is_function_tool));
+    let requests_unmodeled_tools = object
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| tools.iter().any(|tool| !is_function_tool(tool)));
+    let requested_features = RequestedCapabilities {
+        protocol: ProtocolCapabilities {
+            enabled: false,
+            streaming: is_streaming,
+            function_calling: requests_function_calling,
+            parallel_tool_calls: requests_function_calling
+                && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
+            image_input: requests_image_input(protocol, object),
+            structured_outputs: requests_structured_outputs(object),
+            store: object.get("store").and_then(Value::as_bool) == Some(true),
+        },
+        unmodeled_tools: requests_unmodeled_tools,
+        previous_response_id: protocol == Protocol::Responses
+            && object
+                .get("previous_response_id")
+                .is_some_and(|value| !value.is_null()),
+        background: protocol == Protocol::Responses
+            && object.get("background").and_then(Value::as_bool) == Some(true),
     };
     let candidates = snapshot
         .alias(public_model)
@@ -140,9 +165,10 @@ pub fn prepare_native_request(
             .ok_or(RouteError::NoDeployment)?;
         if let Some(error) = candidate_error(
             protocol,
-            object,
             requested_features,
             deployment.capabilities(),
+            deployment.model_limits().max_output_tokens(),
+            requested_output_tokens,
         ) {
             first_error.get_or_insert(error);
             continue;
@@ -176,27 +202,96 @@ pub fn prepare_native_request(
 
 fn candidate_error(
     protocol: Protocol,
-    object: &serde_json::Map<String, Value>,
-    requested_features: CapabilitySet,
-    capabilities: &CapabilitySet,
+    requested_features: RequestedCapabilities,
+    capabilities: &crate::core::CapabilitySet,
+    configured_max_output_tokens: Option<u32>,
+    requested_output_tokens: Option<u64>,
 ) -> Option<RouteError> {
-    let protocol_supported = match protocol {
-        Protocol::ChatCompletions => capabilities.chat,
-        Protocol::Responses => capabilities.responses,
+    let protocol_capabilities = match protocol {
+        Protocol::ChatCompletions => capabilities.chat_completions,
+        Protocol::Responses => capabilities.responses.protocol_capabilities(),
     };
-    if !protocol_supported {
+    if !protocol_capabilities.enabled {
         return Some(RouteError::UnsupportedProtocol);
     }
-    if object.get("stream").and_then(Value::as_bool) == Some(true) && !capabilities.streaming {
+    if requested_features.unmodeled_tools {
+        return Some(RouteError::UnsupportedCapabilities);
+    }
+    if requested_features.protocol.streaming && !protocol_capabilities.streaming {
         return Some(RouteError::StreamingUnsupported);
     }
-    if !requested_features.is_subset_of(*capabilities) {
+    if !requested_features
+        .protocol
+        .is_subset_of(protocol_capabilities)
+    {
         return Some(RouteError::UnsupportedCapabilities);
+    }
+    if protocol == Protocol::Responses
+        && ((requested_features.previous_response_id
+            && !capabilities.responses.previous_response_id)
+            || (requested_features.background && !capabilities.responses.background))
+    {
+        return Some(RouteError::UnsupportedCapabilities);
+    }
+    if configured_max_output_tokens.is_some_and(|limit| {
+        requested_output_tokens.is_some_and(|requested| requested > u64::from(limit))
+    }) {
+        return Some(RouteError::OutputLimitExceeded);
     }
     None
 }
 
-fn requests_structured_output(object: &serde_json::Map<String, Value>) -> bool {
+/// 仅识别 OpenAI-compatible message/input item 内的 image content part，而不尝试在热路径计算 token。
+///
+/// `image_url`（Chat）和 `input_image`（Responses）是协议字段；未知 part 会被原生
+/// 透传，因此不能依据其他任意 JSON 中同名 `type` 推测视觉能力。
+fn requests_image_input(protocol: Protocol, object: &serde_json::Map<String, Value>) -> bool {
+    match protocol {
+        Protocol::ChatCompletions => object
+            .get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|messages| {
+                messages
+                    .iter()
+                    .any(|message| content_contains_part_type(message.get("content"), "image_url"))
+            }),
+        Protocol::Responses => object
+            .get("input")
+            .and_then(Value::as_array)
+            .is_some_and(|items| {
+                items.iter().any(|item| {
+                    item.get("type").and_then(Value::as_str) == Some("input_image")
+                        || content_contains_part_type(item.get("content"), "input_image")
+                })
+            }),
+    }
+}
+
+fn content_contains_part_type(content: Option<&Value>, expected_type: &str) -> bool {
+    content.and_then(Value::as_array).is_some_and(|parts| {
+        parts
+            .iter()
+            .any(|part| part.get("type").and_then(Value::as_str) == Some(expected_type))
+    })
+}
+
+/// `function_calling` 只覆盖 OpenAI 的 JSON-schema function tools。Built-in 和 custom
+/// tools 需要各自的配置语义与 probe，尚未建模时不得借由 `tools[]` 原生透传而被误认为
+/// 已支持。
+fn is_function_tool(tool: &Value) -> bool {
+    tool.get("type").and_then(Value::as_str) == Some("function")
+}
+
+/// Chat 兼容面存在新旧两个输出上限字段；当客户端同时给出多个字段时，选择其中最大的
+/// 值做本地上界校验，绝不悄悄改写上游请求。字段值不是非负整数时仍交由上游协议验证。
+fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u64> {
+    ["max_output_tokens", "max_completion_tokens", "max_tokens"]
+        .iter()
+        .filter_map(|field| object.get(*field).and_then(Value::as_u64))
+        .max()
+}
+
+fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool {
     object
         .get("response_format")
         .is_some_and(is_non_text_format)
@@ -205,6 +300,23 @@ fn requests_structured_output(object: &serde_json::Map<String, Value>) -> bool {
             .and_then(Value::as_object)
             .and_then(|text| text.get("format"))
             .is_some_and(is_non_text_format)
+        || object
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode))
+}
+
+/// Function strict mode is specified inside `function` for Chat Completions and directly on a
+/// function tool in Responses. The function-calling guide defines strict mode in terms of
+/// Structured Outputs, so either wire shape requires `structured_outputs`.
+fn tool_requests_strict_mode(tool: &Value) -> bool {
+    tool.get("strict").and_then(Value::as_bool) == Some(true)
+        || tool
+            .get("function")
+            .and_then(Value::as_object)
+            .and_then(|function| function.get("strict"))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 fn is_non_text_format(format: &Value) -> bool {

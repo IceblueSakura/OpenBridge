@@ -31,7 +31,7 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 1
+schema_version = 2
 config_version = "sdk-compatibility"
 [[providers]]
 id = "openai"
@@ -47,15 +47,25 @@ upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 [[aliases]]
 name = "public-model"
 candidates = ["openai-main"]
@@ -96,7 +106,7 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
             "run",
             "--isolated",
             "--with",
-            "openai==2.46.0",
+            "openai",
             "python",
             "tests/sdk/openai_python_compat.py",
             &base_url,
@@ -566,7 +576,7 @@ fn command_path(variable: &str, fallback: &str) -> std::ffi::OsString {
 fn node_sdk_install_command(node_root: &std::path::Path) -> Command {
     if let Some(pnpm) = env::var_os("OPENBRIDGE_PNPM") {
         let mut command = Command::new(pnpm);
-        command.args(["--dir", node_root.to_str().unwrap(), "add", "openai@6.48.0"]);
+        command.args(["--dir", node_root.to_str().unwrap(), "add", "openai"]);
         return command;
     }
 
@@ -576,7 +586,7 @@ fn node_sdk_install_command(node_root: &std::path::Path) -> Command {
         "--no-save",
         "--prefix",
         node_root.to_str().unwrap(),
-        "openai@6.48.0",
+        "openai",
     ]);
     command
 }

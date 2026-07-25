@@ -3,11 +3,11 @@
 //! 启动阶段一次性构造 bootstrap-bound HTTP router 和共享 upstream client；路由中的
 //! credential 只保留 `env://` 引用，实际 API key 在每个业务请求发送前才解析。
 
-use std::{env, fs, sync::Arc};
+use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{ConfigManager, load_registry},
+    config::{ConfigManager, ConfigPaths},
     ingress::{AppState, StaticBearerCredential, build_router},
     transport::upstream::UpstreamClient,
 };
@@ -16,22 +16,13 @@ use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_BOOTSTRAP_PATH: &str = "config/bootstrap.toml";
-const DEFAULT_ROUTES_PATH: &str = "config/routes.toml";
-
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing()?;
 
-    let bootstrap_path =
-        env::var("OPENBRIDGE_BOOTSTRAP_CONFIG").unwrap_or_else(|_| DEFAULT_BOOTSTRAP_PATH.into());
-    let routes_path =
-        env::var("OPENBRIDGE_ROUTES_CONFIG").unwrap_or_else(|_| DEFAULT_ROUTES_PATH.into());
-    let bootstrap = fs::read_to_string(&bootstrap_path)
-        .with_context(|| format!("failed to read bootstrap config '{bootstrap_path}'"))?;
-    let routes = fs::read_to_string(&routes_path)
-        .with_context(|| format!("failed to read route config '{routes_path}'"))?;
-    let snapshot = load_registry(&bootstrap, &routes).context("configuration validation failed")?;
+    let snapshot = ConfigPaths::from_environment()
+        .load()
+        .context("failed to load OpenBridge configuration")?;
     let listen = snapshot.listen();
     let config_version = snapshot.version().as_str().to_owned();
     let upstream = UpstreamClient::new(

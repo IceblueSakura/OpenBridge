@@ -13,7 +13,6 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use serde::Deserialize;
 use thiserror::Error;
 use url::Url;
 
@@ -22,7 +21,18 @@ use crate::{
     provider::{CredentialKind, ProviderKind},
 };
 
-const CONFIG_SCHEMA_VERSION: u32 = 1;
+mod document;
+mod model;
+mod source;
+
+use document::{RawBootstrap, RawRoutes};
+
+pub use model::ModelLimits;
+pub use source::{ConfigFileError, ConfigPaths};
+
+const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
+/// Route schema v2 introduces protocol-scoped capability declarations.
+const ROUTES_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -59,6 +69,11 @@ pub enum ConfigError {
     UnsupportedEndpointProfile { deployment: String, profile: String },
     #[error("deployment '{deployment}' request timeout must be greater than zero")]
     InvalidRequestTimeout { deployment: String },
+    #[error("deployment '{deployment}' model limit '{limit}' must be greater than zero")]
+    InvalidModelLimit {
+        deployment: String,
+        limit: &'static str,
+    },
     #[error("deployment '{deployment}' enables capabilities unsupported by its adapter")]
     CapabilityElevation { deployment: String },
     #[error("runtime limit '{name}' must be greater than zero")]
@@ -108,6 +123,10 @@ impl RegistrySnapshot {
 
     pub fn deployment(&self, id: &str) -> Option<&ResolvedDeployment> {
         self.deployments.get(id)
+    }
+
+    pub fn deployment_ids(&self) -> impl Iterator<Item = &str> {
+        self.deployments.keys().map(String::as_str)
     }
 
     pub fn alias(&self, name: &str) -> Option<&ResolvedAlias> {
@@ -264,9 +283,10 @@ pub struct ResolvedDeployment {
     provider_id: String,
     upstream_model: String,
     endpoint_profile: String,
-    origin: Url,
+    endpoint_base: Url,
     request_timeout: Duration,
     capabilities: CapabilitySet,
+    model_limits: ModelLimits,
 }
 
 impl ResolvedDeployment {
@@ -282,8 +302,9 @@ impl ResolvedDeployment {
         &self.endpoint_profile
     }
 
-    pub fn origin(&self) -> &Url {
-        &self.origin
+    /// 受信配置定义的上游 HTTPS base；可带经校验的固定 path prefix。
+    pub fn endpoint_base(&self) -> &Url {
+        &self.endpoint_base
     }
 
     pub fn request_timeout(&self) -> Duration {
@@ -292,6 +313,10 @@ impl ResolvedDeployment {
 
     pub fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
+    }
+
+    pub fn model_limits(&self) -> &ModelLimits {
+        &self.model_limits
     }
 }
 
@@ -319,8 +344,12 @@ pub fn load_registry(
         toml::from_str(bootstrap_toml).map_err(|_| ConfigError::BootstrapParse)?;
     let routes: RawRoutes = toml::from_str(routes_toml).map_err(|_| ConfigError::RouteParse)?;
 
-    validate_schema("bootstrap", bootstrap.schema_version)?;
-    validate_schema("routes", routes.schema_version)?;
+    validate_schema(
+        "bootstrap",
+        bootstrap.schema_version,
+        BOOTSTRAP_SCHEMA_VERSION,
+    )?;
+    validate_schema("routes", routes.schema_version, ROUTES_SCHEMA_VERSION)?;
     validate_nonzero_limit("max_request_body_bytes", bootstrap.max_request_body_bytes)?;
     validate_nonzero_limit("max_sse_event_bytes", bootstrap.max_sse_event_bytes)?;
     validate_nonzero_millis(
@@ -405,6 +434,8 @@ pub fn load_registry(
 
     let mut deployments = BTreeMap::new();
     for deployment in routes.deployments {
+        let capabilities: CapabilitySet = deployment.capabilities.into();
+        let model_limits: ModelLimits = deployment.model_limits.into();
         let provider =
             providers
                 .get(&deployment.provider)
@@ -419,6 +450,7 @@ pub fn load_registry(
                 deployment: deployment.id,
             });
         }
+        validate_model_limits(&deployment.id, model_limits)?;
         if !provider
             .kind
             .accepts_endpoint_profile(&deployment.endpoint_profile)
@@ -428,20 +460,20 @@ pub fn load_registry(
                 profile: deployment.endpoint_profile,
             });
         }
-        let origin =
-            normalize_origin(&deployment.base_url).ok_or_else(|| ConfigError::InvalidBaseUrl {
+        let endpoint_base = normalize_endpoint_base(&deployment.base_url).ok_or_else(|| {
+            ConfigError::InvalidBaseUrl {
                 deployment: deployment.id.clone(),
-            })?;
+            }
+        })?;
+        let origin = normalize_origin(&endpoint_base.origin().ascii_serialization())
+            .expect("a validated HTTPS endpoint base always has a normalizable origin");
         if !allowed_origins.contains(&origin) {
             return Err(ConfigError::OriginNotAllowed {
                 deployment: deployment.id,
                 origin: origin.to_string(),
             });
         }
-        if !deployment
-            .capabilities
-            .is_subset_of(provider.kind.capabilities())
-        {
+        if !capabilities.is_subset_of(provider.kind.capabilities()) {
             return Err(ConfigError::CapabilityElevation {
                 deployment: deployment.id,
             });
@@ -450,9 +482,10 @@ pub fn load_registry(
             provider_id: deployment.provider,
             upstream_model: deployment.upstream_model,
             endpoint_profile: deployment.endpoint_profile,
-            origin,
+            endpoint_base,
             request_timeout: Duration::from_millis(deployment.request_timeout_ms),
-            capabilities: deployment.capabilities,
+            capabilities,
+            model_limits,
         };
         if deployments
             .insert(deployment.id.clone(), resolved)
@@ -522,8 +555,8 @@ pub fn load_registry(
     })
 }
 
-fn validate_schema(document: &'static str, actual: u32) -> Result<(), ConfigError> {
-    if actual == CONFIG_SCHEMA_VERSION {
+fn validate_schema(document: &'static str, actual: u32, expected: u32) -> Result<(), ConfigError> {
+    if actual == expected {
         Ok(())
     } else {
         Err(ConfigError::UnsupportedSchema { document, actual })
@@ -546,6 +579,21 @@ fn validate_nonzero_millis(name: &'static str, value: u64) -> Result<(), ConfigE
     }
 }
 
+fn validate_model_limits(deployment: &str, limits: ModelLimits) -> Result<(), ConfigError> {
+    for (name, value) in [
+        ("context_window_tokens", limits.context_window_tokens()),
+        ("max_output_tokens", limits.max_output_tokens()),
+    ] {
+        if value == Some(0) {
+            return Err(ConfigError::InvalidModelLimit {
+                deployment: deployment.to_owned(),
+                limit: name,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn parse_secret_reference(value: &str) -> Option<SecretReference> {
     let locator = value.strip_prefix("env://")?;
     let mut characters = locator.chars();
@@ -561,9 +609,6 @@ fn parse_secret_reference(value: &str) -> Option<SecretReference> {
 }
 
 /// 接受仅包含 HTTPS scheme、host 和可选端口的 origin，并规范为根路径。
-///
-/// 拒绝用户信息、query、fragment 与非根 path，避免 deployment 配置把 URL join 变成
-/// 隐式路径前缀或凭证承载通道；最终 egress 仍只会拼接 adapter 给出的相对 URI。
 fn normalize_origin(value: &str) -> Option<Url> {
     let mut url = Url::parse(value).ok()?;
     if url.scheme() != "https"
@@ -580,60 +625,45 @@ fn normalize_origin(value: &str) -> Option<Url> {
     Some(url)
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawBootstrap {
-    schema_version: u32,
-    listen: String,
-    allowed_origins: Vec<String>,
-    max_request_body_bytes: usize,
-    max_sse_event_bytes: usize,
-    upstream_connect_timeout_ms: u64,
-    upstream_pool_idle_timeout_ms: u64,
-    upstream_pool_max_idle_per_host: usize,
+/// 接受受信 deployment 的 HTTPS endpoint base，并保留受限的固定 path prefix。
+///
+/// prefix 只来自 owner-controlled route 配置，且必须由未编码的 URL-safe path segment
+/// 组成；下游请求和 adapter 都不能提供或覆盖它。最终 transport 只会在该 base 之后追加
+/// adapter 生成的绝对相对路径，因此 `/openai` 这类 prefix 会形成
+/// `/openai/v1/responses`，而不是被 `Url::join("/v1/…")` 重置到根路径。
+fn normalize_endpoint_base(value: &str) -> Option<Url> {
+    let mut url = Url::parse(value).ok()?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !is_safe_endpoint_prefix(url.path())
+    {
+        return None;
+    }
+
+    if url.path() != "/" && !url.path().ends_with('/') {
+        url.set_path(&format!("{}/", url.path()));
+    }
+    Some(url)
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRoutes {
-    schema_version: u32,
-    config_version: String,
-    providers: Vec<RawProvider>,
-    deployments: Vec<RawDeployment>,
-    aliases: Vec<RawAlias>,
-}
+fn is_safe_endpoint_prefix(path: &str) -> bool {
+    if path.is_empty() || path == "/" {
+        return true;
+    }
+    if !path.starts_with('/') || path.contains("//") {
+        return false;
+    }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawProvider {
-    id: String,
-    kind: String,
-    credential: RawCredential,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawCredential {
-    id: String,
-    kind: String,
-    secret_ref: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawDeployment {
-    id: String,
-    provider: String,
-    upstream_model: String,
-    endpoint_profile: String,
-    base_url: String,
-    request_timeout_ms: u64,
-    capabilities: CapabilitySet,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAlias {
-    name: String,
-    candidates: Vec<String>,
+    path.trim_matches('/').split('/').all(|segment| {
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && segment.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+            })
+    })
 }

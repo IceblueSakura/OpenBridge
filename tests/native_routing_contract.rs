@@ -17,7 +17,7 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 1
+schema_version = 2
 config_version = "routing-test"
 
 [[providers]]
@@ -35,15 +35,25 @@ upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 
 [[aliases]]
 name = "public-model"
@@ -104,7 +114,7 @@ fn native_routing_rejects_unknown_public_models() {
 
 #[test]
 fn native_routing_rejects_features_disabled_by_the_deployment() {
-    let routes = ROUTES.replace("function_tools = true", "function_tools = false");
+    let routes = ROUTES.replacen("function_calling = true", "function_calling = false", 1);
     let snapshot = load_registry(BOOTSTRAP, &routes).unwrap();
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
@@ -120,9 +130,145 @@ fn native_routing_rejects_features_disabled_by_the_deployment() {
 }
 
 #[test]
+fn native_routing_selects_output_limit_compatible_candidates_and_gates_explicit_parallel_tools() {
+    let routes = ROUTES.replace(
+        "[[aliases]]",
+        r#"[deployments.model_limits]
+max_output_tokens = 32
+
+[[aliases]]"#,
+    );
+    let snapshot = load_registry(BOOTSTRAP, &routes).unwrap();
+
+    let too_large = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "max_completion_tokens": 33,
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::ChatCompletions, too_large.into()).unwrap_err(),
+        RouteError::OutputLimitExceeded
+    ));
+
+    let permitted = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "max_output_tokens": 32,
+    }))
+    .unwrap();
+    assert!(prepare_native_request(&snapshot, Protocol::Responses, permitted.into()).is_ok());
+
+    let parallel = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{"type": "function", "function": {"name": "probe"}}],
+        "parallel_tool_calls": true,
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::ChatCompletions, parallel.into()).unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+
+    let image = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "image_url", "image_url": {"url": "https://example.invalid/image.png"}}],
+        }],
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::ChatCompletions, image.into()).unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+}
+
+#[test]
+fn native_routing_scopes_capabilities_by_protocol_and_detects_strict_function_calling() {
+    let chat_store_only = ROUTES.replacen("store = false", "store = true", 1);
+    let snapshot = load_registry(BOOTSTRAP, &chat_store_only).unwrap();
+
+    let chat_store = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "store": true,
+    }))
+    .unwrap();
+    assert!(
+        prepare_native_request(&snapshot, Protocol::ChatCompletions, chat_store.into()).is_ok()
+    );
+
+    let responses_store = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "store": true,
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::Responses, responses_store.into()).unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+
+    let unmodeled_tool = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "tools": [{"type": "web_search"}]
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::Responses, unmodeled_tool.into()).unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+
+    let strict_function = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{
+            "type": "function",
+            "function": {"name": "probe", "strict": true}
+        }]
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::ChatCompletions, strict_function.into())
+            .unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+
+    let strict_response_function = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "tools": [{"type": "function", "name": "probe", "strict": true}]
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(
+            &snapshot,
+            Protocol::Responses,
+            strict_response_function.into()
+        )
+        .unwrap_err(),
+        RouteError::UnsupportedCapabilities
+    ));
+
+    let responses_disabled = ROUTES.replace(
+        "[deployments.capabilities.responses]\nenabled = true",
+        "[deployments.capabilities.responses]\nenabled = false",
+    );
+    let snapshot = load_registry(BOOTSTRAP, &responses_disabled).unwrap();
+    let request = serde_json::to_vec(&json!({"model": "public-model", "input": "hello"})).unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::Responses, request.into()).unwrap_err(),
+        RouteError::UnsupportedProtocol
+    ));
+}
+
+#[test]
 fn native_routing_selects_the_first_capability_compatible_candidate() {
     let routes = ROUTES
-        .replace("function_tools = true", "function_tools = false")
+        .replacen("function_calling = true", "function_calling = false", 1)
         .replace(
             "[[aliases]]",
             r#"[[deployments]]
@@ -132,15 +278,25 @@ upstream_model = "tool-capable-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 
 [[aliases]]"#,
         )

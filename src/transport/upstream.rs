@@ -1,6 +1,6 @@
 //! 共享上游 HTTP transport。
 //!
-//! client 复用连接池、禁用重定向，并只接受 adapter 生成的相对 URI 与配置验证过的 origin。
+//! client 复用连接池、禁用重定向，并只接受 adapter 生成的相对 URI 与配置验证过的 endpoint base。
 //! response body 以流形式交给 ingress；不预读或缓冲 token，因此下游取消会 drop 上游流。
 
 use std::{fmt, time::Duration};
@@ -8,7 +8,7 @@ use std::{fmt, time::Duration};
 use axum::body::Body;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use http::{HeaderMap, Method, StatusCode};
+use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 use url::Url;
 
@@ -55,7 +55,7 @@ impl UpstreamClient {
         Ok(Self { client })
     }
 
-    /// 将相对 target 与 deployment origin 合成为唯一 egress URL。
+    /// 将相对 target 与 deployment endpoint base 合成为唯一 egress URL。
     ///
     /// 这里再次拒绝 scheme/authority/path 不合法的 URI，即使 adapter 是编译期代码；配置
     /// allowlist 与该检查共同避免未来 adapter 修改意外扩大 SSRF 出站面。
@@ -65,16 +65,7 @@ impl UpstreamClient {
         request: UpstreamRequestParts,
         headers: HeaderMap,
     ) -> Result<UpstreamResponse, UpstreamError> {
-        if request.relative_uri().scheme().is_some()
-            || request.relative_uri().authority().is_some()
-            || !request.relative_uri().path().starts_with('/')
-        {
-            return Err(UpstreamError::InvalidTarget);
-        }
-        let url = deployment
-            .origin()
-            .join(&request.relative_uri().to_string())
-            .map_err(|_| UpstreamError::InvalidTarget)?;
+        let url = resolve_upstream_url(deployment.endpoint_base(), request.relative_uri())?;
         self.send_request(UpstreamRequest::new(
             url,
             request.method().clone(),
@@ -113,6 +104,21 @@ impl UpstreamClient {
             body,
         })
     }
+}
+
+fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, UpstreamError> {
+    if relative_uri.scheme().is_some()
+        || relative_uri.authority().is_some()
+        || !relative_uri.path().starts_with('/')
+    {
+        return Err(UpstreamError::InvalidTarget);
+    }
+
+    let prefix = endpoint_base.path().trim_end_matches('/');
+    let mut url = endpoint_base.clone();
+    url.set_path(&format!("{}{}", prefix, relative_uri.path()));
+    url.set_query(relative_uri.query());
+    Ok(url)
 }
 
 impl UpstreamTransport for UpstreamClient {
@@ -203,11 +209,31 @@ mod tests {
         routing::get,
     };
     use bytes::Bytes;
-    use http::{HeaderMap, Method, StatusCode};
+    use http::{HeaderMap, Method, StatusCode, Uri};
     use tokio::net::TcpListener;
     use url::Url;
 
-    use super::{UpstreamClient, UpstreamRequest};
+    use super::{UpstreamClient, UpstreamRequest, resolve_upstream_url};
+
+    #[test]
+    fn endpoint_base_prefix_is_preserved_when_building_adapter_target() {
+        let endpoint_base = Url::parse("https://provider.example/openai/").unwrap();
+        let target = Uri::from_static("/v1/responses");
+
+        let url = resolve_upstream_url(&endpoint_base, &target).unwrap();
+
+        assert_eq!(url.as_str(), "https://provider.example/openai/v1/responses");
+    }
+
+    #[test]
+    fn endpoint_base_rejects_adapter_targets_with_an_authority() {
+        let endpoint_base = Url::parse("https://provider.example/openai/").unwrap();
+        let target = "https://attacker.invalid/v1/responses"
+            .parse::<Uri>()
+            .unwrap();
+
+        assert!(resolve_upstream_url(&endpoint_base, &target).is_err());
+    }
 
     #[tokio::test]
     async fn shared_client_reuses_one_tcp_connection_for_sequential_requests() {

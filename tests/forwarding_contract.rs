@@ -38,7 +38,7 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 1
+schema_version = 2
 config_version = "forward-test"
 [[providers]]
 id = "openai"
@@ -54,15 +54,25 @@ upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 [[aliases]]
 name = "public-model"
 candidates = ["openai-main"]
@@ -425,15 +435,25 @@ upstream_model = "fallback-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = false
 background = false
-response_store = false
 
 [[aliases]]"#,
         )
@@ -479,15 +499,25 @@ upstream_model = "fallback-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
 request_timeout_ms = 120000
-[deployments.capabilities]
-chat = true
-responses = true
+[deployments.capabilities.chat_completions]
+enabled = true
 streaming = true
-function_tools = true
-structured_output = false
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
+
+[deployments.capabilities.responses]
+enabled = true
+streaming = true
+function_calling = true
+parallel_tool_calls = false
+image_input = false
+structured_outputs = false
+store = false
 previous_response_id = true
 background = false
-response_store = false
 
 [[aliases]]"#,
         )

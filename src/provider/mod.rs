@@ -23,7 +23,9 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::{
-    core::{CapabilitySet, Protocol, ValidatedRequest},
+    core::{
+        CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities, ValidatedRequest,
+    },
     transport::sse::SseEvent,
 };
 
@@ -83,14 +85,26 @@ impl ProviderDescriptor {
 static OPENAI_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     kind: ProviderKind::OpenAi,
     capabilities: CapabilitySet {
-        chat: true,
-        responses: true,
-        streaming: true,
-        function_tools: true,
-        structured_output: true,
-        previous_response_id: true,
-        background: false,
-        response_store: false,
+        chat_completions: ProtocolCapabilities {
+            enabled: true,
+            streaming: true,
+            function_calling: true,
+            parallel_tool_calls: true,
+            image_input: true,
+            structured_outputs: true,
+            store: true,
+        },
+        responses: ResponsesCapabilities {
+            enabled: true,
+            streaming: true,
+            function_calling: true,
+            parallel_tool_calls: true,
+            image_input: true,
+            structured_outputs: true,
+            store: true,
+            previous_response_id: true,
+            background: false,
+        },
     },
     endpoint_profiles: &["public-api"],
     credential_kinds: &[CredentialKind::ApiKey],
@@ -195,6 +209,20 @@ impl ProviderAdapter {
         self.build_auth_headers(credential)?
             .append_to(&mut headers)?;
         Ok(headers)
+    }
+
+    /// 由编译期 adapter 固定生成的上游模型发现请求。
+    ///
+    /// 该请求只用于管理员显式 probe；它不会成为下游 `/v1/models` 的实现，后者始终
+    /// 只暴露 OpenBridge 的 public alias。
+    pub(crate) fn encode_list_models_request(&self) -> UpstreamRequestParts {
+        match self {
+            Self::OpenAi(_) => UpstreamRequestParts {
+                method: Method::GET,
+                relative_uri: Uri::from_static("/v1/models"),
+                body: Bytes::new(),
+            },
+        }
     }
 }
 
