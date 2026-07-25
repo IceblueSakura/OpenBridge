@@ -1,6 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
-use openbridge::config::{ConfigError, ConfigFileError, ConfigManager, ConfigPaths, load_registry};
+use openbridge::config::{
+    ConfigError, ConfigFileError, ConfigManager, ConfigPaths, ReasoningSupport, load_registry,
+};
 use openbridge::provider::{CredentialKind, ProviderKind};
 
 const BOOTSTRAP: &str = r#"
@@ -15,8 +17,19 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "test-1"
+
+[[models]]
+id = "openai/test-model"
+name = "Test model"
+description = "A model used by configuration contract tests."
+supported_parameters = ["max_tokens", "tools", "reasoning"]
+reasoning = "supported"
+
+[models.context_length]
+input = 128000
+output = 8192
 
 [[providers]]
 id = "openai"
@@ -30,6 +43,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/test-model"
 upstream_model = "test-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -87,12 +101,24 @@ fn valid_config_builds_a_resolved_registry() {
     assert_eq!(registry.upstream_policy().pool_max_idle_per_host(), 16);
     let deployment = registry.deployment("openai-main").unwrap();
     assert_eq!(deployment.provider_id(), "openai");
+    assert_eq!(deployment.model().id(), "openai/test-model");
     assert_eq!(deployment.upstream_model(), "test-model");
     assert_eq!(deployment.endpoint_profile(), "public-api");
     assert_eq!(deployment.request_timeout(), Duration::from_secs(120));
     assert!(deployment.capabilities().responses.enabled);
-    assert_eq!(deployment.model_limits().context_window_tokens(), None);
-    assert_eq!(deployment.model_limits().max_output_tokens(), None);
+    let model = registry.model("openai/test-model").unwrap();
+    assert_eq!(model.name(), "Test model");
+    assert_eq!(
+        model.description(),
+        Some("A model used by configuration contract tests.")
+    );
+    assert_eq!(model.context_length().input_tokens(), Some(128_000));
+    assert_eq!(model.context_length().output_tokens(), Some(8_192));
+    assert_eq!(
+        model.supported_parameters(),
+        ["max_tokens", "tools", "reasoning"]
+    );
+    assert_eq!(model.reasoning(), ReasoningSupport::Supported);
     assert_eq!(
         deployment.endpoint_base().as_str(),
         "https://api.openai.com/"
@@ -128,38 +154,71 @@ fn config_paths_load_the_same_owner_controlled_document_pair_for_server_and_cli(
 }
 
 #[test]
-fn protocol_scoped_capabilities_require_routes_schema_v2() {
-    let old_version = ROUTES.replacen("schema_version = 2", "schema_version = 1", 1);
+fn model_metadata_is_part_of_the_initial_routes_schema_v1() {
+    let unsupported_version = ROUTES.replacen("schema_version = 1", "schema_version = 2", 1);
 
     assert!(matches!(
-        load_registry(BOOTSTRAP, &old_version).unwrap_err(),
+        load_registry(BOOTSTRAP, &unsupported_version).unwrap_err(),
         ConfigError::UnsupportedSchema {
             document: "routes",
-            actual: 1
+            actual: 2
         }
     ));
 }
 
 #[test]
-fn deployment_model_limits_are_manual_optional_values_and_reject_zero() {
-    let configured = ROUTES.replace(
-        "[[aliases]]",
-        r#"[deployments.model_limits]
-context_window_tokens = 128000
-max_output_tokens = 8192
-
-[[aliases]]"#,
-    );
-    let registry = load_registry(BOOTSTRAP, &configured).unwrap();
-    let limits = registry.deployment("openai-main").unwrap().model_limits();
-    assert_eq!(limits.context_window_tokens(), Some(128_000));
-    assert_eq!(limits.max_output_tokens(), Some(8_192));
-
-    let invalid = configured.replace("max_output_tokens = 8192", "max_output_tokens = 0");
+fn model_context_length_and_supported_parameters_are_validated() {
+    let invalid = ROUTES.replace("output = 8192", "output = 0");
     assert!(matches!(
         load_registry(BOOTSTRAP, &invalid).unwrap_err(),
-        ConfigError::InvalidModelLimit { deployment, limit }
-            if deployment == "openai-main" && limit == "max_output_tokens"
+        ConfigError::InvalidModelContextLength { model, limit }
+            if model == "openai/test-model" && limit == "output"
+    ));
+
+    let duplicate = ROUTES.replace(
+        "[\"max_tokens\", \"tools\", \"reasoning\"]",
+        "[\"max_tokens\", \"tools\", \"tools\"]",
+    );
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &duplicate).unwrap_err(),
+        ConfigError::DuplicateSupportedParameter { model, parameter }
+            if model == "openai/test-model" && parameter == "tools"
+    ));
+
+    let invalid_parameter = ROUTES.replace("\"max_tokens\"", "\"max-tokens\"");
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &invalid_parameter).unwrap_err(),
+        ConfigError::InvalidSupportedParameter { model, parameter }
+            if model == "openai/test-model" && parameter == "max-tokens"
+    ));
+
+    let inconsistent_reasoning =
+        ROUTES.replace("reasoning = \"supported\"", "reasoning = \"unsupported\"");
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &inconsistent_reasoning).unwrap_err(),
+        ConfigError::InconsistentReasoningMetadata { model, .. }
+            if model == "openai/test-model"
+    ));
+}
+
+#[test]
+fn deployment_must_reference_a_configured_model() {
+    let routes = ROUTES.replace(
+        "model = \"openai/test-model\"",
+        "model = \"openai/missing-model\"",
+    );
+
+    assert!(matches!(
+        load_registry(BOOTSTRAP, &routes).unwrap_err(),
+        ConfigError::UnknownReference {
+            entity,
+            id,
+            target,
+            reference,
+        } if entity == "deployment"
+            && id == "openai-main"
+            && target == "model"
+            && reference == "openai/missing-model"
     ));
 }
 

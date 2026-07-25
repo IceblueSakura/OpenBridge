@@ -36,7 +36,7 @@ alias candidates
 - route selection 只使用受信配置、当前 availability overlay 和请求中为兼容判断必需的语义；不能使用 prompt、用户标识、secret、随机权重、未审查 cost 或隐式账号轮换。
 - `previous_response_id`、provider resource、tool continuation、Codex turn state、opaque reasoning 或无法重建的历史会把请求绑定到 issuing deployment。没有可验证 ledger 时，候选切换不是有效降级。
 - RoutePlan 一旦形成，在整个 request/stream 内保持 alias、deployment、credential binding、协议模式、candidate 顺序和 fallback 边界；reload 只影响后续请求。
-- deployment 的 `context_window_tokens`、`max_output_tokens` 或其他模型限制只能在有可靠模型事实和可解析请求字段时用于保守筛选；不能以 JSON 字节数或猜测用量伪造 token 预检。
+- 模型目录的 `context_length.input`、`context_length.output` 或其他模型限制只能在有可靠模型事实和可解析请求字段时用于保守筛选；不能以 JSON 字节数或猜测用量伪造 token 预检。
 
 ## 3. 非目标
 

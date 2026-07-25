@@ -357,8 +357,9 @@ impl ProbeSession<'_> {
 
     fn probe_max_output_tokens(&self) -> u32 {
         self.deployment
-            .model_limits()
-            .max_output_tokens()
+            .model()
+            .context_length()
+            .output_tokens()
             .unwrap_or(PROBE_MAX_OUTPUT_TOKENS)
             .min(PROBE_MAX_OUTPUT_TOKENS)
     }
@@ -544,8 +545,16 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
     const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "probe-test"
+[[models]]
+id = "openai/test-model"
+name = "Test model"
+supported_parameters = ["tools"]
+reasoning = "unknown"
+[models.context_length]
+input = 128000
+output = 8192
 [[providers]]
 id = "openai"
 kind = "openai"
@@ -556,6 +565,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/test-model"
 upstream_model = "test-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -579,9 +589,6 @@ structured_outputs = false
 store = false
 previous_response_id = false
 background = false
-[deployments.model_limits]
-context_window_tokens = 128000
-max_output_tokens = 8192
 [[aliases]]
 name = "public-model"
 candidates = ["openai-main"]

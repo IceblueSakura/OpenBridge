@@ -1,5 +1,19 @@
-schema_version = 2
+schema_version = 1
 config_version = "dev-1"
+
+[[models]]
+id = "openai/configured-model"
+name = "Configured OpenAI-compatible model"
+description = "Example model metadata. Replace every field with values verified for the real upstream model."
+# Keep this empty until the model's accepted request parameters have been verified.
+supported_parameters = []
+reasoning = "unknown"
+
+# Configure verified token limits here when known. `input` is metadata until OpenBridge has a
+# model-specific tokenizer; `output` is enforced against explicit request output limits.
+# [models.context_length]
+# input = 128000
+# output = 16384
 
 [[providers]]
 id = "openai"
@@ -13,6 +27,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/configured-model"
 upstream_model = "configured-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -38,12 +53,6 @@ structured_outputs = false
 store = false
 previous_response_id = false
 background = false
-
-# Maintain verified limits manually for each real upstream model. Omit either value when it is
-# not yet known; OpenBridge then does not impose a local limit for that dimension.
-# [deployments.model_limits]
-# context_window_tokens = 128000
-# max_output_tokens = 16384
 
 [[aliases]]
 name = "code-primary"

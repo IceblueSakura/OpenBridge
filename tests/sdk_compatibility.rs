@@ -31,8 +31,13 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "sdk-compatibility"
+[[models]]
+id = "openai/upstream-model"
+name = "Upstream model"
+supported_parameters = []
+reasoning = "unknown"
 [[providers]]
 id = "openai"
 kind = "openai"
@@ -43,6 +48,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"

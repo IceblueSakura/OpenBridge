@@ -38,8 +38,13 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "forward-test"
+[[models]]
+id = "openai/upstream-model"
+name = "Upstream model"
+supported_parameters = []
+reasoning = "unknown"
 [[providers]]
 id = "openai"
 kind = "openai"
@@ -50,6 +55,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -431,6 +437,7 @@ async fn streaming_requests_fail_over_to_the_next_compatible_deployment_before_o
             r#"[[deployments]]
 id = "openai-fallback"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "fallback-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -495,6 +502,7 @@ async fn provider_bound_streams_do_not_fall_back_to_another_deployment() {
             r#"[[deployments]]
 id = "openai-fallback"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "fallback-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"

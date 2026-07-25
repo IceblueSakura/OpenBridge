@@ -15,9 +15,15 @@
 启动程序读取 `config/bootstrap.toml` 与 `config/routes.toml`，经 `config::load_registry` 校验后形成不可变 `RegistrySnapshot`。
 
 配置代码已按“来源 → 文档 → 编译快照 → 路由消费”收敛：`ConfigPaths` 统一服务和 probe CLI 的
-默认路径/环境覆盖及文件读取；私有 TOML 文档模型只负责 schema 反序列化；`RegistrySnapshot` 和
-`ModelLimits` 是经过验证的运行时值。当前没有单独的配置 `Model` 实体；后续设计应在文档层新增
-该实体并编译为稳定运行时元数据，而不是让 pipeline 直接解释 TOML。
+默认路径/环境覆盖及文件读取；私有 TOML 文档模型只负责 schema 反序列化；`RegistrySnapshot`、
+`ModelMetadata` 和 deployment 都是经过验证的运行时值。初始且未发布的 route schema v1 包含独立 `[[models]]`
+目录：模型维护稳定 `id`、`name`、可选 `description`、`context_length.input/output`、
+`supported_parameters` 和 `reasoning` 状态；deployment 通过 `model` 引用目录项，并独立保存真实
+上游的 `upstream_model`。pipeline 不直接解释 TOML。
+
+当前没有 `ExternalCatalogSnapshot`、OpenRouter 同步/cache、`local_correction` 或 deployment
+`model_constraints`：同一 Model 被多个 deployment 引用时，它们仍共享同一份已编译模型元信息。
+这些是后续候选，不能被当前配置或路由行为宣称为已支持。
 
 - bootstrap policy 包含监听地址、允许的上游 origin、body/SSE 限制和连接池策略；当前只允许 loopback listener 和 HTTPS 根 origin。deployment 的 `base_url` 必须属于其中一个 origin，但可额外包含由受信配置提供的安全路径前缀（例如 `/openai`）。
 - route 配置只能选择编译期存在的 `ProviderKind`、endpoint profile、credential reference、deployment 和 alias；不能定义任意 header、认证逻辑、请求转换或 URL。
@@ -53,7 +59,7 @@ cargo run --bin openbridge --locked
 4. `ProviderAdapter::OpenAi` 生成固定的相对 path（`/v1/chat/completions` 或 `/v1/responses`）、`Content-Type` 与短时 Bearer 认证 header。
 5. `UpstreamClient` 只把相对 URI 追加到配置验证过的 deployment endpoint base，禁用重定向并复用连接池。路径前缀只能来自 `base_url`；adapter 或业务请求不能覆盖它。
 
-每个 deployment 可选地手工维护 `model_limits.context_window_tokens` 和 `model_limits.max_output_tokens`。当前只对后者的请求级显式值进行 egress 前筛选；上下文 token 的精确输入计数需要 future model-specific tokenizer，尚未实现。管理员可使用 `cargo run --bin openbridge-probe -- --deployment <id>` 显式探测受信上游的模型列表、Chat、Responses 和 function-tool loop；该命令不会改变下游模型列表或写回配置。
+模型目录可在 `context_length.output` 中维护已核实的单次输出上限，当前会对请求级显式值进行 egress 前筛选；`context_length.input` 是可配置元信息，但精确输入 token 计数仍需要 future model-specific tokenizer，尚未实现。请求显式使用 `reasoning` 或 `reasoning_effort` 时，只有模型目录声明 `reasoning = "supported"` 的 candidate 才能被路由；`unknown` 与 `unsupported` 均 fail closed。管理员可使用 `cargo run --bin openbridge-probe -- --deployment <id>` 显式探测受信上游的模型列表、Chat、Responses 和 function-tool loop；该命令不会改变下游模型列表或写回配置。
 
 当前没有 health、priority 或 weight 策略；candidate 顺序就是确定性的优先级。`previous_response_id` 会关闭跨 candidate fallback，避免把 provider-bound continuation state 重放到另一个 deployment。
 

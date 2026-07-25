@@ -10,7 +10,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    config::RegistrySnapshot,
+    config::{ReasoningSupport, RegistrySnapshot},
     core::{Protocol, ProtocolCapabilities, ValidatedRequest},
 };
 
@@ -32,6 +32,8 @@ pub enum RouteError {
     UnsupportedCapabilities,
     #[error("requested maximum output exceeds the configured model limit")]
     OutputLimitExceeded,
+    #[error("selected model does not support requested reasoning")]
+    ReasoningUnsupported,
 }
 
 /// 已完成 alias/capability 解析的原生请求。
@@ -57,6 +59,7 @@ pub struct PreparedNativeCandidate {
 struct RequestedCapabilities {
     protocol: ProtocolCapabilities,
     unmodeled_tools: bool,
+    reasoning: bool,
     previous_response_id: bool,
     background: bool,
 }
@@ -146,6 +149,7 @@ pub fn prepare_native_request(
             store: object.get("store").and_then(Value::as_bool) == Some(true),
         },
         unmodeled_tools: requests_unmodeled_tools,
+        reasoning: requests_reasoning(object),
         previous_response_id: protocol == Protocol::Responses
             && object
                 .get("previous_response_id")
@@ -167,7 +171,8 @@ pub fn prepare_native_request(
             protocol,
             requested_features,
             deployment.capabilities(),
-            deployment.model_limits().max_output_tokens(),
+            deployment.model().context_length().output_tokens(),
+            deployment.model().reasoning(),
             requested_output_tokens,
         ) {
             first_error.get_or_insert(error);
@@ -205,6 +210,7 @@ fn candidate_error(
     requested_features: RequestedCapabilities,
     capabilities: &crate::core::CapabilitySet,
     configured_max_output_tokens: Option<u32>,
+    reasoning: ReasoningSupport,
     requested_output_tokens: Option<u64>,
 ) -> Option<RouteError> {
     let protocol_capabilities = match protocol {
@@ -237,6 +243,9 @@ fn candidate_error(
         requested_output_tokens.is_some_and(|requested| requested > u64::from(limit))
     }) {
         return Some(RouteError::OutputLimitExceeded);
+    }
+    if requested_features.reasoning && reasoning != ReasoningSupport::Supported {
+        return Some(RouteError::ReasoningUnsupported);
     }
     None
 }
@@ -289,6 +298,17 @@ fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u6
         .iter()
         .filter_map(|field| object.get(*field).and_then(Value::as_u64))
         .max()
+}
+
+/// `reasoning` 是 OpenAI-compatible 请求中的模型级能力；`reasoning_effort` 同样代表
+/// 调用方要求使用该能力。没有该字段时不得据模型目录推测调用方需要 reasoning。
+fn requests_reasoning(object: &serde_json::Map<String, Value>) -> bool {
+    object
+        .get("reasoning")
+        .is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+        || object
+            .get("reasoning_effort")
+            .is_some_and(|value| !value.is_null())
 }
 
 fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool {

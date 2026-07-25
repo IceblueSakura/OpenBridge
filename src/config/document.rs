@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::core::{CapabilitySet, ProtocolCapabilities, ResponsesCapabilities};
 
-use super::ModelLimits;
+use super::{ModelContextLength, ReasoningSupport};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,9 +27,61 @@ pub(super) struct RawBootstrap {
 pub(super) struct RawRoutes {
     pub(super) schema_version: u32,
     pub(super) config_version: String,
+    pub(super) models: Vec<RawModel>,
     pub(super) providers: Vec<RawProvider>,
     pub(super) deployments: Vec<RawDeployment>,
     pub(super) aliases: Vec<RawAlias>,
+}
+
+/// 与 OpenRouter model catalog 同一职责层级的 owner-maintained 模型目录项。
+///
+/// `context_length.input`、`context_length.output` 和 `reasoning` 可以未知；未知不应
+/// 被路由逻辑外推为支持。provider 原生 model id 仍属于 deployment。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawModel {
+    pub(super) id: String,
+    pub(super) name: String,
+    #[serde(default)]
+    pub(super) description: Option<String>,
+    #[serde(default)]
+    pub(super) context_length: RawModelContextLength,
+    #[serde(default)]
+    pub(super) supported_parameters: Vec<String>,
+    #[serde(default)]
+    pub(super) reasoning: RawReasoningSupport,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawModelContextLength {
+    pub(super) input: Option<u32>,
+    pub(super) output: Option<u32>,
+}
+
+impl From<RawModelContextLength> for ModelContextLength {
+    fn from(raw: RawModelContextLength) -> Self {
+        Self::new(raw.input, raw.output)
+    }
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RawReasoningSupport {
+    #[default]
+    Unknown,
+    Supported,
+    Unsupported,
+}
+
+impl From<RawReasoningSupport> for ReasoningSupport {
+    fn from(raw: RawReasoningSupport) -> Self {
+        match raw {
+            RawReasoningSupport::Unknown => ReasoningSupport::Unknown,
+            RawReasoningSupport::Supported => ReasoningSupport::Supported,
+            RawReasoningSupport::Unsupported => ReasoningSupport::Unsupported,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -53,13 +105,12 @@ pub(super) struct RawCredential {
 pub(super) struct RawDeployment {
     pub(super) id: String,
     pub(super) provider: String,
+    pub(super) model: String,
     pub(super) upstream_model: String,
     pub(super) endpoint_profile: String,
     pub(super) base_url: String,
     pub(super) request_timeout_ms: u64,
     pub(super) capabilities: RawCapabilitySet,
-    #[serde(default)]
-    pub(super) model_limits: RawModelLimits,
 }
 
 #[derive(Deserialize)]
@@ -138,18 +189,5 @@ impl From<RawResponsesCapabilities> for ResponsesCapabilities {
             previous_response_id: raw.previous_response_id,
             background: raw.background,
         }
-    }
-}
-
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct RawModelLimits {
-    context_window_tokens: Option<u32>,
-    max_output_tokens: Option<u32>,
-}
-
-impl From<RawModelLimits> for ModelLimits {
-    fn from(raw: RawModelLimits) -> Self {
-        Self::new(raw.context_window_tokens, raw.max_output_tokens)
     }
 }

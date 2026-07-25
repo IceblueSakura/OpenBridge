@@ -1,8 +1,8 @@
 //! 启动与路由配置的解析、校验和原子快照管理。
 //!
 //! `bootstrap.toml` 是进程级安全策略（监听地址、出站 origin allowlist、资源上限与
-//! 连接池策略），reload 时不能改变；`routes.toml` 只描述已经编译进程序的 provider、
-//! deployment 和 public alias。两者先完整校验再形成 `RegistrySnapshot`，因此请求
+//! 连接池策略），reload 时不能改变；`routes.toml` 描述模型目录、已经编译进程序的
+//! provider、deployment 和 public alias。两者先完整校验再形成 `RegistrySnapshot`，因此请求
 //! 不会看到半更新的路由，也不能通过配置获得任意出站目标或 provider 行为。
 
 use std::{
@@ -27,12 +27,12 @@ mod source;
 
 use document::{RawBootstrap, RawRoutes};
 
-pub use model::ModelLimits;
+pub use model::{ModelContextLength, ModelMetadata, ReasoningSupport};
 pub use source::{ConfigFileError, ConfigPaths};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
-/// Route schema v2 introduces protocol-scoped capability declarations.
-const ROUTES_SCHEMA_VERSION: u32 = 2;
+/// The initial, unreleased route schema includes model metadata and deployment-to-model binding.
+const ROUTES_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -69,11 +69,16 @@ pub enum ConfigError {
     UnsupportedEndpointProfile { deployment: String, profile: String },
     #[error("deployment '{deployment}' request timeout must be greater than zero")]
     InvalidRequestTimeout { deployment: String },
-    #[error("deployment '{deployment}' model limit '{limit}' must be greater than zero")]
-    InvalidModelLimit {
-        deployment: String,
-        limit: &'static str,
-    },
+    #[error("model '{model}' field '{field}' must not be blank")]
+    BlankModelField { model: String, field: &'static str },
+    #[error("model '{model}' context length '{limit}' must be greater than zero")]
+    InvalidModelContextLength { model: String, limit: &'static str },
+    #[error("model '{model}' declares invalid supported parameter '{parameter}'")]
+    InvalidSupportedParameter { model: String, parameter: String },
+    #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
+    DuplicateSupportedParameter { model: String, parameter: String },
+    #[error("model '{model}' has inconsistent reasoning metadata: {detail}")]
+    InconsistentReasoningMetadata { model: String, detail: &'static str },
     #[error("deployment '{deployment}' enables capabilities unsupported by its adapter")]
     CapabilityElevation { deployment: String },
     #[error("runtime limit '{name}' must be greater than zero")]
@@ -95,6 +100,7 @@ pub struct RegistrySnapshot {
     allowed_origins: BTreeSet<Url>,
     limits: RuntimeLimits,
     upstream_policy: UpstreamPolicy,
+    models: BTreeMap<String, ModelMetadata>,
     providers: BTreeMap<String, ResolvedProvider>,
     deployments: BTreeMap<String, ResolvedDeployment>,
     aliases: BTreeMap<String, ResolvedAlias>,
@@ -115,6 +121,10 @@ impl RegistrySnapshot {
 
     pub fn upstream_policy(&self) -> &UpstreamPolicy {
         &self.upstream_policy
+    }
+
+    pub fn model(&self, id: &str) -> Option<&ModelMetadata> {
+        self.models.get(id)
     }
 
     pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
@@ -281,17 +291,21 @@ impl UpstreamPolicy {
 #[derive(Debug)]
 pub struct ResolvedDeployment {
     provider_id: String,
+    model: ModelMetadata,
     upstream_model: String,
     endpoint_profile: String,
     endpoint_base: Url,
     request_timeout: Duration,
     capabilities: CapabilitySet,
-    model_limits: ModelLimits,
 }
 
 impl ResolvedDeployment {
     pub fn provider_id(&self) -> &str {
         &self.provider_id
+    }
+
+    pub fn model(&self) -> &ModelMetadata {
+        &self.model
     }
 
     pub fn upstream_model(&self) -> &str {
@@ -313,10 +327,6 @@ impl ResolvedDeployment {
 
     pub fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
-    }
-
-    pub fn model_limits(&self) -> &ModelLimits {
-        &self.model_limits
     }
 }
 
@@ -383,6 +393,31 @@ pub fn load_registry(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
 
+    let mut models = BTreeMap::new();
+    for model in routes.models {
+        validate_model_metadata(&model.id, &model.name, model.description.as_deref())?;
+        let context_length: ModelContextLength = model.context_length.into();
+        let reasoning: ReasoningSupport = model.reasoning.into();
+        validate_model_context_length(&model.id, context_length)?;
+        validate_supported_parameters(&model.id, &model.supported_parameters)?;
+        validate_reasoning_metadata(&model.id, &model.supported_parameters, reasoning)?;
+        let id = model.id;
+        let resolved = ModelMetadata::new(
+            id.clone(),
+            model.name,
+            model.description,
+            context_length,
+            model.supported_parameters,
+            reasoning,
+        );
+        if models.insert(id.clone(), resolved).is_some() {
+            return Err(ConfigError::DuplicateId {
+                entity: "model",
+                id,
+            });
+        }
+    }
+
     let mut providers = BTreeMap::new();
     let mut credential_ids = BTreeSet::new();
     for provider in routes.providers {
@@ -435,7 +470,14 @@ pub fn load_registry(
     let mut deployments = BTreeMap::new();
     for deployment in routes.deployments {
         let capabilities: CapabilitySet = deployment.capabilities.into();
-        let model_limits: ModelLimits = deployment.model_limits.into();
+        let model = models.get(&deployment.model).cloned().ok_or_else(|| {
+            ConfigError::UnknownReference {
+                entity: "deployment",
+                id: deployment.id.clone(),
+                target: "model",
+                reference: deployment.model.clone(),
+            }
+        })?;
         let provider =
             providers
                 .get(&deployment.provider)
@@ -450,7 +492,6 @@ pub fn load_registry(
                 deployment: deployment.id,
             });
         }
-        validate_model_limits(&deployment.id, model_limits)?;
         if !provider
             .kind
             .accepts_endpoint_profile(&deployment.endpoint_profile)
@@ -480,12 +521,12 @@ pub fn load_registry(
         }
         let resolved = ResolvedDeployment {
             provider_id: deployment.provider,
+            model,
             upstream_model: deployment.upstream_model,
             endpoint_profile: deployment.endpoint_profile,
             endpoint_base,
             request_timeout: Duration::from_millis(deployment.request_timeout_ms),
             capabilities,
-            model_limits,
         };
         if deployments
             .insert(deployment.id.clone(), resolved)
@@ -549,6 +590,7 @@ pub fn load_registry(
             pool_idle_timeout: Duration::from_millis(bootstrap.upstream_pool_idle_timeout_ms),
             pool_max_idle_per_host: bootstrap.upstream_pool_max_idle_per_host,
         },
+        models,
         providers,
         deployments,
         aliases,
@@ -579,19 +621,89 @@ fn validate_nonzero_millis(name: &'static str, value: u64) -> Result<(), ConfigE
     }
 }
 
-fn validate_model_limits(deployment: &str, limits: ModelLimits) -> Result<(), ConfigError> {
+fn validate_model_metadata(
+    id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> Result<(), ConfigError> {
+    for (field, value) in [("id", id), ("name", name)] {
+        if value.trim().is_empty() {
+            return Err(ConfigError::BlankModelField {
+                model: id.to_owned(),
+                field,
+            });
+        }
+    }
+    if description.is_some_and(|description| description.trim().is_empty()) {
+        return Err(ConfigError::BlankModelField {
+            model: id.to_owned(),
+            field: "description",
+        });
+    }
+    Ok(())
+}
+
+fn validate_model_context_length(
+    model: &str,
+    context_length: ModelContextLength,
+) -> Result<(), ConfigError> {
     for (name, value) in [
-        ("context_window_tokens", limits.context_window_tokens()),
-        ("max_output_tokens", limits.max_output_tokens()),
+        ("input", context_length.input_tokens()),
+        ("output", context_length.output_tokens()),
     ] {
         if value == Some(0) {
-            return Err(ConfigError::InvalidModelLimit {
-                deployment: deployment.to_owned(),
+            return Err(ConfigError::InvalidModelContextLength {
+                model: model.to_owned(),
                 limit: name,
             });
         }
     }
     Ok(())
+}
+
+fn validate_supported_parameters(model: &str, parameters: &[String]) -> Result<(), ConfigError> {
+    let mut seen = BTreeSet::new();
+    for parameter in parameters {
+        if !is_valid_parameter_name(parameter) {
+            return Err(ConfigError::InvalidSupportedParameter {
+                model: model.to_owned(),
+                parameter: parameter.clone(),
+            });
+        }
+        if !seen.insert(parameter) {
+            return Err(ConfigError::DuplicateSupportedParameter {
+                model: model.to_owned(),
+                parameter: parameter.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_reasoning_metadata(
+    model: &str,
+    parameters: &[String],
+    reasoning: ReasoningSupport,
+) -> Result<(), ConfigError> {
+    let parameter_declared = parameters.iter().any(|parameter| parameter == "reasoning");
+    match (reasoning, parameter_declared) {
+        (ReasoningSupport::Supported, false) => Err(ConfigError::InconsistentReasoningMetadata {
+            model: model.to_owned(),
+            detail: "reasoning = supported requires supported_parameters to include reasoning",
+        }),
+        (ReasoningSupport::Unsupported, true) => Err(ConfigError::InconsistentReasoningMetadata {
+            model: model.to_owned(),
+            detail: "reasoning = unsupported conflicts with supported_parameters",
+        }),
+        _ => Ok(()),
+    }
+}
+
+fn is_valid_parameter_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 fn parse_secret_reference(value: &str) -> Option<SecretReference> {

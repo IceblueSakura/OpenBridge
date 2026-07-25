@@ -4,6 +4,19 @@
 
 每次只从一个已定义的功能需求选择一个可观察行为，并在[当前开发焦点](current-focus.md)中先写失败测试。没有进入当前焦点的计划文档不构成必须完成的工作。
 
+## 计划生命周期
+
+计划必须服从实际代码基线，而不是按文档自动串行推进：
+
+1. 读取 live source、工作区状态、测试与[实施现状](../implementation-status/README.md)，只选择一个最小可观察行为。
+2. 在 `current-focus.md` 写入该行为、对应需求、先失败的测试、明确不做项和验证边界。
+3. 完成代码后，仅将有测试或受控真实验证证据的结论写入 `../implementation-status/`。
+4. 删除已完成焦点的计划条目和被实现推翻的设计细节；`current-focus.md` 回到“暂无活动焦点”。
+5. 重新从 live baseline 规划下一项。后续候选不是承诺，不得因为排在队列中自动开始。
+
+计划文档可以保留未实施的设计假设，但必须标明为候选；不得混入完成记录、历史阶段或未经验证的
+Provider/硬件结论。
+
 | 功能需求域 | 实施假设与设计材料 | 使用方式 |
 |---|---|---|
 | 网关 API、原生流与目标客户端 | [客户端兼容](client-compatibility.md)、[服务架构](service-architecture.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md) | 只在实现对应 endpoint、SSE、tool 或 client corpus 时查阅。 |

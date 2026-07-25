@@ -513,7 +513,8 @@ fn route_error(error: RouteError) -> Response {
         RouteError::UnsupportedProtocol
         | RouteError::StreamingUnsupported
         | RouteError::UnsupportedCapabilities
-        | RouteError::OutputLimitExceeded => api_error(
+        | RouteError::OutputLimitExceeded
+        | RouteError::ReasoningUnsupported => api_error(
             StatusCode::BAD_REQUEST,
             "unsupported_request",
             "The selected model does not support this request",

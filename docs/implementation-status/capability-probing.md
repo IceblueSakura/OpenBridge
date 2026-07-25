@@ -9,30 +9,38 @@
 - probe 仅输出 JSON report，不写回 `routes.toml`、不改变运行中的 snapshot，也不自动修改 capability 标记。
 - 每个非列表 probe 都会调用上游模型，可能消耗配额或触发限流；真实 Provider 运行前应取得服务所有者授权。
 
-`routes.toml` 的 capability schema 现为 `schema_version = 2`。v1 的扁平字段（例如
-`function_tools`、`response_store`）不再接受；升级时须按协议拆分为下方两张表。`bootstrap.toml`
-仍为独立的 schema v1，因为其安全策略结构没有变化。
+`routes.toml` 的初始且未发布 schema 为 `schema_version = 1`，其中已包含独立 `[[models]]` 元信息目录，
+并要求每个 deployment 通过 `model` 引用目录项。当前没有旧 schema 的兼容承诺；未知字段和不是 v1 的
+schema 都会在加载时拒绝。`bootstrap.toml` 也使用独立的 schema v1，因为其安全策略结构没有变化。
 
 ## 手工维护的模型限制
 
-为 deployment 选择一个真实上游模型后，服务所有者可在 `routes.toml` 中维护已核实的 token 上限：
+为真实上游模型建立目录项后，服务所有者可在 `routes.toml` 中维护 OpenRouter 风格的基础元信息和已核实 token 上限：
 
 ```toml
+[[models]]
+id = "openai/actual-model"
+name = "Actual model"
+description = "Owner-maintained metadata verified against the upstream."
+supported_parameters = ["max_tokens", "tools", "reasoning"]
+reasoning = "supported"
+
+[models.context_length]
+input = 128000
+output = 16384
+
 [[deployments]]
 id = "openai-main"
+model = "openai/actual-model"
 upstream_model = "actual-model-id"
 # 其他 deployment 字段省略
-
-[deployments.model_limits]
-context_window_tokens = 128000
-max_output_tokens = 16384
 ```
 
-两个字段均可省略；省略表示当前本地路由不对该维度作断言。值为 `0` 会导致配置加载失败。
+`description` 可省略；`context_length.input` 和 `context_length.output` 也可分别省略，表示当前本地不对该维度作断言。值为 `0`、空模型 ID/名称、重复或非法的 `supported_parameters` 均会导致配置加载失败。
 
-`context_window_tokens` 当前仅作为已知模型元数据保存。OpenBridge 尚未集成 model-specific tokenizer，不能用 JSON 字节数安全地判断实际输入 token，因此不会伪造 context 超限检查。
+`context_length.input` 当前仅作为已知模型元数据保存。OpenBridge 尚未集成 model-specific tokenizer，不能用 JSON 字节数安全地判断实际输入 token，因此不会伪造 context 超限检查。
 
-`max_output_tokens` 会在请求明确携带输出上限时参与候选筛选：
+`context_length.output` 会在请求明确携带输出上限时参与候选筛选：
 
 - Responses 的 `max_output_tokens`；
 - Chat 的 `max_completion_tokens` 或兼容字段 `max_tokens`。

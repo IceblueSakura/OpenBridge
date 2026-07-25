@@ -17,8 +17,14 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "routing-test"
+
+[[models]]
+id = "openai/upstream-model"
+name = "Upstream model"
+supported_parameters = ["reasoning"]
+reasoning = "unknown"
 
 [[providers]]
 id = "openai"
@@ -31,6 +37,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "upstream-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
@@ -133,8 +140,8 @@ fn native_routing_rejects_features_disabled_by_the_deployment() {
 fn native_routing_selects_output_limit_compatible_candidates_and_gates_explicit_parallel_tools() {
     let routes = ROUTES.replace(
         "[[aliases]]",
-        r#"[deployments.model_limits]
-max_output_tokens = 32
+        r#"[models.context_length]
+output = 32
 
 [[aliases]]"#,
     );
@@ -183,6 +190,28 @@ max_output_tokens = 32
         prepare_native_request(&snapshot, Protocol::ChatCompletions, image.into()).unwrap_err(),
         RouteError::UnsupportedCapabilities
     ));
+
+    let reasoning = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning": {"effort": "low"},
+    }))
+    .unwrap();
+    assert!(matches!(
+        prepare_native_request(&snapshot, Protocol::Responses, reasoning.into()).unwrap_err(),
+        RouteError::ReasoningUnsupported
+    ));
+
+    let reasoning_supported =
+        ROUTES.replace("reasoning = \"unknown\"", "reasoning = \"supported\"");
+    let snapshot = load_registry(BOOTSTRAP, &reasoning_supported).unwrap();
+    let reasoning = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning_effort": "low",
+    }))
+    .unwrap();
+    assert!(prepare_native_request(&snapshot, Protocol::Responses, reasoning.into()).is_ok());
 }
 
 #[test]
@@ -274,6 +303,7 @@ fn native_routing_selects_the_first_capability_compatible_candidate() {
             r#"[[deployments]]
 id = "openai-tools"
 provider = "openai"
+model = "openai/upstream-model"
 upstream_model = "tool-capable-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"

@@ -25,8 +25,14 @@ upstream_pool_max_idle_per_host = 16
 "#;
 
 const ROUTES: &str = r#"
-schema_version = 2
+schema_version = 1
 config_version = "health-test"
+
+[[models]]
+id = "openai/test-model"
+name = "Test model"
+supported_parameters = []
+reasoning = "unknown"
 
 [[providers]]
 id = "openai"
@@ -40,6 +46,7 @@ secret_ref = "env://OPENAI_API_KEY"
 [[deployments]]
 id = "openai-main"
 provider = "openai"
+model = "openai/test-model"
 upstream_model = "test-model"
 endpoint_profile = "public-api"
 base_url = "https://api.openai.com"
