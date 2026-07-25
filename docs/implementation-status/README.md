@@ -1,0 +1,11 @@
+# 实施现状
+
+本目录只记录已由当前代码、测试或明确验证记录支持的事实；未实施的设计和后续设想不在这里作状态声明。
+
+| 功能 | 文档 | 内容 |
+|---|---|---|
+| 全局运行行为 | [当前实现说明](current-implementation.md) | 已实现路径、已证明范围、限制与验证命令 |
+| 上游能力发现 | [上游模型发现与能力探测](capability-probing.md) | 探测 CLI 的行为、边界和输出处理 |
+| 原生协议验证 | [OpenAI SDK 原生协议验证](native-protocol-validation.md) | 已完成的 loopback Chat/Responses tool-loop 验证 |
+
+更新实现现状前，先明确证据来自哪项代码、测试或脱敏验证；SDK、mock 与真实客户端/Provider 的结论必须分开表述。

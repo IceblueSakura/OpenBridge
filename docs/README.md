@@ -1,43 +1,25 @@
 # OpenBridge 文档索引
 
-文档按三层事实和一份当前计划组织：
+文档只按当前用途组织，不按运行时模块、阶段或目标变迁拆分：
 
-1. [需求](requirements/README.md)：回答产品与各阶段必须达成什么；
-2. [功能模块](modules/README.md)：回答系统由哪些模块组成、每个模块支持什么；
-3. [当前实现](implementation/current-implementation.md)：回答代码已经证明了什么；
-4. [当前阶段计划](plans/implementation-plan.md)：只回答唯一 `Active` 阶段怎样完成。
+| 分类 | 回答的问题 | 入口 |
+|---|---|---|
+| [实施现状](implementation-status/README.md) | 当前代码和验证实际证明了什么 | 已实现行为、能力探测与验证记录 |
+| [实施计划](implementation-plans/README.md) | 一个功能接下来准备如何实现、验证和约束 | 当前焦点、架构、客户端、协议、配置与凭证方案 |
+| [功能需求](functional-requirements/README.md) | 产品应提供什么行为、边界和证据要求 | 产品范围、韧性、工具与交付要求 |
+| [参考文档](references/README.md) | 外部协议和参考项目提供了什么事实 | OpenAI 协议与外部项目调研 |
 
 ## 建议阅读顺序
 
-1. [需求索引与阶段治理](requirements/README.md)
-2. [阶段契约索引](phases/README.md)
-3. [功能模块索引](modules/README.md)
-4. [当前实现说明](implementation/current-implementation.md)
-5. [当前阶段实施计划](plans/implementation-plan.md)
-6. 与当前任务相关的专项架构、设计、研究或规范文档
-
-## 专项目录
-
-| 目录 | 作用 | 入口 |
-|---|---|---|
-| `modules/` | 当前功能边界、模块职责和模块验收 | [模块索引](modules/README.md) |
-| `phases/` | C0–C6 的进入条件、目标、非目标、测试和退出条件 | [阶段契约索引](phases/README.md) |
-| `requirements/` | 产品范围、阶段交付要求和增强需求 | [需求索引](requirements/README.md) |
-| `architecture/` | 系统、Provider、配置、路由和数据流详细设计 | [架构索引](architecture/README.md) |
-| `design/` | 客户端契约、协议桥和凭证专项设计 | [设计索引](design/README.md) |
-| `implementation/` | 当前代码已经验证的行为 | [当前实现](implementation/current-implementation.md) |
-| `plans/` | 唯一 `Active` 阶段的可执行计划 | [计划目录](plans/README.md)、[当前阶段计划](plans/implementation-plan.md) |
-| `experiments/` | 实验模板、wire evidence 和证明边界 | [实验索引](experiments/README.md) |
-| `research/` | 参考项目源码事实和失败反例 | [调研索引](research/README.md) |
-| `specifications/` | 外部 API 协议学习资料 | [规范索引](specifications/README.md) |
+1. [功能需求](functional-requirements/README.md)
+2. [实施现状](implementation-status/README.md)
+3. 与当前功能相关的[实施计划](implementation-plans/README.md)
+4. 需要核验外部事实时再查阅[参考文档](references/README.md)
 
 ## 维护规则
 
-- 产品范围变化：更新 `requirements/` 和对应 `modules/` 文档；
-- 阶段目标、依赖、测试或退出条件变化：更新阶段交付需求和对应 `phases/` 文档；
-- 当前阶段的任务分解变化：只更新 `plans/implementation-plan.md`，不得追加后续阶段；
-- 已实现行为变化：更新 `implementation/current-implementation.md`；
-- 专项架构变化：更新 `architecture/` 或 `design/`；
-- 外部事实变化：更新 `research/` 或 `specifications/`；
-- 非平凡实验：在 `experiments/` 创建可复现记录；
-- 文档只保留当前有效结论，不保留需求变更日志、审计过程或已被替代的方案正文。
+- 产品行为、边界或非目标变化：更新 `functional-requirements/`；
+- 已实现行为或已完成验证变化：更新 `implementation-status/`；
+- 下一个功能的实现假设、最小边界或验证方式变化：更新 `implementation-plans/`；
+- 外部协议、SDK、目标客户端或参考项目事实变化：更新 `references/`，并按影响同步前述三类文档；
+- 每份文档都按功能命名；不新增按运行时模块、阶段编号、目标变迁或淘汰方案组织的文档。

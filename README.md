@@ -1,10 +1,10 @@
-# OpenBridge 设计与调研索引
+# OpenBridge 项目说明
 
 ## 项目定位
 
 OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API 聚合代理**：部署在本地或用户自有云环境中，集中管理上游 Provider、凭证、模型与路由，并向 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。
 
-当前处于**设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。
+当前处于**设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
 
 核心方向：
 
@@ -13,11 +13,12 @@ OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API �
 3. 以编译期 Provider Family 承载协议行为，以受信运行时配置定义 deployment；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、deployment cooldown、首输出前 fallback 与最终错误传播；
-6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile 与 Hermes Chat/Responses 的真实 Agent tool loop 兼容性。
+6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile；Hermes 的真实 Agent tool loop 只在明确宣称兼容时验证。
 
 核心稳定后再考虑：
 
 - Provider-hosted tool facade；
+- Anthropic Messages 协议兼容与异构 Provider 验证（与 Provider-hosted tool facade 同级）；
 - 本地/MCP Tool Bridge；
 - 使用量与成本分析；
 - 可选 OAuth credential adapter；
@@ -32,7 +33,7 @@ OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API �
 ```bash
 export OPENBRIDGE_DOWNSTREAM_TOKEN='replace-with-a-local-client-token'
 export OPENAI_API_KEY='replace-with-an-upstream-api-key'
-cargo run --locked
+cargo run --bin openbridge --locked
 ```
 
 默认监听 `127.0.0.1:8080`。健康检查：
@@ -62,39 +63,33 @@ cargo test --locked
 cargo clippy --locked -- -D warnings
 ```
 
-`tests/sdk_compatibility.rs` 使用 OpenAI Python `2.46.0` 与 Node `6.48.0` SDK 消费两个端点的 stream/non-stream、单/并行 function-tool 往返、流式 arguments 和 fixture 429 error：
+`tests/sdk_compatibility.rs` 使用运行时安装的当前 OpenAI Python 与 Node SDK 消费两个端点的 stream/non-stream、单/并行 function-tool 往返、流式 arguments 和 fixture 429 error：
 
 ```bash
 cargo test --locked --test sdk_compatibility -- --ignored
 ```
 
-这些 fixture 证明特定模拟输出可被对应 SDK 消费；它们不替代真实 Provider corpus、Codex/Hermes 完整 tool loop、并行 Agent tool 调度、真实 client cancel 或异构协议 bridge 验证。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
+这些 fixture 是确定性 wire regression。日常行为验证优先使用 OpenAI SDK 与 Codex CLI；真实 Provider corpus 用于定位 Provider 特有问题，Hermes 只在明确宣称兼容时纳入验证。SDK/CLI 不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
 
-[`upstream-fixture-server`](tools/upstream-fixture-server/README.md) 是独立的 Native Path 验收上游：默认离线 mock Chat/Responses；复制其 [`.env.example`](tools/upstream-fixture-server/.env.example) 为同目录 `.env`，填入 `UPSTREAM_FIXTURE_API_BASE`、`UPSTREAM_FIXTURE_API_KEY` 与可选 `UPSTREAM_FIXTURE_MODEL` 后可切换到真实上游 proxy，且不会记录密钥或 request/response body。
+[`upstream-fixture-server`](tools/upstream-fixture-server/README.md) 是独立的 Native Path 测试上游：默认离线 mock Chat/Responses；复制其 [`.env.example`](tools/upstream-fixture-server/.env.example) 为同目录 `.env`，填入 `UPSTREAM_FIXTURE_API_BASE`、`UPSTREAM_FIXTURE_API_KEY` 与可选 `UPSTREAM_FIXTURE_MODEL` 后可切换到真实上游 proxy，且不会记录密钥或 request/response body。
 
 ## 推荐阅读顺序
 
-| 文档 | 内容 | 状态 |
+| 文档 | 内容 | 分类 |
 |---|---|---|
-| [文档总索引](docs/README.md) | 按需求、阶段契约、当前实现与单阶段计划组织全部文档 | 项目级入口 |
-| [需求索引与阶段治理](docs/requirements/README.md) | 产品需求、阶段交付需求与单阶段计划规则 | 工作基线 |
-| [功能模块索引](docs/modules/README.md) | 产品边界、客户端、路由、Provider、Native、Bridge、安全与增强 | 当前功能视图 |
-| [阶段契约索引](docs/phases/README.md) | C0–C6 和增强阶段的进入条件、非目标、测试与退出条件 | 阶段需求视图 |
-| [核心需求](docs/requirements/proxy-requirements.md) | 单用户部署、核心范围、非目标与验收方向 | 工作基线，待调研收敛 |
-| [Provider 韧性需求](docs/requirements/provider-resilience.md) | 上游 RPM/TPM/429、临时故障、cooldown、retry 与错误传播 | C2 Working requirement |
-| [目标客户端契约](docs/design/target-client-contracts.md) | Codex 与 Hermes 的协议优先级、测试矩阵和版本固定规则 | 工作假设 |
-| [目标架构与路线](docs/architecture/architecture-and-roadmap.md) | 单服务架构、原生/桥接双路径、路由与状态边界 | 工作假设 |
-| [Rust Provider adapter 与数据流](docs/architecture/rust-provider-adapter-dataflow.md) | Provider Family、deployment 配置、typed pipeline 与 conformance | 工作假设，原型部分验证 |
-| [本地配置、路由与使用量](docs/architecture/local-configuration-routing-and-usage.md) | 单用户配置模型、alias、静态入站 token 与可选 usage sink | 目标设计 |
-| [Chat/Responses bridge](docs/design/chat-responses-conversion.md) | bridge-only IR、状态机、tool identity 与降级边界 | 工作假设 |
-| [阶段交付与研究需求](docs/requirements/delivery-requirements.md) | 跨阶段目标、研究要求、证据门和依赖关系 | Working requirements |
-| [当前阶段实施计划](docs/plans/implementation-plan.md) | 仅展开唯一 `Active` 阶段 | Active |
-| [参考项目比较矩阵](docs/research/project-comparison-matrix.md) | Codex、Hermes、LiteLLM、cc-switch、Bifrost、CLIProxyAPI 的研究职责 | 持续更新 |
-| [当前实现说明](docs/implementation/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 已同步 |
-| [Hosted tool 增强需求](docs/requirements/hosted-tools-mcp.md) | 核心稳定后的 Provider-hosted tool facade | 延期增强 |
-| [Codex OAuth 凭证边界](docs/design/codex-oauth-credential-boundary.md) | 可选 OAuth adapter 的安全边界与 preflight | 延期/受外部契约阻塞 |
+| [文档总索引](docs/README.md) | 四类功能文档的统一入口 | 项目级入口 |
+| [功能需求](docs/functional-requirements/README.md) | 产品范围、交付证据、韧性与 hosted tool 需求 | 功能需求 |
+| [实施现状](docs/implementation-status/README.md) | 当前代码已证明行为、能力探测与验证记录 | 实施现状 |
+| [实施计划](docs/implementation-plans/README.md) | 当前焦点及按功能组织的实施方案 | 实施计划 |
+| [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
+| [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
+| [Provider 韧性](docs/functional-requirements/provider-resilience.md) | 上游限流、临时故障、冷却、重试与错误传播 | 功能需求 |
+| [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
+| [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
+| [服务架构](docs/implementation-plans/service-architecture.md) | 单服务架构、原生/桥接双路径、路由与状态边界 | 实施计划 |
+| [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、Bifrost、CLIProxyAPI 的研究职责 | 参考文档 |
 
-文档目录说明见 [`docs/README.md`](docs/README.md)。
+文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
 
 ## 当前非目标
 
@@ -119,7 +114,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 ## 证据和更新原则
 
-- 官方 API、Codex 与 Hermes 当前行为优先以官方文档、源码和固定版本 fixture 为准。
+- 官方 API、Codex 与 Hermes 当前行为优先以官方文档、源码和记录实际运行环境的 fixture 为准。
 - 外部项目源码调研必须记录 repository、commit、文件范围、观察事实、推论和适用边界。
 - 原型实验必须同时记录“证明什么”和“不证明什么”，避免代码存在本身形成架构结论。
 - LiteLLM、cc-switch、Bifrost、CLIProxyAPI 等项目用于比较和寻找反例，不等同于 OpenBridge 的依赖或实现承诺。
