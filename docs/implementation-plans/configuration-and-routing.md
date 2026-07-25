@@ -1,22 +1,21 @@
-# 本地配置、模型路由与使用量
+# 本地配置、模型路由与调用统计
 
 ## 状态
 
-**Working hypothesis。** 本文定义单用户 OpenBridge 的配置和可选使用量边界。它取代独立控制面、proxy-issued key、principal ACL、配额和合规审计设计。
+**Working hypothesis。** 本文定义单用户 OpenBridge 的配置文件优先、路由和调用统计接入边界。它取代独立控制面、proxy-issued key、principal ACL、配额和合规审计设计；当前运行时仍是环境变量 credential 基线，目标与已实现行为的差异见[当前实现说明](../implementation-status/current-implementation.md)。
 
 ## 1. 结论
 
-OpenBridge 的服务所有者就是唯一管理员。核心不需要独立数据库控制面；配置文件、环境变量和可选 keyring/secret store 足以承载：
+OpenBridge 的服务所有者就是唯一管理员。核心不需要独立数据库控制面；由受信配置文件承载路由、认证和 telemetry 设置，环境变量不作为常规配置覆盖机制：
 
 - deployment；
-- credential reference；
+- 上游 credential 与静态下游 Bearer token；
 - public model alias；
 - capability；
 - timeout、candidate 顺序和 enable state；
-- 可选静态下游 Bearer token；
-- 可选 usage sink。
+- usage/TTFT/错误率的 headless 输出设置。
 
-每个请求仍应生成不可变 `RoutePlan`，但它用于实际调用、诊断和使用量记录，不承载 principal 授权或配额。
+每个请求仍应生成不可变 `RoutePlan`，但它用于实际调用、诊断和调用统计，不承载 principal 授权或配额。
 
 ## 2. 配置模型
 
@@ -50,7 +49,7 @@ Deployment 是一个可实际调用的上游模型目标；Alias 是下游稳定
 id = "openai-coder"
 provider_family = "openai"
 base_url = "https://api.openai.com/v1"
-credential = "env://OPENAI_API_KEY"
+credential = "config://openai_primary"
 upstream_model = "example-responses-model"
 native_protocols = ["responses"]
 native_transports = ["http_json", "sse"]
@@ -65,7 +64,7 @@ continuation = "supported"
 id = "local-coder"
 provider_family = "openai-compatible"
 base_url = "http://127.0.0.1:8000/v1"
-credential = "env://LOCAL_PROVIDER_KEY"
+credential = "config://local_provider"
 upstream_model = "example-chat-model"
 native_protocols = ["chat_completions"]
 native_transports = ["http_json", "sse"]
@@ -81,34 +80,54 @@ name = "code-primary"
 candidates = ["openai-coder", "local-coder"]
 ```
 
-具体字段名仍可调整；关键边界是 Provider 行为由代码实现，deployment 数据由服务所有者配置。
+受版本控制的 `routes.toml` 只保存 `config://` 名称，不保存 secret。配套的、被忽略且权限受限的 `config/local.toml` 是实际密钥的首要来源，例如：
+
+```toml
+# config/local.toml — 仅当前服务所有者可读；不得提交
+[secrets]
+openai_primary = "replace-with-upstream-api-key"
+local_provider = "replace-with-local-provider-key"
+downstream_bearer = "replace-with-local-client-token"
+
+[downstream_auth]
+bearer_token = "config://downstream_bearer"
+```
+
+具体字段名仍可调整；关键边界是 Provider 行为由代码实现，deployment 数据与下游认证由服务所有者的配置文件定义。
 
 当前原型中，`base_url` 必须是 HTTPS URL，且其 origin 必须命中 bootstrap 的 `allowed_origins`。除根路径外，它可以携带安全、固定的路径前缀，例如 `https://provider.example/openai`；transport 会把 adapter 的 `/v1/...` 目标追加为 `/openai/v1/...`。前缀仅允许未编码的 URL-safe segment，禁止 userinfo、query、fragment、空 segment、`.`、`..` 和双斜线；业务请求无权指定或改写它。
 
 ## 3. 配置来源与 secret
 
-### 3.1 普通配置
+### 3.1 配置文件优先
 
-允许：
-
-- TOML/YAML/JSON 文件；
-- 明确的环境变量覆盖；
-- 启动参数指定配置路径；
-- 原子 reload 路由配置。
-
-不建议第一版实现管理 API 或写回配置文件。
-
-### 3.2 Credential reference
-
-首批建议支持：
+首批配置格式收敛为 TOML。按从低到高的合并顺序是：
 
 ```text
-env://NAME
+内建无密钥默认值
+→ 受版本控制的 bootstrap.toml / routes.toml
+→ 私有的 local.toml
+→ 启动参数显式指定的同类配置文件
+```
+
+私有文件必须被 `.gitignore` 排除，并限制为运行服务的当前用户可读；它可以保存上游 API key 和下游静态 Bearer token，或保存供 keyring/file-secret 使用的引用。基础配置、示例、日志、诊断输出和测试 fixture 不得包含这些实际值。
+
+环境变量只保留两类用途：部署系统选择配置文件位置，以及配置中明确写出的 `env://NAME` 兼容/迁移引用。它不参与按字段的隐式覆盖，尤其不能在存在 `config://` secret 时覆盖下游 token 或上游 API key。启动参数可以指定配置文件路径，但不接受单个 credential 或路由字段的命令行覆盖。
+
+配置 reload 仍必须原子地重建完整 snapshot；私有 secret 文件变更与路由文件变更具有同等校验、失败保留旧 snapshot 的语义。第一版不需要管理 API 或写回配置文件。
+
+### 3.2 Credential 与下游 token
+
+首批目标来源为：
+
+```text
+config://name                    # 私有 local.toml 中的 secret，首选
+env://NAME                       # 明确配置时的兼容/迁移来源
 keyring://service/account        # 后续
 file-secret://absolute/path      # 可选，权限检查后
 ```
 
-普通配置只保存 reference。解析后的 secret：
+`config://name` 可以被 deployment credential 或 `downstream_auth.bearer_token` 使用。普通基础配置只保存 reference；私有配置可以保存实际值，但不得被版本控制、打印、回写或包含进 support bundle。解析后的 secret：
 
 - 不写回 snapshot 序列化；
 - 不进入 Debug 输出；
@@ -132,7 +151,7 @@ file-secret://absolute/path      # 可选，权限检查后
 7. native capability 不无证据扩大 adapter 上界；
 8. `responses_websocket` 只有在 adapter 和 transport 均实现时才允许声明 supported；
 9. alias candidate 引用存在的 deployment；
-10. 非 loopback listener 已配置下游静态 token；
+10. 非 loopback listener 已通过受信配置解析到下游静态 token；
 11. request/SSE/arguments limits 非零且有上限。
 
 reload 流程：
@@ -188,13 +207,13 @@ client model
 
 ### 本地 loopback
 
-可以配置一个静态 Bearer token，也可以在明确本机信任模型下允许关闭；默认示例继续启用 token，减少客户端误连和未来迁移风险。
+可以在私有配置中配置 `downstream_auth.bearer_token = "config://..."`，也可以在明确本机信任模型下允许关闭；默认示例继续启用 token，减少客户端误连和未来迁移风险。`env://` 只是在配置显式选择时的兼容来源。
 
 ### 非 loopback
 
 必须：
 
-- 使用一个静态高熵 Bearer token；
+- 使用由私有配置（或其明确引用）提供的静态高熵 Bearer token；
 - 通过 TLS 或可信反向代理传输；
 - 不在 URL/query 中接受 token；
 - constant-time compare；
@@ -208,16 +227,16 @@ client model
 - principal/scopes；
 - 面向下游用户/key 的 RPM/TPM 配额。
 
-需要轮换时，服务所有者更新 secret reference 并 reload/restart。
+需要轮换时，服务所有者更新私有配置或其 secret reference 并 reload/restart。
 
-## 7. 使用量记录
+## 7. 调用记录与统计接入
 
-Usage analysis 是核心后的轻量增强，不是合规审计。
+调用统计是 headless 运维能力，不是合规审计，也不参与路由、重试、fallback 或下游配额。详细的计时、终态、错误率与隐私口径见[调用统计与可观测性需求](../functional-requirements/observability.md)。
 
 建议请求结束后生成：
 
 ```text
-UsageRecord
+CallRecord
   request_id
   started_at
   model_alias
@@ -230,10 +249,10 @@ UsageRecord
   upstream_transport
   route_mode: native | bridge
   attempt_count
-  outcome
+  terminal_outcome
   error_class
-  latency_ms
-  time_to_first_event_ms
+  gateway_latency_ms
+  gateway_ttft_ms | gateway_ttfb_ms
   input_tokens
   output_tokens
   reasoning_tokens
@@ -248,15 +267,15 @@ UsageRecord
 - credential/token/cookie；
 - 完整 Provider payload。
 
-首批 sink：
+首批输出组合：
 
 ```text
-stdout JSON
-→ JSONL
-→ SQLite（可选）
+in-process bounded aggregates
+→ Prometheus-compatible endpoint（可选，仅受保护/loopback）
+→ rotated local JSONL（可选）
 ```
 
-使用有界 channel 或请求结束后的非阻塞提交。sink 故障默认不阻塞模型响应，但应增加 dropped-record 计数/警告。
+使用有界 channel 或请求结束后的非阻塞提交。sink 故障默认不阻塞模型响应，但应增加 dropped-record 计数/警告；SQLite、远程上传和用户级分析不属于首批目标。
 
 ## 8. 成本与模型 metadata
 
@@ -297,13 +316,14 @@ updated_at
 
 接收 RoutePlan 中的协议和 capability decision；不自行重新路由。
 
-### Usage sink
+### Telemetry sink
 
-只接收完成后的 `UsageRecord`；不影响 fallback 或 terminal ownership。
+只接收完成后的 `CallRecord` 和有界聚合更新；不影响 fallback 或 terminal ownership。
 
 ## 11. 关联文档
 
 - [产品范围](../functional-requirements/product-scope.md)
+- [调用统计与可观测性](../functional-requirements/observability.md)
 - [服务架构](service-architecture.md)
 - [Provider 适配与数据流](provider-adapters-and-dataflow.md)
 - [客户端兼容](client-compatibility.md)

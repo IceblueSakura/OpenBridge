@@ -6,7 +6,7 @@
 |---|---|---|
 | [实施现状](implementation-status/README.md) | 当前代码和验证实际证明了什么 | 已实现行为、能力探测与验证记录 |
 | [实施计划](implementation-plans/README.md) | 一个功能接下来准备如何实现、验证和约束 | 当前焦点、架构、客户端、协议、配置与凭证方案 |
-| [功能需求](functional-requirements/README.md) | 产品应提供什么行为、边界和证据要求 | 产品范围、韧性、工具与交付要求 |
+| [功能需求](functional-requirements/README.md) | 产品应提供什么行为、边界和证据要求 | 产品范围、网关 API/兼容、配置与凭证、路由韧性、观测、工具与交付要求 |
 | [参考文档](references/README.md) | 外部协议和参考项目提供了什么事实 | OpenAI 协议与外部项目调研 |
 
 ## 建议阅读顺序

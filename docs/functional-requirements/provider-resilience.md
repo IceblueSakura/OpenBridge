@@ -1,22 +1,44 @@
-# Provider 限流、冷却、重试与错误传播需求
+# 路由、Provider 韧性与状态亲和需求
 
 ## 状态
 
 **Working behavior design。** 当实现涉及多个候选上游、429/5xx、限流或临时失败时，本文提供 TDD 的行为边界；它不属于预定义阶段，也不要求先完成其他方向。
 
-本文定义上游 Provider 因 RPM/TPM、并发限制、临时过载或服务故障返回 429/5xx 时的最小恢复行为。它补充[产品范围](product-scope.md)中的 stream/fallback 边界；实现时从其中一个行为先写失败测试。
+本文定义 public alias 的候选选择、上游 Provider 因 RPM/TPM、并发限制、临时过载或服务故障返回 429/5xx 时的最小恢复行为，以及 continuation 的状态亲和边界。它补充[产品范围](product-scope.md)中的 stream/fallback 边界；实现时从其中一个行为先写失败测试。
 
 OpenBridge 参考 LiteLLM 的“部署可用性过滤、有限 retry/fallback、临时 cooldown”模式，但不复制其多租户 key/team 限流、Redis callback 链、预算或复杂负载均衡控制面。
 
 ## 1. 目标
 
+- 对同一 alias 以可解释、可重复的规则选择一个满足协议、请求能力、状态亲和、启用状态和可用性要求的 deployment；
 - 避免持续把新请求发送到已明确限流或临时不可用的 deployment；
 - 在不会重复产生业务副作用、尚未向下游输出、且延迟预算允许时执行有限重试；
 - 当前 candidate 无法继续时，只在 RoutePlan 允许的等价 candidate 间 fallback；
 - 所有尝试耗尽后，向下游返回安全、有效、可诊断的最终错误；
 - 保持 state affinity、stream terminal、取消和 secret isolation 不被恢复策略破坏。
 
-## 2. 非目标
+## 2. 路由与候选选择
+
+一个 public alias 绑定受信配置中的**有序** candidate deployment。顺序是默认优先级，不等于这些 candidate 对所有模型、协议、工具或状态都等价。
+
+每个请求应在发起上游调用前形成不可变的 RoutePlan，并按以下顺序筛选：
+
+```text
+alias candidates
+→ endpoint / protocol / transport
+→ request feature capability
+→ continuation / tool state affinity
+→ enabled 与当前 cooldown
+→ 配置顺序选择
+```
+
+- capability 必须按 deployment、模型、协议与 feature combination 判断；`Unknown` fail closed，不能因 provider 名称或一次成功猜测支持。
+- route selection 只使用受信配置、当前 availability overlay 和请求中为兼容判断必需的语义；不能使用 prompt、用户标识、secret、随机权重、未审查 cost 或隐式账号轮换。
+- `previous_response_id`、provider resource、tool continuation、Codex turn state、opaque reasoning 或无法重建的历史会把请求绑定到 issuing deployment。没有可验证 ledger 时，候选切换不是有效降级。
+- RoutePlan 一旦形成，在整个 request/stream 内保持 alias、deployment、credential binding、协议模式、candidate 顺序和 fallback 边界；reload 只影响后续请求。
+- deployment 的 `context_window_tokens`、`max_output_tokens` 或其他模型限制只能在有可靠模型事实和可解析请求字段时用于保守筛选；不能以 JSON 字节数或猜测用量伪造 token 预检。
+
+## 3. 非目标
 
 - 面向下游用户、团队或 API key 的 RPM/TPM 配额系统；
 - 精确复制 Provider 的全局 token bucket，或承诺本地计数等于 Provider 账单计数；
@@ -27,7 +49,7 @@ OpenBridge 参考 LiteLLM 的“部署可用性过滤、有限 retry/fallback、
 
 可选的 owner-configured RPM/TPM/concurrency hint 只能用于保守的本地 admission/pacing；它不是 Provider 配额真相，不能替代 429、`Retry-After` 和 Provider rate-limit header。
 
-## 3. 术语与状态
+## 4. 术语与状态
 
 | 名称 | 含义 |
 |---|---|
@@ -48,7 +70,7 @@ Available
 
 cooldown 是运行时 availability overlay，不修改配置快照或 capability。RoutePlan 保持 candidate identity、顺序、credential binding 和 fallback 边界不变；attempt manager 在每次调用前读取当前 availability。
 
-## 4. 错误分类
+## 5. 错误分类
 
 Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
@@ -64,7 +86,7 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
 状态码只是默认线索。Provider Family adapter 可以依据安全响应 body、error code 和官方 header 收窄分类，但不能通过 Provider 名称字符串在核心 router 中增加启发式分支。
 
-## 5. Retry budget
+## 6. Retry budget
 
 每个请求必须同时受以下边界约束：
 
@@ -87,16 +109,16 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
 没有有效 header 时使用有界 exponential backoff + jitter；默认 base、cap 和 jitter 为 `【需根据实际情况完善】`。
 
-## 6. Cooldown 规则
+## 7. Cooldown 规则
 
-### 6.1 最小作用域
+### 7.1 最小作用域
 
 - 第一版以稳定 `deployment_id` 为最小 cooldown key；
 - 同一 deployment 的 cooldown 对后续无状态请求可见；
 - 不自动推断多个 deployment 共享同一 Provider account/RPM/TPM bucket；
 - 只有受信配置或 Provider 契约明确声明共享 quota scope 时，才能扩大到 credential/account/model scope。
 
-### 6.2 触发与恢复
+### 7.2 触发与恢复
 
 - 429 必须触发 cooldown；
 - 明确 retryable 的 overloaded/503 可触发较短 cooldown；
@@ -108,16 +130,16 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
 进程重启后允许丢失第一版 cooldown 状态；该限制必须记录，不得宣称多实例或重启后一致。
 
-### 6.3 State affinity
+### 7.3 State affinity
 
 - `previous_response_id`、Provider resource、tool continuation 或 issuing call 绑定的请求不能因 cooldown 转到其他 deployment；
 - 若 issuing deployment 正在 cooldown，只有“同 deployment retry”或直接返回错误两种结果；
 - cooldown 不能把有状态请求误判为无 candidate 后静默降级；
 - 已输出任何业务内容后，当前请求不再 retry/fallback，即使同时触发了 cooldown。
 
-## 7. 最终错误传播
+## 8. 最终错误传播
 
-### 7.1 尚未输出业务响应
+### 8.1 尚未输出业务响应
 
 最终错误应尽量保留最后一个有意义上游失败的：
 
@@ -144,7 +166,7 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
 同时返回 proxy request id；若能确定最早恢复时间，返回有上限的 `Retry-After`。具体用户可见文本允许本地化，但 `type`/`code` 必须稳定。
 
-### 7.2 已输出业务响应
+### 8.2 已输出业务响应
 
 - Native Path 保留目标协议可表达的 Provider error/terminal；
 - Bridge Path 只能映射为目标协议已有的失败语义；
@@ -152,14 +174,14 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 - 不 retry、不 fallback、不拼接另一 candidate；
 - 若 wire protocol 无法在已开始 stream 后表达详细错误，则关闭 stream，并在安全日志中记录 request id、deployment、错误分类和 terminal outcome。
 
-### 7.3 多次失败的选择
+### 8.3 多次失败的选择
 
 - 对外返回最后一个实际 attempt 的、最能代表最终失败的安全错误；
 - 若最后一个错误是 OpenBridge 本地 timeout/cancel，不得用更早的 429 覆盖；
 - 结构化日志记录每个 attempt 的 deployment、序号、分类、等待、cooldown 决策和 request id，但不记录请求/响应正文或 secret；
 - 下游错误不得暴露完整候选列表或内部 credential identity。
 
-## 8. 并发与资源要求
+## 9. 并发与资源要求
 
 - cooldown 状态更新必须原子化，避免并发 429 后仍发生无界请求风暴；
 - 同一请求的 retry sleep 可取消，且不占用不必要的并发 permit；
@@ -168,7 +190,7 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 - 不能逐 token 更新 RPM/TPM 存储；usage 只在请求完成后作为观测数据；
 - 可选本地 RPM/TPM pacing 的 token 估算误差、共享账号外部流量和多实例偏差必须显式记录。
 
-## 9. 建议的行为测试矩阵
+## 10. 建议的行为测试矩阵
 
 | ID | 应由测试保护的行为 |
 |---|---|
@@ -182,8 +204,10 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 | RES-08 | 最终 429/5xx 保留 allowlist 内的 status、error fields、request id 和 rate-limit headers。 |
 | RES-09 | cancel 会中止 backoff wait 和剩余 attempt。 |
 | RES-10 | 并发 429、cooldown 到期、reload identity 变化和 registry 上限通过确定性测试。 |
+| RES-11 | 同一 alias 的 candidate 按协议、feature、state affinity、enabled/cooldown 与配置顺序确定性选择；`Unknown` capability 不会出站。 |
+| RES-12 | 模型限制只在可靠、已配置的字段与明确请求上限下保守筛选，不伪造 context token 计数。 |
 
-## 10. 与 LiteLLM 的边界
+## 11. 与 LiteLLM 的边界
 
 采用：
 
@@ -200,11 +224,14 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 - 复杂 routing strategy、预算和计费控制面；
 - 将所有 429/5xx 一律 retry 的宽泛策略。
 
-相关源码调研见 [LiteLLM Proxy 请求链分析](../references/litellm-proxy-call-chain-analysis.md)和[性能瓶颈分析](../references/litellm-proxy-performance-bottlenecks.md)。
+相关源码调研见 [LiteLLM Proxy 请求链分析](../references/litellm/litellm-proxy-call-chain-analysis.md)和[性能瓶颈分析](../references/litellm/litellm-proxy-performance-bottlenecks.md)。
 
-## 11. 关联文档
+## 12. 关联文档
 
 - [产品范围](product-scope.md)
+- [网关 API 与客户端兼容](gateway-api-compatibility.md)
+- [配置、凭证与受信运行边界](configuration-and-credentials.md)
+- [调用统计与可观测性](observability.md)
 - [配置与路由](../implementation-plans/configuration-and-routing.md)
 - [Provider 适配与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
 - [服务架构](../implementation-plans/service-architecture.md)

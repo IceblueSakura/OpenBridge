@@ -10,6 +10,10 @@
 
 `【需根据实际情况完善】`：描述一个用户或客户端可观察的结果。
 
+### 对应功能需求
+
+`【需根据实际情况完善】`：链接到 `../functional-requirements/` 中的一个主需求与必要的验收 ID。若没有对应需求，先补需求，不开始实现计划。
+
 ### 先失败的测试或复现
 
 `【需根据实际情况完善】`：给出测试名称、fixture、SDK 脚本或 Codex CLI 复现，并说明目前为什么应当失败。
@@ -36,5 +40,8 @@
 ## 关联文档
 
 - [产品范围](../functional-requirements/product-scope.md)
+- [网关 API 与客户端兼容](../functional-requirements/gateway-api-compatibility.md)
+- [配置、凭证与受信运行边界](../functional-requirements/configuration-and-credentials.md)
+- [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
 - [当前实现说明](../implementation-status/current-implementation.md)

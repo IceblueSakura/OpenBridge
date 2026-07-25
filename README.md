@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API 聚合代理**：部署在本地或用户自有云环境中，集中管理上游 Provider、凭证、模型与路由，并向 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。
+OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或用户自有云环境中，通过受信配置管理上游 Provider、凭证、模型与路由，并向本地正在使用的 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。它不提供 GUI、Web 控制台或客户端管理功能。
 
 当前处于**设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
 
@@ -14,15 +14,16 @@ OpenBridge 的核心是一个**单用户、单服务的多 Provider Agent API �
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、deployment cooldown、首输出前 fallback 与最终错误传播；
 6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile；Hermes 的真实 Agent tool loop 只在明确宣称兼容时验证。
+7. 配置文件优先地管理路由与上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
 
 核心稳定后再考虑：
 
 - Provider-hosted tool facade；
 - Anthropic Messages 协议兼容与异构 Provider 验证（与 Provider-hosted tool facade 同级）；
 - 本地/MCP Tool Bridge；
-- 使用量与成本分析；
+- headless 的健康、日志与诊断；
 - 可选 OAuth credential adapter；
-- 简单管理界面与更多路由策略。
+- 更多路由策略。
 
 ## 当前可运行基线
 
@@ -53,6 +54,8 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 当前只改写 `model` 并使用预配置 deployment；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能通过业务请求指定上游 URL、credential 或任意出站 header。
 
+上述启动方式是当前原型的环境变量基线，不是最终配置优先的目标。目标设计会让受版本控制的基础 TOML 保存非敏感路由，用户私有、被忽略且权限受限的配置文件保存下游 Bearer token 与上游 API key（或其引用）；环境变量只在配置明确选择的迁移/部署场景中使用。调用量、Provider usage、TTFT/TTFB 和终态错误率同样属于后续的 headless 统计能力，当前尚未实现。
+
 ## 验证基线
 
 默认验证：
@@ -78,16 +81,19 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | 文档 | 内容 | 分类 |
 |---|---|---|
 | [文档总索引](docs/README.md) | 四类功能文档的统一入口 | 项目级入口 |
-| [功能需求](docs/functional-requirements/README.md) | 产品范围、交付证据、韧性与 hosted tool 需求 | 功能需求 |
+| [功能需求](docs/functional-requirements/README.md) | 产品范围、网关 API/兼容、配置与凭证、路由韧性、观测与交付证据 | 功能需求 |
 | [实施现状](docs/implementation-status/README.md) | 当前代码已证明行为、能力探测与验证记录 | 实施现状 |
 | [实施计划](docs/implementation-plans/README.md) | 当前焦点及按功能组织的实施方案 | 实施计划 |
 | [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
-| [Provider 韧性](docs/functional-requirements/provider-resilience.md) | 上游限流、临时故障、冷却、重试与错误传播 | 功能需求 |
+| [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
+| [配置、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | 配置文件优先、私有 secret、header/network 信任与 reload | 功能需求 |
+| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | alias 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
+| [调用统计与可观测性](docs/functional-requirements/observability.md) | usage、TTFT/TTFB、终态错误率和 headless 输出边界 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
 | [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
 | [服务架构](docs/implementation-plans/service-architecture.md) | 单服务架构、原生/桥接双路径、路由与状态边界 | 实施计划 |
-| [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、Bifrost、CLIProxyAPI 的研究职责 | 参考文档 |
+| [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 的研究职责 | 参考文档 |
 
 文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
 
@@ -100,6 +106,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - 将 Chat ↔ Responses 承诺为无损；不可表达的能力必须拒绝或显式标记；
 - 让业务请求动态提供任意上游 URL、认证 header、credential 或转换脚本；
 - 让 OpenBridge 执行 Agent 返回的通用 function tool；Protocol Bridge 只转换 wire-level tool call/result。
+- GUI、Web 控制台、客户端注册/配置管理或面向用户的管理服务。
 
 ## 关键术语
 
@@ -117,5 +124,5 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - 官方 API、Codex 与 Hermes 当前行为优先以官方文档、源码和记录实际运行环境的 fixture 为准。
 - 外部项目源码调研必须记录 repository、commit、文件范围、观察事实、推论和适用边界。
 - 原型实验必须同时记录“证明什么”和“不证明什么”，避免代码存在本身形成架构结论。
-- LiteLLM、cc-switch、Bifrost、CLIProxyAPI 等项目用于比较和寻找反例，不等同于 OpenBridge 的依赖或实现承诺。
+- LiteLLM、cc-switch、CLIProxyAPI 等项目用于比较和寻找反例，不等同于 OpenBridge 的依赖或实现承诺。
 - 每次目标客户端、SDK、Provider API 或规范升级后，应重新运行对应 corpus 和 Agent tool-loop fixture。

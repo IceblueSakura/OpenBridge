@@ -8,7 +8,7 @@
 - **已验证原生转发**：一个 `openai` API-key upstream 的 Chat Completions/Responses HTTP JSON/SSE 原生转发、静态下游 Bearer 认证、流式 conformance 和 OpenAI SDK compatibility fixture。
 - **已验证路由基线**：有序 deployment candidate、capability gate、手工 `max_output_tokens` 候选筛选、下游 `GET /v1/models` 和同协议、输出前的 streaming fallback。
 - **已验证显式探测**：受信 deployment 的上游模型列表、最小 Chat/Responses 请求，以及两种协议的 function-tool call/result replay 可输出不含敏感正文的观察报告；探测不改写配置。
-- **尚未验证**：跨请求 deployment cooldown、配置化 retry budget/backoff、all-candidates-cooling-down 错误、第二 Provider Family、Codex CLI custom Provider E2E，以及任何已宣称 Hermes 兼容的 Agent tool loop、受信自定义 endpoint 的最终配置边界、Chat ↔ Responses bridge、Anthropic Messages、usage、hosted tool 和真实 OAuth。
+- **尚未验证**：跨请求 deployment cooldown、配置化 retry budget/backoff、all-candidates-cooling-down 错误、第二 Provider Family、Codex CLI custom Provider E2E，以及任何已宣称 Hermes 兼容的 Agent tool loop、配置文件优先的上下游 secret、受信自定义 endpoint 的最终配置边界、Chat ↔ Responses bridge、Anthropic Messages、usage/TTFT/错误率统计、hosted tool 和真实 OAuth。
 
 ## 运行模型
 
@@ -22,7 +22,7 @@
 - bootstrap policy 包含监听地址、允许的上游 origin、body/SSE 限制和连接池策略；当前只允许 loopback listener 和 HTTPS 根 origin。deployment 的 `base_url` 必须属于其中一个 origin，但可额外包含由受信配置提供的安全路径前缀（例如 `/openai`）。
 - route 配置只能选择编译期存在的 `ProviderKind`、endpoint profile、credential reference、deployment 和 alias；不能定义任意 header、认证逻辑、请求转换或 URL。
 - alias 的 `candidates` 是有序 deployment id 列表。请求取得 snapshot 后一直持有同一 `Arc`，未来 reload 不会改变正在运行的请求。
-- 当前 `SecretReference` 仅接受 `env://NAME`，snapshot 不保存 API key 明文。业务请求时才由 `CredentialSource::Environment` 解析环境变量。
+- 当前 `SecretReference` 仅接受 `env://NAME`，snapshot 不保存 API key 明文。业务请求时才由 `CredentialSource::Environment` 解析环境变量；尚不读取私有 `local.toml`、`config://` secret 或配置化下游 token。
 
 默认开发配置监听 `127.0.0.1:8080`，并将 `code-primary` 映射到 `openai-main`。启动需要：
 
@@ -32,7 +32,7 @@ export OPENAI_API_KEY='upstream-api-key'
 cargo run --bin openbridge --locked
 ```
 
-这两个值都不得写入配置文件、提交记录或普通日志。
+当前实现只接受这两个环境变量，它们不得进入已提交的配置文件、提交记录或普通日志。目标中的“私有配置文件优先”尚未实现，详见[配置、凭证与受信运行边界](../functional-requirements/configuration-and-credentials.md)。
 
 ## 下游 HTTP API
 
@@ -43,7 +43,7 @@ cargo run --bin openbridge --locked
 | `POST /v1/chat/completions` | 原生转发 Chat JSON/SSE；只改写 `model`。 | 静态 Bearer |
 | `POST /v1/responses` | 原生转发 Responses JSON/SSE；只改写 `model`。 | 静态 Bearer |
 
-业务 endpoint 只接受一个 `Content-Type: application/json`。未知 alias、缺失 `model`、非 JSON body、无能力 candidate 等错误在上游调用前返回 OpenAI-style JSON error envelope。`OPENBRIDGE_DOWNSTREAM_TOKEN` 是面向单用户部署的单一静态 credential；当前没有多 key、签发、撤销列表、principal 或 scope。
+业务 endpoint 只接受一个 `Content-Type: application/json`。未知 alias、缺失 `model`、非 JSON body、无能力 candidate 等错误在上游调用前返回 OpenAI-style JSON error envelope。`OPENBRIDGE_DOWNSTREAM_TOKEN` 是面向单用户部署的单一静态 credential；当前没有多 key、签发、撤销列表、principal、scope 或配置文件来源。
 
 ## 请求、路由与上游调用
 
@@ -100,7 +100,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - 当前 bootstrap listener 强制为 loopback。未来允许非 loopback 时，必须至少要求静态高熵 token，并由 TLS 或可信反向代理保护。
 - 当前只有 `ProviderKind::OpenAi` 和 API-key credential；真实 OAuth 不存在。
 - 当前 route 配置可完整校验和原子 reload，但服务入口尚未暴露 reload 管理 API。
-- 没有 usage sink、跨请求 deployment cooldown、第二 Provider Family 或真实多 Provider fallback 证据；多租户授权、面向下游用户/key 的配额和合规审计不属于当前核心目标。
+- 没有 usage sink、调用量/TTFT/错误率聚合、跨请求 deployment cooldown、第二 Provider Family 或真实多 Provider fallback 证据；多租户授权、面向下游用户/key 的配额和合规审计不属于当前核心目标。
 - 不支持 Chat ↔ Responses conversion、Responses WebSocket、Realtime、Files、Conversations、Responses retrieve/delete/background/cancel/store 等资源语义。
 
 ## 相关资源
@@ -111,6 +111,8 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - [服务架构](../implementation-plans/service-architecture.md)
 - [Provider 适配与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
 - [客户端兼容](../implementation-plans/client-compatibility.md)
-- [Provider 韧性](../functional-requirements/provider-resilience.md)
+- [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)
+- [配置、凭证与受信运行边界](../functional-requirements/configuration-and-credentials.md)
+- [调用统计与可观测性](../functional-requirements/observability.md)
 - [配置与路由](../implementation-plans/configuration-and-routing.md)
 - [上游模型发现与能力探测](capability-probing.md)

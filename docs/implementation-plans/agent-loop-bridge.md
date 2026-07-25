@@ -8,9 +8,9 @@
 
 本文的主要输入是：
 
-- [Codex 工具生命周期调研](../references/codex-oauth-and-tool-call-analysis.md)；
-- [Hermes Chat/Responses 调研](../references/hermes-chat-responses-analysis.md)；
-- [cc-switch Chat/Responses tool 转换调研](../references/cc-switch-chat-responses-tool-conversion-analysis.md)；
+- [Codex 工具生命周期调研](../references/codex/codex-sse-and-tool-lifecycle-analysis.md)；
+- [Hermes Chat/Responses 调研](../references/hermes/hermes-chat-responses-analysis.md)；
+- [cc-switch Chat/Responses tool 转换调研](../references/cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)；
 - [Chat/Responses Protocol Bridge 设计](protocol-bridge.md)。
 
 这些来源证明了目标客户端和参考实现的有限行为，不自动证明 OpenBridge 对真实 Provider 的兼容性。

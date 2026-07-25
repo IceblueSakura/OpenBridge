@@ -6,7 +6,7 @@
 
 ## 1. 架构结论
 
-OpenBridge 默认是一个单进程、单用户、单配置所有者的服务。它不拆分独立控制面和数据面，也不建立 tenant/principal/下游配额/合规审计系统。
+OpenBridge 默认是一个单进程、单用户、单配置所有者的 headless 服务。它不拆分独立控制面和数据面，也不建立 GUI、Web 控制台、客户端管理、tenant/principal/下游配额/合规审计系统。
 
 逻辑架构：
 
@@ -48,7 +48,7 @@ Codex / Hermes / OpenAI-compatible client
                  Upstream Provider
 ```
 
-同一个进程内可以存在配置、usage sink 和 future hosted-tool 模块，但它们不形成企业级控制平面。首版下游 transport 是 HTTP JSON/SSE；Responses WebSocket 保留为显式扩展点，而不是默认兼容承诺。
+同一个进程内可以存在配置、调用统计 sink 和 future hosted-tool 模块，但它们不形成企业级控制平面。调用统计只做 headless 的 usage、TTFT/TTFB 与终态错误聚合，不承担客户端管理、账单或审计。首版下游 transport 是 HTTP JSON/SSE；Responses WebSocket 保留为显式扩展点，而不是默认兼容承诺。
 
 ## 2. 核心数据模型
 
@@ -202,7 +202,7 @@ src/
   provider/       # adapter traits and ProviderFamily catalog
   providers/      # concrete provider families
   transport/      # shared HTTP client, SSE framing, cancellation
-  usage/          # optional bounded UsageRecord sink
+  telemetry/      # bounded CallRecord sink and aggregates
 ```
 
 依赖方向应避免 ingress/router 识别具体 Provider header 或 token 形状。Provider adapter 也不应自行决定 public alias 和 candidate 顺序。
@@ -292,7 +292,7 @@ Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时�
 | Tool identity map | Protocol Bridge | 单请求或明确 continuation ledger | 默认否 |
 | `previous_response_id` | issuing Provider/deployment | Provider 定义 | 否 |
 | Credential material | service owner + credential source | 配置/refresh 生命周期 | 仅绑定对应 deployment |
-| UsageRecord | optional local sink | 请求结束后 | 可聚合，但不参与路由 |
+| CallRecord / aggregates | local telemetry sink | 请求结束后 | 可聚合，但不参与路由 |
 | Hosted tool session | future facade | 单 tool call/Provider contract | 默认否 |
 
 任何跨请求 ledger 都必须有 issuer、deployment、expiry 和歧义拒绝规则。第一版可以对无法安全恢复的 continuation 直接拒绝，而不是为了兼容而建立隐式全局 cache。
@@ -307,7 +307,8 @@ Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时�
 - request/SSE limits；
 - upstream origin policy；
 - connection pool；
-- optional downstream static token reference；
+- private-config downstream static token reference；
+- telemetry export/sink settings；
 - route config path。
 
 ### 可 reload 路由配置
@@ -317,6 +318,8 @@ Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时�
 - model aliases；
 - capability declarations/overrides；
 - timeout、enable state 和 candidate 顺序。
+
+基础路由与启动配置可以进入版本控制；API key、下游 token 和其他 secret 只存在于当前用户可读、被忽略的私有配置（或其中的明确 secret reference）。环境变量只在配置显式选择 `env://` 时提供兼容来源，不应按字段覆盖配置文件。
 
 reload 必须构建并验证完整新 snapshot 后原子替换。受信配置可定义兼容 endpoint，但不能注入任意代码、模板转换或动态脚本。
 
@@ -341,7 +344,7 @@ reload 必须构建并验证完整新 snapshot 后原子替换。受信配置可
 | Protocol Bridge | 一个明确可表达的文本或普通 function-tool 语义 | 双向 fixture；受影响客户端的 SDK/CLI 观察 |
 | Hosted Tool Facade | 一个 native hosted tool 的输入、终态或 citation 规范化 | Provider fixture 与目标 MCP client 观察 |
 | Anthropic Messages | 一个 content block、tool use/result 或 stream event 的可表达性 | 协议 fixture；必要时真实 Messages Provider |
-| 观测与辅助能力 | usage 记录、健康状态、OAuth 或 UI 的一个独立用户结果 | 与该结果相称的单元和集成测试 |
+| 观测与辅助能力 | headless 的健康状态、日志、CLI 诊断或 OAuth 的一个独立运维结果 | 与该结果相称的单元和集成测试 |
 
 Hosted tool facade 与 Anthropic Messages 没有预设先后。它们都不应在缺少明确用户结果和失败测试时进入实现。
 
@@ -361,6 +364,7 @@ Hosted tool facade 与 Anthropic Messages 没有预设先后。它们都不应�
 ## 12. 关联文档
 
 - [产品范围](../functional-requirements/product-scope.md)
+- [调用统计与可观测性](../functional-requirements/observability.md)
 - [客户端兼容](client-compatibility.md)
 - [Provider 适配与数据流](provider-adapters-and-dataflow.md)
 - [配置与路由](configuration-and-routing.md)

@@ -45,7 +45,7 @@ openai_web_search
 - 只支持单次、无会话的 search request；
 - 使用 `stdio` MCP transport 或同进程模块；
 - 返回 text content 和 schema-valid structured content；
-- 记录轻量 UsageRecord；
+- 生成轻量 CallRecord 并复用核心调用统计口径；
 - 不支持远程多用户 MCP transport。
 
 ## 4. 非目标
@@ -197,22 +197,22 @@ result_too_large
 
 这些是单用户服务的资源保护，不是多租户配额系统。
 
-## 11. 使用量
+## 11. 调用统计
 
-请求结束后可写入普通 `UsageRecord`：
+请求结束后可写入普通 `CallRecord`：
 
 ```text
 request id
 tool name
 provider/deployment
-outcome
-latency
+terminal outcome / error class
+gateway latency / first output time
 input/output tokens
 estimated cost
 citation/source counts
 ```
 
-默认不记录 query/answer 正文。JSONL/SQLite sink 故障不应阻塞已完成的 tool result。
+默认不记录 query/answer 正文。JSONL 等本地 sink 故障不应阻塞已完成的 tool result；准确口径和输出边界遵循[调用统计与可观测性](observability.md)。
 
 ## 12. 开始时需要回答的问题
 
@@ -222,7 +222,7 @@ citation/source counts
 - 同进程、sidecar、独立 MCP server 或不实施中，哪种边界最小；
 - 对应 native Provider 的脱敏 request、terminal response、citation/source、usage、error 和 cancel 样本是什么；
 - Provider output 如何规范化为稳定 ToolResult，以及 malformed annotation 和结果上限如何测试；
-- 是否需要 `stdio` transport、structured/text content、cancel/timeout 或 UsageRecord；
+- 是否需要 `stdio` transport、structured/text content、cancel/timeout 或 CallRecord；
 - 是否真的需要 sidecar/独立进程，以及它是否会改变核心 Protocol Bridge 语义。
 
 这些问题不是预定义切片；只为当前选择的单一行为补足所需测试和设计。
@@ -240,6 +240,7 @@ citation/source counts
 ## 14. 关联文档
 
 - [产品范围](product-scope.md)
+- [调用统计与可观测性](observability.md)
 - [服务架构](../implementation-plans/service-architecture.md)
 - [配置与路由](../implementation-plans/configuration-and-routing.md)
 - [Protocol Bridge 设计](../implementation-plans/protocol-bridge.md)

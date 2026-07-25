@@ -4,11 +4,11 @@
 
 **Working hypothesis。** 客户端行为以每次滚动记录的实际版本和真实 fixture 为准；本文不固定长期客户端版本，也不定义整体接受条件。
 
-本文定义 OpenBridge 首批下游客户端的优先级和验证方式。它不把客户端当前实现细节永久固化为 OpenBridge 公共协议；每次升级目标版本时必须重跑兼容 corpus。
+本文定义本地正在使用的 Codex 与 Hermes Agent 的兼容优先级和验证方式。选择它们是为了验证实际本地工作流，不表示 OpenBridge 提供客户端管理、客户端产品适配承诺或通用 Agent 平台；每次升级目标版本时必须重跑兼容 corpus。
 
 ## 1. 结论
 
-OpenBridge 应提供两个一等下游入口，但优先级不对称：
+OpenBridge 为两个本地 Agent 保持兼容路径，但优先级不对称：
 
 - **Codex：Responses-first，初期 HTTP/SSE-first。** 面向 Codex 的首要契约是 `/v1/responses`。使用独立 custom Provider id，并显式配置 `supports_websockets = false`；不以 Chat Completions 或 Responses WebSocket 作为初期兼容前提。
 - **Hermes Agent：按声明验证。** Hermes 还存在 `anthropic_messages` 等模式；Anthropic Messages 兼容是与 hosted tool facade 同级的后续方向，不作为当前客户端契约。
@@ -104,7 +104,7 @@ Responses WebSocket 是独立候选 transport。以下任一条件成立时必�
 - Hermes Agent repository：https://github.com/NousResearch/hermes-agent
 - Adding providers：https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/adding-providers.md
 - Providers overview：https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md
-- 本仓库源码调研：[Hermes Chat/Responses 分析](../references/hermes-chat-responses-analysis.md)
+- 本仓库源码调研：[Hermes Chat/Responses 分析](../references/hermes/hermes-chat-responses-analysis.md)
 
 ## 5. 版本化 fixture corpus
 

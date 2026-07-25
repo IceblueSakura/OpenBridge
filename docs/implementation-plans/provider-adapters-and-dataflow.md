@@ -57,7 +57,7 @@ src/
   provider/       # ProviderFamily catalog and adapter traits
   providers/      # concrete family implementations
   transport/      # shared reqwest client, SSE framing, cancellation
-  usage/          # optional bounded UsageRecord sink
+  telemetry/      # bounded CallRecord sink and aggregates
 ```
 
 建议依赖方向：
@@ -324,6 +324,7 @@ enum/trait dispatch 微优化不是当前首要问题，必须以 benchmark 而�
 ## 13. 关联文档
 
 - [产品范围](../functional-requirements/product-scope.md)
+- [调用统计与可观测性](../functional-requirements/observability.md)
 - [Provider 韧性需求](../functional-requirements/provider-resilience.md)
 - [服务架构](service-architecture.md)
 - [配置与路由](configuration-and-routing.md)

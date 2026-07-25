@@ -475,9 +475,9 @@ RoutePlan(mode=bridge, source=responses, target=chat, deployment=X)
 
 - [产品范围](../functional-requirements/product-scope.md)
 - [客户端兼容](client-compatibility.md)
-- [Hermes Chat/Responses 分析](../references/hermes-chat-responses-analysis.md)
-- [LiteLLM Chat/Responses 分析](../references/litellm-chat-responses-analysis.md)
-- [cc-switch 协议与工具转换分析](../references/cc-switch-chat-responses-tool-conversion-analysis.md)
+- [Hermes Chat/Responses 分析](../references/hermes/hermes-chat-responses-analysis.md)
+- [LiteLLM Chat/Responses 分析](../references/litellm/litellm-chat-responses-analysis.md)
+- [cc-switch 协议与工具转换分析](../references/cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)
 - [OpenAI Chat Completions 协议](../references/openai/chat-completions-protocol.md)
 - [OpenAI Responses 协议](../references/openai/responses-protocol.md)
 - CLIProxyAPI repository：https://github.com/router-for-me/CLIProxyAPI

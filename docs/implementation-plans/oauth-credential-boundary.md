@@ -114,9 +114,9 @@ NeedsLogin
 5. `invalid_grant`、rotation/reuse 错误、issuer/account mismatch 进入 `NeedsReauth`；
 6. revoke 使 secret reference 不可再解析，并清理 adapter cache。
 
-## 6. 单用户管理面
+## 6. Headless 运维边界
 
-若实施，可先采用 loopback-only 的最小接口或 CLI command：
+若实施，只提供 loopback callback 配合 CLI command：
 
 ```text
 credential status
@@ -125,9 +125,9 @@ callback
 revoke
 ```
 
-它不要求企业级 admin control plane。status 只显示 Provider、状态、account fingerprint、expiry、last refresh 和 error code。
+它不提供企业级 admin control plane、GUI、Web 控制台或客户端管理。`credential status` 只在 CLI 输出 Provider、状态、account fingerprint、expiry、last refresh 和 error code。
 
-非 loopback 暴露登录 callback/管理接口前，必须另行设计静态管理员认证与 TLS；初期范围可以完全不提供远程管理面。
+非 loopback 暴露登录 callback 前，必须另行设计静态管理员认证与 TLS；初期范围不提供远程管理接口。
 
 ## 7. Mock issuer 实验
 
@@ -187,5 +187,5 @@ Insufficient evidence
 - OAuth 2.0 Security Best Current Practice：https://datatracker.ietf.org/doc/html/rfc9700
 - PKCE：https://datatracker.ietf.org/doc/html/rfc7636
 - Codex source：https://github.com/openai/codex
-- [本仓库 Codex OAuth 源码调研](../references/codex-oauth-and-tool-call-analysis.md)
-- [Hermes/LiteLLM subscription OAuth 调研](../references/hermes-litellm-oauth-analysis.md)
+- [本仓库 Codex OAuth 源码调研](../references/codex/codex-oauth-and-tool-call-analysis.md)
+- [Hermes/LiteLLM subscription OAuth 调研](../references/cross-project/hermes-litellm-oauth-analysis.md)
