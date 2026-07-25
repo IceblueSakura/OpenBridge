@@ -26,13 +26,18 @@ const TOOL_NAME: &str = "openbridge_probe";
 /// `list_models`，或只验证特定协议。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProbeSelection {
+    /// 是否执行 `/v1/models` probe。
     pub list_models: bool,
+    /// 是否执行 Chat Completions 文本请求 probe。
     pub chat: bool,
+    /// 是否执行 Responses 文本请求 probe。
     pub responses: bool,
+    /// 是否执行 function call 及结果回放 probe。
     pub function_calling: bool,
 }
 
 impl ProbeSelection {
+    /// 选择全部已实现的 probe。
     pub const fn all() -> Self {
         Self {
             list_models: true,
@@ -42,6 +47,7 @@ impl ProbeSelection {
         }
     }
 
+    /// 判断是否没有选择任何 probe。
     pub const fn is_empty(self) -> bool {
         !self.list_models && !self.chat && !self.responses && !self.function_calling
     }
@@ -54,13 +60,18 @@ impl ProbeSelection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbeState {
+    /// 请求符合该 probe 预期的协议形状。
     Supported,
+    /// endpoint 明确返回不支持该操作的 status。
     Unsupported,
+    /// 请求失败或响应形状不足以作出结论。
     Unknown,
 }
 
+/// 单项 probe 的状态和可选 HTTP status。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProbeOutcome {
+    /// 本次 probe 的保守结论。
     pub state: ProbeState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_status: Option<u16>,
@@ -103,24 +114,31 @@ impl ProbeOutcome {
 
 #[derive(Debug, Serialize)]
 pub struct ListModelsObservation {
+    /// `/v1/models` 请求本身的结论。
     pub outcome: ProbeOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// 配置的 upstream model 是否出现在返回列表中。
     pub configured_model_listed: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// 从响应中提取的 model id，可能为空或不完整。
     pub model_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FunctionCallingObservation {
+    /// 初始 function call 请求结论。
     pub initial_call: ProbeOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// 将 tool result 回放后的请求结论。
     pub result_replay: Option<ProbeOutcome>,
 }
 
 /// 单个 deployment 的 probe 报告。它不包含 credential、请求正文或上游响应正文。
 #[derive(Debug, Serialize)]
 pub struct DeploymentProbeReport {
+    /// 被 probe 的内部 deployment id。
     pub deployment_id: String,
+    /// 实际发往上游的 model id。
     pub upstream_model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub list_models: Option<ListModelsObservation>,
@@ -188,6 +206,7 @@ pub async fn probe_deployment(
         max_response_bytes: snapshot.limits().max_request_body_bytes(),
     };
 
+    // 每项 probe 独立执行；单项失败只体现在该项 outcome，不阻断其余观察。
     let list_models = if selection.list_models {
         Some(session.probe_list_models().await)
     } else {

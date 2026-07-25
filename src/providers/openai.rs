@@ -29,6 +29,7 @@ use crate::{
     transport::sse::SseEvent,
 };
 
+/// OpenAI adapter 的静态能力与允许的 endpoint/credential 范围。
 pub static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
     ProviderKind::OpenAi,
     CapabilitySet {
@@ -58,6 +59,7 @@ pub static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
 );
 
 #[derive(Clone, Copy)]
+/// OpenAI-compatible 请求与响应 adapter。
 pub struct OpenAiAdapter;
 
 impl OpenAiAdapter {
@@ -175,11 +177,15 @@ impl CapabilityAdapter for OpenAiAdapter {
 }
 
 pub struct OpenAiDefinition {
+    /// OpenAI provider 定义。
     pub provider: ProviderDefinition,
+    /// OpenAI 模型目录定义。
     pub models: Vec<ModelDefinition>,
+    /// OpenAI deployment 定义。
     pub deployments: Vec<DeploymentDefinition>,
 }
 
+/// 构造当前编译版本内置的 OpenAI provider 定义。
 pub fn definition() -> OpenAiDefinition {
     OpenAiDefinition {
         provider: ProviderDefinition {
@@ -217,6 +223,7 @@ pub fn definition() -> OpenAiDefinition {
     }
 }
 
+/// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。
 pub const fn conservative_openai_capabilities() -> CapabilitySet {
     CapabilitySet {
         chat_completions: ProtocolCapabilities {

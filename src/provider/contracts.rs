@@ -18,10 +18,14 @@ use crate::{
 
 use super::{CredentialLease, ProviderFailure};
 
+/// 允许 provider adapter 添加的非敏感请求头集合。
+///
+/// 认证、cookie、host 和 proxy authorization 等头不能通过此类型写入。
 #[derive(Default)]
 pub struct SafeHeaders(HeaderMap);
 
 impl SafeHeaders {
+    /// 读取一个已允许的请求头。
     pub fn get(&self, name: HeaderName) -> Option<&HeaderValue> {
         self.0.get(name)
     }
@@ -53,10 +57,12 @@ impl fmt::Debug for SafeHeaders {
     }
 }
 
+/// 仅在发送到上游前附加、并在调试输出中隐藏值的敏感请求头集合。
 #[derive(Default)]
 pub struct SensitiveHeaders(HashMap<HeaderName, Zeroizing<String>>);
 
 impl SensitiveHeaders {
+    /// 判断集合中是否包含指定头名。
     pub fn contains(&self, name: HeaderName) -> bool {
         self.0.contains_key(&name)
     }
@@ -91,10 +97,12 @@ impl fmt::Debug for SensitiveHeaders {
     }
 }
 
+/// 构造非敏感上游请求头的 provider adapter 契约。
 pub trait HeaderAdapter {
     fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure>;
 }
 
+/// 从 credential lease 构造敏感认证头的 provider adapter 契约。
 pub trait AuthAdapter {
     fn build_auth_headers(
         &self,
@@ -104,11 +112,15 @@ pub trait AuthAdapter {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EventDisposition {
+    /// event 不是终止事件，继续读取上游。
     Continue,
+    /// event 表示正常完成。
     Completed,
+    /// event 表示 provider 侧失败。
     Failed,
 }
 
+/// 一个已完成 framing、但尚未由 ingress 重写的 SSE event。
 #[derive(Debug)]
 pub struct DecodedEvent {
     event: SseEvent,
@@ -120,15 +132,18 @@ impl DecodedEvent {
         Self { event, disposition }
     }
 
+    /// 返回原始 SSE event。
     pub fn event(&self) -> &SseEvent {
         &self.event
     }
 
+    /// 返回 adapter 对 event 的生命周期判定。
     pub fn disposition(&self) -> EventDisposition {
         self.disposition
     }
 }
 
+/// 解码 provider-specific SSE 生命周期的 adapter 契约。
 pub trait ResponseAdapter {
     fn decode_event(
         &self,
@@ -139,10 +154,15 @@ pub trait ResponseAdapter {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderErrorClass {
+    /// 请求内容或参数不合法。
     InvalidRequest,
+    /// 上游拒绝认证。
     Authentication,
+    /// 上游限流。
     RateLimited,
+    /// 上游暂时不可用。
     UpstreamUnavailable,
+    /// 其他上游失败。
     UpstreamFailure,
 }
 
@@ -176,10 +196,12 @@ impl ClassifiedProviderError {
     }
 }
 
+/// 将上游 HTTP status 映射为稳定的 provider 错误类别。
 pub trait ErrorAdapter {
     fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError;
 }
 
+/// 检查请求所需能力是否在 provider adapter 的实现上界内。
 pub trait CapabilityAdapter {
     fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure>;
 }

@@ -20,21 +20,30 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ReasoningSupport {
     #[default]
+    /// 配置没有足够证据判断是否支持 reasoning。
     Unknown,
+    /// 模型明确支持 reasoning。
     Supported,
+    /// 模型明确不支持 reasoning。
     Unsupported,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ReasoningLevel {
+    /// 最低 reasoning 强度。
     Minimal,
+    /// 低 reasoning 强度。
     Low,
+    /// 中等 reasoning 强度。
     Medium,
+    /// 高 reasoning 强度。
     High,
+    /// 最高 reasoning 强度。
     XHigh,
 }
 
 impl ReasoningLevel {
+    /// 将协议中的 wire 字符串解析为目录枚举。
     pub fn from_wire(value: &str) -> Option<Self> {
         match value {
             "minimal" => Some(Self::Minimal),
@@ -49,11 +58,14 @@ impl ReasoningLevel {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ModelContextLength {
+    /// 已知的最大输入 token 数；`None` 表示未知。
     input_tokens: Option<u32>,
+    /// 已知的最大输出 token 数；`None` 表示未知。
     output_tokens: Option<u32>,
 }
 
 impl ModelContextLength {
+    /// 创建一组可独立未知的上下文长度限制。
     pub const fn new(input_tokens: Option<u32>, output_tokens: Option<u32>) -> Self {
         Self {
             input_tokens,
@@ -61,10 +73,12 @@ impl ModelContextLength {
         }
     }
 
+    /// 返回最大输入 token 数。
     pub const fn input_tokens(self) -> Option<u32> {
         self.input_tokens
     }
 
+    /// 返回最大输出 token 数。
     pub const fn output_tokens(self) -> Option<u32> {
         self.output_tokens
     }
@@ -72,64 +86,97 @@ impl ModelContextLength {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelDefinition {
+    /// 目录内部稳定的模型 id。
     pub id: String,
+    /// 给客户端展示的模型名称。
     pub name: String,
+    /// 可选的模型描述。
     pub description: Option<String>,
+    /// 模型本身声明的上下文长度。
     pub context_length: ModelContextLength,
+    /// 模型支持的 OpenAI-compatible 参数名。
     pub supported_parameters: Vec<String>,
+    /// 模型 reasoning 支持状态。
     pub reasoning: ReasoningSupport,
+    /// 模型接受的 reasoning 强度集合。
     pub reasoning_levels: Vec<ReasoningLevel>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModelConstraints {
+    /// deployment 可进一步收紧的上下文长度。
     pub context_length: ModelContextLength,
+    /// deployment 可进一步收紧的 reasoning 状态。
     pub reasoning: Option<ReasoningSupport>,
+    /// deployment 禁用但不能新增的参数名。
     pub disabled_parameters: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CredentialDefinition {
+    /// 注册表中的 credential id。
     pub id: String,
+    /// adapter 支持的 credential 类型。
     pub kind: CredentialKind,
+    /// 运行时读取 secret 的环境变量名。
     pub environment_variable: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderDefinition {
+    /// 注册表中的 provider id。
     pub id: String,
+    /// 编译期 provider kind。
     pub kind: ProviderKind,
+    /// 该 provider 使用的 credential binding。
     pub credential: CredentialDefinition,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeploymentDefinition {
+    /// 注册表中的 deployment id。
     pub id: String,
+    /// 引用的 provider id。
     pub provider: String,
+    /// 引用的模型 id。
     pub model: String,
+    /// 发往上游的真实模型 id。
     pub upstream_model: String,
+    /// provider 允许的 endpoint profile。
     pub endpoint_profile: String,
+    /// 经过校验的 HTTPS endpoint base。
     pub base_url: String,
+    /// 单次上游请求超时时间。
     pub request_timeout: Duration,
+    /// 对模型目录能力的 deployment 级收窄。
     pub model_constraints: ModelConstraints,
+    /// 对 provider 能力上界的 deployment 级收窄。
     pub capabilities: CapabilitySet,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AliasDefinition {
+    /// 对下游公开的 model alias。
     pub name: String,
+    /// 按优先级排列的 deployment id。
     pub candidates: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegistryDefinition {
+    /// 用于报告和审计的注册表版本。
     pub version: String,
+    /// 完整模型定义集合。
     pub models: Vec<ModelDefinition>,
+    /// 完整 provider 定义集合。
     pub providers: Vec<ProviderDefinition>,
+    /// 完整 deployment 定义集合。
     pub deployments: Vec<DeploymentDefinition>,
+    /// 完整 public alias 集合。
     pub aliases: Vec<AliasDefinition>,
 }
 
+/// 编译期注册表定义不完整、引用不一致或尝试越权时返回的错误。
 #[derive(Debug, Error)]
 pub enum RegistryError {
     #[error("registry version must not be blank")]
@@ -200,6 +247,7 @@ pub enum RegistryError {
     EmptyAlias { alias: String },
 }
 
+/// 启动后供请求路径读取的模型元数据。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelMetadata {
     id: String,
@@ -212,30 +260,37 @@ pub struct ModelMetadata {
 }
 
 impl ModelMetadata {
+    /// 返回稳定模型 id。
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// 返回展示名称。
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// 返回可选模型描述。
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
 
+    /// 返回生效后的上下文长度。
     pub const fn context_length(&self) -> ModelContextLength {
         self.context_length
     }
 
+    /// 返回生效后的支持参数。
     pub fn supported_parameters(&self) -> &[String] {
         &self.supported_parameters
     }
 
+    /// 返回生效后的 reasoning 状态。
     pub const fn reasoning(&self) -> ReasoningSupport {
         self.reasoning
     }
 
+    /// 返回生效后的 reasoning 强度。
     pub fn reasoning_levels(&self) -> &[ReasoningLevel] {
         &self.reasoning_levels
     }
@@ -252,42 +307,52 @@ pub struct RegistrySnapshot {
 }
 
 impl RegistrySnapshot {
+    /// 返回编译期注册表版本。
     pub fn version(&self) -> &RegistryVersion {
         &self.version
     }
 
+    /// 返回 bootstrap 的 loopback 监听地址。
     pub fn listen(&self) -> std::net::SocketAddr {
         self.bootstrap.listen()
     }
 
+    /// 返回运行时资源限制。
     pub fn limits(&self) -> &RuntimeLimits {
         self.bootstrap.limits()
     }
 
+    /// 返回上游 HTTP client 策略。
     pub fn upstream_policy(&self) -> &UpstreamPolicy {
         self.bootstrap.upstream_policy()
     }
 
+    /// 按内部模型 id 查询模型元数据。
     pub fn model(&self, id: &str) -> Option<&ModelMetadata> {
         self.models.get(id)
     }
 
+    /// 按内部 provider id 查询解析结果。
     pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
         self.providers.get(id)
     }
 
+    /// 按内部 deployment id 查询解析结果。
     pub fn deployment(&self, id: &str) -> Option<&ResolvedDeployment> {
         self.deployments.get(id)
     }
 
+    /// 枚举所有内部 deployment id。
     pub fn deployment_ids(&self) -> impl Iterator<Item = &str> {
         self.deployments.keys().map(String::as_str)
     }
 
+    /// 按 public alias 查询路由候选。
     pub fn alias(&self, name: &str) -> Option<&ResolvedAlias> {
         self.aliases.get(name)
     }
 
+    /// 枚举下游 `/v1/models` 可公开的 alias。
     pub fn public_aliases(&self) -> impl Iterator<Item = &str> {
         self.aliases.keys().map(String::as_str)
     }
@@ -297,6 +362,7 @@ impl RegistrySnapshot {
 pub struct RegistryVersion(String);
 
 impl RegistryVersion {
+    /// 返回版本字符串。
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -309,10 +375,12 @@ pub struct ResolvedProvider {
 }
 
 impl ResolvedProvider {
+    /// 返回 provider kind。
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
+    /// 返回已解析的 credential binding。
     pub fn credential(&self) -> &ResolvedCredential {
         &self.credential
     }
@@ -326,14 +394,17 @@ pub struct ResolvedCredential {
 }
 
 impl ResolvedCredential {
+    /// 返回 credential id。
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// 返回 credential kind。
     pub fn kind(&self) -> CredentialKind {
         self.kind
     }
 
+    /// 返回不含 secret 的 locator 引用。
     pub fn secret_reference(&self) -> &SecretReference {
         &self.secret_reference
     }
@@ -345,10 +416,12 @@ pub struct SecretReference {
 }
 
 impl SecretReference {
+    /// 返回 locator scheme；当前固定为环境变量 `env`。
     pub fn scheme(&self) -> &'static str {
         "env"
     }
 
+    /// 返回环境变量名。
     pub fn locator(&self) -> &str {
         &self.locator
     }
@@ -366,30 +439,37 @@ pub struct ResolvedDeployment {
 }
 
 impl ResolvedDeployment {
+    /// 返回所属 provider id。
     pub fn provider_id(&self) -> &str {
         &self.provider_id
     }
 
+    /// 返回 deployment 生效后的模型元数据。
     pub fn model(&self) -> &ModelMetadata {
         &self.model
     }
 
+    /// 返回发往上游的模型 id。
     pub fn upstream_model(&self) -> &str {
         &self.upstream_model
     }
 
+    /// 返回 endpoint profile。
     pub fn endpoint_profile(&self) -> &str {
         &self.endpoint_profile
     }
 
+    /// 返回经过注册表校验的 endpoint base。
     pub fn endpoint_base(&self) -> &Url {
         &self.endpoint_base
     }
 
+    /// 返回单次请求超时时间。
     pub fn request_timeout(&self) -> Duration {
         self.request_timeout
     }
 
+    /// 返回 deployment 的生效能力集合。
     pub fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
     }
@@ -401,6 +481,7 @@ pub struct ResolvedAlias {
 }
 
 impl ResolvedAlias {
+    /// 返回按优先级排列的 deployment 候选。
     pub fn candidates(&self) -> &[String] {
         &self.candidates
     }
@@ -414,6 +495,7 @@ pub fn build_registry(
         return Err(RegistryError::BlankVersion);
     }
 
+    // 先解析模型与 provider，后续 deployment/alias 才能进行引用校验。
     let mut models = BTreeMap::new();
     for model in definition.models {
         validate_model_metadata(&model)?;
@@ -475,6 +557,7 @@ pub fn build_registry(
         }
     }
 
+    // deployment 同时收紧模型元数据和 provider 能力，禁止配置越权放大能力。
     let mut deployments = BTreeMap::new();
     for deployment in definition.deployments {
         let provider =
@@ -547,6 +630,7 @@ pub fn build_registry(
         }
     }
 
+    // 最后建立 public alias，确保每个候选都指向已完成校验的 deployment。
     let mut aliases = BTreeMap::new();
     for alias in definition.aliases {
         if alias.candidates.is_empty() {

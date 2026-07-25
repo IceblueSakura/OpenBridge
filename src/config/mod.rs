@@ -16,6 +16,7 @@ pub use source::{BootstrapFileError, BootstrapPath};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
 
+/// bootstrap 配置解析、版本或安全边界校验失败。
 #[derive(Debug, Error)]
 pub enum BootstrapError {
     #[error("invalid bootstrap configuration")]
@@ -28,6 +29,7 @@ pub enum BootstrapError {
     InvalidLimit { name: &'static str },
 }
 
+/// 启动阶段解析出的不可变进程配置。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BootstrapPolicy {
     listen: SocketAddr,
@@ -36,19 +38,23 @@ pub struct BootstrapPolicy {
 }
 
 impl BootstrapPolicy {
+    /// 返回 loopback 监听地址。
     pub fn listen(&self) -> SocketAddr {
         self.listen
     }
 
+    /// 返回请求体与 SSE event 的运行时限制。
     pub fn limits(&self) -> &RuntimeLimits {
         &self.limits
     }
 
+    /// 返回共享上游 HTTP client 策略。
     pub fn upstream_policy(&self) -> &UpstreamPolicy {
         &self.upstream_policy
     }
 }
 
+/// 下游请求和 SSE 事件的内存边界。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RuntimeLimits {
     max_request_body_bytes: usize,
@@ -56,15 +62,18 @@ pub struct RuntimeLimits {
 }
 
 impl RuntimeLimits {
+    /// 返回单个下游请求允许的最大 body 大小。
     pub fn max_request_body_bytes(&self) -> usize {
         self.max_request_body_bytes
     }
 
+    /// 返回单个 SSE event 允许的最大大小。
     pub fn max_sse_event_bytes(&self) -> usize {
         self.max_sse_event_bytes
     }
 }
 
+/// 共享上游 HTTP client 的连接与超时策略。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct UpstreamPolicy {
     connect_timeout: Duration,
@@ -73,19 +82,25 @@ pub struct UpstreamPolicy {
 }
 
 impl UpstreamPolicy {
+    /// 返回建立上游连接的超时时间。
     pub fn connect_timeout(&self) -> Duration {
         self.connect_timeout
     }
 
+    /// 返回连接池中空闲连接的保留时间。
     pub fn pool_idle_timeout(&self) -> Duration {
         self.pool_idle_timeout
     }
 
+    /// 返回每个 host 允许保留的最大空闲连接数。
     pub fn pool_max_idle_per_host(&self) -> usize {
         self.pool_max_idle_per_host
     }
 }
 
+/// 解析并校验 bootstrap TOML。
+///
+/// 该函数只产生启动配置，不会注册 provider、model、deployment 或 alias。
 pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError> {
     let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapError::Parse)?;
     if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {

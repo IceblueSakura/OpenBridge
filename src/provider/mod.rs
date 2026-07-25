@@ -30,11 +30,13 @@ use crate::{
 /// 退化为“通用 HTTP provider”。这让认证与协议行为保持可审查、可编译的边界。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
+    /// OpenAI-compatible provider。
     OpenAi,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialKind {
+    /// 使用 HTTP Bearer API key。
     ApiKey,
 }
 
@@ -51,6 +53,7 @@ pub struct ProviderDescriptor {
 }
 
 impl ProviderDescriptor {
+    /// 创建 provider 的静态描述符。
     pub const fn new(
         kind: ProviderKind,
         capabilities: CapabilitySet,
@@ -65,24 +68,29 @@ impl ProviderDescriptor {
         }
     }
 
+    /// 返回描述符对应的 provider kind。
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
+    /// 返回 adapter 支持的能力上界。
     pub fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
     }
 
+    /// 返回允许配置的 endpoint profile 名称。
     pub fn endpoint_profiles(&self) -> &'static [&'static str] {
         self.endpoint_profiles
     }
 
+    /// 返回允许配置的 credential 类型。
     pub fn credential_kinds(&self) -> &'static [CredentialKind] {
         self.credential_kinds
     }
 }
 
 impl ProviderKind {
+    /// 返回该 provider 的编译期描述符。
     pub fn descriptor(self) -> &'static ProviderDescriptor {
         match self {
             Self::OpenAi => &openai::DESCRIPTOR,
@@ -102,6 +110,7 @@ impl ProviderKind {
     }
 }
 
+/// provider adapter 在请求、认证、响应或能力校验阶段报告的失败。
 #[derive(Debug, Error)]
 pub enum ProviderFailure {
     #[error("request protocol is not supported by this provider adapter")]
@@ -138,19 +147,23 @@ impl UpstreamRequestParts {
         }
     }
 
+    /// 返回 HTTP method。
     pub fn method(&self) -> &Method {
         &self.method
     }
 
+    /// 返回不含 authority 的相对 URI。
     pub fn relative_uri(&self) -> &Uri {
         &self.relative_uri
     }
 
+    /// 返回改写后的请求 body。
     pub fn body(&self) -> &Bytes {
         &self.body
     }
 }
 
+/// 编码下游请求的 provider adapter 契约。
 pub trait RequestAdapter {
     fn encode_request(
         &self,
@@ -159,18 +172,21 @@ pub trait RequestAdapter {
     ) -> Result<UpstreamRequestParts, ProviderFailure>;
 }
 
+/// 已编译 provider adapter 的闭合集合。
 #[derive(Clone, Copy)]
 pub enum ProviderAdapter {
     OpenAi(OpenAiAdapter),
 }
 
 impl ProviderAdapter {
+    /// 根据注册表中的 provider kind 选择 adapter。
     pub fn for_kind(kind: ProviderKind) -> Self {
         match kind {
             ProviderKind::OpenAi => Self::OpenAi(OpenAiAdapter),
         }
     }
 
+    /// 返回 adapter 的静态 provider 描述符。
     pub fn descriptor(&self) -> &'static ProviderDescriptor {
         match self {
             Self::OpenAi(_) => ProviderKind::OpenAi.descriptor(),

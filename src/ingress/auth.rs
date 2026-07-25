@@ -9,15 +9,18 @@ use http::{HeaderMap, header::AUTHORIZATION};
 use secrecy::{ExposeSecret, SecretString};
 use subtle::ConstantTimeEq;
 
+/// 用于受保护下游 API 的单一静态 Bearer credential。
 pub struct StaticBearerCredential {
     secret: SecretString,
 }
 
 impl StaticBearerCredential {
+    /// 创建一个不会在 `Debug` 输出中暴露 secret 的 credential。
     pub fn new(secret: SecretString) -> Self {
         Self { secret }
     }
 
+    /// 使用 constant-time 比较校验请求中的 Bearer token。
     pub fn authenticate(&self, headers: &HeaderMap) -> bool {
         let Some(candidate) = headers
             .get(AUTHORIZATION)

@@ -13,6 +13,7 @@ use crate::{
     registry::{ReasoningLevel, ReasoningSupport, RegistrySnapshot},
 };
 
+/// 请求不能被安全地绑定到兼容 deployment 时返回的路由错误。
 #[derive(Debug, Error)]
 pub enum RouteError {
     #[error("request body must be a JSON object")]
@@ -48,6 +49,7 @@ pub struct PreparedNativeRequest {
     allows_fallback: bool,
 }
 
+/// 一个已通过能力门控、绑定到具体 deployment 的请求候选。
 #[derive(Debug)]
 pub struct PreparedNativeCandidate {
     deployment_id: String,
@@ -74,26 +76,32 @@ enum RequestedReasoning {
 }
 
 impl PreparedNativeRequest {
+    /// 返回优先级最高的 deployment id。
     pub fn deployment_id(&self) -> &str {
         self.primary().deployment_id()
     }
 
+    /// 返回优先候选对应的请求。
     pub fn request(&self) -> &ValidatedRequest {
         self.primary().request()
     }
 
+    /// 返回按 route 顺序排列的兼容候选。
     pub fn candidates(&self) -> &[PreparedNativeCandidate] {
         &self.candidates
     }
 
+    /// 判断原请求是否要求 streaming。
     pub fn is_streaming(&self) -> bool {
         self.is_streaming
     }
 
+    /// 判断是否允许跨 deployment fallback。
     pub fn allows_fallback(&self) -> bool {
         self.allows_fallback
     }
 
+    /// 消费 prepared request 并取出其优先候选请求。
     pub fn into_request(self) -> ValidatedRequest {
         self.candidates
             .into_iter()
@@ -110,10 +118,12 @@ impl PreparedNativeRequest {
 }
 
 impl PreparedNativeCandidate {
+    /// 返回候选绑定的 deployment id。
     pub fn deployment_id(&self) -> &str {
         &self.deployment_id
     }
 
+    /// 返回候选对应的原生请求。
     pub fn request(&self) -> &ValidatedRequest {
         &self.request
     }
@@ -129,6 +139,7 @@ pub fn prepare_native_request(
     protocol: Protocol,
     body: Bytes,
 ) -> Result<PreparedNativeRequest, RouteError> {
+    // 先在本地解析协议需求，再对每个候选执行相同的 capability gate。
     let document: Value = serde_json::from_slice(&body).map_err(|_| RouteError::InvalidJson)?;
     let object = document.as_object().ok_or(RouteError::InvalidJson)?;
     let public_model = object

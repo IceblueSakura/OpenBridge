@@ -7,6 +7,7 @@
 use bytes::BytesMut;
 use thiserror::Error;
 
+/// SSE framing 或单事件大小校验失败。
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum SseDecodeError {
     #[error("SSE event exceeds the configured size limit")]
@@ -16,6 +17,7 @@ pub enum SseDecodeError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 一个已完成 SSE framing 的事件。
 pub struct SseEvent {
     event: Option<String>,
     data: String,
@@ -24,18 +26,22 @@ pub struct SseEvent {
 }
 
 impl SseEvent {
+    /// 返回可选的 SSE event 名称。
     pub fn event(&self) -> Option<&str> {
         self.event.as_deref()
     }
 
+    /// 返回拼接后的 data 字段。
     pub fn data(&self) -> &str {
         &self.data
     }
 
+    /// 返回可选的 SSE id。
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
     }
 
+    /// 返回可选的 retry 毫秒值。
     pub fn retry_ms(&self) -> Option<u64> {
         self.retry_ms
     }
@@ -53,6 +59,7 @@ pub struct SseDecoder {
 }
 
 impl SseDecoder {
+    /// 创建一个限制单事件大小的增量 decoder。
     pub fn new(max_event_bytes: usize) -> Self {
         Self {
             max_event_bytes,
@@ -62,6 +69,7 @@ impl SseDecoder {
         }
     }
 
+    /// 向 decoder 写入网络 chunk，并返回已经完成的 event。
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<SseEvent>, SseDecodeError> {
         self.buffered.extend_from_slice(chunk);
         let mut events = Vec::new();
@@ -101,6 +109,7 @@ impl SseDecoder {
         Ok(events)
     }
 
+    /// 标记输入结束，并返回 EOF 前已完成的 event。
     pub fn finish(&mut self) -> Result<Vec<SseEvent>, SseDecodeError> {
         if !self.buffered.is_empty() {
             self.current_bytes = self

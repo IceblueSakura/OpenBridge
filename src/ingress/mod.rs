@@ -60,6 +60,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// 创建可注入 transport 与 credential source 的服务状态。
     pub fn new(
         registry: Arc<RegistrySnapshot>,
         upstream: Arc<dyn UpstreamTransport>,
@@ -74,6 +75,7 @@ impl AppState {
         }
     }
 
+    /// 创建使用环境变量读取上游 credential 的生产运行时状态。
     pub fn with_environment_credentials(
         registry: Arc<RegistrySnapshot>,
         upstream: UpstreamClient,

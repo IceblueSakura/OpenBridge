@@ -22,6 +22,7 @@ pub struct CredentialLease {
 }
 
 impl CredentialLease {
+    /// 创建一次上游调用期间使用的 credential lease。
     pub fn new(
         provider: ProviderKind,
         binding_id: impl Into<String>,
@@ -36,14 +37,17 @@ impl CredentialLease {
         }
     }
 
+    /// 返回 credential 所属 provider。
     pub fn provider(&self) -> ProviderKind {
         self.provider
     }
 
+    /// 返回代码注册的 credential binding id。
     pub fn binding_id(&self) -> &str {
         &self.binding_id
     }
 
+    /// 返回 credential 版本标识，不包含 secret 内容。
     pub fn secret_version(&self) -> &str {
         &self.secret_version
     }
@@ -73,6 +77,9 @@ pub enum CredentialSourceError {
     BindingMismatch,
 }
 
+/// 从环境变量或固定测试值解析上游 credential 的来源。
+///
+/// `Fixed` 仅用于受控测试或显式注入；生产路径通常使用 [`CredentialSource::Environment`]。
 pub enum CredentialSource {
     Environment,
     Fixed {
@@ -82,10 +89,12 @@ pub enum CredentialSource {
 }
 
 impl CredentialSource {
+    /// 创建从环境变量读取 secret 的来源。
     pub fn environment() -> Self {
         Self::Environment
     }
 
+    /// 创建带有固定 locator 校验的内存 credential 来源。
     pub fn fixed(locator: impl Into<String>, secret: SecretString) -> Self {
         Self::Fixed {
             locator: locator.into(),
@@ -93,6 +102,7 @@ impl CredentialSource {
         }
     }
 
+    /// 按注册表中的 locator 解析一个短时 credential lease。
     pub fn resolve(
         &self,
         provider: ProviderKind,

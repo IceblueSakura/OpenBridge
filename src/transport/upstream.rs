@@ -14,6 +14,7 @@ use url::Url;
 
 use crate::{provider::UpstreamRequestParts, registry::ResolvedDeployment};
 
+/// 上游 transport 在构造 client、发送请求或读取超时边界时报告的错误。
 #[derive(Debug, Error)]
 pub enum UpstreamError {
     #[error("failed to construct the upstream HTTP client")]
@@ -26,6 +27,7 @@ pub enum UpstreamError {
     InvalidTarget,
 }
 
+/// ingress 与真实 HTTP client/测试 transport 之间的最小发送契约。
 pub trait UpstreamTransport: Send + Sync {
     fn send<'a>(
         &'a self,
@@ -35,11 +37,13 @@ pub trait UpstreamTransport: Send + Sync {
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
 }
 
+/// 复用连接池的共享上游 HTTP client。
 pub struct UpstreamClient {
     client: reqwest::Client,
 }
 
 impl UpstreamClient {
+    /// 按 bootstrap 策略创建一个禁用重定向的上游 client。
     pub fn new(
         connect_timeout: Duration,
         pool_idle_timeout: Duration,
@@ -165,6 +169,7 @@ impl fmt::Debug for UpstreamRequest {
     }
 }
 
+/// 上游响应的状态、前置头和流式 body。
 pub struct UpstreamResponse {
     status: StatusCode,
     headers: HeaderMap,
@@ -172,6 +177,7 @@ pub struct UpstreamResponse {
 }
 
 impl UpstreamResponse {
+    /// 创建一个用于测试或 transport 边界的响应。
     pub fn new(status: StatusCode, headers: HeaderMap, body: Body) -> Self {
         Self {
             status,
@@ -180,14 +186,17 @@ impl UpstreamResponse {
         }
     }
 
+    /// 返回 HTTP status。
     pub fn status(&self) -> StatusCode {
         self.status
     }
 
+    /// 返回上游响应头。
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
+    /// 消费响应并取得其流式 body。
     pub fn into_body(self) -> Body {
         self.body
     }

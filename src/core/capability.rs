@@ -7,11 +7,15 @@
 pub struct ProtocolCapabilities {
     /// 该端点是否可用。
     pub enabled: bool,
+    /// 是否支持以 SSE 返回增量结果。
     pub streaming: bool,
+    /// 是否支持 JSON-schema function tool 调用。
     pub function_calling: bool,
     /// 对请求 wire 字段 `parallel_tool_calls: true` 的支持。
     pub parallel_tool_calls: bool,
+    /// 是否支持图像输入内容 part。
     pub image_input: bool,
+    /// 是否支持结构化输出约束。
     pub structured_outputs: bool,
     /// 对请求 wire 字段 `store: true` 的支持。
     pub store: bool,
@@ -32,14 +36,23 @@ impl ProtocolCapabilities {
 /// Responses API 专有能力，以及与其共享的端点能力。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResponsesCapabilities {
+    /// Responses endpoint 是否可用。
     pub enabled: bool,
+    /// 是否支持 Responses streaming。
     pub streaming: bool,
+    /// 是否支持 function tool 调用。
     pub function_calling: bool,
+    /// 是否支持并行 tool calls。
     pub parallel_tool_calls: bool,
+    /// 是否支持图像输入。
     pub image_input: bool,
+    /// 是否支持结构化输出。
     pub structured_outputs: bool,
+    /// 是否支持持久化 response。
     pub store: bool,
+    /// 是否支持以 `previous_response_id` 继续对话状态。
     pub previous_response_id: bool,
+    /// 是否支持后台响应。
     pub background: bool,
 }
 
@@ -71,7 +84,9 @@ impl ResponsesCapabilities {
 /// Responses 分开建模，以免把一个端点的观察错误外推到另一个端点。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CapabilitySet {
+    /// Chat Completions endpoint 的能力上界。
     pub chat_completions: ProtocolCapabilities,
+    /// Responses endpoint 的能力上界。
     pub responses: ResponsesCapabilities,
 }
 
