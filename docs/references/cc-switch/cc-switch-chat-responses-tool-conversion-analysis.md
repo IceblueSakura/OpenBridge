@@ -2,7 +2,9 @@
 
 ## 结论
 
-cc-switch 的 Codex 路径证明：面向 agent 的 `Responses -> Chat -> Responses` bridge 必须同时处理**请求上下文、跨请求 tool-call 关联和流式事件生命周期**，不能只做字段替换。
+cc-switch 是面向 Code Agent 适配的实现；其 Codex 路径证明：`Responses -> Chat -> Responses` bridge 必须同时处理**请求上下文、跨请求 tool-call 关联和流式事件生命周期**，不能只做字段替换。
+
+**矩阵角色。** cc-switch 是 Code Agent Protocol Bridge 状态机的主参考，而不是部署、配置、OAuth、usage 或桌面产品的模板。2026-07-25 已将本地源码 fast-forward 至 `878c26f31e012ba32b9772bd080bd4fa9e7d495e` 并确认 `CodexToolContext`、`CodexChatHistoryStore`、`ChatToResponsesState` 与 `create_responses_sse_stream_from_chat_with_context` 仍在原定职责路径中；下方的细粒度行号继续绑定其原始固定快照，变更实现前必须在新 commit 上逐项复核。
 
 它对 OpenBridge 双向 Protocol Bridge 最有价值的参考不是其 JSON 代码本身，而是以下四个可验证的实现要点：
 
@@ -11,7 +13,7 @@ cc-switch 的 Codex 路径证明：面向 agent 的 `Responses -> Chat -> Respon
 3. 对 Chat SSE 维护每个 text、reasoning 和 tool call 的独立状态，累积 fragmented arguments，并按 `output_index` 重新发出完整 Responses lifecycle。
 4. 当 Chat 上游要求“assistant tool call 紧邻 tool result”而 Codex 只发送 `previous_response_id + function_call_output` 时，保存前轮 call item 并在下一轮补回。
 
-OpenBridge 应吸收这些状态机和 fixture 覆盖面，但仍应遵循既定的 **Bridge IR + `CapabilityProfile` + issuer-bound continuation ledger + `ConversionNotice`** 设计。cc-switch 的实现服务于本地桌面代理和 Codex 兼容性，包含 provider/model 名称启发式、行为性配置与未加 issuer/route binding 的 history fallback；这些不适合作为 OpenBridge 的通用核心契约。
+OpenBridge 应吸收这些状态机和 fixture 覆盖面，但仍应遵循既定的 **Bridge IR + `CapabilityProfile` + issuer-bound continuation ledger + `ConversionNotice`** 设计。cc-switch 的协议转换实现包含 provider/model 名称启发式、行为性配置与未加 issuer/route binding 的 history fallback；这些不适合作为 OpenBridge 的通用核心契约。其 Tauri/桌面组件、客户端配置接管和 usage UX 不属于 headless OpenBridge 的参考范围。
 
 ## 1. 调研范围与证据边界
 
@@ -22,7 +24,7 @@ OpenBridge 应吸收这些状态机和 fixture 覆盖面，但仍应遵循既定
 | 快照日期 | `2026-07-21` |
 | 调研路径 | `src-tauri/src/proxy/providers/`、`src-tauri/src/proxy/{forwarder,handlers}.rs` |
 | 重点路径 | Codex client 的 Responses API 接入，向 Chat Completions 或 Anthropic Messages 上游转换 |
-| 非结论 | cc-switch 不是 OpenBridge 依赖，也不构成 OpenBridge 的公开协议或安全承诺 |
+| 非结论 | cc-switch 不是 OpenBridge 依赖，也不构成 OpenBridge 的公开协议、安全承诺、GUI 或客户端管理范围 |
 
 本文主要分析 Responses <-> Chat 路径：
 
@@ -126,7 +128,7 @@ Codex 有时只在下一轮发送：
 
 cc-switch 的 history store 是进程内、最多 512 个 response 的 `HashMap<response_id, CachedResponse>`，并额外以全局 `call_id` 做“唯一时才使用”的 fallback（`codex_chat_history.rs:10-23`、`:261-307`）。该结构没有 issuer、provider、deployment、route snapshot、principal 或 TTL 字段。
 
-即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 的基础边界是不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/mod.rs:35-44`、`:170-174`；[产品范围](../functional-requirements/product-scope.md)）。
+即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 的基础边界是不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/mod.rs:35-44`、`:170-174`；[产品范围](../../functional-requirements/product-scope.md)）。
 
 OpenBridge 的 continuation ledger 至少应以以下信息绑定：
 
@@ -163,7 +165,7 @@ tool context
 - identity fragments 中空 id/name 不会覆盖已有值，见 `preserves_tool_identity_across_empty_continuation_deltas`（:948-979）。
 - 上游异常发 `response.failed` 而不再发 completed，见 :1191-1202。
 
-OpenBridge 的 [Chat/Responses 转换设计](../implementation-plans/protocol-bridge.md) 已规定 `output_item.done` 不是终态、必须只由协议 terminal event 或 final aggregate 决定。这一点比 cc-switch 的 EOF recovery 更严格：cc-switch 对“已有实质输出但无 finish_reason”的 Chat EOF 合成 `status=incomplete`（`streaming_codex_chat.rs:804-819`）。OpenBridge 应保留现有 `terminal_missing` 诊断策略，不能把这种恢复路径伪装成原生正常完成。
+OpenBridge 的 [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md) 已规定 `output_item.done` 不是终态、必须只由协议 terminal event 或 final aggregate 决定。这一点比 cc-switch 的 EOF recovery 更严格：cc-switch 对“已有实质输出但无 finish_reason”的 Chat EOF 合成 `status=incomplete`（`streaming_codex_chat.rs:804-819`）。OpenBridge 应保留现有 `terminal_missing` 诊断策略，不能把这种恢复路径伪装成原生正常完成。
 
 ## 6. Opaque reasoning 的安全边界
 
@@ -186,7 +188,7 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 ## 8. 由 cc-switch 补充的双向 bridge fixture 清单
 
-在现有 [转换设计的测试要求](../implementation-plans/protocol-bridge.md#13-测试性质) 之外，至少补充：
+在现有 [转换设计的测试要求](../../implementation-plans/protocol-bridge.md#13-测试性质) 之外，至少补充：
 
 1. **连续与并行 tool calls**：多个 `function_call` 先合并为一个 Chat assistant message；每个 `function_call_output` 仍按原 `call_id` 关联。
 2. **fragmented Chat tool delta**：id、name、arguments 分多帧到达；后续空字符串 fragment 不得擦除先前身份。
@@ -199,8 +201,8 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 ## 相关资源
 
-- [Chat/Responses 转换设计](../implementation-plans/protocol-bridge.md)
-- [Provider 适配与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
-- [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
-- [OpenAI Responses 协议](openai/responses-protocol.md)
-- [Codex OAuth 与工具调用分析](codex-oauth-and-tool-call-analysis.md)
+- [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md)
+- [Provider 适配与数据流](../../implementation-plans/provider-adapters-and-dataflow.md)
+- [交付与证据要求](../../functional-requirements/delivery-and-evidence.md)
+- [OpenAI Responses 协议](../openai/responses-protocol.md)
+- [Codex OAuth 与工具调用分析](../codex/codex-oauth-and-tool-call-analysis.md)

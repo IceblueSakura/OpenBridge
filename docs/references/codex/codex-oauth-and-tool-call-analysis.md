@@ -4,8 +4,10 @@
 
 **外部实现调研；不代表本项目已实现，也不构成上游 OAuth 使用授权。**
 
+**矩阵角色。** 本文现仅保留为 OAuth credential 的安全边界材料，不是 Codex 的主要参考目标；Codex 的 Rust SSE、终态和 tool lifecycle 已拆分到[专门调研](codex-sse-and-tool-lifecycle-analysis.md)。本文固定的 OAuth 证据仍绑定下列旧快照，不能用后续源码更新暗示 OAuth 已获 OpenBridge 采用或授权。
+
 - 源码快照：`F:/codespace/codex`，commit `0fb559f0f6e231a88ac02ea002d3ecd248e2b515`。
-- 调研范围：`codex-rs/login` 的 ChatGPT OAuth 登录/refresh/请求认证，以及 `codex-rs/core` 的 Responses tool call 生命周期。
+- 调研范围：`codex-rs/login` 的 ChatGPT OAuth 登录/refresh/请求认证，以及 `codex-rs/core` 的 Responses tool call 生命周期；后续按固定 commit 补充 SSE 解析、事件生命周期与工具调用回填的 Rust 源码观察。
 - 未读取、输出或复制任何本地 credential、`auth.json` 内容、client ID 或 token。
 - 本文的行号只适用于上述源码快照；上游接口、client registration 和服务条款必须以当前官方资料重新确认。
 
@@ -16,6 +18,10 @@
 3. Codex 的 refresh 采用进程内锁、先 guarded reload 再 authority refresh、持久化更新后 reload 的模式。该锁不是分布式锁，不能直接满足多实例 proxy；proxy 仍需 vault version/CAS 与跨实例 single-flight 方案。
 4. Codex 的工具闭环以 `call_id` 为不可替代的关联键：模型 `ResponseItem` → `ToolCall` → `ToolInvocation` → `ResponseInputItem::{FunctionCallOutput,CustomToolCallOutput}`，每一步保留同一 `call_id`。
 5. Codex 会在工具 output item 完成后调度本地工具，并可以在 `response.completed` 前开始执行；其工具执行、approval、sandbox、hook、取消和输出回填属于 Agent runtime 职责，不应被 proxy 的普通 function-tool bridge 隐式承担。
+
+### 1.1 后续 Rust 源码阅读重点
+
+Codex 是本地正在使用的 Agent，同时使用 Rust 实现；因此可作为 OpenBridge 的同语言参考，但不是需要管理或复用的客户端组件。后续调研必须固定 commit，并把以下事实与本地 fixture 分开记录：SSE bytes 的分帧/解析、事件到 response/tool item 的映射、`call_id` 在请求/响应/tool output 间的传递、并行工具与取消时的生命周期。当前文档尚未据此对 SSE 解析作实现结论。
 
 ## 2. OAuth：源码证据
 
@@ -159,13 +165,13 @@ Responses SSE / websocket item
 4. proxy 直接透传 Codex session/response continuation state 是否被支持；
 5. Codex 版本升级后上述私有实现细节是否仍稳定。
 
-因此，真实 Codex OAuth 仍需完成[产品范围](../functional-requirements/product-scope.md)定义的 `Codex OAuth preflight`，并取得官方文档、授权/条款确认和脱敏实测 fixture；在此之前只支持 mock OAuth adapter 或标准 API-key upstream。
+因此，真实 Codex OAuth 仍需完成[产品范围](../../functional-requirements/product-scope.md)定义的 `Codex OAuth preflight`，并取得官方文档、授权/条款确认和脱敏实测 fixture；在此之前只支持 mock OAuth adapter 或标准 API-key upstream。
 
 ## 6. 关联文档
 
-- [产品范围](../functional-requirements/product-scope.md)
-- [Codex OAuth 凭证边界](../implementation-plans/oauth-credential-boundary.md)
-- [Chat/Responses 转换设计](../implementation-plans/protocol-bridge.md)
-- [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
-- [Hermes Agent 协议分析](hermes-chat-responses-analysis.md)
-- [Hermes 与 LiteLLM ChatGPT OAuth 实现调研](hermes-litellm-oauth-analysis.md)
+- [产品范围](../../functional-requirements/product-scope.md)
+- [Codex OAuth 凭证边界](../../implementation-plans/oauth-credential-boundary.md)
+- [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md)
+- [交付与证据要求](../../functional-requirements/delivery-and-evidence.md)
+- [Hermes Agent 协议分析](../hermes/hermes-chat-responses-analysis.md)
+- [Hermes 与 LiteLLM ChatGPT OAuth 实现调研](../cross-project/hermes-litellm-oauth-analysis.md)

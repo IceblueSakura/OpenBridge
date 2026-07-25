@@ -4,6 +4,8 @@
 
 **外部实现调研；不代表本项目已实现，也不构成上游 OAuth 使用授权。**
 
+**矩阵角色。** 本文只用于识别 OAuth client identity、账户绑定、refresh 与本地 credential 存储不可被 proxy 外推的风险。它不构成 Codex/Hermes 的当前主要参考目标，也不授权 OpenBridge 导入本地 auth file、复用 device flow 或建立账号池。
+
 - Hermes Agent 源码快照：`F:/codespace/hermes-agent`，commit `e598cef87465981fcea1c0339edfcf5d9716c917`。
 - LiteLLM 源码快照：`F:/codespace/litellm`，commit `bd44c9e305b89526d4c5d773ee39ca935561b9c8`。
 - 调研范围：两个项目对 ChatGPT/Codex subscription 的 device-code 登录、token 持久化、refresh、账户 header 与运行期认证路径。
@@ -185,9 +187,9 @@ uv run pytest -q tests/hermes_cli/test_auth_codex_provider.py \
 
 ## 7. 关联文档
 
-- [产品范围](../functional-requirements/product-scope.md)
-- [Codex OAuth 凭证边界](../implementation-plans/oauth-credential-boundary.md)
-- [Codex OAuth 与工具调用源码调研](codex-oauth-and-tool-call-analysis.md)
-- [Hermes Agent Chat/Responses 分析](hermes-chat-responses-analysis.md)
-- [LiteLLM Chat/Responses 分析](litellm-chat-responses-analysis.md)
-- [配置与路由](../implementation-plans/configuration-and-routing.md)
+- [产品范围](../../functional-requirements/product-scope.md)
+- [Codex OAuth 凭证边界](../../implementation-plans/oauth-credential-boundary.md)
+- [Codex OAuth 与工具调用源码调研](../codex/codex-oauth-and-tool-call-analysis.md)
+- [Hermes Agent Chat/Responses 分析](../hermes/hermes-chat-responses-analysis.md)
+- [LiteLLM Chat/Responses 分析](../litellm/litellm-chat-responses-analysis.md)
+- [配置与路由](../../implementation-plans/configuration-and-routing.md)

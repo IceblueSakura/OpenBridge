@@ -2,7 +2,9 @@
 
 ## 范围与证据
 
-本文只分析本地 `F:/codespace/hermes-agent` 的当前源码快照：`main` 分支，提交 `c48d53413aa2c09f6d5703082361c2754f1d5350`。这里的 `codex_responses` 是 Hermes 对 OpenAI Responses 及若干兼容端点的内部模式名；它不是一个对外 HTTP proxy 路由。
+本文的详细行号分析固定于本地 `F:/codespace/hermes-agent` 的 `main` 提交 `c48d53413aa2c09f6d5703082361c2754f1d5350`。2026-07-25 已将本地源码 fast-forward 至 `760112adb6458417da8614d2269e5325f0739ed5` 并复核：`agent_init.py` 仍以显式 `api_mode` 优先、在自动升级到 `codex_responses` 后清空 transport cache；`agent/transports/codex.py` 仍由 `ResponsesApiTransport` 承担该路径。其余行号仍只适用于固定快照，升级结论前须逐项重读。
+
+**矩阵角色。** Hermes 是仅在声明兼容时启用的完整 Agent loop 互证样本：适合验证 Chat/Responses mode、tool result、Provider 切换和 stream terminal；不作为 OpenBridge 的 Provider/bridge 架构模板，也不引入其客户端、账号或 usage 产品功能。这里的 `codex_responses` 是 Hermes 对 OpenAI Responses 及若干兼容端点的内部模式名；它不是一个对外 HTTP proxy 路由。
 
 关键结论：Hermes 的稳定内部会话历史仍是 chat 风格 `messages`，但在选中 `codex_responses` 时将其编译为 Responses `input[]`，并在返回时归一化回 agent loop 需要的 assistant/tool-call 形状。它为不能在 Chat 模式中表达的状态额外保存了 `codex_reasoning_items`、`codex_message_items`、`call_id` 与 `response_item_id`。
 
