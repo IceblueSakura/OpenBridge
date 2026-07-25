@@ -1,7 +1,8 @@
 //! 编译期 Provider、Model、Deployment 与 Alias 注册表。
 //!
-//! 注册项由 `src/providers/*` 中的 Rust 代码显式构造。启动时 builder 对完整定义执行
-//! 引用、能力和安全边界校验，成功后生成请求路径只读的 `RegistrySnapshot`。
+//! 模型事实由 `src/models/*` 构造，Provider 与 deployment 由 `src/providers/*` 构造。
+//! 启动时 builder 对完整定义执行引用、能力和安全边界校验，成功后生成请求路径只读的
+//! `RegistrySnapshot`。
 
 use std::{
     collections::{BTreeMap, BTreeSet},

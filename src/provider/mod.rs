@@ -20,7 +20,10 @@ use thiserror::Error;
 
 use crate::{
     core::{CapabilitySet, Protocol, ValidatedRequest},
-    providers::openai::{self, OpenAiAdapter},
+    providers::{
+        meituan::{self, MeituanAdapter},
+        openai::{self, OpenAiAdapter},
+    },
     transport::sse::SseEvent,
 };
 
@@ -32,6 +35,8 @@ use crate::{
 pub enum ProviderKind {
     /// OpenAI-compatible provider。
     OpenAi,
+    /// 美团 LongCat OpenAI-compatible provider。
+    Meituan,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +99,7 @@ impl ProviderKind {
     pub fn descriptor(self) -> &'static ProviderDescriptor {
         match self {
             Self::OpenAi => &openai::DESCRIPTOR,
+            Self::Meituan => &meituan::DESCRIPTOR,
         }
     }
 
@@ -176,6 +182,7 @@ pub trait RequestAdapter {
 #[derive(Clone, Copy)]
 pub enum ProviderAdapter {
     OpenAi(OpenAiAdapter),
+    Meituan(MeituanAdapter),
 }
 
 impl ProviderAdapter {
@@ -183,6 +190,7 @@ impl ProviderAdapter {
     pub fn for_kind(kind: ProviderKind) -> Self {
         match kind {
             ProviderKind::OpenAi => Self::OpenAi(OpenAiAdapter),
+            ProviderKind::Meituan => Self::Meituan(MeituanAdapter),
         }
     }
 
@@ -190,6 +198,7 @@ impl ProviderAdapter {
     pub fn descriptor(&self) -> &'static ProviderDescriptor {
         match self {
             Self::OpenAi(_) => ProviderKind::OpenAi.descriptor(),
+            Self::Meituan(_) => ProviderKind::Meituan.descriptor(),
         }
     }
 
@@ -210,6 +219,7 @@ impl ProviderAdapter {
     pub(crate) fn encode_list_models_request(&self) -> UpstreamRequestParts {
         match self {
             Self::OpenAi(adapter) => adapter.encode_list_models_request(),
+            Self::Meituan(adapter) => adapter.encode_list_models_request(),
         }
     }
 }
@@ -222,6 +232,7 @@ impl RequestAdapter for ProviderAdapter {
     ) -> Result<UpstreamRequestParts, ProviderFailure> {
         match self {
             Self::OpenAi(adapter) => adapter.encode_request(request, upstream_model),
+            Self::Meituan(adapter) => adapter.encode_request(request, upstream_model),
         }
     }
 }
@@ -230,6 +241,7 @@ impl HeaderAdapter for ProviderAdapter {
     fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure> {
         match self {
             Self::OpenAi(adapter) => adapter.build_headers(),
+            Self::Meituan(adapter) => adapter.build_headers(),
         }
     }
 }
@@ -241,6 +253,7 @@ impl AuthAdapter for ProviderAdapter {
     ) -> Result<SensitiveHeaders, ProviderFailure> {
         match self {
             Self::OpenAi(adapter) => adapter.build_auth_headers(credential),
+            Self::Meituan(adapter) => adapter.build_auth_headers(credential),
         }
     }
 }
@@ -253,6 +266,7 @@ impl ResponseAdapter for ProviderAdapter {
     ) -> Result<DecodedEvent, ProviderFailure> {
         match self {
             Self::OpenAi(adapter) => adapter.decode_event(protocol, event),
+            Self::Meituan(adapter) => adapter.decode_event(protocol, event),
         }
     }
 }
@@ -261,6 +275,7 @@ impl ErrorAdapter for ProviderAdapter {
     fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError {
         match self {
             Self::OpenAi(adapter) => adapter.classify_status(status),
+            Self::Meituan(adapter) => adapter.classify_status(status),
         }
     }
 }
@@ -269,6 +284,7 @@ impl CapabilityAdapter for ProviderAdapter {
     fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure> {
         match self {
             Self::OpenAi(adapter) => adapter.validate_capabilities(requested),
+            Self::Meituan(adapter) => adapter.validate_capabilities(requested),
         }
     }
 }

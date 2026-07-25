@@ -7,7 +7,7 @@ use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::BootstrapPath,
+    config::{BootstrapPath, load_optional_dotenv},
     ingress::{AppState, StaticBearerCredential, build_router},
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
@@ -19,6 +19,7 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    load_optional_dotenv().context("failed to load optional .env file")?;
     init_tracing()?;
 
     let bootstrap = BootstrapPath::from_environment()

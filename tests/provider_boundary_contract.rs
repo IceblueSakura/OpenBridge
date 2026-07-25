@@ -107,6 +107,37 @@ fn provider_descriptor_is_compile_time_metadata() {
 }
 
 #[test]
+fn meituan_descriptor_exposes_only_the_verified_longcat_native_surface() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::Meituan);
+    let descriptor = adapter.descriptor();
+
+    assert_eq!(descriptor.kind(), ProviderKind::Meituan);
+    assert!(descriptor.capabilities().chat_completions.enabled);
+    assert!(descriptor.capabilities().responses.enabled);
+    assert!(descriptor.capabilities().chat_completions.streaming);
+    assert!(descriptor.capabilities().responses.streaming);
+    assert!(descriptor.capabilities().chat_completions.function_calling);
+    assert!(descriptor.capabilities().responses.function_calling);
+    assert!(
+        !descriptor
+            .capabilities()
+            .chat_completions
+            .parallel_tool_calls
+    );
+    assert!(!descriptor.capabilities().responses.parallel_tool_calls);
+    assert!(!descriptor.capabilities().chat_completions.image_input);
+    assert!(!descriptor.capabilities().responses.image_input);
+    assert!(
+        !descriptor
+            .capabilities()
+            .chat_completions
+            .structured_outputs
+    );
+    assert!(!descriptor.capabilities().responses.structured_outputs);
+    assert!(descriptor.endpoint_profiles().contains(&"longcat-openai"));
+}
+
+#[test]
 fn capability_adapter_rejects_feature_elevation_before_egress() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
     let supported = CapabilitySet {

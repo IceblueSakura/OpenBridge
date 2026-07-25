@@ -48,6 +48,10 @@ OpenAI 的 descriptor、注册项和具体 adapter 位于：
 
 - `src/providers/openai.rs`
 
+Provider-independent 模型事实位于：
+
+- `src/models/*`
+
 顶层显式注册入口位于：
 
 - `src/providers/mod.rs`
@@ -89,14 +93,15 @@ image、structured output、store、continuation、background、输出限制和 
 | `POST /v1/chat/completions` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
 | `POST /v1/responses` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
 
-下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`；OpenAI API key 来自 `OPENAI_API_KEY`。snapshot 只保存
+下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`；OpenAI API key 来自 `OPENAI_API_KEY`；LongCat API
+key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；snapshot 只保存
 环境变量名称，不保存值。
 
 默认启动：
 
 ```bash
-export OPENBRIDGE_DOWNSTREAM_TOKEN='local-client-token'
-export OPENAI_API_KEY='upstream-api-key'
+cp .env.example .env
+# 编辑 .env，填写下游 token 以及实际使用 Provider 的 API key。
 cargo run --bin openbridge --locked
 ```
 

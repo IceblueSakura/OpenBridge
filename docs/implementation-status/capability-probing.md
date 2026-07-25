@@ -12,7 +12,7 @@
 
 ## 代码注册的模型事实
 
-`src/providers/<provider>.rs` 中的 `ModelDefinition` 记录：
+`src/models/<model>.rs` 中的 `ModelDefinition` 记录：
 
 - 逻辑模型 id 和展示元数据；
 -已核实的 input/output token 上限；
@@ -23,7 +23,7 @@
 未知事实应留空或标记 `Unknown`。`context_length.output` 会在请求显式提供输出上限时参与候选筛选；
 `context_length.input` 当前只作元数据，因为尚无 model-specific tokenizer。
 
-Deployment capability 和约束同样由 Provider 文件中的 typed Rust 值声明，只能收窄
+Deployment capability 和约束由 Provider 文件中的 typed Rust 值声明，只能收窄
 `ProviderDescriptor` 上界。
 
 ## 显式 probe CLI

@@ -12,7 +12,7 @@ mod source;
 
 use document::RawBootstrap;
 
-pub use source::{BootstrapFileError, BootstrapPath};
+pub use source::{BootstrapFileError, BootstrapPath, load_optional_dotenv};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
 

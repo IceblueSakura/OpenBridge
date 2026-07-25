@@ -29,13 +29,16 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 当前 `main` 已实现一个 OpenAI API-key upstream 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 deployment candidate、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Provider、Model、Deployment 与 public alias 位于 [`src/providers`](src/providers) 的代码注册表中：
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；canonical Model 位于 [`src/models`](src/models)，Provider 与 Deployment 位于 [`src/providers`](src/providers)，public alias 由顶层代码注册表显式组合：
 
 ```bash
-export OPENBRIDGE_DOWNSTREAM_TOKEN='replace-with-a-local-client-token'
-export OPENAI_API_KEY='replace-with-an-upstream-api-key'
+cp .env.example .env
+# 编辑 .env，至少设置 OPENBRIDGE_DOWNSTREAM_TOKEN，并填写实际使用 Provider 的 API key。
 cargo run --bin openbridge --locked
 ```
+
+服务与 `openbridge-probe` 会可选加载当前目录或父目录中的 `.env`；已有进程环境变量优先。
+`.env` 已被 Git 忽略，仓库只提交不含真实凭证的 [`.env.example`](.env.example)。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 

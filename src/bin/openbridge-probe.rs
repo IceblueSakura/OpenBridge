@@ -6,7 +6,7 @@ use std::env;
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::BootstrapPath,
+    config::{BootstrapPath, load_optional_dotenv},
     probe::{ProbeSelection, probe_deployment},
     provider::CredentialSource,
     providers::build_compiled_registry,
@@ -15,6 +15,7 @@ use openbridge::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    load_optional_dotenv().context("failed to load optional .env file")?;
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
     let bootstrap = BootstrapPath::from_environment()
         .load()

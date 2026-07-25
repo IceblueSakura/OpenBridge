@@ -1,7 +1,8 @@
-//! OpenAI Provider 的编译期定义。
+//! 美团 LongCat Provider 的编译期定义。
 //!
-//! 认证、请求/响应/SSE 与错误行为由 `provider::OpenAiAdapter` 实现；本文件集中声明
-//! credential binding、endpoint、模型事实、deployment 能力和上游 model id。
+//! LongCat-2.0 通过 LongCat OpenAI-compatible 端点原生接收 Chat Completions 和
+//! Responses 请求。两种协议均保持原始 JSON/SSE wire 语义；本 adapter 只固定相对路径、
+//! 注入上游模型 id 与构造 Bearer 认证，不执行协议桥接。
 
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use crate::{
     core::{
         CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities, ValidatedRequest,
     },
-    models::CONFIGURED_MODEL_ID,
+    models::longcat,
     provider::{
         AuthAdapter, CapabilityAdapter, ClassifiedProviderError, CredentialKind, CredentialLease,
         DecodedEvent, ErrorAdapter, EventDisposition, HeaderAdapter, ProviderDescriptor,
@@ -27,54 +28,54 @@ use crate::{
     transport::sse::SseEvent,
 };
 
-/// OpenAI adapter 的静态能力与允许的 endpoint/credential 范围。
-pub static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
-    ProviderKind::OpenAi,
+/// 基于直连验证及 OpenRouter 模型目录的 LongCat OpenAI-compatible 能力上界。
+pub(crate) static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Meituan,
     CapabilitySet {
         chat_completions: ProtocolCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
         },
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
-            previous_response_id: true,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
+            previous_response_id: false,
             background: false,
         },
     },
-    &["public-api"],
+    &["longcat-openai"],
     &[CredentialKind::ApiKey],
 );
 
+/// LongCat 的 OpenAI-compatible adapter。
 #[derive(Clone, Copy)]
-/// OpenAI-compatible 请求与响应 adapter。
-pub struct OpenAiAdapter;
+pub struct MeituanAdapter;
 
-impl OpenAiAdapter {
+impl MeituanAdapter {
     pub(crate) fn encode_list_models_request(self) -> UpstreamRequestParts {
         UpstreamRequestParts::new(Method::GET, Uri::from_static("/v1/models"), Bytes::new())
     }
 }
 
-impl RequestAdapter for OpenAiAdapter {
+impl RequestAdapter for MeituanAdapter {
     fn encode_request(
         &self,
         request: &ValidatedRequest,
         upstream_model: &str,
     ) -> Result<UpstreamRequestParts, ProviderFailure> {
         let relative_uri = match request.protocol() {
-            Protocol::ChatCompletions => Uri::from_static("/v1/chat/completions"),
-            Protocol::Responses => Uri::from_static("/v1/responses"),
+            Protocol::ChatCompletions => Uri::from_static("/openai/v1/chat/completions"),
+            Protocol::Responses => Uri::from_static("/openai/v1/responses"),
         };
         let mut document: serde_json::Value = serde_json::from_slice(request.body())
             .map_err(|_| ProviderFailure::InvalidRequestBody)?;
@@ -93,7 +94,7 @@ impl RequestAdapter for OpenAiAdapter {
     }
 }
 
-impl HeaderAdapter for OpenAiAdapter {
+impl HeaderAdapter for MeituanAdapter {
     fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure> {
         let mut headers = SafeHeaders::default();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"))?;
@@ -101,12 +102,12 @@ impl HeaderAdapter for OpenAiAdapter {
     }
 }
 
-impl AuthAdapter for OpenAiAdapter {
+impl AuthAdapter for MeituanAdapter {
     fn build_auth_headers(
         &self,
         credential: &CredentialLease,
     ) -> Result<SensitiveHeaders, ProviderFailure> {
-        if credential.provider() != ProviderKind::OpenAi {
+        if credential.provider() != ProviderKind::Meituan {
             return Err(ProviderFailure::CredentialProviderMismatch);
         }
         let mut bearer = Zeroizing::new("Bearer ".to_owned());
@@ -117,7 +118,7 @@ impl AuthAdapter for OpenAiAdapter {
     }
 }
 
-impl ResponseAdapter for OpenAiAdapter {
+impl ResponseAdapter for MeituanAdapter {
     fn decode_event(
         &self,
         protocol: Protocol,
@@ -142,7 +143,7 @@ impl ResponseAdapter for OpenAiAdapter {
     }
 }
 
-impl ErrorAdapter for OpenAiAdapter {
+impl ErrorAdapter for MeituanAdapter {
     fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError {
         let (class, retry_hint) = match status {
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
@@ -164,7 +165,7 @@ impl ErrorAdapter for OpenAiAdapter {
     }
 }
 
-impl CapabilityAdapter for OpenAiAdapter {
+impl CapabilityAdapter for MeituanAdapter {
     fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure> {
         if requested.is_subset_of(*DESCRIPTOR.capabilities()) {
             Ok(())
@@ -174,61 +175,33 @@ impl CapabilityAdapter for OpenAiAdapter {
     }
 }
 
-pub struct OpenAiDefinition {
-    /// OpenAI provider 定义。
-    pub provider: ProviderDefinition,
-    /// OpenAI deployment 定义。
-    pub deployments: Vec<DeploymentDefinition>,
+pub(crate) struct MeituanDefinition {
+    pub(crate) provider: ProviderDefinition,
+    pub(crate) deployments: Vec<DeploymentDefinition>,
 }
 
-/// 构造当前编译版本内置的 OpenAI provider 定义。
-pub fn definition() -> OpenAiDefinition {
-    OpenAiDefinition {
+/// 构造 LongCat-2.0 的代码注册定义。
+pub(crate) fn definition() -> MeituanDefinition {
+    MeituanDefinition {
         provider: ProviderDefinition {
-            id: "openai".to_owned(),
-            kind: ProviderKind::OpenAi,
+            id: "meituan".to_owned(),
+            kind: ProviderKind::Meituan,
             credential: CredentialDefinition {
-                id: "openai-primary".to_owned(),
+                id: "meituan-longcat-primary".to_owned(),
                 kind: CredentialKind::ApiKey,
-                environment_variable: "OPENAI_API_KEY".to_owned(),
+                environment_variable: "LONGCAT_API_KEY".to_owned(),
             },
         },
         deployments: vec![DeploymentDefinition {
-            id: "openai-main".to_owned(),
-            provider: "openai".to_owned(),
-            model: CONFIGURED_MODEL_ID.to_owned(),
-            upstream_model: "configured-model".to_owned(),
-            endpoint_profile: "public-api".to_owned(),
-            base_url: "https://api.openai.com".to_owned(),
+            id: "meituan-longcat-2".to_owned(),
+            provider: "meituan".to_owned(),
+            model: longcat::MODEL_ID.to_owned(),
+            upstream_model: "LongCat-2.0".to_owned(),
+            endpoint_profile: "longcat-openai".to_owned(),
+            base_url: "https://api.longcat.chat".to_owned(),
             request_timeout: Duration::from_secs(120),
             model_constraints: ModelConstraints::default(),
-            capabilities: conservative_openai_capabilities(),
+            capabilities: *DESCRIPTOR.capabilities(),
         }],
-    }
-}
-
-/// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。
-pub const fn conservative_openai_capabilities() -> CapabilitySet {
-    CapabilitySet {
-        chat_completions: ProtocolCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-            previous_response_id: false,
-            background: false,
-        },
     }
 }

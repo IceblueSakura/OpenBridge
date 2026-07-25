@@ -49,13 +49,16 @@ Model 表示模型事实；Deployment 表示在一个具体 Provider endpoint �
 
 ## 2. 显式注册
 
-每个 Provider 文件返回自己的 typed definition：
+模型目录和 Provider 目录分别返回 typed definition：
 
 ```rust
+pub fn longcat_definition() -> ModelDefinition {
+    ModelDefinition { /* canonical model facts */ }
+}
+
 pub fn definition() -> OpenAiDefinition {
     OpenAiDefinition {
         provider: ProviderDefinition { /* ... */ },
-        models: vec![/* ... */],
         deployments: vec![/* ... */],
     }
 }
@@ -68,7 +71,7 @@ pub fn compiled_definition() -> RegistryDefinition {
     let openai = openai::definition();
     RegistryDefinition {
         providers: vec![openai.provider],
-        models: openai.models,
+        models: models::compiled_definitions(),
         deployments: openai.deployments,
         aliases: vec![/* ordered candidates */],
         /* ... */
@@ -165,11 +168,12 @@ tools、reasoning、image、structured output 或 streaming terminal。
 
 增加或修改 Provider/Model：
 
-1. 修改对应 `src/providers/<provider>.rs`；
-2. 必要时修改 `src/providers/mod.rs` 显式注册和 alias；
-3. 添加 descriptor、adapter、registry、routing 和 probe fixture；
-4. 运行默认验证；
-5. 重启服务。
+1. 模型事实修改对应 `src/models/<model>.rs`；
+2. Provider 行为和 deployment 修改对应 `src/providers/<provider>.rs`；
+3. 必要时修改 `src/models/mod.rs`、`src/providers/mod.rs` 的显式聚合和 alias；
+4. 添加 model、descriptor、adapter、registry、routing 和 probe fixture；
+5. 运行默认验证；
+6. 重启服务。
 
 没有 route migration、reload 或旧 schema 兼容步骤。
 

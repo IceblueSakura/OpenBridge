@@ -26,8 +26,12 @@ src/provider/
   mod.rs            # ProviderKind、descriptor 类型、闭合 enum dispatch
 
 src/providers/
-  mod.rs            # 唯一显式注册入口
-  openai.rs         # OpenAI descriptor、adapter、模型和 deployment 定义
+  mod.rs            # Provider/deployment 聚合与 alias
+  openai.rs         # OpenAI descriptor、adapter 和 deployment 定义
+
+src/models/
+  mod.rs            # canonical model 显式目录
+  longcat.rs        # LongCat 模型事实，与具体 Provider 无关
 
 src/registry/
   mod.rs            # definition、builder、校验与 immutable snapshot
@@ -44,7 +48,6 @@ src/registry/
 |---|---|
 | `ProviderDescriptor` | capability 上界、endpoint profile、credential kind |
 | `ProviderDefinition` | Provider id 与 credential binding |
-| `ModelDefinition[]` | 模型 id、上下文、参数、reasoning 与 level |
 | `DeploymentDefinition[]` | endpoint、真实 model id、timeout、能力收窄 |
 | `RequestAdapter` | path、upstream model 和字段转换 |
 | `HeaderAdapter` / `AuthAdapter` | 安全 header 与认证 |
@@ -54,6 +57,9 @@ src/registry/
 | discovery request | 固定上游模型列表/能力探测请求 |
 
 复杂转换必须写成 Rust 逻辑和 fixture，不能演变成通用 map/template DSL。
+
+`ModelDefinition[]` 由独立 `src/models/*` 目录维护；一个 canonical model 可以被多个
+Provider 的 deployment 引用。
 
 ## 4. Dispatch
 

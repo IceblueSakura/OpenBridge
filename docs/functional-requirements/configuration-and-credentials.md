@@ -11,8 +11,9 @@ route 热重载。
 | 来源 | 内容 | 能否包含 secret |
 |---|---|---|
 | `config/bootstrap.toml` | loopback listener、body/SSE 上限、共享 HTTP client 连接与超时策略 | 否 |
-| `src/providers/*` | Provider 行为、endpoint、credential binding、模型、deployment、alias、能力 | 否 |
-| 环境变量或后续受限 secret backend | 下游 Bearer token、上游 API key/OAuth material | 是 |
+| `src/models/*` | canonical 模型事实、token 限制、参数和 reasoning | 否 |
+| `src/providers/*` | Provider 行为、endpoint、credential binding、deployment、alias、能力 | 否 |
+| 进程环境变量、被忽略的 `.env` 或后续受限 secret backend | 下游 Bearer token、上游 API key/OAuth material | 是 |
 | 下游业务请求 | public model alias 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
 当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置。不存在
@@ -21,6 +22,7 @@ route 热重载。
 ## 2. 代码注册表要求
 
 - 每个具体 Provider 位于独立 `src/providers/<provider>.rs` 文件；
+- 每个 canonical Model 位于独立 `src/models/<model>.rs` 文件；
 - `src/providers/mod.rs::compiled_definition()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider descriptor 定义 adapter 能力上界、endpoint profile 和 credential kind；
@@ -34,7 +36,9 @@ route 热重载。
 ## 3. 凭证
 
 - 代码只保存非敏感 binding id、credential kind 和环境变量名称；
+- 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
 - 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
+- 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
 - 下游静态 token 从 `OPENBRIDGE_DOWNSTREAM_TOKEN` 获取；
 - snapshot、Debug、日志、错误响应和 probe report 不得包含 secret；
 - secret 只在准备上游请求时解析为短时 `CredentialLease`；
@@ -61,7 +65,8 @@ endpoint，必须增加显式、受限的 loopback endpoint 类型和独立测�
 ## 5. 生命周期
 
 ```text
-read bootstrap.toml
+optionally load .env
+→ read bootstrap.toml
 → validate BootstrapPolicy
 → compiled_definition()
 → validate and build RegistrySnapshot
