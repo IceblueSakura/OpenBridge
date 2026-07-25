@@ -11,8 +11,8 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 初期希望持续实现和验证的用户结果是：
 
 - 客户端可以使用稳定的 public model alias 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`，并获得 HTTP JSON 或 SSE 响应；
-- 服务所有者能在受信配置中管理 Provider、deployment、上游模型、credential reference 和 alias 候选顺序；
-- 服务所有者能以配置文件优先的方式管理上游 credential 与静态下游 Bearer token；私有密钥配置不进入版本控制，环境变量仅作为显式配置的兼容回退或部署注入手段；
+- 服务所有者能在显式 Rust 注册表中管理 Provider、deployment、上游模型、credential binding 和 alias 候选顺序；
+- 服务所有者通过显式 credential binding 与受限 secret source 管理上游 credential 和静态下游 Bearer token；secret 不进入代码注册表、版本控制或日志；
 - 下游和上游协议一致时，代理优先做最小改写的原生转发，尽量保留未知但合法的 wire 字段与流式语义；
 - 协议不一致时，只对明确研究过且能表达的语义使用受限转换；无法安全表达时应拒绝或给出清楚错误；
 - tool call、tool result、流结束、取消和必要的 continuation 信息在已支持的路径中保持可预测；

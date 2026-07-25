@@ -1,124 +1,44 @@
+mod support;
+
 use std::{path::PathBuf, time::Duration};
 
-use openbridge::config::{
-    ConfigError, ConfigFileError, ConfigManager, ConfigPaths, ReasoningSupport, load_registry,
+use openbridge::{
+    config::{BootstrapError, BootstrapFileError, BootstrapPath, load_bootstrap},
+    registry::{
+        AliasDefinition, ModelContextLength, ReasoningLevel, ReasoningSupport, RegistryError,
+        build_registry,
+    },
 };
-use openbridge::provider::{CredentialKind, ProviderKind};
 
-const BOOTSTRAP: &str = r#"
-schema_version = 1
-listen = "127.0.0.1:8080"
-allowed_origins = ["https://api.openai.com"]
-max_request_body_bytes = 1048576
-max_sse_event_bytes = 262144
-upstream_connect_timeout_ms = 5000
-upstream_pool_idle_timeout_ms = 90000
-upstream_pool_max_idle_per_host = 16
-"#;
-
-const ROUTES: &str = r#"
-schema_version = 1
-config_version = "test-1"
-
-[[models]]
-id = "openai/test-model"
-name = "Test model"
-description = "A model used by configuration contract tests."
-supported_parameters = ["max_tokens", "tools", "reasoning"]
-reasoning = "supported"
-
-[models.context_length]
-input = 128000
-output = 8192
-
-[[providers]]
-id = "openai"
-kind = "openai"
-
-[providers.credential]
-id = "openai-primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_API_KEY"
-
-[[deployments]]
-id = "openai-main"
-provider = "openai"
-model = "openai/test-model"
-upstream_model = "test-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-
-[[aliases]]
-name = "code-primary"
-candidates = ["openai-main"]
-"#;
+use support::{BOOTSTRAP, bootstrap, definition};
 
 #[test]
-fn valid_config_builds_a_resolved_registry() {
-    let registry = load_registry(BOOTSTRAP, ROUTES).expect("valid config should load");
+fn bootstrap_and_code_registry_build_a_resolved_snapshot() {
+    let mut definition = definition("test-1", "code-primary", "test-model");
+    definition.models[0].supported_parameters = vec![
+        "max_tokens".to_owned(),
+        "tools".to_owned(),
+        "reasoning".to_owned(),
+    ];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+
+    let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
 
     assert_eq!(registry.version().as_str(), "test-1");
+    assert_eq!(registry.listen().to_string(), "127.0.0.1:8080");
+    assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
+    assert_eq!(
+        registry.upstream_policy().connect_timeout(),
+        Duration::from_secs(5)
+    );
     let provider = registry.provider("openai").unwrap();
-    assert_eq!(provider.kind(), ProviderKind::OpenAi);
-    assert_eq!(provider.credential().id(), "openai-primary");
-    assert_eq!(provider.credential().kind(), CredentialKind::ApiKey);
     assert_eq!(provider.credential().secret_reference().scheme(), "env");
     assert_eq!(
         provider.credential().secret_reference().locator(),
         "OPENAI_API_KEY"
     );
-    assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
-    assert_eq!(registry.limits().max_sse_event_bytes(), 262_144);
-    assert_eq!(
-        registry.upstream_policy().connect_timeout(),
-        Duration::from_secs(5)
-    );
-    assert_eq!(
-        registry.upstream_policy().pool_idle_timeout(),
-        Duration::from_secs(90)
-    );
-    assert_eq!(registry.upstream_policy().pool_max_idle_per_host(), 16);
     let deployment = registry.deployment("openai-main").unwrap();
-    assert_eq!(deployment.provider_id(), "openai");
-    assert_eq!(deployment.model().id(), "openai/test-model");
     assert_eq!(deployment.upstream_model(), "test-model");
-    assert_eq!(deployment.endpoint_profile(), "public-api");
-    assert_eq!(deployment.request_timeout(), Duration::from_secs(120));
-    assert!(deployment.capabilities().responses.enabled);
-    let model = registry.model("openai/test-model").unwrap();
-    assert_eq!(model.name(), "Test model");
-    assert_eq!(
-        model.description(),
-        Some("A model used by configuration contract tests.")
-    );
-    assert_eq!(model.context_length().input_tokens(), Some(128_000));
-    assert_eq!(model.context_length().output_tokens(), Some(8_192));
-    assert_eq!(
-        model.supported_parameters(),
-        ["max_tokens", "tools", "reasoning"]
-    );
-    assert_eq!(model.reasoning(), ReasoningSupport::Supported);
     assert_eq!(
         deployment.endpoint_base().as_str(),
         "https://api.openai.com/"
@@ -130,109 +50,138 @@ fn valid_config_builds_a_resolved_registry() {
 }
 
 #[test]
-fn config_paths_load_the_same_owner_controlled_document_pair_for_server_and_cli() {
+fn bootstrap_path_only_loads_process_policy() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let paths = ConfigPaths::new(
-        root.join("config/bootstrap.toml"),
-        root.join("config/routes.toml"),
-    );
+    let path = BootstrapPath::new(root.join("config/bootstrap.toml"));
+    let policy = path.load().unwrap();
 
-    let snapshot = paths.load().expect("checked-in config should load");
+    assert!(policy.listen().ip().is_loopback());
+    assert!(path.path().ends_with("config/bootstrap.toml"));
 
-    assert_eq!(snapshot.version().as_str(), "dev-1");
-    assert!(paths.bootstrap().ends_with("config/bootstrap.toml"));
-    assert!(paths.routes().ends_with("config/routes.toml"));
-
-    let missing = ConfigPaths::new(root.join("config/missing-bootstrap.toml"), paths.routes());
+    let missing = BootstrapPath::new(root.join("config/missing-bootstrap.toml"));
     assert!(matches!(
         missing.load().unwrap_err(),
-        ConfigFileError::Read {
-            document: "bootstrap",
-            ..
-        }
+        BootstrapFileError::Read { .. }
     ));
 }
 
 #[test]
-fn model_metadata_is_part_of_the_initial_routes_schema_v1() {
-    let unsupported_version = ROUTES.replacen("schema_version = 1", "schema_version = 2", 1);
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &unsupported_version).unwrap_err(),
-        ConfigError::UnsupportedSchema {
-            document: "routes",
-            actual: 2
-        }
-    ));
-}
-
-#[test]
-fn model_context_length_and_supported_parameters_are_validated() {
-    let invalid = ROUTES.replace("output = 8192", "output = 0");
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &invalid).unwrap_err(),
-        ConfigError::InvalidModelContextLength { model, limit }
-            if model == "openai/test-model" && limit == "output"
-    ));
-
-    let duplicate = ROUTES.replace(
-        "[\"max_tokens\", \"tools\", \"reasoning\"]",
-        "[\"max_tokens\", \"tools\", \"tools\"]",
+fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
+    let unknown = BOOTSTRAP.replace(
+        "listen = \"127.0.0.1:8080\"",
+        "listen = \"127.0.0.1:8080\"\nprovider = \"dynamic\"",
     );
     assert!(matches!(
-        load_registry(BOOTSTRAP, &duplicate).unwrap_err(),
-        ConfigError::DuplicateSupportedParameter { model, parameter }
-            if model == "openai/test-model" && parameter == "tools"
+        load_bootstrap(&unknown),
+        Err(BootstrapError::Parse)
     ));
 
-    let invalid_parameter = ROUTES.replace("\"max_tokens\"", "\"max-tokens\"");
+    let non_loopback = BOOTSTRAP.replace("127.0.0.1", "0.0.0.0");
     assert!(matches!(
-        load_registry(BOOTSTRAP, &invalid_parameter).unwrap_err(),
-        ConfigError::InvalidSupportedParameter { model, parameter }
-            if model == "openai/test-model" && parameter == "max-tokens"
+        load_bootstrap(&non_loopback),
+        Err(BootstrapError::NonLoopbackListen { .. })
     ));
 
-    let inconsistent_reasoning =
-        ROUTES.replace("reasoning = \"supported\"", "reasoning = \"unsupported\"");
+    let zero = BOOTSTRAP.replace("max_sse_event_bytes = 262144", "max_sse_event_bytes = 0");
     assert!(matches!(
-        load_registry(BOOTSTRAP, &inconsistent_reasoning).unwrap_err(),
-        ConfigError::InconsistentReasoningMetadata { model, .. }
-            if model == "openai/test-model"
+        load_bootstrap(&zero),
+        Err(BootstrapError::InvalidLimit {
+            name: "max_sse_event_bytes"
+        })
     ));
 }
 
 #[test]
-fn deployment_must_reference_a_configured_model() {
-    let routes = ROUTES.replace(
-        "model = \"openai/test-model\"",
-        "model = \"openai/missing-model\"",
-    );
-
+fn model_metadata_and_typed_constraints_are_validated() {
+    let mut invalid = definition("test", "code-primary", "test-model");
+    invalid.models[0].context_length = ModelContextLength::new(None, Some(0));
     assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::UnknownReference {
-            entity,
-            id,
-            target,
-            reference,
-        } if entity == "deployment"
-            && id == "openai-main"
-            && target == "model"
-            && reference == "openai/missing-model"
+        build_registry(bootstrap(BOOTSTRAP), invalid),
+        Err(RegistryError::InvalidModelContextLength { .. })
+    ));
+
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate.models[0].supported_parameters = vec!["tools".to_owned(), "tools".to_owned()];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::DuplicateSupportedParameter { .. })
+    ));
+
+    let mut inconsistent = definition("test", "code-primary", "test-model");
+    inconsistent.models[0].reasoning = ReasoningSupport::Supported;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), inconsistent),
+        Err(RegistryError::InconsistentReasoningMetadata { .. })
+    ));
+
+    let mut invalid_levels = definition("test", "code-primary", "test-model");
+    invalid_levels.models[0].reasoning_levels = vec![ReasoningLevel::Low];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_levels),
+        Err(RegistryError::InconsistentReasoningMetadata { .. })
+    ));
+
+    let mut duplicate_levels = definition("test", "code-primary", "test-model");
+    duplicate_levels.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    duplicate_levels.models[0].reasoning = ReasoningSupport::Supported;
+    duplicate_levels.models[0].reasoning_levels = vec![ReasoningLevel::High, ReasoningLevel::High];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate_levels),
+        Err(RegistryError::InconsistentReasoningMetadata { .. })
     ));
 }
 
 #[test]
-fn deployment_base_url_may_include_a_trusted_path_prefix() {
+fn deployment_constraints_only_reduce_model_metadata() {
+    let mut definition = definition("test", "code-primary", "test-model");
+    definition.models[0].supported_parameters =
+        vec!["max_tokens".to_owned(), "reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.deployments[0].model_constraints.context_length =
+        ModelContextLength::new(Some(64_000), Some(4_096));
+    definition.deployments[0].model_constraints.reasoning = Some(ReasoningSupport::Unsupported);
+    definition.deployments[0]
+        .model_constraints
+        .disabled_parameters = vec!["reasoning".to_owned()];
+
+    let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
+    let base = registry.model("openai/test-model").unwrap();
+    let effective = registry.deployment("openai-main").unwrap().model();
+
+    assert_eq!(base.context_length().output_tokens(), Some(8_192));
+    assert_eq!(base.reasoning(), ReasoningSupport::Supported);
+    assert_eq!(effective.context_length().output_tokens(), Some(4_096));
+    assert_eq!(effective.reasoning(), ReasoningSupport::Unsupported);
+    assert_eq!(effective.supported_parameters(), ["max_tokens"]);
+}
+
+#[test]
+fn deployment_constraints_cannot_widen_model_metadata() {
+    let mut widened = definition("test", "code-primary", "test-model");
+    widened.deployments[0].model_constraints.context_length =
+        ModelContextLength::new(None, Some(8_193));
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), widened),
+        Err(RegistryError::DeploymentModelConstraintExceedsModelLimit { .. })
+    ));
+
+    let mut definition = definition("test", "code-primary", "test-model");
+    definition.deployments[0].model_constraints.reasoning = Some(ReasoningSupport::Supported);
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), definition),
+        Err(RegistryError::DeploymentModelConstraintWidensModelMetadata { .. })
+    ));
+}
+
+#[test]
+fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
     for base_url in [
         "https://api.openai.com/openai",
         "https://api.openai.com/openai/",
     ] {
-        let routes = ROUTES.replace("https://api.openai.com", base_url);
-
-        let registry = load_registry(BOOTSTRAP, &routes)
-            .expect("a deployment may use a trusted path prefix under an allowlisted origin");
-
+        let mut definition = definition("test", "code-primary", "test-model");
+        definition.deployments[0].base_url = base_url.to_owned();
+        let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
         assert_eq!(
             registry
                 .deployment("openai-main")
@@ -242,244 +191,68 @@ fn deployment_base_url_may_include_a_trusted_path_prefix() {
             "https://api.openai.com/openai/"
         );
     }
-}
 
-#[test]
-fn deployment_base_url_rejects_unsafe_path_prefixes() {
     for base_url in [
+        "http://api.openai.com",
         "https://api.openai.com/openai?target=attacker.invalid",
         "https://api.openai.com/openai//admin",
         "https://api.openai.com/openai/%2Fadmin",
     ] {
-        let routes = ROUTES.replace("https://api.openai.com", base_url);
-
+        let mut definition = definition("test", "code-primary", "test-model");
+        definition.deployments[0].base_url = base_url.to_owned();
         assert!(matches!(
-            load_registry(BOOTSTRAP, &routes).unwrap_err(),
-            ConfigError::InvalidBaseUrl { deployment } if deployment == "openai-main"
+            build_registry(bootstrap(BOOTSTRAP), definition),
+            Err(RegistryError::InvalidBaseUrl { .. })
         ));
     }
 }
 
 #[test]
-fn reload_is_atomic_and_does_not_mutate_in_flight_snapshots() {
-    let initial = load_registry(BOOTSTRAP, ROUTES).unwrap();
-    let manager = ConfigManager::new(initial);
-    let in_flight = manager.snapshot();
-
-    let invalid = ROUTES.replace("kind = \"openai\"", "kind = \"unknown\"");
-    assert!(manager.reload(BOOTSTRAP, &invalid).is_err());
-    assert_eq!(manager.snapshot().version().as_str(), "test-1");
-
-    let updated = ROUTES.replace("test-1", "test-2");
-    manager.reload(BOOTSTRAP, &updated).unwrap();
-
-    assert_eq!(manager.snapshot().version().as_str(), "test-2");
-    assert_eq!(in_flight.version().as_str(), "test-1");
-}
-
-#[test]
-fn reload_rejects_bootstrap_policy_changes() {
-    let changed_bootstraps = [
-        BOOTSTRAP.replace("127.0.0.1:8080", "127.0.0.1:8081"),
-        BOOTSTRAP.replace(
-            "[\"https://api.openai.com\"]",
-            "[\"https://api.openai.com\", \"https://other.invalid\"]",
-        ),
-        BOOTSTRAP.replace(
-            "max_request_body_bytes = 1048576",
-            "max_request_body_bytes = 2048",
-        ),
-        BOOTSTRAP.replace(
-            "upstream_pool_max_idle_per_host = 16",
-            "upstream_pool_max_idle_per_host = 8",
-        ),
-    ];
-    let updated_routes = ROUTES.replace("test-1", "test-2");
-
-    for changed_bootstrap in changed_bootstraps {
-        let initial = load_registry(BOOTSTRAP, ROUTES).unwrap();
-        let manager = ConfigManager::new(initial);
-
-        let error = manager
-            .reload(&changed_bootstrap, &updated_routes)
-            .unwrap_err();
-
-        assert!(matches!(error, ConfigError::BootstrapPolicyChanged));
-        assert_eq!(manager.snapshot().version().as_str(), "test-1");
-        assert_eq!(
-            manager.snapshot().limits().max_request_body_bytes(),
-            1_048_576
-        );
-    }
-}
-
-#[test]
-fn plaintext_credentials_are_rejected_before_snapshot_creation() {
-    let routes = ROUTES.replace("env://OPENAI_API_KEY", "sk-plaintext-secret");
-
-    let error = load_registry(BOOTSTRAP, &routes).unwrap_err();
-
+fn registry_rejects_duplicate_and_unknown_references() {
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate.models.push(duplicate.models[0].clone());
     assert!(matches!(
-        error,
-        ConfigError::InvalidSecretReference { provider } if provider == "openai"
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::DuplicateId {
+            entity: "model",
+            ..
+        })
+    ));
+
+    let mut unknown = definition("test", "code-primary", "test-model");
+    unknown.aliases[0].candidates = vec!["missing".to_owned()];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unknown),
+        Err(RegistryError::UnknownReference {
+            entity: "alias",
+            ..
+        })
+    ));
+
+    let mut duplicate_candidate = definition("test", "code-primary", "test-model");
+    duplicate_candidate.aliases = vec![AliasDefinition {
+        name: "code-primary".to_owned(),
+        candidates: vec!["openai-main".to_owned(), "openai-main".to_owned()],
+    }];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate_candidate),
+        Err(RegistryError::DuplicateAliasCandidate { .. })
     ));
 }
 
 #[test]
-fn bootstrap_rejects_non_loopback_listeners() {
-    let bootstrap = BOOTSTRAP.replace("127.0.0.1", "0.0.0.0");
-
-    let error = load_registry(&bootstrap, ROUTES).unwrap_err();
-
-    assert!(matches!(error, ConfigError::NonLoopbackListen { .. }));
-}
-
-#[test]
-fn unknown_provider_kinds_are_rejected_during_load() {
-    let routes = ROUTES.replace("kind = \"openai\"", "kind = \"dynamic\"");
-
+fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
+    let mut elevation = definition("test", "code-primary", "test-model");
+    elevation.deployments[0].capabilities.responses.background = true;
     assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::UnknownProviderKind { kind } if kind == "dynamic"
+        build_registry(bootstrap(BOOTSTRAP), elevation),
+        Err(RegistryError::CapabilityElevation { .. })
     ));
-}
 
-#[test]
-fn deployment_origin_must_be_in_bootstrap_allowlist() {
-    let routes = ROUTES.replace("https://api.openai.com", "https://attacker.invalid");
-
+    let mut locator = definition("test", "code-primary", "test-model");
+    locator.providers[0].credential.environment_variable = "not-valid".to_owned();
     assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::OriginNotAllowed { .. }
-    ));
-}
-
-#[test]
-fn deployment_cannot_elevate_adapter_capabilities() {
-    let routes = ROUTES.replace("background = false", "background = true");
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::CapabilityElevation { .. }
-    ));
-}
-
-#[test]
-fn unknown_route_config_fields_are_rejected() {
-    let routes = ROUTES.replace(
-        "config_version = \"test-1\"",
-        "config_version = \"test-1\"\narbitrary_headers = true",
-    );
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::RouteParse
-    ));
-}
-
-#[test]
-fn route_parse_errors_do_not_echo_source_text() {
-    let routes = ROUTES.replace(
-        "secret_ref = \"env://OPENAI_API_KEY\"",
-        "secret_ref = \"SENSITIVE_LOCATOR_MUST_NOT_APPEAR",
-    );
-
-    let error = load_registry(BOOTSTRAP, &routes).unwrap_err();
-    let rendered = format!("{error:?} {error}");
-
-    assert!(!rendered.contains("SENSITIVE_LOCATOR_MUST_NOT_APPEAR"));
-}
-
-#[test]
-fn unsupported_credential_kinds_are_rejected() {
-    let routes = ROUTES.replace("kind = \"api_key\"", "kind = \"oauth\"");
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::UnsupportedCredentialKind { provider, kind }
-            if provider == "openai" && kind == "oauth"
-    ));
-}
-
-#[test]
-fn unavailable_secret_reference_backends_are_rejected() {
-    let routes = ROUTES.replace("env://OPENAI_API_KEY", "vault://openai/key");
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::InvalidSecretReference { .. }
-    ));
-}
-
-#[test]
-fn zero_runtime_limits_are_rejected() {
-    let bootstrap = BOOTSTRAP.replace("max_sse_event_bytes = 262144", "max_sse_event_bytes = 0");
-
-    assert!(matches!(
-        load_registry(&bootstrap, ROUTES).unwrap_err(),
-        ConfigError::InvalidLimit {
-            name: "max_sse_event_bytes"
-        }
-    ));
-}
-
-#[test]
-fn zero_upstream_pool_policy_values_are_rejected() {
-    let bootstrap = BOOTSTRAP.replace(
-        "upstream_pool_idle_timeout_ms = 90000",
-        "upstream_pool_idle_timeout_ms = 0",
-    );
-
-    assert!(matches!(
-        load_registry(&bootstrap, ROUTES).unwrap_err(),
-        ConfigError::InvalidLimit {
-            name: "upstream_pool_idle_timeout_ms"
-        }
-    ));
-}
-
-#[test]
-fn duplicate_alias_candidates_are_rejected() {
-    let routes = ROUTES.replace(
-        "candidates = [\"openai-main\"]",
-        "candidates = [\"openai-main\", \"openai-main\"]",
-    );
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::DuplicateAliasCandidate { alias, candidate }
-            if alias == "code-primary" && candidate == "openai-main"
-    ));
-}
-
-#[test]
-fn zero_request_timeouts_are_rejected() {
-    let routes = ROUTES.replace("request_timeout_ms = 120000", "request_timeout_ms = 0");
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::InvalidRequestTimeout { deployment } if deployment == "openai-main"
-    ));
-}
-
-#[test]
-fn credential_binding_ids_must_be_unique() {
-    let duplicate_provider = r#"
-[[providers]]
-id = "openai-secondary"
-kind = "openai"
-
-[providers.credential]
-id = "openai-primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_SECONDARY_API_KEY"
-
-[[deployments]]
-"#;
-    let routes = ROUTES.replace("[[deployments]]", duplicate_provider);
-
-    assert!(matches!(
-        load_registry(BOOTSTRAP, &routes).unwrap_err(),
-        ConfigError::DuplicateId { entity: "credential", id } if id == "openai-primary"
+        build_registry(bootstrap(BOOTSTRAP), locator),
+        Err(RegistryError::InvalidCredentialLocator { .. })
     ));
 }

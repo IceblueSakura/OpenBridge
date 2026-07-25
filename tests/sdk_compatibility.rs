@@ -1,3 +1,5 @@
+mod support;
+
 use std::{
     convert::Infallible,
     env, fs,
@@ -10,72 +12,14 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
-    config::{ConfigManager, ResolvedDeployment, load_registry},
     ingress::{AppState, StaticBearerCredential, build_router},
     provider::{CredentialSource, UpstreamRequestParts},
+    registry::ResolvedDeployment,
     transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
-
-const BOOTSTRAP: &str = r#"
-schema_version = 1
-listen = "127.0.0.1:8080"
-allowed_origins = ["https://api.openai.com"]
-max_request_body_bytes = 1048576
-max_sse_event_bytes = 262144
-upstream_connect_timeout_ms = 5000
-upstream_pool_idle_timeout_ms = 90000
-upstream_pool_max_idle_per_host = 16
-"#;
-
-const ROUTES: &str = r#"
-schema_version = 1
-config_version = "sdk-compatibility"
-[[models]]
-id = "openai/upstream-model"
-name = "Upstream model"
-supported_parameters = []
-reasoning = "unknown"
-[[providers]]
-id = "openai"
-kind = "openai"
-[providers.credential]
-id = "openai-primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_API_KEY"
-[[deployments]]
-id = "openai-main"
-provider = "openai"
-model = "openai/upstream-model"
-upstream_model = "upstream-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-[[aliases]]
-name = "public-model"
-candidates = ["openai-main"]
-"#;
 
 struct SdkFixtureTransport;
 
@@ -144,9 +88,9 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
 }
 
 fn app() -> axum::Router {
-    let snapshot = load_registry(BOOTSTRAP, ROUTES).unwrap();
+    let snapshot = support::snapshot("sdk-compatibility", "public-model", "upstream-model");
     build_router(AppState::new(
-        Arc::new(ConfigManager::new(snapshot)),
+        Arc::new(snapshot),
         Arc::new(SdkFixtureTransport),
         StaticBearerCredential::new(SecretString::from("downstream-token".to_owned())),
         CredentialSource::fixed(

@@ -2,94 +2,33 @@
 
 ## 状态与边界
 
-本文描述当前已实现的管理员显式 probe。它是配置与未来扩展的**证据来源**，不是自动配置或真实 Provider 验收的替代品。
+当前实现提供管理员显式 probe。它使用代码注册表中的固定 deployment，是证据报告，不是动态配置。
 
-- 下游 `GET /v1/models` 的语义不变：只返回 `routes.toml` 中显式配置的 public alias，绝不转发或合并上游模型列表。
-- probe 只可由本地命令显式发起；它使用选定 deployment 的固定 `base_url`、Provider adapter 和 credential reference，不接受命令行 URL、model、header 或 credential。
-- probe 仅输出 JSON report，不写回 `routes.toml`、不改变运行中的 snapshot，也不自动修改 capability 标记。
-- 每个非列表 probe 都会调用上游模型，可能消耗配额或触发限流；真实 Provider 运行前应取得服务所有者授权。
+- 下游 `GET /v1/models` 只返回代码注册的 public alias；
+- probe 使用固定 endpoint、adapter、upstream model 和 credential binding；
+- CLI 不接受 URL、model、header 或 credential；
+- report 不修改 `RegistrySnapshot` 或 Rust 注册项；
+-真实 Provider probe 可能消耗配额或触发限流。
 
-`routes.toml` 的初始且未发布 schema 为 `schema_version = 1`，其中已包含独立 `[[models]]` 元信息目录，
-并要求每个 deployment 通过 `model` 引用目录项。当前没有旧 schema 的兼容承诺；未知字段和不是 v1 的
-schema 都会在加载时拒绝。`bootstrap.toml` 也使用独立的 schema v1，因为其安全策略结构没有变化。
+## 代码注册的模型事实
 
-## 手工维护的模型限制
+`src/providers/<provider>.rs` 中的 `ModelDefinition` 记录：
 
-为真实上游模型建立目录项后，服务所有者可在 `routes.toml` 中维护 OpenRouter 风格的基础元信息和已核实 token 上限：
+- 逻辑模型 id 和展示元数据；
+-已核实的 input/output token 上限；
+-支持参数集合；
+- reasoning 三态；
+-支持的标准 reasoning level。
 
-```toml
-[[models]]
-id = "openai/actual-model"
-name = "Actual model"
-description = "Owner-maintained metadata verified against the upstream."
-supported_parameters = ["max_tokens", "tools", "reasoning"]
-reasoning = "supported"
+未知事实应留空或标记 `Unknown`。`context_length.output` 会在请求显式提供输出上限时参与候选筛选；
+`context_length.input` 当前只作元数据，因为尚无 model-specific tokenizer。
 
-[models.context_length]
-input = 128000
-output = 16384
-
-[[deployments]]
-id = "openai-main"
-model = "openai/actual-model"
-upstream_model = "actual-model-id"
-# 其他 deployment 字段省略
-```
-
-`description` 可省略；`context_length.input` 和 `context_length.output` 也可分别省略，表示当前本地不对该维度作断言。值为 `0`、空模型 ID/名称、重复或非法的 `supported_parameters` 均会导致配置加载失败。
-
-`context_length.input` 当前仅作为已知模型元数据保存。OpenBridge 尚未集成 model-specific tokenizer，不能用 JSON 字节数安全地判断实际输入 token，因此不会伪造 context 超限检查。
-
-`context_length.output` 会在请求明确携带输出上限时参与候选筛选：
-
-- Responses 的 `max_output_tokens`；
-- Chat 的 `max_completion_tokens` 或兼容字段 `max_tokens`。
-
-若请求中多个字段同时出现，OpenBridge 以最大值比较；超出配置值的 candidate 在 egress 前被排除。未声明请求级上限时，仍由上游模型的默认行为决定实际输出。
-
-## 原生 capability 字段
-
-deployment capability 是服务所有者的显式、fail-closed 声明。它按端点分域，避免将
-Chat Completions 的观察外推到 Responses，或反之：
-
-```toml
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-```
-
-- `function_calling` 是功能语义；实际请求使用 `tools[]`，模型返回 tool/function call。
-  当前只覆盖 `type: "function"` 的 JSON-schema function tool；built-in/custom tool 尚未有独立
-  capability 或 probe，因而会在上游调用前 fail-closed 拒绝。
-- `parallel_tool_calls` 与请求 wire 字段同名，仅在请求同时带有非空 `tools[]` 和
-  `parallel_tool_calls: true` 时被要求。模型偶然返回多个 tool calls 不会自动推断为并行能力。
-- `image_input` 是语义字段；Chat 识别 `image_url` content part，Responses 识别
-  `input_image` content part。
-- `structured_outputs` 同时覆盖 Chat 的 `response_format`、Responses 的 `text.format`，以及两种
-  function tool shape 中的 `strict: true`。
-- `store` 与请求 wire 字段同名，分别在两个端点域内声明；`previous_response_id` 和 `background`
-  只在 Responses 域中存在。
-- 配置仍只能收窄编译期 Provider adapter 的能力上界；不能用 TOML 宣称 adapter 没有实现的功能。
+Deployment capability 和约束同样由 Provider 文件中的 typed Rust 值声明，只能收窄
+`ProviderDescriptor` 上界。
 
 ## 显式 probe CLI
 
-使用与服务进程相同的 `OPENBRIDGE_BOOTSTRAP_CONFIG`、`OPENBRIDGE_ROUTES_CONFIG` 和上游 credential 环境变量：
+服务和 probe 只共享 `OPENBRIDGE_BOOTSTRAP_CONFIG` 与已注册 credential 环境变量：
 
 ```powershell
 cargo run --bin openbridge-probe -- --deployment openai-main --list-models
@@ -97,25 +36,24 @@ cargo run --bin openbridge-probe -- --deployment openai-main --list-models
 cargo run --bin openbridge-probe -- --deployment openai-main --chat --responses --function-calling
 ```
 
-可选项为 `--list-models`、`--chat`、`--responses`、`--function-calling`；不传任一选择项等同
-`--all`。必须显式给出已配置的 `--deployment`。标准输出为不含 secret、请求正文和上游响应正文的 JSON report。
+可选项为 `--list-models`、`--chat`、`--responses`、`--function-calling` 和 `--all`。没有选择项时
+等同 `--all`。`--deployment` 必须引用代码注册项。
 
 | 探测项 | 固定上游请求 | 成功条件 |
 |---|---|---|
-| `list_models` | `GET /v1/models` | 返回 JSON `data[]`；报告模型 ID 和当前 `upstream_model` 是否列出。 |
-| `chat` | 最小 `POST /v1/chat/completions` | 返回非空 `choices[]`。 |
-| `responses` | 最小 `POST /v1/responses` | 返回 `object: "response"`。 |
-| `chat_function_calling` | 强制调用一个无副作用的固定 function，再回传本地固定结果 | 初始 call 有预期名称、关联 ID 和可解析 JSON arguments，且 tool result replay 得到有效 Chat 响应。 |
-| `responses_function_calling` | 同上，使用 `function_call` / `function_call_output` | call ID、名称、arguments 和 replay 均满足 Responses 形状。 |
+| `list_models` | `GET /v1/models` | 返回 JSON `data[]`；报告模型 ID 和注册的 upstream model 是否列出。 |
+| `chat` | 最小 Chat Completions 请求 | 返回非空 `choices[]`。 |
+| `responses` | 最小 Responses 请求 | 返回 `object: "response"`。 |
+| Chat function calling | 固定无副作用 function call/result replay | call identity、arguments 和 replay 形状有效。 |
+| Responses function calling | 固定 function call/output replay | call ID、名称、arguments 和 replay 形状有效。 |
 
-probe report 的 `supported` 表示本次返回了有效协议形状；`unsupported` 仅表示 endpoint 明确返回 404、405 或 501。认证失败、限流、网络错误、响应超限、JSON 无效、或固定 probe 请求被 400/422 拒绝时，一律为 `unknown`，不得据此自动关闭能力。
+`supported` 表示本次观察成功；明确 404、405、501 可记为 `unsupported`。认证失败、限流、网络错误、
+响应超限、JSON 无效或 400/422 均为 `unknown`。
 
-## 当前不做的推断
+## 不做的推断
 
-- 不从 `/v1/models` 的出现推断 tool、视觉、上下文或输出能力；
-- 不从一次工具调用失败推断模型不支持工具；
-- 不通过递增 prompt 探测精确 context window；
-- 不探测或自动标记并行工具、流式工具、视觉、audio、hosted tools、reasoning 或协议桥能力；
-- 不将 probe report 自动转换为运行时 capability 配置。
-
-这些项目可在有明确 Provider contract、固定 fixture 与真实环境授权后，作为新增 probe 项独立扩展。
+- 不从 `/v1/models` 推断 tools、reasoning、视觉、context 或 streaming；
+- 不从一次失败推断永久不支持；
+-不自动修改 Model/Deployment capability；
+-不在普通服务启动时联网探测；
+-不把 probe report 当成真实设备式长期验收或跨账号结论。

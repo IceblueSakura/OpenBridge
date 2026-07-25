@@ -1,7 +1,7 @@
 //! 管理员显式执行的上游 capability probe。
 //!
 //! probe 复用 deployment 的受信 endpoint、credential 和编译期 adapter，但它不走下游
-//! HTTP API，也不会写回 routes.toml。下游 `/v1/models` 因而始终只列出 public alias；
+//! HTTP API，也不会修改代码注册表。下游 `/v1/models` 因而始终只列出 public alias；
 //! probe 的 JSON 报告只是服务所有者更新 capability 配置时的证据。
 
 use axum::body::to_bytes;
@@ -12,9 +12,9 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::{
-    config::{RegistrySnapshot, ResolvedDeployment},
     core::{Protocol, ValidatedRequest},
     provider::{CredentialSource, ProviderAdapter, RequestAdapter},
+    registry::{RegistrySnapshot, ResolvedDeployment},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
 
@@ -338,7 +338,7 @@ impl ProbeSession<'_> {
         let request = ValidatedRequest::new(protocol, Bytes::from(body));
         let request = self
             .adapter
-            .encode_request(&request)
+            .encode_request(&request, self.deployment.upstream_model())
             .expect("compiled provider adapter accepts both probe protocols");
         self.send_json(request).await
     }
@@ -528,15 +528,16 @@ mod tests {
 
     use super::{ProbeSelection, ProbeState, probe_deployment};
     use crate::{
-        config::load_registry,
+        config::load_bootstrap,
         provider::{CredentialSource, UpstreamRequestParts},
+        providers,
+        registry::{RegistrySnapshot, ResolvedDeployment, build_registry},
         transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
     };
 
     const BOOTSTRAP: &str = r#"
 schema_version = 1
 listen = "127.0.0.1:8080"
-allowed_origins = ["https://api.openai.com"]
 max_request_body_bytes = 1048576
 max_sse_event_bytes = 262144
 upstream_connect_timeout_ms = 5000
@@ -544,55 +545,12 @@ upstream_pool_idle_timeout_ms = 90000
 upstream_pool_max_idle_per_host = 16
 "#;
 
-    const ROUTES: &str = r#"
-schema_version = 1
-config_version = "probe-test"
-[[models]]
-id = "openai/test-model"
-name = "Test model"
-supported_parameters = ["tools"]
-reasoning = "unknown"
-[models.context_length]
-input = 128000
-output = 8192
-[[providers]]
-id = "openai"
-kind = "openai"
-[providers.credential]
-id = "primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_API_KEY"
-[[deployments]]
-id = "openai-main"
-provider = "openai"
-model = "openai/test-model"
-upstream_model = "test-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-[[aliases]]
-name = "public-model"
-candidates = ["openai-main"]
-"#;
+    fn snapshot() -> RegistrySnapshot {
+        let mut definition = providers::compiled_definition();
+        definition.version = "probe-test".to_owned();
+        definition.deployments[0].upstream_model = "test-model".to_owned();
+        build_registry(load_bootstrap(BOOTSTRAP).unwrap(), definition).unwrap()
+    }
 
     #[derive(Default)]
     struct FixtureTransport {
@@ -602,7 +560,7 @@ candidates = ["openai-main"]
     impl UpstreamTransport for FixtureTransport {
         fn send<'a>(
             &'a self,
-            _deployment: &'a crate::config::ResolvedDeployment,
+            _deployment: &'a ResolvedDeployment,
             request: UpstreamRequestParts,
             _headers: HeaderMap,
         ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -677,7 +635,7 @@ candidates = ["openai-main"]
 
     #[tokio::test]
     async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_configuration() {
-        let snapshot = load_registry(BOOTSTRAP, ROUTES).unwrap();
+        let snapshot = snapshot();
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 
@@ -732,7 +690,7 @@ candidates = ["openai-main"]
 
     #[tokio::test]
     async fn probe_rejects_unknown_deployment_before_any_egress() {
-        let snapshot = load_registry(BOOTSTRAP, ROUTES).unwrap();
+        let snapshot = snapshot();
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 

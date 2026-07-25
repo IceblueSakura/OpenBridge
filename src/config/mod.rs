@@ -1,116 +1,41 @@
-//! 启动与路由配置的解析、校验和原子快照管理。
+//! 进程级 bootstrap 配置。
 //!
-//! `bootstrap.toml` 是进程级安全策略（监听地址、出站 origin allowlist、资源上限与
-//! 连接池策略），reload 时不能改变；`routes.toml` 描述模型目录、已经编译进程序的
-//! provider、deployment 和 public alias。两者先完整校验再形成 `RegistrySnapshot`，因此请求
-//! 不会看到半更新的路由，也不能通过配置获得任意出站目标或 provider 行为。
+//! Provider、Model、Deployment、Alias、endpoint 和 credential binding 均由代码注册表
+//! 定义；bootstrap 只承载监听、资源限制和共享 HTTP client 策略。
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{net::SocketAddr, time::Duration};
 
-use arc_swap::ArcSwap;
 use thiserror::Error;
-use url::Url;
-
-use crate::{
-    core::CapabilitySet,
-    provider::{CredentialKind, ProviderKind},
-};
 
 mod document;
-mod model;
 mod source;
 
-use document::{RawBootstrap, RawRoutes};
+use document::RawBootstrap;
 
-pub use model::{ModelContextLength, ModelMetadata, ReasoningSupport};
-pub use source::{ConfigFileError, ConfigPaths};
+pub use source::{BootstrapFileError, BootstrapPath};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
-/// The initial, unreleased route schema includes model metadata and deployment-to-model binding.
-const ROUTES_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Error)]
-pub enum ConfigError {
+pub enum BootstrapError {
     #[error("invalid bootstrap configuration")]
-    BootstrapParse,
-    #[error("invalid route configuration")]
-    RouteParse,
-    #[error("bootstrap policy cannot change during route reload")]
-    BootstrapPolicyChanged,
-    #[error("unsupported {document} schema version {actual}")]
-    UnsupportedSchema { document: &'static str, actual: u32 },
+    Parse,
+    #[error("unsupported bootstrap schema version {actual}")]
+    UnsupportedSchema { actual: u32 },
     #[error("listen address '{listen}' must be a valid loopback socket address")]
     NonLoopbackListen { listen: String },
-    #[error("provider '{provider}' credential must use a supported secret reference")]
-    InvalidSecretReference { provider: String },
-    #[error("provider '{provider}' uses unsupported credential kind '{kind}'")]
-    UnsupportedCredentialKind { provider: String, kind: String },
-    #[error("unknown provider kind '{kind}'")]
-    UnknownProviderKind { kind: String },
-    #[error("duplicate {entity} id '{id}'")]
-    DuplicateId { entity: &'static str, id: String },
-    #[error("{entity} '{id}' references unknown {target} '{reference}'")]
-    UnknownReference {
-        entity: &'static str,
-        id: String,
-        target: &'static str,
-        reference: String,
-    },
-    #[error("deployment '{deployment}' uses an invalid base URL")]
-    InvalidBaseUrl { deployment: String },
-    #[error("deployment '{deployment}' origin '{origin}' is not allowlisted")]
-    OriginNotAllowed { deployment: String, origin: String },
-    #[error("deployment '{deployment}' uses unsupported endpoint profile '{profile}'")]
-    UnsupportedEndpointProfile { deployment: String, profile: String },
-    #[error("deployment '{deployment}' request timeout must be greater than zero")]
-    InvalidRequestTimeout { deployment: String },
-    #[error("model '{model}' field '{field}' must not be blank")]
-    BlankModelField { model: String, field: &'static str },
-    #[error("model '{model}' context length '{limit}' must be greater than zero")]
-    InvalidModelContextLength { model: String, limit: &'static str },
-    #[error("model '{model}' declares invalid supported parameter '{parameter}'")]
-    InvalidSupportedParameter { model: String, parameter: String },
-    #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
-    DuplicateSupportedParameter { model: String, parameter: String },
-    #[error("model '{model}' has inconsistent reasoning metadata: {detail}")]
-    InconsistentReasoningMetadata { model: String, detail: &'static str },
-    #[error("deployment '{deployment}' enables capabilities unsupported by its adapter")]
-    CapabilityElevation { deployment: String },
     #[error("runtime limit '{name}' must be greater than zero")]
     InvalidLimit { name: &'static str },
-    #[error("alias '{alias}' contains duplicate deployment candidate '{candidate}'")]
-    DuplicateAliasCandidate { alias: String, candidate: String },
-    #[error("alias '{alias}' must contain at least one deployment candidate")]
-    EmptyAlias { alias: String },
 }
 
-/// 一次完整校验后可供请求路径只读使用的路由视图。
-///
-/// alias 保存有序 candidate deployment；排序本身是当前路由策略的一部分。snapshot
-/// 被 `ArcSwap` 整体替换，已开始的请求持有自己的 `Arc`，不会随 reload 改变路由。
-#[derive(Debug)]
-pub struct RegistrySnapshot {
-    version: ConfigVersion,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BootstrapPolicy {
     listen: SocketAddr,
-    allowed_origins: BTreeSet<Url>,
     limits: RuntimeLimits,
     upstream_policy: UpstreamPolicy,
-    models: BTreeMap<String, ModelMetadata>,
-    providers: BTreeMap<String, ResolvedProvider>,
-    deployments: BTreeMap<String, ResolvedDeployment>,
-    aliases: BTreeMap<String, ResolvedAlias>,
 }
 
-impl RegistrySnapshot {
-    pub fn version(&self) -> &ConfigVersion {
-        &self.version
-    }
-
+impl BootstrapPolicy {
     pub fn listen(&self) -> SocketAddr {
         self.listen
     }
@@ -122,136 +47,9 @@ impl RegistrySnapshot {
     pub fn upstream_policy(&self) -> &UpstreamPolicy {
         &self.upstream_policy
     }
-
-    pub fn model(&self, id: &str) -> Option<&ModelMetadata> {
-        self.models.get(id)
-    }
-
-    pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
-        self.providers.get(id)
-    }
-
-    pub fn deployment(&self, id: &str) -> Option<&ResolvedDeployment> {
-        self.deployments.get(id)
-    }
-
-    pub fn deployment_ids(&self) -> impl Iterator<Item = &str> {
-        self.deployments.keys().map(String::as_str)
-    }
-
-    pub fn alias(&self, name: &str) -> Option<&ResolvedAlias> {
-        self.aliases.get(name)
-    }
-
-    pub fn public_aliases(&self) -> impl Iterator<Item = &str> {
-        self.aliases.keys().map(String::as_str)
-    }
-
-    fn has_same_bootstrap_policy(&self, other: &Self) -> bool {
-        self.listen == other.listen
-            && self.allowed_origins == other.allowed_origins
-            && self.limits == other.limits
-            && self.upstream_policy == other.upstream_policy
-    }
 }
 
-/// 持有当前 route snapshot，并提供 fail-closed 的显式 reload。
-///
-/// bootstrap policy 目前不能热替换：HTTP router、body limit 和共享 upstream client 都在
-/// 启动阶段按该策略构造。允许只替换 routes，避免配置文件声称已更新而运行时组件仍使用
-/// 旧安全边界。
-pub struct ConfigManager {
-    current: ArcSwap<RegistrySnapshot>,
-}
-
-impl ConfigManager {
-    pub fn new(initial: RegistrySnapshot) -> Self {
-        Self {
-            current: ArcSwap::from_pointee(initial),
-        }
-    }
-
-    pub fn snapshot(&self) -> Arc<RegistrySnapshot> {
-        self.current.load_full()
-    }
-
-    /// 校验新文档后原子替换 routes；任何 bootstrap policy 差异都会拒绝整个 reload。
-    pub fn reload(&self, bootstrap_toml: &str, routes_toml: &str) -> Result<(), ConfigError> {
-        let next = load_registry(bootstrap_toml, routes_toml)?;
-        if !self.snapshot().has_same_bootstrap_policy(&next) {
-            return Err(ConfigError::BootstrapPolicyChanged);
-        }
-        self.current.store(Arc::new(next));
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct ConfigVersion(String);
-
-impl ConfigVersion {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug)]
-pub struct ResolvedProvider {
-    kind: ProviderKind,
-    credential: ResolvedCredential,
-}
-
-impl ResolvedProvider {
-    pub fn kind(&self) -> ProviderKind {
-        self.kind
-    }
-
-    pub fn credential(&self) -> &ResolvedCredential {
-        &self.credential
-    }
-}
-
-#[derive(Debug)]
-pub struct ResolvedCredential {
-    id: String,
-    kind: CredentialKind,
-    secret_reference: SecretReference,
-}
-
-impl ResolvedCredential {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn kind(&self) -> CredentialKind {
-        self.kind
-    }
-
-    pub fn secret_reference(&self) -> &SecretReference {
-        &self.secret_reference
-    }
-}
-
-/// 对 secret 的非敏感引用；snapshot 从不保存 credential 明文。
-///
-/// 当前仅接受 `env://NAME`，并限制名称语法，以免把路径、URL 或表达式解释成可读取的
-/// secret locator。后续 vault 实现可扩展 scheme，但必须保持“引用而非值”的边界。
-#[derive(Debug)]
-pub struct SecretReference {
-    locator: String,
-}
-
-impl SecretReference {
-    pub fn scheme(&self) -> &'static str {
-        "env"
-    }
-
-    pub fn locator(&self) -> &str {
-        &self.locator
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RuntimeLimits {
     max_request_body_bytes: usize,
     max_sse_event_bytes: usize,
@@ -267,7 +65,7 @@ impl RuntimeLimits {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct UpstreamPolicy {
     connect_timeout: Duration,
     pool_idle_timeout: Duration,
@@ -288,494 +86,57 @@ impl UpstreamPolicy {
     }
 }
 
-#[derive(Debug)]
-pub struct ResolvedDeployment {
-    provider_id: String,
-    model: ModelMetadata,
-    upstream_model: String,
-    endpoint_profile: String,
-    endpoint_base: Url,
-    request_timeout: Duration,
-    capabilities: CapabilitySet,
-}
-
-impl ResolvedDeployment {
-    pub fn provider_id(&self) -> &str {
-        &self.provider_id
+pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError> {
+    let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapError::Parse)?;
+    if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {
+        return Err(BootstrapError::UnsupportedSchema {
+            actual: raw.schema_version,
+        });
     }
-
-    pub fn model(&self) -> &ModelMetadata {
-        &self.model
-    }
-
-    pub fn upstream_model(&self) -> &str {
-        &self.upstream_model
-    }
-
-    pub fn endpoint_profile(&self) -> &str {
-        &self.endpoint_profile
-    }
-
-    /// 受信配置定义的上游 HTTPS base；可带经校验的固定 path prefix。
-    pub fn endpoint_base(&self) -> &Url {
-        &self.endpoint_base
-    }
-
-    pub fn request_timeout(&self) -> Duration {
-        self.request_timeout
-    }
-
-    pub fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
-    }
-}
-
-#[derive(Debug)]
-pub struct ResolvedAlias {
-    candidates: Vec<String>,
-}
-
-impl ResolvedAlias {
-    pub fn candidates(&self) -> &[String] {
-        &self.candidates
-    }
-}
-
-/// 将 bootstrap 与 route 文档解析为可安全使用的 snapshot。
-///
-/// 校验顺序刻意在任何网络 I/O 前完成：先固定 schema/资源上限/loopback listener，
-/// 再验证 provider、credential、allowlisted origin、capability 上界和 alias 引用。
-/// 成功返回即表示数据面只需按 id 查询，不需要重新解释不可信配置文本。
-pub fn load_registry(
-    bootstrap_toml: &str,
-    routes_toml: &str,
-) -> Result<RegistrySnapshot, ConfigError> {
-    let bootstrap: RawBootstrap =
-        toml::from_str(bootstrap_toml).map_err(|_| ConfigError::BootstrapParse)?;
-    let routes: RawRoutes = toml::from_str(routes_toml).map_err(|_| ConfigError::RouteParse)?;
-
-    validate_schema(
-        "bootstrap",
-        bootstrap.schema_version,
-        BOOTSTRAP_SCHEMA_VERSION,
-    )?;
-    validate_schema("routes", routes.schema_version, ROUTES_SCHEMA_VERSION)?;
-    validate_nonzero_limit("max_request_body_bytes", bootstrap.max_request_body_bytes)?;
-    validate_nonzero_limit("max_sse_event_bytes", bootstrap.max_sse_event_bytes)?;
-    validate_nonzero_millis(
+    validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
+    validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
+    validate_nonzero(
         "upstream_connect_timeout_ms",
-        bootstrap.upstream_connect_timeout_ms,
+        raw.upstream_connect_timeout_ms,
     )?;
-    validate_nonzero_millis(
+    validate_nonzero(
         "upstream_pool_idle_timeout_ms",
-        bootstrap.upstream_pool_idle_timeout_ms,
+        raw.upstream_pool_idle_timeout_ms,
     )?;
-    validate_nonzero_limit(
+    validate_nonzero(
         "upstream_pool_max_idle_per_host",
-        bootstrap.upstream_pool_max_idle_per_host,
+        raw.upstream_pool_max_idle_per_host,
     )?;
-    let listen = bootstrap
+    let listen = raw
         .listen
         .parse::<SocketAddr>()
         .ok()
         .filter(|address| address.ip().is_loopback())
-        .ok_or_else(|| ConfigError::NonLoopbackListen {
-            listen: bootstrap.listen.clone(),
+        .ok_or_else(|| BootstrapError::NonLoopbackListen {
+            listen: raw.listen.clone(),
         })?;
 
-    let allowed_origins = bootstrap
-        .allowed_origins
-        .iter()
-        .map(|origin| {
-            normalize_origin(origin).ok_or_else(|| ConfigError::InvalidBaseUrl {
-                deployment: "bootstrap allowlist".to_owned(),
-            })
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-
-    let mut models = BTreeMap::new();
-    for model in routes.models {
-        validate_model_metadata(&model.id, &model.name, model.description.as_deref())?;
-        let context_length: ModelContextLength = model.context_length.into();
-        let reasoning: ReasoningSupport = model.reasoning.into();
-        validate_model_context_length(&model.id, context_length)?;
-        validate_supported_parameters(&model.id, &model.supported_parameters)?;
-        validate_reasoning_metadata(&model.id, &model.supported_parameters, reasoning)?;
-        let id = model.id;
-        let resolved = ModelMetadata::new(
-            id.clone(),
-            model.name,
-            model.description,
-            context_length,
-            model.supported_parameters,
-            reasoning,
-        );
-        if models.insert(id.clone(), resolved).is_some() {
-            return Err(ConfigError::DuplicateId {
-                entity: "model",
-                id,
-            });
-        }
-    }
-
-    let mut providers = BTreeMap::new();
-    let mut credential_ids = BTreeSet::new();
-    for provider in routes.providers {
-        let kind = ProviderKind::from_config(&provider.kind).ok_or_else(|| {
-            ConfigError::UnknownProviderKind {
-                kind: provider.kind.clone(),
-            }
-        })?;
-        let credential_kind =
-            CredentialKind::from_config(&provider.credential.kind).ok_or_else(|| {
-                ConfigError::UnsupportedCredentialKind {
-                    provider: provider.id.clone(),
-                    kind: provider.credential.kind.clone(),
-                }
-            })?;
-        if !kind.accepts_credential_kind(credential_kind) {
-            return Err(ConfigError::UnsupportedCredentialKind {
-                provider: provider.id,
-                kind: provider.credential.kind,
-            });
-        }
-        let secret_reference =
-            parse_secret_reference(&provider.credential.secret_ref).ok_or_else(|| {
-                ConfigError::InvalidSecretReference {
-                    provider: provider.id.clone(),
-                }
-            })?;
-        if !credential_ids.insert(provider.credential.id.clone()) {
-            return Err(ConfigError::DuplicateId {
-                entity: "credential",
-                id: provider.credential.id,
-            });
-        }
-        let resolved = ResolvedProvider {
-            kind,
-            credential: ResolvedCredential {
-                id: provider.credential.id,
-                kind: credential_kind,
-                secret_reference,
-            },
-        };
-        if providers.insert(provider.id.clone(), resolved).is_some() {
-            return Err(ConfigError::DuplicateId {
-                entity: "provider",
-                id: provider.id,
-            });
-        }
-    }
-
-    let mut deployments = BTreeMap::new();
-    for deployment in routes.deployments {
-        let capabilities: CapabilitySet = deployment.capabilities.into();
-        let model = models.get(&deployment.model).cloned().ok_or_else(|| {
-            ConfigError::UnknownReference {
-                entity: "deployment",
-                id: deployment.id.clone(),
-                target: "model",
-                reference: deployment.model.clone(),
-            }
-        })?;
-        let provider =
-            providers
-                .get(&deployment.provider)
-                .ok_or_else(|| ConfigError::UnknownReference {
-                    entity: "deployment",
-                    id: deployment.id.clone(),
-                    target: "provider",
-                    reference: deployment.provider.clone(),
-                })?;
-        if deployment.request_timeout_ms == 0 {
-            return Err(ConfigError::InvalidRequestTimeout {
-                deployment: deployment.id,
-            });
-        }
-        if !provider
-            .kind
-            .accepts_endpoint_profile(&deployment.endpoint_profile)
-        {
-            return Err(ConfigError::UnsupportedEndpointProfile {
-                deployment: deployment.id,
-                profile: deployment.endpoint_profile,
-            });
-        }
-        let endpoint_base = normalize_endpoint_base(&deployment.base_url).ok_or_else(|| {
-            ConfigError::InvalidBaseUrl {
-                deployment: deployment.id.clone(),
-            }
-        })?;
-        let origin = normalize_origin(&endpoint_base.origin().ascii_serialization())
-            .expect("a validated HTTPS endpoint base always has a normalizable origin");
-        if !allowed_origins.contains(&origin) {
-            return Err(ConfigError::OriginNotAllowed {
-                deployment: deployment.id,
-                origin: origin.to_string(),
-            });
-        }
-        if !capabilities.is_subset_of(provider.kind.capabilities()) {
-            return Err(ConfigError::CapabilityElevation {
-                deployment: deployment.id,
-            });
-        }
-        let resolved = ResolvedDeployment {
-            provider_id: deployment.provider,
-            model,
-            upstream_model: deployment.upstream_model,
-            endpoint_profile: deployment.endpoint_profile,
-            endpoint_base,
-            request_timeout: Duration::from_millis(deployment.request_timeout_ms),
-            capabilities,
-        };
-        if deployments
-            .insert(deployment.id.clone(), resolved)
-            .is_some()
-        {
-            return Err(ConfigError::DuplicateId {
-                entity: "deployment",
-                id: deployment.id,
-            });
-        }
-    }
-
-    let mut aliases = BTreeMap::new();
-    for alias in routes.aliases {
-        if alias.candidates.is_empty() {
-            return Err(ConfigError::EmptyAlias { alias: alias.name });
-        }
-        let mut unique_candidates = BTreeSet::new();
-        for candidate in &alias.candidates {
-            if !unique_candidates.insert(candidate) {
-                return Err(ConfigError::DuplicateAliasCandidate {
-                    alias: alias.name,
-                    candidate: candidate.clone(),
-                });
-            }
-            if !deployments.contains_key(candidate) {
-                return Err(ConfigError::UnknownReference {
-                    entity: "alias",
-                    id: alias.name,
-                    target: "deployment",
-                    reference: candidate.clone(),
-                });
-            }
-        }
-        if aliases
-            .insert(
-                alias.name.clone(),
-                ResolvedAlias {
-                    candidates: alias.candidates,
-                },
-            )
-            .is_some()
-        {
-            return Err(ConfigError::DuplicateId {
-                entity: "alias",
-                id: alias.name,
-            });
-        }
-    }
-
-    Ok(RegistrySnapshot {
-        version: ConfigVersion(routes.config_version),
+    Ok(BootstrapPolicy {
         listen,
-        allowed_origins,
         limits: RuntimeLimits {
-            max_request_body_bytes: bootstrap.max_request_body_bytes,
-            max_sse_event_bytes: bootstrap.max_sse_event_bytes,
+            max_request_body_bytes: raw.max_request_body_bytes,
+            max_sse_event_bytes: raw.max_sse_event_bytes,
         },
         upstream_policy: UpstreamPolicy {
-            connect_timeout: Duration::from_millis(bootstrap.upstream_connect_timeout_ms),
-            pool_idle_timeout: Duration::from_millis(bootstrap.upstream_pool_idle_timeout_ms),
-            pool_max_idle_per_host: bootstrap.upstream_pool_max_idle_per_host,
+            connect_timeout: Duration::from_millis(raw.upstream_connect_timeout_ms),
+            pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
+            pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
         },
-        models,
-        providers,
-        deployments,
-        aliases,
     })
 }
 
-fn validate_schema(document: &'static str, actual: u32, expected: u32) -> Result<(), ConfigError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(ConfigError::UnsupportedSchema { document, actual })
-    }
-}
-
-fn validate_nonzero_limit(name: &'static str, value: usize) -> Result<(), ConfigError> {
-    if value == 0 {
-        Err(ConfigError::InvalidLimit { name })
+fn validate_nonzero(
+    name: &'static str,
+    value: impl Copy + PartialEq + From<u8>,
+) -> Result<(), BootstrapError> {
+    if value == 0.into() {
+        Err(BootstrapError::InvalidLimit { name })
     } else {
         Ok(())
     }
-}
-
-fn validate_nonzero_millis(name: &'static str, value: u64) -> Result<(), ConfigError> {
-    if value == 0 {
-        Err(ConfigError::InvalidLimit { name })
-    } else {
-        Ok(())
-    }
-}
-
-fn validate_model_metadata(
-    id: &str,
-    name: &str,
-    description: Option<&str>,
-) -> Result<(), ConfigError> {
-    for (field, value) in [("id", id), ("name", name)] {
-        if value.trim().is_empty() {
-            return Err(ConfigError::BlankModelField {
-                model: id.to_owned(),
-                field,
-            });
-        }
-    }
-    if description.is_some_and(|description| description.trim().is_empty()) {
-        return Err(ConfigError::BlankModelField {
-            model: id.to_owned(),
-            field: "description",
-        });
-    }
-    Ok(())
-}
-
-fn validate_model_context_length(
-    model: &str,
-    context_length: ModelContextLength,
-) -> Result<(), ConfigError> {
-    for (name, value) in [
-        ("input", context_length.input_tokens()),
-        ("output", context_length.output_tokens()),
-    ] {
-        if value == Some(0) {
-            return Err(ConfigError::InvalidModelContextLength {
-                model: model.to_owned(),
-                limit: name,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn validate_supported_parameters(model: &str, parameters: &[String]) -> Result<(), ConfigError> {
-    let mut seen = BTreeSet::new();
-    for parameter in parameters {
-        if !is_valid_parameter_name(parameter) {
-            return Err(ConfigError::InvalidSupportedParameter {
-                model: model.to_owned(),
-                parameter: parameter.clone(),
-            });
-        }
-        if !seen.insert(parameter) {
-            return Err(ConfigError::DuplicateSupportedParameter {
-                model: model.to_owned(),
-                parameter: parameter.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn validate_reasoning_metadata(
-    model: &str,
-    parameters: &[String],
-    reasoning: ReasoningSupport,
-) -> Result<(), ConfigError> {
-    let parameter_declared = parameters.iter().any(|parameter| parameter == "reasoning");
-    match (reasoning, parameter_declared) {
-        (ReasoningSupport::Supported, false) => Err(ConfigError::InconsistentReasoningMetadata {
-            model: model.to_owned(),
-            detail: "reasoning = supported requires supported_parameters to include reasoning",
-        }),
-        (ReasoningSupport::Unsupported, true) => Err(ConfigError::InconsistentReasoningMetadata {
-            model: model.to_owned(),
-            detail: "reasoning = unsupported conflicts with supported_parameters",
-        }),
-        _ => Ok(()),
-    }
-}
-
-fn is_valid_parameter_name(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-}
-
-fn parse_secret_reference(value: &str) -> Option<SecretReference> {
-    let locator = value.strip_prefix("env://")?;
-    let mut characters = locator.chars();
-    let first = characters.next()?;
-    if !(first == '_' || first.is_ascii_alphabetic())
-        || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
-    {
-        return None;
-    }
-    Some(SecretReference {
-        locator: locator.to_owned(),
-    })
-}
-
-/// 接受仅包含 HTTPS scheme、host 和可选端口的 origin，并规范为根路径。
-fn normalize_origin(value: &str) -> Option<Url> {
-    let mut url = Url::parse(value).ok()?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || (url.path() != "/" && !url.path().is_empty())
-    {
-        return None;
-    }
-    url.set_path("/");
-    Some(url)
-}
-
-/// 接受受信 deployment 的 HTTPS endpoint base，并保留受限的固定 path prefix。
-///
-/// prefix 只来自 owner-controlled route 配置，且必须由未编码的 URL-safe path segment
-/// 组成；下游请求和 adapter 都不能提供或覆盖它。最终 transport 只会在该 base 之后追加
-/// adapter 生成的绝对相对路径，因此 `/openai` 这类 prefix 会形成
-/// `/openai/v1/responses`，而不是被 `Url::join("/v1/…")` 重置到根路径。
-fn normalize_endpoint_base(value: &str) -> Option<Url> {
-    let mut url = Url::parse(value).ok()?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || !is_safe_endpoint_prefix(url.path())
-    {
-        return None;
-    }
-
-    if url.path() != "/" && !url.path().ends_with('/') {
-        url.set_path(&format!("{}/", url.path()));
-    }
-    Some(url)
-}
-
-fn is_safe_endpoint_prefix(path: &str) -> bool {
-    if path.is_empty() || path == "/" {
-        return true;
-    }
-    if !path.starts_with('/') || path.contains("//") {
-        return false;
-    }
-
-    path.trim_matches('/').split('/').all(|segment| {
-        !segment.is_empty()
-            && segment != "."
-            && segment != ".."
-            && segment.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
-            })
-    })
 }

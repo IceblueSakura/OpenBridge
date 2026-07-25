@@ -19,7 +19,7 @@ OpenBridge 参考 LiteLLM 的“部署可用性过滤、有限 retry/fallback、
 
 ## 2. 路由与候选选择
 
-一个 public alias 绑定受信配置中的**有序** candidate deployment。顺序是默认优先级，不等于这些 candidate 对所有模型、协议、工具或状态都等价。
+一个 public alias 绑定代码注册表中的**有序** candidate deployment。顺序是默认优先级，不等于这些 candidate 对所有模型、协议、工具或状态都等价。
 
 每个请求应在发起上游调用前形成不可变的 RoutePlan，并按以下顺序筛选：
 

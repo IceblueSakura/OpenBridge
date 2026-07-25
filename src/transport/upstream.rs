@@ -12,7 +12,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 use url::Url;
 
-use crate::{config::ResolvedDeployment, provider::UpstreamRequestParts};
+use crate::{provider::UpstreamRequestParts, registry::ResolvedDeployment};
 
 #[derive(Debug, Error)]
 pub enum UpstreamError {

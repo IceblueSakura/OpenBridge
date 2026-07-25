@@ -26,7 +26,7 @@ impl SafeHeaders {
         self.0.get(name)
     }
 
-    pub(super) fn insert(
+    pub(crate) fn insert(
         &mut self,
         name: HeaderName,
         value: HeaderValue,
@@ -38,7 +38,7 @@ impl SafeHeaders {
         Ok(())
     }
 
-    pub(super) fn into_inner(self) -> HeaderMap {
+    pub(crate) fn into_inner(self) -> HeaderMap {
         self.0
     }
 }
@@ -66,11 +66,11 @@ impl SensitiveHeaders {
         self.0.get(&name).map(|value| value.as_str())
     }
 
-    pub(super) fn insert(&mut self, name: HeaderName, value: Zeroizing<String>) {
+    pub(crate) fn insert(&mut self, name: HeaderName, value: Zeroizing<String>) {
         self.0.insert(name, value);
     }
 
-    pub(super) fn append_to(self, headers: &mut HeaderMap) -> Result<(), ProviderFailure> {
+    pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), ProviderFailure> {
         for (name, value) in self.0 {
             let mut value = HeaderValue::from_str(value.as_str())
                 .map_err(|_| ProviderFailure::InvalidAuthenticationHeader)?;
@@ -116,7 +116,7 @@ pub struct DecodedEvent {
 }
 
 impl DecodedEvent {
-    pub(super) fn new(event: SseEvent, disposition: EventDisposition) -> Self {
+    pub(crate) fn new(event: SseEvent, disposition: EventDisposition) -> Self {
         Self { event, disposition }
     }
 
@@ -163,7 +163,7 @@ pub struct ClassifiedProviderError {
 }
 
 impl ClassifiedProviderError {
-    pub(super) fn new(class: ProviderErrorClass, retry_hint: RetryHint) -> Self {
+    pub(crate) fn new(class: ProviderErrorClass, retry_hint: RetryHint) -> Self {
         Self { class, retry_hint }
     }
 

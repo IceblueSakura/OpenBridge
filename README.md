@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或用户自有云环境中，通过受信配置管理上游 Provider、凭证、模型与路由，并向本地正在使用的 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。它不提供 GUI、Web 控制台或客户端管理功能。
+OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或用户自有云环境中，通过显式 Rust 代码注册表管理上游 Provider、模型与路由，通过受限 secret source 获取凭证，并向本地正在使用的 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。它不提供 GUI、Web 控制台或客户端管理功能。
 
 当前处于**设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
 
@@ -10,11 +10,11 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 1. 原生转发 `POST /v1/responses` 与 `POST /v1/chat/completions` 的 HTTP JSON/SSE；
 2. 聚合多个 Provider、deployment 与稳定模型 alias；
-3. 以编译期 Provider Family 承载协议行为，以受信运行时配置定义 deployment；
+3. 以每 Provider 独立 Rust 模块承载协议行为、模型、deployment 和能力，以显式注册表统一发现；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、deployment cooldown、首输出前 fallback 与最终错误传播；
 6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile；Hermes 的真实 Agent tool loop 只在明确宣称兼容时验证。
-7. 配置文件优先地管理路由与上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
+7. 以 bootstrap-only 配置管理进程资源策略，以外部 secret source 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
 
 核心稳定后再考虑：
 
@@ -29,7 +29,7 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 当前 `main` 已实现一个 OpenAI API-key upstream 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 deployment candidate、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 和 [`config/routes.toml`](config/routes.toml) 是无明文凭证的开发配置：
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Provider、Model、Deployment 与 public alias 位于 [`src/providers`](src/providers) 的代码注册表中：
 
 ```bash
 export OPENBRIDGE_DOWNSTREAM_TOKEN='replace-with-a-local-client-token'
@@ -52,9 +52,9 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-当前只改写 `model` 并使用预配置 deployment；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能通过业务请求指定上游 URL、credential 或任意出站 header。
+当前由 Provider adapter 写入实际上游 `model`；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能通过业务请求指定上游 URL、credential 或任意出站 header。
 
-上述启动方式是当前原型的环境变量基线，不是最终配置优先的目标。目标设计会让受版本控制的基础 TOML 保存非敏感路由，用户私有、被忽略且权限受限的配置文件保存下游 Bearer token 与上游 API key（或其引用）；环境变量只在配置明确选择的迁移/部署场景中使用。调用量、Provider usage、TTFT/TTFB 和终态错误率同样属于后续的 headless 统计能力，当前尚未实现。
+当前凭证基线使用环境变量：代码注册表只保存环境变量名称，不保存 secret。以后可增加 keyring 或受限私有 secret 文件，但不会恢复运行时 Provider DSL 或 route 热重载。调用量、Provider usage、TTFT/TTFB 和终态错误率属于后续 headless 统计能力，当前尚未实现。
 
 ## 验证基线
 
@@ -87,7 +87,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
-| [配置、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | 配置文件优先、私有 secret、header/network 信任与 reload | 功能需求 |
+| [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
 | [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | alias 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
 | [调用统计与可观测性](docs/functional-requirements/observability.md) | usage、TTFT/TTFB、终态错误率和 headless 输出边界 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
@@ -111,7 +111,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 ## 关键术语
 
 - **Provider Family**：代码中实现的一类协议和认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
-- **Deployment**：受信配置中的一个上游目标，绑定 Provider Family、base URL、credential reference、上游模型和能力。
+- **Deployment**：代码注册表中的一个上游目标，绑定 Provider、base URL、credential binding、上游模型和能力。
 - **Public model alias**：客户端使用的稳定模型名，例如 `code-primary`；映射到有序 deployment candidates。
 - **RoutePlan / RouteSnapshot**：单次请求固定的 deployment、协议模式、能力判断、credential binding 与 fallback 边界。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。

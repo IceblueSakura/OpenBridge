@@ -48,7 +48,7 @@ impl CredentialLease {
         &self.secret_version
     }
 
-    pub(super) fn expose_secret(&self) -> &str {
+    pub(crate) fn expose_secret(&self) -> &str {
         self.secret.expose_secret()
     }
 }

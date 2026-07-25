@@ -1,23 +1,26 @@
 //! 显式执行上游模型发现与协议能力 probe 的本地 CLI。
 //!
-//! 该工具只输出 JSON report，不启动下游 HTTP 服务，也不修改 routes.toml。
+//! 该工具只输出 JSON report，不启动下游 HTTP 服务，也不修改代码注册表。
 
 use std::env;
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::ConfigPaths,
+    config::BootstrapPath,
     probe::{ProbeSelection, probe_deployment},
     provider::CredentialSource,
+    providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
-    let snapshot = ConfigPaths::from_environment()
+    let bootstrap = BootstrapPath::from_environment()
         .load()
-        .context("failed to load OpenBridge configuration")?;
+        .context("failed to load OpenBridge bootstrap configuration")?;
+    let snapshot =
+        build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let upstream = UpstreamClient::new(
         snapshot.upstream_policy().connect_timeout(),
         snapshot.upstream_policy().pool_idle_timeout(),
@@ -86,6 +89,6 @@ fn print_usage() {
     println!(
         "Usage: cargo run --bin openbridge-probe -- --deployment <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
          \n\
-         No probe selector runs --all. The command only prints a report; it never rewrites routes.toml."
+         No probe selector runs --all. The command only prints a report; it never modifies the code registry."
     );
 }

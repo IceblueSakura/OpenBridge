@@ -1,4 +1,4 @@
-//! 编译期 provider catalog 与 OpenAI-compatible adapter。
+//! 编译期 provider 契约与闭合 dispatch。
 //!
 //! 路由配置只能选择 `ProviderKind` 中已经编译的变体；adapter 负责相对 path、安全/敏感
 //! header 的分离、认证材料组装、SSE terminal 判定和重试分类。HTTP ingress 不需要知道
@@ -15,17 +15,12 @@ pub use contracts::{
 pub use credential::{CredentialLease, CredentialSource, CredentialSourceError};
 
 use bytes::Bytes;
-use http::{
-    HeaderValue, Method, StatusCode, Uri,
-    header::{AUTHORIZATION, CONTENT_TYPE},
-};
+use http::{Method, StatusCode, Uri};
 use thiserror::Error;
-use zeroize::Zeroizing;
 
 use crate::{
-    core::{
-        CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities, ValidatedRequest,
-    },
+    core::{CapabilitySet, Protocol, ValidatedRequest},
+    providers::openai::{self, OpenAiAdapter},
     transport::sse::SseEvent,
 };
 
@@ -43,15 +38,6 @@ pub enum CredentialKind {
     ApiKey,
 }
 
-impl CredentialKind {
-    pub(crate) fn from_config(value: &str) -> Option<Self> {
-        match value {
-            "api_key" => Some(Self::ApiKey),
-            _ => None,
-        }
-    }
-}
-
 /// provider 的静态能力与可配置范围。
 ///
 /// deployment capability 只能收窄此描述符，不能自行声明 adapter 未实现的特性；endpoint
@@ -65,6 +51,20 @@ pub struct ProviderDescriptor {
 }
 
 impl ProviderDescriptor {
+    pub const fn new(
+        kind: ProviderKind,
+        capabilities: CapabilitySet,
+        endpoint_profiles: &'static [&'static str],
+        credential_kinds: &'static [CredentialKind],
+    ) -> Self {
+        Self {
+            kind,
+            capabilities,
+            endpoint_profiles,
+            credential_kinds,
+        }
+    }
+
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
@@ -82,45 +82,10 @@ impl ProviderDescriptor {
     }
 }
 
-static OPENAI_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
-    kind: ProviderKind::OpenAi,
-    capabilities: CapabilitySet {
-        chat_completions: ProtocolCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
-            previous_response_id: true,
-            background: false,
-        },
-    },
-    endpoint_profiles: &["public-api"],
-    credential_kinds: &[CredentialKind::ApiKey],
-};
-
 impl ProviderKind {
-    pub(crate) fn from_config(value: &str) -> Option<Self> {
-        match value {
-            "openai" => Some(Self::OpenAi),
-            _ => None,
-        }
-    }
-
     pub fn descriptor(self) -> &'static ProviderDescriptor {
         match self {
-            Self::OpenAi => &OPENAI_DESCRIPTOR,
+            Self::OpenAi => &openai::DESCRIPTOR,
         }
     }
 
@@ -147,6 +112,8 @@ pub enum ProviderFailure {
     SensitiveHeaderInSafeSet,
     #[error("requested capabilities are not supported by the provider adapter")]
     UnsupportedCapabilities,
+    #[error("validated request body could not be transformed by the provider adapter")]
+    InvalidRequestBody,
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,
 }
@@ -163,6 +130,14 @@ pub struct UpstreamRequestParts {
 }
 
 impl UpstreamRequestParts {
+    pub(crate) fn new(method: Method, relative_uri: Uri, body: Bytes) -> Self {
+        Self {
+            method,
+            relative_uri,
+            body,
+        }
+    }
+
     pub fn method(&self) -> &Method {
         &self.method
     }
@@ -180,6 +155,7 @@ pub trait RequestAdapter {
     fn encode_request(
         &self,
         request: &ValidatedRequest,
+        upstream_model: &str,
     ) -> Result<UpstreamRequestParts, ProviderFailure>;
 }
 
@@ -217,11 +193,7 @@ impl ProviderAdapter {
     /// 只暴露 OpenBridge 的 public alias。
     pub(crate) fn encode_list_models_request(&self) -> UpstreamRequestParts {
         match self {
-            Self::OpenAi(_) => UpstreamRequestParts {
-                method: Method::GET,
-                relative_uri: Uri::from_static("/v1/models"),
-                body: Bytes::new(),
-            },
+            Self::OpenAi(adapter) => adapter.encode_list_models_request(),
         }
     }
 }
@@ -230,111 +202,10 @@ impl RequestAdapter for ProviderAdapter {
     fn encode_request(
         &self,
         request: &ValidatedRequest,
+        upstream_model: &str,
     ) -> Result<UpstreamRequestParts, ProviderFailure> {
         match self {
-            Self::OpenAi(adapter) => adapter.encode_request(request),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct OpenAiAdapter;
-
-impl RequestAdapter for OpenAiAdapter {
-    fn encode_request(
-        &self,
-        request: &ValidatedRequest,
-    ) -> Result<UpstreamRequestParts, ProviderFailure> {
-        let relative_uri = match request.protocol() {
-            Protocol::ChatCompletions => Uri::from_static("/v1/chat/completions"),
-            Protocol::Responses => Uri::from_static("/v1/responses"),
-        };
-
-        Ok(UpstreamRequestParts {
-            method: Method::POST,
-            relative_uri,
-            body: request.body().clone(),
-        })
-    }
-}
-
-impl HeaderAdapter for OpenAiAdapter {
-    fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure> {
-        let mut headers = SafeHeaders::default();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"))?;
-        Ok(headers)
-    }
-}
-
-impl AuthAdapter for OpenAiAdapter {
-    fn build_auth_headers(
-        &self,
-        credential: &CredentialLease,
-    ) -> Result<SensitiveHeaders, ProviderFailure> {
-        if credential.provider() != ProviderKind::OpenAi {
-            return Err(ProviderFailure::CredentialProviderMismatch);
-        }
-        let mut bearer = Zeroizing::new("Bearer ".to_owned());
-        bearer.push_str(credential.expose_secret());
-        let mut headers = SensitiveHeaders::default();
-        headers.insert(AUTHORIZATION, bearer);
-        Ok(headers)
-    }
-}
-
-impl ResponseAdapter for OpenAiAdapter {
-    fn decode_event(
-        &self,
-        protocol: Protocol,
-        event: SseEvent,
-    ) -> Result<DecodedEvent, ProviderFailure> {
-        let disposition = match protocol {
-            Protocol::ChatCompletions if event.data() == "[DONE]" => EventDisposition::Completed,
-            Protocol::Responses if event.event() == Some("response.completed") => {
-                EventDisposition::Completed
-            }
-            Protocol::Responses
-                if matches!(
-                    event.event(),
-                    Some("response.failed" | "response.incomplete")
-                ) =>
-            {
-                EventDisposition::Failed
-            }
-            _ => EventDisposition::Continue,
-        };
-        Ok(DecodedEvent::new(event, disposition))
-    }
-}
-
-impl ErrorAdapter for OpenAiAdapter {
-    fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError {
-        let (class, retry_hint) = match status {
-            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                (ProviderErrorClass::InvalidRequest, RetryHint::Never)
-            }
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-                (ProviderErrorClass::Authentication, RetryHint::Never)
-            }
-            StatusCode::TOO_MANY_REQUESTS => {
-                (ProviderErrorClass::RateLimited, RetryHint::BeforeFirstEvent)
-            }
-            status if status.is_server_error() => (
-                ProviderErrorClass::UpstreamUnavailable,
-                RetryHint::BeforeFirstEvent,
-            ),
-            _ => (ProviderErrorClass::UpstreamFailure, RetryHint::Never),
-        };
-        ClassifiedProviderError::new(class, retry_hint)
-    }
-}
-
-impl CapabilityAdapter for OpenAiAdapter {
-    fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure> {
-        if requested.is_subset_of(*ProviderKind::OpenAi.descriptor().capabilities()) {
-            Ok(())
-        } else {
-            Err(ProviderFailure::UnsupportedCapabilities)
+            Self::OpenAi(adapter) => adapter.encode_request(request, upstream_model),
         }
     }
 }
@@ -388,6 +259,7 @@ impl CapabilityAdapter for ProviderAdapter {
 
 #[cfg(test)]
 mod tests {
+    use http::{HeaderValue, header::AUTHORIZATION};
     use secrecy::SecretString;
 
     use super::*;

@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::Arc;
 
 use axum::{
@@ -5,77 +7,13 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use openbridge::{
-    config::{ConfigManager, RegistrySnapshot, load_registry},
     ingress::{AppState, StaticBearerCredential, build_router},
     provider::CredentialSource,
+    registry::{RegistrySnapshot, build_registry},
     transport::upstream::UpstreamClient,
 };
 use secrecy::SecretString;
 use tower::ServiceExt;
-
-const BOOTSTRAP: &str = r#"
-schema_version = 1
-listen = "127.0.0.1:8080"
-allowed_origins = ["https://api.openai.com"]
-max_request_body_bytes = 1048576
-max_sse_event_bytes = 262144
-upstream_connect_timeout_ms = 5000
-upstream_pool_idle_timeout_ms = 90000
-upstream_pool_max_idle_per_host = 16
-"#;
-
-const ROUTES: &str = r#"
-schema_version = 1
-config_version = "health-test"
-
-[[models]]
-id = "openai/test-model"
-name = "Test model"
-supported_parameters = []
-reasoning = "unknown"
-
-[[providers]]
-id = "openai"
-kind = "openai"
-
-[providers.credential]
-id = "openai-primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_API_KEY"
-
-[[deployments]]
-id = "openai-main"
-provider = "openai"
-model = "openai/test-model"
-upstream_model = "test-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-
-[[aliases]]
-name = "code-primary"
-candidates = ["openai-main"]
-"#;
 
 fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
     let upstream = UpstreamClient::new(
@@ -85,7 +23,7 @@ fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
     )
     .unwrap();
     build_router(AppState::new(
-        Arc::new(ConfigManager::new(snapshot)),
+        Arc::new(snapshot),
         Arc::new(upstream),
         StaticBearerCredential::new(SecretString::from("downstream-test-token".to_owned())),
         CredentialSource::fixed(
@@ -97,7 +35,7 @@ fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
 
 #[tokio::test]
 async fn health_reports_snapshot_version_and_sets_a_request_id() {
-    let snapshot = load_registry(BOOTSTRAP, ROUTES).unwrap();
+    let snapshot = support::snapshot("health-test", "code-primary", "test-model");
     let app = test_app(snapshot);
     let request = Request::builder()
         .uri("/healthz")
@@ -113,17 +51,21 @@ async fn health_reports_snapshot_version_and_sets_a_request_id() {
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
     assert_eq!(
         std::str::from_utf8(&body).unwrap(),
-        r#"{"status":"ok","config_version":"health-test"}"#
+        r#"{"status":"ok","registry_version":"health-test"}"#
     );
 }
 
 #[tokio::test]
 async fn requests_over_the_bootstrap_body_limit_are_rejected() {
-    let bootstrap = BOOTSTRAP.replace(
+    let bootstrap_document = support::BOOTSTRAP.replace(
         "max_request_body_bytes = 1048576",
         "max_request_body_bytes = 8",
     );
-    let snapshot = load_registry(&bootstrap, ROUTES).unwrap();
+    let snapshot = build_registry(
+        support::bootstrap(&bootstrap_document),
+        support::definition("health-test", "code-primary", "test-model"),
+    )
+    .unwrap();
     let app = test_app(snapshot);
     let request = Request::builder()
         .uri("/healthz")

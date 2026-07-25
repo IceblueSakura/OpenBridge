@@ -1,3 +1,5 @@
+mod support;
+
 use std::{
     convert::Infallible,
     sync::{
@@ -17,72 +19,14 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
-    config::{ConfigManager, ResolvedDeployment, load_registry},
     ingress::{AppState, StaticBearerCredential, build_router},
     provider::{CredentialSource, UpstreamRequestParts},
+    registry::{RegistryDefinition, ResolvedDeployment, build_registry},
     transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
 use serde_json::Value;
 use tower::ServiceExt;
-
-const BOOTSTRAP: &str = r#"
-schema_version = 1
-listen = "127.0.0.1:8080"
-allowed_origins = ["https://api.openai.com"]
-max_request_body_bytes = 1048576
-max_sse_event_bytes = 262144
-upstream_connect_timeout_ms = 5000
-upstream_pool_idle_timeout_ms = 90000
-upstream_pool_max_idle_per_host = 16
-"#;
-
-const ROUTES: &str = r#"
-schema_version = 1
-config_version = "forward-test"
-[[models]]
-id = "openai/upstream-model"
-name = "Upstream model"
-supported_parameters = []
-reasoning = "unknown"
-[[providers]]
-id = "openai"
-kind = "openai"
-[providers.credential]
-id = "openai-primary"
-kind = "api_key"
-secret_ref = "env://OPENAI_API_KEY"
-[[deployments]]
-id = "openai-main"
-provider = "openai"
-model = "openai/upstream-model"
-upstream_model = "upstream-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-[[aliases]]
-name = "public-model"
-candidates = ["openai-main"]
-"#;
 
 #[derive(Debug)]
 struct RecordedRequest {
@@ -342,16 +286,19 @@ impl UpstreamTransport for FailoverTransport {
 }
 
 fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
-    app_with_transport_and_routes(transport, ROUTES)
+    app_with_transport_and_definition(
+        transport,
+        support::definition("forward-test", "public-model", "upstream-model"),
+    )
 }
 
-fn app_with_transport_and_routes(
+fn app_with_transport_and_definition(
     transport: Arc<dyn UpstreamTransport>,
-    routes: &str,
+    definition: RegistryDefinition,
 ) -> axum::Router {
-    let snapshot = load_registry(BOOTSTRAP, routes).unwrap();
+    let snapshot = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
     let state = AppState::new(
-        Arc::new(ConfigManager::new(snapshot)),
+        Arc::new(snapshot),
         transport,
         StaticBearerCredential::new(SecretString::from("downstream-token".to_owned())),
         CredentialSource::fixed(
@@ -431,45 +378,16 @@ async fn models_lists_only_public_aliases_after_authentication() {
 
 #[tokio::test]
 async fn streaming_requests_fail_over_to_the_next_compatible_deployment_before_output() {
-    let routes = ROUTES
-        .replace(
-            "[[aliases]]",
-            r#"[[deployments]]
-id = "openai-fallback"
-provider = "openai"
-model = "openai/upstream-model"
-upstream_model = "fallback-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = false
-background = false
-
-[[aliases]]"#,
-        )
-        .replace(
-            "candidates = [\"openai-main\"]",
-            "candidates = [\"openai-main\", \"openai-fallback\"]",
-        );
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut fallback = definition.deployments[0].clone();
+    fallback.id = "openai-fallback".to_owned();
+    fallback.upstream_model = "fallback-model".to_owned();
+    definition.deployments.push(fallback);
+    definition.aliases[0]
+        .candidates
+        .push("openai-fallback".to_owned());
     let transport = Arc::new(FailoverTransport::default());
-    let app = app_with_transport_and_routes(transport.clone(), &routes);
+    let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token")
@@ -492,49 +410,20 @@ background = false
 
 #[tokio::test]
 async fn provider_bound_streams_do_not_fall_back_to_another_deployment() {
-    let routes = ROUTES
-        .replace(
-            "previous_response_id = false",
-            "previous_response_id = true",
-        )
-        .replace(
-            "[[aliases]]",
-            r#"[[deployments]]
-id = "openai-fallback"
-provider = "openai"
-model = "openai/upstream-model"
-upstream_model = "fallback-model"
-endpoint_profile = "public-api"
-base_url = "https://api.openai.com"
-request_timeout_ms = 120000
-[deployments.capabilities.chat_completions]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-
-[deployments.capabilities.responses]
-enabled = true
-streaming = true
-function_calling = true
-parallel_tool_calls = false
-image_input = false
-structured_outputs = false
-store = false
-previous_response_id = true
-background = false
-
-[[aliases]]"#,
-        )
-        .replace(
-            "candidates = [\"openai-main\"]",
-            "candidates = [\"openai-main\", \"openai-fallback\"]",
-        );
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    definition.deployments[0]
+        .capabilities
+        .responses
+        .previous_response_id = true;
+    let mut fallback = definition.deployments[0].clone();
+    fallback.id = "openai-fallback".to_owned();
+    fallback.upstream_model = "fallback-model".to_owned();
+    definition.deployments.push(fallback);
+    definition.aliases[0]
+        .candidates
+        .push("openai-fallback".to_owned());
     let transport = Arc::new(FailoverTransport::default());
-    let app = app_with_transport_and_routes(transport.clone(), &routes);
+    let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token")

@@ -21,7 +21,7 @@
 | 接口 | 功能要求 | 不包含的语义 |
 |---|---|---|
 | `GET /healthz` | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、deployment 或 secret。 | Provider 健康探测、控制面或客户端管理。 |
-| `GET /v1/models` | 只返回受信配置声明的 public model aliases，使用稳定的 OpenAI-compatible model-list 形状。 | 枚举上游模型、provider/deployment id 或动态能力发现。 |
+| `GET /v1/models` | 只返回代码注册表声明的 public model aliases，使用稳定的 OpenAI-compatible model-list 形状。 | 枚举上游模型、provider/deployment id 或动态能力发现。 |
 | `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE 请求。 | 对全部 Chat 扩展或 hosted tool 的默认兼容承诺。 |
 | `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求，作为 Codex HTTP/SSE profile 的首要入口。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 
@@ -89,7 +89,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | ID | 应被保护的用户可观察行为 |
 |---|---|
 | API-01 | 有效静态 token 可访问模型与业务 endpoint；认证失败、未知 alias、不支持 feature 与非 JSON 请求在 egress 前安全失败。 |
-| API-02 | `GET /v1/models` 仅暴露 public alias，且不因 probe、上游模型列表或 route reload 泄露内部目标。 |
+| API-02 | `GET /v1/models` 仅暴露代码注册的 public alias，且不因 probe 或上游模型列表泄露内部目标。 |
 | API-03 | Native Chat/Responses JSON 与 SSE 除受信模型/认证改写外保持 wire 语义；未知合法同协议字段/event 不因网关丢失。 |
 | API-04 | SSE 分片、终态、EOF、上游 error 和下游 cancel 不会产生伪成功、重复 terminal 或跨 deployment 拼接。 |
 | API-05 | 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；网关不执行工具。 |

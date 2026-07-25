@@ -128,7 +128,7 @@ RoutePlan
   credential_binding_id
   continuation_binding
   fallback_boundary
-  config_version
+  registry_version
 ```
 
 配置 reload 只影响后续请求；进行中的 stream 继续持有原 snapshot。

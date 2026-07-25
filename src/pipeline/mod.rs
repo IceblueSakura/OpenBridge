@@ -1,17 +1,16 @@
 //! 将 OpenAI-compatible 请求解析为固定 snapshot 下的原生上游 candidate。
 //!
 //! pipeline 不转换 Chat/Responses 语义：它只验证 JSON、提取 public `model` 与请求实际
-//! 使用的 capability，然后为每个兼容 deployment 复制请求并替换 `model`。这使 ingress
-//! 能在不丢字段的前提下选择或回退 candidate，同时保留 provider-bound continuation 的
-//! 亲和性约束。
+//! 使用的 capability，然后为每个兼容 deployment 固定路由候选。上游 model 与
+//! Provider-specific 字段改写由 adapter 完成。
 
 use bytes::Bytes;
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    config::{ReasoningSupport, RegistrySnapshot},
     core::{Protocol, ProtocolCapabilities, ValidatedRequest},
+    registry::{ReasoningLevel, ReasoningSupport, RegistrySnapshot},
 };
 
 #[derive(Debug, Error)]
@@ -34,6 +33,8 @@ pub enum RouteError {
     OutputLimitExceeded,
     #[error("selected model does not support requested reasoning")]
     ReasoningUnsupported,
+    #[error("selected model does not support the requested reasoning level")]
+    ReasoningLevelUnsupported,
 }
 
 /// 已完成 alias/capability 解析的原生请求。
@@ -59,9 +60,17 @@ pub struct PreparedNativeCandidate {
 struct RequestedCapabilities {
     protocol: ProtocolCapabilities,
     unmodeled_tools: bool,
-    reasoning: bool,
+    reasoning: RequestedReasoning,
     previous_response_id: bool,
     background: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RequestedReasoning {
+    None,
+    Unspecified,
+    Level(ReasoningLevel),
+    UnknownLevel,
 }
 
 impl PreparedNativeRequest {
@@ -149,7 +158,7 @@ pub fn prepare_native_request(
             store: object.get("store").and_then(Value::as_bool) == Some(true),
         },
         unmodeled_tools: requests_unmodeled_tools,
-        reasoning: requests_reasoning(object),
+        reasoning: requested_reasoning(object),
         previous_response_id: protocol == Protocol::Responses
             && object
                 .get("previous_response_id")
@@ -173,25 +182,15 @@ pub fn prepare_native_request(
             deployment.capabilities(),
             deployment.model().context_length().output_tokens(),
             deployment.model().reasoning(),
+            deployment.model().reasoning_levels(),
             requested_output_tokens,
         ) {
             first_error.get_or_insert(error);
             continue;
         }
-        let mut candidate_document = document.clone();
-        candidate_document
-            .as_object_mut()
-            .expect("request document was validated as an object")
-            .insert(
-                "model".to_owned(),
-                Value::String(deployment.upstream_model().to_owned()),
-            );
-        let candidate_body = serde_json::to_vec(&candidate_document)
-            .map(Bytes::from)
-            .map_err(|_| RouteError::InvalidJson)?;
         prepared_candidates.push(PreparedNativeCandidate {
             deployment_id: deployment_id.clone(),
-            request: ValidatedRequest::new(protocol, candidate_body),
+            request: ValidatedRequest::new(protocol, body.clone()),
         });
     }
     if prepared_candidates.is_empty() {
@@ -211,6 +210,7 @@ fn candidate_error(
     capabilities: &crate::core::CapabilitySet,
     configured_max_output_tokens: Option<u32>,
     reasoning: ReasoningSupport,
+    reasoning_levels: &[ReasoningLevel],
     requested_output_tokens: Option<u64>,
 ) -> Option<RouteError> {
     let protocol_capabilities = match protocol {
@@ -244,8 +244,20 @@ fn candidate_error(
     }) {
         return Some(RouteError::OutputLimitExceeded);
     }
-    if requested_features.reasoning && reasoning != ReasoningSupport::Supported {
-        return Some(RouteError::ReasoningUnsupported);
+    match requested_features.reasoning {
+        RequestedReasoning::None => {}
+        RequestedReasoning::Unspecified if reasoning != ReasoningSupport::Supported => {
+            return Some(RouteError::ReasoningUnsupported);
+        }
+        RequestedReasoning::Level(level)
+            if reasoning != ReasoningSupport::Supported || !reasoning_levels.contains(&level) =>
+        {
+            return Some(RouteError::ReasoningLevelUnsupported);
+        }
+        RequestedReasoning::UnknownLevel => {
+            return Some(RouteError::ReasoningLevelUnsupported);
+        }
+        RequestedReasoning::Unspecified | RequestedReasoning::Level(_) => {}
     }
     None
 }
@@ -302,13 +314,34 @@ fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u6
 
 /// `reasoning` 是 OpenAI-compatible 请求中的模型级能力；`reasoning_effort` 同样代表
 /// 调用方要求使用该能力。没有该字段时不得据模型目录推测调用方需要 reasoning。
-fn requests_reasoning(object: &serde_json::Map<String, Value>) -> bool {
-    object
+fn requested_reasoning(object: &serde_json::Map<String, Value>) -> RequestedReasoning {
+    if let Some(value) = object
+        .get("reasoning_effort")
+        .filter(|value| !value.is_null())
+    {
+        return value
+            .as_str()
+            .and_then(ReasoningLevel::from_wire)
+            .map(RequestedReasoning::Level)
+            .unwrap_or(RequestedReasoning::UnknownLevel);
+    }
+    let Some(reasoning) = object
         .get("reasoning")
-        .is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
-        || object
-            .get("reasoning_effort")
-            .is_some_and(|value| !value.is_null())
+        .filter(|value| !value.is_null() && *value != &Value::Bool(false))
+    else {
+        return RequestedReasoning::None;
+    };
+    let Some(effort) = reasoning
+        .as_object()
+        .and_then(|reasoning| reasoning.get("effort"))
+    else {
+        return RequestedReasoning::Unspecified;
+    };
+    effort
+        .as_str()
+        .and_then(ReasoningLevel::from_wire)
+        .map(RequestedReasoning::Level)
+        .unwrap_or(RequestedReasoning::UnknownLevel)
 }
 
 fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool {

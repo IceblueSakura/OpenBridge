@@ -32,7 +32,7 @@ source/commit + files or issue
 
 以下问题不以任何代理项目为架构模板：
 
-- 私有配置文件优先、下游 Bearer token 与上游 API key 的安全存放；
+- 代码注册表与受限 secret source 分离、下游 Bearer token 与上游 API key 的安全存放；
 - 单用户 headless 的调用量、usage、TTFT/TTFB 和错误率统计；
 - 秘钥生命周期、日志脱敏、配置 reload、监听与 TLS 信任边界；
 - 是否声明某个 Agent/Provider/bridge 兼容。
@@ -62,7 +62,7 @@ source/commit + files or issue
 | tool identity、continuation 与 state affinity | cc-switch | Codex/Hermes tool loop；CLIProxyAPI issues | `call_id` 不可替代；issuer/deployment/route/TTL 绑定的 continuation ledger 或明确拒绝 | 仅按 response id 或全局唯一 `call_id` 跨路由恢复 |
 | Provider adapter 粒度、参数与错误恢复 | LiteLLM | CLIProxyAPI 负面案例；cc-switch 的具体 upstream 反例 | Family 代码与 Deployment 数据的边界；可证明的 error class/retry/fallback fixture | 多租户路由、credential pool、预算或分布式控制面 |
 | Native Path 的字段保留与失败策略 | Codex、Hermes | LiteLLM | 对已支持协议最小改写；未知合法字段、SSE 与已输出错误的处理测试 | 只因 bridge 已存在就默认转换，或输出后 retry/fallback |
-| 配置、secret 与单用户部署 | OpenBridge 产品需求 | Codex/Hermes 配置形状仅作客户端接入样本 | 私有配置文件优先、`config://`/显式 `env://` 边界和脱敏要求 | 采用任何项目的账户池、token 管理或 GUI 配置模型 |
+| 注册表、secret 与单用户部署 | OpenBridge 产品需求 | Codex/Hermes 配置形状仅作客户端接入样本 | 编译期 Provider 注册、显式 secret binding 与脱敏要求 | 采用任何项目的账户池、token 管理或 GUI 配置模型 |
 | usage、TTFT/TTFB 与错误率 | OpenBridge 产品需求 | LiteLLM 的 usage/error 字段仅作兼容检查 | 低基数聚合、唯一终态、正确分子/分母与无正文记录 | 复制 Proxy 的用户计费、审计或 callback/control-plane 链路 |
 | OAuth credential adapter | 官方资料和明确授权 | Codex/Hermes/CLIProxyAPI 仅可说明本地客户端行为和风险 | preflight/拒绝规则或经授权的独立 adapter 契约 | 由观察到的客户端流程推导可复用 client id、refresh 或账号身份 |
 

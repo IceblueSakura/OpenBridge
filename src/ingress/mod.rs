@@ -34,13 +34,13 @@ use tower_http::{
 };
 
 use crate::{
-    config::ConfigManager,
     core::Protocol,
     pipeline::{RouteError, prepare_native_request},
     provider::{
         CredentialSource, ErrorAdapter, EventDisposition, ProviderAdapter, RequestAdapter,
         ResponseAdapter,
     },
+    registry::RegistrySnapshot,
     transport::{
         sse::SseDecoder,
         upstream::{UpstreamClient, UpstreamError, UpstreamTransport},
@@ -49,12 +49,11 @@ use crate::{
 
 /// handler 依赖的不可变服务句柄。
 ///
-/// `ConfigManager` 提供 request 开始时固定的 route snapshot；上游 transport 与 credential
-/// source 以 trait/值对象注入，因此 contract test 可以验证 HTTP/SSE 边界而无需真实
-/// provider 或明文环境 secret。
+/// 编译期注册表在启动后保持不可变；上游 transport 与 credential source 以 trait/值对象
+/// 注入，因此 contract test 可以验证 HTTP/SSE 边界而无需真实 provider 或明文环境 secret。
 #[derive(Clone)]
 pub struct AppState {
-    config: Arc<ConfigManager>,
+    registry: Arc<RegistrySnapshot>,
     upstream: Arc<dyn UpstreamTransport>,
     downstream_credential: Arc<StaticBearerCredential>,
     upstream_credentials: Arc<CredentialSource>,
@@ -62,13 +61,13 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        config: Arc<ConfigManager>,
+        registry: Arc<RegistrySnapshot>,
         upstream: Arc<dyn UpstreamTransport>,
         downstream_credential: StaticBearerCredential,
         upstream_credentials: CredentialSource,
     ) -> Self {
         Self {
-            config,
+            registry,
             upstream,
             downstream_credential: Arc::new(downstream_credential),
             upstream_credentials: Arc::new(upstream_credentials),
@@ -76,12 +75,12 @@ impl AppState {
     }
 
     pub fn with_environment_credentials(
-        config: Arc<ConfigManager>,
+        registry: Arc<RegistrySnapshot>,
         upstream: UpstreamClient,
         downstream_credential: StaticBearerCredential,
     ) -> Self {
         Self::new(
-            config,
+            registry,
             Arc::new(upstream),
             downstream_credential,
             CredentialSource::environment(),
@@ -95,7 +94,7 @@ impl AppState {
 /// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
 /// 从而不暴露内部 alias/deployment 信息给匿名请求。
 pub fn build_router(state: AppState) -> Router {
-    let max_request_body_bytes = state.config.snapshot().limits().max_request_body_bytes();
+    let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
     let middleware = ServiceBuilder::new()
         .layer(SetSensitiveRequestHeadersLayer::new(std::iter::once(
@@ -143,8 +142,7 @@ async fn require_downstream_credential(
 
 async fn models(State(state): State<AppState>) -> Json<ModelListResponse> {
     let data = state
-        .config
-        .snapshot()
+        .registry
         .public_aliases()
         .map(|id| PublicModel {
             id: id.to_owned(),
@@ -214,15 +212,15 @@ fn unsupported_media_type() -> Response {
 
 /// 将一个已经过 HTTP 输入检查的原生请求送往有序 candidate。
 ///
-/// 每次调用先获取一个 snapshot，整个循环都使用它，因此 route reload 不会改变正在执行的
-/// 请求。仅 streaming 请求可在**尚未返回任何下游 body**时重试：一旦 `UpstreamResponse`
+/// 每次调用共享启动时构建的不可变 snapshot。仅 streaming 请求可在**尚未返回任何下游
+/// body**时重试：一旦 `UpstreamResponse`
 /// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
 /// 上游尝试。`previous_response_id` 等 provider-bound state 会令 pipeline 关闭跨 candidate
 /// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
 async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Response {
     const MAX_UPSTREAM_ATTEMPTS: usize = 2;
 
-    let snapshot = state.config.snapshot();
+    let snapshot = state.registry.clone();
     let prepared = match prepare_native_request(&snapshot, protocol, body) {
         Ok(prepared) => prepared,
         Err(error) => return route_error(error),
@@ -278,7 +276,8 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                 );
             }
         };
-        let request = match adapter.encode_request(candidate.request()) {
+        let request = match adapter.encode_request(candidate.request(), deployment.upstream_model())
+        {
             Ok(request) => request,
             Err(_) => {
                 return api_error(
@@ -514,7 +513,8 @@ fn route_error(error: RouteError) -> Response {
         | RouteError::StreamingUnsupported
         | RouteError::UnsupportedCapabilities
         | RouteError::OutputLimitExceeded
-        | RouteError::ReasoningUnsupported => api_error(
+        | RouteError::ReasoningUnsupported
+        | RouteError::ReasoningLevelUnsupported => api_error(
             StatusCode::BAD_REQUEST,
             "unsupported_request",
             "The selected model does not support this request",
@@ -540,14 +540,13 @@ fn upstream_error(error: UpstreamError) -> Response {
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
-    config_version: String,
+    registry_version: String,
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    let snapshot = state.config.snapshot();
     Json(HealthResponse {
         status: "ok",
-        config_version: snapshot.version().as_str().to_owned(),
+        registry_version: state.registry.version().as_str().to_owned(),
     })
 }
 

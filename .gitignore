@@ -2,3 +2,6 @@
 .env
 .env.*
 !.env.example
+# Planned private configuration; it may contain local upstream/downstream credentials.
+config/local.toml
+config/local.*.toml

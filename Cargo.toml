@@ -10,7 +10,6 @@ path = "tools/upstream-fixture-server/main.rs"
 
 [dependencies]
 anyhow = "1.0"
-arc-swap = "1.9"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio", "tower-log", "tracing"] }
 bytes = "1.12"
 dotenvy = "0.15"
