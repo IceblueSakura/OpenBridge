@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_terminal_bad","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_terminal_bad","object":"response","model":"public-model","status":"completed","output":[]}}
+

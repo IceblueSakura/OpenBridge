@@ -1,0 +1,50 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "protocol",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不验证 OpenBridge 配置、路由或真实 Provider。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "非流式 Chat JSON response 保持协议结构",
+      "下游公开模型名与上游部署模型名各自位于正确边界"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "text",
+    "non_stream"
+  ],
+  "id": "chat_native.text.non_stream",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "提供 Rust mock Chat 非流式成功响应的 corpus 驱动替代。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Native Chat non-stream text baseline",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "application/json",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

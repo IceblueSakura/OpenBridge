@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from . import __version__
 
 
-DERIVED_DIRECTORIES = {"generated", "reports", "dist"}
+DERIVED_DIRECTORIES = {"generated", "reports", "dist", "runtime"}
 STREAM_ARTIFACTS = {"upstream_stream", "expected_client_stream"}
 TERMINAL_TYPES = {
     "response.completed": "response_completed",
@@ -176,6 +176,35 @@ def terminal_kinds(data: bytes) -> list[str]:
     return terminals
 
 
+def _event_type_conflicts(data: bytes) -> list[tuple[str, str]]:
+    conflicts: list[tuple[str, str]] = []
+    for item in _parse_sse_events(data):
+        event_name = item["event"]
+        payload = item["data"]
+        payload_type = payload.get("type") if isinstance(payload, dict) else None
+        if event_name and payload_type and event_name != payload_type:
+            conflicts.append((event_name, payload_type))
+    return conflicts
+
+
+def _events_after_terminal(data: bytes) -> int:
+    terminal_seen = False
+    trailing_events = 0
+    for item in _parse_sse_events(data):
+        payload = item["data"]
+        event_type = item["event"]
+        if payload == "[DONE]":
+            event_type = "chat_done"
+        elif isinstance(payload, dict):
+            event_type = payload.get("type", event_type)
+        is_terminal = event_type == "chat_done" or event_type in TERMINAL_TYPES
+        if terminal_seen:
+            trailing_events += 1
+        if is_terminal:
+            terminal_seen = True
+    return trailing_events
+
+
 def _validate_case_semantics(case: Case, root: Path) -> list[str]:
     errors: list[str] = []
     data = case.data
@@ -183,6 +212,12 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
     artifacts = data["artifacts"]
     classification = expectation["classification"]
     stream = data["stream"]
+    transport = data.get("transport")
+    features = set(data["features"])
+    pre_output_failure = (
+        transport is not None
+        and transport["failure_phase"] == "before_first_output"
+    )
 
     if case.directory.name != case.case_id:
         errors.append(
@@ -222,7 +257,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     f"{case.path}: zero-attempt case has upstream artifacts "
                     f"{sorted(forbidden)}"
                 )
-        if stream:
+        if stream and not pre_output_failure:
             if "upstream_stream" not in artifacts:
                 errors.append(f"{case.path}: streaming case requires upstream_stream")
             if "expected_client_stream" not in artifacts:
@@ -254,7 +289,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     f"{case.path}: non-stream case has stream artifacts "
                     f"{sorted(forbidden)}"
                 )
-            if data["recipes"]:
+            if data["recipes"] and not stream:
                 errors.append(f"{case.path}: non-stream case must not define recipes")
 
     terminal = expectation["terminal"]
@@ -266,6 +301,35 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
         )
     if not stream and terminal != "none":
         errors.append(f"{case.path}: non-stream case cannot define an SSE terminal")
+
+    if transport is not None:
+        failure_phase = transport["failure_phase"]
+        output_observed = transport["downstream_output_observed"]
+        if failure_phase == "before_first_output" and output_observed:
+            errors.append(
+                f"{case.path}: before-output failure cannot observe downstream output"
+            )
+        if failure_phase == "after_first_output" and not output_observed:
+            errors.append(
+                f"{case.path}: after-output failure requires downstream output"
+            )
+        if expectation["outcome"] == "cancelled":
+            if transport["client_end"] != "cancelled":
+                errors.append(
+                    f"{case.path}: cancelled outcome requires cancelled client_end"
+                )
+            if transport["cancellation_after_event"] is None:
+                errors.append(
+                    f"{case.path}: cancelled outcome requires cancellation_after_event"
+                )
+        elif transport["cancellation_after_event"] is not None:
+            errors.append(
+                f"{case.path}: cancellation_after_event requires cancelled outcome"
+            )
+        if terminal != "none" and transport["client_end"] != "terminal":
+            errors.append(
+                f"{case.path}: declared terminal requires terminal client_end"
+            )
 
     referenced_artifacts: set[Path] = set()
     for artifact_name, relative in artifacts.items():
@@ -294,6 +358,53 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                 _parse_sse_events(raw)
             except (CorpusError, UnicodeError) as error:
                 errors.append(f"{artifact_path}: {error}")
+                continue
+            conflicts = _event_type_conflicts(raw)
+            if conflicts and not (
+                artifact_name == "upstream_stream"
+                and "event_type_conflict" in features
+            ):
+                errors.append(
+                    f"{artifact_path}: SSE event/data type conflicts {conflicts!r}"
+                )
+            trailing_events = _events_after_terminal(raw)
+            if trailing_events and not (
+                artifact_name == "upstream_stream"
+                and "event_after_terminal" in features
+            ):
+                errors.append(
+                    f"{artifact_path}: {trailing_events} event(s) occur after terminal"
+                )
+
+    upstream_stream = artifacts.get("upstream_stream")
+    if upstream_stream:
+        stream_path = _resolve_inside(case.directory, upstream_stream, case.directory)
+        if stream_path.is_file():
+            raw = stream_path.read_bytes()
+            if (
+                "event_type_conflict" in features
+                and not _event_type_conflicts(raw)
+            ):
+                errors.append(
+                    f"{case.path}: event_type_conflict feature requires an upstream "
+                    "SSE event/data type conflict"
+                )
+            if (
+                "duplicate_terminal" in features
+                and len(terminal_kinds(raw)) < 2
+            ):
+                errors.append(
+                    f"{case.path}: duplicate_terminal feature requires at least two "
+                    "upstream terminals"
+                )
+            if (
+                "event_after_terminal" in features
+                and _events_after_terminal(raw) == 0
+            ):
+                errors.append(
+                    f"{case.path}: event_after_terminal feature requires a trailing "
+                    "upstream event"
+                )
 
     expected_stream = artifacts.get("expected_client_stream")
     if expected_stream:
@@ -356,6 +467,11 @@ def lint_corpus(root: Path) -> list[str]:
         root / "schemas" / "case.schema.json",
         root / "schemas" / "provenance.schema.json",
         root / "schemas" / "recipe.schema.json",
+        root / "schemas" / "server-scenario.schema.json",
+        root / "schemas" / "server-suite.schema.json",
+        root / "schemas" / "client-plan.schema.json",
+        root / "schemas" / "observation.schema.json",
+        root / "schemas" / "server-run-observation.schema.json",
     ]
     for path in required:
         if not path.exists():
@@ -368,6 +484,11 @@ def lint_corpus(root: Path) -> list[str]:
         case_validator = _schema_validator(root, "case")
         provenance_validator = _schema_validator(root, "provenance")
         recipe_validator = _schema_validator(root, "recipe")
+        _schema_validator(root, "server-scenario")
+        _schema_validator(root, "server-suite")
+        _schema_validator(root, "client-plan")
+        _schema_validator(root, "observation")
+        _schema_validator(root, "server-run-observation")
     except Exception as error:
         return [f"schema initialization failed: {error}"]
 
@@ -460,19 +581,38 @@ def _chunk_seeded(data: bytes, seed: int) -> list[bytes]:
     return chunks
 
 
+def _chunk_event_pairs(data: bytes) -> list[bytes]:
+    parts = re.split(rb"((?:\r\n|\r|\n){2})", data)
+    frames: list[bytes] = []
+    for index in range(0, len(parts) - 1, 2):
+        frames.append(parts[index] + parts[index + 1])
+    if len(parts) % 2 == 1 and parts[-1]:
+        frames.append(parts[-1])
+    if not frames:
+        return [data]
+    return [b"".join(frames[index : index + 2]) for index in range(0, len(frames), 2)]
+
+
+def _to_crlf(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
+
+
 def _variant_payload(
     case_id: str,
     artifact: str,
     kind: str,
     seed: int,
-    source: bytes,
+    canonical: bytes,
+    wire: bytes,
     chunks: list[bytes],
+    transformation: str,
 ) -> dict[str, Any]:
     rebuilt = b"".join(chunks)
-    if rebuilt != source:
-        raise CorpusError(f"{case_id}/{artifact}/{kind}: chunks do not reconstruct source")
+    if rebuilt != wire:
+        raise CorpusError(f"{case_id}/{artifact}/{kind}: chunks do not reconstruct wire")
     return {
         "artifact": artifact,
+        "canonical_sha256": sha256_bytes(canonical),
         "case_id": case_id,
         "chunks_base64": [
             base64.b64encode(chunk).decode("ascii") for chunk in chunks
@@ -481,7 +621,9 @@ def _variant_payload(
         "kind": kind,
         "reconstructed_sha256": sha256_bytes(rebuilt),
         "seed": seed,
-        "source_sha256": sha256_bytes(source),
+        "source_sha256": sha256_bytes(canonical),
+        "transformation": transformation,
+        "wire_sha256": sha256_bytes(wire),
     }
 
 
@@ -510,14 +652,45 @@ def generate_variants(
                 if not relative:
                     continue
                 source = _resolve_inside(case.directory, relative, root).read_bytes()
-                variants: list[tuple[str, int, list[bytes]]] = []
+                variants: list[tuple[str, int, bytes, list[bytes], str]] = []
                 for kind in recipe["kinds"]:
                     if kind == "one_byte":
-                        variants.append((kind, effective_seed, _chunk_one_byte(source)))
+                        variants.append(
+                            (kind, effective_seed, source, _chunk_one_byte(source), "none")
+                        )
                     elif kind == "line_boundaries":
-                        variants.append((kind, effective_seed, _chunk_lines(source)))
+                        variants.append(
+                            (kind, effective_seed, source, _chunk_lines(source), "none")
+                        )
                     elif kind == "utf8_split":
-                        variants.append((kind, effective_seed, _chunk_utf8_split(source)))
+                        variants.append(
+                            (kind, effective_seed, source, _chunk_utf8_split(source), "none")
+                        )
+                    elif kind == "all_in_one":
+                        variants.append(
+                            (kind, effective_seed, source, [source], "none")
+                        )
+                    elif kind == "event_pairs":
+                        variants.append(
+                            (
+                                kind,
+                                effective_seed,
+                                source,
+                                _chunk_event_pairs(source),
+                                "none",
+                            )
+                        )
+                    elif kind == "crlf":
+                        crlf = _to_crlf(source)
+                        variants.append(
+                            (
+                                kind,
+                                effective_seed,
+                                crlf,
+                                _chunk_lines(crlf),
+                                "line_endings_crlf",
+                            )
+                        )
                     elif kind == "seeded":
                         for index in range(recipe["seeded_variants"]):
                             derived = int.from_bytes(
@@ -530,17 +703,21 @@ def generate_variants(
                                 (
                                     f"seeded_{index + 1}",
                                     derived,
+                                    source,
                                     _chunk_seeded(source, derived),
+                                    "none",
                                 )
                             )
-                for kind, variant_seed, chunks in variants:
+                for kind, variant_seed, wire, chunks, transformation in variants:
                     payload = _variant_payload(
                         case.case_id,
                         artifact_name,
                         kind,
                         variant_seed,
                         source,
+                        wire,
                         chunks,
+                        transformation,
                     )
                     relative_output = (
                         Path(case.case_id)
@@ -594,6 +771,10 @@ def build_report(root: Path) -> dict[str, Any]:
             unpinned_sources.append(source["id"])
 
     required = set(catalog["required_core_features"])
+    required_generation = set(catalog["required_generation_kinds"])
+    observed_generation: set[str] = set()
+    for path in sorted((root / "recipes").glob("*.json")):
+        observed_generation.update(load_json(path)["kinds"])
     return {
         "case_count": len(cases),
         "classifications": dict(sorted(classifications.items())),
@@ -604,6 +785,9 @@ def build_report(root: Path) -> dict[str, Any]:
         },
         "feature_counts": dict(sorted(features.items())),
         "missing_required_features": sorted(required - set(features)),
+        "missing_required_generation_kinds": sorted(
+            required_generation - observed_generation
+        ),
         "pending_license_sources": pending_sources,
         "schema_version": "0.1",
         "statuses": dict(sorted(status.items())),

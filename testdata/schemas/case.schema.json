@@ -168,6 +168,110 @@
     "title": {
       "minLength": 1,
       "type": "string"
+    },
+    "transport": {
+      "additionalProperties": false,
+      "properties": {
+        "cancellation_after_event": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "client_content_type": {
+          "type": "string"
+        },
+        "client_end": {
+          "enum": [
+            "terminal",
+            "eof",
+            "transport_error",
+            "error_response",
+            "cancelled"
+          ]
+        },
+        "client_http_status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "client_headers": {
+          "items": {
+            "prefixItems": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "downstream_output_observed": {
+          "type": "boolean"
+        },
+        "failure_phase": {
+          "enum": [
+            "none",
+            "before_first_output",
+            "after_first_output"
+          ]
+        },
+        "upstream_content_type": {
+          "type": "string"
+        },
+        "upstream_end": {
+          "enum": [
+            "terminal",
+            "eof",
+            "transport_error",
+            "error_response",
+            "cancelled"
+          ]
+        },
+        "upstream_http_status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "upstream_headers": {
+          "items": {
+            "prefixItems": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "upstream_http_status",
+        "upstream_content_type",
+        "upstream_end",
+        "client_http_status",
+        "client_content_type",
+        "client_end",
+        "failure_phase",
+        "downstream_output_observed",
+        "cancellation_after_event"
+      ],
+      "type": "object"
     }
   },
   "required": [

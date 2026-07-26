@@ -1,0 +1,54 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "fault",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 upstream 连接是否主动复用。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "首个 terminal 后的 event 不向客户端继续派发",
+      "客户端只观察一个 terminal"
+    ],
+    "outcome": "completed",
+    "terminal": "response_completed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "terminal",
+    "duplicate_terminal",
+    "event_after_terminal"
+  ],
+  "id": "responses_native.terminal_violation",
+  "provenance_ref": "sources/openresponses-terminal.json",
+  "proves": [
+    "固定 duplicate terminal 与 terminal 后事件的防扩散 oracle。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Ignore events after first terminal",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

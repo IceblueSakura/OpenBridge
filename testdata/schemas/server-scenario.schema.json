@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "expected_request": {
+      "additionalProperties": false,
+      "properties": {
+        "body_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "body_json": {},
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "pattern": "^/",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path",
+        "body_sha256",
+        "body_json"
+      ],
+      "type": "object"
+    },
+    "response": {
+      "additionalProperties": false,
+      "properties": {
+        "abort_delay_ms": {
+          "maximum": 60000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chunk_delay_ms": {
+          "maximum": 60000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chunks_base64": {
+          "items": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "headers": {
+          "items": {
+            "prefixItems": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "termination": {
+          "enum": [
+            "complete",
+            "abort"
+          ]
+        },
+        "wire_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "headers",
+        "chunks_base64",
+        "wire_sha256",
+        "chunk_delay_ms",
+        "abort_delay_ms",
+        "termination"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "variant": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "variant",
+    "expected_request",
+    "response"
+  ],
+  "type": "object"
+}

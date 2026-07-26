@@ -4,7 +4,7 @@
 
 **现行独立构建模式。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具。
 
-在 corpus schema、canonical cases 和工具达到可复现状态前，不接入 OpenBridge Rust 测试、不迁移现有 fixture、不修改 `upstream-fixture-server`，也不以数据集存在声明 Bridge 已实现。
+在 corpus schema、canonical cases 和工具达到可复现状态前，不接入 OpenBridge Rust 测试，也不以数据集存在声明 Bridge 已实现。原 Rust `upstream-fixture-server` 的离线 mock 行为已经吸收到 Python testkit；真实上游 proxy 不属于本阶段测试工具边界。
 
 ## 1. 目标与非目标
 
@@ -41,6 +41,7 @@
 - `upstream_response` 或 `upstream_stream`；
 - `expected_client_response` 或 `expected_client_stream`；
 - outcome、terminal、attempt/fallback 约束和协议不变量；
+- 可选 HTTP status、content type、结束方式、首输出前后 failure phase 与 cancellation point；
 - `proves` 与 `does_not_prove`；
 - provenance 和可选 generation recipes。
 
@@ -48,7 +49,7 @@
 
 ### 2.3 生成变体层
 
-`testdata/generated/` 由工具按 canonical SSE 与 recipe 生成，不提交版本控制。每个变体以 Base64 chunk 数组记录 wire bytes；相同 corpus、seed 和工具版本必须产生相同 manifest 与内容 hash。
+`testdata/generated/` 由工具按 canonical SSE 与 recipe 生成，不提交版本控制。每个变体以 Base64 chunk 数组记录 wire bytes；相同 corpus、seed 和工具版本必须产生相同 manifest 与内容 hash。除保持原 bytes 的分片外，允许生成逻辑等价的 CRLF wire 变体，并分别记录 canonical 与 wire hash。
 
 生成变体只改变 transport fragmentation，不改变 logical event、arguments 或 oracle。identity 缺失、事件交错和 terminal 冲突属于语义差异，必须保存为独立 canonical case。
 
@@ -105,7 +106,7 @@ tools/corpus/
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.1.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.4.0.zip
 uv run --project tools/corpus pytest tools/corpus/tests
 ```
 
@@ -125,20 +126,20 @@ uv run --project tools/corpus pytest tools/corpus/tests
 ### 5.2 `generate`
 
 - 只读取声明了 recipe 的 SSE artifact；
-- 生成 one-byte、line-boundary、UTF-8 split 和 seeded chunking；
-- 输出包含 seed、source SHA-256、chunks 和重组 SHA-256；
-- 生成后必须验证 chunks 重组为原始 bytes。
+- 生成 one-byte、line-boundary、UTF-8 split、all-in-one、event-pairs、CRLF 和 seeded chunking；
+- 输出包含 seed、canonical/wire SHA-256、transformation、chunks 和重组 SHA-256；
+- 生成后必须验证 chunks 重组为声明的 wire bytes；无 transformation 时 wire bytes 必须等于 canonical bytes。
 - `--output` 只能位于 `testdata/generated/` 内，避免清理 canonical 目录。
 
 ### 5.3 `report`
 
-按 direction、stream、status、classification 和 feature 输出覆盖统计，同时列出未固定 ref、许可证待审和缺失的 required feature。
+按 direction、stream、status、classification 和 feature 输出覆盖统计，同时列出未固定 ref、许可证待审、缺失的 required feature 和缺失的 generation kind。
 
 `--output` 只能位于 `testdata/reports/` 内。
 
 ### 5.4 `pack`
 
-只打包 canonical corpus、schema、recipe 和 provenance；不包含 `generated/`、`reports/`、`dist/` 或工具虚拟环境。ZIP entry、时间戳和 manifest 顺序固定，从而支持相同输入产生相同 hash；ZIP 旁生成 `.sha256` 校验文件。
+只打包 canonical corpus、schema、recipe 和 provenance；不包含 `generated/`、`reports/`、`dist/`、`runtime/` 或工具虚拟环境。ZIP entry、时间戳和 manifest 顺序固定，从而支持相同输入产生相同 hash；ZIP 旁生成 `.sha256` 校验文件。
 
 `--output` 只能位于 `testdata/dist/` 内。
 
@@ -149,6 +150,8 @@ uv run --project tools/corpus pytest tools/corpus/tests
 - 外部行为与 OpenBridge 决策分开；`research_only` 不能成为后续 required oracle；
 - SDK 最终可聚合不能掩盖中间 delta 丢失；
 - generator 不替代 canonical semantic negative cases；
+- HTTP error response、SSE terminal、EOF、transport error 与 cancellation 必须分开记录；
+- `fallback_allowed` 必须结合首个 downstream output commit point 解释；
 - coverage matrix 只说明数据覆盖，不说明 OpenBridge 功能或代码覆盖。
 
 ## 7. 进入 OpenBridge 集成前的条件

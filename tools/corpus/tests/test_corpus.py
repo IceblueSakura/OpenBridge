@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 import zipfile
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from openbridge_corpus.corpuslib import (
     CorpusError,
+    build_report,
     generate_variants,
     lint_corpus,
     pack_corpus,
@@ -24,7 +26,7 @@ def _copy_corpus(destination: Path) -> Path:
     shutil.copytree(
         CORPUS_ROOT,
         target,
-        ignore=shutil.ignore_patterns("generated", "reports", "dist"),
+        ignore=shutil.ignore_patterns("generated", "reports", "dist", "runtime"),
     )
     return target
 
@@ -107,9 +109,83 @@ def test_generation_is_deterministic_and_reconstructs_sources(tmp_path: Path) ->
     second_manifest = (root / "generated" / "manifest.json").read_bytes()
     assert first == second
     assert first_manifest == second_manifest
+    kinds: set[str] = set()
     for entry in first["files"]:
         payload = json.loads((root / "generated" / entry["path"]).read_text())
-        assert payload["source_sha256"] == payload["reconstructed_sha256"]
+        kinds.add(payload["kind"].split("_", 1)[0])
+        assert payload["wire_sha256"] == payload["reconstructed_sha256"]
+        chunks = [base64.b64decode(chunk) for chunk in payload["chunks_base64"]]
+        if payload["transformation"] == "none":
+            assert payload["canonical_sha256"] == payload["wire_sha256"]
+        else:
+            assert payload["kind"] == "crlf"
+            wire = b"".join(chunks)
+            assert b"\r\n" in wire
+            assert b"\r" not in wire.replace(b"\r\n", b"")
+            assert b"\n" not in wire.replace(b"\r\n", b"")
+            terminal_kinds(wire)
+        if payload["kind"] == "all_in_one":
+            assert len(chunks) == 1
+    assert {
+        "one",
+        "line",
+        "utf8",
+        "all",
+        "event",
+        "crlf",
+        "seeded",
+    } <= kinds
+
+
+def test_report_confirms_p0_feature_and_generation_coverage() -> None:
+    report = build_report(CORPUS_ROOT)
+    assert report["case_count"] == 35
+    assert report["missing_required_features"] == []
+    assert report["missing_required_generation_kinds"] == []
+
+
+def test_lint_rejects_inconsistent_transport_failure_phase(tmp_path: Path) -> None:
+    root = _copy_corpus(tmp_path)
+    case_path = next(
+        (root / "cases").rglob(
+            "responses_native.transport_error.before_output/case.json"
+        )
+    )
+    case = json.loads(case_path.read_text(encoding="utf-8"))
+    case["transport"]["downstream_output_observed"] = True
+    case_path.write_text(
+        json.dumps(case, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    errors = lint_corpus(root)
+    assert any(
+        "before-output failure cannot observe downstream output" in error
+        for error in errors
+    )
+
+
+def test_lint_rejects_unmarked_sse_type_conflicts_and_post_terminal_events(
+    tmp_path: Path,
+) -> None:
+    root = _copy_corpus(tmp_path)
+    case_directory = next(
+        (root / "cases").rglob("chat_to_responses.text.stream")
+    )
+    upstream = case_directory / "upstream-stream.sse"
+    raw = upstream.read_text(encoding="utf-8")
+    raw = raw.replace(
+        "event: response.created",
+        "event: response.output_text.delta",
+        1,
+    )
+    raw += (
+        "event: response.output_text.delta\n"
+        'data: {"type":"response.output_text.delta","delta":"late"}\n\n'
+    )
+    upstream.write_text(raw, encoding="utf-8")
+    errors = lint_corpus(root)
+    assert any("SSE event/data type conflicts" in error for error in errors)
+    assert any("event(s) occur after terminal" in error for error in errors)
 
 
 def test_derived_outputs_cannot_overwrite_canonical_corpus(tmp_path: Path) -> None:
@@ -137,6 +213,8 @@ def test_pack_is_deterministic_and_excludes_derived_directories(
     generate_variants(root, seed=1234)
     (root / "reports").mkdir()
     (root / "reports" / "coverage.json").write_text("{}\n", encoding="utf-8")
+    (root / "runtime").mkdir()
+    (root / "runtime" / "observation.json").write_text("{}\n", encoding="utf-8")
     first, first_digest = pack_corpus(root, root / "dist" / "first.zip")
     second, second_digest = pack_corpus(root, root / "dist" / "second.zip")
     assert first_digest == second_digest
@@ -149,3 +227,4 @@ def test_pack_is_deterministic_and_excludes_derived_directories(
     assert not any(name.startswith("generated/") for name in names)
     assert not any(name.startswith("reports/") for name in names)
     assert not any(name.startswith("dist/") for name in names)
+    assert not any(name.startswith("runtime/") for name in names)

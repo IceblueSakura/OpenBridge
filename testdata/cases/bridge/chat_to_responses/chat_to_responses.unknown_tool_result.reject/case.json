@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "chat_to_responses",
+  "does_not_prove": [
+    "不规定跨请求 tool history cache。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "Chat tool message 必须引用同一 messages 历史中的已知 tool_call_id",
+      "拒绝发生在 upstream 调用前"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "function_tool",
+    "tool_result",
+    "unknown_call_id",
+    "preflight_reject"
+  ],
+  "id": "chat_to_responses.unknown_tool_result.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定 Chat 未知 tool_call_id 的拒绝 oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject unknown Chat tool result"
+}

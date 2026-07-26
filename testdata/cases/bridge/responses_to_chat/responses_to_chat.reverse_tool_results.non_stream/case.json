@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定工具的实际并发执行时机。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "同名 function calls 仍按 call_id 区分",
+      "反向到达的 tool results 保持各自 identity"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "parallel_tools",
+    "tool_result",
+    "reverse_tool_results",
+    "same_name_calls",
+    "identity",
+    "non_stream"
+  ],
+  "id": "responses_to_chat.reverse_tool_results.non_stream",
+  "provenance_ref": "sources/openai-codex-tool-lifecycle.json",
+  "proves": [
+    "固定同名并行 call 的反序结果转换。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Reverse-order results for same-name calls"
+}

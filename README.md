@@ -77,7 +77,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 这些 fixture 是确定性 wire regression。日常行为验证优先使用 OpenAI SDK 与 Codex CLI；真实 Provider corpus 用于定位 Provider 特有问题，Hermes 只在明确宣称兼容时纳入验证。SDK/CLI 不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
 
-[`upstream-fixture-server`](tools/upstream-fixture-server/README.md) 是独立的 Native Path 测试上游：默认离线 mock Chat/Responses；复制其 [`.env.example`](tools/upstream-fixture-server/.env.example) 为同目录 `.env`，填入 `UPSTREAM_FIXTURE_API_BASE`、`UPSTREAM_FIXTURE_API_KEY` 与可选 `UPSTREAM_FIXTURE_MODEL` 后可切换到真实上游 proxy，且不会记录密钥或 request/response body。
+独立的协议 corpus、增量 SSE parser、Mock Server/Client 与运行说明见 [`testdata/`](testdata/README.md)。测试工具使用 `uv + Python` 维护，不读取 OpenBridge 配置，也不持有真实上游 credential。
 
 ## 推荐阅读顺序
 

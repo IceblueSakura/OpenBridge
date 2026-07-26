@@ -1,0 +1,9 @@
+: upstream keepalive
+
+data: {"id":"chatcmpl_framing_1","object":"chat.completion.chunk",
+data: "model":"upstream-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_framing_1","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

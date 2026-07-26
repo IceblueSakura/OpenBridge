@@ -28,6 +28,22 @@
       "type": "array",
       "uniqueItems": true
     },
+    "required_generation_kinds": {
+      "items": {
+        "enum": [
+          "one_byte",
+          "line_boundaries",
+          "utf8_split",
+          "all_in_one",
+          "event_pairs",
+          "crlf",
+          "seeded"
+        ]
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
     "schema_version": {
       "const": "0.1"
     },
@@ -42,6 +58,7 @@
     "title",
     "default_generation_seed",
     "required_core_features",
+    "required_generation_kinds",
     "case_ids"
   ],
   "type": "object"

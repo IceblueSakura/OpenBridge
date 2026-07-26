@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "body_base64": {
+      "contentEncoding": "base64",
+      "type": "string"
+    },
+    "body_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "end": {
+      "enum": [
+        "terminal",
+        "eof",
+        "response",
+        "error_response",
+        "transport_error",
+        "cancelled"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "role": {
+      "enum": [
+        "mock_client",
+        "mock_server"
+      ]
+    },
+    "schema_version": {
+      "const": "0.1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "role",
+    "body_base64",
+    "body_sha256",
+    "end",
+    "error"
+  ],
+  "type": "object"
+}

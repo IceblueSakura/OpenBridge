@@ -1,0 +1,53 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "fault",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 SDK 抛出的具体异常类型。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "response.failed 是 terminal 且只出现一次",
+      "failed 不转换为 completed"
+    ],
+    "outcome": "failed",
+    "terminal": "response_failed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "terminal",
+    "failed_terminal"
+  ],
+  "id": "responses_native.failed.terminal",
+  "provenance_ref": "sources/openai-p0-streaming.json",
+  "proves": [
+    "固定 response.failed 的原生流式终态。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Responses failed terminal",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "after_first_output",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

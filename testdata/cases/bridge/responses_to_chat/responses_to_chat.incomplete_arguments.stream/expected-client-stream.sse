@@ -1,0 +1,15 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_incomplete_args","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_incomplete","type":"function_call","call_id":"call_incomplete","name":"lookup","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_incomplete","output_index":0,"delta":"{\"city\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_incomplete","output_index":0,"delta":"\"Shanghai\""}
+
+event: error
+data: {"type":"error","code":"invalid_tool_arguments","message":"Function arguments were incomplete when the Chat stream terminated.","param":null}
+

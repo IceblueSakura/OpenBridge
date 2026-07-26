@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定未来 ledger 是否能补全历史。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "function_call_output 必须引用同一请求历史中的已知 call_id",
+      "拒绝发生在 upstream 调用前"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "function_tool",
+    "tool_result",
+    "unknown_call_id",
+    "preflight_reject"
+  ],
+  "id": "responses_to_chat.unknown_tool_result.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定 Responses 未知 call_id tool result 的拒绝 oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject unknown Responses tool result"
+}

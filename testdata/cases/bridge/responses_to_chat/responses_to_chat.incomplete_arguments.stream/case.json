@@ -1,0 +1,56 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "regression",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不验证 arguments 是否满足 function JSON Schema。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "index-only fragment 仍追加到正确 call",
+      "DONE 时不完整 arguments 不生成 function_call_arguments.done",
+      "不完整 arguments 产生单一 error terminal"
+    ],
+    "outcome": "failed",
+    "terminal": "error",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "stream",
+    "fragmented_arguments",
+    "incomplete_arguments",
+    "error_terminal"
+  ],
+  "id": "responses_to_chat.incomplete_arguments.stream",
+  "provenance_ref": "sources/litellm-arguments-delta-regression.json",
+  "proves": [
+    "固定 Chat DONE 时 arguments JSON 尚未闭合的错误 oracle。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Incomplete Chat arguments at DONE",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "after_first_output",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body_base64": {
+      "contentEncoding": "base64",
+      "type": "string"
+    },
+    "body_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "cancel_after_event": {
+      "minimum": 1,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "headers": {
+      "items": {
+        "prefixItems": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "items": false,
+        "maxItems": 2,
+        "minItems": 2,
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "method": {
+      "enum": [
+        "GET",
+        "POST"
+      ]
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "stream": {
+      "type": "boolean"
+    },
+    "timeout_ms": {
+      "maximum": 300000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "url": {
+      "format": "uri",
+      "pattern": "^http://",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "url",
+    "method",
+    "headers",
+    "body_base64",
+    "body_sha256",
+    "stream",
+    "timeout_ms",
+    "cancel_after_event"
+  ],
+  "type": "object"
+}

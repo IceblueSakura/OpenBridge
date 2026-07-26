@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -9,15 +10,26 @@ from .corpuslib import (
     dump_json,
     generate_variants,
     lint_corpus,
+    load_json,
     pack_corpus,
     write_report,
+)
+from .mockclient import run_mock_client
+from .mockserver import MockServer
+from .plans import (
+    build_client_plan,
+    build_server_scenario,
+    build_server_suite,
+    validate_runtime_document,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="corpus",
-        description="Validate and build the standalone OpenBridge protocol corpus.",
+        description=(
+            "Validate and build the standalone protocol corpus, or run its "
+            "HTTP/SSE mock tools."
+        ),
     )
     parser.add_argument(
         "--root",
@@ -30,7 +42,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("lint", help="Validate schemas, cases, artifacts, and provenance.")
 
     generate = subparsers.add_parser(
-        "generate", help="Generate deterministic SSE byte-fragmentation variants."
+        "generate", help="Generate deterministic SSE wire variants."
     )
     generate.add_argument("--seed", type=int)
     generate.add_argument("--output", type=Path)
@@ -40,7 +52,108 @@ def _parser() -> argparse.ArgumentParser:
 
     pack = subparsers.add_parser("pack", help="Build a deterministic corpus ZIP.")
     pack.add_argument("--output", type=Path)
+
+    server_plan = subparsers.add_parser(
+        "build-server-scenario",
+        help="Compile a self-contained Mock Server scenario from one corpus case.",
+    )
+    server_plan.add_argument("--case", required=True)
+    server_plan.add_argument("--variant", default="canonical")
+    server_plan.add_argument("--chunk-delay-ms", type=int, default=0)
+    server_plan.add_argument("--abort-delay-ms", type=int, default=10)
+    server_plan.add_argument("--output", type=Path)
+
+    server_suite = subparsers.add_parser(
+        "build-server-suite",
+        help="Compile an ordered multi-exchange Mock Server suite.",
+    )
+    server_suite.add_argument("--case", action="append", required=True)
+    server_suite.add_argument("--suite-id", default="server-suite")
+    server_suite.add_argument("--variant", default="canonical")
+    server_suite.add_argument("--chunk-delay-ms", type=int, default=0)
+    server_suite.add_argument("--abort-delay-ms", type=int, default=10)
+    server_suite.add_argument("--output", type=Path)
+
+    client_plan = subparsers.add_parser(
+        "build-client-plan",
+        help="Compile a self-contained Mock Client plan from one corpus case.",
+    )
+    client_plan.add_argument("--case", required=True)
+    client_plan.add_argument("--base-url", required=True)
+    client_plan.add_argument("--timeout-ms", type=int, default=5000)
+    client_plan.add_argument("--output", type=Path)
+
+    server = subparsers.add_parser(
+        "mock-server", help="Run one precompiled Mock Server scenario."
+    )
+    server.add_argument("--scenario", type=Path, required=True)
+    server.add_argument("--host", default="127.0.0.1")
+    server.add_argument("--port", type=int, default=0)
+    server.add_argument("--ready-file", type=Path)
+    server.add_argument("--observation", type=Path)
+    server.add_argument("--timeout-seconds", type=float, default=30)
+
+    client = subparsers.add_parser(
+        "mock-client", help="Run one precompiled Mock Client plan."
+    )
+    client.add_argument("--plan", type=Path, required=True)
+    client.add_argument("--observation", type=Path)
     return parser
+
+
+def _runtime_output(root: Path, output: Path | None, default_name: str) -> Path:
+    runtime_root = (root / "runtime").resolve()
+    candidate = (
+        output.resolve() if output is not None else runtime_root / default_name
+    )
+    if candidate != runtime_root and runtime_root not in candidate.parents:
+        raise CorpusError(f"runtime output must stay inside {runtime_root}")
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    return candidate
+
+
+def _write_runtime(
+    root: Path, output: Path | None, default_name: str, document: dict
+) -> Path:
+    path = _runtime_output(root, output, default_name)
+    path.write_text(dump_json(document), encoding="utf-8", newline="\n")
+    return path
+
+
+async def _run_server(args: argparse.Namespace, root: Path) -> dict:
+    document = load_json(args.scenario)
+    is_suite = "exchanges" in document
+    validate_runtime_document(
+        root, "server-suite" if is_suite else "server-scenario", document
+    )
+    if is_suite:
+        for exchange in document["exchanges"]:
+            validate_runtime_document(root, "server-scenario", exchange)
+    server = MockServer(document, host=args.host, port=args.port)
+    try:
+        port = await server.start()
+        ready = {
+            "base_url": f"http://{args.host}:{port}",
+            "exchange_count": len(server.scenarios),
+            "health_url": f"http://{args.host}:{port}/healthz",
+            "host": args.host,
+            "port": port,
+            "schema_version": "0.1",
+        }
+        if args.ready_file is not None:
+            _write_runtime(root, args.ready_file, "server-ready.json", ready)
+        print(dump_json(ready), end="", flush=True)
+        observations = await server.wait_all(timeout=args.timeout_seconds)
+        if not is_suite:
+            return observations[0]
+        return {
+            "observations": observations,
+            "role": "mock_server_run",
+            "schema_version": "0.1",
+            "suite_id": document["suite_id"],
+        }
+    finally:
+        await server.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +183,74 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "pack":
             output, digest = pack_corpus(root, output=args.output)
             print(f"packed {output} sha256={digest}")
+            return 0
+        if args.command == "build-server-scenario":
+            scenario = build_server_scenario(
+                root,
+                args.case,
+                variant=args.variant,
+                chunk_delay_ms=args.chunk_delay_ms,
+                abort_delay_ms=args.abort_delay_ms,
+            )
+            output = _write_runtime(
+                root,
+                args.output,
+                f"{args.case}.server-scenario.json",
+                scenario,
+            )
+            print(f"wrote {output}")
+            return 0
+        if args.command == "build-client-plan":
+            plan = build_client_plan(
+                root,
+                args.case,
+                base_url=args.base_url,
+                timeout_ms=args.timeout_ms,
+            )
+            output = _write_runtime(
+                root, args.output, f"{args.case}.client-plan.json", plan
+            )
+            print(f"wrote {output}")
+            return 0
+        if args.command == "build-server-suite":
+            suite = build_server_suite(
+                root,
+                args.case,
+                variant=args.variant,
+                chunk_delay_ms=args.chunk_delay_ms,
+                abort_delay_ms=args.abort_delay_ms,
+                suite_id=args.suite_id,
+            )
+            output = _write_runtime(
+                root, args.output, f"{args.suite_id}.server-suite.json", suite
+            )
+            print(f"wrote {output}")
+            return 0
+        if args.command == "mock-server":
+            observation = asyncio.run(_run_server(args, root))
+            validate_runtime_document(
+                root,
+                (
+                    "server-run-observation"
+                    if observation["role"] == "mock_server_run"
+                    else "observation"
+                ),
+                observation,
+            )
+            output = _write_runtime(
+                root, args.observation, "server-observation.json", observation
+            )
+            print(f"wrote {output}")
+            return 0
+        if args.command == "mock-client":
+            plan = load_json(args.plan)
+            validate_runtime_document(root, "client-plan", plan)
+            observation = asyncio.run(run_mock_client(plan))
+            validate_runtime_document(root, "observation", observation)
+            output = _write_runtime(
+                root, args.observation, "client-observation.json", observation
+            )
+            print(f"wrote {output}")
             return 0
     except CorpusError as error:
         print(f"ERROR: {error}", file=sys.stderr)

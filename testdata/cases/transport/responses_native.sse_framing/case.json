@@ -1,0 +1,56 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "transport",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不要求保留 comment 的原始字节布局。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "comment keepalive 不产生逻辑 event",
+      "多行 data 用换行拼接后解析 JSON",
+      "CRLF 变体与 LF canonical 逻辑等价"
+    ],
+    "outcome": "completed",
+    "terminal": "response_completed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "terminal",
+    "multiline_data",
+    "keepalive",
+    "crlf"
+  ],
+  "id": "responses_native.sse_framing",
+  "provenance_ref": "sources/whatwg-sse.json",
+  "proves": [
+    "固定 Responses comment、multiline data 与 CRLF generation oracle。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Responses SSE framing variants",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

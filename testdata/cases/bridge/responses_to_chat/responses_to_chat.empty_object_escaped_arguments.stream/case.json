@@ -1,0 +1,60 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "regression",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不验证模型是否应选择 echo。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "合法空对象 {} 不被当作空 arguments",
+      "转义引号跨 fragment 后仍形成合法 JSON",
+      "同名 calls 按 index 与 call_id 独立累积"
+    ],
+    "outcome": "completed",
+    "terminal": "response_completed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "parallel_tools",
+    "same_name_calls",
+    "fragmented_arguments",
+    "empty_object_arguments",
+    "escaped_arguments",
+    "utf8",
+    "stream",
+    "terminal"
+  ],
+  "id": "responses_to_chat.empty_object_escaped_arguments.stream",
+  "provenance_ref": "sources/openai-p0-streaming.json",
+  "proves": [
+    "固定 {} 与转义 UTF-8 arguments 的并行流式转换。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Empty object and escaped arguments",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

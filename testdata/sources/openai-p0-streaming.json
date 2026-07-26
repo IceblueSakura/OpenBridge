@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "只提取 Responses 终态事件、Chat 首 fragment 身份字段与 arguments 聚合约束。",
+    "所有 payload 和身份值均为本项目自主编写。"
+  ],
+  "id": "openai.p0.streaming",
+  "license": null,
+  "license_status": "pending",
+  "observed_facts": [
+    "Responses streaming 分别定义 response.failed、response.incomplete 和 error 事件。",
+    "Chat tool call 的 id、function.name 与 type 等字段可以只在首个 delta 出现。"
+  ],
+  "project": "OpenAI developer documentation",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://developers.openai.com/api/reference/resources/responses/streaming-events"
+}

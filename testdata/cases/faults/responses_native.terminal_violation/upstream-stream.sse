@@ -1,0 +1,12 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_terminal_bad","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_terminal_bad","object":"response","model":"upstream-model","status":"completed","output":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_late","output_index":0,"content_index":0,"delta":"late"}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_terminal_bad","object":"response","model":"upstream-model","status":"completed","output":[]}}
+

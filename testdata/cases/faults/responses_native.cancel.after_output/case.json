@@ -1,0 +1,54 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "transport",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不证明具体 HTTP client 已传播 cancellation token。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "downstream cancel 传播到当前 upstream attempt",
+      "cancel 后不补 terminal",
+      "cancel 后不 retry 或 fallback"
+    ],
+    "outcome": "cancelled",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "cancellation",
+    "no_fallback_after_output"
+  ],
+  "id": "responses_native.cancel.after_output",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定第二个事件后取消的 transport transcript。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Downstream cancellation after output",
+  "transport": {
+    "cancellation_after_event": 2,
+    "client_content_type": "text/event-stream",
+    "client_end": "cancelled",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "after_first_output",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "cancelled",
+    "upstream_http_status": 200
+  }
+}

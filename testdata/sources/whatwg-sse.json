@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "只提取 UTF-8、换行、注释、多行 data 和空行派发规则。",
+    "不把浏览器 EventSource 的自动重连策略作为 OpenBridge 行为。"
+  ],
+  "id": "whatwg.sse",
+  "license": "CC-BY-4.0",
+  "license_status": "verified",
+  "observed_facts": [
+    "SSE 允许 CRLF、LF 或 CR 分隔行，多个 data 字段以换行连接。",
+    "冒号开头的 comment 可作为 keepalive，流末没有空行不会派发最后事件。"
+  ],
+  "project": "WHATWG HTML Living Standard",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://html.spec.whatwg.org/dev/server-sent-events.html"
+}

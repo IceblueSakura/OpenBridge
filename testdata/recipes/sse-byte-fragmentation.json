@@ -4,6 +4,9 @@
     "one_byte",
     "line_boundaries",
     "utf8_split",
+    "all_in_one",
+    "event_pairs",
+    "crlf",
     "seeded"
   ],
   "schema_version": "0.1",

@@ -8,14 +8,14 @@
 
 | 项目 | 值 |
 |---|---|
-| Corpus | `testdata/`，版本 `0.1.0` |
+| Corpus | `testdata/`，版本 `0.4.0` |
 | 工具 | `tools/corpus/`，独立 `uv + Python` project |
 | Python | 3.12 |
-| Canonical cases | 13 |
-| Review 状态 | 10 `accepted`、3 `reviewed` |
-| 分类 | 10 `exact`、2 `reject`、1 `native_only` |
-| 默认生成结果 | seed `20260726` 下 60 个 SSE fragmentation variants |
-| 工具测试 | 9 个 pytest tests |
+| Canonical cases | 35 |
+| Review 状态 | 20 `accepted`、15 `reviewed` |
+| 分类 | 13 `exact`、6 `reject`、16 `native_only` |
+| 默认生成结果 | seed `20260726` 下 306 个 SSE wire variants |
+| 工具测试 | 25 个 pytest tests |
 
 覆盖内容：
 
@@ -23,6 +23,13 @@
 - 双向单 function call、并行 calls、fragmented arguments 和 tool result；
 - 后续 fragment 只有 index 时的 identity 回归样本；
 - Responses terminal 前 EOF；
+- `response.failed`、`response.incomplete`、`error`、Chat DONE 前 EOF；
+- duplicate terminal、terminal 后 event 与 SSE event/payload type 冲突；
+- 首输出前 HTTP error、首输出后 transport error、downstream cancel 与 no-fallback commit point；
+- 双向未知 tool result、重复冲突 `call_id`、同名并行 calls 与反序 tool results；
+- 空字符串/`{}`/不完整/转义 UTF-8 arguments；
+- comment keepalive、多行 `data:`、CRLF、all-in-one 和 event-pairs wire variants；
+- Chat/Responses 原生非流式成功响应、HTTP 429 和 `Retry-After`；
 - hosted tool 与无受限 ledger continuation 的 proposed preflight reject；
 - JSON Schema、provenance、secret scan、重复 JSON key、case 内路径与未声明文件、artifact 组合、terminal count、deterministic generation、coverage report 与 deterministic ZIP。
 
@@ -36,23 +43,24 @@ uv run --project tools/corpus pytest tools/corpus/tests
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.1.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.4.0.zip
 ```
 
 观察结果：
 
 - lock 与 `pyproject.toml` 同步；
-- pytest：9 passed；
+- pytest：25 passed；
 - corpus lint passed；
-- 生成 60 个 variant，chunks 重组 SHA-256 等于 source SHA-256；
-- required core feature 无缺口；
+- 生成 306 个 variant，chunks 重组 SHA-256 等于 wire SHA-256，CRLF 变体另保留 canonical SHA-256；
+- required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
-- `generated/`、`reports/`、`dist/`、`.venv/` 和 Python caches 均被 Git 忽略。
+- 两次 `0.4.0` pack 的 SHA-256 均为 `aa67658f9f1fb198297f7ae22c85090a8dd2596b4375ae8c55261290ac18a7e7`；
+- `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
 ## 这证明什么
 
-- schema、13 个 canonical cases 和 5 份 provenance 可被当前工具读取与校验；
-- 默认 seed 的 bytes fragmentation generation 可重复；
+- schema、35 个 canonical cases 和 7 份 provenance 可被当前工具读取与校验；
+- 默认 seed 的 wire variant generation 可重复；
 - pack 不包含 derived directories，并具有固定 entry metadata 和内容 manifest；
 - coverage report 会显式暴露未固定 source ref 和 pending license，而不是把它们隐藏为已完成。
 
@@ -66,9 +74,9 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 
 ## 已知待处理项
 
-- 5 份外部/项目来源当前均未固定 commit；
-- OpenAI protocol 文档的许可证状态仍为 `pending`；
-- 两个 reject case 和反向并行 tool case 保持 `reviewed`，集成前仍需结合最终产品决策复核；
+- 7 份外部/项目来源当前均未固定 commit；
+- 两份 OpenAI protocol 文档来源的许可证状态仍为 `pending`；
+- 13 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
 - 尚无 OpenBridge-specific replay/runner；这是当前刻意排除项。
 
 ## 关联文档

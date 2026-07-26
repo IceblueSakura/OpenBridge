@@ -10,6 +10,7 @@ config/local.*.toml
 /testdata/generated/
 /testdata/reports/
 /testdata/dist/
+/testdata/runtime/
 /tools/corpus/.venv/
 /tools/corpus/.pytest_cache/
 **/__pycache__/

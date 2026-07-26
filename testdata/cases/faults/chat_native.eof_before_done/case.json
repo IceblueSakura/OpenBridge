@@ -1,0 +1,54 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "fault",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不规定 SDK 如何包装 premature EOF。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "EOF 不伪造 Chat DONE",
+      "首输出后不切换 candidate"
+    ],
+    "outcome": "eof",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "terminal",
+    "eof_before_terminal",
+    "no_fallback_after_output"
+  ],
+  "id": "chat_native.eof_before_done",
+  "provenance_ref": "sources/whatwg-sse.json",
+  "proves": [
+    "补齐 Chat 在 DONE 前 EOF 的固定 transcript。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Chat EOF before DONE",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "eof",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "after_first_output",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "eof",
+    "upstream_http_status": 200
+  }
+}

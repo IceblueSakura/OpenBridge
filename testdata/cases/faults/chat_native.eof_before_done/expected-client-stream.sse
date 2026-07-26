@@ -1,0 +1,2 @@
+data: {"id":"chatcmpl_eof_1","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}
+

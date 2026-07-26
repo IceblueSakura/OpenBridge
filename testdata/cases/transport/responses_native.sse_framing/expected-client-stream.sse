@@ -1,0 +1,9 @@
+: keepalive may be preserved or regenerated
+
+event: response.created
+data: {"type":"response.created",
+data: "response":{"id":"resp_framing_1","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_framing_1","object":"response","model":"public-model","status":"completed","output":[]}}
+

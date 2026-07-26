@@ -1,0 +1,64 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "fault",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 Router 是否选择另一个 candidate。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": true,
+    "invariants": [
+      "429 是首输出前 HTTP error response，不是 SSE terminal",
+      "Retry-After header 保留为独立 transport oracle"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "non_stream",
+    "rate_limit",
+    "retry_after",
+    "fallback_before_output"
+  ],
+  "id": "responses_native.rate_limit.non_stream",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定 Rust mock Responses 429 与 Retry-After 行为。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Native Responses rate limit response",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "error_response",
+    "client_headers": [
+      [
+        "retry-after",
+        "1"
+      ]
+    ],
+    "client_http_status": 429,
+    "downstream_output_observed": false,
+    "failure_phase": "before_first_output",
+    "upstream_content_type": "application/json",
+    "upstream_end": "error_response",
+    "upstream_headers": [
+      [
+        "retry-after",
+        "1"
+      ]
+    ],
+    "upstream_http_status": 429
+  }
+}

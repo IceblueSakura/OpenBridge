@@ -1,0 +1,1 @@
+{"id":"resp_reverse_results","model":"public-model","object":"response","output":[{"content":[{"annotations":[],"text":"Both complete.","type":"output_text"}],"id":"msg_reverse_results","role":"assistant","status":"completed","type":"message"}],"status":"completed"}

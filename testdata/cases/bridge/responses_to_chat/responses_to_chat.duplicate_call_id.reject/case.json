@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定内部 identity map 的数据结构。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "一个 call_id 不得绑定两个 function items",
+      "冲突身份不得靠最后写入覆盖"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "function_tool",
+    "duplicate_call_id",
+    "identity_conflict",
+    "preflight_reject"
+  ],
+  "id": "responses_to_chat.duplicate_call_id.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定重复且冲突 call_id 的拒绝 oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject duplicate conflicting call ID"
+}

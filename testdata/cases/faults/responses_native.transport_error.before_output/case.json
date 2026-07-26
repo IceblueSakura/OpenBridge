@@ -1,0 +1,51 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "transport",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 Router 实际选择的下一 candidate。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": true,
+    "invariants": [
+      "首个 downstream body byte 前失败仍可选择 retry 或 fallback",
+      "错误响应不伪装为 SSE terminal"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "transport_error_before_output",
+    "fallback_before_output"
+  ],
+  "id": "responses_native.transport_error.before_output",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "用 HTTP envelope 固定首输出前失败的 fallback eligibility。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Transport error before downstream output",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "error_response",
+    "client_http_status": 503,
+    "downstream_output_observed": false,
+    "failure_phase": "before_first_output",
+    "upstream_content_type": "application/json",
+    "upstream_end": "error_response",
+    "upstream_http_status": 503
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不验证 JSON Schema 中的业务字段。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "空字符串 arguments 不等于合法空对象 JSON",
+      "拒绝发生在 upstream 调用前"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "function_tool",
+    "empty_arguments",
+    "preflight_reject"
+  ],
+  "id": "responses_to_chat.empty_arguments.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "区分空字符串 arguments 与合法 {}。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject empty function arguments"
+}

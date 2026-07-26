@@ -1,0 +1,33 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_escape_args","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_empty_object","type":"function_call","call_id":"call_empty_object","name":"echo","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_empty_object","output_index":0,"delta":"{}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_empty_object","output_index":0,"arguments":"{}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_empty_object","type":"function_call","call_id":"call_empty_object","name":"echo","arguments":"{}","status":"completed"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_escaped","type":"function_call","call_id":"call_escaped","name":"echo","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_escaped","output_index":1,"delta":"{\"text\":\"a"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_escaped","output_index":1,"delta":"\\\"上海\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_escaped","output_index":1,"arguments":"{\"text\":\"a\\\"上海\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"fc_escaped","type":"function_call","call_id":"call_escaped","name":"echo","arguments":"{\"text\":\"a\\\"上海\"}","status":"completed"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_escape_args","object":"response","model":"public-model","status":"completed","output":[{"id":"fc_empty_object","type":"function_call","call_id":"call_empty_object","name":"echo","arguments":"{}","status":"completed"},{"id":"fc_escaped","type":"function_call","call_id":"call_escaped","name":"echo","arguments":"{\"text\":\"a\\\"上海\"}","status":"completed"}]}}
+

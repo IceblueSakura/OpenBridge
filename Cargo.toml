@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2024"
 description = "A secure OpenAI-compatible model gateway and protocol bridge."
 
-[[bin]]
-name = "upstream-fixture-server"
-path = "tools/upstream-fixture-server/main.rs"
-
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio", "tower-log", "tracing"] }

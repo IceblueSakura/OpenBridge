@@ -1,0 +1,1 @@
+{"input":"Echo twice.","model":"public-model","parallel_tool_calls":true,"stream":true,"tools":[{"name":"echo","parameters":{"type":"object"},"type":"function"}]}

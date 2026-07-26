@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_failed_1","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_failed_1","object":"response","model":"public-model","status":"failed","output":[],"error":{"code":"server_error","message":"generation failed"}}}
+

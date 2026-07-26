@@ -1,0 +1,9 @@
+: keepalive may be preserved or regenerated
+
+data: {"id":"chatcmpl_framing_1","object":"chat.completion.chunk",
+data: "model":"public-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_framing_1","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

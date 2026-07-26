@@ -1,0 +1,54 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "transport",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 SDK 对连接错误的异常文本。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "首个 downstream body byte 后失败不得 fallback",
+      "已观察事件不与其他 candidate 拼接",
+      "不补 synthetic terminal"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "transport_error_after_output",
+    "no_fallback_after_output"
+  ],
+  "id": "responses_native.transport_error.after_output",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定首输出后的 stream commit point。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Transport error after downstream output",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "transport_error",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "after_first_output",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "transport_error",
+    "upstream_http_status": 200
+  }
+}

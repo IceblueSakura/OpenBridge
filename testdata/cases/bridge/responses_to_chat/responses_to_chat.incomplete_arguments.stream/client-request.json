@@ -1,0 +1,1 @@
+{"input":"Lookup weather.","model":"public-model","stream":true,"tools":[{"name":"lookup","parameters":{"type":"object"},"type":"function"}]}

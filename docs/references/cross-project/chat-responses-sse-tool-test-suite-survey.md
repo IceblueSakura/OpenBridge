@@ -260,8 +260,10 @@ OpenAI 官方迁移资料明确区分两种流式模型：Chat Completions 使�
 - `tests/sdk_compatibility.rs`：Python/Node SDK 的 Chat/Responses stream/non-stream、单/并行 function tools、arguments 分片和 tool result identity；
 - `tests/sse_contract.rs`：fragmented UTF-8、CRLF 与多行 `data:`；
 - `tests/forwarding_contract.rs`：EOF、partial stream failure、pending 与 cancellation；
-- `tools/upstream-fixture-server`：确定性基础 JSON/SSE 与 HTTP 429；
+- 已移除的 Rust `tools/upstream-fixture-server` 曾提供确定性基础 JSON/SSE、HTTP 429 和真实上游 proxy；
 - [Protocol Bridge 实施计划](../../implementation-plans/protocol-bridge.md)中的 Slice B0 corpus/invariants 与双向实施切片。
+
+截至 corpus/testkit `0.4.0`，Rust mock 的 Chat/Responses 原生 stream/non-stream、429/`Retry-After`、健康检查、非法 JSON、未知 endpoint 与同进程多请求能力已由 corpus cases 或 Python Mock Server 吸收。Rust binary 及其本地 dotenv 配置随后被移除；原有真实上游 proxy、credential 注入、默认模型补全和安全响应 header 白名单未迁移到 testkit，也不再构成本仓库提供的测试能力。
 
 这些资产目前主要证明 Native Path 与 forwarding contract。它们尚未构成 Chat ↔ Responses Bridge 的可执行语义 corpus，特别缺少：
 
@@ -399,7 +401,29 @@ TDD 的红绿循环应主要运行 L0/L1；L2/L3 用于边界互证；L4/L5 不�
 - SDK 最终能拼出完整 arguments：不能掩盖中间 delta 已丢失或顺序错误；
 - 模型最终调用正确工具：不能证明转换器保留了每个 wire event。
 
-## 10. 采用决策
+## 10. P0 补充调研与落地
+
+2026-07-26 在构建 corpus `0.2.0` 前再次复核一手资料：
+
+- [OpenAI Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events)分别定义 `response.failed`、`response.incomplete` 与 `error`，不能把它们合并为 EOF 或 completed；
+- [OpenAI function calling streaming](https://developers.openai.com/api/docs/guides/function-calling#streaming)说明 Chat `tool_calls[].index` 标识增量所属 call，而 `id`、`function.name`、`type` 等字段可以只出现在首个 delta；
+- [WHATWG Server-sent events](https://html.spec.whatwg.org/dev/server-sent-events.html)规定 UTF-8、CRLF/LF/CR 换行、多行 `data:` 拼接、comment keepalive，以及流末没有空行时不派发最后 event；
+- [LiteLLM issue #20711](https://github.com/BerriAI/litellm/issues/20711)继续作为 index-only 后续 arguments fragment 的回归来源；
+- [Open Responses compliance tests](https://github.com/openresponses/openresponses/blob/main/src/lib/compliance-tests.ts)继续作为 terminal-before-close 的外部互证，而不是 OpenAI Responses 的等价规范。
+
+据此把 P0 拆成 18 个新增 canonical cases，而不是用一个组合 fixture 掩盖失败原因：
+
+| P0 分组 | 新增覆盖 |
+|---|---|
+| terminal | `response.failed`、`response.incomplete`、`error`、Chat DONE 前 EOF、duplicate terminal、terminal 后 event |
+| transport | 首输出前 HTTP error、首输出后 transport error、downstream cancel、输出后 no fallback |
+| identity | 双向未知 tool result、重复冲突 `call_id`、同名并行 calls、反序 tool results |
+| arguments | 空字符串 reject、合法 `{}`、不完整 JSON、转义引号与 UTF-8 跨 fragment |
+| SSE framing | comment/keepalive、多行 `data:`、CRLF 生成、all-in-one chunk、每 chunk 多 event、event/type 冲突 |
+
+其中官方 wire 事实标记为 `accepted`；涉及 OpenBridge commit point、preflight reject、terminal 后截断和 event/type 冲突的策略保持 `reviewed`，不能仅因进入 P0 corpus 就声称 runtime 已实现。
+
+## 11. 采用决策
 
 建议先建立 OpenBridge 自有测试集，再按 Slice B1/B2/B3 进行 TDD。外部资产的采用顺序为：
 
@@ -412,7 +436,7 @@ TDD 的红绿循环应主要运行 L0/L1；L2/L3 用于边界互证；L4/L5 不�
 
 该顺序与 [Protocol Bridge Slice B0](../../implementation-plans/protocol-bridge.md#slice-b0corpus-与不变量) 一致：先固定 corpus、identity、ordering、terminal 与 error invariants，再实现转换器。
 
-## 11. 复核触发条件
+## 12. 复核触发条件
 
 出现以下任一变化时，应重新检查本文：
 

@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_cancel_1","object":"response","model":"public-model","status":"in_progress","output":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_cancel_1","output_index":0,"content_index":0,"delta":"partial"}
+
