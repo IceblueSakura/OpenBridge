@@ -1,0 +1,72 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "fault",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 retry scheduler 如何解释绝对时间。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": true,
+    "invariants": [
+      "429 是首输出前 HTTP error response",
+      "HTTP-date Retry-After 保留为 transport oracle"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "non_stream",
+    "rate_limit",
+    "retry_after",
+    "retry_after_http_date"
+  ],
+  "id": "responses_native.rate_limit.http_date.non_stream",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定 Responses 429 与 HTTP-date Retry-After wire。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Native Responses rate limit with HTTP-date",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "error_response",
+    "client_headers": [
+      [
+        "retry-after",
+        "Wed, 21 Oct 2037 07:28:00 GMT"
+      ],
+      [
+        "x-ratelimit-remaining-requests",
+        "0"
+      ]
+    ],
+    "client_http_status": 429,
+    "downstream_output_observed": false,
+    "failure_phase": "before_first_output",
+    "upstream_content_type": "application/json",
+    "upstream_end": "error_response",
+    "upstream_headers": [
+      [
+        "retry-after",
+        "Wed, 21 Oct 2037 07:28:00 GMT"
+      ],
+      [
+        "x-ratelimit-remaining-requests",
+        "0"
+      ]
+    ],
+    "upstream_http_status": 429
+  }
+}

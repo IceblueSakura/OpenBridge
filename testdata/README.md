@@ -1,75 +1,177 @@
 # OpenBridge Protocol Corpus
 
-这是独立于 OpenBridge runtime 和 Rust 测试的协议测试语料。当前版本提供 canonical cases、外部 provenance、deterministic generation recipes、增量 SSE parser，以及独立的 Python Mock Server/Client。
+`testdata/` 是一个可独立发布、可复现的协议测试语料。它固定 Chat Completions、Responses、SSE、function tool 和 HTTP/transport 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
-## 使用
+当前 release 为 **0.5.0**：45 个人工审查的 canonical cases（20 `accepted`、25 `reviewed`），以及默认 seed 下 306 个可重建的 SSE 分片变体。
 
-从仓库根目录运行：
+配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。设计理由、集成边界和当前已验证状态分别见 [协议测试语料构建](../docs/implementation-plans/protocol-test-corpus.md)、[Mock Server/Client 设计](../docs/implementation-plans/protocol-testkit.md) 与 [协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
+
+## 何时使用
+
+使用 corpus 来：
+
+- 设计或审查 Chat/Responses、SSE、tool-call identity 的可观察契约；
+- 为后续 SUT runner 编译确定的上游 scenario 与下游 client plan；
+- 回归测试 bytes fragmentation、SSE terminal、HTTP error、EOF、abort 和 cancellation 的区分；
+- 向其他项目交付不含凭证、可校验的协议 fixture ZIP。
+
+它**不**证明 OpenBridge 已实现或通过任一 case，也不直接测试 routing、retry、fallback、转换或真实 SDK/Provider。那些工作必须由后续 runner 或集成测试显式完成。
+
+## 快速开始
+
+仓库根目录下，先确认 Python 工具环境和 corpus：
 
 ```powershell
+uv lock --check --project tools/corpus
 uv run --project tools/corpus corpus --root testdata lint
-uv run --project tools/corpus corpus --root testdata generate --seed 20260726
-uv run --project tools/corpus corpus --root testdata report
-uv run --project tools/corpus corpus --root testdata pack
-```
-
-构建并运行一个不经过 OpenBridge 的本地 transport loopback：
-
-```powershell
-uv run --project tools/corpus corpus --root testdata build-server-scenario --case responses_native.sse_framing --variant event_pairs
-uv run --project tools/corpus corpus --root testdata mock-server --scenario testdata/runtime/responses_native.sse_framing.server-scenario.json --ready-file testdata/runtime/server-ready.json
-
-# 另一个终端读取 server-ready.json 中的 base_url：
-uv run --project tools/corpus corpus --root testdata build-client-plan --case responses_native.sse_framing --base-url http://127.0.0.1:<port>
-uv run --project tools/corpus corpus --root testdata mock-client --plan testdata/runtime/responses_native.sse_framing.client-plan.json
-```
-
-需要同一进程连续处理多个上游 exchange 时，按顺序构建 suite：
-
-```powershell
-uv run --project tools/corpus obtest --root testdata build-server-suite `
-  --case chat_native.text.non_stream `
-  --case responses_native.rate_limit.non_stream
-```
-
-Mock Server 支持单 scenario 或有序 suite；`/health` 与 `/healthz` 不消耗 exchange。Mock Client 不使用 OpenAI SDK，也不自动重试。`runtime/` 中的 plan、scenario 和 observation 均为可重建产物。
-
-工具测试：
-
-```powershell
 uv run --project tools/corpus pytest tools/corpus/tests
 ```
 
-## 数据解释
+生成所有 SSE transport 变体、查看覆盖统计、生成可发布 ZIP：
 
-- `cases/` 是人工审查的 canonical oracle；
-- `sources/` 记录来源事实，不自动构成功能承诺；
-- `recipes/` 只描述 transport bytes 分片；
-- `generated/`、`reports/`、`dist/` 和 `runtime/` 是可重建产物，不进入 Git；
-- 三类命令的 `--output` 只能写入各自的上述派生目录；
-- case artifact 必须留在所属 case 目录内并由 `case.json` 显式声明；
-- canonical JSON 不允许重复 object key；
-- case 通过数据 lint 不代表 OpenBridge 已实现或通过该 case。
+```powershell
+uv run --project tools/corpus corpus --root testdata generate --seed 20260726
+uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.5.0.zip
+```
 
-详细构建与集成边界见[协议测试语料构建](../docs/implementation-plans/protocol-test-corpus.md)和 [Mock Server/Client 设计](../docs/implementation-plans/protocol-testkit.md)。
+`lint` 与测试不要求网络、服务端或 credential。`generate`、`report`、`pack` 的输出只能位于对应的派生目录，避免覆盖 canonical data。
 
-## 0.4.0 内容
+## 数据层和目录
 
-- 35 个 canonical cases：20 个 `accepted`、15 个 `reviewed`；
-- 双向 text stream/non-stream；
-- 双向 single function call、parallel calls 与 tool result；
-- 后续仅带 index 的 arguments fragments；
-- Responses terminal 前 EOF；
-- failed、incomplete、error、Chat DONE 前 EOF、duplicate/late terminal；
-- 首输出前后 transport error 与 downstream cancellation；
-- 未知/重复 call identity、反序 results、空/不完整/转义 arguments；
-- comment、multiline data、CRLF、all-in-one 与 event-pairs transport；
+```text
+testdata/
+  VERSION                 # corpus release，例如 0.5.0
+  catalog.json            # case id、required feature、默认 seed
+  schemas/                # JSON Schema，schema_version 目前为 0.1
+  cases/                  # 人工审查的 canonical request/wire/oracle
+  sources/                # 外部或项目来源的事实与许可证状态
+  recipes/                # 仅描述 SSE bytes 分片方式
+  generated/              # 生成的 wire 变体，忽略且可重建
+  reports/                # 覆盖报告，忽略且可重建
+  dist/                   # deterministic ZIP 与 sha256，忽略且可重建
+  runtime/                # scenario、plan、observation，忽略且可重建
+```
+
+| 层 | 作用 | 是否可手改 |
+|---|---|---|
+| `sources/` | 记录 URL、取得日期、ref、license 与已观察事实 | 可以；不得复制受限外部 payload |
+| `cases/` | canonical 输入、wire 和 expected output | 可以；必须经审查并通过 lint |
+| `recipes/` | 只定义分片种类和 seeded 变体数 | 可以；不表达协议语义 |
+| `generated/` | 从 canonical SSE 生成的 Base64 chunks | 不应手改 |
+| `reports/`、`dist/`、`runtime/` | 运行产物 | 不应手改 |
+
+`catalog.json` 是 case 集合的清单。`lint` 会拒绝 catalog 与实际 case 目录不一致、case 内有未声明文件、artifact 路径逃逸目录、重复 JSON key、疑似 secret 或不自洽的 stream/non-stream artifact 组合。
+
+## Canonical case 的结构
+
+一个 case 目录的最小形态如下：
+
+```text
+cases/<category>/<case-id>/
+  case.json
+  client-request.json
+  expected-upstream-request.json       # 有上游 attempt 时
+  upstream-response.json|txt           # non-stream 或首输出前 HTTP error
+  expected-client-response.json|txt
+```
+
+成功或失败的流式 case 则使用 `upstream-stream.sse` 与 `expected-client-stream.sse`。preflight reject 没有 upstream artifact，且 `expectation.upstream_attempts` 必须为 `0`。
+
+`case.json` 的关键字段：
+
+| 字段 | 含义 |
+|---|---|
+| `id`、`title`、`category`、`direction` | 稳定标识、用途、类别与协议方向 |
+| `status` | `draft`、`reviewed`、`accepted` 或 `deprecated` |
+| `stream` | 业务请求是否要求 stream；首输出前 HTTP error 可使用 non-stream artifact |
+| `artifacts` | 该 case 唯一允许存在的 request/wire/expected 文件 |
+| `expectation` | outcome、terminal 数量、upstream attempts、fallback 是否允许及不变量 |
+| `transport` | 上下游 HTTP status、Content-Type、headers、结束方式、失败阶段和 cancel point |
+| `features` | 覆盖报告用的能力标签 |
+| `provenance_ref`、`proves`、`does_not_prove` | 证据来源和明确边界 |
+
+`classification` 的含义是：
+
+- `exact`：共同子集应保持声明的结构和 identity；
+- `approximate`：允许转换损失，但必须有明确 notice；
+- `reject`：上游调用前拒绝；
+- `native_only`：只适用于同协议原生路径；
+- `research_only`：只记录观察，不是后续 required oracle。
+
+`fallback_allowed` 只表达 case 所在的输出 commit point 是否允许后续决策；它不要求 Mock Client 或 corpus 选择、执行或验证 fallback。
+
+## 当前覆盖
+
+语料包含：
+
+- Chat ↔ Responses 双向 text 的 stream/non-stream；
+- 双向单/并行 function call、tool result、交错和只带 index 的 arguments fragment；
+- Responses `completed`/`failed`/`incomplete`/`error`、Chat `[DONE]`、EOF、duplicate terminal、terminal 后事件；
+- SSE comment、多行 `data:`、CRLF、UTF-8 跨分片、all-in-one、event-pairs 和 seeded chunking；
+- caller cancellation、首输出前/后 transport error；
+- unknown/duplicate `call_id`、反序 tool result、空/不完整/转义 arguments；
 - hosted tool 与无受限 ledger continuation 的 proposed preflight reject；
-- 默认 seed 下生成 306 个 SSE wire variants；
-- 新增 server scenario、client plan 与 observation JSON Schema；
-- 新增增量 SSE parser、单场景 HTTP/1.1 Mock Server 和 Mock Client；
-- 支持正常结束、逻辑 EOF、HTTP error、异常断连、事件后取消与敏感 header 脱敏。
-- 吸收 Rust mock 的 Chat/Responses 原生非流式成功响应、双协议 429 与 `Retry-After`；
-- Mock Server 支持健康检查、非法 JSON 400、未知 endpoint 404 和同进程有序多 exchange。
+- HTTP error matrix：`400`、`401`、`403`、`404`、`422`、`429`、`500`、`502`、`503`、`504`。
 
-当前外部来源记录均保存了 URL 和获取日期，但尚未固定 commit；OpenAI protocol 文档的许可证状态保留为 `pending`。这些状态会出现在 `corpus report`，不影响自主改写 canonical payload 的结构校验，但必须在复制外部文件或把数据集提升为发布合规证据前复核。
+HTTP 错误还覆盖 delta-seconds 与 HTTP-date 两种 `Retry-After`，OpenAI 风格 JSON、纯文本与损坏 JSON body，以及 `4xx/5xx` 却错误标为 `text/event-stream` 的分类边界。
+
+用下列命令获取机器可读的当前统计，而不要在脚本中硬编码本文数字：
+
+```powershell
+uv run --project tools/corpus corpus --root testdata report
+```
+
+## 生成的 SSE 变体
+
+recipe 只改变 bytes 到 chunks 的划分，不改变逻辑事件、payload、terminal、arguments 或 expected oracle。默认包含：
+
+| kind | 目的 |
+|---|---|
+| `one_byte` | 每个 byte 单独写入，覆盖最细粒度边界 |
+| `line_boundaries` | 在 SSE 行边界拆分 |
+| `utf8_split` | 强制跨 UTF-8 code point 边界 |
+| `all_in_one` | 所有 wire 一次写入 |
+| `event_pairs` | event/data 对附近拆分 |
+| `crlf` | 逻辑等价的 CRLF wire |
+| `seeded` | 由 seed 决定的额外拆分 |
+
+生成 manifest 保存 canonical/wire SHA-256、transformation 与 Base64 chunks。相同 corpus、工具版本和 seed 必须产生相同内容；TCP 实际 read 边界仍可能不同，因此黑盒断言应比较逻辑事件、顺序、bytes hash 和结束方式，而不是 socket read 次数。
+
+## 新增或修改 case 的流程
+
+1. 先判断它是新的协议语义、HTTP/transport 边界还是仅仅新的分片；仅分片差异应写 recipe，不应复制 case。
+2. 在 `sources/` 中记录可复核的来源事实，或使用项目设计来源并明确 `does_not_prove`。不要保存 credential、cookie、私人 prompt 或未脱敏 request id。
+3. 新建 `cases/<category>/<case-id>/`，写入 `case.json` 和所有声明 artifact；case id 必须与目录名一致。
+4. 将 id 加入 `catalog.json`，为新增核心能力加入 `required_core_features`；只在确认需要时调整默认 seed 或 recipe。
+5. 更新 `VERSION` 与 `catalog.corpus_version`。只改 case 内容可升级 corpus release；改变 schema 结构必须升级 `schema_version` 并提供兼容说明。
+6. 更新本文与相关设计/现状文档，尤其是覆盖范围和不证明事项。
+7. 运行 lint、工具测试、generate、report 和至少两次 pack；两次 ZIP hash 应相同。
+
+推荐的完整验证命令：
+
+```powershell
+uv lock --check --project tools/corpus
+uv run --project tools/corpus corpus --root testdata lint
+uv run --project tools/corpus pytest tools/corpus/tests
+uv run --project tools/corpus corpus --root testdata generate --seed 20260726
+uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-<version>.zip
+```
+
+## 发布、复现与安全
+
+`pack` 只包含 canonical corpus、schema、recipe 和 provenance；不会包含 `generated/`、`reports/`、`dist/`、`runtime/`、虚拟环境或工具缓存。ZIP entry 顺序与时间戳固定，并生成 `.sha256` sidecar。
+
+发布前仍需查看 `report` 中的 `pending_license_sources` 和 `unpinned_sources`。通过 lint 只说明结构、路径、secret scan 与内部不变量正确；它不自动解决外部许可证、来源 ref 或语义正确性。
+
+## 与后续 OpenBridge 测试的关系
+
+未来黑盒 runner 的职责是把两端连接到 SUT，并比较：
+
+1. Mock Server 收到的上游请求与 `expected_upstream_request`；
+2. Mock Client 收到的 envelope、raw body、SSE event 与 `expected_client_*` artifact；
+3. identity、顺序、terminal、attempt、commit point 和明确的不变量；
+4. SUT 自身的 retry、fallback、cooldown、转换 notice 与最终错误策略。
+
+本目录和 `tools/corpus/` 刻意不加载 OpenBridge 配置、不启动二进制，也不声明这些产品行为已经实现。

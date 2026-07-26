@@ -1,8 +1,10 @@
 # Mock Server/Client 测试工具现状
 
+操作命令、HTTP 行为、SSE parser、scenario/plan 和 observation 字段见 [Testkit 指南](../../tools/corpus/README.md)；本文件只记录当前实现证据与边界。
+
 ## 已实现
 
-`tools/corpus/` 的 Python `0.4.0` 工具现已包含：
+`tools/corpus/` 的 Python `0.5.0` 工具现已包含：
 
 - incremental SSE parser；
 - canonical case 到 self-contained server scenario/client plan 的编译；
@@ -10,8 +12,10 @@
 - 不重试、不依赖 OpenAI SDK 的 Mock Client；
 - server/client observation 与敏感 header 脱敏；
 - normal terminal、logical EOF、HTTP error、transport abort 和 event cancellation 的观测模型；
-- `/health`/`/healthz`、非法 JSON 400、未知 endpoint 404；
-- Chat/Responses 原生非流式基线、429 和 `Retry-After` corpus cases。
+- `/health`/`/healthz`、非法 JSON 400、未知 endpoint 404、错误方法 405 和 exchange 耗尽 409；
+- Chat/Responses 原生非流式基线，以及 400、401、403、404、422、429、500、502、503、504 HTTP error cases；
+- delta-seconds/HTTP-date `Retry-After`、纯文本/损坏 JSON body 和错误状态携带 SSE Content-Type 的边界；
+- HTTP status 优先错误分类，避免把 `4xx/5xx + text/event-stream` 误判为 SSE EOF/terminal。
 
 运行时 schema 位于：
 
@@ -23,7 +27,7 @@
 
 `testdata/runtime/` 保存可重建 scenario、plan、ready state 和 observation，不进入 Git 或 corpus ZIP。
 
-原 `tools/upstream-fixture-server` Rust binary、其 `.env.example` 和本地被忽略的 `.env` 已移除。其离线 mock 行为由 testkit `0.4.0` 覆盖；原 binary 的真实上游 proxy、credential 注入和 header 白名单能力没有迁移。
+原 `tools/upstream-fixture-server` Rust binary、其 `.env.example` 和本地被忽略的 `.env` 已移除。其离线 mock 行为已由 testkit 覆盖；原 binary 的真实上游 proxy、credential 注入和 header 白名单能力没有迁移。
 
 ## 已验证
 
@@ -36,7 +40,7 @@ uv run --project tools/corpus corpus --root testdata lint
 
 结果：
 
-- 25 passed；
+- 26 passed；
 - corpus lint passed；
 - incremental parser 逐一消费 306 个生成 wire variants；
 - 类级 loopback 覆盖 stream terminal、HTTP 503、输出后 abort 和事件后取消；
@@ -44,6 +48,7 @@ uv run --project tools/corpus corpus --root testdata lint
 - CLI observation 显示 `response_completed`、`/v1/responses` 和双方 terminal；
 - 多-exchange CLI 验证显示 health `ok`、两个 exchange、HTTP 429 与 `Retry-After: 1`；
 - 非法 JSON 和未知 endpoint 不会消耗待执行 exchange。
+- HTTP error matrix loopback 验证 10 个新增 case 的 status、headers 与原始 body。
 - 移除 Rust fixture binary 后，`cargo test --all-targets` 通过 53 个 Rust tests，SDK compatibility 的 1 个外部依赖测试仍按原设计 ignored。
 
 ## 尚未证明

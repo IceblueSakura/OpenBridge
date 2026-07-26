@@ -111,15 +111,17 @@ async def run_mock_client(plan: dict[str, Any]) -> dict[str, Any]:
                         else:
                             sse_events.extend(new_events)
                 elif isinstance(event, h11.EndOfMessage):
-                    if content_type.startswith("text/event-stream"):
+                    if response_event is not None and response_event.status_code >= 400:
+                        if content_type.startswith("text/event-stream"):
+                            parser.close()
+                        end = "error_response"
+                    elif content_type.startswith("text/event-stream"):
                         parser.close()
                         end = (
                             "terminal"
                             if any(item.terminal for item in sse_events)
                             else "eof"
                         )
-                    elif response_event is not None and response_event.status_code >= 400:
-                        end = "error_response"
                     else:
                         end = "response"
                     break

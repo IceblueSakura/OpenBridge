@@ -4,6 +4,8 @@
 
 **现行独立构建模式。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具。
 
+日常使用、case 维护、release 规则和命令示例以仓库内的 [Corpus 指南](../../testdata/README.md) 为准；本文件只保留设计边界与集成前条件。
+
 在 corpus schema、canonical cases 和工具达到可复现状态前，不接入 OpenBridge Rust 测试，也不以数据集存在声明 Bridge 已实现。原 Rust `upstream-fixture-server` 的离线 mock 行为已经吸收到 Python testkit；真实上游 proxy 不属于本阶段测试工具边界。
 
 ## 1. 目标与非目标
@@ -106,7 +108,7 @@ tools/corpus/
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.4.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.5.0.zip
 uv run --project tools/corpus pytest tools/corpus/tests
 ```
 
@@ -153,6 +155,21 @@ uv run --project tools/corpus pytest tools/corpus/tests
 - HTTP error response、SSE terminal、EOF、transport error 与 cancellation 必须分开记录；
 - `fallback_allowed` 必须结合首个 downstream output commit point 解释；
 - coverage matrix 只说明数据覆盖，不说明 OpenBridge 功能或代码覆盖。
+
+### 6.1 HTTP error matrix
+
+HTTP 错误按语义类别选择代表状态，而不是机械枚举全部 `4xx/5xx`：
+
+- 请求错误：400 与 422；
+- 身份错误：401 与 403；
+- 资源错误：404；
+- 限流：429，分别覆盖 delta-seconds 与 HTTP-date `Retry-After`；
+- 服务与网关错误：500、502、503、504；
+- body 形态：OpenAI 风格 JSON、纯文本和损坏 JSON；
+- envelope 边界：流式请求在首输出前收到 JSON HTTP error，以及错误状态错误地携带 SSE Content-Type。
+
+Canonical case 只固定单次 exchange 的 wire 和分类。重试次数、backoff、candidate
+fallback、cooldown 与最终错误选择仍属于后续 SUT runner，不由 Mock Client 自动执行。
 
 ## 7. 进入 OpenBridge 集成前的条件
 

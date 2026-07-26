@@ -16,6 +16,8 @@
 3. 与当前功能相关的[实施计划](implementation-plans/README.md)
 4. 需要核验外部事实时再查阅[参考文档](references/README.md)
 
+独立协议测试数据的日常使用与维护，直接从仓库内的 [Corpus 指南](../testdata/README.md) 和 [Testkit 指南](../tools/corpus/README.md) 开始；它们说明实际命令、数据模型、Mock Server/Client 和发布流程。设计假设仍保留在[实施计划](implementation-plans/README.md)，已验证证据仍保留在[实施现状](implementation-status/README.md)。
+
 ## 维护规则
 
 - 产品行为、边界或非目标变化：更新 `functional-requirements/`；

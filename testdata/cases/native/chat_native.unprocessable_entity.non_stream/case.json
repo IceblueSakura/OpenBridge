@@ -1,0 +1,50 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "fault",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不规定 400 与 422 的 Provider-specific 选择。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "422 是 HTTP error response，不产生 SSE terminal",
+      "unprocessable request 不应触发 candidate fallback"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "non_stream",
+    "unprocessable_entity"
+  ],
+  "id": "chat_native.unprocessable_entity.non_stream",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定原生 Chat 422 JSON error envelope。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Native Chat unprocessable entity response",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "error_response",
+    "client_http_status": 422,
+    "downstream_output_observed": false,
+    "failure_phase": "before_first_output",
+    "upstream_content_type": "application/json",
+    "upstream_end": "error_response",
+    "upstream_http_status": 422
+  }
+}

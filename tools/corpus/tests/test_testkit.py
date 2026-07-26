@@ -189,10 +189,21 @@ def test_mock_server_health_invalid_json_and_unknown_endpoint_do_not_consume_exc
                     "url": f"{base_url}/v1/unknown",
                 }
             )
+            wrong_method = dict(valid)
+            wrong_method.update(
+                {
+                    "body_base64": "",
+                    "body_sha256": sha256_bytes(b""),
+                    "case_id": "mock.wrong_method",
+                    "method": "GET",
+                }
+            )
             health_result = await run_mock_client(health)
             invalid_result = await run_mock_client(invalid)
             unknown_result = await run_mock_client(unknown)
+            wrong_method_result = await run_mock_client(wrong_method)
             valid_result = await run_mock_client(valid)
+            exhausted_result = await run_mock_client(valid)
             observations = await server.wait_all()
         finally:
             await server.close()
@@ -201,7 +212,10 @@ def test_mock_server_health_invalid_json_and_unknown_endpoint_do_not_consume_exc
         assert invalid_result["response"]["status"] == 400
         assert invalid_result["body_json"]["error"]["code"] == "invalid_json"
         assert unknown_result["response"]["status"] == 404
+        assert wrong_method_result["response"]["status"] == 405
         assert valid_result["response"]["status"] == 200
+        assert exhausted_result["response"]["status"] == 409
+        assert exhausted_result["body_json"]["error"]["code"] == "no_pending_exchange"
         assert len(observations) == 1
 
     asyncio.run(exercise())
@@ -273,6 +287,70 @@ def test_mock_client_observes_http_error_response(
         assert client["end"] == "error_response"
         assert client["response"]["status"] == 503
         assert isinstance(client["body_json"], dict)
+
+    asyncio.run(exercise())
+
+
+def test_http_error_matrix_preserves_status_headers_and_raw_body(
+    generated_root: Path,
+) -> None:
+    cases = [
+        ("chat_native.invalid_request.non_stream", 400),
+        ("responses_native.authentication_error.non_stream", 401),
+        ("chat_native.permission_denied.non_stream", 403),
+        ("responses_native.not_found.non_stream", 404),
+        ("chat_native.unprocessable_entity.non_stream", 422),
+        ("responses_native.rate_limit.http_date.non_stream", 429),
+        ("responses_native.server_error.malformed_json.non_stream", 500),
+        ("responses_native.http_error.sse_content_type", 500),
+        ("chat_native.bad_gateway.non_stream", 502),
+        ("responses_native.gateway_timeout.non_stream", 504),
+    ]
+
+    async def exercise() -> None:
+        suite = build_server_suite(
+            generated_root,
+            [case_id for case_id, _ in cases],
+            suite_id="http-error-matrix",
+        )
+        server = MockServer(suite)
+        port = await server.start()
+        results = []
+        try:
+            for case_id, _ in cases:
+                plan = build_client_plan(
+                    generated_root,
+                    case_id,
+                    base_url=f"http://127.0.0.1:{port}",
+                )
+                results.append(await run_mock_client(plan))
+            await server.wait_all()
+        finally:
+            await server.close()
+
+        for result, (case_id, status), exchange in zip(
+            results, cases, suite["exchanges"], strict=True
+        ):
+            expected_body = b"".join(
+                base64.b64decode(chunk)
+                for chunk in exchange["response"]["chunks_base64"]
+            )
+            assert result["case_id"] == case_id
+            assert result["end"] == "error_response"
+            assert result["response"]["status"] == status
+            assert base64.b64decode(result["body_base64"]) == expected_body
+
+        rate_limit = results[5]
+        assert [
+            "retry-after",
+            "Wed, 21 Oct 2037 07:28:00 GMT",
+        ] in rate_limit["response"]["headers"]
+        assert ["x-ratelimit-remaining-requests", "0"] in rate_limit["response"][
+            "headers"
+        ]
+        assert results[6]["body_json"] is None
+        assert results[7]["response"]["terminal_kinds"] == []
+        assert results[8]["body_json"] is None
 
     asyncio.run(exercise())
 

@@ -1,0 +1,50 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.txt",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.txt"
+  },
+  "category": "fault",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不规定生产系统是否透传 Provider 的非 JSON 文本。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": true,
+    "invariants": [
+      "502 与纯文本 body 仍分类为 HTTP error response",
+      "非 JSON body 不被伪造成 SSE terminal"
+    ],
+    "outcome": "failed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "non_stream",
+    "bad_gateway"
+  ],
+  "id": "chat_native.bad_gateway.non_stream",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "固定 Chat 502 text/plain error body。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Native Chat bad gateway text response",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/plain",
+    "client_end": "error_response",
+    "client_http_status": 502,
+    "downstream_output_observed": false,
+    "failure_phase": "before_first_output",
+    "upstream_content_type": "text/plain",
+    "upstream_end": "error_response",
+    "upstream_http_status": 502
+  }
+}

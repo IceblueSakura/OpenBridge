@@ -8,6 +8,8 @@
 Mock Client -> future SUT -> Mock Server
 ```
 
+CLI、scenario/plan、Server/Client 行为、observation 字段和 loopback 示例以 [Testkit 指南](../../tools/corpus/README.md) 为准；本文件只保留设计定位和后续集成边界。
+
 本阶段只实现两端协议行为、运行计划编译与 observation，不加载 OpenBridge 配置、不启动 OpenBridge、不引用 Rust crate，也不判断 routing、fallback 或转换是否正确。后续 runner 才负责把两端连接到被测进程并比较 canonical oracle。
 
 ## 2. 组件边界
@@ -60,6 +62,7 @@ Mock Client：
 - 默认不重试；
 - 分别记录 HTTP envelope、raw body chunks、逻辑 SSE events 与 terminal；
 - 区分普通 response、HTTP error response、logical EOF、transport error 和 cancellation；
+- HTTP status 优先于 Content-Type 分类，`4xx/5xx + text/event-stream` 仍是 HTTP error response；
 - 可在第 N 个逻辑 event 后终止连接。
 
 ### 2.5 Observation

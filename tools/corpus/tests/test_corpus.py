@@ -139,7 +139,7 @@ def test_generation_is_deterministic_and_reconstructs_sources(tmp_path: Path) ->
 
 def test_report_confirms_p0_feature_and_generation_coverage() -> None:
     report = build_report(CORPUS_ROOT)
-    assert report["case_count"] == 35
+    assert report["case_count"] == 45
     assert report["missing_required_features"] == []
     assert report["missing_required_generation_kinds"] == []
 
