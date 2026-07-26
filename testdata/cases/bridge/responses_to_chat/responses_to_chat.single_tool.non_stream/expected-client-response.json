@@ -1,0 +1,16 @@
+{
+  "id": "resp_tool_1",
+  "model": "public-model",
+  "object": "response",
+  "output": [
+    {
+      "arguments": "{\"city\":\"Shanghai\"}",
+      "call_id": "call_weather_1",
+      "id": "fc_tool_1",
+      "name": "get_weather",
+      "status": "completed",
+      "type": "function_call"
+    }
+  ],
+  "status": "completed"
+}

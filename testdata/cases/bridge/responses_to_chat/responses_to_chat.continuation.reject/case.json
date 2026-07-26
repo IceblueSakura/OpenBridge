@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定未来受限 continuation ledger 的存储实现。",
+    "不证明当前 OpenBridge 已实现该拒绝。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "没有受限 ledger 时 previous_response_id 不跨协议恢复",
+      "拒绝发生在 upstream 调用前"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "continuation",
+    "preflight_reject",
+    "state_affinity"
+  ],
+  "id": "responses_to_chat.continuation.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "记录无 issuer/deployment-bound ledger 时 continuation 的 proposed reject oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject unbound continuation before upstream"
+}

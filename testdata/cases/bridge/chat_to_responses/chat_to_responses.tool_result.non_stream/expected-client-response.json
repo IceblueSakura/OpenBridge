@@ -1,0 +1,15 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "It is sunny.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "id": "chatcmpl_result_2",
+  "model": "public-model",
+  "object": "chat.completion"
+}

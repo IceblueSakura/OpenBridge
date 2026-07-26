@@ -1,0 +1,45 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "bridge",
+  "direction": "chat_to_responses",
+  "does_not_prove": [
+    "不证明任一具体 converter 的 chunk ID 生成策略。",
+    "不覆盖工具调用或 failed/incomplete。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "Responses output_text delta 按顺序映射为 Chat content delta",
+      "response output_item done 不提前产生 Chat DONE",
+      "客户端 terminal 恰好一次"
+    ],
+    "outcome": "completed",
+    "terminal": "chat_done",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "text",
+    "stream",
+    "terminal",
+    "utf8"
+  ],
+  "id": "chat_to_responses.text.stream",
+  "provenance_ref": "sources/openai-protocol.json",
+  "proves": [
+    "定义 Responses typed text events 到 Chat chunks 的最小顺序。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Chat to Responses streaming text"
+}

@@ -49,6 +49,18 @@ source/commit + files or issue
 | **cc-switch** | 面向 Code Agent 的 Protocol Bridge 状态机主参考 | Codex Responses ↔ Chat 请求转换；每请求 tool context；Chat SSE → Responses 的 item/arguments/terminal 重建；tool history 与 continuation 的失败边界 | Chat/Responses bridge fixture；`ToolConversionContext`、tool identity 与 stream assembler 约束 | Tauri/桌面组件、客户端配置接管、usage UX、provider/model 名称猜测、无 issuer/route/TTL 约束的 history fallback |
 | **CLIProxyAPI** | translator/stateful routing 的负面案例库 | `previous_response_id`、tool identity、state affinity、SSE/WebSocket terminal 与 translator 失败 issue | failure taxonomy；最小 transcript；拒绝或 issuer-bound state 规则 | 多 CLI 账号池、subscription credential 聚合、非官方 OAuth/client identity、账号轮转或负载策略 |
 
+### 2.1 测试资产补充角色
+
+以下项目只补充[Chat/Responses、SSE 与工具调用测试集调研](cross-project/chat-responses-sse-tool-test-suite-survey.md)，不提升为 OpenBridge 的整体架构参考：
+
+| 测试资产 | 证据角色 | 允许进入 OpenBridge 的产物 | 不得由此推导 |
+|---|---|---|---|
+| OpenAI gpt-oss compatibility-test | 真实模型、function calling 与 API shape smoke | 可选 external-conformance 任务和脱敏结果 | 完整 OpenAI API、SSE 状态机或双向 Bridge 兼容 |
+| Open Responses Compliance | Responses schema、SSE terminal 与 continuation 的外部黑盒互证 | 固定版本的 `/v1/responses` acceptance 子集 | Open Responses 与 OpenAI Responses 完全等价，或 Chat Bridge 正确 |
+| OpenAI Codex tests | Responses SSE/tool lifecycle 的确定性场景来源 | `call_id`、并行 tool、item/terminal 的最小 transcript | 复制 Codex runtime，或把客户端可消费子集当完整规范 |
+| `CallOrRet/responses-proxy` | Rust Responses → Chat → Responses 实现与 fixture 对照 | 第一批 Responses → Chat 正向 fixture 的互证 | 静默丢弃 unsupported tool，或完整双向/fault 覆盖 |
+| `beranekio/openai-compatibility-tester` | 官方 Go SDK endpoint smoke | 可选 Go SDK 黑盒 CI | 内部转换语义、身份或错误策略正确 |
+
 ## 3. 问题分工与允许重叠
 
 “主参考”指定先读什么，并不表示其他项目不能提供证据。重叠时必须保留各自的视角，不能把结果混为同一事实。

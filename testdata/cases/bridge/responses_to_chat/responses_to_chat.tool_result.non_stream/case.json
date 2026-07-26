@@ -1,0 +1,42 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不覆盖 continuation ledger。",
+    "不覆盖多个结果的异序到达。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "function_call_output 只关联相同 call_id",
+      "tool result 紧随其 assistant tool call 进入 Chat history"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "tool_result",
+    "identity",
+    "non_stream"
+  ],
+  "id": "responses_to_chat.tool_result.non_stream",
+  "provenance_ref": "sources/openai-codex-tool-lifecycle.json",
+  "proves": [
+    "定义 Responses function_call/output 到 Chat assistant/tool history 的关联 oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Responses to Chat tool result non-stream"
+}

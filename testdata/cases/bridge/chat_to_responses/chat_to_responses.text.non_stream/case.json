@@ -1,0 +1,40 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "bridge",
+  "direction": "chat_to_responses",
+  "does_not_prove": [
+    "不证明 OpenBridge 已实现该转换。",
+    "不覆盖流式事件或工具调用。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "Chat 用户消息变为 Responses input message",
+      "Responses output message 还原为 Chat assistant message"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "text",
+    "non_stream"
+  ],
+  "id": "chat_to_responses.text.non_stream",
+  "provenance_ref": "sources/openai-protocol.json",
+  "proves": [
+    "定义 Chat 文本请求到 Responses input 及返回 Chat message 的 canonical oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Chat to Responses non-stream text"
+}

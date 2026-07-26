@@ -1,0 +1,47 @@
+{
+  "messages": [
+    {
+      "content": "Give weather and time.",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "parallel_tool_calls": true,
+  "stream": true,
+  "tools": [
+    {
+      "function": {
+        "name": "get_weather",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "name": "get_time",
+        "parameters": {
+          "properties": {
+            "zone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zone"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

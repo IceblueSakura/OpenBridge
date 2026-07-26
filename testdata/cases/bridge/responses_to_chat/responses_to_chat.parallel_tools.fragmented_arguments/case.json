@@ -1,0 +1,49 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "regression",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定客户端何时开始实际执行工具。",
+    "不覆盖 tool results 的返回顺序。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "后续仅带 index 的 Chat argument fragment 关联到既有 call_id",
+      "两个 call 的 arguments 独立累积",
+      "每个 function item 在 response terminal 前完成",
+      "terminal 恰好一次"
+    ],
+    "outcome": "completed",
+    "terminal": "response_completed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "parallel_tools",
+    "fragmented_arguments",
+    "identity",
+    "stream",
+    "terminal",
+    "utf8"
+  ],
+  "id": "responses_to_chat.parallel_tools.fragmented_arguments",
+  "provenance_ref": "sources/litellm-arguments-delta-regression.json",
+  "proves": [
+    "定义 index-only 后续 fragment 不得丢失的最小回归语料。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Responses to Chat parallel tools with fragmented arguments"
+}

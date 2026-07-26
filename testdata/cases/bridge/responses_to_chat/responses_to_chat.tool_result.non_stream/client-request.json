@@ -1,0 +1,18 @@
+{
+  "input": [
+    {
+      "arguments": "{\"city\":\"Shanghai\"}",
+      "call_id": "call_weather_3",
+      "id": "fc_tool_3",
+      "name": "get_weather",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_weather_3",
+      "output": "sunny",
+      "type": "function_call_output"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

@@ -1,0 +1,25 @@
+{
+  "messages": [
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"city\":\"Shanghai\"}",
+            "name": "get_weather"
+          },
+          "id": "call_weather_4",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "sunny",
+      "role": "tool",
+      "tool_call_id": "call_weather_4"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

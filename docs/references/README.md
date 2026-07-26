@@ -35,6 +35,7 @@
 - [LiteLLM 调用统计与 Prometheus](litellm/litellm-observability-analysis.md)：TTFT/延迟/失败指标的边界，不复用其多租户标签和计费。
 - [cc-switch Chat/Responses 与 Agent Tool](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)：Code Agent bridge 状态机。
 - [CLIProxyAPI 状态与 Bridge 负面案例](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)：`previous_response_id`、ID 映射与 stream terminal 的风险材料。
+- [Chat/Responses、SSE 与工具调用测试集调研](cross-project/chat-responses-sse-tool-test-suite-survey.md)：公开测试资产的覆盖比较、适用边界与 OpenBridge 自有 TDD corpus 建议。
 
 ### OAuth 安全边界（非当前接入目标）
 

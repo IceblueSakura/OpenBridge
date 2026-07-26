@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "fault",
+  "direction": "responses_native",
+  "does_not_prove": [
+    "不规定 HTTP 层如何向已读取部分数据的 SDK 表达 EOF。",
+    "不证明 OpenBridge 当前 Native Path 的行为。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "EOF 不伪造 response.completed",
+      "已观察事件不与其他 candidate stream 拼接"
+    ],
+    "outcome": "eof",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "stream",
+    "eof_before_terminal",
+    "terminal",
+    "no_fallback_after_output"
+  ],
+  "id": "responses_native.eof_before_terminal",
+  "provenance_ref": "sources/openresponses-terminal.json",
+  "proves": [
+    "提供 terminal 前 EOF 的固定 Responses SSE transcript。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Responses EOF before terminal"
+}

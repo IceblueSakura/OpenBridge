@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "只提取 call_id、并行工具、item done 与 response completed 的时序事实。",
+    "不复制 Codex runtime、审批或工具执行实现。"
+  ],
+  "id": "openai.codex.tool_lifecycle",
+  "license": "Apache-2.0",
+  "license_status": "verified",
+  "observed_facts": [
+    "并行 function calls 与 outputs 通过 call_id 关联。",
+    "工具可在 response.completed 到达前进入客户端执行生命周期。"
+  ],
+  "project": "openai/codex",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://github.com/openai/codex/blob/main/codex-rs/core/tests/suite/tool_parallelism.rs"
+}

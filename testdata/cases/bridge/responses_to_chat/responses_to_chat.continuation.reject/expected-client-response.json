@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "unsupported_continuation",
+    "message": "Cross-protocol continuation requires complete convertible history or an eligible local ledger entry.",
+    "param": "previous_response_id",
+    "type": "invalid_request_error"
+  }
+}

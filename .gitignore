@@ -5,3 +5,11 @@
 # Planned private configuration; it may contain local upstream/downstream credentials.
 config/local.toml
 config/local.*.toml
+
+# Standalone protocol corpus derived artifacts and Python tool environments.
+/testdata/generated/
+/testdata/reports/
+/testdata/dist/
+/tools/corpus/.venv/
+/tools/corpus/.pytest_cache/
+**/__pycache__/

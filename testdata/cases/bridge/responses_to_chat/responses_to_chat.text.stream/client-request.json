@@ -1,0 +1,5 @@
+{
+  "input": "Hello",
+  "model": "public-model",
+  "stream": true
+}

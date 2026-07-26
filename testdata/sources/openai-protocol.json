@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "只记录 Chat delta 与 Responses typed SSE 的公开协议差异，不复制官方示例全文。",
+    "Canonical payload 使用自主编写的固定文本和身份值。"
+  ],
+  "id": "openai.protocol.streaming",
+  "license": null,
+  "license_status": "pending",
+  "observed_facts": [
+    "Chat Completions streaming 使用 choices[].delta 增量。",
+    "Responses streaming 使用按 type 区分的 SSE event，并包含 function_call_arguments delta 和 done。"
+  ],
+  "project": "OpenAI developer documentation",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://developers.openai.com/api/docs/guides/migrate-to-responses#7-update-streaming-consumers"
+}

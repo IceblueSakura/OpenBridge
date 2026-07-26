@@ -1,0 +1,42 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不覆盖并行 call 或 arguments 分片。",
+    "不证明工具会被模型正确选择。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "function schema 从 Responses flat shape 映射到 Chat nested shape",
+      "Chat tool call id 保留为 Responses call_id"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "single_tool",
+    "non_stream",
+    "identity"
+  ],
+  "id": "responses_to_chat.single_tool.non_stream",
+  "provenance_ref": "sources/openai-codex-tool-lifecycle.json",
+  "proves": [
+    "定义单个 function schema 与 call identity 的双阶段转换 oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Responses to Chat single tool non-stream"
+}

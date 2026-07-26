@@ -1,0 +1,32 @@
+{
+  "messages": [
+    {
+      "content": "Weather in Shanghai?",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false,
+  "tools": [
+    {
+      "function": {
+        "description": "Get weather",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "function"
+    }
+  ]
+}

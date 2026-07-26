@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "client_request": {
+          "type": "string"
+        },
+        "expected_client_response": {
+          "type": "string"
+        },
+        "expected_client_stream": {
+          "type": "string"
+        },
+        "expected_upstream_request": {
+          "type": "string"
+        },
+        "upstream_response": {
+          "type": "string"
+        },
+        "upstream_stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_request"
+      ],
+      "type": "object"
+    },
+    "category": {
+      "enum": [
+        "protocol",
+        "bridge",
+        "transport",
+        "fault",
+        "regression"
+      ]
+    },
+    "direction": {
+      "enum": [
+        "chat_native",
+        "responses_native",
+        "chat_to_responses",
+        "responses_to_chat"
+      ]
+    },
+    "does_not_prove": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "expectation": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "enum": [
+            "exact",
+            "approximate",
+            "reject",
+            "native_only",
+            "research_only"
+          ]
+        },
+        "fallback_allowed": {
+          "type": "boolean"
+        },
+        "invariants": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "rejected",
+            "failed",
+            "incomplete",
+            "cancelled",
+            "eof"
+          ]
+        },
+        "terminal": {
+          "enum": [
+            "chat_done",
+            "response_completed",
+            "response_failed",
+            "response_incomplete",
+            "error",
+            "none"
+          ]
+        },
+        "terminal_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upstream_attempts": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "classification",
+        "outcome",
+        "terminal",
+        "terminal_count",
+        "upstream_attempts",
+        "fallback_allowed",
+        "invariants"
+      ],
+      "type": "object"
+    },
+    "features": {
+      "items": {
+        "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "id": {
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "type": "string"
+    },
+    "provenance_ref": {
+      "pattern": "^sources/[a-z0-9][a-z0-9._-]*\\.json$",
+      "type": "string"
+    },
+    "proves": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "recipes": {
+      "items": {
+        "pattern": "^recipes/[a-z0-9][a-z0-9._-]*\\.json$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "accepted",
+        "deprecated"
+      ]
+    },
+    "stream": {
+      "type": "boolean"
+    },
+    "title": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "status",
+    "category",
+    "direction",
+    "stream",
+    "features",
+    "artifacts",
+    "expectation",
+    "provenance_ref",
+    "recipes",
+    "proves",
+    "does_not_prove"
+  ],
+  "type": "object"
+}

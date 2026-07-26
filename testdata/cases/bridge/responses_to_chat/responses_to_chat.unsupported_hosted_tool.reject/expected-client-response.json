@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "unsupported_bridge_feature",
+    "message": "The selected protocol bridge cannot represent tool type web_search_preview.",
+    "param": "tools[0].type",
+    "type": "invalid_request_error"
+  }
+}

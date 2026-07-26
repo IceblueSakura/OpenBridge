@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_eof_1","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_eof_1","output_index":0,"content_index":0,"delta":"partial"}
+

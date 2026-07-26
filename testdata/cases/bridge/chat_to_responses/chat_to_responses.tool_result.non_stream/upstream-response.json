@@ -1,0 +1,21 @@
+{
+  "id": "resp_result_2",
+  "model": "upstream-model",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "It is sunny.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_result_2",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "status": "completed"
+}

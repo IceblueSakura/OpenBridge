@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "只提取 terminal-before-close 的校验思想。",
+    "Open Responses 与 OpenAI Responses 的规范身份保持分离。"
+  ],
+  "id": "openresponses.terminal",
+  "license": "Apache-2.0",
+  "license_status": "verified",
+  "observed_facts": [
+    "Compliance parser 要求得到 terminal response。",
+    "连接在 terminal 前关闭应记录错误。"
+  ],
+  "project": "openresponses/openresponses",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://github.com/openresponses/openresponses/blob/main/src/lib/compliance-tests.ts"
+}

@@ -1,0 +1,49 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "bridge",
+  "direction": "chat_to_responses",
+  "does_not_prove": [
+    "不规定客户端何时开始实际执行工具。",
+    "不覆盖 tool results 的返回顺序。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "Responses item_id、call_id 与 output_index 不互相替代",
+      "两个 call 的 arguments 独立映射到 Chat tool_call index",
+      "response completed 才产生 Chat DONE",
+      "terminal 恰好一次"
+    ],
+    "outcome": "completed",
+    "terminal": "chat_done",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "parallel_tools",
+    "fragmented_arguments",
+    "identity",
+    "stream",
+    "terminal",
+    "utf8"
+  ],
+  "id": "chat_to_responses.parallel_tools.fragmented_arguments",
+  "provenance_ref": "sources/openai-codex-tool-lifecycle.json",
+  "proves": [
+    "定义 Responses 并行 function items 到 Chat tool_call indexes 的 canonical oracle。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": true,
+  "title": "Chat to Responses parallel tools with fragmented arguments"
+}

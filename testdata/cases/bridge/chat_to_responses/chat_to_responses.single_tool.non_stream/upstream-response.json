@@ -1,0 +1,16 @@
+{
+  "id": "resp_tool_2",
+  "model": "upstream-model",
+  "object": "response",
+  "output": [
+    {
+      "arguments": "{\"city\":\"Shanghai\"}",
+      "call_id": "call_weather_2",
+      "id": "fc_tool_2",
+      "name": "get_weather",
+      "status": "completed",
+      "type": "function_call"
+    }
+  ],
+  "status": "completed"
+}

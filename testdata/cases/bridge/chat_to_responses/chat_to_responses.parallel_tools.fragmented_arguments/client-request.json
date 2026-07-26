@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "content": "Give weather and time.",
+      "role": "user"
+    }
+  ],
+  "model": "public-model",
+  "parallel_tool_calls": true,
+  "stream": true,
+  "tools": [
+    {
+      "function": {
+        "name": "get_weather",
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "name": "get_time",
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

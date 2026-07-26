@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "这是项目设计来源，不表示对应 runtime 已实现。",
+    "Reject 和 continuation case 在集成前仍只作为 proposed oracle。"
+  ],
+  "id": "openbridge.design.policy",
+  "license": null,
+  "license_status": "not_applicable",
+  "observed_facts": [
+    "初始 Bridge 共同子集只考虑文本、普通 function call/result、usage 与必要 terminal。",
+    "Unsupported feature、identity 冲突与无受限 ledger 的 continuation 应在 upstream 调用前拒绝。"
+  ],
+  "project": "OpenBridge design documents",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://github.com/IceblueSakura/OpenBridge/blob/main/docs/implementation-plans/agent-loop-bridge.md"
+}

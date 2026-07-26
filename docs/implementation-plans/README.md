@@ -23,5 +23,6 @@ Provider/硬件结论。
 | 注册表、凭证与受信运行 | [代码注册表与路由](configuration-and-routing.md)、[OAuth 凭证边界](oauth-credential-boundary.md) | 编译期 Provider 注册和 API-key 核心需求优先；OAuth 仍是可选适配器。 |
 | 路由、状态亲和与恢复 | [服务架构](service-architecture.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 只为当前 candidate、fallback、continuation 或 tool-loop 行为选择最小假设。 |
 | 跨协议兼容 | [协议桥](protocol-bridge.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 后续方向；没有明确 feature、ConversionPlan 和 fixture 时不进入实现。 |
+| 协议测试数据 | [协议测试语料构建](protocol-test-corpus.md) | 先独立构建、校验和版本化 corpus；在数据集与工具稳定前不接入 OpenBridge 测试或转换实现。 |
 
 当某项计划被实现并验证后，将可证明的结论转入 `../implementation-status/`；不在本目录保留目标变迁、淘汰方案或旧阶段记录。若计划与功能需求冲突，先修订或废弃计划，而不是扩大产品范围。

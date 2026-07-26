@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不规定未来 hosted tool facade。",
+    "不证明当前 OpenBridge 已实现该拒绝。"
+  ],
+  "expectation": {
+    "classification": "reject",
+    "fallback_allowed": false,
+    "invariants": [
+      "unsupported hosted tool 不静默丢弃",
+      "拒绝发生在 upstream 调用前"
+    ],
+    "outcome": "rejected",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 0
+  },
+  "features": [
+    "hosted_tool",
+    "preflight_reject",
+    "unsupported"
+  ],
+  "id": "responses_to_chat.unsupported_hosted_tool.reject",
+  "provenance_ref": "sources/openbridge-design-policy.json",
+  "proves": [
+    "记录首版 Bridge 不得把 web search 静默伪装为 function tool 的 proposed oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "stream": false,
+  "title": "Reject unsupported hosted tool before upstream"
+}

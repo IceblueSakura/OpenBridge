@@ -1,0 +1,45 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "bridge",
+  "direction": "responses_to_chat",
+  "does_not_prove": [
+    "不证明任一具体 converter 的事件 ID 生成策略。",
+    "不覆盖工具调用或错误终态。"
+  ],
+  "expectation": {
+    "classification": "exact",
+    "fallback_allowed": false,
+    "invariants": [
+      "两个 Chat content delta 按顺序映射为 Responses output_text delta",
+      "Chat DONE 只在 Responses completed 后结束",
+      "客户端 terminal 恰好一次"
+    ],
+    "outcome": "completed",
+    "terminal": "response_completed",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "text",
+    "stream",
+    "terminal",
+    "utf8"
+  ],
+  "id": "responses_to_chat.text.stream",
+  "provenance_ref": "sources/openai-protocol.json",
+  "proves": [
+    "定义 Chat delta 到 Responses typed SSE 生命周期的最小顺序。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Responses to Chat streaming text"
+}

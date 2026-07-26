@@ -1,0 +1,32 @@
+{
+  "case_ids": [
+    "chat_to_responses.parallel_tools.fragmented_arguments",
+    "chat_to_responses.single_tool.non_stream",
+    "chat_to_responses.text.non_stream",
+    "chat_to_responses.text.stream",
+    "chat_to_responses.tool_result.non_stream",
+    "responses_native.eof_before_terminal",
+    "responses_to_chat.continuation.reject",
+    "responses_to_chat.parallel_tools.fragmented_arguments",
+    "responses_to_chat.single_tool.non_stream",
+    "responses_to_chat.text.non_stream",
+    "responses_to_chat.text.stream",
+    "responses_to_chat.tool_result.non_stream",
+    "responses_to_chat.unsupported_hosted_tool.reject"
+  ],
+  "corpus_version": "0.1.0",
+  "default_generation_seed": 20260726,
+  "required_core_features": [
+    "text",
+    "stream",
+    "function_tool",
+    "parallel_tools",
+    "fragmented_arguments",
+    "tool_result",
+    "terminal",
+    "eof_before_terminal",
+    "preflight_reject"
+  ],
+  "schema_version": "0.1",
+  "title": "OpenBridge Chat Responses SSE Tool Corpus"
+}

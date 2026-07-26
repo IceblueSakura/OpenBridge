@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adaptation_notes": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "type": "string"
+    },
+    "license": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "license_status": {
+      "enum": [
+        "verified",
+        "pending",
+        "not_applicable"
+      ]
+    },
+    "observed_facts": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "project": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retrieved_at": {
+      "format": "date",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "url": {
+      "format": "uri",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "project",
+    "url",
+    "ref",
+    "retrieved_at",
+    "license_status",
+    "license",
+    "observed_facts",
+    "adaptation_notes"
+  ],
+  "type": "object"
+}

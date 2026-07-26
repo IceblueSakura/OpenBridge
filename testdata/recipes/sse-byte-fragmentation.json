@@ -1,0 +1,11 @@
+{
+  "id": "sse.byte_fragmentation",
+  "kinds": [
+    "one_byte",
+    "line_boundaries",
+    "utf8_split",
+    "seeded"
+  ],
+  "schema_version": "0.1",
+  "seeded_variants": 3
+}

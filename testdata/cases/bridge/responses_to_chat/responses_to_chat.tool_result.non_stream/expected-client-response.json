@@ -1,0 +1,21 @@
+{
+  "id": "resp_result_1",
+  "model": "public-model",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "It is sunny.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_result_1",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "status": "completed"
+}

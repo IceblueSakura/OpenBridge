@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl_parallel_2","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_weather_p2","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\""}},{"index":1,"id":"call_time_p2","type":"function","function":{"name":"get_time","arguments":"{\"zone\":\""}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_parallel_2","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"上海\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_parallel_2","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"Asia/Shanghai\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_parallel_2","object":"chat.completion.chunk","model":"public-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

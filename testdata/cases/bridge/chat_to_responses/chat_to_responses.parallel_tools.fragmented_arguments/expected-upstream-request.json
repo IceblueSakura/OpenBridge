@@ -1,0 +1,22 @@
+{
+  "input": "Give weather and time.",
+  "model": "upstream-model",
+  "parallel_tool_calls": true,
+  "stream": true,
+  "tools": [
+    {
+      "name": "get_weather",
+      "parameters": {
+        "type": "object"
+      },
+      "type": "function"
+    },
+    {
+      "name": "get_time",
+      "parameters": {
+        "type": "object"
+      },
+      "type": "function"
+    }
+  ]
+}

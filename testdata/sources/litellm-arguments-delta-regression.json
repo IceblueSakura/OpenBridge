@@ -1,0 +1,18 @@
+{
+  "adaptation_notes": [
+    "将 issue 中的失败模式改写为两个固定并行 call 的最小 Chat SSE。",
+    "不使用 LiteLLM cache reconstruction 或错误处理策略。"
+  ],
+  "id": "litellm.arguments_delta_regression",
+  "license": null,
+  "license_status": "not_applicable",
+  "observed_facts": [
+    "首个 Chat tool-call chunk 携带 id，后续 chunk 可仅依赖 index。",
+    "没有 index 到 call_id 状态映射会丢失后续 arguments delta。"
+  ],
+  "project": "BerriAI/litellm issue 20711",
+  "ref": null,
+  "retrieved_at": "2026-07-26",
+  "schema_version": "0.1",
+  "url": "https://github.com/BerriAI/litellm/issues/20711"
+}
