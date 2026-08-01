@@ -1,17 +1,17 @@
-//! MiMo-V2.5-Pro 的 canonical 模型事实。
+//! MiniMax 系列的 canonical 模型事实。
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// 构造 MiMo-V2.5-Pro 的 context、参数和 reasoning 事实。
-pub(crate) fn config() -> ModelConfig {
-    ModelConfig {
-        id: "xiaomi/mimo-v2.5-pro".to_owned(),
-        name: "MiMo-V2.5-Pro".to_owned(),
+/// 返回 MiniMax 系列所有编译进二进制的 canonical 模型事实。
+pub(crate) fn configs() -> Vec<ModelConfig> {
+    vec![ModelConfig {
+        id: "minimax/minimax-m3".to_owned(),
+        name: "MiniMax M3".to_owned(),
         description: Some(
-            "Xiaomi flagship model for complex software engineering and long-horizon agentic tasks."
+            "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(512_000)),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -38,5 +38,5 @@ pub(crate) fn config() -> ModelConfig {
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: Vec::new(),
-    }
+    }]
 }

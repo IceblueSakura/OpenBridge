@@ -1,22 +1,21 @@
-//! DeepSeek V4 Flash 的 canonical 模型事实。
+//! NVIDIA Nemotron 系列的 canonical 模型事实。
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 DeepSeek V4 Flash 的 context、参数和 reasoning 事实。
-pub(crate) fn config() -> ModelConfig {
-    ModelConfig {
-        id: "deepseek/deepseek-v4-flash".to_owned(),
-        name: "DeepSeek V4 Flash".to_owned(),
+/// 返回 Nemotron 系列所有编译进二进制的 canonical 模型事实。
+pub(crate) fn configs() -> Vec<ModelConfig> {
+    vec![ModelConfig {
+        id: "nvidia/nemotron-3-ultra-550b-a55b".to_owned(),
+        name: "Nemotron 3 Ultra 550B A55B".to_owned(),
         description: Some(
-            "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
+            "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(393_216)),
+        context_length: ModelContextLength::new(Some(512_288), None),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
             "logit_bias",
-            "logprobs",
             "max_tokens",
             "min_p",
             "presence_penalty",
@@ -30,15 +29,13 @@ pub(crate) fn config() -> ModelConfig {
             "temperature",
             "tool_choice",
             "tools",
-            "top_a",
             "top_k",
-            "top_logprobs",
             "top_p",
         ]
         .into_iter()
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
-    }
+        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::Medium],
+    }]
 }

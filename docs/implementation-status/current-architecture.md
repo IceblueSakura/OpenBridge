@@ -114,8 +114,8 @@ RegistryConfig
 | `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
 
 当前编译目录包含 17 个 `ModelConfig`：LongCat-2.0，以及从 LiteLLM 部署清单整理出的 16 个唯一
-Chat/Responses 模型。每个具体模型位于独立 `src/models/<model>.rs`，并在同一文件
-完整拥有 id、名称、context、参数、reasoning 状态和 level，不从共享 catalog 拼装模型字段。目录存在不等于
+Chat/Responses 模型。同一模型家族集中位于一个 `src/models/<family>.rs`，每个具体模型仍在家族文件中
+完整拥有 id、名称、context、参数、reasoning 状态和 level，不从共享默认值拼装模型字段。目录存在不等于
 可调用；只有被 Upstream Target 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
 当前 `ModelConfig` 不表示 embedding/rerank，因此两个 Nemotron retrieval 条目没有被伪装成文本模型。
 其中 16 个模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；

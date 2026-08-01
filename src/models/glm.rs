@@ -1,17 +1,17 @@
-//! DeepSeek V4 Pro 的 canonical 模型事实。
+//! GLM 系列的 canonical 模型事实。
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 DeepSeek V4 Pro 的 context、参数和 reasoning 事实。
-pub(crate) fn config() -> ModelConfig {
-    ModelConfig {
-        id: "deepseek/deepseek-v4-pro".to_owned(),
-        name: "DeepSeek V4 Pro".to_owned(),
+/// 返回 GLM 系列所有编译进二进制的 canonical 模型事实。
+pub(crate) fn configs() -> Vec<ModelConfig> {
+    vec![ModelConfig {
+        id: "z-ai/glm-5.2".to_owned(),
+        name: "GLM-5.2".to_owned(),
         description: Some(
-            "Large Mixture-of-Experts model for advanced reasoning, coding, and agent workflows."
+            "Large-scale reasoning model for long-horizon agents and project-level software engineering."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(384_000)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(131_072)),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -19,6 +19,7 @@ pub(crate) fn config() -> ModelConfig {
             "logprobs",
             "max_tokens",
             "min_p",
+            "parallel_tool_calls",
             "presence_penalty",
             "reasoning",
             "reasoning_effort",
@@ -39,5 +40,5 @@ pub(crate) fn config() -> ModelConfig {
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
-    }
+    }]
 }

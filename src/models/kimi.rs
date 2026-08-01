@@ -1,17 +1,17 @@
-//! MiMo-V2.5 的 canonical 模型事实。
+//! Kimi 系列的 canonical 模型事实。
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 MiMo-V2.5 的 context、参数和 reasoning 事实。
-pub(crate) fn config() -> ModelConfig {
-    ModelConfig {
-        id: "xiaomi/mimo-v2.5".to_owned(),
-        name: "MiMo-V2.5".to_owned(),
+/// 返回 Kimi 系列所有编译进二进制的 canonical 模型事实。
+pub(crate) fn configs() -> Vec<ModelConfig> {
+    vec![ModelConfig {
+        id: "moonshotai/kimi-k3".to_owned(),
+        name: "Kimi K3".to_owned(),
         description: Some(
-            "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
+            "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), None),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -21,6 +21,7 @@ pub(crate) fn config() -> ModelConfig {
             "min_p",
             "presence_penalty",
             "reasoning",
+            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -37,6 +38,10 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
-    }
+        reasoning_levels: vec![
+            ReasoningLevel::Max,
+            ReasoningLevel::High,
+            ReasoningLevel::Low,
+        ],
+    }]
 }

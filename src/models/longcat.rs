@@ -2,9 +2,9 @@
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// 构造 LongCat-2.0 模型事实；具体 Provider endpoint 与上游 model id 不属于此定义。
-pub(crate) fn config() -> ModelConfig {
-    ModelConfig {
+/// 返回 LongCat 系列所有编译进二进制的 canonical 模型事实。
+pub(crate) fn configs() -> Vec<ModelConfig> {
+    vec![ModelConfig {
         id: "meituan/longcat-2.0".to_owned(),
         name: "LongCat 2.0".to_owned(),
         description: Some(
@@ -35,5 +35,5 @@ pub(crate) fn config() -> ModelConfig {
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: Vec::new(),
-    }
+    }]
 }

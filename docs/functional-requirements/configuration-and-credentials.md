@@ -26,7 +26,7 @@ route 热重载。
 ## 2. 代码注册表要求
 
 - 每个具体 Provider 位于独立 `src/providers/<provider>.rs` 文件；
-- 每个 Model 位于独立 `src/models/<model>.rs` 文件；
+- 同一模型家族集中位于一个 `src/models/<family>.rs` 文件，每个具体 Model 仍完整声明自身事实；
 - `src/providers/mod.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；
