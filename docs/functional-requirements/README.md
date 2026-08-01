@@ -7,7 +7,7 @@
 | 产品范围 | 服务为谁解决什么问题，哪些能力不做 | [产品范围](product-scope.md) |
 | 网关 API 与兼容 | 客户端可调用什么、JSON/SSE/tool/continuation 如何表现 | [网关 API 与客户端兼容](gateway-api-compatibility.md) |
 | 配置与凭证 | 配置文件、private secret、header、网络和 reload 如何受信管理 | [配置、凭证与受信运行边界](configuration-and-credentials.md) |
-| 路由与可用性 | alias 如何选择 deployment，限流、重试、cooldown、fallback 和状态亲和如何处理 | [路由与 Provider 韧性](provider-resilience.md) |
+| 路由与可用性 | Public Model 如何选择完整 Serving Route，限流、重试、cooldown、fallback 和状态亲和如何处理 | [路由与 Provider 韧性](provider-resilience.md) |
 | 调用统计与观测 | usage、TTFT/TTFB、终态错误率和 headless 输出如何定义 | [调用统计与可观测性](observability.md) |
 | 交付与证据 | 如何以 TDD、fixture、SDK/CLI 和真实环境证据约束兼容声明 | [交付与证据要求](delivery-and-evidence.md) |
 | 条件性后续能力 | Provider-hosted tool facade 与 MCP 在何种用户结果下才进入范围 | [Hosted tool 与 MCP](hosted-tools-mcp.md) |

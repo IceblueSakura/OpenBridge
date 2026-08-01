@@ -278,13 +278,13 @@ Responses output 转回 Chat 时：
 
 若请求只提供 `previous_response_id` + 新 tool outputs，而 Chat 上游需要完整历史，只有两种安全选择：
 
-- 命中 issuer/deployment-bound、未过期且无歧义的 continuation ledger，补回完整 assistant call group；
+- 命中 issuer/target/offering-bound、未过期且无歧义的 continuation ledger，补回完整 assistant call group；
 - 明确拒绝并要求客户端发送完整可转换历史。
 
 禁止：
 
 - 仅以全局 `call_id` 猜测历史；
-- 跨 Provider/deployment 查找；
+- 跨 Provider/Upstream Target/Offering 查找；
 - fallback 后继续使用原 continuation；
 - 从日志正文隐式重建。
 
@@ -398,10 +398,10 @@ usage streaming
 
 ## 11. Bridge re-entry 与路由
 
-RoutePlan 在进入 converter 前已决定 source/target protocol 和 selected deployment。bridge 内不得重新调用全局 alias resolver。
+RoutePlan 在进入 converter 前已决定 source/target protocol 和 selected Upstream Target/Offering。bridge 内不得重新调用全局 Public Model resolver。
 
 ```text
-RoutePlan(mode=bridge, source=responses, target=chat, deployment=X)
+RoutePlan(mode=bridge, source=responses, target=chat, upstream_target=X, offering=chat)
 ```
 
 若目标 Provider 调用失败：
@@ -436,7 +436,7 @@ RoutePlan(mode=bridge, source=responses, target=chat, deployment=X)
 先比较：
 
 1. 要求完整历史；
-2. 本地 issuer/deployment-bound ledger；
+2. 本地 issuer/target/offering-bound ledger；
 3. 仅支持 native continuation。
 
 没有充分证据前不默认实现全局 ledger。
@@ -456,7 +456,7 @@ RoutePlan(mode=bridge, source=responses, target=chat, deployment=X)
 - unknown/unsupported item 不会静默消失；
 - bridge notice 与实际 approximation 一致；
 - arguments 分片在任意边界下得到同一完整字符串；
-- continuation 不跨 issuer/deployment/expiry；
+- continuation 不跨 issuer/target/offering/expiry；
 - re-entry guard 阻止递归 bridge；
 - 已输出业务事件后不 fallback/stitch。
 

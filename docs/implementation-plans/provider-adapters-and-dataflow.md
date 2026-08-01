@@ -2,8 +2,7 @@
 
 ## 状态
 
-**代码注册表基线已实现；异构 Provider 尚未验证。** 当前已实现单一 OpenAI adapter、显式注册表、
-共享 HTTP transport、SSE framing、原生 Chat/Responses pipeline、capability gate 和输出前 fallback。
+**当前 adapter 基线已实现；异构协议 Provider 尚未验证。** 当前已实现 OpenAI 与 Meituan/LongCat 两个闭合 adapter、显式注册表、共享 HTTP transport、SSE framing、原生 Chat/Responses pipeline、capability gate 和输出前 fallback。两者当前都使用 OpenAI-compatible wire；本文件继续使用源码中的 Deployment/Alias 类型，目标 Target/Offering 拆分见[注册表与路由架构迁移计划](registry-architecture-migration.md)。
 
 ## 1. 方向
 
@@ -28,6 +27,7 @@ src/provider/
 src/providers/
   mod.rs            # Provider/deployment 聚合与 alias
   openai.rs         # OpenAI descriptor、adapter 和 deployment 定义
+  meituan.rs        # Meituan/LongCat descriptor、adapter 和 deployment 定义
 
 src/models/
   mod.rs            # canonical model 显式目录
@@ -117,7 +117,7 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 - endpoint base 只来自已校验代码注册项；
 - transport 显式保留安全 path prefix；
 - redirect 禁用；
--认证 header 与普通 header 使用不同类型；
+- 认证 header 与普通 header 使用不同类型；
 - streaming 只能在首个下游 body 输出前 retry/fallback；
 - 已开始的 stream 不与第二次尝试拼接；
 - continuation state 关闭跨 deployment fallback。
@@ -140,16 +140,18 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 在宣布抽象收敛前，至少增加一种非 OpenAI wire family，并验证：
 
 - request 字段和 reasoning level 转换；
--认证/header；
--模型发现；
--错误与 retry hint；
--非流式响应；
--流式 terminal；
--function tool identity；
--未知字段和不支持能力的 fail-closed 行为。
+- 认证/header；
+- 模型发现；
+- 错误与 retry hint；
+- 非流式响应；
+- 流式 terminal；
+- function tool identity；
+- 未知字段和不支持能力的 fail-closed 行为。
 
 ## 关联文档
 
 - [代码注册表与路由](configuration-and-routing.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
+- [当前代码架构](../implementation-status/current-architecture.md)
+- [注册表与路由架构迁移计划](registry-architecture-migration.md)
 - [能力探测](../implementation-status/capability-probing.md)

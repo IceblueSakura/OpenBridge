@@ -1,4 +1,4 @@
-# 代码注册表与路由
+# 当前代码注册表与原生路由
 
 ## 状态
 
@@ -177,8 +177,18 @@ tools、reasoning、image、structured output 或 streaming terminal。
 
 没有 route migration、reload 或旧 schema 兼容步骤。
 
+## 8. 目标架构迁移边界
+
+本文件保留当前 `ModelDefinition + ProviderDefinition + DeploymentDefinition + AliasDefinition` 的原生路由基线，不在这里混写目标注册表。目标概念、类型映射、实施切片、退出条件和回滚边界统一见[注册表与路由架构迁移计划](registry-architecture-migration.md)。
+
+迁移完成前，源码和当前状态文档继续使用 `DeploymentDefinition`/`AliasDefinition` 指代现有类型；`UpstreamTarget`、`NativeOffering`、`PublicModel`、`ServingRoute` 和 `ResolvedBridgePlan` 只用于目标架构与迁移计划。
+
 ## 关联文档
 
 - [Provider adapter 与数据流](provider-adapters-and-dataflow.md)
 - [Bootstrap、代码注册表与凭证](../functional-requirements/configuration-and-credentials.md)
+- [网关 API 与客户端兼容需求](../functional-requirements/gateway-api-compatibility.md)
+- [服务架构](service-architecture.md)
+- [注册表与路由架构迁移计划](registry-architecture-migration.md)
+- [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现说明](../implementation-status/current-implementation.md)

@@ -1,8 +1,8 @@
-# OpenBridge 单用户 Provider 聚合代理：服务架构
+# OpenBridge 目标服务架构
 
 ## 状态
 
-**Working hypothesis。** 部分 HTTP/SSE、route snapshot、capability gate 和 fallback 假设已由原型验证；Provider 抽象、目标客户端契约和 bridge 状态模型仍需外部反例与真实 fixture 收敛。
+**目标架构，尚未实现。** 本文描述 OpenBridge 希望演进到的服务边界、分层和数据模型，不用目标类型名描述当前代码。当前源码分层见[当前代码架构](../implementation-status/current-architecture.md)，具体迁移次序见[注册表与路由架构迁移计划](registry-architecture-migration.md)。
 
 ## 1. 架构结论
 
@@ -22,14 +22,14 @@ Codex / Hermes / OpenAI-compatible client
                        ▼
 ┌────────────────────────────────────────────┐
 │ Request classifier                         │
-│ protocol / alias / requested capabilities  │
+│ protocol / Public Model / request semantics │
 └──────────────────────┬─────────────────────┘
                        ▼
 ┌────────────────────────────────────────────┐
 │ Route planner                              │
-│ alias → ordered candidates                 │
-│ capability filter / state affinity         │
-│ native-or-bridge decision                  │
+│ Public Model → ordered serving routes      │
+│ whole-path capability / state affinity     │
+│ compile Native-or-Bridge Execution Plan    │
 └───────────────┬────────────────────────────┘
                 │ immutable RoutePlan
          ┌──────┴────────┐
@@ -49,6 +49,20 @@ Codex / Hermes / OpenAI-compatible client
 ```
 
 同一个进程内可以存在配置、调用统计 sink 和 future hosted-tool 模块，但它们不形成企业级控制平面。调用统计只做 headless 的 usage、TTFT/TTFB 与终态错误聚合，不承担客户端管理、账单或审计。首版下游 transport 是 HTTP JSON/SSE；Responses WebSocket 保留为显式扩展点，而不是默认兼容承诺。
+
+### 1.1 目标分层
+
+| 层次 | 主要职责 | 不应承担 |
+|---|---|---|
+| 接口层 | 下游认证、HTTP/JSON/SSE 契约、错误表达 | Provider 认证、候选顺序、协议转换细节 |
+| 请求语义层 | 解析下游协议和完整 feature combination | 选择具体上游、修改 Provider wire |
+| 路由与执行计划层 | 从 Public Model 的完整 Serving Route 编译不可变 Execution Plan | 发 HTTP、在执行中重新全局路由 |
+| 协议执行层 | Native 最小改写或按 ResolvedBridgePlan 转换 | 静默丢弃未知语义、扩大 converter 上界 |
+| Provider 适配层 | Provider path/auth/header/error/terminal 差异 | 决定 Public Model 或 fallback 顺序 |
+| Transport 层 | 连接池、deadline、取消、SSE framing 与安全 header | 理解业务模型或 Provider-specific feature |
+| 注册与运行状态层 | 编译快照、credential binding、availability/cooldown overlay | 把动态健康状态写回静态能力事实 |
+
+各层通过 `RequestProfile`、`ExecutionPlan`、Provider adapter contract 和 transport contract 传递闭合结果。Ingress 不直接遍历上游候选，converter 不重新调用全局 router，transport 不读取 Public Model。
 
 ## 2. 核心数据模型
 
@@ -75,55 +89,134 @@ openai-compatible
 anthropic
 ```
 
-一个 Provider Family 可以服务多个运行时 deployment。对轻微 header/path 差异优先复用公共 adapter，而不是复制完整 transport。
+一个 Provider Family 可以服务多个运行时 Upstream Target。对轻微 header/path 差异优先复用公共 adapter，而不是复制完整 transport。
 
-### 2.2 Deployment
+### 2.2 Real Model
+
+与具体供应商调用方式分离的真实模型身份及内在事实：
+
+```text
+RealModel
+  stable id
+  family / revision
+  tokenizer/context semantics
+  intrinsic capabilities
+  architectural limits: Known | Unknown
+```
+
+只有 family、revision、tokenizer/context 语义和模型内在行为确实一致时，多个 Upstream Target 才能引用同一个 Real Model。同名但实际 revision 或语义不同的供应必须使用不同 Real Model id。若上下文上限只在具体供应商或协议处得到证实，Real Model 保持 `Unknown`，由相应 Native Offering 记录 served evidence。
+
+### 2.3 Upstream Target
 
 受信配置中的一个上游目标：
 
 ```text
-Deployment
+UpstreamTarget
   id
   provider_family
   base_url
   credential_ref
-  upstream_model
-  native_protocols
-  native_transports
-  capabilities
+  real_model
+  quota_scope
+  fault_domain
   timeout
   enabled
+  offerings: NativeOffering[]
 ```
 
-服务所有者可以配置 base URL 和 adapter 明确允许的少量非认证 header。业务请求不能覆盖这些值。
+Upstream Target 表示共享 endpoint、账号/credential、quota、故障与状态边界的调用目标，而不是一次 OpenBridge 部署或单条协议能力。服务所有者可以配置 base URL 和 adapter 明确允许的少量非认证 header；业务请求不能覆盖这些值。
 
-### 2.3 Public Model Alias
+若同一 endpoint、credential、quota/fault domain 和 Real Model 同时原生提供 Chat 与 Responses，可以在一个 Upstream Target 下声明两个 Offering。若两者实际使用不同 endpoint、credential/account、quota bucket、模型 revision/upstream identity、健康/cooldown 域、状态 namespace，或需要独立启停与优先级，则应拆成不同 Upstream Target，不能仅靠两个 Offering 掩盖边界差异。
 
-下游客户端使用的稳定名称：
+### 2.4 Native Offering
+
+Upstream Target 内的一条协议级原生供应：
 
 ```text
-PublicModelAlias
-  name
-  candidates: ordered deployment ids
+NativeOffering
+  id
+  protocol
+  upstream_model
+  endpoint_profile
+  native_transport
+  served limits
+  native capabilities/evidence
+  state policy / namespace
 ```
 
-第一版 candidate 顺序就是确定性优先级。alias 不应隐式承诺所有 candidate 完全等价；route planner 仍需按协议、请求 feature 和 state affinity 过滤。
+Offering 承载可能因协议不同而变化的上游 model id、context/output limits、工具或 multimodal 能力、transport 和 state policy。这样同一 Upstream Target 可以同时提供 Chat 与 Responses，而不会把两条协议的能力错误合并成 target 级布尔值。
 
-### 2.4 RoutePlan / RouteSnapshot
+### 2.5 Converter 与 route-local Conversion Policy
 
-单次请求固定的不可变结果：
+协议转换实现属于编译进二进制的代码目录，不是默认的顶层业务注册实体：
+
+```text
+ConverterDescriptor
+  converter kind / implementation id
+  source protocol
+  target protocol
+  verified feature upper bound
+  fidelity upper bound
+  state/identity support
+
+ConversionPolicy
+  allow_structure_preserving
+  allowed_approximate_features
+  state/identity restrictions
+```
+
+Bridge route 直接引用一个已编译 converter，并内联该 route 的 `ConversionPolicy`。配置只能收窄 converter 已验证上界，不能注入模板、脚本或任意转换。`approximate` 必须逐 feature 显式允许；未声明、无法保持 identity/state 或证据为 `Unknown` 的语义不能静默丢弃。
+
+启动编译结果中的 `ResolvedBridgePlan` 仍是必要对象，但当前不为它建立独立 `BridgeProfile` 注册表。只有出现同一协议对的多套长期共存策略、跨多条 route 的策略复用、多个 converter 实现、独立版本迁移，或需要 owner 单独选择/审计的状态策略时，才引入具名、可复用的 Bridge Profile。
+
+### 2.6 Public Model
+
+下游客户端使用的稳定服务模型名：
+
+```text
+PublicModel
+  name
+  serving_routes: ordered route ids
+```
+
+Public Model 是 OpenBridge 的下游服务契约，而不是某个 Provider 模型名的透明别名。主要调用路径只要求客户端选择 Public Model 和下游协议，不要求客户端知道上游协议或转换细节。
+
+第一版 route 顺序就是确定性优先级。不同 route 不隐含完全等价；route planner 仍需按完整请求的 feature combination、上下文、state affinity 和 availability 过滤。
+
+### 2.7 Serving Route / Execution Plan
+
+配置中的 Serving Route 是完整候选路径：
+
+```text
+ServingRoute
+  public_model
+  upstream_target
+  offering
+  downstream_protocol
+  mode: native | bridge(converter, conversion_policy)
+  priority
+```
+
+`upstream_protocol` 由所选 Offering 唯一确定，不允许 route 再声明一份可能漂移的副本。启动期将 Provider upper bound、Real Model、UpstreamTarget/Offering evidence，以及 bridge route 的 ConverterDescriptor 与 route-local ConversionPolicy 编译成只读 `EffectiveExecutionProfile` 和 `ResolvedBridgePlan`。单个字段不能跨 route 求并集：只有至少一条完整 route 同时支持当前请求的全部语义，Public Model 才支持该请求。
+
+### 2.8 RoutePlan / RouteSnapshot
+
+单次请求选择 route 后形成不可变 Execution Plan：
 
 ```text
 RoutePlan
   request_id
-  public_alias
-  selected_deployment
-  remaining_eligible_candidates
+  public_model
+  serving_route
+  selected_upstream_target
+  selected_offering
+  remaining_eligible_routes
   downstream_protocol
   downstream_transport
   upstream_protocol
   upstream_transport
   mode: native | bridge
+  resolved_bridge_plan / fidelity
   capability_decision
   credential_binding_id
   continuation_binding
@@ -131,7 +224,7 @@ RoutePlan
   registry_version
 ```
 
-配置 reload 只影响后续请求；进行中的 stream 继续持有原 snapshot。
+当前目标仍是启动时构建一次 snapshot，注册表变更通过重启生效；单次请求或 stream 始终持有同一 snapshot。若未来另有需求引入原子替换，也必须保持该请求内不变量，但不属于本次架构迁移。
 
 ## 3. Native Path 与 Protocol Bridge
 
@@ -147,7 +240,7 @@ Chat Completions → Chat Completions
 行为：
 
 - 解析路由所需的 `model`、`stream` 和 feature indicators；
-- 将 public alias 改写为 `upstream_model`；
+- 将 Public Model 改写为选中 Offering 的 `upstream_model`；
 - 构造受信 URL、认证和必要 Provider header；
 - 尽量保留未知但合法的 request/response 字段；
 - 对 SSE 做 framing、terminal/error 识别和取消传播；
@@ -196,7 +289,7 @@ src/
   core/           # IDs, RoutePlan, errors, capability
   config/         # trusted owner configuration and snapshots
   ingress/        # HTTP endpoints, request id, body limits, static token
-  routing/        # alias resolution, eligibility, selection, fallback policy
+  routing/        # Public Model resolution, eligibility, selection, fallback policy
   protocol/       # wire models and Bridge IR
   bridge/         # protocol-pair converters and stream assemblers
   provider/       # adapter traits and ProviderFamily catalog
@@ -205,7 +298,7 @@ src/
   telemetry/      # bounded CallRecord sink and aggregates
 ```
 
-依赖方向应避免 ingress/router 识别具体 Provider header 或 token 形状。Provider adapter 也不应自行决定 public alias 和 candidate 顺序。
+依赖方向应避免 ingress/router 识别具体 Provider header 或 token 形状。Provider adapter 也不应自行决定 Public Model、serving route 或 candidate 顺序。
 
 共享 transport 负责：
 
@@ -227,23 +320,25 @@ Provider adapter 负责：
 
 ## 5. Capability 模型
 
-能力分成两层：
+能力分成三层：
 
-1. deployment/model 记录上游原生协议、transport 和 feature 能力：`Supported | Unsupported | Unknown`，并受 Provider Family 的 capability upper bound 约束；
-2. route planner 针对具体下游协议和请求 feature 计算有效结果：
+1. Real Model 只记录跨供应商成立的内在事实与 `Known | Unknown` 上限；
+2. Upstream Target 记录共享 endpoint、credential、quota/fault/state 边界；其 Native Offering 分别记录具体上游协议、transport、served limits 和 feature evidence：`Supported | Unsupported | Unknown`，并受 Provider Family 的 capability upper bound 约束；
+3. Bridge Serving Route 叠加已编译 ConverterDescriptor 和 route-local ConversionPolicy，route planner 针对具体下游协议和完整请求语义计算有效结果：
 
 ```text
 Native | Bridged | Unsupported | Unknown
 ```
 
-`Bridged` 不是服务所有者可以凭配置声明的 Provider 事实；它必须由已实现的协议对 converter、目标协议和 feature preservation rule 推导。
+`Bridged` 不是服务所有者可以凭配置声明的 Provider 事实；它必须由已实现的协议对 converter、目标 Offering 能力和 route-local feature preservation policy 的交集推导。不同 Offering 或 route 的 `tools`、image 等独立字段不能简单求并集，因为可能没有一条路径同时支持这些组合。
 
 route planner 的判断顺序：
 
 ```text
-alias candidates
-→ endpoint/protocol/transport eligibility
-→ requested-feature capability
+Public Model serving routes
+→ upstream target/offering/upstream protocol/transport eligibility
+→ Native/Bridge whole-path capability
+→ requested feature combination and context
 → continuation/state affinity
 → enabled/cooldown state
 → ordered selection
@@ -253,7 +348,11 @@ alias candidates
 
 `enabled/cooldown state` 是运行时 availability overlay，不写回配置 snapshot。RoutePlan 固定 candidate identity、顺序、credential binding 和 fallback 边界；attempt manager 在实际调用前读取最新 cooldown，以避免把动态 Provider 状态伪装成静态 capability。
 
-能力不是 Provider 名称的静态布尔值，至少受 deployment、model、endpoint/API version 和 feature combination 影响。第一版可以用显式配置和测试固定结果，不必建立动态能力发现服务。
+能力不是 Provider 名称的静态布尔值，至少受 Real Model、Upstream Target、Native Offering、endpoint/API version、converter、route-local ConversionPolicy 和 feature combination 影响。第一版可以用显式配置和测试固定结果，不必建立动态能力发现服务。
+
+### 5.1 模型与能力信息扩展点（初步规划）
+
+未来可增加受保护的 OpenBridge 私有查询接口，从业务路由使用的同一不可变 snapshot 返回指定 Public Model 的配置事实、完整 route 能力、Native/Bridged/fidelity、上下文限制和证据状态。当前只保留架构位置，不确定 endpoint 或 schema；标准 `/v1/models` 不承担该职责，也不得通过查询接口暴露 endpoint、credential locator、认证/header、secret 或账号信息。
 
 ## 6. 路由、attempt 与 fallback
 
@@ -262,12 +361,13 @@ alias candidates
 1. **Eligibility**：协议、capability、credential 和 state 是否允许；
 2. **Selection**：从合格 candidate 中按配置顺序选第一个；
 3. **Attempt policy**：哪些首输出前失败允许在次数、等待和总耗时预算内重试/下一个 candidate；
-4. **Continuation policy**：有状态请求是否必须回到 issuing deployment。
+4. **Continuation policy**：有状态请求是否必须回到 issuing Upstream Target/Offering。
 
 核心第一版允许 fallback 的典型情况：
 
 - connect/DNS/TLS failure；
 - 明确 429 或 adapter 认可的临时 5xx；
+- 上游在首输出前返回 adapter 明确认可的协议/能力不支持，且仍存在满足同一完整请求、不违反状态亲和的候选 route；
 - response body 尚未交给下游时的 timeout；
 - 上游未产生任何可观察业务输出。
 
@@ -279,23 +379,23 @@ alias candidates
 - 上游可能已执行有副作用的 Provider-hosted action；
 - 无法判断上游是否已接受请求且重复可能产生副作用。
 
-Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时不可用会使 deployment 在有界时间内退出无状态 selection，优先使用 `Retry-After`/rate-limit reset，没有有效 header 时使用有界 backoff + jitter。所有 candidate cooling down 时返回明确 429 和可确定的最早恢复时间。
+Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时不可用会使 Upstream Target 在有界时间内退出无状态 selection，优先使用 `Retry-After`/rate-limit reset，没有有效 header 时使用有界 backoff + jitter。所有 candidate cooling down 时返回明确 429 和可确定的最早恢复时间。
 
 主动探测、跨进程 cooldown、一致性限流和自适应权重仍属于核心后的增强。详细错误分类、retry budget、state affinity 和下游错误传播见[Provider 韧性需求](../functional-requirements/provider-resilience.md)。
 
 ## 7. 状态所有权
 
-| 状态 | 所有者 | 生命周期 | 可否跨 deployment |
+| 状态 | 所有者 | 生命周期 | 可否跨 Upstream Target |
 |---|---|---|---|
 | RoutePlan | OpenBridge request | 单请求/stream | 否 |
 | SSE assembly | protocol adapter/bridge | 单 stream | 否 |
 | Tool identity map | Protocol Bridge | 单请求或明确 continuation ledger | 默认否 |
-| `previous_response_id` | issuing Provider/deployment | Provider 定义 | 否 |
-| Credential material | service owner + credential source | 配置/refresh 生命周期 | 仅绑定对应 deployment |
+| `previous_response_id` | issuing Provider/Upstream Target/Offering | Provider 定义 | 否 |
+| Credential material | service owner + credential source | 配置/refresh 生命周期 | 仅绑定对应 Upstream Target |
 | CallRecord / aggregates | local telemetry sink | 请求结束后 | 可聚合，但不参与路由 |
 | Hosted tool session | future facade | 单 tool call/Provider contract | 默认否 |
 
-任何跨请求 ledger 都必须有 issuer、deployment、expiry 和歧义拒绝规则。第一版可以对无法安全恢复的 continuation 直接拒绝，而不是为了兼容而建立隐式全局 cache。
+任何跨请求 ledger 都必须有 issuer、Upstream Target、Offering、expiry 和歧义拒绝规则。第一版可以对无法安全恢复的 continuation 直接拒绝，而不是为了兼容而建立隐式全局 cache。
 
 ## 8. 配置与网络边界
 
@@ -308,20 +408,19 @@ Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时�
 - upstream origin policy；
 - connection pool；
 - private-config downstream static token reference；
-- telemetry export/sink settings；
-- route config path。
+- telemetry export/sink settings。
 
-### 可 reload 路由配置
+### 代码注册表内容（重启生效）
 
-- deployments；
+- Upstream Targets 与 Native Offerings；
 - credential references；
-- model aliases；
+- Public Models 与 Serving Routes；
 - capability declarations/overrides；
 - timeout、enable state 和 candidate 顺序。
 
-基础路由与启动配置可以进入版本控制；API key、下游 token 和其他 secret 只存在于当前用户可读、被忽略的私有配置（或其中的明确 secret reference）。环境变量只在配置显式选择 `env://` 时提供兼容来源，不应按字段覆盖配置文件。
+代码注册表与不含 secret 的启动配置可以进入版本控制；API key、下游 token 和其他 secret 只存在于当前用户可读、被忽略的私有配置（或其中的明确 secret reference）。环境变量只在 credential reference 显式选择 `env://` 时提供兼容来源，不应按字段覆盖注册表值。
 
-reload 必须构建并验证完整新 snapshot 后原子替换。受信配置可定义兼容 endpoint，但不能注入任意代码、模板转换或动态脚本。
+启动必须先构建并验证完整新 snapshot，再开始监听。受信代码注册表可定义兼容 endpoint，但不能注入任意代码、模板转换或动态脚本。本次规划不恢复 `routes.toml`、`ArcSwap` 或 route 热重载。
 
 详细配置设计见[配置与路由](configuration-and-routing.md)。
 
@@ -340,7 +439,7 @@ reload 必须构建并验证完整新 snapshot 后原子替换。受信配置可
 | 方向 | 可选择的首个行为示例 | 主要验证方式 |
 |---|---|---|
 | 原生转发 | 一个 Chat 或 Responses 的 JSON/SSE 边界、错误或取消语义 | Rust fixture + OpenAI SDK；Responses 路径再用 Codex CLI |
-| Provider 聚合与韧性 | alias 候选筛选、session affinity、429 cooldown、有限 retry 或安全错误转发 | 确定性 fixture；按 Provider 需要补真实上游 |
+| Provider 聚合与韧性 | Serving Route 筛选、session affinity、429 cooldown、有限 retry 或安全错误转发 | 确定性 fixture；按 Provider 需要补真实上游 |
 | Protocol Bridge | 一个明确可表达的文本或普通 function-tool 语义 | 双向 fixture；受影响客户端的 SDK/CLI 观察 |
 | Hosted Tool Facade | 一个 native hosted tool 的输入、终态或 citation 规范化 | Provider fixture 与目标 MCP client 观察 |
 | Anthropic Messages | 一个 content block、tool use/result 或 stream event 的可表达性 | 协议 fixture；必要时真实 Messages Provider |
@@ -352,7 +451,7 @@ Hosted tool facade 与 Anthropic Messages 没有预设先后。它们都不应�
 
 | 层次 | 适用时机 |
 |---|---|
-| Unit | config、alias、capability、SSE parser、error classification 等局部行为。 |
+| Unit | config、Public Model/Serving Route、capability、SSE parser、error classification 等局部行为。 |
 | Contract fixture | JSON/SSE/tool/error 的确定性回归。 |
 | OpenAI SDK | Chat/Responses 的客户端可见 HTTP/SSE 行为。 |
 | Codex CLI | custom Provider 的 Responses transport、错误与 tool loop。 |
@@ -371,3 +470,5 @@ Hosted tool facade 与 Anthropic Messages 没有预设先后。它们都不应�
 - [Chat/Responses bridge](protocol-bridge.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
+- [当前代码架构](../implementation-status/current-architecture.md)
+- [注册表与路由架构迁移计划](registry-architecture-migration.md)

@@ -18,10 +18,10 @@ Codex 源码可用于学习 PKCE、secret storage、rotation 和 refresh state m
 
 ## 2. 适用范围
 
-若未来启用，一个 deployment 绑定一个明确 credential reference：
+若未来启用，一个 Upstream Target 绑定一个明确 credential reference：
 
 ```text
-Deployment
+UpstreamTarget
   └─ CredentialBinding
        ├─ ApiKey
        └─ RefreshableOAuth   # optional
@@ -40,7 +40,7 @@ Deployment
 ```text
 OAuthCredentialMetadata
   provider_family
-  deployment_id
+  upstream_target_id
   issuer
   account_fingerprint       # non-secret
   scopes/resource           # confirmed contract only
@@ -64,7 +64,7 @@ secret store 中保存完整 rotated credential bundle；普通配置/数据库�
 - 完整 callback query；
 - 可重放 account/session material。
 
-Provider、issuer、resource/audience、account fingerprint 和 deployment 必须绑定。token 不能发送到业务请求指定的 URL。
+Provider、issuer、resource/audience、account fingerprint 和 Upstream Target 必须绑定。token 不能发送到业务请求指定的 URL。
 
 ## 4. 登录方式
 

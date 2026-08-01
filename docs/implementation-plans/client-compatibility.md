@@ -68,7 +68,7 @@ Responses WebSocket 是独立候选 transport。以下任一条件成立时必�
 - Responses SSE event framing、terminal event 和错误事件；
 - function tool schema、`call_id`、arguments delta 与 tool output 回传；
 - reasoning item、usage、取消和 incomplete/failed outcome；
-- `previous_response_id` 或其他 continuation state 的 deployment affinity；
+- `previous_response_id` 或其他 continuation state 的 Upstream Target/Offering affinity；
 - Codex 版本升级后新增或收紧的 header、event、HTTP/SSE/WebSocket transport 行为。
 
 ### 3.3 不从 Codex 推导

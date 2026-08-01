@@ -10,11 +10,12 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 
 初期希望持续实现和验证的用户结果是：
 
-- 客户端可以使用稳定的 public model alias 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`，并获得 HTTP JSON 或 SSE 响应；
-- 服务所有者能在显式 Rust 注册表中管理 Provider、deployment、上游模型、credential binding 和 alias 候选顺序；
+- 客户端可以使用稳定的 Public Model 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`，并获得 HTTP JSON 或 SSE 响应；主要调用路径不要求客户端知道上游 Provider 实际支持的协议或能力差异；
+- 服务所有者能在显式 Rust 注册表中管理真实模型、Provider、Upstream Target、credential binding、Public Model、原生/桥接 serving route 和候选顺序；
 - 服务所有者通过显式 credential binding 与受限 secret source 管理上游 credential 和静态下游 Bearer token；secret 不进入代码注册表、版本控制或日志；
 - 下游和上游协议一致时，代理优先做最小改写的原生转发，尽量保留未知但合法的 wire 字段与流式语义；
-- 协议不一致时，只对明确研究过且能表达的语义使用受限转换；无法安全表达时应拒绝或给出清楚错误；
+- 协议不一致时，代理按受信配置选择已实现且已验证的受限转换；转换不声明天然无损，无法按配置安全表达时应拒绝或给出清楚错误；
+- Public Model 的能力由至少一条完整原生/桥接执行路径能否满足当前请求决定，不能把不同 Provider 的独立能力字段简单求并集；
 - tool call、tool result、流结束、取消和必要的 continuation 信息在已支持的路径中保持可预测；
 - 多个候选上游并存时，路由保持确定性，并能在安全边界内处理临时不可用、限流和最终错误；
 - 服务所有者能通过无界面的、本地受保护的输出查看调用量、上游报告的 token usage、流式首输出时间和按稳定错误类别聚合的终态错误率；
@@ -30,7 +31,7 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 - Provider endpoint、认证、credential reference、静态下游 Bearer token 和允许的固定 header 只来自受信配置；业务请求不能覆盖这些值。
 - 配置文件是运行时值和 credential 的首要来源：受版本控制的基础配置不含 secret，当前用户可读的私有配置保存实际密钥或其引用；`env://` 只在配置明确选择时作为迁移/部署兼容来源，不能无提示地覆盖配置值。
 - 普通配置、日志、调用统计和测试证据不得保存明文密钥、cookie 或私人 prompt。调用统计不记录请求/响应正文或 tool 参数。
-- 一次请求选择的 deployment、协议模式和 fallback 边界应在请求生命周期内稳定；配置更新只影响后续请求。
+- 一次请求选择的 Upstream Target、Offering、协议模式和 fallback 边界应在请求生命周期内稳定；配置更新只影响后续请求。
 
 ## 初始接口边界
 
@@ -38,9 +39,9 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 |---|---|
 | `POST /v1/responses` | Codex custom Provider 的首要 HTTP/SSE 入口。Responses WebSocket 不包含在初期兼容承诺中。 |
 | `POST /v1/chat/completions` | OpenAI-compatible Chat 客户端的入口。 |
-| `GET /v1/models` | 返回服务所有者配置的 public model aliases。 |
+| `GET /v1/models` | 返回服务所有者配置的 Public Models。 |
 
-初期 Provider 形态聚焦 OpenAI Responses 原生上游和 generic OpenAI-compatible Chat 上游。一个 alias 可以映射到有序候选 deployment；候选不隐含完全等价，仍须按协议、请求能力和可用性筛选。
+初期 Provider 形态聚焦 OpenAI Responses 原生上游和 generic OpenAI-compatible Chat 上游。一个 Public Model 可以映射到有序 serving routes；每条 route 固定 Upstream Target/Offering、下游协议和 Native/Bridge 模式，上游协议由 Offering 确定。候选不隐含完全等价，仍须按整个请求的能力组合、上下文、状态亲和和可用性筛选。
 
 ## 明确非目标
 
@@ -60,7 +61,7 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 以下方向可以按实际用户价值和测试发现单独选择，但没有预定义顺序、阶段门或交付承诺：
 
 - 多 Provider 聚合下的 capability、session affinity、cooldown、有限重试和错误传播；
-- Chat ↔ Responses 的受限 Protocol Bridge；
+- 扩大 Chat ↔ Responses 受限 Protocol Bridge 的已验证语义覆盖；
 - Provider-hosted tool facade 与 Anthropic Messages 协议兼容。两者同为后续方向；
 - 本地/MCP Tool Bridge、headless 的健康观测、OAuth credential adapter 和更多路由策略。
 
@@ -69,8 +70,11 @@ OpenBridge 是由单个用户管理、以单个服务部署的 headless Provider
 ## 术语
 
 - **Provider Family**：代码中实现的一类协议与认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
-- **Deployment**：受信配置中的上游目标，绑定 Provider Family、base URL、credential reference、上游模型和能力。
-- **Public model alias**：客户端使用的稳定模型名，映射到有序 deployment candidates。
+- **Real Model**：注册表中与具体供应商调用方式分离的真实模型身份及内在事实；同名但 revision、tokenizer 或语义不同的供应应使用不同身份。
+- **Upstream Target**：受信配置中的真实上游调用边界，绑定 Provider Family、base URL、credential reference、真实模型以及共享 quota/fault/state scope；它可以包含多个协议级 Offering。
+- **Native Offering**：Upstream Target 下的一条原生协议供应，分别记录上游协议、model id、transport、served limits、能力证据和 state policy；同一 Upstream Target 可同时包含 Chat 与 Responses Offering。
+- **Public Model**：客户端使用的稳定服务模型名，映射到有序的完整 serving routes；它是 OpenBridge 的下游服务契约，不等同于任一 Provider 的模型名或能力声明。
+- **Serving route / Execution Plan**：固定 Public Model、Upstream Target/Offering、上下游协议、Native/Bridge 模式、转换约束、credential binding 和 fallback 边界的可执行路径。
 - **Native path**：下游与上游协议一致时的最小改写转发路径。
 - **Protocol Bridge**：仅在协议不一致时执行的受限语义转换。
 - **Hosted Tool Facade**：将 Provider 原生托管工具规范化为独立工具接口；它不等同普通 function tool。
