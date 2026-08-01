@@ -107,5 +107,5 @@ Codex 的 `ModelProviderInfo` 仍有 `supports_websockets` 字段且默认 false
 - [项目比较矩阵](../project-comparison.md)
 - [Codex OAuth 安全边界](codex-oauth-and-tool-call-analysis.md)
 - [OpenAI Responses 协议](../openai/responses-protocol.md)
-- [调用统计与可观测性需求](../../functional-requirements/observability.md)
-- [客户端兼容计划](../../implementation-plans/client-compatibility.md)
+- [当前实现说明](../../implementation-status/current-implementation.md)
+- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)

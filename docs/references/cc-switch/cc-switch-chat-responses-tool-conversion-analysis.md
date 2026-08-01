@@ -165,7 +165,7 @@ tool context
 - identity fragments 中空 id/name 不会覆盖已有值，见 `preserves_tool_identity_across_empty_continuation_deltas`（:948-979）。
 - 上游异常发 `response.failed` 而不再发 completed，见 :1191-1202。
 
-OpenBridge 的 [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md) 已规定 `output_item.done` 不是终态、必须只由协议 terminal event 或 final aggregate 决定。这一点比 cc-switch 的 EOF recovery 更严格：cc-switch 对“已有实质输出但无 finish_reason”的 Chat EOF 合成 `status=incomplete`（`streaming_codex_chat.rs:804-819`）。OpenBridge 应保留现有 `terminal_missing` 诊断策略，不能把这种恢复路径伪装成原生正常完成。
+OpenBridge 的[网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)规定 `output_item.done` 不是终态，合法但无 terminal 的 EOF 不能伪造成正常完成。这一点比 cc-switch 的 EOF recovery 更严格：cc-switch 对“已有实质输出但无 finish_reason”的 Chat EOF 合成 `status=incomplete`（`streaming_codex_chat.rs:804-819`）。
 
 ## 6. Opaque reasoning 的安全边界
 
@@ -188,7 +188,7 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 ## 8. 由 cc-switch 补充的双向 bridge fixture 清单
 
-在现有 [转换设计的测试要求](../../implementation-plans/protocol-bridge.md#13-测试性质) 之外，至少补充：
+若未来重新进入协议转换实施，应从[网关 API 的验收要求](../../functional-requirements/gateway-api-compatibility.md#7-功能验收要求)建立当前焦点，并至少补充：
 
 1. **连续与并行 tool calls**：多个 `function_call` 先合并为一个 Chat assistant message；每个 `function_call_output` 仍按原 `call_id` 关联。
 2. **fragmented Chat tool delta**：id、name、arguments 分多帧到达；后续空字符串 fragment 不得擦除先前身份。
@@ -201,8 +201,8 @@ cc-switch 在 Anthropic <-> Responses bridge 中把完整 Responses reasoning it
 
 ## 相关资源
 
-- [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md)
-- [Provider 适配与数据流](../../implementation-plans/provider-adapters-and-dataflow.md)
+- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)
+- [当前代码架构](../../implementation-status/current-architecture.md)
 - [交付与证据要求](../../functional-requirements/delivery-and-evidence.md)
 - [OpenAI Responses 协议](../openai/responses-protocol.md)
 - [Codex OAuth 与工具调用分析](../codex/codex-oauth-and-tool-call-analysis.md)

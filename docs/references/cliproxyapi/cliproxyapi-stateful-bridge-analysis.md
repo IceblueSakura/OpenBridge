@@ -73,5 +73,5 @@ issue / source test
 - [项目比较矩阵](../project-comparison.md)
 - [cc-switch Chat/Responses 与 Agent Tool](../cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)
 - [Codex Responses SSE 与工具生命周期](../codex/codex-sse-and-tool-lifecycle-analysis.md)
-- [Chat/Responses 转换计划](../../implementation-plans/protocol-bridge.md)
+- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)
 - [Provider 韧性需求](../../functional-requirements/provider-resilience.md)

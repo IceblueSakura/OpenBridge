@@ -188,8 +188,8 @@ uv run pytest -q tests/hermes_cli/test_auth_codex_provider.py \
 ## 7. 关联文档
 
 - [产品范围](../../functional-requirements/product-scope.md)
-- [Codex OAuth 凭证边界](../../implementation-plans/oauth-credential-boundary.md)
+- [配置、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
 - [Codex OAuth 与工具调用源码调研](../codex/codex-oauth-and-tool-call-analysis.md)
 - [Hermes Agent Chat/Responses 分析](../hermes/hermes-chat-responses-analysis.md)
 - [LiteLLM Chat/Responses 分析](../litellm/litellm-chat-responses-analysis.md)
-- [配置与路由](../../implementation-plans/configuration-and-routing.md)
+- [当前代码架构](../../implementation-status/current-architecture.md)

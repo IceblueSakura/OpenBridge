@@ -4,7 +4,7 @@
 
 当前 release 为 **0.5.0**：45 个人工审查的 canonical cases（20 `accepted`、25 `reviewed`），以及默认 seed 下 306 个可重建的 SSE 分片变体。
 
-配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。设计理由、集成边界和当前已验证状态分别见 [协议测试语料构建](../docs/implementation-plans/protocol-test-corpus.md)、[Mock Server/Client 设计](../docs/implementation-plans/protocol-testkit.md) 与 [协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
+配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。当前已验证状态和集成边界见[协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
 
 ## 何时使用
 

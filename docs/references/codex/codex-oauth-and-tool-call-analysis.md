@@ -170,8 +170,8 @@ Responses SSE / websocket item
 ## 6. 关联文档
 
 - [产品范围](../../functional-requirements/product-scope.md)
-- [Codex OAuth 凭证边界](../../implementation-plans/oauth-credential-boundary.md)
-- [Chat/Responses 转换设计](../../implementation-plans/protocol-bridge.md)
+- [配置、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
+- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)
 - [交付与证据要求](../../functional-requirements/delivery-and-evidence.md)
 - [Hermes Agent 协议分析](../hermes/hermes-chat-responses-analysis.md)
 - [Hermes 与 LiteLLM ChatGPT OAuth 实现调研](../cross-project/hermes-litellm-oauth-analysis.md)

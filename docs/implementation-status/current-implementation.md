@@ -2,103 +2,11 @@
 
 ## 状态与范围
 
-本文描述当前代码事实，并单独标注验证状态。OpenBridge 仍是实验性原型；异构协议 Provider、Protocol Bridge、Responses WebSocket、真实 OAuth、调用统计和跨请求 cooldown 尚未实现。模块与依赖关系见[当前代码架构](current-architecture.md)。最近一次记录没有运行测试，因此当前行为尚未重新验收。
+本文只记录当前可运行入口、外部行为、Provider 注册和验证状态。模块分层、类型职责与内部数据流统一见
+[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录没有运行测试，因此当前
+行为尚未重新验收。
 
-## 启动与注册表
-
-启动过程：
-
-```text
-config/bootstrap.toml
-→ config::parse_bootstrap_config
-→ providers::compiled_config
-→ registry::build_registry
-→ Arc<RuntimeRegistry>
-→ HTTP listener
-```
-
-`bootstrap.toml` 只包含 loopback listener、request/SSE 上限和共享 HTTP client 策略。
-Provider contract、Model、Upstream Target、Upstream API、Route、Public Model、
-endpoint、credential binding 和 capability 全部由 Rust 代码注册。
-
-当前没有：
-
-- `config/routes.toml`；
-- route TOML schema；
-- `OPENBRIDGE_ROUTES_CONFIG`；
-- `ConfigManager` 或 `ArcSwap`；
-- route 热重载；
-- 动态 Provider、model、header 或转换脚本。
-
-注册表构建会验证 ID、引用、credential locator、endpoint/profile、timeout、Provider 能力上界、
-模型 token 限制、参数、reasoning、reasoning level、Upstream API rule 和 Public Model route。
-任何错误都会在监听前失败。
-
-## Provider 实现
-
-当前有 `ProviderKind::OpenAi` 与 `ProviderKind::LongCat`，两者都使用 API-key credential，并都提供 OpenAI-compatible Chat/Responses Native Path。它们是两个闭合 Provider Family，但尚不能证明异构协议适配边界。
-
-通用契约位于：
-
-- `src/provider/contracts.rs`
-- `src/provider/credential.rs`
-- `src/provider/mod.rs`
-
-具体 contract、注册项和 adapter 位于：
-
-- `src/providers/openai.rs`
-- `src/providers/longcat.rs`
-
-Provider-independent 模型事实位于：
-
-- `src/models/*`
-
-顶层显式注册入口位于：
-
-- `src/providers/mod.rs`
-
-两个 adapter 分别负责各自的：
-
-- Chat/Responses 相对 path；OpenAI 使用 `/v1/*`，LongCat 使用 `/openai/v1/*`；
-- 写入 selected Upstream API 的实际 `upstream_model`；
-- `Content-Type` 与 Bearer header；
-- Chat `[DONE]` 和 Responses terminal event；
-- status/error/retry hint 分类；
-- `GET /v1/models` discovery request。
-
-Pipeline 不重写 model；`analyze_request` 生成 `RequestRequirements`，`plan_request` 再生成绑定完整
-target/upstream API/route 的 `RoutePlan`。
-
-## 模型与路由
-
-编译期模型定义包含：
-
-- stable logical id、名称和描述；
-- 可选 input/output token 上限；
-- 支持参数集合；
-- reasoning 的 `Supported`、`Unsupported`、`Unknown`；
-- `Minimal`、`Low`、`Medium`、`High`、`XHigh` level 集合。
-
-显式 reasoning 请求只有在模型标记支持时才能路由；显式 level 还必须命中模型 level 集合。未知状态、
-未知 level 或不支持 level 都会在 egress 前拒绝，不会自动降级。
-
-Public Model 保存有序 Route。请求会按协议、streaming、function tools、parallel tools、
-image、structured output、store、continuation、background、输出限制和 reasoning 筛选完整路径。
-`previous_response_id` 会关闭跨 target fallback。同一 target 的 Chat/Responses 是独立 Upstream API，可声明
-不同 upstream model、限制、能力和 state affinity。
-
-## 下游 HTTP API
-
-| Endpoint | 当前行为 | 认证 |
-|---|---|---|
-| `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
-| `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
-| `POST /v1/chat/completions` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
-| `POST /v1/responses` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
-
-下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`；OpenAI API key 来自 `OPENAI_API_KEY`；LongCat API
-key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；`RuntimeRegistry` 只保存
-环境变量名称，不保存值。
+## 当前运行入口
 
 默认启动：
 
@@ -108,82 +16,71 @@ cp .env.example .env
 cargo run --bin openbridge --locked
 ```
 
-## Transport 与 SSE
+`bootstrap.toml` 只包含 loopback listener、request/SSE 上限和共享 HTTP client 参数。Provider、Model、
+Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential binding 均由 Rust 代码注册；
+修改后需要重新编译或重启。
 
-- 共享 reqwest client；
-- endpoint base 只来自代码注册表，必须是安全 HTTPS URL；
-- adapter 只能生成相对 URI；
-- path prefix 被显式保留；
-- redirect 禁用；
-- 认证 header 标记 sensitive；
-- 非流式响应保留上游 status、body 和有限安全 header；
-- 流式响应保持原始 bytes，同时验证 UTF-8、SSE framing、event size 和 terminal；
-- 下游丢弃 body 时取消上游 stream；
-- 已开始的 stream 不拼接 retry/fallback。
+| Endpoint | 当前行为 | 认证 |
+|---|---|---|
+| `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
+| `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
+| `POST /v1/chat/completions` | OpenAI-compatible Chat Native JSON/SSE | 静态 Bearer |
+| `POST /v1/responses` | OpenAI-compatible Responses Native JSON/SSE | 静态 Bearer |
 
-Streaming 请求对 429、5xx、连接错误和 timeout 只在首个下游 body 输出前进行有限 retry，并可进入下一个
-兼容 route candidate。当前仍是单请求固定次数原型，不包含独立 AttemptManager、跨请求 cooldown 和联合重试预算。
+下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`，OpenAI API key 来自 `OPENAI_API_KEY`，LongCat API key
+来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；注册表只保存环境变量名称。
+
+## Provider 与请求行为
+
+当前注册 `ProviderKind::OpenAi` 与 `ProviderKind::LongCat`。两者都使用 API-key credential 和
+OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint profile、upstream model、能力和
+错误分类。这只能证明两个闭合 Provider Family 的当前 Native Path，不能证明异构协议适配。
+
+请求路径当前会：
+
+- 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
+- 将 selected Upstream API 的 `upstream_model` 写入请求；
+- 保留同协议下未知但合法的 JSON 字段；
+- 对 `previous_response_id` 关闭跨 target fallback；
+- 保持非流式 status/body 和有限安全 header；
+- 保持流式原始 bytes，同时检查 UTF-8、SSE framing、event size 与 terminal；
+- 仅在流式请求首个业务输出前执行有限 retry/fallback；输出后不拼接其他响应；
+- 在下游丢弃 body 时取消相应上游 stream。
 
 ## 显式 probe
 
-`openbridge-probe` 使用同一 bootstrap 与代码注册表，可执行：
+`openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential、adapter 与 transport，可以观察模型
+列表、最小 Chat/Responses 请求和 function call/result replay。它不接受 endpoint、model、header 或
+credential 覆盖，不修改注册表，也不自动改变 capability。
 
-- 上游模型列表；
-- 最小 Chat 请求；
-- 最小 Responses 请求；
-- 两种协议的 function call/result replay。
+## 验证状态
 
-CLI 使用 `--target <id>`，不接受 endpoint、model 或 credential 覆盖，不修改注册表，也不自动改变 capability。
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、认证、Provider model 改写、
+capability routing、`/v1/models`、首输出前 fallback、retry header、SSE terminal、partial failure、取消和 probe。
+`tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。
 
-## 验证
+最近一次只执行：
 
-默认验证命令：
-
-```bash
-cargo fmt -- --check
-cargo test --locked
-cargo clippy --locked -- -D warnings
+```text
+cargo fmt --all
+cargo check --locked --all-targets
 ```
 
-已有测试源码覆盖：
+没有运行 `cargo test`、Clippy、SDK、真实 Provider、负载或长期验证。
 
-- bootstrap 与 typed registry 校验；
-- Upstream API rule 只收窄；
-- reasoning level gate；
-- endpoint/path prefix 安全；
-- 静态下游认证；
-- Provider model 改写；
-- capability routing；
-- `/v1/models`；
-- output-before fallback；
-- retry header；
-- SSE UTF-8/framing/terminal；
-- partial stream failure；
-- cancellation；
-- 显式 probe。
+## 当前未实现
 
-`tests/sdk_compatibility.rs` 是 ignored integration test，会使用运行时 OpenAI Python/Node SDK 验证
-Chat/Responses stream/non-stream 和 function-tool 往返。
-
-最近一次只执行了 `cargo fmt --all` 和 `cargo check --locked --all-targets`，没有运行测试。
-
-## 尚未实现
-
-- 异构协议 Provider 与相应协议证据；
-- Chat ↔ Responses bridge；
+- Chat ↔ Responses Protocol Bridge 和异构协议 Provider；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- 真实 OAuth；
-- keyring/私有 secret 文件；
-- 远程探测证据自动叠加到路由；
-- 跨请求 cooldown、动态 health/weight；
-- usage、TTFT/TTFB 和终态统计；
-- hosted tool 或 MCP Tool Bridge；
-- 非 loopback 部署。
+- OAuth、keyring、私有 secret 文件和多 credential pool；
+- 独立 `AttemptManager`、跨请求 cooldown 和动态 health/weight；
+- 调用统计与指标导出；
+- hosted tool、MCP Tool Bridge 或非 loopback 部署。
 
 ## 相关资源
 
-- [代码注册表与路由](../implementation-plans/configuration-and-routing.md)
 - [当前代码架构](current-architecture.md)
-- [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
 - [能力探测](capability-probing.md)
-- [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
+- [协议测试语料与工具](protocol-test-corpus.md)
+- [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
+- [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)

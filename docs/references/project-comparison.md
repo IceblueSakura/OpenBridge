@@ -37,7 +37,7 @@ source/commit + files or issue
 - 秘钥生命周期、日志脱敏、配置 reload、监听与 TLS 信任边界；
 - 是否声明某个 Agent/Provider/bridge 兼容。
 
-外部项目最多提供字段兼容性、错误分类或失败反例；最终规则由[产品范围](../functional-requirements/product-scope.md)、[调用统计与可观测性](../functional-requirements/observability.md)和对应实施计划定义。OAuth 的合法性与授权边界优先依赖官方资料，不从 Codex、Hermes、CLIProxyAPI 等本地客户端实现推导通用 proxy 资格。
+外部项目最多提供字段兼容性、错误分类或失败反例；最终规则由[产品范围](../functional-requirements/product-scope.md)、对应功能需求和当前实施现状定义。OAuth 的合法性与授权边界优先依赖官方资料，不从 Codex、Hermes、CLIProxyAPI 等本地客户端实现推导通用 proxy 资格。
 
 ## 2. 项目任务书
 

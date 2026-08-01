@@ -183,6 +183,5 @@ target endpoint、credential、adapter 与 transport，不接受 URL/model/heade
 ## 关联文档
 
 - [当前实现说明](current-implementation.md)
-- [代码注册表与原生路由](../implementation-plans/configuration-and-routing.md)
-- [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
-- [服务架构与扩展边界](../implementation-plans/service-architecture.md)
+- [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
+- [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)

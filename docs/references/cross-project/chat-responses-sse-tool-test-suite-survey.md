@@ -10,7 +10,7 @@
 | 在线复核日期 | 2026-07-26 |
 | 参考分支 | 各仓库默认分支；本次只读在线检查未固定 commit |
 | OpenAI 官方基线 | [迁移到 Responses：更新流式消费者](https://developers.openai.com/api/docs/guides/migrate-to-responses#7-update-streaming-consumers)、[gpt-oss 实现验证](https://developers.openai.com/cookbook/articles/gpt-oss/verifying-implementations#quick-verification-of-tool-calling-and-api-shapes) |
-| OpenBridge 关联计划 | [Protocol Bridge](../../implementation-plans/protocol-bridge.md)、[Agent Loop Bridge](../../implementation-plans/agent-loop-bridge.md) |
+| OpenBridge 关联文档 | [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)、[协议测试语料与工具现状](../../implementation-status/protocol-test-corpus.md) |
 | 不在范围 | 模型回答质量评测、benchmark 排名、完整 OpenAI API 合规认证、真实 Provider 的当前能力声明 |
 
 所有外部仓库都可能继续变化。若后续复制、改写或运行其中的测试，必须先固定 commit，并在 fixture manifest 中记录来源与许可证；本文的日期快照不能替代这一操作。
@@ -261,7 +261,7 @@ OpenAI 官方迁移资料明确区分两种流式模型：Chat Completions 使�
 - `tests/sse_contract.rs`：fragmented UTF-8、CRLF 与多行 `data:`；
 - `tests/forwarding_contract.rs`：EOF、partial stream failure、pending 与 cancellation；
 - 已移除的 Rust `tools/upstream-fixture-server` 曾提供确定性基础 JSON/SSE、HTTP 429 和真实上游 proxy；
-- [Protocol Bridge 实施计划](../../implementation-plans/protocol-bridge.md)中的 Slice B0 corpus/invariants 与双向实施切片。
+- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)中的协议、identity、terminal 与失败边界。
 
 截至 corpus/testkit `0.4.0`，当前 corpus cases 与 Python Mock Server 覆盖 Chat/Responses 原生 stream/non-stream、429/`Retry-After`、健康检查、非法 JSON、未知 endpoint 与同进程多请求。当前 testkit 不提供真实上游 proxy、credential 注入、默认模型补全或安全响应 header 白名单。
 
@@ -434,7 +434,7 @@ TDD 的红绿循环应主要运行 L0/L1；L2/L3 用于边界互证；L4/L5 不�
 5. 保留当前 Python/Node SDK 测试，并在稳定后可选增加 Go SDK compatibility tester；
 6. 最后运行 gpt-oss 与真实 Provider smoke，不把概率性结果写成 Bridge correctness。
 
-该顺序与 [Protocol Bridge Slice B0](../../implementation-plans/protocol-bridge.md#slice-b0corpus-与不变量) 一致：先固定 corpus、identity、ordering、terminal 与 error invariants，再实现转换器。
+若未来重新进入协议转换实施，仍应先固定 corpus、identity、ordering、terminal 与 error invariants，再建立转换器的当前开发焦点。
 
 ## 12. 复核触发条件
 

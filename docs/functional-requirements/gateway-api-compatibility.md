@@ -27,24 +27,15 @@
 
 业务 endpoint 必须使用静态 Bearer token 或明确配置的等价单用户认证方式。服务不建立用户、client registration、key issuance、scope、撤销列表、配额或 billing identity。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
 
-### 2.1 真实模型与能力信息扩展（初步规划）
-
-后续可在 OpenBridge 自有命名空间预留受保护的模型详情/能力查询接口，帮助下游在需要时了解指定 Public Model 背后的配置事实、可用下游协议、Native/Bridged 路径、已知限制与转换保真等级。该方向当前只记录边界，不确定 endpoint、响应 schema、版本策略或实现顺序，也不构成当前兼容承诺。
-
-- 信息必须来自业务路由使用的同一个不可变 `RuntimeRegistry`，不从上游 `/v1/models`、一次 probe 或运行时猜测自动扩张能力；
-- 标准 `GET /v1/models` 继续只提供兼容的 Public Model 列表，不承载 OpenBridge 私有详情；
-- 可展示经过脱敏的真实模型/供应能力和证据状态，但不得暴露 endpoint、credential locator、认证/header、secret 或账号信息；
-- `Unknown` 必须原样表达为未知，不能因另一条 route 支持而外推为全局支持。
-
 ## 3. 请求、Public Model 与安全边界
 
 ### 3.1 Public Model 与 routes
 
 - 下游只能提供已配置的 Public Model；它表示 OpenBridge 对下游提供的稳定服务契约，而不是某个上游模型名的透明别名。
-- 每个 Public Model 绑定有序的完整 routes；route 至少固定 Upstream Target、Upstream API、下游协议、Native/Bridge 模式和转换约束，上游协议由 Upstream API 确定。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
+- 每个 Public Model 绑定有序的完整 routes；当前 route 固定 Upstream Target、Upstream API、下游协议和 `Native` 模式。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、header、route 或转换脚本。
 - `GET /v1/models` 的可见集合与可路由 Public Model 一致；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
-- 请求开始后，Public Model、Execution Plan、credential binding、转换模式与配置版本保持固定；配置更新只影响后续请求。
+- 请求开始后，Public Model、RoutePlan、credential binding 与注册表版本保持固定。
 
 ### 3.2 输入保护
 
@@ -53,11 +44,11 @@
 - 未知 feature 不能因“目标 Provider 也许支持”而默认放行到 bridge；Native Path 可保留同协议的未知合法字段，前提是它们不改变路由、安全或 state-affinity 决策。
 - 服务为每个请求生成或传播安全的 request id，用于响应和受控诊断；该 id 不是 client identity、tool identity 或聚合指标 label。
 
-## 4. 原生协议、桥接与流式语义
+## 4. Native Path 与流式语义
 
 当下游与上游协议一致且已获 capability 许可时，Native Path 是兼容性基线：它只做受信路由、模型和认证改写，保留 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过通用 IR 重渲染。
 
-当协议不一致时，只有显式配置的 route、已实现 converter 和已验证 feature preservation rule 共同形成兼容 Execution Plan，才能进入 Protocol Bridge。Bridge 可以按配置允许 `exact`、`structure_preserving` 或明确的 `approximate` 转换，但不得把配置未允许的丢失、降级或未知行为隐藏为成功。客户端不需要选择上游协议；OpenBridge 应优先寻找能够满足完整请求的执行路径，仅在没有配置支持的路径或所有安全候选最终都明确不支持时返回能力错误。
+当前没有 Protocol Bridge。上下游协议不一致时，不得通过字段改名、静默删减或 Provider 名称猜测进行转换；没有完整 Native Route 时应在上游调用前返回稳定的能力错误。
 
 流式请求必须满足：
 
@@ -81,7 +72,7 @@
 
 - `previous_response_id`、Provider resource、tool continuation、opaque reasoning 与 issuing call 都是可能绑定 Upstream Target/Upstream API 的状态。不能安全证明等价时，拒绝、保持同一 issuing target/upstream API，或要求完整可转换历史；不得跨候选猜测或 replay。
 - Codex 所需的 `x-codex-turn-state` 及 `response.metadata` 属于受限私有扩展：只在显式启用的 Codex Native Responses profile 中透明保留，不能进入 Bridge IR、用户 transcript、普通日志或跨 target fallback。
-- MCP、custom tool、hosted tool、reasoning、annotation、image generation 等不是普通 text 的同义词。若没有已验证的转换规则，Bridge 必须在输出前拒绝或返回明确的 loss/unsupported 结果；不得静默丢弃。
+- MCP、custom tool、hosted tool、reasoning、annotation、image generation 等不是普通 text 的同义词。当前 Route 未声明支持时必须在上游调用前拒绝，不得静默丢弃。
 
 Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考](../references/openai/responses-protocol.md)。
 
@@ -109,7 +100,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-05 | 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；网关不执行工具。 |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。 |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。 |
-| API-08 | 客户端只选择 Public Model 与下游协议；当至少一条已配置、已实现且已验证的完整 Native/Bridge 路径支持请求时，上游协议差异不会直接成为客户端配置责任。 |
+| API-08 | 客户端只选择 Public Model 与下游协议；当前只有完整 Native Route 可以成为执行候选。 |
 
 ## 8. 非目标
 
@@ -124,6 +115,5 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 - [产品范围](product-scope.md)
 - [配置与凭证](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
-- [调用统计与可观测性](observability.md)
 - [交付与证据要求](delivery-and-evidence.md)
 - [当前实现说明](../implementation-status/current-implementation.md)

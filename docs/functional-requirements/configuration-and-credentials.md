@@ -13,7 +13,7 @@ route 热重载。
 | `config/bootstrap.toml` | loopback listener、body/SSE 上限、共享 HTTP client 连接与超时策略 | 否 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
 | `src/providers/*` | Provider 行为、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
-| 进程环境变量、被忽略的 `.env` 或后续受限 secret backend | 下游 Bearer token、上游 API key/OAuth material | 是 |
+| 进程环境变量或被忽略的 `.env` | 下游 Bearer token、上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
 当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置。不存在
@@ -46,9 +46,6 @@ route 热重载。
 - 缺失、空值或 binding 不匹配时 fail closed；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential。
 
-以后增加 keyring、私有文件或 OAuth adapter 时，必须保持 typed locator 和显式 binding；不得增加
-任意 shell command secret provider，也不得隐式读取 Codex/Hermes 登录状态。
-
 ## 4. Endpoint 与出站边界
 
 Endpoint 只来自代码注册项。Registry builder 必须拒绝：
@@ -60,8 +57,7 @@ Endpoint 只来自代码注册项。Registry builder 必须拒绝：
 - 编码斜线或不受限字符构成的 path prefix。
 
 共享 transport 只能把 Provider adapter 生成的相对 path 追加到已校验 endpoint base，且禁用
-redirect。业务请求、adapter 和 credential 均不能替换 endpoint origin。若以后需要本地 HTTP
-endpoint，必须增加显式、受限的 loopback endpoint 类型和独立测试，不能放宽通用 URL 校验。
+redirect。业务请求、adapter 和 credential 均不能替换 endpoint origin。
 
 ## 5. 生命周期
 
@@ -93,7 +89,6 @@ optionally load .env
 
 ## 关联文档
 
-- [配置与路由实施方案](../implementation-plans/configuration-and-routing.md)
-- [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
+- [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [能力探测](../implementation-status/capability-probing.md)

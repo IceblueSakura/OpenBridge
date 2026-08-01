@@ -37,6 +37,19 @@
 - hosted tool 与无受限 ledger continuation 的 proposed preflight reject；
 - JSON Schema、provenance、secret scan、重复 JSON key、case 内路径与未声明文件、artifact 组合、terminal count、deterministic generation、coverage report 与 deterministic ZIP。
 
+## Mock Server/Client
+
+同一个 `tools/corpus/` Python 工具还实现了：
+
+- incremental SSE parser；
+- canonical case 到 server scenario 和 client plan 的编译；
+- 基于 `asyncio + h11` 的 HTTP/1.1 Mock Server 与无自动重试的 Mock Client；
+- normal terminal、HTTP error、transport abort、EOF 和 cancellation observation；
+- 单 exchange 与有序多-exchange loopback。
+
+这些工具不加载或启动 OpenBridge，不读取 credential，也不调用真实 Provider。`testdata/runtime/` 中的 scenario、
+plan 和 observation 均为可重建临时产物，不进入 corpus ZIP。
+
 ## 验证命令与结果
 
 2026-07-26 在 Windows、uv `0.11.32`、Python `3.12.9` 下运行：
@@ -67,6 +80,7 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 - 默认 seed 的 wire variant generation 可重复；
 - pack 不包含 derived directories，并具有固定 entry metadata 和内容 manifest；
 - coverage report 会显式暴露未固定 source ref 和 pending license，而不是把它们隐藏为已完成。
+- 进程级 loopback 已验证 scenario/plan 编译、Mock Server/Client 调用和双方 terminal observation。
 
 ## 这不证明什么
 
@@ -75,6 +89,7 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 - 不证明 canonical oracle 等于完整 OpenAI API；
 - 不证明外部项目默认分支在未来保持相同行为；
 - 不证明真实 SDK、Agent 或 Provider 兼容。
+- 不证明 TLS、HTTP/2、并发、背压、负载或真实网络 packet 边界。
 
 ## 已知待处理项
 
@@ -85,6 +100,6 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 
 ## 关联文档
 
-- [协议测试语料构建](../implementation-plans/protocol-test-corpus.md)
 - [测试集调研](../references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
 - [Corpus README](../../testdata/README.md)
+- [Testkit README](../../tools/corpus/README.md)

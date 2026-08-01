@@ -46,7 +46,7 @@ OpenBridge 不采用 LiteLLM 的 user/team/API-key、budget、spend 或 end-user
 
 LiteLLM 的 Prometheus logger 为 failed requests 建 counter，并按 logging payload 构建上下文（`integrations/prometheus.py:1978-2028`）。该机制适合作为“记录失败路径”的工程样本，但不能直接成为 OpenBridge 错误率口径：已开始 SSE 后发生 `response.failed`、`response.incomplete`、EOF 或 client cancellation 可能不等同普通 HTTP failure。
 
-OpenBridge 必须以唯一 `terminal_outcome` 计算错误率，并明确排除 `client_cancelled`；ingress 拒绝单独计数。分子、分母、错误分类及 stream terminal 规则见[调用统计与可观测性需求](../../functional-requirements/observability.md)。
+这项调研只保留外部实现观察；OpenBridge 当前尚未实现调用统计，已实现边界见[当前实现说明](../../implementation-status/current-implementation.md)。
 
 ## 5. Responses bridge 的观测边界
 
@@ -69,5 +69,5 @@ OpenBridge 必须以唯一 `terminal_outcome` 计算错误率，并明确排除 
 - [项目比较矩阵](../project-comparison.md)
 - [LiteLLM Chat/Responses 分析](litellm-chat-responses-analysis.md)
 - [LiteLLM Proxy 性能观察](litellm-proxy-performance-bottlenecks.md)
-- [调用统计与可观测性需求](../../functional-requirements/observability.md)
-- [配置与路由](../../implementation-plans/configuration-and-routing.md)
+- [当前实现说明](../../implementation-status/current-implementation.md)
+- [当前代码架构](../../implementation-status/current-architecture.md)

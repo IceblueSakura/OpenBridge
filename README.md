@@ -84,19 +84,17 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | 文档 | 内容 | 分类 |
 |---|---|---|
 | [文档总索引](docs/README.md) | 四类功能文档的统一入口 | 项目级入口 |
-| [功能需求](docs/functional-requirements/README.md) | 产品范围、网关 API/兼容、配置与凭证、路由韧性、观测与交付证据 | 功能需求 |
+| [功能需求](docs/functional-requirements/README.md) | 产品范围、网关 API、配置凭证、路由韧性与交付证据 | 功能需求 |
 | [实施现状](docs/implementation-status/README.md) | 当前代码已证明行为、能力探测与验证记录 | 实施现状 |
-| [实施计划](docs/implementation-plans/README.md) | 当前焦点及按功能组织的实施方案 | 实施计划 |
+| [实施计划](docs/implementation-plans/README.md) | 唯一的短周期当前开发焦点 | 实施计划 |
 | [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
 | [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
-| [调用统计与可观测性](docs/functional-requirements/observability.md) | usage、TTFT/TTFB、终态错误率和 headless 输出边界 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
 | [当前代码架构](docs/implementation-status/current-architecture.md) | 按层次描述当前源码模块、请求路径、依赖和结构限制 | 实施现状 |
 | [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
-| [服务架构与扩展边界](docs/implementation-plans/service-architecture.md) | 当前 Native 分层与尚未实现的 Bridge、恢复和信息投影边界 | 实施计划 |
 | [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 的研究职责 | 参考文档 |
 
 文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
