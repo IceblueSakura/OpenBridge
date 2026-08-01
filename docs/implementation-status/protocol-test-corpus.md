@@ -81,7 +81,7 @@ git diff --check
 - required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
 - 两次 `0.6.0` pack 的 SHA-256 均为 `a0058dfe927398ee078ce31015bbe0aa2ca1c94518fd555fb5d8805e19d0474a`；
-- Rust 回归：`cargo fmt`、76 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
+- Rust 回归：`cargo fmt`、91 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
 - `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
@@ -96,11 +96,13 @@ git diff --check
   terminal、header 或摘要不匹配。
 - Rust bridge replay 只读复用 canonical SSE，验证双向文本/并行 tool identity、四类 Responses terminal、
   不完整 arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
+- Rust conversion/forwarding contracts 复用 accepted bridge artifacts，验证双向 request、non-stream response、
+  text/function SSE renderer、生产 `Bridged` Route 和 canonical preflight rejects。
 
 ## 这不证明什么
 
-- 不证明全部 case 已被 OpenBridge 执行或通过；当前 Rust tests 只读回放了明确列出的 bridge 与 429 fixture；
-- 不证明完整 Bridge Plan、wire renderer、production route、continuation 或 hosted tool 已实现；
+- 不证明全部 45 个 case 已被 OpenBridge 执行或通过；当前 Rust tests 覆盖明确列出的 bridge 与 429 fixture；
+- 不证明 continuation、hosted/custom tool、reasoning、image 或 Provider 私有扩展可跨协议转换；
 - 不证明 canonical oracle 等于完整 OpenAI API；
 - 不证明外部项目默认分支在未来保持相同行为；
 - 不证明真实 SDK、Agent 或 Provider 兼容。
@@ -113,7 +115,7 @@ git diff --check
 - 25 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
 - 已有最小 Rust loopback runner 同时启动 OpenBridge Router 与 mock upstream，通过真实 HTTP socket 回放
   `responses_native.rate_limit.non_stream`，验证两次 attempt、上游 request 和最终安全错误；它尚不是可枚举全部
-  canonical cases 的通用 CLI，也未覆盖 streaming cancellation、fallback 序列或 bridge renderer。
+  canonical cases 的通用 CLI，也未覆盖全部 streaming cancellation 或 fallback 序列组合。
 - Python 单 case verifier 仍只消费已经生成的 observations，不启动 OpenBridge。
 
 ## 关联文档

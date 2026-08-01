@@ -240,6 +240,8 @@ pub struct UpstreamTargetConfig {
 pub enum RouteMode {
     /// 保持下游协议和上游协议原生一致。
     Native,
+    /// 在两个 OpenAI-compatible 协议之间执行显式受限转换。
+    Bridged,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -473,6 +475,12 @@ pub enum RegistryError {
     #[error("native route '{route}' protocol does not match its upstream API")]
     NativeRouteProtocolMismatch {
         /// 协议不匹配的 route id。
+        route: String,
+    },
+    /// Bridged route 的下游协议与 Upstream API 协议相同。
+    #[error("bridged route '{route}' must target the opposite upstream protocol")]
+    BridgedRouteProtocolMatch {
+        /// 协议方向无转换意义的 route id。
         route: String,
     },
     /// Public Model 重复引用同一个 route。
@@ -1011,6 +1019,10 @@ pub fn build_registry(
         })?;
         if route.mode == RouteMode::Native && route.downstream_protocol != upstream_api.protocol() {
             return Err(RegistryError::NativeRouteProtocolMismatch { route: route.id });
+        }
+        if route.mode == RouteMode::Bridged && route.downstream_protocol == upstream_api.protocol()
+        {
+            return Err(RegistryError::BridgedRouteProtocolMatch { route: route.id });
         }
         let resolved = Route {
             upstream_target: route.upstream_target,

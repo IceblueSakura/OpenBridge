@@ -1,7 +1,7 @@
 //! 下游原生协议和已通过 HTTP 基础检查的请求值对象。
 //!
-//! `ApiRequest` 保留未经 provider 改写的 JSON bytes；只有 adapter 在确定 route 后才负责
-//! 生成上游相对请求。
+//! `ApiRequest` 保存 RoutePlan 已确定协议的 JSON bytes：Native Route 保留下游 body，Bridged
+//! Route 保存 `BridgePlan` 生成的目标协议 body；adapter 随后负责真实 model 与上游相对请求。
 
 use bytes::Bytes;
 
@@ -32,7 +32,7 @@ impl ApiRequest {
         self.protocol
     }
 
-    /// 返回未修改的请求 JSON bytes。
+    /// 返回当前执行协议的请求 JSON bytes。
     pub fn body(&self) -> &Bytes {
         &self.body
     }

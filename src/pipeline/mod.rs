@@ -1,14 +1,15 @@
 //! 将 OpenAI-compatible 请求分解为请求事实，并基于固定注册表规划执行候选。
 //!
-//! pipeline 不转换 Chat/Responses 语义：它先验证 JSON、提取 public `model` 与请求实际
-//! 使用的 capability，再沿 Public Model 的有序 Route 生成 `RoutePlan`。上游 model 与
-//! Provider-specific 字段改写由 adapter 完成。
+//! pipeline 先验证 JSON、提取 public `model` 与请求实际使用的 capability，再沿 Public
+//! Model 的有序 Route 生成 `RoutePlan`。Native candidate 保留原始协议；Bridged candidate
+//! 生成受限 `BridgePlan`。Provider-specific endpoint/header/auth 改写仍由 adapter 完成。
 
 use bytes::Bytes;
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
+    bridge::BridgePlan,
     core::{ApiProtocol, ApiRequest, EndpointCapabilities},
     registry::{
         ReasoningLevel, ReasoningSupport, RouteMode, RuntimeRegistry, UpstreamApiCapabilities,
@@ -78,6 +79,7 @@ pub struct RouteCandidate {
     upstream_target_id: String,
     upstream_api_id: String,
     request: ApiRequest,
+    bridge: Option<BridgePlan>,
 }
 
 /// 单次请求实际使用的能力。它不等同于 upstream API 配置：`protocol` 是两个端点共享的
@@ -178,6 +180,11 @@ impl RouteCandidate {
     pub fn request(&self) -> &ApiRequest {
         &self.request
     }
+
+    /// 返回 Bridged Route 的响应转换计划；Native candidate 返回 `None`。
+    pub fn bridge(&self) -> Option<&BridgePlan> {
+        self.bridge.as_ref()
+    }
 }
 
 /// 解析下游请求并提取独立于 registry 的请求事实。
@@ -239,11 +246,10 @@ pub fn analyze_request(
     })
 }
 
-/// 沿 Public Model 的有序 Route 生成原生执行计划。
+/// 沿 Public Model 的有序 Route 生成 Native 或 Bridged 执行计划。
 ///
-/// 请求字段除后续 adapter 改写的 `model` 外保持原样。capability gate 在这里完成，确保
-/// 不支持的 tools、structured output、background/store 或 continuation 请求不会被静默
-/// 删字段后发往 upstream。
+/// Native 请求字段除后续 adapter 改写的 `model` 外保持原样；Bridged 请求只转换明确
+/// allowlist 内的共同语义。capability gate 和 Bridge preflight 都在 egress 前完成。
 pub fn plan_request(
     registry: &RuntimeRegistry,
     profile: &RequestRequirements,
@@ -262,7 +268,7 @@ pub fn plan_request(
         let route = registry
             .route(route_id)
             .ok_or(RequestPlanningError::NoRoute)?;
-        if route.downstream_protocol() != profile.protocol() || route.mode() != RouteMode::Native {
+        if route.downstream_protocol() != profile.protocol() {
             protocol_mismatch_seen = true;
             continue;
         }
@@ -276,7 +282,7 @@ pub fn plan_request(
             .upstream_api(route.upstream_api())
             .ok_or(RequestPlanningError::NoRoute)?;
         if let Some(error) = candidate_error(
-            profile.protocol,
+            upstream_api.protocol(),
             profile.requested_capabilities,
             upstream_api.capabilities(),
             upstream_api.model().context_length().output_tokens(),
@@ -287,11 +293,29 @@ pub fn plan_request(
             first_candidate_error.get_or_insert(error);
             continue;
         }
+        let (request, bridge) = match route.mode() {
+            RouteMode::Native => (ApiRequest::new(profile.protocol, body.clone()), None),
+            RouteMode::Bridged => match BridgePlan::prepare(
+                profile.protocol,
+                upstream_api.protocol(),
+                profile.public_model(),
+                upstream_api.upstream_model(),
+                body.clone(),
+            ) {
+                Ok((bridge, request)) => (request, Some(bridge)),
+                Err(_) => {
+                    first_candidate_error
+                        .get_or_insert(RequestPlanningError::UnsupportedCapabilities);
+                    continue;
+                }
+            },
+        };
         prepared_candidates.push(RouteCandidate {
             route_id: route_id.clone(),
             upstream_target_id: route.upstream_target().to_owned(),
             upstream_api_id: route.upstream_api().to_owned(),
-            request: ApiRequest::new(profile.protocol, body.clone()),
+            request,
+            bridge,
         });
     }
     // 没有候选时返回最具体的规划错误，否则构造带 fallback 边界的计划。

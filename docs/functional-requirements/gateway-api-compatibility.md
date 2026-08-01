@@ -32,7 +32,7 @@
 ### 3.1 Public Model 与 routes
 
 - 下游只能提供已配置的 Public Model；它表示 OpenBridge 对下游提供的稳定服务契约，而不是某个上游模型名的透明别名。
-- 每个 Public Model 绑定有序的完整 routes；当前 route 固定 Upstream Target、Upstream API、下游协议和 `Native` 模式。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
+- 每个 Public Model 绑定有序的完整 routes；route 固定 Upstream Target、Upstream API、下游协议和 `Native`/`Bridged` 模式。`Native` 要求协议相同，`Bridged` 要求协议相反且存在完整 `BridgePlan`。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、route、转换脚本或任意出站 header。Provider 的受信代码 hook 可以选择显式 allowlist 的普通 header（当前为 `User-Agent`），但认证、cookie、Host 与 proxy header 始终隔离。
 - `GET /v1/models` 的可见集合与可路由 Public Model 一致；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
 - 请求开始后，Public Model、RoutePlan、credential binding 与注册表版本保持固定。
@@ -48,10 +48,10 @@
 
 当下游与上游协议一致且已获 capability 许可时，Native Path 是兼容性基线：它只做受信路由、模型和认证改写，保留 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过通用 IR 重渲染。
 
-当前生产请求路径没有 Protocol Bridge。源码已有按单请求重建 Chat/Responses 文本、tool identity、arguments
-与唯一 terminal 的显式流状态机，并由 canonical fixture 回放保护；它尚未生成 Bridge Execution Plan 或渲染
-目标 wire。上下游协议不一致时，不得因该基础类型存在而通过字段改名、静默删减或 Provider 名称猜测进行
-转换；没有完整 Native Route 时仍应在上游调用前返回稳定的能力错误。
+当前生产请求路径支持显式 `Bridged` Route。`BridgePlan` 转换两协议共同可表达的 text、function schema、
+tool call/result identity、非流式 JSON 和流式 SSE lifecycle；未知顶层字段、continuation、hosted/custom tool、
+reasoning、image、structured output、background/store 和 Provider 私有扩展在 egress 前拒绝。Bridge 不能因
+字段名相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
 
 流式请求必须满足：
 
@@ -103,7 +103,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-05 | 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；网关不执行工具。 |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。 |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。 |
-| API-08 | 客户端只选择 Public Model 与下游协议；当前只有完整 Native Route 可以成为执行候选。 |
+| API-08 | 客户端只选择 Public Model 与下游协议；只有完整 Native Route 或通过 preflight 的 Bridged Route 可以成为执行候选。 |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
 
 ## 8. 非目标

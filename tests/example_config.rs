@@ -6,7 +6,7 @@ use openbridge::{
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
-    registry::{ReasoningSupport, build_registry},
+    registry::{ReasoningSupport, UpstreamApiCapabilities, build_registry},
 };
 
 #[test]
@@ -32,13 +32,18 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .public_model("code-primary")
             .expect("public model is compiled")
             .routes(),
-        ["code-primary-openai-chat", "code-primary-openai-responses"]
+        [
+            "code-primary-openai-chat",
+            "code-primary-openai-chat-via-responses",
+            "code-primary-openai-responses",
+            "code-primary-openai-responses-via-chat",
+        ]
     );
 
     let longcat = registry
         .public_model("LongCat-2.0")
         .expect("LongCat public model is compiled");
-    assert_eq!(longcat.routes().len(), 2);
+    assert_eq!(longcat.routes().len(), 4);
     let target = registry
         .upstream_target("longcat-2")
         .expect("LongCat target is compiled");
@@ -89,6 +94,61 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .expect("LongCat should remain on the native path for both protocols");
         assert_eq!(plan.upstream_target_id(), "longcat-2");
     }
+}
+
+#[test]
+fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unavailable() {
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let mut definition = compiled_config();
+    let target = definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "openai-main")
+        .unwrap();
+
+    // 关闭 Chat native capability，Chat 下游请求必须改走 Responses bridge。
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut target.upstream_apis[0].capabilities
+    {
+        capabilities.enabled = false;
+    }
+    let registry = build_registry(bootstrap.clone(), definition.clone()).unwrap();
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#,
+    );
+    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "code-primary-openai-chat-via-responses"
+    );
+    assert!(plan.candidates()[0].bridge().is_some());
+
+    // 反向关闭 Responses native capability，Responses 下游请求必须改走 Chat bridge。
+    let target = definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "openai-main")
+        .unwrap();
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut target.upstream_apis[0].capabilities
+    {
+        capabilities.enabled = true;
+    }
+    if let UpstreamApiCapabilities::Responses(capabilities) =
+        &mut target.upstream_apis[1].capabilities
+    {
+        capabilities.enabled = false;
+    }
+    let registry = build_registry(bootstrap, definition).unwrap();
+    let body = bytes::Bytes::from_static(br#"{"model":"code-primary","input":"hello"}"#);
+    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "code-primary-openai-responses-via-chat"
+    );
+    assert!(plan.candidates()[0].bridge().is_some());
 }
 
 #[test]

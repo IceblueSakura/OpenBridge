@@ -1,10 +1,10 @@
-//! OpenAI-compatible HTTP ingress 与原生转发编排。
+//! OpenAI-compatible HTTP ingress 与 Native/Bridged Route 编排。
 //!
 //! 此模块只接受配置允许的 public model，并在进入上游前完成下游 Bearer 认证、body
 //! 上限、capability routing 和 provider adapter 选择。它不会接受客户端给出的上游 URL、
 //! 认证头或 provider 规则；私有 `AttemptManager` 约束提交下游 response 前的有限退避与
-//! fallback，任务取消会销毁尚未完成的上游工作。streaming response 保持字节透明，同时
-//! 用 SSE decoder 只作 framing/terminal 校验，不重新渲染业务 event。
+//! fallback，任务取消会销毁尚未完成的上游工作。Native stream 保持字节透明；Bridged
+//! stream 使用单请求 renderer 转换完整 SSE event，两者都遵守 framing/terminal 边界。
 
 mod attempt;
 mod auth;
@@ -14,6 +14,7 @@ use std::{io, sync::Arc, time::Instant};
 
 use axum::{
     Json, Router,
+    body::to_bytes,
     extract::{Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -35,6 +36,7 @@ use tower_http::{
 };
 
 use crate::{
+    bridge::{BridgePlan, BridgeStreamRenderer},
     core::ApiProtocol,
     credential::CredentialStore,
     identity::UserRegistry,
@@ -215,7 +217,7 @@ async fn chat_completions(
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, ApiProtocol::ChatCompletions, headers, body).await
+    forward_request(state, ApiProtocol::ChatCompletions, headers, body).await
 }
 
 async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -223,7 +225,7 @@ async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: 
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, ApiProtocol::Responses, headers, body).await
+    forward_request(state, ApiProtocol::Responses, headers, body).await
 }
 
 fn has_json_content_type(headers: &HeaderMap) -> bool {
@@ -249,14 +251,14 @@ fn unsupported_media_type() -> Response {
     )
 }
 
-/// 将一个已经过 HTTP 输入检查的原生请求送往有序 candidate。
+/// 将一个已经过 HTTP 输入检查的请求送往有序 Native/Bridged candidate。
 ///
 /// 每次调用共享启动时构建的不可变 registry。仅 streaming 请求可在**尚未返回任何下游
 /// body**时重试：一旦 `UpstreamResponse`
 /// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
 /// 上游尝试。`previous_response_id` 等 target-bound state 会令 pipeline 关闭跨 candidate
 /// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
-async fn forward_native(
+async fn forward_request(
     state: GatewayState,
     protocol: ApiProtocol,
     downstream_headers: HeaderMap,
@@ -390,7 +392,10 @@ async fn forward_native(
                                 protocol,
                                 adapter,
                                 registry.limits().max_sse_event_bytes(),
-                            );
+                                registry.limits().max_request_body_bytes(),
+                                candidate.bridge().cloned(),
+                            )
+                            .await;
                         }
                     }
                 }
@@ -407,7 +412,10 @@ async fn forward_native(
                         protocol,
                         adapter,
                         registry.limits().max_sse_event_bytes(),
-                    );
+                        registry.limits().max_request_body_bytes(),
+                        candidate.bridge().cloned(),
+                    )
+                    .await;
                 }
                 Err(error) if should_retry_error(&error) => {
                     // timeout/transport failure 只隔离 fault domain，不污染 quota scope。
@@ -457,17 +465,19 @@ fn should_retry_error(error: &TransportError) -> bool {
     matches!(error, TransportError::Timeout | TransportError::Request(_))
 }
 
-/// 将上游 status、白名单响应头和 body 交给下游。
+/// 将上游 status、安全响应头和 Native/Bridged body 交给下游。
 ///
 /// SSE 仅在原请求要求 streaming、上游返回成功状态且 `Content-Type` 确为
 /// `text/event-stream` 时验证。错误响应即使对应 streaming request 也可能是 JSON 或其他
 /// 诊断 body；对其做 SSE 解码会破坏可见的 HTTP 错误语义。
-fn upstream_response(
+async fn upstream_response(
     upstream: crate::transport::upstream::UpstreamResponse,
     validate_sse: bool,
     protocol: ApiProtocol,
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
+    max_json_body_bytes: usize,
+    bridge: Option<BridgePlan>,
 ) -> Response {
     // 提取 status 和安全响应头，并仅对成功 SSE response 启用观察器。
     let status = upstream.status();
@@ -480,9 +490,49 @@ fn upstream_response(
                 .to_str()
                 .is_ok_and(|value| value.starts_with("text/event-stream"))
         });
+    if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
+        return api_error(
+            StatusCode::BAD_GATEWAY,
+            "invalid_upstream_response",
+            "The upstream response could not be converted",
+        );
+    }
     // 保持非 SSE 或错误 body 原样透传，避免破坏上游诊断语义。
     let body = if validate_sse && status.is_success() && is_sse {
-        validate_sse_body(upstream.into_body(), protocol, adapter, max_sse_event_bytes)
+        if let Some(bridge) = bridge {
+            bridge_sse_body(
+                upstream.into_body(),
+                bridge.stream_renderer(),
+                max_sse_event_bytes,
+            )
+        } else {
+            validate_sse_body(upstream.into_body(), protocol, adapter, max_sse_event_bytes)
+        }
+    } else if status.is_success() {
+        if let Some(bridge) = bridge {
+            let upstream_body = match to_bytes(upstream.into_body(), max_json_body_bytes).await {
+                Ok(body) => body,
+                Err(_) => {
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_response",
+                        "The upstream response could not be converted",
+                    );
+                }
+            };
+            match bridge.render_non_stream(upstream_body) {
+                Ok(body) => axum::body::Body::from(body),
+                Err(_) => {
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_response",
+                        "The upstream response could not be converted",
+                    );
+                }
+            }
+        } else {
+            upstream.into_body()
+        }
     } else {
         upstream.into_body()
     };
@@ -492,6 +542,104 @@ fn upstream_response(
         .expect("valid upstream response status");
     response.headers_mut().extend(response_headers);
     response
+}
+
+/// 增量解码上游 SSE，并用单请求 Bridge renderer 生成目标协议 event。
+fn bridge_sse_body(
+    body: axum::body::Body,
+    renderer: BridgeStreamRenderer,
+    max_sse_event_bytes: usize,
+) -> axum::body::Body {
+    // 保持 source、decoder 与 renderer 同生命周期，下游 drop 会同步取消上游 body。
+    let stream = stream::unfold(
+        (
+            Box::pin(body.into_data_stream()),
+            SseDecoder::new(max_sse_event_bytes),
+            renderer,
+            false,
+        ),
+        move |(mut source, mut decoder, mut renderer, finished)| async move {
+            if finished {
+                return None;
+            }
+            match source.as_mut().next().await {
+                Some(Ok(chunk)) => {
+                    let events = match decoder.push(&chunk) {
+                        Ok(events) => events,
+                        Err(_) => {
+                            return Some((
+                                Err(io::Error::other("upstream SSE stream is invalid")),
+                                (source, decoder, renderer, true),
+                            ));
+                        }
+                    };
+                    let mut output = Vec::new();
+                    for event in events {
+                        match renderer.render(event) {
+                            Ok(bytes) => output.extend_from_slice(&bytes),
+                            Err(_) => {
+                                return Some((
+                                    Err(io::Error::other("upstream bridge stream is invalid")),
+                                    (source, decoder, renderer, true),
+                                ));
+                            }
+                        }
+                    }
+                    Some((
+                        Ok::<_, io::Error>(Bytes::from(output)),
+                        (source, decoder, renderer, false),
+                    ))
+                }
+                Some(Err(_)) => Some((
+                    Err(io::Error::other(
+                        "upstream SSE stream terminated unexpectedly",
+                    )),
+                    (source, decoder, renderer, true),
+                )),
+                None => {
+                    let events = match decoder.finish() {
+                        Ok(events) => events,
+                        Err(_) => {
+                            return Some((
+                                Err(io::Error::other("upstream SSE stream is invalid")),
+                                (source, decoder, renderer, true),
+                            ));
+                        }
+                    };
+                    let mut output = Vec::new();
+                    for event in events {
+                        match renderer.render(event) {
+                            Ok(bytes) => output.extend_from_slice(&bytes),
+                            Err(_) => {
+                                return Some((
+                                    Err(io::Error::other("upstream bridge stream is invalid")),
+                                    (source, decoder, renderer, true),
+                                ));
+                            }
+                        }
+                    }
+                    match renderer.finish() {
+                        Ok(bytes) => output.extend_from_slice(&bytes),
+                        Err(_) => {
+                            return Some((
+                                Err(io::Error::other("upstream bridge stream is invalid")),
+                                (source, decoder, renderer, true),
+                            ));
+                        }
+                    }
+                    if output.is_empty() {
+                        None
+                    } else {
+                        Some((
+                            Ok::<_, io::Error>(Bytes::from(output)),
+                            (source, decoder, renderer, true),
+                        ))
+                    }
+                }
+            }
+        },
+    );
+    axum::body::Body::from_stream(stream)
 }
 
 /// 在不重写原始 bytes 的前提下观察上游 SSE 生命周期。

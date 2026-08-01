@@ -16,6 +16,7 @@ credential、endpoint 和内部 Route。
 - 下游通过 Public Model 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`；
 - 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
+- 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
 - 上游 API key 来自受限环境变量或被忽略的 `.env`，下游静态 Bearer token 来自私有用户文件；二者在启动时合并为不可变 credential 快照；
 - Route 按完整协议、能力、模型限制和状态亲和要求确定性筛选；
@@ -43,7 +44,7 @@ credential、endpoint 和内部 Route。
 
 ## 当前未实现
 
-- Chat 与 Responses 之间的 Protocol Bridge；
+- image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；

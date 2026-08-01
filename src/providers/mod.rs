@@ -31,10 +31,22 @@ pub fn compiled_config() -> RegistryConfig {
                 "chat",
                 ApiProtocol::ChatCompletions,
             ),
+            bridged_route(
+                "code-primary-openai-chat-via-responses",
+                "openai-main",
+                "responses",
+                ApiProtocol::ChatCompletions,
+            ),
             native_route(
                 "code-primary-openai-responses",
                 "openai-main",
                 "responses",
+                ApiProtocol::Responses,
+            ),
+            bridged_route(
+                "code-primary-openai-responses-via-chat",
+                "openai-main",
+                "chat",
                 ApiProtocol::Responses,
             ),
             native_route(
@@ -43,10 +55,22 @@ pub fn compiled_config() -> RegistryConfig {
                 "chat",
                 ApiProtocol::ChatCompletions,
             ),
+            bridged_route(
+                "longcat-2-chat-via-responses",
+                "longcat-2",
+                "responses",
+                ApiProtocol::ChatCompletions,
+            ),
             native_route(
                 "longcat-2-responses",
                 "longcat-2",
                 "responses",
+                ApiProtocol::Responses,
+            ),
+            bridged_route(
+                "longcat-2-responses-via-chat",
+                "longcat-2",
+                "chat",
                 ApiProtocol::Responses,
             ),
         ],
@@ -55,14 +79,18 @@ pub fn compiled_config() -> RegistryConfig {
                 name: "code-primary".to_owned(),
                 routes: vec![
                     "code-primary-openai-chat".to_owned(),
+                    "code-primary-openai-chat-via-responses".to_owned(),
                     "code-primary-openai-responses".to_owned(),
+                    "code-primary-openai-responses-via-chat".to_owned(),
                 ],
             },
             PublicModelConfig {
                 name: "LongCat-2.0".to_owned(),
                 routes: vec![
                     "longcat-2-chat".to_owned(),
+                    "longcat-2-chat-via-responses".to_owned(),
                     "longcat-2-responses".to_owned(),
+                    "longcat-2-responses-via-chat".to_owned(),
                 ],
             },
         ],
@@ -82,6 +110,22 @@ fn native_route(
         upstream_api: upstream_api.to_owned(),
         downstream_protocol,
         mode: RouteMode::Native,
+    }
+}
+
+fn bridged_route(
+    id: &str,
+    upstream_target: &str,
+    upstream_api: &str,
+    downstream_protocol: ApiProtocol,
+) -> RouteConfig {
+    // 只构造下游协议与 Upstream API 相反的受限转换 route 定义。
+    RouteConfig {
+        id: id.to_owned(),
+        upstream_target: upstream_target.to_owned(),
+        upstream_api: upstream_api.to_owned(),
+        downstream_protocol,
+        mode: RouteMode::Bridged,
     }
 }
 

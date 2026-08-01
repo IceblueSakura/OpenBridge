@@ -1,8 +1,8 @@
 //! Chat Completions 与 Responses 流式语义的显式 bridge 状态机。
 //!
-//! 本模块只维护单个请求内的文本、tool identity、arguments 与 terminal 生命周期。它不执行
-//! tool、不持久化 continuation ledger，也不把 bridge 自动接入 Route；调用方必须在受限
-//! `BridgePlan` 中显式选择方向，并在渲染目标 wire 前处理这里返回的确定状态。
+//! 本模块维护单个请求内的文本、tool identity、arguments 与 terminal 生命周期，并通过
+//! `conversion` 子模块提供生产 `BridgePlan` 与双向 renderer。它不执行 tool、不持久化
+//! continuation ledger，也不转换未进入显式 allowlist 的 Provider 私有语义。
 
 use std::collections::BTreeMap;
 
@@ -10,6 +10,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::transport::sse::SseEvent;
+
+mod conversion;
+
+pub use conversion::{BridgeError, BridgePlan, BridgeStreamRenderer};
 
 /// bridge stream 的唯一终态。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

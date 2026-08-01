@@ -245,7 +245,7 @@ impl ProviderAdapter {
         }
     }
 
-    /// 按下游协议和上游模型 id 构造相对上游请求。
+    /// 按 RoutePlan 确定的执行协议和上游模型 id 构造相对上游请求。
     pub fn prepare_request(
         &self,
         request: &ApiRequest,

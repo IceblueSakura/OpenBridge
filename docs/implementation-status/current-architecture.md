@@ -8,8 +8,9 @@
 最近一次记录已完成格式化、全量 Rust 测试与 Clippy；需要下载外部 SDK 的兼容性测试仍保持 ignored，
 真实 Provider、负载和长期运行验证未执行。
 
-当前生产请求只有 Native Path。请求级 `AttemptManager`、单进程跨请求 cooldown 与独立 bridge stream
-状态机已经实现；Bridge Plan/renderer/production route 和模型信息扩展接口尚未实现。
+当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
+cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
+尚未实现。
 
 ## 1. 分层结构
 
@@ -22,11 +23,11 @@ immutable RuntimeRegistry + UserRegistry + CredentialStore
           ↓
 HTTP ingress
           ↓
-RequestRequirements → RoutePlan
+RequestRequirements → RoutePlan / optional BridgePlan
           ↓
 ProviderAdapter + UpstreamTarget + UpstreamApi
           ↓
-shared UpstreamTransport / SSE observation
+shared UpstreamTransport / SSE observation or bridge rendering
           ↓
 upstream provider
 ```
@@ -45,7 +46,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
 | 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
-| Bridge 状态 | `ChatStreamState`、`ResponsesStreamState`、`BridgeToolCall` | 单请求 stream lifecycle、tool identity 与 arguments 重建；尚未接入生产 route |
+| Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
 | Transport | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse` | 可替换的发送边界、生产 HTTP client 和上游响应 |
 | Probe | `ProbeOptions`、`ProbeResult`、`TargetProbeReport` | 探测输入、单项观察和 target 汇总报告 |
@@ -101,14 +102,14 @@ RegistryConfig
 | `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential、timeout、启停及 quota/fault 边界 |
 | `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport 与 state affinity |
-| `RouteConfig` | target、upstream API、下游协议和当前 `Native` 执行模式 |
+| `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
 | `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
 
 同一 target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、context/output
 限制、能力证据和 state affinity。共享 endpoint、credential、Model 与故障边界属于 target。
 
 `build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Upstream API
-协议/能力一致性、model rules 只收窄、Native route 协议方向及 Public Model route 顺序。成功后生成：
+协议/能力一致性、model rules 只收窄、Native/Bridged route 协议方向及 Public Model route 顺序。成功后生成：
 
 ```text
 RuntimeRegistry
@@ -126,8 +127,8 @@ RuntimeRegistry
 |---|---|
 | `GET /healthz` | 返回状态与注册表版本 |
 | `GET /v1/models` | 枚举 Public Model 名称 |
-| `POST /v1/chat/completions` | 进入 Chat Native Path |
-| `POST /v1/responses` | 进入 Responses Native Path |
+| `POST /v1/chat/completions` | 进入 Chat Native/Bridged RoutePlan |
+| `POST /v1/responses` | 进入 Responses Native/Bridged RoutePlan |
 
 Ingress 执行认证、body/content-type 限制、本地错误归一化和当前的首输出前 attempt 循环。它不接受
 客户端提供的上游 URL、credential 或内部 route ID。
@@ -146,8 +147,9 @@ raw body + downstream protocol
 ```
 
 `RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
-`RoutePlan` 固定有序的 Route、Upstream Target、Upstream API 与原始 `ApiRequest`。
-它不执行协议转换或 adapter 字段改写。
+`RoutePlan` 固定有序的 Route、Upstream Target 与 Upstream API。Native candidate 保留原始 `ApiRequest`；
+Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `ApiRequest`。Provider adapter 仍只负责
+目标 endpoint、真实 model、header 与认证改写。
 
 请求携带 `previous_response_id` 时，计划关闭跨 target fallback。不同 route 或不同 Upstream API 的能力不会
 按字段求并集；一条候选必须独立满足完整请求。
@@ -163,16 +165,17 @@ locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完
 `CredentialStore` 借用 `UpstreamCredential`；Store 不公开通用明文查询，adapter 仍在 crate 内的认证 header
 边界才访问 secret。
 
-OpenAI 与 LongCat 当前都注册 Chat、Responses 两个独立 Upstream API，wire 仍均为
-OpenAI-compatible；这不构成异构协议桥已实现的证据。
+OpenAI 与 LongCat 当前都注册 Chat、Responses 两个独立 Upstream API；每个下游协议先列 Native route，
+再列指向相反 Upstream API 的 Bridged route。Bridge 生产路径由编译注册表、记录型 transport 与 canonical
+wire 确定性验证，但尚未调用真实异构协议 Provider。
 
 ## 7. Transport、SSE、attempt 与 health
 
-实现位置：`src/transport/*` 与 `ingress::forward_native`。
+实现位置：`src/transport/*` 与 `ingress::forward_request`。
 
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
-timeout。Streaming response 保持业务 bytes 透明；`SseDecoder` 只观察 UTF-8、framing、event size 和
-terminal。下游丢弃 body 时，上游 stream 随之取消。
+timeout。Native streaming response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged
+stream 则按完整 event 增量渲染目标协议 wire。下游丢弃任一 body 时，上游 stream 随之取消。
 
 `ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 共享最多 6 次的硬预算，
 每候选最多 2 次，attempt 间从 50 ms 起按二倍增长并 capped 到 500 ms；在预算可容纳时为未尝试候选保留
@@ -184,10 +187,10 @@ response body，提交 response 后不得再拼接另一上游响应。
 `Retry-After` 最长采用 30 秒。无状态请求跳过冷却 scope，target-bound continuation 忽略 cooldown 并保持原
 target 亲和。该状态不持久化、不跨进程，也不执行动态权重或 credential 轮换。
 
-`src/bridge.rs` 是生产 route 之外的显式 Protocol Bridge 状态基础。Responses 侧分别固定 response id、item id、
-call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧都要求唯一
-terminal，区分 Responses `completed`、`failed`、`incomplete` 与独立 `error`，并要求闭合 JSON object
-arguments。当前没有 Bridge Plan、wire renderer 或 ingress dispatch。
+`src/bridge.rs` 与 `src/bridge/conversion.rs` 实现生产 Protocol Bridge。Responses 侧分别固定 response id、
+item id、call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧
+要求唯一 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受显式 allowlist 内的共同 text/function
+语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
 
 ## 8. Probe 与验证层
 
@@ -196,13 +199,13 @@ target endpoint、adapter 与 transport，只为管理员选中的 target 构造
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
-`cargo test --locked`，78 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，91 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 
 ## 9. 尚未实现
 
-- Converter catalog、route-local ConversionPolicy、BridgePlan、wire renderer 与生产 Chat/Responses Bridge；
+- 动态 Converter catalog、route-local 可配置 ConversionPolicy 与异构 Provider 实测；
 - 动态 availability/weight、持久化或分布式 cooldown；
 - 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
 - Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。

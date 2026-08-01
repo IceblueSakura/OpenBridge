@@ -40,7 +40,8 @@ LongCat API key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`�
 
 当前注册 `ProviderKind::OpenAi` 与 `ProviderKind::LongCat`。两者都使用 API-key credential 和
 OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint profile、upstream model、能力和
-错误分类。这只能证明两个闭合 Provider Family 的当前 Native Path，不能证明异构协议适配。
+错误分类。默认编译注册表为每个下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
+route；尚未对真实异构协议 Provider 执行验证。
 
 请求路径当前会：
 
@@ -49,9 +50,10 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
 - 经 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游，同时保持认证、cookie、Host 与 proxy header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
+- 对 `Bridged` Route 只转换 allowlist 内的 text/function tool/tool result 语义，未知或不可表达字段在 egress 前拒绝；
 - 对 `previous_response_id` 关闭跨 target fallback；
-- 保持非流式 status/body 和有限安全 header；
-- 保持流式原始 bytes，同时检查 UTF-8、SSE framing、event size 与 terminal；
+- Native Route 保持非流式 status/body 和流式原始 bytes；Bridged Route 转换非流式 JSON 与增量 SSE event；
+- 两种路径都检查 SSE UTF-8、framing、event size 与 terminal，并保持有限安全 header；
 - 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限 retry/fallback，并执行 50～500 ms capped exponential backoff；
 - 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport error；
 - 对 retryable `429`、暂时性上游故障和 transport failure 记录单进程短时 cooldown；后续无状态请求按
@@ -59,16 +61,17 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 - 在下游中断 pending send、退避等待或丢弃 response body 时取消相应上游工作，不再启动后续 attempt；
 - 认证后将稳定用户身份写入请求上下文，并记录不含 API Key/正文的结构化 response-start 日志。
 
-## Protocol Bridge 状态基础
+## Protocol Bridge
 
-`src/bridge.rs` 提供彼此独立的 Chat 与 Responses stream 状态机。它们按 wire 顺序固定 response/item/call/index
+`src/bridge.rs` 提供彼此独立的 Chat 与 Responses stream 状态机，`src/bridge/conversion.rs` 提供
+`BridgePlan`、双向请求/非流式响应转换和增量 SSE renderer。它们按 wire 顺序固定 response/item/call/index
 identity，累计 text 与 function arguments，区分 `completed`、`failed`、`incomplete` 和独立 `error` terminal，
 并在 event/type 冲突、identity 冲突、不完整 JSON arguments、terminal 后事件、重复 terminal 或
 EOF-before-terminal 时失败关闭。
 
-该模块由现有 canonical 双向 text/parallel-tool/incomplete-arguments、失败终态、event/type 冲突、EOF 和
-terminal violation SSE fixture 回放验证，但尚未接入 `RouteMode::Bridged`、请求转换、目标 wire renderer 或
-生产 ingress，因此不构成 Protocol Bridge 已可用的声明。
+生产 Router 已验证双向 text、function schema、tool call/result、并行 fragmented arguments、非流式 JSON、
+流式 terminal 与 invalid stream 关闭。`previous_response_id`、hosted/custom tool、reasoning、image、structured
+output、background/store、Provider 私有扩展和其他未建模字段不做降级转换，会在 egress 前拒绝。
 
 ## 显式 probe
 
@@ -81,7 +84,8 @@ credential 覆盖，只加载选中 target 的上游 Key，不读取下游用户
 仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、统一 credential Store、认证、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
-send/backoff/body 取消、canonical bridge fixture replay、真实 loopback HTTP 429 process replay 和 probe。
+send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
+HTTP 429 process replay 和 probe。
 `tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。日常客户端可见测试优先使用
 OpenAI SDK、独立 Python 脚本或 curl，不要求绑定 Codex/Hermes 等 Agent runtime。
 
@@ -94,13 +98,13 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 78 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 91 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
 ## 当前未实现
 
-- 可执行的 Chat ↔ Responses Bridge Plan、wire renderer、生产 route 和异构协议 Provider；
+- 真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
