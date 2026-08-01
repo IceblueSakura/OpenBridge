@@ -12,6 +12,8 @@
 - 未读取、输出、复制任何本地 credential、token、`auth.json` 内容或 OAuth client ID。
 - 行号仅适用于上述快照。上游 endpoint、client registration、token policy 与服务条款必须以当前官方资料重新确认。
 
+**2026-08-01 当前模块级复核。** Hermes `main` 已更新至 `470cf66b039c73bdd2c21d43094ce41a4db74eae`，其 Codex 登录、refresh、runtime credential、credential pool 与 account-header 路径仍可定位；LiteLLM `litellm_internal_staging` 已更新至 `23de7a15d9d40006ee596e617475ba101d60c5e9`，其 ChatGPT `Authenticator`、token/account 获取与 header 路径仍可定位。两边的行号和实现细节均可能已经演进，因此下文继续以固定快照为证据，且不扩大 OAuth 的授权边界。
+
 ## 1. 结论摘要
 
 1. Hermes 与 LiteLLM 都内置 ChatGPT/Codex subscription 的上游 OAuth client：device code → 用户授权 → authorization code + PKCE verifier → token exchange → 本地持久化。它们不是为 proxy 下游用户提供登录的 OAuth authorization server。

@@ -2,7 +2,9 @@
 
 ## 状态
 
-**Confirmed，仅限独立 corpus 与管理工具。** 当前数据集未接入 OpenBridge runtime、Rust tests、SDK、Codex、Hermes 或真实 Provider。
+**Confirmed。** corpus 与 Python testkit 仍保持 runtime-independent；Rust contract tests 现在只读选定 canonical
+artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT 回放。它们未接入外部 SDK、Codex、Hermes
+或真实 Provider。
 
 日常使用和维护说明见 [Corpus 指南](../../testdata/README.md) 与 [Testkit 指南](../../tools/corpus/README.md)；本文件只记录已执行验证与尚未证明的边界。
 
@@ -79,7 +81,7 @@ git diff --check
 - required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
 - 两次 `0.6.0` pack 的 SHA-256 均为 `a0058dfe927398ee078ce31015bbe0aa2ca1c94518fd555fb5d8805e19d0474a`；
-- Rust 回归：`cargo fmt`、54 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
+- Rust 回归：`cargo fmt`、72 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
 - `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
@@ -107,8 +109,10 @@ git diff --check
 - 7 份外部/项目来源当前均未固定 commit；
 - 两份 OpenAI protocol 文档来源的许可证状态仍为 `pending`；
 - 25 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
-- 尚无负责启动 OpenBridge 和 Mock 两端、处理多 attempt/retry/fallback 序列的 process replay runner；单 case
-  verifier 只消费已经生成的 observations。
+- 已有最小 Rust loopback runner 同时启动 OpenBridge Router 与 mock upstream，通过真实 HTTP socket 回放
+  `responses_native.rate_limit.non_stream`，验证两次 attempt、上游 request 和最终安全错误；它尚不是可枚举全部
+  canonical cases 的通用 CLI，也未覆盖 streaming cancellation、fallback 序列或 bridge renderer。
+- Python 单 case verifier 仍只消费已经生成的 observations，不启动 OpenBridge。
 
 ## 关联文档
 

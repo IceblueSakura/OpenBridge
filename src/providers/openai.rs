@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http::{
-    HeaderValue, Method, StatusCode, Uri,
-    header::{AUTHORIZATION, CONTENT_TYPE},
+    HeaderMap, HeaderValue, Method, StatusCode, Uri,
+    header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
 };
 use zeroize::Zeroizing;
 
@@ -108,6 +108,15 @@ impl OpenAiAdapter {
         let mut headers = SafeHeaders::default();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"))?;
         Ok(headers)
+    }
+
+    /// 选择允许由下游覆盖的 OpenAI 普通请求 header。
+    pub fn apply_request_header_hook(
+        &self,
+        downstream_headers: &HeaderMap,
+        headers: &mut SafeHeaders,
+    ) -> Result<(), AdapterError> {
+        headers.override_from(downstream_headers, USER_AGENT)
     }
 }
 

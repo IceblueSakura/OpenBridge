@@ -11,8 +11,8 @@
 初期的兼容目标按优先级为：
 
 1. OpenAI SDK 的 Chat Completions 与 Responses HTTP JSON/SSE；
-2. Codex custom Provider 的 Responses HTTP/SSE profile；
-3. 只有在明确声明时，才验证 Hermes 的具体协议、transport 与 tool-loop 行为。
+2. 独立 Python 脚本或 curl 的最小 HTTP/header/SSE 复现；
+3. 只有在明确声明时，才验证 Codex、Hermes 等具体客户端的 profile、transport 与 tool-loop 行为。
 
 “某个请求能被转发”不等于“某个 Agent 已完整兼容”。每项声明必须限定 endpoint、stream、tool、continuation、Provider 与实际验证版本。
 
@@ -23,7 +23,7 @@
 | `GET /healthz` | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。 | Provider 健康探测、控制面或客户端管理。 |
 | `GET /v1/models` | 只返回代码注册表声明的 Public Models，使用稳定的 OpenAI-compatible model-list 形状。 | 枚举上游模型、Provider/target id 或动态能力发现。 |
 | `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE 请求。 | 对全部 Chat 扩展或 hosted tool 的默认兼容承诺。 |
-| `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求，作为 Codex HTTP/SSE profile 的首要入口。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
+| `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 
 业务 endpoint 必须使用用户表分配的静态 Bearer API Key。用户表只在启动时读取，不提供在线 key issuance、scope、即时撤销、配额或 billing identity；变更需要重启。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
 
@@ -33,7 +33,7 @@
 
 - 下游只能提供已配置的 Public Model；它表示 OpenBridge 对下游提供的稳定服务契约，而不是某个上游模型名的透明别名。
 - 每个 Public Model 绑定有序的完整 routes；当前 route 固定 Upstream Target、Upstream API、下游协议和 `Native` 模式。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
-- 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、header、route 或转换脚本。
+- 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、route、转换脚本或任意出站 header。Provider 的受信代码 hook 可以选择显式 allowlist 的普通 header（当前为 `User-Agent`），但认证、cookie、Host 与 proxy header 始终隔离。
 - `GET /v1/models` 的可见集合与可路由 Public Model 一致；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
 - 请求开始后，Public Model、RoutePlan、credential binding 与注册表版本保持固定。
 
@@ -48,7 +48,10 @@
 
 当下游与上游协议一致且已获 capability 许可时，Native Path 是兼容性基线：它只做受信路由、模型和认证改写，保留 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过通用 IR 重渲染。
 
-当前没有 Protocol Bridge。上下游协议不一致时，不得通过字段改名、静默删减或 Provider 名称猜测进行转换；没有完整 Native Route 时应在上游调用前返回稳定的能力错误。
+当前生产请求路径没有 Protocol Bridge。源码已有按单请求重建 Chat/Responses 文本、tool identity、arguments
+与唯一 terminal 的显式流状态机，并由 canonical fixture 回放保护；它尚未生成 Bridge Execution Plan 或渲染
+目标 wire。上下游协议不一致时，不得因该基础类型存在而通过字段改名、静默删减或 Provider 名称猜测进行
+转换；没有完整 Native Route 时仍应在上游调用前返回稳定的能力错误。
 
 流式请求必须满足：
 
@@ -101,6 +104,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。 |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。 |
 | API-08 | 客户端只选择 Public Model 与下游协议；当前只有完整 Native Route 可以成为执行候选。 |
+| API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
 
 ## 8. 非目标
 

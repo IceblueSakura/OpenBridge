@@ -41,7 +41,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 - 下游客户端看到的是 Public Model，还是上游真实模型？
 - 当前是否已经实现 Chat ↔ Responses Protocol Bridge？
 - Provider、Upstream Target、Upstream API、Route 和 Public Model 分别拥有哪类事实？
-- 哪些结论只由 mock/fixture 证明，哪些仍需要 SDK、Codex CLI 或真实 Provider 验证？
+- 哪些结论只由 mock/fixture 证明，哪些仍需要 SDK、独立 Python/curl、目标 Agent 客户端或真实 Provider 验证？
 
 ## 4. 第二阶段：看懂启动与装配
 
@@ -222,7 +222,7 @@ public model name
 3. 从功能需求或已知缺陷选择一个可观察行为。
 4. 先写失败测试，再做最小实现；完成后更新实施现状并清空当前焦点。
 5. 按改动面运行 Rust 基线；修改 `testdata/` 或 `tools/corpus/` 时追加 Python corpus/testkit 基线。
-6. 明确区分静态检查、确定性测试、SDK/CLI、真实 Provider、负载与长期运行证据。
+6. 明确区分静态检查、确定性测试、SDK/独立客户端、目标 Agent、真实 Provider、负载与长期运行证据。
 
 ## 13. 文档维护规则
 

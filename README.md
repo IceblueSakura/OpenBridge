@@ -13,7 +13,7 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 3. 以每 Provider 独立 Rust 模块承载协议行为，以显式注册表管理 Model、Upstream Target、Upstream API 和 Route；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
-6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile；Hermes 的真实 Agent tool loop 只在明确宣称兼容时验证。
+6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
 7. 以 bootstrap-only 配置管理进程资源策略，以外部 secret source 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
 
 核心稳定后再考虑：
@@ -27,7 +27,10 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 ## 当前可运行基线
 
-当前 `main` 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
+当前 `main` 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，
+以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、单进程 quota/fault scope
+cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire；
+源码已有由 canonical fixture 回放的显式 bridge stream 状态机，但尚未接入异构协议 route 或 renderer。
 
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
 
@@ -63,7 +66,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-当前由 Provider adapter 写入实际上游 `model`；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能通过业务请求指定上游 URL、credential 或任意出站 header。
+当前由 Provider adapter 写入实际上游 `model`；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。Provider 的受信 request-header hook 可从下游选择显式允许的普通 header（当前为 `User-Agent`）覆盖到上游；客户端不能指定上游 URL、credential、认证 header 或任意非 allowlist 出站 header。Transient upstream failure 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
 
 下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。认证成功后请求日志记录 request id、user id、协议、Public Model、HTTP status 和 response-start latency，不记录 API Key 或业务正文。调用量和 Provider usage/token 聚合尚未实现。
 
@@ -91,7 +94,7 @@ uv run --project tools/corpus corpus --root testdata lint
 cargo test --locked --test sdk_compatibility -- --ignored
 ```
 
-这些 fixture 是确定性 wire regression。日常行为验证优先使用 OpenAI SDK 与 Codex CLI；真实 Provider corpus 用于定位 Provider 特有问题，Hermes 只在明确宣称兼容时纳入验证。SDK/CLI 不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
+这些 fixture 是确定性 wire regression。日常客户端可见行为优先使用 OpenAI SDK、独立 Python 脚本或 curl；只有当前行为明确以某个 Agent 为兼容目标时，才使用 Codex、Hermes 等客户端 runtime。SDK/工具不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
 
 独立的协议 corpus 维护说明见 [`testdata/`](testdata/README.md)，Mock Server/Client、单 case observation 判定、CLI 和 observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具使用 `uv + Python` 维护，不读取 OpenBridge 配置，也不持有真实上游 credential。
 
@@ -122,7 +125,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - OpenAI 全部资源 API、Realtime、Files、Conversations 或管理 API；
 - 首版 Responses WebSocket transport；Codex 基线使用独立 custom Provider，并显式配置 `supports_websockets = false`；
 - 将 Chat ↔ Responses 承诺为无损；不可表达的能力必须拒绝或显式标记；
-- 让业务请求动态提供任意上游 URL、认证 header、credential 或转换脚本；
+- 让业务请求动态提供任意上游 URL、认证 header、credential、非 allowlist 出站 header 或转换脚本；
 - 让 OpenBridge 执行 Agent 返回的通用 function tool；Protocol Bridge 只转换 wire-level tool call/result。
 - GUI、Web 控制台、客户端注册/配置管理或面向用户的管理服务。
 

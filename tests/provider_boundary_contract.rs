@@ -1,6 +1,6 @@
 use http::{
-    StatusCode,
-    header::{AUTHORIZATION, CONTENT_TYPE},
+    HeaderMap, HeaderValue, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
 };
 use openbridge::{
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
@@ -31,6 +31,34 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     assert_eq!(credential.binding_id(), "openai-primary");
     assert_eq!(credential.secret_version(), "version-1");
     assert!(!format!("{credential:?} {sensitive:?}").contains("credential-test-value"));
+}
+
+#[test]
+fn provider_request_header_hooks_copy_only_allowlisted_regular_headers() {
+    let mut downstream = HeaderMap::new();
+    downstream.insert(
+        USER_AGENT,
+        HeaderValue::from_static("openbridge-contract-client/1.0"),
+    );
+    downstream.insert(
+        AUTHORIZATION,
+        HeaderValue::from_static("Bearer downstream-only"),
+    );
+
+    for kind in [ProviderKind::OpenAi, ProviderKind::LongCat] {
+        let adapter = ProviderAdapter::for_kind(kind);
+        let mut safe = adapter.prepare_headers().unwrap();
+
+        adapter
+            .apply_request_header_hook(&downstream, &mut safe)
+            .unwrap();
+
+        assert_eq!(
+            safe.get(USER_AGENT).unwrap(),
+            "openbridge-contract-client/1.0"
+        );
+        assert!(safe.get(AUTHORIZATION).is_none());
+    }
 }
 
 #[test]

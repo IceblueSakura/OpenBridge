@@ -13,7 +13,7 @@ route 热重载。
 | `config/bootstrap.toml` | loopback listener、私有用户文件位置、body/SSE 上限、共享 HTTP client 参数 | 否 |
 | 被忽略的 `config/users.toml` | 下游用户、API Key 与启停状态 | 是 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
-| `src/providers/*` | Provider 行为、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
+| `src/providers/*` | Provider 行为、request-header hook、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
 | 进程环境变量或被忽略的 `.env` | 上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
@@ -50,7 +50,7 @@ route 热重载。
 - `RuntimeRegistry`、`UserRegistry` 的 Debug、日志、错误响应和 probe report 不得包含 secret；
 - secret 只在准备上游请求时解析为短时 `CredentialValue`；
 - 缺失、空值或 binding 不匹配时 fail closed；
-- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential。
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 只能选择显式 allowlist 的普通 header（当前为 `User-Agent`）。
 
 ## 4. Endpoint 与出站边界
 
@@ -89,7 +89,7 @@ optionally load .env
 |---|---|
 | CFG-01 | 仓库不存在 Provider/Model route 配置文件或动态 Provider schema。 |
 | CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning 和不安全 URL 在监听前失败。 |
-| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、header 或 candidate 顺序。 |
+| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感/非 allowlist header 或 candidate 顺序；普通 header 仅能经 Provider 代码 hook 显式选择。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。 |
 | CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。 |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。 |

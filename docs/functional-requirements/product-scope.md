@@ -20,13 +20,14 @@ credential、endpoint 和内部 Route。
 - 上游 API key 和下游静态 Bearer token 来自受限环境变量或被忽略的 `.env`；
 - Route 按完整协议、能力、模型限制和状态亲和要求确定性筛选；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
+- 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
 - 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
 
 ## 部署与信任边界
 
 - 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
 - 当前 listener 只允许 loopback；
-- 业务请求不能覆盖上游 URL、真实模型、credential、认证 header 或 Route；
+- 业务请求不能覆盖上游 URL、真实模型、credential、认证/非 allowlist header 或 Route；普通 header 只能由 Provider 的受信代码 hook 显式选择；
 - `RuntimeRegistry` 不保存 secret；`UserRegistry` 只在内存中保存认证所需 Key，Debug 和日志始终隐藏它；
 - 日志、错误、probe report 和测试证据不得暴露 credential 或完整私人请求正文；
 - 修改用户、API Key、Provider、Model、Route 或 bootstrap 参数需要重启，不支持热重载。
@@ -45,7 +46,7 @@ credential、endpoint 和内部 Route。
 - Chat 与 Responses 之间的 Protocol Bridge；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
-- 跨请求 cooldown、动态健康、权重路由和独立 `AttemptManager`；
+- 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - 调用统计、usage 聚合、TTFT/TTFB 和指标导出；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。

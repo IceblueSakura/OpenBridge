@@ -45,3 +45,17 @@
 这两篇只说明既有本地客户端的 OAuth 风险与不可外推范围；OAuth 是否可作为 OpenBridge 上游 credential 必须另依官方资料与明确授权判断。
 
 新增参考需记录来源、快照时间或提交、检查范围、观察事实、推论与适用边界；升级实现前仍需复核官方资料和本地验证。
+
+## 2026-08-01 本地参考目标更新与复核
+
+以下本地 worktree 均已对其跟踪的 `origin` 分支执行 fast-forward 更新；更新后工作区干净，且 `HEAD...@{u}` 的 ahead/behind 均为 `0/0`。这张表记录的是当前 checkout，不会改写各深度调研中用于逐行证据的固定历史提交。
+
+| 参考项目 | 当前分支与提交 | 本次静态复核 |
+|---|---|---|
+| Codex | `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | `process_responses_event`、`ResponseEvent::Completed`、`ToolCallInputDelta`、`x-codex-turn-state`、`supports_websockets`，以及 OAuth/`call_id` 相关模块仍在职责路径中。 |
+| Hermes Agent | `main` @ `470cf66b039c73bdd2c21d43094ce41a4db74eae` | `agent/agent_init.py` 仍由显式 `api_mode` 优先选择 `codex_responses`，升级后仍使 transport cache 失效；`ResponsesApiTransport` 仍登记该 mode。 |
+| LiteLLM | `litellm_internal_staging` @ `23de7a15d9d40006ee596e617475ba101d60c5e9` | `/responses` 路径、`base_process_llm_request()`、`route_request()`、Responses resource route types、Prometheus 和 ChatGPT `Authenticator` 仍存在，但调用链文件与行号已演进。 |
+| cc-switch | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | `CodexToolContext`、`CodexChatHistoryStore`、`ChatToResponsesState` 与 `create_responses_sse_stream_from_chat_with_context` 仍位于 Codex Chat/Responses bridge 路径。 |
+| CLIProxyAPI | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | `previous_response_not_found` 的保留错误测试、`previous_response_id`、`output_item.done` 与 `response.completed` 的 translator/executor 测试仍可定位；executor 已拆分，旧行号不应视为当前定位。 |
+
+各深度调研中的固定 commit 和行号仍是其原始观察证据；当本表显示模块或行号已经演进时，文档会明确区分“固定证据快照”和“当前模块级复核”。任何新的实现决策仍须在当前提交上重新固定文件/行号并建立 OpenBridge 自有 fixture。

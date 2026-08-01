@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod process_replay;
+
 use std::time::Duration;
 
 use openbridge::{

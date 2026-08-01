@@ -40,6 +40,18 @@ impl SafeHeaders {
         Ok(())
     }
 
+    /// 从下游请求中选择一个显式允许的普通 header，并覆盖当前值。
+    pub(crate) fn override_from(
+        &mut self,
+        source: &HeaderMap,
+        name: HeaderName,
+    ) -> Result<(), AdapterError> {
+        if let Some(value) = source.get(&name) {
+            self.insert(name, value.clone())?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn into_inner(self) -> HeaderMap {
         self.0
     }

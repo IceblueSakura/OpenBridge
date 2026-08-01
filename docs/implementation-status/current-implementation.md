@@ -44,13 +44,26 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 
 - 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
+- 经 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游，同时保持认证、cookie、Host 与 proxy header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
 - 对 `previous_response_id` 关闭跨 target fallback；
 - 保持非流式 status/body 和有限安全 header；
 - 保持流式原始 bytes，同时检查 UTF-8、SSE framing、event size 与 terminal；
-- 仅在流式请求首个业务输出前执行有限 retry/fallback；输出后不拼接其他响应；
-- 在下游丢弃 body 时取消相应上游 stream。
+- 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限 retry/fallback，并执行 50～500 ms capped exponential backoff；
+- 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport error；
+- 对 retryable `429`、暂时性上游故障和 transport failure 记录单进程短时 cooldown；后续无状态请求按
+  `quota_scope`/`fault_domain` 跳过已知受限边界，target-bound continuation 则继续尝试原 target；
+- 在下游中断 pending send、退避等待或丢弃 response body 时取消相应上游工作，不再启动后续 attempt；
 - 认证后将稳定用户身份写入请求上下文，并记录不含 API Key/正文的结构化 response-start 日志。
+
+## Protocol Bridge 状态基础
+
+`src/bridge.rs` 提供彼此独立的 Chat 与 Responses stream 状态机。它们按 wire 顺序固定 response/item/call/index
+identity，累计 text 与 function arguments，区分 `output_item.done` 和 response terminal，并在 identity 冲突、
+不完整 JSON arguments、重复 terminal 或 EOF-before-terminal 时失败关闭。
+
+该模块由现有 canonical 双向 text/parallel-tool/incomplete-arguments SSE fixture 回放验证，但尚未接入
+`RouteMode::Bridged`、请求转换、目标 wire renderer 或生产 ingress，因此不构成 Protocol Bridge 已可用的声明。
 
 ## 显式 probe
 
@@ -61,26 +74,31 @@ credential 覆盖，不修改注册表，也不自动改变 capability。
 ## 验证状态
 
 仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、认证、Provider model 改写、
-capability routing、`/v1/models`、首输出前 fallback、retry header、SSE terminal、partial failure、取消和 probe。
-`tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。
+capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
+quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
+send/backoff/body 取消、canonical bridge fixture replay、真实 loopback HTTP 429 process replay 和 probe。
+`tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。日常客户端可见测试优先使用
+OpenAI SDK、独立 Python 脚本或 curl，不要求绑定 Codex/Hermes 等 Agent runtime。
 
-最近一次执行：
+2026-08-01 最近一次执行：
 
 ```text
-cargo fmt --all
+cargo fmt -- --check
 cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked -- -D warnings
+git diff --check
 ```
 
-结果为 54 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警。
-没有运行外部 SDK、真实 Provider、负载或长期验证。
+结果为 72 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
+负载或长期验证。
 
 ## 当前未实现
 
-- Chat ↔ Responses Protocol Bridge 和异构协议 Provider；
+- 可执行的 Chat ↔ Responses Bridge Plan、wire renderer、生产 route 和异构协议 Provider；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
-- 独立 `AttemptManager`、跨请求 cooldown 和动态 health/weight；
+- 动态 health/weight、持久化或分布式 cooldown 与后台探测；
 - 调用统计与指标导出；
 - hosted tool、MCP Tool Bridge 或非 loopback 部署。
 

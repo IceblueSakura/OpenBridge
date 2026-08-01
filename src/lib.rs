@@ -3,6 +3,7 @@
 //! 当前 crate 实现 OpenAI-compatible 的原生转发基线：bootstrap 配置与显式代码注册表
 //! 在启动时编译为不可变 registry，HTTP 热路径只读取该 registry。
 
+pub mod bridge;
 pub mod config;
 pub mod core;
 pub mod identity;

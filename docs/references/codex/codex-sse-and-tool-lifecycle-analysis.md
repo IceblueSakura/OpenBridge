@@ -7,13 +7,17 @@
 | 项目 | 值 |
 |---|---|
 | 调研仓库 | `https://github.com/openai/codex` |
-| 本地快照 | `F:/codespace/codex`，`main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` |
+| 固定证据快照 | `F:/codespace/codex`，`main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` |
 | 快照日期 | 2026-07-25 |
 | 阅读范围 | `codex-rs/codex-api` 的 Responses HTTP/SSE 入口与 parser，`codex-rs/core` 的事件消费、tool 生命周期与 TTFT 记录 |
 | 矩阵角色 | 本地 Codex 的 Responses 下游契约与 Rust 实现主参考 |
 | 不在范围 | OAuth/client identity、auth cache、订阅 backend、CLI/TUI、审批、sandbox、hook 或 Provider catalog |
 
 本文件补充[Codex OAuth 安全边界](codex-oauth-and-tool-call-analysis.md)：后者只说明 OAuth 不可外推；本文只研究 OpenBridge 可用于 HTTP/SSE、事件终态、工具关联与测试的客户端行为。
+
+### 2026-08-01 当前模块级复核
+
+本地 `main` 已 fast-forward 至 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`。当前 `codex-api/src/sse/responses.rs` 仍定义 `process_responses_event()`、`ToolCallInputDelta` 与 `ResponseEvent::Completed`；`core/src/client.rs` 仍持有 `x-codex-turn-state` 的同 turn sticky-routing 逻辑，`model-provider-info` 仍定义 `supports_websockets`。`core` 的 client/turn 实现已改动，因此下文的细粒度行号继续只绑定固定证据快照，不能当作当前提交的行号引用。
 
 ## 1. 可复用结论
 

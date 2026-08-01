@@ -11,6 +11,8 @@
 - 未读取、输出或复制任何本地 credential、`auth.json` 内容、client ID 或 token。
 - 本文的行号只适用于上述源码快照；上游接口、client registration 和服务条款必须以当前官方资料重新确认。
 
+**2026-08-01 当前模块级复核。** 本地 `main` 已 fast-forward 至 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`；`run_login_server`、PKCE、`UnauthorizedRecovery`、`refresh_lock`、`AuthManagerAuthProvider`、`ChatGPT-Account-ID`、`ToolRouter::build_tool_call` 与 `ToolInvocation` 仍可定位。login、core tools 与 model-provider 已演进，所以下文详细行号仍只对应固定证据快照，不能据此推断 OAuth 获得授权或形成 OpenBridge 功能承诺。
+
 ## 1. 结论摘要
 
 1. Codex 实现的是**本地客户端** OAuth 登录：loopback callback、authorization code + PKCE、`state` 校验、token exchange、工作区限制检查与本地凭证持久化。它证明 Codex 自身的行为，**不证明**第三方 proxy 可以复用其 OAuth client registration、redirect URI、端点或 token exchange。

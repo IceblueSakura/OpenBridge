@@ -2,7 +2,8 @@
 //!
 //! 路由配置只能选择 `ProviderKind` 中已经编译的变体；adapter 负责相对 path、安全/敏感
 //! header 的分离、认证材料组装、SSE terminal 判定和重试分类。HTTP ingress 不需要知道
-//! provider 认证格式，也不能用运行时配置注入任意 header 或请求转换。
+//! provider 认证格式。下游 header 只能经 Provider 的受信 hook 选择后写入 `SafeHeaders`，
+//! 不能用运行时配置注入任意 header 或请求转换。
 
 mod contracts;
 mod credential;
@@ -14,7 +15,7 @@ pub use contracts::{
 pub use credential::{CredentialSource, CredentialSourceError, CredentialValue};
 
 use bytes::Bytes;
-use http::{Method, StatusCode, Uri};
+use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 
 use crate::{
@@ -205,11 +206,34 @@ impl ProviderAdapter {
     pub(crate) fn build_outbound_headers(
         &self,
         credential: &CredentialValue,
-    ) -> Result<http::HeaderMap, AdapterError> {
-        let mut headers = self.prepare_headers()?.into_inner();
+        downstream_headers: &HeaderMap,
+    ) -> Result<HeaderMap, AdapterError> {
+        // 构造 Provider 基础 header，并运行只允许写入 SafeHeaders 的请求 hook。
+        let mut safe_headers = self.prepare_headers()?;
+        self.apply_request_header_hook(downstream_headers, &mut safe_headers)?;
+        let mut headers = safe_headers.into_inner();
+
+        // 最后附加 credential adapter 生成的敏感 header，避免下游 hook 覆盖认证材料。
         self.prepare_auth_headers(credential)?
             .append_to(&mut headers)?;
         Ok(headers)
+    }
+
+    /// 运行 Provider 的受信 request-header hook。
+    ///
+    /// hook 只能从下游选择显式允许的普通 header 并写入 `SafeHeaders`，不能写入认证、
+    /// cookie、Host 或 proxy authentication header。
+    pub fn apply_request_header_hook(
+        &self,
+        downstream_headers: &HeaderMap,
+        headers: &mut SafeHeaders,
+    ) -> Result<(), AdapterError> {
+        match self {
+            Self::OpenAi(adapter) => adapter.apply_request_header_hook(downstream_headers, headers),
+            Self::LongCat(adapter) => {
+                adapter.apply_request_header_hook(downstream_headers, headers)
+            }
+        }
     }
 
     /// 由编译期 adapter 固定生成的上游模型发现请求。

@@ -2,7 +2,7 @@
 
 ## 范围与证据
 
-本文的详细行号分析固定于本地 `F:/codespace/hermes-agent` 的 `main` 提交 `c48d53413aa2c09f6d5703082361c2754f1d5350`。2026-07-25 已将本地源码 fast-forward 至 `760112adb6458417da8614d2269e5325f0739ed5` 并复核：`agent_init.py` 仍以显式 `api_mode` 优先、在自动升级到 `codex_responses` 后清空 transport cache；`agent/transports/codex.py` 仍由 `ResponsesApiTransport` 承担该路径。其余行号仍只适用于固定快照，升级结论前须逐项重读。
+本文的详细行号分析固定于本地 `F:/codespace/hermes-agent` 的 `main` 提交 `c48d53413aa2c09f6d5703082361c2754f1d5350`。2026-08-01 已将本地源码 fast-forward 至 `470cf66b039c73bdd2c21d43094ce41a4db74eae` 并复核：`agent/agent_init.py` 仍以显式 `api_mode` 优先、在自动升级到 `codex_responses` 后使 transport cache 失效；`agent/transports/codex.py` 仍由 `ResponsesApiTransport` 登记该路径。相关文件已改动，其余行号仍只适用于固定快照，升级结论前须逐项重读。
 
 **矩阵角色。** Hermes 是仅在声明兼容时启用的完整 Agent loop 互证样本：适合验证 Chat/Responses mode、tool result、Provider 切换和 stream terminal；不作为 OpenBridge 的 Provider/bridge 架构模板，也不引入其客户端、账号或 usage 产品功能。这里的 `codex_responses` 是 Hermes 对 OpenAI Responses 及若干兼容端点的内部模式名；它不是一个对外 HTTP proxy 路由。
 

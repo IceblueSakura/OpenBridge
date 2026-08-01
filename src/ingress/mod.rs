@@ -2,10 +2,13 @@
 //!
 //! 此模块只接受配置允许的 public model，并在进入上游前完成下游 Bearer 认证、body
 //! 上限、capability routing 和 provider adapter 选择。它不会接受客户端给出的上游 URL、
-//! 认证头或 provider 规则；streaming response 保持字节透明，同时用 SSE decoder 只作
-//! framing/terminal 校验，不重新渲染业务 event。
+//! 认证头或 provider 规则；私有 `AttemptManager` 约束提交下游 response 前的有限退避与
+//! fallback，任务取消会销毁尚未完成的上游工作。streaming response 保持字节透明，同时
+//! 用 SSE decoder 只作 framing/terminal 校验，不重新渲染业务 event。
 
+mod attempt;
 mod auth;
+mod health;
 
 use std::{io, sync::Arc, time::Instant};
 
@@ -43,6 +46,11 @@ use crate::{
     },
 };
 
+use self::{
+    attempt::{AttemptManager, AttemptStep},
+    health::TargetHealth,
+};
+
 /// handler 依赖的不可变服务句柄。
 ///
 /// 编译期注册表在启动后保持不可变；上游 transport 与 credential source 以 trait/值对象
@@ -53,6 +61,7 @@ pub struct GatewayState {
     upstream: Arc<dyn UpstreamTransport>,
     users: Arc<UserRegistry>,
     upstream_credentials: Arc<CredentialSource>,
+    health: Arc<TargetHealth>,
 }
 
 impl GatewayState {
@@ -68,6 +77,7 @@ impl GatewayState {
             upstream,
             users,
             upstream_credentials: Arc::new(upstream_credentials),
+            health: Arc::new(TargetHealth::default()),
         }
     }
 
@@ -208,7 +218,7 @@ async fn chat_completions(
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, ApiProtocol::ChatCompletions, body).await
+    forward_native(state, ApiProtocol::ChatCompletions, headers, body).await
 }
 
 async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -216,7 +226,7 @@ async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: 
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, ApiProtocol::Responses, body).await
+    forward_native(state, ApiProtocol::Responses, headers, body).await
 }
 
 fn has_json_content_type(headers: &HeaderMap) -> bool {
@@ -249,9 +259,12 @@ fn unsupported_media_type() -> Response {
 /// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
 /// 上游尝试。`previous_response_id` 等 target-bound state 会令 pipeline 关闭跨 candidate
 /// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
-async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes) -> Response {
-    const MAX_UPSTREAM_ATTEMPTS: usize = 2;
-
+async fn forward_native(
+    state: GatewayState,
+    protocol: ApiProtocol,
+    downstream_headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     // 分析请求事实并生成带 capability/fallback 边界的 route plan。
     let registry = state.registry.clone();
     let profile = match analyze_request(protocol, &body) {
@@ -269,11 +282,15 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
     } else {
         1
     };
+    let mut attempts = AttemptManager::new();
+    let observe_cross_request_health = plan.allows_fallback();
+    let mut cooldown_skipped = false;
 
     // 按优先级准备每个 candidate 的 target、credential、adapter 和原生请求。
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
+        attempts.begin_candidate();
         let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -281,6 +298,17 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
                 "Configured upstream target is unavailable",
             );
         };
+        // 新无状态请求跳过仍在 cooldown 的 scope；target-bound continuation 始终尝试原目标。
+        if observe_cross_request_health
+            && !state.health.is_available(
+                candidate.upstream_target_id(),
+                target,
+                std::time::Instant::now(),
+            )
+        {
+            cooldown_skipped = true;
+            continue;
+        }
         let Some(upstream_api) = target.upstream_api(candidate.upstream_api_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -303,7 +331,7 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
             }
         };
         let adapter = ProviderAdapter::for_kind(target.kind());
-        let headers = match adapter.build_outbound_headers(&credential) {
+        let headers = match adapter.build_outbound_headers(&credential, &downstream_headers) {
             Ok(headers) => headers,
             Err(_) => {
                 return api_error(
@@ -325,31 +353,58 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
                 }
             };
 
-        // 在尚未向下游输出时执行受限重试，并保持 response body 的单一来源。
-        for attempt in 0..MAX_UPSTREAM_ATTEMPTS {
+        // 在尚未向下游提交 response 时执行请求级受限 attempt，并保持 body 的单一来源。
+        loop {
+            if !attempts.start_attempt() {
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_attempts_exhausted",
+                    "The upstream attempt budget was exhausted",
+                );
+            }
             match state
                 .upstream
                 .send(target, request.clone(), headers.clone())
                 .await
             {
-                Ok(upstream)
-                    if should_retry_status(&adapter, upstream.status()) && plan.is_streaming() =>
-                {
-                    if attempt + 1 < MAX_UPSTREAM_ATTEMPTS {
-                        continue;
-                    }
-                    if candidate_index + 1 < candidate_count {
-                        continue 'candidates;
-                    }
-                    return upstream_response(
-                        upstream,
-                        plan.is_streaming(),
-                        protocol,
-                        adapter,
-                        registry.limits().max_sse_event_bytes(),
+                Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
+                    // 在选择 retry/fallback 前记录跨请求 cooldown，但不改变本请求局部 retry 预算。
+                    let classification = adapter.classify_status(upstream.status());
+                    state.health.record_http_failure(
+                        candidate.upstream_target_id(),
+                        target,
+                        classification.kind(),
+                        upstream.headers(),
+                        std::time::Instant::now(),
                     );
+                    let untried_candidates = candidate_count - candidate_index - 1;
+                    match attempts.next_step(untried_candidates) {
+                        AttemptStep::RetryCandidate => {
+                            attempts.wait_before_next_attempt().await;
+                            continue;
+                        }
+                        AttemptStep::NextCandidate => {
+                            attempts.wait_before_next_attempt().await;
+                            continue 'candidates;
+                        }
+                        AttemptStep::Finish => {
+                            return upstream_response(
+                                upstream,
+                                plan.is_streaming(),
+                                protocol,
+                                adapter,
+                                registry.limits().max_sse_event_bytes(),
+                            );
+                        }
+                    }
                 }
                 Ok(upstream) => {
+                    // 只有成功 HTTP response 才清除该 target 的已知 cooldown。
+                    if upstream.status().is_success() {
+                        state
+                            .health
+                            .record_success(candidate.upstream_target_id(), target);
+                    }
                     return upstream_response(
                         upstream,
                         plan.is_streaming(),
@@ -358,25 +413,44 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
                         registry.limits().max_sse_event_bytes(),
                     );
                 }
-                Err(error) if should_retry_error(&error) && plan.is_streaming() => {
-                    if attempt + 1 < MAX_UPSTREAM_ATTEMPTS {
-                        continue;
+                Err(error) if should_retry_error(&error) => {
+                    // timeout/transport failure 只隔离 fault domain，不污染 quota scope。
+                    state.health.record_transport_failure(
+                        candidate.upstream_target_id(),
+                        target,
+                        std::time::Instant::now(),
+                    );
+                    let untried_candidates = candidate_count - candidate_index - 1;
+                    match attempts.next_step(untried_candidates) {
+                        AttemptStep::RetryCandidate => {
+                            attempts.wait_before_next_attempt().await;
+                            continue;
+                        }
+                        AttemptStep::NextCandidate => {
+                            attempts.wait_before_next_attempt().await;
+                            continue 'candidates;
+                        }
+                        AttemptStep::Finish => return upstream_error(error),
                     }
-                    if candidate_index + 1 < candidate_count {
-                        continue 'candidates;
-                    }
-                    return upstream_error(error);
                 }
                 Err(error) => return upstream_error(error),
             }
         }
     }
 
-    api_error(
-        StatusCode::BAD_GATEWAY,
-        "upstream_error",
-        "The upstream request failed",
-    )
+    if cooldown_skipped {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "upstream_cooldown",
+            "All compatible upstream targets are temporarily unavailable",
+        )
+    } else {
+        api_error(
+            StatusCode::BAD_GATEWAY,
+            "upstream_error",
+            "The upstream request failed",
+        )
+    }
 }
 
 fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode) -> bool {

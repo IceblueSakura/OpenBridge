@@ -202,7 +202,7 @@ pub async fn probe_upstream_target(
     // 选择编译期 adapter 并准备 probe 所需的敏感出站 header。
     let adapter = ProviderAdapter::for_kind(target.kind());
     let headers = adapter
-        .build_outbound_headers(&credential)
+        .build_outbound_headers(&credential, &HeaderMap::new())
         .map_err(|_| ProbeError::AuthenticationPreparation)?;
     let session = ProbeSession {
         target,

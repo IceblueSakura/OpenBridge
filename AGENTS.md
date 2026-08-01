@@ -64,6 +64,7 @@ uv run --project tools/corpus corpus --root testdata lint
 Apply these evidence rules:
 
 - A documentation-only or instruction-only change normally requires link/content inspection and `git diff --check`, not a full runtime test suite.
+- 新的客户端可见测试优先使用 OpenAI SDK、独立 Python 脚本或 curl 等协议级入口；除非当前行为明确以某个 Agent 客户端为兼容目标，否则不得把默认验收绑定到 Codex、Hermes 或其他客户端 runtime。
 - Deterministic Rust tests and corpus loopback tests do not prove real Provider, current external SDK, load, long-run, or production compatibility.
 - The ignored SDK compatibility test, real Provider calls, external dependency installation, and network-dependent verification are not part of the default baseline. Run them only when the task explicitly requires them or when the user approves the expanded boundary.
 - Report exactly which checks ran, which passed, and which were skipped. Never describe an unrun acceptance layer as validated.

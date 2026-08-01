@@ -4,7 +4,7 @@
 
 本文基于本地 `F:/codespace/litellm` 源码快照：`litellm_internal_staging` 分支，提交 `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35`。所有行号引用均对此快照有效。本文只描述请求处理调用链，不做性能判断——性能分析见 [LiteLLM Proxy 性能分析](litellm-proxy-performance-bottlenecks.md)。
 
-**本次源码复核**：2026-07-19，已确认上述提交仍为本地源码仓库的 `HEAD`。
+**2026-08-01 当前模块级复核**：本地 `litellm_internal_staging` 已 fast-forward 至 `23de7a15d9d40006ee596e617475ba101d60c5e9`。`ProxyBaseLLMRequestProcessing.base_process_llm_request()` 现位于 `litellm/proxy/common_request_processing.py`，`route_request()` 位于 `litellm/proxy/route_llm_request.py`，Responses endpoint 仍将相应 resource route type 交给共享处理路径。上述固定快照的调用链结论仍是历史证据，详细行号不得当作当前定位。
 
 ## 0. 核心结论
 

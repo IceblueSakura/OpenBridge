@@ -2,7 +2,9 @@
 
 ## 范围与证据
 
-本文只分析本地 `F:/codespace/litellm` 的当前源码快照：`litellm_internal_staging` 分支，提交 `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35`。
+本文只分析本地 `F:/codespace/litellm` 的固定源码快照：`litellm_internal_staging` 分支，提交 `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35`。
+
+**2026-08-01 当前模块级复核。** 本地分支已 fast-forward 至 `23de7a15d9d40006ee596e617475ba101d60c5e9`；Responses endpoint、`base_process_llm_request()`、`route_request()`、Responses resource route types 与 Chat/Responses transformation 路径仍可定位。Proxy 调用链已拆分和演进，所以下文细粒度行号继续只适用于固定快照。
 
 关键结论：LiteLLM 是双向协议桥和 provider gateway。它既能将一个 Chat Completions 调用改经 Responses API，又能接收 `/v1/responses` 并在下游仅支持 Chat Completions 时往返转换。相比 Hermes，LiteLLM 更关注对外 API 兼容、provider 路由、proxy 生命周期和流事件重建。
 

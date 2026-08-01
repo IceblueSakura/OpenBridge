@@ -12,7 +12,7 @@
 - Background mode：https://platform.openai.com/docs/guides/background
 - OpenAPI paths：`/responses`, `/responses/{response_id}`, `/responses/{response_id}/input_items`, `/responses/{response_id}/cancel`, `/responses/compact`, `/responses/input_tokens`。
 
-本文以 2026-07-25 查阅的官方规范为准；model-specific 和 beta 特性必须单独 capability gate。第 6.1～6.3 节另以本地 Codex `main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` 的实际 parser 作补充核对：它用于识别**客户端依赖的扩展**，不把这些扩展误写成公开 Responses 契约。
+本文以 2026-07-25 查阅的官方规范为准；model-specific 和 beta 特性必须单独 capability gate。第 6.1～6.3 节另以本地 Codex 固定证据快照 `main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` 的实际 parser 作补充核对：它用于识别**客户端依赖的扩展**，不把这些扩展误写成公开 Responses 契约。2026-08-01 已在当前 `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` 复核相关 event parser 仍存在；细粒度行号仍以固定快照为准。
 
 ## 2. 主请求契约
 

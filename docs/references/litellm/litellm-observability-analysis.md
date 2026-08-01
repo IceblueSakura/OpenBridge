@@ -7,11 +7,13 @@
 | 项目 | 值 |
 |---|---|
 | 调研仓库 | `https://github.com/BerriAI/litellm` |
-| 本地快照 | `F:/codespace/litellm`，`litellm_internal_staging` @ `b9b27c2beb601433c39dabff3ffcf0248333d49e` |
+| 固定证据快照 | `F:/codespace/litellm`，`litellm_internal_staging` @ `b9b27c2beb601433c39dabff3ffcf0248333d49e` |
 | 快照日期 | 2026-07-25 |
 | 阅读范围 | `litellm/integrations/prometheus.py`、`types/integrations/prometheus.py`、Responses Chat bridge handler |
 | 矩阵角色 | usage/error 字段与观测实现的互证参考；OpenBridge 的指标边界仍由自身需求定义 |
 | 不在范围 | virtual key、用户/团队/组织/预算、spend、数据库/Redis、UI、callback/control-plane 链路 |
+
+**2026-08-01 当前模块级复核。** 本地 `litellm_internal_staging` 已 fast-forward 至 `23de7a15d9d40006ee596e617475ba101d60c5e9`；`PrometheusLogger`、streaming TTFT、proxy metrics 与 Responses route types 仍可定位。观测实现和行号会随上游演进，故下文逐行证据仍只属于固定快照。
 
 ## 1. 已观察到的统计分层
 

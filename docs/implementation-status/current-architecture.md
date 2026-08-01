@@ -8,8 +8,8 @@
 最近一次记录已完成格式化、全量 Rust 测试与 Clippy；需要下载外部 SDK 的兼容性测试仍保持 ignored，
 真实 Provider、负载和长期运行验证未执行。
 
-当前只有 Native Path。Protocol Bridge、统一 `AttemptManager`、跨请求 cooldown 和模型信息扩展
-接口尚未实现。
+当前生产请求只有 Native Path。请求级 `AttemptManager`、单进程跨请求 cooldown 与独立 bridge stream
+状态机已经实现；Bridge Plan/renderer/production route 和模型信息扩展接口尚未实现。
 
 ## 1. 分层结构
 
@@ -44,6 +44,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
 | 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
+| Bridge 状态 | `ChatStreamState`、`ResponsesStreamState`、`BridgeToolCall` | 单请求 stream lifecycle、tool identity 与 arguments 重建；尚未接入生产 route |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
 | Transport | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse` | 可替换的发送边界、生产 HTTP client 和上游响应 |
 | Probe | `ProbeOptions`、`ProbeResult`、`TargetProbeReport` | 探测输入、单项观察和 target 汇总报告 |
@@ -151,13 +152,14 @@ raw body + downstream protocol
 实现位置：`src/provider/*`、`src/providers/openai.rs`、`src/providers/longcat.rs`。
 
 `ProviderKind` 是闭合集合。具体 adapter 从 selected Upstream API 读取 upstream model，负责相对 path、模型
-字段改写、认证 header、响应/SSE terminal 和错误分类。credential locator 与 endpoint/timeout 则来自
-selected Upstream Target。
+字段改写、受信 request-header hook、认证 header、响应/SSE terminal 和错误分类。当前 OpenAI 与 LongCat
+hook 只从下游选择 `User-Agent` 写入 `SafeHeaders`；credential header 在 hook 之后独立附加。credential
+locator 与 endpoint/timeout 则来自 selected Upstream Target。
 
 OpenAI 与 LongCat 当前都注册 Chat、Responses 两个独立 Upstream API，wire 仍均为
 OpenAI-compatible；这不构成异构协议桥已实现的证据。
 
-## 7. Transport、SSE 与 attempt
+## 7. Transport、SSE、attempt 与 health
 
 实现位置：`src/transport/*` 与 `ingress::forward_native`。
 
@@ -165,22 +167,34 @@ OpenAI-compatible；这不构成异构协议桥已实现的证据。
 timeout。Streaming response 保持业务 bytes 透明；`SseDecoder` 只观察 UTF-8、framing、event size 和
 terminal。下游丢弃 body 时，上游 stream 随之取消。
 
-当前 retry/fallback 仍位于 Ingress，而非独立 `AttemptManager`：仅 streaming 请求能在首个下游 body
-之前进行固定次数 retry，并在 RoutePlan 允许时进入下一候选；首输出后不得拼接另一上游响应。
+`ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 共享最多 6 次的硬预算，
+每候选最多 2 次，attempt 间从 50 ms 起按二倍增长并 capped 到 500 ms；在预算可容纳时为未尝试候选保留
+机会。RoutePlan 允许时可进入同一 Public Model 的下一完整候选；下游取消会销毁 pending send、timer 或
+response body，提交 response 后不得再拼接另一上游响应。
+
+`ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。它只接受注册表提供的 quota/fault scope，
+把 429 隔离到 `quota_scope`，把暂时性 5xx/transport failure 隔离到 `fault_domain`；默认 cooldown 为 1 秒，
+`Retry-After` 最长采用 30 秒。无状态请求跳过冷却 scope，target-bound continuation 忽略 cooldown 并保持原
+target 亲和。该状态不持久化、不跨进程，也不执行动态权重或 credential 轮换。
+
+`src/bridge.rs` 是生产 route 之外的显式 Protocol Bridge 状态基础。Responses 侧分别固定 response id、item id、
+call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧都要求唯一
+terminal 和闭合 JSON object arguments。当前没有 Bridge Plan、wire renderer 或 ingress dispatch。
 
 ## 8. Probe 与验证层
 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用
 target endpoint、credential、adapter 与 transport，不接受 URL/model/header 覆盖，不修改 `RuntimeRegistry`。
 
-测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。最近一次执行
-`cargo test --locked`，54 个测试通过、1 个外部 SDK 集成测试 ignored；
-`cargo clippy --locked --all-targets -- -D warnings` 通过。未执行真实 Provider、负载或长期运行验证。
+测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
+`cargo test --locked`，72 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
+真实 Provider、负载或长期运行验证。
 
 ## 9. 尚未实现
 
-- Converter catalog、route-local ConversionPolicy、BridgePlan 与 Chat/Responses Bridge；
-- 独立 AttemptManager、统一 unsupported/fallback/availability 与跨请求 cooldown；
+- Converter catalog、route-local ConversionPolicy、BridgePlan、wire renderer 与生产 Chat/Responses Bridge；
+- 动态 availability/weight、持久化或分布式 cooldown；
 - 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
 - Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。
 

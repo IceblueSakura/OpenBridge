@@ -7,11 +7,13 @@
 | 项目 | 值 |
 |---|---|
 | 调研仓库 | `https://github.com/router-for-me/CLIProxyAPI` |
-| 本地快照 | `F:/codespace/CLIProxyAPI`，`main` @ `a14dfc779f43aed588e68b31fb34ab5ced700851` |
+| 固定证据快照 | `F:/codespace/CLIProxyAPI`，`main` @ `a14dfc779f43aed588e68b31fb34ab5ced700851` |
 | 快照日期 | 2026-07-25 |
 | 阅读范围 | Responses translator 及其 tests、Codex/xAI executor 的 `previous_response_id`、reasoning replay、WebSocket ID state |
 | 矩阵角色 | state affinity、ID mapping、SSE terminal 与多轮 continuation 的负面案例库 |
 | 不在范围 | 多账号/订阅 credential、OAuth/client identity、WebSocket 初期实现、管理 API、账号轮转与负载均衡 |
+
+**2026-08-01 当前模块级复核。** 本地 `main` 已 fast-forward 至 `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`。`previous_response_not_found` 保留错误测试、`previous_response_id` 处理，以及 `response.output_item.done`/`response.completed` 的 Responses translator 和 executor 测试仍可定位；executor 已拆分为多文件，因此下文细粒度行号继续只属于固定证据快照。
 
 ## 1. `previous_response_id` 是绑定状态，不是可自由转发的字段
 

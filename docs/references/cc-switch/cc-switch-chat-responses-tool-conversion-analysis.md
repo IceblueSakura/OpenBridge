@@ -4,7 +4,7 @@
 
 cc-switch 是面向 Code Agent 适配的实现；其 Codex 路径证明：`Responses -> Chat -> Responses` bridge 必须同时处理**请求上下文、跨请求 tool-call 关联和流式事件生命周期**，不能只做字段替换。
 
-**矩阵角色。** cc-switch 是 Code Agent Protocol Bridge 状态机的主参考，而不是部署、配置、OAuth、usage 或桌面产品的模板。2026-07-25 已将本地源码 fast-forward 至 `878c26f31e012ba32b9772bd080bd4fa9e7d495e` 并确认 `CodexToolContext`、`CodexChatHistoryStore`、`ChatToResponsesState` 与 `create_responses_sse_stream_from_chat_with_context` 仍在原定职责路径中；下方的细粒度行号继续绑定其原始固定快照，变更实现前必须在新 commit 上逐项复核。
+**矩阵角色。** cc-switch 是 Code Agent Protocol Bridge 状态机的主参考，而不是部署、配置、OAuth、usage 或桌面产品的模板。2026-08-01 已将本地源码 fast-forward 至 `ebbf141fc71547a99f669df1be8e345130d1d890` 并确认 `CodexToolContext`、`CodexChatHistoryStore`、`ChatToResponsesState` 与 `create_responses_sse_stream_from_chat_with_context` 仍在原定职责路径中；下方的细粒度行号继续绑定其原始固定快照，变更实现前必须在新 commit 上逐项复核。
 
 它对 OpenBridge 双向 Protocol Bridge 最有价值的参考不是其 JSON 代码本身，而是以下四个可验证的实现要点：
 
