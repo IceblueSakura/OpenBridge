@@ -2,7 +2,6 @@ use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,
     identity::UserConfigPath,
-    models::longcat_2_0,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
@@ -38,7 +37,80 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             "missing canonical model {id}"
         );
     }
-    assert_eq!(definition.models.len(), expected.len() + 2);
+    assert_eq!(definition.models.len(), expected.len() + 1);
+    assert!(
+        definition
+            .models
+            .iter()
+            .all(|model| model.id != "openai/configured-model")
+    );
+
+    // 除 OpenRouter 未精确收录的 Codex Spark 外，每个模型都有官方目录描述。
+    assert!(
+        definition.models.iter().all(|model| {
+            model.id == "openai/gpt-5.3-codex-spark" || model.description.is_some()
+        })
+    );
+
+    let longcat = definition
+        .models
+        .iter()
+        .find(|model| model.id == "meituan/longcat-2.0")
+        .expect("OpenRouter LongCat id is canonical");
+    assert_eq!(longcat.context_length.input_tokens(), Some(1_048_756));
+    assert_eq!(longcat.context_length.output_tokens(), Some(262_144));
+
+    let sol = definition
+        .models
+        .iter()
+        .find(|model| model.id == "openai/gpt-5.6-sol")
+        .unwrap();
+    assert_eq!(sol.context_length.input_tokens(), Some(1_050_000));
+    assert_eq!(sol.context_length.output_tokens(), Some(128_000));
+    assert_eq!(
+        sol.reasoning_levels,
+        [
+            ReasoningLevel::Max,
+            ReasoningLevel::XHigh,
+            ReasoningLevel::High,
+            ReasoningLevel::Medium,
+            ReasoningLevel::Low,
+            ReasoningLevel::None,
+        ]
+    );
+
+    let gpt_5_5 = definition
+        .models
+        .iter()
+        .find(|model| model.id == "openai/gpt-5.5")
+        .unwrap();
+    assert_eq!(
+        gpt_5_5.reasoning_levels,
+        [
+            ReasoningLevel::XHigh,
+            ReasoningLevel::High,
+            ReasoningLevel::Medium,
+            ReasoningLevel::Low,
+            ReasoningLevel::None,
+        ]
+    );
+
+    let codex_spark = definition
+        .models
+        .iter()
+        .find(|model| model.id == "openai/gpt-5.3-codex-spark")
+        .unwrap();
+    assert_eq!(codex_spark.context_length.input_tokens(), Some(128_000));
+    assert_eq!(codex_spark.context_length.output_tokens(), Some(128_000));
+    assert_eq!(
+        codex_spark.reasoning_levels,
+        [
+            ReasoningLevel::XHigh,
+            ReasoningLevel::High,
+            ReasoningLevel::Medium,
+            ReasoningLevel::Low,
+        ]
+    );
 
     // 代表性模型保留 context、输出上限和标准 reasoning level。
     let deepseek = definition
@@ -53,6 +125,13 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         [ReasoningLevel::XHigh, ReasoningLevel::High]
     );
 
+    let deepseek_flash = definition
+        .models
+        .iter()
+        .find(|model| model.id == "deepseek/deepseek-v4-flash")
+        .unwrap();
+    assert_eq!(deepseek_flash.context_length.output_tokens(), Some(393_216));
+
     let hy3 = definition
         .models
         .iter()
@@ -65,6 +144,20 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             ReasoningLevel::Low,
             ReasoningLevel::None
         ]
+    );
+
+    let nemotron = definition
+        .models
+        .iter()
+        .find(|model| model.id == "nvidia/nemotron-3-ultra-550b-a55b")
+        .unwrap();
+    assert_eq!(nemotron.context_length.input_tokens(), Some(512_288));
+    assert_eq!(nemotron.context_length.output_tokens(), None);
+    assert!(
+        nemotron
+            .supported_parameters
+            .iter()
+            .any(|parameter| parameter == "structured_outputs")
     );
 
     // 当前目录类型不表示 embedding/rerank，避免把不可路由协议伪装为文本模型。
@@ -135,6 +228,18 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .supported_parameters()
             .iter()
             .any(|parameter| parameter == "reasoning")
+    );
+
+    let openai = registry
+        .upstream_target("openai-main")
+        .expect("OpenAI target is compiled");
+    assert_eq!(
+        openai.upstream_api("chat").unwrap().model().id(),
+        "openai/gpt-5.6-sol"
+    );
+    assert_eq!(
+        openai.upstream_api("chat").unwrap().upstream_model(),
+        "gpt-5.6-sol"
     );
 
     for (protocol, body) in [
@@ -254,7 +359,7 @@ fn real_model_can_be_shared_by_targets_from_different_providers() {
         .upstream_api("chat")
         .unwrap();
 
-    assert_eq!(direct.model().id(), longcat_2_0::MODEL_ID);
-    assert_eq!(alternate.model().id(), longcat_2_0::MODEL_ID);
+    assert_eq!(direct.model().id(), "meituan/longcat-2.0");
+    assert_eq!(alternate.model().id(), "meituan/longcat-2.0");
     assert_eq!(direct.model(), alternate.model());
 }

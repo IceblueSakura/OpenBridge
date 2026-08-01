@@ -15,7 +15,6 @@ use zeroize::Zeroizing;
 
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest, EndpointCapabilities, ResponsesCapabilities},
-    models::longcat_2_0,
     provider::{
         AdapterError, ClassifiedSseEvent, CredentialKind, PreparedUpstreamRequest,
         ProviderContract, ProviderKind, RetryHint, SafeHeaders, SensitiveHeaders,
@@ -209,7 +208,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "longcat-2".to_owned(),
         provider: ProviderKind::LongCat,
-        model: longcat_2_0::MODEL_ID.to_owned(),
+        model: "meituan/longcat-2.0".to_owned(),
         base_url: "https://api.longcat.chat".to_owned(),
         credential: CredentialConfig {
             id: "longcat-primary".to_owned(),

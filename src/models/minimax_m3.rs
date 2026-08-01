@@ -1,16 +1,42 @@
 //! MiniMax M3 的 canonical 模型事实。
 
-use crate::registry::{ModelConfig, ReasoningSupport};
+use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
 /// 构造 MiniMax M3 的 context、参数和 reasoning 事实。
 pub(crate) fn config() -> ModelConfig {
-    super::catalog::model(
-        "minimax/minimax-m3",
-        "MiniMax M3",
-        Some(1_048_576),
-        Some(512_000),
-        super::catalog::MINIMAX_PARAMETERS,
-        ReasoningSupport::Supported,
-        &[],
-    )
+    ModelConfig {
+        id: "minimax/minimax-m3".to_owned(),
+        name: "MiniMax M3".to_owned(),
+        description: Some(
+            "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."
+                .to_owned(),
+        ),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(512_000)),
+        supported_parameters: [
+            "frequency_penalty",
+            "include_reasoning",
+            "logit_bias",
+            "logprobs",
+            "max_tokens",
+            "min_p",
+            "presence_penalty",
+            "reasoning",
+            "repetition_penalty",
+            "response_format",
+            "seed",
+            "stop",
+            "structured_outputs",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_k",
+            "top_logprobs",
+            "top_p",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+        reasoning: ReasoningSupport::Supported,
+        reasoning_levels: Vec::new(),
+    }
 }

@@ -43,11 +43,17 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 错误分类。默认编译注册表为每个下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
 route；尚未对真实异构协议 Provider 执行验证。
 
-canonical 模型目录当前包含 18 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
+canonical 模型目录当前包含 17 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
 覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
 Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
-这些目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron embedding/rerank
-因当前没有对应协议模型类型而未纳入 `ModelConfig`。
+其中 GPT-5.6 Sol 被默认 `openai-main` target 引用；其余新增目录项尚未新增 Provider target 或 Public Model
+route，不构成真实可调用声明。Nemotron embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfig`。
+
+2026-08-02 已按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、context、
+最大输出、参数和 reasoning efforts。`openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
+`openai/gpt-5.3-codex` 代替；其 128,000 context、128,000 最大输出和四档 level 为人工修订值。Nemotron
+canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
+[OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
 请求路径当前会：
 

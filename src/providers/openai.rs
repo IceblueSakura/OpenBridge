@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest, EndpointCapabilities, ResponsesCapabilities},
-    models::CONFIGURED_MODEL_ID,
+    models::gpt_5_6_sol,
     provider::{
         AdapterError, ClassifiedSseEvent, CredentialKind, PreparedUpstreamRequest,
         ProviderContract, ProviderKind, RetryHint, SafeHeaders, SensitiveHeaders,
@@ -208,7 +208,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openai-main".to_owned(),
         provider: ProviderKind::OpenAi,
-        model: CONFIGURED_MODEL_ID.to_owned(),
+        model: gpt_5_6_sol::MODEL_ID.to_owned(),
         base_url: "https://api.openai.com".to_owned(),
         credential: CredentialConfig {
             id: "openai-primary".to_owned(),
@@ -220,7 +220,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: upstream_apis(
-            "configured-model",
+            "gpt-5.6-sol",
             "public-api",
             conservative_openai_capabilities(),
         ),
