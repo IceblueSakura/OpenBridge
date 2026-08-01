@@ -1,3 +1,5 @@
+"""验证独立 SSE parser 对分片、冲突和未终止 event 的处理。"""
+
 from __future__ import annotations
 
 import base64

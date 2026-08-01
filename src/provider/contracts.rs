@@ -32,6 +32,7 @@ impl SafeHeaders {
         name: HeaderName,
         value: HeaderValue,
     ) -> Result<(), AdapterError> {
+        // 拒绝认证、cookie、host 和 proxy authorization，维持普通 header 的安全边界。
         if name == AUTHORIZATION || name == PROXY_AUTHORIZATION || name == COOKIE || name == HOST {
             return Err(AdapterError::SensitiveHeaderInSafeSet);
         }
@@ -74,6 +75,7 @@ impl SensitiveHeaders {
     }
 
     pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), AdapterError> {
+        // 将敏感字符串一次性转换为 HTTP header，并标记为 sensitive 后释放来源容器。
         for (name, value) in self.0 {
             let mut value = HeaderValue::from_str(value.as_str())
                 .map_err(|_| AdapterError::InvalidAuthenticationHeader)?;
@@ -95,6 +97,7 @@ impl fmt::Debug for SensitiveHeaders {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// 上游 SSE event 在 ingress 中的生命周期状态。
 pub enum StreamEventStatus {
     /// event 不是终止事件，继续读取上游。
     Continue,
@@ -128,6 +131,7 @@ impl ClassifiedSseEvent {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// 上游 HTTP failure 的粗粒度类别。
 pub enum UpstreamErrorKind {
     /// 请求内容或参数不合法。
     InvalidRequest,
@@ -147,11 +151,14 @@ pub enum UpstreamErrorKind {
 /// `BeforeFirstEvent` 的含义是绝不能用于拼接已开始的 token stream。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetryHint {
+    /// 不允许基于该 status 自动重试。
     Never,
+    /// 仅允许在尚未向下游输出第一个 event 前重试。
     BeforeFirstEvent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// adapter 对上游 status 给出的错误类别和重试边界。
 pub struct StatusClassification {
     kind: UpstreamErrorKind,
     retry_hint: RetryHint,
@@ -162,10 +169,12 @@ impl StatusClassification {
         Self { kind, retry_hint }
     }
 
+    /// 返回上游错误类别。
     pub fn kind(&self) -> UpstreamErrorKind {
         self.kind
     }
 
+    /// 返回 adapter 建议的最早重试边界。
     pub fn retry_hint(&self) -> RetryHint {
         self.retry_hint
     }

@@ -4,6 +4,7 @@ use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
 pub(crate) const MODEL_ID: &str = "openai/configured-model";
 
+/// 构造等待真实模型事实替换的占位配置。
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: MODEL_ID.to_owned(),

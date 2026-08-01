@@ -1,3 +1,8 @@
+//! provider-independent capability 上界与协议分域值对象。
+//!
+//! capability 只能在 registry 构建阶段从 provider contract 收窄；请求 routing 复用这里的
+//! 子集判断，确保未实现的能力不会通过配置或协议字段越权进入 egress。
+
 /// 一个 OpenAI-compatible 生成端点的能力上界。
 ///
 /// 这些名称是 OpenBridge 的语义能力名，不是把请求 wire 字段直接复制到配置中。实际
@@ -22,6 +27,7 @@ pub struct EndpointCapabilities {
 }
 
 impl EndpointCapabilities {
+    /// 判断当前能力是否未超过给定上界。
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
             && (!self.streaming || upper.streaming)
@@ -57,6 +63,7 @@ pub struct ResponsesCapabilities {
 }
 
 impl ResponsesCapabilities {
+    /// 提取 Responses 与 Chat 共享的端点能力。
     pub(crate) const fn protocol_capabilities(self) -> EndpointCapabilities {
         EndpointCapabilities {
             enabled: self.enabled,
@@ -69,6 +76,7 @@ impl ResponsesCapabilities {
         }
     }
 
+    /// 判断当前 Responses 能力是否未超过给定上界。
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         self.protocol_capabilities()
             .is_subset_of(upper.protocol_capabilities())
@@ -91,6 +99,7 @@ pub struct ApiCapabilities {
 }
 
 impl ApiCapabilities {
+    /// 按 Chat/Responses 两个协议分域判断能力是否收窄。
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         self.chat_completions.is_subset_of(upper.chat_completions)
             && self.responses.is_subset_of(upper.responses)

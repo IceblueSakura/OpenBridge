@@ -19,6 +19,7 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// 模型 reasoning 能力的证据状态。
 pub enum ReasoningSupport {
     #[default]
     /// 配置没有足够证据判断是否支持 reasoning。
@@ -30,6 +31,7 @@ pub enum ReasoningSupport {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// 模型支持的 reasoning 强度。
 pub enum ReasoningLevel {
     /// 最低 reasoning 强度。
     Minimal,
@@ -58,6 +60,7 @@ impl ReasoningLevel {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// 模型输入和输出上下文长度的独立上限。
 pub struct ModelContextLength {
     /// 已知的最大输入 token 数；`None` 表示未知。
     input_tokens: Option<u32>,
@@ -86,6 +89,7 @@ impl ModelContextLength {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 与 Provider 无关的 canonical 模型事实。
 pub struct ModelConfig {
     /// 目录内部稳定的模型 id。
     pub id: String,
@@ -104,6 +108,7 @@ pub struct ModelConfig {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Upstream API 对 canonical 模型事实施加的收窄规则。
 pub struct UpstreamApiModelRules {
     /// Upstream API 可进一步收紧的上下文长度。
     pub context_length: ModelContextLength,
@@ -114,6 +119,7 @@ pub struct UpstreamApiModelRules {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Upstream Target 使用的 credential binding 声明。
 pub struct CredentialConfig {
     /// 注册表中的 credential id。
     pub id: String,
@@ -124,12 +130,16 @@ pub struct CredentialConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// 与具体协议绑定的 Upstream API capability 配置。
 pub enum UpstreamApiCapabilities {
+    /// Chat Completions endpoint 的能力。
     ChatCompletions(EndpointCapabilities),
+    /// Responses endpoint 的能力。
     Responses(ResponsesCapabilities),
 }
 
 impl UpstreamApiCapabilities {
+    /// 返回该 capability 配置对应的原生协议。
     pub const fn protocol(self) -> ApiProtocol {
         match self {
             Self::ChatCompletions(_) => ApiProtocol::ChatCompletions,
@@ -137,6 +147,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
+    /// 返回不包含 Responses 专有状态的协议公共能力。
     pub const fn protocol_capabilities(self) -> EndpointCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities,
@@ -144,6 +155,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
+    /// 如果这是 Responses 配置，则返回其完整能力。
     pub const fn responses(self) -> Option<ResponsesCapabilities> {
         match self {
             Self::ChatCompletions(_) => None,
@@ -162,17 +174,23 @@ impl UpstreamApiCapabilities {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// 当前支持的上游 transport profile。
 pub enum TransportKind {
+    /// HTTP JSON 请求和 SSE response body。
     HttpJsonSse,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// provider-issued continuation state 的归属范围。
 pub enum StateAffinity {
+    /// 请求不携带必须固定 target 的状态。
     Unbound,
+    /// 状态绑定到当前 Upstream Target，禁止跨 target fallback。
     TargetBound,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 一个 target 对外提供的原生 Upstream API。
 pub struct UpstreamApiConfig {
     /// target 内稳定的 Upstream API id。
     pub id: String,
@@ -193,6 +211,7 @@ pub struct UpstreamApiConfig {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 可被 route 选择的受信上游 target。
 pub struct UpstreamTargetConfig {
     /// 注册表中的 target id。
     pub id: String,
@@ -217,20 +236,29 @@ pub struct UpstreamTargetConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// route 的请求处理模式。
 pub enum RouteMode {
+    /// 保持下游协议和上游协议原生一致。
     Native,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 将下游协议绑定到一个 Upstream API 的 route。
 pub struct RouteConfig {
+    /// 注册表中的 route id。
     pub id: String,
+    /// 被 route 引用的 Upstream Target id。
     pub upstream_target: String,
+    /// 被 route 引用的 Upstream API id。
     pub upstream_api: String,
+    /// route 接受的下游原生协议。
     pub downstream_protocol: ApiProtocol,
+    /// route 的处理模式。
     pub mode: RouteMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 向下游公开的模型及其有序 route 候选。
 pub struct PublicModelConfig {
     /// 对下游公开的稳定 model name。
     pub name: String,
@@ -239,6 +267,7 @@ pub struct PublicModelConfig {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// 启动时编译 registry 所需的完整定义。
 pub struct RegistryConfig {
     /// 用于报告和审计的注册表版本。
     pub version: String,
@@ -255,104 +284,211 @@ pub struct RegistryConfig {
 /// 编译期注册表定义不完整、引用不一致或尝试越权时返回的错误。
 #[derive(Debug, Error)]
 pub enum RegistryError {
+    /// registry 版本为空。
     #[error("registry version must not be blank")]
     BlankVersion,
+    /// 同一实体集合中存在重复 id。
     #[error("duplicate {entity} id '{id}'")]
-    DuplicateId { entity: &'static str, id: String },
+    DuplicateId {
+        /// 发生冲突的实体类型。
+        entity: &'static str,
+        /// 重复的实体 id。
+        id: String,
+    },
+    /// 定义引用了不存在的实体。
     #[error("{entity} '{id}' references unknown {target} '{reference}'")]
     UnknownReference {
+        /// 发起引用的实体类型。
         entity: &'static str,
+        /// 发起引用的实体 id。
         id: String,
+        /// 被引用的实体类型。
         target: &'static str,
+        /// 未解析的引用值。
         reference: String,
     },
+    /// credential locator 不是合法的环境变量名。
     #[error("upstream target '{upstream_target}' uses an invalid credential environment variable")]
-    InvalidCredentialLocator { upstream_target: String },
+    InvalidCredentialLocator {
+        /// 使用非法 locator 的 target id。
+        upstream_target: String,
+    },
+    /// target 选择了 provider 不支持的 credential 类型。
     #[error(
         "upstream target '{upstream_target}' uses a credential kind unsupported by its adapter"
     )]
-    UnsupportedCredentialKind { upstream_target: String },
+    UnsupportedCredentialKind {
+        /// 配置不兼容的 target id。
+        upstream_target: String,
+    },
+    /// target endpoint 不是允许的 HTTPS base URL。
     #[error("upstream target '{upstream_target}' uses an invalid base URL")]
-    InvalidBaseUrl { upstream_target: String },
+    InvalidBaseUrl {
+        /// URL 不合法的 target id。
+        upstream_target: String,
+    },
+    /// target 请求超时时间为零。
     #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
-    InvalidRequestTimeout { upstream_target: String },
+    InvalidRequestTimeout {
+        /// 超时配置不合法的 target id。
+        upstream_target: String,
+    },
+    /// target 没有声明任何 Upstream API。
     #[error("upstream target '{upstream_target}' must contain at least one upstream API")]
-    EmptyUpstreamTarget { upstream_target: String },
+    EmptyUpstreamTarget {
+        /// 没有 Upstream API 的 target id。
+        upstream_target: String,
+    },
+    /// target 内存在重复 Upstream API id。
     #[error("upstream target '{upstream_target}' contains duplicate upstream API '{upstream_api}'")]
     DuplicateUpstreamApi {
+        /// 发生冲突的 target id。
         upstream_target: String,
+        /// 重复的 Upstream API id。
         upstream_api: String,
     },
+    /// Upstream API 使用了 provider 未注册的 endpoint profile。
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
     )]
     UnsupportedEndpointProfile {
+        /// 所属 target id。
         upstream_target: String,
+        /// 不兼容的 Upstream API id。
         upstream_api: String,
+        /// 未注册的 endpoint profile。
         profile: String,
     },
+    /// Upstream API 的上游 model id 为空。
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' upstream model must not be blank"
     )]
     BlankUpstreamModel {
+        /// 所属 target id。
         upstream_target: String,
+        /// model id 为空的 Upstream API id。
         upstream_api: String,
     },
+    /// Upstream API 的 capability 枚举与协议不一致。
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match protocol"
     )]
     UpstreamApiProtocolMismatch {
+        /// 所属 target id。
         upstream_target: String,
+        /// 配置不一致的 Upstream API id。
         upstream_api: String,
     },
+    /// canonical 模型的必填字符串为空。
     #[error("model '{model}' field '{field}' must not be blank")]
-    BlankModelField { model: String, field: &'static str },
+    BlankModelField {
+        /// 不合法的模型 id。
+        model: String,
+        /// 为空的字段名。
+        field: &'static str,
+    },
+    /// canonical 模型声明了零值上下文长度。
     #[error("model '{model}' context length '{limit}' must be greater than zero")]
-    InvalidModelContextLength { model: String, limit: &'static str },
+    InvalidModelContextLength {
+        /// 不合法的模型 id。
+        model: String,
+        /// 不合法的长度字段名。
+        limit: &'static str,
+    },
+    /// canonical 模型参数名不符合受限 wire 名称格式。
     #[error("model '{model}' declares invalid supported parameter '{parameter}'")]
-    InvalidSupportedParameter { model: String, parameter: String },
-    #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
-    DuplicateSupportedParameter { model: String, parameter: String },
-    #[error("model '{model}' has inconsistent reasoning configuration: {detail}")]
-    InconsistentReasoningConfig { model: String, detail: &'static str },
-    #[error("upstream API '{upstream_api}' model rule '{field}' must be greater than zero")]
-    InvalidUpstreamApiModelRule {
-        upstream_api: String,
-        field: &'static str,
-    },
-    #[error("upstream API '{upstream_api}' model rule '{field}' exceeds the model limit")]
-    UpstreamApiModelLimitExceedsModel {
-        upstream_api: String,
-        field: &'static str,
-    },
-    #[error("upstream API '{upstream_api}' model rule '{field}' widens the model information")]
-    UpstreamApiModelRuleWidensModel {
-        upstream_api: String,
-        field: &'static str,
-    },
-    #[error("upstream API '{upstream_api}' model rule disables undeclared parameter '{parameter}'")]
-    UpstreamApiModelRuleDisablesUnknownParameter {
-        upstream_api: String,
+    InvalidSupportedParameter {
+        /// 不合法的模型 id。
+        model: String,
+        /// 不合法的参数名。
         parameter: String,
     },
-    #[error("upstream API '{upstream_api}' model rules are inconsistent: {detail}")]
-    InconsistentUpstreamApiModelRules {
-        upstream_api: String,
+    /// canonical 模型重复声明了参数名。
+    #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
+    DuplicateSupportedParameter {
+        /// 重复参数所属的模型 id。
+        model: String,
+        /// 重复的参数名。
+        parameter: String,
+    },
+    /// canonical 模型的 reasoning 状态与参数集合不一致。
+    #[error("model '{model}' has inconsistent reasoning configuration: {detail}")]
+    InconsistentReasoningConfig {
+        /// 配置不一致的模型 id。
+        model: String,
+        /// 具体不一致原因。
         detail: &'static str,
     },
+    /// Upstream API 模型规则声明了零值限制。
+    #[error("upstream API '{upstream_api}' model rule '{field}' must be greater than zero")]
+    InvalidUpstreamApiModelRule {
+        /// 规则所属的 Upstream API 标识。
+        upstream_api: String,
+        /// 不合法的规则字段。
+        field: &'static str,
+    },
+    /// Upstream API 模型限制超过了 canonical 模型上限。
+    #[error("upstream API '{upstream_api}' model rule '{field}' exceeds the model limit")]
+    UpstreamApiModelLimitExceedsModel {
+        /// 规则所属的 Upstream API 标识。
+        upstream_api: String,
+        /// 超出上限的规则字段。
+        field: &'static str,
+    },
+    /// Upstream API 模型规则扩大了 canonical 模型事实。
+    #[error("upstream API '{upstream_api}' model rule '{field}' widens the model information")]
+    UpstreamApiModelRuleWidensModel {
+        /// 规则所属的 Upstream API 标识。
+        upstream_api: String,
+        /// 被扩大声明的字段。
+        field: &'static str,
+    },
+    /// Upstream API 试图禁用模型未声明的参数。
+    #[error("upstream API '{upstream_api}' model rule disables undeclared parameter '{parameter}'")]
+    UpstreamApiModelRuleDisablesUnknownParameter {
+        /// 规则所属的 Upstream API 标识。
+        upstream_api: String,
+        /// 未声明却被禁用的参数名。
+        parameter: String,
+    },
+    /// Upstream API 收窄后的 reasoning 配置不一致。
+    #[error("upstream API '{upstream_api}' model rules are inconsistent: {detail}")]
+    InconsistentUpstreamApiModelRules {
+        /// 规则所属的 Upstream API 标识。
+        upstream_api: String,
+        /// 具体不一致原因。
+        detail: &'static str,
+    },
+    /// Upstream API 声明了超过 provider contract 的能力。
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
     )]
     CapabilityElevation {
+        /// 所属 target id。
         upstream_target: String,
+        /// 越权声明能力的 Upstream API id。
         upstream_api: String,
     },
+    /// Native route 的下游协议与 Upstream API 协议不一致。
     #[error("native route '{route}' protocol does not match its upstream API")]
-    NativeRouteProtocolMismatch { route: String },
+    NativeRouteProtocolMismatch {
+        /// 协议不匹配的 route id。
+        route: String,
+    },
+    /// Public Model 重复引用同一个 route。
     #[error("public model '{public_model}' contains duplicate route '{route}'")]
-    DuplicatePublicModelRoute { public_model: String, route: String },
+    DuplicatePublicModelRoute {
+        /// 发生冲突的 Public Model 名称。
+        public_model: String,
+        /// 重复的 route id。
+        route: String,
+    },
+    /// Public Model 没有任何 route。
     #[error("public model '{public_model}' must contain at least one route")]
-    EmptyPublicModel { public_model: String },
+    EmptyPublicModel {
+        /// 没有 route 的 Public Model 名称。
+        public_model: String,
+    },
 }
 
 /// 启动后供请求路径读取的模型元数据。
@@ -404,6 +540,7 @@ impl ModelInfo {
     }
 }
 
+/// 启动后供请求路径读取的不可变 registry snapshot。
 #[derive(Debug)]
 pub struct RuntimeRegistry {
     version: RegistryVersion,
@@ -450,10 +587,12 @@ impl RuntimeRegistry {
         self.upstream_targets.keys().map(String::as_str)
     }
 
+    /// 按 route id 查询已解析的 route。
     pub fn route(&self, id: &str) -> Option<&Route> {
         self.routes.get(id)
     }
 
+    /// 按下游公开名称查询 Public Model。
     pub fn public_model(&self, name: &str) -> Option<&PublicModel> {
         self.public_models.get(name)
     }
@@ -464,6 +603,7 @@ impl RuntimeRegistry {
     }
 }
 
+/// 已通过校验的 registry 版本标识。
 #[derive(Debug)]
 pub struct RegistryVersion(String);
 
@@ -474,6 +614,7 @@ impl RegistryVersion {
     }
 }
 
+/// 已解析的 credential binding。
 #[derive(Debug)]
 pub struct CredentialBinding {
     id: String,
@@ -482,19 +623,23 @@ pub struct CredentialBinding {
 }
 
 impl CredentialBinding {
+    /// 返回 credential binding id。
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// 返回 credential 类型。
     pub fn kind(&self) -> CredentialKind {
         self.kind
     }
 
+    /// 返回不包含 secret 的受信 secret locator。
     pub fn secret_reference(&self) -> &SecretLocator {
         &self.secret_reference
     }
 }
 
+/// 已通过 endpoint、credential 和模型引用校验的上游 target。
 #[derive(Debug)]
 pub struct UpstreamTarget {
     kind: ProviderKind,
@@ -509,48 +654,59 @@ pub struct UpstreamTarget {
 }
 
 impl UpstreamTarget {
+    /// 返回 target 使用的 provider kind。
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
+    /// 返回 target 的 credential binding。
     pub fn credential(&self) -> &CredentialBinding {
         &self.credential
     }
 
+    /// 返回 target 引用的 canonical 模型 id。
     pub fn model_id(&self) -> &str {
         &self.model_id
     }
 
+    /// 返回经过校验的 endpoint base URL。
     pub fn endpoint_base(&self) -> &Url {
         &self.endpoint_base
     }
 
+    /// 返回可选的共享 quota scope。
     pub fn quota_scope(&self) -> Option<&str> {
         self.quota_scope.as_deref()
     }
 
+    /// 返回可选的故障隔离域。
     pub fn fault_domain(&self) -> Option<&str> {
         self.fault_domain.as_deref()
     }
 
+    /// 返回单次上游请求超时时间。
     pub fn request_timeout(&self) -> Duration {
         self.request_timeout
     }
 
+    /// 判断 target 是否允许新的无状态请求选择。
     pub fn enabled(&self) -> bool {
         self.enabled
     }
 
+    /// 按 Upstream API id 查询已解析 API。
     pub fn upstream_api(&self, id: &str) -> Option<&UpstreamApi> {
         self.upstream_apis.get(id)
     }
 
+    /// 按原生协议查找一个 Upstream API。
     pub fn upstream_api_for_protocol(&self, protocol: ApiProtocol) -> Option<&UpstreamApi> {
         self.upstream_apis
             .values()
             .find(|upstream_api| upstream_api.protocol() == protocol)
     }
 
+    /// 枚举 target 下所有 Upstream API 及其 id。
     pub fn upstream_apis(&self) -> impl Iterator<Item = (&str, &UpstreamApi)> {
         self.upstream_apis
             .iter()
@@ -558,6 +714,7 @@ impl UpstreamTarget {
     }
 }
 
+/// 不暴露 secret 内容的 credential locator。
 #[derive(Debug)]
 pub struct SecretLocator {
     locator: String,
@@ -575,6 +732,7 @@ impl SecretLocator {
     }
 }
 
+/// 已解析并应用模型规则的 Upstream API。
 #[derive(Debug)]
 pub struct UpstreamApi {
     protocol: ApiProtocol,
@@ -587,35 +745,43 @@ pub struct UpstreamApi {
 }
 
 impl UpstreamApi {
+    /// 返回 Upstream API 的原生协议。
     pub fn protocol(&self) -> ApiProtocol {
         self.protocol
     }
 
+    /// 返回应用规则后的模型元数据。
     pub fn model(&self) -> &ModelInfo {
         &self.model
     }
 
+    /// 返回发送给上游的真实模型 id。
     pub fn upstream_model(&self) -> &str {
         &self.upstream_model
     }
 
+    /// 返回 provider 识别用的 endpoint profile。
     pub fn endpoint_profile(&self) -> &str {
         &self.endpoint_profile
     }
 
+    /// 返回使用的 transport profile。
     pub fn transport(&self) -> TransportKind {
         self.transport
     }
 
+    /// 返回该 API 的协议能力。
     pub fn capabilities(&self) -> UpstreamApiCapabilities {
         self.capabilities
     }
 
+    /// 返回 continuation state 的归属策略。
     pub fn state_affinity(&self) -> StateAffinity {
         self.state_affinity
     }
 }
 
+/// 已解析的 route 绑定关系。
 #[derive(Debug)]
 pub struct Route {
     upstream_target: String,
@@ -625,38 +791,49 @@ pub struct Route {
 }
 
 impl Route {
+    /// 返回 route 绑定的 Upstream Target id。
     pub fn upstream_target(&self) -> &str {
         &self.upstream_target
     }
 
+    /// 返回 route 绑定的 Upstream API id。
     pub fn upstream_api(&self) -> &str {
         &self.upstream_api
     }
 
+    /// 返回 route 接受的下游协议。
     pub fn downstream_protocol(&self) -> ApiProtocol {
         self.downstream_protocol
     }
 
+    /// 返回 route 的处理模式。
     pub fn mode(&self) -> RouteMode {
         self.mode
     }
 }
 
+/// 已解析的下游 Public Model 及有序 route 列表。
 #[derive(Debug)]
 pub struct PublicModel {
     routes: Vec<String>,
 }
 
 impl PublicModel {
+    /// 返回按优先级排列的 route id。
     pub fn routes(&self) -> &[String] {
         &self.routes
     }
 }
 
+/// 校验完整 registry 定义并构造请求路径只读的运行时 snapshot。
+///
+/// 校验阶段拒绝未知引用、重复 id、能力越权、非安全 endpoint 和不一致的模型收窄规则；
+/// 成功后返回值不再依赖运行时配置注册新 provider 或 target。
 pub fn build_registry(
     bootstrap: BootstrapConfig,
     definition: RegistryConfig,
 ) -> Result<RuntimeRegistry, RegistryError> {
+    // 校验版本并建立 canonical model 索引。
     if definition.version.trim().is_empty() {
         return Err(RegistryError::BlankVersion);
     }
@@ -682,6 +859,7 @@ pub fn build_registry(
         }
     }
 
+    // 校验 target、credential、endpoint 和 Upstream API，并解析模型收窄规则。
     let mut credential_ids = BTreeSet::new();
     let mut upstream_targets = BTreeMap::new();
     for target in definition.upstream_targets {
@@ -812,6 +990,7 @@ pub fn build_registry(
         }
     }
 
+    // 校验 route 引用及 native 协议一致性。
     let mut routes = BTreeMap::new();
     for route in definition.routes {
         let target = upstream_targets
@@ -847,6 +1026,7 @@ pub fn build_registry(
         }
     }
 
+    // 校验 Public Model 的 route 顺序、唯一性和完整引用。
     let mut public_models = BTreeMap::new();
     for public_model in definition.public_models {
         if public_model.routes.is_empty() {
@@ -887,6 +1067,7 @@ pub fn build_registry(
         }
     }
 
+    // 固化所有解析结果为请求路径只读 snapshot。
     Ok(RuntimeRegistry {
         version: RegistryVersion(definition.version),
         bootstrap,
@@ -897,6 +1078,7 @@ pub fn build_registry(
     })
 }
 
+/// 校验 canonical 模型字段、参数名称和 reasoning 配置的一致性。
 fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryError> {
     for (field, value) in [("id", model.id.as_str()), ("name", model.name.as_str())] {
         if value.trim().is_empty() {
@@ -947,6 +1129,7 @@ fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryError> {
     )
 }
 
+/// 校验 reasoning level 只在 supported 状态下出现且不重复。
 fn validate_reasoning_levels(
     model: &str,
     reasoning: ReasoningSupport,
@@ -968,6 +1151,7 @@ fn validate_reasoning_levels(
     Ok(())
 }
 
+/// 校验 reasoning 状态与模型支持参数集合的一致性。
 fn validate_reasoning_config(
     model: &str,
     parameters: &[String],
@@ -987,11 +1171,13 @@ fn validate_reasoning_config(
     }
 }
 
+/// 将 Upstream API 的收窄规则应用到 canonical 模型事实。
 fn apply_model_rules(
     model: ModelInfo,
     upstream_api: &str,
     rules: UpstreamApiModelRules,
 ) -> Result<ModelInfo, RegistryError> {
+    // 先验证上下文长度规则不会扩大 canonical 模型上限。
     validate_model_limit(
         upstream_api,
         "context_length.input",
@@ -1004,6 +1190,7 @@ fn apply_model_rules(
         model.context_length.output_tokens(),
         rules.context_length.output_tokens(),
     )?;
+    // 计算 reasoning 收窄结果并拒绝能力扩大。
     let reasoning = rules.reasoning.unwrap_or(model.reasoning);
     if reasoning_rank(reasoning) > reasoning_rank(model.reasoning) {
         return Err(RegistryError::UpstreamApiModelRuleWidensModel {
@@ -1011,6 +1198,7 @@ fn apply_model_rules(
             field: "reasoning",
         });
     }
+    // 应用参数禁用集合，并拒绝禁用模型未声明的参数。
     let disabled = rules.disabled_parameters.iter().collect::<BTreeSet<_>>();
     for parameter in &disabled {
         if !model.supported_parameters.contains(parameter) {
@@ -1022,6 +1210,7 @@ fn apply_model_rules(
             );
         }
     }
+    // 构造有效参数集合并重新验证 reasoning 语义。
     let supported_parameters = model
         .supported_parameters
         .iter()
@@ -1053,6 +1242,7 @@ fn apply_model_rules(
     })
 }
 
+/// 校验 Upstream API 的单项模型限制为正且不超过 canonical 上限。
 fn validate_model_limit(
     upstream_api: &str,
     field: &'static str,
@@ -1077,6 +1267,7 @@ fn validate_model_limit(
     Ok(())
 }
 
+/// 校验应用收窄规则后的 reasoning 状态和参数集合。
 fn validate_effective_reasoning_config(
     upstream_api: &str,
     parameters: &[String],
@@ -1100,6 +1291,7 @@ fn validate_effective_reasoning_config(
     }
 }
 
+/// 合并两个可选限制，并取已知限制中的较小值。
 fn min_known_limit(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -1109,6 +1301,7 @@ fn min_known_limit(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     }
 }
 
+/// 将 reasoning 状态映射为可比较的保守性等级。
 fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
     match reasoning {
         ReasoningSupport::Unsupported => 0,
@@ -1117,6 +1310,7 @@ fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
     }
 }
 
+/// 判断模型参数名是否符合内部的受限小写 wire 名称格式。
 fn is_valid_parameter_name(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -1124,6 +1318,7 @@ fn is_valid_parameter_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
+/// 判断 credential locator 是否为合法环境变量名。
 fn is_valid_environment_variable(locator: &str) -> bool {
     let mut characters = locator.chars();
     let Some(first) = characters.next() else {
@@ -1133,6 +1328,7 @@ fn is_valid_environment_variable(locator: &str) -> bool {
         && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
+/// 校验并规范化只允许 HTTPS、无凭据和安全 path 前缀的 endpoint base。
 fn normalize_endpoint_base(value: &str) -> Option<Url> {
     let mut url = Url::parse(value).ok()?;
     if url.scheme() != "https"
@@ -1151,6 +1347,7 @@ fn normalize_endpoint_base(value: &str) -> Option<Url> {
     Some(url)
 }
 
+/// 拒绝 endpoint path 中的 authority 绕过、空段和 dot-segment。
 fn is_safe_endpoint_prefix(path: &str) -> bool {
     if path.is_empty() || path == "/" {
         return true;

@@ -19,9 +19,11 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 加载可选环境文件并初始化日志过滤器。
     load_optional_dotenv().context("failed to load optional .env file")?;
     init_tracing()?;
 
+    // 读取 bootstrap、下游用户和编译期 registry。
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
@@ -30,6 +32,7 @@ async fn main() -> Result<()> {
         .context("failed to load downstream users")?;
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
+    // 创建共享上游 client 与请求状态，只保留受信配置中的 credential locator。
     let listen = registry.listen();
     let registry_version = registry.version().as_str().to_owned();
     let upstream = UpstreamClient::new(
@@ -40,6 +43,7 @@ async fn main() -> Result<()> {
     .context("failed to initialize upstream HTTP client")?;
     let app_state =
         GatewayState::with_environment_credentials(Arc::new(registry), upstream, Arc::new(users));
+    // 绑定 loopback listener 并启动带优雅关闭的 HTTP 服务。
     let listener = TcpListener::bind(listen)
         .await
         .with_context(|| format!("failed to bind OpenBridge to {listen}"))?;
@@ -52,7 +56,9 @@ async fn main() -> Result<()> {
 }
 
 fn init_tracing() -> Result<()> {
+    // 读取环境中的日志过滤器，缺省使用 info 级别。
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // 安装全局 tracing subscriber，失败时保留启动错误上下文。
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .try_init()
@@ -60,6 +66,7 @@ fn init_tracing() -> Result<()> {
 }
 
 async fn shutdown_signal() {
+    // 等待 Ctrl+C，并将信号安装失败记录为错误而不伪造正常关闭。
     if let Err(error) = signal::ctrl_c().await {
         tracing::error!(%error, "failed to install Ctrl+C handler");
     }

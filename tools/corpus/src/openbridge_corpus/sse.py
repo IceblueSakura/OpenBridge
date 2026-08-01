@@ -1,3 +1,5 @@
+"""独立协议 corpus 使用的增量 SSE 解析与 terminal 观察逻辑。"""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +17,8 @@ TERMINAL_TYPES = {
 
 @dataclass(frozen=True)
 class SseEvent:
+    """保存一个完整 SSE event 的字段、JSON 解析结果和 terminal 判定。"""
+
     event_field: str | None
     data_text: str
     data_json: Any
@@ -24,6 +28,7 @@ class SseEvent:
     terminal: str | None
 
     def as_dict(self) -> dict[str, Any]:
+        """将事件转换为可写入 observation 的 JSON 对象。"""
         return {
             "data_json": self.data_json,
             "data_text": self.data_text,
@@ -36,7 +41,7 @@ class SseEvent:
 
 
 class IncrementalSseParser:
-    """Incrementally parse an SSE byte stream without assuming read boundaries."""
+    """增量解析 SSE 字节流，不假设网络读取边界与行或 event 边界重合。"""
 
     def __init__(self) -> None:
         self._line = bytearray()
@@ -46,6 +51,7 @@ class IncrementalSseParser:
         self._closed = False
 
     def feed(self, data: bytes) -> list[SseEvent]:
+        """输入一个网络 chunk，并返回其中已由空行终止的 event。"""
         if self._closed:
             raise RuntimeError("cannot feed a closed SSE parser")
         events: list[SseEvent] = []
@@ -64,7 +70,7 @@ class IncrementalSseParser:
         return events
 
     def close(self) -> None:
-        """Close the stream and discard an event not terminated by a blank line."""
+        """关闭流，并丢弃 EOF 前未由空行终止的 event。"""
 
         self._closed = True
         self._line.clear()
@@ -72,6 +78,7 @@ class IncrementalSseParser:
         self._data_lines.clear()
 
     def _finish_line(self) -> list[SseEvent]:
+        """完成当前行，更新 SSE 字段并在空行处派发 event。"""
         raw = bytes(self._line)
         self._line.clear()
         if not raw:
@@ -90,6 +97,7 @@ class IncrementalSseParser:
         return []
 
     def _dispatch(self) -> SseEvent | None:
+        """组合 data 行、解析 JSON，并计算 terminal 与类型冲突信息。"""
         if not self._data_lines:
             self._event_field = None
             return None
@@ -130,6 +138,7 @@ class IncrementalSseParser:
 
 
 def parse_sse(data: bytes) -> list[SseEvent]:
+    """一次性解析完整 SSE bytes，并丢弃 EOF 前未终止的 event。"""
     parser = IncrementalSseParser()
     events = parser.feed(data)
     parser.close()

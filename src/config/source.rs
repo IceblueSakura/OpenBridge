@@ -48,11 +48,13 @@ impl BootstrapConfigPath {
 
     /// 读取并解析 bootstrap 文件。
     pub fn load(&self) -> Result<BootstrapConfig, BootstrapConfigFileError> {
+        // 读取指定路径，保留路径和底层错误供启动诊断使用。
         let document =
             fs::read_to_string(&self.0).map_err(|source| BootstrapConfigFileError::Read {
                 path: self.0.clone(),
                 source,
             })?;
+        // 解析内容并统一包装为文件级错误。
         parse_bootstrap_config(&document).map_err(BootstrapConfigFileError::Invalid)
     }
 }
@@ -66,12 +68,16 @@ impl Default for BootstrapConfigPath {
 /// bootstrap 文件读取或内容校验失败。
 #[derive(Debug, Error)]
 pub enum BootstrapConfigFileError {
+    /// 无法从指定路径读取 bootstrap 文件。
     #[error("failed to read bootstrap configuration '{path}'")]
     Read {
+        /// 读取失败的文件路径。
         path: PathBuf,
         #[source]
+        /// 底层文件系统错误。
         source: io::Error,
     },
+    /// 文件已读取，但内容未通过 bootstrap 校验。
     #[error("bootstrap configuration validation failed")]
     Invalid(#[source] BootstrapConfigError),
 }

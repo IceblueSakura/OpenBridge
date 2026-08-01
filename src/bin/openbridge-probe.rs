@@ -15,8 +15,10 @@ use openbridge::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 加载可选环境文件并解析 CLI 选择。
     load_optional_dotenv().context("failed to load optional .env file")?;
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
+    // 构造与数据面相同的受信 registry 和共享 upstream client。
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
@@ -28,6 +30,7 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
+    // 执行管理员显式选择的 probe 并只输出脱敏 JSON 报告。
     let report = probe_upstream_target(
         &registry,
         &arguments.upstream_target_id,
@@ -52,6 +55,7 @@ struct ProbeArguments {
 
 impl ProbeArguments {
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
+        // 逐项解析 target 和 probe 选择，不接受未声明的 CLI 参数。
         let mut upstream_target_id = None;
         let mut selection = ProbeOptions::default();
         let mut arguments = arguments.into_iter();
@@ -75,6 +79,7 @@ impl ProbeArguments {
                 _ => anyhow::bail!("unknown argument '{argument}'; run with --help"),
             }
         }
+        // 校验 target 必填，并在未指定选择时默认执行全部 probe。
         let upstream_target_id = upstream_target_id.context("--target is required")?;
         if selection.is_empty() {
             selection = ProbeOptions::all();

@@ -26,10 +26,12 @@ pub struct User {
 }
 
 impl User {
+    /// 返回稳定的下游用户 id。
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// 返回用于展示或审计的用户名称。
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -48,6 +50,7 @@ pub struct UserRegistry {
 impl UserRegistry {
     /// 解析并校验用户 TOML，生成不可变注册表。
     pub fn from_toml(document: &str) -> Result<Self, UserRegistryError> {
+        // 解析文档并确认用户配置 schema。
         let raw: RawUsers = toml::from_str(document).map_err(|_| UserRegistryError::Parse)?;
         if raw.schema_version != USERS_SCHEMA_VERSION {
             return Err(UserRegistryError::UnsupportedSchema {
@@ -55,6 +58,7 @@ impl UserRegistry {
             });
         }
 
+        // 校验 id、名称和 key 唯一性，并只构造已启用用户的运行时条目。
         let mut ids = BTreeSet::new();
         let mut api_keys = BTreeSet::new();
         let mut entries = Vec::new();
@@ -85,6 +89,7 @@ impl UserRegistry {
                 });
             }
         }
+        // 拒绝没有任何可用于认证的用户的注册表。
         if entries.is_empty() {
             return Err(UserRegistryError::NoEnabledUsers);
         }
@@ -93,6 +98,7 @@ impl UserRegistry {
 
     /// 使用 constant-time equality 匹配 API Key，并返回对应用户。
     pub fn authenticate(&self, candidate: &str) -> Option<Arc<User>> {
+        // 遍历所有已启用 key，使用等长 constant-time 比较避免提前暴露匹配位置。
         let candidate = candidate.as_bytes();
         let mut matched = None;
         for entry in &self.entries {
@@ -104,6 +110,7 @@ impl UserRegistry {
         matched
     }
 
+    /// 枚举所有已启用用户，但不暴露任何 API key。
     pub fn users(&self) -> impl Iterator<Item = &User> {
         self.entries.iter().map(|entry| entry.user.as_ref())
     }
@@ -119,21 +126,42 @@ impl fmt::Debug for UserRegistry {
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
+/// 下游用户 TOML 解析或校验失败。
 pub enum UserRegistryError {
+    /// TOML 文档无法解析为用户配置。
     #[error("invalid user configuration")]
     Parse,
+    /// 文档声明了当前运行时不支持的 schema 版本。
     #[error("unsupported user configuration schema version {actual}")]
-    UnsupportedSchema { actual: u32 },
+    UnsupportedSchema {
+        /// 文档中声明的 schema 版本。
+        actual: u32,
+    },
+    /// 用户 id 为空。
     #[error("user id must not be blank")]
     BlankUserId,
+    /// 用户 id 重复。
     #[error("user id '{id}' is configured more than once")]
-    DuplicateUserId { id: String },
+    DuplicateUserId {
+        /// 重复的用户 id。
+        id: String,
+    },
+    /// 用户名称为空。
     #[error("user '{id}' name must not be blank")]
-    BlankUserName { id: String },
+    BlankUserName {
+        /// 名称为空的用户 id。
+        id: String,
+    },
+    /// API key 长度不足安全下限。
     #[error("user '{id}' API key must contain at least 32 bytes")]
-    ApiKeyTooShort { id: String },
+    ApiKeyTooShort {
+        /// API key 不合规的用户 id。
+        id: String,
+    },
+    /// 同一个 API key 被多个用户复用。
     #[error("the same downstream API key is configured for more than one user")]
     DuplicateApiKey,
+    /// 配置中没有任何已启用用户。
     #[error("at least one downstream user must be enabled")]
     NoEnabledUsers,
 }
@@ -164,31 +192,41 @@ const fn enabled_by_default() -> bool {
 pub struct UserConfigPath(PathBuf);
 
 impl UserConfigPath {
+    /// 创建一个由调用方指定路径的用户配置定位器。
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
 
+    /// 返回用户配置文件路径。
     pub fn path(&self) -> &Path {
         &self.0
     }
 
+    /// 读取并解析用户配置文件。
     pub fn load(&self) -> Result<UserRegistry, UserConfigFileError> {
+        // 读取配置文件并保留路径上下文。
         let document = fs::read_to_string(&self.0).map_err(|source| UserConfigFileError::Read {
             path: self.0.clone(),
             source,
         })?;
+        // 校验内容并转换为不可变用户注册表。
         UserRegistry::from_toml(&document).map_err(UserConfigFileError::Invalid)
     }
 }
 
 #[derive(Debug, Error)]
+/// 用户配置文件读取或内容校验失败。
 pub enum UserConfigFileError {
+    /// 无法读取用户配置文件。
     #[error("failed to read user configuration '{path}'")]
     Read {
+        /// 读取失败的文件路径。
         path: PathBuf,
         #[source]
+        /// 底层文件系统错误。
         source: io::Error,
     },
+    /// 文件已读取，但内容未通过用户注册表校验。
     #[error("user configuration validation failed")]
     Invalid(#[source] UserRegistryError),
 }

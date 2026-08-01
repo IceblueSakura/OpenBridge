@@ -74,6 +74,7 @@ pub struct ProbeResult {
     /// 本次 probe 的保守结论。
     pub state: SupportStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// 上游返回的 HTTP status；尚未收到响应时为空。
     pub http_status: Option<u16>,
 }
 
@@ -112,6 +113,7 @@ impl ProbeResult {
     }
 }
 
+/// `/v1/models` probe 的模型列表观察结果。
 #[derive(Debug, Serialize)]
 pub struct ModelListProbeResult {
     /// `/v1/models` 请求本身的结论。
@@ -124,6 +126,7 @@ pub struct ModelListProbeResult {
     pub model_ids: Vec<String>,
 }
 
+/// function calling probe 及其 tool-result replay 的观察结果。
 #[derive(Debug, Serialize)]
 pub struct ToolCallProbeResult {
     /// 初始 function call 请求结论。
@@ -139,23 +142,35 @@ pub struct TargetProbeReport {
     /// 被 probe 的内部 target id。
     pub upstream_target_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// `/v1/models` 的观察结果。
     pub list_models: Option<ModelListProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Chat Completions 文本 probe 的观察结果。
     pub chat: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Responses 文本 probe 的观察结果。
     pub responses: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Chat Completions function calling probe 的观察结果。
     pub chat_function_calling: Option<ToolCallProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Responses function calling probe 的观察结果。
     pub responses_function_calling: Option<ToolCallProbeResult>,
 }
 
 #[derive(Debug, Error)]
+/// probe 准备阶段失败。
 pub enum ProbeError {
+    /// 请求的 Upstream Target 未注册。
     #[error("configured upstream target '{upstream_target}' does not exist")]
-    UnknownUpstreamTarget { upstream_target: String },
+    UnknownUpstreamTarget {
+        /// 未找到的内部 target id。
+        upstream_target: String,
+    },
+    /// 受信 credential source 无法提供所需 secret。
     #[error("upstream credentials are unavailable for probe")]
     CredentialUnavailable,
+    /// adapter 无法为 probe 构造认证 header。
     #[error("provider authentication could not be prepared for probe")]
     AuthenticationPreparation,
 }
@@ -171,6 +186,7 @@ pub async fn probe_upstream_target(
     credentials: &CredentialSource,
     selection: ProbeOptions,
 ) -> Result<TargetProbeReport, ProbeError> {
+    // 从不可变 registry 解析 target，并按其 binding 读取短时 credential。
     let target = registry
         .upstream_target(upstream_target_id)
         .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
@@ -183,6 +199,7 @@ pub async fn probe_upstream_target(
             target.credential().secret_reference().locator(),
         )
         .map_err(|_| ProbeError::CredentialUnavailable)?;
+    // 选择编译期 adapter 并准备 probe 所需的敏感出站 header。
     let adapter = ProviderAdapter::for_kind(target.kind());
     let headers = adapter
         .build_outbound_headers(&credential)
@@ -195,7 +212,7 @@ pub async fn probe_upstream_target(
         max_response_bytes: registry.limits().max_request_body_bytes(),
     };
 
-    // 每项 probe 独立执行；单项失败只体现在该项 outcome，不阻断其余观察。
+    // 独立执行每项 probe；单项失败只体现在该项 outcome，不阻断其余观察。
     let list_models = if selection.list_models {
         Some(session.probe_list_models().await)
     } else {
@@ -246,6 +263,7 @@ struct ProbeSession<'a> {
 
 impl ProbeSession<'_> {
     async fn probe_list_models(&self) -> ModelListProbeResult {
+        // 发送固定模型列表请求并提取 model id。
         match self
             .send_json(self.adapter.prepare_model_list_request())
             .await
@@ -284,6 +302,7 @@ impl ProbeSession<'_> {
     }
 
     async fn probe_text(&self, protocol: ApiProtocol) -> ProbeResult {
+        // 按协议找到 target API，并构造最小文本请求。
         let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
             return ProbeResult {
                 state: SupportStatus::Unsupported,
@@ -295,6 +314,7 @@ impl ProbeSession<'_> {
             upstream_api.upstream_model(),
             self.probe_max_output_tokens(upstream_api),
         );
+        // 仅在响应形状符合目标协议时报告 supported。
         match self.send_protocol_json(protocol, request).await {
             Ok(response) if is_protocol_response(protocol, &response.body) => {
                 ProbeResult::supported(response.status)
@@ -305,6 +325,7 @@ impl ProbeSession<'_> {
     }
 
     async fn probe_function_calling(&self, protocol: ApiProtocol) -> ToolCallProbeResult {
+        // 发送 function call 请求并提取可回放的 tool call。
         let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
             return ToolCallProbeResult {
                 initial_call: ProbeResult {
@@ -339,6 +360,7 @@ impl ProbeSession<'_> {
                 result_replay: None,
             };
         };
+        // 回放 tool result，确认第二个请求仍返回目标协议响应。
         let replay = match self.send_protocol_json(protocol, replay).await {
             Ok(response) if is_protocol_response(protocol, &response.body) => {
                 ProbeResult::supported(response.status)
@@ -357,6 +379,7 @@ impl ProbeSession<'_> {
         protocol: ApiProtocol,
         body: Value,
     ) -> Result<JsonResponse, ProbeResult> {
+        // 序列化 probe body，并交给编译期 adapter 绑定上游模型和相对 path。
         let body = serde_json::to_vec(&body).expect("probe request JSON is serializable");
         let request = ApiRequest::new(protocol, Bytes::from(body));
         let request = self
@@ -369,6 +392,7 @@ impl ProbeSession<'_> {
                     .upstream_model(),
             )
             .expect("compiled provider adapter accepts both probe protocols");
+        // 通过受信 transport 发送并按统一 body 上限解码响应。
         self.send_json(request).await
     }
 
@@ -376,11 +400,13 @@ impl ProbeSession<'_> {
         &self,
         request: crate::provider::PreparedUpstreamRequest,
     ) -> Result<JsonResponse, ProbeResult> {
+        // 发送请求并将 transport failure 转换为保守的 unknown outcome。
         let response = self
             .transport
             .send(self.target, request, self.headers.clone())
             .await
             .map_err(|_| ProbeResult::unknown(None))?;
+        // 校验 status 和 JSON body，避免由无效响应推导 capability 结论。
         decode_json_response(response, self.max_response_bytes).await
     }
 
@@ -403,6 +429,7 @@ async fn decode_json_response(
     response: UpstreamResponse,
     max_response_bytes: usize,
 ) -> Result<JsonResponse, ProbeResult> {
+    // 在配置上限内读取 response body，并先区分 HTTP failure。
     let status = response.status();
     let body = to_bytes(response.into_body(), max_response_bytes)
         .await
@@ -410,6 +437,7 @@ async fn decode_json_response(
     if !status.is_success() {
         return Err(ProbeResult::from_http_status(status));
     }
+    // 只接受合法 JSON，确保 probe 报告不把错误页面当成协议成功。
     let body = serde_json::from_slice(&body).map_err(|_| ProbeResult::unknown(Some(status)))?;
     Ok(JsonResponse { status, body })
 }

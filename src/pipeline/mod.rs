@@ -18,24 +18,34 @@ use crate::{
 /// 请求不能被安全地绑定到兼容 Route 时返回的规划错误。
 #[derive(Debug, Error)]
 pub enum RequestPlanningError {
+    /// 请求 body 不是 JSON object。
     #[error("request body must be a JSON object")]
     InvalidJson,
+    /// 请求缺少非空的 public model。
     #[error("request body must contain a non-empty model")]
     MissingModel,
+    /// 请求的 public model 未在 registry 中注册。
     #[error("requested model is not configured")]
     UnknownModel,
+    /// Public Model 没有可用的 route。
     #[error("configured model has no route candidate")]
     NoRoute,
+    /// route 与请求协议不匹配。
     #[error("selected route does not support this protocol")]
     UnsupportedProtocol,
+    /// route 不支持请求的 streaming 模式。
     #[error("selected route does not support streaming")]
     StreamingUnsupported,
+    /// route 不支持请求声明的 capability。
     #[error("selected route does not support requested capabilities")]
     UnsupportedCapabilities,
+    /// 请求的最大输出超过了生效上限。
     #[error("requested maximum output exceeds the configured model limit")]
     OutputLimitExceeded,
+    /// 模型不支持请求的 reasoning。
     #[error("selected model does not support requested reasoning")]
     ReasoningUnsupported,
+    /// 模型不支持请求的 reasoning level。
     #[error("selected model does not support the requested reasoning level")]
     ReasoningLevelUnsupported,
 }
@@ -90,14 +100,17 @@ enum RequestedReasoning {
 }
 
 impl RequestRequirements {
+    /// 返回下游请求选择的 public model 名称。
     pub fn public_model(&self) -> &str {
         &self.public_model
     }
 
+    /// 返回请求使用的原生协议。
     pub fn protocol(&self) -> ApiProtocol {
         self.protocol
     }
 
+    /// 判断请求是否要求 streaming response。
     pub fn is_streaming(&self) -> bool {
         self.is_streaming
     }
@@ -146,14 +159,17 @@ impl RoutePlan {
 }
 
 impl RouteCandidate {
+    /// 返回候选 route id。
     pub fn route_id(&self) -> &str {
         &self.route_id
     }
 
+    /// 返回候选绑定的 Upstream Target id。
     pub fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
     }
 
+    /// 返回候选绑定的 Upstream API id。
     pub fn upstream_api_id(&self) -> &str {
         &self.upstream_api_id
     }
@@ -171,6 +187,7 @@ pub fn analyze_request(
     protocol: ApiProtocol,
     body: &Bytes,
 ) -> Result<RequestRequirements, RequestPlanningError> {
+    // 解析 JSON object 并提取 public model 与 stream 标志。
     let document: Value =
         serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
     let object = document
@@ -182,6 +199,7 @@ pub fn analyze_request(
         .filter(|model| !model.is_empty())
         .ok_or(RequestPlanningError::MissingModel)?;
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
+    // 根据协议字段推导请求实际使用的 capability。
     let requested_output_tokens = requested_output_tokens(object);
     let requests_function_calling = object
         .get("tools")
@@ -211,6 +229,7 @@ pub fn analyze_request(
         background: protocol == ApiProtocol::Responses
             && object.get("background").and_then(Value::as_bool) == Some(true),
     };
+    // 固化请求事实，后续 route 规划不再重新解释 body。
     Ok(RequestRequirements {
         public_model: public_model.to_owned(),
         protocol,
@@ -230,10 +249,12 @@ pub fn plan_request(
     profile: &RequestRequirements,
     body: Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
+    // 解析 Public Model 的有序 route 引用。
     let routes = registry
         .public_model(profile.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?
         .routes();
+    // 按 route 顺序执行协议、target 状态和 capability gate。
     let mut protocol_mismatch_seen = false;
     let mut first_candidate_error = None;
     let mut prepared_candidates = Vec::new();
@@ -273,6 +294,7 @@ pub fn plan_request(
             request: ApiRequest::new(profile.protocol, body.clone()),
         });
     }
+    // 没有候选时返回最具体的规划错误，否则构造带 fallback 边界的计划。
     if prepared_candidates.is_empty() {
         return Err(first_candidate_error.unwrap_or(if protocol_mismatch_seen {
             RequestPlanningError::UnsupportedProtocol
@@ -374,6 +396,7 @@ fn requests_image_input(protocol: ApiProtocol, object: &serde_json::Map<String, 
     }
 }
 
+/// 判断 content 数组中是否存在指定协议 part type。
 fn content_contains_part_type(content: Option<&Value>, expected_type: &str) -> bool {
     content.and_then(Value::as_array).is_some_and(|parts| {
         parts
@@ -430,6 +453,7 @@ fn requested_reasoning(object: &serde_json::Map<String, Value>) -> RequestedReas
         .unwrap_or(RequestedReasoning::UnknownLevel)
 }
 
+/// 识别 response format、text format 或 strict function tool 对结构化输出的请求。
 fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool {
     object
         .get("response_format")
@@ -445,9 +469,8 @@ fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool 
             .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode))
 }
 
-/// Function strict mode is specified inside `function` for Chat Completions and directly on a
-/// function tool in Responses. The function-calling guide defines strict mode in terms of
-/// Structured Outputs, so either wire shape requires `structured_outputs`.
+/// Chat Completions 将 strict 放在 `function` 内，Responses 则直接放在 function tool 上。
+/// 两种 wire 形状都属于 Structured Outputs 语义，因此都需要 `structured_outputs` 能力。
 fn tool_requests_strict_mode(tool: &Value) -> bool {
     tool.get("strict").and_then(Value::as_bool) == Some(true)
         || tool
@@ -458,6 +481,7 @@ fn tool_requests_strict_mode(tool: &Value) -> bool {
             == Some(true)
 }
 
+/// 判断 format object 是否显式要求非纯文本输出。
 fn is_non_text_format(format: &Value) -> bool {
     format
         .as_object()

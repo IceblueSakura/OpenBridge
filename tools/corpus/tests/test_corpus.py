@@ -1,3 +1,5 @@
+"""验证 canonical corpus 的 schema、语义、生成、报告和打包边界。"""
+
 from __future__ import annotations
 
 import base64

@@ -39,6 +39,7 @@ pub enum ProviderKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// provider 支持的 credential 类型。
 pub enum CredentialKind {
     /// 使用 HTTP Bearer API key。
     ApiKey,
@@ -118,16 +119,22 @@ impl ProviderKind {
 /// provider adapter 在请求、认证、响应或能力校验阶段报告的失败。
 #[derive(Debug, Error)]
 pub enum AdapterError {
+    /// 请求协议不在 adapter 的支持范围内。
     #[error("request protocol is not supported by this provider adapter")]
     UnsupportedProtocol,
+    /// credential 所属 provider 与 adapter 不一致。
     #[error("credential provider does not match the provider adapter")]
     CredentialProviderMismatch,
+    /// 敏感 header 被错误地放入普通 header 集合。
     #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
+    /// 请求声明了 adapter 不支持的 capability。
     #[error("requested capabilities are not supported by the provider adapter")]
     UnsupportedCapabilities,
+    /// 请求正文无法解析或改写为合法 JSON object。
     #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,
+    /// credential 无法编码为合法 HTTP header。
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,
 }
@@ -170,8 +177,11 @@ impl PreparedUpstreamRequest {
 
 /// 已编译 provider adapter 的闭合集合。
 #[derive(Clone, Copy)]
+/// 已编译 provider adapter 的 dispatch 变体。
 pub enum ProviderAdapter {
+    /// OpenAI adapter。
     OpenAi(OpenAiAdapter),
+    /// LongCat adapter。
     LongCat(LongCatAdapter),
 }
 
@@ -213,6 +223,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 按下游协议和上游模型 id 构造相对上游请求。
     pub fn prepare_request(
         &self,
         request: &ApiRequest,
@@ -224,6 +235,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 构造不包含认证材料的安全请求头。
     pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
         match self {
             Self::OpenAi(adapter) => adapter.prepare_headers(),
@@ -231,6 +243,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 构造只在 egress 前附加的敏感认证请求头。
     pub fn prepare_auth_headers(
         &self,
         credential: &CredentialValue,
@@ -241,6 +254,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 判断一个已完成 framing 的 SSE event 是否终止或失败。
     pub fn classify_sse_event(
         &self,
         protocol: ApiProtocol,
@@ -252,6 +266,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 将上游 HTTP status 映射为粗粒度错误和重试边界。
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         match self {
             Self::OpenAi(adapter) => adapter.classify_status(status),
@@ -259,6 +274,7 @@ impl ProviderAdapter {
         }
     }
 
+    /// 在发送请求前校验请求能力是否属于 adapter 的静态上界。
     pub fn validate_capabilities(&self, requested: ApiCapabilities) -> Result<(), AdapterError> {
         match self {
             Self::OpenAi(adapter) => adapter.validate_capabilities(requested),

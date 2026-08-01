@@ -1,3 +1,5 @@
+"""维护 OpenBridge canonical protocol corpus、派生变体、报告和确定性打包。"""
+
 from __future__ import annotations
 
 import base64
@@ -36,24 +38,31 @@ SECRET_PATTERNS = [
 
 
 class CorpusError(RuntimeError):
+    """表示 corpus 内容、schema 或派生输出边界不合法。"""
+
     pass
 
 
 @dataclass(frozen=True)
 class Case:
+    """表示一个由 case.json 描述的 canonical corpus case。"""
+
     path: Path
     data: dict[str, Any]
 
     @property
     def directory(self) -> Path:
+        """返回 case 所在目录。"""
         return self.path.parent
 
     @property
     def case_id(self) -> str:
+        """返回 manifest 中的稳定 case id。"""
         return str(self.data["id"])
 
 
 def load_json(path: Path) -> Any:
+    """读取 JSON，并拒绝重复 object key 或底层文本错误。"""
     try:
         return _loads_json(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
@@ -61,6 +70,7 @@ def load_json(path: Path) -> Any:
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """构造 JSON object，并在同一对象重复 key 时失败。"""
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
@@ -70,22 +80,27 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _loads_json(text: str) -> Any:
+    """使用重复 key 检查解析 JSON 文本。"""
     return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
 
 
 def dump_json(data: Any) -> str:
+    """以稳定排序和 UTF-8 友好的格式序列化 JSON。"""
     return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def sha256_bytes(data: bytes) -> str:
+    """返回 bytes 的十六进制 SHA-256 摘要。"""
     return hashlib.sha256(data).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
+    """读取文件并返回其 SHA-256 摘要。"""
     return sha256_bytes(path.read_bytes())
 
 
 def _schema_validator(root: Path, name: str) -> Draft202012Validator:
+    """加载并检查指定 corpus schema，返回带格式检查器的 validator。"""
     schema_path = root / "schemas" / f"{name}.schema.json"
     schema = load_json(schema_path)
     Draft202012Validator.check_schema(schema)
@@ -95,6 +110,7 @@ def _schema_validator(root: Path, name: str) -> Draft202012Validator:
 def _schema_errors(
     validator: Draft202012Validator, data: Any, label: str
 ) -> list[str]:
+    """将 schema validator 的所有错误转换为稳定、带路径的文本。"""
     errors: list[str] = []
     for error in sorted(validator.iter_errors(data), key=lambda item: list(item.path)):
         location = ".".join(str(part) for part in error.path) or "(root)"
@@ -103,6 +119,7 @@ def _schema_errors(
 
 
 def discover_cases(root: Path) -> list[Case]:
+    """按稳定路径顺序发现 root 下所有 canonical case。"""
     cases_root = root / "cases"
     return [
         Case(path=path, data=load_json(path))
@@ -111,6 +128,7 @@ def discover_cases(root: Path) -> list[Case]:
 
 
 def _resolve_inside(base: Path, relative: str, allowed_root: Path) -> Path:
+    """解析相对路径，并拒绝逃出允许根目录的 artifact 或派生文件。"""
     candidate = (base / relative).resolve()
     resolved_root = allowed_root.resolve()
     if candidate != resolved_root and resolved_root not in candidate.parents:
@@ -119,6 +137,7 @@ def _resolve_inside(base: Path, relative: str, allowed_root: Path) -> Path:
 
 
 def _derived_output(root: Path, output: Path | None, directory: str) -> Path:
+    """解析派生输出目录，并防止覆盖 canonical corpus。"""
     allowed_root = (root / directory).resolve()
     candidate = (output if output is not None else allowed_root).resolve()
     if candidate != allowed_root and allowed_root not in candidate.parents:
@@ -127,6 +146,7 @@ def _derived_output(root: Path, output: Path | None, directory: str) -> Path:
 
 
 def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
+    """解析 SSE bytes，并将每个 event 转成 lint 所需的字典。"""
     text = data.decode("utf-8")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     blocks = normalized.split("\n\n")
@@ -162,6 +182,7 @@ def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
 
 
 def terminal_kinds(data: bytes) -> list[str]:
+    """解析 bytes 并返回按出现顺序记录的 terminal 类型。"""
     terminals: list[str] = []
     for item in _parse_sse_events(data):
         payload = item["data"]
@@ -177,6 +198,7 @@ def terminal_kinds(data: bytes) -> list[str]:
 
 
 def _event_type_conflicts(data: bytes) -> list[tuple[str, str]]:
+    """返回 SSE event 字段与 JSON payload type 不一致的 event 对。"""
     conflicts: list[tuple[str, str]] = []
     for item in _parse_sse_events(data):
         event_name = item["event"]
@@ -188,6 +210,7 @@ def _event_type_conflicts(data: bytes) -> list[tuple[str, str]]:
 
 
 def _events_after_terminal(data: bytes) -> int:
+    """统计首个 terminal event 之后仍出现的 SSE event 数量。"""
     terminal_seen = False
     trailing_events = 0
     for item in _parse_sse_events(data):
@@ -206,6 +229,7 @@ def _events_after_terminal(data: bytes) -> int:
 
 
 def _validate_case_semantics(case: Case, root: Path) -> list[str]:
+    """校验单个 case 的 artifact、transport、feature 和 terminal 语义。"""
     errors: list[str] = []
     data = case.data
     expectation = data["expectation"]
@@ -455,6 +479,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
 
 
 def lint_corpus(root: Path) -> list[str]:
+    """校验 corpus schema、引用、语义、完整性和疑似 secret。"""
     root = root.resolve()
     errors: list[str] = []
     required = [
@@ -554,14 +579,17 @@ def lint_corpus(root: Path) -> list[str]:
 
 
 def _chunk_one_byte(data: bytes) -> list[bytes]:
+    """将 wire 拆成单字节 chunk，覆盖最细粒度的读取边界。"""
     return [data[index : index + 1] for index in range(len(data))]
 
 
 def _chunk_lines(data: bytes) -> list[bytes]:
+    """按换行边界切分 wire，同时保留行结束符。"""
     return data.splitlines(keepends=True) or [data]
 
 
 def _chunk_utf8_split(data: bytes) -> list[bytes]:
+    """优先在多字节 UTF-8 序列中间切分 wire。"""
     for index, value in enumerate(data):
         if value >= 0x80 and index + 1 < len(data):
             return [data[: index + 1], data[index + 1 :]]
@@ -570,6 +598,7 @@ def _chunk_utf8_split(data: bytes) -> list[bytes]:
 
 
 def _chunk_seeded(data: bytes, seed: int) -> list[bytes]:
+    """使用稳定 seed 生成受限随机 chunk 序列。"""
     generator = random.Random(seed)
     chunks: list[bytes] = []
     index = 0
@@ -582,6 +611,7 @@ def _chunk_seeded(data: bytes, seed: int) -> list[bytes]:
 
 
 def _chunk_event_pairs(data: bytes) -> list[bytes]:
+    """按相邻 SSE event 成对组合 chunk，覆盖 event 跨读取边界的情况。"""
     parts = re.split(rb"((?:\r\n|\r|\n){2})", data)
     frames: list[bytes] = []
     for index in range(0, len(parts) - 1, 2):
@@ -594,6 +624,7 @@ def _chunk_event_pairs(data: bytes) -> list[bytes]:
 
 
 def _to_crlf(data: bytes) -> bytes:
+    """将已有换行规范化为 CRLF，避免重复转换产生不同结果。"""
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
 
 
@@ -607,6 +638,7 @@ def _variant_payload(
     chunks: list[bytes],
     transformation: str,
 ) -> dict[str, Any]:
+    """构造并校验一个 wire variant 的摘要、分片和重建元数据。"""
     rebuilt = b"".join(chunks)
     if rebuilt != wire:
         raise CorpusError(f"{case_id}/{artifact}/{kind}: chunks do not reconstruct wire")
@@ -630,6 +662,7 @@ def _variant_payload(
 def generate_variants(
     root: Path, seed: int | None = None, output: Path | None = None
 ) -> dict[str, Any]:
+    """按 recipe 生成确定性的分片、换行和编码 wire 变体。"""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:
@@ -745,6 +778,7 @@ def generate_variants(
 
 
 def build_report(root: Path) -> dict[str, Any]:
+    """汇总 case、feature、状态、来源和生成覆盖率。"""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:
@@ -796,6 +830,7 @@ def build_report(root: Path) -> dict[str, Any]:
 
 
 def write_report(root: Path, output: Path | None = None) -> dict[str, Any]:
+    """构造 corpus 报告，并可选写入受保护的 reports 派生目录。"""
     report = build_report(root)
     if output is not None:
         output = _derived_output(root.resolve(), output, "reports")
@@ -805,6 +840,7 @@ def write_report(root: Path, output: Path | None = None) -> dict[str, Any]:
 
 
 def _packable_files(root: Path) -> Iterable[Path]:
+    """枚举确定性 ZIP 中允许打包的 canonical 文件。"""
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -815,6 +851,7 @@ def _packable_files(root: Path) -> Iterable[Path]:
 
 
 def pack_corpus(root: Path, output: Path | None = None) -> tuple[Path, str]:
+    """校验并生成时间戳固定、摘要可复现的 canonical corpus ZIP。"""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:

@@ -1,3 +1,5 @@
+"""OpenBridge protocol corpus 与独立 mock testkit 的命令行入口。"""
+
 from __future__ import annotations
 
 import argparse
@@ -25,6 +27,7 @@ from .plans import (
 
 
 def _parser() -> argparse.ArgumentParser:
+    """构造 corpus lint/generate/report/pack 和 mock 子命令解析器。"""
     parser = argparse.ArgumentParser(
         description=(
             "Validate and build the standalone protocol corpus, or run its "
@@ -102,6 +105,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _runtime_output(root: Path, output: Path | None, default_name: str) -> Path:
+    """解析并限制派生 runtime 输出路径，防止写出 corpus runtime 边界。"""
     runtime_root = (root / "runtime").resolve()
     candidate = (
         output.resolve() if output is not None else runtime_root / default_name
@@ -115,12 +119,14 @@ def _runtime_output(root: Path, output: Path | None, default_name: str) -> Path:
 def _write_runtime(
     root: Path, output: Path | None, default_name: str, document: dict
 ) -> Path:
+    """以稳定 JSON 格式写入 runtime 派生文档。"""
     path = _runtime_output(root, output, default_name)
     path.write_text(dump_json(document), encoding="utf-8", newline="\n")
     return path
 
 
 async def _run_server(args: argparse.Namespace, root: Path) -> dict:
+    """启动 mock server、等待一个场景或 suite 完成并返回 observation。"""
     document = load_json(args.scenario)
     is_suite = "exchanges" in document
     validate_runtime_document(
@@ -157,6 +163,7 @@ async def _run_server(args: argparse.Namespace, root: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """执行一个 corpus 或 mock testkit 子命令并返回进程退出码。"""
     args = _parser().parse_args(argv)
     root = args.root.resolve()
     try:

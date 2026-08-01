@@ -123,6 +123,7 @@ async fn require_user(
     mut request: Request,
     next: Next,
 ) -> Response {
+    // 提取请求标识和安全审计字段，避免日志依赖未认证的用户对象。
     let request_id = request
         .headers()
         .get("x-request-id")
@@ -131,6 +132,7 @@ async fn require_user(
         .to_owned();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
+    // 解析 Bearer token 并执行 constant-time 用户认证。
     let user = auth::bearer_token(request.headers()).and_then(|token| users.authenticate(token));
     let Some(user) = user else {
         tracing::warn!(%request_id, %method, %path, status = 401, "downstream authentication failed");
@@ -145,6 +147,7 @@ async fn require_user(
         return response;
     };
 
+    // 将已认证用户绑定到 request span，再交给受保护 handler。
     let span = tracing::info_span!(
         "downstream_request",
         %request_id,
@@ -201,6 +204,7 @@ async fn chat_completions(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // 先校验原生 JSON media type，再进入统一 route/egress pipeline。
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
@@ -208,6 +212,7 @@ async fn chat_completions(
 }
 
 async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
+    // 先校验原生 JSON media type，再进入统一 route/egress pipeline。
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
@@ -247,6 +252,7 @@ fn unsupported_media_type() -> Response {
 async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes) -> Response {
     const MAX_UPSTREAM_ATTEMPTS: usize = 2;
 
+    // 分析请求事实并生成带 capability/fallback 边界的 route plan。
     let registry = state.registry.clone();
     let profile = match analyze_request(protocol, &body) {
         Ok(profile) => profile,
@@ -264,6 +270,7 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
         1
     };
 
+    // 按优先级准备每个 candidate 的 target、credential、adapter 和原生请求。
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
@@ -318,6 +325,7 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
                 }
             };
 
+        // 在尚未向下游输出时执行受限重试，并保持 response body 的单一来源。
         for attempt in 0..MAX_UPSTREAM_ATTEMPTS {
             match state
                 .upstream
@@ -391,6 +399,7 @@ fn upstream_response(
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
 ) -> Response {
+    // 提取 status 和安全响应头，并仅对成功 SSE response 启用观察器。
     let status = upstream.status();
     let response_headers = filtered_upstream_headers(upstream.headers());
     let is_sse = upstream
@@ -401,6 +410,7 @@ fn upstream_response(
                 .to_str()
                 .is_ok_and(|value| value.starts_with("text/event-stream"))
         });
+    // 保持非 SSE 或错误 body 原样透传，避免破坏上游诊断语义。
     let body = if validate_sse && status.is_success() && is_sse {
         validate_sse_body(upstream.into_body(), protocol, adapter, max_sse_event_bytes)
     } else {
@@ -426,6 +436,7 @@ fn validate_sse_body(
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
 ) -> axum::body::Body {
+    // 创建保持上游 source 生命周期的增量 SSE decoder。
     let stream = stream::unfold(
         (
             Box::pin(body.into_data_stream()),
@@ -437,6 +448,7 @@ fn validate_sse_body(
             if finished {
                 return None;
             }
+            // 读取下一个上游 chunk，并只观察 framing/terminal，不改写原始 bytes。
             match source.as_mut().next().await {
                 Some(Ok(chunk)) => match decoder.push(&chunk) {
                     Ok(events) => {
@@ -497,6 +509,7 @@ fn observe_sse_events(
     events: Vec<crate::transport::sse::SseEvent>,
     terminal_seen: &mut bool,
 ) -> Result<(), ()> {
+    // 委托 provider adapter 分类 event，并记录是否已看到 terminal。
     for event in events {
         let decoded = adapter
             .classify_sse_event(protocol, event)
@@ -513,6 +526,7 @@ fn observe_sse_events(
 /// 不透传 cookie、认证、连接管理或任意自定义 header；这样上游无法借 proxy 向客户端设置
 /// 会话状态，也不会泄露内部 transport 细节。
 fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
+    // 仅复制协议所需且不会泄露认证/连接状态的响应头。
     let mut filtered = HeaderMap::new();
     for (name, value) in upstream {
         let name_text = name.as_str();

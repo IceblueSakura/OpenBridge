@@ -75,6 +75,7 @@ fn native_route(
     upstream_api: &str,
     downstream_protocol: ApiProtocol,
 ) -> RouteConfig {
+    // 只构造保持下游协议原生一致的 route 定义。
     RouteConfig {
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),

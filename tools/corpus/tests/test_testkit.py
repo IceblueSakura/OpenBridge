@@ -1,3 +1,5 @@
+"""验证 mock server/client testkit 的 HTTP、SSE、取消和错误观察契约。"""
+
 from __future__ import annotations
 
 import asyncio

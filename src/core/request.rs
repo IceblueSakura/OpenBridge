@@ -1,5 +1,11 @@
+//! 下游原生协议和已通过 HTTP 基础检查的请求值对象。
+//!
+//! `ApiRequest` 保留未经 provider 改写的 JSON bytes；只有 adapter 在确定 route 后才负责
+//! 生成上游相对请求。
+
 use bytes::Bytes;
 
+/// OpenAI-compatible 下游请求所使用的原生协议。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiProtocol {
     /// OpenAI Chat Completions 协议。

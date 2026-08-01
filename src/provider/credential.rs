@@ -70,9 +70,12 @@ impl fmt::Debug for CredentialValue {
 }
 
 #[derive(Debug, Error)]
+/// credential source 解析或 binding 校验失败。
 pub enum CredentialSourceError {
+    /// 环境变量不存在、为空或其他来源暂时没有 secret。
     #[error("upstream credential is unavailable")]
     Unavailable,
+    /// 固定测试 credential 的 locator 与注册表不一致。
     #[error("static upstream credential does not match the configured binding")]
     BindingMismatch,
 }
@@ -81,9 +84,13 @@ pub enum CredentialSourceError {
 ///
 /// `Fixed` 仅用于受控测试或显式注入；生产路径通常使用 [`CredentialSource::Environment`]。
 pub enum CredentialSource {
+    /// 每次 resolve 时从注册表指定的环境变量读取 secret。
     Environment,
+    /// 仅用于受控测试或显式注入的固定 secret。
     Fixed {
+        /// 固定来源必须匹配的 locator。
         locator: String,
+        /// 固定来源持有的 secret。
         secret: SecretString,
     },
 }
@@ -109,6 +116,7 @@ impl CredentialSource {
         binding_id: &str,
         locator: &str,
     ) -> Result<CredentialValue, CredentialSourceError> {
+        // 按来源读取 secret，并验证固定来源的 locator binding。
         let (secret, version) = match self {
             Self::Environment => {
                 let secret = env::var(locator).map_err(|_| CredentialSourceError::Unavailable)?;
@@ -130,6 +138,7 @@ impl CredentialSource {
                 )
             }
         };
+        // 将 secret 封装为一次调用范围内的 credential value。
         Ok(CredentialValue::new(provider, binding_id, version, secret))
     }
 }

@@ -23,14 +23,27 @@ const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
 /// bootstrap 配置解析、版本或安全边界校验失败。
 #[derive(Debug, Error)]
 pub enum BootstrapConfigError {
+    /// TOML 文档无法解析为 bootstrap 配置。
     #[error("invalid bootstrap configuration")]
     Parse,
+    /// 文档声明了当前运行时不支持的 schema 版本。
     #[error("unsupported bootstrap schema version {actual}")]
-    UnsupportedSchema { actual: u32 },
+    UnsupportedSchema {
+        /// 文档中声明的 schema 版本。
+        actual: u32,
+    },
+    /// 监听地址不是 loopback socket 地址。
     #[error("listen address '{listen}' must be a valid loopback socket address")]
-    NonLoopbackListen { listen: String },
+    NonLoopbackListen {
+        /// 未通过 loopback 校验的原始地址。
+        listen: String,
+    },
+    /// 某个运行时限制为零，无法提供有效边界。
     #[error("runtime limit '{name}' must be greater than zero")]
-    InvalidLimit { name: &'static str },
+    InvalidLimit {
+        /// 失败的限制项名称。
+        name: &'static str,
+    },
 }
 
 /// 启动阶段解析出的不可变进程配置。
@@ -112,12 +125,14 @@ impl HttpClientConfig {
 ///
 /// 该函数只产生启动配置，不会注册 provider、model、target、upstream API 或 route。
 pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, BootstrapConfigError> {
+    // 解析 bootstrap 文档并确认 schema 版本。
     let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapConfigError::Parse)?;
     if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {
         return Err(BootstrapConfigError::UnsupportedSchema {
             actual: raw.schema_version,
         });
     }
+    // 校验所有内存、超时和连接池限制均可提供有效边界。
     validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
     validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
     validate_nonzero(
@@ -132,6 +147,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         "upstream_pool_max_idle_per_host",
         raw.upstream_pool_max_idle_per_host,
     )?;
+    // 解析并限制监听地址为 loopback，避免 bootstrap 直接暴露服务。
     let listen = raw
         .listen
         .parse::<SocketAddr>()
@@ -141,6 +157,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             listen: raw.listen.clone(),
         })?;
 
+    // 将原始字段转换成运行时值对象。
     Ok(BootstrapConfig {
         listen,
         users_file: raw.users_file,

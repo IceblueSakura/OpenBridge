@@ -1,3 +1,5 @@
+"""使用 h11 执行独立的 HTTP mock client，并记录原始响应观察结果。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +19,7 @@ from .sse import IncrementalSseParser, SseEvent
 def _text_headers(
     headers: list[tuple[bytes, bytes]], *, redact: bool = True
 ) -> list[list[str]]:
+    """将 HTTP header 转为文本，并按安全边界脱敏敏感值。"""
     result: list[list[str]] = []
     for raw_name, raw_value in headers:
         name = raw_name.decode("ascii", errors="replace").lower()
@@ -28,6 +31,7 @@ def _text_headers(
 
 
 async def run_mock_client(plan: dict[str, Any]) -> dict[str, Any]:
+    """按预编译 client plan 发起请求并返回可校验的 observation。"""
     parsed = urlsplit(plan["url"])
     if parsed.scheme != "http" or not parsed.hostname:
         raise CorpusError("mock client currently supports absolute http:// URLs only")

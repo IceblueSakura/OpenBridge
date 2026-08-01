@@ -17,18 +17,23 @@ use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
 /// 上游 transport 在构造 client、发送请求或读取超时边界时报告的错误。
 #[derive(Debug, Error)]
 pub enum TransportError {
+    /// reqwest client 无法按 bootstrap 策略创建。
     #[error("failed to construct the upstream HTTP client")]
     ClientBuild(#[source] reqwest::Error),
+    /// 上游请求在发送或接收过程中失败。
     #[error("upstream request failed")]
     Request(#[source] reqwest::Error),
+    /// 上游请求超过 target 的超时时间。
     #[error("upstream request timed out")]
     Timeout,
+    /// adapter 生成了带 authority、scheme 或非法 path 的 URI。
     #[error("provider adapter produced an invalid relative upstream target")]
     InvalidTarget,
 }
 
 /// ingress 与真实 HTTP client/测试 transport 之间的最小发送契约。
 pub trait UpstreamTransport: Send + Sync {
+    /// 将 adapter 请求发送到指定 target，并保留流式响应 body。
     fn send<'a>(
         &'a self,
         target: &'a UpstreamTarget,
@@ -69,7 +74,9 @@ impl UpstreamClient {
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> Result<UpstreamResponse, TransportError> {
+        // 将 adapter 相对 URI 与已校验 endpoint base 合成为受信 URL。
         let url = resolve_upstream_url(target.endpoint_base(), request.relative_uri())?;
+        // 交给共享 client 发送，并保留流式响应 body。
         self.send_request(UpstreamRequest::new(
             url,
             request.method().clone(),
@@ -84,6 +91,7 @@ impl UpstreamClient {
         &self,
         request: UpstreamRequest,
     ) -> Result<UpstreamResponse, TransportError> {
+        // 应用 target 超时和连接池 client，发送不跟随重定向的请求。
         let response = self
             .client
             .request(request.method, request.url)
@@ -99,6 +107,7 @@ impl UpstreamClient {
                     TransportError::Request(error)
                 }
             })?;
+        // 复制 status/header，并将 response stream 交给上层消费。
         let status = response.status();
         let headers = response.headers().clone();
         let body = Body::from_stream(response.bytes_stream());

@@ -10,8 +10,10 @@ use thiserror::Error;
 /// SSE framing 或单事件大小校验失败。
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum SseDecodeError {
+    /// 当前 event 累积的字节数超过配置上限。
     #[error("SSE event exceeds the configured size limit")]
     EventTooLarge,
+    /// SSE 字段不是合法 UTF-8。
     #[error("SSE field is not valid UTF-8")]
     InvalidUtf8,
 }
@@ -71,6 +73,7 @@ impl SseDecoder {
 
     /// 向 decoder 写入网络 chunk，并返回已经完成的 event。
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<SseEvent>, SseDecodeError> {
+        // 缓存 chunk 并按换行拆分完整 SSE line。
         self.buffered.extend_from_slice(chunk);
         let mut events = Vec::new();
 
@@ -89,6 +92,7 @@ impl SseDecoder {
                 raw_line.truncate(raw_line.len() - 1);
             }
 
+            // 处理空行结束的 event、注释行和普通 UTF-8 字段。
             if raw_line.is_empty() {
                 if let Some(event) = self.current.take_event() {
                     events.push(event);
@@ -105,12 +109,14 @@ impl SseDecoder {
             self.current.apply_line(line);
         }
 
+        // 检查尚未结束的 line/event 是否已超出总大小上限。
         self.ensure_size_limit()?;
         Ok(events)
     }
 
     /// 标记输入结束，并返回 EOF 前已完成的 event。
     pub fn finish(&mut self) -> Result<Vec<SseEvent>, SseDecodeError> {
+        // 将 EOF 前残留的无换行内容作为最后一行处理。
         if !self.buffered.is_empty() {
             self.current_bytes = self
                 .current_bytes
@@ -131,6 +137,7 @@ impl SseDecoder {
             }
         }
 
+        // 清理计数并只返回已有字段的最后一个 event。
         self.current_bytes = 0;
         Ok(self.current.take_event().into_iter().collect())
     }
@@ -155,6 +162,7 @@ struct EventBuilder {
 
 impl EventBuilder {
     fn apply_line(&mut self, line: &str) {
+        // 解析 field/value，并忽略 SSE 协议未建模的字段。
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
         let value = value.strip_prefix(' ').unwrap_or(value);
 
@@ -182,6 +190,7 @@ impl EventBuilder {
     }
 
     fn take_event(&mut self) -> Option<SseEvent> {
+        // 空事件不产生输出，完整事件则一次性转移字段所有权。
         if !self.has_fields {
             return None;
         }

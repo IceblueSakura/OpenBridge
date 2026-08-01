@@ -1,3 +1,5 @@
+"""基于 h11 的独立 HTTP mock server 与双向协议 observation 记录器。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +26,7 @@ SENSITIVE_HEADERS = {
 def _headers_as_text(
     headers: list[tuple[bytes, bytes]], *, redact: bool
 ) -> list[list[str]]:
+    """将请求/响应 header 转为 observation 文本并按需脱敏。"""
     result: list[list[str]] = []
     for raw_name, raw_value in headers:
         name = raw_name.decode("ascii", errors="replace").lower()
@@ -35,6 +38,8 @@ def _headers_as_text(
 
 
 class MockServer:
+    """按预编译 scenario 顺序响应请求，并拒绝未声明的 exchange。"""
+
     def __init__(
         self,
         scenario: dict[str, Any],
@@ -70,6 +75,7 @@ class MockServer:
         self._next_exchange = 0
 
     async def start(self) -> int:
+        """绑定监听 socket，返回实际端口。"""
         self._server = await asyncio.start_server(
             self._handle_connection, self.host, self.port
         )
@@ -78,6 +84,7 @@ class MockServer:
         return self.bound_port
 
     async def wait(self, timeout: float = 30.0) -> dict[str, Any]:
+        """等待单 exchange 场景完成并返回该场景 observation。"""
         if len(self.scenarios) != 1:
             raise CorpusError("wait() is only valid for a single exchange")
         await asyncio.wait_for(self._finished.wait(), timeout=timeout)
@@ -85,11 +92,13 @@ class MockServer:
         return self.observation
 
     async def wait_all(self, timeout: float = 30.0) -> list[dict[str, Any]]:
+        """等待所有 exchange 完成并按 scenario 顺序返回 observations。"""
         await asyncio.wait_for(self._finished.wait(), timeout=timeout)
         assert all(item is not None for item in self.observations)
         return [item for item in self.observations if item is not None]
 
     async def close(self) -> None:
+        """停止 server，等待监听 socket 完成关闭。"""
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -97,6 +106,7 @@ class MockServer:
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        """处理 health、协议错误和按顺序 claim 的 fixture exchange。"""
         started_at_ns = time.monotonic_ns()
         connection = h11.Connection(h11.SERVER)
         request_event: h11.Request | None = None
@@ -183,6 +193,7 @@ class MockServer:
     async def _claim_exchange(
         self,
     ) -> tuple[int | None, dict[str, Any] | None]:
+        """在锁内按顺序领取一个 exchange，防止并发请求复用同一 fixture。"""
         async with self._claim_lock:
             if self._next_exchange >= len(self.scenarios):
                 return None, None
@@ -193,6 +204,7 @@ class MockServer:
     async def _read_request(
         self, connection: h11.Connection, reader: asyncio.StreamReader
     ) -> tuple[h11.Request, list[bytes]]:
+        """增量读取完整 HTTP request，并保留原始 body chunks。"""
         request: h11.Request | None = None
         body: list[bytes] = []
         while True:
@@ -221,6 +233,7 @@ class MockServer:
         writer: asyncio.StreamWriter,
         exchange: dict[str, Any],
     ) -> None:
+        """按 scenario 写入 status、headers、分片和 complete/abort 终止方式。"""
         response = exchange["response"]
         headers = [
             (name.encode("ascii"), value.encode("latin-1"))
@@ -255,6 +268,7 @@ class MockServer:
         status: int,
         document: dict[str, Any],
     ) -> None:
+        """发送确定性 JSON error/health response。"""
         body = json.dumps(
             document, ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
@@ -274,6 +288,7 @@ class MockServer:
         status: int,
         code: str,
     ) -> None:
+        """将 mock server 请求错误编码为标准化 JSON error response。"""
         await self._write_json_response(
             connection,
             writer,
@@ -297,6 +312,7 @@ class MockServer:
         client_disconnected: bool,
         started_at_ns: int,
     ) -> dict[str, Any]:
+        """依据 HTTP、SSE terminal 和断连状态构造脱敏 observation。"""
         response = exchange["response"]
         response_wire = b"".join(
             base64.b64decode(value) for value in response["chunks_base64"]
