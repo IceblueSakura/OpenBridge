@@ -32,7 +32,8 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 text、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、continuation、hosted/custom tool、
 reasoning、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用两 Provider
-各自的 Native API，尚未注册真实异构协议 Provider。
+各自的 Native API，尚未注册真实异构协议 Provider。每个已认证请求在 response body 正常 EOF、流错误或
+下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
 
@@ -51,7 +52,8 @@ cargo run --bin openbridge --locked
 
 服务与 `openbridge-probe` 会可选加载当前目录或父目录中的 `.env`；已有进程环境变量优先。
 `.env` 与 `config/users.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。用户、API Key、
-Provider、Model 和 Route 均只在启动时加载，变更需要重启进程。
+Provider、Model 和 Route 均只在启动时加载，变更需要重启进程。请求观测不保存业务正文或 credential；
+request/user/route/target 只作为 trace 诊断字段，不进入进程内统计标签。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -75,7 +77,13 @@ Provider 的受信 request-header hook 可从下游选择显式允许的普通 h
 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
 
-下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`，缺失的必需上游 Key 会阻止启动；运行时不重新读取文件或环境变量，轮换必须重启。认证成功后请求日志记录 request id、user id、协议、Public Model、HTTP status 和 response-start latency，不记录 API Key 或业务正文。调用量和 Provider usage/token 聚合尚未实现。
+下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`，缺失的必需上游 Key 会阻止启动；运行时不重新读取文件或环境变量，轮换必须重启。
+
+认证成功后的请求 span 记录 request id、user id、协议和 Public Model；每次上游 attempt 记录 route、target、
+Provider 与脱敏 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个
+text/tool 增量、总耗时、retry/fallback/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
+保留低基数请求终态、attempt 结果和 token 总量，可通过 `GatewayMetrics::snapshot` 读取；OpenTelemetry/Prometheus
+exporter、持久化和分布式聚合尚未实现。
 
 ## 验证基线
 

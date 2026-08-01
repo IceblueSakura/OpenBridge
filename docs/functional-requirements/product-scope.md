@@ -22,6 +22,8 @@ credential、endpoint 和内部 Route。
 - Route 按完整协议、能力、模型限制和状态亲和要求确定性筛选；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
+- 已认证请求在 response body 的实际完成、流错误或下游取消边界产生一次脱敏终态观测；高基数诊断事实只进入
+  trace，进程内统计只累计低基数终态、attempt 结果和 Provider 明确返回的 usage；
 - 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
 
 ## 部署与信任边界
@@ -48,7 +50,7 @@ credential、endpoint 和内部 Route。
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
-- 调用统计、usage 聚合、TTFT/TTFB 和指标导出；
+- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 

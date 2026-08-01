@@ -56,6 +56,11 @@ impl AttemptManager {
         true
     }
 
+    /// 返回本请求已经实际开始的 attempt 数量。
+    pub(super) fn attempts_started(&self) -> usize {
+        self.attempts_started
+    }
+
     /// 根据剩余未尝试候选数选择 retry、fallback 或结束。
     ///
     /// 当前候选只有在预算仍能容纳剩余候选时才可重试；无论 Route 数量如何，请求级硬

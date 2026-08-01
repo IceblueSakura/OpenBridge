@@ -10,10 +10,15 @@ mod attempt;
 mod auth;
 mod health;
 
-use std::{io, sync::Arc, time::Instant};
+use std::{
+    io,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::to_bytes,
     extract::{Request, State},
     middleware::{self, Next},
@@ -26,6 +31,7 @@ use http::{
     HeaderMap, HeaderName, StatusCode,
     header::{AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER, WWW_AUTHENTICATE},
 };
+use http_body::{Body as HttpBody, Frame, SizeHint};
 use serde::Serialize;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -40,6 +46,7 @@ use crate::{
     core::ApiProtocol,
     credential::CredentialStore,
     identity::UserRegistry,
+    observability::{GatewayMetrics, RequestObservation, UsageCapture},
     pipeline::{RequestPlanningError, analyze_request, plan_request},
     provider::{ProviderAdapter, StreamEventStatus},
     registry::RuntimeRegistry,
@@ -65,6 +72,7 @@ pub struct GatewayState {
     users: Arc<UserRegistry>,
     credentials: Arc<CredentialStore>,
     health: Arc<TargetHealth>,
+    metrics: GatewayMetrics,
 }
 
 impl GatewayState {
@@ -81,7 +89,13 @@ impl GatewayState {
             users,
             credentials,
             health: Arc::new(TargetHealth::default()),
+            metrics: GatewayMetrics::default(),
         }
+    }
+
+    /// 返回共享的进程内低基数累计值句柄，供 exporter 或测试读取快照。
+    pub fn metrics(&self) -> GatewayMetrics {
+        self.metrics.clone()
     }
 }
 
@@ -89,6 +103,9 @@ impl GatewayState {
 struct DownstreamAuthState {
     users: Arc<UserRegistry>,
     credentials: Arc<CredentialStore>,
+    metrics: GatewayMetrics,
+    max_json_body_bytes: usize,
+    max_sse_event_bytes: usize,
 }
 
 /// 构造公开 health endpoint 与受静态 Bearer 保护的 OpenAI-compatible API。
@@ -115,6 +132,9 @@ pub fn build_router(state: GatewayState) -> Router {
             DownstreamAuthState {
                 users: state.users.clone(),
                 credentials: state.credentials.clone(),
+                metrics: state.metrics.clone(),
+                max_json_body_bytes: state.registry.limits().max_request_body_bytes(),
+                max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
             },
             require_user,
         ));
@@ -165,18 +185,162 @@ async fn require_user(
         %path,
         protocol = tracing::field::Empty,
         public_model = tracing::field::Empty,
+        status = tracing::field::Empty,
     );
+    let observation = RequestObservation::new(auth.metrics.clone(), span.clone());
+    let mut lifecycle = RequestLifecycleGuard::new(observation.clone());
     request.extensions_mut().insert(user);
-    let started = Instant::now();
-    let response = tracing::Instrument::instrument(next.run(request), span.clone()).await;
-    span.in_scope(|| {
-        tracing::info!(
-            status = response.status().as_u16(),
-            response_started_ms = started.elapsed().as_millis() as u64,
-            "downstream response started"
-        );
-    });
+    request.extensions_mut().insert(observation.clone());
+    let mut response = tracing::Instrument::instrument(next.run(request), span).await;
+    observation.record_response_ready(response.status());
+    observe_response_body(
+        &mut response,
+        observation,
+        auth.max_json_body_bytes,
+        auth.max_sse_event_bytes,
+    );
+    lifecycle.handoff_to_body();
     response
+}
+
+/// 在 response body 建立前捕获 middleware future 被取消的请求。
+struct RequestLifecycleGuard {
+    observation: Option<RequestObservation>,
+}
+
+impl RequestLifecycleGuard {
+    /// 创建仍由 request future 负责的生命周期 guard。
+    fn new(observation: RequestObservation) -> Self {
+        Self {
+            observation: Some(observation),
+        }
+    }
+
+    /// response body wrapper 建立后移交取消和终态责任。
+    fn handoff_to_body(&mut self) {
+        self.observation.take();
+    }
+}
+
+impl Drop for RequestLifecycleGuard {
+    fn drop(&mut self) {
+        // pending send、backoff 或 handler 阶段被取消时尚无 body wrapper，必须在这里收口。
+        if let Some(observation) = self.observation.take() {
+            observation.cancel();
+        }
+    }
+}
+
+/// 用不改写字节的外层 stream 在真实 EOF、错误或 drop 时结束请求观测。
+fn observe_response_body(
+    response: &mut Response,
+    observation: RequestObservation,
+    max_json_body_bytes: usize,
+    max_sse_event_bytes: usize,
+) {
+    // 只为成功 JSON/SSE response 创建有界 usage 解析器。
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    let usage = if response.status().is_success() {
+        UsageCapture::for_response(content_type, max_json_body_bytes, max_sse_event_bytes)
+    } else {
+        UsageCapture::None
+    };
+    let body = std::mem::replace(response.body_mut(), axum::body::Body::empty());
+    *response.body_mut() =
+        axum::body::Body::new(RequestBodyObserver::new(body, observation, usage));
+}
+
+/// 保留原始 HTTP frame，并在 body 的实际消费边界提交请求终态。
+struct RequestBodyObserver {
+    body: axum::body::Body,
+    observation: RequestObservation,
+    usage: UsageCapture,
+    finished: bool,
+}
+
+impl RequestBodyObserver {
+    /// 创建尚未产生首字节或终态的透明 body wrapper。
+    fn new(body: axum::body::Body, observation: RequestObservation, usage: UsageCapture) -> Self {
+        Self {
+            body,
+            observation,
+            usage,
+            finished: false,
+        }
+    }
+
+    fn complete(&mut self) {
+        // 正常 EOF 先提交最后一个 usage event，再提交请求终态。
+        if self.finished {
+            return;
+        }
+        self.usage.finish(&self.observation);
+        self.observation.finish();
+        self.finished = true;
+    }
+
+    fn fail(&mut self, kind: &'static str) {
+        // body error 已是最终可见边界，不能等待下一次 poll 才记录。
+        if self.finished {
+            return;
+        }
+        self.observation.record_stream_failure(kind);
+        self.observation.finish();
+        self.finished = true;
+    }
+}
+
+impl HttpBody for RequestBodyObserver {
+    type Data = Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let observer = self.get_mut();
+        // 保留所有 data/trailer frame，只在 data frame 上观察首字节和 usage。
+        match Pin::new(&mut observer.body).poll_frame(context) {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(chunk) = frame.data_ref() {
+                    if !chunk.is_empty() {
+                        observer.observation.record_first_body_byte();
+                    }
+                    observer.usage.observe_chunk(&observer.observation, chunk);
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                observer.fail("body_error");
+                Poll::Ready(Some(Err(error)))
+            }
+            Poll::Ready(None) => {
+                observer.complete();
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+}
+
+impl Drop for RequestBodyObserver {
+    fn drop(&mut self) {
+        // 未到 EOF 且未产生 body error 表示下游不再消费 response。
+        if !self.finished {
+            self.observation.cancel();
+        }
+    }
 }
 
 async fn models(State(state): State<GatewayState>) -> Json<ModelListResponse> {
@@ -210,6 +374,7 @@ struct PublicModel {
 
 async fn chat_completions(
     State(state): State<GatewayState>,
+    Extension(observation): Extension<RequestObservation>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -217,15 +382,27 @@ async fn chat_completions(
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_request(state, ApiProtocol::ChatCompletions, headers, body).await
+    forward_request(
+        state,
+        observation,
+        ApiProtocol::ChatCompletions,
+        headers,
+        body,
+    )
+    .await
 }
 
-async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn responses(
+    State(state): State<GatewayState>,
+    Extension(observation): Extension<RequestObservation>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     // 先校验原生 JSON media type，再进入统一 route/egress pipeline。
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_request(state, ApiProtocol::Responses, headers, body).await
+    forward_request(state, observation, ApiProtocol::Responses, headers, body).await
 }
 
 fn has_json_content_type(headers: &HeaderMap) -> bool {
@@ -260,6 +437,7 @@ fn unsupported_media_type() -> Response {
 /// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
 async fn forward_request(
     state: GatewayState,
+    observation: RequestObservation,
     protocol: ApiProtocol,
     downstream_headers: HeaderMap,
     body: Bytes,
@@ -270,8 +448,7 @@ async fn forward_request(
         Ok(profile) => profile,
         Err(error) => return route_error(error),
     };
-    tracing::Span::current().record("protocol", tracing::field::debug(protocol));
-    tracing::Span::current().record("public_model", profile.public_model());
+    observation.record_request(protocol, profile.public_model());
     let plan = match plan_request(&registry, &profile, body) {
         Ok(plan) => plan,
         Err(error) => return route_error(error),
@@ -306,6 +483,7 @@ async fn forward_request(
             )
         {
             cooldown_skipped = true;
+            observation.record_cooldown_skip(candidate.upstream_target_id());
             continue;
         }
         let Some(upstream_api) = target.upstream_api(candidate.upstream_api_id()) else {
@@ -360,6 +538,13 @@ async fn forward_request(
                     "The upstream attempt budget was exhausted",
                 );
             }
+            observation.record_attempt(
+                attempts.attempts_started() as u64,
+                candidate.route_id(),
+                candidate.upstream_target_id(),
+                target.kind(),
+                candidate.bridge().is_some(),
+            );
             match state
                 .upstream
                 .send(target, request.clone(), headers.clone())
@@ -367,6 +552,10 @@ async fn forward_request(
             {
                 Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
                     // 在选择 retry/fallback 前记录跨请求 cooldown，但不改变本请求局部 retry 预算。
+                    observation.record_attempt_http_result(
+                        attempts.attempts_started() as u64,
+                        upstream.status(),
+                    );
                     let classification = adapter.classify_status(upstream.status());
                     state.health.record_http_failure(
                         candidate.upstream_target_id(),
@@ -379,21 +568,26 @@ async fn forward_request(
                     match attempts.next_step(untried_candidates) {
                         AttemptStep::RetryCandidate => {
                             attempts.wait_before_next_attempt().await;
+                            observation.record_retry();
                             continue;
                         }
                         AttemptStep::NextCandidate => {
                             attempts.wait_before_next_attempt().await;
+                            observation.record_fallback();
                             continue 'candidates;
                         }
                         AttemptStep::Finish => {
                             return upstream_response(
                                 upstream,
-                                plan.is_streaming(),
-                                protocol,
-                                adapter,
-                                registry.limits().max_sse_event_bytes(),
-                                registry.limits().max_request_body_bytes(),
-                                candidate.bridge().cloned(),
+                                UpstreamResponseContext {
+                                    validate_sse: plan.is_streaming(),
+                                    protocol,
+                                    adapter,
+                                    max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
+                                    max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                                    bridge: candidate.bridge().cloned(),
+                                    observation: observation.clone(),
+                                },
                             )
                             .await;
                         }
@@ -401,6 +595,10 @@ async fn forward_request(
                 }
                 Ok(upstream) => {
                     // 只有成功 HTTP response 才清除该 target 的已知 cooldown。
+                    observation.record_attempt_http_result(
+                        attempts.attempts_started() as u64,
+                        upstream.status(),
+                    );
                     if upstream.status().is_success() {
                         state
                             .health
@@ -408,17 +606,24 @@ async fn forward_request(
                     }
                     return upstream_response(
                         upstream,
-                        plan.is_streaming(),
-                        protocol,
-                        adapter,
-                        registry.limits().max_sse_event_bytes(),
-                        registry.limits().max_request_body_bytes(),
-                        candidate.bridge().cloned(),
+                        UpstreamResponseContext {
+                            validate_sse: plan.is_streaming(),
+                            protocol,
+                            adapter,
+                            max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
+                            max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                            bridge: candidate.bridge().cloned(),
+                            observation: observation.clone(),
+                        },
                     )
                     .await;
                 }
                 Err(error) if should_retry_error(&error) => {
                     // timeout/transport failure 只隔离 fault domain，不污染 quota scope。
+                    observation.record_attempt_transport_failure(
+                        attempts.attempts_started() as u64,
+                        transport_error_kind(&error),
+                    );
                     state.health.record_transport_failure(
                         candidate.upstream_target_id(),
                         target,
@@ -428,16 +633,24 @@ async fn forward_request(
                     match attempts.next_step(untried_candidates) {
                         AttemptStep::RetryCandidate => {
                             attempts.wait_before_next_attempt().await;
+                            observation.record_retry();
                             continue;
                         }
                         AttemptStep::NextCandidate => {
                             attempts.wait_before_next_attempt().await;
+                            observation.record_fallback();
                             continue 'candidates;
                         }
                         AttemptStep::Finish => return upstream_error(error),
                     }
                 }
-                Err(error) => return upstream_error(error),
+                Err(error) => {
+                    observation.record_attempt_transport_failure(
+                        attempts.attempts_started() as u64,
+                        transport_error_kind(&error),
+                    );
+                    return upstream_error(error);
+                }
             }
         }
     }
@@ -465,20 +678,45 @@ fn should_retry_error(error: &TransportError) -> bool {
     matches!(error, TransportError::Timeout | TransportError::Request(_))
 }
 
+fn transport_error_kind(error: &TransportError) -> &'static str {
+    match error {
+        TransportError::ClientBuild(_) => "client_build",
+        TransportError::Request(_) => "request",
+        TransportError::Timeout => "timeout",
+        TransportError::InvalidTarget => "invalid_target",
+    }
+}
+
 /// 将上游 status、安全响应头和 Native/Bridged body 交给下游。
 ///
 /// SSE 仅在原请求要求 streaming、上游返回成功状态且 `Content-Type` 确为
 /// `text/event-stream` 时验证。错误响应即使对应 streaming request 也可能是 JSON 或其他
 /// 诊断 body；对其做 SSE 解码会破坏可见的 HTTP 错误语义。
-async fn upstream_response(
-    upstream: crate::transport::upstream::UpstreamResponse,
+/// 一次已选定候选的响应转换、SSE 和观测上下文。
+struct UpstreamResponseContext {
     validate_sse: bool,
     protocol: ApiProtocol,
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
     max_json_body_bytes: usize,
     bridge: Option<BridgePlan>,
+    observation: RequestObservation,
+}
+
+async fn upstream_response(
+    upstream: crate::transport::upstream::UpstreamResponse,
+    context: UpstreamResponseContext,
 ) -> Response {
+    // 拆分已固定的响应处理事实，避免函数调用点遗漏协议或观测边界。
+    let UpstreamResponseContext {
+        validate_sse,
+        protocol,
+        adapter,
+        max_sse_event_bytes,
+        max_json_body_bytes,
+        bridge,
+        observation,
+    } = context;
     // 提取 status 和安全响应头，并仅对成功 SSE response 启用观察器。
     let status = upstream.status();
     let response_headers = filtered_upstream_headers(upstream.headers());
@@ -506,7 +744,13 @@ async fn upstream_response(
                 max_sse_event_bytes,
             )
         } else {
-            validate_sse_body(upstream.into_body(), protocol, adapter, max_sse_event_bytes)
+            validate_sse_body(
+                upstream.into_body(),
+                protocol,
+                adapter,
+                max_sse_event_bytes,
+                observation,
+            )
         }
     } else if status.is_success() {
         if let Some(bridge) = bridge {
@@ -653,6 +897,7 @@ fn validate_sse_body(
     protocol: ApiProtocol,
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
+    observation: RequestObservation,
 ) -> axum::body::Body {
     // 创建保持上游 source 生命周期的增量 SSE decoder。
     let stream = stream::unfold(
@@ -661,8 +906,9 @@ fn validate_sse_body(
             SseDecoder::new(max_sse_event_bytes),
             false,
             false,
+            observation,
         ),
-        move |(mut source, mut decoder, mut terminal_seen, finished)| async move {
+        move |(mut source, mut decoder, mut terminal_seen, finished, observation)| async move {
             if finished {
                 return None;
             }
@@ -670,39 +916,52 @@ fn validate_sse_body(
             match source.as_mut().next().await {
                 Some(Ok(chunk)) => match decoder.push(&chunk) {
                     Ok(events) => {
-                        match observe_sse_events(adapter, protocol, events, &mut terminal_seen) {
+                        match observe_sse_events(
+                            adapter,
+                            protocol,
+                            events,
+                            &mut terminal_seen,
+                            &observation,
+                        ) {
                             Ok(()) => Some((
                                 Ok::<_, io::Error>(chunk),
-                                (source, decoder, terminal_seen, false),
+                                (source, decoder, terminal_seen, false, observation),
                             )),
                             Err(()) => Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, terminal_seen, true),
+                                (source, decoder, terminal_seen, true, observation),
                             )),
                         }
                     }
                     Err(_) => Some((
                         Err(io::Error::other("upstream SSE stream is invalid")),
-                        (source, decoder, terminal_seen, true),
+                        (source, decoder, terminal_seen, true, observation),
                     )),
                 },
                 Some(Err(_)) => Some((
                     Err(io::Error::other(
                         "upstream SSE stream terminated unexpectedly",
                     )),
-                    (source, decoder, terminal_seen, true),
+                    (source, decoder, terminal_seen, true, observation),
                 )),
                 None => match decoder.finish() {
                     Ok(events) => {
-                        if observe_sse_events(adapter, protocol, events, &mut terminal_seen)
-                            .is_err()
+                        if observe_sse_events(
+                            adapter,
+                            protocol,
+                            events,
+                            &mut terminal_seen,
+                            &observation,
+                        )
+                        .is_err()
                         {
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, terminal_seen, true),
+                                (source, decoder, terminal_seen, true, observation),
                             ));
                         }
                         if !terminal_seen {
+                            observation.record_stream_failure("sse_eof_before_terminal");
                             tracing::warn!(
                                 ?protocol,
                                 "upstream SSE stream ended before a terminal event"
@@ -712,7 +971,7 @@ fn validate_sse_body(
                     }
                     Err(_) => Some((
                         Err(io::Error::other("upstream SSE stream is invalid")),
-                        (source, decoder, terminal_seen, true),
+                        (source, decoder, terminal_seen, true, observation),
                     )),
                 },
             }
@@ -726,14 +985,20 @@ fn observe_sse_events(
     protocol: ApiProtocol,
     events: Vec<crate::transport::sse::SseEvent>,
     terminal_seen: &mut bool,
+    observation: &RequestObservation,
 ) -> Result<(), ()> {
     // 委托 provider adapter 分类 event，并记录是否已看到 terminal。
     for event in events {
         let decoded = adapter
             .classify_sse_event(protocol, event)
             .map_err(|_| ())?;
-        if decoded.status() != StreamEventStatus::Continue {
-            *terminal_seen = true;
+        match decoded.status() {
+            StreamEventStatus::Continue => {}
+            StreamEventStatus::Completed => *terminal_seen = true,
+            StreamEventStatus::Failed => {
+                *terminal_seen = true;
+                observation.record_stream_failure("provider_terminal_failed");
+            }
         }
     }
     Ok(())

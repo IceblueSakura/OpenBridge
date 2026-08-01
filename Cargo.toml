@@ -11,6 +11,7 @@ bytes = "1.12"
 dotenvy = "0.15"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4"
+http-body = "1.0"
 httpdate = "1.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream", "http2"] }
 secrecy = "0.10"

@@ -10,6 +10,7 @@ pub mod credential;
 pub mod identity;
 pub mod ingress;
 pub mod models;
+pub mod observability;
 pub mod pipeline;
 pub mod probe;
 pub mod provider;

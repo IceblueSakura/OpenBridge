@@ -59,7 +59,27 @@ route；尚未对真实异构协议 Provider 执行验证。
 - 对 retryable `429`、暂时性上游故障和 transport failure 记录单进程短时 cooldown；后续无状态请求按
   `quota_scope`/`fault_domain` 跳过已知受限边界，target-bound continuation 则继续尝试原 target；
 - 在下游中断 pending send、退避等待或丢弃 response body 时取消相应上游工作，不再启动后续 attempt；
-- 认证后将稳定用户身份写入请求上下文，并记录不含 API Key/正文的结构化 response-start 日志。
+- 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测。
+
+## 请求观测与进程内统计
+
+`src/observability.rs` 将不同基数和生命周期的数据分开处理：
+
+- `downstream_request` span 保存 request id、稳定 user id、协议、Public Model 和最终 HTTP status；
+- `upstream_attempt` 及其 HTTP/transport result、retry、fallback、cooldown skip 使用独立 tracing event，包含
+  已编译 route/target/Provider 等诊断字段，但不包含 endpoint、credential、header 或业务正文；
+- `downstream_request_completed` 在 response 前取消、body 的真实 EOF、body/SSE 错误或 drop 时产生一次，记录
+  `response_ready_ms`、`first_body_byte_ms`、SSE 首个 text/tool 增量的 `first_output_ms`、总耗时、attempt 数、
+  终态类别和已确认 usage；JSON/SSE 的 `failed`/`incomplete` 不会因 HTTP 200 被计为成功，返回 response
+  headers 也不再被误记为请求完成；
+- `GatewayMetrics` 使用无高基数标签的原子累计值保存成功、HTTP 失败、body/协议失败、取消、attempt HTTP/transport
+  失败、retry、fallback、cooldown skip 和 input/output/total token；`snapshot` 是非事务的单调累计视图；
+- JSON usage 使用配置大小限制内的临时缓冲，SSE usage 按 event 上限增量解析；超限、缺失或不可解析时不估算
+  token，也不改变代理响应。
+
+当前没有接入 OpenTelemetry SDK/exporter、Prometheus、指标 HTTP API、持久化或分布式聚合。未来 trace
+exporter 可直接消费稳定 span/event；metrics exporter 应读取低基数累计值或用等价 Meter instrument 替换，
+不得把 request/user/route/target 变成指标标签。
 
 ## Protocol Bridge
 
@@ -98,7 +118,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 91 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 99 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
@@ -108,7 +128,7 @@ git diff --check
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
-- 调用统计与指标导出；
+- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或非 loopback 部署。
 
 ## 相关资源

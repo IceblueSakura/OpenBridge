@@ -10,7 +10,8 @@
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
 cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
-尚未实现。
+尚未实现。请求生命周期观测已接入 tracing 和无高基数标签的进程内累计值，但尚未接入 OpenTelemetry/
+Prometheus exporter。
 
 ## 1. 分层结构
 
@@ -30,6 +31,10 @@ ProviderAdapter + UpstreamTarget + UpstreamApi
 shared UpstreamTransport / SSE observation or bridge rendering
           ↓
 upstream provider
+
+response body EOF / error / drop
+          ↓
+tracing lifecycle events + GatewayMetrics
 ```
 
 依赖方向保持单向：配置和注册表不执行网络 I/O；pipeline 不按 Provider 名称分支；adapter 不选择
@@ -49,6 +54,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
 | Transport | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse` | 可替换的发送边界、生产 HTTP client 和上游响应 |
+| Observability | `RequestObservation`、`UsageCapture`、`GatewayMetrics` | 请求终态 tracing、usage 解析和低基数累计值 |
 | Probe | `ProbeOptions`、`ProbeResult`、`TargetProbeReport` | 探测输入、单项观察和 target 汇总报告 |
 
 命名规则保持简单：`*Config` 表示构建前配置，去掉 `Config` 表示校验后的运行实体，`*Info` 表示只读事实，
@@ -182,6 +188,13 @@ stream 则按完整 event 增量渲染目标协议 wire。下游丢弃任一 bod
 机会。RoutePlan 允许时可进入同一 Public Model 的下一完整候选；下游取消会销毁 pending send、timer 或
 response body，提交 response 后不得再拼接另一上游响应。
 
+Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff 取消，建立后把责任移交给外层
+`RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，在真实 EOF、body error 或 drop 时提交唯一请求
+终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把 headers ready
+误当成 TTFT。JSON usage 只在配置上限内临时解析，SSE usage 按完整 event 解析；业务正文不会写入 tracing 或
+进程内累计值。attempt 的 route/target/Provider 等高基数事实只属于 tracing event，`GatewayMetrics` 只维护
+进程级低基数单调计数。
+
 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。它只接受注册表提供的 quota/fault scope，
 把 429 隔离到 `quota_scope`，把暂时性 5xx/transport failure 隔离到 `fault_domain`；默认 cooldown 为 1 秒，
 `Retry-After` 最长采用 30 秒。无状态请求跳过冷却 scope，target-bound continuation 忽略 cooldown 并保持原
@@ -199,7 +212,7 @@ target endpoint、adapter 与 transport，只为管理员选中的 target 构造
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
-`cargo test --locked`，91 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，99 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 
@@ -207,6 +220,7 @@ target endpoint、adapter 与 transport，只为管理员选中的 target 构造
 
 - 动态 Converter catalog、route-local 可配置 ConversionPolicy 与异构 Provider 实测；
 - 动态 availability/weight、持久化或分布式 cooldown；
+- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式指标聚合；
 - 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
 - Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。
 
