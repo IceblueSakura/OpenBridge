@@ -2,11 +2,11 @@
 
 ## 状态
 
-**现行独立构建模式。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具。
+**M0/M5 独立证据材料。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具；它不自行触发运行时迁移。
 
 日常使用、case 维护、release 规则和命令示例以仓库内的 [Corpus 指南](../../testdata/README.md) 为准；本文件只保留设计边界与集成前条件。
 
-在 corpus schema、canonical cases 和工具达到可复现状态前，不接入 OpenBridge Rust 测试，也不以数据集存在声明 Bridge 已实现。原 Rust `upstream-fixture-server` 的离线 mock 行为已经吸收到 Python testkit；真实上游 proxy 不属于本阶段测试工具边界。
+M0 可以复用已经稳定的 Native case；M5 只能接入所选 bridge slice 中 schema、canonical cases 和工具均可复现的 fixture，不要求无关 corpus 全部完成，也不得以数据集存在声明 Bridge 已实现。原 Rust `upstream-fixture-server` 的离线 mock 行为已经吸收到 Python testkit；真实上游 proxy 不属于该工具边界。
 
 ## 1. 目标与非目标
 

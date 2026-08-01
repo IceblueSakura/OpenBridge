@@ -1,45 +1,41 @@
 # 当前代码架构
 
-## 状态与文档边界
+## 状态与边界
 
-**已实现事实。** 本文按运行时层次描述当前源码中的模块、依赖方向和请求路径。文中的 `ModelDefinition`、`DeploymentDefinition`、`AliasDefinition` 等名称均是当前 Rust 类型，不代表目标注册表已经采用这些概念。
+**已实现事实。** 当前源码已经完成架构迁移总计划 M1–M4 的结构切换：生产注册表使用
+`RealModelDefinition`、`UpstreamTargetDefinition`、`NativeOfferingDefinition`、
+`PublicModelDefinition` 与 `ServingRouteDefinition`，请求路径使用 `RequestProfile + RoutePlan`。
+本次只做了格式化与编译检查，没有运行测试，因此这里不把既有行为描述为已重新测试验收。
 
-目标架构见[目标服务架构](../implementation-plans/service-architecture.md)，从当前类型迁移到 `RealModel`、`UpstreamTarget`、`NativeOffering`、`PublicModel` 和 `ServingRoute` 的步骤见[注册表与路由架构迁移计划](../implementation-plans/registry-architecture-migration.md)。
+当前仍只有 Native Path。Protocol Bridge、统一 `AttemptManager`、跨请求 cooldown 和模型信息扩展
+接口尚未实现，分别保留在总计划 M5–M7。
 
-## 1. 总体结构
-
-OpenBridge 当前是单进程 Axum 服务。启动阶段一次性装载 bootstrap、构建代码注册表与共享 HTTP client；请求路径只读取不可变 `RegistrySnapshot`。
+## 1. 分层结构
 
 ```text
-config/bootstrap.toml + process environment
-                    │
-                    ▼
-       startup and composition root
-                    │
-                    ▼
-          immutable RegistrySnapshot
-                    │
-Client → HTTP ingress → native request pipeline
-                    │
-                    ▼
-             ProviderAdapter
-                    │
-                    ▼
-       shared UpstreamTransport / SSE
-                    │
-                    ▼
-             upstream provider
+bootstrap / process environment
+          ↓
+composition root
+          ↓
+immutable RegistrySnapshot
+          ↓
+HTTP ingress
+          ↓
+RequestProfile → RoutePlan
+          ↓
+ProviderAdapter + UpstreamTarget + NativeOffering
+          ↓
+shared UpstreamTransport / SSE observation
+          ↓
+upstream provider
 ```
 
-当前只有 Native Path：Chat 请求只发往声明支持 Chat 的候选，Responses 请求只发往声明支持 Responses 的候选。代码没有 Chat ↔ Responses converter、Bridge IR、ServingRoute 或独立 ExecutionPlan。
+依赖方向保持单向：配置和注册表不执行网络 I/O；pipeline 不按 Provider 名称分支；adapter 不选择
+Public Model 或 Serving Route；transport 不解释模型和协议能力。
 
-## 2. 运行与装配层
+## 2. 装配与配置层
 
-实现位置：
-
-- `src/main.rs`
-- `src/config/*`
-- `src/providers/mod.rs`
+实现位置：`src/main.rs`、`src/config/*`、`src/providers/mod.rs`。
 
 启动顺序：
 
@@ -50,220 +46,128 @@ load_optional_dotenv
 → UpstreamClient::new
 → AppState::with_environment_credentials
 → ingress::build_router
-→ TcpListener / axum::serve
+→ axum::serve
 ```
 
-该层负责：
-
-- 装载 loopback listener、request/SSE 大小限制和共享 HTTP client 策略；
-- 调用显式代码注册入口并在监听前完成注册表校验；
-- 创建共享 `RegistrySnapshot`、`UpstreamTransport`、下游静态 Bearer credential 和上游 `CredentialSource`；
-- 安装 Ctrl+C graceful shutdown。
-
-该层不负责业务路由，也不接受运行时 Provider DSL、route TOML 或客户端提供的上游 URL。
+`bootstrap.toml` 只拥有 loopback listener、请求/SSE 大小和 HTTP client 资源策略。Provider、模型、
+target、offering、route、endpoint 和 credential locator 均由 Rust 代码显式注册；没有 route TOML、
+动态 Provider DSL 或热重载。
 
 ## 3. 注册表层
 
-实现位置：
-
-- `src/registry/mod.rs`
-- `src/models/*`
-- `src/providers/*`
-
-### 3.1 当前定义模型
+实现位置：`src/registry/mod.rs`、`src/models/*`、`src/providers/*`。
 
 ```text
 RegistryDefinition
-  models: ModelDefinition[]
-  providers: ProviderDefinition[]
-  deployments: DeploymentDefinition[]
-  aliases: AliasDefinition[]
+  real_models: RealModelDefinition[]
+  upstream_targets: UpstreamTargetDefinition[]
+    offerings: NativeOfferingDefinition[]
+  serving_routes: ServingRouteDefinition[]
+  public_models: PublicModelDefinition[]
 ```
 
-当前职责实际分布如下：
+各实体职责：
 
-| 当前类型 | 当前承载内容 | 已知结构限制 |
-|---|---|---|
-| `ModelDefinition` | 模型展示信息、context、参数、reasoning 事实 | 不能区分模型内在事实和供应商/协议证据 |
-| `ProviderDefinition` | `ProviderKind` 与一个 credential binding | 把 adapter 类型和 credential 所有权绑在一起 |
-| `DeploymentDefinition` | Provider/Model 引用、endpoint、upstream model、timeout、两种协议能力 | 同一对象同时承担调用边界和协议级供应 |
-| `AliasDefinition` | 下游模型名和有序 deployment candidates | 候选不是完整的协议路径 |
+| 实体 | 所有内容 |
+|---|---|
+| `ProviderDescriptor` | 代码拥有的 adapter、endpoint profile、credential kind 与能力上界 |
+| `RealModelDefinition` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
+| `UpstreamTargetDefinition` | Provider Family、Real Model、endpoint、credential、timeout、启停及 quota/fault 边界 |
+| `NativeOfferingDefinition` | 单一原生协议的 upstream model、served limits、能力证据、transport 与 state policy |
+| `ServingRouteDefinition` | target、offering、下游协议和当前 `Native` 执行模式 |
+| `PublicModelDefinition` | 下游稳定模型名与有序完整 Serving Route ID |
 
-当前 `ProviderKind` 是闭合集合，包含 `OpenAi` 与 `Meituan`。`providers::compiled_definition()` 显式注册 OpenAI 与 Meituan/LongCat 的 provider、model、deployment 和 public alias；不存在动态插件发现。
+同一 target 可以同时注册 Chat 和 Responses Offering；二者可拥有不同 upstream model、context/output
+限制、能力证据和 state policy。共享 endpoint、credential、Real Model 与故障边界属于 target。
 
-### 3.2 启动编译
-
-`build_registry` 按 Model → Provider/Credential → Deployment → Alias 的顺序验证并构建 `RegistrySnapshot`。主要约束包括：
-
-- ID 唯一且引用完整；
-- credential locator 与 adapter credential kind 合法；
-- endpoint profile、HTTPS base URL 和 timeout 合法；
-- deployment capability 不能超过 `ProviderDescriptor` 上界；
-- deployment model constraint 只能收窄模型事实；
-- alias 至少包含一个存在且不重复的 deployment candidate。
-
-成功后生成只读映射：
+`build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Offering
+协议/能力一致性、模型约束只收窄、Native route 协议方向及 Public Model route 顺序。成功后生成：
 
 ```text
 RegistrySnapshot
-  models: id → ModelMetadata
-  providers: id → ResolvedProvider
-  deployments: id → ResolvedDeployment
-  aliases: public name → ResolvedAlias
+  real_models
+  upstream_targets → resolved offerings
+  serving_routes
+  public_models
 ```
 
-当前没有 reload 或 snapshot 原子替换；整个进程生命周期使用同一份 snapshot。
+旧 `ProviderDefinition`、`DeploymentDefinition`、`AliasDefinition` 及其 resolved 类型已从生产代码删除。
 
 ## 4. HTTP 接入层
 
-实现位置：
-
-- `src/ingress/mod.rs`
-- `src/ingress/auth.rs`
-
-公开接口：
+实现位置：`src/ingress/*`。
 
 | Endpoint | 当前处理 |
 |---|---|
 | `GET /healthz` | 返回状态与注册表版本 |
-| `GET /v1/models` | 枚举 `RegistrySnapshot.public_aliases()` |
+| `GET /v1/models` | 枚举 Public Model 名称 |
 | `POST /v1/chat/completions` | 进入 Chat Native Path |
 | `POST /v1/responses` | 进入 Responses Native Path |
 
-接入层负责：
-
-- request body limit、request id、trace 和敏感认证头标记；
-- 对 `/v1/*` 施加静态 Bearer 认证；
-- 验证唯一且合法的 `application/json` content type；
-- 把入口协议、原始 JSON bytes 和共享 `AppState` 交给 native forwarding；
-- 将本地路由错误转换为稳定的 OpenAI-compatible JSON error。
-
-`AppState` 只持有共享服务句柄，不包含每请求可变路由状态。
+Ingress 执行认证、body/content-type 限制、本地错误归一化和当前的首输出前 attempt 循环。它不接受
+客户端提供的上游 URL、credential 或内部 route ID。
 
 ## 5. 请求分析与路由层
 
-实现位置：
-
-- `src/core/request.rs`
-- `src/core/capability.rs`
-- `src/pipeline/mod.rs`
-
-`prepare_native_request` 从请求中提取：
-
-- public `model` 和入口协议；
-- streaming；
-- function/custom/未建模 tool；
-- parallel tool calls；
-- image input、structured output、store；
-- Responses `previous_response_id`、background；
-- reasoning 与 reasoning level；
-- 可解析的最大输出限制。
-
-当前路由过程：
+实现位置：`src/core/*`、`src/pipeline/mod.rs`。
 
 ```text
-public alias
-→ ordered deployment candidates
-→ protocol-specific CapabilitySet gate
-→ model limits and reasoning gate
-→ PreparedNativeRequest
+raw body + downstream protocol
+→ analyze_request
+→ RequestProfile
+→ Public Model ordered Serving Routes
+→ protocol / capability / limit / reasoning gates
+→ RoutePlan<ExecutionPlanCandidate>
 ```
 
-`PreparedNativeRequest` 保存有序 `PreparedNativeCandidate`，每个候选只固定 `deployment_id + ValidatedRequest`。请求 body 仍保持原始 bytes；pipeline 不改写上游 model，也不执行协议转换。
+`RequestProfile` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
+`RoutePlan` 固定有序的 Serving Route、Upstream Target、Native Offering 与原始 `ValidatedRequest`。
+它不执行协议转换或 adapter 字段改写。
 
-若请求携带 `previous_response_id`，pipeline 禁止跨 deployment fallback。当前没有通用 continuation ledger、route-local conversion policy、完整 ServingRoute 或独立 RoutePlan 类型。
+请求携带 `previous_response_id` 时，计划关闭跨 target fallback。不同 route 或不同 Offering 的能力不会
+按字段求并集；一条候选必须独立满足完整请求。
 
 ## 6. Provider 适配层
 
-实现位置：
+实现位置：`src/provider/*`、`src/providers/openai.rs`、`src/providers/meituan.rs`。
 
-- `src/provider/*`
-- `src/providers/openai.rs`
-- `src/providers/meituan.rs`
+`ProviderKind` 是闭合集合。具体 adapter 从 selected Offering 读取 upstream model，负责相对 path、模型
+字段改写、认证 header、响应/SSE terminal 和错误分类。credential locator 与 endpoint/timeout 则来自
+selected Upstream Target。
 
-公共层提供闭合 `ProviderAdapter` dispatch 以及请求、认证/header、响应/SSE terminal 和错误分类契约。具体 Provider 模块负责：
+OpenAI 与 Meituan/LongCat 当前都注册 Chat、Responses 两个独立 Offering，wire 仍均为
+OpenAI-compatible；这不构成异构协议桥已实现的证据。
 
-- endpoint profile 与相对 path；
-- 从环境 credential lease 构造敏感认证 header；
-- 把 public model 改写为 deployment 的 `upstream_model`；
-- 识别 Chat `[DONE]` 与 Responses terminal event；
-- 分类安全错误与首输出前 retry hint。
+## 7. Transport、SSE 与 attempt
 
-Ingress 和 transport 不根据 provider 名称拼接认证规则。新增 Provider 必须新增 `ProviderKind` 变体、descriptor、adapter、注册项和测试。
+实现位置：`src/transport/*` 与 `ingress::forward_native`。
 
-## 7. 上游 Transport 与 SSE 层
+共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
+timeout。Streaming response 保持业务 bytes 透明；`SseDecoder` 只观察 UTF-8、framing、event size 和
+terminal。下游丢弃 body 时，上游 stream 随之取消。
 
-实现位置：
-
-- `src/transport/upstream.rs`
-- `src/transport/sse.rs`
-
-共享 `UpstreamClient` 负责：
-
-- 复用 reqwest 连接池并禁止 redirect；
-- 仅将 adapter 生成的相对 URI 与已校验 endpoint base 合并；
-- 应用 deployment request timeout；
-- 以流式 body 返回上游 status、headers 和 bytes。
-
-对于成功的 streaming response，Ingress 使用 `SseDecoder` 观察 UTF-8、framing、event size 和 terminal，但不重新渲染业务 event。body 被下游丢弃时，上游 byte stream 随之 drop。
-
-当前 retry/fallback 直接编排在 `ingress::forward_native`：仅 streaming 请求会对可重试 status、连接错误或 timeout 做固定次数的首输出前尝试，并在允许时转到下一个 deployment candidate。当前没有独立 AttemptManager、统一总预算或跨请求 cooldown。
+当前 retry/fallback 仍位于 Ingress，而非独立 `AttemptManager`：仅 streaming 请求能在首个下游 body
+之前进行固定次数 retry，并在 RoutePlan 允许时进入下一候选；首输出后不得拼接另一上游响应。
 
 ## 8. Probe 与验证层
 
-实现位置：
+`openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Offering。它复用
+target endpoint、credential、adapter 与 transport，不接受 URL/model/header 覆盖，不修改 snapshot。
 
-- `src/probe.rs`
-- `src/bin/openbridge-probe.rs`
-- `tests/*`
-- `testdata/*`
-- `tools/corpus/*`
+测试夹具已迁移到 target/offering/route 和 `RequestProfile + RoutePlan` API。本次迁移只确认所有 target
+能够编译，没有执行测试用例、Clippy、真实 Provider 或 SDK 验证。
 
-`openbridge-probe` 复用同一 bootstrap、注册表、Provider adapter 和 transport，可执行模型发现、最小 Chat/Responses 请求及 function call/result replay。Probe 不修改 snapshot，也不自动把观察结果提升为 capability。
+## 9. 尚未实现
 
-测试通过可注入 `UpstreamTransport` 和 credential source 隔离真实网络与 secret，并覆盖注册表、认证、路由、model rewrite、HTTP/SSE、retry/fallback 和取消边界。独立 corpus/testkit 与网关运行时分离。
-
-## 9. 当前依赖方向
-
-```text
-main/config
-  → providers/models/registry
-  → ingress
-
-ingress
-  → pipeline
-  → provider contracts
-  → transport
-
-pipeline
-  → core request/capability
-  → registry snapshot
-
-provider dispatch
-  → concrete providers
-  → core protocol/request
-
-transport
-  → resolved deployment
-```
-
-当前最明显的结构耦合是：Ingress 同时承担 candidate attempt 编排与 SSE response 观察；`registry/mod.rs` 同时包含定义、校验、resolved 类型和 builder；`DeploymentDefinition` 同时承担共享上游调用边界与两个协议的能力声明。这些是迁移输入，不应在现状文档中描述为已解决。
-
-## 10. 当前未实现边界
-
-- `RealModelDefinition`、`UpstreamTargetDefinition`、`NativeOfferingDefinition`、`PublicModelDefinition` 和 `ServingRouteDefinition`；
-- 代码拥有的 converter catalog、route-local `ConversionPolicy` 和 `ResolvedBridgePlan`；
-- Chat ↔ Responses Protocol Bridge；
-- 基于完整执行路径交集的 capability 编译；
-- 上游明确不支持后的异构 route fallback；
-- 跨请求 cooldown、动态 availability overlay 和独立 AttemptManager；
-- 模型与能力信息私有扩展接口；
-- route reload 或运行时 Provider DSL。
+- M5：Converter catalog、route-local ConversionPolicy、ResolvedBridgePlan 与 Chat/Responses Bridge；
+- M6：独立 AttemptManager、统一 unsupported/fallback/availability 与跨请求 cooldown；
+- M7：可安全投影真实 route/offering 信息的内部视图与任何扩展 HTTP API；
+- Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。
 
 ## 关联文档
 
 - [当前实现说明](current-implementation.md)
-- [目标服务架构](../implementation-plans/service-architecture.md)
-- [代码注册表与路由](../implementation-plans/configuration-and-routing.md)
-- [注册表与路由架构迁移计划](../implementation-plans/registry-architecture-migration.md)
+- [架构迁移总计划](../implementation-plans/registry-architecture-migration.md)
+- [代码注册表与原生路由](../implementation-plans/configuration-and-routing.md)
 - [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
+- [目标服务架构](../implementation-plans/service-architecture.md)

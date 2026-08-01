@@ -1,6 +1,6 @@
 //! 进程级 bootstrap 配置。
 //!
-//! Provider、Model、Deployment、Alias、endpoint 和 credential binding 均由代码注册表
+//! Provider、Real Model、Upstream Target、Native Offering、Serving Route、Public Model、endpoint 和 credential binding 均由代码注册表
 //! 定义；bootstrap 只承载监听、资源限制和共享 HTTP client 策略。
 
 use std::{net::SocketAddr, time::Duration};
@@ -100,7 +100,7 @@ impl UpstreamPolicy {
 
 /// 解析并校验 bootstrap TOML。
 ///
-/// 该函数只产生启动配置，不会注册 provider、model、deployment 或 alias。
+/// 该函数只产生启动配置，不会注册 provider、model、target、offering 或 route。
 pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError> {
     let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapError::Parse)?;
     if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {

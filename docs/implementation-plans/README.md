@@ -4,6 +4,19 @@
 
 每次只从一个已定义的功能需求选择一个可观察行为，并在[当前开发焦点](current-focus.md)中先写失败测试。没有进入当前焦点的计划文档不构成必须完成的工作。
 
+## 文档权威顺序
+
+架构相关材料按以下顺序解释，后项不得覆盖前项：
+
+1. [功能需求](../functional-requirements/README.md)：定义客户端可观察行为、安全边界与非目标；
+2. [当前代码架构](../implementation-status/current-architecture.md)和[当前实现说明](../implementation-status/current-implementation.md)：定义 live source 已经实现什么；
+3. [目标服务架构](service-architecture.md)：定义希望达到的稳定分层和终态概念，不决定实施次序；
+4. [架构迁移总计划](registry-architecture-migration.md)：唯一维护 M0–M7 的依赖、切片、退出条件和专项计划映射；
+5. 专项计划：只展开总计划中的一个边界，不得自行增加前置阶段或形成另一条路线图；
+6. [当前开发焦点](current-focus.md)：唯一表示当前获准实施的一个可观察行为。
+
+发生冲突时，先以 live source 和功能需求修订总计划，再同步目标架构和专项计划；不能通过选择另一份计划绕过总计划的前置条件。
+
 ## 计划生命周期
 
 计划必须服从实际代码基线，而不是按文档自动串行推进：
@@ -17,12 +30,14 @@
 计划文档可以保留未实施的设计假设，但必须标明为候选；不得混入完成记录、历史阶段或未经验证的
 Provider/硬件结论。
 
-| 功能需求域 | 实施假设与设计材料 | 使用方式 |
+| 计划角色 | 文档 | 与总计划的关系 |
 |---|---|---|
-| 网关 API、原生流与目标客户端 | [客户端兼容](client-compatibility.md)、[目标服务架构](service-architecture.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md) | 只在实现对应 endpoint、SSE、tool 或 client corpus 时查阅。 |
-| 注册表、凭证与受信运行 | [当前代码注册表与原生路由](configuration-and-routing.md)、[注册表与路由架构迁移计划](registry-architecture-migration.md)、[OAuth 凭证边界](oauth-credential-boundary.md) | 先区分当前类型和目标类型；迁移按单个行为切片，OAuth 仍是可选适配器。 |
-| 路由、状态亲和与恢复 | [目标服务架构](service-architecture.md)、[注册表与路由架构迁移计划](registry-architecture-migration.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 只为当前 candidate、fallback、continuation 或 tool-loop 行为选择最小假设。 |
-| 跨协议兼容 | [协议桥](protocol-bridge.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 后续方向；没有明确 feature、ConversionPlan 和 fixture 时不进入实现。 |
-| 协议测试数据 | [协议测试语料构建](protocol-test-corpus.md)、[Mock Server/Client 测试工具](protocol-testkit.md) | 先独立构建、校验和版本化 corpus 与黑盒协议两端；在数据集与工具稳定前不接入 OpenBridge 测试或转换实现。 |
+| 当前基线说明 | [当前代码注册表与原生路由](configuration-and-routing.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md) | 记录已切换的 M1–M4 类型和调用路径，并明确尚未补做的行为验收。 |
+| 目标结构 | [目标服务架构](service-architecture.md) | 定义 M1–M7 的终态分层、实体和运行边界；不重复维护阶段。 |
+| 迁移总控 | [架构迁移总计划](registry-architecture-migration.md) | 唯一维护 M0–M7 的顺序、退出条件、兼容和清理规则。 |
+| Native 客户端验收 | [客户端兼容](client-compatibility.md) | 横跨 M0、M4 和 M6，保护 OpenAI SDK/Codex 可见行为。 |
+| Bridge 语义 | [协议桥](protocol-bridge.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 只展开 M5；必须先补做 M0–M4 行为回归门再接入生产路径。 |
+| Bridge 测试证据 | [协议测试语料构建](protocol-test-corpus.md)、[Mock Server/Client 测试工具](protocol-testkit.md) | 为 M0/M5 提供独立 corpus/testkit；M5 只依赖所选 slice 已稳定的 fixture。 |
+| Credential 扩展 | [OAuth 凭证边界](oauth-credential-boundary.md) | 本次 M0–M7 之外的独立后续方向，不是任何迁移切片的前置条件。 |
 
 当某项计划被实现并验证后，将可证明的结论转入 `../implementation-status/`；不在本目录保留目标变迁、淘汰方案或旧阶段记录。若计划与功能需求冲突，先修订或废弃计划，而不是扩大产品范围。

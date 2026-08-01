@@ -24,7 +24,10 @@ use crate::{
         ProviderErrorClass, ProviderFailure, ProviderKind, RequestAdapter, ResponseAdapter,
         RetryHint, SafeHeaders, SensitiveHeaders, UpstreamRequestParts,
     },
-    registry::{CredentialDefinition, DeploymentDefinition, ModelConstraints, ProviderDefinition},
+    registry::{
+        CredentialDefinition, ModelConstraints, NativeOfferingCapabilities,
+        NativeOfferingDefinition, NativeTransport, StatePolicy, UpstreamTargetDefinition,
+    },
     transport::sse::SseEvent,
 };
 
@@ -176,32 +179,62 @@ impl CapabilityAdapter for MeituanAdapter {
 }
 
 pub(crate) struct MeituanDefinition {
-    pub(crate) provider: ProviderDefinition,
-    pub(crate) deployments: Vec<DeploymentDefinition>,
+    pub(crate) upstream_targets: Vec<UpstreamTargetDefinition>,
 }
 
 /// 构造 LongCat-2.0 的代码注册定义。
 pub(crate) fn definition() -> MeituanDefinition {
     MeituanDefinition {
-        provider: ProviderDefinition {
-            id: "meituan".to_owned(),
-            kind: ProviderKind::Meituan,
+        upstream_targets: vec![UpstreamTargetDefinition {
+            id: "meituan-longcat-2".to_owned(),
+            provider: ProviderKind::Meituan,
+            real_model: longcat::MODEL_ID.to_owned(),
+            base_url: "https://api.longcat.chat".to_owned(),
             credential: CredentialDefinition {
                 id: "meituan-longcat-primary".to_owned(),
                 kind: CredentialKind::ApiKey,
                 environment_variable: "LONGCAT_API_KEY".to_owned(),
             },
-        },
-        deployments: vec![DeploymentDefinition {
-            id: "meituan-longcat-2".to_owned(),
-            provider: "meituan".to_owned(),
-            model: longcat::MODEL_ID.to_owned(),
-            upstream_model: "LongCat-2.0".to_owned(),
-            endpoint_profile: "longcat-openai".to_owned(),
-            base_url: "https://api.longcat.chat".to_owned(),
+            quota_scope: None,
+            fault_domain: None,
             request_timeout: Duration::from_secs(120),
-            model_constraints: ModelConstraints::default(),
-            capabilities: *DESCRIPTOR.capabilities(),
+            enabled: true,
+            offerings: native_offerings(
+                "LongCat-2.0",
+                "longcat-openai",
+                *DESCRIPTOR.capabilities(),
+            ),
         }],
     }
+}
+
+fn native_offerings(
+    upstream_model: &str,
+    endpoint_profile: &str,
+    capabilities: CapabilitySet,
+) -> Vec<NativeOfferingDefinition> {
+    vec![
+        NativeOfferingDefinition {
+            id: "chat".to_owned(),
+            protocol: Protocol::ChatCompletions,
+            upstream_model: upstream_model.to_owned(),
+            endpoint_profile: endpoint_profile.to_owned(),
+            transport: NativeTransport::HttpJsonSse,
+            model_constraints: ModelConstraints::default(),
+            capabilities: NativeOfferingCapabilities::ChatCompletions(
+                capabilities.chat_completions,
+            ),
+            state_policy: StatePolicy::Stateless,
+        },
+        NativeOfferingDefinition {
+            id: "responses".to_owned(),
+            protocol: Protocol::Responses,
+            upstream_model: upstream_model.to_owned(),
+            endpoint_profile: endpoint_profile.to_owned(),
+            transport: NativeTransport::HttpJsonSse,
+            model_constraints: ModelConstraints::default(),
+            capabilities: NativeOfferingCapabilities::Responses(capabilities.responses),
+            state_policy: StatePolicy::ProviderBound,
+        },
+    ]
 }

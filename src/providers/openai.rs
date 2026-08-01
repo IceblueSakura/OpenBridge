@@ -1,7 +1,7 @@
 //! OpenAI Provider 的编译期定义。
 //!
 //! 认证、请求/响应/SSE 与错误行为由 `provider::OpenAiAdapter` 实现；本文件集中声明
-//! credential binding、endpoint、模型事实、deployment 能力和上游 model id。
+//! credential binding、endpoint、模型事实、target/offering 能力和上游 model id。
 
 use std::time::Duration;
 
@@ -23,7 +23,10 @@ use crate::{
         ProviderErrorClass, ProviderFailure, ProviderKind, RequestAdapter, ResponseAdapter,
         RetryHint, SafeHeaders, SensitiveHeaders, UpstreamRequestParts,
     },
-    registry::{CredentialDefinition, DeploymentDefinition, ModelConstraints, ProviderDefinition},
+    registry::{
+        CredentialDefinition, ModelConstraints, NativeOfferingCapabilities,
+        NativeOfferingDefinition, NativeTransport, StatePolicy, UpstreamTargetDefinition,
+    },
     transport::sse::SseEvent,
 };
 
@@ -175,36 +178,64 @@ impl CapabilityAdapter for OpenAiAdapter {
 }
 
 pub struct OpenAiDefinition {
-    /// OpenAI provider 定义。
-    pub provider: ProviderDefinition,
-    /// OpenAI deployment 定义。
-    pub deployments: Vec<DeploymentDefinition>,
+    pub upstream_targets: Vec<UpstreamTargetDefinition>,
 }
 
 /// 构造当前编译版本内置的 OpenAI provider 定义。
 pub fn definition() -> OpenAiDefinition {
     OpenAiDefinition {
-        provider: ProviderDefinition {
-            id: "openai".to_owned(),
-            kind: ProviderKind::OpenAi,
+        upstream_targets: vec![UpstreamTargetDefinition {
+            id: "openai-main".to_owned(),
+            provider: ProviderKind::OpenAi,
+            real_model: CONFIGURED_MODEL_ID.to_owned(),
+            base_url: "https://api.openai.com".to_owned(),
             credential: CredentialDefinition {
                 id: "openai-primary".to_owned(),
                 kind: CredentialKind::ApiKey,
                 environment_variable: "OPENAI_API_KEY".to_owned(),
             },
-        },
-        deployments: vec![DeploymentDefinition {
-            id: "openai-main".to_owned(),
-            provider: "openai".to_owned(),
-            model: CONFIGURED_MODEL_ID.to_owned(),
-            upstream_model: "configured-model".to_owned(),
-            endpoint_profile: "public-api".to_owned(),
-            base_url: "https://api.openai.com".to_owned(),
+            quota_scope: None,
+            fault_domain: None,
             request_timeout: Duration::from_secs(120),
-            model_constraints: ModelConstraints::default(),
-            capabilities: conservative_openai_capabilities(),
+            enabled: true,
+            offerings: native_offerings(
+                "configured-model",
+                "public-api",
+                conservative_openai_capabilities(),
+            ),
         }],
     }
+}
+
+fn native_offerings(
+    upstream_model: &str,
+    endpoint_profile: &str,
+    capabilities: CapabilitySet,
+) -> Vec<NativeOfferingDefinition> {
+    vec![
+        NativeOfferingDefinition {
+            id: "chat".to_owned(),
+            protocol: Protocol::ChatCompletions,
+            upstream_model: upstream_model.to_owned(),
+            endpoint_profile: endpoint_profile.to_owned(),
+            transport: NativeTransport::HttpJsonSse,
+            model_constraints: ModelConstraints::default(),
+            capabilities: NativeOfferingCapabilities::ChatCompletions(
+                capabilities.chat_completions,
+            ),
+            state_policy: StatePolicy::Stateless,
+        },
+        NativeOfferingDefinition {
+            id: "responses".to_owned(),
+            protocol: Protocol::Responses,
+            upstream_model: upstream_model.to_owned(),
+            endpoint_profile: endpoint_profile.to_owned(),
+            transport: NativeTransport::HttpJsonSse,
+            model_constraints: ModelConstraints::default(),
+            capabilities: NativeOfferingCapabilities::Responses(capabilities.responses),
+            state_policy: StatePolicy::ProviderBound,
+        },
+    ]
 }
 
 /// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。

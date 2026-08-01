@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Working hypothesis；设计已收敛到可实施边界，仍待真实 Codex/Hermes corpus 验证。**
+**M5 状态专项设计，尚未接入运行时。** 设计已收敛到可实施边界，但仍待真实 Codex/Hermes corpus 验证。本文不单独安排实现阶段；必须服从[架构迁移总计划](registry-architecture-migration.md)中的 M5 前置条件。
 
 本文细化 Chat/Responses bridge 在 Agent tool loop 中的职责、状态所有权和拒绝规则。它不改变 OpenBridge 的产品边界：Agent client 负责工具执行、审批、sandbox、取消和下一轮请求；OpenBridge 仅保留或转换 wire-level tool call/result，并在不能安全表达时拒绝。
 
@@ -212,7 +212,7 @@ opaque-state replay policy
 | 无状态双向 bridge 足以覆盖首批工作流 | Codex/Hermes 真实多轮普通 function-tool corpus | 客户端只发送 `previous_response_id + output` 且目标 Chat 需要历史。 |
 | Chat tool index 可稳定恢复为 Responses output order | 并行、late id/name、乱序 fragments corpus | 上游不提供稳定 index 或多个 choices 的语义不可表达。 |
 | 初始仅普通 function tool 不损害目标场景 | client/provider corpus 包含的 tool type 清单 | 目标场景依赖 custom/namespace/hosted tool。 |
-| route-bound state affinity 已足够 | reload、fallback、cancel、expiration negative tests | provider 证明还需额外 issuer/account/resource binding。 |
+| route-bound state affinity 已足够 | 注册表重建、fallback、cancel、expiration negative tests | Provider 证明还需额外 issuer/account/resource binding。 |
 | protocol-pair assemblers可独立实现 | 双向 stream fixture 与 memory/backpressure baseline | 需要共享状态导致 terminal/identity 分支泄漏。 |
 
 在这些实验完成前，本文保持 Working hypothesis；任何“真实 Agent Loop 已兼容”的说法必须有对应 corpus 链接。

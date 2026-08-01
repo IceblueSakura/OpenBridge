@@ -1,7 +1,7 @@
 //! 管理员显式执行的上游 capability probe。
 //!
-//! probe 复用 deployment 的受信 endpoint、credential 和编译期 adapter，但它不走下游
-//! HTTP API，也不会修改代码注册表。下游 `/v1/models` 因而始终只列出 public alias；
+//! probe 复用 Upstream Target 的受信 endpoint、credential 和编译期 adapter，但它不走下游
+//! HTTP API，也不会修改代码注册表。下游 `/v1/models` 因而始终只列出 Public Model；
 //! probe 的 JSON 报告只是服务所有者更新 capability 配置时的证据。
 
 use axum::body::to_bytes;
@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::{
     core::{Protocol, ValidatedRequest},
     provider::{CredentialSource, ProviderAdapter, RequestAdapter},
-    registry::{RegistrySnapshot, ResolvedDeployment},
+    registry::{RegistrySnapshot, ResolvedNativeOffering, ResolvedUpstreamTarget},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
 
@@ -133,13 +133,11 @@ pub struct FunctionCallingObservation {
     pub result_replay: Option<ProbeOutcome>,
 }
 
-/// 单个 deployment 的 probe 报告。它不包含 credential、请求正文或上游响应正文。
+/// 单个 Upstream Target 的 probe 报告。它不包含 credential、请求正文或上游响应正文。
 #[derive(Debug, Serialize)]
-pub struct DeploymentProbeReport {
-    /// 被 probe 的内部 deployment id。
-    pub deployment_id: String,
-    /// 实际发往上游的 model id。
-    pub upstream_model: String,
+pub struct TargetProbeReport {
+    /// 被 probe 的内部 target id。
+    pub upstream_target_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub list_models: Option<ListModelsObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,10 +152,8 @@ pub struct DeploymentProbeReport {
 
 #[derive(Debug, Error)]
 pub enum ProbeError {
-    #[error("configured deployment '{deployment}' does not exist")]
-    UnknownDeployment { deployment: String },
-    #[error("configured provider for deployment '{deployment}' does not exist")]
-    MissingProvider { deployment: String },
+    #[error("configured upstream target '{upstream_target}' does not exist")]
+    UnknownUpstreamTarget { upstream_target: String },
     #[error("upstream credentials are unavailable for probe")]
     CredentialUnavailable,
     #[error("provider authentication could not be prepared for probe")]
@@ -166,40 +162,33 @@ pub enum ProbeError {
 
 /// 使用与数据面相同的受信配置执行选定 probe。
 ///
-/// 该函数只访问 `deployment_id` 对应的固定 endpoint；没有接受 URL、model 或 header 的
+/// 该函数只访问 `upstream_target_id` 对应的固定 endpoint；没有接受 URL、model 或 header 的
 /// 外部参数，避免诊断能力扩大 SSRF 或 credential 使用范围。
-pub async fn probe_deployment(
+pub async fn probe_upstream_target(
     snapshot: &RegistrySnapshot,
-    deployment_id: &str,
+    upstream_target_id: &str,
     transport: &dyn UpstreamTransport,
     credentials: &CredentialSource,
     selection: ProbeSelection,
-) -> Result<DeploymentProbeReport, ProbeError> {
-    let deployment =
-        snapshot
-            .deployment(deployment_id)
-            .ok_or_else(|| ProbeError::UnknownDeployment {
-                deployment: deployment_id.to_owned(),
-            })?;
-    let provider =
-        snapshot
-            .provider(deployment.provider_id())
-            .ok_or_else(|| ProbeError::MissingProvider {
-                deployment: deployment_id.to_owned(),
-            })?;
+) -> Result<TargetProbeReport, ProbeError> {
+    let target = snapshot
+        .upstream_target(upstream_target_id)
+        .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
+            upstream_target: upstream_target_id.to_owned(),
+        })?;
     let credential = credentials
         .resolve(
-            provider.kind(),
-            provider.credential().id(),
-            provider.credential().secret_reference().locator(),
+            target.kind(),
+            target.credential().id(),
+            target.credential().secret_reference().locator(),
         )
         .map_err(|_| ProbeError::CredentialUnavailable)?;
-    let adapter = ProviderAdapter::for_kind(provider.kind());
+    let adapter = ProviderAdapter::for_kind(target.kind());
     let headers = adapter
         .build_outbound_headers(&credential)
         .map_err(|_| ProbeError::AuthenticationPreparation)?;
     let session = ProbeSession {
-        deployment,
+        target,
         transport,
         adapter,
         headers,
@@ -237,9 +226,8 @@ pub async fn probe_deployment(
         None
     };
 
-    Ok(DeploymentProbeReport {
-        deployment_id: deployment_id.to_owned(),
-        upstream_model: deployment.upstream_model().to_owned(),
+    Ok(TargetProbeReport {
+        upstream_target_id: upstream_target_id.to_owned(),
         list_models,
         chat,
         responses,
@@ -249,7 +237,7 @@ pub async fn probe_deployment(
 }
 
 struct ProbeSession<'a> {
-    deployment: &'a ResolvedDeployment,
+    target: &'a ResolvedUpstreamTarget,
     transport: &'a dyn UpstreamTransport,
     adapter: ProviderAdapter,
     headers: HeaderMap,
@@ -275,11 +263,11 @@ impl ProbeSession<'_> {
                     .filter_map(|entry| entry.get("id").and_then(Value::as_str))
                     .map(str::to_owned)
                     .collect::<Vec<_>>();
-                let configured_model_listed = Some(
+                let configured_model_listed = Some(self.target.offerings().any(|(_, offering)| {
                     model_ids
                         .iter()
-                        .any(|model| model == self.deployment.upstream_model()),
-                );
+                        .any(|model| model == offering.upstream_model())
+                }));
                 ListModelsObservation {
                     outcome: ProbeOutcome::supported(response.status),
                     configured_model_listed,
@@ -295,10 +283,16 @@ impl ProbeSession<'_> {
     }
 
     async fn probe_text(&self, protocol: Protocol) -> ProbeOutcome {
+        let Some(offering) = self.target.offering_for_protocol(protocol) else {
+            return ProbeOutcome {
+                state: ProbeState::Unsupported,
+                http_status: None,
+            };
+        };
         let request = probe_text_request(
             protocol,
-            self.deployment.upstream_model(),
-            self.probe_max_output_tokens(),
+            offering.upstream_model(),
+            self.probe_max_output_tokens(offering),
         );
         match self.send_protocol_json(protocol, request).await {
             Ok(response) if is_protocol_response(protocol, &response.body) => {
@@ -310,10 +304,19 @@ impl ProbeSession<'_> {
     }
 
     async fn probe_function_calling(&self, protocol: Protocol) -> FunctionCallingObservation {
+        let Some(offering) = self.target.offering_for_protocol(protocol) else {
+            return FunctionCallingObservation {
+                initial_call: ProbeOutcome {
+                    state: ProbeState::Unsupported,
+                    http_status: None,
+                },
+                result_replay: None,
+            };
+        };
         let request = probe_tool_request(
             protocol,
-            self.deployment.upstream_model(),
-            self.probe_max_output_tokens(),
+            offering.upstream_model(),
+            self.probe_max_output_tokens(offering),
         );
         let response = match self.send_protocol_json(protocol, request).await {
             Ok(response) => response,
@@ -326,8 +329,8 @@ impl ProbeSession<'_> {
         };
         let Some(replay) = tool_result_replay_request(
             protocol,
-            self.deployment.upstream_model(),
-            self.probe_max_output_tokens(),
+            offering.upstream_model(),
+            self.probe_max_output_tokens(offering),
             &response.body,
         ) else {
             return FunctionCallingObservation {
@@ -357,7 +360,13 @@ impl ProbeSession<'_> {
         let request = ValidatedRequest::new(protocol, Bytes::from(body));
         let request = self
             .adapter
-            .encode_request(&request, self.deployment.upstream_model())
+            .encode_request(
+                &request,
+                self.target
+                    .offering_for_protocol(protocol)
+                    .expect("probe protocol has a configured offering")
+                    .upstream_model(),
+            )
             .expect("compiled provider adapter accepts both probe protocols");
         self.send_json(request).await
     }
@@ -368,14 +377,14 @@ impl ProbeSession<'_> {
     ) -> Result<JsonResponse, ProbeOutcome> {
         let response = self
             .transport
-            .send(self.deployment, request, self.headers.clone())
+            .send(self.target, request, self.headers.clone())
             .await
             .map_err(|_| ProbeOutcome::unknown(None))?;
         decode_json_response(response, self.max_response_bytes).await
     }
 
-    fn probe_max_output_tokens(&self) -> u32 {
-        self.deployment
+    fn probe_max_output_tokens(&self, offering: &ResolvedNativeOffering) -> u32 {
+        offering
             .model()
             .context_length()
             .output_tokens()
@@ -545,12 +554,12 @@ mod tests {
     use secrecy::SecretString;
     use serde_json::{Value, json};
 
-    use super::{ProbeSelection, ProbeState, probe_deployment};
+    use super::{ProbeSelection, ProbeState, probe_upstream_target};
     use crate::{
         config::load_bootstrap,
         provider::{CredentialSource, UpstreamRequestParts},
         providers,
-        registry::{RegistrySnapshot, ResolvedDeployment, build_registry},
+        registry::{RegistrySnapshot, ResolvedUpstreamTarget, build_registry},
         transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
     };
 
@@ -567,7 +576,9 @@ upstream_pool_max_idle_per_host = 16
     fn snapshot() -> RegistrySnapshot {
         let mut definition = providers::compiled_definition();
         definition.version = "probe-test".to_owned();
-        definition.deployments[0].upstream_model = "test-model".to_owned();
+        for offering in &mut definition.upstream_targets[0].offerings {
+            offering.upstream_model = "test-model".to_owned();
+        }
         build_registry(load_bootstrap(BOOTSTRAP).unwrap(), definition).unwrap()
     }
 
@@ -579,7 +590,7 @@ upstream_pool_max_idle_per_host = 16
     impl UpstreamTransport for FixtureTransport {
         fn send<'a>(
             &'a self,
-            _deployment: &'a ResolvedDeployment,
+            _target: &'a ResolvedUpstreamTarget,
             request: UpstreamRequestParts,
             _headers: HeaderMap,
         ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -658,7 +669,7 @@ upstream_pool_max_idle_per_host = 16
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 
-        let report = probe_deployment(
+        let report = probe_upstream_target(
             &snapshot,
             "openai-main",
             &transport,
@@ -708,12 +719,12 @@ upstream_pool_max_idle_per_host = 16
     }
 
     #[tokio::test]
-    async fn probe_rejects_unknown_deployment_before_any_egress() {
+    async fn probe_rejects_unknown_target_before_any_egress() {
         let snapshot = snapshot();
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 
-        let error = probe_deployment(
+        let error = probe_upstream_target(
             &snapshot,
             "missing",
             &transport,
@@ -726,6 +737,9 @@ upstream_pool_max_idle_per_host = 16
         .await
         .unwrap_err();
 
-        assert!(matches!(error, super::ProbeError::UnknownDeployment { .. }));
+        assert!(matches!(
+            error,
+            super::ProbeError::UnknownUpstreamTarget { .. }
+        ));
     }
 }

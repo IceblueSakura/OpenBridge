@@ -1,13 +1,13 @@
 //! 美团 LongCat 系列的 canonical 模型事实。
 
-use crate::registry::{ModelContextLength, ModelDefinition, ReasoningSupport};
+use crate::registry::{ModelContextLength, RealModelDefinition, ReasoningSupport};
 
 /// LongCat-2.0 在 OpenBridge 模型目录中的稳定 id。
 pub const MODEL_ID: &str = "meituan/longcat-2.0";
 
 /// 构造 LongCat-2.0 模型事实；具体 Provider endpoint 与上游 model id 不属于此定义。
-pub(crate) fn definition() -> ModelDefinition {
-    ModelDefinition {
+pub(crate) fn definition() -> RealModelDefinition {
+    RealModelDefinition {
         id: MODEL_ID.to_owned(),
         name: "LongCat-2.0".to_owned(),
         description: Some(

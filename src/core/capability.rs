@@ -69,7 +69,7 @@ impl ResponsesCapabilities {
         }
     }
 
-    const fn is_subset_of(self, upper: Self) -> bool {
+    pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         self.protocol_capabilities()
             .is_subset_of(upper.protocol_capabilities())
             && (!self.previous_response_id || upper.previous_response_id)
@@ -77,9 +77,9 @@ impl ResponsesCapabilities {
     }
 }
 
-/// 部署的协议分域能力上界。
+/// Provider descriptor 的协议分域能力上界。
 ///
-/// route 配置只能把 provider descriptor 已支持的能力关闭，不能把未实现的能力打开；请求
+/// Native Offering 只能把 provider descriptor 已支持的能力关闭，不能把未实现的能力打开；请求
 /// routing 使用同一集合在网络调用前拒绝不受支持的 feature。Chat Completions 与
 /// Responses 分开建模，以免把一个端点的观察错误外推到另一个端点。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

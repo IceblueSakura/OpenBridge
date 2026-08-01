@@ -27,9 +27,9 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 ## 当前可运行基线
 
-当前 `main` 已实现 OpenAI 与 Meituan/LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 deployment candidate、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
+当前 `main` 已实现 OpenAI 与 Meituan/LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 Serving Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；canonical Model 位于 [`src/models`](src/models)，Provider 与 Deployment 位于 [`src/providers`](src/providers)，public alias 由顶层代码注册表显式组合：
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Real Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Native Offering 位于 [`src/providers`](src/providers)，Serving Route 与 Public Model 由顶层代码注册表显式组合：
 
 ```bash
 cp .env.example .env
@@ -91,13 +91,13 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
-| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | alias 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
+| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Serving Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
 | [调用统计与可观测性](docs/functional-requirements/observability.md) | usage、TTFT/TTFB、终态错误率和 headless 输出边界 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
 | [当前代码架构](docs/implementation-status/current-architecture.md) | 按层次描述当前源码模块、请求路径、依赖和结构限制 | 实施现状 |
 | [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
 | [目标服务架构](docs/implementation-plans/service-architecture.md) | Upstream Target/Offering、原生/桥接双路径、路由与状态边界 | 实施计划 |
-| [注册表与路由架构迁移计划](docs/implementation-plans/registry-architecture-migration.md) | 从当前 Deployment/Alias 注册表迁移到目标 Execution Plan 架构 | 实施计划 |
+| [架构迁移总计划](docs/implementation-plans/registry-architecture-migration.md) | 注册表与 RoutePlan 已迁移；后续规划 Protocol Bridge、恢复与信息投影 | 实施计划 |
 | [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 的研究职责 | 参考文档 |
 
 文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
@@ -116,10 +116,9 @@ cargo test --locked --test sdk_compatibility -- --ignored
 ## 关键术语
 
 - **Provider Family**：代码中实现的一类协议和认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
-- **Deployment（当前代码名）**：当前代码注册表中的上游目标，同时绑定 Provider、base URL、credential binding、上游模型和两种协议能力；目标架构会将其拆分并更名。
-- **Upstream Target（目标名称）**：共享 endpoint、credential、quota、故障与状态边界的上游调用目标。
-- **Native Offering（目标名称）**：Upstream Target 下的一条协议级原生供应，独立记录协议、upstream model、limits 和能力证据。
-- **Public model alias（当前代码名）/ Public Model（目标名称）**：客户端使用的稳定模型名，例如 `code-primary`；目标架构中映射到有序完整 Serving Routes。
+- **Upstream Target**：共享 endpoint、credential、Real Model、timeout 与故障边界的上游调用目标。
+- **Native Offering**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state policy。
+- **Public Model**：客户端使用的稳定模型名，例如 `code-primary`，映射到有序完整 Serving Routes。
 - **RoutePlan / Execution Plan**：单次请求固定的 Upstream Target/Offering、协议模式、能力判断、credential binding、转换约束与 fallback 边界。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
 - **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。

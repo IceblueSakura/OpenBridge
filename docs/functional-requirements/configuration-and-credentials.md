@@ -2,8 +2,8 @@
 
 ## 状态
 
-**当前约束。** OpenBridge 是个人使用的 headless 网关。Provider、Model、Deployment、Alias、
-endpoint、能力和字段转换由 Rust 代码显式注册；运行时配置不提供 Provider DSL，也不支持
+**当前约束。** OpenBridge 是个人使用的 headless 网关。Provider descriptor、Real Model、
+Upstream Target、Native Offering、Serving Route、Public Model、endpoint、能力和字段转换由 Rust 代码显式注册；运行时配置不提供 Provider DSL，也不支持
 route 热重载。
 
 ## 1. 所有权划分
@@ -11,10 +11,10 @@ route 热重载。
 | 来源 | 内容 | 能否包含 secret |
 |---|---|---|
 | `config/bootstrap.toml` | loopback listener、body/SSE 上限、共享 HTTP client 连接与超时策略 | 否 |
-| `src/models/*` | canonical 模型事实、token 限制、参数和 reasoning | 否 |
-| `src/providers/*` | Provider 行为、endpoint、credential binding、deployment、alias、能力 | 否 |
+| `src/models/*` | Real Model 事实、token 限制、参数和 reasoning | 否 |
+| `src/providers/*` | Provider 行为、target/offering、endpoint、credential binding、route 与 Public Model | 否 |
 | 进程环境变量、被忽略的 `.env` 或后续受限 secret backend | 下游 Bearer token、上游 API key/OAuth material | 是 |
-| 下游业务请求 | public model alias 和模型调用参数 | 否；也不能选择 endpoint/credential |
+| 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
 当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
@@ -22,13 +22,14 @@ route 热重载。
 ## 2. 代码注册表要求
 
 - 每个具体 Provider 位于独立 `src/providers/<provider>.rs` 文件；
-- 每个 canonical Model 位于独立 `src/models/<model>.rs` 文件；
+- 每个 Real Model 位于独立 `src/models/<model>.rs` 文件；
 - `src/providers/mod.rs::compiled_definition()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider descriptor 定义 adapter 能力上界、endpoint profile 和 credential kind；
-- Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；
-- Deployment 绑定 Provider、Model、endpoint、上游 model id、timeout 和只收窄约束；
-- Alias 保存有序 deployment candidate；
+- Real Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；
+- Upstream Target 绑定 Provider、Real Model、endpoint、credential、timeout 和共享故障边界；
+- Native Offering 独立声明一个协议的 upstream model、served limit、能力和 state policy；
+- Public Model 保存有序完整 Serving Route；
 - 启动监听前必须完成唯一性、引用、能力、reasoning、credential locator 和 URL 校验。
 
 修改 Provider、Model 或路由必须重新编译并重启。项目不要求热重载。

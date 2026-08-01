@@ -21,7 +21,7 @@ use http::{HeaderMap, HeaderValue};
 use openbridge::{
     ingress::{AppState, StaticBearerCredential, build_router},
     provider::{CredentialSource, UpstreamRequestParts},
-    registry::{RegistryDefinition, ResolvedDeployment, build_registry},
+    registry::{RegistryDefinition, ResolvedUpstreamTarget, build_registry},
     transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
@@ -77,7 +77,7 @@ struct FailoverTransport {
 impl UpstreamTransport for TimeoutTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -88,7 +88,7 @@ impl UpstreamTransport for TimeoutTransport {
 impl UpstreamTransport for NonSseErrorTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -107,7 +107,7 @@ impl UpstreamTransport for NonSseErrorTransport {
 impl UpstreamTransport for RateLimitedTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -129,7 +129,7 @@ impl UpstreamTransport for RateLimitedTransport {
 impl UpstreamTransport for InvalidSseTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -150,7 +150,7 @@ impl UpstreamTransport for InvalidSseTransport {
 impl UpstreamTransport for EofWithoutTerminalTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -171,7 +171,7 @@ impl UpstreamTransport for EofWithoutTerminalTransport {
 impl UpstreamTransport for PartialStreamFailureTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -195,7 +195,7 @@ impl UpstreamTransport for PartialStreamFailureTransport {
 impl UpstreamTransport for PendingSseTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         _request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -219,7 +219,7 @@ impl UpstreamTransport for PendingSseTransport {
 impl UpstreamTransport for RecordingTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -261,7 +261,7 @@ impl UpstreamTransport for RecordingTransport {
 impl UpstreamTransport for FailoverTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
@@ -354,7 +354,7 @@ async fn business_endpoints_require_json_content_type_before_upstream() {
 }
 
 #[tokio::test]
-async fn models_lists_only_public_aliases_after_authentication() {
+async fn models_lists_only_public_models_after_authentication() {
     let app = app_with_transport(Arc::new(RecordingTransport::default()));
     let request = Request::get("/v1/models")
         .header(AUTHORIZATION, "Bearer downstream-token")
@@ -377,15 +377,24 @@ async fn models_lists_only_public_aliases_after_authentication() {
 }
 
 #[tokio::test]
-async fn streaming_requests_fail_over_to_the_next_compatible_deployment_before_output() {
+async fn streaming_requests_fail_over_to_the_next_compatible_target_before_output() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
-    let mut fallback = definition.deployments[0].clone();
+    let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.upstream_model = "fallback-model".to_owned();
-    definition.deployments.push(fallback);
-    definition.aliases[0]
-        .candidates
-        .push("openai-fallback".to_owned());
+    fallback.offerings[1].upstream_model = "fallback-model".to_owned();
+    definition.upstream_targets.push(fallback);
+    definition
+        .serving_routes
+        .push(openbridge::registry::ServingRouteDefinition {
+            id: "fallback-responses".to_owned(),
+            upstream_target: "openai-fallback".to_owned(),
+            offering: "responses".to_owned(),
+            downstream_protocol: openbridge::core::Protocol::Responses,
+            mode: openbridge::registry::ServingRouteMode::Native,
+        });
+    definition.public_models[0]
+        .serving_routes
+        .push("fallback-responses".to_owned());
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")
@@ -409,19 +418,29 @@ async fn streaming_requests_fail_over_to_the_next_compatible_deployment_before_o
 }
 
 #[tokio::test]
-async fn provider_bound_streams_do_not_fall_back_to_another_deployment() {
+async fn provider_bound_streams_do_not_fall_back_to_another_target() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
-    definition.deployments[0]
-        .capabilities
-        .responses
-        .previous_response_id = true;
-    let mut fallback = definition.deployments[0].clone();
+    if let openbridge::registry::NativeOfferingCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].offerings[1].capabilities
+    {
+        capabilities.previous_response_id = true;
+    }
+    let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.upstream_model = "fallback-model".to_owned();
-    definition.deployments.push(fallback);
-    definition.aliases[0]
-        .candidates
-        .push("openai-fallback".to_owned());
+    fallback.offerings[1].upstream_model = "fallback-model".to_owned();
+    definition.upstream_targets.push(fallback);
+    definition
+        .serving_routes
+        .push(openbridge::registry::ServingRouteDefinition {
+            id: "fallback-responses".to_owned(),
+            upstream_target: "openai-fallback".to_owned(),
+            offering: "responses".to_owned(),
+            downstream_protocol: openbridge::core::Protocol::Responses,
+            mode: openbridge::registry::ServingRouteMode::Native,
+        });
+    definition.public_models[0]
+        .serving_routes
+        .push("fallback-responses".to_owned());
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")

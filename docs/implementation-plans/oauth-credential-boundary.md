@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Deferred / Blocked。** OAuth 不是 OpenBridge 单用户 Provider 聚合核心的前置条件。核心先使用标准 Provider API key；只有公开、适用的 OAuth client registration、redirect、scope/resource、token/refresh contract 与条款均确认后，才实施真实 Codex/ChatGPT OAuth。
+**Deferred / Blocked；不属于 M0–M7。** OAuth 不是 OpenBridge 单用户 Provider 聚合核心或[架构迁移总计划](registry-architecture-migration.md)的前置条件。核心先使用标准 Provider API key；只有公开、适用的 OAuth client registration、redirect、scope/resource、token/refresh contract 与条款均确认后，才实施真实 Codex/ChatGPT OAuth。
 
 ## 1. 结论
 

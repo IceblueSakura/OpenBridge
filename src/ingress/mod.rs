@@ -35,7 +35,7 @@ use tower_http::{
 
 use crate::{
     core::Protocol,
-    pipeline::{RouteError, prepare_native_request},
+    pipeline::{RouteError, analyze_request, plan_request},
     provider::{
         CredentialSource, ErrorAdapter, EventDisposition, ProviderAdapter, RequestAdapter,
         ResponseAdapter,
@@ -94,7 +94,7 @@ impl AppState {
 ///
 /// body limit 和 request id 在认证前统一施加；`Authorization` 被标为 sensitive，避免
 /// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
-/// 从而不暴露内部 alias/deployment 信息给匿名请求。
+/// 从而不暴露内部 Public Model/Serving Route 信息给匿名请求。
 pub fn build_router(state: AppState) -> Router {
     let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
@@ -145,7 +145,7 @@ async fn require_downstream_credential(
 async fn models(State(state): State<AppState>) -> Json<ModelListResponse> {
     let data = state
         .registry
-        .public_aliases()
+        .public_models()
         .map(|id| PublicModel {
             id: id.to_owned(),
             object: "model",
@@ -223,40 +223,41 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
     const MAX_UPSTREAM_ATTEMPTS: usize = 2;
 
     let snapshot = state.registry.clone();
-    let prepared = match prepare_native_request(&snapshot, protocol, body) {
-        Ok(prepared) => prepared,
+    let profile = match analyze_request(protocol, &body) {
+        Ok(profile) => profile,
         Err(error) => return route_error(error),
     };
-    let candidate_count = if prepared.allows_fallback() {
-        prepared.candidates().len()
+    let plan = match plan_request(&snapshot, &profile, body) {
+        Ok(plan) => plan,
+        Err(error) => return route_error(error),
+    };
+    let candidate_count = if plan.allows_fallback() {
+        plan.candidates().len()
     } else {
         1
     };
 
-    'candidates: for (candidate_index, candidate) in prepared
-        .candidates()
-        .iter()
-        .take(candidate_count)
-        .enumerate()
+    'candidates: for (candidate_index, candidate) in
+        plan.candidates().iter().take(candidate_count).enumerate()
     {
-        let Some(deployment) = snapshot.deployment(candidate.deployment_id()) else {
+        let Some(target) = snapshot.upstream_target(candidate.upstream_target_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",
-                "Configured deployment is unavailable",
+                "Configured upstream target is unavailable",
             );
         };
-        let Some(provider) = snapshot.provider(deployment.provider_id()) else {
+        let Some(offering) = target.offering(candidate.offering_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",
-                "Configured provider is unavailable",
+                "Configured native offering is unavailable",
             );
         };
         let credential = match state.upstream_credentials.resolve(
-            provider.kind(),
-            provider.credential().id(),
-            provider.credential().secret_reference().locator(),
+            target.kind(),
+            target.credential().id(),
+            target.credential().secret_reference().locator(),
         ) {
             Ok(credential) => credential,
             Err(_) => {
@@ -267,7 +268,7 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                 );
             }
         };
-        let adapter = ProviderAdapter::for_kind(provider.kind());
+        let adapter = ProviderAdapter::for_kind(target.kind());
         let headers = match adapter.build_outbound_headers(&credential) {
             Ok(headers) => headers,
             Err(_) => {
@@ -278,8 +279,7 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                 );
             }
         };
-        let request = match adapter.encode_request(candidate.request(), deployment.upstream_model())
-        {
+        let request = match adapter.encode_request(candidate.request(), offering.upstream_model()) {
             Ok(request) => request,
             Err(_) => {
                 return api_error(
@@ -293,12 +293,11 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
         for attempt in 0..MAX_UPSTREAM_ATTEMPTS {
             match state
                 .upstream
-                .send(deployment, request.clone(), headers.clone())
+                .send(target, request.clone(), headers.clone())
                 .await
             {
                 Ok(upstream)
-                    if should_retry_status(&adapter, upstream.status())
-                        && prepared.is_streaming() =>
+                    if should_retry_status(&adapter, upstream.status()) && plan.is_streaming() =>
                 {
                     if attempt + 1 < MAX_UPSTREAM_ATTEMPTS {
                         continue;
@@ -308,7 +307,7 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                     }
                     return upstream_response(
                         upstream,
-                        prepared.is_streaming(),
+                        plan.is_streaming(),
                         protocol,
                         adapter,
                         snapshot.limits().max_sse_event_bytes(),
@@ -317,13 +316,13 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                 Ok(upstream) => {
                     return upstream_response(
                         upstream,
-                        prepared.is_streaming(),
+                        plan.is_streaming(),
                         protocol,
                         adapter,
                         snapshot.limits().max_sse_event_bytes(),
                     );
                 }
-                Err(error) if should_retry_error(&error) && prepared.is_streaming() => {
+                Err(error) if should_retry_error(&error) && plan.is_streaming() => {
                     if attempt + 1 < MAX_UPSTREAM_ATTEMPTS {
                         continue;
                     }
@@ -506,7 +505,7 @@ fn route_error(error: RouteError) -> Response {
             "invalid_request_error",
             "Request body is invalid",
         ),
-        RouteError::UnknownModel | RouteError::NoDeployment => api_error(
+        RouteError::UnknownModel | RouteError::NoServingRoute => api_error(
             StatusCode::NOT_FOUND,
             "model_not_found",
             "The requested model is not available",

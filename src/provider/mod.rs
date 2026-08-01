@@ -47,7 +47,7 @@ pub enum CredentialKind {
 
 /// provider 的静态能力与可配置范围。
 ///
-/// deployment capability 只能收窄此描述符，不能自行声明 adapter 未实现的特性；endpoint
+/// Native Offering capability 只能收窄此描述符，不能自行声明 adapter 未实现的特性；endpoint
 /// profile 与 credential kind 同样由这里限制，避免 route TOML 变成动态 provider DSL。
 #[derive(Debug)]
 pub struct ProviderDescriptor {
@@ -133,7 +133,7 @@ pub enum ProviderFailure {
     InvalidAuthenticationHeader,
 }
 
-/// 已经选择协议、但尚未绑定 deployment origin 的上游请求。
+/// 已经选择协议、但尚未绑定 Upstream Target origin 的上游请求。
 ///
 /// adapter 只能产生相对 URI；transport 将其与配置中已 allowlist 的 origin 拼接。这是阻止
 /// provider adapter 或下游请求绕过 egress allowlist 的第二道边界。
@@ -215,7 +215,7 @@ impl ProviderAdapter {
     /// 由编译期 adapter 固定生成的上游模型发现请求。
     ///
     /// 该请求只用于管理员显式 probe；它不会成为下游 `/v1/models` 的实现，后者始终
-    /// 只暴露 OpenBridge 的 public alias。
+    /// 只暴露 OpenBridge 的 Public Model。
     pub(crate) fn encode_list_models_request(&self) -> UpstreamRequestParts {
         match self {
             Self::OpenAi(adapter) => adapter.encode_list_models_request(),

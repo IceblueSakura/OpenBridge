@@ -14,7 +14,7 @@ use http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     ingress::{AppState, StaticBearerCredential, build_router},
     provider::{CredentialSource, UpstreamRequestParts},
-    registry::ResolvedDeployment,
+    registry::ResolvedUpstreamTarget,
     transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
@@ -26,7 +26,7 @@ struct SdkFixtureTransport;
 impl UpstreamTransport for SdkFixtureTransport {
     fn send<'a>(
         &'a self,
-        _deployment: &'a ResolvedDeployment,
+        _target: &'a ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {

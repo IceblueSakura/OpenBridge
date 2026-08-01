@@ -1,6 +1,6 @@
-//! 编译期 Provider、Model、Deployment 与 Alias 注册表。
+//! 编译期 Real Model、Upstream Target、Native Offering、Public Model 与 Serving Route 注册表。
 //!
-//! 模型事实由 `src/models/*` 构造，Provider 与 deployment 由 `src/providers/*` 构造。
+//! 模型事实由 `src/models/*` 构造，target/offering/route 由 `src/providers/*` 构造。
 //! 启动时 builder 对完整定义执行引用、能力和安全边界校验，成功后生成请求路径只读的
 //! `RegistrySnapshot`。
 
@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::{
     config::{BootstrapPolicy, RuntimeLimits, UpstreamPolicy},
-    core::CapabilitySet,
+    core::{CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities},
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -86,7 +86,7 @@ impl ModelContextLength {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ModelDefinition {
+pub struct RealModelDefinition {
     /// 目录内部稳定的模型 id。
     pub id: String,
     /// 给客户端展示的模型名称。
@@ -105,11 +105,11 @@ pub struct ModelDefinition {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModelConstraints {
-    /// deployment 可进一步收紧的上下文长度。
+    /// offering 可进一步收紧的上下文长度。
     pub context_length: ModelContextLength,
-    /// deployment 可进一步收紧的 reasoning 状态。
+    /// offering 可进一步收紧的 reasoning 状态。
     pub reasoning: Option<ReasoningSupport>,
-    /// deployment 禁用但不能新增的参数名。
+    /// offering 禁用但不能新增的参数名。
     pub disabled_parameters: Vec<String>,
 }
 
@@ -123,44 +123,119 @@ pub struct CredentialDefinition {
     pub environment_variable: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProviderDefinition {
-    /// 注册表中的 provider id。
-    pub id: String,
-    /// 编译期 provider kind。
-    pub kind: ProviderKind,
-    /// 该 provider 使用的 credential binding。
-    pub credential: CredentialDefinition,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeOfferingCapabilities {
+    ChatCompletions(ProtocolCapabilities),
+    Responses(ResponsesCapabilities),
+}
+
+impl NativeOfferingCapabilities {
+    pub const fn protocol(self) -> Protocol {
+        match self {
+            Self::ChatCompletions(_) => Protocol::ChatCompletions,
+            Self::Responses(_) => Protocol::Responses,
+        }
+    }
+
+    pub const fn protocol_capabilities(self) -> ProtocolCapabilities {
+        match self {
+            Self::ChatCompletions(capabilities) => capabilities,
+            Self::Responses(capabilities) => capabilities.protocol_capabilities(),
+        }
+    }
+
+    pub const fn responses(self) -> Option<ResponsesCapabilities> {
+        match self {
+            Self::ChatCompletions(_) => None,
+            Self::Responses(capabilities) => Some(capabilities),
+        }
+    }
+
+    const fn is_subset_of(self, upper: CapabilitySet) -> bool {
+        match self {
+            Self::ChatCompletions(capabilities) => {
+                capabilities.is_subset_of(upper.chat_completions)
+            }
+            Self::Responses(capabilities) => capabilities.is_subset_of(upper.responses),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeTransport {
+    HttpJsonSse,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatePolicy {
+    Stateless,
+    ProviderBound,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeploymentDefinition {
-    /// 注册表中的 deployment id。
+pub struct NativeOfferingDefinition {
+    /// target 内稳定的 offering id。
     pub id: String,
-    /// 引用的 provider id。
-    pub provider: String,
-    /// 引用的模型 id。
-    pub model: String,
+    /// offering 原生提供的协议。
+    pub protocol: Protocol,
     /// 发往上游的真实模型 id。
     pub upstream_model: String,
     /// provider 允许的 endpoint profile。
     pub endpoint_profile: String,
-    /// 经过校验的 HTTPS endpoint base。
-    pub base_url: String,
-    /// 单次上游请求超时时间。
-    pub request_timeout: Duration,
-    /// 对模型目录能力的 deployment 级收窄。
+    /// 当前原生 transport profile。
+    pub transport: NativeTransport,
+    /// 对 Real Model 事实的 offering 级收窄。
     pub model_constraints: ModelConstraints,
-    /// 对 provider 能力上界的 deployment 级收窄。
-    pub capabilities: CapabilitySet,
+    /// 单协议能力证据。
+    pub capabilities: NativeOfferingCapabilities,
+    /// continuation/state 所有权策略。
+    pub state_policy: StatePolicy,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AliasDefinition {
-    /// 对下游公开的 model alias。
+pub struct UpstreamTargetDefinition {
+    /// 注册表中的 target id。
+    pub id: String,
+    /// 编译期 Provider Family。
+    pub provider: ProviderKind,
+    /// 引用的 Real Model id。
+    pub real_model: String,
+    /// 经过校验的 HTTPS endpoint base。
+    pub base_url: String,
+    /// target 使用的 credential binding。
+    pub credential: CredentialDefinition,
+    /// 可选的明确共享 quota scope。
+    pub quota_scope: Option<String>,
+    /// 可选的故障/cooldown 域。
+    pub fault_domain: Option<String>,
+    /// 单次上游请求超时时间。
+    pub request_timeout: Duration,
+    /// 是否允许新的无状态请求选择该 target。
+    pub enabled: bool,
+    /// target 原生提供的协议级供应。
+    pub offerings: Vec<NativeOfferingDefinition>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServingRouteMode {
+    Native,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServingRouteDefinition {
+    pub id: String,
+    pub upstream_target: String,
+    pub offering: String,
+    pub downstream_protocol: Protocol,
+    pub mode: ServingRouteMode,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicModelDefinition {
+    /// 对下游公开的稳定 model name。
     pub name: String,
-    /// 按优先级排列的 deployment id。
-    pub candidates: Vec<String>,
+    /// 按优先级排列的完整 Serving Route id。
+    pub serving_routes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,13 +243,13 @@ pub struct RegistryDefinition {
     /// 用于报告和审计的注册表版本。
     pub version: String,
     /// 完整模型定义集合。
-    pub models: Vec<ModelDefinition>,
-    /// 完整 provider 定义集合。
-    pub providers: Vec<ProviderDefinition>,
-    /// 完整 deployment 定义集合。
-    pub deployments: Vec<DeploymentDefinition>,
-    /// 完整 public alias 集合。
-    pub aliases: Vec<AliasDefinition>,
+    pub real_models: Vec<RealModelDefinition>,
+    /// 完整 Upstream Target 定义集合。
+    pub upstream_targets: Vec<UpstreamTargetDefinition>,
+    /// 完整 Serving Route 定义集合。
+    pub serving_routes: Vec<ServingRouteDefinition>,
+    /// 完整 Public Model 定义集合。
+    pub public_models: Vec<PublicModelDefinition>,
 }
 
 /// 编译期注册表定义不完整、引用不一致或尝试越权时返回的错误。
@@ -191,18 +266,45 @@ pub enum RegistryError {
         target: &'static str,
         reference: String,
     },
-    #[error("provider '{provider}' uses an invalid credential environment variable")]
-    InvalidCredentialLocator { provider: String },
-    #[error("provider '{provider}' uses a credential kind unsupported by its adapter")]
-    UnsupportedCredentialKind { provider: String },
-    #[error("deployment '{deployment}' uses an invalid base URL")]
-    InvalidBaseUrl { deployment: String },
-    #[error("deployment '{deployment}' uses unsupported endpoint profile '{profile}'")]
-    UnsupportedEndpointProfile { deployment: String, profile: String },
-    #[error("deployment '{deployment}' request timeout must be greater than zero")]
-    InvalidRequestTimeout { deployment: String },
-    #[error("deployment '{deployment}' upstream model must not be blank")]
-    BlankUpstreamModel { deployment: String },
+    #[error("upstream target '{upstream_target}' uses an invalid credential environment variable")]
+    InvalidCredentialLocator { upstream_target: String },
+    #[error(
+        "upstream target '{upstream_target}' uses a credential kind unsupported by its adapter"
+    )]
+    UnsupportedCredentialKind { upstream_target: String },
+    #[error("upstream target '{upstream_target}' uses an invalid base URL")]
+    InvalidBaseUrl { upstream_target: String },
+    #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
+    InvalidRequestTimeout { upstream_target: String },
+    #[error("upstream target '{upstream_target}' must contain at least one offering")]
+    EmptyUpstreamTarget { upstream_target: String },
+    #[error("upstream target '{upstream_target}' contains duplicate offering '{offering}'")]
+    DuplicateOffering {
+        upstream_target: String,
+        offering: String,
+    },
+    #[error(
+        "offering '{offering}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
+    )]
+    UnsupportedEndpointProfile {
+        upstream_target: String,
+        offering: String,
+        profile: String,
+    },
+    #[error(
+        "offering '{offering}' on upstream target '{upstream_target}' upstream model must not be blank"
+    )]
+    BlankUpstreamModel {
+        upstream_target: String,
+        offering: String,
+    },
+    #[error(
+        "offering '{offering}' on upstream target '{upstream_target}' capability type does not match protocol"
+    )]
+    OfferingProtocolMismatch {
+        upstream_target: String,
+        offering: String,
+    },
     #[error("model '{model}' field '{field}' must not be blank")]
     BlankModelField { model: String, field: &'static str },
     #[error("model '{model}' context length '{limit}' must be greater than zero")]
@@ -213,39 +315,41 @@ pub enum RegistryError {
     DuplicateSupportedParameter { model: String, parameter: String },
     #[error("model '{model}' has inconsistent reasoning metadata: {detail}")]
     InconsistentReasoningMetadata { model: String, detail: &'static str },
-    #[error("deployment '{deployment}' model constraint '{field}' must be greater than zero")]
-    InvalidDeploymentModelConstraint {
-        deployment: String,
+    #[error("offering '{offering}' model constraint '{field}' must be greater than zero")]
+    InvalidOfferingModelConstraint {
+        offering: String,
         field: &'static str,
     },
-    #[error("deployment '{deployment}' model constraint '{field}' exceeds the model limit")]
-    DeploymentModelConstraintExceedsModelLimit {
-        deployment: String,
+    #[error("offering '{offering}' model constraint '{field}' exceeds the model limit")]
+    OfferingModelConstraintExceedsModelLimit {
+        offering: String,
         field: &'static str,
     },
-    #[error("deployment '{deployment}' model constraint '{field}' widens the model metadata")]
-    DeploymentModelConstraintWidensModelMetadata {
-        deployment: String,
+    #[error("offering '{offering}' model constraint '{field}' widens the model metadata")]
+    OfferingModelConstraintWidensModelMetadata {
+        offering: String,
         field: &'static str,
     },
-    #[error(
-        "deployment '{deployment}' model constraint disables undeclared parameter '{parameter}'"
-    )]
-    DeploymentModelConstraintDisablesUndeclaredParameter {
-        deployment: String,
-        parameter: String,
-    },
-    #[error("deployment '{deployment}' model constraints are inconsistent: {detail}")]
-    InconsistentDeploymentModelConstraints {
-        deployment: String,
+    #[error("offering '{offering}' model constraint disables undeclared parameter '{parameter}'")]
+    OfferingModelConstraintDisablesUndeclaredParameter { offering: String, parameter: String },
+    #[error("offering '{offering}' model constraints are inconsistent: {detail}")]
+    InconsistentOfferingModelConstraints {
+        offering: String,
         detail: &'static str,
     },
-    #[error("deployment '{deployment}' enables capabilities unsupported by its adapter")]
-    CapabilityElevation { deployment: String },
-    #[error("alias '{alias}' contains duplicate deployment candidate '{candidate}'")]
-    DuplicateAliasCandidate { alias: String, candidate: String },
-    #[error("alias '{alias}' must contain at least one deployment candidate")]
-    EmptyAlias { alias: String },
+    #[error(
+        "offering '{offering}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
+    )]
+    CapabilityElevation {
+        upstream_target: String,
+        offering: String,
+    },
+    #[error("native serving route '{route}' protocol does not match its offering")]
+    NativeRouteProtocolMismatch { route: String },
+    #[error("public model '{public_model}' contains duplicate serving route '{route}'")]
+    DuplicatePublicModelRoute { public_model: String, route: String },
+    #[error("public model '{public_model}' must contain at least one serving route")]
+    EmptyPublicModel { public_model: String },
 }
 
 /// 启动后供请求路径读取的模型元数据。
@@ -301,10 +405,10 @@ impl ModelMetadata {
 pub struct RegistrySnapshot {
     version: RegistryVersion,
     bootstrap: BootstrapPolicy,
-    models: BTreeMap<String, ModelMetadata>,
-    providers: BTreeMap<String, ResolvedProvider>,
-    deployments: BTreeMap<String, ResolvedDeployment>,
-    aliases: BTreeMap<String, ResolvedAlias>,
+    real_models: BTreeMap<String, ModelMetadata>,
+    upstream_targets: BTreeMap<String, ResolvedUpstreamTarget>,
+    serving_routes: BTreeMap<String, ResolvedServingRoute>,
+    public_models: BTreeMap<String, ResolvedPublicModel>,
 }
 
 impl RegistrySnapshot {
@@ -329,33 +433,31 @@ impl RegistrySnapshot {
     }
 
     /// 按内部模型 id 查询模型元数据。
-    pub fn model(&self, id: &str) -> Option<&ModelMetadata> {
-        self.models.get(id)
+    pub fn real_model(&self, id: &str) -> Option<&ModelMetadata> {
+        self.real_models.get(id)
     }
 
-    /// 按内部 provider id 查询解析结果。
-    pub fn provider(&self, id: &str) -> Option<&ResolvedProvider> {
-        self.providers.get(id)
+    /// 按内部 target id 查询解析结果。
+    pub fn upstream_target(&self, id: &str) -> Option<&ResolvedUpstreamTarget> {
+        self.upstream_targets.get(id)
     }
 
-    /// 按内部 deployment id 查询解析结果。
-    pub fn deployment(&self, id: &str) -> Option<&ResolvedDeployment> {
-        self.deployments.get(id)
+    /// 枚举所有内部 target id。
+    pub fn upstream_target_ids(&self) -> impl Iterator<Item = &str> {
+        self.upstream_targets.keys().map(String::as_str)
     }
 
-    /// 枚举所有内部 deployment id。
-    pub fn deployment_ids(&self) -> impl Iterator<Item = &str> {
-        self.deployments.keys().map(String::as_str)
+    pub fn serving_route(&self, id: &str) -> Option<&ResolvedServingRoute> {
+        self.serving_routes.get(id)
     }
 
-    /// 按 public alias 查询路由候选。
-    pub fn alias(&self, name: &str) -> Option<&ResolvedAlias> {
-        self.aliases.get(name)
+    pub fn public_model(&self, name: &str) -> Option<&ResolvedPublicModel> {
+        self.public_models.get(name)
     }
 
-    /// 枚举下游 `/v1/models` 可公开的 alias。
-    pub fn public_aliases(&self) -> impl Iterator<Item = &str> {
-        self.aliases.keys().map(String::as_str)
+    /// 枚举下游 `/v1/models` 可公开的 Public Model。
+    pub fn public_models(&self) -> impl Iterator<Item = &str> {
+        self.public_models.keys().map(String::as_str)
     }
 }
 
@@ -370,24 +472,6 @@ impl RegistryVersion {
 }
 
 #[derive(Debug)]
-pub struct ResolvedProvider {
-    kind: ProviderKind,
-    credential: ResolvedCredential,
-}
-
-impl ResolvedProvider {
-    /// 返回 provider kind。
-    pub fn kind(&self) -> ProviderKind {
-        self.kind
-    }
-
-    /// 返回已解析的 credential binding。
-    pub fn credential(&self) -> &ResolvedCredential {
-        &self.credential
-    }
-}
-
-#[derive(Debug)]
 pub struct ResolvedCredential {
     id: String,
     kind: CredentialKind,
@@ -395,19 +479,79 @@ pub struct ResolvedCredential {
 }
 
 impl ResolvedCredential {
-    /// 返回 credential id。
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// 返回 credential kind。
     pub fn kind(&self) -> CredentialKind {
         self.kind
     }
 
-    /// 返回不含 secret 的 locator 引用。
     pub fn secret_reference(&self) -> &SecretReference {
         &self.secret_reference
+    }
+}
+
+#[derive(Debug)]
+pub struct ResolvedUpstreamTarget {
+    kind: ProviderKind,
+    credential: ResolvedCredential,
+    real_model_id: String,
+    endpoint_base: Url,
+    quota_scope: Option<String>,
+    fault_domain: Option<String>,
+    request_timeout: Duration,
+    enabled: bool,
+    offerings: BTreeMap<String, ResolvedNativeOffering>,
+}
+
+impl ResolvedUpstreamTarget {
+    pub fn kind(&self) -> ProviderKind {
+        self.kind
+    }
+
+    pub fn credential(&self) -> &ResolvedCredential {
+        &self.credential
+    }
+
+    pub fn real_model_id(&self) -> &str {
+        &self.real_model_id
+    }
+
+    pub fn endpoint_base(&self) -> &Url {
+        &self.endpoint_base
+    }
+
+    pub fn quota_scope(&self) -> Option<&str> {
+        self.quota_scope.as_deref()
+    }
+
+    pub fn fault_domain(&self) -> Option<&str> {
+        self.fault_domain.as_deref()
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        self.request_timeout
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn offering(&self, id: &str) -> Option<&ResolvedNativeOffering> {
+        self.offerings.get(id)
+    }
+
+    pub fn offering_for_protocol(&self, protocol: Protocol) -> Option<&ResolvedNativeOffering> {
+        self.offerings
+            .values()
+            .find(|offering| offering.protocol() == protocol)
+    }
+
+    pub fn offerings(&self) -> impl Iterator<Item = (&str, &ResolvedNativeOffering)> {
+        self.offerings
+            .iter()
+            .map(|(id, offering)| (id.as_str(), offering))
     }
 }
 
@@ -429,62 +573,80 @@ impl SecretReference {
 }
 
 #[derive(Debug)]
-pub struct ResolvedDeployment {
-    provider_id: String,
+pub struct ResolvedNativeOffering {
+    protocol: Protocol,
     model: ModelMetadata,
     upstream_model: String,
     endpoint_profile: String,
-    endpoint_base: Url,
-    request_timeout: Duration,
-    capabilities: CapabilitySet,
+    transport: NativeTransport,
+    capabilities: NativeOfferingCapabilities,
+    state_policy: StatePolicy,
 }
 
-impl ResolvedDeployment {
-    /// 返回所属 provider id。
-    pub fn provider_id(&self) -> &str {
-        &self.provider_id
+impl ResolvedNativeOffering {
+    pub fn protocol(&self) -> Protocol {
+        self.protocol
     }
 
-    /// 返回 deployment 生效后的模型元数据。
     pub fn model(&self) -> &ModelMetadata {
         &self.model
     }
 
-    /// 返回发往上游的模型 id。
     pub fn upstream_model(&self) -> &str {
         &self.upstream_model
     }
 
-    /// 返回 endpoint profile。
     pub fn endpoint_profile(&self) -> &str {
         &self.endpoint_profile
     }
 
-    /// 返回经过注册表校验的 endpoint base。
-    pub fn endpoint_base(&self) -> &Url {
-        &self.endpoint_base
+    pub fn transport(&self) -> NativeTransport {
+        self.transport
     }
 
-    /// 返回单次请求超时时间。
-    pub fn request_timeout(&self) -> Duration {
-        self.request_timeout
+    pub fn capabilities(&self) -> NativeOfferingCapabilities {
+        self.capabilities
     }
 
-    /// 返回 deployment 的生效能力集合。
-    pub fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
+    pub fn state_policy(&self) -> StatePolicy {
+        self.state_policy
     }
 }
 
 #[derive(Debug)]
-pub struct ResolvedAlias {
-    candidates: Vec<String>,
+pub struct ResolvedServingRoute {
+    upstream_target: String,
+    offering: String,
+    downstream_protocol: Protocol,
+    mode: ServingRouteMode,
 }
 
-impl ResolvedAlias {
-    /// 返回按优先级排列的 deployment 候选。
-    pub fn candidates(&self) -> &[String] {
-        &self.candidates
+impl ResolvedServingRoute {
+    pub fn upstream_target(&self) -> &str {
+        &self.upstream_target
+    }
+
+    pub fn offering(&self) -> &str {
+        &self.offering
+    }
+
+    pub fn downstream_protocol(&self) -> Protocol {
+        self.downstream_protocol
+    }
+
+    pub fn mode(&self) -> ServingRouteMode {
+        self.mode
+    }
+}
+
+#[derive(Debug)]
+pub struct ResolvedPublicModel {
+    serving_routes: Vec<String>,
+}
+
+impl ResolvedPublicModel {
+    pub fn serving_routes(&self) -> &[String] {
+        &self.serving_routes
     }
 }
 
@@ -496,9 +658,8 @@ pub fn build_registry(
         return Err(RegistryError::BlankVersion);
     }
 
-    // 先解析模型与 provider，后续 deployment/alias 才能进行引用校验。
-    let mut models = BTreeMap::new();
-    for model in definition.models {
+    let mut real_models = BTreeMap::new();
+    for model in definition.real_models {
         validate_model_metadata(&model)?;
         let id = model.id.clone();
         let resolved = ModelMetadata {
@@ -510,7 +671,7 @@ pub fn build_registry(
             reasoning: model.reasoning,
             reasoning_levels: model.reasoning_levels,
         };
-        if models.insert(id.clone(), resolved).is_some() {
+        if real_models.insert(id.clone(), resolved).is_some() {
             return Err(RegistryError::DuplicateId {
                 entity: "model",
                 id,
@@ -518,154 +679,206 @@ pub fn build_registry(
         }
     }
 
-    let mut providers = BTreeMap::new();
     let mut credential_ids = BTreeSet::new();
-    for provider in definition.providers {
-        if !provider
-            .kind
-            .accepts_credential_kind(provider.credential.kind)
+    let mut upstream_targets = BTreeMap::new();
+    for target in definition.upstream_targets {
+        if !target
+            .provider
+            .accepts_credential_kind(target.credential.kind)
         {
             return Err(RegistryError::UnsupportedCredentialKind {
-                provider: provider.id,
+                upstream_target: target.id,
             });
         }
-        if !is_valid_environment_variable(&provider.credential.environment_variable) {
+        if !is_valid_environment_variable(&target.credential.environment_variable) {
             return Err(RegistryError::InvalidCredentialLocator {
-                provider: provider.id,
+                upstream_target: target.id,
             });
         }
-        if !credential_ids.insert(provider.credential.id.clone()) {
+        if !credential_ids.insert(target.credential.id.clone()) {
             return Err(RegistryError::DuplicateId {
                 entity: "credential",
-                id: provider.credential.id,
+                id: target.credential.id,
             });
         }
-        let resolved = ResolvedProvider {
-            kind: provider.kind,
+        let model = real_models
+            .get(&target.real_model)
+            .cloned()
+            .ok_or_else(|| RegistryError::UnknownReference {
+                entity: "upstream target",
+                id: target.id.clone(),
+                target: "real model",
+                reference: target.real_model.clone(),
+            })?;
+        if target.request_timeout.is_zero() {
+            return Err(RegistryError::InvalidRequestTimeout {
+                upstream_target: target.id,
+            });
+        }
+        if target.offerings.is_empty() {
+            return Err(RegistryError::EmptyUpstreamTarget {
+                upstream_target: target.id,
+            });
+        }
+        let endpoint_base = normalize_endpoint_base(&target.base_url).ok_or_else(|| {
+            RegistryError::InvalidBaseUrl {
+                upstream_target: target.id.clone(),
+            }
+        })?;
+        let mut offerings = BTreeMap::new();
+        for offering in target.offerings {
+            if offering.protocol != offering.capabilities.protocol() {
+                return Err(RegistryError::OfferingProtocolMismatch {
+                    upstream_target: target.id,
+                    offering: offering.id,
+                });
+            }
+            if offering.upstream_model.trim().is_empty() {
+                return Err(RegistryError::BlankUpstreamModel {
+                    upstream_target: target.id,
+                    offering: offering.id,
+                });
+            }
+            if !target
+                .provider
+                .accepts_endpoint_profile(&offering.endpoint_profile)
+            {
+                return Err(RegistryError::UnsupportedEndpointProfile {
+                    upstream_target: target.id,
+                    offering: offering.id,
+                    profile: offering.endpoint_profile,
+                });
+            }
+            if !offering
+                .capabilities
+                .is_subset_of(target.provider.capabilities())
+            {
+                return Err(RegistryError::CapabilityElevation {
+                    upstream_target: target.id,
+                    offering: offering.id,
+                });
+            }
+            let offering_key = format!("{}/{}", target.id, offering.id);
+            let effective_model =
+                apply_model_constraints(model.clone(), &offering_key, offering.model_constraints)?;
+            let resolved = ResolvedNativeOffering {
+                protocol: offering.protocol,
+                model: effective_model,
+                upstream_model: offering.upstream_model,
+                endpoint_profile: offering.endpoint_profile,
+                transport: offering.transport,
+                capabilities: offering.capabilities,
+                state_policy: offering.state_policy,
+            };
+            if offerings.insert(offering.id.clone(), resolved).is_some() {
+                return Err(RegistryError::DuplicateOffering {
+                    upstream_target: target.id,
+                    offering: offering.id,
+                });
+            }
+        }
+        let resolved = ResolvedUpstreamTarget {
+            kind: target.provider,
             credential: ResolvedCredential {
-                id: provider.credential.id,
-                kind: provider.credential.kind,
+                id: target.credential.id,
+                kind: target.credential.kind,
                 secret_reference: SecretReference {
-                    locator: provider.credential.environment_variable,
+                    locator: target.credential.environment_variable,
                 },
             },
-        };
-        if providers.insert(provider.id.clone(), resolved).is_some() {
-            return Err(RegistryError::DuplicateId {
-                entity: "provider",
-                id: provider.id,
-            });
-        }
-    }
-
-    // deployment 同时收紧模型元数据和 provider 能力，禁止配置越权放大能力。
-    let mut deployments = BTreeMap::new();
-    for deployment in definition.deployments {
-        let provider =
-            providers
-                .get(&deployment.provider)
-                .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "deployment",
-                    id: deployment.id.clone(),
-                    target: "provider",
-                    reference: deployment.provider.clone(),
-                })?;
-        let model = models.get(&deployment.model).cloned().ok_or_else(|| {
-            RegistryError::UnknownReference {
-                entity: "deployment",
-                id: deployment.id.clone(),
-                target: "model",
-                reference: deployment.model.clone(),
-            }
-        })?;
-        let model = apply_model_constraints(model, &deployment.id, deployment.model_constraints)?;
-        if deployment.upstream_model.trim().is_empty() {
-            return Err(RegistryError::BlankUpstreamModel {
-                deployment: deployment.id,
-            });
-        }
-        if deployment.request_timeout.is_zero() {
-            return Err(RegistryError::InvalidRequestTimeout {
-                deployment: deployment.id,
-            });
-        }
-        if !provider
-            .kind
-            .accepts_endpoint_profile(&deployment.endpoint_profile)
-        {
-            return Err(RegistryError::UnsupportedEndpointProfile {
-                deployment: deployment.id,
-                profile: deployment.endpoint_profile,
-            });
-        }
-        if !deployment
-            .capabilities
-            .is_subset_of(provider.kind.capabilities())
-        {
-            return Err(RegistryError::CapabilityElevation {
-                deployment: deployment.id,
-            });
-        }
-        let endpoint_base = normalize_endpoint_base(&deployment.base_url).ok_or_else(|| {
-            RegistryError::InvalidBaseUrl {
-                deployment: deployment.id.clone(),
-            }
-        })?;
-        let resolved = ResolvedDeployment {
-            provider_id: deployment.provider,
-            model,
-            upstream_model: deployment.upstream_model,
-            endpoint_profile: deployment.endpoint_profile,
+            real_model_id: target.real_model,
             endpoint_base,
-            request_timeout: deployment.request_timeout,
-            capabilities: deployment.capabilities,
+            quota_scope: target.quota_scope,
+            fault_domain: target.fault_domain,
+            request_timeout: target.request_timeout,
+            enabled: target.enabled,
+            offerings,
         };
-        if deployments
-            .insert(deployment.id.clone(), resolved)
+        if upstream_targets
+            .insert(target.id.clone(), resolved)
             .is_some()
         {
             return Err(RegistryError::DuplicateId {
-                entity: "deployment",
-                id: deployment.id,
+                entity: "upstream target",
+                id: target.id,
             });
         }
     }
 
-    // 最后建立 public alias，确保每个候选都指向已完成校验的 deployment。
-    let mut aliases = BTreeMap::new();
-    for alias in definition.aliases {
-        if alias.candidates.is_empty() {
-            return Err(RegistryError::EmptyAlias { alias: alias.name });
+    let mut serving_routes = BTreeMap::new();
+    for route in definition.serving_routes {
+        let target = upstream_targets
+            .get(&route.upstream_target)
+            .ok_or_else(|| RegistryError::UnknownReference {
+                entity: "serving route",
+                id: route.id.clone(),
+                target: "upstream target",
+                reference: route.upstream_target.clone(),
+            })?;
+        let offering =
+            target
+                .offering(&route.offering)
+                .ok_or_else(|| RegistryError::UnknownReference {
+                    entity: "serving route",
+                    id: route.id.clone(),
+                    target: "native offering",
+                    reference: format!("{}/{}", route.upstream_target, route.offering),
+                })?;
+        if route.mode == ServingRouteMode::Native
+            && route.downstream_protocol != offering.protocol()
+        {
+            return Err(RegistryError::NativeRouteProtocolMismatch { route: route.id });
+        }
+        let resolved = ResolvedServingRoute {
+            upstream_target: route.upstream_target,
+            offering: route.offering,
+            downstream_protocol: route.downstream_protocol,
+            mode: route.mode,
+        };
+        if serving_routes.insert(route.id.clone(), resolved).is_some() {
+            return Err(RegistryError::DuplicateId {
+                entity: "serving route",
+                id: route.id,
+            });
+        }
+    }
+
+    let mut public_models = BTreeMap::new();
+    for public_model in definition.public_models {
+        if public_model.serving_routes.is_empty() {
+            return Err(RegistryError::EmptyPublicModel {
+                public_model: public_model.name,
+            });
         }
         let mut seen = BTreeSet::new();
-        for candidate in &alias.candidates {
-            if !seen.insert(candidate) {
-                return Err(RegistryError::DuplicateAliasCandidate {
-                    alias: alias.name,
-                    candidate: candidate.clone(),
+        for route in &public_model.serving_routes {
+            if !seen.insert(route) {
+                return Err(RegistryError::DuplicatePublicModelRoute {
+                    public_model: public_model.name,
+                    route: route.clone(),
                 });
             }
-            if !deployments.contains_key(candidate) {
+            if !serving_routes.contains_key(route) {
                 return Err(RegistryError::UnknownReference {
-                    entity: "alias",
-                    id: alias.name,
-                    target: "deployment",
-                    reference: candidate.clone(),
+                    entity: "public model",
+                    id: public_model.name,
+                    target: "serving route",
+                    reference: route.clone(),
                 });
             }
         }
-        if aliases
+        if public_models
             .insert(
-                alias.name.clone(),
-                ResolvedAlias {
-                    candidates: alias.candidates,
+                public_model.name.clone(),
+                ResolvedPublicModel {
+                    serving_routes: public_model.serving_routes,
                 },
             )
             .is_some()
         {
             return Err(RegistryError::DuplicateId {
-                entity: "alias",
-                id: alias.name,
+                entity: "public model",
+                id: public_model.name,
             });
         }
     }
@@ -673,14 +886,14 @@ pub fn build_registry(
     Ok(RegistrySnapshot {
         version: RegistryVersion(definition.version),
         bootstrap,
-        models,
-        providers,
-        deployments,
-        aliases,
+        real_models,
+        upstream_targets,
+        serving_routes,
+        public_models,
     })
 }
 
-fn validate_model_metadata(model: &ModelDefinition) -> Result<(), RegistryError> {
+fn validate_model_metadata(model: &RealModelDefinition) -> Result<(), RegistryError> {
     for (field, value) in [("id", model.id.as_str()), ("name", model.name.as_str())] {
         if value.trim().is_empty() {
             return Err(RegistryError::BlankModelField {
@@ -774,29 +987,27 @@ fn validate_reasoning_metadata(
 
 fn apply_model_constraints(
     model: ModelMetadata,
-    deployment: &str,
+    offering: &str,
     constraints: ModelConstraints,
 ) -> Result<ModelMetadata, RegistryError> {
     validate_constraint_limit(
-        deployment,
+        offering,
         "context_length.input",
         model.context_length.input_tokens(),
         constraints.context_length.input_tokens(),
     )?;
     validate_constraint_limit(
-        deployment,
+        offering,
         "context_length.output",
         model.context_length.output_tokens(),
         constraints.context_length.output_tokens(),
     )?;
     let reasoning = constraints.reasoning.unwrap_or(model.reasoning);
     if reasoning_rank(reasoning) > reasoning_rank(model.reasoning) {
-        return Err(
-            RegistryError::DeploymentModelConstraintWidensModelMetadata {
-                deployment: deployment.to_owned(),
-                field: "reasoning",
-            },
-        );
+        return Err(RegistryError::OfferingModelConstraintWidensModelMetadata {
+            offering: offering.to_owned(),
+            field: "reasoning",
+        });
     }
     let disabled = constraints
         .disabled_parameters
@@ -805,8 +1016,8 @@ fn apply_model_constraints(
     for parameter in &disabled {
         if !model.supported_parameters.contains(parameter) {
             return Err(
-                RegistryError::DeploymentModelConstraintDisablesUndeclaredParameter {
-                    deployment: deployment.to_owned(),
+                RegistryError::OfferingModelConstraintDisablesUndeclaredParameter {
+                    offering: offering.to_owned(),
                     parameter: (*parameter).clone(),
                 },
             );
@@ -818,7 +1029,7 @@ fn apply_model_constraints(
         .filter(|parameter| !disabled.contains(parameter))
         .cloned()
         .collect::<Vec<_>>();
-    validate_effective_reasoning_metadata(deployment, &supported_parameters, reasoning)?;
+    validate_effective_reasoning_metadata(offering, &supported_parameters, reasoning)?;
     Ok(ModelMetadata {
         id: model.id,
         name: model.name,
@@ -844,7 +1055,7 @@ fn apply_model_constraints(
 }
 
 fn validate_constraint_limit(
-    deployment: &str,
+    offering: &str,
     field: &'static str,
     model_limit: Option<u32>,
     constraint_limit: Option<u32>,
@@ -853,14 +1064,14 @@ fn validate_constraint_limit(
         return Ok(());
     };
     if constraint_limit == 0 {
-        return Err(RegistryError::InvalidDeploymentModelConstraint {
-            deployment: deployment.to_owned(),
+        return Err(RegistryError::InvalidOfferingModelConstraint {
+            offering: offering.to_owned(),
             field,
         });
     }
     if model_limit.is_some_and(|model_limit| constraint_limit > model_limit) {
-        return Err(RegistryError::DeploymentModelConstraintExceedsModelLimit {
-            deployment: deployment.to_owned(),
+        return Err(RegistryError::OfferingModelConstraintExceedsModelLimit {
+            offering: offering.to_owned(),
             field,
         });
     }
@@ -868,21 +1079,21 @@ fn validate_constraint_limit(
 }
 
 fn validate_effective_reasoning_metadata(
-    deployment: &str,
+    offering: &str,
     parameters: &[String],
     reasoning: ReasoningSupport,
 ) -> Result<(), RegistryError> {
     let declared = parameters.iter().any(|parameter| parameter == "reasoning");
     match (reasoning, declared) {
         (ReasoningSupport::Supported, false) => {
-            Err(RegistryError::InconsistentDeploymentModelConstraints {
-                deployment: deployment.to_owned(),
+            Err(RegistryError::InconsistentOfferingModelConstraints {
+                offering: offering.to_owned(),
                 detail: "reasoning = supported requires the effective parameter set to include reasoning",
             })
         }
         (ReasoningSupport::Unsupported, true) => {
-            Err(RegistryError::InconsistentDeploymentModelConstraints {
-                deployment: deployment.to_owned(),
+            Err(RegistryError::InconsistentOfferingModelConstraints {
+                offering: offering.to_owned(),
                 detail: "reasoning = unsupported conflicts with the effective parameter set",
             })
         }

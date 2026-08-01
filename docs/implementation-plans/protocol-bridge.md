@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Working hypothesis。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。
+**M5 专项设计，尚未接入运行时。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。M1–M4 代码结构已经切换，但回归门尚未执行；在补做该验证且所选 bridge slice 的 corpus/fixture 稳定前，不进入生产请求路径。实施顺序只由[架构迁移总计划](registry-architecture-migration.md)定义。
 
 Agent Loop 的职责边界、request/stream state owner、首版 continuation 拒绝规则和后续 ledger 门见[Agent Loop 兼容与 Bridge 状态契约](agent-loop-bridge.md)。本文保留协议转换的通用表示与算法边界。
 

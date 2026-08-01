@@ -5,8 +5,8 @@ use std::{path::PathBuf, time::Duration};
 use openbridge::{
     config::{BootstrapError, BootstrapFileError, BootstrapPath, load_bootstrap},
     registry::{
-        AliasDefinition, ModelContextLength, ReasoningLevel, ReasoningSupport, RegistryError,
-        build_registry,
+        ModelContextLength, NativeOfferingCapabilities, PublicModelDefinition, ReasoningLevel,
+        ReasoningSupport, RegistryError, build_registry,
     },
 };
 
@@ -15,12 +15,12 @@ use support::{BOOTSTRAP, bootstrap, definition};
 #[test]
 fn bootstrap_and_code_registry_build_a_resolved_snapshot() {
     let mut definition = definition("test-1", "code-primary", "test-model");
-    definition.models[0].supported_parameters = vec![
+    definition.real_models[0].supported_parameters = vec![
         "max_tokens".to_owned(),
         "tools".to_owned(),
         "reasoning".to_owned(),
     ];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.real_models[0].reasoning = ReasoningSupport::Supported;
 
     let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
 
@@ -31,21 +31,21 @@ fn bootstrap_and_code_registry_build_a_resolved_snapshot() {
         registry.upstream_policy().connect_timeout(),
         Duration::from_secs(5)
     );
-    let provider = registry.provider("openai").unwrap();
-    assert_eq!(provider.credential().secret_reference().scheme(), "env");
+    let target = registry.upstream_target("openai-main").unwrap();
+    assert_eq!(target.credential().secret_reference().scheme(), "env");
     assert_eq!(
-        provider.credential().secret_reference().locator(),
+        target.credential().secret_reference().locator(),
         "OPENAI_API_KEY"
     );
-    let deployment = registry.deployment("openai-main").unwrap();
-    assert_eq!(deployment.upstream_model(), "test-model");
+    let offering = target.offering("chat").unwrap();
+    assert_eq!(offering.upstream_model(), "test-model");
+    assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
     assert_eq!(
-        deployment.endpoint_base().as_str(),
-        "https://api.openai.com/"
-    );
-    assert_eq!(
-        registry.alias("code-primary").unwrap().candidates(),
-        &["openai-main"]
+        registry
+            .public_model("code-primary")
+            .unwrap()
+            .serving_routes(),
+        &["public-chat", "public-responses"]
     );
 }
 
@@ -94,37 +94,38 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
 #[test]
 fn model_metadata_and_typed_constraints_are_validated() {
     let mut invalid = definition("test", "code-primary", "test-model");
-    invalid.models[0].context_length = ModelContextLength::new(None, Some(0));
+    invalid.real_models[0].context_length = ModelContextLength::new(None, Some(0));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), invalid),
         Err(RegistryError::InvalidModelContextLength { .. })
     ));
 
     let mut duplicate = definition("test", "code-primary", "test-model");
-    duplicate.models[0].supported_parameters = vec!["tools".to_owned(), "tools".to_owned()];
+    duplicate.real_models[0].supported_parameters = vec!["tools".to_owned(), "tools".to_owned()];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate),
         Err(RegistryError::DuplicateSupportedParameter { .. })
     ));
 
     let mut inconsistent = definition("test", "code-primary", "test-model");
-    inconsistent.models[0].reasoning = ReasoningSupport::Supported;
+    inconsistent.real_models[0].reasoning = ReasoningSupport::Supported;
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), inconsistent),
         Err(RegistryError::InconsistentReasoningMetadata { .. })
     ));
 
     let mut invalid_levels = definition("test", "code-primary", "test-model");
-    invalid_levels.models[0].reasoning_levels = vec![ReasoningLevel::Low];
+    invalid_levels.real_models[0].reasoning_levels = vec![ReasoningLevel::Low];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), invalid_levels),
         Err(RegistryError::InconsistentReasoningMetadata { .. })
     ));
 
     let mut duplicate_levels = definition("test", "code-primary", "test-model");
-    duplicate_levels.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    duplicate_levels.models[0].reasoning = ReasoningSupport::Supported;
-    duplicate_levels.models[0].reasoning_levels = vec![ReasoningLevel::High, ReasoningLevel::High];
+    duplicate_levels.real_models[0].supported_parameters = vec!["reasoning".to_owned()];
+    duplicate_levels.real_models[0].reasoning = ReasoningSupport::Supported;
+    duplicate_levels.real_models[0].reasoning_levels =
+        vec![ReasoningLevel::High, ReasoningLevel::High];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate_levels),
         Err(RegistryError::InconsistentReasoningMetadata { .. })
@@ -132,21 +133,29 @@ fn model_metadata_and_typed_constraints_are_validated() {
 }
 
 #[test]
-fn deployment_constraints_only_reduce_model_metadata() {
+fn offering_constraints_only_reduce_model_metadata() {
     let mut definition = definition("test", "code-primary", "test-model");
-    definition.models[0].supported_parameters =
+    definition.real_models[0].supported_parameters =
         vec!["max_tokens".to_owned(), "reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.deployments[0].model_constraints.context_length =
-        ModelContextLength::new(Some(64_000), Some(4_096));
-    definition.deployments[0].model_constraints.reasoning = Some(ReasoningSupport::Unsupported);
-    definition.deployments[0]
+    definition.real_models[0].reasoning = ReasoningSupport::Supported;
+    definition.upstream_targets[0].offerings[0]
+        .model_constraints
+        .context_length = ModelContextLength::new(Some(64_000), Some(4_096));
+    definition.upstream_targets[0].offerings[0]
+        .model_constraints
+        .reasoning = Some(ReasoningSupport::Unsupported);
+    definition.upstream_targets[0].offerings[0]
         .model_constraints
         .disabled_parameters = vec!["reasoning".to_owned()];
 
     let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
-    let base = registry.model("openai/test-model").unwrap();
-    let effective = registry.deployment("openai-main").unwrap().model();
+    let base = registry.real_model("openai/test-model").unwrap();
+    let effective = registry
+        .upstream_target("openai-main")
+        .unwrap()
+        .offering("chat")
+        .unwrap()
+        .model();
 
     assert_eq!(base.context_length().output_tokens(), Some(8_192));
     assert_eq!(base.reasoning(), ReasoningSupport::Supported);
@@ -156,20 +165,23 @@ fn deployment_constraints_only_reduce_model_metadata() {
 }
 
 #[test]
-fn deployment_constraints_cannot_widen_model_metadata() {
+fn offering_constraints_cannot_widen_model_metadata() {
     let mut widened = definition("test", "code-primary", "test-model");
-    widened.deployments[0].model_constraints.context_length =
-        ModelContextLength::new(None, Some(8_193));
+    widened.upstream_targets[0].offerings[0]
+        .model_constraints
+        .context_length = ModelContextLength::new(None, Some(8_193));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), widened),
-        Err(RegistryError::DeploymentModelConstraintExceedsModelLimit { .. })
+        Err(RegistryError::OfferingModelConstraintExceedsModelLimit { .. })
     ));
 
     let mut definition = definition("test", "code-primary", "test-model");
-    definition.deployments[0].model_constraints.reasoning = Some(ReasoningSupport::Supported);
+    definition.upstream_targets[0].offerings[0]
+        .model_constraints
+        .reasoning = Some(ReasoningSupport::Supported);
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), definition),
-        Err(RegistryError::DeploymentModelConstraintWidensModelMetadata { .. })
+        Err(RegistryError::OfferingModelConstraintWidensModelMetadata { .. })
     ));
 }
 
@@ -180,11 +192,11 @@ fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
         "https://api.openai.com/openai/",
     ] {
         let mut definition = definition("test", "code-primary", "test-model");
-        definition.deployments[0].base_url = base_url.to_owned();
+        definition.upstream_targets[0].base_url = base_url.to_owned();
         let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
         assert_eq!(
             registry
-                .deployment("openai-main")
+                .upstream_target("openai-main")
                 .unwrap()
                 .endpoint_base()
                 .as_str(),
@@ -199,7 +211,7 @@ fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
         "https://api.openai.com/openai/%2Fadmin",
     ] {
         let mut definition = definition("test", "code-primary", "test-model");
-        definition.deployments[0].base_url = base_url.to_owned();
+        definition.upstream_targets[0].base_url = base_url.to_owned();
         assert!(matches!(
             build_registry(bootstrap(BOOTSTRAP), definition),
             Err(RegistryError::InvalidBaseUrl { .. })
@@ -210,7 +222,7 @@ fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
 #[test]
 fn registry_rejects_duplicate_and_unknown_references() {
     let mut duplicate = definition("test", "code-primary", "test-model");
-    duplicate.models.push(duplicate.models[0].clone());
+    duplicate.real_models.push(duplicate.real_models[0].clone());
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate),
         Err(RegistryError::DuplicateId {
@@ -220,37 +232,41 @@ fn registry_rejects_duplicate_and_unknown_references() {
     ));
 
     let mut unknown = definition("test", "code-primary", "test-model");
-    unknown.aliases[0].candidates = vec!["missing".to_owned()];
+    unknown.public_models[0].serving_routes = vec!["missing".to_owned()];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), unknown),
         Err(RegistryError::UnknownReference {
-            entity: "alias",
+            entity: "public model",
             ..
         })
     ));
 
     let mut duplicate_candidate = definition("test", "code-primary", "test-model");
-    duplicate_candidate.aliases = vec![AliasDefinition {
+    duplicate_candidate.public_models = vec![PublicModelDefinition {
         name: "code-primary".to_owned(),
-        candidates: vec!["openai-main".to_owned(), "openai-main".to_owned()],
+        serving_routes: vec!["public-chat".to_owned(), "public-chat".to_owned()],
     }];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate_candidate),
-        Err(RegistryError::DuplicateAliasCandidate { .. })
+        Err(RegistryError::DuplicatePublicModelRoute { .. })
     ));
 }
 
 #[test]
 fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
     let mut elevation = definition("test", "code-primary", "test-model");
-    elevation.deployments[0].capabilities.responses.background = true;
+    if let NativeOfferingCapabilities::Responses(capabilities) =
+        &mut elevation.upstream_targets[0].offerings[1].capabilities
+    {
+        capabilities.background = true;
+    }
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), elevation),
         Err(RegistryError::CapabilityElevation { .. })
     ));
 
     let mut locator = definition("test", "code-primary", "test-model");
-    locator.providers[0].credential.environment_variable = "not-valid".to_owned();
+    locator.upstream_targets[0].credential.environment_variable = "not-valid".to_owned();
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), locator),
         Err(RegistryError::InvalidCredentialLocator { .. })

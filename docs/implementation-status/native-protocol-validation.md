@@ -16,7 +16,7 @@ Confirmed（限于 SDK-first 假设）
 - Client/version/commit：OpenAI Python `2.46.0`；OpenAI Node `6.48.0`。
 - Provider/model/API version：本地 mock upstream；`upstream-model`；不访问真实 Provider。
 - OS/runtime：Windows；Rust `cargo test`；Python SDK 由 `uv` 临时安装；Node SDK 由 npm 临时安装。
-- Configuration snapshot：测试内 loopback OpenBridge 配置，public alias 为 `public-model`，上游模型为 `upstream-model`；credential 使用测试固定值，不写入配置或 artifact。
+- Configuration snapshot：测试内 loopback OpenBridge 配置，Public Model 为 `public-model`，上游模型为 `upstream-model`；credential 使用测试固定值，不写入配置或 artifact。
 
 ## Fixture 与步骤
 
@@ -62,7 +62,7 @@ Python 和 Node SDK 均成功解码上述 loopback fixture；代理不读取真�
 
 - 不证明真实 OpenAI 或其他 Provider 会产生等价 JSON/SSE，或其真实模型支持所用工具循环。
 - 不证明 Codex、Hermes 或完整 Agent runtime 的配置、工具执行、并行调度、approval、cancel、continuation 或 WebSocket 行为。
-- 不证明未知 Provider event、真实 Provider error、真实 client cancel 或跨 deployment state affinity 的 SDK E2E。
+- 不证明未知 Provider event、真实 Provider error、真实 client cancel 或跨 target state affinity 的 SDK E2E。
 - 不证明 Chat ↔ Responses bridge、第二 Provider Family 或异构 Provider 兼容。
 
 ## 结论

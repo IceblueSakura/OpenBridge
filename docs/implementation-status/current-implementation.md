@@ -2,7 +2,7 @@
 
 ## 状态与范围
 
-本文只描述当前代码和测试已经证明的行为。OpenBridge 仍是实验性原型；异构协议 Provider、Protocol Bridge、Responses WebSocket、真实 OAuth、调用统计和跨请求 cooldown 尚未实现。模块与依赖关系见[当前代码架构](current-architecture.md)。
+本文描述当前代码事实，并单独标注验证状态。OpenBridge 仍是实验性原型；异构协议 Provider、Protocol Bridge、Responses WebSocket、真实 OAuth、调用统计和跨请求 cooldown 尚未实现。模块与依赖关系见[当前代码架构](current-architecture.md)。本次 M1–M4 结构迁移未运行测试，因此不能把迁移后的行为视为已重新验收。
 
 ## 启动与注册表
 
@@ -18,7 +18,8 @@ config/bootstrap.toml
 ```
 
 `bootstrap.toml` 只包含 loopback listener、request/SSE 上限和共享 HTTP client 策略。
-Provider、Model、Deployment、Alias、endpoint、credential binding 和 capability 全部由 Rust 代码注册。
+Provider descriptor、Real Model、Upstream Target、Native Offering、Serving Route、Public Model、
+endpoint、credential binding 和 capability 全部由 Rust 代码注册。
 
 当前没有：
 
@@ -30,7 +31,7 @@ Provider、Model、Deployment、Alias、endpoint、credential binding 和 capabi
 - 动态 Provider、model、header 或转换脚本。
 
 注册表构建会验证 ID、引用、credential locator、endpoint/profile、timeout、Provider 能力上界、
-模型 token 限制、参数、reasoning、reasoning level、deployment constraint 和 alias candidate。
+模型 token 限制、参数、reasoning、reasoning level、Offering constraint 和 Public Model route。
 任何错误都会在监听前失败。
 
 ## Provider 实现
@@ -59,13 +60,14 @@ Provider-independent 模型事实位于：
 两个 adapter 分别负责各自的：
 
 - Chat/Responses 相对 path；OpenAI 使用 `/v1/*`，Meituan 使用 `/openai/v1/*`；
-- 写入 deployment 的实际 `upstream_model`；
+- 写入 selected Offering 的实际 `upstream_model`；
 - `Content-Type` 与 Bearer header；
 - Chat `[DONE]` 和 Responses terminal event；
 - status/error/retry hint 分类；
 - `GET /v1/models` discovery request。
 
-Pipeline 不再重写 model，只保留原始请求并完成 capability/candidate 选择。
+Pipeline 不重写 model；`analyze_request` 生成 `RequestProfile`，`plan_request` 再生成绑定完整
+target/offering/route 的 `RoutePlan`。
 
 ## 模型与路由
 
@@ -80,16 +82,17 @@ Pipeline 不再重写 model，只保留原始请求并完成 capability/candidat
 显式 reasoning 请求只有在模型标记支持时才能路由；显式 level 还必须命中模型 level 集合。未知状态、
 未知 level 或不支持 level 都会在 egress 前拒绝，不会自动降级。
 
-Alias 保存有序 deployment candidate。请求会按协议、streaming、function tools、parallel tools、
-image、structured output、store、continuation、background、输出限制和 reasoning 筛选 candidate。
-`previous_response_id` 会关闭跨 deployment fallback。
+Public Model 保存有序 Serving Route。请求会按协议、streaming、function tools、parallel tools、
+image、structured output、store、continuation、background、输出限制和 reasoning 筛选完整路径。
+`previous_response_id` 会关闭跨 target fallback。同一 target 的 Chat/Responses 是独立 Offering，可声明
+不同 upstream model、限制、能力和 state policy。
 
 ## 下游 HTTP API
 
 | Endpoint | 当前行为 | 认证 |
 |---|---|---|
 | `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
-| `GET /v1/models` | 返回代码注册的 public alias | 静态 Bearer |
+| `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
 | `POST /v1/chat/completions` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
 | `POST /v1/responses` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
 
@@ -119,7 +122,7 @@ cargo run --bin openbridge --locked
 - 已开始的 stream 不拼接 retry/fallback。
 
 Streaming 请求对 429、5xx、连接错误和 timeout 只在首个下游 body 输出前进行有限 retry，并可进入下一个
-兼容 candidate。当前仍是单请求固定次数原型，不包含跨请求 cooldown 和联合重试预算。
+兼容 route candidate。当前仍是单请求固定次数原型，不包含独立 AttemptManager、跨请求 cooldown 和联合重试预算。
 
 ## 显式 probe
 
@@ -130,11 +133,11 @@ Streaming 请求对 429、5xx、连接错误和 timeout 只在首个下游 body 
 - 最小 Responses 请求；
 - 两种协议的 function call/result replay。
 
-CLI 不接受 endpoint、model 或 credential 覆盖，不修改注册表，也不自动改变 capability。
+CLI 使用 `--target <id>`，不接受 endpoint、model 或 credential 覆盖，不修改注册表，也不自动改变 capability。
 
 ## 验证
 
-默认命令：
+默认验证命令：
 
 ```bash
 cargo fmt -- --check
@@ -142,10 +145,10 @@ cargo test --locked
 cargo clippy --locked -- -D warnings
 ```
 
-测试覆盖：
+已有测试源码覆盖：
 
 - bootstrap 与 typed registry 校验；
-- deployment constraint 只收窄；
+- Offering constraint 只收窄；
 - reasoning level gate；
 - endpoint/path prefix 安全；
 - 静态下游认证；
@@ -161,6 +164,8 @@ cargo clippy --locked -- -D warnings
 
 `tests/sdk_compatibility.rs` 是 ignored integration test，会使用运行时 OpenAI Python/Node SDK 验证
 Chat/Responses stream/non-stream 和 function-tool 往返。
+
+本次 M1–M4 迁移按要求没有运行测试；只执行了 `cargo fmt` 和 `cargo check --locked --tests`。
 
 ## 尚未实现
 
@@ -179,7 +184,7 @@ Chat/Responses stream/non-stream 和 function-tool 往返。
 
 - [代码注册表与路由](../implementation-plans/configuration-and-routing.md)
 - [当前代码架构](current-architecture.md)
-- [注册表与路由架构迁移计划](../implementation-plans/registry-architecture-migration.md)
+- [架构迁移总计划](../implementation-plans/registry-architecture-migration.md)
 - [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
 - [能力探测](capability-probing.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)

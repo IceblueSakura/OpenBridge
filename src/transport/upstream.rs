@@ -12,7 +12,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 use url::Url;
 
-use crate::{provider::UpstreamRequestParts, registry::ResolvedDeployment};
+use crate::{provider::UpstreamRequestParts, registry::ResolvedUpstreamTarget};
 
 /// 上游 transport 在构造 client、发送请求或读取超时边界时报告的错误。
 #[derive(Debug, Error)]
@@ -31,7 +31,7 @@ pub enum UpstreamError {
 pub trait UpstreamTransport: Send + Sync {
     fn send<'a>(
         &'a self,
-        deployment: &'a ResolvedDeployment,
+        target: &'a ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
@@ -59,23 +59,23 @@ impl UpstreamClient {
         Ok(Self { client })
     }
 
-    /// 将相对 target 与 deployment endpoint base 合成为唯一 egress URL。
+    /// 将相对 URI 与 Upstream Target endpoint base 合成为唯一 egress URL。
     ///
     /// 这里再次拒绝 scheme/authority/path 不合法的 URI，即使 adapter 是编译期代码；配置
     /// allowlist 与该检查共同避免未来 adapter 修改意外扩大 SSRF 出站面。
     pub async fn send(
         &self,
-        deployment: &ResolvedDeployment,
+        target: &ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         headers: HeaderMap,
     ) -> Result<UpstreamResponse, UpstreamError> {
-        let url = resolve_upstream_url(deployment.endpoint_base(), request.relative_uri())?;
+        let url = resolve_upstream_url(target.endpoint_base(), request.relative_uri())?;
         self.send_request(UpstreamRequest::new(
             url,
             request.method().clone(),
             headers,
             request.body().clone(),
-            deployment.request_timeout(),
+            target.request_timeout(),
         ))
         .await
     }
@@ -128,11 +128,11 @@ fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, 
 impl UpstreamTransport for UpstreamClient {
     fn send<'a>(
         &'a self,
-        deployment: &'a ResolvedDeployment,
+        target: &'a ResolvedUpstreamTarget,
         request: UpstreamRequestParts,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
-        Box::pin(async move { UpstreamClient::send(self, deployment, request, headers).await })
+        Box::pin(async move { UpstreamClient::send(self, target, request, headers).await })
     }
 }
 

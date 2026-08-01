@@ -2,7 +2,9 @@
 
 ## 状态
 
-**当前 adapter 基线已实现；异构协议 Provider 尚未验证。** 当前已实现 OpenAI 与 Meituan/LongCat 两个闭合 adapter、显式注册表、共享 HTTP transport、SSE framing、原生 Chat/Responses pipeline、capability gate 和输出前 fallback。两者当前都使用 OpenAI-compatible wire；本文件继续使用源码中的 Deployment/Alias 类型，目标 Target/Offering 拆分见[注册表与路由架构迁移计划](registry-architecture-migration.md)。
+**M4 当前执行边界。** OpenAI 与 Meituan/LongCat 已使用 `UpstreamTarget + NativeOffering +
+ServingRoute` 注册表和 `RequestProfile + RoutePlan`。两者当前都使用 OpenAI-compatible wire；
+Protocol Bridge 与独立 AttemptManager 尚未实现，后续顺序只见[架构迁移总计划](registry-architecture-migration.md)。
 
 ## 1. 方向
 
@@ -25,9 +27,9 @@ src/provider/
   mod.rs            # ProviderKind、descriptor 类型、闭合 enum dispatch
 
 src/providers/
-  mod.rs            # Provider/deployment 聚合与 alias
-  openai.rs         # OpenAI descriptor、adapter 和 deployment 定义
-  meituan.rs        # Meituan/LongCat descriptor、adapter 和 deployment 定义
+  mod.rs            # target、Serving Route 与 Public Model 聚合
+  openai.rs         # OpenAI descriptor、adapter 和 target/offering 定义
+  meituan.rs        # Meituan/LongCat descriptor、adapter 和 target/offering 定义
 
 src/models/
   mod.rs            # canonical model 显式目录
@@ -37,7 +39,7 @@ src/registry/
   mod.rs            # definition、builder、校验与 immutable snapshot
 ```
 
-`provider` 不包含具体 Provider 的字段转换；`providers/<name>.rs` 不决定 public alias 顺序以外的动态
+`provider` 不包含具体 Provider 的字段转换；`providers/<name>.rs` 不决定 Public Model route 顺序以外的动态
 路由；`registry` 不执行网络 I/O；`pipeline` 不识别 Provider 名称。
 
 ## 3. Provider 文件职责
@@ -47,8 +49,8 @@ src/registry/
 | 部分 | 职责 |
 |---|---|
 | `ProviderDescriptor` | capability 上界、endpoint profile、credential kind |
-| `ProviderDefinition` | Provider id 与 credential binding |
-| `DeploymentDefinition[]` | endpoint、真实 model id、timeout、能力收窄 |
+| `UpstreamTargetDefinition[]` | endpoint、credential、Real Model、timeout 与共享故障边界 |
+| `NativeOfferingDefinition[]` | 单协议 upstream model、limits、能力证据和 state policy |
 | `RequestAdapter` | path、upstream model 和字段转换 |
 | `HeaderAdapter` / `AuthAdapter` | 安全 header 与认证 |
 | `ResponseAdapter` | SSE/响应终态 |
@@ -58,8 +60,7 @@ src/registry/
 
 复杂转换必须写成 Rust 逻辑和 fixture，不能演变成通用 map/template DSL。
 
-`ModelDefinition[]` 由独立 `src/models/*` 目录维护；一个 canonical model 可以被多个
-Provider 的 deployment 引用。
+`RealModelDefinition[]` 由独立 `src/models/*` 目录维护；一个 Real Model 可以被多个 Provider target 引用。
 
 ## 4. Dispatch
 
@@ -75,7 +76,7 @@ pub enum ProviderAdapter {
 }
 ```
 
-每个请求只在选择 candidate 后进行一次 enum dispatch。当前不需要 trait-object registry、
+每个请求只在选择 route candidate 后进行一次 enum dispatch。当前不需要 trait-object registry、
 动态库或按 token/event 的字符串查找。
 
 ## 5. Native dataflow
@@ -83,9 +84,9 @@ pub enum ProviderAdapter {
 ```text
 Inbound request bytes
 → ValidatedRequest
-→ request feature classification
+→ RequestProfile
 → immutable RegistrySnapshot
-→ eligible deployment candidate
+→ RoutePlan / eligible target + offering
 → ProviderAdapter::encode_request(request, upstream_model)
 → UpstreamRequestParts(relative URI, headers, body)
 → shared transport + registered endpoint base
@@ -120,7 +121,7 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 - 认证 header 与普通 header 使用不同类型；
 - streaming 只能在首个下游 body 输出前 retry/fallback；
 - 已开始的 stream 不与第二次尝试拼接；
-- continuation state 关闭跨 deployment fallback。
+- continuation state 关闭跨 target fallback。
 
 ## 8. 能力发现
 
@@ -128,7 +129,7 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 
 远程 discovery/probe 是另一条显式管理员路径：
 
-- 使用注册表中的固定 deployment；
+- 使用注册表中的固定 Upstream Target，并按协议选择 Offering；
 - 不接受 URL、model、header 或 credential CLI 覆盖；
 - 报告 `supported`、`unsupported` 或 `unknown` 观察；
 - 不写回注册表；
@@ -153,5 +154,5 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 - [代码注册表与路由](configuration-and-routing.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
-- [注册表与路由架构迁移计划](registry-architecture-migration.md)
+- [架构迁移总计划](registry-architecture-migration.md)
 - [能力探测](../implementation-status/capability-probing.md)

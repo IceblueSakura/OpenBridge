@@ -7,7 +7,7 @@ use std::env;
 use anyhow::{Context, Result};
 use openbridge::{
     config::{BootstrapPath, load_optional_dotenv},
-    probe::{ProbeSelection, probe_deployment},
+    probe::{ProbeSelection, probe_upstream_target},
     provider::CredentialSource,
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
@@ -28,9 +28,9 @@ async fn main() -> Result<()> {
         snapshot.upstream_policy().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    let report = probe_deployment(
+    let report = probe_upstream_target(
         &snapshot,
-        &arguments.deployment_id,
+        &arguments.upstream_target_id,
         &upstream,
         &CredentialSource::environment(),
         arguments.selection,
@@ -46,22 +46,22 @@ async fn main() -> Result<()> {
 }
 
 struct ProbeArguments {
-    deployment_id: String,
+    upstream_target_id: String,
     selection: ProbeSelection,
 }
 
 impl ProbeArguments {
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
-        let mut deployment_id = None;
+        let mut upstream_target_id = None;
         let mut selection = ProbeSelection::default();
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--deployment" => {
+                "--target" => {
                     let value = arguments
                         .next()
-                        .context("--deployment requires a configured deployment id")?;
-                    deployment_id = Some(value);
+                        .context("--target requires a configured upstream target id")?;
+                    upstream_target_id = Some(value);
                 }
                 "--list-models" => selection.list_models = true,
                 "--chat" => selection.chat = true,
@@ -75,12 +75,12 @@ impl ProbeArguments {
                 _ => anyhow::bail!("unknown argument '{argument}'; run with --help"),
             }
         }
-        let deployment_id = deployment_id.context("--deployment is required")?;
+        let upstream_target_id = upstream_target_id.context("--target is required")?;
         if selection.is_empty() {
             selection = ProbeSelection::all();
         }
         Ok(Self {
-            deployment_id,
+            upstream_target_id,
             selection,
         })
     }
@@ -88,7 +88,7 @@ impl ProbeArguments {
 
 fn print_usage() {
     println!(
-        "Usage: cargo run --bin openbridge-probe -- --deployment <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
+        "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
          \n\
          No probe selector runs --all. The command only prints a report; it never modifies the code registry."
     );

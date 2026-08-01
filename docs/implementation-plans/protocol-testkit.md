@@ -1,5 +1,9 @@
 # Mock Server/Client 测试工具设计
 
+## 状态
+
+**M0/M5 独立测试工具。** 当前保持独立于 OpenBridge runtime；只有[架构迁移总计划](registry-architecture-migration.md)选择具体行为进入当前焦点时，才由后续 runner 将稳定 scenario 接入被测进程。本文不定义迁移顺序。
+
 ## 1. 定位
 
 该工具链主要服务于 OpenBridge 后续黑盒开发测试，但当前保持独立于 OpenBridge runtime：
@@ -10,7 +14,7 @@ Mock Client -> future SUT -> Mock Server
 
 CLI、scenario/plan、Server/Client 行为、observation 字段和 loopback 示例以 [Testkit 指南](../../tools/corpus/README.md) 为准；本文件只保留设计定位和后续集成边界。
 
-本阶段只实现两端协议行为、运行计划编译与 observation，不加载 OpenBridge 配置、不启动 OpenBridge、不引用 Rust crate，也不判断 routing、fallback 或转换是否正确。后续 runner 才负责把两端连接到被测进程并比较 canonical oracle。
+当前工具只实现两端协议行为、运行计划编译与 observation，不加载 OpenBridge 配置、不启动 OpenBridge、不引用 Rust crate，也不判断 routing、fallback 或转换是否正确。后续 runner 才负责把两端连接到被测进程并比较 canonical oracle。
 
 ## 2. 组件边界
 

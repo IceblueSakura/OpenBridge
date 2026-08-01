@@ -2,7 +2,7 @@
 
 ## 状态
 
-**目标架构，尚未实现。** 本文描述 OpenBridge 希望演进到的服务边界、分层和数据模型，不用目标类型名描述当前代码。当前源码分层见[当前代码架构](../implementation-status/current-architecture.md)，具体迁移次序见[注册表与路由架构迁移计划](registry-architecture-migration.md)。
+**目标架构，尚未实现。** 本文描述 OpenBridge 希望演进到的服务边界、分层和数据模型，不用目标类型名描述当前代码，也不维护实施阶段。当前源码分层见[当前代码架构](../implementation-status/current-architecture.md)，唯一迁移次序见[架构迁移总计划](registry-architecture-migration.md)。
 
 ## 1. 架构结论
 
@@ -189,13 +189,15 @@ Public Model 是 OpenBridge 的下游服务契约，而不是某个 Provider 模
 
 ```text
 ServingRoute
-  public_model
+  id
   upstream_target
   offering
   downstream_protocol
   mode: native | bridge(converter, conversion_policy)
-  priority
 ```
+
+Serving Route 不反向保存 Public Model 或 priority；所属关系和确定性优先级只由
+`PublicModel.serving_routes` 的有序 ID 列表表达。
 
 `upstream_protocol` 由所选 Offering 唯一确定，不允许 route 再声明一份可能漂移的副本。启动期将 Provider upper bound、Real Model、UpstreamTarget/Offering evidence，以及 bridge route 的 ConverterDescriptor 与 route-local ConversionPolicy 编译成只读 `EffectiveExecutionProfile` 和 `ResolvedBridgePlan`。单个字段不能跨 route 求并集：只有至少一条完整 route 同时支持当前请求的全部语义，Public Model 才支持该请求。
 
@@ -205,24 +207,19 @@ ServingRoute
 
 ```text
 RoutePlan
-  request_id
-  public_model
-  serving_route
-  selected_upstream_target
-  selected_offering
-  remaining_eligible_routes
-  downstream_protocol
-  downstream_transport
-  upstream_protocol
-  upstream_transport
-  mode: native | bridge
-  resolved_bridge_plan / fidelity
-  capability_decision
-  credential_binding_id
-  continuation_binding
+  ordered ExecutionPlanCandidate[]
+    serving_route
+    upstream_target
+    offering
+    validated request
+    resolved_bridge_plan / fidelity (bridge only)
+  streaming
   fallback_boundary
-  registry_version
 ```
+
+当前 Native `RoutePlan` 已实现上述不含 bridge 字段的子集；credential、endpoint、transport 和能力证据
+通过 candidate 固定的 target/offering 从同一不可变 `RegistrySnapshot` 读取。M5 增加 bridge plan，M6
+再把 attempt budget 与 availability 决策固化到执行层。
 
 当前目标仍是启动时构建一次 snapshot，注册表变更通过重启生效；单次请求或 stream 始终持有同一 snapshot。若未来另有需求引入原子替换，也必须保持该请求内不变量，但不属于本次架构迁移。
 
@@ -432,9 +429,9 @@ Provider 聚合相关实现应提供最小被动 cooldown：429 与明确临时�
 
 日常开发验证优先使用当时可用 OpenAI SDK 的完整 wire/tool-loop 测试，以及当时可用 Codex CLI 的 Responses custom Provider E2E；每次记录实际版本和环境，不建立长期版本 pin。SDK 不是“只解析一次响应”的替代品。Hermes 作为显式兼容声明的补充 E2E，而不是每轮开发的首选入口。详见[客户端兼容](client-compatibility.md)。
 
-## 10. 发展方向（非路线图）
+## 10. 专项设计边界（不维护迁移顺序）
 
-以下是可以由实际用户需求触发的技术方向，不构成固定开发顺序、阶段或完成承诺。每次只选择一个可观察行为进入 TDD 当前焦点。
+以下内容只说明目标架构允许哪些专项方向，不构成第二套开发顺序、阶段或完成承诺。M0–M7 的依赖和进入条件只在[架构迁移总计划](registry-architecture-migration.md)维护；每次仍只选择一个可观察行为进入 TDD 当前焦点。
 
 | 方向 | 可选择的首个行为示例 | 主要验证方式 |
 |---|---|---|
@@ -471,4 +468,4 @@ Hosted tool facade 与 Anthropic Messages 没有预设先后。它们都不应�
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
-- [注册表与路由架构迁移计划](registry-architecture-migration.md)
+- [架构迁移总计划](registry-architecture-migration.md)
