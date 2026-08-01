@@ -17,7 +17,7 @@ credential、endpoint 和内部 Route。
 - 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
-- 上游 API key 和下游静态 Bearer token 来自受限环境变量或被忽略的 `.env`；
+- 上游 API key 来自受限环境变量或被忽略的 `.env`，下游静态 Bearer token 来自私有用户文件；二者在启动时合并为不可变 credential 快照；
 - Route 按完整协议、能力、模型限制和状态亲和要求确定性筛选；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
@@ -28,7 +28,7 @@ credential、endpoint 和内部 Route。
 - 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
 - 当前 listener 只允许 loopback；
 - 业务请求不能覆盖上游 URL、真实模型、credential、认证/非 allowlist header 或 Route；普通 header 只能由 Provider 的受信代码 hook 显式选择；
-- `RuntimeRegistry` 不保存 secret；`UserRegistry` 只在内存中保存认证所需 Key，Debug 和日志始终隐藏它；
+- `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；唯一的 `CredentialStore` 在内存中持有上下游认证所需 Key，Debug 和日志始终隐藏它；
 - 日志、错误、probe report 和测试证据不得暴露 credential 或完整私人请求正文；
 - 修改用户、API Key、Provider、Model、Route 或 bootstrap 参数需要重启，不支持热重载。
 

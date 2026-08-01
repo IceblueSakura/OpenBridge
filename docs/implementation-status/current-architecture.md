@@ -14,11 +14,11 @@
 ## 1. 分层结构
 
 ```text
-bootstrap / process environment
+bootstrap / users / process environment
           ↓
 composition root
           ↓
-immutable RuntimeRegistry + UserRegistry
+immutable RuntimeRegistry + UserRegistry + CredentialStore
           ↓
 HTTP ingress
           ↓
@@ -39,7 +39,8 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 层 | 核心类型 | 简单定义 |
 |---|---|---|
 | 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、请求限制和 HTTP client 参数 |
-| 下游身份 | `UserConfigPath`、`UserRegistry`、`User` | 启动时读取用户文件、按 API Key 匹配并提供稳定用户身份 |
+| Credential | `CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时合并上下游 secret、隔离用途并提供只读借用视图 |
+| 下游身份 | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User` | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份 |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities` | 下游协议、原始请求和协议能力 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
@@ -65,15 +66,19 @@ load_optional_dotenv
 → BootstrapConfigPath::load
 → UserConfigPath::load
 → providers::build_compiled_registry
+→ CredentialStoreBuilder::load_upstream_environment
+→ immutable CredentialStore
 → UpstreamClient::new
-→ GatewayState::with_environment_credentials
+→ GatewayState::new
 → ingress::build_router
 → axum::serve
 ```
 
 `bootstrap.toml` 拥有 loopback listener、私有用户文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
 Provider、模型、target、upstream API、route、endpoint 和 credential locator 都只在启动阶段加载；没有 route TOML、
-动态 Provider DSL 或热重载。
+动态 Provider DSL 或热重载。`UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
+`CredentialStoreBuilder`；composition root 再为所有启用 target 解析环境变量，缺失或空值会在 listener 绑定前
+失败。构造后的 Store 是上下游 secret 的唯一运行时所有者，请求路径不再读取 credential 来源。
 
 ## 3. 注册表层
 
@@ -154,7 +159,9 @@ raw body + downstream protocol
 `ProviderKind` 是闭合集合。具体 adapter 从 selected Upstream API 读取 upstream model，负责相对 path、模型
 字段改写、受信 request-header hook、认证 header、响应/SSE terminal 和错误分类。当前 OpenAI 与 LongCat
 hook 只从下游选择 `User-Agent` 写入 `SafeHeaders`；credential header 在 hook 之后独立附加。credential
-locator 与 endpoint/timeout 则来自 selected Upstream Target。
+locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整 `binding_id + ProviderKind` 从
+`CredentialStore` 借用 `UpstreamCredential`；Store 不公开通用明文查询，adapter 仍在 crate 内的认证 header
+边界才访问 secret。
 
 OpenAI 与 LongCat 当前都注册 Chat、Responses 两个独立 Upstream API，wire 仍均为
 OpenAI-compatible；这不构成异构协议桥已实现的证据。
@@ -185,10 +192,11 @@ arguments。当前没有 Bridge Plan、wire renderer 或 ingress dispatch。
 ## 8. Probe 与验证层
 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用
-target endpoint、credential、adapter 与 transport，不接受 URL/model/header 覆盖，不修改 `RuntimeRegistry`。
+target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 `CredentialStore` 快照；它不
+加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
-`cargo test --locked`，76 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，78 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

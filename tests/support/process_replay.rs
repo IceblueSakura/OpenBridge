@@ -16,11 +16,10 @@ use futures_util::future::BoxFuture;
 use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     ingress::{GatewayState, build_router},
-    provider::{CredentialSource, PreparedUpstreamRequest},
+    provider::PreparedUpstreamRequest,
     registry::UpstreamTarget,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
-use secrecy::SecretString;
 use serde_json::Value;
 use tokio::{net::TcpListener, task::JoinHandle};
 
@@ -126,15 +125,12 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
         base_url: format!("http://{upstream_address}"),
         client: reqwest::Client::new(),
     };
-    let state = GatewayState::new(
-        Arc::new(registry),
-        Arc::new(transport),
-        super::users("downstream-token-0000000000000000"),
-        CredentialSource::fixed(
-            "OPENAI_API_KEY",
-            SecretString::from("synthetic-upstream-token".to_owned()),
-        ),
+    let (users, credentials) = super::users_and_credentials(
+        "downstream-token-0000000000000000",
+        &registry,
+        "synthetic-upstream-token",
     );
+    let state = GatewayState::new(Arc::new(registry), Arc::new(transport), users, credentials);
     let gateway_listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("OpenBridge replay listener must bind loopback");

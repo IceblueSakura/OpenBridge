@@ -22,11 +22,10 @@ use http::{HeaderMap, HeaderValue};
 use openbridge::{
     core::ApiProtocol,
     ingress::{GatewayState, build_router},
-    provider::{CredentialSource, PreparedUpstreamRequest, ProviderKind},
+    provider::{PreparedUpstreamRequest, ProviderKind},
     registry::{RegistryConfig, RouteConfig, RouteMode, UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
-use secrecy::SecretString;
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -463,15 +462,12 @@ fn app_with_transport_and_definition(
     definition: RegistryConfig,
 ) -> axum::Router {
     let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
-    let state = GatewayState::new(
-        Arc::new(registry),
-        transport,
-        support::users("downstream-token-0000000000000000"),
-        CredentialSource::fixed(
-            "OPENAI_API_KEY",
-            SecretString::from("upstream-token".to_owned()),
-        ),
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-token-0000000000000000",
+        &registry,
+        "upstream-token",
     );
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
     build_router(state)
 }
 

@@ -6,20 +6,18 @@
 //! 不能用运行时配置注入任意 header 或请求转换。
 
 mod contracts;
-mod credential;
 
+use bytes::Bytes;
 pub use contracts::{
     ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
     StreamEventStatus, UpstreamErrorKind,
 };
-pub use credential::{CredentialSource, CredentialSourceError, CredentialValue};
-
-use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest},
+    credential::UpstreamCredential,
     providers::{
         longcat::{self, LongCatAdapter},
         openai::{self, OpenAiAdapter},
@@ -205,7 +203,7 @@ impl ProviderAdapter {
 
     pub(crate) fn build_outbound_headers(
         &self,
-        credential: &CredentialValue,
+        credential: &UpstreamCredential<'_>,
         downstream_headers: &HeaderMap,
     ) -> Result<HeaderMap, AdapterError> {
         // 构造 Provider 基础 header，并运行只允许写入 SafeHeaders 的请求 hook。
@@ -270,7 +268,7 @@ impl ProviderAdapter {
     /// 构造只在 egress 前附加的敏感认证请求头。
     pub fn prepare_auth_headers(
         &self,
-        credential: &CredentialValue,
+        credential: &UpstreamCredential<'_>,
     ) -> Result<SensitiveHeaders, AdapterError> {
         match self {
             Self::OpenAi(adapter) => adapter.prepare_auth_headers(credential),
@@ -341,12 +339,18 @@ mod tests {
     #[test]
     fn openai_auth_adapter_builds_the_expected_bearer_value_inside_the_crate_boundary() {
         let adapter = OpenAiAdapter;
-        let credential = CredentialValue::new(
-            ProviderKind::OpenAi,
-            "binding",
-            "version",
-            SecretString::from("credential-test-value".to_owned()),
-        );
+        let mut credentials = crate::credential::CredentialStoreBuilder::new();
+        credentials
+            .insert_upstream(
+                ProviderKind::OpenAi,
+                "binding",
+                SecretString::from("credential-test-value".to_owned()),
+            )
+            .unwrap();
+        let credentials = credentials.build();
+        let credential = credentials
+            .upstream(ProviderKind::OpenAi, "binding")
+            .unwrap();
 
         let headers = adapter.prepare_auth_headers(&credential).unwrap();
 

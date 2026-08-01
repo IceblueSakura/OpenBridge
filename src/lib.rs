@@ -6,6 +6,7 @@
 pub mod bridge;
 pub mod config;
 pub mod core;
+pub mod credential;
 pub mod identity;
 pub mod ingress;
 pub mod models;

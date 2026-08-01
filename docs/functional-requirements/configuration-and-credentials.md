@@ -43,13 +43,16 @@ route 热重载。
 - 下游用户表只在启动时读取；用户增删、启停和 API Key 轮换都需要重启；
 - 用户 ID 和 API Key 必须唯一，至少有一个启用用户，API Key 不得少于 32 bytes；
 - 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
-- 代码只保存非敏感 binding id、credential kind 和环境变量名称；
+- 代码注册表只保存非敏感 binding id、credential kind 和环境变量名称；
 - 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
 - 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
 - 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
-- `RuntimeRegistry`、`UserRegistry` 的 Debug、日志、错误响应和 probe report 不得包含 secret；
-- secret 只在准备上游请求时解析为短时 `CredentialValue`；
-- 缺失、空值或 binding 不匹配时 fail closed；
+- 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target Key 一次性装入不可变 `CredentialStore`；
+- `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamBinding`，上下游同名 ID 不得造成命名冲突；
+- `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的 Debug/输出都不得包含 secret；
+- 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整 `binding_id + ProviderKind` 借用短时 credential 视图，不提供通用明文查询；
+- 缺失、空值、重复下游 Key 或 binding/Provider 不匹配时 fail closed；服务所需的上游 Key 缺失或为空时在监听前失败；
+- 运行时不得重新读取 `users.toml`、`.env` 或进程环境变量；改变任何 Key 必须重启，不支持热更新；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 只能选择显式 allowlist 的普通 header（当前为 `User-Agent`）。
 
 ## 4. Endpoint 与出站边界
@@ -72,16 +75,18 @@ optionally load .env
 → read bootstrap.toml
 → validate BootstrapConfig
 → read users.toml
-→ validate and build UserRegistry
+→ validate UserConfiguration and collect downstream credentials
 → compiled_config()
 → validate and build RuntimeRegistry
+→ resolve enabled upstream credentials from the environment
+→ build immutable CredentialStore
 → create shared HTTP client
-→ Arc<RuntimeRegistry> + Arc<UserRegistry>
+→ Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore>
 → start listener
 ```
 
 注册表启动后不可变。服务没有文件监听、user/route reload、`ArcSwap` 或部分更新语义。运行中的请求和
-后续请求都读取同一组 `RuntimeRegistry` 与 `UserRegistry`；改变任一启动输入都必须重启。
+后续请求都读取同一组 `RuntimeRegistry`、`UserRegistry` 与 `CredentialStore`；改变任一启动输入都必须重启。
 
 ## 6. 验收要求
 
@@ -95,6 +100,8 @@ optionally load .env
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。 |
 | CFG-07 | 非 loopback listener 在当前实现中拒绝启动。 |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。 |
+| CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。 |
+| CFG-10 | 任一已启用 Upstream Target 的 Key 缺失或为空会在 listener 绑定前阻止服务启动。 |
 
 ## 关联文档
 

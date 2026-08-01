@@ -1,7 +1,7 @@
 //! 进程启动、配置装载与优雅关闭。
 //!
-//! 启动阶段一次性加载 bootstrap、构建代码注册表、HTTP router 和共享 upstream client；
-//! credential 只保留环境变量名称，实际 API key 在每个业务请求发送前才解析。
+//! 启动阶段一次性加载 bootstrap、用户、代码注册表与上下游 credential 快照，再构造
+//! HTTP router 和共享 upstream client；业务请求不重新读取文件或环境变量。
 
 use std::sync::Arc;
 
@@ -27,12 +27,26 @@ async fn main() -> Result<()> {
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
-    let users = UserConfigPath::new(bootstrap.users_file())
+    let user_configuration = UserConfigPath::new(bootstrap.users_file())
         .load()
         .context("failed to load downstream users")?;
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
-    // 创建共享上游 client 与请求状态，只保留受信配置中的 credential locator。
+    // 合并下游用户 Key 与启用 target 的上游 Key，监听前完成不可变 credential 快照。
+    let (users, mut credential_builder) = user_configuration.into_parts();
+    for target_id in registry.upstream_target_ids() {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("registry target id must resolve");
+        if target.enabled() {
+            credential_builder
+                .load_upstream_environment(target)
+                .context("failed to load an upstream credential")?;
+        }
+    }
+    let credentials = Arc::new(credential_builder.build());
+
+    // 创建共享上游 client 与只读请求状态。
     let listen = registry.listen();
     let registry_version = registry.version().as_str().to_owned();
     let upstream = UpstreamClient::new(
@@ -41,8 +55,12 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    let app_state =
-        GatewayState::with_environment_credentials(Arc::new(registry), upstream, Arc::new(users));
+    let app_state = GatewayState::new(
+        Arc::new(registry),
+        Arc::new(upstream),
+        Arc::new(users),
+        credentials,
+    );
     // 绑定 loopback listener 并启动带优雅关闭的 HTTP 服务。
     let listener = TcpListener::bind(listen)
         .await

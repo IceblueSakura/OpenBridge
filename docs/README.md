@@ -60,8 +60,8 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 ```text
 bootstrap + users + environment credential locators
-→ compiled provider registry
-→ immutable RuntimeRegistry + UserRegistry
+→ compiled provider registry + startup CredentialStore
+→ immutable RuntimeRegistry + UserRegistry + CredentialStore
 → shared UpstreamClient
 → GatewayState
 → Axum Router

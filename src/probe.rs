@@ -13,7 +13,8 @@ use thiserror::Error;
 
 use crate::{
     core::{ApiProtocol, ApiRequest},
-    provider::{CredentialSource, ProviderAdapter},
+    credential::CredentialStore,
+    provider::ProviderAdapter,
     registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
@@ -183,21 +184,17 @@ pub async fn probe_upstream_target(
     registry: &RuntimeRegistry,
     upstream_target_id: &str,
     transport: &dyn UpstreamTransport,
-    credentials: &CredentialSource,
+    credentials: &CredentialStore,
     selection: ProbeOptions,
 ) -> Result<TargetProbeReport, ProbeError> {
-    // 从不可变 registry 解析 target，并按其 binding 读取短时 credential。
+    // 从不可变 registry 解析 target，并按其 binding 借用启动 credential 快照。
     let target = registry
         .upstream_target(upstream_target_id)
         .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
             upstream_target: upstream_target_id.to_owned(),
         })?;
     let credential = credentials
-        .resolve(
-            target.kind(),
-            target.credential().id(),
-            target.credential().secret_reference().locator(),
-        )
+        .upstream(target.kind(), target.credential().id())
         .map_err(|_| ProbeError::CredentialUnavailable)?;
     // 选择编译期 adapter 并准备 probe 所需的敏感出站 header。
     let adapter = ProviderAdapter::for_kind(target.kind());
@@ -588,7 +585,8 @@ mod tests {
     use super::{ProbeOptions, SupportStatus, probe_upstream_target};
     use crate::{
         config::parse_bootstrap_config,
-        provider::{CredentialSource, PreparedUpstreamRequest},
+        credential::{CredentialStore, CredentialStoreBuilder},
+        provider::PreparedUpstreamRequest,
         providers,
         registry::{RuntimeRegistry, UpstreamTarget, build_registry},
         transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -612,6 +610,19 @@ upstream_pool_max_idle_per_host = 16
             upstream_api.upstream_model = "test-model".to_owned();
         }
         build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap()
+    }
+
+    fn credentials(registry: &RuntimeRegistry) -> CredentialStore {
+        let target = registry.upstream_target("openai-main").unwrap();
+        let mut credentials = CredentialStoreBuilder::new();
+        credentials
+            .insert_upstream(
+                target.kind(),
+                target.credential().id(),
+                SecretString::from("test-key"),
+            )
+            .unwrap();
+        credentials.build()
     }
 
     #[derive(Default)]
@@ -699,7 +710,7 @@ upstream_pool_max_idle_per_host = 16
     async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_configuration() {
         let registry = registry();
         let transport = FixtureTransport::default();
-        let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
+        let credentials = credentials(&registry);
 
         let report = probe_upstream_target(
             &registry,
@@ -754,7 +765,7 @@ upstream_pool_max_idle_per_host = 16
     async fn probe_rejects_unknown_target_before_any_egress() {
         let registry = registry();
         let transport = FixtureTransport::default();
-        let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
+        let credentials = CredentialStoreBuilder::new().build();
 
         let error = probe_upstream_target(
             &registry,

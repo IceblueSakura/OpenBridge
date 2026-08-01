@@ -4,8 +4,9 @@ use http::{
 };
 use openbridge::{
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    credential::CredentialStoreBuilder,
     provider::{
-        AdapterError, CredentialValue, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
+        AdapterError, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
         UpstreamErrorKind,
     },
     transport::sse::SseDecoder,
@@ -15,12 +16,18 @@ use secrecy::SecretString;
 #[test]
 fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let credential = CredentialValue::new(
-        ProviderKind::OpenAi,
-        "openai-primary",
-        "version-1",
-        SecretString::from("credential-test-value".to_owned()),
-    );
+    let mut credentials = CredentialStoreBuilder::new();
+    credentials
+        .insert_upstream(
+            ProviderKind::OpenAi,
+            "openai-primary",
+            SecretString::from("credential-test-value".to_owned()),
+        )
+        .unwrap();
+    let credentials = credentials.build();
+    let credential = credentials
+        .upstream(ProviderKind::OpenAi, "openai-primary")
+        .unwrap();
 
     let safe = adapter.prepare_headers().unwrap();
     let sensitive = adapter.prepare_auth_headers(&credential).unwrap();
@@ -29,7 +36,6 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     assert!(safe.get(AUTHORIZATION).is_none());
     assert!(sensitive.contains(AUTHORIZATION));
     assert_eq!(credential.binding_id(), "openai-primary");
-    assert_eq!(credential.secret_version(), "version-1");
     assert!(!format!("{credential:?} {sensitive:?}").contains("credential-test-value"));
 }
 

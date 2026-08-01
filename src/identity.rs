@@ -10,10 +10,10 @@ use std::{
     sync::Arc,
 };
 
-use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use subtle::ConstantTimeEq;
 use thiserror::Error;
+
+use crate::credential::{CredentialStore, CredentialStoreBuilder, CredentialStoreError};
 
 const USERS_SCHEMA_VERSION: u32 = 1;
 const MIN_API_KEY_BYTES: usize = 32;
@@ -37,18 +37,48 @@ impl User {
     }
 }
 
-struct UserEntry {
-    user: Arc<User>,
-    api_key: SecretString,
-}
-
 /// 运行期间只读的下游用户注册表。
 pub struct UserRegistry {
-    entries: Vec<UserEntry>,
+    users: Vec<Arc<User>>,
 }
 
 impl UserRegistry {
-    /// 解析并校验用户 TOML，生成不可变注册表。
+    /// 通过统一 CredentialStore 认证 API Key，并返回对应的稳定用户身份。
+    pub fn authenticate(
+        &self,
+        credentials: &CredentialStore,
+        candidate: &str,
+    ) -> Option<Arc<User>> {
+        // 让 Store 完成用途隔离和 constant-time Key 匹配，再按非敏感用户 ID 查询身份。
+        let user_id = credentials.authenticate_downstream(candidate)?;
+        self.users.iter().find(|user| user.id() == user_id).cloned()
+    }
+
+    /// 枚举所有已启用用户，但不暴露任何 API key。
+    pub fn users(&self) -> impl Iterator<Item = &User> {
+        self.users.iter().map(Arc::as_ref)
+    }
+}
+
+impl fmt::Debug for UserRegistry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UserRegistry")
+            .field("enabled_users", &self.users.len())
+            .finish()
+    }
+}
+
+/// 已解析的下游用户元数据与待合并 credential 构造器。
+///
+/// 调用方必须在启动阶段继续加入上游 credential，再构造唯一的运行时 Store。
+pub struct UserConfiguration {
+    users: UserRegistry,
+    credentials: CredentialStoreBuilder,
+}
+
+impl UserConfiguration {
+    /// 解析并校验用户 TOML，把身份元数据与 secret 分离到各自所有者。
     pub fn from_toml(document: &str) -> Result<Self, UserRegistryError> {
         // 解析文档并确认用户配置 schema。
         let raw: RawUsers = toml::from_str(document).map_err(|_| UserRegistryError::Parse)?;
@@ -58,10 +88,10 @@ impl UserRegistry {
             });
         }
 
-        // 校验 id、名称和 key 唯一性，并只构造已启用用户的运行时条目。
+        // 校验用户元数据，并把全部 Key 交给 Store builder 检查唯一性。
         let mut ids = BTreeSet::new();
-        let mut api_keys = BTreeSet::new();
-        let mut entries = Vec::new();
+        let mut users = Vec::new();
+        let mut credentials = CredentialStoreBuilder::new();
         for raw_user in raw.users {
             let id = raw_user.id.trim();
             if id.is_empty() {
@@ -76,52 +106,56 @@ impl UserRegistry {
             if raw_user.api_key.len() < MIN_API_KEY_BYTES {
                 return Err(UserRegistryError::ApiKeyTooShort { id: id.to_owned() });
             }
-            if !api_keys.insert(raw_user.api_key.clone()) {
-                return Err(UserRegistryError::DuplicateApiKey);
-            }
+            credentials
+                .insert_downstream(
+                    id,
+                    secrecy::SecretString::from(raw_user.api_key),
+                    raw_user.enabled,
+                )
+                .map_err(map_credential_error)?;
             if raw_user.enabled {
-                entries.push(UserEntry {
-                    user: Arc::new(User {
-                        id: id.to_owned(),
-                        name: raw_user.name.trim().to_owned(),
-                    }),
-                    api_key: SecretString::from(raw_user.api_key),
-                });
+                users.push(Arc::new(User {
+                    id: id.to_owned(),
+                    name: raw_user.name.trim().to_owned(),
+                }));
             }
         }
         // 拒绝没有任何可用于认证的用户的注册表。
-        if entries.is_empty() {
+        if users.is_empty() {
             return Err(UserRegistryError::NoEnabledUsers);
         }
-        Ok(Self { entries })
+        Ok(Self {
+            users: UserRegistry { users },
+            credentials,
+        })
     }
 
-    /// 使用 constant-time equality 匹配 API Key，并返回对应用户。
-    pub fn authenticate(&self, candidate: &str) -> Option<Arc<User>> {
-        // 遍历所有已启用 key，使用等长 constant-time 比较避免提前暴露匹配位置。
-        let candidate = candidate.as_bytes();
-        let mut matched = None;
-        for entry in &self.entries {
-            let expected = entry.api_key.expose_secret().as_bytes();
-            if candidate.len() == expected.len() && bool::from(candidate.ct_eq(expected)) {
-                matched = Some(entry.user.clone());
-            }
-        }
-        matched
+    /// 返回已启用的非敏感用户注册表。
+    pub fn users(&self) -> &UserRegistry {
+        &self.users
     }
 
-    /// 枚举所有已启用用户，但不暴露任何 API key。
-    pub fn users(&self) -> impl Iterator<Item = &User> {
-        self.entries.iter().map(|entry| entry.user.as_ref())
+    /// 拆分用户注册表与 credential 构造器，供 composition root 完成启动快照。
+    pub fn into_parts(self) -> (UserRegistry, CredentialStoreBuilder) {
+        (self.users, self.credentials)
     }
 }
 
-impl fmt::Debug for UserRegistry {
+impl fmt::Debug for UserConfiguration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("UserRegistry")
-            .field("enabled_users", &self.entries.len())
+            .debug_struct("UserConfiguration")
+            .field("users", &self.users)
+            .field("credentials", &self.credentials)
             .finish()
+    }
+}
+
+fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
+    match error {
+        CredentialStoreError::DuplicateDownstreamSecret => UserRegistryError::DuplicateApiKey,
+        CredentialStoreError::DuplicateId => UserRegistryError::DuplicateApiKey,
+        CredentialStoreError::Unavailable => UserRegistryError::Parse,
     }
 }
 
@@ -203,14 +237,14 @@ impl UserConfigPath {
     }
 
     /// 读取并解析用户配置文件。
-    pub fn load(&self) -> Result<UserRegistry, UserConfigFileError> {
+    pub fn load(&self) -> Result<UserConfiguration, UserConfigFileError> {
         // 读取配置文件并保留路径上下文。
         let document = fs::read_to_string(&self.0).map_err(|source| UserConfigFileError::Read {
             path: self.0.clone(),
             source,
         })?;
         // 校验内容并转换为不可变用户注册表。
-        UserRegistry::from_toml(&document).map_err(UserConfigFileError::Invalid)
+        UserConfiguration::from_toml(&document).map_err(UserConfigFileError::Invalid)
     }
 }
 

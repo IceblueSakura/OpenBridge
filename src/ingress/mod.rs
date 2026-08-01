@@ -36,13 +36,14 @@ use tower_http::{
 
 use crate::{
     core::ApiProtocol,
+    credential::CredentialStore,
     identity::UserRegistry,
     pipeline::{RequestPlanningError, analyze_request, plan_request},
-    provider::{CredentialSource, ProviderAdapter, StreamEventStatus},
+    provider::{ProviderAdapter, StreamEventStatus},
     registry::RuntimeRegistry,
     transport::{
         sse::SseDecoder,
-        upstream::{TransportError, UpstreamClient, UpstreamTransport},
+        upstream::{TransportError, UpstreamTransport},
     },
 };
 
@@ -60,7 +61,7 @@ pub struct GatewayState {
     registry: Arc<RuntimeRegistry>,
     upstream: Arc<dyn UpstreamTransport>,
     users: Arc<UserRegistry>,
-    upstream_credentials: Arc<CredentialSource>,
+    credentials: Arc<CredentialStore>,
     health: Arc<TargetHealth>,
 }
 
@@ -70,30 +71,22 @@ impl GatewayState {
         registry: Arc<RuntimeRegistry>,
         upstream: Arc<dyn UpstreamTransport>,
         users: Arc<UserRegistry>,
-        upstream_credentials: CredentialSource,
+        credentials: Arc<CredentialStore>,
     ) -> Self {
         Self {
             registry,
             upstream,
             users,
-            upstream_credentials: Arc::new(upstream_credentials),
+            credentials,
             health: Arc::new(TargetHealth::default()),
         }
     }
+}
 
-    /// 创建使用环境变量读取上游 credential 的生产运行时状态。
-    pub fn with_environment_credentials(
-        registry: Arc<RuntimeRegistry>,
-        upstream: UpstreamClient,
-        users: Arc<UserRegistry>,
-    ) -> Self {
-        Self::new(
-            registry,
-            Arc::new(upstream),
-            users,
-            CredentialSource::environment(),
-        )
-    }
+#[derive(Clone)]
+struct DownstreamAuthState {
+    users: Arc<UserRegistry>,
+    credentials: Arc<CredentialStore>,
 }
 
 /// 构造公开 health endpoint 与受静态 Bearer 保护的 OpenAI-compatible API。
@@ -117,7 +110,10 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/responses", post(responses))
         .route("/v1/models", get(models))
         .route_layer(middleware::from_fn_with_state(
-            state.users.clone(),
+            DownstreamAuthState {
+                users: state.users.clone(),
+                credentials: state.credentials.clone(),
+            },
             require_user,
         ));
 
@@ -129,7 +125,7 @@ pub fn build_router(state: GatewayState) -> Router {
 }
 
 async fn require_user(
-    State(users): State<Arc<UserRegistry>>,
+    State(auth): State<DownstreamAuthState>,
     mut request: Request,
     next: Next,
 ) -> Response {
@@ -143,7 +139,8 @@ async fn require_user(
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     // 解析 Bearer token 并执行 constant-time 用户认证。
-    let user = auth::bearer_token(request.headers()).and_then(|token| users.authenticate(token));
+    let user = auth::bearer_token(request.headers())
+        .and_then(|token| auth.users.authenticate(&auth.credentials, token));
     let Some(user) = user else {
         tracing::warn!(%request_id, %method, %path, status = 401, "downstream authentication failed");
         let mut response = api_error(
@@ -316,11 +313,10 @@ async fn forward_native(
                 "Configured native upstream API is unavailable",
             );
         };
-        let credential = match state.upstream_credentials.resolve(
-            target.kind(),
-            target.credential().id(),
-            target.credential().secret_reference().locator(),
-        ) {
+        let credential = match state
+            .credentials
+            .upstream(target.kind(), target.credential().id())
+        {
             Ok(credential) => credential,
             Err(_) => {
                 return api_error(

@@ -68,7 +68,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 当前由 Provider adapter 写入实际上游 `model`；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。Provider 的受信 request-header hook 可从下游选择显式允许的普通 header（当前为 `User-Agent`）覆盖到上游；客户端不能指定上游 URL、credential、认证 header 或任意非 allowlist 出站 header。Transient upstream failure 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
 
-下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。认证成功后请求日志记录 request id、user id、协议、Public Model、HTTP status 和 response-start latency，不记录 API Key 或业务正文。调用量和 Provider usage/token 聚合尚未实现。
+下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`，缺失的必需上游 Key 会阻止启动；运行时不重新读取文件或环境变量，轮换必须重启。认证成功后请求日志记录 request id、user id、协议、Public Model、HTTP status 和 response-start latency，不记录 API Key 或业务正文。调用量和 Provider usage/token 聚合尚未实现。
 
 ## 验证基线
 

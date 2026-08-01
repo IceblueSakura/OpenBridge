@@ -8,11 +8,9 @@ use axum::{
 };
 use openbridge::{
     ingress::{GatewayState, build_router},
-    provider::CredentialSource,
     registry::{RuntimeRegistry, build_registry},
     transport::upstream::UpstreamClient,
 };
-use secrecy::SecretString;
 use tower::ServiceExt;
 
 fn test_app(registry: RuntimeRegistry) -> axum::Router {
@@ -22,14 +20,16 @@ fn test_app(registry: RuntimeRegistry) -> axum::Router {
         registry.http_client().pool_max_idle_per_host(),
     )
     .unwrap();
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-test-token-00000000000",
+        &registry,
+        "upstream-test-token",
+    );
     build_router(GatewayState::new(
         Arc::new(registry),
         Arc::new(upstream),
-        support::users("downstream-test-token-00000000000"),
-        CredentialSource::fixed(
-            "OPENAI_API_KEY",
-            SecretString::from("upstream-test-token".to_owned()),
-        ),
+        users,
+        credentials,
     ))
 }
 

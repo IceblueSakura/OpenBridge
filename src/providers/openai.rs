@@ -16,7 +16,7 @@ use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest, EndpointCapabilities, ResponsesCapabilities},
     models::CONFIGURED_MODEL_ID,
     provider::{
-        AdapterError, ClassifiedSseEvent, CredentialKind, CredentialValue, PreparedUpstreamRequest,
+        AdapterError, ClassifiedSseEvent, CredentialKind, PreparedUpstreamRequest,
         ProviderContract, ProviderKind, RetryHint, SafeHeaders, SensitiveHeaders,
         StatusClassification, StreamEventStatus, UpstreamErrorKind,
     },
@@ -124,7 +124,7 @@ impl OpenAiAdapter {
     /// 为 OpenAI 请求构造 Bearer 认证 header。
     pub fn prepare_auth_headers(
         &self,
-        credential: &CredentialValue,
+        credential: &crate::credential::UpstreamCredential<'_>,
     ) -> Result<SensitiveHeaders, AdapterError> {
         // 校验 credential provider 归属，避免跨 provider 复用 secret。
         if credential.provider() != ProviderKind::OpenAi {

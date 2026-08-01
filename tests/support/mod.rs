@@ -7,7 +7,8 @@ use std::time::Duration;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
-    identity::UserRegistry,
+    credential::CredentialStore,
+    identity::{UserConfiguration, UserRegistry},
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
@@ -35,10 +36,14 @@ pub fn bootstrap(document: &str) -> BootstrapConfig {
     parse_bootstrap_config(document).expect("test bootstrap must be valid")
 }
 
-pub fn users(api_key: &str) -> Arc<UserRegistry> {
-    Arc::new(
-        UserRegistry::from_toml(&format!(
-            r#"
+pub fn users_and_credentials(
+    api_key: &str,
+    registry: &RuntimeRegistry,
+    upstream_secret: &str,
+) -> (Arc<UserRegistry>, Arc<CredentialStore>) {
+    // 解析下游用户，并取得同一个 credential builder。
+    let configuration = UserConfiguration::from_toml(&format!(
+        r#"
 schema_version = 1
 
 [[users]]
@@ -47,9 +52,24 @@ name = "Test User"
 api_key = "{api_key}"
 enabled = true
 "#
-        ))
-        .expect("test user registry must be valid"),
-    )
+    ))
+    .expect("test user registry must be valid");
+    let (users, mut credentials) = configuration.into_parts();
+
+    // 为测试 registry 中全部启用 target 注入同一组合成 secret。
+    for target_id in registry.upstream_target_ids() {
+        let target = registry.upstream_target(target_id).unwrap();
+        if target.enabled() {
+            credentials
+                .insert_upstream(
+                    target.kind(),
+                    target.credential().id(),
+                    secrecy::SecretString::from(upstream_secret.to_owned()),
+                )
+                .expect("test upstream credential must be unique");
+        }
+    }
+    (Arc::new(users), Arc::new(credentials.build()))
 }
 
 pub fn capabilities() -> ApiCapabilities {

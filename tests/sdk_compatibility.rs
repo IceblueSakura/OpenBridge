@@ -13,11 +13,10 @@ use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     ingress::{GatewayState, build_router},
-    provider::{CredentialSource, PreparedUpstreamRequest},
+    provider::PreparedUpstreamRequest,
     registry::UpstreamTarget,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
-use secrecy::SecretString;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
@@ -89,14 +88,16 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
 
 fn app() -> axum::Router {
     let registry = support::registry("sdk-compatibility", "public-model", "upstream-model");
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-token-0000000000000000",
+        &registry,
+        "upstream-token",
+    );
     build_router(GatewayState::new(
         Arc::new(registry),
         Arc::new(SdkFixtureTransport),
-        support::users("downstream-token-0000000000000000"),
-        CredentialSource::fixed(
-            "OPENAI_API_KEY",
-            SecretString::from("upstream-token".to_owned()),
-        ),
+        users,
+        credentials,
     ))
 }
 

@@ -33,6 +33,8 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。OpenAI API key 来自 `OPENAI_API_KEY`，
 LongCat API key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；上游注册表只保存环境变量名称。
+服务在 listener 绑定前把已启用用户 Key 与全部已启用 target Key 合并为不可变 `CredentialStore`，缺失或空的
+必需上游 Key 会阻止启动。运行时请求只读取该快照，不重新读取文件或环境变量；Key 轮换必须重启。
 
 ## Provider 与请求行为
 
@@ -42,6 +44,7 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 
 请求路径当前会：
 
+- 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按 `binding_id + ProviderKind` 借用上游 Key；
 - 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
 - 经 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游，同时保持认证、cookie、Host 与 proxy header 隔离；
@@ -69,13 +72,13 @@ terminal violation SSE fixture 回放验证，但尚未接入 `RouteMode::Bridge
 
 ## 显式 probe
 
-`openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential、adapter 与 transport，可以观察模型
+`openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential Store、adapter 与 transport，可以观察模型
 列表、最小 Chat/Responses 请求和 function call/result replay。它不接受 endpoint、model、header 或
-credential 覆盖，不修改注册表，也不自动改变 capability。
+credential 覆盖，只加载选中 target 的上游 Key，不读取下游用户 Key，不修改注册表，也不自动改变 capability。
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、认证、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、统一 credential Store、认证、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge fixture replay、真实 loopback HTTP 429 process replay 和 probe。
@@ -91,7 +94,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 76 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 78 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 

@@ -26,7 +26,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let users = UserConfigPath::new("config/users.example.toml")
         .load()
         .expect("checked-in user example must remain valid");
-    assert_eq!(users.users().next().unwrap().id(), "local-user");
+    assert_eq!(users.users().users().next().unwrap().id(), "local-user");
     assert_eq!(
         registry
             .public_model("code-primary")

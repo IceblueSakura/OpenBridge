@@ -7,8 +7,8 @@ use std::env;
 use anyhow::{Context, Result};
 use openbridge::{
     config::{BootstrapConfigPath, load_optional_dotenv},
+    credential::CredentialStoreBuilder,
     probe::{ProbeOptions, probe_upstream_target},
-    provider::CredentialSource,
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
 };
@@ -30,12 +30,20 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
+    // 只解析管理员选中 target 的上游 Key，并构造不可变 credential 快照。
+    let mut credential_builder = CredentialStoreBuilder::new();
+    if let Some(target) = registry.upstream_target(&arguments.upstream_target_id) {
+        credential_builder
+            .load_upstream_environment(target)
+            .context("failed to load the selected upstream credential")?;
+    }
+    let credentials = credential_builder.build();
     // 执行管理员显式选择的 probe 并只输出脱敏 JSON 报告。
     let report = probe_upstream_target(
         &registry,
         &arguments.upstream_target_id,
         &upstream,
-        &CredentialSource::environment(),
+        &credentials,
         arguments.selection,
     )
     .await
