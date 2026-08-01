@@ -27,7 +27,7 @@ route 热重载。
 
 - 每个具体 Provider 位于独立 `src/providers/<provider>.rs` 文件；
 - 同一模型家族集中位于一个 `src/models/<family>.rs` 文件，每个具体 Model 仍完整声明自身事实；
-- `src/providers/mod.rs::compiled_config()` 是唯一显式注册入口；
+- `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；
 - Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；

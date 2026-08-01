@@ -12,10 +12,10 @@ use std::{
 use thiserror::Error;
 
 mod document;
+mod parser;
 mod source;
 
-use document::RawBootstrap;
-
+pub use parser::parse_bootstrap_config;
 pub use source::{BootstrapConfigFileError, BootstrapConfigPath, load_optional_dotenv};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
@@ -118,68 +118,5 @@ impl HttpClientConfig {
     /// 返回每个 host 允许保留的最大空闲连接数。
     pub fn pool_max_idle_per_host(&self) -> usize {
         self.pool_max_idle_per_host
-    }
-}
-
-/// 解析并校验 bootstrap TOML。
-///
-/// 该函数只产生启动配置，不会注册 provider、model、target、upstream API 或 route。
-pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, BootstrapConfigError> {
-    // 解析 bootstrap 文档并确认 schema 版本。
-    let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapConfigError::Parse)?;
-    if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {
-        return Err(BootstrapConfigError::UnsupportedSchema {
-            actual: raw.schema_version,
-        });
-    }
-    // 校验所有内存、超时和连接池限制均可提供有效边界。
-    validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
-    validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
-    validate_nonzero(
-        "upstream_connect_timeout_ms",
-        raw.upstream_connect_timeout_ms,
-    )?;
-    validate_nonzero(
-        "upstream_pool_idle_timeout_ms",
-        raw.upstream_pool_idle_timeout_ms,
-    )?;
-    validate_nonzero(
-        "upstream_pool_max_idle_per_host",
-        raw.upstream_pool_max_idle_per_host,
-    )?;
-    // 解析并限制监听地址为 loopback，避免 bootstrap 直接暴露服务。
-    let listen = raw
-        .listen
-        .parse::<SocketAddr>()
-        .ok()
-        .filter(|address| address.ip().is_loopback())
-        .ok_or_else(|| BootstrapConfigError::NonLoopbackListen {
-            listen: raw.listen.clone(),
-        })?;
-
-    // 将原始字段转换成运行时值对象。
-    Ok(BootstrapConfig {
-        listen,
-        users_file: raw.users_file,
-        limits: RuntimeLimits {
-            max_request_body_bytes: raw.max_request_body_bytes,
-            max_sse_event_bytes: raw.max_sse_event_bytes,
-        },
-        http_client: HttpClientConfig {
-            connect_timeout: Duration::from_millis(raw.upstream_connect_timeout_ms),
-            pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
-            pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
-        },
-    })
-}
-
-fn validate_nonzero(
-    name: &'static str,
-    value: impl Copy + PartialEq + From<u8>,
-) -> Result<(), BootstrapConfigError> {
-    if value == 0.into() {
-        Err(BootstrapConfigError::InvalidLimit { name })
-    } else {
-        Ok(())
     }
 }

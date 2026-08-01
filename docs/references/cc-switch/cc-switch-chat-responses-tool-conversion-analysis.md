@@ -128,7 +128,7 @@ Codex 有时只在下一轮发送：
 
 cc-switch 的 history store 是进程内、最多 512 个 response 的 `HashMap<response_id, CachedResponse>`，并额外以全局 `call_id` 做“唯一时才使用”的 fallback（`codex_chat_history.rs:10-23`、`:261-307`）。该结构没有 issuer、provider、deployment、route snapshot、principal 或 TTL 字段。
 
-即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 的基础边界是不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/mod.rs:35-44`、`:170-174`；[产品范围](../../functional-requirements/product-scope.md)）。
+即使唯一 `call_id` fallback 通过了 cc-switch 的局部测试（:537-644），OpenBridge 也**不能**把它作为通用跨 route 恢复策略。OpenBridge 的基础边界是不跨 provider 重放 `previous_response_id` 或 opaque state（`src/pipeline/types.rs`、`src/pipeline/planning.rs`；[产品范围](../../functional-requirements/product-scope.md)）。
 
 OpenBridge 的 continuation ledger 至少应以以下信息绑定：
 

@@ -50,10 +50,10 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 | 顺序 | 文件 | 重点 |
 |---:|---|---|
 | 1 | [`src/main.rs`](../src/main.rs) | 进程入口、配置加载、注册表构建、共享 HTTP client、Router 和优雅关闭 |
-| 2 | [`src/config/mod.rs`](../src/config/mod.rs) | `BootstrapConfig`、运行限制和 HTTP client 参数 |
+| 2 | [`src/config/mod.rs`](../src/config/mod.rs)、[`parser.rs`](../src/config/parser.rs) | Bootstrap 基础定义、TOML 解析和边界校验 |
 | 3 | [`src/config/source.rs`](../src/config/source.rs) | bootstrap 文件定位、可选 dotenv 加载和错误边界 |
 | 4 | [`src/identity.rs`](../src/identity.rs) | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry` |
-| 5 | [`src/providers/mod.rs`](../src/providers/mod.rs) | 编译期 Provider、模型、target、upstream API、route 与 Public Model 装配 |
+| 5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs) | 编译期 Provider、模型、target、upstream API、route 与 Public Model 装配 |
 | 6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry` |
 
 把启动链记成一条线即可：
@@ -83,8 +83,8 @@ bootstrap + users + environment credential locators
 | Router 与 endpoint | [`ingress::build_router`](../src/ingress/router.rs) | 哪些 endpoint 公开？哪些需要下游认证？ |
 | HTTP 基础检查 | `require_user`、`responses`、`has_json_content_type` | 认证、Content-Type 和 body 上限在哪次 egress 前完成？ |
 | 请求编排 | [`ingress::forward_request`](../src/ingress/forwarding.rs) | 请求规划、候选循环、retry/fallback 和响应返回如何连接？ |
-| 请求事实提取 | [`pipeline::analyze_request`](../src/pipeline/mod.rs) | 从 JSON 中提取了哪些 capability、limit、reasoning 和 state-affinity 事实？ |
-| 路由规划 | `pipeline::plan_request` | 一条 candidate 为什么必须独立满足完整请求？ |
+| 请求事实提取 | [`pipeline::analyze_request`](../src/pipeline/analysis.rs) | 从 JSON 中提取了哪些 capability、limit、reasoning 和 state-affinity 事实？ |
+| 路由规划 | [`pipeline::plan_request`](../src/pipeline/planning.rs) | 一条 candidate 为什么必须独立满足完整请求？ |
 | 运行事实查询 | [`RuntimeRegistry`](../src/registry/runtime.rs) | Public Model 如何落到 Route、Target 与 Upstream API？ |
 | Provider 改写 | [`ProviderAdapter::prepare_request`](../src/provider/adapter.rs) | 上游相对 path、真实 model、普通 header 与认证 header 在哪里产生？ |
 | HTTP 发送 | [`UpstreamClient::send`](../src/transport/upstream.rs) | endpoint base、相对 URI、timeout、redirect 和连接复用如何受控？ |
@@ -188,11 +188,11 @@ public model name
 
 | 你要解决的问题 | 阅读路线 |
 |---|---|
-| 启动失败或配置被拒绝 | 配置需求 → `src/config` → `src/providers/mod.rs` → `build_registry` → `config_contract.rs` |
+| 启动失败或配置被拒绝 | 配置需求 → `src/config` → `src/providers/catalog.rs` → `build_registry` → `config_contract.rs` |
 | 请求为何没有 route | API 兼容需求 → `analyze_request` → `plan_request` → `native_routing_contract.rs` |
 | 模型名或 endpoint 改写错误 | registry ownership → Provider adapter → `UpstreamClient::send` → provider tests |
-| SSE 提前结束、重复 terminal 或乱码 | Responses/Chat 协议参考 → `transport/sse.rs` → `forward_native` → SSE/forwarding tests |
-| fallback 或 retry 不符合预期 | Provider 韧性需求 → `forward_native` → status/error classification → forwarding tests |
+| SSE 提前结束、重复 terminal 或乱码 | Responses/Chat 协议参考 → `transport/sse.rs` → `ingress/streaming.rs` → SSE/forwarding tests |
+| fallback 或 retry 不符合预期 | Provider 韧性需求 → `ingress/forwarding.rs` → status/error classification → forwarding tests |
 | credential/header 泄露风险 | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests |
 | 新增 Provider | Provider contract → canonical model → compiled registry → adapter → probe → contract tests |
 | 扩充协议测试 | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests |

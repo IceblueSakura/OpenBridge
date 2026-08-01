@@ -64,7 +64,8 @@ HTTP 发送与可控 transport；Provider 的请求、认证、SSE 和错误处�
 
 ## 2. 装配与配置层
 
-实现位置：`src/main.rs`、`src/config/*`、`src/providers/mod.rs`。
+实现位置：`src/main.rs`、`src/config/*`、`src/providers/catalog.rs`；`src/config/mod.rs`
+保留基础配置定义与重导出，`src/providers/mod.rs` 只保留包入口。
 
 启动顺序：
 
@@ -154,7 +155,8 @@ Ingress 执行认证、body/content-type 限制、本地错误归一化和当前
 
 ## 5. 请求分析与路由层
 
-实现位置：`src/core/*`、`src/pipeline/mod.rs`。
+实现位置：`src/core/*`、`src/pipeline/types.rs`、`src/pipeline/analysis.rs`、
+`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
 
 ```text
 raw body + downstream protocol
