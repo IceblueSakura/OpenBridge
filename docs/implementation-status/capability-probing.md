@@ -28,7 +28,7 @@ Upstream API capability 和约束由 Provider 文件中的 typed Rust 值声明�
 
 ## 显式 probe CLI
 
-服务和 probe 只共享 `OPENBRIDGE_BOOTSTRAP_CONFIG` 与已注册 credential 环境变量：
+服务和 probe 只共享 `OPENBRIDGE_CONFIG` 与已注册 credential 环境变量：
 
 ```powershell
 cargo run --bin openbridge-probe -- --target openai-main --list-models

@@ -29,7 +29,13 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 当前 `main` 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合：
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
+
+| 运行配置 | 模板 |
+|---|---|
+| `.env` | `.env.example` |
+| `config/bootstrap.toml` | `config/bootstrap.example.toml` |
+| `config/users.toml` | `config/users.example.toml` |
 
 ```bash
 cp .env.example .env

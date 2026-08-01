@@ -21,6 +21,9 @@ cargo run --bin openbridge --locked
 Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential binding 均由 Rust 代码注册；
 修改后需要重新编译或重启。
 
+运行配置与模板一一对应：`.env` 使用 `.env.example`，`config/bootstrap.toml` 使用
+`config/bootstrap.example.toml`，`config/users.toml` 使用 `config/users.example.toml`。
+
 | Endpoint | 当前行为 | 认证 |
 |---|---|---|
 | `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |

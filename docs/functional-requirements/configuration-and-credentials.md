@@ -17,7 +17,10 @@ route 热重载。
 | 进程环境变量或被忽略的 `.env` | 上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
-当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置；用户文件位置由 bootstrap 固定。不存在
+每个运行配置都有同名 `.example` 模板：`.env.example`、`config/bootstrap.example.toml` 和
+`config/users.example.toml`。模板不得包含真实凭证；Bootstrap 模板由测试约束为与默认配置一致。
+
+当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；用户文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
 
 ## 2. 代码注册表要求

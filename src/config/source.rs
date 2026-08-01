@@ -34,11 +34,10 @@ impl BootstrapConfigPath {
         Self(path.into())
     }
 
-    /// 环境变量只选择 bootstrap 文件位置，不能注册或修改 Provider。
+    /// 环境变量只选择启动配置文件位置，不能注册或修改 Provider。
     pub fn from_environment() -> Self {
         Self::new(
-            env::var("OPENBRIDGE_BOOTSTRAP_CONFIG")
-                .unwrap_or_else(|_| DEFAULT_BOOTSTRAP_PATH.to_owned()),
+            env::var("OPENBRIDGE_CONFIG").unwrap_or_else(|_| DEFAULT_BOOTSTRAP_PATH.to_owned()),
         )
     }
 

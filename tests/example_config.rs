@@ -14,6 +14,10 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let bootstrap = include_str!("../config/bootstrap.toml");
     let bootstrap =
         parse_bootstrap_config(bootstrap).expect("checked-in bootstrap must remain valid");
+    let bootstrap_template = include_str!("../config/bootstrap.example.toml");
+    let bootstrap_template = parse_bootstrap_config(bootstrap_template)
+        .expect("checked-in bootstrap template must remain valid");
+    assert_eq!(bootstrap_template, bootstrap);
     let registry =
         build_compiled_registry(bootstrap).expect("compiled registry must remain internally valid");
 
