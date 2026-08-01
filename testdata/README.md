@@ -2,7 +2,7 @@
 
 `testdata/` 是一个可独立发布、可复现的协议测试语料。它固定 Chat Completions、Responses、SSE、function tool 和 HTTP/transport 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
-当前 release 为 **0.5.0**：45 个人工审查的 canonical cases（20 `accepted`、25 `reviewed`），以及默认 seed 下 306 个可重建的 SSE 分片变体。
+当前 release 为 **0.6.0**：45 个人工审查的 canonical cases（20 `accepted`、25 `reviewed`），以及默认 seed 下 306 个可重建的 SSE 分片变体。该版本以向后兼容方式为 case schema 的结束分类增加 `response`，统一非流式成功 case 的 observation 词汇，并由 testkit 的单 case 判定器消费；case `schema_version` 因此仍为 `0.1`。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。当前已验证状态和集成边界见[协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
 
@@ -32,7 +32,7 @@ uv run --project tools/corpus pytest tools/corpus/tests
 ```powershell
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.5.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
 ```
 
 `lint` 与测试不要求网络、服务端或 credential。`generate`、`report`、`pack` 的输出只能位于对应的派生目录，避免覆盖 canonical data。
@@ -41,7 +41,7 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 
 ```text
 testdata/
-  VERSION                 # corpus release，例如 0.5.0
+  VERSION                 # corpus release，例如 0.6.0
   catalog.json            # case id、required feature、默认 seed
   schemas/                # JSON Schema，schema_version 目前为 0.1
   cases/                  # 人工审查的 canonical request/wire/oracle
@@ -144,7 +144,8 @@ recipe 只改变 bytes 到 chunks 的划分，不改变逻辑事件、payload、
 2. 在 `sources/` 中记录可复核的来源事实，或使用项目设计来源并明确 `does_not_prove`。不要保存 credential、cookie、私人 prompt 或未脱敏 request id。
 3. 新建 `cases/<category>/<case-id>/`，写入 `case.json` 和所有声明 artifact；case id 必须与目录名一致。
 4. 将 id 加入 `catalog.json`，为新增核心能力加入 `required_core_features`；只在确认需要时调整默认 seed 或 recipe。
-5. 更新 `VERSION` 与 `catalog.corpus_version`。只改 case 内容可升级 corpus release；改变 schema 结构必须升级 `schema_version` 并提供兼容说明。
+5. 更新 `VERSION` 与 `catalog.corpus_version`。只改 case 内容或向后兼容地扩展 schema 可升级 corpus release，
+   并记录兼容边界；破坏性 schema 改动必须升级 `schema_version` 并提供兼容说明。
 6. 更新本文与相关设计/现状文档，尤其是覆盖范围和不证明事项。
 7. 运行 lint、工具测试、generate、report 和至少两次 pack；两次 ZIP hash 应相同。
 

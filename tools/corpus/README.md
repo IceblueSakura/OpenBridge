@@ -35,6 +35,7 @@ uv run --project tools/corpus corpus --root testdata lint
 | `build-client-plan` | 一个 case + SUT/base URL | `testdata/runtime/` | 编译 Mock Client 请求计划 |
 | `mock-server` | scenario 或 suite JSON | ready/observation JSON | 启动 HTTP/1.1 upstream fixture |
 | `mock-client` | client plan JSON | observation JSON | 发送一次请求并记录结果 |
+| `verify-observations` | case + client/server observations | stdout/exit code | 用 canonical oracle 判定单 case 结果 |
 
 默认 corpus root 是 `./testdata`。传递 `--root testdata` 可使脚本和 CI 的工作目录显式。
 
@@ -44,7 +45,7 @@ uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.5.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
 ```
 
 `generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation 的输出受限于 `runtime/`。这是故意的防护：工具不能清理或写入 canonical case 目录。
@@ -131,7 +132,7 @@ Mock Server 基于 `asyncio + h11`，默认只监听 `127.0.0.1` 和随机可用
 | 无剩余 suite exchange | `409 no_pending_exchange` JSON error | 否 |
 | 有效业务请求 | 按下一个 scenario 写 status、headers 与 chunks | 是 |
 
-Server 不会主动比较 request 与 `expected_request`；它会在 observation 中记录 method、target、脱敏 headers、raw body、JSON（若可解析）、hash、response status、终止方式、SSE terminal 和 timing。后续 runner 必须做 canonical comparison。
+Server 不会在收包过程中主动比较 request 与 `expected_request`；它会在 observation 中记录 method、target、脱敏 headers、raw body、JSON（若可解析）、hash、response status、终止方式、SSE terminal 和 timing。单 case 可在运行完成后交给 `verify-observations` 判定；多 attempt/retry/fallback runner 仍需负责序列编排。
 
 被记录时会脱敏 `authorization`、`cookie`、`proxy-authorization`、`set-cookie` 与 `x-api-key` 的值。
 
@@ -177,7 +178,25 @@ EOF 不会派发缺少最后空行的半个 event。SSE `error`、Responses `fai
 
 多 exchange Server 的 observation 用 `mock_server_run` 包装并按 suite 顺序保存。Schema 有意允许单 exchange observation 附加字段，使工具能增加非破坏性的诊断；runner 应只依赖明确文档化或 schema 定义的稳定字段。
 
-典型 runner 应进行：
+### 单 case observation 判定
+
+当 SUT 两侧的 observation 已生成后，可按 case oracle 进行一次确定性判定：
+
+```powershell
+uv run --project tools/corpus corpus --root testdata verify-observations `
+  --case responses_native.text.non_stream `
+  --client-observation testdata/runtime/client-observation.json `
+  --server-observation testdata/runtime/server-observation.json
+```
+
+`upstream_attempts = 0` 的 preflight reject case 省略 `--server-observation`。命令校验 observation schema 与
+body hash，然后比较 case identity、上下游请求 path、JSON 或 SSE body、HTTP status、结束分类、terminal 和
+case 声明的下游 response headers。通过返回 `0`；失败返回 `1`，只输出字段路径或摘要，不回显完整正文。
+
+该命令只判定零次或单次上游 attempt，且不负责启动 OpenBridge、Mock Server 或 Mock Client。它不判定 route
+选择、retry/fallback 序列、时序窗口、SDK/CLI 行为或真实 Provider 兼容性。
+
+典型 process runner 应进行：
 
 ```text
 canonical client request -> SUT -> Mock Server
@@ -187,7 +206,8 @@ canonical client request -> SUT -> Mock Server
        +-> Mock Client <-----+-> 比较 expected client body/SSE/terminal
 ```
 
-testkit 不负责这些比较，也不推断 SUT 的产品策略。
+testkit 已能对单 case 的最终 observations 做 canonical comparison，但不负责进程编排、多 attempt 序列或 SUT
+产品策略推断。
 
 ## 开发与变更规则
 

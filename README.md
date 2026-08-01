@@ -77,6 +77,14 @@ cargo test --locked
 cargo clippy --locked -- -D warnings
 ```
 
+修改 `testdata/` 或 `tools/corpus/` 时，同时运行独立 Python corpus/testkit 基线：
+
+```bash
+uv lock --check --project tools/corpus
+uv run --project tools/corpus pytest tools/corpus/tests
+uv run --project tools/corpus corpus --root testdata lint
+```
+
 `tests/sdk_compatibility.rs` 使用运行时安装的当前 OpenAI Python 与 Node SDK 消费两个端点的 stream/non-stream、单/并行 function-tool 往返、流式 arguments 和 fixture 429 error：
 
 ```bash
@@ -85,7 +93,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 这些 fixture 是确定性 wire regression。日常行为验证优先使用 OpenAI SDK 与 Codex CLI；真实 Provider corpus 用于定位 Provider 特有问题，Hermes 只在明确宣称兼容时纳入验证。SDK/CLI 不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
 
-独立的协议 corpus 维护说明见 [`testdata/`](testdata/README.md)，Mock Server/Client、CLI 和 observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具使用 `uv + Python` 维护，不读取 OpenBridge 配置，也不持有真实上游 credential。
+独立的协议 corpus 维护说明见 [`testdata/`](testdata/README.md)，Mock Server/Client、单 case observation 判定、CLI 和 observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具使用 `uv + Python` 维护，不读取 OpenBridge 配置，也不持有真实上游 credential。
 
 ## 推荐阅读顺序
 

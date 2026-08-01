@@ -184,6 +184,7 @@
         },
         "client_end": {
           "enum": [
+            "response",
             "terminal",
             "eof",
             "transport_error",
@@ -229,6 +230,7 @@
         },
         "upstream_end": {
           "enum": [
+            "response",
             "terminal",
             "eof",
             "transport_error",

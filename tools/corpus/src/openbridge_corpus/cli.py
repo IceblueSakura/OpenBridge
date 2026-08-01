@@ -24,10 +24,12 @@ from .plans import (
     build_server_suite,
     validate_runtime_document,
 )
+from .verifier import verify_case_observations
 
 
 def _parser() -> argparse.ArgumentParser:
     """构造 corpus lint/generate/report/pack 和 mock 子命令解析器。"""
+    # 构造共享 corpus root 与必选子命令入口。
     parser = argparse.ArgumentParser(
         description=(
             "Validate and build the standalone protocol corpus, or run its "
@@ -42,6 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # 注册 canonical corpus 校验与派生物命令。
     subparsers.add_parser("lint", help="Validate schemas, cases, artifacts, and provenance.")
 
     generate = subparsers.add_parser(
@@ -56,6 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     pack = subparsers.add_parser("pack", help="Build a deterministic corpus ZIP.")
     pack.add_argument("--output", type=Path)
 
+    # 注册 scenario、suite 与 client plan 编译命令。
     server_plan = subparsers.add_parser(
         "build-server-scenario",
         help="Compile a self-contained Mock Server scenario from one corpus case.",
@@ -86,6 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     client_plan.add_argument("--timeout-ms", type=int, default=5000)
     client_plan.add_argument("--output", type=Path)
 
+    # 注册 Mock 进程执行与单 case observation 判定命令。
     server = subparsers.add_parser(
         "mock-server", help="Run one precompiled Mock Server scenario."
     )
@@ -101,6 +106,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     client.add_argument("--plan", type=Path, required=True)
     client.add_argument("--observation", type=Path)
+
+    verify = subparsers.add_parser(
+        "verify-observations",
+        help="Compare one case's Mock Client/Server observations with its oracles.",
+    )
+    verify.add_argument("--case", required=True)
+    verify.add_argument("--client-observation", type=Path, required=True)
+    verify.add_argument("--server-observation", type=Path)
     return parser
 
 
@@ -164,9 +177,11 @@ async def _run_server(args: argparse.Namespace, root: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     """执行一个 corpus 或 mock testkit 子命令并返回进程退出码。"""
+    # 解析命令并固定本次 corpus root。
     args = _parser().parse_args(argv)
     root = args.root.resolve()
     try:
+        # 执行 canonical corpus 的校验与派生物构建。
         if args.command == "lint":
             errors = lint_corpus(root)
             if errors:
@@ -191,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
             output, digest = pack_corpus(root, output=args.output)
             print(f"packed {output} sha256={digest}")
             return 0
+
+        # 编译可重建的 Mock Server/Client runtime 文档。
         if args.command == "build-server-scenario":
             scenario = build_server_scenario(
                 root,
@@ -233,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"wrote {output}")
             return 0
+
+        # 运行独立 Mock Server/Client 并写出脱敏 observation。
         if args.command == "mock-server":
             observation = asyncio.run(_run_server(args, root))
             validate_runtime_document(
@@ -258,6 +277,31 @@ def main(argv: list[str] | None = None) -> int:
                 root, args.observation, "client-observation.json", observation
             )
             print(f"wrote {output}")
+            return 0
+
+        # 比较已生成的单 case observations 与 canonical oracles。
+        if args.command == "verify-observations":
+            client_observation = load_json(args.client_observation)
+            server_observation = (
+                load_json(args.server_observation)
+                if args.server_observation is not None
+                else None
+            )
+            errors = verify_case_observations(
+                root,
+                args.case,
+                client_observation=client_observation,
+                server_observation=server_observation,
+            )
+            if errors:
+                for error in errors:
+                    print(f"ERROR: {error}", file=sys.stderr)
+                print(
+                    f"{args.case}: observations failed with {len(errors)} error(s)",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"{args.case}: observations passed")
             return 0
     except CorpusError as error:
         print(f"ERROR: {error}", file=sys.stderr)

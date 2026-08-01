@@ -39,12 +39,12 @@
   "transport": {
     "cancellation_after_event": null,
     "client_content_type": "application/json",
-    "client_end": "terminal",
+    "client_end": "response",
     "client_http_status": 200,
     "downstream_output_observed": true,
     "failure_phase": "none",
     "upstream_content_type": "application/json",
-    "upstream_end": "terminal",
+    "upstream_end": "response",
     "upstream_http_status": 200
   }
 }

@@ -10,14 +10,14 @@
 
 | 项目 | 值 |
 |---|---|
-| Corpus | `testdata/`，版本 `0.5.0` |
+| Corpus | `testdata/`，版本 `0.6.0` |
 | 工具 | `tools/corpus/`，独立 `uv + Python` project |
 | Python | 3.12 |
 | Canonical cases | 45 |
 | Review 状态 | 20 `accepted`、25 `reviewed` |
 | 分类 | 13 `exact`、6 `reject`、26 `native_only` |
 | 默认生成结果 | seed `20260726` 下 306 个 SSE wire variants |
-| 工具测试 | 26 个 pytest tests |
+| 工具测试 | 36 个 pytest tests |
 
 覆盖内容：
 
@@ -45,14 +45,16 @@
 - canonical case 到 server scenario 和 client plan 的编译；
 - 基于 `asyncio + h11` 的 HTTP/1.1 Mock Server 与无自动重试的 Mock Client；
 - normal terminal、HTTP error、transport abort、EOF 和 cancellation observation；
-- 单 exchange 与有序多-exchange loopback。
+- 单 exchange 与有序多-exchange loopback；
+- 零次或单次上游 attempt 的 canonical observation 判定，覆盖 identity、上下游 path、JSON/SSE body、
+  HTTP status、结束分类、terminal、声明的下游 response headers 与 body hash 自洽性。
 
 这些工具不加载或启动 OpenBridge，不读取 credential，也不调用真实 Provider。`testdata/runtime/` 中的 scenario、
 plan 和 observation 均为可重建临时产物，不进入 corpus ZIP。
 
 ## 验证命令与结果
 
-2026-07-26 在 Windows、uv `0.11.32`、Python `3.12.9` 下运行：
+2026-08-01 在 Windows、uv `0.12.1`、Python `3.12.9` 下运行：
 
 ```powershell
 uv lock --check --project tools/corpus
@@ -60,18 +62,25 @@ uv run --project tools/corpus pytest tools/corpus/tests
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.5.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0-repeat.zip
+cargo fmt -- --check
+cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
 ```
 
 观察结果：
 
 - lock 与 `pyproject.toml` 同步；
-- pytest：26 passed；
+- pytest：36 passed；
 - corpus lint passed；
 - 生成 306 个 variant，chunks 重组 SHA-256 等于 wire SHA-256，CRLF 变体另保留 canonical SHA-256；
 - required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
-- 两次 `0.5.0` pack 的 SHA-256 均为 `a622179d546a9802f9577f08485db091b16c614840a4ebdb1058017a568b091c`；
+- 两次 `0.6.0` pack 的 SHA-256 均为 `a0058dfe927398ee078ce31015bbe0aa2ca1c94518fd555fb5d8805e19d0474a`；
+- Rust 回归：`cargo fmt`、54 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
+- `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
 ## 这证明什么
@@ -81,6 +90,8 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 - pack 不包含 derived directories，并具有固定 entry metadata 和内容 manifest；
 - coverage report 会显式暴露未固定 source ref 和 pending license，而不是把它们隐藏为已完成。
 - 进程级 loopback 已验证 scenario/plan 编译、Mock Server/Client 调用和双方 terminal observation。
+- 单 case verifier 能确定地接受匹配 observation，并以不回显正文的字段路径拒绝 JSON、SSE、path、transport、
+  terminal、header 或摘要不匹配。
 
 ## 这不证明什么
 
@@ -96,7 +107,8 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 - 7 份外部/项目来源当前均未固定 commit；
 - 两份 OpenAI protocol 文档来源的许可证状态仍为 `pending`；
 - 25 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
-- 尚无 OpenBridge-specific replay/runner；这是当前刻意排除项。
+- 尚无负责启动 OpenBridge 和 Mock 两端、处理多 attempt/retry/fallback 序列的 process replay runner；单 case
+  verifier 只消费已经生成的 observations。
 
 ## 关联文档
 

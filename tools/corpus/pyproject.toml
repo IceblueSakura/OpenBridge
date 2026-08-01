@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openbridge-testkit"
-version = "0.5.0"
+version = "0.6.0"
 description = "Standalone corpus and HTTP/SSE mock tools for OpenBridge protocol testing."
 requires-python = ">=3.12"
 dependencies = [

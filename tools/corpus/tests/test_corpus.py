@@ -166,6 +166,33 @@ def test_lint_rejects_inconsistent_transport_failure_phase(tmp_path: Path) -> No
     )
 
 
+def test_lint_rejects_terminal_end_for_completed_non_stream_case(
+    tmp_path: Path,
+) -> None:
+    root = _copy_corpus(tmp_path)
+    case_path = next(
+        (root / "cases").rglob("responses_native.text.non_stream/case.json")
+    )
+    case = json.loads(case_path.read_text(encoding="utf-8"))
+    case["transport"]["client_end"] = "terminal"
+    case["transport"]["upstream_end"] = "terminal"
+    case_path.write_text(
+        json.dumps(case, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_corpus(root)
+
+    assert any(
+        "completed non-stream case requires response client_end" in error
+        for error in errors
+    )
+    assert any(
+        "completed non-stream case requires response upstream_end" in error
+        for error in errors
+    )
+
+
 def test_lint_rejects_unmarked_sse_type_conflicts_and_post_terminal_events(
     tmp_path: Path,
 ) -> None:

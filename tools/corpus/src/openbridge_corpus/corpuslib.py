@@ -243,6 +243,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
         and transport["failure_phase"] == "before_first_output"
     )
 
+    # 校验 case 目录、分类和 stream 对 artifact 组合的约束。
     if case.directory.name != case.case_id:
         errors.append(
             f"{case.path}: directory name must equal case id {case.case_id!r}"
@@ -316,6 +317,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             if data["recipes"] and not stream:
                 errors.append(f"{case.path}: non-stream case must not define recipes")
 
+    # 校验下游 SSE terminal 声明与计数一致。
     terminal = expectation["terminal"]
     terminal_count = expectation["terminal_count"]
     if (terminal == "none") != (terminal_count == 0):
@@ -326,6 +328,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
     if not stream and terminal != "none":
         errors.append(f"{case.path}: non-stream case cannot define an SSE terminal")
 
+    # 校验 transport 的失败阶段、取消和完成分类。
     if transport is not None:
         failure_phase = transport["failure_phase"]
         output_observed = transport["downstream_output_observed"]
@@ -354,7 +357,19 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             errors.append(
                 f"{case.path}: declared terminal requires terminal client_end"
             )
+        if not stream and expectation["outcome"] == "completed":
+            if transport["client_end"] != "response":
+                errors.append(
+                    f"{case.path}: completed non-stream case requires response "
+                    "client_end"
+                )
+            if transport["upstream_end"] != "response":
+                errors.append(
+                    f"{case.path}: completed non-stream case requires response "
+                    "upstream_end"
+                )
 
+    # 解析所有 artifact，并校验 JSON、SSE、路径和声明完整性。
     referenced_artifacts: set[Path] = set()
     for artifact_name, relative in artifacts.items():
         try:
@@ -400,6 +415,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     f"{artifact_path}: {trailing_events} event(s) occur after terminal"
                 )
 
+    # 用上游 SSE 内容证明特殊 feature 的声明。
     upstream_stream = artifacts.get("upstream_stream")
     if upstream_stream:
         stream_path = _resolve_inside(case.directory, upstream_stream, case.directory)
@@ -430,6 +446,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     "upstream event"
                 )
 
+    # 用预期下游 SSE 内容证明 terminal identity 与数量。
     expected_stream = artifacts.get("expected_client_stream")
     if expected_stream:
         stream_path = _resolve_inside(case.directory, expected_stream, case.directory)
@@ -454,11 +471,13 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             f"{case.path}: terminal_count is non-zero without expected_client_stream"
         )
 
+    # 拒绝 case 目录内未由 manifest 声明的额外 oracle。
     declared_files = referenced_artifacts | {case.path.resolve()}
     for path in sorted(case.directory.rglob("*")):
         if path.is_file() and path.resolve() not in declared_files:
             errors.append(f"{case.path}: undeclared case file {path.relative_to(case.directory)}")
 
+    # 校验 provenance 与生成 recipe 均留在 corpus root 内且真实存在。
     provenance = data["provenance_ref"]
     try:
         provenance_path = _resolve_inside(root, provenance, root)
