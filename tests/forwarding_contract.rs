@@ -23,7 +23,10 @@ use openbridge::{
     core::ApiProtocol,
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
-    registry::{RegistryConfig, RouteConfig, RouteMode, UpstreamTarget, build_registry},
+    registry::{
+        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
+        RouteMode, UpstreamTarget, build_registry,
+    },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use serde_json::Value;
@@ -1168,4 +1171,37 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
         assert_eq!(request.authorization, "Bearer upstream-token");
         assert_eq!(request.body["model"], "upstream-model");
     }
+}
+
+#[tokio::test]
+async fn router_sends_the_candidate_mapped_reasoning_level_upstream() {
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+    definition.upstream_targets[0].upstream_apis[1]
+        .model_rules
+        .reasoning_level_mappings = vec![ReasoningLevelMapping {
+        downstream: ReasoningLevel::XHigh,
+        upstream: "max".to_owned(),
+    }];
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-0000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"xhigh"}}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].body["reasoning"]["effort"], "max");
 }

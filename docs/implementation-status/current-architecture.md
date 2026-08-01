@@ -107,9 +107,15 @@ RegistryConfig
 | `ProviderContract` | 代码拥有的 adapter、endpoint profile、credential kind 与能力上界 |
 | `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential、timeout、启停及 quota/fault 边界 |
-| `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport 与 state affinity |
+| `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
 | `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
 | `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
+
+当前编译目录包含 18 个 `ModelConfig`：既有 OpenAI-compatible 占位模型、LongCat-2.0，以及从 LiteLLM 部署
+清单整理出的 16 个唯一 Chat/Responses 模型。每个具体模型仍位于独立 `src/models/<model>.rs`，共享 helper
+只负责机械构造和复用相同参数集合。目录存在不等于可调用；只有被 Upstream Target 引用并进入 Public Model
+Route 的模型才会参与规划或出现在 `/v1/models`。当前 `ModelConfig` 不表示 embedding/rerank，因此两个
+Nemotron retrieval 条目没有被伪装成文本模型。
 
 同一 target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、context/output
 限制、能力证据和 state affinity。共享 endpoint、credential、Model 与故障边界属于 target。
@@ -153,7 +159,12 @@ raw body + downstream protocol
 ```
 
 `RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
-`RoutePlan` 固定有序的 Route、Upstream Target 与 Upstream API。Native candidate 保留原始 `ApiRequest`；
+reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为
+显式 level，字段缺失才表示调用方没有请求 reasoning。
+`RoutePlan` 固定有序的 Route、Upstream Target 与 Upstream API。Native candidate 通常保留原始 `ApiRequest`；
+当该 Upstream API 显式配置 reasoning level 映射时，只在候选请求副本中把 canonical level 改为安全 wire 值。
+映射源必须属于有效 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；未映射候选
+保持原始 level，未知下游 level 仍失败关闭。
 Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `ApiRequest`。Provider adapter 仍只负责
 目标 endpoint、真实 model、header 与认证改写。
 
@@ -211,8 +222,8 @@ item id、call id 和 output index；Chat 侧只用 tool index 关联同一 stre
 target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 `CredentialStore` 快照；它不
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
-测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
-`cargo test --locked`，99 个测试通过、1 个外部 SDK 集成测试 ignored；
+测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-02 最近一次执行
+`cargo test --locked`，104 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

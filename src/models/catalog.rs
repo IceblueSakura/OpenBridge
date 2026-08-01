@@ -1,0 +1,221 @@
+//! LiteLLM 部署清单对应的 canonical 文本模型事实。
+//!
+//! 本模块只保存与 Provider 无关的模型目录信息，不注册 endpoint、credential、Route 或 Public Model。
+//! OpenRouter 聚合目录中的参数与 reasoning 事实不能替代具体 Upstream API 的能力验证。
+
+use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+
+/// 构造一个不绑定 Provider 或 endpoint 的模型事实。
+pub(super) fn model(
+    id: &str,
+    name: &str,
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+    parameters: &[&str],
+    reasoning: ReasoningSupport,
+    reasoning_levels: &[ReasoningLevel],
+) -> ModelConfig {
+    ModelConfig {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        description: None,
+        context_length: ModelContextLength::new(input_tokens, output_tokens),
+        supported_parameters: parameters
+            .iter()
+            .map(|parameter| (*parameter).to_owned())
+            .collect(),
+        reasoning,
+        reasoning_levels: reasoning_levels.to_vec(),
+    }
+}
+
+pub(super) const DEEPSEEK_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const DEEPSEEK_FLASH_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_a",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const MIMO_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const QWEN_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logprobs",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const GLM_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "parallel_tool_calls",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const KIMI_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const MINIMAX_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+];
+
+pub(super) const HY3_PARAMETERS: &[&str] = &[
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "max_completion_tokens",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_p",
+];
+
+pub(super) const NEMOTRON_PARAMETERS: &[&str] = &[
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "seed",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_p",
+];

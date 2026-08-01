@@ -12,7 +12,8 @@ use crate::{
     bridge::BridgePlan,
     core::{ApiProtocol, ApiRequest, EndpointCapabilities},
     registry::{
-        ReasoningLevel, ReasoningSupport, RouteMode, RuntimeRegistry, UpstreamApiCapabilities,
+        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RouteMode, RuntimeRegistry,
+        UpstreamApi, UpstreamApiCapabilities,
     },
 };
 
@@ -80,6 +81,7 @@ pub struct RouteCandidate {
     upstream_api_id: String,
     request: ApiRequest,
     bridge: Option<BridgePlan>,
+    reasoning_level_mapping: Option<ReasoningLevelMapping>,
 }
 
 /// 单次请求实际使用的能力。它不等同于 upstream API 配置：`protocol` 是两个端点共享的
@@ -184,6 +186,11 @@ impl RouteCandidate {
     /// 返回 Bridged Route 的响应转换计划；Native candidate 返回 `None`。
     pub fn bridge(&self) -> Option<&BridgePlan> {
         self.bridge.as_ref()
+    }
+
+    /// 返回该候选实际应用的 reasoning level 映射。
+    pub fn reasoning_level_mapping(&self) -> Option<&ReasoningLevelMapping> {
+        self.reasoning_level_mapping.as_ref()
     }
 }
 
@@ -310,12 +317,18 @@ pub fn plan_request(
                 }
             },
         };
+        let (request, reasoning_level_mapping) = apply_reasoning_level_mapping(
+            request,
+            profile.requested_capabilities.reasoning,
+            upstream_api,
+        )?;
         prepared_candidates.push(RouteCandidate {
             route_id: route_id.clone(),
             upstream_target_id: route.upstream_target().to_owned(),
             upstream_api_id: route.upstream_api().to_owned(),
             request,
             bridge,
+            reasoning_level_mapping,
         });
     }
     // 没有候选时返回最具体的规划错误，否则构造带 fallback 边界的计划。
@@ -332,6 +345,49 @@ pub fn plan_request(
         is_streaming: profile.is_streaming,
         allows_fallback: !profile.requested_capabilities.previous_response_id,
     })
+}
+
+/// 将候选的显式 level 映射写入独立请求副本，并保留其他 Native 字段。
+fn apply_reasoning_level_mapping(
+    request: ApiRequest,
+    requested: RequestedReasoning,
+    upstream_api: &UpstreamApi,
+) -> Result<(ApiRequest, Option<ReasoningLevelMapping>), RequestPlanningError> {
+    // 只有已识别 level 且候选显式声明映射时才改写请求。
+    let RequestedReasoning::Level(level) = requested else {
+        return Ok((request, None));
+    };
+    let Some(upstream) = upstream_api.reasoning_level_mapping(level) else {
+        return Ok((request, None));
+    };
+    let mapping = ReasoningLevelMapping {
+        downstream: level,
+        upstream: upstream.to_owned(),
+    };
+
+    // 按请求分析使用的相同字段优先级改写唯一生效位置。
+    let mut document: Value =
+        serde_json::from_slice(request.body()).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    if object
+        .get("reasoning_effort")
+        .is_some_and(|value| !value.is_null())
+    {
+        object.insert(
+            "reasoning_effort".to_owned(),
+            Value::String(mapping.upstream.clone()),
+        );
+    } else if let Some(reasoning) = object.get_mut("reasoning").and_then(Value::as_object_mut) {
+        reasoning.insert("effort".to_owned(), Value::String(mapping.upstream.clone()));
+    }
+
+    // 重新序列化候选请求，映射事实留在 RouteCandidate 供 tracing 观察。
+    let body = serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)?;
+    Ok((ApiRequest::new(request.protocol(), body), Some(mapping)))
 }
 
 fn candidate_error(

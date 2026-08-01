@@ -1,7 +1,8 @@
 //! 下游原生协议和已通过 HTTP 基础检查的请求值对象。
 //!
-//! `ApiRequest` 保存 RoutePlan 已确定协议的 JSON bytes：Native Route 保留下游 body，Bridged
-//! Route 保存 `BridgePlan` 生成的目标协议 body；adapter 随后负责真实 model 与上游相对请求。
+//! `ApiRequest` 保存 RoutePlan 已确定协议的 JSON bytes：Native Route 通常保留下游 body，并可在候选副本上
+//! 应用显式 reasoning level 映射；Bridged Route 保存 `BridgePlan` 生成的目标协议 body。adapter 随后负责
+//! 真实 model 与上游相对请求。
 
 use bytes::Bytes;
 

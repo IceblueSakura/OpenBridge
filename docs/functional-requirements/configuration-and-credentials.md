@@ -32,7 +32,8 @@ route 热重载。
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；
 - Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；
 - Upstream Target 绑定 Provider、Model、endpoint、credential、timeout 和共享故障边界；
-- Upstream API 独立声明一个协议的 upstream model、served limit、能力和 state affinity；
+- Upstream API 独立声明一个协议的 upstream model、served limit、能力、state affinity，以及可选的 canonical
+  reasoning level 到安全上游 wire 值的显式映射；
 - Public Model 保存有序完整 Route；
 - 启动监听前必须完成唯一性、引用、能力、reasoning、credential locator 和 URL 校验。
 
@@ -93,7 +94,7 @@ optionally load .env
 | ID | 行为 |
 |---|---|
 | CFG-01 | 仓库不存在 Provider/Model route 配置文件或动态 Provider schema。 |
-| CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning 和不安全 URL 在监听前失败。 |
+| CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning/level 映射和不安全 URL 在监听前失败。 |
 | CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感/非 allowlist header 或 candidate 顺序；普通 header 仅能经 Provider 代码 hook 显式选择。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。 |
 | CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。 |

@@ -70,7 +70,9 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-Native Route 由 Provider adapter 写入实际上游 `model`，其余 JSON 与上游 JSON/SSE body 原生转发。
+Native Route 由 Provider adapter 写入实际上游 `model`；选定 Upstream API 还可对 canonical Model 已声明的
+reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
+没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。
 Provider 的受信 request-header hook 可从下游选择显式允许的普通 header（当前为 `User-Agent`）覆盖到上游；
 客户端不能指定上游 URL、credential、认证 header 或任意非 allowlist 出站 header。Transient upstream failure

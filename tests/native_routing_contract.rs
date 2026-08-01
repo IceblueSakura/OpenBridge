@@ -4,14 +4,170 @@ use openbridge::{
     core::ApiProtocol,
     pipeline::RequestPlanningError,
     registry::{
-        ModelContextLength, ReasoningLevel, ReasoningSupport, RegistryConfig, RuntimeRegistry,
-        build_registry,
+        ModelContextLength, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
+        RegistryConfig, RuntimeRegistry, build_registry,
     },
 };
 use serde_json::{Value, json};
 
 fn base_definition() -> RegistryConfig {
     support::definition("routing-test", "public-model", "upstream-model")
+}
+
+#[test]
+fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
+    let mut definition = base_definition();
+    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+    for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
+        upstream_api.model_rules.reasoning_level_mappings = vec![ReasoningLevelMapping {
+            downstream: ReasoningLevel::XHigh,
+            upstream: "max".to_owned(),
+        }];
+    }
+    let mut unmapped = definition.upstream_targets[0].clone();
+    unmapped.id = "openai-unmapped".to_owned();
+    unmapped.credential.id = "openai-unmapped-credential".to_owned();
+    for upstream_api in &mut unmapped.upstream_apis {
+        upstream_api.model_rules.reasoning_level_mappings.clear();
+    }
+    definition.upstream_targets.push(unmapped);
+    definition.routes.push(openbridge::registry::RouteConfig {
+        id: "unmapped-chat".to_owned(),
+        upstream_target: "openai-unmapped".to_owned(),
+        upstream_api: "chat".to_owned(),
+        downstream_protocol: ApiProtocol::ChatCompletions,
+        mode: openbridge::registry::RouteMode::Native,
+    });
+    definition.routes.push(openbridge::registry::RouteConfig {
+        id: "unmapped-responses".to_owned(),
+        upstream_target: "openai-unmapped".to_owned(),
+        upstream_api: "responses".to_owned(),
+        downstream_protocol: ApiProtocol::Responses,
+        mode: openbridge::registry::RouteMode::Native,
+    });
+    definition.public_models[0].routes = vec![
+        "public-chat".to_owned(),
+        "unmapped-chat".to_owned(),
+        "public-responses".to_owned(),
+        "unmapped-responses".to_owned(),
+    ];
+    let registry = build_test_registry(definition);
+
+    // 验证 Responses 的两种标准字段形状都按选定 Upstream API 的规则改写。
+    for request in [
+        json!({
+            "model": "public-model",
+            "input": "hello",
+            "reasoning": {"effort": "xhigh"}
+        }),
+        json!({
+            "model": "public-model",
+            "input": "hello",
+            "reasoning_effort": "xhigh"
+        }),
+    ] {
+        let prepared = support::prepare(
+            &registry,
+            ApiProtocol::Responses,
+            serde_json::to_vec(&request).unwrap().into(),
+        )
+        .unwrap();
+        let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+        if request.get("reasoning_effort").is_some() {
+            assert_eq!(upstream["reasoning_effort"], "max");
+        } else {
+            assert_eq!(upstream["reasoning"]["effort"], "max");
+        }
+        assert_eq!(prepared.candidates().len(), 2);
+        let unmapped: Value =
+            serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
+        if request.get("reasoning_effort").is_some() {
+            assert_eq!(unmapped["reasoning_effort"], "xhigh");
+        } else {
+            assert_eq!(unmapped["reasoning"]["effort"], "xhigh");
+        }
+    }
+
+    // Chat 的 reasoning_effort 使用同一候选级映射边界。
+    let chat = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "reasoning_effort": "xhigh"
+    }))
+    .unwrap();
+    let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, chat.into()).unwrap();
+    let mapped: Value = serde_json::from_slice(prepared.candidates()[0].request().body()).unwrap();
+    let unmapped: Value =
+        serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
+    assert_eq!(mapped["reasoning_effort"], "max");
+    assert_eq!(unmapped["reasoning_effort"], "xhigh");
+
+    // Provider 私有目标值不能反向扩大下游可请求的公共 level 集合。
+    let unsupported = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning": {"effort": "max"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, unsupported.into()).unwrap_err(),
+        RequestPlanningError::ReasoningLevelUnsupported
+    ));
+}
+
+#[test]
+fn native_routes_accept_declared_none_and_max_reasoning_levels() {
+    // 新增 canonical level 必须保持稳定 wire 往返。
+    assert_eq!(
+        ReasoningLevel::from_wire("none"),
+        Some(ReasoningLevel::None)
+    );
+    assert_eq!(ReasoningLevel::None.as_wire(), "none");
+    assert_eq!(ReasoningLevel::from_wire("max"), Some(ReasoningLevel::Max));
+    assert_eq!(ReasoningLevel::Max.as_wire(), "max");
+
+    // 模型显式声明后，Chat 与 Responses 请求分别保留对应 level。
+    let mut definition = base_definition();
+    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.models[0].reasoning_levels = vec![ReasoningLevel::None, ReasoningLevel::Max];
+    let registry = build_test_registry(definition);
+    for (protocol, request, pointer, expected) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "reasoning_effort": "max"
+            }),
+            "/reasoning_effort",
+            "max",
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "hello",
+                "reasoning": {"effort": "none"}
+            }),
+            "/reasoning/effort",
+            "none",
+        ),
+    ] {
+        let prepared = support::prepare(
+            &registry,
+            protocol,
+            serde_json::to_vec(&request).unwrap().into(),
+        )
+        .unwrap();
+        let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+        assert_eq!(
+            upstream.pointer(pointer).and_then(Value::as_str),
+            Some(expected)
+        );
+    }
 }
 
 fn build_test_registry(definition: RegistryConfig) -> RuntimeRegistry {

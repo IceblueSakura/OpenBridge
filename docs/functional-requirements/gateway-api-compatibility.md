@@ -46,7 +46,12 @@
 
 ## 4. Native Path 与流式语义
 
-当下游与上游协议一致且已获 capability 许可时，Native Path 是兼容性基线：它只做受信路由、模型和认证改写，保留 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过通用 IR 重渲染。
+当下游与上游协议一致且已获 capability 许可时，Native Path 是兼容性基线：它只做受信路由、模型、认证和
+显式 reasoning level wire 映射，保留其他 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过
+通用 IR 重渲染。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model 声明，
+目标必须是安全 wire 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。
+canonical reasoning level vocabulary 为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；
+每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用 reasoning，不等同于缺少 reasoning 字段。
 
 当前生产请求路径支持显式 `Bridged` Route。`BridgePlan` 转换两协议共同可表达的 text、function schema、
 tool call/result identity、非流式 JSON 和流式 SSE lifecycle；未知顶层字段、continuation、hosted/custom tool、
@@ -105,6 +110,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。 |
 | API-08 | 客户端只选择 Public Model 与下游协议；只有完整 Native Route 或通过 preflight 的 Bridged Route 可以成为执行候选。 |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
+| API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。 |
 
 ## 8. 非目标
 

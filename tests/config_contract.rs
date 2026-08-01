@@ -7,8 +7,8 @@ use openbridge::{
         BootstrapConfigError, BootstrapConfigFileError, BootstrapConfigPath, parse_bootstrap_config,
     },
     registry::{
-        ModelContextLength, PublicModelConfig, ReasoningLevel, ReasoningSupport, RegistryError,
-        UpstreamApiCapabilities, build_registry,
+        ModelContextLength, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
+        ReasoningSupport, RegistryError, UpstreamApiCapabilities, build_registry,
     },
 };
 
@@ -185,6 +185,55 @@ fn upstream_api_rules_cannot_widen_model_info() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), definition),
         Err(RegistryError::UpstreamApiModelRuleWidensModel { .. })
+    ));
+}
+
+#[test]
+fn reasoning_level_mappings_are_validated_at_registry_build_time() {
+    let configured = |mapping: ReasoningLevelMapping| {
+        let mut definition = definition("test", "code-primary", "test-model");
+        definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+        definition.models[0].reasoning = ReasoningSupport::Supported;
+        definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+        definition.upstream_targets[0].upstream_apis[1]
+            .model_rules
+            .reasoning_level_mappings = vec![mapping];
+        definition
+    };
+
+    // 拒绝 canonical Model 未声明的映射源和非法上游 wire 值。
+    let unknown_source = configured(ReasoningLevelMapping {
+        downstream: ReasoningLevel::High,
+        upstream: "max".to_owned(),
+    });
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unknown_source),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
+    let invalid_target = configured(ReasoningLevelMapping {
+        downstream: ReasoningLevel::XHigh,
+        upstream: "MAX!".to_owned(),
+    });
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_target),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
+
+    // 同一 Upstream API 不得为同一个下游 level 声明歧义目标。
+    let mut duplicate = configured(ReasoningLevelMapping {
+        downstream: ReasoningLevel::XHigh,
+        upstream: "max".to_owned(),
+    });
+    duplicate.upstream_targets[0].upstream_apis[1]
+        .model_rules
+        .reasoning_level_mappings
+        .push(ReasoningLevelMapping {
+            downstream: ReasoningLevel::XHigh,
+            upstream: "high".to_owned(),
+        });
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
     ));
 }
 

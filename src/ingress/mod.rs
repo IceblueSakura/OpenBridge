@@ -545,6 +545,13 @@ async fn forward_request(
                 target.kind(),
                 candidate.bridge().is_some(),
             );
+            if let Some(mapping) = candidate.reasoning_level_mapping() {
+                tracing::info!(
+                    downstream_reasoning_level = mapping.downstream.as_wire(),
+                    upstream_reasoning_level = mapping.upstream,
+                    "reasoning_level_mapped"
+                );
+            }
             match state
                 .upstream
                 .send(target, request.clone(), headers.clone())

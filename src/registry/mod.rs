@@ -33,6 +33,8 @@ pub enum ReasoningSupport {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 /// 模型支持的 reasoning 强度。
 pub enum ReasoningLevel {
+    /// 显式禁用 reasoning。
+    None,
     /// 最低 reasoning 强度。
     Minimal,
     /// 低 reasoning 强度。
@@ -41,22 +43,48 @@ pub enum ReasoningLevel {
     Medium,
     /// 高 reasoning 强度。
     High,
-    /// 最高 reasoning 强度。
+    /// 超高 reasoning 强度。
     XHigh,
+    /// 最大 reasoning 强度。
+    Max,
 }
 
 impl ReasoningLevel {
     /// 将协议中的 wire 字符串解析为目录枚举。
     pub fn from_wire(value: &str) -> Option<Self> {
         match value {
+            "none" => Some(Self::None),
             "minimal" => Some(Self::Minimal),
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),
             "xhigh" => Some(Self::XHigh),
+            "max" => Some(Self::Max),
             _ => None,
         }
     }
+
+    /// 返回标准下游协议使用的 wire 字符串。
+    pub const fn as_wire(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// 一个标准下游 reasoning level 到 Upstream API wire level 的显式映射。
+pub struct ReasoningLevelMapping {
+    /// Public Model 已声明支持的标准下游 level。
+    pub downstream: ReasoningLevel,
+    /// 选定 Upstream API 实际接受的安全 wire 值。
+    pub upstream: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -116,6 +144,8 @@ pub struct UpstreamApiModelRules {
     pub reasoning: Option<ReasoningSupport>,
     /// Upstream API 禁用但不能新增的参数名。
     pub disabled_parameters: Vec<String>,
+    /// 标准下游 reasoning level 到该 Upstream API wire 值的显式映射。
+    pub reasoning_level_mappings: Vec<ReasoningLevelMapping>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -750,6 +780,7 @@ pub struct UpstreamApi {
     transport: TransportKind,
     capabilities: UpstreamApiCapabilities,
     state_affinity: StateAffinity,
+    reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
 }
 
 impl UpstreamApi {
@@ -786,6 +817,13 @@ impl UpstreamApi {
     /// 返回 continuation state 的归属策略。
     pub fn state_affinity(&self) -> StateAffinity {
         self.state_affinity
+    }
+
+    /// 返回指定标准 level 在该 Upstream API 上的显式 wire 映射。
+    pub fn reasoning_level_mapping(&self, level: ReasoningLevel) -> Option<&str> {
+        self.reasoning_level_mappings
+            .get(&level)
+            .map(String::as_str)
     }
 }
 
@@ -949,8 +987,11 @@ pub fn build_registry(
                 });
             }
             let api_key = format!("{}/{}", target.id, upstream_api.id);
+            let mapping_config = upstream_api.model_rules.reasoning_level_mappings.clone();
             let effective_model =
                 apply_model_rules(model.clone(), &api_key, upstream_api.model_rules)?;
+            let reasoning_level_mappings =
+                validate_reasoning_level_mappings(&api_key, &effective_model, mapping_config)?;
             let resolved = UpstreamApi {
                 protocol: upstream_api.protocol,
                 model: effective_model,
@@ -959,6 +1000,7 @@ pub fn build_registry(
                 transport: upstream_api.transport,
                 capabilities: upstream_api.capabilities,
                 state_affinity: upstream_api.state_affinity,
+                reasoning_level_mappings,
             };
             if upstream_apis
                 .insert(upstream_api.id.clone(), resolved)
@@ -1301,6 +1343,44 @@ fn validate_effective_reasoning_config(
         }
         _ => Ok(()),
     }
+}
+
+/// 校验映射不会扩大 canonical reasoning 契约，并编译为唯一源 level 的只读表。
+fn validate_reasoning_level_mappings(
+    upstream_api: &str,
+    model: &ModelInfo,
+    mappings: Vec<ReasoningLevelMapping>,
+) -> Result<BTreeMap<ReasoningLevel, String>, RegistryError> {
+    // 逐项校验源 level 已由有效模型声明，目标是受限 wire 名称。
+    let mut resolved = BTreeMap::new();
+    for mapping in mappings {
+        if model.reasoning() != ReasoningSupport::Supported
+            || !model.reasoning_levels().contains(&mapping.downstream)
+        {
+            return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
+                detail: "reasoning level mapping source must be supported by the effective model",
+            });
+        }
+        if !is_valid_parameter_name(&mapping.upstream) {
+            return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
+                detail: "reasoning level mapping target must be a safe wire name",
+            });
+        }
+
+        // 同一源 level 只能映射到一个确定目标，避免候选内出现歧义。
+        if resolved
+            .insert(mapping.downstream, mapping.upstream)
+            .is_some()
+        {
+            return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
+                detail: "reasoning level mapping sources must be unique",
+            });
+        }
+    }
+    Ok(resolved)
 }
 
 /// 合并两个可选限制，并取已知限制中的较小值。

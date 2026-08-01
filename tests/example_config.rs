@@ -2,12 +2,79 @@ use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,
     identity::UserConfigPath,
-    models::longcat,
+    models::longcat_2_0,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
-    registry::{ReasoningSupport, UpstreamApiCapabilities, build_registry},
+    registry::{ReasoningLevel, ReasoningSupport, UpstreamApiCapabilities, build_registry},
 };
+
+#[test]
+fn compiled_model_catalog_includes_litellm_text_models() {
+    let definition = compiled_config();
+    let expected = [
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.5",
+        "openai/gpt-5.3-codex-spark",
+        "deepseek/deepseek-v4-pro",
+        "deepseek/deepseek-v4-flash",
+        "xiaomi/mimo-v2.5-pro",
+        "xiaomi/mimo-v2.5",
+        "qwen/qwen3.7-max",
+        "qwen/qwen3.7-plus",
+        "z-ai/glm-5.2",
+        "moonshotai/kimi-k3",
+        "minimax/minimax-m3",
+        "tencent/hy3",
+        "nvidia/nemotron-3-ultra-550b-a55b",
+    ];
+
+    // 每个 LiteLLM Chat/Responses 模型组只产生一个 canonical 模型定义。
+    for id in expected {
+        assert!(
+            definition.models.iter().any(|model| model.id == id),
+            "missing canonical model {id}"
+        );
+    }
+    assert_eq!(definition.models.len(), expected.len() + 2);
+
+    // 代表性模型保留 context、输出上限和标准 reasoning level。
+    let deepseek = definition
+        .models
+        .iter()
+        .find(|model| model.id == "deepseek/deepseek-v4-pro")
+        .unwrap();
+    assert_eq!(deepseek.context_length.input_tokens(), Some(1_048_576));
+    assert_eq!(deepseek.context_length.output_tokens(), Some(384_000));
+    assert_eq!(
+        deepseek.reasoning_levels,
+        [ReasoningLevel::XHigh, ReasoningLevel::High]
+    );
+
+    let hy3 = definition
+        .models
+        .iter()
+        .find(|model| model.id == "tencent/hy3")
+        .unwrap();
+    assert_eq!(
+        hy3.reasoning_levels,
+        [
+            ReasoningLevel::High,
+            ReasoningLevel::Low,
+            ReasoningLevel::None
+        ]
+    );
+
+    // 当前目录类型不表示 embedding/rerank，避免把不可路由协议伪装为文本模型。
+    assert!(
+        definition
+            .models
+            .iter()
+            .all(|model| !model.id.contains("embed") && !model.id.contains("rerank"))
+    );
+}
 
 #[test]
 fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
@@ -187,7 +254,7 @@ fn real_model_can_be_shared_by_targets_from_different_providers() {
         .upstream_api("chat")
         .unwrap();
 
-    assert_eq!(direct.model().id(), longcat::MODEL_ID);
-    assert_eq!(alternate.model().id(), longcat::MODEL_ID);
+    assert_eq!(direct.model().id(), longcat_2_0::MODEL_ID);
+    assert_eq!(alternate.model().id(), longcat_2_0::MODEL_ID);
     assert_eq!(direct.model(), alternate.model());
 }

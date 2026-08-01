@@ -43,10 +43,20 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 错误分类。默认编译注册表为每个下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
 route；尚未对真实异构协议 Provider 执行验证。
 
+canonical 模型目录当前包含 18 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
+覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
+Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
+这些目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron embedding/rerank
+因当前没有对应协议模型类型而未纳入 `ModelConfig`。
+
 请求路径当前会：
 
 - 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按 `binding_id + ProviderKind` 借用上游 Key；
 - 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
+- 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
+  当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；
+- 对 Native Route 按选定 Upstream API 的已校验代码规则映射 reasoning level；映射仅修改候选请求副本，
+  支持 `reasoning.effort` 与 `reasoning_effort`，并通过 `reasoning_level_mapped` tracing event 记录源/目标；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
 - 经 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游，同时保持认证、cookie、Host 与 proxy header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
@@ -101,7 +111,7 @@ credential 覆盖，只加载选中 target 的上游 Key，不读取下游用户
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate、统一 credential Store、认证、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
@@ -109,7 +119,7 @@ HTTP 429 process replay 和 probe。
 `tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。日常客户端可见测试优先使用
 OpenAI SDK、独立 Python 脚本或 curl，不要求绑定 Codex/Hermes 等 Agent runtime。
 
-2026-08-01 最近一次执行：
+2026-08-02 最近一次执行：
 
 ```text
 cargo fmt -- --check
@@ -118,11 +128,14 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 99 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 104 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
 ## 当前未实现
+
+当前 checked-in OpenAI/LongCat 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
+Upstream API 显式声明后生效。Bridged Route 仍不转换 reasoning。
 
 - 真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
