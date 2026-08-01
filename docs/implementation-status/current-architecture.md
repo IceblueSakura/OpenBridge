@@ -179,7 +179,8 @@ target 亲和。该状态不持久化、不跨进程，也不执行动态权重�
 
 `src/bridge.rs` 是生产 route 之外的显式 Protocol Bridge 状态基础。Responses 侧分别固定 response id、item id、
 call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧都要求唯一
-terminal 和闭合 JSON object arguments。当前没有 Bridge Plan、wire renderer 或 ingress dispatch。
+terminal，区分 Responses `completed`、`failed`、`incomplete` 与独立 `error`，并要求闭合 JSON object
+arguments。当前没有 Bridge Plan、wire renderer 或 ingress dispatch。
 
 ## 8. Probe 与验证层
 
@@ -187,7 +188,7 @@ terminal 和闭合 JSON object arguments。当前没有 Bridge Plan、wire rende
 target endpoint、credential、adapter 与 transport，不接受 URL/model/header 覆盖，不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-01 最近一次执行
-`cargo test --locked`，72 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，76 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

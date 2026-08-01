@@ -81,7 +81,7 @@ git diff --check
 - required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
 - 两次 `0.6.0` pack 的 SHA-256 均为 `a0058dfe927398ee078ce31015bbe0aa2ca1c94518fd555fb5d8805e19d0474a`；
-- Rust 回归：`cargo fmt`、72 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
+- Rust 回归：`cargo fmt`、76 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
 - `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
@@ -94,11 +94,13 @@ git diff --check
 - 进程级 loopback 已验证 scenario/plan 编译、Mock Server/Client 调用和双方 terminal observation。
 - 单 case verifier 能确定地接受匹配 observation，并以不回显正文的字段路径拒绝 JSON、SSE、path、transport、
   terminal、header 或摘要不匹配。
+- Rust bridge replay 只读复用 canonical SSE，验证双向文本/并行 tool identity、四类 Responses terminal、
+  不完整 arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
 
 ## 这不证明什么
 
-- 不证明任一 case 已被 OpenBridge 执行或通过；
-- 不证明 Bridge、continuation、hosted tool 或相关错误策略已实现；
+- 不证明全部 case 已被 OpenBridge 执行或通过；当前 Rust tests 只读回放了明确列出的 bridge 与 429 fixture；
+- 不证明完整 Bridge Plan、wire renderer、production route、continuation 或 hosted tool 已实现；
 - 不证明 canonical oracle 等于完整 OpenAI API；
 - 不证明外部项目默认分支在未来保持相同行为；
 - 不证明真实 SDK、Agent 或 Provider 兼容。

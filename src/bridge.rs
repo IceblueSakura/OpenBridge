@@ -20,6 +20,8 @@ pub enum StreamTerminal {
     Failed,
     /// Responses 明确报告未完整完成。
     Incomplete,
+    /// Responses 以独立 `error` event 报告失败。
+    Error,
 }
 
 /// bridge stream 生命周期或 identity 校验失败。
@@ -151,6 +153,7 @@ impl ResponsesStreamState {
             "response.completed" => self.on_terminal(&value, StreamTerminal::Completed),
             "response.failed" => self.on_terminal(&value, StreamTerminal::Failed),
             "response.incomplete" => self.on_terminal(&value, StreamTerminal::Incomplete),
+            "error" => self.on_error(),
             _ => Err(BridgeStreamError::UnexpectedEvent),
         }
     }
@@ -382,6 +385,19 @@ impl ResponsesStreamState {
             return Err(BridgeStreamError::IncompleteOutputItem);
         }
         self.lifecycle = Lifecycle::Terminal(terminal);
+        Ok(())
+    }
+
+    /// 接受独立 `error` event，并把它固定为当前 response 的失败终态。
+    fn on_error(&mut self) -> Result<(), BridgeStreamError> {
+        // 拒绝在既有 terminal 后追加独立 error event。
+        if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
+            return Err(BridgeStreamError::DuplicateTerminal);
+        }
+
+        // 独立 error 只有在 response 已创建后才能结束当前 stream。
+        self.ensure_streaming()?;
+        self.lifecycle = Lifecycle::Terminal(StreamTerminal::Error);
         Ok(())
     }
 

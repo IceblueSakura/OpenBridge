@@ -69,6 +69,22 @@ Apply these evidence rules:
 - The ignored SDK compatibility test, real Provider calls, external dependency installation, and network-dependent verification are not part of the default baseline. Run them only when the task explicitly requires them or when the user approves the expanded boundary.
 - Report exactly which checks ran, which passed, and which were skipped. Never describe an unrun acceptance layer as validated.
 
+### Rust/Python test ownership
+
+- Keep `testdata/` and `tools/corpus/` inside this repository as a runtime-independent `uv + Python` project. Do not extract, publish, or add cross-project compatibility layers until there is a real second consumer or the user explicitly requests that scope.
+- Rust tests own OpenBridge runtime behavior: registry and routing, Provider contracts, retry/fallback/cooldown, cancellation, Protocol Bridge state, and other in-process invariants. When a Rust state machine can consume a canonical fixture directly, prefer `include_bytes!` or an equivalent read-only fixture replay over invoking Python.
+- Python tests own corpus integrity and tooling behavior: schema/provenance/secret validation, deterministic generation/report/pack, byte-level SSE fragmentation, standalone HTTP Mock Server/Client behavior, redacted observations, and canonical observation comparison. Do not reimplement OpenBridge routing or retry/fallback policy in Python.
+- `testdata/` is the shared protocol contract between the two layers. A fixture existing in the corpus is not runtime evidence; a Rust replay proves only the directly exercised in-process behavior; a Python loopback proves only the standalone testkit behavior.
+- When Rust and Python tests overlap, keep one canonical wire fixture and place each assertion in the closest owning layer. Remove a duplicate helper or mock only after the replacement covers the same observable behavior and failure boundary.
+- The Python testkit must expose stable CLI/data contracts for this repository, not a speculative general-purpose framework. Avoid plugin systems, dynamic control planes, generic adapters, or independent release machinery without a demonstrated current requirement.
+
+### Test duration and parallelism
+
+- Keep the default developer feedback path small: run the focused Rust test first, then the Rust baseline; add the Python baseline only when `testdata/` or `tools/corpus/` changes or when the focused behavior explicitly crosses that boundary.
+- Independent Python cases may run in parallel only when each worker owns its temporary directory, Mock Server, random port, and runtime outputs. Never let parallel workers share or rewrite `testdata/generated/`, `testdata/reports/`, `testdata/dist/`, or `testdata/runtime/`.
+- Ordered server suites, multi-attempt retry/fallback scenarios, cancellation timing, and other causally ordered tests must remain deterministic and serial within the scenario. Parallelize independent scenarios, not exchanges inside one ordered suite.
+- Do not add sleeps to make concurrency tests pass. Use explicit readiness, events, bounded timeouts, and deterministic observations. Treat load, throughput, fairness, and long-run concurrency as separate acceptance layers, not default contract tests.
+
 ## Security and Trust Boundaries
 
 - Never print, copy, commit, or place real API keys, passwords, bearer tokens, private user configuration, credential values, or sensitive production request bodies in code, comments, fixtures, logs, documentation, or tool output. Synthetic protocol fixtures are allowed when they contain no real or sensitive data.

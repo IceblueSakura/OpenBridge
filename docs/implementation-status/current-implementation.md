@@ -59,11 +59,13 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 ## Protocol Bridge 状态基础
 
 `src/bridge.rs` 提供彼此独立的 Chat 与 Responses stream 状态机。它们按 wire 顺序固定 response/item/call/index
-identity，累计 text 与 function arguments，区分 `output_item.done` 和 response terminal，并在 identity 冲突、
-不完整 JSON arguments、重复 terminal 或 EOF-before-terminal 时失败关闭。
+identity，累计 text 与 function arguments，区分 `completed`、`failed`、`incomplete` 和独立 `error` terminal，
+并在 event/type 冲突、identity 冲突、不完整 JSON arguments、terminal 后事件、重复 terminal 或
+EOF-before-terminal 时失败关闭。
 
-该模块由现有 canonical 双向 text/parallel-tool/incomplete-arguments SSE fixture 回放验证，但尚未接入
-`RouteMode::Bridged`、请求转换、目标 wire renderer 或生产 ingress，因此不构成 Protocol Bridge 已可用的声明。
+该模块由现有 canonical 双向 text/parallel-tool/incomplete-arguments、失败终态、event/type 冲突、EOF 和
+terminal violation SSE fixture 回放验证，但尚未接入 `RouteMode::Bridged`、请求转换、目标 wire renderer 或
+生产 ingress，因此不构成 Protocol Bridge 已可用的声明。
 
 ## 显式 probe
 
@@ -89,7 +91,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 72 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 76 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
