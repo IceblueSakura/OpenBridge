@@ -54,7 +54,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 | 3 | [`src/config/source.rs`](../src/config/source.rs) | bootstrap 文件定位、可选 dotenv 加载和错误边界 |
 | 4 | [`src/identity.rs`](../src/identity.rs) | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry` |
 | 5 | [`src/providers/mod.rs`](../src/providers/mod.rs) | 编译期 Provider、模型、target、upstream API、route 与 Public Model 装配 |
-| 6 | [`src/registry/mod.rs`](../src/registry/mod.rs) | `RegistryConfig` 校验并生成不可变 `RuntimeRegistry` |
+| 6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry` |
 
 把启动链记成一条线即可：
 
@@ -69,7 +69,7 @@ bootstrap + users + environment credential locators
 
 配套测试先看 [`tests/config_contract.rs`](../tests/config_contract.rs)、
 [`tests/downstream_auth_contract.rs`](../tests/downstream_auth_contract.rs) 和
-[`tests/example_config.rs`](../tests/example_config.rs)。它们比直接通读 `registry/mod.rs` 更容易说明哪些校验是契约。
+[`tests/example_config.rs`](../tests/example_config.rs)。它们比直接通读 `registry/compiler.rs` 更容易说明哪些校验是契约。
 
 读完后应能回答：为什么业务请求不能动态指定上游 URL、credential、Provider 或 route？为什么用户文件和注册表
 变更需要重启？
@@ -80,13 +80,13 @@ bootstrap + users + environment credential locators
 
 | 调用阶段 | 代码入口 | 阅读问题 |
 |---|---|---|
-| Router 与 endpoint | [`ingress::build_router`](../src/ingress/mod.rs) | 哪些 endpoint 公开？哪些需要下游认证？ |
+| Router 与 endpoint | [`ingress::build_router`](../src/ingress/router.rs) | 哪些 endpoint 公开？哪些需要下游认证？ |
 | HTTP 基础检查 | `require_user`、`responses`、`has_json_content_type` | 认证、Content-Type 和 body 上限在哪次 egress 前完成？ |
-| 请求编排 | `ingress::forward_native` | 请求规划、候选循环、retry/fallback 和响应返回如何连接？ |
+| 请求编排 | [`ingress::forward_request`](../src/ingress/forwarding.rs) | 请求规划、候选循环、retry/fallback 和响应返回如何连接？ |
 | 请求事实提取 | [`pipeline::analyze_request`](../src/pipeline/mod.rs) | 从 JSON 中提取了哪些 capability、limit、reasoning 和 state-affinity 事实？ |
 | 路由规划 | `pipeline::plan_request` | 一条 candidate 为什么必须独立满足完整请求？ |
-| 运行事实查询 | [`RuntimeRegistry`](../src/registry/mod.rs) | Public Model 如何落到 Route、Target 与 Upstream API？ |
-| Provider 改写 | [`ProviderAdapter::prepare_request`](../src/provider/mod.rs) | 上游相对 path、真实 model、普通 header 与认证 header 在哪里产生？ |
+| 运行事实查询 | [`RuntimeRegistry`](../src/registry/runtime.rs) | Public Model 如何落到 Route、Target 与 Upstream API？ |
+| Provider 改写 | [`ProviderAdapter::prepare_request`](../src/provider/adapter.rs) | 上游相对 path、真实 model、普通 header 与认证 header 在哪里产生？ |
 | HTTP 发送 | [`UpstreamClient::send`](../src/transport/upstream.rs) | endpoint base、相对 URI、timeout、redirect 和连接复用如何受控？ |
 | 响应处理 | `ingress::upstream_response` | status、safe response headers、JSON/SSE body 如何返回下游？ |
 | 错误归一 | `route_error`、`upstream_error` | 哪些错误在本地生成，哪些来自上游，哪些信息不得泄露？ |
@@ -115,7 +115,7 @@ HTTP request
 | 问题 | 先读文档 | 再读源码 |
 |---|---|---|
 | 模型事实放在哪里 | [当前代码架构第 3 节](implementation-status/current-architecture.md#3-注册表层) | [`src/models/`](../src/models)、`ModelConfig`、`ModelInfo` |
-| Provider 能力上界是谁定义 | [网关 API 与兼容](functional-requirements/gateway-api-compatibility.md) | [`src/provider/mod.rs`](../src/provider/mod.rs)、[`src/providers/`](../src/providers) |
+| Provider 能力上界是谁定义 | [网关 API 与兼容](functional-requirements/gateway-api-compatibility.md) | [`src/provider/kind.rs`](../src/provider/kind.rs)、[`src/providers/`](../src/providers) |
 | target 与 upstream API 为什么分开 | [当前代码架构](implementation-status/current-architecture.md) | `UpstreamTargetConfig`、`UpstreamApiConfig` |
 | Public Model 如何选择候选 | [路由与 Provider 韧性](functional-requirements/provider-resilience.md) | `PublicModelConfig`、`RouteConfig`、`plan_request` |
 | capability 为什么只能收窄 | [配置与凭证边界](functional-requirements/configuration-and-credentials.md) | [`src/core/capability.rs`](../src/core/capability.rs)、`build_registry` |
@@ -140,7 +140,7 @@ public model name
 1. 读[网关 API 与兼容需求第 4、6 节](functional-requirements/gateway-api-compatibility.md)。
 2. 读[路由与 Provider 韧性](functional-requirements/provider-resilience.md)。
 3. 读 [`src/transport/sse.rs`](../src/transport/sse.rs)：SSE framing、UTF-8、event 大小和 terminal 观察。
-4. 读 `ingress::forward_native`、`validate_sse_body`、`observe_sse_events`：首输出 commit point、EOF、取消与
+4. 读 [`ingress/forwarding.rs`](../src/ingress/forwarding.rs) 与 [`ingress/streaming.rs`](../src/ingress/streaming.rs)：首输出 commit point、EOF、取消与
    retry/fallback 边界。
 5. 读 [`src/provider/contracts.rs`](../src/provider/contracts.rs)：safe/sensitive headers、status 分类与 retry hint。
 6. 用 [`tests/sse_contract.rs`](../tests/sse_contract.rs)、`forwarding_contract.rs` 中的 streaming cases 逐条反证。
@@ -156,7 +156,7 @@ public model name
 
 添加或审计 Provider 时，按以下顺序阅读：
 
-1. [`src/provider/mod.rs`](../src/provider/mod.rs)：闭合 `ProviderKind`、`ProviderContract` 与 `ProviderAdapter`。
+1. [`src/provider/kind.rs`](../src/provider/kind.rs) 与 [`src/provider/adapter.rs`](../src/provider/adapter.rs)：闭合 `ProviderKind`、`ProviderContract` 与 `ProviderAdapter`。
 2. [`src/providers/openai.rs`](../src/providers/openai.rs)：OpenAI adapter 与两个原生 Upstream API 的样例。
 3. [`src/providers/longcat.rs`](../src/providers/longcat.rs)：OpenAI-compatible Provider 如何收窄能力与 endpoint profile。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与

@@ -89,7 +89,9 @@ Provider、模型、target、upstream API、route、endpoint 和 credential loca
 
 ## 3. 注册表层
 
-实现位置：`src/registry/mod.rs`、`src/models/*`、`src/providers/*`。
+实现位置：`src/registry/definition.rs`、`src/registry/runtime.rs`、`src/registry/compiler.rs`、
+`src/registry/validation.rs`、`src/models/*`、`src/providers/*`；`src/registry/mod.rs`
+只保留包入口与公共重导出。
 
 ```text
 RegistryConfig
@@ -136,7 +138,9 @@ RuntimeRegistry
 
 ## 4. HTTP 接入层
 
-实现位置：`src/ingress/*`。
+实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 endpoint，
+`forwarding.rs` 负责 candidate/retry/fallback，`streaming.rs` 负责 SSE 生命周期，
+`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和请求终态观测。
 
 | Endpoint | 当前处理 |
 |---|---|
@@ -176,7 +180,8 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 
 ## 6. Provider 适配层
 
-实现位置：`src/provider/*`、`src/providers/openai.rs`、`src/providers/longcat.rs`。
+实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
+`src/providers/openai.rs`、`src/providers/longcat.rs`；`src/provider/mod.rs` 只保留包入口与公共重导出。
 
 `ProviderKind` 是闭合集合。具体 adapter 从 selected Upstream API 读取 upstream model，负责相对 path、模型
 字段改写、受信 request-header hook、认证 header、响应/SSE terminal 和错误分类。当前 OpenAI 与 LongCat
@@ -191,7 +196,7 @@ wire 确定性验证，但尚未调用真实异构协议 Provider。
 
 ## 7. Transport、SSE、attempt 与 health
 
-实现位置：`src/transport/*` 与 `ingress::forward_request`。
+实现位置：`src/transport/*` 与 `src/ingress/forwarding.rs`。
 
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
 timeout。Native streaming response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged
