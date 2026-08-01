@@ -19,7 +19,7 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
-    ingress::{DownstreamCredential, GatewayState, build_router},
+    ingress::{GatewayState, build_router},
     provider::{CredentialSource, PreparedUpstreamRequest},
     registry::{RegistryConfig, UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -300,7 +300,7 @@ fn app_with_transport_and_definition(
     let state = GatewayState::new(
         Arc::new(registry),
         transport,
-        DownstreamCredential::new(SecretString::from("downstream-token".to_owned())),
+        support::users("downstream-token-0000000000000000"),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-token".to_owned()),
@@ -333,8 +333,8 @@ async fn business_endpoints_require_json_content_type_before_upstream() {
     let app = app_with_transport(transport.clone());
 
     for content_type in [None, Some("text/plain")] {
-        let mut request =
-            Request::post("/v1/chat/completions").header(AUTHORIZATION, "Bearer downstream-token");
+        let mut request = Request::post("/v1/chat/completions")
+            .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000");
         if let Some(content_type) = content_type {
             request = request.header(CONTENT_TYPE, content_type);
         }
@@ -357,7 +357,7 @@ async fn business_endpoints_require_json_content_type_before_upstream() {
 async fn models_lists_only_public_models_after_authentication() {
     let app = app_with_transport(Arc::new(RecordingTransport::default()));
     let request = Request::get("/v1/models")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::empty())
         .unwrap();
 
@@ -381,6 +381,7 @@ async fn streaming_requests_fail_over_to_the_next_compatible_target_before_outpu
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
+    fallback.credential.id = "openai-fallback-credential".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -397,7 +398,7 @@ async fn streaming_requests_fail_over_to_the_next_compatible_target_before_outpu
     let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -425,6 +426,7 @@ async fn provider_bound_streams_do_not_fall_back_to_another_target() {
     }
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
+    fallback.credential.id = "openai-fallback-credential".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -441,7 +443,7 @@ async fn provider_bound_streams_do_not_fall_back_to_another_target() {
     let app = app_with_transport_and_definition(transport.clone(), definition);
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true,"previous_response_id":"resp_123"}"#,
         ))
@@ -464,7 +466,7 @@ async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
     }));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -482,7 +484,7 @@ async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
     let app = app_with_transport(Arc::new(EofWithoutTerminalTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -514,7 +516,7 @@ async fn partial_upstream_stream_failures_close_without_a_retry() {
     let app = app_with_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -532,7 +534,7 @@ async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
     let app = app_with_transport(Arc::new(InvalidSseTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -549,7 +551,7 @@ async fn streaming_requests_preserve_non_sse_error_bodies() {
     let app = app_with_transport(Arc::new(NonSseErrorTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -571,7 +573,7 @@ async fn streaming_rate_limits_retry_before_output_and_preserve_retry_headers() 
     let app = app_with_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
             r#"{"model":"public-model","input":"hello","stream":true}"#,
         ))
@@ -595,7 +597,7 @@ async fn upstream_timeouts_return_a_safe_gateway_timeout() {
     let app = app_with_transport(Arc::new(TimeoutTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
         .unwrap();
 
@@ -630,7 +632,7 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
     for (path, request_body, expected_content_type, expected_body) in cases {
         let request = Request::post(path)
             .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, "Bearer downstream-token")
+            .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
             .body(Body::from(request_body))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();

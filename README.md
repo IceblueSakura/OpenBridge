@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或用户自有云环境中，通过显式 Rust 代码注册表管理上游 Provider、模型与路由，通过受限 secret source 获取凭证，并向本地正在使用的 Codex、Hermes Agent 等客户端提供稳定的 OpenAI-compatible 接口。它不提供 GUI、Web 控制台或客户端管理功能。
+OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或所有者控制的环境中，通过显式 Rust 代码注册表管理上游 Provider、模型与路由，通过启动时加载的私有用户表认证下游 API Key，并向本地 Agent 或 SDK 提供稳定的 OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理功能。
 
 当前处于**设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
 
@@ -33,12 +33,14 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 ```bash
 cp .env.example .env
-# 编辑 .env，至少设置 OPENBRIDGE_DOWNSTREAM_TOKEN，并填写实际使用 Provider 的 API key。
+cp config/users.example.toml config/users.toml
+# 编辑 users.toml 中的下游用户/API Key，并在 .env 中填写实际使用 Provider 的 API key。
 cargo run --bin openbridge --locked
 ```
 
 服务与 `openbridge-probe` 会可选加载当前目录或父目录中的 `.env`；已有进程环境变量优先。
-`.env` 已被 Git 忽略，仓库只提交不含真实凭证的 [`.env.example`](.env.example)。
+`.env` 与 `config/users.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。用户、API Key、
+Provider、Model 和 Route 均只在启动时加载，变更需要重启进程。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -57,7 +59,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 当前由 Provider adapter 写入实际上游 `model`；其余 JSON 与上游 JSON/SSE body 原生转发，不做 Chat ↔ Responses 转换。客户端不能通过业务请求指定上游 URL、credential 或任意出站 header。
 
-当前凭证基线使用环境变量：代码注册表只保存环境变量名称，不保存 secret。以后可增加 keyring 或受限私有 secret 文件，但不会恢复运行时 Provider DSL 或 route 热重载。调用量、Provider usage、TTFT/TTFB 和终态错误率属于后续 headless 统计能力，当前尚未实现。
+下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。认证成功后请求日志记录 request id、user id、协议、Public Model、HTTP status 和 response-start latency，不记录 API Key 或业务正文。调用量和 Provider usage/token 聚合尚未实现。
 
 ## 验证基线
 
@@ -88,7 +90,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [实施现状](docs/implementation-status/README.md) | 当前代码已证明行为、能力探测与验证记录 | 实施现状 |
 | [实施计划](docs/implementation-plans/README.md) | 唯一的短周期当前开发焦点 | 实施计划 |
 | [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
-| [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
+| [产品范围](docs/functional-requirements/product-scope.md) | 单配置所有者部署、下游用户、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
 | [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |

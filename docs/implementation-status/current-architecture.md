@@ -5,7 +5,8 @@
 **已实现事实。** 当前生产注册表使用
 `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。
-最近一次记录只包含格式化与编译检查，没有运行测试，因此这里不把既有行为描述为已测试验收。
+最近一次记录已完成格式化、全量 Rust 测试与 Clippy；需要下载外部 SDK 的兼容性测试仍保持 ignored，
+真实 Provider、负载和长期运行验证未执行。
 
 当前只有 Native Path。Protocol Bridge、统一 `AttemptManager`、跨请求 cooldown 和模型信息扩展
 接口尚未实现。
@@ -17,7 +18,7 @@ bootstrap / process environment
           ↓
 composition root
           ↓
-immutable RuntimeRegistry
+immutable RuntimeRegistry + UserRegistry
           ↓
 HTTP ingress
           ↓
@@ -38,6 +39,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 层 | 核心类型 | 简单定义 |
 |---|---|---|
 | 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、请求限制和 HTTP client 参数 |
+| 下游身份 | `UserConfigPath`、`UserRegistry`、`User` | 启动时读取用户文件、按 API Key 匹配并提供稳定用户身份 |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities` | 下游协议、原始请求和协议能力 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
@@ -60,6 +62,7 @@ HTTP 发送与可控 transport；Provider 的请求、认证、SSE 和错误处�
 ```text
 load_optional_dotenv
 → BootstrapConfigPath::load
+→ UserConfigPath::load
 → providers::build_compiled_registry
 → UpstreamClient::new
 → GatewayState::with_environment_credentials
@@ -67,8 +70,8 @@ load_optional_dotenv
 → axum::serve
 ```
 
-`bootstrap.toml` 只拥有 loopback listener、请求/SSE 大小和 HTTP client 资源策略。Provider、模型、
-target、upstream API、route、endpoint 和 credential locator 均由 Rust 代码显式注册；没有 route TOML、
+`bootstrap.toml` 拥有 loopback listener、私有用户文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
+Provider、模型、target、upstream API、route、endpoint 和 credential locator 都只在启动阶段加载；没有 route TOML、
 动态 Provider DSL 或热重载。
 
 ## 3. 注册表层
@@ -170,8 +173,9 @@ terminal。下游丢弃 body 时，上游 stream 随之取消。
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用
 target endpoint、credential、adapter 与 transport，不接受 URL/model/header 覆盖，不修改 `RuntimeRegistry`。
 
-测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。最近一次只确认所有 target
-能够编译，没有执行测试用例、Clippy、真实 Provider 或 SDK 验证。
+测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。最近一次执行
+`cargo test --locked`，54 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo clippy --locked --all-targets -- -D warnings` 通过。未执行真实 Provider、负载或长期运行验证。
 
 ## 9. 尚未实现
 

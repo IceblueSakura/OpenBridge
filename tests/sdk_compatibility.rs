@@ -12,7 +12,7 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
-    ingress::{DownstreamCredential, GatewayState, build_router},
+    ingress::{GatewayState, build_router},
     provider::{CredentialSource, PreparedUpstreamRequest},
     registry::UpstreamTarget,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -92,7 +92,7 @@ fn app() -> axum::Router {
     build_router(GatewayState::new(
         Arc::new(registry),
         Arc::new(SdkFixtureTransport),
-        DownstreamCredential::new(SecretString::from("downstream-token".to_owned())),
+        support::users("downstream-token-0000000000000000"),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-token".to_owned()),

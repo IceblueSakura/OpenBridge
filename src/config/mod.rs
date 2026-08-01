@@ -3,7 +3,11 @@
 //! Provider、Model、Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential binding 均由代码注册表
 //! 定义；bootstrap 只承载监听、资源限制和共享 HTTP client 策略。
 
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use thiserror::Error;
 
@@ -33,6 +37,7 @@ pub enum BootstrapConfigError {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BootstrapConfig {
     listen: SocketAddr,
+    users_file: PathBuf,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
 }
@@ -41,6 +46,11 @@ impl BootstrapConfig {
     /// 返回 loopback 监听地址。
     pub fn listen(&self) -> SocketAddr {
         self.listen
+    }
+
+    /// 返回启动时读取的私有下游用户文件。
+    pub fn users_file(&self) -> &Path {
+        &self.users_file
     }
 
     /// 返回请求体与 SSE event 的运行时限制。
@@ -133,6 +143,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
 
     Ok(BootstrapConfig {
         listen,
+        users_file: raw.users_file,
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
             max_sse_event_bytes: raw.max_sse_event_bytes,

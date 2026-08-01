@@ -1,6 +1,7 @@
 use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,
+    identity::UserConfigPath,
     models::longcat,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
@@ -18,6 +19,10 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
 
     assert_eq!(registry.version().as_str(), "dev-1");
     assert!(registry.listen().ip().is_loopback());
+    let users = UserConfigPath::new("config/users.example.toml")
+        .load()
+        .expect("checked-in user example must remain valid");
+    assert_eq!(users.users().next().unwrap().id(), "local-user");
     assert_eq!(
         registry
             .public_model("code-primary")

@@ -3,16 +3,16 @@
 //! 启动阶段一次性加载 bootstrap、构建代码注册表、HTTP router 和共享 upstream client；
 //! credential 只保留环境变量名称，实际 API key 在每个业务请求发送前才解析。
 
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use openbridge::{
     config::{BootstrapConfigPath, load_optional_dotenv},
-    ingress::{DownstreamCredential, GatewayState, build_router},
+    identity::UserConfigPath,
+    ingress::{GatewayState, build_router},
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
 };
-use secrecy::SecretString;
 use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -25,6 +25,9 @@ async fn main() -> Result<()> {
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
+    let users = UserConfigPath::new(bootstrap.users_file())
+        .load()
+        .context("failed to load downstream users")?;
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let listen = registry.listen();
@@ -35,16 +38,8 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    let downstream_token = env::var("OPENBRIDGE_DOWNSTREAM_TOKEN")
-        .context("OPENBRIDGE_DOWNSTREAM_TOKEN must be configured")?;
-    if downstream_token.is_empty() {
-        anyhow::bail!("OPENBRIDGE_DOWNSTREAM_TOKEN must not be empty");
-    }
-    let app_state = GatewayState::with_environment_credentials(
-        Arc::new(registry),
-        upstream,
-        DownstreamCredential::new(SecretString::from(downstream_token)),
-    );
+    let app_state =
+        GatewayState::with_environment_credentials(Arc::new(registry), upstream, Arc::new(users));
     let listener = TcpListener::bind(listen)
         .await
         .with_context(|| format!("failed to bind OpenBridge to {listen}"))?;

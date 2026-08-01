@@ -172,7 +172,7 @@ pub fn analyze_request(
     body: &Bytes,
 ) -> Result<RequestRequirements, RequestPlanningError> {
     let document: Value =
-        serde_json::from_slice(&body).map_err(|_| RequestPlanningError::InvalidJson)?;
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
     let object = document
         .as_object()
         .ok_or(RequestPlanningError::InvalidJson)?;
@@ -234,14 +234,15 @@ pub fn plan_request(
         .public_model(profile.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?
         .routes();
-    let mut first_error = None;
+    let mut protocol_mismatch_seen = false;
+    let mut first_candidate_error = None;
     let mut prepared_candidates = Vec::new();
     for route_id in routes {
         let route = registry
             .route(route_id)
             .ok_or(RequestPlanningError::NoRoute)?;
         if route.downstream_protocol() != profile.protocol() || route.mode() != RouteMode::Native {
-            first_error.get_or_insert(RequestPlanningError::UnsupportedProtocol);
+            protocol_mismatch_seen = true;
             continue;
         }
         let target = registry
@@ -262,7 +263,7 @@ pub fn plan_request(
             upstream_api.model().reasoning_levels(),
             profile.requested_output_tokens,
         ) {
-            first_error.get_or_insert(error);
+            first_candidate_error.get_or_insert(error);
             continue;
         }
         prepared_candidates.push(RouteCandidate {
@@ -273,7 +274,11 @@ pub fn plan_request(
         });
     }
     if prepared_candidates.is_empty() {
-        return Err(first_error.unwrap_or(RequestPlanningError::NoRoute));
+        return Err(first_candidate_error.unwrap_or(if protocol_mismatch_seen {
+            RequestPlanningError::UnsupportedProtocol
+        } else {
+            RequestPlanningError::NoRoute
+        }));
     }
 
     Ok(RoutePlan {

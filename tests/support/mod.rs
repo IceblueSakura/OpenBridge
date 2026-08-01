@@ -5,6 +5,7 @@ use std::time::Duration;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    identity::UserRegistry,
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
@@ -15,9 +16,12 @@ use openbridge::{
     },
 };
 
+use std::sync::Arc;
+
 pub const BOOTSTRAP: &str = r#"
 schema_version = 1
 listen = "127.0.0.1:8080"
+users_file = "config/users.toml"
 max_request_body_bytes = 1048576
 max_sse_event_bytes = 262144
 upstream_connect_timeout_ms = 5000
@@ -27,6 +31,23 @@ upstream_pool_max_idle_per_host = 16
 
 pub fn bootstrap(document: &str) -> BootstrapConfig {
     parse_bootstrap_config(document).expect("test bootstrap must be valid")
+}
+
+pub fn users(api_key: &str) -> Arc<UserRegistry> {
+    Arc::new(
+        UserRegistry::from_toml(&format!(
+            r#"
+schema_version = 1
+
+[[users]]
+id = "test-user"
+name = "Test User"
+api_key = "{api_key}"
+enabled = true
+"#
+        ))
+        .expect("test user registry must be valid"),
+    )
 }
 
 pub fn capabilities() -> ApiCapabilities {

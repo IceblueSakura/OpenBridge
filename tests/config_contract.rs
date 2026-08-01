@@ -28,6 +28,10 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
 
     assert_eq!(registry.version().as_str(), "test-1");
     assert_eq!(registry.listen().to_string(), "127.0.0.1:8080");
+    assert_eq!(
+        bootstrap(BOOTSTRAP).users_file(),
+        std::path::Path::new("config/users.toml")
+    );
     assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
     assert_eq!(
         registry.http_client().connect_timeout(),
@@ -49,12 +53,13 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
 }
 
 #[test]
-fn bootstrap_path_only_loads_process_policy() {
+fn bootstrap_path_loads_process_policy_and_user_file_location() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let path = BootstrapConfigPath::new(root.join("config/bootstrap.toml"));
     let policy = path.load().unwrap();
 
     assert!(policy.listen().ip().is_loopback());
+    assert_eq!(policy.users_file(), PathBuf::from("config/users.toml"));
     assert!(path.path().ends_with("config/bootstrap.toml"));
 
     let missing = BootstrapConfigPath::new(root.join("config/missing-bootstrap.toml"));

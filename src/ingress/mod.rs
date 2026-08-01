@@ -7,9 +7,7 @@
 
 mod auth;
 
-pub use auth::DownstreamCredential;
-
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Instant};
 
 use axum::{
     Json, Router,
@@ -35,6 +33,7 @@ use tower_http::{
 
 use crate::{
     core::ApiProtocol,
+    identity::UserRegistry,
     pipeline::{RequestPlanningError, analyze_request, plan_request},
     provider::{CredentialSource, ProviderAdapter, StreamEventStatus},
     registry::RuntimeRegistry,
@@ -52,7 +51,7 @@ use crate::{
 pub struct GatewayState {
     registry: Arc<RuntimeRegistry>,
     upstream: Arc<dyn UpstreamTransport>,
-    downstream_credential: Arc<DownstreamCredential>,
+    users: Arc<UserRegistry>,
     upstream_credentials: Arc<CredentialSource>,
 }
 
@@ -61,13 +60,13 @@ impl GatewayState {
     pub fn new(
         registry: Arc<RuntimeRegistry>,
         upstream: Arc<dyn UpstreamTransport>,
-        downstream_credential: DownstreamCredential,
+        users: Arc<UserRegistry>,
         upstream_credentials: CredentialSource,
     ) -> Self {
         Self {
             registry,
             upstream,
-            downstream_credential: Arc::new(downstream_credential),
+            users,
             upstream_credentials: Arc::new(upstream_credentials),
         }
     }
@@ -76,12 +75,12 @@ impl GatewayState {
     pub fn with_environment_credentials(
         registry: Arc<RuntimeRegistry>,
         upstream: UpstreamClient,
-        downstream_credential: DownstreamCredential,
+        users: Arc<UserRegistry>,
     ) -> Self {
         Self::new(
             registry,
             Arc::new(upstream),
-            downstream_credential,
+            users,
             CredentialSource::environment(),
         )
     }
@@ -108,8 +107,8 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/responses", post(responses))
         .route("/v1/models", get(models))
         .route_layer(middleware::from_fn_with_state(
-            state.downstream_credential.clone(),
-            require_downstream_credential,
+            state.users.clone(),
+            require_user,
         ));
 
     Router::new()
@@ -119,14 +118,22 @@ pub fn build_router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
-async fn require_downstream_credential(
-    State(credential): State<Arc<DownstreamCredential>>,
-    request: Request,
+async fn require_user(
+    State(users): State<Arc<UserRegistry>>,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    if credential.authenticate(request.headers()) {
-        next.run(request).await
-    } else {
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("unknown")
+        .to_owned();
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let user = auth::bearer_token(request.headers()).and_then(|token| users.authenticate(token));
+    let Some(user) = user else {
+        tracing::warn!(%request_id, %method, %path, status = 401, "downstream authentication failed");
         let mut response = api_error(
             StatusCode::UNAUTHORIZED,
             "invalid_api_key",
@@ -135,8 +142,29 @@ async fn require_downstream_credential(
         response
             .headers_mut()
             .insert(WWW_AUTHENTICATE, http::HeaderValue::from_static("Bearer"));
-        response
-    }
+        return response;
+    };
+
+    let span = tracing::info_span!(
+        "downstream_request",
+        %request_id,
+        user_id = %user.id(),
+        %method,
+        %path,
+        protocol = tracing::field::Empty,
+        public_model = tracing::field::Empty,
+    );
+    request.extensions_mut().insert(user);
+    let started = Instant::now();
+    let response = tracing::Instrument::instrument(next.run(request), span.clone()).await;
+    span.in_scope(|| {
+        tracing::info!(
+            status = response.status().as_u16(),
+            response_started_ms = started.elapsed().as_millis() as u64,
+            "downstream response started"
+        );
+    });
+    response
 }
 
 async fn models(State(state): State<GatewayState>) -> Json<ModelListResponse> {
@@ -224,6 +252,8 @@ async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes)
         Ok(profile) => profile,
         Err(error) => return route_error(error),
     };
+    tracing::Span::current().record("protocol", tracing::field::debug(protocol));
+    tracing::Span::current().record("public_model", profile.public_model());
     let plan = match plan_request(&registry, &profile, body) {
         Ok(plan) => plan,
         Err(error) => return route_error(error),

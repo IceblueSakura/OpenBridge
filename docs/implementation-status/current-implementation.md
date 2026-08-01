@@ -3,8 +3,8 @@
 ## 状态与范围
 
 本文只记录当前可运行入口、外部行为、Provider 注册和验证状态。模块分层、类型职责与内部数据流统一见
-[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录没有运行测试，因此当前
-行为尚未重新验收。
+[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录已通过全量 Rust 测试与
+Clippy，但不代表真实 Provider、外部 SDK、负载或长期运行验收。
 
 ## 当前运行入口
 
@@ -12,11 +12,12 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填写下游 token 以及实际使用 Provider 的 API key。
+cp config/users.example.toml config/users.toml
+# 编辑 users.toml 中的用户/API Key，并在 .env 中填写实际使用 Provider 的 API key。
 cargo run --bin openbridge --locked
 ```
 
-`bootstrap.toml` 只包含 loopback listener、request/SSE 上限和共享 HTTP client 参数。Provider、Model、
+`bootstrap.toml` 包含 loopback listener、私有用户文件位置、request/SSE 上限和共享 HTTP client 参数。Provider、Model、
 Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential binding 均由 Rust 代码注册；
 修改后需要重新编译或重启。
 
@@ -27,8 +28,8 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | `POST /v1/chat/completions` | OpenAI-compatible Chat Native JSON/SSE | 静态 Bearer |
 | `POST /v1/responses` | OpenAI-compatible Responses Native JSON/SSE | 静态 Bearer |
 
-下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`，OpenAI API key 来自 `OPENAI_API_KEY`，LongCat API key
-来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；注册表只保存环境变量名称。
+下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。OpenAI API key 来自 `OPENAI_API_KEY`，
+LongCat API key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；上游注册表只保存环境变量名称。
 
 ## Provider 与请求行为
 
@@ -46,6 +47,7 @@ OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint
 - 保持流式原始 bytes，同时检查 UTF-8、SSE framing、event size 与 terminal；
 - 仅在流式请求首个业务输出前执行有限 retry/fallback；输出后不拼接其他响应；
 - 在下游丢弃 body 时取消相应上游 stream。
+- 认证后将稳定用户身份写入请求上下文，并记录不含 API Key/正文的结构化 response-start 日志。
 
 ## 显式 probe
 
@@ -59,14 +61,16 @@ credential 覆盖，不修改注册表，也不自动改变 capability。
 capability routing、`/v1/models`、首输出前 fallback、retry header、SSE terminal、partial failure、取消和 probe。
 `tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。
 
-最近一次只执行：
+最近一次执行：
 
 ```text
 cargo fmt --all
-cargo check --locked --all-targets
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-没有运行 `cargo test`、Clippy、SDK、真实 Provider、负载或长期验证。
+结果为 54 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警。
+没有运行外部 SDK、真实 Provider、负载或长期验证。
 
 ## 当前未实现
 

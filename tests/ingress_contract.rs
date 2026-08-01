@@ -7,7 +7,7 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use openbridge::{
-    ingress::{DownstreamCredential, GatewayState, build_router},
+    ingress::{GatewayState, build_router},
     provider::CredentialSource,
     registry::{RuntimeRegistry, build_registry},
     transport::upstream::UpstreamClient,
@@ -25,7 +25,7 @@ fn test_app(registry: RuntimeRegistry) -> axum::Router {
     build_router(GatewayState::new(
         Arc::new(registry),
         Arc::new(upstream),
-        DownstreamCredential::new(SecretString::from("downstream-test-token".to_owned())),
+        support::users("downstream-test-token-00000000000"),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-test-token".to_owned()),

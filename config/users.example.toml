@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[users]]
+id = "local-user"
+name = "Local User"
+api_key = "replace-with-at-least-32-random-bytes"
+enabled = true

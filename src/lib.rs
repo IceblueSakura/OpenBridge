@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod core;
+pub mod identity;
 pub mod ingress;
 pub mod models;
 pub mod pipeline;

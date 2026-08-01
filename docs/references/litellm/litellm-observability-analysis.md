@@ -17,7 +17,7 @@
 
 `PrometheusLogger` 在初始化时分别创建 proxy 请求/失败 counter、总请求延迟 histogram、LLM API 延迟 histogram、流式 TTFT histogram 和 token/spend 指标（`integrations/prometheus.py:130-197`）。这说明“请求是否完成”“网关总时延”“上游 API 时延”“首输出时间”“usage”不是同一个指标，也不应依赖单一 duration 推导。
 
-OpenBridge 可采用这种分层思想，但指标名、标签和导出端点不与 LiteLLM 绑定。尤其是 OpenBridge 是单用户 headless 网关，不需要 LiteLLM 的 user/team/key/organization/spend 维度。
+OpenBridge 可采用这种分层思想，但指标名、标签和导出端点不与 LiteLLM 绑定。OpenBridge 只需要稳定的本地 user id，不需要 LiteLLM 的 team/key/organization/spend 管理维度。
 
 ## 2. TTFT 的具体口径
 
@@ -40,7 +40,7 @@ OpenBridge 可借鉴的只是安全性质：
 - 无界 request id、原始错误文本、客户端身份、完整模型 URL 或 prompt 不进入 label；
 - 若任何可选维度会增大 series，先设上限并单独记录 dropped/overflow。
 
-OpenBridge 不采用 LiteLLM 的 user/team/API-key、budget、spend 或 end-user 标签，即使它们已经过 series 限制；这些字段超出单用户网关范围且会把调用统计误扩展为客户端管理。
+OpenBridge 不采用 LiteLLM 的 team/API-key、budget、spend 或任意 end-user 标签，即使它们已经过 series 限制；未来统计只能使用用户表中的稳定 user id，不能把调用统计扩展为在线客户端管理。
 
 ## 4. 失败计数不等于终态错误率
 

@@ -6,7 +6,7 @@
 
 ## 1. 用户结果
 
-单个受信用户应能把本地 Agent 或 OpenAI-compatible SDK 指向一个稳定的 OpenAI-compatible base URL，仅使用 Public Model 与可选的单一静态 Bearer token 调用服务。主要调用路径不得要求客户端知道上游 Provider、真实模型、URL、凭证、候选切换、原生协议或已配置的协议转换细节。
+受信用户应能把本地 Agent 或 OpenAI-compatible SDK 指向一个稳定的 OpenAI-compatible base URL，使用私有用户表中分配的 Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客户端知道上游 Provider、真实模型、URL、凭证或候选切换细节。
 
 初期的兼容目标按优先级为：
 
@@ -25,7 +25,7 @@
 | `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE 请求。 | 对全部 Chat 扩展或 hosted tool 的默认兼容承诺。 |
 | `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求，作为 Codex HTTP/SSE profile 的首要入口。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 
-业务 endpoint 必须使用静态 Bearer token 或明确配置的等价单用户认证方式。服务不建立用户、client registration、key issuance、scope、撤销列表、配额或 billing identity。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
+业务 endpoint 必须使用用户表分配的静态 Bearer API Key。用户表只在启动时读取，不提供在线 key issuance、scope、即时撤销、配额或 billing identity；变更需要重启。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
 
 ## 3. 请求、Public Model 与安全边界
 

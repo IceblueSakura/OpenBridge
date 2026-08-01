@@ -2,7 +2,7 @@
 
 ## 状态
 
-**当前约束。** OpenBridge 是个人使用的 headless 网关。Provider contract、Model、
+**当前约束。** OpenBridge 是单配置所有者管理的 headless 网关。Provider contract、Model、
 Upstream Target、Upstream API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显式注册；运行时配置不提供 Provider DSL，也不支持
 route 热重载。
 
@@ -10,13 +10,14 @@ route 热重载。
 
 | 来源 | 内容 | 能否包含 secret |
 |---|---|---|
-| `config/bootstrap.toml` | loopback listener、body/SSE 上限、共享 HTTP client 连接与超时策略 | 否 |
+| `config/bootstrap.toml` | loopback listener、私有用户文件位置、body/SSE 上限、共享 HTTP client 参数 | 否 |
+| 被忽略的 `config/users.toml` | 下游用户、API Key 与启停状态 | 是 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
 | `src/providers/*` | Provider 行为、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
-| 进程环境变量或被忽略的 `.env` | 下游 Bearer token、上游 API key | 是 |
+| 进程环境变量或被忽略的 `.env` | 上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
-当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置。不存在
+当前只允许 `OPENBRIDGE_BOOTSTRAP_CONFIG` 改变 bootstrap 文件位置；用户文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
 
 ## 2. 代码注册表要求
@@ -36,12 +37,14 @@ route 热重载。
 
 ## 3. 凭证
 
+- 下游用户表只在启动时读取；用户增删、启停和 API Key 轮换都需要重启；
+- 用户 ID 和 API Key 必须唯一，至少有一个启用用户，API Key 不得少于 32 bytes；
+- 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
 - 代码只保存非敏感 binding id、credential kind 和环境变量名称；
 - 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
 - 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
 - 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
-- 下游静态 token 从 `OPENBRIDGE_DOWNSTREAM_TOKEN` 获取；
-- `RuntimeRegistry`、Debug、日志、错误响应和 probe report 不得包含 secret；
+- `RuntimeRegistry`、`UserRegistry` 的 Debug、日志、错误响应和 probe report 不得包含 secret；
 - secret 只在准备上游请求时解析为短时 `CredentialValue`；
 - 缺失、空值或 binding 不匹配时 fail closed；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential。
@@ -65,15 +68,17 @@ redirect。业务请求、adapter 和 credential 均不能替换 endpoint origin
 optionally load .env
 → read bootstrap.toml
 → validate BootstrapConfig
+→ read users.toml
+→ validate and build UserRegistry
 → compiled_config()
 → validate and build RuntimeRegistry
 → create shared HTTP client
-→ Arc<RuntimeRegistry>
+→ Arc<RuntimeRegistry> + Arc<UserRegistry>
 → start listener
 ```
 
-注册表启动后不可变。服务没有文件监听、route reload、`ArcSwap` 或部分更新语义。运行中的请求和
-后续请求都读取同一个 `RuntimeRegistry`；改变代码注册表或 `BootstrapConfig` 必须重启。
+注册表启动后不可变。服务没有文件监听、user/route reload、`ArcSwap` 或部分更新语义。运行中的请求和
+后续请求都读取同一组 `RuntimeRegistry` 与 `UserRegistry`；改变任一启动输入都必须重启。
 
 ## 6. 验收要求
 
@@ -86,6 +91,7 @@ optionally load .env
 | CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。 |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。 |
 | CFG-07 | 非 loopback listener 在当前实现中拒绝启动。 |
+| CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。 |
 
 ## 关联文档
 

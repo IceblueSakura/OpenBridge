@@ -7,13 +7,14 @@
 
 ## 产品目标
 
-OpenBridge 是由单个用户管理、以单个进程部署的 headless Provider 网关。它让本地 Agent 或
+OpenBridge 是由单个配置所有者管理、以单个进程部署的 headless Provider 网关。它让登记在私有用户表中的本地 Agent 或
 OpenAI-compatible SDK 通过一个稳定的 loopback HTTP 地址调用代码注册的上游服务，同时隐藏上游
 credential、endpoint 和内部 Route。
 
 当前核心结果：
 
 - 下游通过 Public Model 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`；
+- 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
 - 上游 API key 和下游静态 Bearer token 来自受限环境变量或被忽略的 `.env`；
@@ -23,12 +24,12 @@ credential、endpoint 和内部 Route。
 
 ## 部署与信任边界
 
-- 默认模型是单用户、单配置所有者、单进程；
+- 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
 - 当前 listener 只允许 loopback；
 - 业务请求不能覆盖上游 URL、真实模型、credential、认证 header 或 Route；
-- 代码注册表与 `RuntimeRegistry` 不保存 secret；
+- `RuntimeRegistry` 不保存 secret；`UserRegistry` 只在内存中保存认证所需 Key，Debug 和日志始终隐藏它；
 - 日志、错误、probe report 和测试证据不得暴露 credential 或完整私人请求正文；
-- 修改 Provider、Model、Route 或 bootstrap 参数需要重新编译或重启，不支持热重载。
+- 修改用户、API Key、Provider、Model、Route 或 bootstrap 参数需要重启，不支持热重载。
 
 ## 当前接口
 
