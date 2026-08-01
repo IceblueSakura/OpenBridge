@@ -1,6 +1,6 @@
 //! 进程级 bootstrap 配置。
 //!
-//! Provider、Real Model、Upstream Target、Native Offering、Serving Route、Public Model、endpoint 和 credential binding 均由代码注册表
+//! Provider、Model、Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential binding 均由代码注册表
 //! 定义；bootstrap 只承载监听、资源限制和共享 HTTP client 策略。
 
 use std::{net::SocketAddr, time::Duration};
@@ -12,13 +12,13 @@ mod source;
 
 use document::RawBootstrap;
 
-pub use source::{BootstrapFileError, BootstrapPath, load_optional_dotenv};
+pub use source::{BootstrapConfigFileError, BootstrapConfigPath, load_optional_dotenv};
 
 const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
 
 /// bootstrap 配置解析、版本或安全边界校验失败。
 #[derive(Debug, Error)]
-pub enum BootstrapError {
+pub enum BootstrapConfigError {
     #[error("invalid bootstrap configuration")]
     Parse,
     #[error("unsupported bootstrap schema version {actual}")]
@@ -31,13 +31,13 @@ pub enum BootstrapError {
 
 /// 启动阶段解析出的不可变进程配置。
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct BootstrapPolicy {
+pub struct BootstrapConfig {
     listen: SocketAddr,
     limits: RuntimeLimits,
-    upstream_policy: UpstreamPolicy,
+    http_client: HttpClientConfig,
 }
 
-impl BootstrapPolicy {
+impl BootstrapConfig {
     /// 返回 loopback 监听地址。
     pub fn listen(&self) -> SocketAddr {
         self.listen
@@ -49,8 +49,8 @@ impl BootstrapPolicy {
     }
 
     /// 返回共享上游 HTTP client 策略。
-    pub fn upstream_policy(&self) -> &UpstreamPolicy {
-        &self.upstream_policy
+    pub fn http_client(&self) -> &HttpClientConfig {
+        &self.http_client
     }
 }
 
@@ -75,13 +75,13 @@ impl RuntimeLimits {
 
 /// 共享上游 HTTP client 的连接与超时策略。
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct UpstreamPolicy {
+pub struct HttpClientConfig {
     connect_timeout: Duration,
     pool_idle_timeout: Duration,
     pool_max_idle_per_host: usize,
 }
 
-impl UpstreamPolicy {
+impl HttpClientConfig {
     /// 返回建立上游连接的超时时间。
     pub fn connect_timeout(&self) -> Duration {
         self.connect_timeout
@@ -100,11 +100,11 @@ impl UpstreamPolicy {
 
 /// 解析并校验 bootstrap TOML。
 ///
-/// 该函数只产生启动配置，不会注册 provider、model、target、offering 或 route。
-pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError> {
-    let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapError::Parse)?;
+/// 该函数只产生启动配置，不会注册 provider、model、target、upstream API 或 route。
+pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, BootstrapConfigError> {
+    let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapConfigError::Parse)?;
     if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {
-        return Err(BootstrapError::UnsupportedSchema {
+        return Err(BootstrapConfigError::UnsupportedSchema {
             actual: raw.schema_version,
         });
     }
@@ -127,17 +127,17 @@ pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError>
         .parse::<SocketAddr>()
         .ok()
         .filter(|address| address.ip().is_loopback())
-        .ok_or_else(|| BootstrapError::NonLoopbackListen {
+        .ok_or_else(|| BootstrapConfigError::NonLoopbackListen {
             listen: raw.listen.clone(),
         })?;
 
-    Ok(BootstrapPolicy {
+    Ok(BootstrapConfig {
         listen,
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
             max_sse_event_bytes: raw.max_sse_event_bytes,
         },
-        upstream_policy: UpstreamPolicy {
+        http_client: HttpClientConfig {
             connect_timeout: Duration::from_millis(raw.upstream_connect_timeout_ms),
             pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
@@ -148,9 +148,9 @@ pub fn load_bootstrap(document: &str) -> Result<BootstrapPolicy, BootstrapError>
 fn validate_nonzero(
     name: &'static str,
     value: impl Copy + PartialEq + From<u8>,
-) -> Result<(), BootstrapError> {
+) -> Result<(), BootstrapConfigError> {
     if value == 0.into() {
-        Err(BootstrapError::InvalidLimit { name })
+        Err(BootstrapConfigError::InvalidLimit { name })
     } else {
         Ok(())
     }

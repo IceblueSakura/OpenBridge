@@ -2,7 +2,7 @@
 //!
 //! 网络 chunk 不是 UTF-8、行或 SSE event 边界。本 decoder 只负责把 byte stream 组织成
 //! 完整 `SseEvent`：支持 CRLF、注释、多行 `data:` 和 event size 上限；具体 event 的协议
-//! 含义由 provider `ResponseAdapter` 判定。
+//! 含义由 `ProviderAdapter::classify_sse_event` 判定。
 
 use bytes::BytesMut;
 use thiserror::Error;

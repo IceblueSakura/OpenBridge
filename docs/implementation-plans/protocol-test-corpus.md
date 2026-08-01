@@ -2,11 +2,11 @@
 
 ## 状态
 
-**M0/M5 独立证据材料。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具；它不自行触发运行时迁移。
+**独立证据材料。** 当前只构建 Chat Completions、Responses、SSE、工具调用和 Bridge 失败边界的版本化测试数据，以及用于校验、生成、统计和打包数据的独立工具；数据集存在不代表运行时已经接入对应能力。
 
 日常使用、case 维护、release 规则和命令示例以仓库内的 [Corpus 指南](../../testdata/README.md) 为准；本文件只保留设计边界与集成前条件。
 
-M0 可以复用已经稳定的 Native case；M5 只能接入所选 bridge slice 中 schema、canonical cases 和工具均可复现的 fixture，不要求无关 corpus 全部完成，也不得以数据集存在声明 Bridge 已实现。原 Rust `upstream-fixture-server` 的离线 mock 行为已经吸收到 Python testkit；真实上游 proxy 不属于该工具边界。
+Native 验证可以复用已经稳定的 case；未来 Bridge 只能接入 schema、canonical cases 和工具均可复现的 fixture，不要求无关 corpus 全部完成，也不得以数据集存在声明 Bridge 已实现。Python testkit 只提供离线 mock；真实上游 proxy 不属于该工具边界。
 
 ## 1. 目标与非目标
 
@@ -173,7 +173,7 @@ fallback、cooldown 与最终错误选择仍属于后续 SUT runner，不由 Moc
 
 ## 7. 进入 OpenBridge 集成前的条件
 
-只有同时满足以下条件，才重新评估 runner 与现有测试迁移：
+只有同时满足以下条件，才评估 runner 与现有测试的集成：
 
 1. schema、目录与 ID 规则发布为稳定 corpus 版本；
 2. 核心 case 全部为 `reviewed` 或 `accepted`；
@@ -182,7 +182,7 @@ fallback、cooldown 与最终错误选择仍属于后续 SUT runner，不由 Moc
 5. `pack` 生成无 secret、自包含、可校验的 artifact；
 6. corpus 不依赖 OpenBridge 内部类型；
 7. 任何仍有争议的产品策略保持 `research_only` 或明确标记为 proposed；
-8. 集成工作另建当前焦点，不把 corpus 完成自动解释为迁移授权。
+8. 集成工作另建当前焦点，不把 corpus 完成自动解释为运行时接入授权。
 
 ## 8. 关联材料
 

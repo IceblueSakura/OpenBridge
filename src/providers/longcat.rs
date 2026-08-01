@@ -1,7 +1,8 @@
-//! OpenAI Provider 的编译期定义。
+//! LongCat Provider 的编译期定义。
 //!
-//! 认证、请求/响应/SSE 与错误行为由 `provider::OpenAiAdapter` 实现；本文件集中声明
-//! credential binding、endpoint、模型事实、target/upstream API 能力和上游 model id。
+//! LongCat-2.0 通过 LongCat OpenAI-compatible 端点原生接收 Chat Completions 和
+//! Responses 请求。两种协议均保持原始 JSON/SSE wire 语义；本 adapter 只固定相对路径、
+//! 注入上游模型 id 与构造 Bearer 认证，不执行协议桥接。
 
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest, EndpointCapabilities, ResponsesCapabilities},
-    models::CONFIGURED_MODEL_ID,
+    models::longcat,
     provider::{
         AdapterError, ClassifiedSseEvent, CredentialKind, CredentialValue, PreparedUpstreamRequest,
         ProviderContract, ProviderKind, RetryHint, SafeHeaders, SensitiveHeaders,
@@ -27,54 +28,54 @@ use crate::{
     transport::sse::SseEvent,
 };
 
-/// OpenAI adapter 的静态能力与允许的 endpoint/credential 范围。
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::OpenAi,
+/// 基于直连验证及 OpenRouter 模型目录的 LongCat OpenAI-compatible 能力上界。
+pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
+    ProviderKind::LongCat,
     ApiCapabilities {
         chat_completions: EndpointCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
         },
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: true,
-            image_input: true,
-            structured_outputs: true,
-            store: true,
-            previous_response_id: true,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
+            previous_response_id: false,
             background: false,
         },
     },
-    &["public-api"],
+    &["longcat-openai"],
     &[CredentialKind::ApiKey],
 );
 
+/// LongCat 的 OpenAI-compatible adapter。
 #[derive(Clone, Copy)]
-/// OpenAI-compatible 请求与响应 adapter。
-pub struct OpenAiAdapter;
+pub struct LongCatAdapter;
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub(crate) fn prepare_model_list_request(self) -> PreparedUpstreamRequest {
         PreparedUpstreamRequest::new(Method::GET, Uri::from_static("/v1/models"), Bytes::new())
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn prepare_request(
         &self,
         request: &ApiRequest,
         upstream_model: &str,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         let relative_uri = match request.protocol() {
-            ApiProtocol::ChatCompletions => Uri::from_static("/v1/chat/completions"),
-            ApiProtocol::Responses => Uri::from_static("/v1/responses"),
+            ApiProtocol::ChatCompletions => Uri::from_static("/openai/v1/chat/completions"),
+            ApiProtocol::Responses => Uri::from_static("/openai/v1/responses"),
         };
         let mut document: serde_json::Value =
             serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
@@ -97,7 +98,7 @@ impl OpenAiAdapter {
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
         let mut headers = SafeHeaders::default();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"))?;
@@ -105,12 +106,12 @@ impl OpenAiAdapter {
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn prepare_auth_headers(
         &self,
         credential: &CredentialValue,
     ) -> Result<SensitiveHeaders, AdapterError> {
-        if credential.provider() != ProviderKind::OpenAi {
+        if credential.provider() != ProviderKind::LongCat {
             return Err(AdapterError::CredentialProviderMismatch);
         }
         let mut bearer = Zeroizing::new("Bearer ".to_owned());
@@ -121,7 +122,7 @@ impl OpenAiAdapter {
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn classify_sse_event(
         &self,
         protocol: ApiProtocol,
@@ -148,7 +149,7 @@ impl OpenAiAdapter {
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         let (class, retry_hint) = match status {
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
@@ -170,7 +171,7 @@ impl OpenAiAdapter {
     }
 }
 
-impl OpenAiAdapter {
+impl LongCatAdapter {
     pub fn validate_capabilities(&self, requested: ApiCapabilities) -> Result<(), AdapterError> {
         if requested.is_subset_of(*CONTRACT.capabilities()) {
             Ok(())
@@ -180,27 +181,23 @@ impl OpenAiAdapter {
     }
 }
 
-/// 构造当前编译版本内置的 OpenAI upstream targets。
-pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
+/// 构造 LongCat-2.0 的 upstream targets。
+pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
-        id: "openai-main".to_owned(),
-        provider: ProviderKind::OpenAi,
-        model: CONFIGURED_MODEL_ID.to_owned(),
-        base_url: "https://api.openai.com".to_owned(),
+        id: "longcat-2".to_owned(),
+        provider: ProviderKind::LongCat,
+        model: longcat::MODEL_ID.to_owned(),
+        base_url: "https://api.longcat.chat".to_owned(),
         credential: CredentialConfig {
-            id: "openai-primary".to_owned(),
+            id: "longcat-primary".to_owned(),
             kind: CredentialKind::ApiKey,
-            environment_variable: "OPENAI_API_KEY".to_owned(),
+            environment_variable: "LONGCAT_API_KEY".to_owned(),
         },
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: upstream_apis(
-            "configured-model",
-            "public-api",
-            conservative_openai_capabilities(),
-        ),
+        upstream_apis: upstream_apis("LongCat-2.0", "longcat-openai", *CONTRACT.capabilities()),
     }]
 }
 
@@ -231,30 +228,4 @@ fn upstream_apis(
             state_affinity: StateAffinity::TargetBound,
         },
     ]
-}
-
-/// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。
-pub const fn conservative_openai_capabilities() -> ApiCapabilities {
-    ApiCapabilities {
-        chat_completions: EndpointCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-            previous_response_id: false,
-            background: false,
-        },
-    }
 }

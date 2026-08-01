@@ -6,17 +6,14 @@
 use std::{collections::HashMap, fmt};
 
 use http::{
-    HeaderMap, HeaderName, HeaderValue, StatusCode,
+    HeaderMap, HeaderName, HeaderValue,
     header::{AUTHORIZATION, COOKIE, HOST, PROXY_AUTHORIZATION},
 };
 use zeroize::Zeroizing;
 
-use crate::{
-    core::{CapabilitySet, Protocol},
-    transport::sse::SseEvent,
-};
+use crate::transport::sse::SseEvent;
 
-use super::{CredentialLease, ProviderFailure};
+use super::AdapterError;
 
 /// 允许 provider adapter 添加的非敏感请求头集合。
 ///
@@ -34,9 +31,9 @@ impl SafeHeaders {
         &mut self,
         name: HeaderName,
         value: HeaderValue,
-    ) -> Result<(), ProviderFailure> {
+    ) -> Result<(), AdapterError> {
         if name == AUTHORIZATION || name == PROXY_AUTHORIZATION || name == COOKIE || name == HOST {
-            return Err(ProviderFailure::SensitiveHeaderInSafeSet);
+            return Err(AdapterError::SensitiveHeaderInSafeSet);
         }
         self.0.insert(name, value);
         Ok(())
@@ -76,10 +73,10 @@ impl SensitiveHeaders {
         self.0.insert(name, value);
     }
 
-    pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), ProviderFailure> {
+    pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), AdapterError> {
         for (name, value) in self.0 {
             let mut value = HeaderValue::from_str(value.as_str())
-                .map_err(|_| ProviderFailure::InvalidAuthenticationHeader)?;
+                .map_err(|_| AdapterError::InvalidAuthenticationHeader)?;
             value.set_sensitive(true);
             headers.insert(name, value);
         }
@@ -97,21 +94,8 @@ impl fmt::Debug for SensitiveHeaders {
     }
 }
 
-/// 构造非敏感上游请求头的 provider adapter 契约。
-pub trait HeaderAdapter {
-    fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure>;
-}
-
-/// 从 credential lease 构造敏感认证头的 provider adapter 契约。
-pub trait AuthAdapter {
-    fn build_auth_headers(
-        &self,
-        credential: &CredentialLease,
-    ) -> Result<SensitiveHeaders, ProviderFailure>;
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EventDisposition {
+pub enum StreamEventStatus {
     /// event 不是终止事件，继续读取上游。
     Continue,
     /// event 表示正常完成。
@@ -122,14 +106,14 @@ pub enum EventDisposition {
 
 /// 一个已完成 framing、但尚未由 ingress 重写的 SSE event。
 #[derive(Debug)]
-pub struct DecodedEvent {
+pub struct ClassifiedSseEvent {
     event: SseEvent,
-    disposition: EventDisposition,
+    status: StreamEventStatus,
 }
 
-impl DecodedEvent {
-    pub(crate) fn new(event: SseEvent, disposition: EventDisposition) -> Self {
-        Self { event, disposition }
+impl ClassifiedSseEvent {
+    pub(crate) fn new(event: SseEvent, status: StreamEventStatus) -> Self {
+        Self { event, status }
     }
 
     /// 返回原始 SSE event。
@@ -138,22 +122,13 @@ impl DecodedEvent {
     }
 
     /// 返回 adapter 对 event 的生命周期判定。
-    pub fn disposition(&self) -> EventDisposition {
-        self.disposition
+    pub fn status(&self) -> StreamEventStatus {
+        self.status
     }
 }
 
-/// 解码 provider-specific SSE 生命周期的 adapter 契约。
-pub trait ResponseAdapter {
-    fn decode_event(
-        &self,
-        protocol: Protocol,
-        event: SseEvent,
-    ) -> Result<DecodedEvent, ProviderFailure>;
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderErrorClass {
+pub enum UpstreamErrorKind {
     /// 请求内容或参数不合法。
     InvalidRequest,
     /// 上游拒绝认证。
@@ -177,31 +152,21 @@ pub enum RetryHint {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ClassifiedProviderError {
-    class: ProviderErrorClass,
+pub struct StatusClassification {
+    kind: UpstreamErrorKind,
     retry_hint: RetryHint,
 }
 
-impl ClassifiedProviderError {
-    pub(crate) fn new(class: ProviderErrorClass, retry_hint: RetryHint) -> Self {
-        Self { class, retry_hint }
+impl StatusClassification {
+    pub(crate) fn new(kind: UpstreamErrorKind, retry_hint: RetryHint) -> Self {
+        Self { kind, retry_hint }
     }
 
-    pub fn class(&self) -> ProviderErrorClass {
-        self.class
+    pub fn kind(&self) -> UpstreamErrorKind {
+        self.kind
     }
 
     pub fn retry_hint(&self) -> RetryHint {
         self.retry_hint
     }
-}
-
-/// 将上游 HTTP status 映射为稳定的 provider 错误类别。
-pub trait ErrorAdapter {
-    fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError;
-}
-
-/// 检查请求所需能力是否在 provider adapter 的实现上界内。
-pub trait CapabilityAdapter {
-    fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure>;
 }

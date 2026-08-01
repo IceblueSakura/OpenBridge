@@ -10,12 +10,11 @@
 
 1. [功能需求](../functional-requirements/README.md)：定义客户端可观察行为、安全边界与非目标；
 2. [当前代码架构](../implementation-status/current-architecture.md)和[当前实现说明](../implementation-status/current-implementation.md)：定义 live source 已经实现什么；
-3. [目标服务架构](service-architecture.md)：定义希望达到的稳定分层和终态概念，不决定实施次序；
-4. [架构迁移总计划](registry-architecture-migration.md)：唯一维护 M0–M7 的依赖、切片、退出条件和专项计划映射；
-5. 专项计划：只展开总计划中的一个边界，不得自行增加前置阶段或形成另一条路线图；
-6. [当前开发焦点](current-focus.md)：唯一表示当前获准实施的一个可观察行为。
+3. [服务架构与扩展边界](service-architecture.md)：说明当前分层以及尚未实现能力可接入的位置；
+4. 专项计划：描述一个尚未实现功能的边界、前提和验证方式；
+5. [当前开发焦点](current-focus.md)：唯一表示当前获准实施的一个可观察行为。
 
-发生冲突时，先以 live source 和功能需求修订总计划，再同步目标架构和专项计划；不能通过选择另一份计划绕过总计划的前置条件。
+发生冲突时，以 live source 和功能需求修订当前架构及专项计划；计划不得把尚未实现的类型或行为写成当前事实。
 
 ## 计划生命周期
 
@@ -30,14 +29,13 @@
 计划文档可以保留未实施的设计假设，但必须标明为候选；不得混入完成记录、历史阶段或未经验证的
 Provider/硬件结论。
 
-| 计划角色 | 文档 | 与总计划的关系 |
+| 计划角色 | 文档 | 用途 |
 |---|---|---|
-| 当前基线说明 | [当前代码注册表与原生路由](configuration-and-routing.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md) | 记录已切换的 M1–M4 类型和调用路径，并明确尚未补做的行为验收。 |
-| 目标结构 | [目标服务架构](service-architecture.md) | 定义 M1–M7 的终态分层、实体和运行边界；不重复维护阶段。 |
-| 迁移总控 | [架构迁移总计划](registry-architecture-migration.md) | 唯一维护 M0–M7 的顺序、退出条件、兼容和清理规则。 |
-| Native 客户端验收 | [客户端兼容](client-compatibility.md) | 横跨 M0、M4 和 M6，保护 OpenAI SDK/Codex 可见行为。 |
-| Bridge 语义 | [协议桥](protocol-bridge.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 只展开 M5；必须先补做 M0–M4 行为回归门再接入生产路径。 |
-| Bridge 测试证据 | [协议测试语料构建](protocol-test-corpus.md)、[Mock Server/Client 测试工具](protocol-testkit.md) | 为 M0/M5 提供独立 corpus/testkit；M5 只依赖所选 slice 已稳定的 fixture。 |
-| Credential 扩展 | [OAuth 凭证边界](oauth-credential-boundary.md) | 本次 M0–M7 之外的独立后续方向，不是任何迁移切片的前置条件。 |
+| 当前基线说明 | [当前代码注册表与原生路由](configuration-and-routing.md)、[Provider 适配与数据流](provider-adapters-and-dataflow.md) | 记录当前类型、数据所有权和 Native 调用路径。 |
+| 服务边界 | [服务架构与扩展边界](service-architecture.md) | 汇总当前分层，并标出尚未实现能力的接入约束。 |
+| Native 客户端验收 | [客户端兼容](client-compatibility.md) | 定义 OpenAI SDK/Codex 可见行为的验证方式。 |
+| Bridge 语义 | [协议桥](protocol-bridge.md)、[Agent Loop Bridge](agent-loop-bridge.md) | 尚未实现；只描述明确的协议、identity 与 state 约束。 |
+| Bridge 测试证据 | [协议测试语料构建](protocol-test-corpus.md)、[Mock Server/Client 测试工具](protocol-testkit.md) | 维护独立 corpus/testkit，不代表运行时已经接入 Bridge。 |
+| Credential 扩展 | [OAuth 凭证边界](oauth-credential-boundary.md) | Deferred；不是当前 API-key 数据面的组成部分。 |
 
 当某项计划被实现并验证后，将可证明的结论转入 `../implementation-status/`；不在本目录保留目标变迁、淘汰方案或旧阶段记录。若计划与功能需求冲突，先修订或废弃计划，而不是扩大产品范围。

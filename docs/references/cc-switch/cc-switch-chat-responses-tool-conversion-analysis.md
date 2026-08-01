@@ -105,7 +105,7 @@ cc-switch 会填充空/缺失 tool `parameters` 为 object schema，并通过 pr
 - `codex.rs:336-495` 按 base URL、provider name 与 model name 推断 reasoning 参数；同名模型在不同 hosted gateway 的行为可能不同。
 - Chat renderer 会为特定上游重排/合并 system messages（`transform_codex_chat.rs:493-523`）。
 
-OpenBridge 应将已证实的上游差异编译进对应 `ProviderAdapter`/`CapabilityProfile`，保持 Bridge IR 和通用 Chat/Responses renderer 不读取 provider 名称字符串。当前 `ProviderDescriptor` 与闭合 `ProviderKind` 的边界已在 `src/provider/mod.rs:30-124` 建立。
+OpenBridge 应将已证实的上游差异编译进对应 `ProviderAdapter`/`CapabilityProfile`，保持 Bridge IR 和通用 Chat/Responses renderer 不读取 provider 名称字符串。当前 `ProviderContract` 与闭合 `ProviderKind` 的边界已在 `src/provider/mod.rs:30-124` 建立。
 
 ## 4. 跨请求 continuation：cc-switch 解决的问题与不可照搬部分
 

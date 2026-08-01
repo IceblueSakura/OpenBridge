@@ -2,69 +2,67 @@
 //!
 //! 新 Provider 必须在这里显式注册；不会通过配置、链接器或运行时插件自动出现。
 
-pub mod meituan;
+pub mod longcat;
 pub mod openai;
 
 use crate::{
-    config::BootstrapPolicy,
-    core::Protocol,
+    config::BootstrapConfig,
+    core::ApiProtocol,
     models,
     registry::{
-        PublicModelDefinition, RegistryDefinition, RegistryError, RegistrySnapshot,
-        ServingRouteDefinition, ServingRouteMode, build_registry,
+        PublicModelConfig, RegistryConfig, RegistryError, RouteConfig, RouteMode, RuntimeRegistry,
+        build_registry,
     },
 };
 
 /// 当前内置 provider/model registry 的版本标识。
 pub const REGISTRY_VERSION: &str = "dev-1";
 
-/// 返回所有编译进二进制的 Real Model、Upstream Target、Serving Route 与 Public Model。
-pub fn compiled_definition() -> RegistryDefinition {
-    let openai = openai::definition();
-    let meituan = meituan::definition();
-    RegistryDefinition {
+/// 返回所有编译进二进制的 Model、Upstream Target、Route 与 Public Model。
+pub fn compiled_config() -> RegistryConfig {
+    RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
-        real_models: models::compiled_definitions(),
-        upstream_targets: [openai.upstream_targets, meituan.upstream_targets].concat(),
-        serving_routes: vec![
+        models: models::compiled_configs(),
+        upstream_targets: [openai::upstream_targets(), longcat::upstream_targets()].concat(),
+        routes: vec![
             native_route(
                 "code-primary-openai-chat",
                 "openai-main",
                 "chat",
-                Protocol::ChatCompletions,
+                ApiProtocol::ChatCompletions,
             ),
             native_route(
                 "code-primary-openai-responses",
                 "openai-main",
                 "responses",
-                Protocol::Responses,
+                ApiProtocol::Responses,
             ),
             native_route(
-                "longcat-2-meituan-chat",
-                "meituan-longcat-2",
+                "longcat-2-chat",
+                "longcat-2",
                 "chat",
-                Protocol::ChatCompletions,
+                ApiProtocol::ChatCompletions,
             ),
             native_route(
-                "longcat-2-meituan-responses",
-                "meituan-longcat-2",
+                "longcat-2-responses",
+                "longcat-2",
                 "responses",
-                Protocol::Responses,
+                ApiProtocol::Responses,
             ),
         ],
         public_models: vec![
-            PublicModelDefinition {
+            PublicModelConfig {
                 name: "code-primary".to_owned(),
-                serving_routes: vec![
+                routes: vec![
                     "code-primary-openai-chat".to_owned(),
                     "code-primary-openai-responses".to_owned(),
                 ],
             },
-            PublicModelDefinition {
+            PublicModelConfig {
                 name: "LongCat-2.0".to_owned(),
-                serving_routes: vec![
-                    "longcat-2-meituan-chat".to_owned(),
-                    "longcat-2-meituan-responses".to_owned(),
+                routes: vec![
+                    "longcat-2-chat".to_owned(),
+                    "longcat-2-responses".to_owned(),
                 ],
             },
         ],
@@ -74,21 +72,21 @@ pub fn compiled_definition() -> RegistryDefinition {
 fn native_route(
     id: &str,
     upstream_target: &str,
-    offering: &str,
-    downstream_protocol: Protocol,
-) -> ServingRouteDefinition {
-    ServingRouteDefinition {
+    upstream_api: &str,
+    downstream_protocol: ApiProtocol,
+) -> RouteConfig {
+    RouteConfig {
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),
-        offering: offering.to_owned(),
+        upstream_api: upstream_api.to_owned(),
         downstream_protocol,
-        mode: ServingRouteMode::Native,
+        mode: RouteMode::Native,
     }
 }
 
-/// 校验并构造内置 registry snapshot。
+/// 校验并构造内置 registry registry。
 pub fn build_compiled_registry(
-    bootstrap: BootstrapPolicy,
-) -> Result<RegistrySnapshot, RegistryError> {
-    build_registry(bootstrap, compiled_definition())
+    bootstrap: BootstrapConfig,
+) -> Result<RuntimeRegistry, RegistryError> {
+    build_registry(bootstrap, compiled_config())
 }

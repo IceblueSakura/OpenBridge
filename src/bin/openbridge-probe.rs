@@ -6,8 +6,8 @@ use std::env;
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{BootstrapPath, load_optional_dotenv},
-    probe::{ProbeSelection, probe_upstream_target},
+    config::{BootstrapConfigPath, load_optional_dotenv},
+    probe::{ProbeOptions, probe_upstream_target},
     provider::CredentialSource,
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
@@ -17,19 +17,19 @@ use openbridge::{
 async fn main() -> Result<()> {
     load_optional_dotenv().context("failed to load optional .env file")?;
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
-    let bootstrap = BootstrapPath::from_environment()
+    let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
-    let snapshot =
+    let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let upstream = UpstreamClient::new(
-        snapshot.upstream_policy().connect_timeout(),
-        snapshot.upstream_policy().pool_idle_timeout(),
-        snapshot.upstream_policy().pool_max_idle_per_host(),
+        registry.http_client().connect_timeout(),
+        registry.http_client().pool_idle_timeout(),
+        registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
     let report = probe_upstream_target(
-        &snapshot,
+        &registry,
         &arguments.upstream_target_id,
         &upstream,
         &CredentialSource::environment(),
@@ -47,13 +47,13 @@ async fn main() -> Result<()> {
 
 struct ProbeArguments {
     upstream_target_id: String,
-    selection: ProbeSelection,
+    selection: ProbeOptions,
 }
 
 impl ProbeArguments {
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
         let mut upstream_target_id = None;
-        let mut selection = ProbeSelection::default();
+        let mut selection = ProbeOptions::default();
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -67,7 +67,7 @@ impl ProbeArguments {
                 "--chat" => selection.chat = true,
                 "--responses" => selection.responses = true,
                 "--function-calling" => selection.function_calling = true,
-                "--all" => selection = ProbeSelection::all(),
+                "--all" => selection = ProbeOptions::all(),
                 "--help" | "-h" => {
                     print_usage();
                     std::process::exit(0);
@@ -77,7 +77,7 @@ impl ProbeArguments {
         }
         let upstream_target_id = upstream_target_id.context("--target is required")?;
         if selection.is_empty() {
-            selection = ProbeSelection::all();
+            selection = ProbeOptions::all();
         }
         Ok(Self {
             upstream_target_id,

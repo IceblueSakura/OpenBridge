@@ -263,7 +263,7 @@ OpenAI 官方迁移资料明确区分两种流式模型：Chat Completions 使�
 - 已移除的 Rust `tools/upstream-fixture-server` 曾提供确定性基础 JSON/SSE、HTTP 429 和真实上游 proxy；
 - [Protocol Bridge 实施计划](../../implementation-plans/protocol-bridge.md)中的 Slice B0 corpus/invariants 与双向实施切片。
 
-截至 corpus/testkit `0.4.0`，Rust mock 的 Chat/Responses 原生 stream/non-stream、429/`Retry-After`、健康检查、非法 JSON、未知 endpoint 与同进程多请求能力已由 corpus cases 或 Python Mock Server 吸收。Rust binary 及其本地 dotenv 配置随后被移除；原有真实上游 proxy、credential 注入、默认模型补全和安全响应 header 白名单未迁移到 testkit，也不再构成本仓库提供的测试能力。
+截至 corpus/testkit `0.4.0`，当前 corpus cases 与 Python Mock Server 覆盖 Chat/Responses 原生 stream/non-stream、429/`Retry-After`、健康检查、非法 JSON、未知 endpoint 与同进程多请求。当前 testkit 不提供真实上游 proxy、credential 注入、默认模型补全或安全响应 header 白名单。
 
 这些资产目前主要证明 Native Path 与 forwarding contract。它们尚未构成 Chat ↔ Responses Bridge 的可执行语义 corpus，特别缺少：
 

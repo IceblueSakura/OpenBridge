@@ -4,7 +4,7 @@
 /// 字段仍由协议决定，例如 image input 在 Chat 中为 `image_url`、在 Responses 中为
 /// `input_image`，而 `function_calling` 的请求载体为 `tools`。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ProtocolCapabilities {
+pub struct EndpointCapabilities {
     /// 该端点是否可用。
     pub enabled: bool,
     /// 是否支持以 SSE 返回增量结果。
@@ -21,7 +21,7 @@ pub struct ProtocolCapabilities {
     pub store: bool,
 }
 
-impl ProtocolCapabilities {
+impl EndpointCapabilities {
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
             && (!self.streaming || upper.streaming)
@@ -57,8 +57,8 @@ pub struct ResponsesCapabilities {
 }
 
 impl ResponsesCapabilities {
-    pub(crate) const fn protocol_capabilities(self) -> ProtocolCapabilities {
-        ProtocolCapabilities {
+    pub(crate) const fn protocol_capabilities(self) -> EndpointCapabilities {
+        EndpointCapabilities {
             enabled: self.enabled,
             streaming: self.streaming,
             function_calling: self.function_calling,
@@ -77,20 +77,20 @@ impl ResponsesCapabilities {
     }
 }
 
-/// Provider descriptor 的协议分域能力上界。
+/// Provider contract 的协议分域能力上界。
 ///
-/// Native Offering 只能把 provider descriptor 已支持的能力关闭，不能把未实现的能力打开；请求
+/// Upstream API 只能把 provider contract 已支持的能力关闭，不能把未实现的能力打开；请求
 /// routing 使用同一集合在网络调用前拒绝不受支持的 feature。Chat Completions 与
 /// Responses 分开建模，以免把一个端点的观察错误外推到另一个端点。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct CapabilitySet {
+pub struct ApiCapabilities {
     /// Chat Completions endpoint 的能力上界。
-    pub chat_completions: ProtocolCapabilities,
+    pub chat_completions: EndpointCapabilities,
     /// Responses endpoint 的能力上界。
     pub responses: ResponsesCapabilities,
 }
 
-impl CapabilitySet {
+impl ApiCapabilities {
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         self.chat_completions.is_subset_of(upper.chat_completions)
             && self.responses.is_subset_of(upper.responses)

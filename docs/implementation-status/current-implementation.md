@@ -2,7 +2,7 @@
 
 ## 状态与范围
 
-本文描述当前代码事实，并单独标注验证状态。OpenBridge 仍是实验性原型；异构协议 Provider、Protocol Bridge、Responses WebSocket、真实 OAuth、调用统计和跨请求 cooldown 尚未实现。模块与依赖关系见[当前代码架构](current-architecture.md)。本次 M1–M4 结构迁移未运行测试，因此不能把迁移后的行为视为已重新验收。
+本文描述当前代码事实，并单独标注验证状态。OpenBridge 仍是实验性原型；异构协议 Provider、Protocol Bridge、Responses WebSocket、真实 OAuth、调用统计和跨请求 cooldown 尚未实现。模块与依赖关系见[当前代码架构](current-architecture.md)。最近一次记录没有运行测试，因此当前行为尚未重新验收。
 
 ## 启动与注册表
 
@@ -10,15 +10,15 @@
 
 ```text
 config/bootstrap.toml
-→ config::load_bootstrap
-→ providers::compiled_definition
+→ config::parse_bootstrap_config
+→ providers::compiled_config
 → registry::build_registry
-→ Arc<RegistrySnapshot>
+→ Arc<RuntimeRegistry>
 → HTTP listener
 ```
 
 `bootstrap.toml` 只包含 loopback listener、request/SSE 上限和共享 HTTP client 策略。
-Provider descriptor、Real Model、Upstream Target、Native Offering、Serving Route、Public Model、
+Provider contract、Model、Upstream Target、Upstream API、Route、Public Model、
 endpoint、credential binding 和 capability 全部由 Rust 代码注册。
 
 当前没有：
@@ -31,12 +31,12 @@ endpoint、credential binding 和 capability 全部由 Rust 代码注册。
 - 动态 Provider、model、header 或转换脚本。
 
 注册表构建会验证 ID、引用、credential locator、endpoint/profile、timeout、Provider 能力上界、
-模型 token 限制、参数、reasoning、reasoning level、Offering constraint 和 Public Model route。
+模型 token 限制、参数、reasoning、reasoning level、Upstream API rule 和 Public Model route。
 任何错误都会在监听前失败。
 
 ## Provider 实现
 
-当前有 `ProviderKind::OpenAi` 与 `ProviderKind::Meituan`，两者都使用 API-key credential，并都提供 OpenAI-compatible Chat/Responses Native Path。它们是两个闭合 Provider Family，但尚不能证明异构协议适配边界。
+当前有 `ProviderKind::OpenAi` 与 `ProviderKind::LongCat`，两者都使用 API-key credential，并都提供 OpenAI-compatible Chat/Responses Native Path。它们是两个闭合 Provider Family，但尚不能证明异构协议适配边界。
 
 通用契约位于：
 
@@ -44,10 +44,10 @@ endpoint、credential binding 和 capability 全部由 Rust 代码注册。
 - `src/provider/credential.rs`
 - `src/provider/mod.rs`
 
-具体 descriptor、注册项和 adapter 位于：
+具体 contract、注册项和 adapter 位于：
 
 - `src/providers/openai.rs`
-- `src/providers/meituan.rs`
+- `src/providers/longcat.rs`
 
 Provider-independent 模型事实位于：
 
@@ -59,15 +59,15 @@ Provider-independent 模型事实位于：
 
 两个 adapter 分别负责各自的：
 
-- Chat/Responses 相对 path；OpenAI 使用 `/v1/*`，Meituan 使用 `/openai/v1/*`；
-- 写入 selected Offering 的实际 `upstream_model`；
+- Chat/Responses 相对 path；OpenAI 使用 `/v1/*`，LongCat 使用 `/openai/v1/*`；
+- 写入 selected Upstream API 的实际 `upstream_model`；
 - `Content-Type` 与 Bearer header；
 - Chat `[DONE]` 和 Responses terminal event；
 - status/error/retry hint 分类；
 - `GET /v1/models` discovery request。
 
-Pipeline 不重写 model；`analyze_request` 生成 `RequestProfile`，`plan_request` 再生成绑定完整
-target/offering/route 的 `RoutePlan`。
+Pipeline 不重写 model；`analyze_request` 生成 `RequestRequirements`，`plan_request` 再生成绑定完整
+target/upstream API/route 的 `RoutePlan`。
 
 ## 模型与路由
 
@@ -82,10 +82,10 @@ target/offering/route 的 `RoutePlan`。
 显式 reasoning 请求只有在模型标记支持时才能路由；显式 level 还必须命中模型 level 集合。未知状态、
 未知 level 或不支持 level 都会在 egress 前拒绝，不会自动降级。
 
-Public Model 保存有序 Serving Route。请求会按协议、streaming、function tools、parallel tools、
+Public Model 保存有序 Route。请求会按协议、streaming、function tools、parallel tools、
 image、structured output、store、continuation、background、输出限制和 reasoning 筛选完整路径。
-`previous_response_id` 会关闭跨 target fallback。同一 target 的 Chat/Responses 是独立 Offering，可声明
-不同 upstream model、限制、能力和 state policy。
+`previous_response_id` 会关闭跨 target fallback。同一 target 的 Chat/Responses 是独立 Upstream API，可声明
+不同 upstream model、限制、能力和 state affinity。
 
 ## 下游 HTTP API
 
@@ -97,7 +97,7 @@ image、structured output、store、continuation、background、输出限制和 
 | `POST /v1/responses` | OpenAI native JSON/SSE 转发 | 静态 Bearer |
 
 下游 token 来自 `OPENBRIDGE_DOWNSTREAM_TOKEN`；OpenAI API key 来自 `OPENAI_API_KEY`；LongCat API
-key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；snapshot 只保存
+key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；`RuntimeRegistry` 只保存
 环境变量名称，不保存值。
 
 默认启动：
@@ -148,7 +148,7 @@ cargo clippy --locked -- -D warnings
 已有测试源码覆盖：
 
 - bootstrap 与 typed registry 校验；
-- Offering constraint 只收窄；
+- Upstream API rule 只收窄；
 - reasoning level gate；
 - endpoint/path prefix 安全；
 - 静态下游认证；
@@ -165,7 +165,7 @@ cargo clippy --locked -- -D warnings
 `tests/sdk_compatibility.rs` 是 ignored integration test，会使用运行时 OpenAI Python/Node SDK 验证
 Chat/Responses stream/non-stream 和 function-tool 往返。
 
-本次 M1–M4 迁移按要求没有运行测试；只执行了 `cargo fmt` 和 `cargo check --locked --tests`。
+最近一次只执行了 `cargo fmt --all` 和 `cargo check --locked --all-targets`，没有运行测试。
 
 ## 尚未实现
 
@@ -184,7 +184,6 @@ Chat/Responses stream/non-stream 和 function-tool 往返。
 
 - [代码注册表与路由](../implementation-plans/configuration-and-routing.md)
 - [当前代码架构](current-architecture.md)
-- [架构迁移总计划](../implementation-plans/registry-architecture-migration.md)
 - [Provider adapter 与数据流](../implementation-plans/provider-adapters-and-dataflow.md)
 - [能力探测](capability-probing.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)

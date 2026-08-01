@@ -10,11 +10,11 @@ use secrecy::{ExposeSecret, SecretString};
 use subtle::ConstantTimeEq;
 
 /// 用于受保护下游 API 的单一静态 Bearer credential。
-pub struct StaticBearerCredential {
+pub struct DownstreamCredential {
     secret: SecretString,
 }
 
-impl StaticBearerCredential {
+impl DownstreamCredential {
     /// 创建一个不会在 `Debug` 输出中暴露 secret 的 credential。
     pub fn new(secret: SecretString) -> Self {
         Self { secret }
@@ -36,10 +36,10 @@ impl StaticBearerCredential {
     }
 }
 
-impl fmt::Debug for StaticBearerCredential {
+impl fmt::Debug for DownstreamCredential {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("StaticBearerCredential")
+            .debug_struct("DownstreamCredential")
             .field("secret", &"[REDACTED]")
             .finish()
     }

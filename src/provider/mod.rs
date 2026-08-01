@@ -8,20 +8,19 @@ mod contracts;
 mod credential;
 
 pub use contracts::{
-    AuthAdapter, CapabilityAdapter, ClassifiedProviderError, DecodedEvent, ErrorAdapter,
-    EventDisposition, HeaderAdapter, ProviderErrorClass, ResponseAdapter, RetryHint, SafeHeaders,
-    SensitiveHeaders,
+    ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
+    StreamEventStatus, UpstreamErrorKind,
 };
-pub use credential::{CredentialLease, CredentialSource, CredentialSourceError};
+pub use credential::{CredentialSource, CredentialSourceError, CredentialValue};
 
 use bytes::Bytes;
 use http::{Method, StatusCode, Uri};
 use thiserror::Error;
 
 use crate::{
-    core::{CapabilitySet, Protocol, ValidatedRequest},
+    core::{ApiCapabilities, ApiProtocol, ApiRequest},
     providers::{
-        meituan::{self, MeituanAdapter},
+        longcat::{self, LongCatAdapter},
         openai::{self, OpenAiAdapter},
     },
     transport::sse::SseEvent,
@@ -35,8 +34,8 @@ use crate::{
 pub enum ProviderKind {
     /// OpenAI-compatible provider。
     OpenAi,
-    /// 美团 LongCat OpenAI-compatible provider。
-    Meituan,
+    /// LongCat OpenAI-compatible provider。
+    LongCat,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,21 +46,21 @@ pub enum CredentialKind {
 
 /// provider 的静态能力与可配置范围。
 ///
-/// Native Offering capability 只能收窄此描述符，不能自行声明 adapter 未实现的特性；endpoint
+/// Upstream API capability 只能收窄此契约，不能自行声明 adapter 未实现的特性；endpoint
 /// profile 与 credential kind 同样由这里限制，避免 route TOML 变成动态 provider DSL。
 #[derive(Debug)]
-pub struct ProviderDescriptor {
+pub struct ProviderContract {
     kind: ProviderKind,
-    capabilities: CapabilitySet,
+    capabilities: ApiCapabilities,
     endpoint_profiles: &'static [&'static str],
     credential_kinds: &'static [CredentialKind],
 }
 
-impl ProviderDescriptor {
-    /// 创建 provider 的静态描述符。
+impl ProviderContract {
+    /// 创建 provider 的静态契约。
     pub const fn new(
         kind: ProviderKind,
-        capabilities: CapabilitySet,
+        capabilities: ApiCapabilities,
         endpoint_profiles: &'static [&'static str],
         credential_kinds: &'static [CredentialKind],
     ) -> Self {
@@ -73,13 +72,13 @@ impl ProviderDescriptor {
         }
     }
 
-    /// 返回描述符对应的 provider kind。
+    /// 返回契约对应的 provider kind。
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
     /// 返回 adapter 支持的能力上界。
-    pub fn capabilities(&self) -> &CapabilitySet {
+    pub fn capabilities(&self) -> &ApiCapabilities {
         &self.capabilities
     }
 
@@ -95,39 +94,39 @@ impl ProviderDescriptor {
 }
 
 impl ProviderKind {
-    /// 返回该 provider 的编译期描述符。
-    pub fn descriptor(self) -> &'static ProviderDescriptor {
+    /// 返回该 provider 的编译期契约。
+    pub fn contract(self) -> &'static ProviderContract {
         match self {
-            Self::OpenAi => &openai::DESCRIPTOR,
-            Self::Meituan => &meituan::DESCRIPTOR,
+            Self::OpenAi => &openai::CONTRACT,
+            Self::LongCat => &longcat::CONTRACT,
         }
     }
 
-    pub(crate) fn capabilities(self) -> CapabilitySet {
-        *self.descriptor().capabilities()
+    pub(crate) fn capabilities(self) -> ApiCapabilities {
+        *self.contract().capabilities()
     }
 
     pub(crate) fn accepts_endpoint_profile(self, profile: &str) -> bool {
-        self.descriptor().endpoint_profiles().contains(&profile)
+        self.contract().endpoint_profiles().contains(&profile)
     }
 
     pub(crate) fn accepts_credential_kind(self, credential: CredentialKind) -> bool {
-        self.descriptor().credential_kinds().contains(&credential)
+        self.contract().credential_kinds().contains(&credential)
     }
 }
 
 /// provider adapter 在请求、认证、响应或能力校验阶段报告的失败。
 #[derive(Debug, Error)]
-pub enum ProviderFailure {
+pub enum AdapterError {
     #[error("request protocol is not supported by this provider adapter")]
     UnsupportedProtocol,
-    #[error("credential lease identity does not match the provider adapter")]
+    #[error("credential provider does not match the provider adapter")]
     CredentialProviderMismatch,
-    #[error("sensitive header cannot be emitted by HeaderAdapter")]
+    #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
     #[error("requested capabilities are not supported by the provider adapter")]
     UnsupportedCapabilities,
-    #[error("validated request body could not be transformed by the provider adapter")]
+    #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,
@@ -138,13 +137,13 @@ pub enum ProviderFailure {
 /// adapter 只能产生相对 URI；transport 将其与配置中已 allowlist 的 origin 拼接。这是阻止
 /// provider adapter 或下游请求绕过 egress allowlist 的第二道边界。
 #[derive(Clone)]
-pub struct UpstreamRequestParts {
+pub struct PreparedUpstreamRequest {
     method: Method,
     relative_uri: Uri,
     body: Bytes,
 }
 
-impl UpstreamRequestParts {
+impl PreparedUpstreamRequest {
     pub(crate) fn new(method: Method, relative_uri: Uri, body: Bytes) -> Self {
         Self {
             method,
@@ -169,20 +168,11 @@ impl UpstreamRequestParts {
     }
 }
 
-/// 编码下游请求的 provider adapter 契约。
-pub trait RequestAdapter {
-    fn encode_request(
-        &self,
-        request: &ValidatedRequest,
-        upstream_model: &str,
-    ) -> Result<UpstreamRequestParts, ProviderFailure>;
-}
-
 /// 已编译 provider adapter 的闭合集合。
 #[derive(Clone, Copy)]
 pub enum ProviderAdapter {
     OpenAi(OpenAiAdapter),
-    Meituan(MeituanAdapter),
+    LongCat(LongCatAdapter),
 }
 
 impl ProviderAdapter {
@@ -190,24 +180,24 @@ impl ProviderAdapter {
     pub fn for_kind(kind: ProviderKind) -> Self {
         match kind {
             ProviderKind::OpenAi => Self::OpenAi(OpenAiAdapter),
-            ProviderKind::Meituan => Self::Meituan(MeituanAdapter),
+            ProviderKind::LongCat => Self::LongCat(LongCatAdapter),
         }
     }
 
-    /// 返回 adapter 的静态 provider 描述符。
-    pub fn descriptor(&self) -> &'static ProviderDescriptor {
+    /// 返回 adapter 的静态 provider 契约。
+    pub fn contract(&self) -> &'static ProviderContract {
         match self {
-            Self::OpenAi(_) => ProviderKind::OpenAi.descriptor(),
-            Self::Meituan(_) => ProviderKind::Meituan.descriptor(),
+            Self::OpenAi(_) => ProviderKind::OpenAi.contract(),
+            Self::LongCat(_) => ProviderKind::LongCat.contract(),
         }
     }
 
     pub(crate) fn build_outbound_headers(
         &self,
-        credential: &CredentialLease,
-    ) -> Result<http::HeaderMap, ProviderFailure> {
-        let mut headers = self.build_headers()?.into_inner();
-        self.build_auth_headers(credential)?
+        credential: &CredentialValue,
+    ) -> Result<http::HeaderMap, AdapterError> {
+        let mut headers = self.prepare_headers()?.into_inner();
+        self.prepare_auth_headers(credential)?
             .append_to(&mut headers)?;
         Ok(headers)
     }
@@ -216,75 +206,63 @@ impl ProviderAdapter {
     ///
     /// 该请求只用于管理员显式 probe；它不会成为下游 `/v1/models` 的实现，后者始终
     /// 只暴露 OpenBridge 的 Public Model。
-    pub(crate) fn encode_list_models_request(&self) -> UpstreamRequestParts {
+    pub(crate) fn prepare_model_list_request(&self) -> PreparedUpstreamRequest {
         match self {
-            Self::OpenAi(adapter) => adapter.encode_list_models_request(),
-            Self::Meituan(adapter) => adapter.encode_list_models_request(),
+            Self::OpenAi(adapter) => adapter.prepare_model_list_request(),
+            Self::LongCat(adapter) => adapter.prepare_model_list_request(),
         }
     }
-}
 
-impl RequestAdapter for ProviderAdapter {
-    fn encode_request(
+    pub fn prepare_request(
         &self,
-        request: &ValidatedRequest,
+        request: &ApiRequest,
         upstream_model: &str,
-    ) -> Result<UpstreamRequestParts, ProviderFailure> {
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
         match self {
-            Self::OpenAi(adapter) => adapter.encode_request(request, upstream_model),
-            Self::Meituan(adapter) => adapter.encode_request(request, upstream_model),
+            Self::OpenAi(adapter) => adapter.prepare_request(request, upstream_model),
+            Self::LongCat(adapter) => adapter.prepare_request(request, upstream_model),
         }
     }
-}
 
-impl HeaderAdapter for ProviderAdapter {
-    fn build_headers(&self) -> Result<SafeHeaders, ProviderFailure> {
+    pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
         match self {
-            Self::OpenAi(adapter) => adapter.build_headers(),
-            Self::Meituan(adapter) => adapter.build_headers(),
+            Self::OpenAi(adapter) => adapter.prepare_headers(),
+            Self::LongCat(adapter) => adapter.prepare_headers(),
         }
     }
-}
 
-impl AuthAdapter for ProviderAdapter {
-    fn build_auth_headers(
+    pub fn prepare_auth_headers(
         &self,
-        credential: &CredentialLease,
-    ) -> Result<SensitiveHeaders, ProviderFailure> {
+        credential: &CredentialValue,
+    ) -> Result<SensitiveHeaders, AdapterError> {
         match self {
-            Self::OpenAi(adapter) => adapter.build_auth_headers(credential),
-            Self::Meituan(adapter) => adapter.build_auth_headers(credential),
+            Self::OpenAi(adapter) => adapter.prepare_auth_headers(credential),
+            Self::LongCat(adapter) => adapter.prepare_auth_headers(credential),
         }
     }
-}
 
-impl ResponseAdapter for ProviderAdapter {
-    fn decode_event(
+    pub fn classify_sse_event(
         &self,
-        protocol: Protocol,
+        protocol: ApiProtocol,
         event: SseEvent,
-    ) -> Result<DecodedEvent, ProviderFailure> {
+    ) -> Result<ClassifiedSseEvent, AdapterError> {
         match self {
-            Self::OpenAi(adapter) => adapter.decode_event(protocol, event),
-            Self::Meituan(adapter) => adapter.decode_event(protocol, event),
+            Self::OpenAi(adapter) => adapter.classify_sse_event(protocol, event),
+            Self::LongCat(adapter) => adapter.classify_sse_event(protocol, event),
         }
     }
-}
 
-impl ErrorAdapter for ProviderAdapter {
-    fn classify_status(&self, status: StatusCode) -> ClassifiedProviderError {
+    pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         match self {
             Self::OpenAi(adapter) => adapter.classify_status(status),
-            Self::Meituan(adapter) => adapter.classify_status(status),
+            Self::LongCat(adapter) => adapter.classify_status(status),
         }
     }
-}
 
-impl CapabilityAdapter for ProviderAdapter {
-    fn validate_capabilities(&self, requested: CapabilitySet) -> Result<(), ProviderFailure> {
+    pub fn validate_capabilities(&self, requested: ApiCapabilities) -> Result<(), AdapterError> {
         match self {
             Self::OpenAi(adapter) => adapter.validate_capabilities(requested),
-            Self::Meituan(adapter) => adapter.validate_capabilities(requested),
+            Self::LongCat(adapter) => adapter.validate_capabilities(requested),
         }
     }
 }
@@ -317,20 +295,20 @@ mod tests {
             .insert(AUTHORIZATION, HeaderValue::from_static("forbidden"))
             .unwrap_err();
 
-        assert!(matches!(error, ProviderFailure::SensitiveHeaderInSafeSet));
+        assert!(matches!(error, AdapterError::SensitiveHeaderInSafeSet));
     }
 
     #[test]
     fn openai_auth_adapter_builds_the_expected_bearer_value_inside_the_crate_boundary() {
         let adapter = OpenAiAdapter;
-        let lease = CredentialLease::new(
+        let credential = CredentialValue::new(
             ProviderKind::OpenAi,
             "binding",
             "version",
             SecretString::from("credential-test-value".to_owned()),
         );
 
-        let headers = adapter.build_auth_headers(&lease).unwrap();
+        let headers = adapter.prepare_auth_headers(&credential).unwrap();
 
         assert_eq!(
             headers.expose(AUTHORIZATION),

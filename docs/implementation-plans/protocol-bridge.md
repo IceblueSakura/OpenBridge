@@ -2,7 +2,7 @@
 
 ## 状态
 
-**M5 专项设计，尚未接入运行时。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。M1–M4 代码结构已经切换，但回归门尚未执行；在补做该验证且所选 bridge slice 的 corpus/fixture 稳定前，不进入生产请求路径。实施顺序只由[架构迁移总计划](registry-architecture-migration.md)定义。
+**未实现的专项设计。** 现有 Codex、Hermes、LiteLLM 和 cc-switch 调研支持“协议转换需要显式 identity/state machine”的方向；Bridge IR 边界、continuation ledger 和目标客户端兼容范围仍需真实 corpus 验证。当前运行时只有 Native Path，不执行 Chat/Responses 转换。
 
 Agent Loop 的职责边界、request/stream state owner、首版 continuation 拒绝规则和后续 ledger 门见[Agent Loop 兼容与 Bridge 状态契约](agent-loop-bridge.md)。本文保留协议转换的通用表示与算法边界。
 
@@ -278,13 +278,13 @@ Responses output 转回 Chat 时：
 
 若请求只提供 `previous_response_id` + 新 tool outputs，而 Chat 上游需要完整历史，只有两种安全选择：
 
-- 命中 issuer/target/offering-bound、未过期且无歧义的 continuation ledger，补回完整 assistant call group；
+- 命中 issuer/target/upstream API-bound、未过期且无歧义的 continuation ledger，补回完整 assistant call group；
 - 明确拒绝并要求客户端发送完整可转换历史。
 
 禁止：
 
 - 仅以全局 `call_id` 猜测历史；
-- 跨 Provider/Upstream Target/Offering 查找；
+- 跨 Provider/Upstream Target/Upstream API 查找；
 - fallback 后继续使用原 continuation；
 - 从日志正文隐式重建。
 
@@ -398,10 +398,10 @@ usage streaming
 
 ## 11. Bridge re-entry 与路由
 
-RoutePlan 在进入 converter 前已决定 source/target protocol 和 selected Upstream Target/Offering。bridge 内不得重新调用全局 Public Model resolver。
+RoutePlan 在进入 converter 前已决定 source/target protocol 和 selected Upstream Target/Upstream API。bridge 内不得重新调用全局 Public Model resolver。
 
 ```text
-RoutePlan(mode=bridge, source=responses, target=chat, upstream_target=X, offering=chat)
+RoutePlan(mode=bridge, source=responses, target=chat, upstream_target=X, upstream API=chat)
 ```
 
 若目标 Provider 调用失败：
@@ -436,7 +436,7 @@ RoutePlan(mode=bridge, source=responses, target=chat, upstream_target=X, offerin
 先比较：
 
 1. 要求完整历史；
-2. 本地 issuer/target/offering-bound ledger；
+2. 本地 issuer/target/upstream API-bound ledger；
 3. 仅支持 native continuation。
 
 没有充分证据前不默认实现全局 ledger。
@@ -456,7 +456,7 @@ RoutePlan(mode=bridge, source=responses, target=chat, upstream_target=X, offerin
 - unknown/unsupported item 不会静默消失；
 - bridge notice 与实际 approximation 一致；
 - arguments 分片在任意边界下得到同一完整字符串；
-- continuation 不跨 issuer/target/offering/expiry；
+- continuation 不跨 issuer/target/upstream API/expiry；
 - re-entry guard 阻止递归 bridge；
 - 已输出业务事件后不 fallback/stitch。
 

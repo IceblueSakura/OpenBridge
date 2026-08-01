@@ -12,11 +12,11 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 use url::Url;
 
-use crate::{provider::UpstreamRequestParts, registry::ResolvedUpstreamTarget};
+use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
 
 /// 上游 transport 在构造 client、发送请求或读取超时边界时报告的错误。
 #[derive(Debug, Error)]
-pub enum UpstreamError {
+pub enum TransportError {
     #[error("failed to construct the upstream HTTP client")]
     ClientBuild(#[source] reqwest::Error),
     #[error("upstream request failed")]
@@ -31,10 +31,10 @@ pub enum UpstreamError {
 pub trait UpstreamTransport: Send + Sync {
     fn send<'a>(
         &'a self,
-        target: &'a ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>>;
 }
 
 /// 复用连接池的共享上游 HTTP client。
@@ -48,14 +48,14 @@ impl UpstreamClient {
         connect_timeout: Duration,
         pool_idle_timeout: Duration,
         pool_max_idle_per_host: usize,
-    ) -> Result<Self, UpstreamError> {
+    ) -> Result<Self, TransportError> {
         let client = reqwest::Client::builder()
             .connect_timeout(connect_timeout)
             .pool_idle_timeout(Some(pool_idle_timeout))
             .pool_max_idle_per_host(pool_max_idle_per_host)
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(UpstreamError::ClientBuild)?;
+            .map_err(TransportError::ClientBuild)?;
         Ok(Self { client })
     }
 
@@ -65,10 +65,10 @@ impl UpstreamClient {
     /// allowlist 与该检查共同避免未来 adapter 修改意外扩大 SSRF 出站面。
     pub async fn send(
         &self,
-        target: &ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        target: &UpstreamTarget,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
-    ) -> Result<UpstreamResponse, UpstreamError> {
+    ) -> Result<UpstreamResponse, TransportError> {
         let url = resolve_upstream_url(target.endpoint_base(), request.relative_uri())?;
         self.send_request(UpstreamRequest::new(
             url,
@@ -83,7 +83,7 @@ impl UpstreamClient {
     async fn send_request(
         &self,
         request: UpstreamRequest,
-    ) -> Result<UpstreamResponse, UpstreamError> {
+    ) -> Result<UpstreamResponse, TransportError> {
         let response = self
             .client
             .request(request.method, request.url)
@@ -94,9 +94,9 @@ impl UpstreamClient {
             .await
             .map_err(|error| {
                 if error.is_timeout() {
-                    UpstreamError::Timeout
+                    TransportError::Timeout
                 } else {
-                    UpstreamError::Request(error)
+                    TransportError::Request(error)
                 }
             })?;
         let status = response.status();
@@ -110,12 +110,12 @@ impl UpstreamClient {
     }
 }
 
-fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, UpstreamError> {
+fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, TransportError> {
     if relative_uri.scheme().is_some()
         || relative_uri.authority().is_some()
         || !relative_uri.path().starts_with('/')
     {
-        return Err(UpstreamError::InvalidTarget);
+        return Err(TransportError::InvalidTarget);
     }
 
     let prefix = endpoint_base.path().trim_end_matches('/');
@@ -128,10 +128,10 @@ fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, 
 impl UpstreamTransport for UpstreamClient {
     fn send<'a>(
         &'a self,
-        target: &'a ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         Box::pin(async move { UpstreamClient::send(self, target, request, headers).await })
     }
 }

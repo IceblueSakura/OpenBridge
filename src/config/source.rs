@@ -7,7 +7,7 @@ use std::{
 
 use thiserror::Error;
 
-use super::{BootstrapError, BootstrapPolicy, load_bootstrap};
+use super::{BootstrapConfig, BootstrapConfigError, parse_bootstrap_config};
 
 /// 默认 bootstrap 配置路径。
 pub const DEFAULT_BOOTSTRAP_PATH: &str = "config/bootstrap.toml";
@@ -26,9 +26,9 @@ pub fn load_optional_dotenv() -> Result<Option<PathBuf>, dotenvy::Error> {
 
 /// 用于定位 bootstrap 配置文件的值对象。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BootstrapPath(PathBuf);
+pub struct BootstrapConfigPath(PathBuf);
 
-impl BootstrapPath {
+impl BootstrapConfigPath {
     /// 创建一个由调用方指定路径的配置定位器。
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
@@ -48,16 +48,17 @@ impl BootstrapPath {
     }
 
     /// 读取并解析 bootstrap 文件。
-    pub fn load(&self) -> Result<BootstrapPolicy, BootstrapFileError> {
-        let document = fs::read_to_string(&self.0).map_err(|source| BootstrapFileError::Read {
-            path: self.0.clone(),
-            source,
-        })?;
-        load_bootstrap(&document).map_err(BootstrapFileError::Invalid)
+    pub fn load(&self) -> Result<BootstrapConfig, BootstrapConfigFileError> {
+        let document =
+            fs::read_to_string(&self.0).map_err(|source| BootstrapConfigFileError::Read {
+                path: self.0.clone(),
+                source,
+            })?;
+        parse_bootstrap_config(&document).map_err(BootstrapConfigFileError::Invalid)
     }
 }
 
-impl Default for BootstrapPath {
+impl Default for BootstrapConfigPath {
     fn default() -> Self {
         Self::new(DEFAULT_BOOTSTRAP_PATH)
     }
@@ -65,7 +66,7 @@ impl Default for BootstrapPath {
 
 /// bootstrap 文件读取或内容校验失败。
 #[derive(Debug, Error)]
-pub enum BootstrapFileError {
+pub enum BootstrapConfigFileError {
     #[error("failed to read bootstrap configuration '{path}'")]
     Read {
         path: PathBuf,
@@ -73,5 +74,5 @@ pub enum BootstrapFileError {
         source: io::Error,
     },
     #[error("bootstrap configuration validation failed")]
-    Invalid(#[source] BootstrapError),
+    Invalid(#[source] BootstrapConfigError),
 }

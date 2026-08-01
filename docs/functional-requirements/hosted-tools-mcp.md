@@ -20,7 +20,7 @@ Provider 返回的 `web_search_call` 等 hosted item 不是普通 client-side `f
 
 ## 2. 目标
 
-- 复用 OpenBridge 已配置的 Provider、Upstream Target/Offering、credential、HTTP transport 和 cancellation；
+- 复用 OpenBridge 已配置的 Provider、Upstream Target/Upstream API、credential、HTTP transport 和 cancellation；
 - 仅暴露经过显式 capability 验证的 hosted tool；
 - 将 Provider-specific output 规范化为稳定、可测试的 ToolResult；
 - 保留 answer、citation/source 和安全 request correlation；
@@ -41,7 +41,7 @@ openai_web_search
 
 第一版：
 
-- 只使用一个明确配置的 native Responses Upstream Target/Offering；
+- 只使用一个明确配置的 native Responses Upstream Target/Upstream API；
 - 只支持单次、无会话的 search request；
 - 使用 `stdio` MCP transport 或同进程模块；
 - 返回 text content 和 schema-valid structured content；
@@ -62,7 +62,7 @@ openai_web_search
 
 Hosted Tool Facade 的真实前置条件：
 
-1. 至少一个 Offering 原生支持目标 hosted tool；
+1. 至少一个 Upstream API 原生支持目标 hosted tool；
 2. Provider adapter 能识别请求、输出、terminal、error、cancel 和 usage；
 3. capability 明确为 `Native`，不能由 Protocol Bridge 推断；
 4. 非 loopback 使用静态下游 token/TLS；
@@ -192,7 +192,7 @@ result_too_large
 - 设置 call timeout 和最大并发；
 - 支持 client cancellation；
 - 不记录完整 credential、cookie 或 Provider payload；
-- 仅在用户明确配置的 Upstream Target/Offering 上执行；
+- 仅在用户明确配置的 Upstream Target/Upstream API 上执行；
 - 对可能产生明显费用的 context size/结果规模提供本地上限。
 
 这些是单用户服务的资源保护，不是多租户配额系统。
@@ -204,7 +204,7 @@ result_too_large
 ```text
 request id
 tool name
-Provider/Upstream Target/Offering
+Provider/Upstream Target/Upstream API
 terminal outcome / error class
 gateway latency / first output time
 input/output tokens

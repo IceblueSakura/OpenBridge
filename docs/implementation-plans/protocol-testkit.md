@@ -2,7 +2,7 @@
 
 ## 状态
 
-**M0/M5 独立测试工具。** 当前保持独立于 OpenBridge runtime；只有[架构迁移总计划](registry-architecture-migration.md)选择具体行为进入当前焦点时，才由后续 runner 将稳定 scenario 接入被测进程。本文不定义迁移顺序。
+**独立测试工具。** 当前保持独立于 OpenBridge runtime；只有具体行为进入当前开发焦点时，才由 runner 将稳定 scenario 接入被测进程。工具存在不表示运行时已经实现 Bridge。
 
 ## 1. 定位
 

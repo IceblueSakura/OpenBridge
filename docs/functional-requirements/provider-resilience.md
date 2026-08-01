@@ -4,13 +4,13 @@
 
 **Working behavior design。** 当实现涉及多个候选上游、429/5xx、限流或临时失败时，本文提供 TDD 的行为边界；它不属于预定义阶段，也不要求先完成其他方向。
 
-本文定义 Public Model 的 serving route 选择、上游 Provider 因协议/能力拒绝、RPM/TPM、并发限制、临时过载或服务故障返回错误时的最小恢复行为，以及 continuation 的状态亲和边界。它补充[产品范围](product-scope.md)中的 stream/fallback 边界；实现时从其中一个行为先写失败测试。
+本文定义 Public Model 的 route 选择、上游 Provider 因协议/能力拒绝、RPM/TPM、并发限制、临时过载或服务故障返回错误时的最小恢复行为，以及 continuation 的状态亲和边界。它补充[产品范围](product-scope.md)中的 stream/fallback 边界；实现时从其中一个行为先写失败测试。
 
 OpenBridge 参考 LiteLLM 的“部署可用性过滤、有限 retry/fallback、临时 cooldown”模式，但不复制其多租户 key/team 限流、Redis callback 链、预算或复杂负载均衡控制面。
 
 ## 1. 目标
 
-- 对同一 Public Model 以可解释、可重复的规则选择一个满足完整请求语义、上下游协议、转换约束、状态亲和、启用状态和可用性要求的 serving route；
+- 对同一 Public Model 以可解释、可重复的规则选择一个满足完整请求语义、上下游协议、转换约束、状态亲和、启用状态和可用性要求的 route；
 - 避免持续把新请求发送到已明确限流或临时不可用的 Upstream Target；
 - 在不会重复产生业务副作用、尚未向下游输出、且延迟预算允许时执行有限重试；
 - 当前 candidate 无法继续时，只在 RoutePlan 允许、能满足同一完整请求且不违反状态亲和的 candidate route 间 fallback；
@@ -19,13 +19,13 @@ OpenBridge 参考 LiteLLM 的“部署可用性过滤、有限 retry/fallback、
 
 ## 2. 路由与候选选择
 
-一个 Public Model 绑定代码注册表中的**有序** candidate serving routes。每条 route 固定 Upstream Target、该 target 下的协议级 Offering、下游协议和 Native/Bridge 模式；上游协议由 Offering 唯一确定。顺序是默认优先级，不等于这些 candidate 对所有模型、协议、工具或状态都等价。
+一个 Public Model 绑定代码注册表中的**有序** candidate routes。每条 route 固定 Upstream Target、该 target 下的协议级 Upstream API、下游协议和 Native/Bridge 模式；上游协议由 Upstream API 唯一确定。顺序是默认优先级，不等于这些 candidate 对所有模型、协议、工具或状态都等价。
 
 每个请求应在发起上游调用前形成不可变的 RoutePlan，并按以下顺序筛选：
 
 ```text
-Public Model serving routes
-→ Upstream Target / Offering / upstream protocol / transport
+Public Model routes
+→ Upstream Target / Upstream API / upstream protocol / transport
 → Native/Bridge whole-path capability
 → request feature combination / context
 → continuation / tool state affinity
@@ -33,10 +33,10 @@ Public Model serving routes
 → 配置顺序选择
 ```
 
-- capability 必须按 Real Model、Upstream Target、协议级 Offering、上下游协议、converter、route-local ConversionPolicy 与完整 feature combination 判断；`Unknown` fail closed，不能因 Provider 名称、另一条 route 的独立字段或一次成功猜测支持。
+- capability 必须按 Model、Upstream Target、协议级 Upstream API、上下游协议、converter、route-local ConversionPolicy 与完整 feature combination 判断；`Unknown` fail closed，不能因 Provider 名称、另一条 route 的独立字段或一次成功猜测支持。
 - route selection 只使用受信配置、当前 availability overlay 和请求中为兼容判断必需的语义；不能使用 prompt、用户标识、secret、随机权重、未审查 cost 或隐式账号轮换。
-- `previous_response_id`、Provider resource、tool continuation、Codex turn state、opaque reasoning 或无法重建的历史会把请求绑定到 issuing target/offering。没有可验证 ledger 时，候选切换不是有效降级。
-- RoutePlan 一旦形成，在整个 request/stream 内保持 Public Model、serving route、Upstream Target/Offering、credential binding、协议模式、ResolvedBridgePlan、candidate 顺序和 fallback 边界；配置更新只影响后续请求。
+- `previous_response_id`、Provider resource、tool continuation、Codex turn state、opaque reasoning 或无法重建的历史会把请求绑定到 issuing target/upstream API。没有可验证 ledger 时，候选切换不是有效降级。
+- RoutePlan 一旦形成，在整个 request/stream 内保持 Public Model、route、Upstream Target/Upstream API、credential binding、协议模式、BridgePlan、candidate 顺序和 fallback 边界；配置更新只影响后续请求。
 - 模型目录的 `context_length.input`、`context_length.output` 或其他模型限制只能在有可靠模型事实和可解析请求字段时用于保守筛选；不能以 JSON 字节数或猜测用量伪造 token 预检。
 
 ## 3. 非目标
@@ -54,8 +54,8 @@ Public Model serving routes
 
 | 名称 | 含义 |
 |---|---|
-| Attempt | 对一个确定 Execution Plan/Upstream Target/Offering 的一次上游 HTTP 调用。 |
-| Same-candidate retry | 在同一 Upstream Target、Offering、credential binding、协议和转换路径上重新调用。 |
+| Attempt | 对一个确定 Execution Plan/Upstream Target/Upstream API 的一次上游 HTTP 调用。 |
+| Same-candidate retry | 在同一 Upstream Target、Upstream API、credential binding、协议和转换路径上重新调用。 |
 | Fallback | 按不可变 RoutePlan 转到下一个已批准且仍满足完整请求的 candidate route。 |
 | Cooldown | 在一个有界时间内阻止新的无状态请求选择某 Upstream Target 或明确共享 quota scope。 |
 | Retry budget | 对 attempt 次数、等待时间和总耗时的共同上限。 |
@@ -134,8 +134,8 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 
 ### 7.3 State affinity
 
-- `previous_response_id`、Provider resource、tool continuation 或 issuing call 绑定的请求不能因 cooldown 转到其他 target/offering；
-- 若 issuing Upstream Target 正在 cooldown，只有“同 target/offering retry”或直接返回错误两种结果；
+- `previous_response_id`、Provider resource、tool continuation 或 issuing call 绑定的请求不能因 cooldown 转到其他 target/upstream API；
+- 若 issuing Upstream Target 正在 cooldown，只有“同 target/upstream API retry”或直接返回错误两种结果；
 - cooldown 不能把有状态请求误判为无 candidate 后静默降级；
 - 已输出任何业务内容后，当前请求不再 retry/fallback，即使同时触发了 cooldown。
 
@@ -174,13 +174,13 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 - Bridge Path 只能映射为目标协议已有的失败语义；
 - 不注入目标客户端不认识的自定义 SSE event；
 - 不 retry、不 fallback、不拼接另一 candidate；
-- 若 wire protocol 无法在已开始 stream 后表达详细错误，则关闭 stream，并在安全日志中记录 request id、target/offering、错误分类和 terminal outcome。
+- 若 wire protocol 无法在已开始 stream 后表达详细错误，则关闭 stream，并在安全日志中记录 request id、target/upstream API、错误分类和 terminal outcome。
 
 ### 8.3 多次失败的选择
 
 - 对外返回最后一个实际 attempt 的、最能代表最终失败的安全错误；
 - 若最后一个错误是 OpenBridge 本地 timeout/cancel，不得用更早的 429 覆盖；
-- 结构化日志记录每个 attempt 的 target/offering、序号、分类、等待、cooldown 决策和 request id，但不记录请求/响应正文或 secret；
+- 结构化日志记录每个 attempt 的 target/upstream API、序号、分类、等待、cooldown 决策和 request id，但不记录请求/响应正文或 secret；
 - 下游错误不得暴露完整候选列表或内部 credential identity。
 
 ## 9. 并发与资源要求
@@ -201,7 +201,7 @@ Provider adapter 必须先分类，再决定 retry、cooldown 或直接返回：
 | RES-03 | cooldown 中存在下一个等价 candidate 时，按 RoutePlan 顺序 fallback。 |
 | RES-04 | 全部 candidate cooling down 时返回稳定 429 code 和有效 `Retry-After`，不调用上游。 |
 | RES-05 | 400/401/403/invalid request 不进入普通 retry/cooldown。 |
-| RES-06 | `previous_response_id`、tool continuation 和 Provider resource 不跨 Upstream Target/Offering。 |
+| RES-06 | `previous_response_id`、tool continuation 和 Provider resource 不跨 Upstream Target/Upstream API。 |
 | RES-07 | 已输出 JSON/SSE 后的 error/EOF 不 retry、不 fallback、不拼接。 |
 | RES-08 | 最终 429/5xx 保留 allowlist 内的 status、error fields、request id 和 rate-limit headers。 |
 | RES-09 | cancel 会中止 backoff wait 和剩余 attempt。 |

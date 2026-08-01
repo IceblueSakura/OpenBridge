@@ -13,7 +13,7 @@
 
 1. [功能需求](functional-requirements/README.md)
 2. [当前代码架构](implementation-status/current-architecture.md)和[实施现状](implementation-status/README.md)
-3. 与当前功能相关的[实施计划](implementation-plans/README.md)；架构演进的依赖和切片统一见[架构迁移总计划](implementation-plans/registry-architecture-migration.md)
+3. 与当前功能相关的[实施计划](implementation-plans/README.md)；先核对计划状态，区分当前实现与未实现设计
 4. 需要核验外部事实时再查阅[参考文档](references/README.md)
 
 独立协议测试数据的日常使用与维护，直接从仓库内的 [Corpus 指南](../testdata/README.md) 和 [Testkit 指南](../tools/corpus/README.md) 开始；它们说明实际命令、数据模型、Mock Server/Client 和发布流程。设计假设仍保留在[实施计划](implementation-plans/README.md)，已验证证据仍保留在[实施现状](implementation-status/README.md)。

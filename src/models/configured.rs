@@ -1,11 +1,11 @@
 //! 尚未绑定真实模型事实的 OpenAI-compatible 占位模型。
 
-use crate::registry::{ModelContextLength, RealModelDefinition, ReasoningSupport};
+use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
 pub(crate) const MODEL_ID: &str = "openai/configured-model";
 
-pub(crate) fn definition() -> RealModelDefinition {
-    RealModelDefinition {
+pub(crate) fn config() -> ModelConfig {
+    ModelConfig {
         id: MODEL_ID.to_owned(),
         name: "Configured OpenAI-compatible model".to_owned(),
         description: Some(

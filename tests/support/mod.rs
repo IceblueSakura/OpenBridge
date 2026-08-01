@@ -3,15 +3,15 @@
 use std::time::Duration;
 
 use openbridge::{
-    config::{BootstrapPolicy, load_bootstrap},
-    core::{CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities},
-    pipeline::{RouteError, RoutePlan, analyze_request, plan_request},
+    config::{BootstrapConfig, parse_bootstrap_config},
+    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CredentialDefinition, ModelConstraints, ModelContextLength, NativeOfferingCapabilities,
-        NativeOfferingDefinition, NativeTransport, PublicModelDefinition, RealModelDefinition,
-        ReasoningSupport, RegistryDefinition, RegistrySnapshot, ServingRouteDefinition,
-        ServingRouteMode, StatePolicy, UpstreamTargetDefinition, build_registry,
+        CredentialConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningSupport,
+        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, StateAffinity, TransportKind,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
+        build_registry,
     },
 };
 
@@ -25,13 +25,13 @@ upstream_pool_idle_timeout_ms = 90000
 upstream_pool_max_idle_per_host = 16
 "#;
 
-pub fn bootstrap(document: &str) -> BootstrapPolicy {
-    load_bootstrap(document).expect("test bootstrap must be valid")
+pub fn bootstrap(document: &str) -> BootstrapConfig {
+    parse_bootstrap_config(document).expect("test bootstrap must be valid")
 }
 
-pub fn capabilities() -> CapabilitySet {
-    CapabilitySet {
-        chat_completions: ProtocolCapabilities {
+pub fn capabilities() -> ApiCapabilities {
+    ApiCapabilities {
+        chat_completions: EndpointCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
@@ -54,10 +54,10 @@ pub fn capabilities() -> CapabilitySet {
     }
 }
 
-pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryDefinition {
-    RegistryDefinition {
+pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryConfig {
+    RegistryConfig {
         version: version.to_owned(),
-        real_models: vec![RealModelDefinition {
+        models: vec![ModelConfig {
             id: "openai/test-model".to_owned(),
             name: "Test model".to_owned(),
             description: Some("Model used by integration tests.".to_owned()),
@@ -66,12 +66,12 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryD
             reasoning: ReasoningSupport::Unknown,
             reasoning_levels: Vec::new(),
         }],
-        upstream_targets: vec![UpstreamTargetDefinition {
+        upstream_targets: vec![UpstreamTargetConfig {
             id: "openai-main".to_owned(),
             provider: ProviderKind::OpenAi,
-            real_model: "openai/test-model".to_owned(),
+            model: "openai/test-model".to_owned(),
             base_url: "https://api.openai.com".to_owned(),
-            credential: CredentialDefinition {
+            credential: CredentialConfig {
                 id: "openai-primary".to_owned(),
                 kind: CredentialKind::ApiKey,
                 environment_variable: "OPENAI_API_KEY".to_owned(),
@@ -80,64 +80,64 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryD
             fault_domain: None,
             request_timeout: Duration::from_secs(120),
             enabled: true,
-            offerings: vec![
-                NativeOfferingDefinition {
+            upstream_apis: vec![
+                UpstreamApiConfig {
                     id: "chat".to_owned(),
-                    protocol: Protocol::ChatCompletions,
+                    protocol: ApiProtocol::ChatCompletions,
                     upstream_model: upstream_model.to_owned(),
                     endpoint_profile: "public-api".to_owned(),
-                    transport: NativeTransport::HttpJsonSse,
-                    model_constraints: ModelConstraints::default(),
-                    capabilities: NativeOfferingCapabilities::ChatCompletions(
+                    transport: TransportKind::HttpJsonSse,
+                    model_rules: UpstreamApiModelRules::default(),
+                    capabilities: UpstreamApiCapabilities::ChatCompletions(
                         capabilities().chat_completions,
                     ),
-                    state_policy: StatePolicy::Stateless,
+                    state_affinity: StateAffinity::Unbound,
                 },
-                NativeOfferingDefinition {
+                UpstreamApiConfig {
                     id: "responses".to_owned(),
-                    protocol: Protocol::Responses,
+                    protocol: ApiProtocol::Responses,
                     upstream_model: upstream_model.to_owned(),
                     endpoint_profile: "public-api".to_owned(),
-                    transport: NativeTransport::HttpJsonSse,
-                    model_constraints: ModelConstraints::default(),
-                    capabilities: NativeOfferingCapabilities::Responses(capabilities().responses),
-                    state_policy: StatePolicy::ProviderBound,
+                    transport: TransportKind::HttpJsonSse,
+                    model_rules: UpstreamApiModelRules::default(),
+                    capabilities: UpstreamApiCapabilities::Responses(capabilities().responses),
+                    state_affinity: StateAffinity::TargetBound,
                 },
             ],
         }],
-        serving_routes: vec![
-            ServingRouteDefinition {
+        routes: vec![
+            RouteConfig {
                 id: "public-chat".to_owned(),
                 upstream_target: "openai-main".to_owned(),
-                offering: "chat".to_owned(),
-                downstream_protocol: Protocol::ChatCompletions,
-                mode: ServingRouteMode::Native,
+                upstream_api: "chat".to_owned(),
+                downstream_protocol: ApiProtocol::ChatCompletions,
+                mode: RouteMode::Native,
             },
-            ServingRouteDefinition {
+            RouteConfig {
                 id: "public-responses".to_owned(),
                 upstream_target: "openai-main".to_owned(),
-                offering: "responses".to_owned(),
-                downstream_protocol: Protocol::Responses,
-                mode: ServingRouteMode::Native,
+                upstream_api: "responses".to_owned(),
+                downstream_protocol: ApiProtocol::Responses,
+                mode: RouteMode::Native,
             },
         ],
-        public_models: vec![PublicModelDefinition {
+        public_models: vec![PublicModelConfig {
             name: alias.to_owned(),
-            serving_routes: vec!["public-chat".to_owned(), "public-responses".to_owned()],
+            routes: vec!["public-chat".to_owned(), "public-responses".to_owned()],
         }],
     }
 }
 
 pub fn prepare(
-    snapshot: &RegistrySnapshot,
-    protocol: Protocol,
+    registry: &RuntimeRegistry,
+    protocol: ApiProtocol,
     body: bytes::Bytes,
-) -> Result<RoutePlan, RouteError> {
+) -> Result<RoutePlan, RequestPlanningError> {
     let profile = analyze_request(protocol, &body)?;
-    plan_request(snapshot, &profile, body)
+    plan_request(registry, &profile, body)
 }
 
-pub fn snapshot(version: &str, alias: &str, upstream_model: &str) -> RegistrySnapshot {
+pub fn registry(version: &str, alias: &str, upstream_model: &str) -> RuntimeRegistry {
     build_registry(
         bootstrap(BOOTSTRAP),
         definition(version, alias, upstream_model),

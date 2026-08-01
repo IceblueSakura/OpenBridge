@@ -19,10 +19,10 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
-    ingress::{AppState, StaticBearerCredential, build_router},
-    provider::{CredentialSource, UpstreamRequestParts},
-    registry::{RegistryDefinition, ResolvedUpstreamTarget, build_registry},
-    transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
+    ingress::{DownstreamCredential, GatewayState, build_router},
+    provider::{CredentialSource, PreparedUpstreamRequest},
+    registry::{RegistryConfig, UpstreamTarget, build_registry},
+    transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
 use serde_json::Value;
@@ -77,21 +77,21 @@ struct FailoverTransport {
 impl UpstreamTransport for TimeoutTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
-        Box::pin(async { Err(UpstreamError::Timeout) })
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async { Err(TransportError::Timeout) })
     }
 }
 
 impl UpstreamTransport for NonSseErrorTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         Box::pin(async {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -107,10 +107,10 @@ impl UpstreamTransport for NonSseErrorTransport {
 impl UpstreamTransport for RateLimitedTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         *self.attempts.lock().unwrap() += 1;
         Box::pin(async {
             let mut response_headers = HeaderMap::new();
@@ -129,10 +129,10 @@ impl UpstreamTransport for RateLimitedTransport {
 impl UpstreamTransport for InvalidSseTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         Box::pin(async {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
@@ -150,10 +150,10 @@ impl UpstreamTransport for InvalidSseTransport {
 impl UpstreamTransport for EofWithoutTerminalTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         Box::pin(async {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
@@ -171,10 +171,10 @@ impl UpstreamTransport for EofWithoutTerminalTransport {
 impl UpstreamTransport for PartialStreamFailureTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         self.attempts.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
             let mut response_headers = HeaderMap::new();
@@ -195,10 +195,10 @@ impl UpstreamTransport for PartialStreamFailureTransport {
 impl UpstreamTransport for PendingSseTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        _request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         let signal = DropSignal(self.dropped.clone());
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
@@ -219,10 +219,10 @@ impl UpstreamTransport for PendingSseTransport {
 impl UpstreamTransport for RecordingTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         let path = request.relative_uri().path().to_owned();
         self.requests.lock().unwrap().push(RecordedRequest {
             path: path.clone(),
@@ -261,10 +261,10 @@ impl UpstreamTransport for RecordingTransport {
 impl UpstreamTransport for FailoverTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         let model = serde_json::from_slice::<Value>(request.body()).unwrap()["model"]
             .as_str()
             .unwrap()
@@ -294,13 +294,13 @@ fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
 
 fn app_with_transport_and_definition(
     transport: Arc<dyn UpstreamTransport>,
-    definition: RegistryDefinition,
+    definition: RegistryConfig,
 ) -> axum::Router {
-    let snapshot = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
-    let state = AppState::new(
-        Arc::new(snapshot),
+    let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+    let state = GatewayState::new(
+        Arc::new(registry),
         transport,
-        StaticBearerCredential::new(SecretString::from("downstream-token".to_owned())),
+        DownstreamCredential::new(SecretString::from("downstream-token".to_owned())),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-token".to_owned()),
@@ -381,19 +381,17 @@ async fn streaming_requests_fail_over_to_the_next_compatible_target_before_outpu
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.offerings[1].upstream_model = "fallback-model".to_owned();
+    fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
-    definition
-        .serving_routes
-        .push(openbridge::registry::ServingRouteDefinition {
-            id: "fallback-responses".to_owned(),
-            upstream_target: "openai-fallback".to_owned(),
-            offering: "responses".to_owned(),
-            downstream_protocol: openbridge::core::Protocol::Responses,
-            mode: openbridge::registry::ServingRouteMode::Native,
-        });
+    definition.routes.push(openbridge::registry::RouteConfig {
+        id: "fallback-responses".to_owned(),
+        upstream_target: "openai-fallback".to_owned(),
+        upstream_api: "responses".to_owned(),
+        downstream_protocol: openbridge::core::ApiProtocol::Responses,
+        mode: openbridge::registry::RouteMode::Native,
+    });
     definition.public_models[0]
-        .serving_routes
+        .routes
         .push("fallback-responses".to_owned());
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
@@ -420,26 +418,24 @@ async fn streaming_requests_fail_over_to_the_next_compatible_target_before_outpu
 #[tokio::test]
 async fn provider_bound_streams_do_not_fall_back_to_another_target() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
-    if let openbridge::registry::NativeOfferingCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[0].offerings[1].capabilities
+    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
         capabilities.previous_response_id = true;
     }
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.offerings[1].upstream_model = "fallback-model".to_owned();
+    fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
-    definition
-        .serving_routes
-        .push(openbridge::registry::ServingRouteDefinition {
-            id: "fallback-responses".to_owned(),
-            upstream_target: "openai-fallback".to_owned(),
-            offering: "responses".to_owned(),
-            downstream_protocol: openbridge::core::Protocol::Responses,
-            mode: openbridge::registry::ServingRouteMode::Native,
-        });
+    definition.routes.push(openbridge::registry::RouteConfig {
+        id: "fallback-responses".to_owned(),
+        upstream_target: "openai-fallback".to_owned(),
+        upstream_api: "responses".to_owned(),
+        downstream_protocol: openbridge::core::ApiProtocol::Responses,
+        mode: openbridge::registry::RouteMode::Native,
+    });
     definition.public_models[0]
-        .serving_routes
+        .routes
         .push("fallback-responses".to_owned());
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);

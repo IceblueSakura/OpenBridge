@@ -7,7 +7,7 @@
 
 mod auth;
 
-pub use auth::StaticBearerCredential;
+pub use auth::DownstreamCredential;
 
 use std::{io, sync::Arc};
 
@@ -34,16 +34,13 @@ use tower_http::{
 };
 
 use crate::{
-    core::Protocol,
-    pipeline::{RouteError, analyze_request, plan_request},
-    provider::{
-        CredentialSource, ErrorAdapter, EventDisposition, ProviderAdapter, RequestAdapter,
-        ResponseAdapter,
-    },
-    registry::RegistrySnapshot,
+    core::ApiProtocol,
+    pipeline::{RequestPlanningError, analyze_request, plan_request},
+    provider::{CredentialSource, ProviderAdapter, StreamEventStatus},
+    registry::RuntimeRegistry,
     transport::{
         sse::SseDecoder,
-        upstream::{UpstreamClient, UpstreamError, UpstreamTransport},
+        upstream::{TransportError, UpstreamClient, UpstreamTransport},
     },
 };
 
@@ -52,19 +49,19 @@ use crate::{
 /// 编译期注册表在启动后保持不可变；上游 transport 与 credential source 以 trait/值对象
 /// 注入，因此 contract test 可以验证 HTTP/SSE 边界而无需真实 provider 或明文环境 secret。
 #[derive(Clone)]
-pub struct AppState {
-    registry: Arc<RegistrySnapshot>,
+pub struct GatewayState {
+    registry: Arc<RuntimeRegistry>,
     upstream: Arc<dyn UpstreamTransport>,
-    downstream_credential: Arc<StaticBearerCredential>,
+    downstream_credential: Arc<DownstreamCredential>,
     upstream_credentials: Arc<CredentialSource>,
 }
 
-impl AppState {
+impl GatewayState {
     /// 创建可注入 transport 与 credential source 的服务状态。
     pub fn new(
-        registry: Arc<RegistrySnapshot>,
+        registry: Arc<RuntimeRegistry>,
         upstream: Arc<dyn UpstreamTransport>,
-        downstream_credential: StaticBearerCredential,
+        downstream_credential: DownstreamCredential,
         upstream_credentials: CredentialSource,
     ) -> Self {
         Self {
@@ -77,9 +74,9 @@ impl AppState {
 
     /// 创建使用环境变量读取上游 credential 的生产运行时状态。
     pub fn with_environment_credentials(
-        registry: Arc<RegistrySnapshot>,
+        registry: Arc<RuntimeRegistry>,
         upstream: UpstreamClient,
-        downstream_credential: StaticBearerCredential,
+        downstream_credential: DownstreamCredential,
     ) -> Self {
         Self::new(
             registry,
@@ -94,8 +91,8 @@ impl AppState {
 ///
 /// body limit 和 request id 在认证前统一施加；`Authorization` 被标为 sensitive，避免
 /// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
-/// 从而不暴露内部 Public Model/Serving Route 信息给匿名请求。
-pub fn build_router(state: AppState) -> Router {
+/// 从而不暴露内部 Public Model/Route 信息给匿名请求。
+pub fn build_router(state: GatewayState) -> Router {
     let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
     let middleware = ServiceBuilder::new()
@@ -123,7 +120,7 @@ pub fn build_router(state: AppState) -> Router {
 }
 
 async fn require_downstream_credential(
-    State(credential): State<Arc<StaticBearerCredential>>,
+    State(credential): State<Arc<DownstreamCredential>>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -142,7 +139,7 @@ async fn require_downstream_credential(
     }
 }
 
-async fn models(State(state): State<AppState>) -> Json<ModelListResponse> {
+async fn models(State(state): State<GatewayState>) -> Json<ModelListResponse> {
     let data = state
         .registry
         .public_models()
@@ -172,21 +169,21 @@ struct PublicModel {
 }
 
 async fn chat_completions(
-    State(state): State<AppState>,
+    State(state): State<GatewayState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, Protocol::ChatCompletions, body).await
+    forward_native(state, ApiProtocol::ChatCompletions, body).await
 }
 
-async fn responses(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn responses(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
-    forward_native(state, Protocol::Responses, body).await
+    forward_native(state, ApiProtocol::Responses, body).await
 }
 
 fn has_json_content_type(headers: &HeaderMap) -> bool {
@@ -214,20 +211,20 @@ fn unsupported_media_type() -> Response {
 
 /// 将一个已经过 HTTP 输入检查的原生请求送往有序 candidate。
 ///
-/// 每次调用共享启动时构建的不可变 snapshot。仅 streaming 请求可在**尚未返回任何下游
+/// 每次调用共享启动时构建的不可变 registry。仅 streaming 请求可在**尚未返回任何下游
 /// body**时重试：一旦 `UpstreamResponse`
 /// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
-/// 上游尝试。`previous_response_id` 等 provider-bound state 会令 pipeline 关闭跨 candidate
+/// 上游尝试。`previous_response_id` 等 target-bound state 会令 pipeline 关闭跨 candidate
 /// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
-async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Response {
+async fn forward_native(state: GatewayState, protocol: ApiProtocol, body: Bytes) -> Response {
     const MAX_UPSTREAM_ATTEMPTS: usize = 2;
 
-    let snapshot = state.registry.clone();
+    let registry = state.registry.clone();
     let profile = match analyze_request(protocol, &body) {
         Ok(profile) => profile,
         Err(error) => return route_error(error),
     };
-    let plan = match plan_request(&snapshot, &profile, body) {
+    let plan = match plan_request(&registry, &profile, body) {
         Ok(plan) => plan,
         Err(error) => return route_error(error),
     };
@@ -240,18 +237,18 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
-        let Some(target) = snapshot.upstream_target(candidate.upstream_target_id()) else {
+        let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",
                 "Configured upstream target is unavailable",
             );
         };
-        let Some(offering) = target.offering(candidate.offering_id()) else {
+        let Some(upstream_api) = target.upstream_api(candidate.upstream_api_id()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",
-                "Configured native offering is unavailable",
+                "Configured native upstream API is unavailable",
             );
         };
         let credential = match state.upstream_credentials.resolve(
@@ -279,16 +276,17 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                 );
             }
         };
-        let request = match adapter.encode_request(candidate.request(), offering.upstream_model()) {
-            Ok(request) => request,
-            Err(_) => {
-                return api_error(
-                    StatusCode::BAD_REQUEST,
-                    "unsupported_request",
-                    "Request is not supported by the selected provider",
-                );
-            }
-        };
+        let request =
+            match adapter.prepare_request(candidate.request(), upstream_api.upstream_model()) {
+                Ok(request) => request,
+                Err(_) => {
+                    return api_error(
+                        StatusCode::BAD_REQUEST,
+                        "unsupported_request",
+                        "Request is not supported by the selected provider",
+                    );
+                }
+            };
 
         for attempt in 0..MAX_UPSTREAM_ATTEMPTS {
             match state
@@ -310,7 +308,7 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                         plan.is_streaming(),
                         protocol,
                         adapter,
-                        snapshot.limits().max_sse_event_bytes(),
+                        registry.limits().max_sse_event_bytes(),
                     );
                 }
                 Ok(upstream) => {
@@ -319,7 +317,7 @@ async fn forward_native(state: AppState, protocol: Protocol, body: Bytes) -> Res
                         plan.is_streaming(),
                         protocol,
                         adapter,
-                        snapshot.limits().max_sse_event_bytes(),
+                        registry.limits().max_sse_event_bytes(),
                     );
                 }
                 Err(error) if should_retry_error(&error) && plan.is_streaming() => {
@@ -347,8 +345,8 @@ fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode) -> bool {
     adapter.classify_status(status).retry_hint() == crate::provider::RetryHint::BeforeFirstEvent
 }
 
-fn should_retry_error(error: &UpstreamError) -> bool {
-    matches!(error, UpstreamError::Timeout | UpstreamError::Request(_))
+fn should_retry_error(error: &TransportError) -> bool {
+    matches!(error, TransportError::Timeout | TransportError::Request(_))
 }
 
 /// 将上游 status、白名单响应头和 body 交给下游。
@@ -359,7 +357,7 @@ fn should_retry_error(error: &UpstreamError) -> bool {
 fn upstream_response(
     upstream: crate::transport::upstream::UpstreamResponse,
     validate_sse: bool,
-    protocol: Protocol,
+    protocol: ApiProtocol,
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
 ) -> Response {
@@ -394,7 +392,7 @@ fn upstream_response(
 /// `source` 一并 drop，从而取消 reqwest 的上游字节流。
 fn validate_sse_body(
     body: axum::body::Body,
-    protocol: Protocol,
+    protocol: ApiProtocol,
     adapter: ProviderAdapter,
     max_sse_event_bytes: usize,
 ) -> axum::body::Body {
@@ -465,13 +463,15 @@ fn validate_sse_body(
 
 fn observe_sse_events(
     adapter: ProviderAdapter,
-    protocol: Protocol,
+    protocol: ApiProtocol,
     events: Vec<crate::transport::sse::SseEvent>,
     terminal_seen: &mut bool,
 ) -> Result<(), ()> {
     for event in events {
-        let decoded = adapter.decode_event(protocol, event).map_err(|_| ())?;
-        if decoded.disposition() != EventDisposition::Continue {
+        let decoded = adapter
+            .classify_sse_event(protocol, event)
+            .map_err(|_| ())?;
+        if decoded.status() != StreamEventStatus::Continue {
             *terminal_seen = true;
         }
     }
@@ -498,24 +498,24 @@ fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
     filtered
 }
 
-fn route_error(error: RouteError) -> Response {
+fn route_error(error: RequestPlanningError) -> Response {
     match error {
-        RouteError::InvalidJson | RouteError::MissingModel => api_error(
+        RequestPlanningError::InvalidJson | RequestPlanningError::MissingModel => api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
             "Request body is invalid",
         ),
-        RouteError::UnknownModel | RouteError::NoServingRoute => api_error(
+        RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => api_error(
             StatusCode::NOT_FOUND,
             "model_not_found",
             "The requested model is not available",
         ),
-        RouteError::UnsupportedProtocol
-        | RouteError::StreamingUnsupported
-        | RouteError::UnsupportedCapabilities
-        | RouteError::OutputLimitExceeded
-        | RouteError::ReasoningUnsupported
-        | RouteError::ReasoningLevelUnsupported => api_error(
+        RequestPlanningError::UnsupportedProtocol
+        | RequestPlanningError::StreamingUnsupported
+        | RequestPlanningError::UnsupportedCapabilities
+        | RequestPlanningError::OutputLimitExceeded
+        | RequestPlanningError::ReasoningUnsupported
+        | RequestPlanningError::ReasoningLevelUnsupported => api_error(
             StatusCode::BAD_REQUEST,
             "unsupported_request",
             "The selected model does not support this request",
@@ -523,9 +523,9 @@ fn route_error(error: RouteError) -> Response {
     }
 }
 
-fn upstream_error(error: UpstreamError) -> Response {
+fn upstream_error(error: TransportError) -> Response {
     match error {
-        UpstreamError::Timeout => api_error(
+        TransportError::Timeout => api_error(
             StatusCode::GATEWAY_TIMEOUT,
             "upstream_timeout",
             "The upstream request timed out",
@@ -544,7 +544,7 @@ struct HealthResponse {
     registry_version: String,
 }
 
-async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
+async fn health(State(state): State<GatewayState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         registry_version: state.registry.version().as_str().to_owned(),

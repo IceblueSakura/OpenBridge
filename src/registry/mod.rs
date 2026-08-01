@@ -1,8 +1,8 @@
-//! 编译期 Real Model、Upstream Target、Native Offering、Public Model 与 Serving Route 注册表。
+//! 编译期 Model、Upstream Target、Upstream API、Public Model 与 Route 注册表。
 //!
-//! 模型事实由 `src/models/*` 构造，target/offering/route 由 `src/providers/*` 构造。
+//! 模型事实由 `src/models/*` 构造，target/upstream API/route 由 `src/providers/*` 构造。
 //! 启动时 builder 对完整定义执行引用、能力和安全边界校验，成功后生成请求路径只读的
-//! `RegistrySnapshot`。
+//! `RuntimeRegistry`。
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -13,8 +13,8 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    config::{BootstrapPolicy, RuntimeLimits, UpstreamPolicy},
-    core::{CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities},
+    config::{BootstrapConfig, HttpClientConfig, RuntimeLimits},
+    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -86,7 +86,7 @@ impl ModelContextLength {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RealModelDefinition {
+pub struct ModelConfig {
     /// 目录内部稳定的模型 id。
     pub id: String,
     /// 给客户端展示的模型名称。
@@ -104,17 +104,17 @@ pub struct RealModelDefinition {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ModelConstraints {
-    /// offering 可进一步收紧的上下文长度。
+pub struct UpstreamApiModelRules {
+    /// Upstream API 可进一步收紧的上下文长度。
     pub context_length: ModelContextLength,
-    /// offering 可进一步收紧的 reasoning 状态。
+    /// Upstream API 可进一步收紧的 reasoning 状态。
     pub reasoning: Option<ReasoningSupport>,
-    /// offering 禁用但不能新增的参数名。
+    /// Upstream API 禁用但不能新增的参数名。
     pub disabled_parameters: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CredentialDefinition {
+pub struct CredentialConfig {
     /// 注册表中的 credential id。
     pub id: String,
     /// adapter 支持的 credential 类型。
@@ -124,20 +124,20 @@ pub struct CredentialDefinition {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NativeOfferingCapabilities {
-    ChatCompletions(ProtocolCapabilities),
+pub enum UpstreamApiCapabilities {
+    ChatCompletions(EndpointCapabilities),
     Responses(ResponsesCapabilities),
 }
 
-impl NativeOfferingCapabilities {
-    pub const fn protocol(self) -> Protocol {
+impl UpstreamApiCapabilities {
+    pub const fn protocol(self) -> ApiProtocol {
         match self {
-            Self::ChatCompletions(_) => Protocol::ChatCompletions,
-            Self::Responses(_) => Protocol::Responses,
+            Self::ChatCompletions(_) => ApiProtocol::ChatCompletions,
+            Self::Responses(_) => ApiProtocol::Responses,
         }
     }
 
-    pub const fn protocol_capabilities(self) -> ProtocolCapabilities {
+    pub const fn protocol_capabilities(self) -> EndpointCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities,
             Self::Responses(capabilities) => capabilities.protocol_capabilities(),
@@ -151,7 +151,7 @@ impl NativeOfferingCapabilities {
         }
     }
 
-    const fn is_subset_of(self, upper: CapabilitySet) -> bool {
+    const fn is_subset_of(self, upper: ApiCapabilities) -> bool {
         match self {
             Self::ChatCompletions(capabilities) => {
                 capabilities.is_subset_of(upper.chat_completions)
@@ -162,48 +162,48 @@ impl NativeOfferingCapabilities {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NativeTransport {
+pub enum TransportKind {
     HttpJsonSse,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StatePolicy {
-    Stateless,
-    ProviderBound,
+pub enum StateAffinity {
+    Unbound,
+    TargetBound,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NativeOfferingDefinition {
-    /// target 内稳定的 offering id。
+pub struct UpstreamApiConfig {
+    /// target 内稳定的 Upstream API id。
     pub id: String,
-    /// offering 原生提供的协议。
-    pub protocol: Protocol,
+    /// Upstream API 原生提供的协议。
+    pub protocol: ApiProtocol,
     /// 发往上游的真实模型 id。
     pub upstream_model: String,
     /// provider 允许的 endpoint profile。
     pub endpoint_profile: String,
     /// 当前原生 transport profile。
-    pub transport: NativeTransport,
-    /// 对 Real Model 事实的 offering 级收窄。
-    pub model_constraints: ModelConstraints,
+    pub transport: TransportKind,
+    /// 对 Model 事实的 Upstream API 级收窄规则。
+    pub model_rules: UpstreamApiModelRules,
     /// 单协议能力证据。
-    pub capabilities: NativeOfferingCapabilities,
+    pub capabilities: UpstreamApiCapabilities,
     /// continuation/state 所有权策略。
-    pub state_policy: StatePolicy,
+    pub state_affinity: StateAffinity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UpstreamTargetDefinition {
+pub struct UpstreamTargetConfig {
     /// 注册表中的 target id。
     pub id: String,
     /// 编译期 Provider Family。
     pub provider: ProviderKind,
-    /// 引用的 Real Model id。
-    pub real_model: String,
+    /// 引用的 Model id。
+    pub model: String,
     /// 经过校验的 HTTPS endpoint base。
     pub base_url: String,
     /// target 使用的 credential binding。
-    pub credential: CredentialDefinition,
+    pub credential: CredentialConfig,
     /// 可选的明确共享 quota scope。
     pub quota_scope: Option<String>,
     /// 可选的故障/cooldown 域。
@@ -213,43 +213,43 @@ pub struct UpstreamTargetDefinition {
     /// 是否允许新的无状态请求选择该 target。
     pub enabled: bool,
     /// target 原生提供的协议级供应。
-    pub offerings: Vec<NativeOfferingDefinition>,
+    pub upstream_apis: Vec<UpstreamApiConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ServingRouteMode {
+pub enum RouteMode {
     Native,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ServingRouteDefinition {
+pub struct RouteConfig {
     pub id: String,
     pub upstream_target: String,
-    pub offering: String,
-    pub downstream_protocol: Protocol,
-    pub mode: ServingRouteMode,
+    pub upstream_api: String,
+    pub downstream_protocol: ApiProtocol,
+    pub mode: RouteMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PublicModelDefinition {
+pub struct PublicModelConfig {
     /// 对下游公开的稳定 model name。
     pub name: String,
-    /// 按优先级排列的完整 Serving Route id。
-    pub serving_routes: Vec<String>,
+    /// 按优先级排列的完整 Route id。
+    pub routes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RegistryDefinition {
+pub struct RegistryConfig {
     /// 用于报告和审计的注册表版本。
     pub version: String,
     /// 完整模型定义集合。
-    pub real_models: Vec<RealModelDefinition>,
+    pub models: Vec<ModelConfig>,
     /// 完整 Upstream Target 定义集合。
-    pub upstream_targets: Vec<UpstreamTargetDefinition>,
-    /// 完整 Serving Route 定义集合。
-    pub serving_routes: Vec<ServingRouteDefinition>,
+    pub upstream_targets: Vec<UpstreamTargetConfig>,
+    /// 完整 Route 定义集合。
+    pub routes: Vec<RouteConfig>,
     /// 完整 Public Model 定义集合。
-    pub public_models: Vec<PublicModelDefinition>,
+    pub public_models: Vec<PublicModelConfig>,
 }
 
 /// 编译期注册表定义不完整、引用不一致或尝试越权时返回的错误。
@@ -276,34 +276,34 @@ pub enum RegistryError {
     InvalidBaseUrl { upstream_target: String },
     #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
     InvalidRequestTimeout { upstream_target: String },
-    #[error("upstream target '{upstream_target}' must contain at least one offering")]
+    #[error("upstream target '{upstream_target}' must contain at least one upstream API")]
     EmptyUpstreamTarget { upstream_target: String },
-    #[error("upstream target '{upstream_target}' contains duplicate offering '{offering}'")]
-    DuplicateOffering {
+    #[error("upstream target '{upstream_target}' contains duplicate upstream API '{upstream_api}'")]
+    DuplicateUpstreamApi {
         upstream_target: String,
-        offering: String,
+        upstream_api: String,
     },
     #[error(
-        "offering '{offering}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
     )]
     UnsupportedEndpointProfile {
         upstream_target: String,
-        offering: String,
+        upstream_api: String,
         profile: String,
     },
     #[error(
-        "offering '{offering}' on upstream target '{upstream_target}' upstream model must not be blank"
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' upstream model must not be blank"
     )]
     BlankUpstreamModel {
         upstream_target: String,
-        offering: String,
+        upstream_api: String,
     },
     #[error(
-        "offering '{offering}' on upstream target '{upstream_target}' capability type does not match protocol"
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match protocol"
     )]
-    OfferingProtocolMismatch {
+    UpstreamApiProtocolMismatch {
         upstream_target: String,
-        offering: String,
+        upstream_api: String,
     },
     #[error("model '{model}' field '{field}' must not be blank")]
     BlankModelField { model: String, field: &'static str },
@@ -313,48 +313,51 @@ pub enum RegistryError {
     InvalidSupportedParameter { model: String, parameter: String },
     #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
     DuplicateSupportedParameter { model: String, parameter: String },
-    #[error("model '{model}' has inconsistent reasoning metadata: {detail}")]
-    InconsistentReasoningMetadata { model: String, detail: &'static str },
-    #[error("offering '{offering}' model constraint '{field}' must be greater than zero")]
-    InvalidOfferingModelConstraint {
-        offering: String,
+    #[error("model '{model}' has inconsistent reasoning configuration: {detail}")]
+    InconsistentReasoningConfig { model: String, detail: &'static str },
+    #[error("upstream API '{upstream_api}' model rule '{field}' must be greater than zero")]
+    InvalidUpstreamApiModelRule {
+        upstream_api: String,
         field: &'static str,
     },
-    #[error("offering '{offering}' model constraint '{field}' exceeds the model limit")]
-    OfferingModelConstraintExceedsModelLimit {
-        offering: String,
+    #[error("upstream API '{upstream_api}' model rule '{field}' exceeds the model limit")]
+    UpstreamApiModelLimitExceedsModel {
+        upstream_api: String,
         field: &'static str,
     },
-    #[error("offering '{offering}' model constraint '{field}' widens the model metadata")]
-    OfferingModelConstraintWidensModelMetadata {
-        offering: String,
+    #[error("upstream API '{upstream_api}' model rule '{field}' widens the model information")]
+    UpstreamApiModelRuleWidensModel {
+        upstream_api: String,
         field: &'static str,
     },
-    #[error("offering '{offering}' model constraint disables undeclared parameter '{parameter}'")]
-    OfferingModelConstraintDisablesUndeclaredParameter { offering: String, parameter: String },
-    #[error("offering '{offering}' model constraints are inconsistent: {detail}")]
-    InconsistentOfferingModelConstraints {
-        offering: String,
+    #[error("upstream API '{upstream_api}' model rule disables undeclared parameter '{parameter}'")]
+    UpstreamApiModelRuleDisablesUnknownParameter {
+        upstream_api: String,
+        parameter: String,
+    },
+    #[error("upstream API '{upstream_api}' model rules are inconsistent: {detail}")]
+    InconsistentUpstreamApiModelRules {
+        upstream_api: String,
         detail: &'static str,
     },
     #[error(
-        "offering '{offering}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
     )]
     CapabilityElevation {
         upstream_target: String,
-        offering: String,
+        upstream_api: String,
     },
-    #[error("native serving route '{route}' protocol does not match its offering")]
+    #[error("native route '{route}' protocol does not match its upstream API")]
     NativeRouteProtocolMismatch { route: String },
-    #[error("public model '{public_model}' contains duplicate serving route '{route}'")]
+    #[error("public model '{public_model}' contains duplicate route '{route}'")]
     DuplicatePublicModelRoute { public_model: String, route: String },
-    #[error("public model '{public_model}' must contain at least one serving route")]
+    #[error("public model '{public_model}' must contain at least one route")]
     EmptyPublicModel { public_model: String },
 }
 
 /// 启动后供请求路径读取的模型元数据。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ModelMetadata {
+pub struct ModelInfo {
     id: String,
     name: String,
     description: Option<String>,
@@ -364,7 +367,7 @@ pub struct ModelMetadata {
     reasoning_levels: Vec<ReasoningLevel>,
 }
 
-impl ModelMetadata {
+impl ModelInfo {
     /// 返回稳定模型 id。
     pub fn id(&self) -> &str {
         &self.id
@@ -402,16 +405,16 @@ impl ModelMetadata {
 }
 
 #[derive(Debug)]
-pub struct RegistrySnapshot {
+pub struct RuntimeRegistry {
     version: RegistryVersion,
-    bootstrap: BootstrapPolicy,
-    real_models: BTreeMap<String, ModelMetadata>,
-    upstream_targets: BTreeMap<String, ResolvedUpstreamTarget>,
-    serving_routes: BTreeMap<String, ResolvedServingRoute>,
-    public_models: BTreeMap<String, ResolvedPublicModel>,
+    bootstrap: BootstrapConfig,
+    models: BTreeMap<String, ModelInfo>,
+    upstream_targets: BTreeMap<String, UpstreamTarget>,
+    routes: BTreeMap<String, Route>,
+    public_models: BTreeMap<String, PublicModel>,
 }
 
-impl RegistrySnapshot {
+impl RuntimeRegistry {
     /// 返回编译期注册表版本。
     pub fn version(&self) -> &RegistryVersion {
         &self.version
@@ -428,17 +431,17 @@ impl RegistrySnapshot {
     }
 
     /// 返回上游 HTTP client 策略。
-    pub fn upstream_policy(&self) -> &UpstreamPolicy {
-        self.bootstrap.upstream_policy()
+    pub fn http_client(&self) -> &HttpClientConfig {
+        self.bootstrap.http_client()
     }
 
     /// 按内部模型 id 查询模型元数据。
-    pub fn real_model(&self, id: &str) -> Option<&ModelMetadata> {
-        self.real_models.get(id)
+    pub fn model(&self, id: &str) -> Option<&ModelInfo> {
+        self.models.get(id)
     }
 
     /// 按内部 target id 查询解析结果。
-    pub fn upstream_target(&self, id: &str) -> Option<&ResolvedUpstreamTarget> {
+    pub fn upstream_target(&self, id: &str) -> Option<&UpstreamTarget> {
         self.upstream_targets.get(id)
     }
 
@@ -447,11 +450,11 @@ impl RegistrySnapshot {
         self.upstream_targets.keys().map(String::as_str)
     }
 
-    pub fn serving_route(&self, id: &str) -> Option<&ResolvedServingRoute> {
-        self.serving_routes.get(id)
+    pub fn route(&self, id: &str) -> Option<&Route> {
+        self.routes.get(id)
     }
 
-    pub fn public_model(&self, name: &str) -> Option<&ResolvedPublicModel> {
+    pub fn public_model(&self, name: &str) -> Option<&PublicModel> {
         self.public_models.get(name)
     }
 
@@ -472,13 +475,13 @@ impl RegistryVersion {
 }
 
 #[derive(Debug)]
-pub struct ResolvedCredential {
+pub struct CredentialBinding {
     id: String,
     kind: CredentialKind,
-    secret_reference: SecretReference,
+    secret_reference: SecretLocator,
 }
 
-impl ResolvedCredential {
+impl CredentialBinding {
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -487,35 +490,35 @@ impl ResolvedCredential {
         self.kind
     }
 
-    pub fn secret_reference(&self) -> &SecretReference {
+    pub fn secret_reference(&self) -> &SecretLocator {
         &self.secret_reference
     }
 }
 
 #[derive(Debug)]
-pub struct ResolvedUpstreamTarget {
+pub struct UpstreamTarget {
     kind: ProviderKind,
-    credential: ResolvedCredential,
-    real_model_id: String,
+    credential: CredentialBinding,
+    model_id: String,
     endpoint_base: Url,
     quota_scope: Option<String>,
     fault_domain: Option<String>,
     request_timeout: Duration,
     enabled: bool,
-    offerings: BTreeMap<String, ResolvedNativeOffering>,
+    upstream_apis: BTreeMap<String, UpstreamApi>,
 }
 
-impl ResolvedUpstreamTarget {
+impl UpstreamTarget {
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
-    pub fn credential(&self) -> &ResolvedCredential {
+    pub fn credential(&self) -> &CredentialBinding {
         &self.credential
     }
 
-    pub fn real_model_id(&self) -> &str {
-        &self.real_model_id
+    pub fn model_id(&self) -> &str {
+        &self.model_id
     }
 
     pub fn endpoint_base(&self) -> &Url {
@@ -538,29 +541,29 @@ impl ResolvedUpstreamTarget {
         self.enabled
     }
 
-    pub fn offering(&self, id: &str) -> Option<&ResolvedNativeOffering> {
-        self.offerings.get(id)
+    pub fn upstream_api(&self, id: &str) -> Option<&UpstreamApi> {
+        self.upstream_apis.get(id)
     }
 
-    pub fn offering_for_protocol(&self, protocol: Protocol) -> Option<&ResolvedNativeOffering> {
-        self.offerings
+    pub fn upstream_api_for_protocol(&self, protocol: ApiProtocol) -> Option<&UpstreamApi> {
+        self.upstream_apis
             .values()
-            .find(|offering| offering.protocol() == protocol)
+            .find(|upstream_api| upstream_api.protocol() == protocol)
     }
 
-    pub fn offerings(&self) -> impl Iterator<Item = (&str, &ResolvedNativeOffering)> {
-        self.offerings
+    pub fn upstream_apis(&self) -> impl Iterator<Item = (&str, &UpstreamApi)> {
+        self.upstream_apis
             .iter()
-            .map(|(id, offering)| (id.as_str(), offering))
+            .map(|(id, upstream_api)| (id.as_str(), upstream_api))
     }
 }
 
 #[derive(Debug)]
-pub struct SecretReference {
+pub struct SecretLocator {
     locator: String,
 }
 
-impl SecretReference {
+impl SecretLocator {
     /// 返回 locator scheme；当前固定为环境变量 `env`。
     pub fn scheme(&self) -> &'static str {
         "env"
@@ -573,22 +576,22 @@ impl SecretReference {
 }
 
 #[derive(Debug)]
-pub struct ResolvedNativeOffering {
-    protocol: Protocol,
-    model: ModelMetadata,
+pub struct UpstreamApi {
+    protocol: ApiProtocol,
+    model: ModelInfo,
     upstream_model: String,
     endpoint_profile: String,
-    transport: NativeTransport,
-    capabilities: NativeOfferingCapabilities,
-    state_policy: StatePolicy,
+    transport: TransportKind,
+    capabilities: UpstreamApiCapabilities,
+    state_affinity: StateAffinity,
 }
 
-impl ResolvedNativeOffering {
-    pub fn protocol(&self) -> Protocol {
+impl UpstreamApi {
+    pub fn protocol(&self) -> ApiProtocol {
         self.protocol
     }
 
-    pub fn model(&self) -> &ModelMetadata {
+    pub fn model(&self) -> &ModelInfo {
         &self.model
     }
 
@@ -600,69 +603,69 @@ impl ResolvedNativeOffering {
         &self.endpoint_profile
     }
 
-    pub fn transport(&self) -> NativeTransport {
+    pub fn transport(&self) -> TransportKind {
         self.transport
     }
 
-    pub fn capabilities(&self) -> NativeOfferingCapabilities {
+    pub fn capabilities(&self) -> UpstreamApiCapabilities {
         self.capabilities
     }
 
-    pub fn state_policy(&self) -> StatePolicy {
-        self.state_policy
+    pub fn state_affinity(&self) -> StateAffinity {
+        self.state_affinity
     }
 }
 
 #[derive(Debug)]
-pub struct ResolvedServingRoute {
+pub struct Route {
     upstream_target: String,
-    offering: String,
-    downstream_protocol: Protocol,
-    mode: ServingRouteMode,
+    upstream_api: String,
+    downstream_protocol: ApiProtocol,
+    mode: RouteMode,
 }
 
-impl ResolvedServingRoute {
+impl Route {
     pub fn upstream_target(&self) -> &str {
         &self.upstream_target
     }
 
-    pub fn offering(&self) -> &str {
-        &self.offering
+    pub fn upstream_api(&self) -> &str {
+        &self.upstream_api
     }
 
-    pub fn downstream_protocol(&self) -> Protocol {
+    pub fn downstream_protocol(&self) -> ApiProtocol {
         self.downstream_protocol
     }
 
-    pub fn mode(&self) -> ServingRouteMode {
+    pub fn mode(&self) -> RouteMode {
         self.mode
     }
 }
 
 #[derive(Debug)]
-pub struct ResolvedPublicModel {
-    serving_routes: Vec<String>,
+pub struct PublicModel {
+    routes: Vec<String>,
 }
 
-impl ResolvedPublicModel {
-    pub fn serving_routes(&self) -> &[String] {
-        &self.serving_routes
+impl PublicModel {
+    pub fn routes(&self) -> &[String] {
+        &self.routes
     }
 }
 
 pub fn build_registry(
-    bootstrap: BootstrapPolicy,
-    definition: RegistryDefinition,
-) -> Result<RegistrySnapshot, RegistryError> {
+    bootstrap: BootstrapConfig,
+    definition: RegistryConfig,
+) -> Result<RuntimeRegistry, RegistryError> {
     if definition.version.trim().is_empty() {
         return Err(RegistryError::BlankVersion);
     }
 
-    let mut real_models = BTreeMap::new();
-    for model in definition.real_models {
-        validate_model_metadata(&model)?;
+    let mut models = BTreeMap::new();
+    for model in definition.models {
+        validate_model_config(&model)?;
         let id = model.id.clone();
-        let resolved = ModelMetadata {
+        let resolved = ModelInfo {
             id: id.clone(),
             name: model.name,
             description: model.description,
@@ -671,7 +674,7 @@ pub fn build_registry(
             reasoning: model.reasoning,
             reasoning_levels: model.reasoning_levels,
         };
-        if real_models.insert(id.clone(), resolved).is_some() {
+        if models.insert(id.clone(), resolved).is_some() {
             return Err(RegistryError::DuplicateId {
                 entity: "model",
                 id,
@@ -701,21 +704,22 @@ pub fn build_registry(
                 id: target.credential.id,
             });
         }
-        let model = real_models
-            .get(&target.real_model)
-            .cloned()
-            .ok_or_else(|| RegistryError::UnknownReference {
-                entity: "upstream target",
-                id: target.id.clone(),
-                target: "real model",
-                reference: target.real_model.clone(),
-            })?;
+        let model =
+            models
+                .get(&target.model)
+                .cloned()
+                .ok_or_else(|| RegistryError::UnknownReference {
+                    entity: "upstream target",
+                    id: target.id.clone(),
+                    target: "real model",
+                    reference: target.model.clone(),
+                })?;
         if target.request_timeout.is_zero() {
             return Err(RegistryError::InvalidRequestTimeout {
                 upstream_target: target.id,
             });
         }
-        if target.offerings.is_empty() {
+        if target.upstream_apis.is_empty() {
             return Err(RegistryError::EmptyUpstreamTarget {
                 upstream_target: target.id,
             });
@@ -725,74 +729,77 @@ pub fn build_registry(
                 upstream_target: target.id.clone(),
             }
         })?;
-        let mut offerings = BTreeMap::new();
-        for offering in target.offerings {
-            if offering.protocol != offering.capabilities.protocol() {
-                return Err(RegistryError::OfferingProtocolMismatch {
+        let mut upstream_apis = BTreeMap::new();
+        for upstream_api in target.upstream_apis {
+            if upstream_api.protocol != upstream_api.capabilities.protocol() {
+                return Err(RegistryError::UpstreamApiProtocolMismatch {
                     upstream_target: target.id,
-                    offering: offering.id,
+                    upstream_api: upstream_api.id,
                 });
             }
-            if offering.upstream_model.trim().is_empty() {
+            if upstream_api.upstream_model.trim().is_empty() {
                 return Err(RegistryError::BlankUpstreamModel {
                     upstream_target: target.id,
-                    offering: offering.id,
+                    upstream_api: upstream_api.id,
                 });
             }
             if !target
                 .provider
-                .accepts_endpoint_profile(&offering.endpoint_profile)
+                .accepts_endpoint_profile(&upstream_api.endpoint_profile)
             {
                 return Err(RegistryError::UnsupportedEndpointProfile {
                     upstream_target: target.id,
-                    offering: offering.id,
-                    profile: offering.endpoint_profile,
+                    upstream_api: upstream_api.id,
+                    profile: upstream_api.endpoint_profile,
                 });
             }
-            if !offering
+            if !upstream_api
                 .capabilities
                 .is_subset_of(target.provider.capabilities())
             {
                 return Err(RegistryError::CapabilityElevation {
                     upstream_target: target.id,
-                    offering: offering.id,
+                    upstream_api: upstream_api.id,
                 });
             }
-            let offering_key = format!("{}/{}", target.id, offering.id);
+            let api_key = format!("{}/{}", target.id, upstream_api.id);
             let effective_model =
-                apply_model_constraints(model.clone(), &offering_key, offering.model_constraints)?;
-            let resolved = ResolvedNativeOffering {
-                protocol: offering.protocol,
+                apply_model_rules(model.clone(), &api_key, upstream_api.model_rules)?;
+            let resolved = UpstreamApi {
+                protocol: upstream_api.protocol,
                 model: effective_model,
-                upstream_model: offering.upstream_model,
-                endpoint_profile: offering.endpoint_profile,
-                transport: offering.transport,
-                capabilities: offering.capabilities,
-                state_policy: offering.state_policy,
+                upstream_model: upstream_api.upstream_model,
+                endpoint_profile: upstream_api.endpoint_profile,
+                transport: upstream_api.transport,
+                capabilities: upstream_api.capabilities,
+                state_affinity: upstream_api.state_affinity,
             };
-            if offerings.insert(offering.id.clone(), resolved).is_some() {
-                return Err(RegistryError::DuplicateOffering {
+            if upstream_apis
+                .insert(upstream_api.id.clone(), resolved)
+                .is_some()
+            {
+                return Err(RegistryError::DuplicateUpstreamApi {
                     upstream_target: target.id,
-                    offering: offering.id,
+                    upstream_api: upstream_api.id,
                 });
             }
         }
-        let resolved = ResolvedUpstreamTarget {
+        let resolved = UpstreamTarget {
             kind: target.provider,
-            credential: ResolvedCredential {
+            credential: CredentialBinding {
                 id: target.credential.id,
                 kind: target.credential.kind,
-                secret_reference: SecretReference {
+                secret_reference: SecretLocator {
                     locator: target.credential.environment_variable,
                 },
             },
-            real_model_id: target.real_model,
+            model_id: target.model,
             endpoint_base,
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
             request_timeout: target.request_timeout,
             enabled: target.enabled,
-            offerings,
+            upstream_apis,
         };
         if upstream_targets
             .insert(target.id.clone(), resolved)
@@ -805,39 +812,36 @@ pub fn build_registry(
         }
     }
 
-    let mut serving_routes = BTreeMap::new();
-    for route in definition.serving_routes {
+    let mut routes = BTreeMap::new();
+    for route in definition.routes {
         let target = upstream_targets
             .get(&route.upstream_target)
             .ok_or_else(|| RegistryError::UnknownReference {
-                entity: "serving route",
+                entity: "route",
                 id: route.id.clone(),
                 target: "upstream target",
                 reference: route.upstream_target.clone(),
             })?;
-        let offering =
-            target
-                .offering(&route.offering)
-                .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "serving route",
-                    id: route.id.clone(),
-                    target: "native offering",
-                    reference: format!("{}/{}", route.upstream_target, route.offering),
-                })?;
-        if route.mode == ServingRouteMode::Native
-            && route.downstream_protocol != offering.protocol()
-        {
+        let upstream_api = target.upstream_api(&route.upstream_api).ok_or_else(|| {
+            RegistryError::UnknownReference {
+                entity: "route",
+                id: route.id.clone(),
+                target: "upstream API",
+                reference: format!("{}/{}", route.upstream_target, route.upstream_api),
+            }
+        })?;
+        if route.mode == RouteMode::Native && route.downstream_protocol != upstream_api.protocol() {
             return Err(RegistryError::NativeRouteProtocolMismatch { route: route.id });
         }
-        let resolved = ResolvedServingRoute {
+        let resolved = Route {
             upstream_target: route.upstream_target,
-            offering: route.offering,
+            upstream_api: route.upstream_api,
             downstream_protocol: route.downstream_protocol,
             mode: route.mode,
         };
-        if serving_routes.insert(route.id.clone(), resolved).is_some() {
+        if routes.insert(route.id.clone(), resolved).is_some() {
             return Err(RegistryError::DuplicateId {
-                entity: "serving route",
+                entity: "route",
                 id: route.id,
             });
         }
@@ -845,24 +849,24 @@ pub fn build_registry(
 
     let mut public_models = BTreeMap::new();
     for public_model in definition.public_models {
-        if public_model.serving_routes.is_empty() {
+        if public_model.routes.is_empty() {
             return Err(RegistryError::EmptyPublicModel {
                 public_model: public_model.name,
             });
         }
         let mut seen = BTreeSet::new();
-        for route in &public_model.serving_routes {
+        for route in &public_model.routes {
             if !seen.insert(route) {
                 return Err(RegistryError::DuplicatePublicModelRoute {
                     public_model: public_model.name,
                     route: route.clone(),
                 });
             }
-            if !serving_routes.contains_key(route) {
+            if !routes.contains_key(route) {
                 return Err(RegistryError::UnknownReference {
                     entity: "public model",
                     id: public_model.name,
-                    target: "serving route",
+                    target: "route",
                     reference: route.clone(),
                 });
             }
@@ -870,8 +874,8 @@ pub fn build_registry(
         if public_models
             .insert(
                 public_model.name.clone(),
-                ResolvedPublicModel {
-                    serving_routes: public_model.serving_routes,
+                PublicModel {
+                    routes: public_model.routes,
                 },
             )
             .is_some()
@@ -883,17 +887,17 @@ pub fn build_registry(
         }
     }
 
-    Ok(RegistrySnapshot {
+    Ok(RuntimeRegistry {
         version: RegistryVersion(definition.version),
         bootstrap,
-        real_models,
+        models,
         upstream_targets,
-        serving_routes,
+        routes,
         public_models,
     })
 }
 
-fn validate_model_metadata(model: &RealModelDefinition) -> Result<(), RegistryError> {
+fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryError> {
     for (field, value) in [("id", model.id.as_str()), ("name", model.name.as_str())] {
         if value.trim().is_empty() {
             return Err(RegistryError::BlankModelField {
@@ -938,7 +942,7 @@ fn validate_model_metadata(model: &RealModelDefinition) -> Result<(), RegistryEr
             });
         }
     }
-    validate_reasoning_metadata(&model.id, &model.supported_parameters, model.reasoning).and_then(
+    validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
         |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
     )
 }
@@ -949,14 +953,14 @@ fn validate_reasoning_levels(
     levels: &[ReasoningLevel],
 ) -> Result<(), RegistryError> {
     if reasoning != ReasoningSupport::Supported && !levels.is_empty() {
-        return Err(RegistryError::InconsistentReasoningMetadata {
+        return Err(RegistryError::InconsistentReasoningConfig {
             model: model.to_owned(),
             detail: "reasoning levels require reasoning = supported",
         });
     }
     let mut seen = BTreeSet::new();
     if levels.iter().any(|level| !seen.insert(*level)) {
-        return Err(RegistryError::InconsistentReasoningMetadata {
+        return Err(RegistryError::InconsistentReasoningConfig {
             model: model.to_owned(),
             detail: "reasoning levels must not contain duplicates",
         });
@@ -964,60 +968,55 @@ fn validate_reasoning_levels(
     Ok(())
 }
 
-fn validate_reasoning_metadata(
+fn validate_reasoning_config(
     model: &str,
     parameters: &[String],
     reasoning: ReasoningSupport,
 ) -> Result<(), RegistryError> {
     let declared = parameters.iter().any(|parameter| parameter == "reasoning");
     match (reasoning, declared) {
-        (ReasoningSupport::Supported, false) => Err(RegistryError::InconsistentReasoningMetadata {
+        (ReasoningSupport::Supported, false) => Err(RegistryError::InconsistentReasoningConfig {
             model: model.to_owned(),
             detail: "reasoning = supported requires supported_parameters to include reasoning",
         }),
-        (ReasoningSupport::Unsupported, true) => {
-            Err(RegistryError::InconsistentReasoningMetadata {
-                model: model.to_owned(),
-                detail: "reasoning = unsupported conflicts with supported_parameters",
-            })
-        }
+        (ReasoningSupport::Unsupported, true) => Err(RegistryError::InconsistentReasoningConfig {
+            model: model.to_owned(),
+            detail: "reasoning = unsupported conflicts with supported_parameters",
+        }),
         _ => Ok(()),
     }
 }
 
-fn apply_model_constraints(
-    model: ModelMetadata,
-    offering: &str,
-    constraints: ModelConstraints,
-) -> Result<ModelMetadata, RegistryError> {
-    validate_constraint_limit(
-        offering,
+fn apply_model_rules(
+    model: ModelInfo,
+    upstream_api: &str,
+    rules: UpstreamApiModelRules,
+) -> Result<ModelInfo, RegistryError> {
+    validate_model_limit(
+        upstream_api,
         "context_length.input",
         model.context_length.input_tokens(),
-        constraints.context_length.input_tokens(),
+        rules.context_length.input_tokens(),
     )?;
-    validate_constraint_limit(
-        offering,
+    validate_model_limit(
+        upstream_api,
         "context_length.output",
         model.context_length.output_tokens(),
-        constraints.context_length.output_tokens(),
+        rules.context_length.output_tokens(),
     )?;
-    let reasoning = constraints.reasoning.unwrap_or(model.reasoning);
+    let reasoning = rules.reasoning.unwrap_or(model.reasoning);
     if reasoning_rank(reasoning) > reasoning_rank(model.reasoning) {
-        return Err(RegistryError::OfferingModelConstraintWidensModelMetadata {
-            offering: offering.to_owned(),
+        return Err(RegistryError::UpstreamApiModelRuleWidensModel {
+            upstream_api: upstream_api.to_owned(),
             field: "reasoning",
         });
     }
-    let disabled = constraints
-        .disabled_parameters
-        .iter()
-        .collect::<BTreeSet<_>>();
+    let disabled = rules.disabled_parameters.iter().collect::<BTreeSet<_>>();
     for parameter in &disabled {
         if !model.supported_parameters.contains(parameter) {
             return Err(
-                RegistryError::OfferingModelConstraintDisablesUndeclaredParameter {
-                    offering: offering.to_owned(),
+                RegistryError::UpstreamApiModelRuleDisablesUnknownParameter {
+                    upstream_api: upstream_api.to_owned(),
                     parameter: (*parameter).clone(),
                 },
             );
@@ -1029,19 +1028,19 @@ fn apply_model_constraints(
         .filter(|parameter| !disabled.contains(parameter))
         .cloned()
         .collect::<Vec<_>>();
-    validate_effective_reasoning_metadata(offering, &supported_parameters, reasoning)?;
-    Ok(ModelMetadata {
+    validate_effective_reasoning_config(upstream_api, &supported_parameters, reasoning)?;
+    Ok(ModelInfo {
         id: model.id,
         name: model.name,
         description: model.description,
         context_length: ModelContextLength::new(
             min_known_limit(
                 model.context_length.input_tokens(),
-                constraints.context_length.input_tokens(),
+                rules.context_length.input_tokens(),
             ),
             min_known_limit(
                 model.context_length.output_tokens(),
-                constraints.context_length.output_tokens(),
+                rules.context_length.output_tokens(),
             ),
         ),
         supported_parameters,
@@ -1054,8 +1053,8 @@ fn apply_model_constraints(
     })
 }
 
-fn validate_constraint_limit(
-    offering: &str,
+fn validate_model_limit(
+    upstream_api: &str,
     field: &'static str,
     model_limit: Option<u32>,
     constraint_limit: Option<u32>,
@@ -1064,36 +1063,36 @@ fn validate_constraint_limit(
         return Ok(());
     };
     if constraint_limit == 0 {
-        return Err(RegistryError::InvalidOfferingModelConstraint {
-            offering: offering.to_owned(),
+        return Err(RegistryError::InvalidUpstreamApiModelRule {
+            upstream_api: upstream_api.to_owned(),
             field,
         });
     }
     if model_limit.is_some_and(|model_limit| constraint_limit > model_limit) {
-        return Err(RegistryError::OfferingModelConstraintExceedsModelLimit {
-            offering: offering.to_owned(),
+        return Err(RegistryError::UpstreamApiModelLimitExceedsModel {
+            upstream_api: upstream_api.to_owned(),
             field,
         });
     }
     Ok(())
 }
 
-fn validate_effective_reasoning_metadata(
-    offering: &str,
+fn validate_effective_reasoning_config(
+    upstream_api: &str,
     parameters: &[String],
     reasoning: ReasoningSupport,
 ) -> Result<(), RegistryError> {
     let declared = parameters.iter().any(|parameter| parameter == "reasoning");
     match (reasoning, declared) {
         (ReasoningSupport::Supported, false) => {
-            Err(RegistryError::InconsistentOfferingModelConstraints {
-                offering: offering.to_owned(),
+            Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
                 detail: "reasoning = supported requires the effective parameter set to include reasoning",
             })
         }
         (ReasoningSupport::Unsupported, true) => {
-            Err(RegistryError::InconsistentOfferingModelConstraints {
-                offering: offering.to_owned(),
+            Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
                 detail: "reasoning = unsupported conflicts with the effective parameter set",
             })
         }

@@ -3,11 +3,10 @@ use http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
 };
 use openbridge::{
-    core::{CapabilitySet, Protocol, ProtocolCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
     provider::{
-        AuthAdapter, CapabilityAdapter, CredentialLease, ErrorAdapter, EventDisposition,
-        HeaderAdapter, ProviderAdapter, ProviderErrorClass, ProviderFailure, ProviderKind,
-        ResponseAdapter, RetryHint,
+        AdapterError, CredentialValue, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
+        UpstreamErrorKind,
     },
     transport::sse::SseDecoder,
 };
@@ -16,22 +15,22 @@ use secrecy::SecretString;
 #[test]
 fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let lease = CredentialLease::new(
+    let credential = CredentialValue::new(
         ProviderKind::OpenAi,
         "openai-primary",
         "version-1",
         SecretString::from("credential-test-value".to_owned()),
     );
 
-    let safe = adapter.build_headers().unwrap();
-    let sensitive = adapter.build_auth_headers(&lease).unwrap();
+    let safe = adapter.prepare_headers().unwrap();
+    let sensitive = adapter.prepare_auth_headers(&credential).unwrap();
 
     assert_eq!(safe.get(CONTENT_TYPE).unwrap(), "application/json");
     assert!(safe.get(AUTHORIZATION).is_none());
     assert!(sensitive.contains(AUTHORIZATION));
-    assert_eq!(lease.binding_id(), "openai-primary");
-    assert_eq!(lease.secret_version(), "version-1");
-    assert!(!format!("{lease:?} {sensitive:?}").contains("credential-test-value"));
+    assert_eq!(credential.binding_id(), "openai-primary");
+    assert_eq!(credential.secret_version(), "version-1");
+    assert!(!format!("{credential:?} {sensitive:?}").contains("credential-test-value"));
 }
 
 #[test]
@@ -57,29 +56,29 @@ fn response_adapter_classifies_protocol_specific_terminal_events() {
 
     assert_eq!(
         adapter
-            .decode_event(Protocol::Responses, responses_event)
+            .classify_sse_event(ApiProtocol::Responses, responses_event)
             .unwrap()
-            .disposition(),
-        EventDisposition::Completed
+            .status(),
+        StreamEventStatus::Completed
     );
     assert_eq!(
         adapter
-            .decode_event(Protocol::ChatCompletions, chat_event)
+            .classify_sse_event(ApiProtocol::ChatCompletions, chat_event)
             .unwrap()
-            .disposition(),
-        EventDisposition::Completed
+            .status(),
+        StreamEventStatus::Completed
     );
     assert_eq!(
         adapter
-            .decode_event(Protocol::Responses, failed_event)
+            .classify_sse_event(ApiProtocol::Responses, failed_event)
             .unwrap()
-            .disposition(),
-        EventDisposition::Failed
+            .status(),
+        StreamEventStatus::Failed
     );
     let decoded_unknown = adapter
-        .decode_event(Protocol::Responses, unknown_event)
+        .classify_sse_event(ApiProtocol::Responses, unknown_event)
         .unwrap();
-    assert_eq!(decoded_unknown.disposition(), EventDisposition::Continue);
+    assert_eq!(decoded_unknown.status(), StreamEventStatus::Continue);
     assert_eq!(decoded_unknown.event().event(), Some("provider.extension"));
 }
 
@@ -90,74 +89,64 @@ fn error_adapter_returns_safe_coarse_retry_guidance() {
     let rate_limit = adapter.classify_status(StatusCode::TOO_MANY_REQUESTS);
     let authentication = adapter.classify_status(StatusCode::UNAUTHORIZED);
 
-    assert_eq!(rate_limit.class(), ProviderErrorClass::RateLimited);
+    assert_eq!(rate_limit.kind(), UpstreamErrorKind::RateLimited);
     assert_eq!(rate_limit.retry_hint(), RetryHint::BeforeFirstEvent);
-    assert_eq!(authentication.class(), ProviderErrorClass::Authentication);
+    assert_eq!(authentication.kind(), UpstreamErrorKind::Authentication);
     assert_eq!(authentication.retry_hint(), RetryHint::Never);
 }
 
 #[test]
 fn provider_descriptor_is_compile_time_metadata() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let descriptor = adapter.descriptor();
+    let contract = adapter.contract();
 
-    assert_eq!(descriptor.kind(), ProviderKind::OpenAi);
-    assert!(descriptor.capabilities().chat_completions.enabled);
-    assert!(descriptor.endpoint_profiles().contains(&"public-api"));
+    assert_eq!(contract.kind(), ProviderKind::OpenAi);
+    assert!(contract.capabilities().chat_completions.enabled);
+    assert!(contract.endpoint_profiles().contains(&"public-api"));
 }
 
 #[test]
-fn meituan_descriptor_exposes_only_the_verified_longcat_native_surface() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::Meituan);
-    let descriptor = adapter.descriptor();
+fn longcat_contract_exposes_only_the_verified_native_surface() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let contract = adapter.contract();
 
-    assert_eq!(descriptor.kind(), ProviderKind::Meituan);
-    assert!(descriptor.capabilities().chat_completions.enabled);
-    assert!(descriptor.capabilities().responses.enabled);
-    assert!(descriptor.capabilities().chat_completions.streaming);
-    assert!(descriptor.capabilities().responses.streaming);
-    assert!(descriptor.capabilities().chat_completions.function_calling);
-    assert!(descriptor.capabilities().responses.function_calling);
-    assert!(
-        !descriptor
-            .capabilities()
-            .chat_completions
-            .parallel_tool_calls
-    );
-    assert!(!descriptor.capabilities().responses.parallel_tool_calls);
-    assert!(!descriptor.capabilities().chat_completions.image_input);
-    assert!(!descriptor.capabilities().responses.image_input);
-    assert!(
-        !descriptor
-            .capabilities()
-            .chat_completions
-            .structured_outputs
-    );
-    assert!(!descriptor.capabilities().responses.structured_outputs);
-    assert!(descriptor.endpoint_profiles().contains(&"longcat-openai"));
+    assert_eq!(contract.kind(), ProviderKind::LongCat);
+    assert!(contract.capabilities().chat_completions.enabled);
+    assert!(contract.capabilities().responses.enabled);
+    assert!(contract.capabilities().chat_completions.streaming);
+    assert!(contract.capabilities().responses.streaming);
+    assert!(contract.capabilities().chat_completions.function_calling);
+    assert!(contract.capabilities().responses.function_calling);
+    assert!(!contract.capabilities().chat_completions.parallel_tool_calls);
+    assert!(!contract.capabilities().responses.parallel_tool_calls);
+    assert!(!contract.capabilities().chat_completions.image_input);
+    assert!(!contract.capabilities().responses.image_input);
+    assert!(!contract.capabilities().chat_completions.structured_outputs);
+    assert!(!contract.capabilities().responses.structured_outputs);
+    assert!(contract.endpoint_profiles().contains(&"longcat-openai"));
 }
 
 #[test]
 fn capability_adapter_rejects_feature_elevation_before_egress() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let supported = CapabilitySet {
-        chat_completions: ProtocolCapabilities {
+    let supported = ApiCapabilities {
+        chat_completions: EndpointCapabilities {
             enabled: true,
-            ..ProtocolCapabilities::default()
+            ..EndpointCapabilities::default()
         },
-        ..CapabilitySet::default()
+        ..ApiCapabilities::default()
     };
-    let elevated = CapabilitySet {
+    let elevated = ApiCapabilities {
         responses: ResponsesCapabilities {
             background: true,
             ..ResponsesCapabilities::default()
         },
-        ..CapabilitySet::default()
+        ..ApiCapabilities::default()
     };
 
     adapter.validate_capabilities(supported).unwrap();
     assert!(matches!(
         adapter.validate_capabilities(elevated).unwrap_err(),
-        ProviderFailure::UnsupportedCapabilities
+        AdapterError::UnsupportedCapabilities
     ));
 }

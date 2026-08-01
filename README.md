@@ -10,7 +10,7 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 1. 原生转发 `POST /v1/responses` 与 `POST /v1/chat/completions` 的 HTTP JSON/SSE；
 2. 聚合多个 Provider、Upstream Target 与稳定 Public Model；
-3. 以每 Provider 独立 Rust 模块承载协议行为，以显式注册表管理 Real Model、Upstream Target、Native Offering 和 Serving Route；
+3. 以每 Provider 独立 Rust 模块承载协议行为，以显式注册表管理 Model、Upstream Target、Upstream API 和 Route；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
 6. 优先保证 Codex 自定义 Provider 的 Responses HTTP/SSE profile；Hermes 的真实 Agent tool loop 只在明确宣称兼容时验证。
@@ -27,9 +27,9 @@ OpenBridge 的核心是一个**单用户、单服务、headless 的多 Provider 
 
 ## 当前可运行基线
 
-当前 `main` 已实现 OpenAI 与 Meituan/LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 Serving Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
+当前 `main` 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、SSE framing 校验和下游断开时的上游 stream 取消传播。两者当前都使用 OpenAI-compatible wire，尚未实现异构协议桥接。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Real Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Native Offering 位于 [`src/providers`](src/providers)，Serving Route 与 Public Model 由顶层代码注册表显式组合：
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合：
 
 ```bash
 cp .env.example .env
@@ -91,13 +91,12 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [产品范围](docs/functional-requirements/product-scope.md) | 单用户部署、首要用户结果、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
-| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Serving Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
+| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
 | [调用统计与可观测性](docs/functional-requirements/observability.md) | usage、TTFT/TTFB、终态错误率和 headless 输出边界 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
 | [当前代码架构](docs/implementation-status/current-architecture.md) | 按层次描述当前源码模块、请求路径、依赖和结构限制 | 实施现状 |
 | [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
-| [目标服务架构](docs/implementation-plans/service-architecture.md) | Upstream Target/Offering、原生/桥接双路径、路由与状态边界 | 实施计划 |
-| [架构迁移总计划](docs/implementation-plans/registry-architecture-migration.md) | 注册表与 RoutePlan 已迁移；后续规划 Protocol Bridge、恢复与信息投影 | 实施计划 |
+| [服务架构与扩展边界](docs/implementation-plans/service-architecture.md) | 当前 Native 分层与尚未实现的 Bridge、恢复和信息投影边界 | 实施计划 |
 | [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 的研究职责 | 参考文档 |
 
 文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
@@ -116,10 +115,10 @@ cargo test --locked --test sdk_compatibility -- --ignored
 ## 关键术语
 
 - **Provider Family**：代码中实现的一类协议和认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
-- **Upstream Target**：共享 endpoint、credential、Real Model、timeout 与故障边界的上游调用目标。
-- **Native Offering**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state policy。
-- **Public Model**：客户端使用的稳定模型名，例如 `code-primary`，映射到有序完整 Serving Routes。
-- **RoutePlan / Execution Plan**：单次请求固定的 Upstream Target/Offering、协议模式、能力判断、credential binding、转换约束与 fallback 边界。
+- **Upstream Target**：共享 endpoint、credential、Model、timeout 与故障边界的上游调用目标。
+- **Upstream API**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state affinity。
+- **Public Model**：客户端使用的稳定模型名，例如 `code-primary`，映射到有序 Route ID。
+- **RoutePlan**：单次请求固定的 Upstream Target/Upstream API、协议模式、能力判断、credential binding、转换约束与 fallback 边界。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
 - **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。
 - **Tool Bridge**：把本地或 MCP 工具补充给 Agent；与 Protocol Bridge 不同。

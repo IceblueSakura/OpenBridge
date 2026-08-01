@@ -1,10 +1,10 @@
 use http::{HeaderMap, HeaderValue, header::AUTHORIZATION};
-use openbridge::ingress::StaticBearerCredential;
+use openbridge::ingress::DownstreamCredential;
 use secrecy::SecretString;
 
 #[test]
 fn static_downstream_bearer_credential_fails_closed() {
-    let credential = StaticBearerCredential::new(SecretString::from(
+    let credential = DownstreamCredential::new(SecretString::from(
         "downstream-credential-test-value".to_owned(),
     ));
 
@@ -30,7 +30,7 @@ fn static_downstream_bearer_credential_fails_closed() {
     assert!(credential.authenticate(&valid));
     assert!(!format!("{credential:?}").contains("downstream-credential-test-value"));
 
-    let empty = StaticBearerCredential::new(SecretString::from(String::new()));
+    let empty = DownstreamCredential::new(SecretString::from(String::new()));
     let mut empty_header = HeaderMap::new();
     empty_header.insert(AUTHORIZATION, HeaderValue::from_static("Bearer "));
     assert!(!empty.authenticate(&empty_header));

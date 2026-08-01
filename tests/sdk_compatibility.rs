@@ -12,10 +12,10 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
-    ingress::{AppState, StaticBearerCredential, build_router},
-    provider::{CredentialSource, UpstreamRequestParts},
-    registry::ResolvedUpstreamTarget,
-    transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
+    ingress::{DownstreamCredential, GatewayState, build_router},
+    provider::{CredentialSource, PreparedUpstreamRequest},
+    registry::UpstreamTarget,
+    transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};
@@ -26,10 +26,10 @@ struct SdkFixtureTransport;
 impl UpstreamTransport for SdkFixtureTransport {
     fn send<'a>(
         &'a self,
-        _target: &'a ResolvedUpstreamTarget,
-        request: UpstreamRequestParts,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
         _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         let path = request.relative_uri().path().to_owned();
         let request: Value = serde_json::from_slice(request.body()).expect("SDK request is JSON");
         assert_eq!(request["model"], "upstream-model");
@@ -88,11 +88,11 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
 }
 
 fn app() -> axum::Router {
-    let snapshot = support::snapshot("sdk-compatibility", "public-model", "upstream-model");
-    build_router(AppState::new(
-        Arc::new(snapshot),
+    let registry = support::registry("sdk-compatibility", "public-model", "upstream-model");
+    build_router(GatewayState::new(
+        Arc::new(registry),
         Arc::new(SdkFixtureTransport),
-        StaticBearerCredential::new(SecretString::from("downstream-token".to_owned())),
+        DownstreamCredential::new(SecretString::from("downstream-token".to_owned())),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-token".to_owned()),

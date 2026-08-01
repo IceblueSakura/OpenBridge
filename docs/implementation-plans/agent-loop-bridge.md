@@ -2,7 +2,7 @@
 
 ## 状态
 
-**M5 状态专项设计，尚未接入运行时。** 设计已收敛到可实施边界，但仍待真实 Codex/Hermes corpus 验证。本文不单独安排实现阶段；必须服从[架构迁移总计划](registry-architecture-migration.md)中的 M5 前置条件。
+**未实现的专项设计。** 设计边界仍待真实 Codex/Hermes corpus 验证；当前运行时没有 Agent Loop Bridge。
 
 本文细化 Chat/Responses bridge 在 Agent tool loop 中的职责、状态所有权和拒绝规则。它不改变 OpenBridge 的产品边界：Agent client 负责工具执行、审批、sandbox、取消和下一轮请求；OpenBridge 仅保留或转换 wire-level tool call/result，并在不能安全表达时拒绝。
 
@@ -22,7 +22,7 @@
 | ALC-01 | OpenBridge 不执行普通 function/custom/MCP tool；仅处理 call/result 的协议保真或转换。 | 当前边界 | 工具执行的权限、sandbox 和取消属于 Agent runtime，不能隐式进入 proxy。 |
 | ALC-02 | 同协议 Agent loop 永远走 Native Path；Bridge 不解析或重建原生未知字段/event。 | 当前边界 | Native wire 保真是初期兼容性方向。 |
 | ALC-03 | 初始双向 bridge 仅支持 text、普通 function schema/call/result、usage 与必要 terminal outcome。 | 当前设计选择 | 限定为可 fixture 验证的最小共同语义。 |
-| ALC-04 | 初始 bridge 是**无状态的**：`previous_response_id`、opaque reasoning 或仅含 tool output 的跨轮请求一律在上游调用前拒绝。 | 当前设计选择 | 在真实 corpus 前不引入可能跨 issuer/target/offering 重放的 ledger。 |
+| ALC-04 | 初始 bridge 是**无状态的**：`previous_response_id`、opaque reasoning 或仅含 tool output 的跨轮请求一律在上游调用前拒绝。 | 当前设计选择 | 在真实 corpus 前不引入可能跨 issuer/target/upstream API 重放的 ledger。 |
 | ALC-05 | `call_id`、Responses item/response id、Responses `output_index` 与 Chat stream tool index 是不同类型，不能互相替代。 | 当前边界 | 工具 output 只能按不可变 `call_id` 关联。 |
 | ALC-06 | 每个 bridge request 只有一个 stream state owner；item completion 不等于 response completion，terminal 最多一次。 | 当前边界 | 避免 Chat/Responses event lifecycle 混淆和 stream stitching。 |
 | ALC-07 | provider/model 名称启发式、全局 `call_id` 猜测、从日志正文重建历史均不进入核心。 | 当前边界 | 这些做法不可审计，也违反 state affinity。 |
@@ -50,7 +50,7 @@ OpenBridge 的桥接状态严格分三层；任何状态都必须有明确 owner
 
 | 层级 | 状态 | Owner / 生命周期 | 禁止事项 |
 |---|---|---|---|
-| Route | `RoutePlan`、credential binding、capability decision、fallback boundary | 请求开始固定，直到 response 释放 | 配置更新或 fallback 后改变 issuing Upstream Target/Offering。 |
+| Route | `RoutePlan`、credential binding、capability decision、fallback boundary | 请求开始固定，直到 response 释放 | 配置更新或 fallback 后改变 issuing Upstream Target/Upstream API。 |
 | Request / stream | `ConversionPlan`、`ToolConversionContext`、argument buffer、item/output ordering、terminal state | 单个 request/stream；cancel、terminal 或错误即释放 | 用作跨 request cache，或由多个 renderer 并发写入。 |
 | Deferred ledger | 可恢复的 assistant call group 与明确允许的 continuation reference | 仅未来显式启用；有 TTL、容量和 route binding | 以全局 `call_id`、日志或“当前唯一”作为查找键。 |
 
@@ -79,7 +79,7 @@ enum ContinuationDecision {
 
 其中：
 
-- `route` 固定 source/target protocol、selected Upstream Target/Offering、credential binding、fallback boundary 和 config version；bridge 不得重新进行 Public Model 选择。
+- `route` 固定 source/target protocol、selected Upstream Target/Upstream API、credential binding、fallback boundary 和 config version；bridge 不得重新进行 Public Model 选择。
 - `plan` 为每个请求 feature/item 记录 `exact`、`structure_preserving`、`approximate` 或 `unsupported`；只要任一必须 item 为 `unsupported`，在上游调用前失败。
 - `tools` 只持有当前 request 声明和转换产生的映射，不写入全局 cache。
 - `source_identity` 包含下游 protocol 的 response/item/call identity；不得从 display text 推导。
@@ -175,9 +175,9 @@ ordered call group and call_id set
 opaque-state replay policy
 ```
 
-恢复只允许命中同 issuer、同 Upstream Target/Offering、同 protocol pair、未过期且无歧义的 entry。不能跨 candidate fallback；不能使用全局唯一 `call_id` fallback；不能从普通日志或已脱敏 fixture 恢复。若未命中，保持拒绝或要求客户端发送完整可转换历史。
+恢复只允许命中同 issuer、同 Upstream Target/Upstream API、同 protocol pair、未过期且无歧义的 entry。不能跨 candidate fallback；不能使用全局唯一 `call_id` fallback；不能从普通日志或已脱敏 fixture 恢复。若未命中，保持拒绝或要求客户端发送完整可转换历史。
 
-启用 ledger 前必须通过：容量/TTL 淘汰、配置更新行为、cancel cleanup、并发访问、issuer/target/offering mismatch、expiry、工具并行 group、fallback 禁止和 secret/log isolation 测试。
+启用 ledger 前必须通过：容量/TTL 淘汰、配置更新行为、cancel cleanup、并发访问、issuer/target/upstream API mismatch、expiry、工具并行 group、fallback 禁止和 secret/log isolation 测试。
 
 ## 7. 失败分类与可观察性
 
@@ -222,4 +222,3 @@ opaque-state replay policy
 - [客户端兼容](client-compatibility.md)
 - [Chat/Responses Protocol Bridge 设计](protocol-bridge.md)
 - [Provider 适配与数据流](provider-adapters-and-dataflow.md)
-- [原生协议验证记录](../implementation-status/native-protocol-validation.md)

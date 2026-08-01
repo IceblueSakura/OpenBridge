@@ -27,7 +27,7 @@
 
 `testdata/runtime/` 保存可重建 scenario、plan、ready state 和 observation，不进入 Git 或 corpus ZIP。
 
-原 `tools/upstream-fixture-server` Rust binary、其 `.env.example` 和本地被忽略的 `.env` 已移除。其离线 mock 行为已由 testkit 覆盖；原 binary 的真实上游 proxy、credential 注入和 header 白名单能力没有迁移。
+当前 testkit 提供离线 mock，不提供真实上游 proxy、credential 注入或安全响应 header 白名单能力。
 
 ## 已验证
 

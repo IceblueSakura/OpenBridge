@@ -1,6 +1,6 @@
 //! 仅用于 bootstrap TOML 反序列化的私有文档模型。
 //!
-//! Provider、Real Model、Upstream Target、Native Offering、Serving Route 与 Public Model 均由 Rust 代码注册，不属于运行时配置。
+//! Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 均由 Rust 代码注册，不属于运行时配置。
 
 use serde::Deserialize;
 

@@ -6,7 +6,7 @@
 
 ## 1. 目标与边界
 
-服务所有者需要在不记录业务正文的前提下，回答“调用是否成功、慢在哪里、上游报告了多少 token、失败是否集中在某个 Upstream Target/Offering 或错误类别”。每个请求的统计必须覆盖原生路径和未来 bridge 路径，且不改变路由、重试、SSE terminal 或对下游的错误传播。
+服务所有者需要在不记录业务正文的前提下，回答“调用是否成功、慢在哪里、上游报告了多少 token、失败是否集中在某个 Upstream Target/Upstream API 或错误类别”。每个请求的统计必须覆盖原生路径和未来 bridge 路径，且不改变路由、重试、SSE terminal 或对下游的错误传播。
 
 统计属于服务本身的 headless 运维输出，而不是客户端管理面：不提供 GUI、用户列表、下游 key 用量排行、账单结算、配额执行或审计检索。需要这些能力时应另行定义产品边界。
 
@@ -64,7 +64,7 @@ error_rate = terminal_error_requests / completed_requests
 
 至少提供一种可被单用户服务所有者消费的稳定 headless 输出：受限的结构化本地记录或 Prometheus-compatible 聚合导出。二者可以并存，但都不构成控制面或 GUI。
 
-- 聚合指标仅使用低基数维度：endpoint、Public Model、Upstream Target、Offering、Provider Family、协议、是否流式、route mode、outcome、error class；不使用 request id、原始模型名、错误文本或客户端标识作为 label。
+- 聚合指标仅使用低基数维度：endpoint、Public Model、Upstream Target、Upstream API、Provider Family、协议、是否流式、route mode、outcome、error class；不使用 request id、原始模型名、错误文本或客户端标识作为 label。
 - 逐调用记录使用轮转的本地 JSONL 或等价受限 sink；默认不上传第三方。导出端点若实现，必须只监听 loopback 或复用静态 Bearer/TLS 信任边界。
 - 收集和落盘采用有界、非阻塞路径。统计 sink 失败只增加 `telemetry_dropped_records_total` 和安全告警，绝不阻塞模型输出、改变 terminal ownership 或造成无界内存。
 - reload 后的统计配置应原子生效；统计开关、sink 路径和保留策略由配置文件定义，不能由业务请求覆盖。

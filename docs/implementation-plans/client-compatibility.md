@@ -2,7 +2,7 @@
 
 ## 状态
 
-**跨切片验收材料。** 客户端行为以每次滚动记录的实际版本和真实 fixture 为准；本文不固定长期客户端版本，也不定义整体接受条件。它用于保护总计划 M0 的基线、M4 的 Native 执行迁移和 M6 的最终错误行为，不自行定义迁移顺序。
+**验收设计。** 客户端行为以每次记录的实际版本和真实 fixture 为准；本文不固定长期客户端版本，也不声明当前代码已经通过这些客户端验证。它用于验证 Native HTTP/SSE、tool loop 和错误行为。
 
 本文定义本地正在使用的 Codex 与 Hermes Agent 的兼容优先级和验证方式。选择它们是为了验证实际本地工作流，不表示 OpenBridge 提供客户端管理、客户端产品适配承诺或通用 Agent 平台；每次升级目标版本时必须重跑兼容 corpus。
 
@@ -68,7 +68,7 @@ Responses WebSocket 是独立候选 transport。以下任一条件成立时必�
 - Responses SSE event framing、terminal event 和错误事件；
 - function tool schema、`call_id`、arguments delta 与 tool output 回传；
 - reasoning item、usage、取消和 incomplete/failed outcome；
-- `previous_response_id` 或其他 continuation state 的 Upstream Target/Offering affinity；
+- `previous_response_id` 或其他 continuation state 的 Upstream Target/Upstream API affinity；
 - Codex 版本升级后新增或收紧的 header、event、HTTP/SSE/WebSocket transport 行为。
 
 ### 3.3 不从 Codex 推导

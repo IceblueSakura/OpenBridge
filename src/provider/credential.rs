@@ -1,6 +1,6 @@
-//! 上游 secret 的短时 lease 与当前 credential source。
+//! 上游 secret 的短时 credential 与当前 credential source。
 //!
-//! `CredentialLease` 让 adapter 获取认证 header 所需的最小信息，并通过 `SecretString`、
+//! `CredentialValue` 让 adapter 获取认证 header 所需的最小信息，并通过 `SecretString`、
 //! redacted `Debug` 和 crate-private exposure 把明文的可见范围限制在 provider egress。
 
 use std::{env, fmt};
@@ -14,15 +14,15 @@ use super::ProviderKind;
 ///
 /// binding id/version 可用于未来审计或 vault rotation，而 secret 本身不能离开 provider
 /// 模块；目前仅 adapter 的认证 header 构造可访问其文本。
-pub struct CredentialLease {
+pub struct CredentialValue {
     provider: ProviderKind,
     binding_id: String,
     secret_version: String,
     secret: SecretString,
 }
 
-impl CredentialLease {
-    /// 创建一次上游调用期间使用的 credential lease。
+impl CredentialValue {
+    /// 创建一次上游调用期间使用的 credential value。
     pub fn new(
         provider: ProviderKind,
         binding_id: impl Into<String>,
@@ -57,10 +57,10 @@ impl CredentialLease {
     }
 }
 
-impl fmt::Debug for CredentialLease {
+impl fmt::Debug for CredentialValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("CredentialLease")
+            .debug_struct("CredentialValue")
             .field("provider", &self.provider)
             .field("binding_id", &self.binding_id)
             .field("secret_version", &self.secret_version)
@@ -102,13 +102,13 @@ impl CredentialSource {
         }
     }
 
-    /// 按注册表中的 locator 解析一个短时 credential lease。
+    /// 按注册表中的 locator 解析一个短时 credential value。
     pub fn resolve(
         &self,
         provider: ProviderKind,
         binding_id: &str,
         locator: &str,
-    ) -> Result<CredentialLease, CredentialSourceError> {
+    ) -> Result<CredentialValue, CredentialSourceError> {
         let (secret, version) = match self {
             Self::Environment => {
                 let secret = env::var(locator).map_err(|_| CredentialSourceError::Unavailable)?;
@@ -130,7 +130,7 @@ impl CredentialSource {
                 )
             }
         };
-        Ok(CredentialLease::new(provider, binding_id, version, secret))
+        Ok(CredentialValue::new(provider, binding_id, version, secret))
     }
 }
 

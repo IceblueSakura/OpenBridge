@@ -1,7 +1,7 @@
-//! 将 OpenAI-compatible 请求分解为请求事实，并规划固定 snapshot 下的执行候选。
+//! 将 OpenAI-compatible 请求分解为请求事实，并基于固定注册表规划执行候选。
 //!
 //! pipeline 不转换 Chat/Responses 语义：它先验证 JSON、提取 public `model` 与请求实际
-//! 使用的 capability，再沿 Public Model 的有序 Serving Route 生成 `RoutePlan`。上游 model 与
+//! 使用的 capability，再沿 Public Model 的有序 Route 生成 `RoutePlan`。上游 model 与
 //! Provider-specific 字段改写由 adapter 完成。
 
 use bytes::Bytes;
@@ -9,29 +9,28 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    core::{Protocol, ProtocolCapabilities, ValidatedRequest},
+    core::{ApiProtocol, ApiRequest, EndpointCapabilities},
     registry::{
-        NativeOfferingCapabilities, ReasoningLevel, ReasoningSupport, RegistrySnapshot,
-        ServingRouteMode,
+        ReasoningLevel, ReasoningSupport, RouteMode, RuntimeRegistry, UpstreamApiCapabilities,
     },
 };
 
-/// 请求不能被安全地绑定到兼容 Serving Route 时返回的路由错误。
+/// 请求不能被安全地绑定到兼容 Route 时返回的规划错误。
 #[derive(Debug, Error)]
-pub enum RouteError {
+pub enum RequestPlanningError {
     #[error("request body must be a JSON object")]
     InvalidJson,
     #[error("request body must contain a non-empty model")]
     MissingModel,
     #[error("requested model is not configured")]
     UnknownModel,
-    #[error("configured model has no serving route candidate")]
-    NoServingRoute,
-    #[error("selected serving route does not support this protocol")]
+    #[error("configured model has no route candidate")]
+    NoRoute,
+    #[error("selected route does not support this protocol")]
     UnsupportedProtocol,
-    #[error("selected serving route does not support streaming")]
+    #[error("selected route does not support streaming")]
     StreamingUnsupported,
-    #[error("selected serving route does not support requested capabilities")]
+    #[error("selected route does not support requested capabilities")]
     UnsupportedCapabilities,
     #[error("requested maximum output exceeds the configured model limit")]
     OutputLimitExceeded,
@@ -43,39 +42,39 @@ pub enum RouteError {
 
 /// 从下游请求中提取出的、与 registry 无关的路由事实。
 #[derive(Debug)]
-pub struct RequestProfile {
+pub struct RequestRequirements {
     public_model: String,
-    protocol: Protocol,
+    protocol: ApiProtocol,
     is_streaming: bool,
     requested_output_tokens: Option<u64>,
     requested_capabilities: RequestedCapabilities,
 }
 
-/// 已完成 Public Model/Serving Route/capability 解析的执行计划。
+/// 已完成 Public Model/Route/capability 解析的执行计划。
 ///
 /// candidates 保持 route 配置顺序；`allows_fallback` 不是一般性的重试开关，而是保护
 /// `previous_response_id` 等 provider-issued opaque state 不被重放到其他 target。
 #[derive(Debug)]
 pub struct RoutePlan {
-    candidates: Vec<ExecutionPlanCandidate>,
+    candidates: Vec<RouteCandidate>,
     is_streaming: bool,
     allows_fallback: bool,
 }
 
-/// 一个已通过能力门控、绑定到具体 target/offering 的执行候选。
+/// 一个已通过能力门控、绑定到具体 target/upstream API 的执行候选。
 #[derive(Debug)]
-pub struct ExecutionPlanCandidate {
-    serving_route_id: String,
+pub struct RouteCandidate {
+    route_id: String,
     upstream_target_id: String,
-    offering_id: String,
-    request: ValidatedRequest,
+    upstream_api_id: String,
+    request: ApiRequest,
 }
 
-/// 单次请求实际使用的能力。它不等同于 offering 配置：`protocol` 是两个端点共享的
+/// 单次请求实际使用的能力。它不等同于 upstream API 配置：`protocol` 是两个端点共享的
 /// 需求，Responses 专有状态单独保留，避免被误用于 Chat Completions 路由。
 #[derive(Clone, Copy, Debug)]
 struct RequestedCapabilities {
-    protocol: ProtocolCapabilities,
+    protocol: EndpointCapabilities,
     unmodeled_tools: bool,
     reasoning: RequestedReasoning,
     previous_response_id: bool,
@@ -90,12 +89,12 @@ enum RequestedReasoning {
     UnknownLevel,
 }
 
-impl RequestProfile {
+impl RequestRequirements {
     pub fn public_model(&self) -> &str {
         &self.public_model
     }
 
-    pub fn protocol(&self) -> Protocol {
+    pub fn protocol(&self) -> ApiProtocol {
         self.protocol
     }
 
@@ -111,12 +110,12 @@ impl RoutePlan {
     }
 
     /// 返回优先候选对应的请求。
-    pub fn request(&self) -> &ValidatedRequest {
+    pub fn request(&self) -> &ApiRequest {
         self.primary().request()
     }
 
     /// 返回按 route 顺序排列的兼容候选。
-    pub fn candidates(&self) -> &[ExecutionPlanCandidate] {
+    pub fn candidates(&self) -> &[RouteCandidate] {
         &self.candidates
     }
 
@@ -131,7 +130,7 @@ impl RoutePlan {
     }
 
     /// 消费计划并取出其优先候选请求。
-    pub fn into_request(self) -> ValidatedRequest {
+    pub fn into_request(self) -> ApiRequest {
         self.candidates
             .into_iter()
             .next()
@@ -139,28 +138,28 @@ impl RoutePlan {
             .request
     }
 
-    fn primary(&self) -> &ExecutionPlanCandidate {
+    fn primary(&self) -> &RouteCandidate {
         self.candidates
             .first()
             .expect("route plan always has a candidate")
     }
 }
 
-impl ExecutionPlanCandidate {
-    pub fn serving_route_id(&self) -> &str {
-        &self.serving_route_id
+impl RouteCandidate {
+    pub fn route_id(&self) -> &str {
+        &self.route_id
     }
 
     pub fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
     }
 
-    pub fn offering_id(&self) -> &str {
-        &self.offering_id
+    pub fn upstream_api_id(&self) -> &str {
+        &self.upstream_api_id
     }
 
     /// 返回候选对应的原生请求。
-    pub fn request(&self) -> &ValidatedRequest {
+    pub fn request(&self) -> &ApiRequest {
         &self.request
     }
 }
@@ -168,14 +167,20 @@ impl ExecutionPlanCandidate {
 /// 解析下游请求并提取独立于 registry 的请求事实。
 ///
 /// 此阶段不选择 route，也不改写请求正文。
-pub fn analyze_request(protocol: Protocol, body: &Bytes) -> Result<RequestProfile, RouteError> {
-    let document: Value = serde_json::from_slice(&body).map_err(|_| RouteError::InvalidJson)?;
-    let object = document.as_object().ok_or(RouteError::InvalidJson)?;
+pub fn analyze_request(
+    protocol: ApiProtocol,
+    body: &Bytes,
+) -> Result<RequestRequirements, RequestPlanningError> {
+    let document: Value =
+        serde_json::from_slice(&body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object()
+        .ok_or(RequestPlanningError::InvalidJson)?;
     let public_model = object
         .get("model")
         .and_then(Value::as_str)
         .filter(|model| !model.is_empty())
-        .ok_or(RouteError::MissingModel)?;
+        .ok_or(RequestPlanningError::MissingModel)?;
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     let requested_output_tokens = requested_output_tokens(object);
     let requests_function_calling = object
@@ -187,7 +192,7 @@ pub fn analyze_request(protocol: Protocol, body: &Bytes) -> Result<RequestProfil
         .and_then(Value::as_array)
         .is_some_and(|tools| tools.iter().any(|tool| !is_function_tool(tool)));
     let requested_capabilities = RequestedCapabilities {
-        protocol: ProtocolCapabilities {
+        protocol: EndpointCapabilities {
             enabled: false,
             streaming: is_streaming,
             function_calling: requests_function_calling,
@@ -199,14 +204,14 @@ pub fn analyze_request(protocol: Protocol, body: &Bytes) -> Result<RequestProfil
         },
         unmodeled_tools: requests_unmodeled_tools,
         reasoning: requested_reasoning(object),
-        previous_response_id: protocol == Protocol::Responses
+        previous_response_id: protocol == ApiProtocol::Responses
             && object
                 .get("previous_response_id")
                 .is_some_and(|value| !value.is_null()),
-        background: protocol == Protocol::Responses
+        background: protocol == ApiProtocol::Responses
             && object.get("background").and_then(Value::as_bool) == Some(true),
     };
-    Ok(RequestProfile {
+    Ok(RequestRequirements {
         public_model: public_model.to_owned(),
         protocol,
         is_streaming,
@@ -215,62 +220,60 @@ pub fn analyze_request(protocol: Protocol, body: &Bytes) -> Result<RequestProfil
     })
 }
 
-/// 沿 Public Model 的有序 Serving Route 生成原生执行计划。
+/// 沿 Public Model 的有序 Route 生成原生执行计划。
 ///
 /// 请求字段除后续 adapter 改写的 `model` 外保持原样。capability gate 在这里完成，确保
 /// 不支持的 tools、structured output、background/store 或 continuation 请求不会被静默
 /// 删字段后发往 upstream。
 pub fn plan_request(
-    snapshot: &RegistrySnapshot,
-    profile: &RequestProfile,
+    registry: &RuntimeRegistry,
+    profile: &RequestRequirements,
     body: Bytes,
-) -> Result<RoutePlan, RouteError> {
-    let routes = snapshot
+) -> Result<RoutePlan, RequestPlanningError> {
+    let routes = registry
         .public_model(profile.public_model())
-        .ok_or(RouteError::UnknownModel)?
-        .serving_routes();
+        .ok_or(RequestPlanningError::UnknownModel)?
+        .routes();
     let mut first_error = None;
     let mut prepared_candidates = Vec::new();
     for route_id in routes {
-        let route = snapshot
-            .serving_route(route_id)
-            .ok_or(RouteError::NoServingRoute)?;
-        if route.downstream_protocol() != profile.protocol()
-            || route.mode() != ServingRouteMode::Native
-        {
-            first_error.get_or_insert(RouteError::UnsupportedProtocol);
+        let route = registry
+            .route(route_id)
+            .ok_or(RequestPlanningError::NoRoute)?;
+        if route.downstream_protocol() != profile.protocol() || route.mode() != RouteMode::Native {
+            first_error.get_or_insert(RequestPlanningError::UnsupportedProtocol);
             continue;
         }
-        let target = snapshot
+        let target = registry
             .upstream_target(route.upstream_target())
-            .ok_or(RouteError::NoServingRoute)?;
+            .ok_or(RequestPlanningError::NoRoute)?;
         if !target.enabled() {
             continue;
         }
-        let offering = target
-            .offering(route.offering())
-            .ok_or(RouteError::NoServingRoute)?;
+        let upstream_api = target
+            .upstream_api(route.upstream_api())
+            .ok_or(RequestPlanningError::NoRoute)?;
         if let Some(error) = candidate_error(
             profile.protocol,
             profile.requested_capabilities,
-            offering.capabilities(),
-            offering.model().context_length().output_tokens(),
-            offering.model().reasoning(),
-            offering.model().reasoning_levels(),
+            upstream_api.capabilities(),
+            upstream_api.model().context_length().output_tokens(),
+            upstream_api.model().reasoning(),
+            upstream_api.model().reasoning_levels(),
             profile.requested_output_tokens,
         ) {
             first_error.get_or_insert(error);
             continue;
         }
-        prepared_candidates.push(ExecutionPlanCandidate {
-            serving_route_id: route_id.clone(),
+        prepared_candidates.push(RouteCandidate {
+            route_id: route_id.clone(),
             upstream_target_id: route.upstream_target().to_owned(),
-            offering_id: route.offering().to_owned(),
-            request: ValidatedRequest::new(profile.protocol, body.clone()),
+            upstream_api_id: route.upstream_api().to_owned(),
+            request: ApiRequest::new(profile.protocol, body.clone()),
         });
     }
     if prepared_candidates.is_empty() {
-        return Err(first_error.unwrap_or(RouteError::NoServingRoute));
+        return Err(first_error.unwrap_or(RequestPlanningError::NoRoute));
     }
 
     Ok(RoutePlan {
@@ -281,57 +284,57 @@ pub fn plan_request(
 }
 
 fn candidate_error(
-    protocol: Protocol,
+    protocol: ApiProtocol,
     requested_features: RequestedCapabilities,
-    capabilities: NativeOfferingCapabilities,
+    capabilities: UpstreamApiCapabilities,
     configured_max_output_tokens: Option<u32>,
     reasoning: ReasoningSupport,
     reasoning_levels: &[ReasoningLevel],
     requested_output_tokens: Option<u64>,
-) -> Option<RouteError> {
+) -> Option<RequestPlanningError> {
     let protocol_capabilities = capabilities.protocol_capabilities();
     if !protocol_capabilities.enabled {
-        return Some(RouteError::UnsupportedProtocol);
+        return Some(RequestPlanningError::UnsupportedProtocol);
     }
     if requested_features.unmodeled_tools {
-        return Some(RouteError::UnsupportedCapabilities);
+        return Some(RequestPlanningError::UnsupportedCapabilities);
     }
     if requested_features.protocol.streaming && !protocol_capabilities.streaming {
-        return Some(RouteError::StreamingUnsupported);
+        return Some(RequestPlanningError::StreamingUnsupported);
     }
     if !requested_features
         .protocol
         .is_subset_of(protocol_capabilities)
     {
-        return Some(RouteError::UnsupportedCapabilities);
+        return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    if protocol == Protocol::Responses {
+    if protocol == ApiProtocol::Responses {
         let Some(responses) = capabilities.responses() else {
-            return Some(RouteError::UnsupportedProtocol);
+            return Some(RequestPlanningError::UnsupportedProtocol);
         };
         if (requested_features.previous_response_id && !responses.previous_response_id)
             || (requested_features.background && !responses.background)
         {
-            return Some(RouteError::UnsupportedCapabilities);
+            return Some(RequestPlanningError::UnsupportedCapabilities);
         }
     }
     if configured_max_output_tokens.is_some_and(|limit| {
         requested_output_tokens.is_some_and(|requested| requested > u64::from(limit))
     }) {
-        return Some(RouteError::OutputLimitExceeded);
+        return Some(RequestPlanningError::OutputLimitExceeded);
     }
     match requested_features.reasoning {
         RequestedReasoning::None => {}
         RequestedReasoning::Unspecified if reasoning != ReasoningSupport::Supported => {
-            return Some(RouteError::ReasoningUnsupported);
+            return Some(RequestPlanningError::ReasoningUnsupported);
         }
         RequestedReasoning::Level(level)
             if reasoning != ReasoningSupport::Supported || !reasoning_levels.contains(&level) =>
         {
-            return Some(RouteError::ReasoningLevelUnsupported);
+            return Some(RequestPlanningError::ReasoningLevelUnsupported);
         }
         RequestedReasoning::UnknownLevel => {
-            return Some(RouteError::ReasoningLevelUnsupported);
+            return Some(RequestPlanningError::ReasoningLevelUnsupported);
         }
         RequestedReasoning::Unspecified | RequestedReasoning::Level(_) => {}
     }
@@ -342,9 +345,9 @@ fn candidate_error(
 ///
 /// `image_url`（Chat）和 `input_image`（Responses）是协议字段；未知 part 会被原生
 /// 透传，因此不能依据其他任意 JSON 中同名 `type` 推测视觉能力。
-fn requests_image_input(protocol: Protocol, object: &serde_json::Map<String, Value>) -> bool {
+fn requests_image_input(protocol: ApiProtocol, object: &serde_json::Map<String, Value>) -> bool {
     match protocol {
-        Protocol::ChatCompletions => object
+        ApiProtocol::ChatCompletions => object
             .get("messages")
             .and_then(Value::as_array)
             .is_some_and(|messages| {
@@ -352,15 +355,17 @@ fn requests_image_input(protocol: Protocol, object: &serde_json::Map<String, Val
                     .iter()
                     .any(|message| content_contains_part_type(message.get("content"), "image_url"))
             }),
-        Protocol::Responses => object
-            .get("input")
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                items.iter().any(|item| {
-                    item.get("type").and_then(Value::as_str) == Some("input_image")
-                        || content_contains_part_type(item.get("content"), "input_image")
+        ApiProtocol::Responses => {
+            object
+                .get("input")
+                .and_then(Value::as_array)
+                .is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item.get("type").and_then(Value::as_str) == Some("input_image")
+                            || content_contains_part_type(item.get("content"), "input_image")
+                    })
                 })
-            }),
+        }
     }
 }
 

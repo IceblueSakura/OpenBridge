@@ -7,25 +7,25 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use openbridge::{
-    ingress::{AppState, StaticBearerCredential, build_router},
+    ingress::{DownstreamCredential, GatewayState, build_router},
     provider::CredentialSource,
-    registry::{RegistrySnapshot, build_registry},
+    registry::{RuntimeRegistry, build_registry},
     transport::upstream::UpstreamClient,
 };
 use secrecy::SecretString;
 use tower::ServiceExt;
 
-fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
+fn test_app(registry: RuntimeRegistry) -> axum::Router {
     let upstream = UpstreamClient::new(
-        snapshot.upstream_policy().connect_timeout(),
-        snapshot.upstream_policy().pool_idle_timeout(),
-        snapshot.upstream_policy().pool_max_idle_per_host(),
+        registry.http_client().connect_timeout(),
+        registry.http_client().pool_idle_timeout(),
+        registry.http_client().pool_max_idle_per_host(),
     )
     .unwrap();
-    build_router(AppState::new(
-        Arc::new(snapshot),
+    build_router(GatewayState::new(
+        Arc::new(registry),
         Arc::new(upstream),
-        StaticBearerCredential::new(SecretString::from("downstream-test-token".to_owned())),
+        DownstreamCredential::new(SecretString::from("downstream-test-token".to_owned())),
         CredentialSource::fixed(
             "OPENAI_API_KEY",
             SecretString::from("upstream-test-token".to_owned()),
@@ -35,8 +35,8 @@ fn test_app(snapshot: RegistrySnapshot) -> axum::Router {
 
 #[tokio::test]
 async fn health_reports_snapshot_version_and_sets_a_request_id() {
-    let snapshot = support::snapshot("health-test", "code-primary", "test-model");
-    let app = test_app(snapshot);
+    let registry = support::registry("health-test", "code-primary", "test-model");
+    let app = test_app(registry);
     let request = Request::builder()
         .uri("/healthz")
         .header(AUTHORIZATION, "Bearer must-not-be-reflected")
@@ -61,12 +61,12 @@ async fn requests_over_the_bootstrap_body_limit_are_rejected() {
         "max_request_body_bytes = 1048576",
         "max_request_body_bytes = 8",
     );
-    let snapshot = build_registry(
+    let registry = build_registry(
         support::bootstrap(&bootstrap_document),
         support::definition("health-test", "code-primary", "test-model"),
     )
     .unwrap();
-    let app = test_app(snapshot);
+    let app = test_app(registry);
     let request = Request::builder()
         .uri("/healthz")
         .header("content-length", "9")

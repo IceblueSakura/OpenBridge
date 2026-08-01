@@ -12,9 +12,9 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::{
-    core::{Protocol, ValidatedRequest},
-    provider::{CredentialSource, ProviderAdapter, RequestAdapter},
-    registry::{RegistrySnapshot, ResolvedNativeOffering, ResolvedUpstreamTarget},
+    core::{ApiProtocol, ApiRequest},
+    provider::{CredentialSource, ProviderAdapter},
+    registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
 
@@ -25,7 +25,7 @@ const TOOL_NAME: &str = "openbridge_probe";
 /// 明确选择要执行的 probe。CLI 不传任何选择时使用 `all()`；库调用方可仅执行无费用的
 /// `list_models`，或只验证特定协议。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ProbeSelection {
+pub struct ProbeOptions {
     /// 是否执行 `/v1/models` probe。
     pub list_models: bool,
     /// 是否执行 Chat Completions 文本请求 probe。
@@ -36,7 +36,7 @@ pub struct ProbeSelection {
     pub function_calling: bool,
 }
 
-impl ProbeSelection {
+impl ProbeOptions {
     /// 选择全部已实现的 probe。
     pub const fn all() -> Self {
         Self {
@@ -59,7 +59,7 @@ impl ProbeSelection {
 /// 形状被拒绝均保留为 `unknown`，避免一次临时故障错误关闭一条路由能力。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProbeState {
+pub enum SupportStatus {
     /// 请求符合该 probe 预期的协议形状。
     Supported,
     /// endpoint 明确返回不支持该操作的 status。
@@ -70,17 +70,17 @@ pub enum ProbeState {
 
 /// 单项 probe 的状态和可选 HTTP status。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ProbeOutcome {
+pub struct ProbeResult {
     /// 本次 probe 的保守结论。
-    pub state: ProbeState,
+    pub state: SupportStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_status: Option<u16>,
 }
 
-impl ProbeOutcome {
+impl ProbeResult {
     const fn supported(status: StatusCode) -> Self {
         Self {
-            state: ProbeState::Supported,
+            state: SupportStatus::Supported,
             http_status: Some(status.as_u16()),
         }
     }
@@ -93,9 +93,9 @@ impl ProbeOutcome {
                     | StatusCode::METHOD_NOT_ALLOWED
                     | StatusCode::NOT_IMPLEMENTED
             ) {
-                ProbeState::Unsupported
+                SupportStatus::Unsupported
             } else {
-                ProbeState::Unknown
+                SupportStatus::Unknown
             },
             http_status: Some(status.as_u16()),
         }
@@ -103,7 +103,7 @@ impl ProbeOutcome {
 
     const fn unknown(status: Option<StatusCode>) -> Self {
         Self {
-            state: ProbeState::Unknown,
+            state: SupportStatus::Unknown,
             http_status: match status {
                 Some(status) => Some(status.as_u16()),
                 None => None,
@@ -113,9 +113,9 @@ impl ProbeOutcome {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ListModelsObservation {
+pub struct ModelListProbeResult {
     /// `/v1/models` 请求本身的结论。
-    pub outcome: ProbeOutcome,
+    pub outcome: ProbeResult,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// 配置的 upstream model 是否出现在返回列表中。
     pub configured_model_listed: Option<bool>,
@@ -125,12 +125,12 @@ pub struct ListModelsObservation {
 }
 
 #[derive(Debug, Serialize)]
-pub struct FunctionCallingObservation {
+pub struct ToolCallProbeResult {
     /// 初始 function call 请求结论。
-    pub initial_call: ProbeOutcome,
+    pub initial_call: ProbeResult,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// 将 tool result 回放后的请求结论。
-    pub result_replay: Option<ProbeOutcome>,
+    pub result_replay: Option<ProbeResult>,
 }
 
 /// 单个 Upstream Target 的 probe 报告。它不包含 credential、请求正文或上游响应正文。
@@ -139,15 +139,15 @@ pub struct TargetProbeReport {
     /// 被 probe 的内部 target id。
     pub upstream_target_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub list_models: Option<ListModelsObservation>,
+    pub list_models: Option<ModelListProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat: Option<ProbeOutcome>,
+    pub chat: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub responses: Option<ProbeOutcome>,
+    pub responses: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_function_calling: Option<FunctionCallingObservation>,
+    pub chat_function_calling: Option<ToolCallProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub responses_function_calling: Option<FunctionCallingObservation>,
+    pub responses_function_calling: Option<ToolCallProbeResult>,
 }
 
 #[derive(Debug, Error)]
@@ -165,13 +165,13 @@ pub enum ProbeError {
 /// 该函数只访问 `upstream_target_id` 对应的固定 endpoint；没有接受 URL、model 或 header 的
 /// 外部参数，避免诊断能力扩大 SSRF 或 credential 使用范围。
 pub async fn probe_upstream_target(
-    snapshot: &RegistrySnapshot,
+    registry: &RuntimeRegistry,
     upstream_target_id: &str,
     transport: &dyn UpstreamTransport,
     credentials: &CredentialSource,
-    selection: ProbeSelection,
+    selection: ProbeOptions,
 ) -> Result<TargetProbeReport, ProbeError> {
-    let target = snapshot
+    let target = registry
         .upstream_target(upstream_target_id)
         .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
             upstream_target: upstream_target_id.to_owned(),
@@ -192,7 +192,7 @@ pub async fn probe_upstream_target(
         transport,
         adapter,
         headers,
-        max_response_bytes: snapshot.limits().max_request_body_bytes(),
+        max_response_bytes: registry.limits().max_request_body_bytes(),
     };
 
     // 每项 probe 独立执行；单项失败只体现在该项 outcome，不阻断其余观察。
@@ -202,26 +202,26 @@ pub async fn probe_upstream_target(
         None
     };
     let chat = if selection.chat {
-        Some(session.probe_text(Protocol::ChatCompletions).await)
+        Some(session.probe_text(ApiProtocol::ChatCompletions).await)
     } else {
         None
     };
     let responses = if selection.responses {
-        Some(session.probe_text(Protocol::Responses).await)
+        Some(session.probe_text(ApiProtocol::Responses).await)
     } else {
         None
     };
     let chat_function_calling = if selection.function_calling {
         Some(
             session
-                .probe_function_calling(Protocol::ChatCompletions)
+                .probe_function_calling(ApiProtocol::ChatCompletions)
                 .await,
         )
     } else {
         None
     };
     let responses_function_calling = if selection.function_calling {
-        Some(session.probe_function_calling(Protocol::Responses).await)
+        Some(session.probe_function_calling(ApiProtocol::Responses).await)
     } else {
         None
     };
@@ -237,7 +237,7 @@ pub async fn probe_upstream_target(
 }
 
 struct ProbeSession<'a> {
-    target: &'a ResolvedUpstreamTarget,
+    target: &'a UpstreamTarget,
     transport: &'a dyn UpstreamTransport,
     adapter: ProviderAdapter,
     headers: HeaderMap,
@@ -245,15 +245,15 @@ struct ProbeSession<'a> {
 }
 
 impl ProbeSession<'_> {
-    async fn probe_list_models(&self) -> ListModelsObservation {
+    async fn probe_list_models(&self) -> ModelListProbeResult {
         match self
-            .send_json(self.adapter.encode_list_models_request())
+            .send_json(self.adapter.prepare_model_list_request())
             .await
         {
             Ok(response) => {
                 let Some(entries) = response.body.get("data").and_then(Value::as_array) else {
-                    return ListModelsObservation {
-                        outcome: ProbeOutcome::unknown(Some(response.status)),
+                    return ModelListProbeResult {
+                        outcome: ProbeResult::unknown(Some(response.status)),
                         configured_model_listed: None,
                         model_ids: Vec::new(),
                     };
@@ -263,18 +263,19 @@ impl ProbeSession<'_> {
                     .filter_map(|entry| entry.get("id").and_then(Value::as_str))
                     .map(str::to_owned)
                     .collect::<Vec<_>>();
-                let configured_model_listed = Some(self.target.offerings().any(|(_, offering)| {
-                    model_ids
-                        .iter()
-                        .any(|model| model == offering.upstream_model())
-                }));
-                ListModelsObservation {
-                    outcome: ProbeOutcome::supported(response.status),
+                let configured_model_listed =
+                    Some(self.target.upstream_apis().any(|(_, upstream_api)| {
+                        model_ids
+                            .iter()
+                            .any(|model| model == upstream_api.upstream_model())
+                    }));
+                ModelListProbeResult {
+                    outcome: ProbeResult::supported(response.status),
                     configured_model_listed,
                     model_ids,
                 }
             }
-            Err(outcome) => ListModelsObservation {
+            Err(outcome) => ModelListProbeResult {
                 outcome,
                 configured_model_listed: None,
                 model_ids: Vec::new(),
@@ -282,32 +283,32 @@ impl ProbeSession<'_> {
         }
     }
 
-    async fn probe_text(&self, protocol: Protocol) -> ProbeOutcome {
-        let Some(offering) = self.target.offering_for_protocol(protocol) else {
-            return ProbeOutcome {
-                state: ProbeState::Unsupported,
+    async fn probe_text(&self, protocol: ApiProtocol) -> ProbeResult {
+        let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
+            return ProbeResult {
+                state: SupportStatus::Unsupported,
                 http_status: None,
             };
         };
         let request = probe_text_request(
             protocol,
-            offering.upstream_model(),
-            self.probe_max_output_tokens(offering),
+            upstream_api.upstream_model(),
+            self.probe_max_output_tokens(upstream_api),
         );
         match self.send_protocol_json(protocol, request).await {
             Ok(response) if is_protocol_response(protocol, &response.body) => {
-                ProbeOutcome::supported(response.status)
+                ProbeResult::supported(response.status)
             }
-            Ok(response) => ProbeOutcome::unknown(Some(response.status)),
+            Ok(response) => ProbeResult::unknown(Some(response.status)),
             Err(outcome) => outcome,
         }
     }
 
-    async fn probe_function_calling(&self, protocol: Protocol) -> FunctionCallingObservation {
-        let Some(offering) = self.target.offering_for_protocol(protocol) else {
-            return FunctionCallingObservation {
-                initial_call: ProbeOutcome {
-                    state: ProbeState::Unsupported,
+    async fn probe_function_calling(&self, protocol: ApiProtocol) -> ToolCallProbeResult {
+        let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
+            return ToolCallProbeResult {
+                initial_call: ProbeResult {
+                    state: SupportStatus::Unsupported,
                     http_status: None,
                 },
                 result_replay: None,
@@ -315,13 +316,13 @@ impl ProbeSession<'_> {
         };
         let request = probe_tool_request(
             protocol,
-            offering.upstream_model(),
-            self.probe_max_output_tokens(offering),
+            upstream_api.upstream_model(),
+            self.probe_max_output_tokens(upstream_api),
         );
         let response = match self.send_protocol_json(protocol, request).await {
             Ok(response) => response,
             Err(outcome) => {
-                return FunctionCallingObservation {
+                return ToolCallProbeResult {
                     initial_call: outcome,
                     result_replay: None,
                 };
@@ -329,42 +330,42 @@ impl ProbeSession<'_> {
         };
         let Some(replay) = tool_result_replay_request(
             protocol,
-            offering.upstream_model(),
-            self.probe_max_output_tokens(offering),
+            upstream_api.upstream_model(),
+            self.probe_max_output_tokens(upstream_api),
             &response.body,
         ) else {
-            return FunctionCallingObservation {
-                initial_call: ProbeOutcome::unknown(Some(response.status)),
+            return ToolCallProbeResult {
+                initial_call: ProbeResult::unknown(Some(response.status)),
                 result_replay: None,
             };
         };
         let replay = match self.send_protocol_json(protocol, replay).await {
             Ok(response) if is_protocol_response(protocol, &response.body) => {
-                ProbeOutcome::supported(response.status)
+                ProbeResult::supported(response.status)
             }
-            Ok(response) => ProbeOutcome::unknown(Some(response.status)),
+            Ok(response) => ProbeResult::unknown(Some(response.status)),
             Err(outcome) => outcome,
         };
-        FunctionCallingObservation {
-            initial_call: ProbeOutcome::supported(response.status),
+        ToolCallProbeResult {
+            initial_call: ProbeResult::supported(response.status),
             result_replay: Some(replay),
         }
     }
 
     async fn send_protocol_json(
         &self,
-        protocol: Protocol,
+        protocol: ApiProtocol,
         body: Value,
-    ) -> Result<JsonResponse, ProbeOutcome> {
+    ) -> Result<JsonResponse, ProbeResult> {
         let body = serde_json::to_vec(&body).expect("probe request JSON is serializable");
-        let request = ValidatedRequest::new(protocol, Bytes::from(body));
+        let request = ApiRequest::new(protocol, Bytes::from(body));
         let request = self
             .adapter
-            .encode_request(
+            .prepare_request(
                 &request,
                 self.target
-                    .offering_for_protocol(protocol)
-                    .expect("probe protocol has a configured offering")
+                    .upstream_api_for_protocol(protocol)
+                    .expect("probe protocol has a configured upstream API")
                     .upstream_model(),
             )
             .expect("compiled provider adapter accepts both probe protocols");
@@ -373,18 +374,18 @@ impl ProbeSession<'_> {
 
     async fn send_json(
         &self,
-        request: crate::provider::UpstreamRequestParts,
-    ) -> Result<JsonResponse, ProbeOutcome> {
+        request: crate::provider::PreparedUpstreamRequest,
+    ) -> Result<JsonResponse, ProbeResult> {
         let response = self
             .transport
             .send(self.target, request, self.headers.clone())
             .await
-            .map_err(|_| ProbeOutcome::unknown(None))?;
+            .map_err(|_| ProbeResult::unknown(None))?;
         decode_json_response(response, self.max_response_bytes).await
     }
 
-    fn probe_max_output_tokens(&self, offering: &ResolvedNativeOffering) -> u32 {
-        offering
+    fn probe_max_output_tokens(&self, upstream_api: &UpstreamApi) -> u32 {
+        upstream_api
             .model()
             .context_length()
             .output_tokens()
@@ -401,27 +402,27 @@ struct JsonResponse {
 async fn decode_json_response(
     response: UpstreamResponse,
     max_response_bytes: usize,
-) -> Result<JsonResponse, ProbeOutcome> {
+) -> Result<JsonResponse, ProbeResult> {
     let status = response.status();
     let body = to_bytes(response.into_body(), max_response_bytes)
         .await
-        .map_err(|_| ProbeOutcome::unknown(Some(status)))?;
+        .map_err(|_| ProbeResult::unknown(Some(status)))?;
     if !status.is_success() {
-        return Err(ProbeOutcome::from_http_status(status));
+        return Err(ProbeResult::from_http_status(status));
     }
-    let body = serde_json::from_slice(&body).map_err(|_| ProbeOutcome::unknown(Some(status)))?;
+    let body = serde_json::from_slice(&body).map_err(|_| ProbeResult::unknown(Some(status)))?;
     Ok(JsonResponse { status, body })
 }
 
-fn probe_text_request(protocol: Protocol, model: &str, max_output_tokens: u32) -> Value {
+fn probe_text_request(protocol: ApiProtocol, model: &str, max_output_tokens: u32) -> Value {
     match protocol {
-        Protocol::ChatCompletions => json!({
+        ApiProtocol::ChatCompletions => json!({
             "model": model,
             "messages": [{"role": "user", "content": PROBE_PROMPT}],
             "max_completion_tokens": max_output_tokens,
             "stream": false,
         }),
-        Protocol::Responses => json!({
+        ApiProtocol::Responses => json!({
             "model": model,
             "input": PROBE_PROMPT,
             "max_output_tokens": max_output_tokens,
@@ -431,9 +432,9 @@ fn probe_text_request(protocol: Protocol, model: &str, max_output_tokens: u32) -
     }
 }
 
-fn tool_definition(protocol: Protocol) -> Value {
+fn tool_definition(protocol: ApiProtocol) -> Value {
     match protocol {
-        Protocol::ChatCompletions => json!({
+        ApiProtocol::ChatCompletions => json!({
             "type": "function",
             "function": {
                 "name": TOOL_NAME,
@@ -445,7 +446,7 @@ fn tool_definition(protocol: Protocol) -> Value {
                 },
             },
         }),
-        Protocol::Responses => json!({
+        ApiProtocol::Responses => json!({
             "type": "function",
             "name": TOOL_NAME,
             "description": "Return a deterministic local probe value.",
@@ -458,10 +459,10 @@ fn tool_definition(protocol: Protocol) -> Value {
     }
 }
 
-fn probe_tool_request(protocol: Protocol, model: &str, max_output_tokens: u32) -> Value {
+fn probe_tool_request(protocol: ApiProtocol, model: &str, max_output_tokens: u32) -> Value {
     let tools = vec![tool_definition(protocol)];
     match protocol {
-        Protocol::ChatCompletions => json!({
+        ApiProtocol::ChatCompletions => json!({
             "model": model,
             "messages": [{"role": "user", "content": "Call the openbridge_probe function."}],
             "tools": tools,
@@ -469,7 +470,7 @@ fn probe_tool_request(protocol: Protocol, model: &str, max_output_tokens: u32) -
             "max_completion_tokens": max_output_tokens,
             "stream": false,
         }),
-        Protocol::Responses => json!({
+        ApiProtocol::Responses => json!({
             "model": model,
             "input": "Call the openbridge_probe function.",
             "tools": tools,
@@ -482,13 +483,13 @@ fn probe_tool_request(protocol: Protocol, model: &str, max_output_tokens: u32) -
 }
 
 fn tool_result_replay_request(
-    protocol: Protocol,
+    protocol: ApiProtocol,
     model: &str,
     max_output_tokens: u32,
     response: &Value,
 ) -> Option<Value> {
     match protocol {
-        Protocol::ChatCompletions => {
+        ApiProtocol::ChatCompletions => {
             let message = response.pointer("/choices/0/message")?.clone();
             let tool_calls = message.get("tool_calls")?.as_array()?;
             let call = tool_calls.iter().find(|call| {
@@ -509,7 +510,7 @@ fn tool_result_replay_request(
                 "stream": false,
             }))
         }
-        Protocol::Responses => {
+        ApiProtocol::Responses => {
             let output = response.get("output")?.as_array()?;
             let call = output.iter().find(|item| {
                 item.get("type").and_then(Value::as_str) == Some("function_call")
@@ -534,13 +535,15 @@ fn tool_result_replay_request(
     }
 }
 
-fn is_protocol_response(protocol: Protocol, response: &Value) -> bool {
+fn is_protocol_response(protocol: ApiProtocol, response: &Value) -> bool {
     match protocol {
-        Protocol::ChatCompletions => response
+        ApiProtocol::ChatCompletions => response
             .get("choices")
             .and_then(Value::as_array)
             .is_some_and(|choices| !choices.is_empty()),
-        Protocol::Responses => response.get("object").and_then(Value::as_str) == Some("response"),
+        ApiProtocol::Responses => {
+            response.get("object").and_then(Value::as_str) == Some("response")
+        }
     }
 }
 
@@ -554,13 +557,13 @@ mod tests {
     use secrecy::SecretString;
     use serde_json::{Value, json};
 
-    use super::{ProbeSelection, ProbeState, probe_upstream_target};
+    use super::{ProbeOptions, SupportStatus, probe_upstream_target};
     use crate::{
-        config::load_bootstrap,
-        provider::{CredentialSource, UpstreamRequestParts},
+        config::parse_bootstrap_config,
+        provider::{CredentialSource, PreparedUpstreamRequest},
         providers,
-        registry::{RegistrySnapshot, ResolvedUpstreamTarget, build_registry},
-        transport::upstream::{UpstreamError, UpstreamResponse, UpstreamTransport},
+        registry::{RuntimeRegistry, UpstreamTarget, build_registry},
+        transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
     };
 
     const BOOTSTRAP: &str = r#"
@@ -573,13 +576,13 @@ upstream_pool_idle_timeout_ms = 90000
 upstream_pool_max_idle_per_host = 16
 "#;
 
-    fn snapshot() -> RegistrySnapshot {
-        let mut definition = providers::compiled_definition();
+    fn registry() -> RuntimeRegistry {
+        let mut definition = providers::compiled_config();
         definition.version = "probe-test".to_owned();
-        for offering in &mut definition.upstream_targets[0].offerings {
-            offering.upstream_model = "test-model".to_owned();
+        for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
+            upstream_api.upstream_model = "test-model".to_owned();
         }
-        build_registry(load_bootstrap(BOOTSTRAP).unwrap(), definition).unwrap()
+        build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap()
     }
 
     #[derive(Default)]
@@ -590,10 +593,10 @@ upstream_pool_max_idle_per_host = 16
     impl UpstreamTransport for FixtureTransport {
         fn send<'a>(
             &'a self,
-            _target: &'a ResolvedUpstreamTarget,
-            request: UpstreamRequestParts,
+            _target: &'a UpstreamTarget,
+            request: PreparedUpstreamRequest,
             _headers: HeaderMap,
-        ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
+        ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
             Box::pin(async move {
                 let body = if request.body().is_empty() {
                     Value::Null
@@ -665,26 +668,26 @@ upstream_pool_max_idle_per_host = 16
 
     #[tokio::test]
     async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_configuration() {
-        let snapshot = snapshot();
+        let registry = registry();
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 
         let report = probe_upstream_target(
-            &snapshot,
+            &registry,
             "openai-main",
             &transport,
             &credentials,
-            ProbeSelection::all(),
+            ProbeOptions::all(),
         )
         .await
         .unwrap();
 
         let list_models = report.list_models.unwrap();
-        assert_eq!(list_models.outcome.state, ProbeState::Supported);
+        assert_eq!(list_models.outcome.state, SupportStatus::Supported);
         assert_eq!(list_models.configured_model_listed, Some(true));
         assert_eq!(list_models.model_ids, ["test-model", "other-model"]);
-        assert_eq!(report.chat.unwrap().state, ProbeState::Supported);
-        assert_eq!(report.responses.unwrap().state, ProbeState::Supported);
+        assert_eq!(report.chat.unwrap().state, SupportStatus::Supported);
+        assert_eq!(report.responses.unwrap().state, SupportStatus::Supported);
         assert_eq!(
             report
                 .chat_function_calling
@@ -692,7 +695,7 @@ upstream_pool_max_idle_per_host = 16
                 .result_replay
                 .unwrap()
                 .state,
-            ProbeState::Supported
+            SupportStatus::Supported
         );
         assert_eq!(
             report
@@ -701,7 +704,7 @@ upstream_pool_max_idle_per_host = 16
                 .result_replay
                 .unwrap()
                 .state,
-            ProbeState::Supported
+            SupportStatus::Supported
         );
 
         let requests = transport.requests.lock().unwrap();
@@ -720,18 +723,18 @@ upstream_pool_max_idle_per_host = 16
 
     #[tokio::test]
     async fn probe_rejects_unknown_target_before_any_egress() {
-        let snapshot = snapshot();
+        let registry = registry();
         let transport = FixtureTransport::default();
         let credentials = CredentialSource::fixed("OPENAI_API_KEY", SecretString::from("test-key"));
 
         let error = probe_upstream_target(
-            &snapshot,
+            &registry,
             "missing",
             &transport,
             &credentials,
-            ProbeSelection {
+            ProbeOptions {
                 list_models: true,
-                ..ProbeSelection::default()
+                ..ProbeOptions::default()
             },
         )
         .await

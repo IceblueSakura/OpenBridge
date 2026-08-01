@@ -2,9 +2,9 @@
 
 ## 状态
 
-**M4 当前执行边界。** OpenAI 与 Meituan/LongCat 已使用 `UpstreamTarget + NativeOffering +
-ServingRoute` 注册表和 `RequestProfile + RoutePlan`。两者当前都使用 OpenAI-compatible wire；
-Protocol Bridge 与独立 AttemptManager 尚未实现，后续顺序只见[架构迁移总计划](registry-architecture-migration.md)。
+**当前实现。** OpenAI 与 LongCat 使用 `UpstreamTarget + UpstreamApi + Route`
+注册表和 `RequestRequirements + RoutePlan`。两者当前都使用 OpenAI-compatible wire；
+Protocol Bridge 与独立 AttemptManager 尚未实现。
 
 ## 1. 方向
 
@@ -22,21 +22,21 @@ Protocol Bridge 与独立 AttemptManager 尚未实现，后续顺序只见[架�
 
 ```text
 src/provider/
-  contracts.rs      # adapter traits、安全 header、错误与事件类型
-  credential.rs     # secret source 与短时 lease
-  mod.rs            # ProviderKind、descriptor 类型、闭合 enum dispatch
+  contracts.rs      # 安全 header、错误分类与 SSE 事件状态
+  credential.rs     # secret source 与请求期 credential value
+  mod.rs            # ProviderKind、ProviderContract 与闭合 enum dispatch
 
 src/providers/
-  mod.rs            # target、Serving Route 与 Public Model 聚合
-  openai.rs         # OpenAI descriptor、adapter 和 target/offering 定义
-  meituan.rs        # Meituan/LongCat descriptor、adapter 和 target/offering 定义
+  mod.rs            # target、Route 与 Public Model 聚合
+  openai.rs         # OpenAI contract、adapter 和 target/upstream API 配置
+  longcat.rs        # LongCat contract、adapter 和 target/upstream API 配置
 
 src/models/
   mod.rs            # canonical model 显式目录
   longcat.rs        # LongCat 模型事实，与具体 Provider 无关
 
 src/registry/
-  mod.rs            # definition、builder、校验与 immutable snapshot
+  mod.rs            # RegistryConfig、builder、校验与 RuntimeRegistry
 ```
 
 `provider` 不包含具体 Provider 的字段转换；`providers/<name>.rs` 不决定 Public Model route 顺序以外的动态
@@ -48,19 +48,19 @@ src/registry/
 
 | 部分 | 职责 |
 |---|---|
-| `ProviderDescriptor` | capability 上界、endpoint profile、credential kind |
-| `UpstreamTargetDefinition[]` | endpoint、credential、Real Model、timeout 与共享故障边界 |
-| `NativeOfferingDefinition[]` | 单协议 upstream model、limits、能力证据和 state policy |
-| `RequestAdapter` | path、upstream model 和字段转换 |
-| `HeaderAdapter` / `AuthAdapter` | 安全 header 与认证 |
-| `ResponseAdapter` | SSE/响应终态 |
-| `ErrorAdapter` | 错误分类与 retry hint |
-| `CapabilityAdapter` | adapter 上界校验 |
+| `ProviderContract` | capability 上界、endpoint profile、credential kind |
+| `UpstreamTargetConfig[]` | endpoint、credential、Model、timeout 与共享故障边界 |
+| `UpstreamApiConfig[]` | 单协议 upstream model、limits、能力证据和 state affinity |
+| `ProviderAdapter::prepare_request` | path、upstream model 和字段转换 |
+| `ProviderAdapter::prepare_headers` | 安全 header 与认证 |
+| `ProviderAdapter::classify_sse_event` | SSE 终态分类 |
+| `ProviderAdapter::classify_status` | HTTP 错误分类与 retry hint |
+| `ProviderAdapter::validate_capabilities` | adapter 上界校验 |
 | discovery request | 固定上游模型列表/能力探测请求 |
 
 复杂转换必须写成 Rust 逻辑和 fixture，不能演变成通用 map/template DSL。
 
-`RealModelDefinition[]` 由独立 `src/models/*` 目录维护；一个 Real Model 可以被多个 Provider target 引用。
+`ModelConfig[]` 由独立 `src/models/*` 目录维护；一个 Model 可以被多个 Provider target 引用。
 
 ## 4. Dispatch
 
@@ -69,10 +69,12 @@ Provider 集合保持闭合：
 ```rust
 pub enum ProviderKind {
     OpenAi,
+    LongCat,
 }
 
 pub enum ProviderAdapter {
     OpenAi(openai::OpenAiAdapter),
+    LongCat(longcat::LongCatAdapter),
 }
 ```
 
@@ -83,15 +85,15 @@ pub enum ProviderAdapter {
 
 ```text
 Inbound request bytes
-→ ValidatedRequest
-→ RequestProfile
-→ immutable RegistrySnapshot
-→ RoutePlan / eligible target + offering
-→ ProviderAdapter::encode_request(request, upstream_model)
-→ UpstreamRequestParts(relative URI, headers, body)
+→ ApiRequest
+→ RequestRequirements
+→ immutable RuntimeRegistry
+→ RoutePlan / eligible target + upstream API
+→ ProviderAdapter::prepare_request(request, upstream_model)
+→ PreparedUpstreamRequest(relative URI, headers, body)
 → shared transport + registered endpoint base
 → upstream JSON/SSE
-→ Provider response/error adapter
+→ ProviderAdapter response/error classification
 → downstream native response
 ```
 
@@ -125,11 +127,11 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 
 ## 8. 能力发现
 
-编译期“发现”指 `compiled_definition()` 明确枚举已编译 Provider/Model，不需要网络。
+编译期“发现”指 `compiled_config()` 明确枚举已编译 Provider/Model，不需要网络。
 
 远程 discovery/probe 是另一条显式管理员路径：
 
-- 使用注册表中的固定 Upstream Target，并按协议选择 Offering；
+- 使用注册表中的固定 Upstream Target，并按协议选择 Upstream API；
 - 不接受 URL、model、header 或 credential CLI 覆盖；
 - 报告 `supported`、`unsupported` 或 `unknown` 观察；
 - 不写回注册表；
@@ -154,5 +156,4 @@ Bridge 能力不能仅靠注册项声明；必须有实现和 fixture 证据。
 - [代码注册表与路由](configuration-and-routing.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
-- [架构迁移总计划](registry-architecture-migration.md)
 - [能力探测](../implementation-status/capability-probing.md)

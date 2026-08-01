@@ -7,8 +7,8 @@ use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{BootstrapPath, load_optional_dotenv},
-    ingress::{AppState, StaticBearerCredential, build_router},
+    config::{BootstrapConfigPath, load_optional_dotenv},
+    ingress::{DownstreamCredential, GatewayState, build_router},
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
 };
@@ -22,17 +22,17 @@ async fn main() -> Result<()> {
     load_optional_dotenv().context("failed to load optional .env file")?;
     init_tracing()?;
 
-    let bootstrap = BootstrapPath::from_environment()
+    let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
-    let snapshot =
+    let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
-    let listen = snapshot.listen();
-    let registry_version = snapshot.version().as_str().to_owned();
+    let listen = registry.listen();
+    let registry_version = registry.version().as_str().to_owned();
     let upstream = UpstreamClient::new(
-        snapshot.upstream_policy().connect_timeout(),
-        snapshot.upstream_policy().pool_idle_timeout(),
-        snapshot.upstream_policy().pool_max_idle_per_host(),
+        registry.http_client().connect_timeout(),
+        registry.http_client().pool_idle_timeout(),
+        registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
     let downstream_token = env::var("OPENBRIDGE_DOWNSTREAM_TOKEN")
@@ -40,10 +40,10 @@ async fn main() -> Result<()> {
     if downstream_token.is_empty() {
         anyhow::bail!("OPENBRIDGE_DOWNSTREAM_TOKEN must not be empty");
     }
-    let app_state = AppState::with_environment_credentials(
-        Arc::new(snapshot),
+    let app_state = GatewayState::with_environment_credentials(
+        Arc::new(registry),
         upstream,
-        StaticBearerCredential::new(SecretString::from(downstream_token)),
+        DownstreamCredential::new(SecretString::from(downstream_token)),
     );
     let listener = TcpListener::bind(listen)
         .await
