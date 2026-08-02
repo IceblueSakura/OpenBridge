@@ -37,6 +37,19 @@ cargo run --bin openbridge-probe -- --target openai-main --list-models
 cargo run --bin openbridge-probe -- --target openai-main --chat --responses --function-calling
 ```
 
+填充 `.env` 中的 `DEEPSEEK_API_KEY` 与 `MIMO_API_KEY` 后，可分别运行以下真实 Provider 验收用例：
+
+```bash
+cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --chat --function-calling
+cargo run --bin openbridge-probe -- --target deepseek-v4-flash --list-models --chat --function-calling
+cargo run --bin openbridge-probe -- --target mimo-v2-5-pro --all
+cargo run --bin openbridge-probe -- --target mimo-v2-5 --all
+```
+
+DeepSeek 没有注册 Responses Upstream API，因此 probe 只直接验证 Chat；下游 Responses→Chat Bridge 由确定性
+Rust 测试验证。MiMo 的 `--all` 会验证模型列表、两种协议的最小文本请求及 function call/result replay。
+这些命令会访问真实 Provider、消耗额度并可能触发限流，不属于默认测试基线。
+
 可选项为 `--list-models`、`--chat`、`--responses`、`--function-calling` 和 `--all`。没有选择项时
 等同 `--all`。`--target` 必须引用代码注册项。
 

@@ -201,7 +201,7 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
 }
 
 #[test]
-fn unconnected_provider_contracts_expose_only_declared_protocols() {
+fn deepseek_and_mimo_contracts_expose_only_declared_native_protocols() {
     let deepseek = ProviderAdapter::for_kind(ProviderKind::DeepSeek);
     let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo);
 

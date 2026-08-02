@@ -34,6 +34,30 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             upstream_target: "openrouter-nemotron-3-ultra",
             surface: PublicModelSurface::DualProtocolNativeOnly,
         },
+        PublicModelRegistration {
+            public_name: "deepseek-v4-pro",
+            route_prefix: "deepseek-v4-pro-deepseek",
+            upstream_target: "deepseek-v4-pro",
+            surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+        },
+        PublicModelRegistration {
+            public_name: "deepseek-v4-flash",
+            route_prefix: "deepseek-v4-flash-deepseek",
+            upstream_target: "deepseek-v4-flash",
+            surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+        },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5-pro",
+            route_prefix: "mimo-v2-5-pro-mimo",
+            upstream_target: "mimo-v2-5-pro",
+            surface: PublicModelSurface::DualProtocolWithBridges,
+        },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5",
+            route_prefix: "mimo-v2-5-mimo",
+            upstream_target: "mimo-v2-5",
+            surface: PublicModelSurface::DualProtocolWithBridges,
+        },
     ];
 
     // 按显式注册顺序共同生成 Route 与 Public Model 候选。
@@ -62,6 +86,7 @@ struct PublicModelRegistration {
 enum PublicModelSurface {
     DualProtocolWithBridges,
     DualProtocolNativeOnly,
+    ChatNativeWithResponsesBridge,
 }
 
 impl PublicModelRegistration {
@@ -69,6 +94,9 @@ impl PublicModelRegistration {
         match self.surface {
             PublicModelSurface::DualProtocolWithBridges => self.compile_dual_protocol(),
             PublicModelSurface::DualProtocolNativeOnly => self.compile_dual_protocol_native_only(),
+            PublicModelSurface::ChatNativeWithResponsesBridge => {
+                self.compile_chat_native_with_responses_bridge()
+            }
         }
     }
 
@@ -149,6 +177,39 @@ impl PublicModelRegistration {
         let public_model = PublicModelConfig {
             name: self.public_name.to_owned(),
             routes: vec![chat, responses],
+        };
+        CompiledPublicModel {
+            routes,
+            public_model,
+        }
+    }
+
+    /// 生成 Chat Native 与 Responses→Chat Bridge surface。
+    fn compile_chat_native_with_responses_bridge(self) -> CompiledPublicModel {
+        // 生成 Chat Native 与 Responses bridge 的稳定 ID。
+        let chat = format!("{}-chat", self.route_prefix);
+        let responses_via_chat = format!("{}-responses-via-chat", self.route_prefix);
+        let routes = vec![
+            route(
+                &chat,
+                self.upstream_target,
+                "chat",
+                ApiProtocol::ChatCompletions,
+                RouteMode::Native,
+            ),
+            route(
+                &responses_via_chat,
+                self.upstream_target,
+                "chat",
+                ApiProtocol::Responses,
+                RouteMode::Bridged,
+            ),
+        ];
+
+        // 让两个下游协议各引用唯一完整候选。
+        let public_model = PublicModelConfig {
+            name: self.public_name.to_owned(),
+            routes: vec![chat, responses_via_chat],
         };
         CompiledPublicModel {
             routes,

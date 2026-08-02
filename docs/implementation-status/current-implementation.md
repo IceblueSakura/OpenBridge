@@ -32,19 +32,21 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | `POST /v1/responses` | OpenAI-compatible Responses Native JSON/SSE | 静态 Bearer |
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。OpenAI API key 来自 `OPENAI_API_KEY`，
-LongCat API key 来自 `LONGCAT_API_KEY`，OpenRouter API key 来自 `OPENROUTER_API_KEY`。服务与 probe 可选加载
-`.env`，已有进程环境变量优先；上游注册表只保存环境变量名称。
+LongCat API key 来自 `LONGCAT_API_KEY`，OpenRouter API key 来自 `OPENROUTER_API_KEY`，DeepSeek 与 MiMo
+API key 分别来自 `DEEPSEEK_API_KEY` 与 `MIMO_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；
+上游注册表只保存环境变量名称。
 服务在 listener 绑定前把已启用用户 Key 与全部已启用 target Key 合并为不可变 `CredentialStore`，缺失或空的
 必需上游 Key 会阻止启动。运行时请求只读取该快照，不重新读取文件或环境变量；Key 轮换必须重启。
 
 ## Provider 与请求行为
 
-闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo。OpenAI 和 LongCat 已进入
-compiled registry，并分别注册 Chat/Responses Native 与双向 `Bridged` route。OpenRouter 也使用 API-key
-credential 和共享的 OpenAI-compatible wire 机制，当前注册 `nemotron-3-ultra` 的 Chat 与无状态 Responses
-Native route；没有 Bridge 或 fallback，且 `store`、`previous_response_id` 与 `background` 能力关闭。三个已接入
-Provider 分别拥有独立静态定义、endpoint profile、upstream model 与能力。DeepSeek 只声明 Chat Completions，MiMo 声明 Chat Completions 与 Responses；两者尚未注册
-target、credential locator、Route 或 Public Model，不能被运行时请求选择。尚未对真实异构协议 Provider 执行验证。
+闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo，五者都进入 compiled
+registry。OpenAI、LongCat 与 MiMo 注册 Chat/Responses Native 与双向 `Bridged` route；MiMo 的两个固定 target
+分别对应 `mimo-v2.5-pro` 与 `mimo-v2.5`。OpenRouter 注册 `nemotron-3-ultra` 的 Chat 与无状态 Responses Native
+route，没有 Bridge 或 fallback，且 `store`、`previous_response_id` 与 `background` 能力关闭。DeepSeek 的
+`deepseek-v4-pro` 与 `deepseek-v4-flash` target 只声明 Chat Upstream API；下游 Chat 走 Native，Responses 走
+Responses→Chat Bridge。五个 Provider 分别拥有独立静态定义、endpoint profile、upstream model 与能力；
+尚未接入真实异构 wire protocol Provider。
 
 五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。
@@ -53,8 +55,8 @@ descriptor 不注册 target、Route 或 Public Model，也不读取 endpoint ori
 canonical 模型目录当前包含 17 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
 覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
 Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
-其中 GPT-5.6 Sol 被默认 `openai-main` target 引用，Nemotron 3 Ultra 被 `openrouter-nemotron-3-ultra` target
-引用；其余新增目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron
+其中 GPT-5.6 Sol、LongCat 2.0、Nemotron 3 Ultra、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与
+Public Model 引用；其余目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron
 embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfig`。
 
 2026-08-02 已按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、context、
@@ -89,7 +91,8 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 
 ## 请求观测与进程内统计
 
-`src/observability.rs` 将不同基数和生命周期的数据分开处理：
+`src/observability.rs` 是观测门面；`src/observability/request.rs`、`metrics.rs` 与 `usage.rs` 分别处理
+单请求生命周期、低基数累计值和 Provider 明确返回的 usage：
 
 - `downstream_request` span 保存 request id、稳定 user id、协议、Public Model 和最终 HTTP status；
 - `upstream_attempt` 及其 HTTP/transport result、retry、fallback、cooldown skip 使用独立 tracing event，包含
@@ -109,11 +112,11 @@ exporter 可直接消费稳定 span/event；metrics exporter 应读取低基数�
 
 ## Protocol Bridge
 
-`src/bridge.rs` 提供彼此独立的 Chat 与 Responses stream 状态机，`src/bridge/conversion.rs` 提供
-`BridgePlan`、双向请求/非流式响应转换和增量 SSE renderer。它们按 wire 顺序固定 response/item/call/index
-identity，累计 text 与 function arguments，区分 `completed`、`failed`、`incomplete` 和独立 `error` terminal，
-并在 event/type 冲突、identity 冲突、不完整 JSON arguments、terminal 后事件、重复 terminal 或
-EOF-before-terminal 时失败关闭。
+`src/bridge.rs` 是 Protocol Bridge 门面；`chat.rs` 与 `responses.rs` 分别实现两种 stream 状态机，
+`conversion/request/*`、`response.rs` 与 `stream/*` 分别实现双向请求、非流式响应和增量 SSE 转换。
+`BridgePlan` 与 renderer 按 wire 顺序固定 response/item/call/index identity，累计 text 与 function arguments，
+区分 `completed`、`failed`、`incomplete` 和独立 `error` terminal，并在 event/type 冲突、identity 冲突、
+不完整 JSON arguments、terminal 后事件、重复 terminal 或 EOF-before-terminal 时失败关闭。
 
 生产 Router 已验证双向 text、function schema、tool call/result、并行 fragmented arguments、非流式 JSON、
 流式 terminal 与 invalid stream 关闭。`previous_response_id`、hosted/custom tool、reasoning、image、structured
@@ -127,7 +130,7 @@ credential 覆盖，只加载选中 target 的上游 Key，不读取下游用户
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
@@ -144,13 +147,13 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 115 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 117 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
 ## 当前未实现
 
-当前 checked-in OpenAI/LongCat/OpenRouter 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
+当前 checked-in OpenAI/LongCat/OpenRouter/DeepSeek/MiMo 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
 Upstream API 显式声明后生效。Bridged Route 仍不转换 reasoning。
 
 - OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；

@@ -4,13 +4,13 @@
 //! 各 Upstream API 提供上游 model id 与更保守的协议级约束。
 
 mod catalog;
-mod deepseek;
+pub(crate) mod deepseek;
 mod glm;
 pub(crate) mod gpt;
 mod hy;
 mod kimi;
 pub mod longcat;
-mod mimo;
+pub(crate) mod mimo;
 mod minimax;
 pub(crate) mod nemotron;
 mod qwen;

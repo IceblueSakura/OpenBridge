@@ -1,6 +1,7 @@
 use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,
+    credential::CredentialStoreBuilder,
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
@@ -352,15 +353,175 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
 }
 
 #[test]
-fn unconnected_provider_definitions_are_absent_from_the_compiled_registry() {
-    let definition = compiled_config();
+fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
+    // 构造完整编译注册表并核对两个 DeepSeek target 的固定受信边界。
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    for (public_name, target_id, canonical_model) in [
+        (
+            "deepseek-v4-pro",
+            "deepseek-v4-pro",
+            "deepseek/deepseek-v4-pro",
+        ),
+        (
+            "deepseek-v4-flash",
+            "deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash",
+        ),
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("DeepSeek target should be compiled");
+        assert_eq!(target.kind(), ProviderKind::DeepSeek);
+        assert_eq!(target.model_id(), canonical_model);
+        assert_eq!(target.endpoint_base().as_str(), "https://api.deepseek.com/");
+        assert_eq!(target.quota_scope(), Some("deepseek-primary"));
+        assert_eq!(target.fault_domain(), Some("deepseek-api"));
+        assert_eq!(
+            target.credential().secret_reference().locator(),
+            "DEEPSEEK_API_KEY"
+        );
+        assert_eq!(
+            target.upstream_api("chat").unwrap().upstream_model(),
+            public_name
+        );
+        assert!(target.upstream_api("responses").is_none());
 
-    assert!(
-        definition
-            .upstream_targets
-            .iter()
-            .all(|target| !matches!(target.provider, ProviderKind::DeepSeek | ProviderKind::MiMo))
-    );
+        // 验证下游 Chat 走 Native，Responses 只走显式 Chat bridge。
+        let public_model = registry
+            .public_model(public_name)
+            .expect("DeepSeek Public Model should be compiled");
+        let prefix = format!("{public_name}-deepseek");
+        assert_eq!(
+            public_model.routes(),
+            [
+                format!("{prefix}-chat"),
+                format!("{prefix}-responses-via-chat"),
+            ]
+        );
+        let chat = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}]}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
+        let plan = plan_request(&registry, &profile, chat).unwrap();
+        assert_eq!(plan.candidates()[0].route_id(), format!("{prefix}-chat"));
+        let responses =
+            bytes::Bytes::from(format!(r#"{{"model":"{public_name}","input":"hello"}}"#));
+        let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+        let plan = plan_request(&registry, &profile, responses).unwrap();
+        assert_eq!(
+            plan.candidates()[0].route_id(),
+            format!("{prefix}-responses-via-chat")
+        );
+    }
+}
+
+#[test]
+fn mimo_models_are_compiled_with_dual_native_first_routes() {
+    // 构造完整编译注册表并核对两个 MiMo target 的固定受信边界。
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    for (public_name, target_id, canonical_model, route_prefix) in [
+        (
+            "mimo-v2.5-pro",
+            "mimo-v2-5-pro",
+            "xiaomi/mimo-v2.5-pro",
+            "mimo-v2-5-pro-mimo",
+        ),
+        (
+            "mimo-v2.5",
+            "mimo-v2-5",
+            "xiaomi/mimo-v2.5",
+            "mimo-v2-5-mimo",
+        ),
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("MiMo target should be compiled");
+        assert_eq!(target.kind(), ProviderKind::MiMo);
+        assert_eq!(target.model_id(), canonical_model);
+        assert_eq!(
+            target.endpoint_base().as_str(),
+            "https://api.xiaomimimo.com/"
+        );
+        assert_eq!(target.quota_scope(), Some("mimo-primary"));
+        assert_eq!(target.fault_domain(), Some("mimo-api"));
+        assert_eq!(
+            target.credential().secret_reference().locator(),
+            "MIMO_API_KEY"
+        );
+        assert_eq!(
+            target.upstream_api("chat").unwrap().upstream_model(),
+            public_name
+        );
+        assert_eq!(
+            target.upstream_api("responses").unwrap().upstream_model(),
+            public_name
+        );
+
+        // 验证两种下游协议都按 Native-first、反向 Bridge-second 排序。
+        let public_model = registry
+            .public_model(public_name)
+            .expect("MiMo Public Model should be compiled");
+        assert_eq!(
+            public_model.routes(),
+            [
+                format!("{route_prefix}-chat"),
+                format!("{route_prefix}-chat-via-responses"),
+                format!("{route_prefix}-responses"),
+                format!("{route_prefix}-responses-via-chat"),
+            ]
+        );
+        for (protocol, body, expected_route) in [
+            (
+                ApiProtocol::ChatCompletions,
+                format!(r#"{{"model":"{public_name}","messages":[]}}"#),
+                format!("{route_prefix}-chat"),
+            ),
+            (
+                ApiProtocol::Responses,
+                format!(r#"{{"model":"{public_name}","input":"hello"}}"#),
+                format!("{route_prefix}-responses"),
+            ),
+        ] {
+            let body = bytes::Bytes::from(body);
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            assert_eq!(plan.candidates()[0].route_id(), expected_route);
+        }
+    }
+}
+
+#[test]
+fn compiled_provider_credentials_are_unique_and_have_example_locators() {
+    // 构造完整注册表并用合成值模拟启动时加载全部 target credential。
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let mut credentials = CredentialStoreBuilder::new();
+    for target_id in registry.upstream_target_ids() {
+        let target = registry.upstream_target(target_id).unwrap();
+        credentials
+            .insert_upstream(
+                target.kind(),
+                target.credential().id(),
+                secrecy::SecretString::from(format!("synthetic-{target_id}")),
+            )
+            .expect("compiled credential bindings should be unique");
+    }
+    let credentials = credentials.build();
+
+    // 验证每个 target 可按 Provider 与 binding 取回凭证，模板包含两个新增 locator。
+    for target_id in registry.upstream_target_ids() {
+        let target = registry.upstream_target(target_id).unwrap();
+        assert!(
+            credentials
+                .upstream(target.kind(), target.credential().id())
+                .is_ok()
+        );
+    }
+    let environment_template = include_str!("../.env.example");
+    assert!(environment_template.contains("DEEPSEEK_API_KEY="));
+    assert!(environment_template.contains("MIMO_API_KEY="));
 }
 
 #[test]

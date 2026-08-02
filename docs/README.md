@@ -166,8 +166,9 @@ public model name
 6. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
-注意：当前 OpenAI、LongCat 与 OpenRouter 都走 OpenAI-compatible Native Path；三者都注册双协议，只有
-OpenAI 与 LongCat 注册 Bridge，OpenRouter Responses 明确保持无状态。这不证明异构 Provider 已经实现。
+注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 MiMo
+注册双协议和 Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek 只提供 Chat Native，Responses
+下游请求使用显式 Responses→Chat Bridge。这些路径仍不证明异构 wire protocol Provider 已经实现。
 
 ## 9. 第七阶段：用测试理解“已经证明什么”
 

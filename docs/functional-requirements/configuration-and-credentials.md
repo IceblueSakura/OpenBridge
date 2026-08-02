@@ -50,6 +50,8 @@ route 热重载。
 - 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
 - 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
 - 当前 OpenRouter API key 从 `OPENROUTER_API_KEY` 获取；
+- 当前 DeepSeek API key 从 `DEEPSEEK_API_KEY` 获取；
+- 当前 Xiaomi MiMo API key 从 `MIMO_API_KEY` 获取；
 - 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target Key 一次性装入不可变 `CredentialStore`；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamBinding`，上下游同名 ID 不得造成命名冲突；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的 Debug/输出都不得包含 secret；

@@ -27,8 +27,9 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 ## 当前可运行基线
 
-当前 checkout 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，
-并补充 OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，
+当前 checkout 已实现 OpenAI、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
+OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 与
+Responses→Chat Bridge 路由，
 以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、单进程 quota/fault scope
 cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 text、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、continuation、hosted/custom tool、
@@ -86,9 +87,12 @@ OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `OPE
 和无状态 Responses；`store: true`、非空 `previous_response_id` 与 `background: true` 会在 egress 前拒绝。
 它不启用 Protocol Bridge、fallback 或带额外会话记录政策的 `:free` 变体。
 
-代码中另有 DeepSeek 与 Xiaomi MiMo 的静态 Provider 定义：DeepSeek 只声明 Chat Completions，MiMo 声明 Chat
-Completions 与 Responses。两者尚未注册 Upstream Target、credential locator、Route 或 Public Model，因此不在
-当前运行链路中。
+DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，使用 `DEEPSEEK_API_KEY` 和固定
+`https://api.deepseek.com` endpoint。每个模型的 Chat 使用 Native Route，Responses 只通过受限 Bridge 转换到
+Chat Upstream API；不伪装上游 Responses 能力。Xiaomi MiMo 当前注册 `mimo-v2.5-pro` 与 `mimo-v2.5`，使用
+`MIMO_API_KEY` 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
+及同 target 的反向 Bridge 候选。两者都未增加 reasoning wire 映射、图像、structured output、并行 tool、
+store、background 或 continuation 能力。
 
 下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`，缺失的必需上游 Key 会阻止启动；运行时不重新读取文件或环境变量，轮换必须重启。
 
