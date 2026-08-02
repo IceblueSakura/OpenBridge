@@ -2,9 +2,10 @@
 
 use crate::registry::ModelConfig;
 
-pub(crate) mod v4;
+pub(crate) mod v4_flash;
+pub(crate) mod v4_pro;
 
 /// 返回 DeepSeek 家族所有编译进二进制的 canonical 模型事实。
 pub(crate) fn configs() -> Vec<ModelConfig> {
-    v4::configs()
+    vec![v4_pro::config(), v4_flash::config()]
 }

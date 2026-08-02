@@ -1,11 +1,10 @@
 //! 已规划 Route candidate 的有限 retry/fallback 与响应接管。
 
-use axum::{body::to_bytes, response::Response};
+use axum::response::Response;
 use bytes::Bytes;
-use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
+use http::{HeaderMap, StatusCode};
 
 use crate::{
-    bridge::BridgePlan,
     core::ApiProtocol,
     observability::RequestObservation,
     pipeline::{analyze_request, plan_request},
@@ -15,10 +14,13 @@ use crate::{
 
 use super::{
     attempt::{AttemptManager, AttemptStep},
-    response::{api_error, filtered_upstream_headers, route_error, upstream_error},
+    response::{api_error, route_error, upstream_error},
     state::GatewayState,
-    streaming::{bridge_sse_body, validate_sse_body},
 };
+
+use self::response::{UpstreamResponseContext, upstream_response};
+
+mod response;
 
 /// 将一个已经过 HTTP 输入检查的请求送往有序 Native/Bridged candidate。
 ///
@@ -284,105 +286,4 @@ fn transport_error_kind(error: &TransportError) -> &'static str {
         TransportError::Timeout => "timeout",
         TransportError::InvalidTarget => "invalid_target",
     }
-}
-
-/// 将上游 status、安全响应头和 Native/Bridged body 交给下游。
-///
-/// SSE 仅在原请求要求 streaming、上游返回成功状态且 `Content-Type` 确为
-/// `text/event-stream` 时验证。错误响应即使对应 streaming request 也可能是 JSON 或其他
-/// 诊断 body；对其做 SSE 解码会破坏可见的 HTTP 错误语义。
-/// 一次已选定候选的响应转换、SSE 和观测上下文。
-struct UpstreamResponseContext {
-    validate_sse: bool,
-    protocol: ApiProtocol,
-    adapter: ProviderAdapter,
-    max_sse_event_bytes: usize,
-    max_json_body_bytes: usize,
-    bridge: Option<BridgePlan>,
-    observation: RequestObservation,
-}
-
-async fn upstream_response(
-    upstream: crate::transport::upstream::UpstreamResponse,
-    context: UpstreamResponseContext,
-) -> Response {
-    // 拆分已固定的响应处理事实，避免函数调用点遗漏协议或观测边界。
-    let UpstreamResponseContext {
-        validate_sse,
-        protocol,
-        adapter,
-        max_sse_event_bytes,
-        max_json_body_bytes,
-        bridge,
-        observation,
-    } = context;
-    // 提取 status 和安全响应头，并仅对成功 SSE response 启用观察器。
-    let status = upstream.status();
-    let response_headers = filtered_upstream_headers(upstream.headers());
-    let is_sse = upstream
-        .headers()
-        .get(CONTENT_TYPE)
-        .is_some_and(|content_type| {
-            content_type
-                .to_str()
-                .is_ok_and(|value| value.starts_with("text/event-stream"))
-        });
-    if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
-        return api_error(
-            StatusCode::BAD_GATEWAY,
-            "invalid_upstream_response",
-            "The upstream response could not be converted",
-        );
-    }
-    // 保持非 SSE 或错误 body 原样透传，避免破坏上游诊断语义。
-    let body = if validate_sse && status.is_success() && is_sse {
-        if let Some(bridge) = bridge {
-            bridge_sse_body(
-                upstream.into_body(),
-                bridge.stream_renderer(),
-                max_sse_event_bytes,
-            )
-        } else {
-            validate_sse_body(
-                upstream.into_body(),
-                protocol,
-                adapter,
-                max_sse_event_bytes,
-                observation,
-            )
-        }
-    } else if status.is_success() {
-        if let Some(bridge) = bridge {
-            let upstream_body = match to_bytes(upstream.into_body(), max_json_body_bytes).await {
-                Ok(body) => body,
-                Err(_) => {
-                    return api_error(
-                        StatusCode::BAD_GATEWAY,
-                        "invalid_upstream_response",
-                        "The upstream response could not be converted",
-                    );
-                }
-            };
-            match bridge.render_non_stream(upstream_body) {
-                Ok(body) => axum::body::Body::from(body),
-                Err(_) => {
-                    return api_error(
-                        StatusCode::BAD_GATEWAY,
-                        "invalid_upstream_response",
-                        "The upstream response could not be converted",
-                    );
-                }
-            }
-        } else {
-            upstream.into_body()
-        }
-    } else {
-        upstream.into_body()
-    };
-    let mut response = Response::builder()
-        .status(status)
-        .body(body)
-        .expect("valid upstream response status");
-    response.headers_mut().extend(response_headers);
-    response
 }

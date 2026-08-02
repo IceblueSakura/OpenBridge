@@ -1,20 +1,20 @@
-//! Xiaomi MiMo-V2.5 的完整 canonical 模型事实。
+//! DeepSeek V4 Flash 的完整 canonical 模型事实。
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// MiMo-V2.5 在 OpenBridge 模型目录中的稳定 id。
-pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
+/// DeepSeek V4 Flash 在 OpenBridge 模型目录中的稳定 id。
+pub(crate) const ID: &str = "deepseek/deepseek-v4-flash";
 
-/// 构造 MiMo-V2.5 的 context、参数和 reasoning 事实。
+/// 构造 DeepSeek V4 Flash 的 context、参数和 reasoning 事实。
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "MiMo-V2.5".to_owned(),
+        name: "DeepSeek V4 Flash".to_owned(),
         description: Some(
-            "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
+            "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(393_216)),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -24,6 +24,7 @@ pub(crate) fn config() -> ModelConfig {
             "min_p",
             "presence_penalty",
             "reasoning",
+            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -32,6 +33,7 @@ pub(crate) fn config() -> ModelConfig {
             "temperature",
             "tool_choice",
             "tools",
+            "top_a",
             "top_k",
             "top_logprobs",
             "top_p",
@@ -40,6 +42,6 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
     }
 }

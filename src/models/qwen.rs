@@ -2,9 +2,10 @@
 
 use crate::registry::ModelConfig;
 
-pub(crate) mod v3_7;
+pub(crate) mod v3_7_max;
+pub(crate) mod v3_7_plus;
 
 /// 返回 Qwen 家族所有编译进二进制的 canonical 模型事实。
 pub(crate) fn configs() -> Vec<ModelConfig> {
-    v3_7::configs()
+    vec![v3_7_max::config(), v3_7_plus::config()]
 }

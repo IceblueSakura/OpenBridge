@@ -1,30 +1,27 @@
-//! Xiaomi MiMo-V2.5 的完整 canonical 模型事实。
+//! Qwen3.7 Max 的完整 canonical 模型事实。
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// MiMo-V2.5 在 OpenBridge 模型目录中的稳定 id。
-pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
+/// Qwen3.7 Max 在 OpenBridge 模型目录中的稳定 id。
+pub(crate) const ID: &str = "qwen/qwen3.7-max";
 
-/// 构造 MiMo-V2.5 的 context、参数和 reasoning 事实。
+/// 构造 Qwen3.7 Max 的 context、参数和 reasoning 事实。
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "MiMo-V2.5".to_owned(),
+        name: "Qwen3.7 Max".to_owned(),
         description: Some(
-            "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
+            "Qwen3.7 flagship model for agent-centric coding, office, and productivity workloads."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_000_000), Some(131_072)),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
-            "logit_bias",
             "logprobs",
             "max_tokens",
-            "min_p",
             "presence_penalty",
             "reasoning",
-            "repetition_penalty",
             "response_format",
             "seed",
             "stop",

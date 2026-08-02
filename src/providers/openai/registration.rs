@@ -15,7 +15,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openai-main".to_owned(),
         provider: ProviderKind::OpenAi,
-        model: gpt::v5_6::SOL_ID.to_owned(),
+        model: gpt::v5_6_sol::ID.to_owned(),
         base_url: "https://api.openai.com".to_owned(),
         credential: CredentialConfig {
             id: "openai-primary".to_owned(),

@@ -116,10 +116,11 @@ RegistryConfig
 | `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
 
 当前编译目录包含 17 个 `ModelConfig`：LongCat-2.0，以及从 LiteLLM 部署清单整理出的 16 个唯一
-Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，具体定义按稳定版本线位于
-`src/models/<family>/<version>.rs`；因此源码可使用 `gpt::v5_6::SOL_ID` 这类上下文化名称，而不把完整版本
-压入每个函数名。每个具体模型仍完整拥有 id、名称、context、参数、reasoning 状态和 level，不从共享默认值
-拼装模型字段。目录存在不等于
+Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，家族目录下每个扁平叶模块只定义一个
+具体模型。版本、checkpoint 和命名变体直接组成模块名：例如 `gpt/v5_6_sol.rs`、
+`deepseek/v4_flash.rs`、`mimo/v2_5_pro.rs` 与 `qwen/v3_7_max.rs`；不增加版本聚合层。家族根模块直接维持
+目录顺序，源码使用 `gpt::v5_6_sol::ID` 这类扁平作用域名称。每个具体模型仍完整拥有 id、名称、context、
+参数、reasoning 状态和 level，不从共享默认值拼装模型字段。目录存在不等于
 可调用；只有被 Upstream Target 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
 当前 `ModelConfig` 不表示 embedding/rerank，因此两个 Nemotron retrieval 条目没有被伪装成文本模型。
 其中 16 个模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；
@@ -186,8 +187,9 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 ## 6. Provider 适配层
 
 实现位置：`src/provider/kind.rs`、`src/provider/definition.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
-`src/providers/openai_compatible.rs`，以及 `src/providers/<provider>/definition.rs` 与
-`registration.rs`；`src/provider/mod.rs` 与各具体 Provider 的 `mod.rs` 只保留入口和重导出。
+`src/providers/openai_compatible.rs`、各 `src/providers/<provider>.rs` 根模块，以及同名目录中的
+`definition.rs` 与可选 `registration.rs`；`src/provider/mod.rs` 和 `src/providers/mod.rs` 只保留包入口，
+具体 Provider 不使用 `mod.rs`。
 
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
