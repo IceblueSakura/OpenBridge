@@ -15,4 +15,17 @@ mod minimax;
 pub(crate) mod nemotron;
 mod qwen;
 
+#[cfg(test)]
+mod tests {
+    use super::{gpt, longcat, nemotron};
+
+    #[test]
+    fn family_modules_expose_version_scoped_model_definitions() {
+        assert_eq!(gpt::v5_6::SOL_ID, "openai/gpt-5.6-sol");
+        assert_eq!(longcat::v2::ID, "meituan/longcat-2.0");
+        assert_eq!(nemotron::v3::ULTRA_ID, "nvidia/nemotron-3-ultra-550b-a55b");
+        assert_eq!(gpt::configs().len(), 5);
+    }
+}
+
 pub(crate) use catalog::compiled_configs;

@@ -19,7 +19,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openrouter-nemotron-3-ultra".to_owned(),
         provider: ProviderKind::OpenRouter,
-        model: nemotron::NEMOTRON_3_ULTRA_ID.to_owned(),
+        model: nemotron::v3::ULTRA_ID.to_owned(),
         base_url: "https://openrouter.ai/api/v1".to_owned(),
         credential: CredentialConfig {
             id: "openrouter-primary".to_owned(),

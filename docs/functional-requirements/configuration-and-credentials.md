@@ -27,7 +27,7 @@ route 热重载。
 
 - 每个具体 Provider 位于独立 `src/providers/<provider>/` 目录，分别拥有静态 definition 与 registration；同一 wire family 的协议机制可以由闭合的编译期模块共享；
 - 静态 Provider definition 不自动构成运行链路；只有显式加入 compiled target、Route 与 Public Model 后才可被请求选择；
-- 同一模型家族集中位于一个 `src/models/<family>.rs` 文件，每个具体 Model 仍完整声明自身事实；
+- 同一模型家族由一个 `src/models/<family>.rs` 根模块聚合，并可在 `src/models/<family>/<version>.rs` 中按稳定版本线拆分；每个具体 Model 仍完整声明自身事实；
 - `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；

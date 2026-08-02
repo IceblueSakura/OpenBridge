@@ -144,7 +144,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 114 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 115 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 

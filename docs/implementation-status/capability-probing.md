@@ -12,7 +12,7 @@
 
 ## 代码注册的模型事实
 
-`src/models/<family>.rs` 中按具体模型完整声明的 `ModelConfig` 记录：
+`src/models/<family>.rs` 聚合根模块下按稳定版本线组织的 `ModelConfig` 完整声明记录：
 
 - 逻辑模型 id 和展示元数据；
 -已核实的 input/output token 上限；

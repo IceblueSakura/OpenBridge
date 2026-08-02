@@ -12,6 +12,7 @@ use openbridge::{
 fn compiled_model_catalog_includes_litellm_text_models() {
     let definition = compiled_config();
     let expected = [
+        "meituan/longcat-2.0",
         "openai/gpt-5.6-sol",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-luna",
@@ -30,14 +31,13 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         "nvidia/nemotron-3-ultra-550b-a55b",
     ];
 
-    // 每个 LiteLLM Chat/Responses 模型组只产生一个 canonical 模型定义。
-    for id in expected {
-        assert!(
-            definition.models.iter().any(|model| model.id == id),
-            "missing canonical model {id}"
-        );
-    }
-    assert_eq!(definition.models.len(), expected.len() + 1);
+    // 家族和版本模块迁移不得改变 canonical 模型目录的内容或稳定顺序。
+    let actual = definition
+        .models
+        .iter()
+        .map(|model| model.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
     assert!(
         definition
             .models
