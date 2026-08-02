@@ -64,8 +64,9 @@ HTTP 发送与可控 transport；Provider 的请求、认证、SSE 和错误处�
 
 ## 2. 装配与配置层
 
-实现位置：`src/main.rs`、`src/config/*`、`src/providers/catalog.rs`；`src/config/mod.rs`
-保留基础配置定义与重导出，`src/providers/mod.rs` 只保留包入口。
+实现位置：`src/main.rs`、`src/config/*`、`src/providers/catalog.rs` 与
+`src/providers/catalog/*`；`src/config/mod.rs` 保留基础配置定义与重导出，
+`src/providers/mod.rs` 只保留包入口。
 
 启动顺序：
 
@@ -182,8 +183,9 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 
 ## 6. Provider 适配层
 
-实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
-`src/providers/openai.rs`、`src/providers/longcat.rs`；`src/provider/mod.rs` 只保留包入口与公共重导出。
+实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`，
+以及 `src/providers/<provider>/` 下独立的 `contract.rs`、`adapter.rs` 和
+`registration.rs`；`src/provider/mod.rs` 与各具体 Provider 的 `mod.rs` 只保留入口和重导出。
 
 `ProviderKind` 是闭合集合。具体 adapter 从 selected Upstream API 读取 upstream model，负责相对 path、模型
 字段改写、受信 request-header hook、认证 header、响应/SSE terminal 和错误分类。当前 OpenAI 与 LongCat

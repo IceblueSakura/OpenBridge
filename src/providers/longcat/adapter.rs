@@ -1,10 +1,4 @@
-//! LongCat Provider 的编译期定义。
-//!
-//! LongCat-2.0 通过 LongCat OpenAI-compatible 端点原生接收 Chat Completions 和
-//! Responses 请求。两种协议均保持原始 JSON/SSE wire 语义；本 adapter 只固定相对路径、
-//! 注入上游模型 id 与构造 Bearer 认证，不执行协议桥接。
-
-use std::time::Duration;
+//! LongCat 请求、认证、SSE 与 HTTP status adapter。
 
 use bytes::Bytes;
 use http::{
@@ -14,47 +8,15 @@ use http::{
 use zeroize::Zeroizing;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, ApiRequest, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, ApiProtocol, ApiRequest},
     provider::{
-        AdapterError, ClassifiedSseEvent, CredentialKind, PreparedUpstreamRequest,
-        ProviderContract, ProviderKind, RetryHint, SafeHeaders, SensitiveHeaders,
-        StatusClassification, StreamEventStatus, UpstreamErrorKind,
-    },
-    registry::{
-        CredentialConfig, StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderKind, RetryHint,
+        SafeHeaders, SensitiveHeaders, StatusClassification, StreamEventStatus, UpstreamErrorKind,
     },
     transport::sse::SseEvent,
 };
 
-/// 基于直连验证及 OpenRouter 模型目录的 LongCat OpenAI-compatible 能力上界。
-pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::LongCat,
-    ApiCapabilities {
-        chat_completions: EndpointCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
-            streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
-            store: false,
-            previous_response_id: false,
-            background: false,
-        },
-    },
-    &["longcat-openai"],
-    &[CredentialKind::ApiKey],
-);
+use super::CONTRACT;
 
 /// LongCat 的 OpenAI-compatible adapter。
 #[derive(Clone, Copy)]
@@ -201,53 +163,4 @@ impl LongCatAdapter {
             Err(AdapterError::UnsupportedCapabilities)
         }
     }
-}
-
-/// 构造 LongCat-2.0 的 upstream targets。
-pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
-    vec![UpstreamTargetConfig {
-        id: "longcat-2".to_owned(),
-        provider: ProviderKind::LongCat,
-        model: "meituan/longcat-2.0".to_owned(),
-        base_url: "https://api.longcat.chat".to_owned(),
-        credential: CredentialConfig {
-            id: "longcat-primary".to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "LONGCAT_API_KEY".to_owned(),
-        },
-        quota_scope: None,
-        fault_domain: None,
-        request_timeout: Duration::from_secs(120),
-        enabled: true,
-        upstream_apis: upstream_apis("LongCat-2.0", "longcat-openai", *CONTRACT.capabilities()),
-    }]
-}
-
-fn upstream_apis(
-    upstream_model: &str,
-    endpoint_profile: &str,
-    capabilities: ApiCapabilities,
-) -> Vec<UpstreamApiConfig> {
-    vec![
-        UpstreamApiConfig {
-            id: "chat".to_owned(),
-            protocol: ApiProtocol::ChatCompletions,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
-            state_affinity: StateAffinity::Unbound,
-        },
-        UpstreamApiConfig {
-            id: "responses".to_owned(),
-            protocol: ApiProtocol::Responses,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
-            state_affinity: StateAffinity::TargetBound,
-        },
-    ]
 }

@@ -53,7 +53,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 | 2 | [`src/config/mod.rs`](../src/config/mod.rs)、[`parser.rs`](../src/config/parser.rs) | Bootstrap 基础定义、TOML 解析和边界校验 |
 | 3 | [`src/config/source.rs`](../src/config/source.rs) | bootstrap 文件定位、可选 dotenv 加载和错误边界 |
 | 4 | [`src/identity.rs`](../src/identity.rs) | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry` |
-| 5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs) | 编译期 Provider、模型、target、upstream API、route 与 Public Model 装配 |
+| 5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs)、[`catalog/`](../src/providers/catalog) | 编译期 Provider、模型、target、Route 与 Public Model 装配 |
 | 6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry` |
 
 把启动链记成一条线即可：
@@ -157,8 +157,8 @@ public model name
 添加或审计 Provider 时，按以下顺序阅读：
 
 1. [`src/provider/kind.rs`](../src/provider/kind.rs) 与 [`src/provider/adapter.rs`](../src/provider/adapter.rs)：闭合 `ProviderKind`、`ProviderContract` 与 `ProviderAdapter`。
-2. [`src/providers/openai.rs`](../src/providers/openai.rs)：OpenAI adapter 与两个原生 Upstream API 的样例。
-3. [`src/providers/longcat.rs`](../src/providers/longcat.rs)：OpenAI-compatible Provider 如何收窄能力与 endpoint profile。
+2. [`src/providers/openai/`](../src/providers/openai)：OpenAI contract、adapter 与 target/upstream API 注册。
+3. [`src/providers/longcat/`](../src/providers/longcat)：LongCat 如何独立收窄能力、endpoint profile 与注册事实。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
 5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
