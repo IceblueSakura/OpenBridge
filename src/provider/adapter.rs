@@ -25,6 +25,9 @@ pub enum AdapterError {
     /// credential 所属 provider 与 adapter 不一致。
     #[error("credential provider does not match the provider adapter")]
     CredentialProviderMismatch,
+    /// credential kind 不在 Provider 静态契约允许范围内。
+    #[error("credential kind is not supported by the provider adapter")]
+    CredentialKindMismatch,
     /// 敏感 header 被错误地放入普通 header 集合。
     #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
@@ -230,11 +233,19 @@ mod tests {
                 ProviderKind::OpenAi,
                 "binding",
                 SecretString::from("credential-test-value".to_owned()),
+                crate::credential::CredentialMetadata::upstream(
+                    crate::provider::CredentialKind::ApiKey,
+                    crate::credential::CredentialSource::Programmatic,
+                ),
             )
             .unwrap();
         let credentials = credentials.build();
         let credential = credentials
-            .upstream(ProviderKind::OpenAi, "binding")
+            .upstream(
+                ProviderKind::OpenAi,
+                "binding",
+                crate::provider::CredentialKind::ApiKey,
+            )
             .unwrap();
 
         let headers = adapter.prepare_auth_headers(&credential).unwrap();

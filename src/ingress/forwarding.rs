@@ -87,10 +87,11 @@ pub(super) async fn forward_request(
                 "Configured native upstream API is unavailable",
             );
         };
-        let credential = match state
-            .credentials
-            .upstream(target.kind(), target.credential().id())
-        {
+        let credential = match state.credentials.upstream(
+            target.kind(),
+            target.credential().id(),
+            target.credential().kind(),
+        ) {
             Ok(credential) => credential,
             Err(_) => {
                 return api_error(

@@ -155,6 +155,7 @@ fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
     match error {
         CredentialStoreError::DuplicateDownstreamSecret => UserRegistryError::DuplicateApiKey,
         CredentialStoreError::DuplicateId => UserRegistryError::DuplicateApiKey,
+        CredentialStoreError::InvalidMetadata => UserRegistryError::Parse,
         CredentialStoreError::Unavailable => UserRegistryError::Parse,
     }
 }

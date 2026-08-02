@@ -4,9 +4,9 @@ use http::{
 };
 use openbridge::{
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
-    credential::CredentialStoreBuilder,
+    credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
-        AdapterError, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
         UpstreamErrorKind,
     },
     transport::sse::SseDecoder,
@@ -22,11 +22,16 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
             ProviderKind::OpenAi,
             "openai-primary",
             SecretString::from("credential-test-value".to_owned()),
+            CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Programmatic),
         )
         .unwrap();
     let credentials = credentials.build();
     let credential = credentials
-        .upstream(ProviderKind::OpenAi, "openai-primary")
+        .upstream(
+            ProviderKind::OpenAi,
+            "openai-primary",
+            CredentialKind::ApiKey,
+        )
         .unwrap();
 
     let safe = adapter.prepare_headers().unwrap();
@@ -243,11 +248,16 @@ fn openrouter_authentication_is_bound_to_its_own_credential() {
             ProviderKind::OpenRouter,
             "openrouter-primary",
             SecretString::from("openrouter-test-value".to_owned()),
+            CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Programmatic),
         )
         .unwrap();
     let credentials = credentials.build();
     let credential = credentials
-        .upstream(ProviderKind::OpenRouter, "openrouter-primary")
+        .upstream(
+            ProviderKind::OpenRouter,
+            "openrouter-primary",
+            CredentialKind::ApiKey,
+        )
         .unwrap();
 
     let headers = adapter.prepare_auth_headers(&credential).unwrap();

@@ -505,6 +505,10 @@ fn compiled_provider_credentials_are_unique_and_have_example_locators() {
                 target.kind(),
                 target.credential().id(),
                 secrecy::SecretString::from(format!("synthetic-{target_id}")),
+                openbridge::credential::CredentialMetadata::upstream(
+                    target.credential().kind(),
+                    openbridge::credential::CredentialSource::Programmatic,
+                ),
             )
             .expect("compiled credential bindings should be unique");
     }
@@ -515,7 +519,11 @@ fn compiled_provider_credentials_are_unique_and_have_example_locators() {
         let target = registry.upstream_target(target_id).unwrap();
         assert!(
             credentials
-                .upstream(target.kind(), target.credential().id())
+                .upstream(
+                    target.kind(),
+                    target.credential().id(),
+                    target.credential().kind(),
+                )
                 .is_ok()
         );
     }

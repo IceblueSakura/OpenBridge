@@ -200,9 +200,11 @@ Provider 契约、endpoint path 与 request-header hook；共享 `openai_compati
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
 attribution/routing header，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
-locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整 `binding_id + ProviderKind` 从
-`CredentialStore` 借用 `UpstreamCredential`；Store 不公开通用明文查询，adapter 仍在 crate 内的认证 header
-边界才访问 secret。
+locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整
+`binding_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目
+冻结 credential type、来源类别、generation 与可选过期时间，来源类别不保存 locator。Store 不公开通用明文
+查询，adapter 仍在 crate 内的认证 header 边界才访问 secret。`CredentialKind` 已能表达
+`OAuth2BearerAccessToken`，但现有 Provider contract 仍只允许 `ApiKey`，因此尚未形成 OAuth 出站路径。
 
 OpenAI、LongCat 与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
 与它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的

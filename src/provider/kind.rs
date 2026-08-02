@@ -30,6 +30,10 @@ pub enum ProviderKind {
 pub enum CredentialKind {
     /// 使用 HTTP Bearer API key。
     ApiKey,
+    /// 使用外部签发的 OAuth2 Bearer access token。
+    ///
+    /// 该类型只描述资源请求使用的 credential，不代表网关已经实现 token 获取或 refresh。
+    OAuth2BearerAccessToken,
 }
 
 /// provider 的静态能力与可配置范围。

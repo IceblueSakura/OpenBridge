@@ -5,7 +5,7 @@ use std::time::Duration;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
-    credential::CredentialStore,
+    credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
@@ -63,6 +63,10 @@ enabled = true
                     target.kind(),
                     target.credential().id(),
                     secrecy::SecretString::from(upstream_secret.to_owned()),
+                    CredentialMetadata::upstream(
+                        target.credential().kind(),
+                        CredentialSource::Programmatic,
+                    ),
                 )
                 .expect("test upstream credential must be unique");
         }

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use super::{ProbeOptions, SupportStatus, probe_upstream_target};
 use crate::{
     config::parse_bootstrap_config,
-    credential::{CredentialStore, CredentialStoreBuilder},
+    credential::{CredentialMetadata, CredentialSource, CredentialStore, CredentialStoreBuilder},
     provider::PreparedUpstreamRequest,
     providers,
     registry::{RuntimeRegistry, UpstreamTarget, build_registry},
@@ -46,6 +46,10 @@ fn credentials(registry: &RuntimeRegistry) -> CredentialStore {
             target.kind(),
             target.credential().id(),
             SecretString::from("test-key"),
+            CredentialMetadata::upstream(
+                target.credential().kind(),
+                CredentialSource::Programmatic,
+            ),
         )
         .unwrap();
     credentials.build()

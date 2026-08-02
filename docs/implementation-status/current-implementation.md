@@ -37,6 +37,10 @@ API key 分别来自 `DEEPSEEK_API_KEY` 与 `MIMO_API_KEY`。服务与 probe 可
 上游注册表只保存环境变量名称。
 服务在 listener 绑定前把已启用用户 Key 与全部已启用 target Key 合并为不可变 `CredentialStore`，缺失或空的
 必需上游 Key 会阻止启动。运行时请求只读取该快照，不重新读取文件或环境变量；Key 轮换必须重启。
+Store 条目同时冻结 credential type、仅含类别的 source、generation 与可选过期时间；环境变量 locator 不进入
+这些运行时诊断元数据。上游借用同时匹配 `binding_id + ProviderKind + CredentialKind`。类型系统已能表达
+`OAuth2BearerAccessToken`，但现有 Provider contract 仍只接受 `ApiKey`，当前没有 token 获取、refresh、热更新
+或 401 refresh/retry 行为。
 
 ## Provider 与请求行为
 
@@ -67,7 +71,8 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 
 请求路径当前会：
 
-- 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按 `binding_id + ProviderKind` 借用上游 Key；
+- 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按
+  `binding_id + ProviderKind + CredentialKind` 借用上游 Key 及其非敏感元数据；
 - 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
 - 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
   当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；

@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest},
+    credential::CredentialType,
     provider::{
         AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderContract, ProviderKind,
         RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification, StreamEventStatus,
@@ -146,6 +147,12 @@ impl OpenAiCompatibleAdapter {
         // 校验 credential Provider 归属，避免跨 Provider 复用 secret。
         if credential.provider() != self.kind {
             return Err(AdapterError::CredentialProviderMismatch);
+        }
+        let CredentialType::Upstream(kind) = credential.metadata().credential_type() else {
+            return Err(AdapterError::CredentialKindMismatch);
+        };
+        if !self.contract.credential_kinds().contains(&kind) {
+            return Err(AdapterError::CredentialKindMismatch);
         }
 
         // 在 zeroizing 字符串中组装敏感 Bearer header。

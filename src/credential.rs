@@ -4,13 +4,16 @@
 //! 和目的专用访问方法保持两个信任方向隔离。运行时 Store 不读取文件或环境变量，不提供
 //! 通用明文查询，也不会在 `Debug`、错误或日志中暴露 secret。
 
-use std::{env, fmt};
+use std::{env, fmt, time::SystemTime};
 
 use secrecy::{ExposeSecret, SecretString};
 use subtle::ConstantTimeEq;
 use thiserror::Error;
 
-use crate::{provider::ProviderKind, registry::UpstreamTarget};
+use crate::{
+    provider::{CredentialKind, ProviderKind},
+    registry::UpstreamTarget,
+};
 
 /// 一项 credential 的稳定运行时标识与用途。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,9 +32,94 @@ pub enum CredentialId {
     },
 }
 
+/// Credential 在 Store 中承担的用途与认证类型。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialType {
+    /// 下游用户 Bearer API Key。
+    DownstreamApiKey,
+    /// 上游 Provider 声明的 credential kind。
+    Upstream(CredentialKind),
+}
+
+/// Secret 进入 Store 的受信来源类别。
+///
+/// 该枚举只保留低敏感度类别，不保存文件路径、环境变量 locator、issuer URL 或其他来源细节。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialSource {
+    /// 来自私有下游用户配置。
+    UserConfiguration,
+    /// 来自启动阶段读取的进程环境或可选 dotenv。
+    Environment,
+    /// 由受信 composition root 或测试直接注入。
+    Programmatic,
+}
+
+/// 与 secret 一起冻结的非敏感 credential 运行时元数据。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CredentialMetadata {
+    credential_type: CredentialType,
+    source: CredentialSource,
+    generation: u64,
+    expires_at: Option<SystemTime>,
+}
+
+impl CredentialMetadata {
+    /// 创建第一代上游 credential 元数据。
+    pub fn upstream(kind: CredentialKind, source: CredentialSource) -> Self {
+        Self {
+            credential_type: CredentialType::Upstream(kind),
+            source,
+            generation: 1,
+            expires_at: None,
+        }
+    }
+
+    fn downstream_user() -> Self {
+        Self {
+            credential_type: CredentialType::DownstreamApiKey,
+            source: CredentialSource::UserConfiguration,
+            generation: 1,
+            expires_at: None,
+        }
+    }
+
+    /// 覆盖 credential generation；零值会在插入 Store 时被拒绝。
+    pub fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = generation;
+        self
+    }
+
+    /// 设置 credential 的已知过期时间。
+    pub fn with_expires_at(mut self, expires_at: SystemTime) -> Self {
+        self.expires_at = Some(expires_at);
+        self
+    }
+
+    /// 返回 credential 的用途与认证类型。
+    pub fn credential_type(&self) -> CredentialType {
+        self.credential_type
+    }
+
+    /// 返回 secret 的受信来源类别。
+    pub fn source(&self) -> CredentialSource {
+        self.source
+    }
+
+    /// 返回从一开始递增的 credential generation。
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// 返回已知过期时间；静态来源未提供时为 `None`。
+    pub fn expires_at(&self) -> Option<SystemTime> {
+        self.expires_at
+    }
+}
+
 struct CredentialEntry {
     id: CredentialId,
     secret: SecretString,
+    metadata: CredentialMetadata,
     enabled: bool,
 }
 
@@ -78,6 +166,7 @@ impl CredentialStoreBuilder {
         self.entries.push(CredentialEntry {
             id,
             secret,
+            metadata: CredentialMetadata::downstream_user(),
             enabled,
         });
         Ok(())
@@ -89,10 +178,16 @@ impl CredentialStoreBuilder {
         provider: ProviderKind,
         binding_id: impl Into<String>,
         secret: SecretString,
+        metadata: CredentialMetadata,
     ) -> Result<(), CredentialStoreError> {
-        // 拒绝空 secret，避免服务启动后才产生上游认证失败。
+        // 校验 secret 与元数据属于可用的上游 credential。
         if secret.expose_secret().is_empty() {
             return Err(CredentialStoreError::Unavailable);
+        }
+        if metadata.generation == 0
+            || !matches!(metadata.credential_type, CredentialType::Upstream(_))
+        {
+            return Err(CredentialStoreError::InvalidMetadata);
         }
 
         // 构造带 Provider 归属的上游 ID，并拒绝重复 binding。
@@ -106,6 +201,7 @@ impl CredentialStoreBuilder {
         self.entries.push(CredentialEntry {
             id,
             secret,
+            metadata,
             enabled: true,
         });
         Ok(())
@@ -120,6 +216,7 @@ impl CredentialStoreBuilder {
         self.load_upstream_with(
             target.kind(),
             target.credential().id(),
+            target.credential().kind(),
             target.credential().secret_reference().locator(),
             |locator| env::var(locator).ok(),
         )
@@ -129,13 +226,19 @@ impl CredentialStoreBuilder {
         &mut self,
         provider: ProviderKind,
         binding_id: &str,
+        kind: CredentialKind,
         locator: &str,
         resolve: impl FnOnce(&str) -> Option<String>,
     ) -> Result<(), CredentialStoreError> {
         // 读取一次受信 locator，并把缺失、非 Unicode 或空值统一视为不可用。
         let secret = resolve(locator).ok_or(CredentialStoreError::Unavailable)?;
         // 将来源值移入 Store builder，运行时不再保留或访问 locator。
-        self.insert_upstream(provider, binding_id, SecretString::from(secret))
+        self.insert_upstream(
+            provider,
+            binding_id,
+            SecretString::from(secret),
+            CredentialMetadata::upstream(kind, CredentialSource::Environment),
+        )
     }
 
     /// 构造只包含启用 credential 的不可变运行时快照。
@@ -186,8 +289,9 @@ impl CredentialStore {
         &self,
         provider: ProviderKind,
         binding_id: &str,
+        kind: CredentialKind,
     ) -> Result<UpstreamCredential<'_>, CredentialStoreError> {
-        // 只匹配完整上游用途 ID，不能把下游 Key 或其他 Provider 的 Key 作为候选。
+        // 匹配完整上游用途 ID 与 credential kind，不能跨 Provider 或认证类型复用 secret。
         let entry = self.entries.iter().find(|entry| {
             matches!(
                 &entry.id,
@@ -195,7 +299,7 @@ impl CredentialStore {
                     binding_id: configured_binding,
                     provider: configured_provider,
                 } if configured_binding == binding_id && *configured_provider == provider
-            )
+            ) && entry.metadata.credential_type == CredentialType::Upstream(kind)
         });
         let Some(entry) = entry else {
             return Err(CredentialStoreError::Unavailable);
@@ -214,12 +318,22 @@ impl CredentialStore {
             provider: *provider,
             binding_id,
             secret: &entry.secret,
+            metadata: &entry.metadata,
         })
     }
 
     /// 枚举非敏感 credential ID，供配置契约和诊断计数验证。
     pub fn credential_ids(&self) -> impl Iterator<Item = &CredentialId> {
         self.entries.iter().map(|entry| &entry.id)
+    }
+
+    /// 枚举 credential ID 与非敏感元数据，供受控诊断和策略快照使用。
+    pub fn credential_metadata(
+        &self,
+    ) -> impl Iterator<Item = (&CredentialId, &CredentialMetadata)> {
+        self.entries
+            .iter()
+            .map(|entry| (&entry.id, &entry.metadata))
     }
 }
 
@@ -244,6 +358,7 @@ pub struct UpstreamCredential<'a> {
     provider: ProviderKind,
     binding_id: &'a str,
     secret: &'a SecretString,
+    metadata: &'a CredentialMetadata,
 }
 
 impl UpstreamCredential<'_> {
@@ -257,6 +372,11 @@ impl UpstreamCredential<'_> {
         self.binding_id
     }
 
+    /// 返回该借用视图绑定的非敏感运行时元数据。
+    pub fn metadata(&self) -> &CredentialMetadata {
+        self.metadata
+    }
+
     pub(crate) fn expose_secret(&self) -> &str {
         self.secret.expose_secret()
     }
@@ -268,6 +388,7 @@ impl fmt::Debug for UpstreamCredential<'_> {
             .debug_struct("UpstreamCredential")
             .field("provider", &self.provider)
             .field("binding_id", &self.binding_id)
+            .field("metadata", &self.metadata)
             .field("secret", &"[REDACTED]")
             .finish()
     }
@@ -282,6 +403,9 @@ pub enum CredentialStoreError {
     /// 同一个下游 API Key 被多个用户复用。
     #[error("the same downstream API key is configured for more than one user")]
     DuplicateDownstreamSecret,
+    /// Credential 元数据与用途不匹配或 generation 非法。
+    #[error("credential metadata is invalid")]
+    InvalidMetadata,
     /// secret 缺失、为空或与请求的用途/binding 不匹配。
     #[error("credential is unavailable")]
     Unavailable,
@@ -291,8 +415,10 @@ pub enum CredentialStoreError {
 mod tests {
     use secrecy::SecretString;
 
-    use super::{CredentialStoreBuilder, CredentialStoreError};
-    use crate::provider::ProviderKind;
+    use super::{
+        CredentialMetadata, CredentialSource, CredentialStoreBuilder, CredentialStoreError,
+    };
+    use crate::provider::{CredentialKind, ProviderKind};
 
     #[test]
     fn runtime_store_owns_a_redacted_snapshot_and_rejects_empty_upstream_secrets() {
@@ -303,6 +429,7 @@ mod tests {
             .load_upstream_with(
                 ProviderKind::OpenAi,
                 "openai-primary",
+                CredentialKind::ApiKey,
                 "SYNTHETIC_API_KEY",
                 |_| Some(source.clone()),
             )
@@ -312,16 +439,33 @@ mod tests {
         // 验证运行时 Store 保留启动快照，且任何 Debug 输出都不包含明文。
         let credentials = credentials.build();
         let credential = credentials
-            .upstream(ProviderKind::OpenAi, "openai-primary")
+            .upstream(
+                ProviderKind::OpenAi,
+                "openai-primary",
+                CredentialKind::ApiKey,
+            )
             .unwrap();
         assert_eq!(credential.expose_secret(), "startup-secret");
+        assert_eq!(
+            credential.metadata().source(),
+            CredentialSource::Environment
+        );
+        assert_eq!(credential.metadata().generation(), 1);
+        assert_eq!(credential.metadata().expires_at(), None);
         assert!(!format!("{credentials:?} {credential:?}").contains("startup-secret"));
+        assert!(!format!("{credentials:?} {credential:?}").contains("SYNTHETIC_API_KEY"));
 
         // 拒绝缺失或空的上游 Key，确保错误发生在请求路径之外。
         let mut invalid = CredentialStoreBuilder::new();
         assert_eq!(
             invalid
-                .load_upstream_with(ProviderKind::OpenAi, "missing", "MISSING_API_KEY", |_| None,)
+                .load_upstream_with(
+                    ProviderKind::OpenAi,
+                    "missing",
+                    CredentialKind::ApiKey,
+                    "MISSING_API_KEY",
+                    |_| None,
+                )
                 .unwrap_err(),
             CredentialStoreError::Unavailable
         );
@@ -331,9 +475,28 @@ mod tests {
                     ProviderKind::OpenAi,
                     "empty",
                     SecretString::from(String::new()),
+                    CredentialMetadata::upstream(
+                        CredentialKind::ApiKey,
+                        CredentialSource::Programmatic,
+                    ),
                 )
                 .unwrap_err(),
             CredentialStoreError::Unavailable
+        );
+        assert_eq!(
+            invalid
+                .insert_upstream(
+                    ProviderKind::OpenAi,
+                    "invalid-generation",
+                    SecretString::from("synthetic"),
+                    CredentialMetadata::upstream(
+                        CredentialKind::ApiKey,
+                        CredentialSource::Programmatic,
+                    )
+                    .with_generation(0),
+                )
+                .unwrap_err(),
+            CredentialStoreError::InvalidMetadata
         );
     }
 }

@@ -44,7 +44,11 @@ pub async fn probe_upstream_target(
             upstream_target: upstream_target_id.to_owned(),
         })?;
     let credential = credentials
-        .upstream(target.kind(), target.credential().id())
+        .upstream(
+            target.kind(),
+            target.credential().id(),
+            target.credential().kind(),
+        )
         .map_err(|_| ProbeError::CredentialUnavailable)?;
 
     // 选择编译期 adapter 并准备 probe 所需的敏感出站 header。

@@ -6,6 +6,7 @@ use openbridge::{
     config::{
         BootstrapConfigError, BootstrapConfigFileError, BootstrapConfigPath, parse_bootstrap_config,
     },
+    provider::CredentialKind,
     registry::{
         ModelContextLength, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
         ReasoningSupport, RegistryError, UpstreamApiCapabilities, build_registry,
@@ -322,5 +323,12 @@ fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), locator),
         Err(RegistryError::InvalidCredentialLocator { .. })
+    ));
+
+    let mut oauth = definition("test", "code-primary", "test-model");
+    oauth.upstream_targets[0].credential.kind = CredentialKind::OAuth2BearerAccessToken;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), oauth),
+        Err(RegistryError::UnsupportedCredentialKind { .. })
     ));
 }
