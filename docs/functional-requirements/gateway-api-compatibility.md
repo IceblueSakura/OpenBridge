@@ -33,7 +33,7 @@
 
 - 下游只能提供已配置的 Public Model；它表示 OpenBridge 对下游提供的稳定服务契约，而不是某个上游模型名的透明别名。
 - 每个 Public Model 绑定有序的完整 routes；route 固定 Upstream Target、Upstream API、下游协议和 `Native`/`Bridged` 模式。`Native` 要求协议相同，`Bridged` 要求协议相反且存在完整 `BridgePlan`。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
-- 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、route、转换脚本或任意出站 header。Provider 的受信代码 hook 可以选择显式 allowlist 的普通 header（当前为 `User-Agent`），但认证、cookie、Host 与 proxy header 始终隔离。
+- 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、route、转换脚本或 header 转换规则。Provider 的受信代码 hook 可以按编译期规则增添、替换、转换或删除普通 header，但认证、cookie、Host 与 proxy header 始终隔离。
 - `GET /v1/models` 的可见集合与可路由 Public Model 一致；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
 - 请求开始后，Public Model、RoutePlan、credential binding 与注册表版本保持固定。
 

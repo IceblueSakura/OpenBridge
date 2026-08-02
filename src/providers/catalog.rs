@@ -1,7 +1,6 @@
 //! 内置 Model、Upstream Target、Route 与 Public Model 的编译目录装配。
 
-mod public_models;
-mod routes;
+mod routing;
 
 use crate::{
     config::BootstrapConfig,
@@ -16,12 +15,13 @@ pub const REGISTRY_VERSION: &str = "dev-1";
 
 /// 返回所有编译进二进制的 Model、Upstream Target、Route 与 Public Model。
 pub fn compiled_config() -> RegistryConfig {
+    let routing = routing::compiled_routing();
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
         models: models::compiled_configs(),
         upstream_targets: [openai::upstream_targets(), longcat::upstream_targets()].concat(),
-        routes: routes::compiled_routes(),
-        public_models: public_models::compiled_public_models(),
+        routes: routing.routes,
+        public_models: routing.public_models,
     }
 }
 

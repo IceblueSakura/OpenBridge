@@ -30,7 +30,7 @@ credential、endpoint 和内部 Route。
 
 - 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
 - 当前 listener 只允许 loopback；
-- 业务请求不能覆盖上游 URL、真实模型、credential、认证/非 allowlist header 或 Route；普通 header 只能由 Provider 的受信代码 hook 显式选择；
+- 业务请求不能覆盖上游 URL、真实模型、credential、敏感 header 或 Route，也不能选择 header 转换规则；普通 header 只能由 Provider 的受信代码 hook 按编译期规则处理；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；唯一的 `CredentialStore` 在内存中持有上下游认证所需 Key，Debug 和日志始终隐藏它；
 - 日志、错误、probe report 和测试证据不得暴露 credential 或完整私人请求正文；
 - 修改用户、API Key、Provider、Model、Route 或 bootstrap 参数需要重启，不支持热重载。

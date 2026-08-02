@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest},
     credential::UpstreamCredential,
-    providers::{longcat::LongCatAdapter, openai::OpenAiAdapter},
+    providers::{deepseek, longcat, mimo, openai, openai_compatible::OpenAiCompatibleAdapter},
     transport::sse::SseEvent,
 };
 
@@ -75,31 +75,44 @@ impl PreparedUpstreamRequest {
     }
 }
 
-/// 已编译 provider adapter 的闭合集合。
 #[derive(Clone, Copy)]
-/// 已编译 provider adapter 的 dispatch 变体。
-pub enum ProviderAdapter {
-    /// OpenAI adapter。
-    OpenAi(OpenAiAdapter),
-    /// LongCat adapter。
-    LongCat(LongCatAdapter),
+enum ProviderAdapterImplementation {
+    OpenAiCompatible(OpenAiCompatibleAdapter),
+}
+
+/// 已编译 Provider adapter 的闭合分派入口。
+#[derive(Clone, Copy)]
+pub struct ProviderAdapter {
+    implementation: ProviderAdapterImplementation,
 }
 
 impl ProviderAdapter {
     /// 根据注册表中的 provider kind 选择 adapter。
     pub fn for_kind(kind: ProviderKind) -> Self {
-        match kind {
-            ProviderKind::OpenAi => Self::OpenAi(OpenAiAdapter),
-            ProviderKind::LongCat => Self::LongCat(LongCatAdapter),
+        let implementation = match kind {
+            ProviderKind::OpenAi => {
+                ProviderAdapterImplementation::OpenAiCompatible(openai::ADAPTER)
+            }
+            ProviderKind::LongCat => {
+                ProviderAdapterImplementation::OpenAiCompatible(longcat::ADAPTER)
+            }
+            ProviderKind::DeepSeek => {
+                ProviderAdapterImplementation::OpenAiCompatible(deepseek::ADAPTER)
+            }
+            ProviderKind::MiMo => ProviderAdapterImplementation::OpenAiCompatible(mimo::ADAPTER),
+        };
+        Self { implementation }
+    }
+
+    fn openai_compatible(&self) -> OpenAiCompatibleAdapter {
+        match self.implementation {
+            ProviderAdapterImplementation::OpenAiCompatible(adapter) => adapter,
         }
     }
 
     /// 返回 adapter 的静态 provider 契约。
     pub fn contract(&self) -> &'static ProviderContract {
-        match self {
-            Self::OpenAi(_) => ProviderKind::OpenAi.contract(),
-            Self::LongCat(_) => ProviderKind::LongCat.contract(),
-        }
+        self.openai_compatible().contract()
     }
 
     pub(crate) fn build_outbound_headers(
@@ -120,19 +133,15 @@ impl ProviderAdapter {
 
     /// 运行 Provider 的受信 request-header hook。
     ///
-    /// hook 只能从下游选择显式允许的普通 header 并写入 `SafeHeaders`，不能写入认证、
-    /// cookie、Host 或 proxy authentication header。
+    /// hook 可以增添、替换、转换或删除普通 header；认证、cookie、Host 与 proxy
+    /// authentication header 仍由 `SafeHeaders` 拒绝。
     pub fn apply_request_header_hook(
         &self,
         downstream_headers: &HeaderMap,
         headers: &mut SafeHeaders,
     ) -> Result<(), AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.apply_request_header_hook(downstream_headers, headers),
-            Self::LongCat(adapter) => {
-                adapter.apply_request_header_hook(downstream_headers, headers)
-            }
-        }
+        self.openai_compatible()
+            .apply_request_header_hook(downstream_headers, headers)
     }
 
     /// 由编译期 adapter 固定生成的上游模型发现请求。
@@ -140,10 +149,7 @@ impl ProviderAdapter {
     /// 该请求只用于管理员显式 probe；它不会成为下游 `/v1/models` 的实现，后者始终
     /// 只暴露 OpenBridge 的 Public Model。
     pub(crate) fn prepare_model_list_request(&self) -> PreparedUpstreamRequest {
-        match self {
-            Self::OpenAi(adapter) => adapter.prepare_model_list_request(),
-            Self::LongCat(adapter) => adapter.prepare_model_list_request(),
-        }
+        self.openai_compatible().prepare_model_list_request()
     }
 
     /// 按 RoutePlan 确定的执行协议和上游模型 id 构造相对上游请求。
@@ -152,18 +158,13 @@ impl ProviderAdapter {
         request: &ApiRequest,
         upstream_model: &str,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.prepare_request(request, upstream_model),
-            Self::LongCat(adapter) => adapter.prepare_request(request, upstream_model),
-        }
+        self.openai_compatible()
+            .prepare_request(request, upstream_model)
     }
 
     /// 构造不包含认证材料的安全请求头。
     pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.prepare_headers(),
-            Self::LongCat(adapter) => adapter.prepare_headers(),
-        }
+        self.openai_compatible().prepare_headers()
     }
 
     /// 构造只在 egress 前附加的敏感认证请求头。
@@ -171,10 +172,7 @@ impl ProviderAdapter {
         &self,
         credential: &UpstreamCredential<'_>,
     ) -> Result<SensitiveHeaders, AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.prepare_auth_headers(credential),
-            Self::LongCat(adapter) => adapter.prepare_auth_headers(credential),
-        }
+        self.openai_compatible().prepare_auth_headers(credential)
     }
 
     /// 判断一个已完成 framing 的 SSE event 是否终止或失败。
@@ -183,26 +181,17 @@ impl ProviderAdapter {
         protocol: ApiProtocol,
         event: SseEvent,
     ) -> Result<ClassifiedSseEvent, AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.classify_sse_event(protocol, event),
-            Self::LongCat(adapter) => adapter.classify_sse_event(protocol, event),
-        }
+        Ok(self.openai_compatible().classify_sse_event(protocol, event))
     }
 
     /// 将上游 HTTP status 映射为粗粒度错误和重试边界。
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
-        match self {
-            Self::OpenAi(adapter) => adapter.classify_status(status),
-            Self::LongCat(adapter) => adapter.classify_status(status),
-        }
+        self.openai_compatible().classify_status(status)
     }
 
     /// 在发送请求前校验请求能力是否属于 adapter 的静态上界。
     pub fn validate_capabilities(&self, requested: ApiCapabilities) -> Result<(), AdapterError> {
-        match self {
-            Self::OpenAi(adapter) => adapter.validate_capabilities(requested),
-            Self::LongCat(adapter) => adapter.validate_capabilities(requested),
-        }
+        self.openai_compatible().validate_capabilities(requested)
     }
 }
 
@@ -239,7 +228,7 @@ mod tests {
 
     #[test]
     fn openai_auth_adapter_builds_the_expected_bearer_value_inside_the_crate_boundary() {
-        let adapter = OpenAiAdapter;
+        let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
         let mut credentials = crate::credential::CredentialStoreBuilder::new();
         credentials
             .insert_upstream(

@@ -11,6 +11,7 @@
 | 当前目录 | [总索引](README.md)与[项目比较矩阵](project-comparison.md)；只放跨项目导航与分工，不放单一项目的深度调研。 |
 | `openai/` | 官方 OpenAI 协议与规范材料。 |
 | `openrouter/` | OpenRouter 官方模型目录、统一参数与 reasoning 元数据快照。 |
+| `providers/` | 具体上游 Provider 的官方协议、认证与 endpoint 事实。 |
 | `codex/`、`hermes/`、`litellm/`、`cc-switch/`、`cliproxyapi/` | 对应单一参考项目的源码、issue、测试与适用边界调研。 |
 | `cross-project/` | 确实需要同时比较多个项目、且不能合理归属单一项目的材料，例如 OAuth 风险对比。 |
 
@@ -26,6 +27,11 @@
 
 - [2026-08-02 模型目录快照](openrouter/model-catalog-2026-08-02.md)：当前 canonical 模型的精确匹配、
   context、最大输出、参数和 reasoning effort 证据。
+
+## Provider 官方协议
+
+- [DeepSeek 与 Xiaomi MiMo 协议入口](providers/deepseek-mimo-protocols-2026-08-02.md)：Chat/Responses、
+  endpoint 与认证方式的官方资料边界。
 
 ## 参考项目
 

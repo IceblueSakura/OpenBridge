@@ -15,7 +15,7 @@ use crate::transport::sse::SseEvent;
 
 use super::AdapterError;
 
-/// 允许 provider adapter 添加的非敏感请求头集合。
+/// 允许受信 Provider hook 增删改的非敏感请求头集合。
 ///
 /// 认证、cookie、host 和 proxy authorization 等头不能通过此类型写入。
 #[derive(Default)]
@@ -27,11 +27,10 @@ impl SafeHeaders {
         self.0.get(name)
     }
 
-    pub(crate) fn insert(
-        &mut self,
-        name: HeaderName,
-        value: HeaderValue,
-    ) -> Result<(), AdapterError> {
+    /// 写入或替换一个普通请求头。
+    ///
+    /// 认证、cookie、Host 与 proxy authentication header 会被拒绝。
+    pub fn insert(&mut self, name: HeaderName, value: HeaderValue) -> Result<(), AdapterError> {
         // 拒绝认证、cookie、host 和 proxy authorization，维持普通 header 的安全边界。
         if name == AUTHORIZATION || name == PROXY_AUTHORIZATION || name == COOKIE || name == HOST {
             return Err(AdapterError::SensitiveHeaderInSafeSet);
@@ -40,16 +39,9 @@ impl SafeHeaders {
         Ok(())
     }
 
-    /// 从下游请求中选择一个显式允许的普通 header，并覆盖当前值。
-    pub(crate) fn override_from(
-        &mut self,
-        source: &HeaderMap,
-        name: HeaderName,
-    ) -> Result<(), AdapterError> {
-        if let Some(value) = source.get(&name) {
-            self.insert(name, value.clone())?;
-        }
-        Ok(())
+    /// 删除一个请求头并返回原值。
+    pub fn remove(&mut self, name: HeaderName) -> Option<HeaderValue> {
+        self.0.remove(name)
     }
 
     pub(crate) fn into_inner(self) -> HeaderMap {
@@ -64,6 +56,34 @@ impl fmt::Debug for SafeHeaders {
             .field("header_names", &self.0.keys().collect::<Vec<_>>())
             .field("values", &"[OMITTED]")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use http::{HeaderName, HeaderValue};
+
+    use super::*;
+
+    #[test]
+    fn safe_headers_support_regular_header_rewrite_and_drop() {
+        let source = HeaderName::from_static("x-provider-source");
+        let target = HeaderName::from_static("x-provider-target");
+        let mut headers = SafeHeaders::default();
+
+        headers
+            .insert(source.clone(), HeaderValue::from_static("source-value"))
+            .unwrap();
+        headers
+            .insert(
+                target.clone(),
+                HeaderValue::from_static("transformed-value"),
+            )
+            .unwrap();
+        headers.remove(source.clone());
+
+        assert!(headers.get(source).is_none());
+        assert_eq!(headers.get(target).unwrap(), "transformed-value");
     }
 }
 

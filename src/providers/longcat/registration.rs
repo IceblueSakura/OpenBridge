@@ -3,12 +3,9 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol},
     provider::{CredentialKind, ProviderKind},
-    registry::{
-        CredentialConfig, StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
-    },
+    providers::openai_compatible::native_upstream_apis,
+    registry::{CredentialConfig, UpstreamTargetConfig},
 };
 
 use super::CONTRACT;
@@ -29,35 +26,10 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: upstream_apis("LongCat-2.0", "longcat-openai", *CONTRACT.capabilities()),
+        upstream_apis: native_upstream_apis(
+            "LongCat-2.0",
+            "longcat-openai",
+            *CONTRACT.capabilities(),
+        ),
     }]
-}
-
-fn upstream_apis(
-    upstream_model: &str,
-    endpoint_profile: &str,
-    capabilities: ApiCapabilities,
-) -> Vec<UpstreamApiConfig> {
-    vec![
-        UpstreamApiConfig {
-            id: "chat".to_owned(),
-            protocol: ApiProtocol::ChatCompletions,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
-            state_affinity: StateAffinity::Unbound,
-        },
-        UpstreamApiConfig {
-            id: "responses".to_owned(),
-            protocol: ApiProtocol::Responses,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
-            state_affinity: StateAffinity::TargetBound,
-        },
-    ]
 }

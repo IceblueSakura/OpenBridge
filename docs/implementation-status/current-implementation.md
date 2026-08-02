@@ -38,9 +38,11 @@ LongCat API key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`�
 
 ## Provider 与请求行为
 
-当前注册 `ProviderKind::OpenAi` 与 `ProviderKind::LongCat`。两者都使用 API-key credential 和
-OpenAI-compatible Chat/Responses wire，但分别拥有独立 adapter、endpoint profile、upstream model、能力和
-错误分类。默认编译注册表为每个下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
+闭合 `ProviderKind` 当前包含 OpenAI、LongCat、DeepSeek 与 Xiaomi MiMo。OpenAI 和 LongCat 已进入 compiled
+registry；两者都使用 API-key credential 和共享的 OpenAI-compatible Chat/Responses wire 机制，但分别拥有
+独立静态定义、endpoint profile、upstream model 与能力。DeepSeek 只声明 Chat Completions，MiMo 声明 Chat
+Completions 与 Responses；两者尚未注册 target、credential locator、Route 或 Public Model，不能被运行时请求
+选择。默认编译注册表为每个已接入下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
 route；尚未对真实异构协议 Provider 执行验证。
 
 canonical 模型目录当前包含 17 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
@@ -64,7 +66,7 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 - 对 Native Route 按选定 Upstream API 的已校验代码规则映射 reasoning level；映射仅修改候选请求副本，
   支持 `reasoning.effort` 与 `reasoning_effort`，并通过 `reasoning_level_mapped` tracing event 记录源/目标；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
-- 经 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游，同时保持认证、cookie、Host 与 proxy header 隔离；
+- 经各 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
 - 对 `Bridged` Route 只转换 allowlist 内的 text/function tool/tool result 语义，未知或不可表达字段在 egress 前拒绝；
 - 对 `previous_response_id` 关闭跨 target fallback；
@@ -134,7 +136,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 104 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 110 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 

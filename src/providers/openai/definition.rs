@@ -1,8 +1,11 @@
-//! OpenAI adapter 的静态能力与允许配置边界。
+//! OpenAI Provider 的静态契约与 OpenAI-compatible wire profile。
+
+use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
-    provider::{CredentialKind, ProviderContract, ProviderKind},
+    provider::{AdapterError, CredentialKind, ProviderContract, ProviderKind, SafeHeaders},
+    providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
 /// OpenAI adapter 的静态能力与允许的 endpoint/credential 范围。
@@ -33,3 +36,24 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &["public-api"],
     &[CredentialKind::ApiKey],
 );
+
+/// OpenAI 使用的静态 OpenAI-compatible wire profile。
+pub(crate) static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+    ProviderKind::OpenAi,
+    &CONTRACT,
+    Some("/v1/chat/completions"),
+    Some("/v1/responses"),
+    "/v1/models",
+    transform_request_headers,
+);
+
+/// 应用 OpenAI 当前要求的普通请求头转换。
+fn transform_request_headers(
+    downstream: &HeaderMap,
+    upstream: &mut SafeHeaders,
+) -> Result<(), AdapterError> {
+    if let Some(value) = downstream.get(USER_AGENT) {
+        upstream.insert(USER_AGENT, value.clone())?;
+    }
+    Ok(())
+}

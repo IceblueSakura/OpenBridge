@@ -40,7 +40,7 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
 }
 
 #[test]
-fn provider_request_header_hooks_copy_only_allowlisted_regular_headers() {
+fn provider_request_header_hooks_apply_trusted_regular_header_policy() {
     let mut downstream = HeaderMap::new();
     downstream.insert(
         USER_AGENT,
@@ -158,6 +158,17 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
     assert!(!contract.capabilities().chat_completions.structured_outputs);
     assert!(!contract.capabilities().responses.structured_outputs);
     assert!(contract.endpoint_profiles().contains(&"longcat-openai"));
+}
+
+#[test]
+fn unconnected_provider_contracts_expose_only_declared_protocols() {
+    let deepseek = ProviderAdapter::for_kind(ProviderKind::DeepSeek);
+    let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo);
+
+    assert!(deepseek.contract().capabilities().chat_completions.enabled);
+    assert!(!deepseek.contract().capabilities().responses.enabled);
+    assert!(mimo.contract().capabilities().chat_completions.enabled);
+    assert!(mimo.contract().capabilities().responses.enabled);
 }
 
 #[test]

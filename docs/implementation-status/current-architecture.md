@@ -108,7 +108,7 @@ RegistryConfig
 
 | 实体 | 所有内容 |
 |---|---|
-| `ProviderContract` | 代码拥有的 adapter、endpoint profile、credential kind 与能力上界 |
+| `ProviderContract` | Provider 代码拥有的 endpoint profile、credential kind 与能力上界 |
 | `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential、timeout、启停及 quota/fault 边界 |
 | `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
@@ -183,20 +183,26 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 
 ## 6. Provider 适配层
 
-实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`，
-以及 `src/providers/<provider>/` 下独立的 `contract.rs`、`adapter.rs` 和
+实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
+`src/providers/openai_compatible.rs`，以及 `src/providers/<provider>/definition.rs` 与
 `registration.rs`；`src/provider/mod.rs` 与各具体 Provider 的 `mod.rs` 只保留入口和重导出。
 
-`ProviderKind` 是闭合集合。具体 adapter 从 selected Upstream API 读取 upstream model，负责相对 path、模型
-字段改写、受信 request-header hook、认证 header、响应/SSE terminal 和错误分类。当前 OpenAI 与 LongCat
-hook 只从下游选择 `User-Agent` 写入 `SafeHeaders`；credential header 在 hook 之后独立附加。credential
+`ProviderKind` 是闭合集合。OpenAI、LongCat、DeepSeek 与 MiMo 的独立静态定义拥有 Provider 契约、endpoint
+path 与 request-header hook；共享 `openai_compatible` 机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
+错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
+`UnsupportedProtocol`；MiMo 同时声明两个 path。Provider hook 可增添、替换、转换或删除普通 header；当前已接入
+的两个 hook 都转发 `User-Agent`，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
 locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整 `binding_id + ProviderKind` 从
 `CredentialStore` 借用 `UpstreamCredential`；Store 不公开通用明文查询，adapter 仍在 crate 内的认证 header
 边界才访问 secret。
 
-OpenAI 与 LongCat 当前都注册 Chat、Responses 两个独立 Upstream API；每个下游协议先列 Native route，
-再列指向相反 Upstream API 的 Bridged route。Bridge 生产路径由编译注册表、记录型 transport 与 canonical
+OpenAI 与 LongCat 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model 与
+它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
+Bridged route。Bridge 生产路径由编译注册表、记录型 transport 与 canonical
 wire 确定性验证，但尚未调用真实异构协议 Provider。
+
+DeepSeek 与 MiMo 当前只有 contract 和 adapter profile，没有 target、credential locator、Upstream API、Route
+或 Public Model；`compiled_config()` 不引用它们，因此静态定义不会自动形成请求链路。
 
 ## 7. Transport、SSE、attempt 与 health
 
@@ -235,7 +241,7 @@ target endpoint、adapter 与 transport，只为管理员选中的 target 构造
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-02 最近一次执行
-`cargo test --locked`，104 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，110 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

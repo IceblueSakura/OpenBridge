@@ -486,12 +486,18 @@ fn add_responses_fallback(
     fallback.base_url = match provider {
         ProviderKind::OpenAi => "https://api.openai.com".to_owned(),
         ProviderKind::LongCat => "https://api.longcat.chat".to_owned(),
+        ProviderKind::DeepSeek | ProviderKind::MiMo => {
+            panic!("test fallback helper only accepts connected providers")
+        }
     };
     fallback.credential.id = format!("{target_id}-credential");
     for upstream_api in &mut fallback.upstream_apis {
         upstream_api.endpoint_profile = match provider {
             ProviderKind::OpenAi => "public-api".to_owned(),
             ProviderKind::LongCat => "longcat-openai".to_owned(),
+            ProviderKind::DeepSeek | ProviderKind::MiMo => {
+                panic!("test fallback helper only accepts connected providers")
+            }
         };
     }
     definition.upstream_targets.push(fallback);

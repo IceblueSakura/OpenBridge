@@ -2,7 +2,7 @@
 
 use crate::{
     core::ApiCapabilities,
-    providers::{longcat, openai},
+    providers::{deepseek, longcat, mimo, openai},
 };
 
 /// 可由 route 配置引用的闭合 provider 集合。
@@ -15,6 +15,10 @@ pub enum ProviderKind {
     OpenAi,
     /// LongCat OpenAI-compatible provider。
     LongCat,
+    /// DeepSeek OpenAI-compatible provider。
+    DeepSeek,
+    /// Xiaomi MiMo OpenAI-compatible provider。
+    MiMo,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,6 +83,8 @@ impl ProviderKind {
         match self {
             Self::OpenAi => &openai::CONTRACT,
             Self::LongCat => &longcat::CONTRACT,
+            Self::DeepSeek => &deepseek::CONTRACT,
+            Self::MiMo => &mimo::CONTRACT,
         }
     }
 

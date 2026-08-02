@@ -157,11 +157,12 @@ public model name
 添加或审计 Provider 时，按以下顺序阅读：
 
 1. [`src/provider/kind.rs`](../src/provider/kind.rs) 与 [`src/provider/adapter.rs`](../src/provider/adapter.rs)：闭合 `ProviderKind`、`ProviderContract` 与 `ProviderAdapter`。
-2. [`src/providers/openai/`](../src/providers/openai)：OpenAI contract、adapter 与 target/upstream API 注册。
-3. [`src/providers/longcat/`](../src/providers/longcat)：LongCat 如何独立收窄能力、endpoint profile 与注册事实。
-4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
+2. [`src/providers/openai_compatible.rs`](../src/providers/openai_compatible.rs)：OpenAI-compatible 请求、认证、SSE、错误与 API pair 共享机制。
+3. [`src/providers/openai/`](../src/providers/openai) 与 [`src/providers/longcat/`](../src/providers/longcat)：已接入 Provider 如何独立拥有 contract、endpoint path、request-header hook 与注册事实。
+4. [`src/providers/deepseek/`](../src/providers/deepseek) 与 [`src/providers/mimo/`](../src/providers/mimo)：尚未接入 registry 的静态 Provider 定义及其协议边界。
+5. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
-5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
+6. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI 与 LongCat 都走 OpenAI-compatible Native Path；这不证明异构 Provider 或 Protocol Bridge

@@ -3,13 +3,11 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
     models::gpt,
     provider::{CredentialKind, ProviderKind},
-    registry::{
-        CredentialConfig, StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
-    },
+    providers::openai_compatible::native_upstream_apis,
+    registry::{CredentialConfig, UpstreamTargetConfig},
 };
 
 /// 构造当前编译版本内置的 OpenAI upstream targets。
@@ -28,41 +26,12 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: upstream_apis(
+        upstream_apis: native_upstream_apis(
             "gpt-5.6-sol",
             "public-api",
             conservative_openai_capabilities(),
         ),
     }]
-}
-
-fn upstream_apis(
-    upstream_model: &str,
-    endpoint_profile: &str,
-    capabilities: ApiCapabilities,
-) -> Vec<UpstreamApiConfig> {
-    vec![
-        UpstreamApiConfig {
-            id: "chat".to_owned(),
-            protocol: ApiProtocol::ChatCompletions,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
-            state_affinity: StateAffinity::Unbound,
-        },
-        UpstreamApiConfig {
-            id: "responses".to_owned(),
-            protocol: ApiProtocol::Responses,
-            upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
-            state_affinity: StateAffinity::TargetBound,
-        },
-    ]
 }
 
 /// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。

@@ -269,6 +269,18 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
 }
 
 #[test]
+fn unconnected_provider_definitions_are_absent_from_the_compiled_registry() {
+    let definition = compiled_config();
+
+    assert!(
+        definition
+            .upstream_targets
+            .iter()
+            .all(|target| !matches!(target.provider, ProviderKind::DeepSeek | ProviderKind::MiMo))
+    );
+}
+
+#[test]
 fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unavailable() {
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let mut definition = compiled_config();

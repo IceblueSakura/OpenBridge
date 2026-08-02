@@ -74,10 +74,15 @@ Native Route 由 Provider adapter 写入实际上游 `model`；选定 Upstream A
 reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。
-Provider 的受信 request-header hook 可从下游选择显式允许的普通 header（当前为 `User-Agent`）覆盖到上游；
-客户端不能指定上游 URL、credential、认证 header 或任意非 allowlist 出站 header。Transient upstream failure
+Provider 的受信 request-header hook 可按编译期规则增添、替换、转换或删除普通 header；当前两个 Provider
+都转发 `User-Agent`，但共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header
+或 header 转换规则。Transient upstream failure
 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
+
+代码中另有 DeepSeek 与 Xiaomi MiMo 的静态 Provider 定义：DeepSeek 只声明 Chat Completions，MiMo 声明 Chat
+Completions 与 Responses。两者尚未注册 Upstream Target、credential locator、Route 或 Public Model，因此不在
+当前运行链路中。
 
 下游用户和 API Key 来自私有 `users.toml`；上游凭证来自环境变量，代码注册表只保存环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`，缺失的必需上游 Key 会阻止启动；运行时不重新读取文件或环境变量，轮换必须重启。
 
@@ -142,7 +147,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - OpenAI 全部资源 API、Realtime、Files、Conversations 或管理 API；
 - 首版 Responses WebSocket transport；Codex 基线使用独立 custom Provider，并显式配置 `supports_websockets = false`；
 - 将 Chat ↔ Responses 承诺为无损；不可表达的能力必须拒绝或显式标记；
-- 让业务请求动态提供任意上游 URL、认证 header、credential、非 allowlist 出站 header 或转换脚本；
+- 让业务请求动态提供任意上游 URL、认证 header、credential、header 转换规则或转换脚本；
 - 让 OpenBridge 执行 Agent 返回的通用 function tool；Protocol Bridge 只转换 wire-level tool call/result。
 - GUI、Web 控制台、客户端注册/配置管理或面向用户的管理服务。
 

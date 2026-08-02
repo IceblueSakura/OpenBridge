@@ -13,7 +13,7 @@ route 热重载。
 | `config/bootstrap.toml` | loopback listener、私有用户文件位置、body/SSE 上限、共享 HTTP client 参数 | 否 |
 | 被忽略的 `config/users.toml` | 下游用户、API Key 与启停状态 | 是 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
-| `src/providers/*` | Provider 行为、request-header hook、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
+| `src/providers/*` | Provider 定义、共享协议机制、request-header hook、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
 | 进程环境变量或被忽略的 `.env` | 上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
@@ -25,7 +25,8 @@ route 热重载。
 
 ## 2. 代码注册表要求
 
-- 每个具体 Provider 位于独立 `src/providers/<provider>/` 目录，分别拥有 contract、adapter 与 registration；
+- 每个具体 Provider 位于独立 `src/providers/<provider>/` 目录，分别拥有静态 definition 与 registration；同一 wire family 的协议机制可以由闭合的编译期模块共享；
+- 静态 Provider definition 不自动构成运行链路；只有显式加入 compiled target、Route 与 Public Model 后才可被请求选择；
 - 同一模型家族集中位于一个 `src/models/<family>.rs` 文件，每个具体 Model 仍完整声明自身事实；
 - `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
@@ -54,7 +55,7 @@ route 热重载。
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整 `binding_id + ProviderKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、重复下游 Key 或 binding/Provider 不匹配时 fail closed；服务所需的上游 Key 缺失或为空时在监听前失败；
 - 运行时不得重新读取 `users.toml`、`.env` 或进程环境变量；改变任何 Key 必须重启，不支持热更新；
-- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 只能选择显式 allowlist 的普通 header（当前为 `User-Agent`）。
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。当前 OpenAI 与 LongCat hook 都转发 `User-Agent`。
 
 ## 4. Endpoint 与出站边界
 
@@ -95,7 +96,7 @@ optionally load .env
 |---|---|
 | CFG-01 | 仓库不存在 Provider/Model route 配置文件或动态 Provider schema。 |
 | CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning/level 映射和不安全 URL 在监听前失败。 |
-| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感/非 allowlist header 或 candidate 顺序；普通 header 仅能经 Provider 代码 hook 显式选择。 |
+| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 仅能经受信 Provider 代码 hook 转换，不能由业务请求选择转换规则。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。 |
 | CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。 |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。 |
