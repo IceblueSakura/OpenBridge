@@ -17,3 +17,9 @@ config/local.*.toml
 /tools/corpus/.venv/
 /tools/corpus/.pytest_cache/
 **/__pycache__/
+
+# JetBrains IDE：仅共享项目词典。
+/.idea/*
+!/.idea/dictionaries/
+/.idea/dictionaries/*
+!/.idea/dictionaries/project.xml
