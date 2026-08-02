@@ -30,9 +30,10 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
     let (users, mut credentials) = configuration.into_parts();
     let expires_at = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000_000);
     credentials
-        .insert_upstream(
+        .insert_upstream_member(
             ProviderKind::OpenAi,
             "shared-id",
+            "shared-id#1",
             SecretString::from("synthetic-upstream-secret"),
             CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Environment)
                 .with_generation(7)
@@ -52,13 +53,13 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
     );
     assert_eq!(
         credentials
-            .upstream(ProviderKind::LongCat, "shared-id", CredentialKind::ApiKey,)
+            .upstream_pool(ProviderKind::LongCat, "shared-id", CredentialKind::ApiKey,)
             .unwrap_err(),
         CredentialStoreError::Unavailable
     );
     assert_eq!(
         credentials
-            .upstream(
+            .upstream_pool(
                 ProviderKind::OpenAi,
                 "shared-id",
                 CredentialKind::OAuth2BearerAccessToken,
@@ -68,8 +69,9 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
     );
 
     let upstream = credentials
-        .upstream(ProviderKind::OpenAi, "shared-id", CredentialKind::ApiKey)
-        .expect("matching upstream binding must resolve");
+        .upstream_pool(ProviderKind::OpenAi, "shared-id", CredentialKind::ApiKey)
+        .expect("matching upstream pool must resolve")
+        .remove(0);
     assert_eq!(
         upstream.metadata().credential_type(),
         CredentialType::Upstream(CredentialKind::ApiKey)
@@ -89,15 +91,17 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
         .prepare_auth_headers(&upstream)
         .unwrap();
     assert!(headers.contains(http::header::AUTHORIZATION));
-    assert_eq!(upstream.binding_id(), "shared-id");
+    assert_eq!(upstream.pool_id(), "shared-id");
+    assert_eq!(upstream.member_id(), "shared-id#1");
     assert_eq!(
         credentials.credential_ids().collect::<Vec<_>>(),
         vec![
             &CredentialId::DownstreamUser {
                 user_id: "shared-id".to_owned(),
             },
-            &CredentialId::UpstreamBinding {
-                binding_id: "shared-id".to_owned(),
+            &CredentialId::UpstreamPoolMember {
+                pool_id: "shared-id".to_owned(),
+                member_id: "shared-id#1".to_owned(),
                 provider: ProviderKind::OpenAi,
             },
         ]

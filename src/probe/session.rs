@@ -37,19 +37,22 @@ pub async fn probe_upstream_target(
     credentials: &CredentialStore,
     selection: ProbeOptions,
 ) -> Result<TargetProbeReport, ProbeError> {
-    // 从不可变 registry 解析 target，并按其 binding 借用启动 credential 快照。
+    // 从不可变 registry 解析 target，并按固定顺序选择 pool 首个成员。
     let target = registry
         .upstream_target(upstream_target_id)
         .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
             upstream_target: upstream_target_id.to_owned(),
         })?;
+    let pool = registry
+        .credential_pool(target.credential_pool_id())
+        .ok_or(ProbeError::CredentialUnavailable)?;
     let credential = credentials
-        .upstream(
-            target.kind(),
-            target.credential().id(),
-            target.credential().kind(),
-        )
+        .upstream_pool(target.kind(), pool.id(), pool.kind())
         .map_err(|_| ProbeError::CredentialUnavailable)?;
+    let credential = credential
+        .into_iter()
+        .next()
+        .ok_or(ProbeError::CredentialUnavailable)?;
 
     // 选择编译期 adapter 并准备 probe 所需的敏感出站 header。
     let adapter = ProviderAdapter::for_kind(target.kind());

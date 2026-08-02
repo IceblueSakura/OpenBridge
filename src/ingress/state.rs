@@ -7,7 +7,7 @@ use crate::{
     registry::RuntimeRegistry, transport::upstream::UpstreamTransport,
 };
 
-use super::health::TargetHealth;
+use super::{credential_health::CredentialHealth, health::TargetHealth};
 
 /// handler 依赖的不可变服务句柄。
 ///
@@ -20,6 +20,7 @@ pub struct GatewayState {
     pub(super) users: Arc<UserRegistry>,
     pub(super) credentials: Arc<CredentialStore>,
     pub(super) health: Arc<TargetHealth>,
+    pub(super) credential_health: Arc<CredentialHealth>,
     pub(super) metrics: GatewayMetrics,
 }
 
@@ -37,6 +38,7 @@ impl GatewayState {
             users,
             credentials,
             health: Arc::new(TargetHealth::default()),
+            credential_health: Arc::new(CredentialHealth::default()),
             metrics: GatewayMetrics::default(),
         }
     }

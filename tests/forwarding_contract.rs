@@ -54,6 +54,16 @@ struct RateLimitedTransport {
     attempts: Mutex<usize>,
 }
 
+#[derive(Default)]
+struct CredentialRotationTransport {
+    authorizations: Mutex<Vec<String>>,
+}
+
+struct FixedStatusCredentialTransport {
+    status: StatusCode,
+    authorizations: Mutex<Vec<String>>,
+}
+
 struct InvalidSseTransport;
 
 struct EofWithoutTerminalTransport;
@@ -144,7 +154,7 @@ impl UpstreamTransport for BoundedFailoverTransport {
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // 记录候选、Provider 与开始时间，供预算和退避断言使用。
-        let target_id = target.credential().id().to_owned();
+        let target_id = target.id().to_owned();
         let provider = target.kind();
         self.attempts
             .lock()
@@ -200,14 +210,14 @@ impl UpstreamTransport for ScopedHealthTransport {
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // 使用 credential binding id 区分测试 target，并记录跨请求调用顺序。
-        let target_id = target.credential().id().to_owned();
+        let target_id = target.id().to_owned();
         self.attempts.lock().unwrap().push(target_id.clone());
 
         // 主目标返回带 cooldown 建议的 429，其余目标稳定成功。
         Box::pin(async move {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            if target_id == "openai-primary" {
+            if target_id == "openai-main" {
                 headers.insert("retry-after", HeaderValue::from_static("10"));
                 Ok(UpstreamResponse::new(
                     StatusCode::TOO_MANY_REQUESTS,
@@ -233,10 +243,10 @@ impl UpstreamTransport for ScopedFaultTransport {
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // 记录 target 顺序，并让主目标产生可重试 transport failure。
-        let target_id = target.credential().id().to_owned();
+        let target_id = target.id().to_owned();
         self.attempts.lock().unwrap().push(target_id.clone());
         Box::pin(async move {
-            if target_id == "openai-primary" {
+            if target_id == "openai-main" {
                 Err(TransportError::Timeout)
             } else {
                 Ok(UpstreamResponse::new(
@@ -285,6 +295,57 @@ impl UpstreamTransport for RateLimitedTransport {
                 StatusCode::TOO_MANY_REQUESTS,
                 response_headers,
                 Body::from(r#"{"error":{"message":"rate limited"}}"#),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for CredentialRotationTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // 记录合成 Authorization，并让首个成员触发可轮转的 429。
+        let authorization = headers[AUTHORIZATION].to_str().unwrap().to_owned();
+        self.authorizations
+            .lock()
+            .unwrap()
+            .push(authorization.clone());
+        Box::pin(async move {
+            let status = if authorization == "Bearer key-a" {
+                StatusCode::TOO_MANY_REQUESTS
+            } else {
+                StatusCode::OK
+            };
+            Ok(UpstreamResponse::new(
+                status,
+                HeaderMap::new(),
+                Body::from("{}"),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for FixedStatusCredentialTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // 记录每次 attempt 的合成 credential，并返回固定 HTTP 状态。
+        self.authorizations
+            .lock()
+            .unwrap()
+            .push(headers[AUTHORIZATION].to_str().unwrap().to_owned());
+        let status = self.status;
+        Box::pin(async move {
+            Ok(UpstreamResponse::new(
+                status,
+                HeaderMap::new(),
+                Body::from("{}"),
             ))
         })
     }
@@ -474,6 +535,25 @@ fn app_with_transport_and_definition(
     build_router(state)
 }
 
+fn app_with_transport_and_pool(
+    transport: Arc<dyn UpstreamTransport>,
+    upstream_secrets: &[&str],
+) -> (axum::Router, openbridge::observability::GatewayMetrics) {
+    let registry = build_registry(
+        support::bootstrap(support::BOOTSTRAP),
+        support::definition("forward-test", "public-model", "upstream-model"),
+    )
+    .unwrap();
+    let (users, credentials) = support::users_and_credential_pool(
+        "downstream-token-0000000000000000",
+        &registry,
+        upstream_secrets,
+    );
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
+    let metrics = state.metrics();
+    (build_router(state), metrics)
+}
+
 fn add_responses_fallback(
     definition: &mut RegistryConfig,
     target_id: &str,
@@ -490,7 +570,25 @@ fn add_responses_fallback(
             panic!("test fallback helper only accepts connected providers")
         }
     };
-    fallback.credential.id = format!("{target_id}-credential");
+    if provider != definition.credential_pools[0].provider {
+        let pool_id = format!("{target_id}-pool");
+        definition
+            .credential_pools
+            .push(openbridge::registry::CredentialPoolConfig {
+                id: pool_id.clone(),
+                provider,
+                kind: openbridge::provider::CredentialKind::ApiKey,
+                environment_variable: match provider {
+                    ProviderKind::OpenAi => "OPENAI_FALLBACK_API_KEYS",
+                    ProviderKind::LongCat => "LONGCAT_FALLBACK_API_KEYS",
+                    ProviderKind::DeepSeek => "DEEPSEEK_FALLBACK_API_KEYS",
+                    ProviderKind::MiMo => "MIMO_FALLBACK_API_KEYS",
+                    ProviderKind::OpenRouter => "OPENROUTER_FALLBACK_API_KEYS",
+                }
+                .to_owned(),
+            });
+        fallback.credential_pool = pool_id;
+    }
     for upstream_api in &mut fallback.upstream_apis {
         upstream_api.endpoint_profile = match provider {
             ProviderKind::OpenAi => "public-api".to_owned(),
@@ -613,7 +711,6 @@ async fn streaming_requests_fail_over_to_the_next_compatible_target_before_outpu
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.credential.id = "openai-fallback-credential".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -670,12 +767,9 @@ async fn transient_failures_back_off_and_fall_back_to_another_provider_with_fina
     // 验证指数退避、跨 Provider 顺序和最后一个安全 HTTP 错误。
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.headers()["retry-after"], "3");
-    assert!(started.elapsed() >= Duration::from_millis(300));
+    assert!(started.elapsed() >= Duration::from_millis(150));
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
-    assert_eq!(
-        body,
-        r#"{"error":{"message":"longcat-fallback-credential failed"}}"#
-    );
+    assert_eq!(body, r#"{"error":{"message":"longcat-fallback failed"}}"#);
     let attempts = transport.attempts.lock().unwrap();
     assert_eq!(
         attempts
@@ -683,17 +777,16 @@ async fn transient_failures_back_off_and_fall_back_to_another_provider_with_fina
             .map(|(target, provider, _)| (target.as_str(), *provider))
             .collect::<Vec<_>>(),
         vec![
-            ("openai-primary", ProviderKind::OpenAi),
-            ("openai-primary", ProviderKind::OpenAi),
-            ("longcat-fallback-credential", ProviderKind::LongCat),
-            ("longcat-fallback-credential", ProviderKind::LongCat),
+            ("openai-main", ProviderKind::OpenAi),
+            ("openai-main", ProviderKind::OpenAi),
+            ("longcat-fallback", ProviderKind::LongCat),
         ]
     );
 }
 
 #[tokio::test]
-async fn cross_request_health_skips_all_targets_in_the_cooled_quota_scope() {
-    // 构造两个共享 quota scope 的目标和一个独立健康目标。
+async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_pool() {
+    // 构造三个共享单成员 pool 的目标，验证成员 cooldown 跨 target 生效。
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].quota_scope = Some("shared-quota".to_owned());
     add_responses_fallback(&mut definition, "shared-quota-peer", ProviderKind::OpenAi);
@@ -703,26 +796,24 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_quota_scope() {
     let transport = Arc::new(ScopedHealthTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 首个请求触发主目标 429；共享 scope peer 必须被跳过，独立目标完成请求。
-    for _ in 0..2 {
+    // 首个请求保留最后一个 429；第二个请求没有 live attempt，返回受控 503。
+    for expected in [
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::SERVICE_UNAVAILABLE,
+    ] {
         let request = Request::post("/v1/responses")
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
             .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), expected);
     }
 
-    // 第二个无状态请求必须直接复用独立目标，不再冲击已知受限 scope。
+    // 所有 target 共享同一 pool，cooldown 期间只允许首个 live attempt。
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        [
-            "openai-primary",
-            "openai-primary",
-            "independent-target-credential",
-            "independent-target-credential",
-        ]
+        ["openai-main",]
     );
 }
 
@@ -752,10 +843,10 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
         [
-            "openai-primary",
-            "openai-primary",
-            "independent-target-credential",
-            "independent-target-credential",
+            "openai-main",
+            "openai-main",
+            "independent-target",
+            "independent-target",
         ]
     );
 }
@@ -778,7 +869,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     let transport = Arc::new(ScopedHealthTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 无状态请求使主目标 cooldown，并安全 fallback 到第二目标。
+    // 无状态请求使唯一成员 cooldown，并保留最后一个 live 429。
     let warmup = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -786,7 +877,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
         .unwrap();
     assert_eq!(
         app.clone().oneshot(warmup).await.unwrap().status(),
-        StatusCode::OK
+        StatusCode::TOO_MANY_REQUESTS
     );
 
     // continuation 必须继续尝试原 target，不能因 cooldown 静默切换到 fallback。
@@ -802,13 +893,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        [
-            "openai-primary",
-            "openai-primary",
-            "healthy-fallback-credential",
-            "openai-primary",
-            "openai-primary",
-        ]
+        ["openai-main", "openai-main",]
     );
 }
 
@@ -858,10 +943,7 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
     // 验证六次硬上限仍覆盖全部四个候选，并返回最后候选的错误。
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
-    assert_eq!(
-        body,
-        r#"{"error":{"message":"longcat-fourth-credential failed"}}"#
-    );
+    assert_eq!(body, r#"{"error":{"message":"longcat-fourth failed"}}"#);
     let attempts = transport.attempts.lock().unwrap();
     assert_eq!(
         attempts
@@ -869,12 +951,12 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
             .map(|(target, _, _)| target.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "openai-primary",
-            "openai-primary",
-            "longcat-second-credential",
-            "longcat-second-credential",
-            "openai-third-credential",
-            "longcat-fourth-credential",
+            "openai-main",
+            "openai-main",
+            "longcat-second",
+            "openai-third",
+            "openai-third",
+            "longcat-fourth",
         ]
     );
 }
@@ -889,7 +971,6 @@ async fn provider_bound_streams_do_not_fall_back_to_another_target() {
     }
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
-    fallback.credential.id = "openai-fallback-credential".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -1089,6 +1170,156 @@ async fn streaming_requests_preserve_non_sse_error_bodies() {
 }
 
 #[tokio::test]
+async fn rate_limit_rotates_to_the_next_credential_member_before_output() {
+    // 注入同一 Provider pool 的两个合成成员，首项 429 后第二项应完成请求。
+    let transport = Arc::new(CredentialRotationTransport::default());
+    let (app, metrics) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    // 验证轮转共享既有 retry 预算，并且不会重放已拒绝成员。
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        transport.authorizations.lock().unwrap().as_slice(),
+        ["Bearer key-a", "Bearer key-b"]
+    );
+    assert_eq!(metrics.snapshot().credential_rotations, 1);
+    assert_eq!(metrics.snapshot().upstream_retries, 1);
+}
+
+#[tokio::test]
+async fn healthy_requests_share_the_pool_round_robin_cursor() {
+    // 两个独立请求共享 GatewayState cursor，应依次使用不同成员。
+    let transport = Arc::new(FixedStatusCredentialTransport {
+        status: StatusCode::OK,
+        authorizations: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+    for _ in 0..2 {
+        let request = Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        transport.authorizations.lock().unwrap().as_slice(),
+        ["Bearer key-a", "Bearer key-b"]
+    );
+}
+
+#[tokio::test]
+async fn rate_limited_member_stays_cooled_while_a_successful_peer_remains_available() {
+    // 首个请求使 key-a cooldown 并由 key-b 成功；第二请求不得再次冲击 key-a。
+    let transport = Arc::new(CredentialRotationTransport::default());
+    let (app, _) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+    for _ in 0..2 {
+        let request = Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        transport.authorizations.lock().unwrap().as_slice(),
+        ["Bearer key-a", "Bearer key-b", "Bearer key-b"]
+    );
+}
+
+#[tokio::test]
+async fn server_errors_retry_the_same_member_without_rotating() {
+    // 两项 pool 下的 503 仍使用既有候选 retry 策略，但 credential 必须固定。
+    let transport = Arc::new(FixedStatusCredentialTransport {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        authorizations: Mutex::new(Vec::new()),
+    });
+    let (app, metrics) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+    let request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+        .unwrap();
+
+    assert_eq!(
+        app.oneshot(request).await.unwrap().status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        transport.authorizations.lock().unwrap().as_slice(),
+        ["Bearer key-a", "Bearer key-a"]
+    );
+    assert_eq!(metrics.snapshot().credential_rotations, 0);
+}
+
+#[tokio::test]
+async fn two_rate_limited_members_exhaust_the_candidate_without_wrapping() {
+    // 两项都返回 429 时，每项最多尝试一次，并保留最后一个安全 HTTP 错误。
+    let transport = Arc::new(FixedStatusCredentialTransport {
+        status: StatusCode::TOO_MANY_REQUESTS,
+        authorizations: Mutex::new(Vec::new()),
+    });
+    let (app, metrics) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+    let request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+        .unwrap();
+
+    assert_eq!(
+        app.oneshot(request).await.unwrap().status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        transport.authorizations.lock().unwrap().as_slice(),
+        ["Bearer key-a", "Bearer key-b"]
+    );
+    assert_eq!(metrics.snapshot().credential_rotations, 1);
+}
+
+#[tokio::test]
+async fn non_429_client_errors_do_not_retry_or_rotate_credentials() {
+    // 非 429 4xx 都是当前请求终态，不能通过其他 key 扩大认证或余额探测。
+    for status in [
+        StatusCode::UNAUTHORIZED,
+        StatusCode::PAYMENT_REQUIRED,
+        StatusCode::FORBIDDEN,
+        StatusCode::REQUEST_TIMEOUT,
+    ] {
+        let transport = Arc::new(FixedStatusCredentialTransport {
+            status,
+            authorizations: Mutex::new(Vec::new()),
+        });
+        let (app, metrics) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
+        let request = Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .unwrap();
+
+        assert_eq!(app.oneshot(request).await.unwrap().status(), status);
+        assert_eq!(
+            transport.authorizations.lock().unwrap().as_slice(),
+            ["Bearer key-a"]
+        );
+        assert_eq!(metrics.snapshot().credential_rotations, 0);
+    }
+}
+
+#[tokio::test]
 async fn streaming_rate_limits_retry_before_output_and_preserve_retry_headers() {
     let transport = Arc::new(RateLimitedTransport::default());
     let app = app_with_transport(transport.clone());
@@ -1103,7 +1334,7 @@ async fn streaming_rate_limits_retry_before_output_and_preserve_retry_headers() 
     let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(transport.attempts.lock().unwrap().to_owned(), 2);
+    assert_eq!(transport.attempts.lock().unwrap().to_owned(), 1);
     assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
     assert_eq!(response.headers()["retry-after"], "2");
     assert_eq!(response.headers()["x-should-retry"], "true");

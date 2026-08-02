@@ -47,6 +47,12 @@
 | cc-switch | MIT License | [`LICENSE`](https://github.com/farion1231/cc-switch/blob/main/LICENSE) |
 | CLIProxyAPI | MIT License | [`LICENSE`](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) |
 
+### 跨项目韧性对照
+
+- [Credential Pool、冷却与有限重试对照](cross-project/credential-pool-retry-analysis.md)：固定
+  CLIProxyAPI、LiteLLM 与 cc-switch 快照，只提取 API-key pool、最小健康隔离、错误分类与硬 attempt
+  预算；不引入其账号/OAuth 聚合或控制面。
+
 ### 本地 Agent 契约
 
 - [Codex Responses SSE 与工具生命周期](codex/codex-sse-and-tool-lifecycle-analysis.md)：Rust SSE 解析、终态、`call_id` 与客户端 TTFT 语义。

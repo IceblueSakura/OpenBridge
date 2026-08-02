@@ -258,10 +258,11 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         .expect("OpenRouter Nemotron target is compiled");
     assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
     assert_eq!(openrouter.model_id(), "nvidia/nemotron-3-ultra-550b-a55b");
-    assert_eq!(openrouter.credential().id(), "openrouter-primary");
+    assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
+    let openrouter_pool = registry.credential_pool("openrouter-primary").unwrap();
     assert_eq!(
-        openrouter.credential().secret_reference().locator(),
-        "OPENROUTER_API_KEY"
+        openrouter_pool.secret_reference().locator(),
+        "OPENROUTER_API_KEYS"
     );
     assert_eq!(
         openrouter.endpoint_base().as_str(),
@@ -377,9 +378,14 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
         assert_eq!(target.endpoint_base().as_str(), "https://api.deepseek.com/");
         assert_eq!(target.quota_scope(), Some("deepseek-primary"));
         assert_eq!(target.fault_domain(), Some("deepseek-api"));
+        assert_eq!(target.credential_pool_id(), "deepseek-primary");
         assert_eq!(
-            target.credential().secret_reference().locator(),
-            "DEEPSEEK_API_KEY"
+            registry
+                .credential_pool(target.credential_pool_id())
+                .unwrap()
+                .secret_reference()
+                .locator(),
+            "DEEPSEEK_API_KEYS"
         );
         assert_eq!(
             target.upstream_api("chat").unwrap().upstream_model(),
@@ -446,9 +452,14 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         );
         assert_eq!(target.quota_scope(), Some("mimo-primary"));
         assert_eq!(target.fault_domain(), Some("mimo-api"));
+        assert_eq!(target.credential_pool_id(), "mimo-primary");
         assert_eq!(
-            target.credential().secret_reference().locator(),
-            "MIMO_API_KEY"
+            registry
+                .credential_pool(target.credential_pool_id())
+                .unwrap()
+                .secret_reference()
+                .locator(),
+            "MIMO_API_KEYS"
         );
         assert_eq!(
             target.upstream_api("chat").unwrap().upstream_model(),
@@ -493,43 +504,47 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
 }
 
 #[test]
-fn compiled_provider_credentials_are_unique_and_have_example_locators() {
-    // 构造完整注册表并用合成值模拟启动时加载全部 target credential。
+fn compiled_provider_credential_pools_are_shared_and_have_example_locators() {
+    // 构造完整注册表并用合成值模拟启动时加载全部 credential pool。
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     let mut credentials = CredentialStoreBuilder::new();
-    for target_id in registry.upstream_target_ids() {
-        let target = registry.upstream_target(target_id).unwrap();
+    for pool_id in registry.credential_pool_ids() {
+        let pool = registry.credential_pool(pool_id).unwrap();
         credentials
-            .insert_upstream(
-                target.kind(),
-                target.credential().id(),
-                secrecy::SecretString::from(format!("synthetic-{target_id}")),
+            .insert_upstream_member(
+                pool.provider(),
+                pool.id(),
+                format!("{}#1", pool.id()),
+                secrecy::SecretString::from(format!("synthetic-{pool_id}")),
                 openbridge::credential::CredentialMetadata::upstream(
-                    target.credential().kind(),
+                    pool.kind(),
                     openbridge::credential::CredentialSource::Programmatic,
                 ),
             )
-            .expect("compiled credential bindings should be unique");
+            .expect("compiled credential pool members should be unique");
     }
     let credentials = credentials.build();
 
-    // 验证每个 target 可按 Provider 与 binding 取回凭证，模板包含两个新增 locator。
+    // 验证每个 target 可按 Provider 与 pool 取回凭证，模板使用 JSON 数组 locator。
     for target_id in registry.upstream_target_ids() {
         let target = registry.upstream_target(target_id).unwrap();
         assert!(
             credentials
-                .upstream(
+                .upstream_pool(
                     target.kind(),
-                    target.credential().id(),
-                    target.credential().kind(),
+                    target.credential_pool_id(),
+                    registry
+                        .credential_pool(target.credential_pool_id())
+                        .unwrap()
+                        .kind(),
                 )
                 .is_ok()
         );
     }
     let environment_template = include_str!("../.env.example");
-    assert!(environment_template.contains("DEEPSEEK_API_KEY="));
-    assert!(environment_template.contains("MIMO_API_KEY="));
+    assert!(environment_template.contains("DEEPSEEK_API_KEYS="));
+    assert!(environment_template.contains("MIMO_API_KEYS="));
 }
 
 #[test]
@@ -601,8 +616,7 @@ fn real_model_can_be_shared_by_targets_from_different_providers() {
         .clone();
     alternate.id = "openai-longcat-test".to_owned();
     alternate.provider = ProviderKind::OpenAi;
-    alternate.credential.id = "openai-longcat-test".to_owned();
-    alternate.credential.environment_variable = "OPENAI_API_KEY".to_owned();
+    alternate.credential_pool = "openai-primary".to_owned();
     for upstream_api in &mut alternate.upstream_apis {
         upstream_api.upstream_model = "longcat/longcat-2.0".to_owned();
         upstream_api.endpoint_profile = "public-api".to_owned();

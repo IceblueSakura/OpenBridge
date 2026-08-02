@@ -10,7 +10,7 @@ use openbridge::{
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CredentialConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningSupport,
+        CredentialPoolConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningSupport,
         RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, StateAffinity, TransportKind,
         UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
         build_registry,
@@ -39,6 +39,14 @@ pub fn users_and_credentials(
     registry: &RuntimeRegistry,
     upstream_secret: &str,
 ) -> (Arc<UserRegistry>, Arc<CredentialStore>) {
+    users_and_credential_pool(api_key, registry, &[upstream_secret])
+}
+
+pub fn users_and_credential_pool(
+    api_key: &str,
+    registry: &RuntimeRegistry,
+    upstream_secrets: &[&str],
+) -> (Arc<UserRegistry>, Arc<CredentialStore>) {
     // 解析下游用户，并取得同一个 credential builder。
     let configuration = UserConfiguration::from_toml(&format!(
         r#"
@@ -54,21 +62,19 @@ enabled = true
     .expect("test user registry must be valid");
     let (users, mut credentials) = configuration.into_parts();
 
-    // 为测试 registry 中全部启用 target 注入同一组合成 secret。
-    for target_id in registry.upstream_target_ids() {
-        let target = registry.upstream_target(target_id).unwrap();
-        if target.enabled() {
+    // 为测试 registry 中全部 pool 注入一项合成 secret。
+    for pool_id in registry.credential_pool_ids() {
+        let pool = registry.credential_pool(pool_id).unwrap();
+        for (index, upstream_secret) in upstream_secrets.iter().enumerate() {
             credentials
-                .insert_upstream(
-                    target.kind(),
-                    target.credential().id(),
-                    secrecy::SecretString::from(upstream_secret.to_owned()),
-                    CredentialMetadata::upstream(
-                        target.credential().kind(),
-                        CredentialSource::Programmatic,
-                    ),
+                .insert_upstream_member(
+                    pool.provider(),
+                    pool.id(),
+                    format!("{}#{}", pool.id(), index + 1),
+                    secrecy::SecretString::from((*upstream_secret).to_owned()),
+                    CredentialMetadata::upstream(pool.kind(), CredentialSource::Programmatic),
                 )
-                .expect("test upstream credential must be unique");
+                .expect("test upstream credential member must be unique");
         }
     }
     (Arc::new(users), Arc::new(credentials.build()))
@@ -111,16 +117,18 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             reasoning: ReasoningSupport::Unknown,
             reasoning_levels: Vec::new(),
         }],
+        credential_pools: vec![CredentialPoolConfig {
+            id: "openai-primary".to_owned(),
+            provider: ProviderKind::OpenAi,
+            kind: CredentialKind::ApiKey,
+            environment_variable: "OPENAI_API_KEYS".to_owned(),
+        }],
         upstream_targets: vec![UpstreamTargetConfig {
             id: "openai-main".to_owned(),
             provider: ProviderKind::OpenAi,
             model: "openai/test-model".to_owned(),
             base_url: "https://api.openai.com".to_owned(),
-            credential: CredentialConfig {
-                id: "openai-primary".to_owned(),
-                kind: CredentialKind::ApiKey,
-                environment_variable: "OPENAI_API_KEY".to_owned(),
-            },
+            credential_pool: "openai-primary".to_owned(),
             quota_scope: None,
             fault_domain: None,
             request_timeout: Duration::from_secs(120),

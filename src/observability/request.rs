@@ -39,6 +39,7 @@ struct RequestState {
     first_output_ms: Option<u64>,
     attempts: u64,
     retries: u64,
+    credential_rotations: u64,
     fallbacks: u64,
     cooldown_skips: u64,
     usage: Option<TokenUsage>,
@@ -146,6 +147,19 @@ impl RequestObservation {
             .in_scope(|| tracing::info!("upstream_retry"));
     }
 
+    /// 记录 429 后在同一 Provider pool 内切换到另一个成员。
+    pub(crate) fn record_credential_rotation(&self) {
+        self.inner
+            .metrics
+            .inner
+            .credential_rotations
+            .fetch_add(1, Ordering::Relaxed);
+        self.with_state(|state| state.credential_rotations += 1);
+        self.inner
+            .span
+            .in_scope(|| tracing::info!("credential_rotated"));
+    }
+
     /// 记录进入下一 Route 候选的一次 fallback。
     pub(crate) fn record_fallback(&self) {
         self.inner
@@ -237,6 +251,7 @@ impl RequestObservation {
                 duration_ms: self.elapsed_ms(),
                 attempts: state.attempts,
                 retries: state.retries,
+                credential_rotations: state.credential_rotations,
                 fallbacks: state.fallbacks,
                 cooldown_skips: state.cooldown_skips,
                 usage: state.usage,
@@ -300,6 +315,7 @@ impl RequestObservation {
                 duration_ms = summary.duration_ms,
                 upstream_attempts = summary.attempts,
                 upstream_retries = summary.retries,
+                credential_rotations = summary.credential_rotations,
                 route_fallbacks = summary.fallbacks,
                 cooldown_skips = summary.cooldown_skips,
                 failure_kind = summary.failure_kind,
@@ -336,6 +352,7 @@ struct CompletionSummary {
     duration_ms: u64,
     attempts: u64,
     retries: u64,
+    credential_rotations: u64,
     fallbacks: u64,
     cooldown_skips: u64,
     usage: Option<TokenUsage>,

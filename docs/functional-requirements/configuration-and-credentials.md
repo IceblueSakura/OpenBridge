@@ -13,7 +13,7 @@ route 热重载。
 | `config/bootstrap.toml` | loopback listener、私有用户文件位置、body/SSE 上限、共享 HTTP client 参数 | 否 |
 | 被忽略的 `config/users.toml` | 下游用户、API Key 与启停状态 | 是 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
-| `src/providers/*` | Provider 定义、共享协议机制、request-header hook、target/upstream API、endpoint、credential binding、route 与 Public Model | 否 |
+| `src/providers/*` | Provider 定义、共享协议机制、request-header hook、target/upstream API、endpoint、credential pool/binding、route 与 Public Model | 否 |
 | 进程环境变量或被忽略的 `.env` | 上游 API key | 是 |
 | 下游业务请求 | Public Model 和模型调用参数 | 否；也不能选择 endpoint/credential |
 
@@ -32,7 +32,9 @@ route 热重载。
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；
 - Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；
-- Upstream Target 绑定 Provider、Model、endpoint、credential、timeout 和共享故障边界；
+- Credential Pool 绑定 Provider、credential kind 和一个有序 API-key member 集合；多个同 Provider Target
+  可引用同一个 pool，但不能跨 Provider 或 credential kind 复用；
+- Upstream Target 绑定 Provider、Model、endpoint、credential pool、timeout 和共享故障边界；
 - Upstream API 独立声明一个协议的 upstream model、served limit、能力、state affinity，以及可选的 canonical
   reasoning level 到安全上游 wire 值的显式映射；
 - Public Model 保存有序完整 Route；
@@ -45,24 +47,44 @@ route 热重载。
 - 下游用户表只在启动时读取；用户增删、启停和 API Key 轮换都需要重启；
 - 用户 ID 和 API Key 必须唯一，至少有一个启用用户，API Key 不得少于 32 bytes；
 - 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
-- 代码注册表只保存非敏感 binding id、credential kind 和环境变量名称；
+- 代码注册表只保存非敏感 pool/member id、Provider、credential kind 和环境变量名称；
 - 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
-- 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
-- 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
-- 当前 OpenRouter API key 从 `OPENROUTER_API_KEY` 获取；
-- 当前 DeepSeek API key 从 `DEEPSEEK_API_KEY` 获取；
-- 当前 Xiaomi MiMo API key 从 `MIMO_API_KEY` 获取；
-- 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target Key 一次性装入不可变 `CredentialStore`；
-- `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamBinding`，上下游同名 ID 不得造成命名冲突；
+- 当前 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo pool 分别从 `OPENAI_API_KEYS`、
+  `LONGCAT_API_KEYS`、`OPENROUTER_API_KEYS`、`DEEPSEEK_API_KEYS` 与 `MIMO_API_KEYS` 获取；
+- 上述变量必须是 JSON string array；不读取或合并旧的 `*_API_KEY`。数组必须存在、至少包含一个非空白字符串且不能包含重复 secret，违反时在
+  listener 绑定前失败；
+- 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target 引用的 pool 一次性装入不可变 `CredentialStore`；
+- `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
 - 每个 Store 条目必须冻结受控的 credential type、source、从 1 开始的 generation 与可选过期时间；source 只保存
   `UserConfiguration`、`Environment` 或 `Programmatic` 类别，不能把文件路径、环境变量 locator、issuer URL
   或任意业务字符串作为诊断元数据；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的 Debug/输出都不得包含 secret；
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整
-  `binding_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
+  `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 Key 缺失或为空时在监听前失败；
 - 运行时不得重新读取 `users.toml`、`.env` 或进程环境变量；改变任何 Key 必须重启，不支持热更新；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。当前 OpenAI 与 LongCat hook 转发 `User-Agent`；OpenRouter hook 不转发可选 attribution/routing header。
+
+### 3.1 上游 API-key pool
+
+- pool 与 member 都使用稳定、非敏感 ID；member secret 仍只来自注册表声明的受信环境变量 locator，业务请求
+  不能提供 pool/member、改变顺序或扩大候选集合；JSON array member ID 只能由 pool/source/index 派生，不能
+  由 secret 内容派生；
+- 一个 pool 至少包含一个 member；member ID 必须唯一，所有 member 必须属于同一 Provider 和 credential
+  kind，重复 secret 必须拒绝；单 member pool 与现有单 key 行为等价；
+- 同一个 pool 可由同 Provider 的多个 Target 引用，使 key cooldown 与 round-robin cursor 跨模型共享；不得
+  为每个模型复制同一组 key 后形成互不知晓的健康状态；
+- 每个 pool 只有一个由 Provider 代码显式注册的 JSON-array source locator；缺失 locator、空 pool、空
+  member、损坏 JSON 或重复 member 必须在 listener 绑定前 fail closed。本阶段不提供备用 legacy locator、
+  member 级 enabled 或热增删；
+- `CredentialStore` 继续不可变地持有 secret。运行时可变状态只保存 pool cursor、member binding ID、
+  generation 与 cooldown deadline，不保存、复制或重新读取 secret；
+- pool 选择只返回短时 credential 借用视图；每次 attempt 必须重新构造敏感认证 header，不能缓存或复用
+  上一次 member 的 header；
+- `previous_response_id` 等 `TargetBound` Upstream API 在没有 credential affinity 证据或 ledger 时不得引用
+  多 member pool，避免 continuation 在不同账号/key 间漂移；
+- 更换 secret、改变 pool member 或顺序仍需重启。当前范围不包含 OAuth、余额查询、keyring、私有 secret
+  文件、动态 reload 或跨进程 pool 状态。
 
 ## 4. Endpoint 与出站边界
 
@@ -87,7 +109,7 @@ optionally load .env
 → validate UserConfiguration and collect downstream credentials
 → compiled_config()
 → validate and build RuntimeRegistry
-→ resolve enabled upstream credentials from the environment
+→ resolve enabled upstream credential pools and members from the environment
 → build immutable CredentialStore
 → create shared HTTP client
 → Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore>
@@ -110,7 +132,9 @@ optionally load .env
 | CFG-07 | 非 loopback listener 在当前实现中拒绝启动。 |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。 |
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。 |
-| CFG-10 | 任一已启用 Upstream Target 的 Key 缺失或为空会在 listener 绑定前阻止服务启动。 |
+| CFG-10 | 任一已启用 Upstream Target 引用的 API-key pool source 缺失、为空或不能解析时，会在 listener 绑定前阻止服务启动。 |
+| CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；启动拒绝空 pool、重复 member、Provider/kind 不匹配或缺失 secret。 |
+| CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。 |
 
 ## 关联文档
 

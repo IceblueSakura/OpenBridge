@@ -70,6 +70,7 @@ pub struct RuntimeRegistry {
     pub(super) version: RegistryVersion,
     pub(super) bootstrap: BootstrapConfig,
     pub(super) models: BTreeMap<String, ModelInfo>,
+    pub(super) credential_pools: BTreeMap<String, CredentialPoolBinding>,
     pub(super) upstream_targets: BTreeMap<String, UpstreamTarget>,
     pub(super) routes: BTreeMap<String, Route>,
     pub(super) public_models: BTreeMap<String, PublicModel>,
@@ -99,6 +100,32 @@ impl RuntimeRegistry {
     /// 按内部模型 id 查询模型元数据。
     pub fn model(&self, id: &str) -> Option<&ModelInfo> {
         self.models.get(id)
+    }
+
+    /// 按 pool id 查询已校验的 credential pool。
+    pub fn credential_pool(&self, id: &str) -> Option<&CredentialPoolBinding> {
+        self.credential_pools.get(id)
+    }
+
+    /// 枚举全部 credential pool id。
+    pub fn credential_pool_ids(&self) -> impl Iterator<Item = &str> {
+        self.credential_pools.keys().map(String::as_str)
+    }
+
+    /// 判断 pool 是否服务于实际启用 continuation 的 TargetBound Responses API。
+    pub fn credential_pool_requires_single_member(&self, pool_id: &str) -> bool {
+        self.upstream_targets.values().any(|target| {
+            target.enabled()
+                && target.credential_pool_id() == pool_id
+                && target.upstream_apis.values().any(|upstream_api| {
+                    upstream_api.state_affinity() == StateAffinity::TargetBound
+                        && matches!(
+                            upstream_api.capabilities(),
+                            UpstreamApiCapabilities::Responses(capabilities)
+                                if capabilities.previous_response_id
+                        )
+                })
+        })
     }
 
     /// 按内部 target id 查询解析结果。
@@ -138,18 +165,24 @@ impl RegistryVersion {
     }
 }
 
-/// 已解析的 credential binding。
+/// 已解析的 credential pool binding。
 #[derive(Debug)]
-pub struct CredentialBinding {
+pub struct CredentialPoolBinding {
     pub(super) id: String,
+    pub(super) provider: ProviderKind,
     pub(super) kind: CredentialKind,
     pub(super) secret_reference: SecretLocator,
 }
 
-impl CredentialBinding {
-    /// 返回 credential binding id。
+impl CredentialPoolBinding {
+    /// 返回 credential pool id。
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// 返回允许消费该 pool 的 Provider。
+    pub fn provider(&self) -> ProviderKind {
+        self.provider
     }
 
     /// 返回 credential 类型。
@@ -166,8 +199,9 @@ impl CredentialBinding {
 /// 已通过 endpoint、credential 和模型引用校验的上游 target。
 #[derive(Debug)]
 pub struct UpstreamTarget {
+    pub(super) id: String,
     pub(super) kind: ProviderKind,
-    pub(super) credential: CredentialBinding,
+    pub(super) credential_pool: String,
     pub(super) model_id: String,
     pub(super) endpoint_base: Url,
     pub(super) quota_scope: Option<String>,
@@ -178,14 +212,19 @@ pub struct UpstreamTarget {
 }
 
 impl UpstreamTarget {
+    /// 返回 target id。
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// 返回 target 使用的 provider kind。
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
-    /// 返回 target 的 credential binding。
-    pub fn credential(&self) -> &CredentialBinding {
-        &self.credential
+    /// 返回 target 引用的 credential pool id。
+    pub fn credential_pool_id(&self) -> &str {
+        &self.credential_pool
     }
 
     /// 返回 target 引用的 canonical 模型 id。

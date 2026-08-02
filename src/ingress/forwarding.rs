@@ -1,15 +1,18 @@
-//! 已规划 Route candidate 的有限 retry/fallback 与响应接管。
+//! 已规划 Route candidate 的 credential rotation、有限 retry/fallback 与响应接管。
+
+use std::collections::HashSet;
 
 use axum::response::Response;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 
 use crate::{
+    bridge::BridgePlan,
     core::ApiProtocol,
     observability::RequestObservation,
     pipeline::{analyze_request, plan_request},
     provider::ProviderAdapter,
-    transport::upstream::TransportError,
+    transport::upstream::{TransportError, UpstreamResponse},
 };
 
 use super::{
@@ -21,6 +24,12 @@ use super::{
 use self::response::{UpstreamResponseContext, upstream_response};
 
 mod response;
+
+struct StoredHttpFailure {
+    upstream: UpstreamResponse,
+    adapter: ProviderAdapter,
+    bridge: Option<BridgePlan>,
+}
 
 /// 将一个已经过 HTTP 输入检查的请求送往有序 Native/Bridged candidate。
 ///
@@ -55,6 +64,7 @@ pub(super) async fn forward_request(
     let mut attempts = AttemptManager::new();
     let observe_cross_request_health = plan.allows_fallback();
     let mut cooldown_skipped = false;
+    let mut last_http_failure = None;
 
     // 按优先级准备每个 candidate 的 target、credential、adapter 和原生请求。
     'candidates: for (candidate_index, candidate) in
@@ -87,12 +97,19 @@ pub(super) async fn forward_request(
                 "Configured native upstream API is unavailable",
             );
         };
-        let credential = match state.credentials.upstream(
+        let Some(credential_pool) = registry.credential_pool(target.credential_pool_id()) else {
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "configuration_error",
+                "Configured credential pool is unavailable",
+            );
+        };
+        let credentials = match state.credentials.upstream_pool(
             target.kind(),
-            target.credential().id(),
-            target.credential().kind(),
+            credential_pool.id(),
+            credential_pool.kind(),
         ) {
-            Ok(credential) => credential,
+            Ok(credentials) => credentials,
             Err(_) => {
                 return api_error(
                     StatusCode::BAD_GATEWAY,
@@ -102,16 +119,6 @@ pub(super) async fn forward_request(
             }
         };
         let adapter = ProviderAdapter::for_kind(target.kind());
-        let headers = match adapter.build_outbound_headers(&credential, &downstream_headers) {
-            Ok(headers) => headers,
-            Err(_) => {
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "configuration_error",
-                    "Provider authentication could not be prepared",
-                );
-            }
-        };
         let request =
             match adapter.prepare_request(candidate.request(), upstream_api.upstream_model()) {
                 Ok(request) => request,
@@ -124,8 +131,58 @@ pub(super) async fn forward_request(
                 }
             };
 
-        // 在尚未向下游提交 response 时执行请求级受限 attempt，并保持 body 的单一来源。
+        let mut rejected_members = HashSet::new();
+        let mut current_member = None;
+
+        // 在尚未向下游提交 response 时选择成员并执行请求级受限 attempt。
         loop {
+            // 429 后从共享 cursor 选择下一成员；5xx 与 transport retry 保留当前成员。
+            let member_index = match current_member {
+                Some(index) => index,
+                None => {
+                    if !plan.allows_fallback() {
+                        if credentials.len() != 1 {
+                            return api_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "configuration_error",
+                                "State-bound routes require exactly one credential member",
+                            );
+                        }
+                        0
+                    } else {
+                        match state.credential_health.select_member(
+                            credential_pool.id(),
+                            &credentials,
+                            &rejected_members,
+                            std::time::Instant::now(),
+                        ) {
+                            Some(index) => {
+                                if !rejected_members.is_empty() {
+                                    observation.record_credential_rotation();
+                                }
+                                index
+                            }
+                            None => {
+                                cooldown_skipped = true;
+                                observation.record_cooldown_skip(candidate.upstream_target_id());
+                                continue 'candidates;
+                            }
+                        }
+                    }
+                }
+            };
+            current_member = Some(member_index);
+            let credential = &credentials[member_index];
+            let headers = match adapter.build_outbound_headers(credential, &downstream_headers) {
+                Ok(headers) => headers,
+                Err(_) => {
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "configuration_error",
+                        "Provider authentication could not be prepared",
+                    );
+                }
+            };
             if !attempts.start_attempt() {
                 return api_error(
                     StatusCode::BAD_GATEWAY,
@@ -153,27 +210,63 @@ pub(super) async fn forward_request(
                 .await
             {
                 Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
-                    // 在选择 retry/fallback 前记录跨请求 cooldown，但不改变本请求局部 retry 预算。
+                    // 按 HTTP 分类分别记录成员级 429 或目标级暂时不可用。
                     observation.record_attempt_http_result(
                         attempts.attempts_started() as u64,
                         upstream.status(),
                     );
                     let classification = adapter.classify_status(upstream.status());
-                    state.health.record_http_failure(
-                        candidate.upstream_target_id(),
-                        target,
-                        classification.kind(),
-                        upstream.headers(),
-                        std::time::Instant::now(),
-                    );
+                    let rate_limited =
+                        classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
+                    if rate_limited {
+                        state.credential_health.record_rate_limited(
+                            credential_pool.id(),
+                            credential,
+                            upstream.headers(),
+                            std::time::Instant::now(),
+                        );
+                        rejected_members.insert(credential.member_id().to_owned());
+                        current_member = None;
+                    } else {
+                        state.health.record_http_failure(
+                            candidate.upstream_target_id(),
+                            target,
+                            classification.kind(),
+                            upstream.headers(),
+                            std::time::Instant::now(),
+                        );
+                    }
                     let untried_candidates = candidate_count - candidate_index - 1;
-                    match attempts.next_step(untried_candidates) {
+                    let mut step = attempts.next_step(untried_candidates);
+                    if rate_limited
+                        && (!plan.allows_fallback()
+                            || !state.credential_health.has_available_member(
+                                credential_pool.id(),
+                                &credentials,
+                                &rejected_members,
+                                std::time::Instant::now(),
+                            ))
+                    {
+                        step = match step {
+                            AttemptStep::RetryCandidate if untried_candidates > 0 => {
+                                AttemptStep::NextCandidate
+                            }
+                            AttemptStep::RetryCandidate => AttemptStep::Finish,
+                            other => other,
+                        };
+                    }
+                    match step {
                         AttemptStep::RetryCandidate => {
                             attempts.wait_before_next_attempt().await;
                             observation.record_retry();
                             continue;
                         }
                         AttemptStep::NextCandidate => {
+                            last_http_failure = Some(StoredHttpFailure {
+                                upstream,
+                                adapter,
+                                bridge: candidate.bridge().cloned(),
+                            });
                             attempts.wait_before_next_attempt().await;
                             observation.record_fallback();
                             continue 'candidates;
@@ -202,6 +295,9 @@ pub(super) async fn forward_request(
                         upstream.status(),
                     );
                     if upstream.status().is_success() {
+                        state
+                            .credential_health
+                            .record_success(credential_pool.id(), credential);
                         state
                             .health
                             .record_success(candidate.upstream_target_id(), target);
@@ -257,7 +353,21 @@ pub(super) async fn forward_request(
         }
     }
 
-    if cooldown_skipped {
+    if let Some(failure) = last_http_failure {
+        upstream_response(
+            failure.upstream,
+            UpstreamResponseContext {
+                validate_sse: plan.is_streaming(),
+                protocol,
+                adapter: failure.adapter,
+                max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
+                max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                bridge: failure.bridge,
+                observation,
+            },
+        )
+        .await
+    } else if cooldown_skipped {
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "upstream_cooldown",

@@ -30,14 +30,20 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    // 只解析管理员选中 target 的上游 Key，并构造不可变 credential 快照。
+    // 只解析管理员选中 target 的上游 pool，并构造不可变 credential 快照。
     let mut credential_builder = CredentialStoreBuilder::new();
     if let Some(target) = registry.upstream_target(&arguments.upstream_target_id) {
+        let pool = registry
+            .credential_pool(target.credential_pool_id())
+            .context("selected target references an unavailable credential pool")?;
         credential_builder
-            .load_upstream_environment(target)
-            .context("failed to load the selected upstream credential")?;
+            .load_upstream_pool_environment(pool)
+            .context("failed to load the selected upstream credential pool")?;
     }
     let credentials = credential_builder.build();
+    credentials
+        .validate_registry(&registry)
+        .context("selected credential pool violates registry state-affinity constraints")?;
     // 执行管理员显式选择的 probe 并只输出脱敏 JSON 报告。
     let report = probe_upstream_target(
         &registry,

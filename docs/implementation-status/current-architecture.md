@@ -3,7 +3,7 @@
 ## 状态与边界
 
 **已实现事实。** 当前生产注册表使用
-`ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
+`ModelConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。
 最近一次记录已完成格式化、全量 Rust 测试与 Clippy；需要下载外部 SDK 的兼容性测试仍保持 ignored，
 真实 Provider、负载和长期运行验证未执行。
@@ -45,7 +45,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 层 | 核心类型 | 简单定义 |
 |---|---|---|
 | 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、请求限制和 HTTP client 参数 |
-| Credential | `CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时合并上下游 secret、隔离用途并提供只读借用视图 |
+| Credential | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时解析 pool、合并上下游 secret、隔离用途并提供只读成员借用视图 |
 | 下游身份 | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User` | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份 |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities` | 下游协议、原始请求和协议能力 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
@@ -75,7 +75,8 @@ load_optional_dotenv
 → BootstrapConfigPath::load
 → UserConfigPath::load
 → providers::build_compiled_registry
-→ CredentialStoreBuilder::load_upstream_environment
+→ CredentialStoreBuilder::load_upstream_pool_environment
+→ CredentialStore::validate_registry
 → immutable CredentialStore
 → UpstreamClient::new
 → GatewayState::new
@@ -86,7 +87,8 @@ load_optional_dotenv
 `bootstrap.toml` 拥有 loopback listener、私有用户文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
 Provider、模型、target、upstream API、route、endpoint 和 credential locator 都只在启动阶段加载；没有 route TOML、
 动态 Provider DSL 或热重载。`UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
-`CredentialStoreBuilder`；composition root 再为所有启用 target 解析环境变量，缺失或空值会在 listener 绑定前
+`CredentialStoreBuilder`；composition root 再为所有启用 target 引用的 pool 解析 JSON-array 环境变量，缺失、
+损坏、空数组、空白成员或重复 secret 会在 listener 绑定前
 失败。构造后的 Store 是上下游 secret 的唯一运行时所有者，请求路径不再读取 credential 来源。
 
 ## 3. 注册表层
@@ -98,6 +100,7 @@ Provider、模型、target、upstream API、route、endpoint 和 credential loca
 ```text
 RegistryConfig
   models: ModelConfig[]
+  credential_pools: CredentialPoolConfig[]
   upstream_targets: UpstreamTargetConfig[]
     upstream_apis: UpstreamApiConfig[]
   routes: RouteConfig[]
@@ -110,7 +113,8 @@ RegistryConfig
 |---|---|
 | `ProviderContract` | Provider 代码拥有的 endpoint profile、credential kind 与能力上界 |
 | `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
-| `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential、timeout、启停及 quota/fault 边界 |
+| `CredentialPoolConfig` | Provider、credential kind 与必填 JSON-array 环境变量 locator |
+| `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential pool 引用、timeout、启停及 quota/fault 边界 |
 | `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
 | `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
 | `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
@@ -136,6 +140,7 @@ Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，
 ```text
 RuntimeRegistry
   models
+  credential_pools
   upstream_targets → upstream_apis
   routes
   public_models
@@ -200,15 +205,15 @@ Provider 契约、endpoint path 与 request-header hook；共享 `openai_compati
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
 attribution/routing header，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
-locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整
-`binding_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目
+pool locator 来自 `CredentialPoolBinding`，endpoint/timeout 来自 selected Upstream Target。Ingress 按完整
+`pool_id + member_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目
 冻结 credential type、来源类别、generation 与可选过期时间，来源类别不保存 locator。Store 不公开通用明文
 查询，adapter 仍在 crate 内的认证 header 边界才访问 secret。`CredentialKind` 已能表达
 `OAuth2BearerAccessToken`，但现有 Provider contract 仍只允许 `ApiKey`，因此尚未形成 OAuth 出站路径。
 
 OpenAI、LongCat 与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
 与它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
-Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `MIMO_API_KEY` locator、
+Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、`MIMO_API_KEYS` locator、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
 但尚未调用真实异构协议 Provider。
 
@@ -217,7 +222,7 @@ OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Respon
 `nvidia/nemotron-3-ultra-550b-a55b`。Responses API 的 state affinity 是 `Unbound`，`store`、
 `previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route、fallback 或 `:free` 变体。
 
-DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `DEEPSEEK_API_KEY` locator、
+DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、`DEEPSEEK_API_KEYS` locator、
 quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Public Model 为 Chat 提供唯一 Native 候选，
 为 Responses 提供唯一 Responses→Chat Bridged 候选，不把 Bridge 描述成 Provider 原生 Responses。
 
@@ -243,10 +248,11 @@ Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff �
 进程内累计值。attempt 的 route/target/Provider 等高基数事实只属于 tracing event，`GatewayMetrics` 只维护
 进程级低基数单调计数。
 
-`ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。它只接受注册表提供的 quota/fault scope，
-把 429 隔离到 `quota_scope`，把暂时性 5xx/transport failure 隔离到 `fault_domain`；默认 cooldown 为 1 秒，
-`Retry-After` 最长采用 30 秒。无状态请求跳过冷却 scope，target-bound continuation 忽略 cooldown 并保持原
-target 亲和。该状态不持久化、不跨进程，也不执行动态权重或 credential 轮换。
+`ingress::credential_health::CredentialHealth` 与 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。
+前者维护每 pool round-robin cursor，以及按 `member_id + generation` 隔离的 429 cooldown；`Retry-After`
+缺失/非法时为 1 秒并封顶 30 秒。后者只把暂时性 5xx/transport failure 隔离到注册表提供的 `fault_domain`。
+无状态请求跳过冷却 member/target；启用 continuation 的 target-bound API 在启动时要求单成员 pool，并保持原
+target。两类状态都不持久化、不跨进程，也不执行动态权重或后台探测。
 
 `src/bridge.rs` 作为生产 Protocol Bridge 门面；`bridge/chat.rs` 与 `bridge/responses.rs` 分别维护两种 stream
 状态机，`bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE
@@ -260,11 +266,11 @@ stream 的分片，不用它替代 call id。两侧要求唯一 terminal 和闭�
 ## 8. Probe 与验证层
 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用
-target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 `CredentialStore` 快照；它不
+target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-02 最近一次执行
-`cargo test --locked`，117 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，129 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

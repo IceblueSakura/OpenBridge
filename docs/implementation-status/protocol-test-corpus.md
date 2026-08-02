@@ -114,7 +114,7 @@ git diff --check
 - 两份 OpenAI protocol 文档来源的许可证状态仍为 `pending`；
 - 25 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
 - 已有最小 Rust loopback runner 同时启动 OpenBridge Router 与 mock upstream，通过真实 HTTP socket 回放
-  `responses_native.rate_limit.non_stream`，验证两次 attempt、上游 request 和最终安全错误；它尚不是可枚举全部
+  `responses_native.rate_limit.non_stream`，验证单成员 429 不被重复调用、上游 request 和最终安全错误；它尚不是可枚举全部
   canonical cases 的通用 CLI，也未覆盖全部 streaming cancellation 或 fallback 序列组合。
 - Python 单 case verifier 仍只消费已经生成的 observations，不启动 OpenBridge。
 

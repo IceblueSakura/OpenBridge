@@ -5,7 +5,7 @@ mod support;
 use http::StatusCode;
 
 #[tokio::test]
-async fn responses_rate_limit_case_replays_two_attempts_and_final_safe_error() {
+async fn responses_rate_limit_case_does_not_replay_an_exhausted_single_member() {
     let observation =
         support::process_replay::replay_rate_limit_case("responses_native.rate_limit.non_stream")
             .await;
@@ -13,7 +13,7 @@ async fn responses_rate_limit_case_replays_two_attempts_and_final_safe_error() {
     // 对照 corpus 固定最终 HTTP 语义和请求级 attempt observation。
     assert_eq!(observation.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(observation.retry_after.as_deref(), Some("1"));
-    assert_eq!(observation.upstream_attempts, 2);
-    assert_eq!(observation.upstream_request_matches, vec![true, true]);
+    assert_eq!(observation.upstream_attempts, 1);
+    assert_eq!(observation.upstream_request_matches, vec![true]);
     assert!(observation.downstream_body_matches);
 }

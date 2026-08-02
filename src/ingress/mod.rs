@@ -5,6 +5,7 @@
 
 mod attempt;
 mod auth;
+mod credential_health;
 mod forwarding;
 mod handlers;
 mod health;

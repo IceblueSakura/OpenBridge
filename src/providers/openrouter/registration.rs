@@ -5,9 +5,9 @@ use std::time::Duration;
 use crate::{
     core::ApiProtocol,
     models::nemotron,
-    provider::{CredentialKind, ProviderKind},
+    provider::ProviderKind,
     registry::{
-        CredentialConfig, StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
+        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
         UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
@@ -21,11 +21,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         provider: ProviderKind::OpenRouter,
         model: nemotron::v3::ULTRA_ID.to_owned(),
         base_url: "https://openrouter.ai/api/v1".to_owned(),
-        credential: CredentialConfig {
-            id: "openrouter-primary".to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "OPENROUTER_API_KEY".to_owned(),
-        },
+        credential_pool: "openrouter-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),

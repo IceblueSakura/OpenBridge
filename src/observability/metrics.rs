@@ -34,6 +34,8 @@ pub struct GatewayMetricsSnapshot {
     pub upstream_transport_failures: u64,
     /// 在同一候选内执行的 retry 总数。
     pub upstream_retries: u64,
+    /// 429 后切换 credential pool 成员的总数。
+    pub credential_rotations: u64,
     /// 进入下一 Route 候选的 fallback 总数。
     pub route_fallbacks: u64,
     /// 因 cooldown 跳过的候选总数。
@@ -59,6 +61,7 @@ pub(super) struct MetricCounters {
     pub(super) upstream_http_failures: AtomicU64,
     pub(super) upstream_transport_failures: AtomicU64,
     pub(super) upstream_retries: AtomicU64,
+    pub(super) credential_rotations: AtomicU64,
     pub(super) route_fallbacks: AtomicU64,
     pub(super) cooldown_skips: AtomicU64,
     pub(super) usage_observations: AtomicU64,
@@ -84,6 +87,7 @@ impl GatewayMetrics {
                 .upstream_transport_failures
                 .load(Ordering::Relaxed),
             upstream_retries: self.inner.upstream_retries.load(Ordering::Relaxed),
+            credential_rotations: self.inner.credential_rotations.load(Ordering::Relaxed),
             route_fallbacks: self.inner.route_fallbacks.load(Ordering::Relaxed),
             cooldown_skips: self.inner.cooldown_skips.load(Ordering::Relaxed),
             usage_observations: self.inner.usage_observations.load(Ordering::Relaxed),

@@ -32,19 +32,29 @@ async fn main() -> Result<()> {
         .context("failed to load downstream users")?;
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
-    // 合并下游用户 Key 与启用 target 的上游 Key，监听前完成不可变 credential 快照。
+    // 合并下游用户 Key 与启用 target 引用的上游 pool，监听前完成不可变 credential 快照。
     let (users, mut credential_builder) = user_configuration.into_parts();
-    for target_id in registry.upstream_target_ids() {
-        let target = registry
-            .upstream_target(target_id)
-            .expect("registry target id must resolve");
-        if target.enabled() {
+    for pool_id in registry.credential_pool_ids() {
+        let used_by_enabled_target = registry.upstream_target_ids().any(|target_id| {
+            let target = registry
+                .upstream_target(target_id)
+                .expect("registry target id must resolve");
+            target.enabled() && target.credential_pool_id() == pool_id
+        });
+        if used_by_enabled_target {
+            let pool = registry
+                .credential_pool(pool_id)
+                .expect("registry credential pool id must resolve");
             credential_builder
-                .load_upstream_environment(target)
-                .context("failed to load an upstream credential")?;
+                .load_upstream_pool_environment(pool)
+                .context("failed to load an upstream credential pool")?;
         }
     }
-    let credentials = Arc::new(credential_builder.build());
+    let credentials = credential_builder.build();
+    credentials
+        .validate_registry(&registry)
+        .context("upstream credential pools violate registry state-affinity constraints")?;
+    let credentials = Arc::new(credentials);
 
     // 创建共享上游 client 与只读请求状态。
     let listen = registry.listen();

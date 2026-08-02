@@ -18,21 +18,23 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
     let mut credentials = CredentialStoreBuilder::new();
     credentials
-        .insert_upstream(
+        .insert_upstream_member(
             ProviderKind::OpenAi,
             "openai-primary",
+            "openai-primary#1",
             SecretString::from("credential-test-value".to_owned()),
             CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Programmatic),
         )
         .unwrap();
     let credentials = credentials.build();
     let credential = credentials
-        .upstream(
+        .upstream_pool(
             ProviderKind::OpenAi,
             "openai-primary",
             CredentialKind::ApiKey,
         )
-        .unwrap();
+        .unwrap()
+        .remove(0);
 
     let safe = adapter.prepare_headers().unwrap();
     let sensitive = adapter.prepare_auth_headers(&credential).unwrap();
@@ -40,7 +42,7 @@ fn openai_adapter_keeps_safe_and_sensitive_headers_separate() {
     assert_eq!(safe.get(CONTENT_TYPE).unwrap(), "application/json");
     assert!(safe.get(AUTHORIZATION).is_none());
     assert!(sensitive.contains(AUTHORIZATION));
-    assert_eq!(credential.binding_id(), "openai-primary");
+    assert_eq!(credential.member_id(), "openai-primary#1");
     assert!(!format!("{credential:?} {sensitive:?}").contains("credential-test-value"));
 }
 
@@ -244,21 +246,23 @@ fn openrouter_authentication_is_bound_to_its_own_credential() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
     let mut credentials = CredentialStoreBuilder::new();
     credentials
-        .insert_upstream(
+        .insert_upstream_member(
             ProviderKind::OpenRouter,
             "openrouter-primary",
+            "openrouter-primary#1",
             SecretString::from("openrouter-test-value".to_owned()),
             CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Programmatic),
         )
         .unwrap();
     let credentials = credentials.build();
     let credential = credentials
-        .upstream(
+        .upstream_pool(
             ProviderKind::OpenRouter,
             "openrouter-primary",
             CredentialKind::ApiKey,
         )
-        .unwrap();
+        .unwrap()
+        .remove(0);
 
     let headers = adapter.prepare_auth_headers(&credential).unwrap();
 

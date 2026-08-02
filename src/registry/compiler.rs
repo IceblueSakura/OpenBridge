@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::BootstrapConfig;
 
 use super::{
-    CredentialBinding, ModelInfo, PublicModel, RegistryConfig, RegistryError, RegistryVersion,
+    CredentialPoolBinding, ModelInfo, PublicModel, RegistryConfig, RegistryError, RegistryVersion,
     Route, RouteMode, RuntimeRegistry, SecretLocator, UpstreamApi, UpstreamTarget,
     validation::{
         apply_model_rules, is_valid_environment_variable, normalize_endpoint_base,
@@ -47,27 +47,53 @@ pub fn build_registry(
         }
     }
 
-    // 校验 target、credential、endpoint 和 Upstream API，并解析模型收窄规则。
-    let mut credential_ids = BTreeSet::new();
+    // 校验 credential pool 的 Provider 归属、类型与环境变量 locator。
+    let mut credential_pools = BTreeMap::new();
+    for pool in definition.credential_pools {
+        if pool.id.trim().is_empty() {
+            return Err(RegistryError::BlankCredentialPoolId);
+        }
+        if !pool.provider.accepts_credential_kind(pool.kind) {
+            return Err(RegistryError::UnsupportedCredentialPoolKind {
+                credential_pool: pool.id,
+            });
+        }
+        if !is_valid_environment_variable(&pool.environment_variable) {
+            return Err(RegistryError::InvalidCredentialPoolLocator {
+                credential_pool: pool.id,
+            });
+        }
+        let resolved = CredentialPoolBinding {
+            id: pool.id.clone(),
+            provider: pool.provider,
+            kind: pool.kind,
+            secret_reference: SecretLocator {
+                locator: pool.environment_variable,
+            },
+        };
+        if credential_pools.insert(pool.id.clone(), resolved).is_some() {
+            return Err(RegistryError::DuplicateId {
+                entity: "credential pool",
+                id: pool.id,
+            });
+        }
+    }
+
+    // 校验 target、pool 引用、endpoint 和 Upstream API，并解析模型收窄规则。
     let mut upstream_targets = BTreeMap::new();
     for target in definition.upstream_targets {
-        if !target
-            .provider
-            .accepts_credential_kind(target.credential.kind)
-        {
-            return Err(RegistryError::UnsupportedCredentialKind {
+        let credential_pool = credential_pools
+            .get(&target.credential_pool)
+            .ok_or_else(|| RegistryError::UnknownReference {
+                entity: "upstream target",
+                id: target.id.clone(),
+                target: "credential pool",
+                reference: target.credential_pool.clone(),
+            })?;
+        if credential_pool.provider() != target.provider {
+            return Err(RegistryError::CredentialPoolProviderMismatch {
                 upstream_target: target.id,
-            });
-        }
-        if !is_valid_environment_variable(&target.credential.environment_variable) {
-            return Err(RegistryError::InvalidCredentialLocator {
-                upstream_target: target.id,
-            });
-        }
-        if !credential_ids.insert(target.credential.id.clone()) {
-            return Err(RegistryError::DuplicateId {
-                entity: "credential",
-                id: target.credential.id,
+                credential_pool: target.credential_pool,
             });
         }
         let model =
@@ -155,14 +181,9 @@ pub fn build_registry(
             }
         }
         let resolved = UpstreamTarget {
+            id: target.id.clone(),
             kind: target.provider,
-            credential: CredentialBinding {
-                id: target.credential.id,
-                kind: target.credential.kind,
-                secret_reference: SecretLocator {
-                    locator: target.credential.environment_variable,
-                },
-            },
+            credential_pool: target.credential_pool,
             model_id: target.model,
             endpoint_base,
             quota_scope: target.quota_scope,
@@ -268,6 +289,7 @@ pub fn build_registry(
         version: RegistryVersion(definition.version),
         bootstrap,
         models,
+        credential_pools,
         upstream_targets,
         routes,
         public_models,

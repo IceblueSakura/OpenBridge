@@ -138,13 +138,15 @@ pub struct UpstreamApiModelRules {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// Upstream Target 使用的 credential binding 声明。
-pub struct CredentialConfig {
-    /// 注册表中的 credential id。
+/// 一个 Provider 共享的 credential pool 声明。
+pub struct CredentialPoolConfig {
+    /// 注册表中的 pool id。
     pub id: String,
+    /// 允许消费该 pool 的 Provider。
+    pub provider: ProviderKind,
     /// adapter 支持的 credential 类型。
     pub kind: CredentialKind,
-    /// 运行时读取 secret 的环境变量名。
+    /// 运行时读取 JSON secret 数组的环境变量名。
     pub environment_variable: String,
 }
 
@@ -240,8 +242,8 @@ pub struct UpstreamTargetConfig {
     pub model: String,
     /// 经过校验的 HTTPS endpoint base。
     pub base_url: String,
-    /// target 使用的 credential binding。
-    pub credential: CredentialConfig,
+    /// target 引用的共享 credential pool id。
+    pub credential_pool: String,
     /// 可选的明确共享 quota scope。
     pub quota_scope: Option<String>,
     /// 可选的故障/cooldown 域。
@@ -294,6 +296,8 @@ pub struct RegistryConfig {
     pub version: String,
     /// 完整模型定义集合。
     pub models: Vec<ModelConfig>,
+    /// 完整 credential pool 定义集合。
+    pub credential_pools: Vec<CredentialPoolConfig>,
     /// 完整 Upstream Target 定义集合。
     pub upstream_targets: Vec<UpstreamTargetConfig>,
     /// 完整 Route 定义集合。

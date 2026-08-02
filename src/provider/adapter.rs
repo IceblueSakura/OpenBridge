@@ -229,9 +229,10 @@ mod tests {
         let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
         let mut credentials = crate::credential::CredentialStoreBuilder::new();
         credentials
-            .insert_upstream(
+            .insert_upstream_member(
                 ProviderKind::OpenAi,
-                "binding",
+                "pool",
+                "pool#1",
                 SecretString::from("credential-test-value".to_owned()),
                 crate::credential::CredentialMetadata::upstream(
                     crate::provider::CredentialKind::ApiKey,
@@ -241,12 +242,13 @@ mod tests {
             .unwrap();
         let credentials = credentials.build();
         let credential = credentials
-            .upstream(
+            .upstream_pool(
                 ProviderKind::OpenAi,
-                "binding",
+                "pool",
                 crate::provider::CredentialKind::ApiKey,
             )
-            .unwrap();
+            .unwrap()
+            .remove(0);
 
         let headers = adapter.prepare_auth_headers(&credential).unwrap();
 

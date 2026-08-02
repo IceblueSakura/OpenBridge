@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::{
     provider::{CredentialKind, ProviderKind},
-    registry::UpstreamTarget,
+    registry::{CredentialPoolBinding, RuntimeRegistry},
 };
 
 /// 一项 credential 的稳定运行时标识与用途。
@@ -23,10 +23,12 @@ pub enum CredentialId {
         /// 认证成功后绑定的稳定用户 ID。
         user_id: String,
     },
-    /// 上游 Provider credential binding。
-    UpstreamBinding {
-        /// 注册表中全局唯一的 binding ID。
-        binding_id: String,
+    /// 上游 Provider credential pool 成员。
+    UpstreamPoolMember {
+        /// 注册表中全局唯一的 pool ID。
+        pool_id: String,
+        /// pool 内稳定的非敏感成员 ID。
+        member_id: String,
         /// 允许消费此 secret 的 Provider。
         provider: ProviderKind,
     },
@@ -172,11 +174,12 @@ impl CredentialStoreBuilder {
         Ok(())
     }
 
-    /// 加入一个已由调用方解析的上游 API Key。
-    pub fn insert_upstream(
+    /// 加入一个已由调用方解析的上游 credential pool 成员。
+    pub fn insert_upstream_member(
         &mut self,
         provider: ProviderKind,
-        binding_id: impl Into<String>,
+        pool_id: impl Into<String>,
+        member_id: impl Into<String>,
         secret: SecretString,
         metadata: CredentialMetadata,
     ) -> Result<(), CredentialStoreError> {
@@ -190,13 +193,35 @@ impl CredentialStoreBuilder {
             return Err(CredentialStoreError::InvalidMetadata);
         }
 
-        // 构造带 Provider 归属的上游 ID，并拒绝重复 binding。
-        let id = CredentialId::UpstreamBinding {
-            binding_id: binding_id.into(),
+        // 构造带 Provider 与 pool 归属的成员 ID，并拒绝重复成员或 secret。
+        let pool_id = pool_id.into();
+        let member_id = member_id.into();
+        if pool_id.trim().is_empty() || member_id.trim().is_empty() {
+            return Err(CredentialStoreError::InvalidPoolIdentity);
+        }
+        let id = CredentialId::UpstreamPoolMember {
+            pool_id: pool_id.clone(),
+            member_id,
             provider,
         };
         if self.entries.iter().any(|entry| entry.id == id) {
             return Err(CredentialStoreError::DuplicateId);
+        }
+        let candidate = secret.expose_secret().as_bytes();
+        if self.entries.iter().any(|entry| {
+            matches!(
+                &entry.id,
+                CredentialId::UpstreamPoolMember {
+                    pool_id: configured_pool,
+                    provider: configured_provider,
+                    ..
+                } if configured_pool == &pool_id && *configured_provider == provider
+            ) && {
+                let expected = entry.secret.expose_secret().as_bytes();
+                candidate.len() == expected.len() && bool::from(candidate.ct_eq(expected))
+            }
+        }) {
+            return Err(CredentialStoreError::DuplicateUpstreamSecret);
         }
         self.entries.push(CredentialEntry {
             id,
@@ -207,38 +232,56 @@ impl CredentialStoreBuilder {
         Ok(())
     }
 
-    /// 从目标已校验的环境变量 locator 读取一次上游 secret。
-    pub fn load_upstream_environment(
+    /// 从已校验的环境变量 locator 读取一次 JSON credential pool。
+    pub fn load_upstream_pool_environment(
         &mut self,
-        target: &UpstreamTarget,
+        pool: &CredentialPoolBinding,
     ) -> Result<(), CredentialStoreError> {
         // 只在启动阶段调用进程环境解析器，运行时 Store 不保存解析函数。
-        self.load_upstream_with(
-            target.kind(),
-            target.credential().id(),
-            target.credential().kind(),
-            target.credential().secret_reference().locator(),
+        self.load_upstream_pool_with(
+            pool.provider(),
+            pool.id(),
+            pool.kind(),
+            pool.secret_reference().locator(),
             |locator| env::var(locator).ok(),
         )
     }
 
-    fn load_upstream_with(
+    fn load_upstream_pool_with(
         &mut self,
         provider: ProviderKind,
-        binding_id: &str,
+        pool_id: &str,
         kind: CredentialKind,
         locator: &str,
         resolve: impl FnOnce(&str) -> Option<String>,
     ) -> Result<(), CredentialStoreError> {
-        // 读取一次受信 locator，并把缺失、非 Unicode 或空值统一视为不可用。
-        let secret = resolve(locator).ok_or(CredentialStoreError::Unavailable)?;
-        // 将来源值移入 Store builder，运行时不再保留或访问 locator。
-        self.insert_upstream(
-            provider,
-            binding_id,
-            SecretString::from(secret),
-            CredentialMetadata::upstream(kind, CredentialSource::Environment),
-        )
+        // 读取并解析必填 JSON 字符串数组，拒绝空 pool、空成员和重复 secret。
+        let document = resolve(locator).ok_or(CredentialStoreError::Unavailable)?;
+        let secrets: Vec<String> = serde_json::from_str(&document)
+            .map_err(|_| CredentialStoreError::InvalidPoolDocument)?;
+        if secrets.is_empty() || secrets.iter().any(|secret| secret.trim().is_empty()) {
+            return Err(CredentialStoreError::InvalidPoolDocument);
+        }
+        for (index, candidate) in secrets.iter().enumerate() {
+            if secrets[..index].iter().any(|expected| {
+                candidate.len() == expected.len()
+                    && bool::from(candidate.as_bytes().ct_eq(expected.as_bytes()))
+            }) {
+                return Err(CredentialStoreError::DuplicateUpstreamSecret);
+            }
+        }
+
+        // 按数组顺序生成稳定成员 ID，并一次性移入启动快照。
+        for (index, secret) in secrets.into_iter().enumerate() {
+            self.insert_upstream_member(
+                provider,
+                pool_id,
+                format!("{pool_id}#{}", index + 1),
+                SecretString::from(secret),
+                CredentialMetadata::upstream(kind, CredentialSource::Environment),
+            )?;
+        }
+        Ok(())
     }
 
     /// 构造只包含启用 credential 的不可变运行时快照。
@@ -267,6 +310,36 @@ pub struct CredentialStore {
 }
 
 impl CredentialStore {
+    /// 校验运行时 pool 成员数与 registry 的 state affinity 约束一致。
+    pub fn validate_registry(
+        &self,
+        registry: &RuntimeRegistry,
+    ) -> Result<(), CredentialStoreError> {
+        // continuation 无法安全跨 key 重放，因此对应 pool 必须恰好只有一个成员。
+        for pool_id in registry.credential_pool_ids() {
+            if !registry.credential_pool_requires_single_member(pool_id) {
+                continue;
+            }
+            let member_count = self
+                .entries
+                .iter()
+                .filter(|entry| {
+                    matches!(
+                        &entry.id,
+                        CredentialId::UpstreamPoolMember {
+                            pool_id: configured_pool,
+                            ..
+                        } if configured_pool == pool_id
+                    )
+                })
+                .count();
+            if member_count > 1 {
+                return Err(CredentialStoreError::StatefulPoolHasMultipleMembers);
+            }
+        }
+        Ok(())
+    }
+
     /// 使用 constant-time equality 匹配启用的下游 API Key，并返回对应用户 ID。
     pub fn authenticate_downstream(&self, candidate: &str) -> Option<&str> {
         // 遍历全部下游 Key，避免通过提前返回暴露匹配位置。
@@ -284,42 +357,45 @@ impl CredentialStore {
         matched
     }
 
-    /// 按 Provider 与 binding ID 借用上游 credential，归属不匹配时 fail closed。
-    pub fn upstream(
+    /// 按 Provider 与 pool ID 借用全部有序成员，归属不匹配或为空时 fail closed。
+    pub fn upstream_pool(
         &self,
         provider: ProviderKind,
-        binding_id: &str,
+        pool_id: &str,
         kind: CredentialKind,
-    ) -> Result<UpstreamCredential<'_>, CredentialStoreError> {
-        // 匹配完整上游用途 ID 与 credential kind，不能跨 Provider 或认证类型复用 secret。
-        let entry = self.entries.iter().find(|entry| {
-            matches!(
-                &entry.id,
-                CredentialId::UpstreamBinding {
-                    binding_id: configured_binding,
+    ) -> Result<Vec<UpstreamCredential<'_>>, CredentialStoreError> {
+        // 只选择完整 Provider、pool 与 credential kind 都匹配的成员。
+        let members = self
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let CredentialId::UpstreamPoolMember {
+                    pool_id: configured_pool,
+                    member_id,
                     provider: configured_provider,
-                } if configured_binding == binding_id && *configured_provider == provider
-            ) && entry.metadata.credential_type == CredentialType::Upstream(kind)
-        });
-        let Some(entry) = entry else {
+                } = &entry.id
+                else {
+                    return None;
+                };
+                if configured_pool != pool_id
+                    || *configured_provider != provider
+                    || entry.metadata.credential_type != CredentialType::Upstream(kind)
+                {
+                    return None;
+                }
+                Some(UpstreamCredential {
+                    provider,
+                    pool_id: configured_pool,
+                    member_id,
+                    secret: &entry.secret,
+                    metadata: &entry.metadata,
+                })
+            })
+            .collect::<Vec<_>>();
+        if members.is_empty() {
             return Err(CredentialStoreError::Unavailable);
-        };
-
-        // 从 Store 条目借用稳定 binding 元数据与 secret。
-        let CredentialId::UpstreamBinding {
-            binding_id,
-            provider,
-        } = &entry.id
-        else {
-            return Err(CredentialStoreError::Unavailable);
-        };
-        // 返回只在认证 header 构造边界可暴露明文的借用视图。
-        Ok(UpstreamCredential {
-            provider: *provider,
-            binding_id,
-            secret: &entry.secret,
-            metadata: &entry.metadata,
-        })
+        }
+        Ok(members)
     }
 
     /// 枚举非敏感 credential ID，供配置契约和诊断计数验证。
@@ -356,7 +432,8 @@ impl fmt::Debug for CredentialStore {
 /// 已验证 Provider 归属的短时上游 credential 借用视图。
 pub struct UpstreamCredential<'a> {
     provider: ProviderKind,
-    binding_id: &'a str,
+    pool_id: &'a str,
+    member_id: &'a str,
     secret: &'a SecretString,
     metadata: &'a CredentialMetadata,
 }
@@ -367,9 +444,14 @@ impl UpstreamCredential<'_> {
         self.provider
     }
 
-    /// 返回代码注册的 credential binding ID。
-    pub fn binding_id(&self) -> &str {
-        self.binding_id
+    /// 返回代码注册的 credential pool ID。
+    pub fn pool_id(&self) -> &str {
+        self.pool_id
+    }
+
+    /// 返回 pool 内稳定的非敏感成员 ID。
+    pub fn member_id(&self) -> &str {
+        self.member_id
     }
 
     /// 返回该借用视图绑定的非敏感运行时元数据。
@@ -387,7 +469,8 @@ impl fmt::Debug for UpstreamCredential<'_> {
         formatter
             .debug_struct("UpstreamCredential")
             .field("provider", &self.provider)
-            .field("binding_id", &self.binding_id)
+            .field("pool_id", &self.pool_id)
+            .field("member_id", &self.member_id)
             .field("metadata", &self.metadata)
             .field("secret", &"[REDACTED]")
             .finish()
@@ -403,6 +486,18 @@ pub enum CredentialStoreError {
     /// 同一个下游 API Key 被多个用户复用。
     #[error("the same downstream API key is configured for more than one user")]
     DuplicateDownstreamSecret,
+    /// 同一个 pool 重复配置了相同上游 secret。
+    #[error("the same upstream secret is configured more than once in a credential pool")]
+    DuplicateUpstreamSecret,
+    /// credential pool 环境变量不是非空 JSON 字符串数组。
+    #[error("credential pool must be a non-empty JSON array of non-empty strings")]
+    InvalidPoolDocument,
+    /// 启用 continuation 的 TargetBound API 引用了多成员 pool。
+    #[error("state-bound upstream APIs require a single-member credential pool")]
+    StatefulPoolHasMultipleMembers,
+    /// pool 或 member 的非敏感 ID 为空。
+    #[error("credential pool and member ids must not be blank")]
+    InvalidPoolIdentity,
     /// Credential 元数据与用途不匹配或 generation 非法。
     #[error("credential metadata is invalid")]
     InvalidMetadata,
@@ -421,17 +516,115 @@ mod tests {
     use crate::provider::{CredentialKind, ProviderKind};
 
     #[test]
+    fn upstream_pool_loads_a_non_empty_json_array_with_stable_member_ids() {
+        // 从单个环境变量解析两项 secret，并冻结为同一 pool 的有序成员。
+        let mut credentials = CredentialStoreBuilder::new();
+        credentials
+            .load_upstream_pool_with(
+                ProviderKind::OpenAi,
+                "openai-primary",
+                CredentialKind::ApiKey,
+                "OPENAI_API_KEYS",
+                |_| Some(r#"["key-a","key-b"]"#.to_owned()),
+            )
+            .unwrap();
+
+        // 验证成员顺序、稳定非敏感 ID 与 secret 隔离边界。
+        let credentials = credentials.build();
+        let members = credentials
+            .upstream_pool(
+                ProviderKind::OpenAi,
+                "openai-primary",
+                CredentialKind::ApiKey,
+            )
+            .unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].pool_id(), "openai-primary");
+        assert_eq!(members[0].member_id(), "openai-primary#1");
+        assert_eq!(members[1].member_id(), "openai-primary#2");
+        assert_eq!(members[0].expose_secret(), "key-a");
+        assert_eq!(members[1].expose_secret(), "key-b");
+        assert!(!format!("{credentials:?} {members:?}").contains("key-a"));
+        assert!(!format!("{credentials:?} {members:?}").contains("key-b"));
+    }
+
+    #[test]
+    fn upstream_pool_rejects_invalid_empty_and_duplicate_documents_atomically() {
+        // 覆盖缺失、语法错误、空 pool、空白成员与重复 secret。
+        for (document, expected) in [
+            (None, CredentialStoreError::Unavailable),
+            (Some("{}"), CredentialStoreError::InvalidPoolDocument),
+            (Some("[]"), CredentialStoreError::InvalidPoolDocument),
+            (
+                Some(r#"["   "]"#),
+                CredentialStoreError::InvalidPoolDocument,
+            ),
+            (
+                Some(r#"["duplicate","duplicate"]"#),
+                CredentialStoreError::DuplicateUpstreamSecret,
+            ),
+        ] {
+            let mut credentials = CredentialStoreBuilder::new();
+            let result = credentials.load_upstream_pool_with(
+                ProviderKind::OpenAi,
+                "openai-primary",
+                CredentialKind::ApiKey,
+                "OPENAI_API_KEYS",
+                |_| document.map(str::to_owned),
+            );
+            assert_eq!(result.unwrap_err(), expected);
+            assert!(credentials.build().credential_ids().next().is_none());
+        }
+    }
+
+    #[test]
+    fn state_bound_continuation_rejects_a_multi_member_pool() {
+        // 为内置 OpenAI Responses API 开启 continuation，形成实际 state-bound 约束。
+        let mut definition = crate::providers::compiled_config();
+        if let crate::registry::UpstreamApiCapabilities::Responses(capabilities) =
+            &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+        {
+            capabilities.previous_response_id = true;
+        }
+        let bootstrap =
+            crate::config::parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+                .unwrap();
+        let registry = crate::registry::build_registry(bootstrap, definition).unwrap();
+
+        // 注入两个成员并验证启动期 fail closed，而不是在请求中猜测 key affinity。
+        let mut credentials = CredentialStoreBuilder::new();
+        for (index, secret) in ["key-a", "key-b"].into_iter().enumerate() {
+            credentials
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    "openai-primary",
+                    format!("openai-primary#{}", index + 1),
+                    SecretString::from(secret),
+                    CredentialMetadata::upstream(
+                        CredentialKind::ApiKey,
+                        CredentialSource::Programmatic,
+                    ),
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            credentials.build().validate_registry(&registry),
+            Err(CredentialStoreError::StatefulPoolHasMultipleMembers)
+        );
+    }
+
+    #[test]
     fn runtime_store_owns_a_redacted_snapshot_and_rejects_empty_upstream_secrets() {
         // 模拟启动来源返回一份可随后变化的字符串，并确认只解析一次。
         let mut source = "startup-secret".to_owned();
         let mut credentials = CredentialStoreBuilder::new();
         credentials
-            .load_upstream_with(
+            .load_upstream_pool_with(
                 ProviderKind::OpenAi,
                 "openai-primary",
                 CredentialKind::ApiKey,
                 "SYNTHETIC_API_KEY",
-                |_| Some(source.clone()),
+                |_| Some(format!(r#"["{source}"]"#)),
             )
             .unwrap();
         source.clear();
@@ -439,12 +632,13 @@ mod tests {
         // 验证运行时 Store 保留启动快照，且任何 Debug 输出都不包含明文。
         let credentials = credentials.build();
         let credential = credentials
-            .upstream(
+            .upstream_pool(
                 ProviderKind::OpenAi,
                 "openai-primary",
                 CredentialKind::ApiKey,
             )
-            .unwrap();
+            .unwrap()
+            .remove(0);
         assert_eq!(credential.expose_secret(), "startup-secret");
         assert_eq!(
             credential.metadata().source(),
@@ -459,7 +653,7 @@ mod tests {
         let mut invalid = CredentialStoreBuilder::new();
         assert_eq!(
             invalid
-                .load_upstream_with(
+                .load_upstream_pool_with(
                     ProviderKind::OpenAi,
                     "missing",
                     CredentialKind::ApiKey,
@@ -471,9 +665,10 @@ mod tests {
         );
         assert_eq!(
             invalid
-                .insert_upstream(
+                .insert_upstream_member(
                     ProviderKind::OpenAi,
                     "empty",
+                    "empty#1",
                     SecretString::from(String::new()),
                     CredentialMetadata::upstream(
                         CredentialKind::ApiKey,
@@ -485,9 +680,10 @@ mod tests {
         );
         assert_eq!(
             invalid
-                .insert_upstream(
+                .insert_upstream_member(
                     ProviderKind::OpenAi,
                     "invalid-generation",
+                    "invalid-generation#1",
                     SecretString::from("synthetic"),
                     CredentialMetadata::upstream(
                         CredentialKind::ApiKey,
@@ -497,6 +693,21 @@ mod tests {
                 )
                 .unwrap_err(),
             CredentialStoreError::InvalidMetadata
+        );
+        assert_eq!(
+            invalid
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    " ",
+                    "member",
+                    SecretString::from("synthetic"),
+                    CredentialMetadata::upstream(
+                        CredentialKind::ApiKey,
+                        CredentialSource::Programmatic,
+                    ),
+                )
+                .unwrap_err(),
+            CredentialStoreError::InvalidPoolIdentity
         );
     }
 }

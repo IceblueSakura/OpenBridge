@@ -5,9 +5,9 @@ use std::time::Duration;
 use crate::{
     core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
     models::gpt,
-    provider::{CredentialKind, ProviderKind},
+    provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{CredentialConfig, UpstreamTargetConfig},
+    registry::UpstreamTargetConfig,
 };
 
 /// 构造当前编译版本内置的 OpenAI upstream targets。
@@ -17,11 +17,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         provider: ProviderKind::OpenAi,
         model: gpt::v5_6_sol::ID.to_owned(),
         base_url: "https://api.openai.com".to_owned(),
-        credential: CredentialConfig {
-            id: "openai-primary".to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "OPENAI_API_KEY".to_owned(),
-        },
+        credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),

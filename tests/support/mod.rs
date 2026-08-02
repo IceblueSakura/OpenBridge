@@ -5,5 +5,6 @@ pub mod process_replay;
 
 #[allow(unused_imports)]
 pub use fixtures::{
-    BOOTSTRAP, bootstrap, capabilities, definition, prepare, registry, users_and_credentials,
+    BOOTSTRAP, bootstrap, capabilities, definition, prepare, registry, users_and_credential_pool,
+    users_and_credentials,
 };

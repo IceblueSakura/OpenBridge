@@ -28,7 +28,6 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     }
     let mut unmapped = definition.upstream_targets[0].clone();
     unmapped.id = "openai-unmapped".to_owned();
-    unmapped.credential.id = "openai-unmapped-credential".to_owned();
     for upstream_api in &mut unmapped.upstream_apis {
         upstream_api.model_rules.reasoning_level_mappings.clear();
     }
@@ -301,7 +300,6 @@ fn upstream_api_rules_select_the_unconstrained_candidate() {
     let mut definition = base_definition();
     let mut limited = definition.upstream_targets[0].clone();
     limited.id = "openai-limited".to_owned();
-    limited.credential.id = "openai-limited-credential".to_owned();
     limited.upstream_apis[0].upstream_model = "limited-upstream-model".to_owned();
     limited.upstream_apis[0].model_rules.context_length =
         ModelContextLength::new(None, Some(4_096));
@@ -403,7 +401,6 @@ fn native_routing_selects_the_first_capability_compatible_candidate() {
     }
     let mut tools = definition.upstream_targets[0].clone();
     tools.id = "openai-tools".to_owned();
-    tools.credential.id = "openai-tools-credential".to_owned();
     tools.upstream_apis[0].upstream_model = "tool-capable-model".to_owned();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut tools.upstream_apis[0].capabilities

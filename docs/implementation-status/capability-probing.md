@@ -5,7 +5,7 @@
 当前实现提供管理员显式 probe。它使用代码注册表中的固定 Upstream Target，并按协议选择 Upstream API；它是证据报告，不是动态配置。
 
 - 下游 `GET /v1/models` 只返回代码注册的 Public Model；
-- probe 使用固定 endpoint、adapter、upstream model 和 credential binding；
+- probe 使用固定 endpoint、adapter、upstream model 和 credential pool 的首个确定性 member；
 - CLI 不接受 URL、model、header 或 credential；
 - report 不修改 `RuntimeRegistry` 或 Rust 注册项；
 -真实 Provider probe 可能消耗配额或触发限流。
@@ -37,7 +37,7 @@ cargo run --bin openbridge-probe -- --target openai-main --list-models
 cargo run --bin openbridge-probe -- --target openai-main --chat --responses --function-calling
 ```
 
-填充 `.env` 中的 `DEEPSEEK_API_KEY` 与 `MIMO_API_KEY` 后，可分别运行以下真实 Provider 验收用例：
+填充 `.env` 中的 `DEEPSEEK_API_KEYS` 与 `MIMO_API_KEYS` JSON 数组后，可分别运行以下真实 Provider 验收用例：
 
 ```bash
 cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --chat --function-calling

@@ -6,7 +6,7 @@ use openbridge::{
     config::{
         BootstrapConfigError, BootstrapConfigFileError, BootstrapConfigPath, parse_bootstrap_config,
     },
-    provider::CredentialKind,
+    provider::{CredentialKind, ProviderKind},
     registry::{
         ModelContextLength, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
         ReasoningSupport, RegistryError, UpstreamApiCapabilities, build_registry,
@@ -39,11 +39,11 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
         Duration::from_secs(5)
     );
     let target = registry.upstream_target("openai-main").unwrap();
-    assert_eq!(target.credential().secret_reference().scheme(), "env");
-    assert_eq!(
-        target.credential().secret_reference().locator(),
-        "OPENAI_API_KEY"
-    );
+    let pool = registry
+        .credential_pool(target.credential_pool_id())
+        .unwrap();
+    assert_eq!(pool.secret_reference().scheme(), "env");
+    assert_eq!(pool.secret_reference().locator(), "OPENAI_API_KEYS");
     let upstream_api = target.upstream_api("chat").unwrap();
     assert_eq!(upstream_api.upstream_model(), "test-model");
     assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
@@ -319,16 +319,57 @@ fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
     ));
 
     let mut locator = definition("test", "code-primary", "test-model");
-    locator.upstream_targets[0].credential.environment_variable = "not-valid".to_owned();
+    locator.credential_pools[0].environment_variable = "not-valid".to_owned();
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), locator),
-        Err(RegistryError::InvalidCredentialLocator { .. })
+        Err(RegistryError::InvalidCredentialPoolLocator { .. })
     ));
 
     let mut oauth = definition("test", "code-primary", "test-model");
-    oauth.upstream_targets[0].credential.kind = CredentialKind::OAuth2BearerAccessToken;
+    oauth.credential_pools[0].kind = CredentialKind::OAuth2BearerAccessToken;
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), oauth),
-        Err(RegistryError::UnsupportedCredentialKind { .. })
+        Err(RegistryError::UnsupportedCredentialPoolKind { .. })
+    ));
+}
+
+#[test]
+fn registry_rejects_invalid_credential_pool_identity_and_target_ownership() {
+    // pool ID 必须非空且唯一，target 只能引用同 Provider 的已知 pool。
+    let mut blank = definition("test", "code-primary", "test-model");
+    blank.credential_pools[0].id = "   ".to_owned();
+    blank.upstream_targets[0].credential_pool = "   ".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), blank),
+        Err(RegistryError::BlankCredentialPoolId)
+    ));
+
+    let mut unknown = definition("test", "code-primary", "test-model");
+    unknown.upstream_targets[0].credential_pool = "missing".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unknown),
+        Err(RegistryError::UnknownReference {
+            target: "credential pool",
+            ..
+        })
+    ));
+
+    let mut mismatch = definition("test", "code-primary", "test-model");
+    mismatch.credential_pools[0].provider = ProviderKind::LongCat;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), mismatch),
+        Err(RegistryError::CredentialPoolProviderMismatch { .. })
+    ));
+
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate
+        .credential_pools
+        .push(duplicate.credential_pools[0].clone());
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::DuplicateId {
+            entity: "credential pool",
+            ..
+        })
     ));
 }

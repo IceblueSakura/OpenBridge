@@ -47,7 +47,7 @@ source/commit + files or issue
 | **Hermes Agent** | [MIT License](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) | 本地正在使用的第二 Agent；Chat/Responses 与完整 Agent loop 互证样本 | `api_mode`/endpoint 选择；Chat 与 Responses 的 tool loop、strict endpoint、usage-only final chunk、stream error、Provider 切换后的状态 | Hermes 仅在声明兼容时启用的 E2E corpus；Chat/Responses 模式选择反例 | Agent 内部会话模型、Provider UI/catalog、客户端配置与管理功能；将其内部 adapter 当成网关协议标准 |
 | **LiteLLM** | [MIT License（`enterprise/` 目录除外）](https://github.com/BerriAI/litellm/blob/main/LICENSE) | Provider Family/adapter 与协议变换的资料库 | Provider-specific request/response normalization；capability/参数差异；错误分类、有限 retry/fallback；usage 字段兼容；native 与 transform 的边界 | Provider adapter 上界；字段保留/拒绝 fixture；错误分类对照 | Proxy 的 virtual key、用户/团队/预算、DB/Redis 控制面、计费和分布式管理链路 |
 | **cc-switch** | [MIT License](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | 面向 Code Agent 的 Protocol Bridge 状态机主参考 | Codex Responses ↔ Chat 请求转换；每请求 tool context；Chat SSE → Responses 的 item/arguments/terminal 重建；tool history 与 continuation 的失败边界 | Chat/Responses bridge fixture；`ToolConversionContext`、tool identity 与 stream assembler 约束 | Tauri/桌面组件、客户端配置接管、usage UX、provider/model 名称猜测、无 issuer/route/TTL 约束的 history fallback |
-| **CLIProxyAPI** | [MIT License](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | translator/stateful routing 的负面案例库 | `previous_response_id`、tool identity、state affinity、SSE/WebSocket terminal 与 translator 失败 issue | failure taxonomy；最小 transcript；拒绝或 issuer-bound state 规则 | 多 CLI 账号池、subscription credential 聚合、非官方 OAuth/client identity、账号轮转或负载策略 |
+| **CLIProxyAPI** | [MIT License](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | translator/stateful routing 的负面案例库；credential pool 仅作有限重试对照 | `previous_response_id`、tool identity、state affinity、SSE/WebSocket terminal、translator 失败 issue；credential attempt/cooldown 的配置边界 | failure taxonomy；最小 transcript；拒绝或 issuer-bound state 规则；credential pool 的硬预算反例 | subscription/OAuth 账号聚合、非官方 client identity、管理控制面，或直接复制其 4xx/账号轮转策略 |
 
 ### 2.1 测试资产补充角色
 
@@ -72,7 +72,7 @@ source/commit + files or issue
 | Rust SSE 解析、事件生命周期与工具关联 | Codex | cc-switch 的跨协议 stream state | 分帧、terminal、`call_id`/item id/stream index 的区分和 fixture | 必须复制 Codex 的客户端架构或把任意事件都视作文本 token |
 | Chat ↔ Responses Protocol Bridge | cc-switch | LiteLLM；Codex/Hermes 作为目标客户端验证；CLIProxyAPI 提供失败案例 | 显式 capability gate、每请求转换上下文、双向 item/terminal fixture、loss notice | 无损转换、通用 provider-name heuristic 或全局 history cache |
 | tool identity、continuation 与 state affinity | cc-switch | Codex/Hermes tool loop；CLIProxyAPI issues | `call_id` 不可替代；issuer/deployment/route/TTL 绑定的 continuation ledger 或明确拒绝 | 仅按 response id 或全局唯一 `call_id` 跨路由恢复 |
-| Provider adapter 粒度、参数与错误恢复 | LiteLLM | CLIProxyAPI 负面案例；cc-switch 的具体 upstream 反例 | Family 代码与 Deployment 数据的边界；可证明的 error class/retry/fallback fixture | 多租户路由、credential pool、预算或分布式控制面 |
+| Provider adapter 粒度、参数与错误恢复 | LiteLLM | CLIProxyAPI 与 cc-switch 的有限重试/故障边界反例 | Family 代码与 Deployment 数据的边界；可证明的 error class/retry/fallback fixture；API-key pool 的最小隔离与硬预算 | 多租户路由、subscription/OAuth 账号聚合、预算或分布式控制面 |
 | Native Path 的字段保留与失败策略 | Codex、Hermes | LiteLLM | 对已支持协议最小改写；未知合法字段、SSE 与已输出错误的处理测试 | 只因 bridge 已存在就默认转换，或输出后 retry/fallback |
 | 注册表、secret 与单所有者部署 | OpenBridge 产品需求 | Codex/Hermes 配置形状仅作客户端接入样本 | 编译期 Provider 注册、启动时用户表、显式 secret binding 与脱敏要求 | 采用任何项目的账户池、在线 key 管理或 GUI 配置模型 |
 | usage、TTFT/TTFB 与错误率 | OpenBridge 产品需求 | LiteLLM 的 usage/error 字段仅作兼容检查 | 低基数聚合、唯一终态、正确分子/分母与无正文记录 | 复制 Proxy 的用户计费、审计或 callback/control-plane 链路 |

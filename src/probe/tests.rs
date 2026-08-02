@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use axum::body::Body;
 use futures_util::future::BoxFuture;
-use http::{HeaderMap, Method, StatusCode};
+use http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
@@ -40,24 +40,28 @@ fn registry() -> RuntimeRegistry {
 
 fn credentials(registry: &RuntimeRegistry) -> CredentialStore {
     let target = registry.upstream_target("openai-main").unwrap();
-    let mut credentials = CredentialStoreBuilder::new();
-    credentials
-        .insert_upstream(
-            target.kind(),
-            target.credential().id(),
-            SecretString::from("test-key"),
-            CredentialMetadata::upstream(
-                target.credential().kind(),
-                CredentialSource::Programmatic,
-            ),
-        )
+    let pool = registry
+        .credential_pool(target.credential_pool_id())
         .unwrap();
+    let mut credentials = CredentialStoreBuilder::new();
+    for (index, secret) in ["test-key", "unused-test-key"].into_iter().enumerate() {
+        credentials
+            .insert_upstream_member(
+                target.kind(),
+                pool.id(),
+                format!("{}#{}", pool.id(), index + 1),
+                SecretString::from(secret),
+                CredentialMetadata::upstream(pool.kind(), CredentialSource::Programmatic),
+            )
+            .unwrap();
+    }
     credentials.build()
 }
 
 #[derive(Default)]
 struct FixtureTransport {
     requests: Mutex<Vec<(Method, String, Value)>>,
+    authorizations: Mutex<Vec<String>>,
 }
 
 impl UpstreamTransport for FixtureTransport {
@@ -65,7 +69,7 @@ impl UpstreamTransport for FixtureTransport {
         &'a self,
         _target: &'a UpstreamTarget,
         request: PreparedUpstreamRequest,
-        _headers: HeaderMap,
+        headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         Box::pin(async move {
             let body = if request.body().is_empty() {
@@ -78,6 +82,10 @@ impl UpstreamTransport for FixtureTransport {
                 request.relative_uri().path().to_owned(),
                 body.clone(),
             ));
+            self.authorizations
+                .lock()
+                .unwrap()
+                .push(headers[AUTHORIZATION].to_str().unwrap().to_owned());
             let response = match request.relative_uri().path() {
                 "/v1/models" => {
                     json!({"object": "list", "data": [{"id": "test-model"}, {"id": "other-model"}]})
@@ -188,6 +196,14 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
             .iter()
             .filter_map(|(_, path, body)| (path != "/v1/models").then_some(body))
             .all(|body| body.get("model").and_then(Value::as_str) == Some("test-model"))
+    );
+    assert!(
+        transport
+            .authorizations
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|authorization| authorization == "Bearer test-key")
     );
 }
 

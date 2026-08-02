@@ -53,7 +53,8 @@ credential、endpoint 和内部 Route。
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- OAuth、keyring、私有 secret 文件和多 credential pool；
+- OAuth、keyring、私有 secret 文件、subscription/OAuth 多账号池和账号级负载均衡；同 Provider API-key
+  已实现同 Provider API-key pool 的有限 429 rotation，但不包含 subscription/OAuth 多账号池或动态控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
@@ -65,7 +66,8 @@ credential、endpoint 和内部 Route。
 
 - **Provider**：代码中实现的一类协议、认证和错误处理行为。
 - **Model**：与具体调用 endpoint 分离的模型事实。
-- **Upstream Target**：绑定 Provider、Model、endpoint、credential 和 timeout 的上游调用边界。
+- **Credential Pool**：绑定同一 Provider/credential kind 的有序 API-key 集合，可被多个 Target 共享。
+- **Upstream Target**：绑定 Provider、Model、endpoint、credential pool、timeout 和故障边界的上游调用边界。
 - **Upstream API**：Target 下的一条原生协议供应及其模型名、限制和能力。
 - **Route**：固定下游协议、Upstream Target、Upstream API 和执行模式的路径。
 - **Public Model**：下游使用的稳定模型名及其有序 Routes。

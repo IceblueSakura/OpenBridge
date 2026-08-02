@@ -8,6 +8,9 @@ pub enum RegistryError {
     /// registry 版本为空。
     #[error("registry version must not be blank")]
     BlankVersion,
+    /// credential pool id 为空。
+    #[error("credential pool id must not be blank")]
+    BlankCredentialPoolId,
     /// 同一实体集合中存在重复 id。
     #[error("duplicate {entity} id '{id}'")]
     DuplicateId {
@@ -28,19 +31,27 @@ pub enum RegistryError {
         /// 未解析的引用值。
         reference: String,
     },
-    /// credential locator 不是合法的环境变量名。
-    #[error("upstream target '{upstream_target}' uses an invalid credential environment variable")]
-    InvalidCredentialLocator {
-        /// 使用非法 locator 的 target id。
-        upstream_target: String,
+    /// credential pool locator 不是合法的环境变量名。
+    #[error("credential pool '{credential_pool}' uses an invalid environment variable")]
+    InvalidCredentialPoolLocator {
+        /// 使用非法 locator 的 pool id。
+        credential_pool: String,
     },
-    /// target 选择了 provider 不支持的 credential 类型。
+    /// pool 选择了 provider 不支持的 credential 类型。
+    #[error("credential pool '{credential_pool}' uses a kind unsupported by its provider")]
+    UnsupportedCredentialPoolKind {
+        /// 配置不兼容的 pool id。
+        credential_pool: String,
+    },
+    /// target 与引用 pool 的 Provider 不一致。
     #[error(
-        "upstream target '{upstream_target}' uses a credential kind unsupported by its adapter"
+        "upstream target '{upstream_target}' and credential pool '{credential_pool}' use different providers"
     )]
-    UnsupportedCredentialKind {
+    CredentialPoolProviderMismatch {
         /// 配置不兼容的 target id。
         upstream_target: String,
+        /// 被错误引用的 pool id。
+        credential_pool: String,
     },
     /// target endpoint 不是允许的 HTTPS base URL。
     #[error("upstream target '{upstream_target}' uses an invalid base URL")]

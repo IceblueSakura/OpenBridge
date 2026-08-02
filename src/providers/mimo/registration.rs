@@ -3,10 +3,8 @@
 use std::time::Duration;
 
 use crate::{
-    models::mimo,
-    provider::{CredentialKind, ProviderKind},
-    providers::openai_compatible::native_upstream_apis,
-    registry::{CredentialConfig, UpstreamTargetConfig},
+    models::mimo, provider::ProviderKind, providers::openai_compatible::native_upstream_apis,
+    registry::UpstreamTargetConfig,
 };
 
 use super::CONTRACT;
@@ -18,9 +16,9 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "mimo-v2-5-pro",
             mimo::v2_5_pro::ID,
             "mimo-v2.5-pro",
-            "mimo-v2-5-pro",
+            "mimo-primary",
         ),
-        target("mimo-v2-5", mimo::v2_5::ID, "mimo-v2.5", "mimo-v2-5"),
+        target("mimo-v2-5", mimo::v2_5::ID, "mimo-v2.5", "mimo-primary"),
     ]
 }
 
@@ -36,11 +34,7 @@ fn target(
         provider: ProviderKind::MiMo,
         model: canonical_model.to_owned(),
         base_url: "https://api.xiaomimimo.com".to_owned(),
-        credential: CredentialConfig {
-            id: credential_id.to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "MIMO_API_KEY".to_owned(),
-        },
+        credential_pool: credential_id.to_owned(),
         quota_scope: Some("mimo-primary".to_owned()),
         fault_domain: Some("mimo-api".to_owned()),
         request_timeout: Duration::from_secs(120),

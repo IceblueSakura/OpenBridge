@@ -2,7 +2,7 @@
 //!
 //! health key 只能来自启动时已校验的 `quota_scope`、`fault_domain` 或 target id，业务请求
 //! 不能创建或覆盖 scope。本模块只保存有界 cooldown 截止时间，不做动态权重、持久化、
-//! 分布式协调、credential 轮换或后台探测。
+//! 分布式协调、credential 轮换或后台探测；credential 成员状态由独立模块管理。
 
 use std::{
     collections::HashMap,
@@ -14,8 +14,8 @@ use http::{HeaderMap, header::RETRY_AFTER};
 
 use crate::{provider::UpstreamErrorKind, registry::UpstreamTarget};
 
-const DEFAULT_COOLDOWN: Duration = Duration::from_secs(1);
-const MAX_COOLDOWN: Duration = Duration::from_secs(30);
+pub(super) const DEFAULT_COOLDOWN: Duration = Duration::from_secs(1);
+pub(super) const MAX_COOLDOWN: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum HealthScope {
@@ -58,9 +58,9 @@ impl TargetHealth {
         headers: &HeaderMap,
         now: Instant,
     ) {
-        // 只把限流映射到 quota，把暂时不可用映射到 fault domain。
+        // 429 由 credential 成员 cooldown 接管；这里只隔离目标级暂时不可用。
         let scope = match kind {
-            UpstreamErrorKind::RateLimited => Self::quota_scope(target_id, target),
+            UpstreamErrorKind::RateLimited => return,
             UpstreamErrorKind::UpstreamUnavailable => Self::fault_scope(target_id, target),
             UpstreamErrorKind::InvalidRequest
             | UpstreamErrorKind::Authentication
@@ -122,7 +122,7 @@ impl TargetHealth {
     }
 }
 
-fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {
+pub(super) fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {
     // 优先解析 delta-seconds，再解析标准 HTTP-date。
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
     if let Ok(seconds) = value.parse::<u64>() {
@@ -156,5 +156,14 @@ mod tests {
             HeaderValue::from_static("Wed, 21 Oct 2037 07:28:00 GMT"),
         );
         assert!(retry_after_delay(&headers).is_some_and(|delay| !delay.is_zero()));
+
+        headers.insert(
+            "retry-after",
+            HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT"),
+        );
+        assert_eq!(retry_after_delay(&headers), Some(Duration::ZERO));
+
+        headers.insert("retry-after", HeaderValue::from_static("invalid"));
+        assert_eq!(retry_after_delay(&headers), None);
     }
 }

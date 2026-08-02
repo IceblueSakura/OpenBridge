@@ -35,7 +35,7 @@ impl UpstreamTransport for RetryThenUsageTransport {
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             if attempt == 0 {
                 return Ok(UpstreamResponse::new(
-                    StatusCode::TOO_MANY_REQUESTS,
+                    StatusCode::SERVICE_UNAVAILABLE,
                     headers,
                     Body::from(r#"{"error":{"message":"retry"}}"#),
                 ));
@@ -213,6 +213,7 @@ async fn completed_request_records_attempt_retry_and_confirmed_usage_once() {
     assert_eq!(snapshot.upstream_http_failures, 1);
     assert_eq!(snapshot.upstream_transport_failures, 0);
     assert_eq!(snapshot.upstream_retries, 1);
+    assert_eq!(snapshot.credential_rotations, 0);
     assert_eq!(snapshot.route_fallbacks, 0);
     assert_eq!(snapshot.usage_observations, 1);
     assert_eq!(snapshot.input_tokens, 11);

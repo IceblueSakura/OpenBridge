@@ -11,13 +11,13 @@ mod validation;
 
 pub use compiler::build_registry;
 pub use definition::{
-    CredentialConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningLevel,
+    CredentialPoolConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningLevel,
     ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
     TransportKind, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
     UpstreamTargetConfig,
 };
 pub use error::RegistryError;
 pub use runtime::{
-    CredentialBinding, ModelInfo, PublicModel, RegistryVersion, Route, RuntimeRegistry,
+    CredentialPoolBinding, ModelInfo, PublicModel, RegistryVersion, Route, RuntimeRegistry,
     SecretLocator, UpstreamApi, UpstreamTarget,
 };

@@ -3,9 +3,8 @@
 use std::time::Duration;
 
 use crate::{
-    provider::{CredentialKind, ProviderKind},
-    providers::openai_compatible::native_upstream_apis,
-    registry::{CredentialConfig, UpstreamTargetConfig},
+    provider::ProviderKind, providers::openai_compatible::native_upstream_apis,
+    registry::UpstreamTargetConfig,
 };
 
 use super::CONTRACT;
@@ -17,11 +16,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         provider: ProviderKind::LongCat,
         model: "meituan/longcat-2.0".to_owned(),
         base_url: "https://api.longcat.chat".to_owned(),
-        credential: CredentialConfig {
-            id: "longcat-primary".to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "LONGCAT_API_KEY".to_owned(),
-        },
+        credential_pool: "longcat-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),

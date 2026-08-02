@@ -5,9 +5,9 @@ use std::time::Duration;
 use crate::{
     core::ApiProtocol,
     models::deepseek,
-    provider::{CredentialKind, ProviderKind},
+    provider::ProviderKind,
     registry::{
-        CredentialConfig, StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
+        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
         UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
@@ -21,13 +21,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "deepseek-v4-pro",
             deepseek::v4_pro::ID,
             "deepseek-v4-pro",
-            "deepseek-v4-pro",
+            "deepseek-primary",
         ),
         target(
             "deepseek-v4-flash",
             deepseek::v4_flash::ID,
             "deepseek-v4-flash",
-            "deepseek-v4-flash",
+            "deepseek-primary",
         ),
     ]
 }
@@ -44,11 +44,7 @@ fn target(
         provider: ProviderKind::DeepSeek,
         model: canonical_model.to_owned(),
         base_url: "https://api.deepseek.com".to_owned(),
-        credential: CredentialConfig {
-            id: credential_id.to_owned(),
-            kind: CredentialKind::ApiKey,
-            environment_variable: "DEEPSEEK_API_KEY".to_owned(),
-        },
+        credential_pool: credential_id.to_owned(),
         quota_scope: Some("deepseek-primary".to_owned()),
         fault_domain: Some("deepseek-api".to_owned()),
         request_timeout: Duration::from_secs(120),
