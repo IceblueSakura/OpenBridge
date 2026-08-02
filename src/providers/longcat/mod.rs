@@ -5,5 +5,5 @@
 mod definition;
 mod registration;
 
-pub(crate) use definition::{ADAPTER, CONTRACT};
+pub(crate) use definition::{CONTRACT, DEFINITION};
 pub(crate) use registration::upstream_targets;

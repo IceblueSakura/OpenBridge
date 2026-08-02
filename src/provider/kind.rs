@@ -5,6 +5,8 @@ use crate::{
     providers::{deepseek, longcat, mimo, openai, openrouter},
 };
 
+use super::ProviderDefinition;
+
 /// 可由 route 配置引用的闭合 provider 集合。
 ///
 /// 新 provider 必须新增 enum 变体及其 adapter/tests；未知字符串在配置加载时失败，不能
@@ -80,15 +82,20 @@ impl ProviderContract {
 }
 
 impl ProviderKind {
+    /// 返回该 provider 的唯一编译期描述符。
+    pub fn definition(self) -> &'static ProviderDefinition {
+        match self {
+            Self::OpenAi => &openai::DEFINITION,
+            Self::LongCat => &longcat::DEFINITION,
+            Self::DeepSeek => &deepseek::DEFINITION,
+            Self::MiMo => &mimo::DEFINITION,
+            Self::OpenRouter => &openrouter::DEFINITION,
+        }
+    }
+
     /// 返回该 provider 的编译期契约。
     pub fn contract(self) -> &'static ProviderContract {
-        match self {
-            Self::OpenAi => &openai::CONTRACT,
-            Self::LongCat => &longcat::CONTRACT,
-            Self::DeepSeek => &deepseek::CONTRACT,
-            Self::MiMo => &mimo::CONTRACT,
-            Self::OpenRouter => &openrouter::CONTRACT,
-        }
+        self.definition().contract()
     }
 
     pub(crate) fn capabilities(self) -> ApiCapabilities {

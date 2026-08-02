@@ -160,13 +160,23 @@ fn error_adapter_returns_safe_coarse_retry_guidance() {
 }
 
 #[test]
-fn provider_descriptor_is_compile_time_metadata() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let contract = adapter.contract();
+fn provider_definition_is_the_single_contract_and_adapter_source() {
+    for (kind, endpoint_profile) in [
+        (ProviderKind::OpenAi, "public-api"),
+        (ProviderKind::LongCat, "longcat-openai"),
+        (ProviderKind::DeepSeek, "deepseek-openai"),
+        (ProviderKind::MiMo, "mimo-openai"),
+        (ProviderKind::OpenRouter, "openrouter-chat"),
+    ] {
+        let definition = kind.definition();
+        let contract = definition.contract();
+        let adapter = definition.adapter();
 
-    assert_eq!(contract.kind(), ProviderKind::OpenAi);
-    assert!(contract.capabilities().chat_completions.enabled);
-    assert!(contract.endpoint_profiles().contains(&"public-api"));
+        assert_eq!(definition.kind(), kind);
+        assert_eq!(contract.kind(), kind);
+        assert!(std::ptr::eq(adapter.contract(), contract));
+        assert!(contract.endpoint_profiles().contains(&endpoint_profile));
+    }
 }
 
 #[test]

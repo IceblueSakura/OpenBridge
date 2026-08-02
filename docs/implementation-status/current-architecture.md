@@ -183,12 +183,14 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 
 ## 6. Provider 适配层
 
-实现位置：`src/provider/kind.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
+实现位置：`src/provider/kind.rs`、`src/provider/definition.rs`、`src/provider/adapter.rs`、`src/provider/contracts.rs`、
 `src/providers/openai_compatible.rs`，以及 `src/providers/<provider>/definition.rs` 与
 `registration.rs`；`src/provider/mod.rs` 与各具体 Provider 的 `mod.rs` 只保留入口和重导出。
 
-`ProviderKind` 是闭合集合。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有 Provider 契约、endpoint
-path 与 request-header hook；共享 `openai_compatible` 机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
+`ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
+`ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
+`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有
+Provider 契约、endpoint path 与 request-header hook；共享 `openai_compatible` 机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
 错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 当前也只声明 Chat path，MiMo 同时声明两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选

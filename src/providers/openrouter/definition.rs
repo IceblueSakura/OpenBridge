@@ -4,7 +4,10 @@ use http::HeaderMap;
 
 use crate::{
     core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
-    provider::{AdapterError, CredentialKind, ProviderContract, ProviderKind, SafeHeaders},
+    provider::{
+        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
+        ProviderKind, SafeHeaders,
+    },
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
@@ -38,7 +41,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
 );
 
 /// OpenRouter 使用的无状态 Chat/Responses OpenAI-compatible wire profile。
-pub(crate) static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::OpenRouter,
     &CONTRACT,
     Some("/chat/completions"),
@@ -47,6 +50,10 @@ pub(crate) static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::ne
     transform_request_headers,
 )
 .with_openrouter_responses_terminal();
+
+/// OpenRouter contract 与 adapter 的唯一静态描述符。
+pub(crate) static DEFINITION: ProviderDefinition =
+    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
 /// 保持 OpenRouter 可选归因和路由 header 由编译期策略显式拥有。
 fn transform_request_headers(

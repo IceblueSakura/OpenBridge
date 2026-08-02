@@ -4,7 +4,10 @@ use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
-    provider::{AdapterError, CredentialKind, ProviderContract, ProviderKind, SafeHeaders},
+    provider::{
+        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
+        ProviderKind, SafeHeaders,
+    },
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
@@ -38,7 +41,7 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
 );
 
 /// LongCat 使用的静态 OpenAI-compatible wire profile。
-pub(crate) static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::LongCat,
     &CONTRACT,
     Some("/openai/v1/chat/completions"),
@@ -46,6 +49,10 @@ pub(crate) static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::ne
     "/v1/models",
     transform_request_headers,
 );
+
+/// LongCat contract 与 adapter 的唯一静态描述符。
+pub(crate) static DEFINITION: ProviderDefinition =
+    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
 /// 应用 LongCat 当前要求的普通请求头转换。
 fn transform_request_headers(

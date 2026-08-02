@@ -7,9 +7,7 @@ use thiserror::Error;
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest},
     credential::UpstreamCredential,
-    providers::{
-        deepseek, longcat, mimo, openai, openai_compatible::OpenAiCompatibleAdapter, openrouter,
-    },
+    providers::openai_compatible::OpenAiCompatibleAdapter,
     transport::sse::SseEvent,
 };
 
@@ -89,24 +87,16 @@ pub struct ProviderAdapter {
 }
 
 impl ProviderAdapter {
+    /// 将一个 OpenAI-compatible wire profile 包装为闭合 Provider adapter。
+    pub(crate) const fn from_openai_compatible(adapter: OpenAiCompatibleAdapter) -> Self {
+        Self {
+            implementation: ProviderAdapterImplementation::OpenAiCompatible(adapter),
+        }
+    }
+
     /// 根据注册表中的 provider kind 选择 adapter。
     pub fn for_kind(kind: ProviderKind) -> Self {
-        let implementation = match kind {
-            ProviderKind::OpenAi => {
-                ProviderAdapterImplementation::OpenAiCompatible(openai::ADAPTER)
-            }
-            ProviderKind::LongCat => {
-                ProviderAdapterImplementation::OpenAiCompatible(longcat::ADAPTER)
-            }
-            ProviderKind::DeepSeek => {
-                ProviderAdapterImplementation::OpenAiCompatible(deepseek::ADAPTER)
-            }
-            ProviderKind::MiMo => ProviderAdapterImplementation::OpenAiCompatible(mimo::ADAPTER),
-            ProviderKind::OpenRouter => {
-                ProviderAdapterImplementation::OpenAiCompatible(openrouter::ADAPTER)
-            }
-        };
-        Self { implementation }
+        kind.definition().adapter()
     }
 
     fn openai_compatible(&self) -> OpenAiCompatibleAdapter {

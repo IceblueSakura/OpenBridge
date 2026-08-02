@@ -4,5 +4,5 @@
 
 mod definition;
 
-pub(crate) use definition::ADAPTER;
 pub use definition::CONTRACT;
+pub(crate) use definition::DEFINITION;

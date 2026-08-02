@@ -46,6 +46,10 @@ Native route；没有 Bridge 或 fallback，且 `store`、`previous_response_id`
 Provider 分别拥有独立静态定义、endpoint profile、upstream model 与能力。DeepSeek 只声明 Chat Completions，MiMo 声明 Chat Completions 与 Responses；两者尚未注册
 target、credential locator、Route 或 Public Model，不能被运行时请求选择。尚未对真实异构协议 Provider 执行验证。
 
+五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
+`ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。
+descriptor 不注册 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
+
 canonical 模型目录当前包含 17 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
 覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
 Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
@@ -123,7 +127,7 @@ credential 覆盖，只加载选中 target 的上游 Key，不读取下游用户
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 quota/fault scope cooldown、continuation 亲和、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback

@@ -5,6 +5,7 @@
 
 mod adapter;
 mod contracts;
+mod definition;
 mod kind;
 
 pub use adapter::{AdapterError, PreparedUpstreamRequest, ProviderAdapter};
@@ -12,4 +13,5 @@ pub use contracts::{
     ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
     StreamEventStatus, UpstreamErrorKind,
 };
+pub use definition::ProviderDefinition;
 pub use kind::{CredentialKind, ProviderContract, ProviderKind};
