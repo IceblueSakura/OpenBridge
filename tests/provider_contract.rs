@@ -93,3 +93,32 @@ fn mimo_adapter_encodes_chat_and_responses() {
         assert_eq!(upstream.relative_uri().to_string(), expected_path);
     }
 }
+
+#[test]
+fn openrouter_adapter_supports_chat_and_responses() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
+    let chat = ApiRequest::new(
+        ApiProtocol::ChatCompletions,
+        Bytes::from_static(br#"{"model":"nemotron-3-ultra","messages":[]}"#),
+    );
+
+    let upstream = adapter
+        .prepare_request(&chat, "nvidia/nemotron-3-ultra-550b-a55b")
+        .unwrap();
+    assert_eq!(upstream.method(), Method::POST);
+    assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
+    let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+    assert_eq!(body["model"], "nvidia/nemotron-3-ultra-550b-a55b");
+
+    let responses = ApiRequest::new(
+        ApiProtocol::Responses,
+        Bytes::from_static(br#"{"model":"nemotron-3-ultra","input":"hello"}"#),
+    );
+    let upstream = adapter
+        .prepare_request(&responses, "nvidia/nemotron-3-ultra-550b-a55b")
+        .unwrap();
+    assert_eq!(upstream.method(), Method::POST);
+    assert_eq!(upstream.relative_uri().to_string(), "/responses");
+    let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+    assert_eq!(body["model"], "nvidia/nemotron-3-ultra-550b-a55b");
+}

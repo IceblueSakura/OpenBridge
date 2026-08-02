@@ -27,12 +27,13 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 ## 当前可运行基线
 
-当前 `main` 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，
+当前 checkout 已实现 OpenAI 与 LongCat 两个 API-key Provider Family 的 Chat/Responses HTTP JSON/SSE 原生转发，
+并补充 OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，
 以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、单进程 quota/fault scope
 cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 text、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、continuation、hosted/custom tool、
-reasoning、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用两 Provider
-各自的 Native API，尚未注册真实异构协议 Provider。每个已认证请求在 response body 正常 EOF、流错误或
+reasoning、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用各 Provider
+自身已声明的 Native API，尚未注册真实异构协议 Provider。每个已认证请求在 response body 正常 EOF、流错误或
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
@@ -46,7 +47,7 @@ reasoning、image、structured output 和后台状态会在 egress 前拒绝。�
 ```bash
 cp .env.example .env
 cp config/users.example.toml config/users.toml
-# 编辑 users.toml 中的下游用户/API Key，并在 .env 中填写实际使用 Provider 的 API key。
+# 编辑 users.toml 中的下游用户/API Key，并在 .env 中填写所有已启用 Upstream Target 的 API key。
 cargo run --bin openbridge --locked
 ```
 
@@ -74,11 +75,16 @@ Native Route 由 Provider adapter 写入实际上游 `model`；选定 Upstream A
 reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。
-Provider 的受信 request-header hook 可按编译期规则增添、替换、转换或删除普通 header；当前两个 Provider
-都转发 `User-Agent`，但共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header
+Provider 的受信 request-header hook 可按编译期规则增添、替换、转换或删除普通 header；OpenAI 与 LongCat
+转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing header，共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header
 或 header 转换规则。Transient upstream failure
 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
+
+OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `OPENROUTER_API_KEY`，把 Public Model
+`nemotron-3-ultra` 原生转发到基础模型 `nvidia/nemotron-3-ultra-550b-a55b`。该注册项支持 Chat Completions
+和无状态 Responses；`store: true`、非空 `previous_response_id` 与 `background: true` 会在 egress 前拒绝。
+它不启用 Protocol Bridge、fallback 或带额外会话记录政策的 `:free` 变体。
 
 代码中另有 DeepSeek 与 Xiaomi MiMo 的静态 Provider 定义：DeepSeek 只声明 Chat Completions，MiMo 声明 Chat
 Completions 与 Responses。两者尚未注册 Upstream Target、credential locator、Route 或 Public Model，因此不在
@@ -128,7 +134,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [功能需求](docs/functional-requirements/README.md) | 产品范围、网关 API、配置凭证、路由韧性与交付证据 | 功能需求 |
 | [实施现状](docs/implementation-status/README.md) | 当前代码已证明行为、能力探测与验证记录 | 实施现状 |
 | [实施计划](docs/implementation-plans/README.md) | 唯一的短周期当前开发焦点 | 实施计划 |
-| [参考文档](docs/references/README.md) | OpenAI 协议和参考项目事实 | 参考文档 |
+| [参考文档](docs/references/README.md) | OpenAI/OpenRouter 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单配置所有者部署、下游用户、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |

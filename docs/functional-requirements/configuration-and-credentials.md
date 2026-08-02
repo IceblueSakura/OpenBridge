@@ -49,13 +49,14 @@ route 热重载。
 - 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
 - 当前 OpenAI API key 从 `OPENAI_API_KEY` 获取；
 - 当前 LongCat API key 从 `LONGCAT_API_KEY` 获取；
+- 当前 OpenRouter API key 从 `OPENROUTER_API_KEY` 获取；
 - 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target Key 一次性装入不可变 `CredentialStore`；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamBinding`，上下游同名 ID 不得造成命名冲突；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的 Debug/输出都不得包含 secret；
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整 `binding_id + ProviderKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、重复下游 Key 或 binding/Provider 不匹配时 fail closed；服务所需的上游 Key 缺失或为空时在监听前失败；
 - 运行时不得重新读取 `users.toml`、`.env` 或进程环境变量；改变任何 Key 必须重启，不支持热更新；
-- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。当前 OpenAI 与 LongCat hook 都转发 `User-Agent`。
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。当前 OpenAI 与 LongCat hook 转发 `User-Agent`；OpenRouter hook 不转发可选 attribution/routing header。
 
 ## 4. Endpoint 与出站边界
 

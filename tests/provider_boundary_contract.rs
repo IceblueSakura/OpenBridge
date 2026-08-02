@@ -117,6 +117,36 @@ fn response_adapter_classifies_protocol_specific_terminal_events() {
 }
 
 #[test]
+fn openrouter_responses_classifies_data_only_done_terminal() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
+    let mut decoder = SseDecoder::new(256);
+    let completed = decoder
+        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}\n\n")
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let failed = decoder
+        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"failed\"}}\n\n")
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(
+        adapter
+            .classify_sse_event(ApiProtocol::Responses, completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Completed
+    );
+    assert_eq!(
+        adapter
+            .classify_sse_event(ApiProtocol::Responses, failed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Failed
+    );
+}
+
+#[test]
 fn error_adapter_returns_safe_coarse_retry_guidance() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
 
@@ -169,6 +199,51 @@ fn unconnected_provider_contracts_expose_only_declared_protocols() {
     assert!(!deepseek.contract().capabilities().responses.enabled);
     assert!(mimo.contract().capabilities().chat_completions.enabled);
     assert!(mimo.contract().capabilities().responses.enabled);
+}
+
+#[test]
+fn openrouter_contract_exposes_stateless_chat_and_responses_surfaces() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
+    let contract = adapter.contract();
+
+    assert_eq!(contract.kind(), ProviderKind::OpenRouter);
+    assert!(contract.capabilities().chat_completions.enabled);
+    assert!(contract.capabilities().chat_completions.streaming);
+    assert!(contract.capabilities().chat_completions.function_calling);
+    assert!(contract.capabilities().responses.enabled);
+    assert!(contract.capabilities().responses.streaming);
+    assert!(contract.capabilities().responses.function_calling);
+    assert!(!contract.capabilities().responses.store);
+    assert!(!contract.capabilities().responses.previous_response_id);
+    assert!(!contract.capabilities().responses.background);
+    assert!(contract.endpoint_profiles().contains(&"openrouter-chat"));
+    assert!(
+        contract
+            .endpoint_profiles()
+            .contains(&"openrouter-responses")
+    );
+}
+
+#[test]
+fn openrouter_authentication_is_bound_to_its_own_credential() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
+    let mut credentials = CredentialStoreBuilder::new();
+    credentials
+        .insert_upstream(
+            ProviderKind::OpenRouter,
+            "openrouter-primary",
+            SecretString::from("openrouter-test-value".to_owned()),
+        )
+        .unwrap();
+    let credentials = credentials.build();
+    let credential = credentials
+        .upstream(ProviderKind::OpenRouter, "openrouter-primary")
+        .unwrap();
+
+    let headers = adapter.prepare_auth_headers(&credential).unwrap();
+
+    assert!(headers.contains(AUTHORIZATION));
+    assert!(!format!("{credential:?} {headers:?}").contains("openrouter-test-value"));
 }
 
 #[test]

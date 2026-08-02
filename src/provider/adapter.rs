@@ -7,7 +7,9 @@ use thiserror::Error;
 use crate::{
     core::{ApiCapabilities, ApiProtocol, ApiRequest},
     credential::UpstreamCredential,
-    providers::{deepseek, longcat, mimo, openai, openai_compatible::OpenAiCompatibleAdapter},
+    providers::{
+        deepseek, longcat, mimo, openai, openai_compatible::OpenAiCompatibleAdapter, openrouter,
+    },
     transport::sse::SseEvent,
 };
 
@@ -100,6 +102,9 @@ impl ProviderAdapter {
                 ProviderAdapterImplementation::OpenAiCompatible(deepseek::ADAPTER)
             }
             ProviderKind::MiMo => ProviderAdapterImplementation::OpenAiCompatible(mimo::ADAPTER),
+            ProviderKind::OpenRouter => {
+                ProviderAdapterImplementation::OpenAiCompatible(openrouter::ADAPTER)
+            }
         };
         Self { implementation }
     }

@@ -27,6 +27,12 @@ use crate::{
 /// Provider 编译期 hook，可按自身协议规则转换普通请求头。
 pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(), AdapterError>;
 
+#[derive(Clone, Copy)]
+enum ResponsesTerminalProfile {
+    OpenAiEventField,
+    OpenRouterDataOnlyDone,
+}
+
 /// 一个静态 OpenAI-compatible wire profile。
 #[derive(Clone, Copy)]
 pub(crate) struct OpenAiCompatibleAdapter {
@@ -36,6 +42,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     responses_path: Option<&'static str>,
     model_list_path: &'static str,
     request_header_hook: RequestHeaderHook,
+    responses_terminal_profile: ResponsesTerminalProfile,
 }
 
 impl OpenAiCompatibleAdapter {
@@ -55,7 +62,14 @@ impl OpenAiCompatibleAdapter {
             responses_path,
             model_list_path,
             request_header_hook,
+            responses_terminal_profile: ResponsesTerminalProfile::OpenAiEventField,
         }
+    }
+
+    /// 使用 OpenRouter 在 data JSON 中声明的 `response.done` 终态格式。
+    pub(crate) const fn with_openrouter_responses_terminal(mut self) -> Self {
+        self.responses_terminal_profile = ResponsesTerminalProfile::OpenRouterDataOnlyDone;
+        self
     }
 
     /// 返回 profile 绑定的 Provider 契约。
@@ -152,20 +166,24 @@ impl OpenAiCompatibleAdapter {
             ApiProtocol::ChatCompletions if event.data() == "[DONE]" => {
                 StreamEventStatus::Completed
             }
-            ApiProtocol::Responses if event.event() == Some("response.completed") => {
-                StreamEventStatus::Completed
-            }
-            ApiProtocol::Responses
-                if matches!(
-                    event.event(),
-                    Some("response.failed" | "response.incomplete")
-                ) =>
-            {
-                StreamEventStatus::Failed
-            }
+            ApiProtocol::Responses => self.classify_responses_sse_event(&event),
             _ => StreamEventStatus::Continue,
         };
         ClassifiedSseEvent::new(event, status)
+    }
+
+    /// 按具体 OpenAI-compatible profile 识别 Responses SSE 终态。
+    fn classify_responses_sse_event(self, event: &SseEvent) -> StreamEventStatus {
+        match self.responses_terminal_profile {
+            ResponsesTerminalProfile::OpenAiEventField => match event.event() {
+                Some("response.completed") => StreamEventStatus::Completed,
+                Some("response.failed" | "response.incomplete") => StreamEventStatus::Failed,
+                _ => StreamEventStatus::Continue,
+            },
+            ResponsesTerminalProfile::OpenRouterDataOnlyDone => {
+                classify_openrouter_responses_done(event)
+            }
+        }
     }
 
     /// 将 OpenAI-compatible HTTP status 映射为错误与重试分类。
@@ -199,6 +217,28 @@ impl OpenAiCompatibleAdapter {
         } else {
             Err(AdapterError::UnsupportedCapabilities)
         }
+    }
+}
+
+/// 从 OpenRouter data-only `response.done` event 提取终态，未知形状保持非终态。
+fn classify_openrouter_responses_done(event: &SseEvent) -> StreamEventStatus {
+    // 解析最小终态 envelope，不保留或记录业务正文。
+    let Ok(document) = serde_json::from_str::<serde_json::Value>(event.data()) else {
+        return StreamEventStatus::Continue;
+    };
+    if document.get("type").and_then(serde_json::Value::as_str) != Some("response.done") {
+        return StreamEventStatus::Continue;
+    }
+
+    // 依据 response status 区分正常完成与失败终态。
+    match document
+        .get("response")
+        .and_then(|response| response.get("status"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("completed") => StreamEventStatus::Completed,
+        Some("failed" | "incomplete") => StreamEventStatus::Failed,
+        _ => StreamEventStatus::Continue,
     }
 }
 

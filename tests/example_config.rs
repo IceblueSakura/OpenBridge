@@ -242,6 +242,89 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         "gpt-5.6-sol"
     );
 
+    let openrouter_public = registry
+        .public_model("nemotron-3-ultra")
+        .expect("OpenRouter Nemotron public model is compiled");
+    assert_eq!(
+        openrouter_public.routes(),
+        [
+            "nemotron-3-ultra-openrouter-chat",
+            "nemotron-3-ultra-openrouter-responses"
+        ]
+    );
+    let openrouter = registry
+        .upstream_target("openrouter-nemotron-3-ultra")
+        .expect("OpenRouter Nemotron target is compiled");
+    assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
+    assert_eq!(openrouter.model_id(), "nvidia/nemotron-3-ultra-550b-a55b");
+    assert_eq!(openrouter.credential().id(), "openrouter-primary");
+    assert_eq!(
+        openrouter.credential().secret_reference().locator(),
+        "OPENROUTER_API_KEY"
+    );
+    assert_eq!(
+        openrouter.endpoint_base().as_str(),
+        "https://openrouter.ai/api/v1/"
+    );
+    let openrouter_chat = openrouter.upstream_api("chat").unwrap();
+    assert_eq!(
+        openrouter_chat.upstream_model(),
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    );
+    let openrouter_responses = openrouter.upstream_api("responses").unwrap();
+    assert_eq!(
+        openrouter_responses.upstream_model(),
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    );
+    let responses_capabilities = match openrouter_responses.capabilities() {
+        UpstreamApiCapabilities::Responses(capabilities) => capabilities,
+        UpstreamApiCapabilities::ChatCompletions(_) => panic!("expected Responses capabilities"),
+    };
+    assert!(responses_capabilities.enabled);
+    assert!(responses_capabilities.streaming);
+    assert!(responses_capabilities.function_calling);
+    assert!(!responses_capabilities.store);
+    assert!(!responses_capabilities.previous_response_id);
+    assert!(!responses_capabilities.background);
+
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"nemotron-3-ultra","messages":[],"reasoning":{"effort":"high"},"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+    );
+    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "nemotron-3-ultra-openrouter-chat"
+    );
+    assert_eq!(
+        plan.candidates()[0].upstream_target_id(),
+        "openrouter-nemotron-3-ultra"
+    );
+
+    let responses = bytes::Bytes::from_static(
+        br#"{"model":"nemotron-3-ultra","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
+    );
+    let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+    let plan = plan_request(&registry, &profile, responses).unwrap();
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "nemotron-3-ultra-openrouter-responses"
+    );
+
+    for unsupported in [
+        br#"{"model":"nemotron-3-ultra","input":"hello","store":true}"#.as_slice(),
+        br#"{"model":"nemotron-3-ultra","input":"hello","previous_response_id":"resp_123"}"#
+            .as_slice(),
+        br#"{"model":"nemotron-3-ultra","input":"hello","background":true}"#.as_slice(),
+    ] {
+        let body = bytes::Bytes::copy_from_slice(unsupported);
+        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+        assert!(matches!(
+            plan_request(&registry, &profile, body),
+            Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+        ));
+    }
+
     for (protocol, body) in [
         (
             ApiProtocol::ChatCompletions,

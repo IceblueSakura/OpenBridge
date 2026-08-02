@@ -13,7 +13,7 @@ Clippy，但不代表真实 Provider、外部 SDK、负载或长期运行验收�
 ```bash
 cp .env.example .env
 cp config/users.example.toml config/users.toml
-# 编辑 users.toml 中的用户/API Key，并在 .env 中填写实际使用 Provider 的 API key。
+# 编辑 users.toml 中的用户/API Key，并在 .env 中填写所有已启用 Upstream Target 的 API key。
 cargo run --bin openbridge --locked
 ```
 
@@ -32,24 +32,26 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | `POST /v1/responses` | OpenAI-compatible Responses Native JSON/SSE | 静态 Bearer |
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。OpenAI API key 来自 `OPENAI_API_KEY`，
-LongCat API key 来自 `LONGCAT_API_KEY`。服务与 probe 可选加载 `.env`，已有进程环境变量优先；上游注册表只保存环境变量名称。
+LongCat API key 来自 `LONGCAT_API_KEY`，OpenRouter API key 来自 `OPENROUTER_API_KEY`。服务与 probe 可选加载
+`.env`，已有进程环境变量优先；上游注册表只保存环境变量名称。
 服务在 listener 绑定前把已启用用户 Key 与全部已启用 target Key 合并为不可变 `CredentialStore`，缺失或空的
 必需上游 Key 会阻止启动。运行时请求只读取该快照，不重新读取文件或环境变量；Key 轮换必须重启。
 
 ## Provider 与请求行为
 
-闭合 `ProviderKind` 当前包含 OpenAI、LongCat、DeepSeek 与 Xiaomi MiMo。OpenAI 和 LongCat 已进入 compiled
-registry；两者都使用 API-key credential 和共享的 OpenAI-compatible Chat/Responses wire 机制，但分别拥有
-独立静态定义、endpoint profile、upstream model 与能力。DeepSeek 只声明 Chat Completions，MiMo 声明 Chat
-Completions 与 Responses；两者尚未注册 target、credential locator、Route 或 Public Model，不能被运行时请求
-选择。默认编译注册表为每个已接入下游协议先登记 Native route，再登记调用相反 Upstream API 的 `Bridged`
-route；尚未对真实异构协议 Provider 执行验证。
+闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo。OpenAI 和 LongCat 已进入
+compiled registry，并分别注册 Chat/Responses Native 与双向 `Bridged` route。OpenRouter 也使用 API-key
+credential 和共享的 OpenAI-compatible wire 机制，当前注册 `nemotron-3-ultra` 的 Chat 与无状态 Responses
+Native route；没有 Bridge 或 fallback，且 `store`、`previous_response_id` 与 `background` 能力关闭。三个已接入
+Provider 分别拥有独立静态定义、endpoint profile、upstream model 与能力。DeepSeek 只声明 Chat Completions，MiMo 声明 Chat Completions 与 Responses；两者尚未注册
+target、credential locator、Route 或 Public Model，不能被运行时请求选择。尚未对真实异构协议 Provider 执行验证。
 
 canonical 模型目录当前包含 17 个定义。其中 16 个来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
 覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
 Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
-其中 GPT-5.6 Sol 被默认 `openai-main` target 引用；其余新增目录项尚未新增 Provider target 或 Public Model
-route，不构成真实可调用声明。Nemotron embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfig`。
+其中 GPT-5.6 Sol 被默认 `openai-main` target 引用，Nemotron 3 Ultra 被 `openrouter-nemotron-3-ultra` target
+引用；其余新增目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron
+embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfig`。
 
 2026-08-02 已按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、context、
 最大输出、参数和 reasoning efforts。`openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
@@ -66,12 +68,14 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 - 对 Native Route 按选定 Upstream API 的已校验代码规则映射 reasoning level；映射仅修改候选请求副本，
   支持 `reasoning.effort` 与 `reasoning_effort`，并通过 `reasoning_level_mapped` tracing event 记录源/目标；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
-- 经各 Provider 的受信 request-header hook 把下游 `User-Agent` 覆盖到上游；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy header 隔离；
+- 经各 Provider 的受信 request-header hook 处理普通 header；OpenAI 与 LongCat 把下游 `User-Agent` 覆盖到上游，OpenRouter 不转发可选 attribution/routing header；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
 - 对 `Bridged` Route 只转换 allowlist 内的 text/function tool/tool result 语义，未知或不可表达字段在 egress 前拒绝；
 - 对 `previous_response_id` 关闭跨 target fallback；
 - Native Route 保持非流式 status/body 和流式原始 bytes；Bridged Route 转换非流式 JSON 与增量 SSE event；
 - 两种路径都检查 SSE UTF-8、framing、event size 与 terminal，并保持有限安全 header；
+- OpenRouter Responses 按官方 data JSON 中的 `response.done` 与嵌套 `response.status` 区分完成和失败终态，
+  不把尾随 `[DONE]` 代替语义终态；
 - 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限 retry/fallback，并执行 50～500 ms capped exponential backoff；
 - 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport error；
 - 对 retryable `429`、暂时性上游故障和 transport failure 记录单进程短时 cooldown；后续无状态请求按
@@ -136,16 +140,16 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 110 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 114 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
 ## 当前未实现
 
-当前 checked-in OpenAI/LongCat 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
+当前 checked-in OpenAI/LongCat/OpenRouter 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
 Upstream API 显式声明后生效。Bridged Route 仍不转换 reasoning。
 
-- 真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
+- OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；

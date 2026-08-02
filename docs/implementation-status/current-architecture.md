@@ -187,11 +187,12 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 `src/providers/openai_compatible.rs`，以及 `src/providers/<provider>/definition.rs` 与
 `registration.rs`；`src/provider/mod.rs` 与各具体 Provider 的 `mod.rs` 只保留入口和重导出。
 
-`ProviderKind` 是闭合集合。OpenAI、LongCat、DeepSeek 与 MiMo 的独立静态定义拥有 Provider 契约、endpoint
+`ProviderKind` 是闭合集合。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有 Provider 契约、endpoint
 path 与 request-header hook；共享 `openai_compatible` 机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
 错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
-`UnsupportedProtocol`；MiMo 同时声明两个 path。Provider hook 可增添、替换、转换或删除普通 header；当前已接入
-的两个 hook 都转发 `User-Agent`，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
+`UnsupportedProtocol`；OpenRouter 当前也只声明 Chat path，MiMo 同时声明两个 path。Provider hook 可增添、替换、
+转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
+attribution/routing header，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
 locator 与 endpoint/timeout 则来自 selected Upstream Target。Ingress 按完整 `binding_id + ProviderKind` 从
 `CredentialStore` 借用 `UpstreamCredential`；Store 不公开通用明文查询，adapter 仍在 crate 内的认证 header
 边界才访问 secret。
@@ -200,6 +201,11 @@ OpenAI 与 LongCat 当前都通过共享构造器注册 Chat、Responses 两个�
 它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
 Bridged route。Bridge 生产路径由编译注册表、记录型 transport 与 canonical
 wire 确定性验证，但尚未调用真实异构协议 Provider。
+
+OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Responses Upstream API 和 Public Model
+`nemotron-3-ultra`；两个协议各有唯一 Native route，使用基础 upstream model
+`nvidia/nemotron-3-ultra-550b-a55b`。Responses API 的 state affinity 是 `Unbound`，`store`、
+`previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route、fallback 或 `:free` 变体。
 
 DeepSeek 与 MiMo 当前只有 contract 和 adapter profile，没有 target、credential locator、Upstream API、Route
 或 Public Model；`compiled_config()` 不引用它们，因此静态定义不会自动形成请求链路。
@@ -211,6 +217,8 @@ DeepSeek 与 MiMo 当前只有 contract 和 adapter profile，没有 target、cr
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
 timeout。Native streaming response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged
 stream 则按完整 event 增量渲染目标协议 wire。下游丢弃任一 body 时，上游 stream 随之取消。
+OpenAI-compatible 默认 profile 识别 OpenAI `response.completed`/failure event；OpenRouter profile 则解析
+data-only `response.done` 的嵌套 status，避免把 Provider 间不同的 SSE terminal 规则错误求并集。
 
 `ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 共享最多 6 次的硬预算，
 每候选最多 2 次，attempt 间从 50 ms 起按二倍增长并 capped 到 500 ms；在预算可容纳时为未尝试候选保留
@@ -241,7 +249,7 @@ target endpoint、adapter 与 transport，只为管理员选中的 target 构造
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
 测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-02 最近一次执行
-`cargo test --locked`，110 个测试通过、1 个外部 SDK 集成测试 ignored；
+`cargo test --locked`，114 个测试通过、1 个外部 SDK 集成测试 ignored；
 `cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
 真实 Provider、负载或长期运行验证。
 

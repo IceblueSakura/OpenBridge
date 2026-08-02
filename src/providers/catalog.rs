@@ -8,7 +8,7 @@ use crate::{
     registry::{RegistryConfig, RegistryError, RuntimeRegistry, build_registry},
 };
 
-use super::{longcat, openai};
+use super::{longcat, openai, openrouter};
 
 /// 当前内置 provider/model registry 的版本标识。
 pub const REGISTRY_VERSION: &str = "dev-1";
@@ -19,7 +19,12 @@ pub fn compiled_config() -> RegistryConfig {
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
         models: models::compiled_configs(),
-        upstream_targets: [openai::upstream_targets(), longcat::upstream_targets()].concat(),
+        upstream_targets: [
+            openai::upstream_targets(),
+            longcat::upstream_targets(),
+            openrouter::upstream_targets(),
+        ]
+        .concat(),
         routes: routing.routes,
         public_models: routing.public_models,
     }

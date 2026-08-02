@@ -2,10 +2,13 @@
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
+/// Nemotron 3 Ultra 在 OpenBridge 模型目录中的稳定 id。
+pub(crate) const NEMOTRON_3_ULTRA_ID: &str = "nvidia/nemotron-3-ultra-550b-a55b";
+
 /// 返回 Nemotron 系列所有编译进二进制的 canonical 模型事实。
 pub(crate) fn configs() -> Vec<ModelConfig> {
     vec![ModelConfig {
-        id: "nvidia/nemotron-3-ultra-550b-a55b".to_owned(),
+        id: NEMOTRON_3_ULTRA_ID.to_owned(),
         name: "Nemotron 3 Ultra 550B A55B".to_owned(),
         description: Some(
             "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."

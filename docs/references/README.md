@@ -27,6 +27,8 @@
 
 - [2026-08-02 模型目录快照](openrouter/model-catalog-2026-08-02.md)：当前 canonical 模型的精确匹配、
   context、最大输出、参数和 reasoning effort 证据。
+- [2026-08-02 Provider API 快照](openrouter/provider-api-2026-08-02.md)：Chat endpoint、Bearer 认证、
+  Models API、无状态 Responses 和 Nemotron `:free` 变体边界。
 
 ## Provider 官方协议
 

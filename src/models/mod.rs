@@ -12,7 +12,7 @@ mod kimi;
 pub mod longcat;
 mod mimo;
 mod minimax;
-mod nemotron;
+pub(crate) mod nemotron;
 mod qwen;
 
 pub(crate) use catalog::compiled_configs;

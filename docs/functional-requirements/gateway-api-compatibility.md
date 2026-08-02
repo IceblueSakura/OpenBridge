@@ -76,7 +76,26 @@ reasoning、image、structured output、background/store 和 Provider 私有扩�
 - arguments 在完成前是未可信的字符串，网关不得执行或授权模型返回的工具调用；
 - tool call/result、`item_id`、stream output index 与 request id 是不同身份，不能相互替代。
 
-### 5.2 状态亲和与私有扩展
+### 5.2 无状态核心与有状态 Native pass-through
+
+OpenBridge 以无状态 Responses 作为核心兼容面：客户端必须在每次请求中携带所需完整历史，`store` 应省略或
+为 `false`，`previous_response_id` 应省略或为 `null`。该路径可以在完整能力约束下使用 Native Route、有限
+retry/fallback，以及仅转换显式共同语义的 Bridge。
+
+有状态 Responses 只作为能力受限的 Native pass-through：
+
+- `store: true` 只能进入明确声明该能力的 Native Responses Upstream API；不得通过 Bridge 实现或静默改写为
+  `false`；
+- 非空 `previous_response_id` 只能原样发送给可由当前配置唯一确定的 issuing Upstream Target/Upstream API；
+  不能唯一确定时必须在 egress 前拒绝；
+- 有状态请求不得进入 Protocol Bridge 或跨 Upstream Target fallback，不得因 cooldown、权重或暂时故障改投
+  另一候选；
+- OpenBridge 不保存、查询、删除、翻译或迁移上游 response，不承诺 response ID 在 Provider、Target、credential
+  binding 或部署变更后仍可使用；
+- 若未来允许同一 Public Model 的多个 Target 签发可继续使用的 response ID，必须先实现有界、可靠且绑定
+  issuer 的 continuation ledger；在此之前不能根据 model 名或 opaque ID 猜测签发者。
+
+### 5.3 状态亲和与私有扩展
 
 - `previous_response_id`、Provider resource、tool continuation、opaque reasoning 与 issuing call 都是可能绑定 Upstream Target/Upstream API 的状态。不能安全证明等价时，拒绝、保持同一 issuing target/upstream API，或要求完整可转换历史；不得跨候选猜测或 replay。
 - Codex 所需的 `x-codex-turn-state` 及 `response.metadata` 属于受限私有扩展：只在显式启用的 Codex Native Responses profile 中透明保留，不能进入 Bridge IR、用户 transcript、普通日志或跨 target fallback。
@@ -111,11 +130,13 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-08 | 客户端只选择 Public Model 与下游协议；只有完整 Native Route 或通过 preflight 的 Bridged Route 可以成为执行候选。 |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。 |
+| API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 
 ## 8. 非目标
 
 - GUI、Web 控制台、客户端安装/注册/配置管理；
 - Realtime、Responses WebSocket、Files、Conversations、管理 API 或“实现全部 OpenAI API”；
+- 保存、查询、删除、翻译或跨 Provider/Target 迁移 response 状态，以及未有真实需求前实现 continuation ledger；
 - 让 Chat ↔ Responses、任何 tool 或 Provider 私有扩展自动无损互转；
 - 代表下游 Agent 执行任意 function tool、shell、computer 或网页操作；
 - 用 API token 建立多用户权限、配额、账单或审计系统。

@@ -14,6 +14,10 @@ credential、endpoint 和内部 Route。
 当前核心结果：
 
 - 下游通过 Public Model 调用 `POST /v1/responses` 或 `POST /v1/chat/completions`；
+- Responses 以客户端携带完整历史、`store` 省略或为 `false`、`previous_response_id` 省略或为 `null` 的
+  无状态调用作为核心兼容面；
+- 有状态 Responses 只作为能力受限的 Native pass-through：签发 Upstream Target/Upstream API 必须可唯一
+  确定，不参与 Bridge 或跨 Target fallback，OpenBridge 不保存、迁移或恢复上游 response 状态；
 - 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
 - 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
@@ -47,6 +51,7 @@ credential、endpoint 和内部 Route。
 ## 当前未实现
 
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
+- response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
 - OAuth、keyring、私有 secret 文件和多 credential pool；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；

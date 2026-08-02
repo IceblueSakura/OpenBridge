@@ -9,5 +9,6 @@ pub mod deepseek;
 pub mod longcat;
 pub mod mimo;
 pub mod openai;
+pub mod openrouter;
 
 pub use catalog::{REGISTRY_VERSION, build_compiled_registry, compiled_config};
