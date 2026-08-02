@@ -41,13 +41,13 @@ source/commit + files or issue
 
 ## 2. 项目任务书
 
-| 项目 | 在 OpenBridge 中的预定角色 | 适合提取的材料 | 预期产物 | 明确不参考 |
-|---|---|---|---|---|
-| **Codex** | 本地正在使用的 Agent；Responses 下游契约与 Rust 实现主参考 | custom Provider 的 HTTP/SSE profile；Responses SSE bytes 分帧、event 生命周期；function/custom tool 的 `call_id`、item、取消与终态处理 | Codex compatibility fixture；SSE/parser 与 tool-lifecycle 设计约束；实际版本差异记录 | OAuth client registration/auth cache、订阅 backend、CLI 产品、审批/sandbox/hook、Provider catalog |
-| **Hermes Agent** | 本地正在使用的第二 Agent；Chat/Responses 与完整 Agent loop 互证样本 | `api_mode`/endpoint 选择；Chat 与 Responses 的 tool loop、strict endpoint、usage-only final chunk、stream error、Provider 切换后的状态 | Hermes 仅在声明兼容时启用的 E2E corpus；Chat/Responses 模式选择反例 | Agent 内部会话模型、Provider UI/catalog、客户端配置与管理功能；将其内部 adapter 当成网关协议标准 |
-| **LiteLLM** | Provider Family/adapter 与协议变换的资料库 | Provider-specific request/response normalization；capability/参数差异；错误分类、有限 retry/fallback；usage 字段兼容；native 与 transform 的边界 | Provider adapter 上界；字段保留/拒绝 fixture；错误分类对照 | Proxy 的 virtual key、用户/团队/预算、DB/Redis 控制面、计费和分布式管理链路 |
-| **cc-switch** | 面向 Code Agent 的 Protocol Bridge 状态机主参考 | Codex Responses ↔ Chat 请求转换；每请求 tool context；Chat SSE → Responses 的 item/arguments/terminal 重建；tool history 与 continuation 的失败边界 | Chat/Responses bridge fixture；`ToolConversionContext`、tool identity 与 stream assembler 约束 | Tauri/桌面组件、客户端配置接管、usage UX、provider/model 名称猜测、无 issuer/route/TTL 约束的 history fallback |
-| **CLIProxyAPI** | translator/stateful routing 的负面案例库 | `previous_response_id`、tool identity、state affinity、SSE/WebSocket terminal 与 translator 失败 issue | failure taxonomy；最小 transcript；拒绝或 issuer-bound state 规则 | 多 CLI 账号池、subscription credential 聚合、非官方 OAuth/client identity、账号轮转或负载策略 |
+| 项目 | 开源协议 | 在 OpenBridge 中的预定角色 | 适合提取的材料 | 预期产物 | 明确不参考 |
+|---|---|---|---|---|---|
+| **Codex** | [Apache License 2.0](https://github.com/openai/codex/blob/main/LICENSE) | 本地正在使用的 Agent；Responses 下游契约与 Rust 实现主参考 | custom Provider 的 HTTP/SSE profile；Responses SSE bytes 分帧、event 生命周期；function/custom tool 的 `call_id`、item、取消与终态处理 | Codex compatibility fixture；SSE/parser 与 tool-lifecycle 设计约束；实际版本差异记录 | OAuth client registration/auth cache、订阅 backend、CLI 产品、审批/sandbox/hook、Provider catalog |
+| **Hermes Agent** | [MIT License](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) | 本地正在使用的第二 Agent；Chat/Responses 与完整 Agent loop 互证样本 | `api_mode`/endpoint 选择；Chat 与 Responses 的 tool loop、strict endpoint、usage-only final chunk、stream error、Provider 切换后的状态 | Hermes 仅在声明兼容时启用的 E2E corpus；Chat/Responses 模式选择反例 | Agent 内部会话模型、Provider UI/catalog、客户端配置与管理功能；将其内部 adapter 当成网关协议标准 |
+| **LiteLLM** | [MIT License（`enterprise/` 目录除外）](https://github.com/BerriAI/litellm/blob/main/LICENSE) | Provider Family/adapter 与协议变换的资料库 | Provider-specific request/response normalization；capability/参数差异；错误分类、有限 retry/fallback；usage 字段兼容；native 与 transform 的边界 | Provider adapter 上界；字段保留/拒绝 fixture；错误分类对照 | Proxy 的 virtual key、用户/团队/预算、DB/Redis 控制面、计费和分布式管理链路 |
+| **cc-switch** | [MIT License](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | 面向 Code Agent 的 Protocol Bridge 状态机主参考 | Codex Responses ↔ Chat 请求转换；每请求 tool context；Chat SSE → Responses 的 item/arguments/terminal 重建；tool history 与 continuation 的失败边界 | Chat/Responses bridge fixture；`ToolConversionContext`、tool identity 与 stream assembler 约束 | Tauri/桌面组件、客户端配置接管、usage UX、provider/model 名称猜测、无 issuer/route/TTL 约束的 history fallback |
+| **CLIProxyAPI** | [MIT License](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | translator/stateful routing 的负面案例库 | `previous_response_id`、tool identity、state affinity、SSE/WebSocket terminal 与 translator 失败 issue | failure taxonomy；最小 transcript；拒绝或 issuer-bound state 规则 | 多 CLI 账号池、subscription credential 聚合、非官方 OAuth/client identity、账号轮转或负载策略 |
 
 ### 2.1 测试资产补充角色
 

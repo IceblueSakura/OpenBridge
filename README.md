@@ -165,3 +165,9 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - 原型实验必须同时记录“证明什么”和“不证明什么”，避免代码存在本身形成架构结论。
 - LiteLLM、cc-switch、CLIProxyAPI 等项目用于比较和寻找反例，不等同于 OpenBridge 的依赖或实现承诺。
 - 每次目标客户端、SDK、Provider API 或规范升级后，应重新运行对应 corpus 和 Agent tool-loop fixture。
+
+## 开源协议
+
+OpenBridge 的原创源代码与随仓库提供的文档采用 [MIT License](LICENSE)。参考项目（包括 Codex）仅用于协议、
+行为和实现边界的独立调研；本仓库不包含其派生代码。该声明不授予任何第三方材料的使用权：后续若引入外部
+代码、测试或资源，必须在引入时保留其原有许可证、版权声明和适用的通知文件。

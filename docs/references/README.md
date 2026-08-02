@@ -2,6 +2,8 @@
 
 本目录保存外部协议与参考项目的快照、观察事实和适用边界。它们为需求或实施计划提供依据，但不自动构成 OpenBridge 的功能承诺。OpenBridge 是 headless 网关，因此 GUI、企业控制面和客户端管理只作为明确排除项，不是调研或复用目标。
 
+参考项目的开源协议以其仓库根目录的 `LICENSE` 为准；下表仅记录 2026-08-02 对默认分支的复核结果，不构成依赖引入、代码复用或法律意见。LiteLLM 的 `enterprise/` 目录适用其单独的 `enterprise/LICENSE`，其余仓库内容适用 MIT License。
+
 ## 目录规则
 
 | 位置 | 内容 |
@@ -28,6 +30,14 @@
 ## 参考项目
 
 先查[项目比较矩阵](project-comparison.md)，确认某项目在当前问题中是主参考、互证还是负面案例；不要因项目功能更广而扩大 OpenBridge 范围。
+
+| 参考项目 | 开源协议 | 许可证来源 |
+|---|---|---|
+| Codex | Apache License 2.0 | [`LICENSE`](https://github.com/openai/codex/blob/main/LICENSE) |
+| Hermes Agent | MIT License | [`LICENSE`](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) |
+| LiteLLM | MIT License（`enterprise/` 目录除外） | [`LICENSE`](https://github.com/BerriAI/litellm/blob/main/LICENSE) |
+| cc-switch | MIT License | [`LICENSE`](https://github.com/farion1231/cc-switch/blob/main/LICENSE) |
+| CLIProxyAPI | MIT License | [`LICENSE`](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) |
 
 ### 本地 Agent 契约
 
