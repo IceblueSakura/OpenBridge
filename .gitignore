@@ -1,13 +1,15 @@
 /target/
 .env
 .env.*
-!.env.example
 # Planned private configuration; it may contain local upstream/downstream credentials.
 config/local.toml
 config/local.*.toml
 /config/users.toml
 /config/users.*.toml
 !/config/users.example.toml
+/config/upstream-credentials.toml
+/config/upstream-credentials.*.toml
+!/config/upstream-credentials.example.toml
 
 # Standalone protocol corpus derived artifacts and Python tool environments.
 /testdata/generated/

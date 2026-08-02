@@ -578,14 +578,6 @@ fn add_responses_fallback(
                 id: pool_id.clone(),
                 provider,
                 kind: openbridge::provider::CredentialKind::ApiKey,
-                environment_variable: match provider {
-                    ProviderKind::OpenAi => "OPENAI_FALLBACK_API_KEYS",
-                    ProviderKind::LongCat => "LONGCAT_FALLBACK_API_KEYS",
-                    ProviderKind::DeepSeek => "DEEPSEEK_FALLBACK_API_KEYS",
-                    ProviderKind::MiMo => "MIMO_FALLBACK_API_KEYS",
-                    ProviderKind::OpenRouter => "OPENROUTER_FALLBACK_API_KEYS",
-                }
-                .to_owned(),
             });
         fallback.credential_pool = pool_id;
     }

@@ -6,10 +6,10 @@ use crate::config::BootstrapConfig;
 
 use super::{
     CredentialPoolBinding, ModelInfo, PublicModel, RegistryConfig, RegistryError, RegistryVersion,
-    Route, RouteMode, RuntimeRegistry, SecretLocator, UpstreamApi, UpstreamTarget,
+    Route, RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
     validation::{
-        apply_model_rules, is_valid_environment_variable, normalize_endpoint_base,
-        validate_model_config, validate_reasoning_level_mappings,
+        apply_model_rules, normalize_endpoint_base, validate_model_config,
+        validate_reasoning_level_mappings,
     },
 };
 
@@ -47,7 +47,7 @@ pub fn build_registry(
         }
     }
 
-    // 校验 credential pool 的 Provider 归属、类型与环境变量 locator。
+    // 校验 credential pool 的 Provider 归属与认证类型。
     let mut credential_pools = BTreeMap::new();
     for pool in definition.credential_pools {
         if pool.id.trim().is_empty() {
@@ -58,18 +58,10 @@ pub fn build_registry(
                 credential_pool: pool.id,
             });
         }
-        if !is_valid_environment_variable(&pool.environment_variable) {
-            return Err(RegistryError::InvalidCredentialPoolLocator {
-                credential_pool: pool.id,
-            });
-        }
         let resolved = CredentialPoolBinding {
             id: pool.id.clone(),
             provider: pool.provider,
             kind: pool.kind,
-            secret_reference: SecretLocator {
-                locator: pool.environment_variable,
-            },
         };
         if credential_pools.insert(pool.id.clone(), resolved).is_some() {
             return Err(RegistryError::DuplicateId {

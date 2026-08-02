@@ -9,7 +9,6 @@ license = "MIT"
 anyhow = "1.0"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio", "tower-log", "tracing"] }
 bytes = "1.12"
-dotenvy = "0.15"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4"
 http-body = "1.0"

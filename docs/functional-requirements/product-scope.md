@@ -22,7 +22,7 @@ credential、endpoint 和内部 Route。
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
 - 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
-- 上游 API key 来自受限环境变量或被忽略的 `.env`，下游静态 Bearer token 来自私有用户文件；二者在启动时合并为不可变 credential 快照；
+- 上游 API key 来自被忽略的私有 upstream credential TOML，下游静态 Bearer token 来自私有用户文件；二者在启动时合并为不可变 credential 快照；
 - Route 按完整协议、能力、模型限制和状态亲和要求确定性筛选；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
@@ -53,7 +53,7 @@ credential、endpoint 和内部 Route。
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- OAuth、keyring、私有 secret 文件、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
+- OAuth、keyring、加密 secret 文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；

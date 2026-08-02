@@ -51,7 +51,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 |---:|---|---|
 | 1 | [`src/main.rs`](../src/main.rs) | 进程入口、配置加载、注册表构建、共享 HTTP client、Router 和优雅关闭 |
 | 2 | [`src/config/mod.rs`](../src/config/mod.rs)、[`parser.rs`](../src/config/parser.rs) | Bootstrap 基础定义、TOML 解析和边界校验 |
-| 3 | [`src/config/source.rs`](../src/config/source.rs) | bootstrap 文件定位、可选 dotenv 加载和错误边界 |
+| 3 | [`src/config/source.rs`](../src/config/source.rs) | bootstrap 文件定位与读取错误边界 |
 | 4 | [`src/identity.rs`](../src/identity.rs) | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry` |
 | 5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs)、[`catalog/`](../src/providers/catalog) | 编译期 Provider、模型、target、Route 与 Public Model 装配 |
 | 6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry` |
@@ -59,7 +59,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 把启动链记成一条线即可：
 
 ```text
-bootstrap + users + environment credential locators
+bootstrap + users + private upstream credential TOML
 → compiled provider registry + startup CredentialStore
 → immutable RuntimeRegistry + UserRegistry + CredentialStore
 → shared UpstreamClient
@@ -177,7 +177,7 @@ public model name
 
 | 测试资产 | 主要保护内容 | 不证明什么 |
 |---|---|---|
-| `tests/config_contract.rs` | bootstrap、registry 引用、能力收窄、endpoint 与 credential locator | 真实网络或 Provider 可用性 |
+| `tests/config_contract.rs`、`tests/upstream_credential_config.rs` | bootstrap、registry 引用、私有 credential TOML、能力收窄与 endpoint | 真实网络或 Provider 可用性 |
 | `tests/native_routing_contract.rs` | 请求事实、capability gate、route 候选和 state affinity | HTTP/SSE 实际发送 |
 | `tests/forwarding_contract.rs` | Ingress 到 transport 的 JSON/SSE、fallback、timeout、取消和 header 行为 | 外部 SDK 或真实 Provider 兼容 |
 | `tests/provider*_contract.rs` | Provider 请求、认证、能力和错误边界 | 全部 Provider 私有扩展 |

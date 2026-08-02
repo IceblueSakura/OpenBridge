@@ -102,7 +102,7 @@
   下游指定，也不改变 capability 或模型选择；
 - 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` API；无状态 Native/Bridge 请求仍
   遵守原有首输出前边界；
-- 多次 credential attempt 后只向下游返回最终安全错误，不公开 pool 大小、member 列表、binding ID、locator
+- 多次 credential attempt 后只向下游返回最终安全错误，不公开 pool 大小、member 列表、binding ID、配置文件位置
   或 Authorization；
 - tracing 可记录非敏感 pool/member binding ID、generation、rotation 原因和 attempt 序号；进程内 metrics
   只增加低基数 `credential_rotations` 计数，不以 pool/member 为 label；

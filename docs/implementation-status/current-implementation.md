@@ -11,18 +11,19 @@ Clippy，但不代表真实 Provider、外部 SDK、负载或长期运行验收�
 默认启动：
 
 ```bash
-cp .env.example .env
 cp config/users.example.toml config/users.toml
-# 编辑 users.toml 中的用户/API Key，并在 .env 的 JSON 数组中填写所有已启用 Provider 的 API key。
+cp config/upstream-credentials.example.toml config/upstream-credentials.toml
+# 编辑两份私有 TOML，分别填写下游用户 Key 与编译期 pool 对应的上游 API key。
 cargo run --bin openbridge --locked
 ```
 
-`bootstrap.toml` 包含 loopback listener、私有用户文件位置、request/SSE 上限和共享 HTTP client 参数。Provider、Model、
+schema v2 的 `bootstrap.toml` 包含 loopback listener、两份私有 credential 文件位置、request/SSE 上限和共享 HTTP client 参数。Provider、Model、
 Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential pool binding 均由 Rust 代码注册；
 修改后需要重新编译或重启。
 
-运行配置与模板一一对应：`.env` 使用 `.env.example`，`config/bootstrap.toml` 使用
-`config/bootstrap.example.toml`，`config/users.toml` 使用 `config/users.example.toml`。
+运行配置与模板一一对应：`config/bootstrap.toml` 使用 `config/bootstrap.example.toml`，
+`config/users.toml` 使用 `config/users.example.toml`，`config/upstream-credentials.toml` 使用
+`config/upstream-credentials.example.toml`。
 
 | Endpoint | 当前行为 | 认证 |
 |---|---|---|
@@ -31,14 +32,13 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | `POST /v1/chat/completions` | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE | 静态 Bearer |
 | `POST /v1/responses` | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE | 静态 Bearer |
 
-下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 分别来自
-`OPENAI_API_KEYS`、`LONGCAT_API_KEYS`、`OPENROUTER_API_KEYS`、`DEEPSEEK_API_KEYS` 与 `MIMO_API_KEYS`
-JSON 字符串数组；旧单数变量不再读取。服务与 probe 可选加载 `.env`，已有进程环境变量优先；上游注册表只保存
-pool ID、Provider、credential kind 和环境变量名称。
+下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 来自私有
+`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组。服务与 probe
+不读取上游 key 环境变量或 `.env`；上游注册表只保存 pool ID、Provider 和 credential kind。
 服务在 listener 绑定前把已启用用户 Key 与全部启用 target 引用的 pool 合并为不可变 `CredentialStore`；
-缺失、损坏、空数组、空白成员或重复 secret 会阻止启动。运行时请求只读取该快照，不重新读取文件或环境变量；
+未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会阻止启动。运行时请求只读取该快照，不重新读取文件；
 改变 pool 必须重启。
-Store 条目同时冻结 credential type、仅含类别的 source、generation 与可选过期时间；环境变量 locator 不进入
+Store 条目同时冻结 credential type、仅含类别的 source、generation 与可选过期时间；文件路径不进入
 这些运行时诊断元数据。上游借用同时匹配 `pool_id + member_id + ProviderKind + CredentialKind`。类型系统已能表达
 `OAuth2BearerAccessToken`，但现有 Provider contract 仍只接受 `ApiKey`，当前没有 token 获取、refresh、热更新
 或 401 refresh/retry 行为。
@@ -48,13 +48,13 @@ Store 条目同时冻结 credential type、仅含类别的 source、generation �
 闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo，五者都进入 compiled
 registry。当前可路由目录如下；“Bridge 候选”只表示已注册的协议转换路径，不表示上游原生支持该协议：
 
-| Provider | Public Model | 固定 Upstream Target | 下游可用 Route surface | Credential pool / locator |
+| Provider | Public Model | 固定 Upstream Target | 下游可用 Route surface | Credential pool |
 |---|---|---|---|---|
-| OpenAI | `code-primary` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` / `OPENAI_API_KEYS` |
-| LongCat | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary` / `LONGCAT_API_KEYS` |
-| OpenRouter | `nemotron-3-ultra` | `openrouter-nemotron-3-ultra` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` / `OPENROUTER_API_KEYS` |
-| DeepSeek | `deepseek-v4-pro`、`deepseek-v4-flash` | 同名两个 target | Chat Native；Responses→Chat Bridge；无原生 Responses Upstream API | `deepseek-primary` / `DEEPSEEK_API_KEYS` |
-| Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` / `MIMO_API_KEYS` |
+| OpenAI | `code-primary` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` |
+| LongCat | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary` |
+| OpenRouter | `nemotron-3-ultra` | `openrouter-nemotron-3-ultra` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` |
+| DeepSeek | `deepseek-v4-pro`、`deepseek-v4-flash` | 同名两个 target | Chat Native；Responses→Chat Bridge；无原生 Responses Upstream API | `deepseek-primary` |
+| Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` |
 
 OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider
 分别拥有独立静态 definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用
@@ -144,7 +144,7 @@ credential 覆盖，只加载选中 target 的 pool 并固定使用首个 member
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
 capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 credential round-robin/429 rotation/member cooldown、fault domain cooldown、continuation 单成员约束、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
@@ -161,7 +161,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 129 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+结果为 130 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
 格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
 负载或长期验证。
 
@@ -172,7 +172,7 @@ Upstream API 显式声明后生效。Bridged Route 仍不转换 reasoning。
 
 - OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- OAuth/subscription 多账号池、keyring、私有 secret 文件和动态 credential 控制面；
+- OAuth/subscription 多账号池、keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或非 loopback 部署。

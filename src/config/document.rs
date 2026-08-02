@@ -11,6 +11,7 @@ pub(super) struct RawBootstrap {
     pub(super) schema_version: u32,
     pub(super) listen: String,
     pub(super) users_file: PathBuf,
+    pub(super) upstream_credentials_file: PathBuf,
     pub(super) max_request_body_bytes: usize,
     pub(super) max_sse_event_bytes: usize,
     pub(super) upstream_connect_timeout_ms: u64,

@@ -17,3 +17,4 @@ pub mod provider;
 pub mod providers;
 pub mod registry;
 pub mod transport;
+pub mod upstream_credentials;

@@ -12,18 +12,6 @@ use super::{BootstrapConfig, BootstrapConfigError, parse_bootstrap_config};
 /// 默认 bootstrap 配置路径。
 pub const DEFAULT_BOOTSTRAP_PATH: &str = "config/bootstrap.toml";
 
-/// 可选加载当前目录或其父目录中的 `.env` 文件。
-///
-/// `dotenvy` 不覆盖已经存在的进程环境变量；未找到文件不是错误，但文件存在且无法解析时
-/// 会返回错误，避免服务在部分 credential 被意外加载的状态下启动。
-pub fn load_optional_dotenv() -> Result<Option<PathBuf>, dotenvy::Error> {
-    match dotenvy::dotenv() {
-        Ok(path) => Ok(Some(path)),
-        Err(dotenvy::Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
 /// 用于定位 bootstrap 配置文件的值对象。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BootstrapConfigPath(PathBuf);

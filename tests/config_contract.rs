@@ -33,17 +33,21 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
         bootstrap(BOOTSTRAP).users_file(),
         std::path::Path::new("config/users.toml")
     );
+    assert_eq!(
+        bootstrap(BOOTSTRAP).upstream_credentials_file(),
+        std::path::Path::new("config/upstream-credentials.toml")
+    );
     assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
     assert_eq!(
         registry.http_client().connect_timeout(),
         Duration::from_secs(5)
     );
     let target = registry.upstream_target("openai-main").unwrap();
-    let pool = registry
-        .credential_pool(target.credential_pool_id())
-        .unwrap();
-    assert_eq!(pool.secret_reference().scheme(), "env");
-    assert_eq!(pool.secret_reference().locator(), "OPENAI_API_KEYS");
+    assert!(
+        registry
+            .credential_pool(target.credential_pool_id())
+            .is_some()
+    );
     let upstream_api = target.upstream_api("chat").unwrap();
     assert_eq!(upstream_api.upstream_model(), "test-model");
     assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
@@ -54,13 +58,17 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
 }
 
 #[test]
-fn bootstrap_path_loads_process_policy_and_user_file_location() {
+fn bootstrap_path_loads_process_policy_and_private_file_locations() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let path = BootstrapConfigPath::new(root.join("config/bootstrap.toml"));
     let policy = path.load().unwrap();
 
     assert!(policy.listen().ip().is_loopback());
     assert_eq!(policy.users_file(), PathBuf::from("config/users.toml"));
+    assert_eq!(
+        policy.upstream_credentials_file(),
+        PathBuf::from("config/upstream-credentials.toml")
+    );
     assert!(path.path().ends_with("config/bootstrap.toml"));
 
     let missing = BootstrapConfigPath::new(root.join("config/missing-bootstrap.toml"));
@@ -72,6 +80,12 @@ fn bootstrap_path_loads_process_policy_and_user_file_location() {
 
 #[test]
 fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
+    let old_schema = BOOTSTRAP.replace("schema_version = 2", "schema_version = 1");
+    assert!(matches!(
+        parse_bootstrap_config(&old_schema),
+        Err(BootstrapConfigError::UnsupportedSchema { actual: 1 })
+    ));
+
     let unknown = BOOTSTRAP.replace(
         "listen = \"127.0.0.1:8080\"",
         "listen = \"127.0.0.1:8080\"\nprovider = \"dynamic\"",
@@ -306,7 +320,7 @@ fn registry_rejects_duplicate_and_unknown_references() {
 }
 
 #[test]
-fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
+fn registry_rejects_capability_elevation_and_unsupported_credential_kind() {
     let mut elevation = definition("test", "code-primary", "test-model");
     if let UpstreamApiCapabilities::Responses(capabilities) =
         &mut elevation.upstream_targets[0].upstream_apis[1].capabilities
@@ -316,13 +330,6 @@ fn registry_rejects_capability_elevation_and_invalid_credential_locator() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), elevation),
         Err(RegistryError::CapabilityElevation { .. })
-    ));
-
-    let mut locator = definition("test", "code-primary", "test-model");
-    locator.credential_pools[0].environment_variable = "not-valid".to_owned();
-    assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), locator),
-        Err(RegistryError::InvalidCredentialPoolLocator { .. })
     ));
 
     let mut oauth = definition("test", "code-primary", "test-model");

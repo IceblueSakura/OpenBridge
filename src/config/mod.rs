@@ -16,9 +16,9 @@ mod parser;
 mod source;
 
 pub use parser::parse_bootstrap_config;
-pub use source::{BootstrapConfigFileError, BootstrapConfigPath, load_optional_dotenv};
+pub use source::{BootstrapConfigFileError, BootstrapConfigPath};
 
-const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
+const BOOTSTRAP_SCHEMA_VERSION: u32 = 2;
 
 /// bootstrap 配置解析、版本或安全边界校验失败。
 #[derive(Debug, Error)]
@@ -51,6 +51,7 @@ pub enum BootstrapConfigError {
 pub struct BootstrapConfig {
     listen: SocketAddr,
     users_file: PathBuf,
+    upstream_credentials_file: PathBuf,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
 }
@@ -64,6 +65,11 @@ impl BootstrapConfig {
     /// 返回启动时读取的私有下游用户文件。
     pub fn users_file(&self) -> &Path {
         &self.users_file
+    }
+
+    /// 返回启动时读取的私有上游 credential 文件。
+    pub fn upstream_credentials_file(&self) -> &Path {
+        &self.upstream_credentials_file
     }
 
     /// 返回请求体与 SSE event 的运行时限制。

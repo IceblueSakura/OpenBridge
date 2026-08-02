@@ -31,12 +31,6 @@ pub enum RegistryError {
         /// 未解析的引用值。
         reference: String,
     },
-    /// credential pool locator 不是合法的环境变量名。
-    #[error("credential pool '{credential_pool}' uses an invalid environment variable")]
-    InvalidCredentialPoolLocator {
-        /// 使用非法 locator 的 pool id。
-        credential_pool: String,
-    },
     /// pool 选择了 provider 不支持的 credential 类型。
     #[error("credential pool '{credential_pool}' uses a kind unsupported by its provider")]
     UnsupportedCredentialPoolKind {

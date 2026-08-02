@@ -1,12 +1,12 @@
 use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,
-    credential::CredentialStoreBuilder,
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
     registry::{ReasoningLevel, ReasoningSupport, UpstreamApiCapabilities, build_registry},
+    upstream_credentials::UpstreamCredentialConfiguration,
 };
 
 #[test]
@@ -259,11 +259,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
     assert_eq!(openrouter.model_id(), "nvidia/nemotron-3-ultra-550b-a55b");
     assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
-    let openrouter_pool = registry.credential_pool("openrouter-primary").unwrap();
-    assert_eq!(
-        openrouter_pool.secret_reference().locator(),
-        "OPENROUTER_API_KEYS"
-    );
+    assert!(registry.credential_pool("openrouter-primary").is_some());
     assert_eq!(
         openrouter.endpoint_base().as_str(),
         "https://openrouter.ai/api/v1/"
@@ -379,13 +375,10 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
         assert_eq!(target.quota_scope(), Some("deepseek-primary"));
         assert_eq!(target.fault_domain(), Some("deepseek-api"));
         assert_eq!(target.credential_pool_id(), "deepseek-primary");
-        assert_eq!(
+        assert!(
             registry
                 .credential_pool(target.credential_pool_id())
-                .unwrap()
-                .secret_reference()
-                .locator(),
-            "DEEPSEEK_API_KEYS"
+                .is_some()
         );
         assert_eq!(
             target.upstream_api("chat").unwrap().upstream_model(),
@@ -453,13 +446,10 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         assert_eq!(target.quota_scope(), Some("mimo-primary"));
         assert_eq!(target.fault_domain(), Some("mimo-api"));
         assert_eq!(target.credential_pool_id(), "mimo-primary");
-        assert_eq!(
+        assert!(
             registry
                 .credential_pool(target.credential_pool_id())
-                .unwrap()
-                .secret_reference()
-                .locator(),
-            "MIMO_API_KEYS"
+                .is_some()
         );
         assert_eq!(
             target.upstream_api("chat").unwrap().upstream_model(),
@@ -504,29 +494,23 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
 }
 
 #[test]
-fn compiled_provider_credential_pools_are_shared_and_have_example_locators() {
-    // 构造完整注册表并用合成值模拟启动时加载全部 credential pool。
+fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example() {
+    // 构造完整注册表，并从无真实值的 TOML 模板加载全部 credential pool。
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    let mut credentials = CredentialStoreBuilder::new();
-    for pool_id in registry.credential_pool_ids() {
-        let pool = registry.credential_pool(pool_id).unwrap();
-        credentials
-            .insert_upstream_member(
-                pool.provider(),
-                pool.id(),
-                format!("{}#1", pool.id()),
-                secrecy::SecretString::from(format!("synthetic-{pool_id}")),
-                openbridge::credential::CredentialMetadata::upstream(
-                    pool.kind(),
-                    openbridge::credential::CredentialSource::Programmatic,
-                ),
-            )
-            .expect("compiled credential pool members should be unique");
-    }
-    let credentials = credentials.build();
+    let pool_ids = registry
+        .credential_pool_ids()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let credentials = UpstreamCredentialConfiguration::from_toml(include_str!(
+        "../config/upstream-credentials.example.toml"
+    ))
+    .unwrap()
+    .into_builder_for(&registry, pool_ids.iter().map(String::as_str))
+    .unwrap()
+    .build();
 
-    // 验证每个 target 可按 Provider 与 pool 取回凭证，模板使用 JSON 数组 locator。
+    // 验证每个 target 可按 Provider 与 pool 取回模板中的合成凭证。
     for target_id in registry.upstream_target_ids() {
         let target = registry.upstream_target(target_id).unwrap();
         assert!(
@@ -542,9 +526,6 @@ fn compiled_provider_credential_pools_are_shared_and_have_example_locators() {
                 .is_ok()
         );
     }
-    let environment_template = include_str!("../.env.example");
-    assert!(environment_template.contains("DEEPSEEK_API_KEYS="));
-    assert!(environment_template.contains("MIMO_API_KEYS="));
 }
 
 #[test]

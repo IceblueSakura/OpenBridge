@@ -47,6 +47,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
     Ok(BootstrapConfig {
         listen,
         users_file: raw.users_file,
+        upstream_credentials_file: raw.upstream_credentials_file,
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
             max_sse_event_bytes: raw.max_sse_event_bytes,

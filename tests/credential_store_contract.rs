@@ -35,9 +35,12 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
             "shared-id",
             "shared-id#1",
             SecretString::from("synthetic-upstream-secret"),
-            CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Environment)
-                .with_generation(7)
-                .with_expires_at(expires_at),
+            CredentialMetadata::upstream(
+                CredentialKind::ApiKey,
+                CredentialSource::UpstreamConfiguration,
+            )
+            .with_generation(7)
+            .with_expires_at(expires_at),
         )
         .unwrap();
     let credentials = credentials.build();
@@ -76,7 +79,10 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
         upstream.metadata().credential_type(),
         CredentialType::Upstream(CredentialKind::ApiKey)
     );
-    assert_eq!(upstream.metadata().source(), CredentialSource::Environment);
+    assert_eq!(
+        upstream.metadata().source(),
+        CredentialSource::UpstreamConfiguration
+    );
     assert_eq!(upstream.metadata().generation(), 7);
     assert_eq!(upstream.metadata().expires_at(), Some(expires_at));
     let metadata = credentials.credential_metadata().collect::<Vec<_>>();

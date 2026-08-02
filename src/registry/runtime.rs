@@ -171,7 +171,6 @@ pub struct CredentialPoolBinding {
     pub(super) id: String,
     pub(super) provider: ProviderKind,
     pub(super) kind: CredentialKind,
-    pub(super) secret_reference: SecretLocator,
 }
 
 impl CredentialPoolBinding {
@@ -188,11 +187,6 @@ impl CredentialPoolBinding {
     /// 返回 credential 类型。
     pub fn kind(&self) -> CredentialKind {
         self.kind
-    }
-
-    /// 返回不包含 secret 的受信 secret locator。
-    pub fn secret_reference(&self) -> &SecretLocator {
-        &self.secret_reference
     }
 }
 
@@ -274,24 +268,6 @@ impl UpstreamTarget {
         self.upstream_apis
             .iter()
             .map(|(id, upstream_api)| (id.as_str(), upstream_api))
-    }
-}
-
-/// 不暴露 secret 内容的 credential locator。
-#[derive(Debug)]
-pub struct SecretLocator {
-    pub(super) locator: String,
-}
-
-impl SecretLocator {
-    /// 返回 locator scheme；当前固定为环境变量 `env`。
-    pub fn scheme(&self) -> &'static str {
-        "env"
-    }
-
-    /// 返回环境变量名。
-    pub fn locator(&self) -> &str {
-        &self.locator
     }
 }
 

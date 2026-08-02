@@ -23,19 +23,11 @@ pub fn compiled_config() -> RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
         models: models::compiled_configs(),
         credential_pools: vec![
-            credential_pool("openai-primary", ProviderKind::OpenAi, "OPENAI_API_KEYS"),
-            credential_pool("longcat-primary", ProviderKind::LongCat, "LONGCAT_API_KEYS"),
-            credential_pool(
-                "openrouter-primary",
-                ProviderKind::OpenRouter,
-                "OPENROUTER_API_KEYS",
-            ),
-            credential_pool(
-                "deepseek-primary",
-                ProviderKind::DeepSeek,
-                "DEEPSEEK_API_KEYS",
-            ),
-            credential_pool("mimo-primary", ProviderKind::MiMo, "MIMO_API_KEYS"),
+            credential_pool("openai-primary", ProviderKind::OpenAi),
+            credential_pool("longcat-primary", ProviderKind::LongCat),
+            credential_pool("openrouter-primary", ProviderKind::OpenRouter),
+            credential_pool("deepseek-primary", ProviderKind::DeepSeek),
+            credential_pool("mimo-primary", ProviderKind::MiMo),
         ],
         upstream_targets: [
             openai::upstream_targets(),
@@ -50,17 +42,12 @@ pub fn compiled_config() -> RegistryConfig {
     }
 }
 
-/// 构造只接受 JSON 字符串数组环境变量的 Provider credential pool。
-fn credential_pool(
-    id: &str,
-    provider: ProviderKind,
-    environment_variable: &str,
-) -> CredentialPoolConfig {
+/// 构造由私有 upstream credential TOML 提供 secret 的 Provider credential pool。
+fn credential_pool(id: &str, provider: ProviderKind) -> CredentialPoolConfig {
     CredentialPoolConfig {
         id: id.to_owned(),
         provider,
         kind: CredentialKind::ApiKey,
-        environment_variable: environment_variable.to_owned(),
     }
 }
 

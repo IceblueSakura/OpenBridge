@@ -30,7 +30,8 @@ Provider contract 和 canonical model 上界。
 
 ## CLI 与固定观察项
 
-服务与 probe 共享 `OPENBRIDGE_CONFIG`、可选 `.env` 加载规则和代码注册的 credential 环境变量：
+服务与 probe 共享 `OPENBRIDGE_CONFIG` 选择的 bootstrap，并从 bootstrap 指定的私有
+`upstream-credentials.toml` 按代码注册的 pool id 加载 API key：
 
 ```powershell
 cargo run --bin openbridge-probe -- --target openai-main --list-models
@@ -54,7 +55,7 @@ cargo run --bin openbridge-probe -- --target openai-main --chat --responses --fu
 
 ## 当前 Provider 的可执行入口
 
-填充相应 JSON-array credential pool 后，可以显式运行：
+填充相应 TOML `api_keys` credential pool 后，可以显式运行：
 
 ```powershell
 cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --chat --function-calling

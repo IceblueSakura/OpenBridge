@@ -287,16 +287,6 @@ fn is_valid_parameter_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-/// 判断 credential locator 是否为合法环境变量名。
-pub(super) fn is_valid_environment_variable(locator: &str) -> bool {
-    let mut characters = locator.chars();
-    let Some(first) = characters.next() else {
-        return false;
-    };
-    (first == '_' || first.is_ascii_alphabetic())
-        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
-}
-
 /// 校验并规范化只允许 HTTPS、无凭据和安全 path 前缀的 endpoint base。
 pub(super) fn normalize_endpoint_base(value: &str) -> Option<Url> {
     let mut url = Url::parse(value).ok()?;

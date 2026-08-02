@@ -19,5 +19,5 @@ pub use definition::{
 pub use error::RegistryError;
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, PublicModel, RegistryVersion, Route, RuntimeRegistry,
-    SecretLocator, UpstreamApi, UpstreamTarget,
+    UpstreamApi, UpstreamTarget,
 };

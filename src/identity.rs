@@ -156,7 +156,6 @@ fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
         CredentialStoreError::DuplicateDownstreamSecret => UserRegistryError::DuplicateApiKey,
         CredentialStoreError::DuplicateId => UserRegistryError::DuplicateApiKey,
         CredentialStoreError::DuplicateUpstreamSecret
-        | CredentialStoreError::InvalidPoolDocument
         | CredentialStoreError::InvalidPoolIdentity
         | CredentialStoreError::StatefulPoolHasMultipleMembers => UserRegistryError::Parse,
         CredentialStoreError::InvalidMetadata => UserRegistryError::Parse,

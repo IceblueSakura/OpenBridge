@@ -146,8 +146,6 @@ pub struct CredentialPoolConfig {
     pub provider: ProviderKind,
     /// adapter 支持的 credential 类型。
     pub kind: CredentialKind,
-    /// 运行时读取 JSON secret 数组的环境变量名。
-    pub environment_variable: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

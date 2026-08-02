@@ -16,7 +16,7 @@ Prometheus exporter。
 ## 1. 分层结构
 
 ```text
-bootstrap / users / process environment
+bootstrap / users / upstream credentials
           ↓
 composition root
           ↓
@@ -47,6 +47,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、请求限制和 HTTP client 参数 |
 | Credential | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时解析 pool、合并上下游 secret、隔离用途并提供只读成员借用视图 |
 | 下游身份 | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User` | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份 |
+| 上游凭证 | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration` | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities` | 下游协议、原始请求和协议能力 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
@@ -71,11 +72,11 @@ HTTP 发送与可控 transport；Provider 的请求、认证、SSE 和错误处�
 启动顺序：
 
 ```text
-load_optional_dotenv
-→ BootstrapConfigPath::load
+BootstrapConfigPath::load
 → UserConfigPath::load
+→ UpstreamCredentialConfigPath::load
 → providers::build_compiled_registry
-→ CredentialStoreBuilder::load_upstream_pool_environment
+→ UpstreamCredentialConfiguration::load_into_for
 → CredentialStore::validate_registry
 → immutable CredentialStore
 → UpstreamClient::new
@@ -84,11 +85,11 @@ load_optional_dotenv
 → axum::serve
 ```
 
-`bootstrap.toml` 拥有 loopback listener、私有用户文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
-Provider、模型、target、upstream API、route、endpoint 和 credential locator 都只在启动阶段加载；没有 route TOML、
+`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
+上游 credential 文件、Provider、模型、target、upstream API、route 和 endpoint 都只在启动阶段加载；没有 route TOML、
 动态 Provider DSL 或热重载。`UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
-`CredentialStoreBuilder`；composition root 再为所有启用 target 引用的 pool 解析 JSON-array 环境变量，缺失、
-损坏、空数组、空白成员或重复 secret 会在 listener 绑定前
+`CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 再为所有启用 target 引用的 pool 解析 TOML `api_keys`
+数组。未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会在 listener 绑定前
 失败。构造后的 Store 是上下游 secret 的唯一运行时所有者，请求路径不再读取 credential 来源。
 
 ## 3. 注册表层
@@ -113,7 +114,7 @@ RegistryConfig
 |---|---|
 | `ProviderContract` | Provider 代码拥有的 endpoint profile、credential kind 与能力上界 |
 | `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
-| `CredentialPoolConfig` | Provider、credential kind 与必填 JSON-array 环境变量 locator |
+| `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential pool 引用、timeout、启停及 quota/fault 边界 |
 | `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
 | `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
@@ -205,15 +206,15 @@ Provider 契约、endpoint path 与 request-header hook；共享 `openai_compati
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
 attribution/routing header，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
-pool locator 来自 `CredentialPoolBinding`，endpoint/timeout 来自 selected Upstream Target。Ingress 按完整
+pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint/timeout 来自 selected Upstream Target。Ingress 按完整
 `pool_id + member_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目
-冻结 credential type、来源类别、generation 与可选过期时间，来源类别不保存 locator。Store 不公开通用明文
+冻结 credential type、来源类别、generation 与可选过期时间，来源类别不保存文件路径。Store 不公开通用明文
 查询，adapter 仍在 crate 内的认证 header 边界才访问 secret。`CredentialKind` 已能表达
 `OAuth2BearerAccessToken`，但现有 Provider contract 仍只允许 `ApiKey`，因此尚未形成 OAuth 出站路径。
 
 OpenAI、LongCat 与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
 与它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
-Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、`MIMO_API_KEYS` locator、
+Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
 但尚未调用真实异构协议 Provider。
 
@@ -222,7 +223,7 @@ OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Respon
 `nvidia/nemotron-3-ultra-550b-a55b`。Responses API 的 state affinity 是 `Unbound`，`store`、
 `previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route、fallback 或 `:free` 变体。
 
-DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、`DEEPSEEK_API_KEYS` locator、
+DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、
 quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Public Model 为 Chat 提供唯一 Native 候选，
 为 Responses 提供唯一 Responses→Chat Bridged 候选，不把 Bridge 描述成 Provider 原生 Responses。
 

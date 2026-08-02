@@ -1,17 +1,18 @@
 //! 进程启动、配置装载与优雅关闭。
 //!
 //! 启动阶段一次性加载 bootstrap、用户、代码注册表与上下游 credential 快照，再构造
-//! HTTP router 和共享 upstream client；业务请求不重新读取文件或环境变量。
+//! HTTP router 和共享 upstream client；业务请求不重新读取配置文件。
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{BootstrapConfigPath, load_optional_dotenv},
+    config::BootstrapConfigPath,
     identity::UserConfigPath,
     ingress::{GatewayState, build_router},
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
+    upstream_credentials::UpstreamCredentialConfigPath,
 };
 use tokio::{net::TcpListener, signal};
 use tracing::info;
@@ -19,37 +20,46 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 加载可选环境文件并初始化日志过滤器。
-    load_optional_dotenv().context("failed to load optional .env file")?;
+    // 初始化日志过滤器。
     init_tracing()?;
 
-    // 读取 bootstrap、下游用户和编译期 registry。
+    // 读取 bootstrap 与两份私有 credential 配置。
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
     let user_configuration = UserConfigPath::new(bootstrap.users_file())
         .load()
         .context("failed to load downstream users")?;
+    let upstream_configuration =
+        UpstreamCredentialConfigPath::new(bootstrap.upstream_credentials_file())
+            .load()
+            .context("failed to load upstream credentials")?;
+
+    // 构建编译期 registry，并确定启用 target 实际要求的 credential pool。
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
-    // 合并下游用户 Key 与启用 target 引用的上游 pool，监听前完成不可变 credential 快照。
+    let required_pool_ids = registry
+        .credential_pool_ids()
+        .filter(|pool_id| {
+            registry.upstream_target_ids().any(|target_id| {
+                let target = registry
+                    .upstream_target(target_id)
+                    .expect("registry target id must resolve");
+                target.enabled() && target.credential_pool_id() == *pool_id
+            })
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+    // 合并上下游 Key，监听前完成不可变 credential 快照。
     let (users, mut credential_builder) = user_configuration.into_parts();
-    for pool_id in registry.credential_pool_ids() {
-        let used_by_enabled_target = registry.upstream_target_ids().any(|target_id| {
-            let target = registry
-                .upstream_target(target_id)
-                .expect("registry target id must resolve");
-            target.enabled() && target.credential_pool_id() == pool_id
-        });
-        if used_by_enabled_target {
-            let pool = registry
-                .credential_pool(pool_id)
-                .expect("registry credential pool id must resolve");
-            credential_builder
-                .load_upstream_pool_environment(pool)
-                .context("failed to load an upstream credential pool")?;
-        }
-    }
+    upstream_configuration
+        .load_into_for(
+            &mut credential_builder,
+            &registry,
+            required_pool_ids.iter().map(String::as_str),
+        )
+        .context("failed to bind upstream credentials to the code registry")?;
     let credentials = credential_builder.build();
     credentials
         .validate_registry(&registry)

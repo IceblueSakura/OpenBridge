@@ -20,9 +20,10 @@ use openbridge::{
 use std::sync::Arc;
 
 pub const BOOTSTRAP: &str = r#"
-schema_version = 1
+schema_version = 2
 listen = "127.0.0.1:8080"
 users_file = "config/users.toml"
+upstream_credentials_file = "config/upstream-credentials.toml"
 max_request_body_bytes = 1048576
 max_sse_event_bytes = 262144
 upstream_connect_timeout_ms = 5000
@@ -121,7 +122,6 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             id: "openai-primary".to_owned(),
             provider: ProviderKind::OpenAi,
             kind: CredentialKind::ApiKey,
-            environment_variable: "OPENAI_API_KEYS".to_owned(),
         }],
         upstream_targets: vec![UpstreamTargetConfig {
             id: "openai-main".to_owned(),

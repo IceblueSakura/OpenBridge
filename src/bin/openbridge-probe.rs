@@ -6,22 +6,28 @@ use std::env;
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{BootstrapConfigPath, load_optional_dotenv},
-    credential::CredentialStoreBuilder,
+    config::BootstrapConfigPath,
     probe::{ProbeOptions, probe_upstream_target},
     providers::build_compiled_registry,
     transport::upstream::UpstreamClient,
+    upstream_credentials::UpstreamCredentialConfigPath,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 加载可选环境文件并解析 CLI 选择。
-    load_optional_dotenv().context("failed to load optional .env file")?;
+    // 解析 CLI 选择。
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
-    // 构造与数据面相同的受信 registry 和共享 upstream client。
+
+    // 读取 bootstrap 和私有上游 credential 配置。
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
+    let upstream_configuration =
+        UpstreamCredentialConfigPath::new(bootstrap.upstream_credentials_file())
+            .load()
+            .context("failed to load upstream credentials")?;
+
+    // 构造与数据面相同的受信 registry 和共享 upstream client。
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let upstream = UpstreamClient::new(
@@ -30,17 +36,14 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    // 只解析管理员选中 target 的上游 pool，并构造不可变 credential 快照。
-    let mut credential_builder = CredentialStoreBuilder::new();
-    if let Some(target) = registry.upstream_target(&arguments.upstream_target_id) {
-        let pool = registry
-            .credential_pool(target.credential_pool_id())
-            .context("selected target references an unavailable credential pool")?;
-        credential_builder
-            .load_upstream_pool_environment(pool)
-            .context("failed to load the selected upstream credential pool")?;
-    }
-    let credentials = credential_builder.build();
+    // 只把管理员选中 target 的上游 pool 移入不可变 credential 快照。
+    let required_pool_id = registry
+        .upstream_target(&arguments.upstream_target_id)
+        .map(|target| target.credential_pool_id());
+    let credentials = upstream_configuration
+        .into_builder_for(&registry, required_pool_id)
+        .context("failed to bind the selected upstream credential pool")?
+        .build();
     credentials
         .validate_registry(&registry)
         .context("selected credential pool violates registry state-affinity constraints")?;

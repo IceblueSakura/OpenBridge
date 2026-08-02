@@ -14,7 +14,7 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
 6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
-7. 以 bootstrap-only 配置管理进程资源策略，以外部 secret source 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
+7. 以 bootstrap-only 配置管理进程资源策略，以私有 TOML 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
 
 核心稳定后再考虑：
 
@@ -41,19 +41,19 @@ reasoning、image、structured output 和后台状态会在 egress 前拒绝。�
 
 | 运行配置 | 模板 |
 |---|---|
-| `.env` | `.env.example` |
 | `config/bootstrap.toml` | `config/bootstrap.example.toml` |
 | `config/users.toml` | `config/users.example.toml` |
+| `config/upstream-credentials.toml` | `config/upstream-credentials.example.toml` |
 
 ```bash
-cp .env.example .env
 cp config/users.example.toml config/users.toml
-# 编辑 users.toml 中的下游用户/API Key，并在 .env 的 JSON 数组中填写所有已启用 Provider 的 API key。
+cp config/upstream-credentials.example.toml config/upstream-credentials.toml
+# 编辑两份私有 TOML，分别填写下游用户 Key 与编译期 pool 对应的上游 API key。
 cargo run --bin openbridge --locked
 ```
 
-服务与 `openbridge-probe` 会可选加载当前目录或父目录中的 `.env`；已有进程环境变量优先。
-`.env` 与 `config/users.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。用户、API Key、
+`config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。
+服务与 `openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、
 Provider、Model 和 Route 均只在启动时加载，变更需要重启进程。请求观测不保存业务正文或 credential；
 request/user/route/target 只作为 trace 诊断字段，不进入进程内统计标签。
 
@@ -82,19 +82,19 @@ Provider 的受信 request-header hook 可按编译期规则增添、替换、�
 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
 
-OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `OPENROUTER_API_KEYS`，把 Public Model
+OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `openrouter-primary` credential pool，把 Public Model
 `nemotron-3-ultra` 原生转发到基础模型 `nvidia/nemotron-3-ultra-550b-a55b`。该注册项支持 Chat Completions
 和无状态 Responses；`store: true`、非空 `previous_response_id` 与 `background: true` 会在 egress 前拒绝。
 它不启用 Protocol Bridge、fallback 或带额外会话记录政策的 `:free` 变体。
 
-DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `DEEPSEEK_API_KEYS` pool 和固定
+DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool 和固定
 `https://api.deepseek.com` endpoint。每个模型的 Chat 使用 Native Route，Responses 只通过受限 Bridge 转换到
 Chat Upstream API；不伪装上游 Responses 能力。Xiaomi MiMo 当前注册 `mimo-v2.5-pro` 与 `mimo-v2.5`，使用
-`MIMO_API_KEYS` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
+`mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
 及同 target 的反向 Bridge 候选。两者都未增加 reasoning wire 映射、图像、structured output、并行 tool、
 store、background 或 continuation 能力。
 
-下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自必填的 `*_API_KEYS` JSON 字符串数组，旧单数变量不再读取。代码注册表只保存 pool、Provider、credential kind 和环境变量名称。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；缺失、空数组、空白成员或重复 secret 会阻止启动。运行时不重新读取文件或环境变量；修改 pool 必须重启。
+下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML 数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
 
 认证成功后的请求 span 记录 request id、user id、协议和 Public Model；每次上游 attempt 记录 route、target、
 Provider 与脱敏 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个
