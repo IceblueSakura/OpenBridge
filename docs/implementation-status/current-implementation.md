@@ -93,15 +93,21 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 - 对 `previous_response_id` 关闭跨 target fallback；
 - Native Route 保持非流式 status/body 和流式原始 bytes；Bridged Route 转换非流式 JSON 与增量 SSE event；
 - 两种路径都检查 SSE UTF-8、framing、event size 与 terminal，并保持有限安全 header；
-- OpenRouter Responses 按官方 data JSON 中的 `response.done` 与嵌套 `response.status` 区分完成和失败终态，
-  不把尾随 `[DONE]` 代替语义终态；
+- LongCat Responses 按 data JSON 顶层 `type` 的 `response.completed`、`response.failed` 与
+  `response.incomplete` 识别终态，不要求上游额外发送 `event:` 字段；
+- OpenRouter Responses 按真实 Nemotron-3 stream 的 data JSON 顶层 `type` 识别 `response.completed`、
+  `response.failed` 与 `response.incomplete`，不把尾随 `[DONE]` 代替语义终态；
+- OpenAI terminal 事件词汇与 discriminator 来源由编译期 adapter 分开建模；同一 SSE event 同时携带相互
+  冲突的 `event:` 与 data JSON `type` terminal 时失败关闭，各 Provider 不接受未绑定的 discriminator 或其他
+  terminal family；
 - 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限 retry/fallback，并执行 50～500 ms capped exponential backoff；
 - 无状态请求从 Provider pool 的共享 cursor 做 round-robin；只有 HTTP 429 会冷却当前 member 并在同一候选内轮转，5xx/timeout/transport retry 保持当前 member，其他 4xx 不轮转；
 - member cooldown 使用 `Retry-After` delta/date，缺失或非法时为 1 秒并封顶 30 秒；同请求不会回绕已经 429 的 member，pool 大小不扩大 6/2 attempt 上限；
 - 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport error；
 - 429 只记录 member cooldown；暂时性 5xx 与 transport failure 记录 target `fault_domain` cooldown。后续无状态请求跳过已知受限 member/target，target-bound continuation 要求单成员 pool 并继续尝试原 target；
 - 在下游中断 pending send、退避等待或丢弃 response body 时取消相应上游工作，不再启动后续 attempt；
-- 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测。
+- 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测；
+  外层 body observer 仅在自身提交 EOF 或错误后报告 end-stream，避免完整单帧 body 被误记为下游取消。
 
 ## 请求观测与进程内统计
 
@@ -161,9 +167,15 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 130 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
-格式与 diff 检查通过。没有运行外部 SDK、独立 Python/curl 黑盒测试、Codex/Hermes、真实 Provider、
-负载或长期验证。
+结果为 134 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
+格式与 diff 检查通过。另使用 `users.toml` 中的本地用户 key，通过逐行消费 SSE 的独立 PowerShell HTTP client
+显式调用真实 LongCat、MiMo 与 DeepSeek：三者的 Chat/Responses streaming 均返回 HTTP 200、
+`text/event-stream` 和明确终态；LongCat/MiMo 两种协议走 Native，DeepSeek Chat 走 Native、Responses 走
+Responses→Chat Bridge。另对真实 OpenRouter `nemotron-3-ultra` 先后执行修复前复现与修复后验收的 Responses
+Native streaming：两次均为 HTTP 200，所有 SSE frame 均未携带 `event:`，语义终态为 data JSON 顶层
+`type=response.completed`，随后发送 `[DONE]`；修复前网关误记为 `sse_eof_before_terminal`，修复后记录
+`outcome=completed`。这条真实证据只覆盖 2026-08-02 的成功流，不证明失败流、其他 OpenRouter 模型或未来
+wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证。
 
 ## 当前未实现
 

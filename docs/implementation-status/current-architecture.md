@@ -201,7 +201,8 @@ Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `Ap
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有
-Provider 契约、endpoint path 与 request-header hook；共享 `openai_compatible` 机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
+Provider 契约、endpoint path、request-header hook 与 Responses terminal discriminator；共享 `openai_compatible`
+机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
 错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
@@ -234,8 +235,9 @@ quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Publi
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
 timeout。Native streaming response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged
 stream 则按完整 event 增量渲染目标协议 wire。下游丢弃任一 body 时，上游 stream 随之取消。
-OpenAI-compatible 默认 profile 识别 OpenAI `response.completed`/failure event；OpenRouter profile 则解析
-data-only `response.done` 的嵌套 status，避免把 Provider 间不同的 SSE terminal 规则错误求并集。
+OpenAI-compatible adapter 统一使用 OpenAI terminal 词汇，并把 discriminator 来源作为编译期 Provider
+事实：OpenAI/MiMo 从 SSE `event:` 读取，LongCat/OpenRouter 从 data JSON 顶层 `type` 读取。discriminator
+不进入 TOML 或运行时探测；双来源 terminal 冲突时失败关闭，也不把尾随 `[DONE]` 代替 Responses 语义终态。
 
 `ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 共享最多 6 次的硬预算，
 每候选最多 2 次，attempt 间从 50 ms 起按二倍增长并 capped 到 500 ms；在预算可容纳时为未尝试候选保留
@@ -243,8 +245,8 @@ data-only `response.done` 的嵌套 status，避免把 Provider 间不同的 SSE
 response body，提交 response 后不得再拼接另一上游响应。
 
 Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff 取消，建立后把责任移交给外层
-`RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，在真实 EOF、body error 或 drop 时提交唯一请求
-终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把 headers ready
+`RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，仅在自身提交真实 EOF 或 body error 后报告
+end-stream，并在真实 EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把 headers ready
 误当成 TTFT。JSON usage 只在配置上限内临时解析，SSE usage 按完整 event 解析；业务正文不会写入 tracing 或
 进程内累计值。attempt 的 route/target/Provider 等高基数事实只属于 tracing event，`GatewayMetrics` 只维护
 进程级低基数单调计数。

@@ -29,9 +29,12 @@ use crate::{
 pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(), AdapterError>;
 
 #[derive(Clone, Copy)]
-enum ResponsesTerminalProfile {
-    OpenAiEventField,
-    OpenRouterDataOnlyDone,
+/// OpenAI terminal 事件词汇在 SSE event 中的判别来源。
+enum OpenAiTerminalDiscriminator {
+    /// 从 SSE `event:` 字段读取 terminal 名称。
+    SseEventField,
+    /// 从 data JSON 顶层 `type` 字段读取 terminal 名称。
+    DataJsonType,
 }
 
 /// 一个静态 OpenAI-compatible wire profile。
@@ -43,7 +46,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     responses_path: Option<&'static str>,
     model_list_path: &'static str,
     request_header_hook: RequestHeaderHook,
-    responses_terminal_profile: ResponsesTerminalProfile,
+    responses_terminal_discriminator: OpenAiTerminalDiscriminator,
 }
 
 impl OpenAiCompatibleAdapter {
@@ -63,13 +66,13 @@ impl OpenAiCompatibleAdapter {
             responses_path,
             model_list_path,
             request_header_hook,
-            responses_terminal_profile: ResponsesTerminalProfile::OpenAiEventField,
+            responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
         }
     }
 
-    /// 使用 OpenRouter 在 data JSON 中声明的 `response.done` 终态格式。
-    pub(crate) const fn with_openrouter_responses_terminal(mut self) -> Self {
-        self.responses_terminal_profile = ResponsesTerminalProfile::OpenRouterDataOnlyDone;
+    /// 从 data JSON 顶层 `type` 读取 OpenAI Responses terminal 名称。
+    pub(crate) const fn with_openai_data_type_responses_terminal(mut self) -> Self {
+        self.responses_terminal_discriminator = OpenAiTerminalDiscriminator::DataJsonType;
         self
     }
 
@@ -181,16 +184,7 @@ impl OpenAiCompatibleAdapter {
 
     /// 按具体 OpenAI-compatible profile 识别 Responses SSE 终态。
     fn classify_responses_sse_event(self, event: &SseEvent) -> StreamEventStatus {
-        match self.responses_terminal_profile {
-            ResponsesTerminalProfile::OpenAiEventField => match event.event() {
-                Some("response.completed") => StreamEventStatus::Completed,
-                Some("response.failed" | "response.incomplete") => StreamEventStatus::Failed,
-                _ => StreamEventStatus::Continue,
-            },
-            ResponsesTerminalProfile::OpenRouterDataOnlyDone => {
-                classify_openrouter_responses_done(event)
-            }
-        }
+        classify_openai_responses_terminal(event, self.responses_terminal_discriminator)
     }
 
     /// 将 OpenAI-compatible HTTP status 映射为错误与重试分类。
@@ -227,26 +221,49 @@ impl OpenAiCompatibleAdapter {
     }
 }
 
-/// 从 OpenRouter data-only `response.done` event 提取终态，未知形状保持非终态。
-fn classify_openrouter_responses_done(event: &SseEvent) -> StreamEventStatus {
-    // 解析最小终态 envelope，不保留或记录业务正文。
-    let Ok(document) = serde_json::from_str::<serde_json::Value>(event.data()) else {
+/// 按编译期 discriminator 读取 OpenAI Responses terminal，并拒绝双来源冲突。
+fn classify_openai_responses_terminal(
+    event: &SseEvent,
+    discriminator: OpenAiTerminalDiscriminator,
+) -> StreamEventStatus {
+    // 读取 profile 指定的 terminal 来源，未命中时保持非终态。
+    let (selected, corroborating) = match discriminator {
+        OpenAiTerminalDiscriminator::SseEventField => {
+            let selected = classify_openai_terminal_name(event.event());
+            let corroborating = selected.and_then(|_| classify_data_json_openai_terminal(event));
+            (selected, corroborating)
+        }
+        OpenAiTerminalDiscriminator::DataJsonType => (
+            classify_data_json_openai_terminal(event),
+            classify_openai_terminal_name(event.event()),
+        ),
+    };
+    let Some(selected) = selected else {
         return StreamEventStatus::Continue;
     };
-    if document.get("type").and_then(serde_json::Value::as_str) != Some("response.done") {
-        return StreamEventStatus::Continue;
-    }
 
-    // 依据 response status 区分正常完成与失败终态。
-    match document
-        .get("response")
-        .and_then(|response| response.get("status"))
-        .and_then(serde_json::Value::as_str)
-    {
-        Some("completed") => StreamEventStatus::Completed,
-        Some("failed" | "incomplete") => StreamEventStatus::Failed,
-        _ => StreamEventStatus::Continue,
+    // 同一 event 的两个明确 terminal 相互冲突时必须失败关闭。
+    if corroborating.is_some_and(|status| status != selected) {
+        StreamEventStatus::Failed
+    } else {
+        selected
     }
+}
+
+/// 将 OpenAI Responses terminal 名称映射为统一 stream 状态。
+fn classify_openai_terminal_name(name: Option<&str>) -> Option<StreamEventStatus> {
+    match name {
+        Some("response.completed") => Some(StreamEventStatus::Completed),
+        Some("response.failed" | "response.incomplete") => Some(StreamEventStatus::Failed),
+        _ => None,
+    }
+}
+
+/// 从 data JSON 顶层 `type` 提取 OpenAI Responses terminal 名称。
+fn classify_data_json_openai_terminal(event: &SseEvent) -> Option<StreamEventStatus> {
+    // 解析最小 event envelope，不保留或记录业务正文。
+    let document = serde_json::from_str::<serde_json::Value>(event.data()).ok()?;
+    classify_openai_terminal_name(document.get("type").and_then(serde_json::Value::as_str))
 }
 
 /// 构造一对显式 Chat/Responses HTTP JSON/SSE Upstream API。

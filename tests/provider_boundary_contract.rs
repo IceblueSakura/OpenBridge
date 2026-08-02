@@ -124,16 +124,23 @@ fn response_adapter_classifies_protocol_specific_terminal_events() {
 }
 
 #[test]
-fn openrouter_responses_classifies_data_only_done_terminal() {
+fn openrouter_responses_classifies_data_only_openai_terminal() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
     let mut decoder = SseDecoder::new(256);
     let completed = decoder
-        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}\n\n")
+        .push(
+            b"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+        )
         .unwrap()
         .remove(0);
     let mut decoder = SseDecoder::new(256);
     let failed = decoder
-        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"failed\"}}\n\n")
+        .push(b"data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n")
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let unconfigured_done = decoder
+        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}\n\n")
         .unwrap()
         .remove(0);
 
@@ -150,6 +157,135 @@ fn openrouter_responses_classifies_data_only_done_terminal() {
             .unwrap()
             .status(),
         StreamEventStatus::Failed
+    );
+    assert_eq!(
+        adapter
+            .classify_sse_event(ApiProtocol::Responses, unconfigured_done)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Continue
+    );
+}
+
+#[test]
+fn longcat_responses_classifies_data_only_type_terminal() {
+    let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let mut decoder = SseDecoder::new(256);
+    let completed = decoder
+        .push(
+            b"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+        )
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let failed = decoder
+        .push(b"data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n")
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(
+        adapter
+            .classify_sse_event(ApiProtocol::Responses, completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Completed
+    );
+    assert_eq!(
+        adapter
+            .classify_sse_event(ApiProtocol::Responses, failed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Failed
+    );
+}
+
+#[test]
+fn openai_event_profiles_fail_closed_on_conflicting_terminal_discriminators() {
+    let openai = ProviderAdapter::for_kind(ProviderKind::OpenAi);
+    let mut decoder = SseDecoder::new(256);
+    let event_completed_data_failed = decoder
+        .push(
+            b"event: response.completed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n",
+        )
+        .unwrap()
+        .remove(0);
+    let longcat = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let mut decoder = SseDecoder::new(256);
+    let event_failed_data_completed = decoder
+        .push(
+            b"event: response.failed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+        )
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(
+        openai
+            .classify_sse_event(ApiProtocol::Responses, event_completed_data_failed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Failed
+    );
+    assert_eq!(
+        longcat
+            .classify_sse_event(ApiProtocol::Responses, event_failed_data_completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Failed
+    );
+}
+
+#[test]
+fn responses_terminal_discriminators_reject_unconfigured_wire_shapes() {
+    // 构造只应由另一 discriminator 接受或未配置的 terminal wire。
+    let mut decoder = SseDecoder::new(256);
+    let data_type_completed = decoder
+        .push(b"data: {\"type\":\"response.completed\"}\n\n")
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let openrouter_event_field_completed = decoder
+        .push(b"event: response.completed\ndata: {}\n\n")
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let event_field_completed = decoder
+        .push(b"event: response.completed\ndata: {}\n\n")
+        .unwrap()
+        .remove(0);
+    let mut decoder = SseDecoder::new(256);
+    let open_responses_done = decoder
+        .push(b"data: {\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}\n\n")
+        .unwrap()
+        .remove(0);
+
+    // 验证每个 Provider 只接受编译期绑定的 terminal discriminator 与词汇。
+    assert_eq!(
+        ProviderAdapter::for_kind(ProviderKind::OpenAi)
+            .classify_sse_event(ApiProtocol::Responses, data_type_completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Continue
+    );
+    assert_eq!(
+        ProviderAdapter::for_kind(ProviderKind::LongCat)
+            .classify_sse_event(ApiProtocol::Responses, event_field_completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Continue
+    );
+    assert_eq!(
+        ProviderAdapter::for_kind(ProviderKind::LongCat)
+            .classify_sse_event(ApiProtocol::Responses, open_responses_done)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Continue
+    );
+    assert_eq!(
+        ProviderAdapter::for_kind(ProviderKind::OpenRouter)
+            .classify_sse_event(ApiProtocol::Responses, openrouter_event_field_completed)
+            .unwrap()
+            .status(),
+        StreamEventStatus::Continue
     );
 }
 

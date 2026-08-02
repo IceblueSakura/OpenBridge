@@ -48,7 +48,8 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     Some("/openai/v1/responses"),
     "/v1/models",
     transform_request_headers,
-);
+)
+.with_openai_data_type_responses_terminal();
 
 /// LongCat contract 与 adapter 的唯一静态描述符。
 pub(crate) static DEFINITION: ProviderDefinition =

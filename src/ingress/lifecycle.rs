@@ -135,7 +135,8 @@ impl HttpBody for RequestBodyObserver {
     }
 
     fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
+        // 外层只有在提交 EOF 或错误后才能报告结束，否则 Hyper 可能跳过最终 poll 并把完整 body 误记为取消。
+        self.finished
     }
 
     fn size_hint(&self) -> SizeHint {
@@ -149,5 +150,48 @@ impl Drop for RequestBodyObserver {
         if !self.finished {
             self.observation.cancel();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{pin::pin, task::Context};
+
+    use axum::body::Body;
+    use futures_util::task::noop_waker_ref;
+    use http_body::Body as HttpBody;
+
+    use super::RequestBodyObserver;
+    use crate::observability::{GatewayMetrics, RequestObservation, UsageCapture};
+
+    #[test]
+    fn complete_single_frame_body_waits_for_observer_eof_before_reporting_end_stream() {
+        // 构造会在首帧后立即报告底层 end-stream 的完整内存 body。
+        let metrics = GatewayMetrics::default();
+        let observation = RequestObservation::new(metrics.clone(), tracing::Span::none());
+        observation.record_response_ready(http::StatusCode::OK);
+        let mut observer = pin!(RequestBodyObserver::new(
+            Body::from("complete"),
+            observation,
+            UsageCapture::None,
+        ));
+        let mut context = Context::from_waker(noop_waker_ref());
+
+        // 消费唯一 data frame 后，外层仍需等待一次 EOF poll 才能提交 completed。
+        assert!(matches!(
+            observer.as_mut().poll_frame(&mut context),
+            std::task::Poll::Ready(Some(Ok(_)))
+        ));
+        assert!(!observer.is_end_stream());
+        assert!(matches!(
+            observer.as_mut().poll_frame(&mut context),
+            std::task::Poll::Ready(None)
+        ));
+        drop(observer);
+
+        // 正常 EOF 只能累计 completed，不能在 Drop 中误记 cancelled。
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.requests_completed, 1);
+        assert_eq!(snapshot.requests_cancelled, 0);
     }
 }
