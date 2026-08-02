@@ -53,9 +53,9 @@
 canonical reasoning level vocabulary 为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；
 每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用 reasoning，不等同于缺少 reasoning 字段。
 
-当前生产请求路径支持显式 `Bridged` Route。`BridgePlan` 转换两协议共同可表达的 text、function schema、
-tool call/result identity、非流式 JSON 和流式 SSE lifecycle；未知顶层字段、continuation、hosted/custom tool、
-reasoning、image、structured output、background/store 和 Provider 私有扩展在 egress 前拒绝。Bridge 不能因
+显式 `Bridged` Route 必须只转换两协议共同可表达且已进入 allowlist 的 text、function schema、tool
+call/result identity、非流式 JSON 和流式 SSE lifecycle；未知顶层字段、continuation、hosted/custom tool、
+reasoning、image、structured output、background/store 和 Provider 私有扩展必须在 egress 前拒绝。Bridge 不能因
 字段名相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
 
 流式请求必须满足：

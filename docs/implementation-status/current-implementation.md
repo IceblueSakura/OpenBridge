@@ -28,8 +28,8 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 |---|---|---|
 | `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
 | `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
-| `POST /v1/chat/completions` | OpenAI-compatible Chat Native JSON/SSE | 静态 Bearer |
-| `POST /v1/responses` | OpenAI-compatible Responses Native JSON/SSE | 静态 Bearer |
+| `POST /v1/chat/completions` | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE | 静态 Bearer |
+| `POST /v1/responses` | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE | 静态 Bearer |
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 分别来自
 `OPENAI_API_KEYS`、`LONGCAT_API_KEYS`、`OPENROUTER_API_KEYS`、`DEEPSEEK_API_KEYS` 与 `MIMO_API_KEYS`
@@ -46,12 +46,19 @@ Store 条目同时冻结 credential type、仅含类别的 source、generation �
 ## Provider 与请求行为
 
 闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo，五者都进入 compiled
-registry。OpenAI、LongCat 与 MiMo 注册 Chat/Responses Native 与双向 `Bridged` route；MiMo 的两个固定 target
-分别对应 `mimo-v2.5-pro` 与 `mimo-v2.5`。OpenRouter 注册 `nemotron-3-ultra` 的 Chat 与无状态 Responses Native
-route，没有 Bridge 或 fallback，且 `store`、`previous_response_id` 与 `background` 能力关闭。DeepSeek 的
-`deepseek-v4-pro` 与 `deepseek-v4-flash` target 只声明 Chat Upstream API；下游 Chat 走 Native，Responses 走
-Responses→Chat Bridge。五个 Provider 分别拥有独立静态定义、endpoint profile、upstream model 与能力；
-尚未接入真实异构 wire protocol Provider。
+registry。当前可路由目录如下；“Bridge 候选”只表示已注册的协议转换路径，不表示上游原生支持该协议：
+
+| Provider | Public Model | 固定 Upstream Target | 下游可用 Route surface | Credential pool / locator |
+|---|---|---|---|---|
+| OpenAI | `code-primary` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` / `OPENAI_API_KEYS` |
+| LongCat | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary` / `LONGCAT_API_KEYS` |
+| OpenRouter | `nemotron-3-ultra` | `openrouter-nemotron-3-ultra` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` / `OPENROUTER_API_KEYS` |
+| DeepSeek | `deepseek-v4-pro`、`deepseek-v4-flash` | 同名两个 target | Chat Native；Responses→Chat Bridge；无原生 Responses Upstream API | `deepseek-primary` / `DEEPSEEK_API_KEYS` |
+| Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` / `MIMO_API_KEYS` |
+
+OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider
+分别拥有独立静态 definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用
+OpenAI-compatible wire，尚未接入或实测真实异构 wire protocol Provider。
 
 五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。

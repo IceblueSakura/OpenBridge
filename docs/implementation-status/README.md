@@ -1,6 +1,8 @@
 # 实施现状
 
 本目录只记录已由当前代码、测试或明确验证记录支持的事实；未实施的设计和后续设想不在这里作状态声明。
+同一事实出现冲突时，按“当前 checkout → 对应确定性测试 → 本目录最近一次实际验证记录”的顺序处理；历史计数
+或外部观察不得覆盖 live source。
 
 | 功能 | 文档 | 内容 |
 |---|---|---|
@@ -9,4 +11,6 @@
 | 上游能力发现 | [上游模型发现与能力探测](capability-probing.md) | 探测 CLI 的行为、边界和输出处理 |
 | 独立协议测试资产 | [协议测试语料与工具](protocol-test-corpus.md) | corpus、Python 管理工具、Mock Server/Client、验证结果与尚未集成边界 |
 
-更新实现现状前，先明确证据来自哪项代码、测试或脱敏验证；SDK、mock 与真实客户端/Provider 的结论必须分开表述。
+当前可路由 Provider/Public Model 矩阵和最新 Rust 验证统一写在[当前实现说明](current-implementation.md)，避免在
+多个专题页维护易漂移副本。更新实现现状前，先明确证据来自哪项代码、测试或脱敏验证；静态源码、确定性
+mock/fixture、外部 SDK、独立客户端、目标 Agent 与真实 Provider 的结论必须分开表述。

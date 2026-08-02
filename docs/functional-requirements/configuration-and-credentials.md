@@ -49,9 +49,10 @@ route 热重载。
 - 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
 - 代码注册表只保存非敏感 pool/member id、Provider、credential kind 和环境变量名称；
 - 服务与 probe 可选加载 `.env`，已有进程环境变量优先；仓库只提交无真实值的 `.env.example`；
-- 当前 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo pool 分别从 `OPENAI_API_KEYS`、
-  `LONGCAT_API_KEYS`、`OPENROUTER_API_KEYS`、`DEEPSEEK_API_KEYS` 与 `MIMO_API_KEYS` 获取；
-- 上述变量必须是 JSON string array；不读取或合并旧的 `*_API_KEY`。数组必须存在、至少包含一个非空白字符串且不能包含重复 secret，违反时在
+- 每个已启用 Upstream Target 引用的 credential pool 必须由代码注册一个必填的 JSON 字符串数组环境变量 locator；具体 Provider、
+  pool ID 与 locator 清单属于当前实现事实，统一由[当前实现说明](../implementation-status/current-implementation.md)
+  记录；
+- pool 变量必须是 JSON string array；不得读取或合并含义重叠的旧单值变量并静默改变优先级。数组必须存在、至少包含一个非空白字符串且不能包含重复 secret，违反时在
   listener 绑定前失败；
 - 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target 引用的 pool 一次性装入不可变 `CredentialStore`；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
@@ -63,7 +64,9 @@ route 热重载。
   `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 Key 缺失或为空时在监听前失败；
 - 运行时不得重新读取 `users.toml`、`.env` 或进程环境变量；改变任何 Key 必须重启，不支持热更新；
-- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook 可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。当前 OpenAI 与 LongCat hook 转发 `User-Agent`；OpenRouter hook 不转发可选 attribution/routing header。
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook
+  可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。具体 Provider 的
+  header policy 属于实现事实，不应在本需求文档中固化。
 
 ### 3.1 上游 API-key pool
 
@@ -129,7 +132,7 @@ optionally load .env
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。 |
 | CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。 |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。 |
-| CFG-07 | 非 loopback listener 在当前实现中拒绝启动。 |
+| CFG-07 | listener 只允许 loopback；非 loopback 地址必须在监听前拒绝。 |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。 |
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。 |
 | CFG-10 | 任一已启用 Upstream Target 引用的 API-key pool source 缺失、为空或不能解析时，会在 listener 绑定前阻止服务启动。 |

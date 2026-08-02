@@ -45,22 +45,23 @@ credential、endpoint 和内部 Route。
 |---|---|
 | `GET /healthz` | 返回最小本地存活状态和注册表版本。 |
 | `GET /v1/models` | 返回代码注册的 Public Model。 |
-| `POST /v1/chat/completions` | OpenAI-compatible Chat JSON/SSE Native Path。 |
-| `POST /v1/responses` | OpenAI-compatible Responses JSON/SSE Native Path。 |
+| `POST /v1/chat/completions` | 在已声明能力和完整 Route 内提供 OpenAI-compatible Chat JSON/SSE。 |
+| `POST /v1/responses` | 在已声明能力和完整 Route 内提供 OpenAI-compatible Responses JSON/SSE。 |
 
-## 当前未实现
+## 暂不纳入当前产品承诺
 
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- OAuth、keyring、私有 secret 文件、subscription/OAuth 多账号池和账号级负载均衡；同 Provider API-key
-  已实现同 Provider API-key pool 的有限 429 rotation，但不包含 subscription/OAuth 多账号池或动态控制面；
+- OAuth、keyring、私有 secret 文件、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 
-这些能力只有在进入[当前开发焦点](../implementation-plans/current-focus.md)后才形成实施计划。
+本节只限定产品范围，不声明代码缺口。当前实现是否已经覆盖某项核心结果，以
+[当前实现说明](../implementation-status/current-implementation.md)为准；新增承诺只有在功能需求先明确、再进入
+[当前开发焦点](../implementation-plans/current-focus.md)后才形成实施任务。
 
 ## 术语
 

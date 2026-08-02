@@ -42,8 +42,8 @@
 - target-bound continuation 要求单 member pool，即使 target 正在 cooldown 也继续尝试原 target，并保持禁止跨 target fallback；
 - 认证失败、普通无效请求和其他不可重试 4xx 不进入 cooldown，也不触发 credential 轮换。
 
-当前实现不提供动态权重、后台探测、持久化健康状态、跨进程协调、分布式限流或动态 credential 控制面。有限
-retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系统。
+本需求不把动态权重、后台探测、持久化健康状态、跨进程协调、分布式限流或动态 credential 控制面纳入当前
+承诺。有限 retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系统。
 
 ## API-key pool 的错误、轮转与退避策略
 

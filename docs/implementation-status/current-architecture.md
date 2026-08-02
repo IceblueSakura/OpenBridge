@@ -5,8 +5,8 @@
 **已实现事实。** 当前生产注册表使用
 `ModelConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。
-最近一次记录已完成格式化、全量 Rust 测试与 Clippy；需要下载外部 SDK 的兼容性测试仍保持 ignored，
-真实 Provider、负载和长期运行验证未执行。
+本页不复制易漂移的测试数量；最近实际运行的命令、结果和未执行验收层统一见
+[当前实现说明](current-implementation.md#验证状态)。
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
 cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
@@ -269,10 +269,10 @@ stream 的分片，不用它替代 call id。两侧要求唯一 terminal 和闭�
 target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
-测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。2026-08-02 最近一次执行
-`cargo test --locked`，129 个测试通过、1 个外部 SDK 集成测试 ignored；
-`cargo clippy --locked -- -D warnings` 通过。未执行外部 SDK、独立 Python/curl 黑盒测试、目标 Agent、
-真实 Provider、负载或长期运行验证。
+测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。确定性测试保护注册表、
+Provider 边界、路由、HTTP/SSE、Bridge、retry/fallback、credential rotation/cooldown、取消与观测行为；它们
+不自动升级为外部 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。最新实际执行结果
+只在[当前实现说明](current-implementation.md#验证状态)维护。
 
 ## 9. 尚未实现
 
