@@ -382,14 +382,17 @@ pub(super) async fn forward_request(
     }
 }
 
+/// 判断 status 是否允许在首个下游 event 前继续当前 attempt 流程。
 fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode) -> bool {
     adapter.classify_status(status).retry_hint() == crate::provider::RetryHint::BeforeFirstEvent
 }
 
+/// 只把可安全重新发送的 timeout/request transport failure 纳入 retry。
 fn should_retry_error(error: &TransportError) -> bool {
     matches!(error, TransportError::Timeout | TransportError::Request(_))
 }
 
+/// 将 transport 错误映射为不含底层消息的低基数观测类别。
 fn transport_error_kind(error: &TransportError) -> &'static str {
     match error {
         TransportError::ClientBuild(_) => "client_build",

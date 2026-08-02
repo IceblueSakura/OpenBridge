@@ -142,6 +142,7 @@ impl SseDecoder {
         Ok(self.current.take_event().into_iter().collect())
     }
 
+    /// 检查尚未形成完整 line 的缓冲区是否仍在单 event 上限内。
     fn ensure_size_limit(&self) -> Result<(), SseDecodeError> {
         if self.current_bytes.saturating_add(self.buffered.len()) > self.max_event_bytes {
             Err(SseDecodeError::EventTooLarge)
@@ -161,6 +162,7 @@ struct EventBuilder {
 }
 
 impl EventBuilder {
+    /// 解析一行 SSE field，并只保留当前协议边界需要的字段。
     fn apply_line(&mut self, line: &str) {
         // 解析 field/value，并忽略 SSE 协议未建模的字段。
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
@@ -189,6 +191,7 @@ impl EventBuilder {
         }
     }
 
+    /// 在空行或 EOF 边界转移当前 event，并重置 builder 状态。
     fn take_event(&mut self) -> Option<SseEvent> {
         // 空事件不产生输出，完整事件则一次性转移字段所有权。
         if !self.has_fields {

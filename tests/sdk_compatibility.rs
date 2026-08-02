@@ -1,3 +1,7 @@
+//! 通过运行时安装的 OpenAI Python/Node SDK 验证 loopback HTTP/SSE 兼容性。
+//!
+//! 这些测试默认被忽略；只有显式执行 ignored test 时才会安装或调用外部 SDK。
+
 mod support;
 
 use std::{

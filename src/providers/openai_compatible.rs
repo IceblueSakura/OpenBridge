@@ -76,12 +76,12 @@ impl OpenAiCompatibleAdapter {
         self
     }
 
-    /// 返回 profile 绑定的 Provider 契约。
+    /// 返回 profile 绑定的静态 Provider contract。
     pub(crate) fn contract(self) -> &'static ProviderContract {
         self.contract
     }
 
-    /// 构造模型列表 probe 使用的相对请求。
+    /// 构造管理员 probe 使用的固定模型列表请求。
     pub(crate) fn prepare_model_list_request(self) -> PreparedUpstreamRequest {
         PreparedUpstreamRequest::new(
             Method::GET,
@@ -189,6 +189,7 @@ impl OpenAiCompatibleAdapter {
 
     /// 将 OpenAI-compatible HTTP status 映射为错误与重试分类。
     pub(crate) fn classify_status(self, status: StatusCode) -> StatusClassification {
+        // 先按 OpenAI-compatible status 族选择错误类别，再决定是否允许 pre-output retry。
         let (kind, retry_hint) = match status {
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
                 (UpstreamErrorKind::InvalidRequest, RetryHint::Never)
@@ -252,6 +253,7 @@ fn classify_openai_responses_terminal(
 
 /// 将 OpenAI Responses terminal 名称映射为统一 stream 状态。
 fn classify_openai_terminal_name(name: Option<&str>) -> Option<StreamEventStatus> {
+    // 只把协议明确声明的 terminal 名称转换为统一生命周期状态。
     match name {
         Some("response.completed") => Some(StreamEventStatus::Completed),
         Some("response.failed" | "response.incomplete") => Some(StreamEventStatus::Failed),
@@ -272,6 +274,7 @@ pub(crate) fn native_upstream_apis(
     endpoint_profile: &str,
     capabilities: ApiCapabilities,
 ) -> Vec<UpstreamApiConfig> {
+    // 为同一个 target 构造共享 model/profile 的 Chat 与 Responses 原生供应。
     vec![
         UpstreamApiConfig {
             id: "chat".to_owned(),

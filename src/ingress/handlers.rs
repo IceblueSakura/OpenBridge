@@ -9,7 +9,9 @@ use crate::{core::ApiProtocol, observability::RequestObservation};
 
 use super::{forwarding::forward_request, response::api_error, state::GatewayState};
 
+/// 只从不可变 registry 生成 Public Model 列表，不暴露上游模型或 target。
 pub(super) async fn models(State(state): State<GatewayState>) -> Json<ModelListResponse> {
+    // 读取稳定的 Public Model id 并构造 OpenAI-compatible list envelope。
     let data = state
         .registry
         .public_models()
@@ -38,6 +40,7 @@ struct PublicModel {
     owned_by: &'static str,
 }
 
+/// 接收 Chat Completions JSON 请求，并交给统一 forwarding pipeline。
 pub(super) async fn chat_completions(
     State(state): State<GatewayState>,
     Extension(observation): Extension<RequestObservation>,
@@ -58,6 +61,7 @@ pub(super) async fn chat_completions(
     .await
 }
 
+/// 接收 Responses JSON 请求，并交给统一 forwarding pipeline。
 pub(super) async fn responses(
     State(state): State<GatewayState>,
     Extension(observation): Extension<RequestObservation>,
@@ -71,7 +75,9 @@ pub(super) async fn responses(
     forward_request(state, observation, ApiProtocol::Responses, headers, body).await
 }
 
+/// 判断请求是否恰好携带 application/json media type。
 fn has_json_content_type(headers: &HeaderMap) -> bool {
+    // 拒绝缺失或重复 Content-Type，避免多个值造成边界解释不一致。
     let mut values = headers.get_all(CONTENT_TYPE).iter();
     let Some(value) = values.next() else {
         return false;
@@ -79,6 +85,7 @@ fn has_json_content_type(headers: &HeaderMap) -> bool {
     if values.next().is_some() {
         return false;
     }
+    // 忽略 media type 参数，但只接受 application/json。
     value
         .to_str()
         .ok()
@@ -86,6 +93,7 @@ fn has_json_content_type(headers: &HeaderMap) -> bool {
         .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
 }
 
+/// 为非 JSON 请求生成稳定的协议错误响应。
 fn unsupported_media_type() -> Response {
     api_error(
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -100,7 +108,9 @@ pub(super) struct HealthResponse {
     registry_version: String,
 }
 
+/// 返回本地服务健康状态和当前编译 registry 版本。
 pub(super) async fn health(State(state): State<GatewayState>) -> Json<HealthResponse> {
+    // 仅报告服务存活和编译期 registry 版本，不探测真实 Provider。
     Json(HealthResponse {
         status: "ok",
         registry_version: state.registry.version().as_str().to_owned(),

@@ -151,7 +151,9 @@ impl fmt::Debug for UserConfiguration {
     }
 }
 
+/// 将 credential builder 错误收敛为用户配置层的稳定错误。
 fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
+    // 将 credential builder 的细粒度错误收敛为不泄露 secret 的用户配置错误。
     match error {
         CredentialStoreError::DuplicateDownstreamSecret => UserRegistryError::DuplicateApiKey,
         CredentialStoreError::DuplicateId => UserRegistryError::DuplicateApiKey,

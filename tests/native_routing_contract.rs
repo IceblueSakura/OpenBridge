@@ -1,3 +1,5 @@
+//! 验证请求事实、能力门禁、Native/Bridged route 候选和 reasoning 映射。
+
 mod support;
 
 use openbridge::{

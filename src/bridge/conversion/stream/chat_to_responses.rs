@@ -272,12 +272,14 @@ impl ChatToResponsesStream {
         Ok(Bytes::new())
     }
 
+    /// 返回已由首个 Chat response id 派生的 Responses message id。
     fn message_id(&self) -> &str {
         self.message_id
             .as_deref()
             .expect("message id follows response id")
     }
 
+    /// 构造当前 assistant message 的完整 Responses item 快照。
     fn message_value(&self) -> Value {
         json!({
             "content": [{"annotations": [], "text": self.text, "type": "output_text"}],
@@ -289,6 +291,7 @@ impl ChatToResponsesStream {
     }
 }
 
+/// 将累计的 Chat tool call 转为 completed Responses function item 快照。
 fn call_value(call: &StreamCall) -> Value {
     json!({
         "arguments": call.arguments,

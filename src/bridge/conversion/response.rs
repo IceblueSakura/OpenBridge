@@ -86,11 +86,13 @@ pub(super) fn responses_response_to_chat(
 
 /// 提取一个 Responses message item 中已支持的 output text。
 fn responses_output_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
+    // 读取 Responses message 的 content parts，并拒绝未建模的输出类型。
     let parts = item
         .get("content")
         .and_then(Value::as_array)
         .ok_or(BridgeError::InvalidShape)?;
     let mut text = String::new();
+    // 按 wire 顺序合并每个已确认的 output_text part。
     for part in parts {
         let part = part.as_object().ok_or(BridgeError::InvalidShape)?;
         if part.get("type").and_then(Value::as_str) != Some("output_text") {

@@ -1,3 +1,5 @@
+//! 验证仓库示例配置、编译模型目录和默认 route 事实保持一致。
+
 use openbridge::{
     config::parse_bootstrap_config,
     core::ApiProtocol,

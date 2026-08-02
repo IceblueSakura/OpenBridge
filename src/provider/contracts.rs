@@ -44,6 +44,7 @@ impl SafeHeaders {
         self.0.remove(name)
     }
 
+    /// 消费安全 header 集合，交给 egress 组装最终请求。
     pub(crate) fn into_inner(self) -> HeaderMap {
         self.0
     }
@@ -97,15 +98,18 @@ impl SensitiveHeaders {
         self.0.contains_key(&name)
     }
 
+    /// 仅在 crate 内测试中读取敏感 header，生产代码不提供该访问路径。
     #[cfg(test)]
     pub(super) fn expose(&self, name: HeaderName) -> Option<&str> {
         self.0.get(&name).map(|value| value.as_str())
     }
 
+    /// 暂存一个仍由 zeroizing 容器持有的敏感 header 值。
     pub(crate) fn insert(&mut self, name: HeaderName, value: Zeroizing<String>) {
         self.0.insert(name, value);
     }
 
+    /// 将敏感值转换为标记后的 HTTP header，并消费临时容器。
     pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), AdapterError> {
         // 将敏感字符串一次性转换为 HTTP header，并标记为 sensitive 后释放来源容器。
         for (name, value) in self.0 {
@@ -147,6 +151,7 @@ pub struct ClassifiedSseEvent {
 }
 
 impl ClassifiedSseEvent {
+    /// 创建一个已完成 framing 且已分类生命周期的 SSE event。
     pub(crate) fn new(event: SseEvent, status: StreamEventStatus) -> Self {
         Self { event, status }
     }
@@ -197,6 +202,7 @@ pub struct StatusClassification {
 }
 
 impl StatusClassification {
+    /// 创建一个绑定错误类别和最早重试边界的 status 结果。
     pub(crate) fn new(kind: UpstreamErrorKind, retry_hint: RetryHint) -> Self {
         Self { kind, retry_hint }
     }

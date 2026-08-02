@@ -1,3 +1,5 @@
+//! 验证上下游 credential 合并、用途隔离、唯一性和 state-affinity 约束。
+
 use openbridge::{
     credential::{
         CredentialId, CredentialMetadata, CredentialSource, CredentialStoreError, CredentialType,

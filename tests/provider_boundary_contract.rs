@@ -1,3 +1,5 @@
+//! 验证 Provider adapter 的 header 隔离、能力上界、错误分类和 SSE 终态。
+
 use http::{
     HeaderMap, HeaderValue, StatusCode,
     header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},

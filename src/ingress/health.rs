@@ -93,6 +93,7 @@ impl TargetHealth {
         }
     }
 
+    /// 写入或延长一个有界 scope cooldown，保留较晚的现有截止时间。
     fn record(&self, scope: HealthScope, now: Instant, delay: Duration) {
         // 限制 Provider 建议的 cooldown，避免异常 header 长期封锁进程内 route。
         let deadline = now + delay.min(MAX_COOLDOWN);
@@ -106,6 +107,7 @@ impl TargetHealth {
             .or_insert(deadline);
     }
 
+    /// 生成 target 显式声明或默认派生的 quota/fault 两个隔离键。
     fn target_scopes(target_id: &str, target: &UpstreamTarget) -> [HealthScope; 2] {
         [
             Self::quota_scope(target_id, target),
@@ -113,15 +115,18 @@ impl TargetHealth {
         ]
     }
 
+    /// 返回 target 的 quota scope，未声明时退回 target id。
     fn quota_scope(target_id: &str, target: &UpstreamTarget) -> HealthScope {
         HealthScope::Quota(target.quota_scope().unwrap_or(target_id).to_owned())
     }
 
+    /// 返回 target 的 fault domain，未声明时退回 target id。
     fn fault_scope(target_id: &str, target: &UpstreamTarget) -> HealthScope {
         HealthScope::Fault(target.fault_domain().unwrap_or(target_id).to_owned())
     }
 }
 
+/// 按 Retry-After 的两种标准格式解析延迟，过去的日期归一为零。
 pub(super) fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {
     // 优先解析 delta-seconds，再解析标准 HTTP-date。
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();

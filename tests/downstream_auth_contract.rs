@@ -1,3 +1,5 @@
+//! 验证下游用户文件的 schema、启停状态、API Key 认证和错误脱敏行为。
+
 use openbridge::identity::{UserConfiguration, UserRegistryError};
 
 const USERS: &str = r#"

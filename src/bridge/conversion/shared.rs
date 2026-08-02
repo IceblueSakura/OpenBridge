@@ -23,6 +23,7 @@ pub(super) fn copy_fields(
     target: &mut Map<String, Value>,
     fields: &[&str],
 ) {
+    // 只复制调用方显式允许的共同字段，不把未知协议字段带入另一方向。
     for field in fields {
         if let Some(value) = source.get(*field) {
             target.insert((*field).to_owned(), value.clone());
@@ -75,10 +76,12 @@ pub(super) fn allocate_non_stream_item_id(
     ordinal: usize,
     used: &mut BTreeSet<String>,
 ) -> String {
+    // 优先使用由 call id 推导的稳定形式。
     let preferred = non_stream_item_id(call_id);
     if used.insert(preferred.clone()) {
         return preferred;
     }
+    // 发生推导冲突时加入序号，确保当前 response 内 identity 唯一。
     let unique = format!("fc_tool_{ordinal}_{}", id_suffix(call_id, "call_"));
     used.insert(unique.clone());
     unique

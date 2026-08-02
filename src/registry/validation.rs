@@ -11,6 +11,7 @@ use super::{
 
 /// 校验 canonical 模型字段、参数名称和 reasoning 配置的一致性。
 pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryError> {
+    // 校验模型身份和展示字段不能为空。
     for (field, value) in [("id", model.id.as_str()), ("name", model.name.as_str())] {
         if value.trim().is_empty() {
             return Err(RegistryError::BlankModelField {
@@ -29,6 +30,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             field: "description",
         });
     }
+    // 校验已知上下文限制为正数。
     for (limit, value) in [
         ("input", model.context_length.input_tokens()),
         ("output", model.context_length.output_tokens()),
@@ -40,6 +42,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
+    // 校验支持参数名称格式和唯一性。
     let mut seen = BTreeSet::new();
     for parameter in &model.supported_parameters {
         if !is_valid_parameter_name(parameter) {
@@ -55,6 +58,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
+    // 校验 reasoning 状态、参数声明和 level 列表彼此一致。
     validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
         |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
     )
@@ -289,6 +293,7 @@ fn is_valid_parameter_name(value: &str) -> bool {
 
 /// 校验并规范化只允许 HTTPS、无凭据和安全 path 前缀的 endpoint base。
 pub(super) fn normalize_endpoint_base(value: &str) -> Option<Url> {
+    // 解析 endpoint 并拒绝 scheme、凭据、query、fragment 或不安全 host/path 形状。
     let mut url = Url::parse(value).ok()?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -300,6 +305,7 @@ pub(super) fn normalize_endpoint_base(value: &str) -> Option<Url> {
     {
         return None;
     }
+    // 统一 path 尾斜杠，保证后续相对 URI 拼接不会丢失目录前缀。
     if url.path() != "/" && !url.path().ends_with('/') {
         url.set_path(&format!("{}/", url.path()));
     }

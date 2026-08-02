@@ -58,6 +58,7 @@ pub(super) async fn upstream_response(
                 .to_str()
                 .is_ok_and(|value| value.starts_with("text/event-stream"))
         });
+    // 先拒绝声明需要 bridge 却不是 SSE 的 streaming 成功响应。
     if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
         return api_error(
             StatusCode::BAD_GATEWAY,
@@ -66,7 +67,7 @@ pub(super) async fn upstream_response(
         );
     }
 
-    // 保持非 SSE 或错误 body 原样透传，避免破坏上游诊断语义。
+    // 再按成功 SSE、成功 JSON/Native 和错误 body 三类选择接管策略。
     let body = if validate_sse && status.is_success() && is_sse {
         if let Some(bridge) = bridge {
             bridge_sse_body(

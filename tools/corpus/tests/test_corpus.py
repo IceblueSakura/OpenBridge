@@ -24,6 +24,7 @@ CORPUS_ROOT = REPOSITORY_ROOT / "testdata"
 
 
 def _copy_corpus(destination: Path) -> Path:
+    """复制 canonical corpus，并排除所有派生输出目录。"""
     target = destination / "testdata"
     shutil.copytree(
         CORPUS_ROOT,
@@ -34,10 +35,12 @@ def _copy_corpus(destination: Path) -> Path:
 
 
 def test_repository_corpus_lints() -> None:
+    """验证仓库内 canonical corpus 当前通过全部 lint 规则。"""
     assert lint_corpus(CORPUS_ROOT) == []
 
 
 def test_lint_reports_catalog_mismatch_and_suspected_secret(tmp_path: Path) -> None:
+    """验证 catalog 不一致和疑似凭证内容都会被 lint 报告。"""
     root = _copy_corpus(tmp_path)
     catalog_path = root / "catalog.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
@@ -59,6 +62,7 @@ def test_lint_reports_catalog_mismatch_and_suspected_secret(tmp_path: Path) -> N
 def test_lint_rejects_duplicate_keys_and_undeclared_case_files(
     tmp_path: Path,
 ) -> None:
+    """验证重复 JSON key 和未声明 case 文件会被拒绝。"""
     root = _copy_corpus(tmp_path)
     case_directory = next((root / "cases").rglob("*.text.non_stream"))
     request = case_directory / "client-request.json"
@@ -72,6 +76,7 @@ def test_lint_rejects_duplicate_keys_and_undeclared_case_files(
 def test_lint_rejects_artifact_escape_and_inconsistent_stream_contract(
     tmp_path: Path,
 ) -> None:
+    """验证 artifact 越界和 stream/non-stream 语义冲突会被拒绝。"""
     root = _copy_corpus(tmp_path)
     case_path = next((root / "cases").rglob("*.text.stream/case.json"))
     case = json.loads(case_path.read_text(encoding="utf-8"))
@@ -86,6 +91,7 @@ def test_lint_rejects_artifact_escape_and_inconsistent_stream_contract(
 
 
 def test_lint_returns_error_for_malformed_case_manifest(tmp_path: Path) -> None:
+    """验证损坏的 case manifest 被归一为可读的 corpus 错误。"""
     root = _copy_corpus(tmp_path)
     case_path = next((root / "cases").rglob("case.json"))
     case_path.write_text("{", encoding="utf-8")
@@ -94,6 +100,7 @@ def test_lint_returns_error_for_malformed_case_manifest(tmp_path: Path) -> None:
 
 
 def test_terminal_parser_distinguishes_chat_and_responses() -> None:
+    """验证 Chat `[DONE]` 与 Responses completed terminal 被分别识别。"""
     chat = b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
     responses = (
         b'event: response.completed\n'
@@ -104,6 +111,7 @@ def test_terminal_parser_distinguishes_chat_and_responses() -> None:
 
 
 def test_generation_is_deterministic_and_reconstructs_sources(tmp_path: Path) -> None:
+    """验证同一 seed 的变体生成稳定且可重建 canonical wire。"""
     root = _copy_corpus(tmp_path)
     first = generate_variants(root, seed=1234)
     first_manifest = (root / "generated" / "manifest.json").read_bytes()
@@ -140,6 +148,7 @@ def test_generation_is_deterministic_and_reconstructs_sources(tmp_path: Path) ->
 
 
 def test_report_confirms_p0_feature_and_generation_coverage() -> None:
+    """验证 coverage report 覆盖必需行为和所有生成分片类型。"""
     report = build_report(CORPUS_ROOT)
     assert report["case_count"] == 45
     assert report["missing_required_features"] == []
@@ -147,6 +156,7 @@ def test_report_confirms_p0_feature_and_generation_coverage() -> None:
 
 
 def test_lint_rejects_inconsistent_transport_failure_phase(tmp_path: Path) -> None:
+    """验证 before-output transport failure 不能同时声称观察到下游输出。"""
     root = _copy_corpus(tmp_path)
     case_path = next(
         (root / "cases").rglob(
@@ -169,6 +179,7 @@ def test_lint_rejects_inconsistent_transport_failure_phase(tmp_path: Path) -> No
 def test_lint_rejects_terminal_end_for_completed_non_stream_case(
     tmp_path: Path,
 ) -> None:
+    """验证完成的非流式 case 使用 response 而不是 terminal 作为结束标记。"""
     root = _copy_corpus(tmp_path)
     case_path = next(
         (root / "cases").rglob("responses_native.text.non_stream/case.json")
@@ -196,6 +207,7 @@ def test_lint_rejects_terminal_end_for_completed_non_stream_case(
 def test_lint_rejects_unmarked_sse_type_conflicts_and_post_terminal_events(
     tmp_path: Path,
 ) -> None:
+    """验证未标记的 SSE type 冲突和 terminal 后事件都会被 lint 拒绝。"""
     root = _copy_corpus(tmp_path)
     case_directory = next(
         (root / "cases").rglob("chat_to_responses.text.stream")
@@ -218,6 +230,7 @@ def test_lint_rejects_unmarked_sse_type_conflicts_and_post_terminal_events(
 
 
 def test_derived_outputs_cannot_overwrite_canonical_corpus(tmp_path: Path) -> None:
+    """验证生成、报告和打包输出不能覆盖 canonical corpus 文件。"""
     root = _copy_corpus(tmp_path)
     for operation in (
         lambda: generate_variants(root, output=root / "cases"),
@@ -238,6 +251,7 @@ def test_derived_outputs_cannot_overwrite_canonical_corpus(tmp_path: Path) -> No
 def test_pack_is_deterministic_and_excludes_derived_directories(
     tmp_path: Path,
 ) -> None:
+    """验证打包结果稳定，并排除 generated/reports/dist/runtime 派生目录。"""
     root = _copy_corpus(tmp_path)
     generate_variants(root, seed=1234)
     (root / "reports").mkdir()

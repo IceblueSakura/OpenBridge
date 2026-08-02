@@ -90,6 +90,7 @@ enum PublicModelSurface {
 }
 
 impl PublicModelRegistration {
+    /// 按注册的 surface 类型生成完整 route 与 Public Model 候选。
     fn compile(self) -> CompiledPublicModel {
         match self.surface {
             PublicModelSurface::DualProtocolWithBridges => self.compile_dual_protocol(),
@@ -223,6 +224,7 @@ struct CompiledPublicModel {
     public_model: PublicModelConfig,
 }
 
+/// 构造一个绑定 target、Upstream API、下游协议和处理模式的 route 定义。
 fn route(
     id: &str,
     upstream_target: &str,
@@ -230,6 +232,7 @@ fn route(
     downstream_protocol: ApiProtocol,
     mode: RouteMode,
 ) -> RouteConfig {
+    // 将调用点的协议方向和模式固化为一个不可变 route 定义。
     RouteConfig {
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),

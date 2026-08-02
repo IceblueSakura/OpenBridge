@@ -1,3 +1,5 @@
+//! 验证私有上游 credential TOML 的解析、pool 绑定和环境变量隔离边界。
+
 use openbridge::{
     credential::CredentialSource,
     providers::build_compiled_registry,

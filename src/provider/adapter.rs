@@ -54,6 +54,7 @@ pub struct PreparedUpstreamRequest {
 }
 
 impl PreparedUpstreamRequest {
+    /// 创建尚未绑定 endpoint origin 的 adapter 请求。
     pub(crate) fn new(method: Method, relative_uri: Uri, body: Bytes) -> Self {
         Self {
             method,
@@ -102,6 +103,7 @@ impl ProviderAdapter {
         kind.definition().adapter()
     }
 
+    /// 取得当前闭合分派所持有的 OpenAI-compatible profile。
     fn openai_compatible(&self) -> OpenAiCompatibleAdapter {
         match self.implementation {
             ProviderAdapterImplementation::OpenAiCompatible(adapter) => adapter,
@@ -113,6 +115,7 @@ impl ProviderAdapter {
         self.openai_compatible().contract()
     }
 
+    /// 合并普通 header hook 与最后附加的 Provider 敏感认证 header。
     pub(crate) fn build_outbound_headers(
         &self,
         credential: &UpstreamCredential<'_>,

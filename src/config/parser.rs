@@ -60,10 +60,12 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
     })
 }
 
+/// 拒绝零值配置，统一保护内存、时间和连接池边界。
 fn validate_nonzero(
     name: &'static str,
     value: impl Copy + PartialEq + From<u8>,
 ) -> Result<(), BootstrapConfigError> {
+    // 统一拒绝零值，保证后续内存和时间边界不会退化为无效配置。
     if value == 0.into() {
         Err(BootstrapConfigError::InvalidLimit { name })
     } else {

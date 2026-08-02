@@ -149,8 +149,10 @@ fn chat_assistant_tool_message(order: &[String], calls: &BTreeMap<String, Value>
 
 /// 将一个 Responses message item 转换为 Chat message。
 fn responses_message_to_chat(item: &Map<String, Value>) -> Result<Value, BridgeError> {
+    // 先读取并保留 Responses message 的角色字段。
     let role = required_string(item, "role")?;
     let content = item.get("content").ok_or(BridgeError::InvalidShape)?;
+    // 再把字符串或 input_text parts 合并为 Chat 的单一 content 字符串。
     let content = match content {
         Value::String(text) => Value::String(text.clone()),
         Value::Array(parts) => {
@@ -171,6 +173,7 @@ fn responses_message_to_chat(item: &Map<String, Value>) -> Result<Value, BridgeE
 
 /// 将 Responses function tool schema 包装为 Chat function tool。
 fn responses_tool_to_chat(tool: &Value) -> Result<Value, BridgeError> {
+    // 校验 Responses flat function tool，并移除目标协议不使用的 type 字段。
     let tool = tool.as_object().ok_or(BridgeError::InvalidShape)?;
     let mut function = tool.clone();
     function.remove("type");
@@ -179,6 +182,7 @@ fn responses_tool_to_chat(tool: &Value) -> Result<Value, BridgeError> {
 
 /// 将 Responses tool choice 转换为 Chat tool choice。
 fn responses_tool_choice_to_chat(choice: &Value) -> Result<Value, BridgeError> {
+    // 直接保留三种两协议共用的字符串选择值。
     if choice
         .as_str()
         .is_some_and(|choice| matches!(choice, "auto" | "none" | "required"))
@@ -188,6 +192,7 @@ fn responses_tool_choice_to_chat(choice: &Value) -> Result<Value, BridgeError> {
     let choice = choice
         .as_object()
         .ok_or(BridgeError::UnsupportedSemantics)?;
+    // 校验命名 function 选择并重新包装为 Chat function 对象。
     if choice.get("type").and_then(Value::as_str) != Some("function") {
         return Err(BridgeError::UnsupportedSemantics);
     }

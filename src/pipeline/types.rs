@@ -109,6 +109,7 @@ impl RoutePlan {
             .request
     }
 
+    /// 取得保证存在的最高优先级候选。
     fn primary(&self) -> &RouteCandidate {
         self.candidates
             .first()

@@ -76,6 +76,7 @@ impl CredentialMetadata {
         }
     }
 
+    /// 创建下游用户 API Key 的固定元数据。
     fn downstream_user() -> Self {
         Self {
             credential_type: CredentialType::DownstreamApiKey,
@@ -407,7 +408,9 @@ impl UpstreamCredential<'_> {
         self.metadata
     }
 
+    /// 仅在已完成用途校验的 Provider egress 边界借出 secret。
     pub(crate) fn expose_secret(&self) -> &str {
+        // 只在已完成 Provider、pool 和 kind 校验的 egress 边界暴露 secret。
         self.secret.expose_secret()
     }
 }

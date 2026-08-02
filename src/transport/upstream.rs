@@ -87,6 +87,7 @@ impl UpstreamClient {
         .await
     }
 
+    /// 用共享 client 发送已绑定 URL 的请求，并保留响应 stream body。
     async fn send_request(
         &self,
         request: UpstreamRequest,
@@ -119,6 +120,7 @@ impl UpstreamClient {
     }
 }
 
+/// 校验 adapter 相对 URI，并将其安全拼接到已验证的 endpoint base。
 fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, TransportError> {
     if relative_uri.scheme().is_some()
         || relative_uri.authority().is_some()
@@ -154,6 +156,7 @@ struct UpstreamRequest {
 }
 
 impl UpstreamRequest {
+    /// 创建已绑定 URL、method、header、body 和 timeout 的内部请求值对象。
     fn new(url: Url, method: Method, headers: HeaderMap, body: Bytes, timeout: Duration) -> Self {
         Self {
             url,

@@ -1,3 +1,5 @@
+//! 为集成测试提供不含真实凭证的 bootstrap、registry 和 credential fixture。
+
 #![allow(dead_code)]
 
 mod fixtures;

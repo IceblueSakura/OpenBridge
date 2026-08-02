@@ -1,3 +1,5 @@
+//! 验证请求终态观测、usage 提取和敏感业务内容不进入诊断输出。
+
 mod support;
 
 use std::sync::{

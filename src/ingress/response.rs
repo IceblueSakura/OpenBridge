@@ -33,6 +33,7 @@ pub(super) fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
     filtered
 }
 
+/// 将请求规划错误映射为稳定的下游 HTTP 错误，不泄露内部 route 详情。
 pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
         RequestPlanningError::InvalidJson | RequestPlanningError::MissingModel => api_error(
@@ -58,6 +59,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
     }
 }
 
+/// 将 transport 失败收敛为 timeout 或通用 gateway error。
 pub(super) fn upstream_error(error: TransportError) -> Response {
     match error {
         TransportError::Timeout => api_error(
@@ -86,6 +88,7 @@ struct ErrorBody {
     code: &'static str,
 }
 
+/// 构造不包含上游正文、凭证或内部拓扑的 OpenAI-compatible error envelope。
 pub(super) fn api_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
     (
         status,

@@ -81,6 +81,7 @@ impl RequestBodyObserver {
         }
     }
 
+    /// 在真实 EOF 边界冲刷 usage 并提交一次成功终态。
     fn complete(&mut self) {
         // 正常 EOF 先提交最后一个 usage event，再提交请求终态。
         if self.finished {
@@ -91,6 +92,7 @@ impl RequestBodyObserver {
         self.finished = true;
     }
 
+    /// 在 body error 边界记录失败类别并提交一次终态。
     fn fail(&mut self, kind: &'static str) {
         // body error 已是最终可见边界，不能等待下一次 poll 才记录。
         if self.finished {
@@ -106,6 +108,7 @@ impl HttpBody for RequestBodyObserver {
     type Data = Bytes;
     type Error = axum::Error;
 
+    /// 透传底层 frame，并在数据、错误或 EOF 边界更新观测状态。
     fn poll_frame(
         self: Pin<&mut Self>,
         context: &mut Context<'_>,
@@ -134,11 +137,13 @@ impl HttpBody for RequestBodyObserver {
         }
     }
 
+    /// 只有已提交 EOF 或错误后才向 Hyper 报告 body 结束。
     fn is_end_stream(&self) -> bool {
         // 外层只有在提交 EOF 或错误后才能报告结束，否则 Hyper 可能跳过最终 poll 并把完整 body 误记为取消。
         self.finished
     }
 
+    /// 保留底层 body 的大小提示，不对流内容做额外缓存。
     fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }

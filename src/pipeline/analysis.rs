@@ -128,6 +128,7 @@ fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u6
 /// `reasoning` 是 OpenAI-compatible 请求中的模型级能力；`reasoning_effort` 同样代表
 /// 调用方要求使用该能力。没有该字段时不得据模型目录推测调用方需要 reasoning。
 fn requested_reasoning(object: &serde_json::Map<String, Value>) -> RequestedReasoning {
+    // 优先解析兼容请求中的顶层 reasoning_effort。
     if let Some(value) = object
         .get("reasoning_effort")
         .filter(|value| !value.is_null())
@@ -144,12 +145,14 @@ fn requested_reasoning(object: &serde_json::Map<String, Value>) -> RequestedReas
     else {
         return RequestedReasoning::None;
     };
+    // 没有顶层 shorthand 时读取 Responses reasoning 对象的 effort。
     let Some(effort) = reasoning
         .as_object()
         .and_then(|reasoning| reasoning.get("effort"))
     else {
         return RequestedReasoning::Unspecified;
     };
+    // 将已知 wire level 映射为内部枚举，未知值保持 fail closed。
     effort
         .as_str()
         .and_then(ReasoningLevel::from_wire)

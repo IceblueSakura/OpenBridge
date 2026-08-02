@@ -158,10 +158,12 @@ fn chat_messages_to_responses(
 
 /// 将 Chat message content 转换为 Responses input content。
 fn chat_content_to_responses(content: &Value, preserve_string: bool) -> Result<Value, BridgeError> {
+    // 先保留允许直接使用的纯文本简写，避免改变最小请求的 wire 形状。
     match content {
         Value::String(text) if preserve_string => Ok(Value::String(text.clone())),
         Value::String(text) => Ok(json!([{"text": text, "type": "input_text"}])),
         Value::Array(parts) => {
+            // 再逐项校验并转换为 Responses 的 input_text content part。
             let converted = parts
                 .iter()
                 .map(|part| {
@@ -183,11 +185,13 @@ fn chat_content_to_responses(content: &Value, preserve_string: bool) -> Result<V
 
 /// 将 Chat function tool schema 展平为 Responses function tool。
 fn chat_tool_to_responses(tool: &Value) -> Result<Value, BridgeError> {
+    // 校验 Chat tool 的 function 包装层，并只复制已建模的 function 字段。
     let tool = tool.as_object().ok_or(BridgeError::InvalidShape)?;
     let function = tool
         .get("function")
         .and_then(Value::as_object)
         .ok_or(BridgeError::InvalidShape)?;
+    // 添加 Responses 所需的 flat function type 标记。
     let mut result = function.clone();
     result.insert("type".to_owned(), Value::String("function".to_owned()));
     Ok(Value::Object(result))
@@ -195,6 +199,7 @@ fn chat_tool_to_responses(tool: &Value) -> Result<Value, BridgeError> {
 
 /// 将 Chat tool choice 转换为 Responses tool choice。
 fn chat_tool_choice_to_responses(choice: &Value) -> Result<Value, BridgeError> {
+    // 直接保留三种两协议共用的字符串选择值。
     if choice
         .as_str()
         .is_some_and(|choice| matches!(choice, "auto" | "none" | "required"))
@@ -204,6 +209,7 @@ fn chat_tool_choice_to_responses(choice: &Value) -> Result<Value, BridgeError> {
     let choice = choice
         .as_object()
         .ok_or(BridgeError::UnsupportedSemantics)?;
+    // 校验命名 function 选择并压平 Chat 的 function 包装层。
     if choice.get("type").and_then(Value::as_str) != Some("function") {
         return Err(BridgeError::UnsupportedSemantics);
     }

@@ -1,3 +1,5 @@
+//! 验证 Provider adapter 生成的相对 URI、真实 model 和协议请求结构。
+
 use bytes::Bytes;
 use http::Method;
 use openbridge::{

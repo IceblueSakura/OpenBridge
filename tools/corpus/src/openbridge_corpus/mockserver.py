@@ -47,6 +47,7 @@ class MockServer:
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
+        """校验预编译 scenario，并初始化独立 server 的 exchange 状态。"""
         self.scenarios = (
             list(scenario["exchanges"]) if "exchanges" in scenario else [scenario]
         )

@@ -1,3 +1,5 @@
+//! 验证下游 HTTP ingress 的认证、请求边界、响应转发和错误映射契约。
+
 mod support;
 
 use std::sync::Arc;

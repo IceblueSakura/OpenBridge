@@ -25,6 +25,7 @@ CORPUS_ROOT = Path(__file__).parents[3] / "testdata"
 
 @pytest.fixture(scope="module")
 def generated_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """生成隔离的 corpus 变体根目录，供本模块的 mock runtime 复用。"""
     root = tmp_path_factory.mktemp("testkit") / "testdata"
     shutil.copytree(
         CORPUS_ROOT,
@@ -38,6 +39,7 @@ def generated_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_case_compilers_produce_self_contained_valid_documents(
     generated_root: Path,
 ) -> None:
+    """验证 server/client plan 都是自包含且符合 runtime schema 的文档。"""
     scenario = build_server_scenario(
         generated_root,
         "responses_native.sse_framing",
@@ -59,6 +61,7 @@ def test_case_compilers_produce_self_contained_valid_documents(
 def test_bridge_direction_compiles_distinct_client_and_upstream_paths(
     generated_root: Path,
 ) -> None:
+    """验证双向 Bridge case 分别生成不同的客户端和上游 path。"""
     responses_to_chat_server = build_server_scenario(
         generated_root,
         "responses_to_chat.text.non_stream",
@@ -88,6 +91,7 @@ def test_bridge_direction_compiles_distinct_client_and_upstream_paths(
 def test_reject_case_cannot_compile_an_upstream_scenario(
     generated_root: Path,
 ) -> None:
+    """验证 reject case 不会被编译成需要上游请求的 scenario。"""
     with pytest.raises(CorpusError, match="does not make an upstream request"):
         build_server_scenario(
             generated_root,
@@ -98,7 +102,9 @@ def test_reject_case_cannot_compile_an_upstream_scenario(
 def test_mock_server_client_loopback_streams_and_records_both_sides(
     generated_root: Path,
 ) -> None:
+    """验证 mock server/client 可完成流式 loopback 并记录两侧 observation。"""
     async def exercise() -> None:
+        """运行一次隔离的流式 server/client exchange。"""
         scenario = build_server_scenario(
             generated_root,
             "responses_native.sse_framing",
@@ -139,6 +145,7 @@ def test_mock_server_client_loopback_streams_and_records_both_sides(
 
 
 def test_mock_server_rejects_tampered_wire_hash(generated_root: Path) -> None:
+    """验证 scenario 的 wire hash 被篡改时 server 初始化失败。"""
     scenario = build_server_scenario(
         generated_root,
         "responses_native.sse_framing",
@@ -151,7 +158,9 @@ def test_mock_server_rejects_tampered_wire_hash(generated_root: Path) -> None:
 def test_mock_server_health_invalid_json_and_unknown_endpoint_do_not_consume_exchange(
     generated_root: Path,
 ) -> None:
+    """验证 health、非法 JSON 和未知 endpoint 不会消费声明的 exchange。"""
     async def exercise() -> None:
+        """按顺序发送非 exchange 请求和最终合法请求。"""
         scenario = build_server_scenario(
             generated_root,
             "responses_native.text.non_stream",
@@ -226,7 +235,9 @@ def test_mock_server_health_invalid_json_and_unknown_endpoint_do_not_consume_exc
 def test_mock_server_suite_handles_multiple_protocols_and_rate_limit_headers(
     generated_root: Path,
 ) -> None:
+    """验证多协议 suite 和 429 header 按 scenario 顺序记录。"""
     async def exercise() -> None:
+        """运行包含 Chat 成功和 Responses 限流的双 exchange suite。"""
         suite = build_server_suite(
             generated_root,
             [
@@ -269,7 +280,9 @@ def test_mock_server_suite_handles_multiple_protocols_and_rate_limit_headers(
 def test_mock_client_observes_http_error_response(
     generated_root: Path,
 ) -> None:
+    """验证 mock client 保留 HTTP error 的 status、body 和 observation 终态。"""
     async def exercise() -> None:
+        """运行一个上游 transport-error fixture 的 HTTP error exchange。"""
         scenario = build_server_scenario(
             generated_root,
             "responses_native.transport_error.before_output",
@@ -296,6 +309,7 @@ def test_mock_client_observes_http_error_response(
 def test_http_error_matrix_preserves_status_headers_and_raw_body(
     generated_root: Path,
 ) -> None:
+    """验证完整 HTTP error 矩阵保留 status、header 和原始 body。"""
     cases = [
         ("chat_native.invalid_request.non_stream", 400),
         ("responses_native.authentication_error.non_stream", 401),
@@ -310,6 +324,7 @@ def test_http_error_matrix_preserves_status_headers_and_raw_body(
     ]
 
     async def exercise() -> None:
+        """按矩阵顺序执行全部独立 HTTP error exchange。"""
         suite = build_server_suite(
             generated_root,
             [case_id for case_id, _ in cases],
@@ -360,7 +375,9 @@ def test_http_error_matrix_preserves_status_headers_and_raw_body(
 def test_mock_client_distinguishes_transport_abort_after_output(
     generated_root: Path,
 ) -> None:
+    """验证首个业务输出后发生 transport abort 时不会伪造 terminal。"""
     async def exercise() -> None:
+        """运行带首个输出后 transport abort 的流式 exchange。"""
         scenario = build_server_scenario(
             generated_root,
             "responses_native.transport_error.after_output",
@@ -388,7 +405,9 @@ def test_mock_client_distinguishes_transport_abort_after_output(
 def test_mock_client_can_cancel_after_logical_event(
     generated_root: Path,
 ) -> None:
+    """验证 mock client 可在逻辑 event 边界取消并准确记录已见 event 数。"""
     async def exercise() -> None:
+        """运行按 event 计数触发取消的流式 exchange。"""
         scenario = build_server_scenario(
             generated_root,
             "responses_native.cancel.after_output",

@@ -37,6 +37,7 @@ impl UsageCapture {
         max_json_body_bytes: usize,
         max_sse_event_bytes: usize,
     ) -> Self {
+        // 按 response media type 选择 JSON、SSE 或不观测三种有界策略。
         match content_type {
             Some(value) if value.starts_with("application/json") => Self::Json {
                 bytes: Vec::new(),
@@ -53,6 +54,7 @@ impl UsageCapture {
 
     /// 观察一个透传 chunk；任何解析问题都不会改变下游字节或状态。
     pub(crate) fn observe_chunk(&mut self, observation: &RequestObservation, chunk: &Bytes) {
+        // 只更新观测状态，绝不修改或阻断当前下游 bytes。
         match self {
             Self::None => {}
             Self::Json {
@@ -76,6 +78,7 @@ impl UsageCapture {
 
     /// 正常 EOF 时完成 usage 解析并只写入结构化计数。
     pub(crate) fn finish(&mut self, observation: &RequestObservation) {
+        // 在真实 EOF 边界冲刷最后一个 JSON/SSE event，并记录可解析的 usage。
         match self {
             Self::None => {}
             Self::Json {

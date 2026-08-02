@@ -19,6 +19,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
+/// 加载启动快照、装配 HTTP 服务并等待优雅关闭。
 async fn main() -> Result<()> {
     // 初始化日志过滤器。
     init_tracing()?;
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
         .context("OpenBridge server stopped unexpectedly")
 }
 
+/// 从环境读取日志过滤器并安装进程级 tracing subscriber。
 fn init_tracing() -> Result<()> {
     // 读取环境中的日志过滤器，缺省使用 info 级别。
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -103,6 +105,7 @@ fn init_tracing() -> Result<()> {
         .map_err(|error| anyhow::anyhow!("failed to initialize tracing: {error}"))
 }
 
+/// 等待 Ctrl+C 信号，为 Axum server 提供可取消的优雅关闭 future。
 async fn shutdown_signal() {
     // 等待 Ctrl+C，并将信号安装失败记录为错误而不伪造正常关闭。
     if let Err(error) = signal::ctrl_c().await {

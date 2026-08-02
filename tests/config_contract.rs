@@ -1,3 +1,5 @@
+//! 验证 bootstrap、registry 编译、引用完整性和 endpoint/credential 边界。
+
 mod support;
 
 use std::{path::PathBuf, time::Duration};

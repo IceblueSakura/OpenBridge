@@ -94,6 +94,7 @@ impl AttemptManager {
         tokio::time::sleep(delay).await;
     }
 
+    /// 取出当前 attempt 的退避延迟，并递增到下一次 capped 值。
     fn take_backoff_delay(&mut self) -> Duration {
         let delay = self.next_backoff;
         self.next_backoff = self.next_backoff.saturating_mul(2).min(MAX_BACKOFF);

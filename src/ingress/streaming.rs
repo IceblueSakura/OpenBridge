@@ -205,6 +205,7 @@ pub(super) fn validate_sse_body(
     axum::body::Body::from_stream(stream)
 }
 
+/// 分类一个或多个已完成 framing 的 SSE event，并更新 terminal/failure 观测。
 fn observe_sse_events(
     adapter: ProviderAdapter,
     protocol: ApiProtocol,
@@ -212,7 +213,7 @@ fn observe_sse_events(
     terminal_seen: &mut bool,
     observation: &RequestObservation,
 ) -> Result<(), ()> {
-    // 委托 provider adapter 分类 event，并记录是否已看到 terminal。
+    // 逐个交给 Provider adapter 分类，只记录 terminal/failure，不保存事件正文。
     for event in events {
         let decoded = adapter
             .classify_sse_event(protocol, event)

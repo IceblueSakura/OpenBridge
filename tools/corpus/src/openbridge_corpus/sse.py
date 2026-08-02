@@ -44,6 +44,7 @@ class IncrementalSseParser:
     """增量解析 SSE 字节流，不假设网络读取边界与行或 event 边界重合。"""
 
     def __init__(self) -> None:
+        """初始化不假设网络分片边界的 SSE 行和 event 累积状态。"""
         self._line = bytearray()
         self._skip_lf = False
         self._event_field: str | None = None

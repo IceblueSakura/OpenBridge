@@ -102,14 +102,17 @@ impl ProviderKind {
         self.definition().contract()
     }
 
+    /// 返回该 Provider contract 的能力上界副本。
     pub(crate) fn capabilities(self) -> ApiCapabilities {
         *self.contract().capabilities()
     }
 
+    /// 判断静态 Provider 是否注册了指定 endpoint profile。
     pub(crate) fn accepts_endpoint_profile(self, profile: &str) -> bool {
         self.contract().endpoint_profiles().contains(&profile)
     }
 
+    /// 判断静态 Provider 是否允许指定 credential kind。
     pub(crate) fn accepts_credential_kind(self, credential: CredentialKind) -> bool {
         self.contract().credential_kinds().contains(&credential)
     }

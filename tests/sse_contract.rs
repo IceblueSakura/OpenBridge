@@ -1,3 +1,5 @@
+//! 验证增量 SSE decoder 的分片、UTF-8、CRLF、多行 data 和终态边界。
+
 use openbridge::transport::sse::SseDecoder;
 
 #[test]

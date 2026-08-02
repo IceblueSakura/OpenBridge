@@ -156,6 +156,7 @@ fn apply_reasoning_level_mapping(
     Ok((ApiRequest::new(request.protocol(), body), Some(mapping)))
 }
 
+/// 返回一个候选不满足当前请求时最具体的 fail-closed 规划错误。
 fn candidate_error(
     protocol: ApiProtocol,
     requested_features: RequestedCapabilities,
@@ -165,6 +166,7 @@ fn candidate_error(
     reasoning_levels: &[ReasoningLevel],
     requested_output_tokens: Option<u64>,
 ) -> Option<RequestPlanningError> {
+    // 先确认候选原生协议已启用，并拒绝未建模的工具语义。
     let protocol_capabilities = capabilities.protocol_capabilities();
     if !protocol_capabilities.enabled {
         return Some(RequestPlanningError::UnsupportedProtocol);
@@ -181,6 +183,7 @@ fn candidate_error(
     {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
+    // 再检查 Responses 专有 state/background 约束与配置上限。
     if protocol == ApiProtocol::Responses {
         let Some(responses) = capabilities.responses() else {
             return Some(RequestPlanningError::UnsupportedProtocol);
@@ -196,6 +199,7 @@ fn candidate_error(
     }) {
         return Some(RequestPlanningError::OutputLimitExceeded);
     }
+    // 最后校验 reasoning 的支持状态和请求的具体 level。
     match requested_features.reasoning {
         RequestedReasoning::None => {}
         RequestedReasoning::Unspecified if reasoning != ReasoningSupport::Supported => {

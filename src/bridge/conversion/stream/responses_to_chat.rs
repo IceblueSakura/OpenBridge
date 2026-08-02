@@ -167,12 +167,15 @@ impl ResponsesToChatStream {
         Ok(Bytes::new())
     }
 
+    /// 返回已由 Responses response id 派生的 Chat completion id。
     fn chat_id(&self) -> Result<&str, BridgeError> {
         self.chat_id.as_deref().ok_or(BridgeError::InvalidStream)
     }
 }
 
+/// 删除内部拼装使用的 null role，保持 Chat delta 的最小 wire 形状。
 fn strip_null_role(mut value: Value) -> Value {
+    // 删除仅用于内部拼装的 null role，避免生成无意义的 Chat 字段。
     if value.get("role").is_some_and(Value::is_null) {
         value
             .as_object_mut()
@@ -189,6 +192,7 @@ fn chat_chunk(
     delta: Value,
     finish_reason: Value,
 ) -> Result<Vec<u8>, BridgeError> {
+    // 统一封装单 choice Chat chunk，并编码为 data-only SSE block。
     sse_data(&json!({
         "choices": [{"delta": delta, "finish_reason": finish_reason, "index": 0}],
         "id": id,

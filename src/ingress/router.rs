@@ -50,6 +50,7 @@ struct DownstreamAuthState {
 /// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
 /// 从而不暴露内部 Public Model/Route 信息给匿名请求。
 pub fn build_router(state: GatewayState) -> Router {
+    // 准备 request id、敏感 header、trace 和 body size 保护等全局 middleware。
     let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
     let middleware = ServiceBuilder::new()
@@ -60,6 +61,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::new(request_id))
         .layer(RequestBodyLimitLayer::new(max_request_body_bytes));
+    // 装配统一使用 Bearer 认证的业务和模型列表 endpoint。
     let protected = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
@@ -75,6 +77,7 @@ pub fn build_router(state: GatewayState) -> Router {
             require_user,
         ));
 
+    // 暴露无需认证的 health endpoint，并绑定共享 GatewayState。
     Router::new()
         .route("/healthz", get(health))
         .merge(protected)
@@ -82,6 +85,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
+/// 认证下游 Bearer token，并把非敏感用户身份和请求观测绑定到 handler。
 async fn require_user(
     State(auth): State<DownstreamAuthState>,
     mut request: Request,

@@ -267,6 +267,7 @@ impl RequestObservation {
 
     /// 累计一次请求终态及其明确 usage。
     fn record_completion_metrics(&self, summary: CompletionSummary) {
+        // 先按取消、流失败、成功 HTTP 和其他 HTTP failure 归类请求终态。
         let counters = &self.inner.metrics.inner;
         if summary.cancelled {
             counters.requests_cancelled.fetch_add(1, Ordering::Relaxed);
@@ -282,6 +283,7 @@ impl RequestObservation {
                 .requests_http_failed
                 .fetch_add(1, Ordering::Relaxed);
         }
+        // 再把 Provider 明确返回的 token usage 以饱和加法写入低基数累计值。
         if let Some(usage) = summary.usage {
             counters.usage_observations.fetch_add(1, Ordering::Relaxed);
             saturating_add(&counters.input_tokens, usage.input_tokens.unwrap_or(0));
@@ -292,6 +294,7 @@ impl RequestObservation {
 
     /// 在请求 span 中输出不含业务正文和 credential 的终态 event。
     fn emit_completion(&self, summary: CompletionSummary) {
+        // 将内部状态收敛为稳定 outcome 名称，不把底层错误正文写入 event。
         let outcome = if summary.cancelled {
             "cancelled"
         } else if summary.failure_kind.is_some() {
@@ -304,6 +307,7 @@ impl RequestObservation {
         } else {
             "http_failed"
         };
+        // 只输出时间、尝试次数、终态类别和结构化 usage 计数。
         let usage = summary.usage.unwrap_or_default();
         self.inner.span.in_scope(|| {
             tracing::info!(
@@ -327,14 +331,17 @@ impl RequestObservation {
         });
     }
 
+    /// 返回请求开始后经过的毫秒数，用于 TTFT/TTFB 和总耗时观测。
     fn elapsed_ms(&self) -> u64 {
         self.inner.started.elapsed().as_millis() as u64
     }
 
+    /// 在短暂持有状态锁的范围内更新本请求的观测状态。
     fn with_state(&self, update: impl FnOnce(&mut RequestState)) {
         update(&mut self.lock_state());
     }
 
+    /// 获取请求状态锁，并将 poisoned mutex 视为可继续读取的本地状态。
     fn lock_state(&self) -> std::sync::MutexGuard<'_, RequestState> {
         self.inner
             .state

@@ -18,6 +18,7 @@ pub const REGISTRY_VERSION: &str = "dev-1";
 
 /// 返回所有编译进二进制的 Model、Upstream Target、Route 与 Public Model。
 pub fn compiled_config() -> RegistryConfig {
+    // 聚合各 Provider 的 target 与独立的 Public Model route 注册。
     let routing = routing::compiled_routing();
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),

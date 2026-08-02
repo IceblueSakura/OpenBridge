@@ -14,6 +14,7 @@ use openbridge::{
 };
 
 #[tokio::main]
+/// 解析 probe 参数、绑定受信 target 并输出脱敏 capability report。
 async fn main() -> Result<()> {
     // 解析 CLI 选择。
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
@@ -71,6 +72,7 @@ struct ProbeArguments {
 }
 
 impl ProbeArguments {
+    /// 将命令行 selector 解析为一个 target 和固定 probe 选择集合。
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
         // 逐项解析 target 和 probe 选择，不接受未声明的 CLI 参数。
         let mut upstream_target_id = None;
@@ -108,6 +110,7 @@ impl ProbeArguments {
     }
 }
 
+/// 打印不含凭证和运行时状态的本地 probe 用法说明。
 fn print_usage() {
     println!(
         "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\

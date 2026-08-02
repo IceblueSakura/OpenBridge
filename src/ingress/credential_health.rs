@@ -124,6 +124,7 @@ impl CredentialHealth {
     }
 }
 
+/// 用非敏感 member id 与 generation 隔离不同启动快照的 cooldown。
 fn member_key(member: &UpstreamCredential<'_>) -> MemberKey {
     MemberKey {
         member_id: member.member_id().to_owned(),
