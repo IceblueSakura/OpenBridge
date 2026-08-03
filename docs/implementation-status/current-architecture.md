@@ -196,8 +196,10 @@ reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`
 Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `ApiRequest`。Provider adapter 仍只负责
 目标 endpoint、真实 model、header 与认证改写。
 
-请求携带 `previous_response_id` 时，计划关闭跨 target fallback。不同 Route 或 Upstream API 的能力只在 registry
-构建时做保守交集，绝不按字段求并集；请求能力不用于跳过较弱 Route 选择较强 Route。
+请求携带 `previous_response_id` 时，计划关闭跨 target fallback。registry 还要求全部 Responses Route 的
+continuation issuer 唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前
+拒绝请求。不同 Route 或 Upstream API 的其他能力只在 registry 构建时做保守交集，绝不按字段求并集；请求能力
+不用于跳过较弱 Route 选择较强 Route。
 
 ## 6. Provider 适配层
 
@@ -223,9 +225,10 @@ pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat
-与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
-与它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
-Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
+与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API。目录中的每个 Public Model
+由一个编译注册单元持有有序 Provider route source；每个下游协议先按 source 顺序生成全部 Native route，再按
+相同顺序生成指向相反 Upstream API 的 Bridged route。当前 checked-in 注册项的 source 列表都只有一个元素，
+尚未增加未经真实能力证据确认的跨 Provider 模型绑定。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
 但尚未调用真实异构协议 Provider。
 

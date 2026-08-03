@@ -183,7 +183,6 @@ pub struct ModelCapabilities {
     tasks: Vec<ModelTask>,
     context_window: ContextWindow,
     modalities: ModelModalities,
-    supported_parameters: Vec<String>,
     tokenizer: Option<String>,
     knowledge_cutoff: Option<String>,
     reasoning: ModelReasoningCapabilities,
@@ -500,13 +499,13 @@ pub(super) fn compile_public_model(
 #[derive(Clone)]
 struct RouteContractContribution {
     protocol: ApiProtocol,
+    continuation_issuer: ContinuationIssuer,
     context_window: ContextWindow,
     modalities: ModelModalities,
     model_modalities: Option<ModelModalities>,
     model_description: Option<String>,
     model_tokenizer: Option<String>,
     model_knowledge_cutoff: Option<String>,
-    model_parameters: Vec<String>,
     model_reasoning: SupportState,
     model_reasoning_levels: Vec<ReasoningLevel>,
     interface_parameters: Vec<String>,
@@ -522,6 +521,13 @@ struct RouteContractContribution {
     store: SupportState,
     previous_response_id: SupportState,
     background: SupportState,
+}
+
+/// Internal target/API identity used only to prove continuation issuer uniqueness.
+#[derive(Clone, Eq, PartialEq)]
+struct ContinuationIssuer {
+    upstream_target: String,
+    upstream_api: String,
 }
 
 impl RouteContractContribution {
@@ -607,13 +613,16 @@ impl RouteContractContribution {
 
         Some(Self {
             protocol: route.downstream_protocol(),
+            continuation_issuer: ContinuationIssuer {
+                upstream_target: route.upstream_target().to_owned(),
+                upstream_api: route.upstream_api().to_owned(),
+            },
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
             model_knowledge_cutoff: upstream_api.model().knowledge_cutoff().map(str::to_owned),
-            model_parameters,
             model_reasoning,
             model_reasoning_levels,
             interface_parameters,
@@ -815,11 +824,15 @@ fn aggregate_interface<'a>(
         ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
         ModelModalities::intersection(contributions.iter().map(|value| &value.modalities));
-    let supported_parameters = intersect_sets(
+    let previous_response_id = aggregate_previous_response_id(&contributions);
+    let mut supported_parameters = intersect_sets(
         contributions
             .iter()
             .map(|value| value.interface_parameters.as_slice()),
     );
+    if !previous_response_id.is_supported() {
+        supported_parameters.retain(|parameter| parameter != "previous_response_id");
+    }
     let streaming = SupportState::intersection(contributions.iter().map(|value| value.streaming));
     let function_calling =
         SupportState::intersection(contributions.iter().map(|value| value.function_calling));
@@ -899,14 +912,35 @@ fn aggregate_interface<'a>(
         ),
         state: StateCapabilities {
             store: SupportState::intersection(contributions.iter().map(|value| value.store)),
-            previous_response_id: SupportState::intersection(
-                contributions.iter().map(|value| value.previous_response_id),
-            ),
+            previous_response_id,
             background: SupportState::intersection(
                 contributions.iter().map(|value| value.background),
             ),
         },
     })
+}
+
+/// Exposes continuation only when every Route supports it and one target/API is the unique issuer.
+fn aggregate_previous_response_id(contributions: &[&RouteContractContribution]) -> SupportState {
+    // Intersect Route capabilities before applying the stricter issuer-affinity boundary.
+    let support =
+        SupportState::intersection(contributions.iter().map(|value| value.previous_response_id));
+    if !support.is_supported() {
+        return support;
+    }
+
+    // Reject an otherwise supported contract when a response ID could belong to multiple issuers.
+    let Some(first) = contributions.first() else {
+        return SupportState::Unsupported;
+    };
+    if contributions
+        .iter()
+        .all(|value| value.continuation_issuer == first.continuation_issuer)
+    {
+        support
+    } else {
+        SupportState::Unsupported
+    }
 }
 
 /// Aggregates Public Model model capabilities without mixing in Provider or Route identity.
@@ -919,7 +953,6 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
                 input: Vec::new(),
                 output: Vec::new(),
             },
-            supported_parameters: Vec::new(),
             tokenizer: None,
             knowledge_cutoff: None,
             reasoning: ModelReasoningCapabilities {
@@ -944,11 +977,6 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
         modalities: declared_modalities.map_or_else(
             || ModelModalities::intersection(contributions.iter().map(|value| &value.modalities)),
             |modalities| ModelModalities::intersection(modalities.into_iter()),
-        ),
-        supported_parameters: intersect_sets(
-            contributions
-                .iter()
-                .map(|value| value.model_parameters.as_slice()),
         ),
         tokenizer: intersect_optional_string(
             contributions

@@ -19,7 +19,7 @@
 
 | 层次 | 拥有的事实 | 是否向下游公开 |
 |---|---|---|
-| Canonical Model | 与部署无关的模型名称、上下文、模态、参数和 reasoning 事实 | 只经 Public Model 聚合后公开 |
+| Canonical Model | 与部署无关的模型名称、上下文、模态、参数和 reasoning 事实 | 模型事实经 Public Model 聚合；参数只经接口契约公开 |
 | Provider / Upstream API | Provider 能力上界、served limits、协议、upstream model、state affinity 和 wire 映射 | 否 |
 | Route | 下游协议、Target、Upstream API、`Native`/`Bridged` 模式及配置顺序 | 否 |
 | Public Model | 稳定身份、生命周期、模型事实和每协议唯一固定能力契约 | 是 |
@@ -47,12 +47,13 @@ mapping，也不得包含健康、延迟、配额、价格、成本、指标、�
 
 - OpenAI 标准身份：`id`、`object`、`created`、`owned_by`；
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
-- 模型事实：任务、total/input/output context、输入/输出模态、已确认参数、tokenizer、知识截止和 reasoning；
+- 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
 - 接口契约：`chat_completions` 与 `responses` 各自至多一个 `ModelInterfaceCapabilities`；
 - schema 版本：首版固定为字符串 `"1"`。
 
 模型事实是模型本体的安全公共上界；生成请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有
-可执行 Route 时，其接口值为 `null`。
+可执行 Route 时，其接口值为 `null`。canonical Model 的参数事实只参与编译各接口的
+`supported_parameters`，模型事实层不得再公开一份不能直接用于请求放行的重复列表。
 
 ### 4.2 未知语义
 
@@ -81,6 +82,12 @@ OpenRouter canonical model 的 `context_length` 是模型目录公开的上下�
 | `Bridged` Route | 只贡献当前转换器完整支持的公共子集；不能借 Native Route 的额外能力扩大契约 |
 
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
+`previous_response_id` 除了要求全部 Responses Route 明确支持，还要求这些 Route 唯一解析到同一个 Upstream
+Target/API；存在多个潜在签发者时必须公开为 `unsupported`，并从接口 `supported_parameters` 删除。
+
+若同一 canonical Model 由多个 Provider Target 提供，只有代码目录将对应 route source 显式列入同一 Public
+Model 时才形成聚合；模型 ID 相同不能自动新增候选。聚合后每个协议的全部静态可执行 Route 仍共同参与上述
+保守交集，不能只按首选 Provider 计算公共契约。
 
 ## 5. 请求预检与禁止能力路由
 
@@ -91,6 +98,9 @@ OpenRouter canonical model 的 `context_length` 是模型目录公开的上下�
 3. 对所有已建模请求能力执行一次 fail-closed 预检。
 4. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
 5. 预检通过后，严格按 Public Model 的配置顺序构造完整 RoutePlan。
+
+代码目录从多个 Provider source 生成配置顺序时，对每个下游协议先按 source 声明顺序排列全部 Native Route，
+再按相同顺序排列 Bridge Route；生成后这一 Vec 即为固定配置顺序，运行时不得再按 Provider 或模式重排。
 
 以下行为一律禁止：
 
@@ -142,7 +152,7 @@ registry 必须在监听前拒绝：
 | ID | 应被保护的用户可观察行为 |
 |---|---|
 | MODEL-01 | 标准 list/retrieve 只返回四字段对象，且详情与列表元素相同。 |
-| MODEL-02 | 扩展 list/retrieve 返回同一个固定能力对象，不包含部署、凭据、价格或运行状态。 |
+| MODEL-02 | 扩展 list/retrieve 返回同一个固定能力对象；参数只由目标接口公开，且不包含部署、凭据、价格或运行状态。 |
 | MODEL-03 | active/deprecated 模型可见；retired 或无可执行接口的模型不可见、不可调用。 |
 | MODEL-04 | 较弱首选 Route 与较强后续 Route 的交集仍拒绝能力请求，且不发生 egress。 |
 | MODEL-05 | 能力预检通过后保留全部配置 Route 的原顺序，不按请求能力跳过或重排。 |

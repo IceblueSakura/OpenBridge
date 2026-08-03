@@ -37,7 +37,10 @@ route 热重载。
 - Upstream Target 绑定 Provider、Model、endpoint、credential pool、timeout 和共享故障边界；
 - Upstream API 独立声明一个协议的 upstream model、served limit、能力、state affinity，以及可选的 canonical
   reasoning level 到安全上游 wire 值的显式映射；
-- Public Model 保存有序完整 Route；
+- 同一 Public Model 可以显式列出多个 Provider route source；相同 canonical Model ID 本身不得触发自动发现、
+  隐式 Route 注册或 Provider 聚合；
+- Public Model 保存由这些 source 生成的有序完整 Route；对每个下游协议，代码目录先按 source 声明顺序排列
+  Native Route，再按相同顺序排列 Bridge Route；
 - 启动监听前必须完成唯一性、引用、能力、reasoning、credential pool 和 URL 校验。
 
 修改 Provider、Model 或路由必须重新编译并重启。项目不要求热重载。

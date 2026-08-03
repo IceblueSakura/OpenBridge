@@ -65,6 +65,14 @@ registry。当前可路由目录如下；“Bridge 候选”只表示已注册�
 | DeepSeek | `deepseek-v4-pro`、`deepseek-v4-flash` | 同名两个 target | Chat Native；Responses→Chat Bridge；无原生 Responses Upstream API | `deepseek-primary` |
 | Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` |
 
+代码目录的 Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按
+source 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册
+或加入候选。上表 checked-in Public Model 的 source 列表目前都只有一个元素；本次没有添加未经真实能力证据
+确认的第二 Provider 绑定，因此默认运行目录尚不发生真实跨 Provider fallback。
+聚合 Responses Route 的 `previous_response_id` 还要求全部可执行 Route 唯一绑定同一个 Target/API；多个潜在
+签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无 issuer ledger
+时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
+
 OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider
 分别拥有独立静态 definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用
 OpenAI-compatible wire，尚未接入或实测真实异构 wire protocol Provider。
@@ -341,6 +349,37 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 - 本轮执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和
   `git diff --check`，均通过；未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。
   未运行外部 SDK、真实 Provider、负载或长期验证。
+
+2026-08-03 完成扩展 Models 首版 schema 的 reasoning wire 与参数所有权修正：
+
+- `ReasoningLevel::XHigh` 在扩展 Models list/detail 中统一序列化为请求解析器和 OpenAPI 使用的标准 `xhigh`，
+  不再返回无法直接回填请求的 `x_high`。
+- canonical `ModelInfo.supported_parameters` 继续参与 Upstream API 收窄和每协议固定接口交集，但
+  `ModelCapabilities` 不再重复公开这份模型目录上界；客户端可调用参数只由目标
+  `interfaces.*.supported_parameters` 公开。项目尚未发布，因此 schema version 保持首版字符串 `"1"`。
+- 聚焦 Models 契约测试先确认旧实现分别因重复参数字段和 `x_high` 失败，最小实现后通过。随后
+  `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`
+  均通过；全量 Rust 结果为 164 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。
+- 本地服务使用私有下游用户 Key 只读验证 7 个扩展模型：schema version 均为 `"1"`，模型事实层均无
+  `supported_parameters`，两个接口参数列表均保留，reasoning levels 包含 `xhigh` 且不含 `x_high`，标准/扩展
+  ID 与所有 detail 对象一致。该验证未调用真实 Provider；也未运行外部 SDK、负载或长期验收。
+
+2026-08-04 完成同一 Public Model 的多 Provider 聚合装配与 continuation 安全边界：
+
+- `src/providers/catalog/routing.rs` 的单 target registration 已改为有序 Provider route source 列表；对每个
+  下游协议按 source 声明顺序生成全部 Native Route，再按同序生成 Bridge Route。已有 checked-in Public
+  Model 的 source 列表仍各只有一个元素，Route ID 与默认行为未改变，也未新增未经真实证据确认的 Provider 绑定。
+- `src/registry/public_model.rs` 在保守接口交集之外记录仅供内部判断的 Target/API continuation issuer；只有全部
+  Responses Route 支持且 issuer 唯一时才公开 `previous_response_id`。多个潜在签发者会把 typed state 收窄为
+  `unsupported`、移出 `supported_parameters`，请求在 transport 前以能力错误拒绝；同一 issuer 的多 Route 仍
+  保持第一候选执行和禁止 fallback。
+- TDD 首先确认目录测试因 registration 无法表达 source 列表而编译失败，并确认歧义 continuation 旧实现实际
+  调用首选 Target、返回 429 而不是预期的本地 400。修复后，目录顺序、跨 Provider 同 canonical Model 规划、
+  能力交集、真实 attempt 顺序、唯一 issuer continuation 与歧义 preflight 聚焦测试均通过。
+- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
+  `git diff --check`，全量 Rust 结果为 166 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试
+  ignored，Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行
+  外部 SDK、真实 Provider、负载或长期验收。
 
 ## 当前未实现
 

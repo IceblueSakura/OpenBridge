@@ -19,45 +19,59 @@ pub(super) fn compiled_routing() -> CompiledRouting {
     let registrations = [
         PublicModelRegistration {
             public_name: "code-primary",
-            route_prefix: "code-primary-openai",
-            upstream_target: "openai-main",
-            surface: PublicModelSurface::DualProtocolWithBridges,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "code-primary-openai",
+                upstream_target: "openai-main",
+                surface: PublicModelSurface::DualProtocolWithBridges,
+            }],
         },
         PublicModelRegistration {
             public_name: "LongCat-2.0",
-            route_prefix: "longcat-2",
-            upstream_target: "longcat-2",
-            surface: PublicModelSurface::DualProtocolWithBridges,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "longcat-2",
+                upstream_target: "longcat-2",
+                surface: PublicModelSurface::DualProtocolWithBridges,
+            }],
         },
         PublicModelRegistration {
             public_name: "nemotron-3-ultra",
-            route_prefix: "nemotron-3-ultra-openrouter",
-            upstream_target: "openrouter-nemotron-3-ultra",
-            surface: PublicModelSurface::DualProtocolNativeOnly,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "nemotron-3-ultra-openrouter",
+                upstream_target: "openrouter-nemotron-3-ultra",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-pro",
-            route_prefix: "deepseek-v4-pro-deepseek",
-            upstream_target: "deepseek-v4-pro",
-            surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "deepseek-v4-pro-deepseek",
+                upstream_target: "deepseek-v4-pro",
+                surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+            }],
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-flash",
-            route_prefix: "deepseek-v4-flash-deepseek",
-            upstream_target: "deepseek-v4-flash",
-            surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "deepseek-v4-flash-deepseek",
+                upstream_target: "deepseek-v4-flash",
+                surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+            }],
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
-            route_prefix: "mimo-v2-5-pro-mimo",
-            upstream_target: "mimo-v2-5-pro",
-            surface: PublicModelSurface::DualProtocolWithBridges,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-pro-mimo",
+                upstream_target: "mimo-v2-5-pro",
+                surface: PublicModelSurface::DualProtocolWithBridges,
+            }],
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5",
-            route_prefix: "mimo-v2-5-mimo",
-            upstream_target: "mimo-v2-5",
-            surface: PublicModelSurface::DualProtocolWithBridges,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-mimo",
+                upstream_target: "mimo-v2-5",
+                surface: PublicModelSurface::DualProtocolWithBridges,
+            }],
         },
     ];
 
@@ -76,159 +90,132 @@ pub(super) fn compiled_routing() -> CompiledRouting {
     }
 }
 
+/// One downstream model identity with Provider route sources ordered by fallback priority.
 struct PublicModelRegistration {
     public_name: &'static str,
+    providers: &'static [ProviderRouteRegistration],
+}
+
+/// One Provider target's executable protocol surface within a Public Model.
+#[derive(Clone, Copy)]
+struct ProviderRouteRegistration {
     route_prefix: &'static str,
     upstream_target: &'static str,
     surface: PublicModelSurface,
 }
 
+/// Native and Bridge surfaces that a Provider target contributes to one Public Model.
 #[derive(Clone, Copy)]
 enum PublicModelSurface {
+    /// Provides both Native protocols plus both reverse Bridge paths.
     DualProtocolWithBridges,
+    /// Provides both Native protocols without Bridge paths.
     DualProtocolNativeOnly,
+    /// Provides Chat Native and a Responses-to-Chat Bridge path.
     ChatNativeWithResponsesBridge,
 }
 
+/// Global Route phase used to keep every Provider's Native candidate ahead of Bridge candidates.
+#[derive(Clone, Copy)]
+enum RoutePhase {
+    ChatNative,
+    ChatBridge,
+    ResponsesNative,
+    ResponsesBridge,
+}
+
+const ROUTE_PHASES: [RoutePhase; 4] = [
+    RoutePhase::ChatNative,
+    RoutePhase::ChatBridge,
+    RoutePhase::ResponsesNative,
+    RoutePhase::ResponsesBridge,
+];
+
 impl PublicModelRegistration {
-    /// Builds the complete Route and Public Model candidates for a registered surface.
+    /// Builds one complete Public Model while preserving Provider priority inside each Route phase.
     fn compile(self) -> CompiledPublicModel {
-        match self.surface {
-            PublicModelSurface::DualProtocolWithBridges => self.compile_dual_protocol(),
-            PublicModelSurface::DualProtocolNativeOnly => self.compile_dual_protocol_native_only(),
-            PublicModelSurface::ChatNativeWithResponsesBridge => {
-                self.compile_chat_native_with_responses_bridge()
+        // Generate all Native candidates before Bridge candidates for each downstream protocol.
+        let mut routes = Vec::with_capacity(self.providers.len() * ROUTE_PHASES.len());
+        for phase in ROUTE_PHASES {
+            for provider in self.providers {
+                if let Some(route) = provider.route_for(phase) {
+                    routes.push(route);
+                }
             }
         }
-    }
-
-    /// Builds the complete Chat/Responses surface with Native-first ordering and reverse Bridge candidates.
-    fn compile_dual_protocol(self) -> CompiledPublicModel {
-        // Assign stable IDs to the two Native and two reverse Bridged Routes.
-        let chat = format!("{}-chat", self.route_prefix);
-        let chat_via_responses = format!("{}-chat-via-responses", self.route_prefix);
-        let responses = format!("{}-responses", self.route_prefix);
-        let responses_via_chat = format!("{}-responses-via-chat", self.route_prefix);
-
-        // Build the complete Route set in downstream-protocol Native-first order.
-        let routes = vec![
-            route(
-                &chat,
-                self.upstream_target,
-                "chat",
-                ApiProtocol::ChatCompletions,
-                RouteMode::Native,
-            ),
-            route(
-                &chat_via_responses,
-                self.upstream_target,
-                "responses",
-                ApiProtocol::ChatCompletions,
-                RouteMode::Bridged,
-            ),
-            route(
-                &responses,
-                self.upstream_target,
-                "responses",
-                ApiProtocol::Responses,
-                RouteMode::Native,
-            ),
-            route(
-                &responses_via_chat,
-                self.upstream_target,
-                "chat",
-                ApiProtocol::Responses,
-                RouteMode::Bridged,
-            ),
-        ];
-
-        // Reuse the same IDs to build the stable Public Model candidate order.
+        // Reuse the generated IDs as the private immutable execution order.
+        let route_ids = routes.iter().map(|route| route.id.clone()).collect();
         let public_model = PublicModelConfig {
             id: self.public_name.to_owned(),
             created: 1_785_715_200,
             display_name: self.public_name.to_owned(),
             description: None,
             lifecycle: ModelLifecycle::active(),
-            routes: vec![chat, chat_via_responses, responses, responses_via_chat],
+            routes: route_ids,
         };
         CompiledPublicModel {
             routes,
             public_model,
         }
     }
+}
 
-    /// Builds only the two Native surfaces without Bridge or fallback candidates.
-    fn compile_dual_protocol_native_only(self) -> CompiledPublicModel {
-        // Build Chat and Responses Native Routes without implying Bridge support.
-        let chat = format!("{}-chat", self.route_prefix);
-        let responses = format!("{}-responses", self.route_prefix);
-        let routes = vec![
-            route(
-                &chat,
-                self.upstream_target,
+impl ProviderRouteRegistration {
+    /// Builds this Provider's Route for one global phase when its surface supports that phase.
+    fn route_for(self, phase: RoutePhase) -> Option<RouteConfig> {
+        // Select the fixed protocol direction and handling mode for this surface and phase.
+        let (suffix, upstream_api, downstream_protocol, mode) = match phase {
+            RoutePhase::ChatNative => (
+                "chat",
                 "chat",
                 ApiProtocol::ChatCompletions,
                 RouteMode::Native,
             ),
-            route(
-                &responses,
-                self.upstream_target,
-                "responses",
-                ApiProtocol::Responses,
-                RouteMode::Native,
-            ),
-        ];
-
-        // Make each Public Model reference its only complete candidate for the protocol.
-        let public_model = PublicModelConfig {
-            id: self.public_name.to_owned(),
-            created: 1_785_715_200,
-            display_name: self.public_name.to_owned(),
-            description: None,
-            lifecycle: ModelLifecycle::active(),
-            routes: vec![chat, responses],
+            RoutePhase::ChatBridge
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+            {
+                (
+                    "chat-via-responses",
+                    "responses",
+                    ApiProtocol::ChatCompletions,
+                    RouteMode::Bridged,
+                )
+            }
+            RoutePhase::ResponsesNative
+                if !matches!(
+                    self.surface,
+                    PublicModelSurface::ChatNativeWithResponsesBridge
+                ) =>
+            {
+                (
+                    "responses",
+                    "responses",
+                    ApiProtocol::Responses,
+                    RouteMode::Native,
+                )
+            }
+            RoutePhase::ResponsesBridge
+                if !matches!(self.surface, PublicModelSurface::DualProtocolNativeOnly) =>
+            {
+                (
+                    "responses-via-chat",
+                    "chat",
+                    ApiProtocol::Responses,
+                    RouteMode::Bridged,
+                )
+            }
+            _ => return None,
         };
-        CompiledPublicModel {
-            routes,
-            public_model,
-        }
-    }
 
-    /// Builds a Chat Native surface and a Responses-to-Chat Bridge surface.
-    fn compile_chat_native_with_responses_bridge(self) -> CompiledPublicModel {
-        // Assign stable IDs to the Chat Native and Responses Bridge Routes.
-        let chat = format!("{}-chat", self.route_prefix);
-        let responses_via_chat = format!("{}-responses-via-chat", self.route_prefix);
-        let routes = vec![
-            route(
-                &chat,
-                self.upstream_target,
-                "chat",
-                ApiProtocol::ChatCompletions,
-                RouteMode::Native,
-            ),
-            route(
-                &responses_via_chat,
-                self.upstream_target,
-                "chat",
-                ApiProtocol::Responses,
-                RouteMode::Bridged,
-            ),
-        ];
-
-        // Make each downstream protocol reference its only complete candidate.
-        let public_model = PublicModelConfig {
-            id: self.public_name.to_owned(),
-            created: 1_785_715_200,
-            display_name: self.public_name.to_owned(),
-            description: None,
-            lifecycle: ModelLifecycle::active(),
-            routes: vec![chat, responses_via_chat],
-        };
-        CompiledPublicModel {
-            routes,
-            public_model,
-        }
+        // Bind the phase-specific Route to this Provider target with a stable ID.
+        let id = format!("{}-{suffix}", self.route_prefix);
+        Some(route(
+            &id,
+            self.upstream_target,
+            upstream_api,
+            downstream_protocol,
+            mode,
+        ))
     }
 }
 
@@ -252,5 +239,58 @@ fn route(
         upstream_api: upstream_api.to_owned(),
         downstream_protocol,
         mode,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ProviderRouteRegistration, PublicModelRegistration, PublicModelSurface, RouteMode,
+    };
+
+    #[test]
+    fn multiple_providers_are_compiled_native_first_for_each_protocol() {
+        // Register two equivalent Provider targets in their explicit fallback priority.
+        let registration = PublicModelRegistration {
+            public_name: "shared-model",
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "shared-primary",
+                    upstream_target: "primary-target",
+                    surface: PublicModelSurface::DualProtocolWithBridges,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "shared-secondary",
+                    upstream_target: "secondary-target",
+                    surface: PublicModelSurface::DualProtocolWithBridges,
+                },
+            ],
+        };
+
+        // Compile one Public Model and verify global Native-first order for both protocols.
+        let compiled = registration.compile();
+        let expected = [
+            "shared-primary-chat",
+            "shared-secondary-chat",
+            "shared-primary-chat-via-responses",
+            "shared-secondary-chat-via-responses",
+            "shared-primary-responses",
+            "shared-secondary-responses",
+            "shared-primary-responses-via-chat",
+            "shared-secondary-responses-via-chat",
+        ];
+        assert_eq!(compiled.public_model.routes, expected);
+        assert_eq!(
+            compiled
+                .routes
+                .iter()
+                .map(|route| route.id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(compiled.routes[0].upstream_target, "primary-target");
+        assert_eq!(compiled.routes[1].upstream_target, "secondary-target");
+        assert_eq!(compiled.routes[0].mode, RouteMode::Native);
+        assert_eq!(compiled.routes[2].mode, RouteMode::Bridged);
     }
 }

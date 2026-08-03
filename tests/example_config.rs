@@ -8,8 +8,8 @@ use openbridge::{
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
     registry::{
-        InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport,
-        UpstreamApiCapabilities, build_registry,
+        InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport, RouteConfig,
+        RouteMode, UpstreamApiCapabilities, build_registry,
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
@@ -831,7 +831,8 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
 }
 
 #[test]
-fn real_model_can_be_shared_by_targets_from_different_providers() {
+fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
+    // Clone the LongCat deployment into an OpenAI-owned target that references the same canonical Model.
     let bootstrap = include_str!("../config/bootstrap.toml");
     let bootstrap =
         parse_bootstrap_config(bootstrap).expect("checked-in bootstrap must remain valid");
@@ -848,10 +849,66 @@ fn real_model_can_be_shared_by_targets_from_different_providers() {
     for upstream_api in &mut alternate.upstream_apis {
         upstream_api.upstream_model = "longcat/longcat-2.0".to_owned();
         upstream_api.endpoint_profile = "public-api".to_owned();
+        match &mut upstream_api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.function_calling = false;
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.function_calling = false;
+            }
+        }
     }
     alternate.base_url = "https://api.openai.com".to_owned();
     definition.upstream_targets.push(alternate);
 
+    // Add the alternate Provider's complete surface and aggregate both targets Native-first per protocol.
+    definition.routes.extend([
+        RouteConfig {
+            id: "longcat-openai-chat".to_owned(),
+            upstream_target: "openai-longcat-test".to_owned(),
+            upstream_api: "chat".to_owned(),
+            downstream_protocol: ApiProtocol::ChatCompletions,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "longcat-openai-chat-via-responses".to_owned(),
+            upstream_target: "openai-longcat-test".to_owned(),
+            upstream_api: "responses".to_owned(),
+            downstream_protocol: ApiProtocol::ChatCompletions,
+            mode: RouteMode::Bridged,
+        },
+        RouteConfig {
+            id: "longcat-openai-responses".to_owned(),
+            upstream_target: "openai-longcat-test".to_owned(),
+            upstream_api: "responses".to_owned(),
+            downstream_protocol: ApiProtocol::Responses,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "longcat-openai-responses-via-chat".to_owned(),
+            upstream_target: "openai-longcat-test".to_owned(),
+            upstream_api: "chat".to_owned(),
+            downstream_protocol: ApiProtocol::Responses,
+            mode: RouteMode::Bridged,
+        },
+    ]);
+    definition
+        .public_models
+        .iter_mut()
+        .find(|model| model.id == "LongCat-2.0")
+        .expect("LongCat Public Model is compiled")
+        .routes = vec![
+        "longcat-2-chat".to_owned(),
+        "longcat-openai-chat".to_owned(),
+        "longcat-2-chat-via-responses".to_owned(),
+        "longcat-openai-chat-via-responses".to_owned(),
+        "longcat-2-responses".to_owned(),
+        "longcat-openai-responses".to_owned(),
+        "longcat-2-responses-via-chat".to_owned(),
+        "longcat-openai-responses-via-chat".to_owned(),
+    ];
+
+    // Compile the full registry and confirm both Provider targets retain one canonical Model identity.
     let registry = build_registry(bootstrap, definition)
         .expect("different providers may reference one canonical model");
     let direct = registry
@@ -868,4 +925,61 @@ fn real_model_can_be_shared_by_targets_from_different_providers() {
     assert_eq!(direct.model().id(), "meituan/longcat-2.0");
     assert_eq!(alternate.model().id(), "meituan/longcat-2.0");
     assert_eq!(direct.model(), alternate.model());
+
+    // Plan each protocol in the aggregated fixed order without capability-based candidate selection.
+    let chat_body = bytes::Bytes::from_static(
+        br#"{"model":"LongCat-2.0","messages":[{"role":"user","content":"hello"}]}"#,
+    );
+    let chat_profile = analyze_request(ApiProtocol::ChatCompletions, &chat_body).unwrap();
+    let chat_plan = plan_request(&registry, &chat_profile, chat_body).unwrap();
+    assert_eq!(
+        chat_plan
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        [
+            "longcat-2-chat",
+            "longcat-openai-chat",
+            "longcat-2-chat-via-responses",
+            "longcat-openai-chat-via-responses",
+        ]
+    );
+    let responses_body = bytes::Bytes::from_static(br#"{"model":"LongCat-2.0","input":"hello"}"#);
+    let responses_profile = analyze_request(ApiProtocol::Responses, &responses_body).unwrap();
+    let responses_plan = plan_request(&registry, &responses_profile, responses_body).unwrap();
+    assert_eq!(
+        responses_plan
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        [
+            "longcat-2-responses",
+            "longcat-openai-responses",
+            "longcat-2-responses-via-chat",
+            "longcat-openai-responses-via-chat",
+        ]
+    );
+
+    // Intersect the weaker fallback capability into the public contract and reject tools before egress.
+    let info = serde_json::to_value(
+        registry
+            .public_model("LongCat-2.0")
+            .expect("aggregated Public Model exists")
+            .info(),
+    )
+    .unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["tools"]["support"],
+        "unsupported"
+    );
+    let tools_body = bytes::Bytes::from_static(
+        br#"{"model":"LongCat-2.0","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+    );
+    let tools_profile = analyze_request(ApiProtocol::ChatCompletions, &tools_body).unwrap();
+    assert!(matches!(
+        plan_request(&registry, &tools_profile, tools_body),
+        Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+    ));
 }

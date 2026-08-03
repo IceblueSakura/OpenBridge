@@ -9,11 +9,17 @@
 ## 当前路由边界
 
 - 下游只选择 Public Model，不得指定 Provider、Upstream Target、Upstream API、endpoint 或 credential；
+- 多 Provider 聚合必须由代码目录在一个 Public Model 下显式列出 route source；canonical Model 相同不会自动
+  发现、注册或加入 fallback；
+- 对每个下游协议，目录按 source 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route；该结果就是
+  RoutePlan 消费的固定配置顺序，不在运行期重新比较 Native/Bridge 或 Provider；
 - Public Model 的固定能力计算与请求预检统一由[模型能力契约](model-information-and-capability-contract.md)定义；本页不再为单个候选计算能力；
 - 进入本层的请求已经完成一次能力预检；请求能力不得跳过、筛选、截断或重排 Route，所有静态可执行候选保持配置顺序；
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model；
 - `previous_response_id` 等 Provider-bound state 禁止跨 Upstream Target fallback；非空 ID 只有在 issuing
   Upstream Target/Upstream API 可由配置唯一确定时才能形成候选，否则在 egress 前拒绝；
+- 多个 Target/API 即使都声明支持 `previous_response_id`，在没有 issuer ledger 时也不能形成唯一签发者；固定
+  Responses 契约必须关闭该能力，不能默认把 ID 发送给第一 Provider；
 - `store: true` 只有在所选 Public Model 的固定 Responses 契约明确支持时才可进入；该契约必须由全部对应
   Responses Route 共同保证，任何 `Bridged` Route 都不能通过字段删除把它降级为无状态调用。
 

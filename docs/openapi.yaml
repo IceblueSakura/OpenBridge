@@ -575,8 +575,9 @@ components:
     ModelCapabilities:
       type: object
       additionalProperties: false
+      description: Stable model facts. Request parameters are exposed only by the selected interface contract.
       required:
-        [tasks, context_window, modalities, supported_parameters, tokenizer, knowledge_cutoff, reasoning]
+        [tasks, context_window, modalities, tokenizer, knowledge_cutoff, reasoning]
       properties:
         tasks:
           type: array
@@ -588,11 +589,6 @@ components:
           $ref: '#/components/schemas/ContextWindow'
         modalities:
           $ref: '#/components/schemas/ModelModalities'
-        supported_parameters:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
         tokenizer:
           type: string
           nullable: true
@@ -642,6 +638,7 @@ components:
         supported_parameters:
           type: array
           uniqueItems: true
+          description: Authoritative parameter names accepted through this interface; typed capability fields provide additional semantics.
           items:
             type: string
         streaming:
@@ -723,6 +720,7 @@ components:
     StateCapabilities:
       type: object
       additionalProperties: false
+      description: previous_response_id is supported only when every executable Responses route agrees and one upstream target/API is the unique continuation issuer.
       required: [store, previous_response_id, background]
       properties:
         store:
@@ -873,6 +871,7 @@ components:
 
     ReasoningEffort:
       type: string
+      description: Canonical reasoning level used by both model information and downstream requests.
       enum: [none, minimal, low, medium, high, xhigh, max]
 
     ChatCompletionResponse:

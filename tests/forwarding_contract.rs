@@ -909,6 +909,16 @@ async fn models_lists_only_public_models_after_authentication() {
     assert_eq!(extended["schema_version"], "1");
     assert_eq!(extended["name"], "Test public model");
     assert_eq!(extended["lifecycle"]["status"], "active");
+    assert!(
+        extended["capabilities"]
+            .get("supported_parameters")
+            .is_none(),
+        "model facts must not duplicate the actionable interface parameter contract"
+    );
+    assert_eq!(
+        extended["interfaces"]["chat_completions"]["supported_parameters"],
+        serde_json::json!(["stream", "tool_choice", "tools"])
+    );
     assert_eq!(
         extended["capabilities"]["context_window"],
         serde_json::json!({
@@ -978,6 +988,10 @@ async fn compiled_models_endpoint_exposes_openrouter_model_facts() {
     assert_eq!(
         code_primary["capabilities"]["knowledge_cutoff"],
         "2026-02-16"
+    );
+    assert_eq!(
+        code_primary["capabilities"]["reasoning"]["levels"],
+        serde_json::json!(["none", "low", "medium", "high", "xhigh", "max"])
     );
     assert_eq!(
         code_primary["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
@@ -1233,20 +1247,30 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
 
 #[tokio::test]
 async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallback() {
-    // Enable continuation for two Responses APIs and put the primary target into quota cooldown first.
+    // Enable continuation on one uniquely identifiable Responses API and put its target into cooldown first.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
         capabilities.previous_response_id = true;
     }
-    add_responses_fallback(&mut definition, "healthy-fallback", ProviderKind::OpenAi);
-    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[1].upstream_apis[1].capabilities
-    {
-        capabilities.previous_response_id = true;
-    }
     let transport = Arc::new(ScopedHealthTransport::default());
+
+    // Confirm one unique issuer keeps continuation in both typed state and parameters.
+    let registry =
+        build_registry(support::bootstrap(support::BOOTSTRAP), definition.clone()).unwrap();
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["responses"]["state"]["previous_response_id"],
+        "supported"
+    );
+    assert!(
+        info["interfaces"]["responses"]["supported_parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|parameter| parameter == "previous_response_id")
+    );
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
     // A stateless request cools down the only member and preserves the final live 429.
@@ -1275,6 +1299,56 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
         transport.attempts.lock().unwrap().as_slice(),
         ["openai-main", "openai-main",]
     );
+}
+
+#[tokio::test]
+async fn ambiguous_target_bound_continuation_is_rejected_before_upstream() {
+    // Enable continuation on two different targets without an issuer ledger.
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    {
+        capabilities.previous_response_id = true;
+    }
+    add_responses_fallback(&mut definition, "alternate-issuer", ProviderKind::OpenAi);
+    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[1].upstream_apis[1].capabilities
+    {
+        capabilities.previous_response_id = true;
+    }
+    let transport = Arc::new(ScopedHealthTransport::default());
+
+    // Confirm the public Models contract removes continuation from both typed state and parameters.
+    let registry =
+        build_registry(support::bootstrap(support::BOOTSTRAP), definition.clone()).unwrap();
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["responses"]["state"]["previous_response_id"],
+        "unsupported"
+    );
+    assert!(
+        !info["interfaces"]["responses"]["supported_parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|parameter| parameter == "previous_response_id")
+    );
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // Reject the ambiguous continuation during fixed Public Model preflight without selecting a target.
+    let continuation = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","previous_response_id":"resp_123"}"#,
+        ))
+        .unwrap();
+    let response = app.oneshot(continuation).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("unsupported_model_capability"));
+    assert!(transport.attempts.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1342,20 +1416,16 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
 }
 
 #[tokio::test]
-async fn provider_bound_streams_do_not_fall_back_to_another_target() {
+async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
         capabilities.previous_response_id = true;
     }
-    let mut fallback = definition.upstream_targets[0].clone();
-    fallback.id = "openai-fallback".to_owned();
-    fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
-    definition.upstream_targets.push(fallback);
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "fallback-responses".to_owned(),
-        upstream_target: "openai-fallback".to_owned(),
+        upstream_target: "openai-main".to_owned(),
         upstream_api: "responses".to_owned(),
         downstream_protocol: openbridge::core::ApiProtocol::Responses,
         mode: openbridge::registry::RouteMode::Native,

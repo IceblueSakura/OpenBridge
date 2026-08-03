@@ -87,12 +87,17 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。Native Route
+请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。代码目录允许
+一个 Public Model 显式列出多个 Provider route source；对每个下游协议，先按 Provider 声明顺序生成全部 Native
+候选，再按相同顺序生成 Bridge 候选。相同 canonical Model ID 不会触发自动发现或隐式聚合。当前 checked-in
+Public Model 仍各自只注册一个 Provider source，因为尚无第二个已确认的真实 Provider 绑定。Native Route
 由 Provider adapter 写入实际上游 `model`；选定 Upstream API 还可对 canonical Model 已声明的
 reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
 Public Model 契约或导致跳过前序 Route。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。
+聚合 Responses Route 只有在全部候选支持 continuation 且唯一 Upstream Target/API 可确定时才公开
+`previous_response_id`；多个潜在签发者没有 issuer ledger，必须在任何上游调用前拒绝，不能盲投首选 Provider。
 Provider 的受信 request-header hook 可按编译期规则增添、替换、转换或删除普通 header；OpenAI 与 LongCat
 转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing header，共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header
 或 header 转换规则。Transient upstream failure

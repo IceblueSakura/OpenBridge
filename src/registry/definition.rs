@@ -40,6 +40,7 @@ pub enum ReasoningLevel {
     /// High reasoning level.
     High,
     /// Extra-high reasoning level.
+    #[serde(rename = "xhigh")]
     XHigh,
     /// Maximum reasoning level.
     Max,
