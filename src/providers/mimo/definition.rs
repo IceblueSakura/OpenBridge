@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// MiMo Chat Completions 与 Responses 的保守能力上界；当前未确认可读 reasoning 输出。
+/// MiMo Chat Completions 与 Responses 的已确认能力上界；reasoning 输出仍未确认可读 wire。
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::MiMo,
     ApiCapabilities {
@@ -19,9 +19,9 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
+            parallel_tool_calls: true,
+            image_input: true,
+            structured_outputs: true,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
         },
@@ -29,9 +29,9 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             enabled: true,
             streaming: true,
             function_calling: true,
-            parallel_tool_calls: false,
-            image_input: false,
-            structured_outputs: false,
+            parallel_tool_calls: true,
+            image_input: true,
+            structured_outputs: true,
             store: false,
             previous_response_id: false,
             background: false,

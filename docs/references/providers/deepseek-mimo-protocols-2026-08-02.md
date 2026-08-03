@@ -32,14 +32,17 @@ credential 机制，不新增第二种认证 adapter。
 官方[模型列表](https://mimo.mi.com/docs/zh-CN/api/model/list-models)列出 `mimo-v2.5-pro` 与 `mimo-v2.5`；
 当前文本 Provider 注册只使用这两个模型，不纳入 ASR/TTS 变体。
 
-MiMo 的能力上界只保留两种协议的 streaming 与 function calling；图像、structured output 等字段即使出现在
-官方文档中，也不在本轮静态接入范围内扩大。
+当前 OpenBridge 对 MiMo 两种 Native 协议声明支持 streaming、function calling、`parallel_tool_calls`、image input
+和 structured output；`store` 保持关闭，Responses 的 `background` 与 `previous_response_id` 保持关闭，reasoning
+output 保持 `Unknown`。这次能力修订只扩大 Native capability gate，不扩大反向 Protocol Bridge，也不替代真实 Provider
+tool/image/structured-output/reasoning wire 验收。
 
 ## OpenBridge 适用边界
 
 - `ProviderKind`、静态 contract、相对 path、固定 endpoint、credential locator 与上述四个文本模型可以据此加入代码。
 - DeepSeek 只注册 Chat Upstream API；下游 Responses 能力来自 OpenBridge 的显式 Protocol Bridge，不属于
   DeepSeek 原生能力声明。
-- MiMo 注册 Chat/Responses Native Upstream API，但仍保持 `background`、`previous_response_id` 等未验证能力关闭。
+- MiMo 注册 Chat/Responses Native Upstream API，并按上述能力边界声明 Native 的并行工具、图像输入和 structured output；
+  `background`、`previous_response_id`、`store` 与可读 reasoning output 仍保持关闭或未知。
 - 静态单元测试只证明 adapter 选择与请求改写，不证明真实 Provider 接受请求或完整 SSE/tool lifecycle 兼容。
 - 实际兼容结论仍需执行独立协议测试和真实 Provider 验证。

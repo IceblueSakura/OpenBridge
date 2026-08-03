@@ -60,6 +60,11 @@ OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，
 分别拥有独立静态 definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用
 OpenAI-compatible wire，尚未接入或实测真实异构 wire protocol Provider。
 
+MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均声明支持
+`parallel_tool_calls`、image input 和 structured output；两种协议的 `store` 均关闭，Responses 的
+`previous_response_id` 与 `background` 均关闭。两种协议的 `reasoning_output` 保持 `Unknown`，因此这组声明只
+控制请求能力 gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，也不扩大反向 Bridge 的转换能力。
+
 五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。
 descriptor 不注册 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
@@ -128,7 +133,7 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 流式 terminal 与 invalid stream 关闭。具备模型 reasoning capability 且由 `ReasoningOutput` 确认方向兼容可读输出的
 Responses reasoning 与 Chat `reasoning_content` 可在 Bridge 中保留为独立 reasoning channel；`encrypted_content`、
 `previous_response_id`、hosted/custom tool、image、structured output、background/store、Provider 私有扩展和其他未建模字段
-不做降级转换，会在 egress 前拒绝。
+不做降级转换，会在 egress 前拒绝；MiMo 对 image、structured output 和并行工具的声明仅适用于其 Native API。
 
 ## 显式 probe
 
@@ -176,6 +181,41 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 修复前结论是：DeepSeek V4 Flash 的 Chat Native high 工具调用和 reasoning continuation 已获真实 Provider 证据；Responses→Chat Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态前中断。测试使用了本地私有配置，未在文档或输出中记录凭证。
 
 本轮未覆盖外部 OpenAI SDK、Codex/Hermes、负载、长期运行或生产环境验收；上述高层真实 Provider 结果属于修复前基线。
+
+2026-08-03 修订 MiMo Native capability contract：
+
+- `tests/provider_boundary_contract.rs` 的 `mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_reasoning`
+  通过，确认 Chat/Responses 的并行工具、image input、structured output，以及关闭的 state capability 和 `Unknown` reasoning output。
+- `tests/example_config.rs` 的 `mimo_models_are_compiled_with_dual_native_first_routes` 通过，确认两个 MiMo 模型的编译
+  Upstream API、复杂请求 Native-first route 和 `store`/`previous_response_id`/`background` 拒绝边界一致。
+- 本轮执行 `cargo fmt -- --check` 与上述两个 focused `cargo test --locked --test ...`；这是 deterministic Rust contract
+  evidence，不等同于真实 MiMo Provider、外部 SDK、并发负载或长期运行验收。
+
+2026-08-03 完成 MiMo Responses Native 复杂工具流回归：
+
+- `tests/forwarding_contract.rs` 的 `mimo_responses_native_preserves_parallel_tool_stream` 使用实际 compiled registry
+  中的 `mimo-v2.5`，提交同时包含 image input、structured output、两个 function tools 和
+  `parallel_tool_calls: true` 的 Responses streaming 请求。
+- mock upstream 将两个 function-call arguments 交错拆成 17-byte SSE chunks；Router 仍命中 `/v1/responses` Native，
+  下游收到与上游完全相同的 bytes，Responses 状态机重建两个合法 arguments，并以唯一 `response.completed` 收口。
+- `cargo test --locked --test forwarding_contract` 30 个测试、`cargo test --locked --test native_routing_contract` 11 个测试、
+  `cargo test --locked --test provider_boundary_contract` 15 个测试和 `cargo test --locked --test example_config` 7 个测试均通过。
+  这仍是 mock/deterministic 测试证据，不等同于真实 MiMo Provider 或外部 SDK 验收。
+- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；
+  全量 Rust 结果为 148 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored，未运行该 SDK 测试。
+
+2026-08-03 补充 DeepSeek V4 Flash 与 MiMo V2.5 reasoning output 分类测试：
+
+- `tests/provider_boundary_contract.rs` 的 `deepseek_and_mimo_reasoning_output_types_are_explicit` 固定了 Provider contract：
+  DeepSeek Chat 为 `PlainText`，对应 `reasoning_content`；DeepSeek 没有原生 Responses output；MiMo Chat/Responses 均为 `Unknown`。
+- `tests/example_config.rs` 的 `compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes` 核对了具体 compiled
+  target：DeepSeek Responses 只能进入 Chat Bridge，MiMo 带 reasoning history 时保留 Responses Native，不能因 `Unknown`
+  reasoning output 进入 Bridge。
+- `tests/forwarding_contract.rs` 的 `deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content` 使用实际 compiled
+  `deepseek-v4-flash` route 和分片 Chat SSE fixture，验证 `reasoning_content` 与 visible `content` 分离，并保留原始 Native bytes。
+  这些是 deterministic contract/wire tests；本轮没有重复真实 Provider 网络调用，因此 MiMo 的 `Unknown` 仍需真实 probe 才能升级为具体 output 类型。
+- 随后执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；全量 Rust
+  结果为 151 个测试通过、1 个外部 OpenAI Python/Node SDK 测试 ignored。
 
 2026-08-03 完成 Bridge reasoning 与 DeepSeek thinking 空文本修复：
 

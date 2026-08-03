@@ -437,6 +437,59 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
 }
 
 #[test]
+fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
+    // 构造完整编译注册表，读取两个具体模型的实际 target 与 Provider API 分类。
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    let deepseek = registry
+        .upstream_target("deepseek-v4-flash")
+        .expect("DeepSeek V4 Flash target should be compiled");
+    assert_eq!(
+        deepseek.upstream_api("chat").unwrap().reasoning_output(),
+        ReasoningOutput::PlainText
+    );
+    assert!(deepseek.upstream_api("responses").is_none());
+
+    // DeepSeek Responses 只能选择 Chat Bridge，并使用已确认的 PlainText 上游 channel。
+    let deepseek_body =
+        bytes::Bytes::from(r#"{"model":"deepseek-v4-flash","input":"hello","reasoning":{}}"#);
+    let deepseek_profile = analyze_request(ApiProtocol::Responses, &deepseek_body).unwrap();
+    let deepseek_plan = plan_request(&registry, &deepseek_profile, deepseek_body).unwrap();
+    assert_eq!(
+        deepseek_plan.candidates()[0].route_id(),
+        "deepseek-v4-flash-deepseek-responses-via-chat"
+    );
+    assert_eq!(deepseek_plan.candidates()[0].upstream_api_id(), "chat");
+    assert!(deepseek_plan.candidates()[0].bridge().is_some());
+
+    let mimo = registry
+        .upstream_target("mimo-v2-5")
+        .expect("MiMo V2.5 target should be compiled");
+    assert_eq!(
+        mimo.upstream_api("chat").unwrap().reasoning_output(),
+        ReasoningOutput::Unknown
+    );
+    assert_eq!(
+        mimo.upstream_api("responses").unwrap().reasoning_output(),
+        ReasoningOutput::Unknown
+    );
+
+    // MiMo 的 reasoning output 未知，因此带 reasoning 的请求只能保留 Native route，不能进入 Bridge。
+    let mimo_body = bytes::Bytes::from(
+        r#"{"model":"mimo-v2.5","input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"prior"}]}]}"#,
+    );
+    let mimo_profile = analyze_request(ApiProtocol::Responses, &mimo_body).unwrap();
+    let mimo_plan = plan_request(&registry, &mimo_profile, mimo_body).unwrap();
+    assert_eq!(mimo_plan.candidates().len(), 1);
+    assert_eq!(
+        mimo_plan.candidates()[0].route_id(),
+        "mimo-v2-5-mimo-responses"
+    );
+    assert!(mimo_plan.candidates()[0].bridge().is_none());
+}
+
+#[test]
 fn mimo_models_are_compiled_with_dual_native_first_routes() {
     // 构造完整编译注册表并核对两个 MiMo target 的固定受信边界。
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
@@ -489,6 +542,29 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             ReasoningOutput::Unknown
         );
 
+        // 验证编译后的两个 Native API 与 MiMo Provider contract 保持同一能力边界。
+        let chat_capabilities = match target.upstream_api("chat").unwrap().capabilities() {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities,
+            UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
+        };
+        assert!(chat_capabilities.parallel_tool_calls);
+        assert!(chat_capabilities.image_input);
+        assert!(chat_capabilities.structured_outputs);
+        assert!(!chat_capabilities.store);
+        let responses_capabilities = match target.upstream_api("responses").unwrap().capabilities()
+        {
+            UpstreamApiCapabilities::Responses(capabilities) => capabilities,
+            UpstreamApiCapabilities::ChatCompletions(_) => {
+                panic!("expected Responses capabilities")
+            }
+        };
+        assert!(responses_capabilities.parallel_tool_calls);
+        assert!(responses_capabilities.image_input);
+        assert!(responses_capabilities.structured_outputs);
+        assert!(!responses_capabilities.store);
+        assert!(!responses_capabilities.previous_response_id);
+        assert!(!responses_capabilities.background);
+
         // 验证两种下游协议都按 Native-first、反向 Bridge-second 排序。
         let public_model = registry
             .public_model(public_name)
@@ -518,6 +594,73 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
+        }
+
+        // 验证声明的复杂请求组合均可进入对应 Native-first route。
+        for (protocol, body, expected_route) in [
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[],"tools":[{{"type":"function","function":{{"name":"lookup","parameters":{{"type":"object"}}}}}}],"parallel_tool_calls":true}}"#
+                ),
+                format!("{route_prefix}-chat"),
+            ),
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[{{"role":"user","content":[{{"type":"image_url","image_url":{{"url":"https://example.invalid/image.png"}}}}]}}]}}"#
+                ),
+                format!("{route_prefix}-chat"),
+            ),
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[],"response_format":{{"type":"json_schema","json_schema":{{"name":"answer","schema":{{"type":"object"}}}}}}}}"#
+                ),
+                format!("{route_prefix}-chat"),
+            ),
+            (
+                ApiProtocol::Responses,
+                format!(
+                    r#"{{"model":"{public_name}","input":"lookup","tools":[{{"type":"function","name":"lookup","parameters":{{"type":"object"}}}}],"parallel_tool_calls":true}}"#
+                ),
+                format!("{route_prefix}-responses"),
+            ),
+            (
+                ApiProtocol::Responses,
+                format!(
+                    r#"{{"model":"{public_name}","input":[{{"type":"input_image","image_url":"https://example.invalid/image.png"}}]}}"#
+                ),
+                format!("{route_prefix}-responses"),
+            ),
+            (
+                ApiProtocol::Responses,
+                format!(
+                    r#"{{"model":"{public_name}","input":"return json","text":{{"format":{{"type":"json_schema","name":"answer","schema":{{"type":"object"}}}}}}}}"#
+                ),
+                format!("{route_prefix}-responses"),
+            ),
+        ] {
+            let body = bytes::Bytes::from(body);
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            assert_eq!(plan.candidates()[0].route_id(), expected_route);
+        }
+
+        // 验证 MiMo 的无状态边界仍拒绝 stateful Responses 请求。
+        for body in [
+            format!(r#"{{"model":"{public_name}","input":"hello","store":true}}"#),
+            format!(
+                r#"{{"model":"{public_name}","input":"hello","previous_response_id":"resp_123"}}"#
+            ),
+            format!(r#"{{"model":"{public_name}","input":"hello","background":true}}"#),
+        ] {
+            let body = bytes::Bytes::from(body);
+            let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+            assert!(matches!(
+                plan_request(&registry, &profile, body),
+                Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+            ));
         }
     }
 }

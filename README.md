@@ -32,9 +32,10 @@ OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，�
 Responses→Chat Bridge 路由，
 以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、HTTP 429 credential
 rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
-已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、未确认的
-reasoning 输出、opaque continuation、hosted/custom tool、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用各 Provider
-自身已声明的 Native API，尚未注册真实异构协议 Provider。每个已认证请求在 response body 正常 EOF、流错误或
+已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；Bridge 对未知字段、未确认的
+reasoning 输出、opaque continuation、hosted/custom tool、image、structured output 和后台状态会在 egress 前拒绝。Native Route 则按选定
+Provider/Upstream API 的完整 capability 保留这些已声明的原生语义，当前编译注册项仍优先使用各 Provider 自身的 Native API，尚未注册真实异构协议 Provider。
+每个已认证请求在 response body 正常 EOF、流错误或
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
@@ -95,8 +96,9 @@ Responses 能力。LongCat 当前 Chat/Responses 均配置为 `Unknown` reasonin
 可读 reasoning，因此只有 Native 路径可保留这类上游语义，Bridge 不会猜测转换。Xiaomi MiMo 当前注册
 `mimo-v2.5-pro` 与 `mimo-v2.5`，使用
 `mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
-及同 target 的反向 Bridge 候选。MiMo 两个协议的 reasoning 输出能力均为 `Unknown`，尚未增加可读 reasoning wire 映射；两者都未增加图像、structured output、并行
-tool、store、background 或 continuation 能力。
+及同 target 的反向 Bridge 候选。MiMo 两个协议的 reasoning 输出能力均为 `Unknown`，尚未增加可读 reasoning wire 映射；两个 Native API
+声明支持 image input、structured output 和 `parallel_tool_calls`，但仍关闭 `store`、`background` 与
+`previous_response_id`。这些能力不自动扩大反向 Bridge 的转换范围。
 
 下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML 数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
 

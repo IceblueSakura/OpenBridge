@@ -22,13 +22,17 @@ use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
+    bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
+    config::parse_bootstrap_config,
     core::ApiProtocol,
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
+    providers::build_compiled_registry,
     registry::{
         ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
         RouteMode, UpstreamTarget, build_registry,
     },
+    transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use serde_json::Value;
@@ -44,6 +48,66 @@ struct RecordedRequest {
 
 #[derive(Default)]
 struct RecordingTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
+const MIMO_RESPONSES_PARALLEL_TOOL_STREAM: &[u8] = br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_mimo_1","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_0","type":"function_call","call_id":"call_0","name":"lookup_weather","arguments":""}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup_time","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_0","output_index":0,"delta":"{\"city\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"{\"tz\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_0","output_index":0,"delta":"\"Shanghai\"}"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"\"Asia/Shanghai\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_0","output_index":0,"arguments":"{\"city\":\"Shanghai\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"tz\":\"Asia/Shanghai\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_0","type":"function_call","call_id":"call_0","name":"lookup_weather","arguments":"{\"city\":\"Shanghai\"}"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup_time","arguments":"{\"tz\":\"Asia/Shanghai\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_mimo_1","status":"completed"}}
+
+"#;
+
+const DEEPSEEK_CHAT_REASONING_STREAM: &[u8] = br#"data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"\u5148\u5206\u6790"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"reasoning_content":"\u540e\u5f97\u51fa\u7ed3\u8bba"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"\u7b54\u6848"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+
+#[derive(Default)]
+struct MimoResponsesToolStreamTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
+#[derive(Default)]
+struct DeepSeekReasoningStreamTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
@@ -489,6 +553,80 @@ impl UpstreamTransport for RecordingTransport {
     }
 }
 
+impl UpstreamTransport for MimoResponsesToolStreamTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // 记录网关实际提交的 endpoint、认证隔离和 JSON 请求。
+        let path = request.relative_uri().path().to_owned();
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path,
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body: serde_json::from_slice(request.body()).unwrap(),
+        });
+        // 返回分片的复杂 Responses tool stream，模拟上游 chunk 边界与交错 arguments。
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            response_headers.insert("openai-request-id", HeaderValue::from_static("mimo-id"));
+            let chunks = MIMO_RESPONSES_PARALLEL_TOOL_STREAM
+                .chunks(17)
+                .map(Bytes::copy_from_slice)
+                .map(Ok::<_, Infallible>)
+                .collect::<Vec<_>>();
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from_stream(stream::iter(chunks)),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for DeepSeekReasoningStreamTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // 记录 DeepSeek Chat Native 实际提交的 endpoint、模型和 reasoning 配置。
+        let path = request.relative_uri().path().to_owned();
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path,
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body: serde_json::from_slice(request.body()).unwrap(),
+        });
+        // 按不规则 UTF-8 chunk 返回 reasoning_content，验证 Native stream 不丢失明文 channel。
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            response_headers.insert("openai-request-id", HeaderValue::from_static("deepseek-id"));
+            let chunks = DEEPSEEK_CHAT_REASONING_STREAM
+                .chunks(13)
+                .map(Bytes::copy_from_slice)
+                .map(Ok::<_, Infallible>)
+                .collect::<Vec<_>>();
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from_stream(stream::iter(chunks)),
+            ))
+        })
+    }
+}
+
 impl UpstreamTransport for FailoverTransport {
     fn send<'a>(
         &'a self,
@@ -521,6 +659,21 @@ fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
         transport,
         support::definition("forward-test", "public-model", "upstream-model"),
     )
+}
+
+fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
+    // 编译真实代码注册表，确保测试使用 mimo-v2.5 的生产 route 顺序与 capability。
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+        .expect("checked-in bootstrap must be valid");
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
+    // 注入测试身份和每个已注册 pool 的合成凭证，不读取私有运行时凭证。
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-token-00000000000000000000000000000000",
+        &registry,
+        "upstream-token",
+    );
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
+    build_router(state)
 }
 
 fn app_with_transport_and_definition(
@@ -1402,6 +1555,132 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
         assert_eq!(request.authorization, "Bearer upstream-token");
         assert_eq!(request.body["model"], "upstream-model");
     }
+}
+
+#[tokio::test]
+async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
+    // 构造实际 compiled DeepSeek route 和显式 reasoning 请求。
+    let transport = Arc::new(DeepSeekReasoningStreamTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let request_body = r#"{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"请回答"}],"stream":true,"reasoning_effort":"high"}"#;
+
+    // 提交 Chat Native 请求并确认网关保持原始 SSE body。
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(request_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+    assert_eq!(response.headers()["openai-request-id"], "deepseek-id");
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(body.as_ref(), DEEPSEEK_CHAT_REASONING_STREAM);
+
+    // 用 Chat 状态机确认 reasoning_content 是独立的 PlainText channel，而不是 visible text。
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    let mut state = ChatStreamState::new();
+    for event in events {
+        state.ingest(&event).unwrap();
+    }
+    state.finish().unwrap();
+    assert_eq!(state.reasoning_text(), "先分析后得出结论");
+    assert_eq!(state.text(), "答案");
+    assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
+
+    // 确认请求命中 DeepSeek Chat endpoint，并保留 canonical model 与 reasoning level。
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/chat/completions");
+    assert_eq!(requests[0].authorization, "Bearer upstream-token");
+    assert_eq!(requests[0].body["model"], "deepseek-v4-flash");
+    assert_eq!(requests[0].body["reasoning_effort"], "high");
+}
+
+#[tokio::test]
+async fn mimo_responses_native_preserves_parallel_tool_stream() {
+    // 构造实际 compiled MiMo route 和包含全部已声明能力的下游请求。
+    let transport = Arc::new(MimoResponsesToolStreamTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let request_body = r#"{
+        "model":"mimo-v2.5",
+        "input":[{"role":"user","content":[
+            {"type":"input_text","text":"查天气和时间"},
+            {"type":"input_image","image_url":"https://example.invalid/context.png"}
+        ]}],
+        "stream":true,
+        "parallel_tool_calls":true,
+        "text":{"format":{"type":"json_schema","name":"tool_result","schema":{"type":"object"}}},
+        "tools":[
+            {"type":"function","name":"lookup_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}},"strict":true},
+            {"type":"function","name":"lookup_time","parameters":{"type":"object","properties":{"tz":{"type":"string"}}},"strict":true}
+        ]
+    }"#;
+
+    // 提交流式 Responses 请求并读取网关返回的完整 body。
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(request_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+    assert_eq!(response.headers()["openai-request-id"], "mimo-id");
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(body.as_ref(), MIMO_RESPONSES_PARALLEL_TOOL_STREAM);
+
+    // 用 Responses 状态机验证交错 arguments 仍可重建两个独立 function call。
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    let mut state = ResponsesStreamState::new();
+    for event in events {
+        state.ingest(&event).unwrap();
+    }
+    state.finish().unwrap();
+    assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
+    let tool_calls = state.tool_calls();
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0].call_id(), "call_0");
+    assert_eq!(tool_calls[0].name(), "lookup_weather");
+    assert_eq!(tool_calls[0].arguments(), r#"{"city":"Shanghai"}"#);
+    assert_eq!(tool_calls[1].call_id(), "call_1");
+    assert_eq!(tool_calls[1].name(), "lookup_time");
+    assert_eq!(tool_calls[1].arguments(), r#"{"tz":"Asia/Shanghai"}"#);
+
+    // 确认请求仍走 MiMo Responses endpoint，并保留完整 capability 组合与模型名。
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/v1/responses");
+    assert_eq!(requests[0].authorization, "Bearer upstream-token");
+    assert_eq!(requests[0].body["model"], "mimo-v2.5");
+    assert_eq!(requests[0].body["stream"], true);
+    assert_eq!(requests[0].body["parallel_tool_calls"], true);
+    assert_eq!(
+        requests[0].body["input"][0]["content"][1]["type"],
+        "input_image"
+    );
+    assert_eq!(requests[0].body["text"]["format"]["type"], "json_schema");
+    assert_eq!(requests[0].body["tools"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]

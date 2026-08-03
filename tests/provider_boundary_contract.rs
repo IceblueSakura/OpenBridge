@@ -359,6 +359,53 @@ fn deepseek_and_mimo_contracts_expose_only_declared_native_protocols() {
 }
 
 #[test]
+fn deepseek_and_mimo_reasoning_output_types_are_explicit() {
+    let deepseek = ProviderAdapter::for_kind(ProviderKind::DeepSeek)
+        .contract()
+        .capabilities();
+    assert_eq!(
+        deepseek.chat_completions.reasoning_output,
+        ReasoningOutput::PlainText
+    );
+    assert_eq!(
+        deepseek.responses.reasoning_output,
+        ReasoningOutput::Unsupported
+    );
+
+    let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo)
+        .contract()
+        .capabilities();
+    assert_eq!(
+        mimo.chat_completions.reasoning_output,
+        ReasoningOutput::Unknown
+    );
+    assert_eq!(mimo.responses.reasoning_output, ReasoningOutput::Unknown);
+}
+
+#[test]
+fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_reasoning() {
+    let capabilities = ProviderAdapter::for_kind(ProviderKind::MiMo)
+        .contract()
+        .capabilities();
+
+    let chat = capabilities.chat_completions;
+    assert!(chat.parallel_tool_calls);
+    assert!(chat.image_input);
+    assert!(chat.structured_outputs);
+    assert!(!chat.store);
+    assert_eq!(chat.reasoning_output, ReasoningOutput::Unknown);
+
+    let responses = capabilities.responses;
+    assert!(responses.parallel_tool_calls);
+    assert!(responses.image_input);
+    assert!(responses.structured_outputs);
+    assert!(!responses.store);
+    assert!(!responses.previous_response_id);
+    assert!(!responses.background);
+    assert_eq!(responses.reasoning_output, ReasoningOutput::Unknown);
+}
+
+#[test]
 fn openrouter_contract_exposes_stateless_chat_and_responses_surfaces() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
     let contract = adapter.contract();
