@@ -98,23 +98,23 @@ pub enum ResponseInclude {
 /// 该值只用于请求分析和协议公共子集判断；静态注册应使用协议专有的
 /// [`ChatCompletionsCapabilities`] 或 [`ResponsesCapabilities`]。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct GenerationCapabilities {
+pub(crate) struct GenerationCapabilities {
     /// 该端点是否可用。
-    pub enabled: bool,
+    pub(crate) enabled: bool,
     /// 是否支持以 SSE 返回增量结果。
-    pub streaming: bool,
+    pub(crate) streaming: bool,
     /// 是否支持 JSON-schema function tool 调用。
-    pub function_calling: bool,
+    pub(crate) function_calling: bool,
     /// 对请求 wire 字段 `parallel_tool_calls: true` 的支持。
-    pub parallel_tool_calls: bool,
+    pub(crate) parallel_tool_calls: bool,
     /// 是否支持图像输入内容 part。
-    pub image_input: bool,
+    pub(crate) image_input: bool,
     /// 是否支持结构化输出约束。
-    pub structured_outputs: bool,
+    pub(crate) structured_outputs: bool,
     /// 对请求 wire 字段 `store: true` 的支持。
-    pub store: bool,
+    pub(crate) store: bool,
     /// 上游 reasoning 输出的可观察类型。
-    pub reasoning_output: ReasoningOutput,
+    pub(crate) reasoning_output: ReasoningOutput,
 }
 
 impl GenerationCapabilities {

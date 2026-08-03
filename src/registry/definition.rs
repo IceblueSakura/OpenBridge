@@ -213,7 +213,7 @@ impl UpstreamApiCapabilities {
     }
 
     /// 返回不包含 Responses 专有状态的协议公共能力。
-    pub const fn generation_capabilities(self) -> GenerationCapabilities {
+    pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities.generation_capabilities(),
             Self::Responses(capabilities) => capabilities.generation_capabilities(),

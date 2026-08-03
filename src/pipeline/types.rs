@@ -38,11 +38,11 @@ pub struct RouteCandidate {
     pub(super) reasoning_level_mapping: Option<ReasoningLevelMapping>,
 }
 
-/// 单次请求实际使用的能力。它不等同于 upstream API 配置：`protocol` 是两个端点共享的
+/// 单次请求实际使用的能力。它不等同于 upstream API 配置：`generation` 是两个端点共享的
 /// 需求，Responses 专有状态单独保留，避免被误用于 Chat Completions 路由。
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RequestedCapabilities {
-    pub(super) protocol: GenerationCapabilities,
+    pub(super) generation: GenerationCapabilities,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,

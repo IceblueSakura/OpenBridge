@@ -420,7 +420,7 @@ fn routing_scopes_capabilities_by_protocol_and_detects_strict_functions() {
     ));
 
     let unmodeled_tool = serde_json::to_vec(&json!({
-        "model": "public-model", "input": "hello", "tools": [{"type": "web_search"}]
+        "model": "public-model", "input": "hello", "tools": [{"type": "future_tool"}]
     }))
     .unwrap();
     assert!(matches!(

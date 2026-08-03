@@ -26,6 +26,9 @@ pub enum RequestPlanningError {
     /// route 不支持请求声明的 capability。
     #[error("selected route does not support requested capabilities")]
     UnsupportedCapabilities,
+    /// 请求使用了已命名但尚未实现的预留 capability。
+    #[error("requested capabilities are reserved but not implemented")]
+    UnimplementedCapabilities,
     /// 请求的最大输出超过了生效上限。
     #[error("requested maximum output exceeds the configured model limit")]
     OutputLimitExceeded,

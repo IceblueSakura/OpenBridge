@@ -128,7 +128,7 @@ Chat Completions 的终止信号通常附着在最后一个 `choices[].finish_re
 
 ### 不宜原样照搬的部分
 
-- `codex_responses` 名称同时覆盖 Codex、xAI、GitHub 与 custom relay；新 proxy 应使用更明确的 `ProtocolMode.Responses` 和 `EndpointCapabilities`。
+- `codex_responses` 名称同时覆盖 Codex、xAI、GitHub 与 custom relay；新 proxy 应使用更明确的 `ProtocolMode.Responses`，并以 `ChatCompletionsCapabilities`、`ResponsesCapabilities` 分域表达能力；共享生成投影只保留在内部。
 - converter 含较多针对具体 provider 的兼容分支；新实现应将其拆为 capability profile 和小型 transform hook，避免核心状态机被 provider 特例淹没。
 - Hermes 是消费端 agent，`store=false` 与 session transcript 的选择服务于其产品需求；对外 proxy 必须独立设计 `store`、GET/DELETE response 和 background task 的语义。
 

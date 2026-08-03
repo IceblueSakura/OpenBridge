@@ -167,7 +167,7 @@ fn candidate_error(
     reasoning_levels: &[ReasoningLevel],
     requested_output_tokens: Option<u64>,
 ) -> Option<RequestPlanningError> {
-    // 先确认候选原生协议已启用，并拒绝未建模的工具语义。
+    // 先确认候选原生协议已启用，并校验共享生成能力。
     let generation_capabilities = capabilities.generation_capabilities();
     if !generation_capabilities.enabled {
         return Some(RequestPlanningError::UnsupportedProtocol);
@@ -175,11 +175,11 @@ fn candidate_error(
     if requested_features.unmodeled_tools {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    if requested_features.protocol.streaming && !generation_capabilities.streaming {
+    if requested_features.generation.streaming && !generation_capabilities.streaming {
         return Some(RequestPlanningError::StreamingUnsupported);
     }
     if !requested_features
-        .protocol
+        .generation
         .is_subset_of(generation_capabilities)
     {
         return Some(RequestPlanningError::UnsupportedCapabilities);

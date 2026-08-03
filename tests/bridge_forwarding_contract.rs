@@ -153,13 +153,12 @@ fn app_with_reasoning_output(
         capabilities.parallel_tool_calls = !use_deepseek_chat;
         capabilities.reasoning_output = reasoning_output;
     }
-    if !use_deepseek_chat {
-        if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+    if !use_deepseek_chat
+        && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[1].capabilities
-        {
-            capabilities.parallel_tool_calls = true;
-            capabilities.reasoning_output = reasoning_output;
-        }
+    {
+        capabilities.parallel_tool_calls = true;
+        capabilities.reasoning_output = reasoning_output;
     }
     definition.routes = vec![RouteConfig {
         id: "bridge-route".to_owned(),
@@ -490,6 +489,11 @@ async fn production_router_rejects_unbridgeable_requests_before_egress() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{directory}");
+        if directory.ends_with("unsupported_hosted_tool.reject") {
+            let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+            let error: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(error["error"]["code"], "unimplemented_request");
+        }
     }
     assert!(transport.requests.lock().unwrap().is_empty());
 }

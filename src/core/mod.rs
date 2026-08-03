@@ -6,8 +6,9 @@
 mod capability;
 mod request;
 
+pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
-    ApiCapabilities, ChatCompletionsCapabilities, GenerationCapabilities, HostedToolKind,
-    ReasoningOutput, ResponseInclude, ResponsesCapabilities,
+    ApiCapabilities, ChatCompletionsCapabilities, HostedToolKind, ReasoningOutput, ResponseInclude,
+    ResponsesCapabilities,
 };
 pub use request::{ApiProtocol, ApiRequest};

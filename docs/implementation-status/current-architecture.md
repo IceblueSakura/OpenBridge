@@ -222,13 +222,16 @@ quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型
 但尚未调用真实异构协议 Provider。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达；
-`GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册的模糊 endpoint 类型。canonical
+crate-private `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊
+endpoint 类型。canonical
 `ModelConfig` 预留 `mode`、`input_modalities` 和 `output_modalities`；Chat 预留 audio/file/custom tool、audio output、
 predicted output、web search、prompt caching、moderation、logprobs 和 multiple choices；Responses 另以
 `HostedToolKind`、`ResponseInclude` 及状态字段预留 hosted tool、附加输出、conversation、prompt template 和 context
 management。所有 checked-in Model 与 Provider/API definition 均保持这些字段为 `None`、`false` 或空集合；进入
-registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字段，就会在监听和 egress 前触发
-`unimplemented!`，因此这些类型位置不构成已实现能力声明。
+registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字段，就会在监听前触发 `unimplemented!`。
+请求分析按 Chat/Responses 分域识别相同预留 wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingress
+映射为稳定的 `unimplemented_request` HTTP 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。
+因此这些类型位置与请求错误边界都不构成已实现能力声明。
 
 OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Responses Upstream API 和 Public Model
 `nemotron-3-ultra`；两个协议各有唯一 Native route，使用基础 upstream model

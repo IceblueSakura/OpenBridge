@@ -220,4 +220,4 @@ Chat 的 response-level structured output 位于：
 - 对 stream 分别追踪 content、refusal、tool calls、arguments、finish reason、usage。
 - `function_call` / `functions` 是 deprecated compatibility 面；不要在新 canonical IR 中将它设计成主形状。
 - `store`、metadata、service tier、user、prompt cache 等不是纯生成字段；只有在明确目标等价时才转发。
-- audio/file content、custom tool、predicted output、web search 和 moderation 都需要协议专有 capability；仅在定义层预留名称不等于请求路径已实现。
+- audio/file content、custom tool、predicted output、web search 和 moderation 都需要协议专有 capability；当前定义层保留 `unimplemented!`，请求分析层返回稳定的未实现 capability 错误，不等于已经实现对应能力。

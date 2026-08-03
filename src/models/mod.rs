@@ -15,6 +15,8 @@ mod minimax;
 pub(crate) mod nemotron;
 mod qwen;
 
+pub(crate) use catalog::compiled_configs;
+
 #[cfg(test)]
 mod tests {
     use super::{deepseek, gpt, longcat, mimo, nemotron, qwen};
@@ -35,5 +37,3 @@ mod tests {
         assert_eq!(gpt::configs().len(), 5);
     }
 }
-
-pub(crate) use catalog::compiled_configs;

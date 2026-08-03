@@ -48,6 +48,11 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             "model_not_found",
             "The requested model is not available",
         ),
+        RequestPlanningError::UnimplementedCapabilities => api_error(
+            StatusCode::BAD_REQUEST,
+            "unimplemented_request",
+            "The request uses a capability that is not implemented",
+        ),
         RequestPlanningError::UnsupportedProtocol
         | RequestPlanningError::StreamingUnsupported
         | RequestPlanningError::UnsupportedCapabilities

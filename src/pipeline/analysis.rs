@@ -31,6 +31,10 @@ pub fn analyze_request(
         .and_then(Value::as_str)
         .filter(|model| !model.is_empty())
         .ok_or(RequestPlanningError::MissingModel)?;
+
+    // 在 route 规划前阻止尚未实现的协议专有请求字段进入 Native 或 Bridge 路径。
+    reject_reserved_request_fields(protocol, object)?;
+
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     // 根据协议字段推导请求实际使用的 capability。
     let requested_output_tokens = requested_output_tokens(object);
@@ -38,12 +42,17 @@ pub fn analyze_request(
         .get("tools")
         .and_then(Value::as_array)
         .is_some_and(|tools| tools.iter().any(is_function_tool));
-    let requests_unmodeled_tools = object
-        .get("tools")
-        .and_then(Value::as_array)
-        .is_some_and(|tools| tools.iter().any(|tool| !is_function_tool(tool)));
+    let requests_unmodeled_tools =
+        object
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| {
+                tools
+                    .iter()
+                    .any(|tool| !is_function_tool(tool) && !is_reserved_tool(protocol, tool))
+            });
     let requested_capabilities = RequestedCapabilities {
-        protocol: GenerationCapabilities {
+        generation: GenerationCapabilities {
             enabled: false,
             streaming: is_streaming,
             function_calling: requests_function_calling,
@@ -71,6 +80,174 @@ pub fn analyze_request(
         requested_output_tokens,
         requested_capabilities,
     })
+}
+
+/// 在预留 Chat/Responses 请求字段被实际使用时返回稳定规划错误，避免 Native 路径透明放行。
+fn reject_reserved_request_fields(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> Result<(), RequestPlanningError> {
+    // 按下游协议使用独立字段集合，避免把 Chat 与 Responses 的同名或异名字段混用。
+    match protocol {
+        ApiProtocol::ChatCompletions if requests_reserved_chat_capability(object) => {
+            Err(RequestPlanningError::UnimplementedCapabilities)
+        }
+        ApiProtocol::Responses if requests_reserved_responses_capability(object) => {
+            Err(RequestPlanningError::UnimplementedCapabilities)
+        }
+        ApiProtocol::ChatCompletions | ApiProtocol::Responses => Ok(()),
+    }
+}
+
+/// 判断 Chat Completions 请求是否使用了仅在 definition 中预留的能力。
+fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) -> bool {
+    requests_reserved_tool(ApiProtocol::ChatCompletions, object)
+        || chat_messages_contain_part_type(object, "input_audio")
+        || chat_messages_contain_part_type(object, "file")
+        || array_field_contains(object, "modalities", "audio")
+        || has_non_null_field(object, "audio")
+        || has_non_null_field(object, "prediction")
+        || has_non_null_field(object, "web_search_options")
+        || requests_prompt_caching(object)
+        || has_non_null_field(object, "moderation")
+        || object.get("logprobs").and_then(Value::as_bool) == Some(true)
+        || integer_field_exceeds(object, "top_logprobs", 0)
+        || integer_field_exceeds(object, "n", 1)
+}
+
+/// 判断 Responses 请求是否使用了仅在 definition 中预留的能力。
+fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value>) -> bool {
+    requests_reserved_tool(ApiProtocol::Responses, object)
+        || responses_input_contains_part_type(object, "input_file")
+        || has_non_null_field(object, "conversation")
+        || has_non_null_field(object, "prompt")
+        || requests_prompt_caching(object)
+        || has_non_null_field(object, "context_management")
+        || has_non_null_field(object, "include")
+        || has_non_null_field(object, "moderation")
+        || integer_field_exceeds(object, "top_logprobs", 0)
+}
+
+/// 判断请求是否包含已在当前协议 capability 中命名但尚未实现的 tool。
+fn requests_reserved_tool(protocol: ApiProtocol, object: &serde_json::Map<String, Value>) -> bool {
+    object
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| tools.iter().any(|tool| is_reserved_tool(protocol, tool)))
+}
+
+/// 判断单个 tool 是否属于协议已知的 custom 或 Responses hosted 预留类型。
+fn is_reserved_tool(protocol: ApiProtocol, tool: &Value) -> bool {
+    let Some(tool_type) = tool.get("type").and_then(Value::as_str) else {
+        return false;
+    };
+    tool_type == "custom"
+        || protocol == ApiProtocol::Responses && is_responses_hosted_tool_type(tool_type)
+}
+
+/// 判断 wire tool type 是否对应当前 `HostedToolKind` 预留枚举。
+fn is_responses_hosted_tool_type(tool_type: &str) -> bool {
+    matches!(
+        tool_type,
+        "web_search"
+            | "web_search_preview"
+            | "file_search"
+            | "code_interpreter"
+            | "computer_use"
+            | "computer_use_preview"
+            | "image_generation"
+            | "mcp"
+            | "shell"
+            | "local_shell"
+            | "apply_patch"
+            | "tool_search"
+            | "skills"
+            | "programmatic_tool_calling"
+    )
+}
+
+/// 判断 Chat message content 是否包含指定协议 part type。
+fn chat_messages_contain_part_type(
+    object: &serde_json::Map<String, Value>,
+    expected_type: &str,
+) -> bool {
+    object
+        .get("messages")
+        .and_then(Value::as_array)
+        .is_some_and(|messages| {
+            messages
+                .iter()
+                .any(|message| content_contains_part_type(message.get("content"), expected_type))
+        })
+}
+
+/// 判断 Responses input item 或其 content 是否包含指定协议 part type。
+fn responses_input_contains_part_type(
+    object: &serde_json::Map<String, Value>,
+    expected_type: &str,
+) -> bool {
+    object
+        .get("input")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some(expected_type)
+                    || content_contains_part_type(item.get("content"), expected_type)
+            })
+        })
+}
+
+/// 判断数组字段是否包含指定字符串值。
+fn array_field_contains(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    expected: &str,
+) -> bool {
+    object
+        .get(field)
+        .and_then(Value::as_array)
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
+}
+
+/// 判断字段是否携带非 `null` 值。
+fn has_non_null_field(object: &serde_json::Map<String, Value>, field: &str) -> bool {
+    object.get(field).is_some_and(|value| !value.is_null())
+}
+
+/// 判断非负整数字段是否超过给定无能力含义的上界。
+fn integer_field_exceeds(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    baseline: u64,
+) -> bool {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .is_some_and(|value| value > baseline)
+}
+
+/// 判断请求是否使用 prompt cache key/options/retention 或 content breakpoint。
+fn requests_prompt_caching(object: &serde_json::Map<String, Value>) -> bool {
+    [
+        "prompt_cache_key",
+        "prompt_cache_options",
+        "prompt_cache_retention",
+    ]
+    .iter()
+    .any(|field| has_non_null_field(object, field))
+        || object.values().any(contains_prompt_cache_breakpoint)
+}
+
+/// 递归识别 content tree 中的 `prompt_cache_breakpoint` part。
+fn contains_prompt_cache_breakpoint(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(contains_prompt_cache_breakpoint),
+        Value::Object(object) => {
+            object.get("type").and_then(Value::as_str) == Some("prompt_cache_breakpoint")
+                || object.values().any(contains_prompt_cache_breakpoint)
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+    }
 }
 
 /// 仅识别 OpenAI-compatible message/input item 内的 image content part，而不尝试在热路径计算 token。
