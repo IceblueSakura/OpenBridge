@@ -27,6 +27,9 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 阅读时保持三个区分：功能需求不等于已经实现；测试通过不等于真实 Provider 或 Agent 已兼容；参考项目的
 做法不等于 OpenBridge 应照搬。
 
+当前服务的机器可读接口定义见 [OpenAPI 规范](openapi.yaml)，本地浏览器测试页面源文件见
+[Swagger UI 页面](swagger-ui.html)；运行服务后分别通过 `/openapi.yaml` 和 `/swagger-ui/` 访问。
+
 ## 3. 第一阶段：建立产品坐标
 
 按顺序阅读：

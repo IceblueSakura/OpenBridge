@@ -28,9 +28,15 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | Endpoint | 当前行为 | 认证 |
 |---|---|---|
 | `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
+| `GET /openapi.yaml` | 返回当前构建内置的 OpenAPI 3.0.3 YAML | 无 |
+| `GET /swagger-ui`、`GET /swagger-ui/` | 返回用于本地接口测试的 Swagger UI 页面 | 无 |
 | `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
 | `POST /v1/chat/completions` | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE | 静态 Bearer |
 | `POST /v1/responses` | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE | 静态 Bearer |
+
+OpenAPI 规范源文件为 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI 页面源文件为
+[`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、
+Upstream Target 或 credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 来自私有
 `config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组。服务与 probe

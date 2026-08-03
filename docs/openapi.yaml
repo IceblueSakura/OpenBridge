@@ -1,0 +1,581 @@
+openapi: 3.0.3
+info:
+  title: OpenBridge API
+  version: 0.1.0
+  description: |
+    OpenBridge 的下游 OpenAI-compatible API。
+
+    该规范只描述当前服务实际提供的 endpoint。模型、Provider、上游 URL、credential
+    和 route 由服务端启动时的受信代码注册表决定，客户端只能选择 Public Model。
+
+    请求是否可执行仍由选定模型的完整 Native 或 Bridged Route 决定；OpenAPI schema
+    不等价于所有模型、Provider 或协议扩展都已启用。
+servers:
+  - url: /
+    description: 当前 OpenBridge 服务
+tags:
+  - name: system
+    description: 本地服务存活与文档资源
+  - name: models
+    description: 已认证的 Public Model 列表
+  - name: chat
+    description: Chat Completions 兼容接口
+  - name: responses
+    description: Responses 兼容接口
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      summary: 检查本地服务是否存活
+      operationId: getHealth
+      description: 不访问上游 Provider 或 credential，只返回本地进程的 registry snapshot 版本。
+      responses:
+        '200':
+          description: 服务存活
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                registry_version: local
+
+  /openapi.yaml:
+    get:
+      tags: [system]
+      summary: 获取当前 OpenAPI 规范
+      operationId: getOpenApiSpec
+      description: 返回随当前服务构建的静态 OpenAPI YAML。
+      responses:
+        '200':
+          description: OpenAPI YAML 文档
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /swagger-ui:
+    get:
+      tags: [system]
+      summary: 打开 Swagger UI 测试页面
+      operationId: getSwaggerUi
+      description: 返回加载本地 OpenAPI 规范的 Swagger UI 页面。
+      responses:
+        '200':
+          description: Swagger UI HTML 页面
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /swagger-ui/:
+    get:
+      tags: [system]
+      summary: 打开 Swagger UI 测试页面
+      operationId: getSwaggerUiWithTrailingSlash
+      description: Swagger UI 测试页面的规范 URL。
+      responses:
+        '200':
+          description: Swagger UI HTML 页面
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /v1/models:
+    get:
+      tags: [models]
+      summary: 列出 Public Model
+      operationId: listModels
+      description: 只返回服务端代码注册表声明的 Public Model，不枚举上游模型或 Provider。
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Public Model 列表
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+              example:
+                object: list
+                data:
+                  - id: code-primary
+                    object: model
+                    owned_by: openbridge
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/chat/completions:
+    post:
+      tags: [chat]
+      summary: 创建 Chat Completions
+      operationId: createChatCompletion
+      description: |
+        接收 Chat Completions JSON 请求，按完整 route 执行 Native 转发或受限的
+        Chat-to-Responses bridge。将 stream 设为 true 时，成功响应使用 text/event-stream。
+        工具调用只作为 wire-level 数据转发，OpenBridge 不执行工具。
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              nonStreaming:
+                summary: 非流式文本请求
+                value:
+                  model: code-primary
+                  messages:
+                    - role: user
+                      content: hello
+              streaming:
+                summary: 流式文本请求
+                value:
+                  model: code-primary
+                  messages:
+                    - role: user
+                      content: hello
+                  stream: true
+      responses:
+        '200':
+          description: 非流式 JSON 或流式 SSE 响应
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ServerSentEvents'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
+  /v1/responses:
+    post:
+      tags: [responses]
+      summary: 创建 Response
+      operationId: createResponse
+      description: |
+        接收 Responses JSON 请求，按完整 route 执行 Native 转发或受限的
+        Responses-to-Chat bridge。OpenBridge 的核心兼容面是无状态 Responses；store、
+        previous_response_id 和 background 仍受选定 route 的能力与 state-affinity 约束。
+        将 stream 设为 true 时，成功响应使用 text/event-stream。
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResponsesRequest'
+            examples:
+              nonStreaming:
+                summary: 非流式文本请求
+                value:
+                  model: code-primary
+                  input: hello
+              streaming:
+                summary: 流式文本请求
+                value:
+                  model: code-primary
+                  input: hello
+                  stream: true
+      responses:
+        '200':
+          description: 非流式 JSON 或流式 SSE 响应
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsesResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ServerSentEvents'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+      description: config/users.toml 中配置的下游静态 Bearer API key。
+
+  headers:
+    X-Request-Id:
+      description: OpenBridge 为本次请求生成或传播的 request id。
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: 请求 JSON、Public Model 或 capability 不满足当前 route。
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: Request body is invalid
+              type: invalid_request_error
+              param: null
+              code: invalid_request_error
+    Unauthorized:
+      description: 缺少或无效的下游 Bearer API key。
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: Invalid authentication credentials
+              type: invalid_request_error
+              param: null
+              code: invalid_api_key
+    ModelNotFound:
+      description: Public Model 未在当前 registry 中声明。
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The requested model is not available
+              type: invalid_request_error
+              param: null
+              code: model_not_found
+    UnsupportedMediaType:
+      description: 请求必须使用 application/json。
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: Content-Type must be application/json
+              type: invalid_request_error
+              param: null
+              code: invalid_content_type
+    BadGateway:
+      description: 所有安全候选均未能完成上游请求。
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request failed
+              type: invalid_request_error
+              param: null
+              code: upstream_error
+    GatewayTimeout:
+      description: 上游请求超时。
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request timed out
+              type: invalid_request_error
+              param: null
+              code: upstream_timeout
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, registry_version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        registry_version:
+          type: string
+
+    ModelListResponse:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicModel'
+
+    PublicModel:
+      type: object
+      required: [id, object, owned_by]
+      properties:
+        id:
+          type: string
+          description: OpenBridge 对下游公开的稳定模型名。
+        object:
+          type: string
+          enum: [model]
+        owned_by:
+          type: string
+          enum: [openbridge]
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      additionalProperties: true
+      description: 当前 route 可接受的 Chat Completions JSON。未列出的合法字段沿 Native path 原样保留。
+      properties:
+        model:
+          type: string
+          description: OpenBridge Public Model 名称。
+          example: code-primary
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        stream:
+          type: boolean
+          default: false
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+        parallel_tool_calls:
+          type: boolean
+        reasoning_effort:
+          $ref: '#/components/schemas/ReasoningEffort'
+        max_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        max_completion_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        response_format:
+          type: object
+          additionalProperties: true
+        store:
+          type: boolean
+
+    ResponsesRequest:
+      type: object
+      required: [model]
+      additionalProperties: true
+      description: 当前 route 可接受的 Responses JSON。无状态请求是 OpenBridge 的核心兼容面。
+      properties:
+        model:
+          type: string
+          description: OpenBridge Public Model 名称。
+          example: code-primary
+        input:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+            - type: object
+              additionalProperties: true
+        stream:
+          type: boolean
+          default: false
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+        reasoning:
+          type: object
+          additionalProperties: true
+          properties:
+            effort:
+              $ref: '#/components/schemas/ReasoningEffort'
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        store:
+          type: boolean
+        previous_response_id:
+          type: string
+          nullable: true
+        background:
+          type: boolean
+
+    ChatMessage:
+      type: object
+      required: [role]
+      additionalProperties: true
+      properties:
+        role:
+          type: string
+          enum: [system, developer, user, assistant, tool]
+        content:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/ContentPart'
+        name:
+          type: string
+        tool_call_id:
+          type: string
+        tool_calls:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    ContentPart:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+        text:
+          type: string
+        image_url:
+          type: object
+          additionalProperties: true
+
+    Tool:
+      type: object
+      required: [type]
+      additionalProperties: true
+      description: 普通 function tool 的 wire-level 描述；OpenBridge 不执行返回的工具调用。
+      properties:
+        type:
+          type: string
+          example: function
+        function:
+          type: object
+          additionalProperties: true
+
+    ReasoningEffort:
+      type: string
+      enum: [none, minimal, low, medium, high, xhigh, max]
+
+    ChatCompletionResponse:
+      type: object
+      additionalProperties: true
+      description: 上游 Chat Completions JSON 响应；除受信模型改写外由 Native path 保留。
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        usage:
+          type: object
+          additionalProperties: true
+
+    ResponsesResponse:
+      type: object
+      additionalProperties: true
+      description: 上游 Responses JSON 响应；具体 output item 由当前 route 与 Provider 能力决定。
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        status:
+          type: string
+        output:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        usage:
+          type: object
+          additionalProperties: true
+
+    ServerSentEvents:
+      type: string
+      format: binary
+      description: 保持目标协议原始 event/data framing 的 SSE 流。
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, param, code]
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            param:
+              type: string
+              nullable: true
+            code:
+              type: string

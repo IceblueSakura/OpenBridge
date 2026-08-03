@@ -31,6 +31,7 @@ use super::{
     auth,
     handlers::{chat_completions, health, models, responses},
     lifecycle::{RequestLifecycleGuard, observe_response_body},
+    openapi::{openapi_spec, swagger_ui},
     response::api_error,
     state::GatewayState,
 };
@@ -77,9 +78,12 @@ pub fn build_router(state: GatewayState) -> Router {
             require_user,
         ));
 
-    // 暴露无需认证的 health endpoint，并绑定共享 GatewayState。
+    // 暴露无需认证的 health、OpenAPI 和 Swagger UI 文档资源，并绑定共享 GatewayState。
     Router::new()
         .route("/healthz", get(health))
+        .route("/openapi.yaml", get(openapi_spec))
+        .route("/swagger-ui", get(swagger_ui))
+        .route("/swagger-ui/", get(swagger_ui))
         .merge(protected)
         .layer(middleware)
         .with_state(state)

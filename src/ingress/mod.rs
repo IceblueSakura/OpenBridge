@@ -10,6 +10,7 @@ mod forwarding;
 mod handlers;
 mod health;
 mod lifecycle;
+mod openapi;
 mod response;
 mod router;
 mod state;

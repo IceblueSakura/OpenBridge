@@ -65,6 +65,17 @@ Public Model 只用于 Provider attempt 遥测维度或 trace 诊断。
 curl -i http://127.0.0.1:8080/healthz
 ```
 
+本地接口测试页与机器可读规范：
+
+```text
+Swagger UI:  http://127.0.0.1:8080/swagger-ui/
+OpenAPI:    http://127.0.0.1:8080/openapi.yaml
+```
+
+Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后，
+即可在页面内测试受保护的 `/v1/models`、`/v1/chat/completions` 和 `/v1/responses`。
+页面依赖固定版本的 jsDelivr Swagger UI 静态资源，OpenAPI 规范由本地服务提供。
+
 原生请求示例：
 
 ```bash

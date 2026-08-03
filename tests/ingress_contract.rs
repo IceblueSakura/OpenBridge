@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode, header::AUTHORIZATION},
+    http::{
+        Request, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE},
+    },
 };
 use openbridge::{
     ingress::{GatewayState, build_router},
@@ -55,6 +58,42 @@ async fn health_reports_snapshot_version_and_sets_a_request_id() {
         std::str::from_utf8(&body).unwrap(),
         r#"{"status":"ok","registry_version":"health-test"}"#
     );
+}
+
+#[tokio::test]
+async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentication() {
+    let response = test_app(support::registry("docs-test", "code-primary", "test-model"))
+        .oneshot(Request::get("/openapi.yaml").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/yaml; charset=utf-8"
+    );
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let spec = std::str::from_utf8(&body).unwrap();
+    assert!(spec.contains("openapi: 3.0.3"));
+    assert!(spec.contains("/healthz:"));
+    assert!(spec.contains("/v1/models:"));
+    assert!(spec.contains("/v1/chat/completions:"));
+    assert!(spec.contains("/v1/responses:"));
+
+    let response = test_app(support::registry("docs-test", "code-primary", "test-model"))
+        .oneshot(Request::get("/swagger-ui/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "text/html; charset=utf-8"
+    );
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let page = std::str::from_utf8(&body).unwrap();
+    assert!(page.contains("SwaggerUIBundle"));
+    assert!(page.contains("/openapi.yaml"));
 }
 
 #[tokio::test]
