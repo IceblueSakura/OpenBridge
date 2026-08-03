@@ -7,7 +7,10 @@ use openbridge::{
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
     providers::{build_compiled_registry, compiled_config},
-    registry::{ReasoningLevel, ReasoningSupport, UpstreamApiCapabilities, build_registry},
+    registry::{
+        InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport,
+        UpstreamApiCapabilities, build_registry,
+    },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
 
@@ -61,8 +64,13 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .find(|model| model.id == "meituan/longcat-2.0")
         .expect("OpenRouter LongCat id is canonical");
     assert_eq!(longcat.context_length.context_tokens(), Some(1_048_756));
-    assert_eq!(longcat.context_length.input_tokens(), None);
+    assert_eq!(longcat.context_length.input_tokens(), Some(1_048_756));
     assert_eq!(longcat.context_length.output_tokens(), Some(262_144));
+    assert_eq!(longcat.mode, Some(ModelMode::Chat));
+    assert_eq!(longcat.input_modalities, Some(vec![InputModality::Text]));
+    assert_eq!(longcat.output_modalities, Some(vec![OutputModality::Text]));
+    assert_eq!(longcat.tokenizer.as_deref(), Some("Other"));
+    assert_eq!(longcat.knowledge_cutoff, None);
 
     let sol = definition
         .models
@@ -70,8 +78,20 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .find(|model| model.id == "openai/gpt-5.6-sol")
         .unwrap();
     assert_eq!(sol.context_length.context_tokens(), Some(1_050_000));
-    assert_eq!(sol.context_length.input_tokens(), None);
+    assert_eq!(sol.context_length.input_tokens(), Some(1_050_000));
     assert_eq!(sol.context_length.output_tokens(), Some(128_000));
+    assert_eq!(sol.mode, Some(ModelMode::Chat));
+    assert_eq!(
+        sol.input_modalities,
+        Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::File
+        ])
+    );
+    assert_eq!(sol.output_modalities, Some(vec![OutputModality::Text]));
+    assert_eq!(sol.tokenizer.as_deref(), Some("GPT"));
+    assert_eq!(sol.knowledge_cutoff.as_deref(), Some("2026-02-16"));
     assert_eq!(
         sol.reasoning_levels,
         [
@@ -125,8 +145,12 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .find(|model| model.id == "deepseek/deepseek-v4-pro")
         .unwrap();
     assert_eq!(deepseek.context_length.context_tokens(), Some(1_048_576));
-    assert_eq!(deepseek.context_length.input_tokens(), None);
+    assert_eq!(deepseek.context_length.input_tokens(), Some(1_048_576));
     assert_eq!(deepseek.context_length.output_tokens(), Some(384_000));
+    assert_eq!(deepseek.mode, Some(ModelMode::Chat));
+    assert_eq!(deepseek.input_modalities, Some(vec![InputModality::Text]));
+    assert_eq!(deepseek.output_modalities, Some(vec![OutputModality::Text]));
+    assert_eq!(deepseek.tokenizer.as_deref(), Some("DeepSeek"));
     assert_eq!(
         deepseek.reasoning_levels,
         [ReasoningLevel::XHigh, ReasoningLevel::High]
@@ -159,8 +183,12 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .find(|model| model.id == "nvidia/nemotron-3-ultra-550b-a55b")
         .unwrap();
     assert_eq!(nemotron.context_length.context_tokens(), Some(512_288));
-    assert_eq!(nemotron.context_length.input_tokens(), None);
+    assert_eq!(nemotron.context_length.input_tokens(), Some(512_288));
     assert_eq!(nemotron.context_length.output_tokens(), None);
+    assert_eq!(nemotron.mode, Some(ModelMode::Chat));
+    assert_eq!(nemotron.input_modalities, Some(vec![InputModality::Text]));
+    assert_eq!(nemotron.output_modalities, Some(vec![OutputModality::Text]));
+    assert_eq!(nemotron.tokenizer.as_deref(), Some("Other"));
     assert!(
         nemotron
             .supported_parameters
@@ -188,6 +216,31 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert_eq!(bootstrap_template, bootstrap);
     let registry =
         build_compiled_registry(bootstrap).expect("compiled registry must remain internally valid");
+
+    let nemotron_info = serde_json::to_value(
+        registry
+            .public_model("nemotron-3-ultra")
+            .expect("Nemotron Public Model should be visible")
+            .info(),
+    )
+    .unwrap();
+    assert_eq!(
+        nemotron_info["description"],
+        "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."
+    );
+    assert_eq!(
+        nemotron_info["capabilities"]["context_window"]["max_input_tokens"],
+        512_288
+    );
+    assert_eq!(
+        nemotron_info["capabilities"]["modalities"]["input"],
+        serde_json::json!(["text"])
+    );
+    assert_eq!(nemotron_info["capabilities"]["tokenizer"], "Other");
+    assert_eq!(
+        nemotron_info["capabilities"]["knowledge_cutoff"],
+        serde_json::Value::Null
+    );
 
     assert_eq!(registry.version().as_str(), "dev-1");
     assert!(registry.listen().ip().is_loopback());
@@ -228,7 +281,10 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         chat.model().context_length().context_tokens(),
         Some(1_048_756)
     );
-    assert_eq!(chat.model().context_length().input_tokens(), None);
+    assert_eq!(
+        chat.model().context_length().input_tokens(),
+        Some(1_048_756)
+    );
     assert_eq!(chat.model().context_length().output_tokens(), Some(262_144));
     assert_eq!(chat.model().reasoning(), ReasoningSupport::Supported);
     assert!(

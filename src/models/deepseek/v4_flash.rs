@@ -1,6 +1,9 @@
 //! Complete canonical model facts for DeepSeek V4 Flash.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for DeepSeek V4 Flash.
 pub(crate) const ID: &str = "deepseek/deepseek-v4-flash";
@@ -14,10 +17,12 @@ pub(crate) fn config() -> ModelConfig {
             "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), None, Some(393_216)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(393_216)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("DeepSeek".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

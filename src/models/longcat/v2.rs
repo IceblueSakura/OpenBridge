@@ -1,6 +1,8 @@
 //! Complete canonical model facts for the LongCat 2.x line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for LongCat 2.0.
 pub(crate) const ID: &str = "meituan/longcat-2.0";
@@ -15,10 +17,16 @@ pub(crate) fn config() -> ModelConfig {
                 .to_owned(),
         ),
         // The catalog publishes the total context window; routing validates only the declared output limit, while the upstream enforces the combined limit.
-        context_length: ModelContextLength::new(Some(1_048_756), None, Some(262_144)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(
+            Some(1_048_756),
+            Some(1_048_756),
+            Some(262_144),
+        ),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: vec![
             "frequency_penalty",
             "include_reasoning",

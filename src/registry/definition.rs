@@ -88,7 +88,9 @@ pub struct ReasoningLevelMapping {
 pub struct ModelContextLength {
     /// Known combined input/output token limit; `None` means unknown.
     max_context_tokens: Option<u32>,
-    /// Known maximum input token count; `None` means unknown.
+    /// Known maximum input token count; `None` means unknown. For OpenRouter-backed models this is
+    /// populated from the model-level context length because the catalog does not publish a separate
+    /// input-only limit.
     max_input_tokens: Option<u32>,
     /// Known maximum output token count; `None` means unknown.
     max_output_tokens: Option<u32>,
@@ -150,6 +152,8 @@ pub enum InputModality {
     Audio,
     /// File input。
     File,
+    /// Video input.
+    Video,
 }
 
 /// Output modalities a canonical Model can generate.
@@ -182,6 +186,10 @@ pub struct ModelConfig {
     pub input_modalities: Option<Vec<InputModality>>,
     /// Confirmed output modalities; `None` means unknown, not an empty set or explicit rejection.
     pub output_modalities: Option<Vec<OutputModality>>,
+    /// Tokenizer identifier published by the model catalog; `None` means unknown.
+    pub tokenizer: Option<String>,
+    /// Knowledge-cutoff date published by the model catalog; `None` means unknown.
+    pub knowledge_cutoff: Option<String>,
     /// OpenAI-compatible parameter names supported by the model.
     pub supported_parameters: Vec<String>,
     /// Model reasoning support state.

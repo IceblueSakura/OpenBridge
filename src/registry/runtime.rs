@@ -25,6 +25,8 @@ pub struct ModelInfo {
     pub(super) mode: Option<ModelMode>,
     pub(super) input_modalities: Option<Vec<InputModality>>,
     pub(super) output_modalities: Option<Vec<OutputModality>>,
+    pub(super) tokenizer: Option<String>,
+    pub(super) knowledge_cutoff: Option<String>,
     pub(super) supported_parameters: Vec<String>,
     pub(super) reasoning: ReasoningSupport,
     pub(super) reasoning_levels: Vec<ReasoningLevel>,
@@ -64,6 +66,16 @@ impl ModelInfo {
     /// Returns confirmed output modalities; `None` does not mean explicitly unsupported.
     pub fn output_modalities(&self) -> Option<&[OutputModality]> {
         self.output_modalities.as_deref()
+    }
+
+    /// Returns the tokenizer identifier, when the catalog confirms one.
+    pub fn tokenizer(&self) -> Option<&str> {
+        self.tokenizer.as_deref()
+    }
+
+    /// Returns the knowledge-cutoff date, when the catalog confirms one.
+    pub fn knowledge_cutoff(&self) -> Option<&str> {
+        self.knowledge_cutoff.as_deref()
     }
 
     /// Returns the effective supported parameters.

@@ -232,10 +232,12 @@ quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达；
 crate-private `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊
 endpoint 类型。canonical
-`ModelConfig` 预留 `mode`、`input_modalities` 和 `output_modalities`；Chat 预留 audio/file/custom tool、audio output、
+`ModelConfig` 记录已核实的 `mode`、`input_modalities`、`output_modalities`、tokenizer 和 knowledge cutoff；当前
+OpenRouter 精确匹配的 canonical 模型还记录模型级 `context_length` 作为总上下文和输入上限，并记录可用的
+最大输出上限。没有精确目录记录的 Codex Spark 继续保留未知字段。Chat 预留 audio/file/custom tool、audio output、
 predicted output、web search、prompt caching、moderation、logprobs 和 multiple choices；Responses 另以
 `HostedToolKind`、`ResponseInclude` 及状态字段预留 hosted tool、附加输出、conversation、prompt template 和 context
-management。所有 checked-in Model 与 Provider/API definition 均保持这些字段为 `None`、`false` 或空集合；进入
+management。Provider/API definition 仍保持这些未实现的 endpoint 字段为 `None`、`false` 或空集合；进入
 registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字段，就会在监听前触发 `unimplemented!`。
 请求分析按 Chat/Responses 分域识别相同预留 wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingress
 映射为稳定的 `unimplemented_request` HTTP 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。

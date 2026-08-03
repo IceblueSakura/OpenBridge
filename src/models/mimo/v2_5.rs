@@ -1,6 +1,8 @@
 //! Complete canonical model facts for Xiaomi MiMo-V2.5.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for MiMo-V2.5.
 pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
@@ -14,10 +16,17 @@ pub(crate) fn config() -> ModelConfig {
             "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), None, Some(131_072)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Audio,
+            InputModality::Image,
+            InputModality::Video,
+        ]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

@@ -30,6 +30,18 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             field: "description",
         });
     }
+    // Validate optional catalog strings without treating an absent fact as an error.
+    for (field, value) in [
+        ("tokenizer", model.tokenizer.as_deref()),
+        ("knowledge_cutoff", model.knowledge_cutoff.as_deref()),
+    ] {
+        if value.is_some_and(|value| value.trim().is_empty()) {
+            return Err(RegistryError::BlankModelField {
+                model: model.id.clone(),
+                field,
+            });
+        }
+    }
     // Validate that explicit model modalities are non-empty, duplicate-free known facts.
     validate_model_modalities(
         &model.id,
@@ -313,6 +325,8 @@ pub(super) fn apply_model_rules(
         mode: model.mode,
         input_modalities: model.input_modalities,
         output_modalities: model.output_modalities,
+        tokenizer: model.tokenizer,
+        knowledge_cutoff: model.knowledge_cutoff,
         supported_parameters,
         reasoning,
         reasoning_levels: if reasoning == ReasoningSupport::Supported {

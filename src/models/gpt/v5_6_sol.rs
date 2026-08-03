@@ -1,6 +1,9 @@
 //! Complete canonical model facts for GPT-5.6 Sol.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for GPT-5.6 Sol.
 pub(crate) const ID: &str = "openai/gpt-5.6-sol";
@@ -14,10 +17,16 @@ pub(crate) fn config() -> ModelConfig {
             "OpenAI flagship model for complex reasoning, coding, and multi-step agentic workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), None, Some(128_000)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::File,
+        ]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("GPT".to_owned()),
+        knowledge_cutoff: Some("2026-02-16".to_owned()),
         supported_parameters: [
             "include_reasoning",
             "max_completion_tokens",

@@ -679,6 +679,24 @@ async fn authenticated_get(app: &axum::Router, path: &str) -> Value {
     serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap()
 }
 
+async fn compiled_authenticated_get(app: &axum::Router, path: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(path)
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap()
+}
+
 fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
     // Compile the real code registry so the test uses the fixed mimo-v2.5 public contract and production Route order.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
@@ -927,6 +945,47 @@ async fn models_lists_only_public_models_after_authentication() {
             "leaked {private_value}"
         );
     }
+}
+
+#[tokio::test]
+async fn compiled_models_endpoint_exposes_openrouter_model_facts() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+    let list = compiled_authenticated_get(&app, "/openbridge/v1/models").await;
+    let code_primary = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "code-primary")
+        .expect("compiled code model should be listed");
+
+    assert_eq!(
+        code_primary["description"],
+        "OpenAI flagship model for complex reasoning, coding, and multi-step agentic workflows."
+    );
+    assert_eq!(
+        code_primary["capabilities"]["context_window"],
+        serde_json::json!({
+            "max_context_tokens": 1_050_000,
+            "max_input_tokens": 1_050_000,
+            "max_output_tokens": 128_000
+        })
+    );
+    assert_eq!(
+        code_primary["capabilities"]["modalities"]["input"],
+        serde_json::json!(["text", "image", "file"])
+    );
+    assert_eq!(code_primary["capabilities"]["tokenizer"], "GPT");
+    assert_eq!(
+        code_primary["capabilities"]["knowledge_cutoff"],
+        "2026-02-16"
+    );
+    assert_eq!(
+        code_primary["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
+        1_050_000
+    );
+
+    let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/code-primary").await;
+    assert_eq!(detail, *code_primary);
 }
 
 #[tokio::test]

@@ -1,6 +1,9 @@
 //! Complete canonical model facts for the GLM-5.2 line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Builds the complete model facts for GLM-5.2.
 pub(crate) fn config() -> ModelConfig {
@@ -11,10 +14,12 @@ pub(crate) fn config() -> ModelConfig {
             "Large-scale reasoning model for long-horizon agents and project-level software engineering."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), None, Some(131_072)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(131_072)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

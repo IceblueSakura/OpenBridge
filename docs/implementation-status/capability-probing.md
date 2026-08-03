@@ -18,13 +18,14 @@
 `src/models/<family>/` 下的版本叶模块各自拥有一个完整 `ModelConfig`，家族模块只负责聚合。当前类型可记录：
 
 - canonical model id 与展示元数据；
-- 已核实的 input/output token 上限；
+- 已核实的总上下文/输入上限、最大输出上限、输入/输出模态、tokenizer 和 knowledge cutoff；
 - 支持参数集合；
 - reasoning 三态；
 - 支持的 canonical reasoning level 子集。
 
-未知事实保持为空或 `Unknown`。`context_length.output` 在请求显式携带输出上限时参与候选筛选；
-`context_length.input` 当前只作为元数据，因为运行时没有 model-specific tokenizer。Upstream API capability、
+未知事实保持为空或 `Unknown`。OpenRouter 没有独立的输入上限字段，因此其模型级 `context_length` 同时
+投影为总上下文和输入上限；这不是把最大输出从总上下文中扣除后的残差。`context_length.output` 在请求显式携带
+输出上限时参与候选筛选；`context_length.input` 当前只作为元数据，因为运行时没有 model-specific tokenizer。Upstream API capability、
 served limit、state affinity 与 reasoning wire 映射由 Provider 注册项中的 typed Rust 值声明，并且只能收窄
 Provider contract 和 canonical model 上界。
 

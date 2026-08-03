@@ -61,6 +61,12 @@ mapping，也不得包含健康、延迟、配额、价格、成本、指标、�
 - 数组只包含已确认值，必须去重并确定性排序；空数组表示没有可公开保证的值。
 - `unknown` 不能按“上游也许支持”提升为 `supported`；`unsupported` 不能伪装成 `unknown`。
 
+OpenRouter canonical model 的 `context_length` 是模型目录公开的上下文上限，而不是独立的
+`max_input_tokens` 字段。OpenBridge 将这项已确认的模型级上限投影到 `max_context_tokens` 和
+`max_input_tokens`；`top_provider.max_completion_tokens` 只用于 `max_output_tokens`。不把总上下文减去
+最大输出做未经 OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通过
+`UpstreamApiModelRules` 明确收窄。
+
 ### 4.3 固定契约计算
 
 每个 Public Model 对 Chat Completions 和 Responses 分别只有一个固定契约。registry 在启动时把该协议全部

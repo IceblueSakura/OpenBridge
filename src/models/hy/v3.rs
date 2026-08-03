@@ -1,6 +1,9 @@
 //! Complete canonical model facts for the Tencent HY3 line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Builds the complete model facts for HY3.
 pub(crate) fn config() -> ModelConfig {
@@ -11,10 +14,12 @@ pub(crate) fn config() -> ModelConfig {
             "Tencent Mixture-of-Experts model for configurable reasoning and production agent workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(262_144), None, Some(128_000)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(262_144), Some(262_144), Some(128_000)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

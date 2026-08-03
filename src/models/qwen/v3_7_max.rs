@@ -1,6 +1,8 @@
 //! Complete canonical model facts for Qwen3.7 Max.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for Qwen3.7 Max.
 pub(crate) const ID: &str = "qwen/qwen3.7-max";
@@ -14,10 +16,12 @@ pub(crate) fn config() -> ModelConfig {
             "Qwen3.7 flagship model for agent-centric coding, office, and productivity workloads."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_000_000), None, Some(131_072)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_000_000), Some(1_000_000), Some(131_072)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Qwen".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

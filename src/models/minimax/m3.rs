@@ -1,6 +1,8 @@
 //! Complete canonical model facts for the MiniMax M3 line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+};
 
 /// Builds the complete model facts for MiniMax M3.
 pub(crate) fn config() -> ModelConfig {
@@ -11,10 +13,16 @@ pub(crate) fn config() -> ModelConfig {
             "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), None, Some(512_000)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(512_000)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::Video,
+        ]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

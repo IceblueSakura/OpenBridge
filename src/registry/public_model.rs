@@ -465,6 +465,13 @@ pub(super) fn compile_public_model(
             .filter(|contribution| contribution.protocol == ApiProtocol::Responses),
     );
     let capabilities = aggregate_model_capabilities(&contributions);
+    let description = config.description.or_else(|| {
+        intersect_optional_string(
+            contributions
+                .iter()
+                .map(|contribution| contribution.model_description.as_deref()),
+        )
+    });
 
     // Freeze the standard projection and extension object; retain Route IDs only in private execution data.
     let info = PublicModelInfo {
@@ -476,7 +483,7 @@ pub(super) fn compile_public_model(
             owned_by: "openbridge",
         },
         name: config.display_name,
-        description: config.description,
+        description,
         lifecycle: config.lifecycle,
         capabilities,
         interfaces: ModelInterfaces {
@@ -496,6 +503,9 @@ struct RouteContractContribution {
     context_window: ContextWindow,
     modalities: ModelModalities,
     model_modalities: Option<ModelModalities>,
+    model_description: Option<String>,
+    model_tokenizer: Option<String>,
+    model_knowledge_cutoff: Option<String>,
     model_parameters: Vec<String>,
     model_reasoning: SupportState,
     model_reasoning_levels: Vec<ReasoningLevel>,
@@ -600,6 +610,9 @@ impl RouteContractContribution {
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             model_modalities,
+            model_description: upstream_api.model().description().map(str::to_owned),
+            model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
+            model_knowledge_cutoff: upstream_api.model().knowledge_cutoff().map(str::to_owned),
             model_parameters,
             model_reasoning,
             model_reasoning_levels,
@@ -937,8 +950,16 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
                 .iter()
                 .map(|value| value.model_parameters.as_slice()),
         ),
-        tokenizer: None,
-        knowledge_cutoff: None,
+        tokenizer: intersect_optional_string(
+            contributions
+                .iter()
+                .map(|value| value.model_tokenizer.as_deref()),
+        ),
+        knowledge_cutoff: intersect_optional_string(
+            contributions
+                .iter()
+                .map(|value| value.model_knowledge_cutoff.as_deref()),
+        ),
         reasoning: ModelReasoningCapabilities {
             support: reasoning,
             levels: if reasoning.is_supported() {
@@ -962,6 +983,15 @@ fn intersect_optional_limit(values: impl Iterator<Item = Option<u32>>) -> Option
     } else {
         values.into_iter().flatten().min()
     }
+}
+
+/// Returns one optional catalog string only when every Route confirms the same value.
+fn intersect_optional_string<'a>(values: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
+    let mut values = values;
+    let first = values.next().flatten()?;
+    values
+        .all(|value| value == Some(first))
+        .then(|| first.to_owned())
 }
 
 /// Computes a stable intersection for ordered comparable sets.

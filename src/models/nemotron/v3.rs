@@ -1,6 +1,9 @@
 //! Complete canonical model facts for the NVIDIA Nemotron 3 line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Stable OpenBridge catalog ID for Nemotron 3 Ultra.
 pub(crate) const ULTRA_ID: &str = "nvidia/nemotron-3-ultra-550b-a55b";
@@ -14,10 +17,12 @@ pub(crate) fn ultra() -> ModelConfig {
             "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(512_288), None, None),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(512_288), Some(512_288), None),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

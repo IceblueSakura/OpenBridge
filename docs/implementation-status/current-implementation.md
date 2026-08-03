@@ -85,8 +85,9 @@ Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reason
 Public Model 引用；其余目录项尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。Nemotron
 embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfig`。
 
-2026-08-02 已按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、context、
-最大输出、参数和 reasoning efforts。`openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
+2026-08-03 在 2026-08-02 快照基础上按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、
+context/input projection、最大输出、输入/输出模态、tokenizer、knowledge cutoff、参数和 reasoning efforts。
+`openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
 `openai/gpt-5.3-codex` 代替；其 128,000 context、128,000 最大输出和四档 level 为人工修订值。Nemotron
 canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
@@ -325,6 +326,21 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   `cargo clippy --locked --target-dir target\model-contract-audit -- -D warnings` 与 `git diff --check` 均通过；全量
   Rust 结果为 163 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改 `testdata/` 或
   `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
+
+2026-08-03 完成基于 OpenRouter 精确目录的 Public Model 事实补全：
+
+- `src/models/` 下 16 个可精确匹配模型补全或校验现有描述、模型级 context、输入/输出模态、tokenizer 和
+  knowledge cutoff，并把 `top_provider.max_completion_tokens` 映射为最大输出上限。OpenRouter 没有独立的
+  max-input 字段，因此 `max_input_tokens` 使用已确认的模型级 `context_length`；不从总上下文减最大输出，
+  也不为没有精确记录的 `gpt-5.3-codex-spark` 猜测事实。
+- registry 会传递并保守相交 tokenizer、knowledge cutoff 和模型描述；不同 Route 的事实不一致或缺失时继续
+  返回 `null`。模型本体模态与实际 Chat/Responses 接口能力分开聚合，目录中的 video 不会扩大当前接口契约。
+- `tests/example_config.rs` 覆盖编译目录和加载后的 Public Model 元数据；`tests/forwarding_contract.rs` 覆盖
+  `/openbridge/v1/models` 与 detail 的一致性及客户端可见非空字段。`gpt-5.3-codex-spark` 和现有未知字段的
+  `null` 语义仍由测试保护。
+- 本轮执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和
+  `git diff --check`，均通过；未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。
+  未运行外部 SDK、真实 Provider、负载或长期验证。
 
 ## 当前未实现
 

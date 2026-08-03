@@ -1,6 +1,9 @@
 //! Complete canonical model facts for the GPT-5.5 line.
 
-use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
+use crate::registry::{
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
+};
 
 /// Builds the GPT-5.5 model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
@@ -11,10 +14,16 @@ pub(crate) fn config() -> ModelConfig {
             "OpenAI frontier model for complex professional work with strong reasoning and reliability."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), None, Some(128_000)),
-        mode: None,
-        input_modalities: None,
-        output_modalities: None,
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
+        mode: Some(ModelMode::Chat),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::File,
+        ]),
+        output_modalities: Some(vec![OutputModality::Text]),
+        tokenizer: Some("GPT".to_owned()),
+        knowledge_cutoff: Some("2025-12-01".to_owned()),
         supported_parameters: [
             "include_reasoning",
             "max_completion_tokens",

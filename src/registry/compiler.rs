@@ -54,6 +54,8 @@ pub fn build_registry(
             mode: model.mode,
             input_modalities: model.input_modalities,
             output_modalities: model.output_modalities,
+            tokenizer: model.tokenizer,
+            knowledge_cutoff: model.knowledge_cutoff,
             supported_parameters: model.supported_parameters,
             reasoning: model.reasoning,
             reasoning_levels: model.reasoning_levels,

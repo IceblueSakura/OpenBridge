@@ -12,6 +12,8 @@ pub(crate) fn config() -> ModelConfig {
         mode: None,
         input_modalities: None,
         output_modalities: None,
+        tokenizer: None,
+        knowledge_cutoff: None,
         supported_parameters: vec!["reasoning".to_owned()],
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![

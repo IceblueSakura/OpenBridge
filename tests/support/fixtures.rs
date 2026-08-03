@@ -142,6 +142,8 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             mode: None,
             input_modalities: None,
             output_modalities: None,
+            tokenizer: None,
+            knowledge_cutoff: None,
             supported_parameters: Vec::new(),
             reasoning: ReasoningSupport::Unknown,
             reasoning_levels: Vec::new(),

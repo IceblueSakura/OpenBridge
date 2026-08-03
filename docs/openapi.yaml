@@ -564,7 +564,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [text, image, audio, file]
+            enum: [text, image, audio, file, video]
         output:
           type: array
           uniqueItems: true
