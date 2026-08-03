@@ -1,4 +1,4 @@
-//! 验证增量 SSE decoder 的分片、UTF-8、CRLF、多行 data 和终态边界。
+//! Verifies incremental SSE decoder fragmentation, UTF-8, CRLF, multiline data, and terminal boundaries.
 
 use openbridge::transport::sse::SseDecoder;
 

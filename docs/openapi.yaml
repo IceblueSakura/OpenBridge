@@ -3,35 +3,37 @@ info:
   title: OpenBridge API
   version: 0.1.0
   description: |
-    OpenBridge 的下游 OpenAI-compatible API。
+    OpenBridge downstream OpenAI-compatible API.
 
-    该规范只描述当前服务实际提供的 endpoint。模型、Provider、上游 URL、credential
-    和 route 由服务端启动时的受信代码注册表决定，客户端只能选择 Public Model。
+    This specification describes only endpoints actually provided by the current service. Models,
+    Providers, upstream URLs, credentials, and routes are determined by the trusted code registry
+    at server startup; clients can select only a Public Model.
 
-    请求是否可执行由客户端明确选择的 Public Model 固定能力契约决定；能力不参与
-    Public Model 或 Route 选择。OpenAPI schema 不等价于所有模型都支持每项可选能力。
+    Request executability is determined by the fixed capability contract of the explicitly selected
+    Public Model; capabilities do not participate in Public Model or Route selection. The OpenAPI
+    schema does not mean that every model supports every optional capability.
 servers:
   - url: /
-    description: 当前 OpenBridge 服务
+    description: Current OpenBridge service
 tags:
   - name: system
-    description: 本地服务存活与文档资源
+    description: Local service health and documentation resources
   - name: models
-    description: 已认证的标准与扩展 Public Model 信息
+    description: Authenticated standard and extended Public Model information
   - name: chat
-    description: Chat Completions 兼容接口
+    description: Chat Completions-compatible endpoints
   - name: responses
-    description: Responses 兼容接口
+    description: Responses-compatible endpoints
 paths:
   /healthz:
     get:
       tags: [system]
-      summary: 检查本地服务是否存活
+      summary: Check local service health
       operationId: getHealth
-      description: 不访问上游 Provider 或 credential，只返回本地进程的 registry snapshot 版本。
+      description: Does not access an upstream Provider or credential; returns only the local process registry snapshot version.
       responses:
         '200':
-          description: 服务存活
+          description: Service is healthy
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -46,12 +48,12 @@ paths:
   /openapi.yaml:
     get:
       tags: [system]
-      summary: 获取当前 OpenAPI 规范
+      summary: Get the current OpenAPI specification
       operationId: getOpenApiSpec
-      description: 返回随当前服务构建的静态 OpenAPI YAML。
+      description: Returns the static OpenAPI YAML built with the current service.
       responses:
         '200':
-          description: OpenAPI YAML 文档
+          description: OpenAPI YAML document
           content:
             application/yaml:
               schema:
@@ -60,12 +62,12 @@ paths:
   /swagger-ui:
     get:
       tags: [system]
-      summary: 打开 Swagger UI 测试页面
+      summary: Open Swagger UI test page
       operationId: getSwaggerUi
-      description: 返回加载本地 OpenAPI 规范的 Swagger UI 页面。
+      description: Returns a Swagger UI page that loads the local OpenAPI specification.
       responses:
         '200':
-          description: Swagger UI HTML 页面
+          description: Swagger UI HTML page
           content:
             text/html:
               schema:
@@ -74,12 +76,12 @@ paths:
   /swagger-ui/:
     get:
       tags: [system]
-      summary: 打开 Swagger UI 测试页面
+      summary: Open Swagger UI test page
       operationId: getSwaggerUiWithTrailingSlash
-      description: Swagger UI 测试页面的规范 URL。
+      description: Canonical URL for the Swagger UI test page.
       responses:
         '200':
-          description: Swagger UI HTML 页面
+          description: Swagger UI HTML page
           content:
             text/html:
               schema:
@@ -88,14 +90,14 @@ paths:
   /v1/models:
     get:
       tags: [models]
-      summary: 列出 Public Model
+      summary: List Public Models
       operationId: listModels
-      description: 只返回服务端代码注册表声明的 Public Model，不枚举上游模型或 Provider。
+      description: Returns only Public Models declared by the server code registry; it does not enumerate upstream models or Providers.
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Public Model 列表
+          description: Public Model list
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -116,16 +118,16 @@ paths:
   /v1/models/{model}:
     get:
       tags: [models]
-      summary: 获取一个标准 Public Model
+      summary: Get a standard Public Model
       operationId: retrieveModel
-      description: 返回与标准列表元素相同的 OpenAI Model 四字段对象，不附加扩展能力字段。
+      description: Returns the four-field OpenAI Model object used by the standard list without extended capability fields.
       security:
         - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ModelId'
       responses:
         '200':
-          description: 标准 Public Model 对象
+          description: Standard Public Model object
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -141,16 +143,17 @@ paths:
   /openbridge/v1/models:
     get:
       tags: [models]
-      summary: 列出 Public Model 扩展能力
+      summary: List Public Model extended capabilities
       operationId: listExtendedModels
       description: |
-        返回由不可变 registry 预编译的模型事实和每协议唯一固定能力契约。响应不包含
-        Provider、Target、Route、上游模型、endpoint、credential、健康或价格信息。
+        Returns model facts precompiled by the immutable registry and one fixed capability contract
+        per protocol. The response contains no Provider, Target, Route, upstream model, endpoint,
+        credential, health, or pricing information.
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Public Model 扩展能力列表
+          description: Public Model extended-capability list
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -164,16 +167,16 @@ paths:
   /openbridge/v1/models/{model}:
     get:
       tags: [models]
-      summary: 获取一个 Public Model 扩展能力对象
+      summary: Get a Public Model extended-capability object
       operationId: retrieveExtendedModel
-      description: 返回与扩展列表中对应元素逐字段相同的完整对象。
+      description: Returns the complete object matching the corresponding extended-list element field for field.
       security:
         - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ModelId'
       responses:
         '200':
-          description: Public Model 扩展能力对象
+          description: Public Model extended-capability object
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -189,12 +192,13 @@ paths:
   /v1/chat/completions:
     post:
       tags: [chat]
-      summary: 创建 Chat Completions
+      summary: Create a Chat Completion
       operationId: createChatCompletion
       description: |
-        接收 Chat Completions JSON 请求，按完整 route 执行 Native 转发或受限的
-        Chat-to-Responses bridge。将 stream 设为 true 时，成功响应使用 text/event-stream。
-        工具调用只作为 wire-level 数据转发，OpenBridge 不执行工具。
+        Accepts a Chat Completions JSON request and executes Native forwarding or a restricted
+        Chat-to-Responses bridge through the complete route. When stream is true, successful
+        responses use text/event-stream. Tool calls are forwarded at the wire level only;
+        OpenBridge does not execute tools.
       security:
         - BearerAuth: []
       requestBody:
@@ -205,14 +209,14 @@ paths:
               $ref: '#/components/schemas/ChatCompletionRequest'
             examples:
               nonStreaming:
-                summary: 非流式文本请求
+                summary: Non-streaming text request
                 value:
                   model: code-primary
                   messages:
                     - role: user
                       content: hello
               streaming:
-                summary: 流式文本请求
+                summary: Streaming text request
                 value:
                   model: code-primary
                   messages:
@@ -221,7 +225,7 @@ paths:
                   stream: true
       responses:
         '200':
-          description: 非流式 JSON 或流式 SSE 响应
+          description: Non-streaming JSON or streaming SSE response
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -248,14 +252,15 @@ paths:
   /v1/responses:
     post:
       tags: [responses]
-      summary: 创建 Response
+      summary: Create a Response
       operationId: createResponse
       description: |
-        接收 Responses JSON 请求，按完整 route 执行 Native 转发或受限的
-        Responses-to-Chat bridge。OpenBridge 的核心兼容面是无状态 Responses；store、
-        previous_response_id 和 background 受所选 Public Model 的固定能力契约约束，
-        state-affinity 继续约束后续执行和 fallback。
-        将 stream 设为 true 时，成功响应使用 text/event-stream。
+        Accepts a Responses JSON request and executes Native forwarding or a restricted
+        Responses-to-Chat bridge through the complete route. OpenBridge's core compatibility
+        surface is stateless Responses; store, previous_response_id, and background are governed
+        by the selected Public Model's fixed capability contract. State affinity continues to
+        constrain subsequent execution and fallback. When stream is true, successful responses use
+        text/event-stream.
       security:
         - BearerAuth: []
       requestBody:
@@ -266,19 +271,19 @@ paths:
               $ref: '#/components/schemas/ResponsesRequest'
             examples:
               nonStreaming:
-                summary: 非流式文本请求
+                summary: Non-streaming text request
                 value:
                   model: code-primary
                   input: hello
               streaming:
-                summary: 流式文本请求
+                summary: Streaming text request
                 value:
                   model: code-primary
                   input: hello
                   stream: true
       responses:
         '200':
-          description: 非流式 JSON 或流式 SSE 响应
+          description: Non-streaming JSON or streaming SSE response
           headers:
             X-Request-Id:
               $ref: '#/components/headers/X-Request-Id'
@@ -308,11 +313,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: API key
-      description: config/users.toml 中配置的下游静态 Bearer API key。
+      description: Static downstream Bearer API key configured in config/users.toml.
 
   headers:
     X-Request-Id:
-      description: OpenBridge 为本次请求生成或传播的 request id。
+      description: Request ID generated or propagated by OpenBridge for this request.
       schema:
         type: string
 
@@ -321,14 +326,14 @@ components:
       name: model
       in: path
       required: true
-      description: OpenBridge 对下游公开的稳定单段模型 id。
+      description: Stable single-segment model ID exposed by OpenBridge downstream.
       schema:
         type: string
         pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
 
   responses:
     BadRequest:
-      description: 请求 JSON 无效，或所选 Public Model 的固定接口契约不支持请求能力。
+      description: The request JSON is invalid, or the selected Public Model's fixed interface contract does not support the requested capability.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -343,7 +348,7 @@ components:
               param: null
               code: invalid_request_error
     Unauthorized:
-      description: 缺少或无效的下游 Bearer API key。
+      description: The downstream Bearer API key is missing or invalid.
       headers:
         WWW-Authenticate:
           schema:
@@ -362,7 +367,7 @@ components:
               param: null
               code: invalid_api_key
     ModelNotFound:
-      description: Public Model 未在当前 registry 中声明。
+      description: The Public Model is not declared in the current registry.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -377,7 +382,7 @@ components:
               param: model
               code: model_not_found
     UnsupportedMediaType:
-      description: 请求必须使用 application/json。
+      description: The request must use application/json.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -392,7 +397,7 @@ components:
               param: null
               code: invalid_content_type
     BadGateway:
-      description: 所有安全候选均未能完成上游请求。
+      description: No safe candidate completed the upstream request.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -407,7 +412,7 @@ components:
               param: null
               code: upstream_error
     GatewayTimeout:
-      description: 上游请求超时。
+      description: The upstream request timed out.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -452,7 +457,7 @@ components:
       properties:
         id:
           type: string
-          description: OpenBridge 对下游公开的稳定模型名。
+          description: Stable model name exposed by OpenBridge downstream.
         object:
           type: string
           enum: [model]
@@ -460,7 +465,7 @@ components:
           type: integer
           format: int64
           minimum: 1
-          description: Public Model 契约首次创建的稳定 Unix 秒。
+          description: Stable Unix seconds when the Public Model contract was first created.
         owned_by:
           type: string
           enum: [openbridge]
@@ -657,7 +662,7 @@ components:
     SupportState:
       type: string
       enum: [supported, unsupported, unknown]
-      description: unknown 不能在请求预检中当作已支持。
+      description: unknown must not be treated as supported during request preflight.
 
     ToolCapabilities:
       type: object
@@ -731,11 +736,11 @@ components:
       type: object
       required: [model, messages]
       additionalProperties: true
-      description: 当前 route 可接受的 Chat Completions JSON。未列出的合法字段沿 Native path 原样保留。
+      description: Chat Completions JSON accepted by the current route. Unlisted valid fields are preserved unchanged along the Native path.
       properties:
         model:
           type: string
-          description: OpenBridge Public Model 名称。
+          description: OpenBridge Public Model name.
           example: code-primary
         messages:
           type: array
@@ -774,11 +779,11 @@ components:
       type: object
       required: [model]
       additionalProperties: true
-      description: 当前 route 可接受的 Responses JSON。无状态请求是 OpenBridge 的核心兼容面。
+      description: Responses JSON accepted by the current route. Stateless requests are OpenBridge's core compatibility surface.
       properties:
         model:
           type: string
-          description: OpenBridge Public Model 名称。
+          description: OpenBridge Public Model name.
           example: code-primary
         input:
           nullable: true
@@ -857,7 +862,7 @@ components:
       type: object
       required: [type]
       additionalProperties: true
-      description: 普通 function tool 的 wire-level 描述；OpenBridge 不执行返回的工具调用。
+      description: Wire-level description of a standard function tool; OpenBridge does not execute returned tool calls.
       properties:
         type:
           type: string
@@ -873,7 +878,7 @@ components:
     ChatCompletionResponse:
       type: object
       additionalProperties: true
-      description: 上游 Chat Completions JSON 响应；除受信模型改写外由 Native path 保留。
+      description: Upstream Chat Completions JSON response preserved by the Native path except for trusted model rewriting.
       properties:
         id:
           type: string
@@ -893,7 +898,7 @@ components:
     ResponsesResponse:
       type: object
       additionalProperties: true
-      description: 上游 Responses JSON 响应；具体 output item 由当前 route 与 Provider 能力决定。
+      description: Upstream Responses JSON response; specific output items depend on the current route and Provider capabilities.
       properties:
         id:
           type: string
@@ -913,7 +918,7 @@ components:
     ServerSentEvents:
       type: string
       format: binary
-      description: 保持目标协议原始 event/data framing 的 SSE 流。
+      description: SSE stream preserving the target protocol's original event/data framing.
 
     ErrorResponse:
       type: object

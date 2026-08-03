@@ -1,264 +1,264 @@
-//! 注册表定义校验和编译错误。
+//! Registry-definition validation and compilation errors.
 
 use thiserror::Error;
 
-/// 编译期注册表定义不完整、引用不一致或尝试越权时返回的错误。
+/// Error returned when a compile-time registry definition is incomplete, inconsistent, or attempts to exceed its authority.
 #[derive(Debug, Error)]
 pub enum RegistryError {
-    /// registry 版本为空。
+    /// The registry version is blank.
     #[error("registry version must not be blank")]
     BlankVersion,
-    /// credential pool id 为空。
+    /// The credential-pool ID is blank.
     #[error("credential pool id must not be blank")]
     BlankCredentialPoolId,
-    /// 同一实体集合中存在重复 id。
+    /// An entity collection contains a duplicate ID.
     #[error("duplicate {entity} id '{id}'")]
     DuplicateId {
-        /// 发生冲突的实体类型。
+        /// Entity type containing the conflict.
         entity: &'static str,
-        /// 重复的实体 id。
+        /// Duplicated entity ID.
         id: String,
     },
-    /// 定义引用了不存在的实体。
+    /// A definition references a missing entity.
     #[error("{entity} '{id}' references unknown {target} '{reference}'")]
     UnknownReference {
-        /// 发起引用的实体类型。
+        /// Entity type making the reference.
         entity: &'static str,
-        /// 发起引用的实体 id。
+        /// ID making the reference.
         id: String,
-        /// 被引用的实体类型。
+        /// Referenced entity type.
         target: &'static str,
-        /// 未解析的引用值。
+        /// Unresolved reference value.
         reference: String,
     },
-    /// pool 选择了 provider 不支持的 credential 类型。
+    /// A pool selects a credential type unsupported by the Provider.
     #[error("credential pool '{credential_pool}' uses a kind unsupported by its provider")]
     UnsupportedCredentialPoolKind {
-        /// 配置不兼容的 pool id。
+        /// Incompatible pool ID.
         credential_pool: String,
     },
-    /// target 与引用 pool 的 Provider 不一致。
+    /// The target and referenced pool belong to different Providers.
     #[error(
         "upstream target '{upstream_target}' and credential pool '{credential_pool}' use different providers"
     )]
     CredentialPoolProviderMismatch {
-        /// 配置不兼容的 target id。
+        /// Incompatible target ID.
         upstream_target: String,
-        /// 被错误引用的 pool id。
+        /// Incorrectly referenced pool ID.
         credential_pool: String,
     },
-    /// target endpoint 不是允许的 HTTPS base URL。
+    /// The target endpoint is not an allowed HTTPS base URL.
     #[error("upstream target '{upstream_target}' uses an invalid base URL")]
     InvalidBaseUrl {
-        /// URL 不合法的 target id。
+        /// Target ID with the invalid URL.
         upstream_target: String,
     },
-    /// target 请求超时时间为零。
+    /// The target request timeout is zero.
     #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
     InvalidRequestTimeout {
-        /// 超时配置不合法的 target id。
+        /// Target ID with the invalid timeout.
         upstream_target: String,
     },
-    /// target 没有声明任何 Upstream API。
+    /// The target declares no Upstream API.
     #[error("upstream target '{upstream_target}' must contain at least one upstream API")]
     EmptyUpstreamTarget {
-        /// 没有 Upstream API 的 target id。
+        /// Target ID with no Upstream API.
         upstream_target: String,
     },
-    /// target 内存在重复 Upstream API id。
+    /// The target contains a duplicate Upstream API ID.
     #[error("upstream target '{upstream_target}' contains duplicate upstream API '{upstream_api}'")]
     DuplicateUpstreamApi {
-        /// 发生冲突的 target id。
+        /// Target ID containing the conflict.
         upstream_target: String,
-        /// 重复的 Upstream API id。
+        /// Duplicated Upstream API ID.
         upstream_api: String,
     },
-    /// Upstream API 使用了 provider 未注册的 endpoint profile。
+    /// The Upstream API uses an endpoint profile not registered by the Provider.
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
     )]
     UnsupportedEndpointProfile {
-        /// 所属 target id。
+        /// Owning target ID.
         upstream_target: String,
-        /// 不兼容的 Upstream API id。
+        /// Incompatible Upstream API ID.
         upstream_api: String,
-        /// 未注册的 endpoint profile。
+        /// Unregistered endpoint profile.
         profile: String,
     },
-    /// Upstream API 的上游 model id 为空。
+    /// The Upstream API upstream model ID is blank.
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' upstream model must not be blank"
     )]
     BlankUpstreamModel {
-        /// 所属 target id。
+        /// Owning target ID.
         upstream_target: String,
-        /// model id 为空的 Upstream API id。
+        /// Upstream API ID with the blank model ID.
         upstream_api: String,
     },
-    /// Upstream API 的 capability 枚举与协议不一致。
+    /// The Upstream API capability variant does not match its protocol.
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match protocol"
     )]
     UpstreamApiProtocolMismatch {
-        /// 所属 target id。
+        /// Owning target ID.
         upstream_target: String,
-        /// 配置不一致的 Upstream API id。
+        /// Upstream API ID with the inconsistent configuration.
         upstream_api: String,
     },
-    /// canonical 模型的必填字符串为空。
+    /// A required canonical-model string is blank.
     #[error("model '{model}' field '{field}' must not be blank")]
     BlankModelField {
-        /// 不合法的模型 id。
+        /// Invalid model ID.
         model: String,
-        /// 为空的字段名。
+        /// Blank field name.
         field: &'static str,
     },
-    /// canonical 模型声明了零值上下文长度。
+    /// The canonical model declares a zero context limit.
     #[error("model '{model}' context length '{limit}' must be greater than zero")]
     InvalidModelContextLength {
-        /// 不合法的模型 id。
+        /// Invalid model ID.
         model: String,
-        /// 不合法的长度字段名。
+        /// Invalid limit field name.
         limit: &'static str,
     },
-    /// canonical 模型的输入或输出上限超过总上下文窗口。
+    /// The canonical model input or output limit exceeds its total context window.
     #[error("model '{model}' input or output limit exceeds its total context window")]
     InconsistentModelContextLength {
-        /// 不合法的模型 id。
+        /// Invalid model ID.
         model: String,
     },
-    /// canonical 模型的显式任务或模态事实不一致。
+    /// Explicit canonical-model task or modality facts are inconsistent.
     #[error("model '{model}' field '{field}' must be a non-empty unique capability set")]
     InconsistentModelCapabilities {
-        /// 不合法的模型 id。
+        /// Invalid model ID.
         model: String,
-        /// 不一致的能力字段名。
+        /// Inconsistent capability field name.
         field: &'static str,
     },
-    /// canonical 模型参数名不符合受限 wire 名称格式。
+    /// A canonical model parameter name does not use the restricted wire format.
     #[error("model '{model}' declares invalid supported parameter '{parameter}'")]
     InvalidSupportedParameter {
-        /// 不合法的模型 id。
+        /// Invalid model ID.
         model: String,
-        /// 不合法的参数名。
+        /// Invalid parameter name.
         parameter: String,
     },
-    /// canonical 模型重复声明了参数名。
+    /// The canonical model declares a parameter more than once.
     #[error("model '{model}' declares supported parameter '{parameter}' more than once")]
     DuplicateSupportedParameter {
-        /// 重复参数所属的模型 id。
+        /// Model ID owning the duplicate parameter.
         model: String,
-        /// 重复的参数名。
+        /// Duplicated parameter name.
         parameter: String,
     },
-    /// canonical 模型的 reasoning 状态与参数集合不一致。
+    /// Canonical-model reasoning state conflicts with its parameter set.
     #[error("model '{model}' has inconsistent reasoning configuration: {detail}")]
     InconsistentReasoningConfig {
-        /// 配置不一致的模型 id。
+        /// Model ID with the inconsistent configuration.
         model: String,
-        /// 具体不一致原因。
+        /// Specific inconsistency reason.
         detail: &'static str,
     },
-    /// Upstream API 模型规则声明了零值限制。
+    /// Upstream API model rules declare a zero limit.
     #[error("upstream API '{upstream_api}' model rule '{field}' must be greater than zero")]
     InvalidUpstreamApiModelRule {
-        /// 规则所属的 Upstream API 标识。
+        /// Upstream API identifier owning the rule.
         upstream_api: String,
-        /// 不合法的规则字段。
+        /// Invalid rule field.
         field: &'static str,
     },
-    /// Upstream API 模型限制超过了 canonical 模型上限。
+    /// Upstream API model limits exceed the canonical model ceiling.
     #[error("upstream API '{upstream_api}' model rule '{field}' exceeds the model limit")]
     UpstreamApiModelLimitExceedsModel {
-        /// 规则所属的 Upstream API 标识。
+        /// Upstream API identifier owning the rule.
         upstream_api: String,
-        /// 超出上限的规则字段。
+        /// Rule field that exceeds the ceiling.
         field: &'static str,
     },
-    /// Upstream API 模型规则扩大了 canonical 模型事实。
+    /// Upstream API model rules expand canonical model facts.
     #[error("upstream API '{upstream_api}' model rule '{field}' widens the model information")]
     UpstreamApiModelRuleWidensModel {
-        /// 规则所属的 Upstream API 标识。
+        /// Upstream API identifier owning the rule.
         upstream_api: String,
-        /// 被扩大声明的字段。
+        /// Field being expanded.
         field: &'static str,
     },
-    /// Upstream API 试图禁用模型未声明的参数。
+    /// The Upstream API attempts to disable a parameter not declared by the model.
     #[error("upstream API '{upstream_api}' model rule disables undeclared parameter '{parameter}'")]
     UpstreamApiModelRuleDisablesUnknownParameter {
-        /// 规则所属的 Upstream API 标识。
+        /// Upstream API identifier owning the rule.
         upstream_api: String,
-        /// 未声明却被禁用的参数名。
+        /// Undeclared parameter being disabled.
         parameter: String,
     },
-    /// Upstream API 收窄后的 reasoning 配置不一致。
+    /// Narrowed Upstream API reasoning configuration is inconsistent.
     #[error("upstream API '{upstream_api}' model rules are inconsistent: {detail}")]
     InconsistentUpstreamApiModelRules {
-        /// 规则所属的 Upstream API 标识。
+        /// Upstream API identifier owning the rule.
         upstream_api: String,
-        /// 具体不一致原因。
+        /// Specific inconsistency reason.
         detail: &'static str,
     },
-    /// Upstream API 声明了超过 provider contract 的能力。
+    /// The Upstream API declares capabilities beyond the Provider contract.
     #[error(
         "upstream API '{upstream_api}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
     )]
     CapabilityElevation {
-        /// 所属 target id。
+        /// Owning target ID.
         upstream_target: String,
-        /// 越权声明能力的 Upstream API id。
+        /// Upstream API ID declaring excessive capabilities.
         upstream_api: String,
     },
-    /// Native route 的下游协议与 Upstream API 协议不一致。
+    /// A Native Route downstream protocol differs from its Upstream API protocol.
     #[error("native route '{route}' protocol does not match its upstream API")]
     NativeRouteProtocolMismatch {
-        /// 协议不匹配的 route id。
+        /// Route ID with the protocol mismatch.
         route: String,
     },
-    /// Bridged route 的下游协议与 Upstream API 协议相同。
+    /// A Bridged Route has the same downstream and Upstream API protocol.
     #[error("bridged route '{route}' must target the opposite upstream protocol")]
     BridgedRouteProtocolMatch {
-        /// 协议方向无转换意义的 route id。
+        /// Route ID whose protocol direction has no conversion meaning.
         route: String,
     },
-    /// Public Model id 不是安全的单段 URL 资源标识。
+    /// The Public Model ID is not a safe single-segment URL resource identifier.
     #[error("public model '{public_model}' id is not a safe URL path segment")]
     InvalidPublicModelId {
-        /// 不合法的 Public Model id。
+        /// Invalid Public Model ID.
         public_model: String,
     },
-    /// Public Model 的公共展示字段为空。
+    /// A Public Model public display field is blank.
     #[error("public model '{public_model}' field '{field}' must not be blank")]
     BlankPublicModelField {
-        /// 不合法的 Public Model id。
+        /// Invalid Public Model ID.
         public_model: String,
-        /// 为空的公共字段名。
+        /// Blank public field name.
         field: &'static str,
     },
-    /// Public Model 没有有效的稳定创建时间。
+    /// The Public Model has no valid stable creation time.
     #[error("public model '{public_model}' created timestamp must be greater than zero")]
     InvalidPublicModelCreated {
-        /// 不合法的 Public Model id。
+        /// Invalid Public Model ID.
         public_model: String,
     },
-    /// Public Model 的生命周期状态与时间不一致。
+    /// Public Model lifecycle status and timestamps are inconsistent.
     #[error("public model '{public_model}' has inconsistent lifecycle timestamps")]
     InvalidPublicModelLifecycle {
-        /// 不合法的 Public Model id。
+        /// Invalid Public Model ID.
         public_model: String,
     },
-    /// Public Model 重复引用同一个 route。
+    /// The Public Model references the same Route more than once.
     #[error("public model '{public_model}' contains duplicate route '{route}'")]
     DuplicatePublicModelRoute {
-        /// 发生冲突的 Public Model 名称。
+        /// Public Model name containing the conflict.
         public_model: String,
-        /// 重复的 route id。
+        /// Duplicated Route ID.
         route: String,
     },
-    /// Public Model 没有任何 route。
+    /// The Public Model has no Route.
     #[error("public model '{public_model}' must contain at least one route")]
     EmptyPublicModel {
-        /// 没有 route 的 Public Model 名称。
+        /// Public Model name with no Route.
         public_model: String,
     },
 }

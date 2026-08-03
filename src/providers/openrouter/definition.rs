@@ -1,4 +1,4 @@
-//! OpenRouter Provider 的静态契约与无状态 OpenAI-compatible profile。
+//! Static OpenRouter Provider contract and stateless OpenAI-compatible profile.
 
 use http::HeaderMap;
 
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// OpenRouter Chat Completions 的保守能力上界。
+/// Conservative capability ceiling for OpenRouter Chat Completions.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::OpenRouter,
     ApiCapabilities {
@@ -62,7 +62,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// OpenRouter 使用的无状态 Chat/Responses OpenAI-compatible wire profile。
+/// Stateless Chat/Responses OpenAI-compatible wire profile used by OpenRouter.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::OpenRouter,
     &CONTRACT,
@@ -73,11 +73,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
 )
 .with_openai_data_type_responses_terminal();
 
-/// OpenRouter contract 与 adapter 的唯一静态描述符。
+/// Single static descriptor for the OpenRouter contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// 保持 OpenRouter 可选归因和路由 header 由编译期策略显式拥有。
+/// Keeps optional OpenRouter attribution and routing headers under explicit compile-time policy.
 fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,

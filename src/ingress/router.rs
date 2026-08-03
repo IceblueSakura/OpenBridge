@@ -1,4 +1,4 @@
-//! Axum Router、中间件与下游认证装配。
+//! Axum Router, middleware, and downstream authentication assembly.
 
 use std::sync::Arc;
 
@@ -47,13 +47,14 @@ struct DownstreamAuthState {
     max_sse_event_bytes: usize,
 }
 
-/// 构造公开 health endpoint 与受静态 Bearer 保护的 OpenAI-compatible API。
+/// Builds the public health endpoint and OpenAI-compatible API protected by static Bearer authentication.
 ///
-/// body limit 和 request id 在认证前统一施加；`Authorization` 被标为 sensitive，避免
-/// `TraceLayer` 或下游日志意外记录 token。`/v1/models` 与业务 endpoint 共用认证层，
-/// 从而不暴露内部 Public Model/Route 信息给匿名请求。
+/// Body limits and request IDs are applied before authentication; `Authorization` is marked
+/// sensitive so `TraceLayer` and downstream logs cannot accidentally record the token.
+/// `/v1/models` shares the authentication layer with business endpoints and therefore does not
+/// expose internal Public Model/Route information to anonymous requests.
 pub fn build_router(state: GatewayState) -> Router {
-    // 准备 request id、敏感 header、trace 和 body size 保护等全局 middleware。
+    // Prepare global middleware for request IDs, sensitive headers, tracing, and body-size protection.
     let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
     let request_id = HeaderName::from_static("x-request-id");
     let middleware = ServiceBuilder::new()
@@ -64,7 +65,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::new(request_id))
         .layer(RequestBodyLimitLayer::new(max_request_body_bytes));
-    // 装配统一使用 Bearer 认证的业务和模型列表 endpoint。
+    // Assemble business and model-list endpoints with shared Bearer authentication.
     let protected = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
@@ -83,7 +84,7 @@ pub fn build_router(state: GatewayState) -> Router {
             require_user,
         ));
 
-    // 暴露无需认证的 health、OpenAPI 和 Swagger UI 文档资源，并绑定共享 GatewayState。
+    // Expose unauthenticated health, OpenAPI, and Swagger UI resources with the shared GatewayState.
     Router::new()
         .route("/healthz", get(health))
         .route("/openapi.yaml", get(openapi_spec))
@@ -94,13 +95,13 @@ pub fn build_router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
-/// 认证下游 Bearer token，并把非敏感用户身份和请求观测绑定到 handler。
+/// Authenticates a downstream Bearer token and binds non-sensitive user identity and request observation to the handler.
 async fn require_user(
     State(auth): State<DownstreamAuthState>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    // 提取请求标识和安全审计字段，避免日志依赖未认证的用户对象。
+    // Extract request identifiers and safe audit fields without relying on an unauthenticated user object.
     let request_id = request
         .headers()
         .get("x-request-id")
@@ -109,7 +110,7 @@ async fn require_user(
         .to_owned();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    // 解析 Bearer token 并执行 constant-time 用户认证。
+    // Parse the Bearer token and authenticate the user with constant-time comparison.
     let user = auth::bearer_token(request.headers())
         .and_then(|token| auth.users.authenticate(&auth.credentials, token));
     let Some(user) = user else {
@@ -125,7 +126,7 @@ async fn require_user(
         return response;
     };
 
-    // 将已认证用户绑定到 request span，再交给受保护 handler。
+    // Bind the authenticated user to the request span before invoking the protected handler.
     let span = tracing::info_span!(
         "downstream_request",
         %request_id,

@@ -1,4 +1,4 @@
-//! 验证上游 forwarding 的 retry、fallback、header、stream 和取消边界。
+//! Verifies upstream forwarding retry, fallback, header, stream, and cancellation boundaries.
 
 mod support;
 
@@ -199,12 +199,12 @@ impl UpstreamTransport for PendingRequestTransport {
         _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录已开始的 pending request 并通知测试任务。
+        // Record the started pending request and notify the test task.
         self.attempts.fetch_add(1, Ordering::SeqCst);
         self.started.notify_one();
         let signal = DropSignal(self.dropped.clone());
 
-        // 保持上游 future pending，以观察下游取消是否向上传播析构。
+        // Keep the upstream future pending to observe whether downstream cancellation propagates destruction.
         Box::pin(async move {
             let _signal = signal;
             std::future::pending::<Result<UpstreamResponse, TransportError>>().await
@@ -219,14 +219,14 @@ impl UpstreamTransport for BoundedFailoverTransport {
         _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录候选、Provider 与开始时间，供预算和退避断言使用。
+        // Record the candidate, Provider, and start time for budget and backoff assertions.
         let target_id = target.id().to_owned();
         let provider = target.kind();
         self.attempts
             .lock()
             .unwrap()
             .push((target_id.clone(), provider, Instant::now()));
-        // 按 Provider 返回不同的 retryable HTTP failure。
+        // Return different retryable HTTP failures by Provider.
         Box::pin(async move {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -252,12 +252,12 @@ impl UpstreamTransport for BackoffCancellationTransport {
         _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录首次 attempt 并唤醒等待取消请求的测试任务。
+        // Record the first attempt and wake the test task waiting for cancellation.
         let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
         if attempt == 1 {
             self.first_attempt.notify_one();
         }
-        // 返回 retryable failure，使 handler 进入可取消的退避等待。
+        // Return a retryable failure so the handler enters cancellable backoff.
         Box::pin(async {
             Ok(UpstreamResponse::new(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -275,11 +275,11 @@ impl UpstreamTransport for ScopedHealthTransport {
         _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 使用 credential binding id 区分测试 target，并记录跨请求调用顺序。
+        // Distinguish test targets by credential binding ID and record cross-request call order.
         let target_id = target.id().to_owned();
         self.attempts.lock().unwrap().push(target_id.clone());
 
-        // 主目标返回带 cooldown 建议的 429，其余目标稳定成功。
+        // The primary target returns 429 with a cooldown suggestion; other targets succeed consistently.
         Box::pin(async move {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -308,7 +308,7 @@ impl UpstreamTransport for ScopedFaultTransport {
         _request: PreparedUpstreamRequest,
         _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录 target 顺序，并让主目标产生可重试 transport failure。
+        // Record target order and make the primary target produce a retryable transport failure.
         let target_id = target.id().to_owned();
         self.attempts.lock().unwrap().push(target_id.clone());
         Box::pin(async move {
@@ -373,7 +373,7 @@ impl UpstreamTransport for CredentialRotationTransport {
         _request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录合成 Authorization，并让首个成员触发可轮转的 429。
+        // Record synthetic Authorization and make the first member trigger a rotatable 429.
         let authorization = headers[AUTHORIZATION].to_str().unwrap().to_owned();
         self.authorizations
             .lock()
@@ -401,7 +401,7 @@ impl UpstreamTransport for FixedStatusCredentialTransport {
         _request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录每次 attempt 的合成 credential，并返回固定 HTTP 状态。
+        // Record the synthetic credential for each attempt and return the fixed HTTP status.
         self.authorizations
             .lock()
             .unwrap()
@@ -560,7 +560,7 @@ impl UpstreamTransport for MimoResponsesToolStreamTransport {
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录网关实际提交的 endpoint、认证隔离和 JSON 请求。
+        // Record the endpoint, authentication isolation, and JSON request actually submitted by the gateway.
         let path = request.relative_uri().path().to_owned();
         self.requests.lock().unwrap().push(RecordedRequest {
             path,
@@ -571,7 +571,7 @@ impl UpstreamTransport for MimoResponsesToolStreamTransport {
                 .map(str::to_owned),
             body: serde_json::from_slice(request.body()).unwrap(),
         });
-        // 返回分片的复杂 Responses tool stream，模拟上游 chunk 边界与交错 arguments。
+        // Return a fragmented Responses tool stream that simulates upstream chunk boundaries and interleaved arguments.
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
@@ -597,7 +597,7 @@ impl UpstreamTransport for DeepSeekReasoningStreamTransport {
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 记录 DeepSeek Chat Native 实际提交的 endpoint、模型和 reasoning 配置。
+        // Record the endpoint, model, and reasoning configuration submitted by DeepSeek Chat Native.
         let path = request.relative_uri().path().to_owned();
         self.requests.lock().unwrap().push(RecordedRequest {
             path,
@@ -608,7 +608,7 @@ impl UpstreamTransport for DeepSeekReasoningStreamTransport {
                 .map(str::to_owned),
             body: serde_json::from_slice(request.body()).unwrap(),
         });
-        // 按不规则 UTF-8 chunk 返回 reasoning_content，验证 Native stream 不丢失明文 channel。
+        // Return reasoning_content in irregular UTF-8 chunks to verify that Native streaming preserves the plaintext channel.
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
@@ -680,11 +680,11 @@ async fn authenticated_get(app: &axum::Router, path: &str) -> Value {
 }
 
 fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
-    // 编译真实代码注册表，确保测试使用 mimo-v2.5 的固定公共契约与生产 Route 顺序。
+    // Compile the real code registry so the test uses the fixed mimo-v2.5 public contract and production Route order.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
         .expect("checked-in bootstrap must be valid");
     let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
-    // 注入测试身份和每个已注册 pool 的合成凭证，不读取私有运行时凭证。
+    // Inject a test identity and synthetic credentials for every registered pool without reading private runtime credentials.
     let (users, credentials) = support::users_and_credentials(
         "downstream-token-00000000000000000000000000000000",
         &registry,
@@ -732,7 +732,7 @@ fn add_responses_fallback(
     target_id: &str,
     provider: ProviderKind,
 ) {
-    // 从主目标复制同一模型事实，并切换到指定 Provider 的受信 endpoint profile。
+    // Copy model facts from the primary target and switch to the selected Provider's trusted endpoint profile.
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = target_id.to_owned();
     fallback.provider = provider;
@@ -765,7 +765,7 @@ fn add_responses_fallback(
     }
     definition.upstream_targets.push(fallback);
 
-    // 将新目标注册为同一 Public Model 的完整 Responses Route。
+    // Register the new target as a complete Responses Route for the same Public Model.
     let route_id = format!("{target_id}-responses");
     definition.routes.push(RouteConfig {
         id: route_id.clone(),
@@ -851,7 +851,7 @@ async fn provider_request_header_hook_overrides_user_agent_for_upstream() {
 #[tokio::test]
 async fn models_lists_only_public_models_after_authentication() {
     let app = app_with_transport(Arc::new(RecordingTransport::default()));
-    // 标准列表只返回 OpenAI Model 的四个标准字段。
+    // The standard list returns only the four standard OpenAI Model fields.
     let standard_list = authenticated_get(&app, "/v1/models").await;
     assert_eq!(standard_list["object"], "list");
     assert_eq!(
@@ -866,7 +866,7 @@ async fn models_lists_only_public_models_after_authentication() {
         ])
     );
 
-    // 标准单模型对象与列表元素完全相同，未知 id 使用安全 404。
+    // The standard single-model object matches a list element exactly; an unknown ID returns a safe 404.
     let standard_detail = authenticated_get(&app, "/v1/models/public-model").await;
     assert_eq!(standard_detail, standard_list["data"][0]);
     let unknown = authenticated_response(&app, "/v1/models/not-configured").await;
@@ -882,7 +882,7 @@ async fn models_lists_only_public_models_after_authentication() {
     assert_eq!(unknown["error"]["code"], "model_not_found");
     assert_eq!(unknown["error"]["param"], "model");
 
-    // 扩展列表和单模型接口共享同一个完整能力 DTO。
+    // The extended list and single-model endpoints share one complete capability DTO.
     let extended_list = authenticated_get(&app, "/openbridge/v1/models").await;
     assert_eq!(extended_list["object"], "list");
     let extended = &extended_list["data"][0];
@@ -912,7 +912,7 @@ async fn models_lists_only_public_models_after_authentication() {
         "unsupported"
     );
 
-    // 公共对象不得包含部署拓扑、上游模型、endpoint 或 credential pool 标识。
+    // Public objects must not expose deployment topology, upstream models, endpoints, or credential-pool IDs.
     let serialized = serde_json::to_string(&extended_list).unwrap();
     for private_value in [
         "openai-main",
@@ -931,7 +931,7 @@ async fn models_lists_only_public_models_after_authentication() {
 
 #[tokio::test]
 async fn retired_public_models_are_hidden_and_cannot_be_requested() {
-    // 将有效 Public Model 标记为已停用，并保留合法的生命周期时间。
+    // Mark a valid Public Model as disabled while preserving valid lifecycle timestamps.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.public_models[0].lifecycle = openbridge::registry::ModelLifecycle {
         status: openbridge::registry::ModelLifecycleStatus::Retired,
@@ -941,7 +941,7 @@ async fn retired_public_models_are_hidden_and_cannot_be_requested() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 标准与扩展目录共享同一个可见性判断，详情也统一隐藏存在性。
+    // Standard and extended catalogs share one visibility check, and details hide existence consistently.
     for path in ["/v1/models", "/openbridge/v1/models"] {
         let list = authenticated_get(&app, path).await;
         assert_eq!(list["data"], serde_json::json!([]));
@@ -954,7 +954,7 @@ async fn retired_public_models_are_hidden_and_cannot_be_requested() {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
-    // 生成路径读取相同目录，停用模型必须在任何 egress 前返回 404。
+    // The generation path reads the same catalog; a disabled model must return 404 before any egress.
     let response = app
         .oneshot(
             Request::post("/v1/chat/completions")
@@ -973,7 +973,7 @@ async fn retired_public_models_are_hidden_and_cannot_be_requested() {
 
 #[tokio::test]
 async fn unsupported_public_model_capability_fails_before_any_upstream_attempt() {
-    // 构造 tools 能力较弱的首选 Route 和能力较强的后续 Route。
+    // Build a preferred Route with weaker tool capability and a later Route with stronger capability.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -999,7 +999,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 固定 Public Model 契约在 egress 前拒绝工具请求，不能选择较强 Route。
+    // The fixed Public Model contract rejects tool requests before egress and cannot select the stronger Route.
     let response = app
         .clone()
         .oneshot(
@@ -1019,7 +1019,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
     assert_eq!(error["error"]["code"], "unsupported_model_capability");
     assert!(transport.requests.lock().unwrap().is_empty());
 
-    // 扩展接口报告同一份交集结果，而不是后续 Route 的额外能力。
+    // The extended endpoint reports the same intersection rather than extra capability from a later Route.
     let detail = authenticated_get(&app, "/openbridge/v1/models/public-model").await;
     assert_eq!(
         detail["interfaces"]["chat_completions"]["tools"]["support"],
@@ -1068,7 +1068,7 @@ async fn streaming_requests_fail_over_to_the_next_configured_target_before_outpu
 
 #[tokio::test]
 async fn transient_failures_back_off_and_fall_back_to_another_provider_with_final_error() {
-    // 构造 OpenAI 主目标与 LongCat fallback，并让两者都返回 transient failure。
+    // Build an OpenAI primary target and LongCat fallback, then make both return transient failures.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     add_responses_fallback(&mut definition, "longcat-fallback", ProviderKind::LongCat);
     let transport = Arc::new(BoundedFailoverTransport::default());
@@ -1082,10 +1082,10 @@ async fn transient_failures_back_off_and_fall_back_to_another_provider_with_fina
         .unwrap();
     let started = Instant::now();
 
-    // 执行请求并等待有限 retry/fallback 生命周期收敛。
+    // Execute the request and wait for the bounded retry/fallback lifecycle to converge.
     let response = app.oneshot(request).await.unwrap();
 
-    // 验证指数退避、跨 Provider 顺序和最后一个安全 HTTP 错误。
+    // Verify exponential backoff, cross-Provider order, and the final safe HTTP error.
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.headers()["retry-after"], "3");
     assert!(started.elapsed() >= Duration::from_millis(150));
@@ -1107,7 +1107,7 @@ async fn transient_failures_back_off_and_fall_back_to_another_provider_with_fina
 
 #[tokio::test]
 async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_pool() {
-    // 构造三个共享单成员 pool 的目标，验证成员 cooldown 跨 target 生效。
+    // Build three targets sharing a single-member pool and verify member cooldown across targets.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].quota_scope = Some("shared-quota".to_owned());
     add_responses_fallback(&mut definition, "shared-quota-peer", ProviderKind::OpenAi);
@@ -1117,7 +1117,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
     let transport = Arc::new(ScopedHealthTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 首个请求保留最后一个 429；第二个请求没有 live attempt，返回受控 503。
+    // Preserve the final 429 from the first request; the second returns a controlled 503 without a live attempt.
     for expected in [
         StatusCode::TOO_MANY_REQUESTS,
         StatusCode::SERVICE_UNAVAILABLE,
@@ -1131,7 +1131,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
         assert_eq!(response.status(), expected);
     }
 
-    // 所有 target 共享同一 pool，cooldown 期间只允许首个 live attempt。
+    // All targets share one pool, allowing only the first live attempt during cooldown.
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
         ["openai-main",]
@@ -1140,7 +1140,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
 
 #[tokio::test]
 async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
-    // 构造两个共享 fault domain 的目标和一个独立故障边界。
+    // Build two targets sharing a fault domain and one independent failure boundary.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].fault_domain = Some("shared-fault".to_owned());
     add_responses_fallback(&mut definition, "shared-fault-peer", ProviderKind::OpenAi);
@@ -1150,7 +1150,7 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
     let transport = Arc::new(ScopedFaultTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 连续两个请求都应在主目标首次失败后选择独立 fault domain。
+    // Both consecutive requests should select the independent fault domain after the primary first fails.
     for _ in 0..2 {
         let request = Request::post("/v1/responses")
             .header(CONTENT_TYPE, "application/json")
@@ -1174,7 +1174,7 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
 
 #[tokio::test]
 async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallback() {
-    // 为两个 Responses API 开启 continuation，并让主目标先进入 quota cooldown。
+    // Enable continuation for two Responses APIs and put the primary target into quota cooldown first.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
@@ -1190,7 +1190,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     let transport = Arc::new(ScopedHealthTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // 无状态请求使唯一成员 cooldown，并保留最后一个 live 429。
+    // A stateless request cools down the only member and preserves the final live 429.
     let warmup = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -1201,7 +1201,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
         StatusCode::TOO_MANY_REQUESTS
     );
 
-    // continuation 必须继续尝试原 target，不能因 cooldown 静默切换到 fallback。
+    // Continuation must retry the original target and must not silently switch to fallback because of cooldown.
     let continuation = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -1220,7 +1220,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
 
 #[tokio::test]
 async fn non_streaming_transient_failures_use_the_same_finite_retry_policy() {
-    // 构造只含一个失败目标的非流式 Chat 请求。
+    // Build a non-streaming Chat request with one failing target.
     let transport = Arc::new(BoundedFailoverTransport::default());
     let app = app_with_transport(transport.clone());
     let request = Request::post("/v1/chat/completions")
@@ -1232,10 +1232,10 @@ async fn non_streaming_transient_failures_use_the_same_finite_retry_policy() {
         .unwrap();
     let started = Instant::now();
 
-    // 执行请求并等待同候选的有限退避重试。
+    // Execute the request and wait for bounded backoff retries on the same candidate.
     let response = app.oneshot(request).await.unwrap();
 
-    // 验证非流式路径也使用相同策略且不会超过候选局部上限。
+    // Verify that the non-streaming path uses the same policy without exceeding the candidate-local limit.
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert!(started.elapsed() >= Duration::from_millis(50));
     assert_eq!(transport.attempts.lock().unwrap().len(), 2);
@@ -1243,7 +1243,7 @@ async fn non_streaming_transient_failures_use_the_same_finite_retry_policy() {
 
 #[tokio::test]
 async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
-    // 构造四个全部失败的有序候选，超过逐候选两次所需的请求总预算。
+    // Build four ordered candidates that all fail and exceed the request budget for two attempts each.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     add_responses_fallback(&mut definition, "longcat-second", ProviderKind::LongCat);
     add_responses_fallback(&mut definition, "openai-third", ProviderKind::OpenAi);
@@ -1258,10 +1258,10 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
         ))
         .unwrap();
 
-    // 执行请求直到 request-wide budget 或候选收敛。
+    // Execute the request until the request-wide budget or candidate set converges.
     let response = app.oneshot(request).await.unwrap();
 
-    // 验证六次硬上限仍覆盖全部四个候选，并返回最后候选的错误。
+    // Verify that the hard limit of six still covers all four candidates and returns the last candidate error.
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     assert_eq!(body, r#"{"error":{"message":"longcat-fourth failed"}}"#);
@@ -1346,7 +1346,7 @@ async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
 
 #[tokio::test]
 async fn aborting_downstream_before_response_cancels_the_pending_upstream_request() {
-    // 构造在 response headers 前永久 pending 的上游请求。
+    // Build an upstream request that remains pending before response headers.
     let dropped = Arc::new(AtomicBool::new(false));
     let transport = Arc::new(PendingRequestTransport {
         attempts: AtomicUsize::new(0),
@@ -1364,11 +1364,11 @@ async fn aborting_downstream_before_response_cancels_the_pending_upstream_reques
     let task = tokio::spawn(app.oneshot(request));
     transport.started.notified().await;
 
-    // 模拟下游断开并等待 handler future 完成取消。
+    // Simulate downstream disconnection and wait for the handler future to finish cancellation.
     task.abort();
     let error = task.await.unwrap_err();
 
-    // 验证 pending send 已析构且没有启动第二次 attempt。
+    // Verify that the pending send was dropped and no second attempt started.
     assert!(error.is_cancelled());
     assert!(dropped.load(Ordering::SeqCst));
     assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
@@ -1376,7 +1376,7 @@ async fn aborting_downstream_before_response_cancels_the_pending_upstream_reques
 
 #[tokio::test]
 async fn aborting_downstream_during_backoff_prevents_the_next_attempt() {
-    // 构造首次即失败并进入退避的上游请求。
+    // Build an upstream request that fails immediately and enters backoff.
     let transport = Arc::new(BackoffCancellationTransport {
         attempts: AtomicUsize::new(0),
         first_attempt: tokio::sync::Notify::new(),
@@ -1392,12 +1392,12 @@ async fn aborting_downstream_during_backoff_prevents_the_next_attempt() {
     let task = tokio::spawn(app.oneshot(request));
     transport.first_attempt.notified().await;
 
-    // 在退避 timer 完成前模拟下游断开。
+    // Simulate downstream disconnection before the backoff timer completes.
     task.abort();
     let error = task.await.unwrap_err();
     tokio::time::sleep(Duration::from_millis(75)).await;
 
-    // 等待超过首档退避后，验证 timer 没有在后台发起新请求。
+    // Wait beyond the first backoff interval and verify that the timer did not start a background request.
     assert!(error.is_cancelled());
     assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
 }
@@ -1492,7 +1492,7 @@ async fn streaming_requests_preserve_non_sse_error_bodies() {
 
 #[tokio::test]
 async fn rate_limit_rotates_to_the_next_credential_member_before_output() {
-    // 注入同一 Provider pool 的两个合成成员，首项 429 后第二项应完成请求。
+    // Inject two synthetic members into one Provider pool; the second should complete after the first returns 429.
     let transport = Arc::new(CredentialRotationTransport::default());
     let (app, metrics) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
     let request = Request::post("/v1/responses")
@@ -1503,7 +1503,7 @@ async fn rate_limit_rotates_to_the_next_credential_member_before_output() {
         ))
         .unwrap();
 
-    // 验证轮转共享既有 retry 预算，并且不会重放已拒绝成员。
+    // Verify that rotation shares the existing retry budget and does not replay the rejected member.
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -1516,7 +1516,7 @@ async fn rate_limit_rotates_to_the_next_credential_member_before_output() {
 
 #[tokio::test]
 async fn healthy_requests_share_the_pool_round_robin_cursor() {
-    // 两个独立请求共享 GatewayState cursor，应依次使用不同成员。
+    // Two independent requests share the GatewayState cursor and should use different members in sequence.
     let transport = Arc::new(FixedStatusCredentialTransport {
         status: StatusCode::OK,
         authorizations: Mutex::new(Vec::new()),
@@ -1541,7 +1541,7 @@ async fn healthy_requests_share_the_pool_round_robin_cursor() {
 
 #[tokio::test]
 async fn rate_limited_member_stays_cooled_while_a_successful_peer_remains_available() {
-    // 首个请求使 key-a cooldown 并由 key-b 成功；第二请求不得再次冲击 key-a。
+    // The first request cools down key-a and succeeds with key-b; the second must not hit key-a again.
     let transport = Arc::new(CredentialRotationTransport::default());
     let (app, _) = app_with_transport_and_pool(transport.clone(), &["key-a", "key-b"]);
     for _ in 0..2 {
@@ -1563,7 +1563,7 @@ async fn rate_limited_member_stays_cooled_while_a_successful_peer_remains_availa
 
 #[tokio::test]
 async fn server_errors_retry_the_same_member_without_rotating() {
-    // 两项 pool 下的 503 仍使用既有候选 retry 策略，但 credential 必须固定。
+    // A 503 from a two-member pool still uses the existing candidate retry policy, but the credential must remain fixed.
     let transport = Arc::new(FixedStatusCredentialTransport {
         status: StatusCode::SERVICE_UNAVAILABLE,
         authorizations: Mutex::new(Vec::new()),
@@ -1588,7 +1588,7 @@ async fn server_errors_retry_the_same_member_without_rotating() {
 
 #[tokio::test]
 async fn two_rate_limited_members_exhaust_the_candidate_without_wrapping() {
-    // 两项都返回 429 时，每项最多尝试一次，并保留最后一个安全 HTTP 错误。
+    // When both members return 429, each is attempted at most once and the final safe HTTP error is preserved.
     let transport = Arc::new(FixedStatusCredentialTransport {
         status: StatusCode::TOO_MANY_REQUESTS,
         authorizations: Mutex::new(Vec::new()),
@@ -1613,7 +1613,7 @@ async fn two_rate_limited_members_exhaust_the_candidate_without_wrapping() {
 
 #[tokio::test]
 async fn non_429_client_errors_do_not_retry_or_rotate_credentials() {
-    // 非 429 4xx 都是当前请求终态，不能通过其他 key 扩大认证或余额探测。
+    // Non-429 4xx responses are terminal for the request and must not expand authentication or quota probing through another key.
     for status in [
         StatusCode::UNAUTHORIZED,
         StatusCode::PAYMENT_REQUIRED,
@@ -1733,12 +1733,12 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
 
 #[tokio::test]
 async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
-    // 构造实际 compiled DeepSeek route 和显式 reasoning 请求。
+    // Build the actual compiled DeepSeek route and an explicit reasoning request.
     let transport = Arc::new(DeepSeekReasoningStreamTransport::default());
     let app = app_with_compiled_registry(transport.clone());
     let request_body = r#"{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"请回答"}],"stream":true,"reasoning_effort":"high"}"#;
 
-    // 提交 Chat Native 请求并确认网关保持原始 SSE body。
+    // Submit a Chat Native request and confirm that the gateway preserves the original SSE body.
     let response = app
         .oneshot(
             Request::post("/v1/chat/completions")
@@ -1759,7 +1759,7 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
     let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert_eq!(body.as_ref(), DEEPSEEK_CHAT_REASONING_STREAM);
 
-    // 用 Chat 状态机确认 reasoning_content 是独立的 PlainText channel，而不是 visible text。
+    // Use the Chat state machine to confirm that reasoning_content is a separate PlainText channel, not visible text.
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(&body).unwrap();
     events.extend(decoder.finish().unwrap());
@@ -1772,7 +1772,7 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
     assert_eq!(state.text(), "答案");
     assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
 
-    // 确认请求命中 DeepSeek Chat endpoint，并保留 canonical model 与 reasoning level。
+    // Confirm the request reaches the DeepSeek Chat endpoint and preserves the canonical model and reasoning level.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].path, "/chat/completions");
@@ -1783,7 +1783,7 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
 
 #[tokio::test]
 async fn mimo_responses_native_preserves_parallel_tool_stream() {
-    // 构造实际 compiled MiMo Route 和 Native/Bridge 都保证的并行工具请求。
+    // Build the actual compiled MiMo Route and a parallel tool request supported by both Native and Bridge.
     let transport = Arc::new(MimoResponsesToolStreamTransport::default());
     let app = app_with_compiled_registry(transport.clone());
     let request_body = r#"{
@@ -1797,7 +1797,7 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
         ]
     }"#;
 
-    // 提交流式 Responses 请求并读取网关返回的完整 body。
+    // Submit a streaming Responses request and read the complete body returned by the gateway.
     let response = app
         .oneshot(
             Request::post("/v1/responses")
@@ -1818,7 +1818,7 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
     let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert_eq!(body.as_ref(), MIMO_RESPONSES_PARALLEL_TOOL_STREAM);
 
-    // 用 Responses 状态机验证交错 arguments 仍可重建两个独立 function call。
+    // Use the Responses state machine to verify that interleaved arguments still reconstruct two independent function calls.
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(&body).unwrap();
     events.extend(decoder.finish().unwrap());
@@ -1837,7 +1837,7 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
     assert_eq!(tool_calls[1].name(), "lookup_time");
     assert_eq!(tool_calls[1].arguments(), r#"{"tz":"Asia/Shanghai"}"#);
 
-    // 确认请求仍走 MiMo Responses endpoint，并保留共同能力组合与模型名。
+    // Confirm that the request still uses the MiMo Responses endpoint and preserves shared capabilities and model name.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].path, "/v1/responses");

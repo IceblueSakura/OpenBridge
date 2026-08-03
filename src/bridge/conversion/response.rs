@@ -1,7 +1,8 @@
-//! Chat Completions 与 Responses 非流式成功响应的双向转换。
+//! Bidirectional conversion of non-streaming successful Chat Completions and Responses responses.
 //!
-//! 本模块只接受单 choice 或 completed response，并保持 function call identity、arguments、
-//! usage 与 Public Model 的既有 wire 映射；失败或未建模终态不会被伪造成成功。
+//! This module accepts only a single choice or completed response and preserves the existing wire
+//! mapping for function-call identities, arguments, usage, and Public Models. Failures and unmodeled
+//! terminal states are never presented as success.
 
 use std::collections::BTreeSet;
 
@@ -12,13 +13,13 @@ use super::{
     shared::{allocate_non_stream_item_id, id_suffix, map_id, required_string, validate_arguments},
 };
 
-/// 将完整成功的 Responses 对象转换为单 choice Chat response。
+/// Converts a complete successful Responses object into a single-choice Chat response.
 pub(super) fn responses_response_to_chat(
     source: &Map<String, Value>,
     public_model: &str,
     reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
-    // 只把显式 completed response 投影为 Chat 成功；其他终态不能伪造成 stop。
+    // Project only an explicit completed response to Chat success; other terminal states cannot become stop.
     if source.get("object").and_then(Value::as_str) != Some("response")
         || source.get("status").and_then(Value::as_str) != Some("completed")
     {
@@ -57,7 +58,7 @@ pub(super) fn responses_response_to_chat(
         }
     }
 
-    // 构造单 choice Chat response，并映射 usage 名称。
+    // Build the single-choice Chat response and map usage names.
     let upstream_id = required_string(source, "id")?;
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::String("assistant".to_owned()));
@@ -105,15 +106,15 @@ pub(super) fn responses_response_to_chat(
     Ok(result)
 }
 
-/// 提取一个 Responses message item 中已支持的 output text。
+/// Extracts supported output text from a Responses message item.
 fn responses_output_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
-    // 读取 Responses message 的 content parts，并拒绝未建模的输出类型。
+    // Read Responses message content parts and reject unmodeled output types.
     let parts = item
         .get("content")
         .and_then(Value::as_array)
         .ok_or(BridgeError::InvalidShape)?;
     let mut text = String::new();
-    // 按 wire 顺序合并每个已确认的 output_text part。
+    // Merge each confirmed output_text part in wire order.
     for part in parts {
         let part = part.as_object().ok_or(BridgeError::InvalidShape)?;
         if part.get("type").and_then(Value::as_str) != Some("output_text") {
@@ -124,7 +125,7 @@ fn responses_output_text(item: &Map<String, Value>) -> Result<String, BridgeErro
     Ok(text)
 }
 
-/// 提取 Responses reasoning item 的明文 content/summary，并拒绝 opaque continuation。
+/// Extracts plain content/summary from a Responses reasoning item and rejects opaque continuation.
 fn responses_reasoning_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
     reject_encrypted_reasoning(item)?;
     let mut text = String::new();
@@ -143,7 +144,7 @@ fn responses_reasoning_text(item: &Map<String, Value>) -> Result<String, BridgeE
     Ok(text)
 }
 
-/// 拒绝无法由 Chat 明文表示的 Responses opaque reasoning continuation。
+/// Rejects an opaque Responses reasoning continuation that cannot be represented as plain Chat text.
 fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
     let Some(value) = item
         .get("encrypted_content")
@@ -159,13 +160,13 @@ fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeErr
     }
 }
 
-/// 将完整成功的单 choice Chat response 转换为 Responses 对象。
+/// Converts a complete successful single-choice Chat response into a Responses object.
 pub(super) fn chat_response_to_responses(
     source: &Map<String, Value>,
     public_model: &str,
     reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
-    // 只接受一个完成 choice，避免合并多 choice 时制造未定义顺序。
+    // Accept only one completed choice to avoid undefined ordering when merging multiple choices.
     let choices = source
         .get("choices")
         .and_then(Value::as_array)
@@ -186,7 +187,7 @@ pub(super) fn chat_response_to_responses(
         return Err(BridgeError::UnsupportedSemantics);
     }
 
-    // 按 choice 内容构造 Responses output，并为并行 tool call 分配稳定且唯一的 item id。
+    // Build Responses output from the choice content and assign stable unique item IDs to parallel tool calls.
     let suffix = id_suffix(&upstream_id, "chatcmpl_");
     let mut output = Vec::new();
     let mut item_ids = BTreeSet::new();
@@ -244,7 +245,7 @@ pub(super) fn chat_response_to_responses(
         return Err(BridgeError::InvalidShape);
     }
 
-    // 映射 response identity、Public Model 与 usage 字段后返回完整成功对象。
+    // Map response identity, Public Model, and usage fields before returning the complete success object.
     let mut result = json!({
         "id": format!("resp_{suffix}"),
         "model": public_model,

@@ -1,4 +1,4 @@
-//! 验证下游 HTTP ingress 的认证、请求边界、响应转发和错误映射契约。
+//! Verifies downstream HTTP ingress authentication, request boundaries, response forwarding, and error mapping.
 
 mod support;
 

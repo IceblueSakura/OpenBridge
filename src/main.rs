@@ -1,7 +1,7 @@
-//! 进程启动、配置装载与优雅关闭。
+//! Process startup, configuration loading, and graceful shutdown.
 //!
-//! 启动阶段一次性加载 bootstrap、用户、代码注册表与上下游 credential 快照，再构造
-//! HTTP router 和共享 upstream client；业务请求不重新读取配置文件。
+//! Startup loads bootstrap, user, registry, and upstream credential snapshots once, then builds
+//! the HTTP router and shared upstream client. Business requests do not reread configuration files.
 
 use std::sync::Arc;
 
@@ -19,12 +19,12 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-/// 加载启动快照、装配 HTTP 服务并等待优雅关闭。
+/// Loads startup snapshots, assembles the HTTP service, and waits for graceful shutdown.
 async fn main() -> Result<()> {
-    // 初始化日志过滤器。
+    // Initialize the logging filter.
     init_tracing()?;
 
-    // 读取 bootstrap 与两份私有 credential 配置。
+    // Load bootstrap and both private credential configurations.
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
             .load()
             .context("failed to load upstream credentials")?;
 
-    // 构建编译期 registry，并确定启用 target 实际要求的 credential pool。
+    // Build the compile-time registry and determine the credential pools required by enabled targets.
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let required_pool_ids = registry
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         .map(str::to_owned)
         .collect::<Vec<_>>();
 
-    // 合并上下游 Key，监听前完成不可变 credential 快照。
+    // Merge downstream and upstream keys into an immutable credential snapshot before listening.
     let (users, mut credential_builder) = user_configuration.into_parts();
     upstream_configuration
         .load_into_for(
@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
         .context("upstream credential pools violate registry state-affinity constraints")?;
     let credentials = Arc::new(credentials);
 
-    // 创建共享上游 client 与只读请求状态。
+    // Create the shared upstream client and read-only request state.
     let listen = registry.listen();
     let registry_version = registry.version().as_str().to_owned();
     let upstream = UpstreamClient::new(
@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
         Arc::new(users),
         credentials,
     );
-    // 绑定 loopback listener 并启动带优雅关闭的 HTTP 服务。
+    // Bind the loopback listener and start the HTTP service with graceful shutdown.
     let listener = TcpListener::bind(listen)
         .await
         .with_context(|| format!("failed to bind OpenBridge to {listen}"))?;
@@ -94,20 +94,20 @@ async fn main() -> Result<()> {
         .context("OpenBridge server stopped unexpectedly")
 }
 
-/// 从环境读取日志过滤器并安装进程级 tracing subscriber。
+/// Reads the log filter from the environment and installs the process-wide tracing subscriber.
 fn init_tracing() -> Result<()> {
-    // 读取环境中的日志过滤器，缺省使用 info 级别。
+    // Read the environment filter and default to the info level.
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    // 安装全局 tracing subscriber，失败时保留启动错误上下文。
+    // Install the global tracing subscriber while preserving startup error context.
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize tracing: {error}"))
 }
 
-/// 等待 Ctrl+C 信号，为 Axum server 提供可取消的优雅关闭 future。
+/// Waits for Ctrl+C and provides a cancellable graceful-shutdown future to the Axum server.
 async fn shutdown_signal() {
-    // 等待 Ctrl+C，并将信号安装失败记录为错误而不伪造正常关闭。
+    // Wait for Ctrl+C and report handler-installation failures instead of faking normal shutdown.
     if let Err(error) = signal::ctrl_c().await {
         tracing::error!(%error, "failed to install Ctrl+C handler");
     }

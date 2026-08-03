@@ -1,8 +1,9 @@
-//! 单进程内跨请求上游健康隔离。
+//! Cross-request upstream health isolation within one process.
 //!
-//! health key 只能来自启动时已校验的 `quota_scope`、`fault_domain` 或 target id，业务请求
-//! 不能创建或覆盖 scope。本模块只保存有界 cooldown 截止时间，不做动态权重、持久化、
-//! 分布式协调、credential 轮换或后台探测；credential 成员状态由独立模块管理。
+//! Health keys can come only from startup-validated `quota_scope`, `fault_domain`, or target IDs;
+//! business requests cannot create or override scopes. This module stores bounded cooldown deadlines
+//! only. It does not implement dynamic weights, persistence, distributed coordination, credential
+//! rotation, or background probes; member state is managed by a separate module.
 
 use std::{
     collections::HashMap,
@@ -23,33 +24,33 @@ enum HealthScope {
     Fault(String),
 }
 
-/// 所有 GatewayState clone 共享的短时 cooldown 表。
+/// Short-lived cooldown table shared by every GatewayState clone.
 #[derive(Debug, Default)]
 pub(super) struct TargetHealth {
     deadlines: Mutex<HashMap<HealthScope, Instant>>,
 }
 
 impl TargetHealth {
-    /// 判断一个新无状态请求是否可选择该 target。
+    /// Returns whether a new stateless request may select the target.
     pub(super) fn is_available(
         &self,
         target_id: &str,
         target: &UpstreamTarget,
         now: Instant,
     ) -> bool {
-        // 生成受注册表约束的 quota 与 fault key。
+        // Generate registry-constrained quota and fault keys.
         let scopes = Self::target_scopes(target_id, target);
         let mut deadlines = self
             .deadlines
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        // 清理已过期条目，并在任一边界仍冷却时拒绝新选择。
+        // Remove expired entries and reject selection while either boundary is cooling down.
         deadlines.retain(|_, deadline| *deadline > now);
         scopes.iter().all(|scope| !deadlines.contains_key(scope))
     }
 
-    /// 根据 adapter 的 HTTP failure 类别记录对应隔离边界。
+    /// Records the corresponding isolation boundary from an adapter HTTP-failure category.
     pub(super) fn record_http_failure(
         &self,
         target_id: &str,
@@ -58,7 +59,7 @@ impl TargetHealth {
         headers: &HeaderMap,
         now: Instant,
     ) {
-        // 429 由 credential 成员 cooldown 接管；这里只隔离目标级暂时不可用。
+        // Credential-member cooldown handles 429; isolate only target-level temporary unavailability here.
         let scope = match kind {
             UpstreamErrorKind::RateLimited => return,
             UpstreamErrorKind::UpstreamUnavailable => Self::fault_scope(target_id, target),
@@ -70,7 +71,7 @@ impl TargetHealth {
         self.record(scope, now, delay);
     }
 
-    /// 将 timeout/transport failure 记录到 fault domain。
+    /// Records a timeout or transport failure in the fault domain.
     pub(super) fn record_transport_failure(
         &self,
         target_id: &str,
@@ -80,9 +81,9 @@ impl TargetHealth {
         self.record(Self::fault_scope(target_id, target), now, DEFAULT_COOLDOWN);
     }
 
-    /// 成功响应清除该 target 所属的 quota 与 fault cooldown。
+    /// A successful response clears quota and fault cooldowns belonging to the target.
     pub(super) fn record_success(&self, target_id: &str, target: &UpstreamTarget) {
-        // 只清除该 target 显式所属的两个边界，不影响其他注册 scope。
+        // Clear only the two boundaries explicitly owned by this target; other registered scopes are unaffected.
         let scopes = Self::target_scopes(target_id, target);
         let mut deadlines = self
             .deadlines
@@ -93,9 +94,9 @@ impl TargetHealth {
         }
     }
 
-    /// 写入或延长一个有界 scope cooldown，保留较晚的现有截止时间。
+    /// Writes or extends a bounded scope cooldown, preserving a later existing deadline.
     fn record(&self, scope: HealthScope, now: Instant, delay: Duration) {
-        // 限制 Provider 建议的 cooldown，避免异常 header 长期封锁进程内 route。
+        // Cap the Provider-suggested cooldown so a malformed header cannot block an in-process Route for too long.
         let deadline = now + delay.min(MAX_COOLDOWN);
         let mut deadlines = self
             .deadlines
@@ -107,7 +108,7 @@ impl TargetHealth {
             .or_insert(deadline);
     }
 
-    /// 生成 target 显式声明或默认派生的 quota/fault 两个隔离键。
+    /// Generates the explicit or default-derived quota and fault isolation keys for a target.
     fn target_scopes(target_id: &str, target: &UpstreamTarget) -> [HealthScope; 2] {
         [
             Self::quota_scope(target_id, target),
@@ -115,20 +116,20 @@ impl TargetHealth {
         ]
     }
 
-    /// 返回 target 的 quota scope，未声明时退回 target id。
+    /// Returns the target quota scope, falling back to the target ID when absent.
     fn quota_scope(target_id: &str, target: &UpstreamTarget) -> HealthScope {
         HealthScope::Quota(target.quota_scope().unwrap_or(target_id).to_owned())
     }
 
-    /// 返回 target 的 fault domain，未声明时退回 target id。
+    /// Returns the target fault domain, falling back to the target ID when absent.
     fn fault_scope(target_id: &str, target: &UpstreamTarget) -> HealthScope {
         HealthScope::Fault(target.fault_domain().unwrap_or(target_id).to_owned())
     }
 }
 
-/// 按 Retry-After 的两种标准格式解析延迟，过去的日期归一为零。
+/// Parses delay from the two standard Retry-After formats and normalizes past dates to zero.
 pub(super) fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {
-    // 优先解析 delta-seconds，再解析标准 HTTP-date。
+    // Parse delta-seconds first, then the standard HTTP-date form.
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
     if let Ok(seconds) = value.parse::<u64>() {
         return Some(Duration::from_secs(seconds));
@@ -151,7 +152,7 @@ mod tests {
 
     #[test]
     fn retry_after_accepts_seconds_and_http_date() {
-        // 验证两种标准表示都转换为有界 cooldown 输入。
+        // Verify that both standard forms become bounded cooldown inputs.
         let mut headers = HeaderMap::new();
         headers.insert("retry-after", HeaderValue::from_static("3"));
         assert_eq!(retry_after_delay(&headers), Some(Duration::from_secs(3)));

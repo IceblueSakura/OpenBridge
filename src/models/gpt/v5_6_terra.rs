@@ -1,11 +1,11 @@
-//! GPT-5.6 Terra 的完整 canonical 模型事实。
+//! Complete canonical model facts for GPT-5.6 Terra.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// GPT-5.6 Terra 在 OpenBridge 模型目录中的稳定 id。
+/// Stable OpenBridge catalog ID for GPT-5.6 Terra.
 pub(crate) const ID: &str = "openai/gpt-5.6-terra";
 
-/// 构造 LiteLLM 配置已确认的 GPT-5.6 Terra 模型事实。
+/// Builds the GPT-5.6 Terra model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),

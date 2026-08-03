@@ -1,8 +1,8 @@
-//! GPT-5.3 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the GPT-5.3 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造人工修订的 GPT-5.3 Codex Spark 模型事实。
+/// Builds manually curated model facts for GPT-5.3 Codex Spark.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "openai/gpt-5.3-codex-spark".to_owned(),

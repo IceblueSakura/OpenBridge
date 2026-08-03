@@ -1,4 +1,4 @@
-//! OpenAI-compatible endpoint 与健康检查 handler。
+//! OpenAI-compatible endpoint and health-check handlers.
 
 use axum::{
     Extension, Json,
@@ -21,11 +21,11 @@ use super::{
     state::GatewayState,
 };
 
-/// 只从不可变 registry 生成 Public Model 列表，不暴露上游模型或 target。
+/// Builds the Public Model list from the immutable registry without exposing upstream models or targets.
 pub(super) async fn models(
     State(state): State<GatewayState>,
 ) -> Json<ModelListResponse<StandardModel>> {
-    // 从完整 Public Model 信息投影严格的 OpenAI 标准四字段对象。
+    // Project strict four-field OpenAI objects from complete Public Model information.
     let data = state
         .registry
         .public_models()
@@ -37,12 +37,12 @@ pub(super) async fn models(
     })
 }
 
-/// 返回一个 Public Model 的 OpenAI 标准四字段投影。
+/// Returns the strict four-field OpenAI projection for one Public Model.
 pub(super) async fn model(
     State(state): State<GatewayState>,
     Path(model): Path<String>,
 ) -> Response {
-    // 查询与列表相同的不可变目录并隐藏所有内部模型或部署信息。
+    // Query the same immutable catalog as the list endpoint and hide all internal model/deployment information.
     state
         .registry
         .public_model(&model)
@@ -50,11 +50,11 @@ pub(super) async fn model(
         .unwrap_or_else(model_not_found)
 }
 
-/// 返回全部 Public Model 的 OpenBridge 扩展能力对象。
+/// Returns the OpenBridge extended capability objects for all Public Models.
 pub(super) async fn extended_models(
     State(state): State<GatewayState>,
 ) -> Json<ModelListResponse<PublicModelInfo>> {
-    // 克隆预编译 DTO，handler 不在请求期间遍历 Route 或重新推导能力。
+    // Clone precompiled DTOs; the handler does not traverse Routes or rededuce capabilities during a request.
     let data = state
         .registry
         .public_models()
@@ -66,12 +66,12 @@ pub(super) async fn extended_models(
     })
 }
 
-/// 返回一个 Public Model 的完整 OpenBridge 扩展能力对象。
+/// Returns the complete OpenBridge extended capability object for one Public Model.
 pub(super) async fn extended_model(
     State(state): State<GatewayState>,
     Path(model): Path<String>,
 ) -> Response {
-    // 复用扩展列表的同一个预编译 DTO，保证逐字段一致。
+    // Reuse the same precompiled DTO as the extended list to keep fields identical.
     state
         .registry
         .public_model(&model)
@@ -85,14 +85,14 @@ pub(super) struct ModelListResponse<T> {
     data: Vec<T>,
 }
 
-/// 接收 Chat Completions JSON 请求，并交给统一 forwarding pipeline。
+/// Accepts a Chat Completions JSON request and sends it to the shared forwarding pipeline.
 pub(super) async fn chat_completions(
     State(state): State<GatewayState>,
     Extension(observation): Extension<RequestObservation>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // 先校验原生 JSON media type，再进入统一 route/egress pipeline。
+    // Validate the native JSON media type before entering the shared Route/egress pipeline.
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
@@ -106,23 +106,23 @@ pub(super) async fn chat_completions(
     .await
 }
 
-/// 接收 Responses JSON 请求，并交给统一 forwarding pipeline。
+/// Accepts a Responses JSON request and sends it to the shared forwarding pipeline.
 pub(super) async fn responses(
     State(state): State<GatewayState>,
     Extension(observation): Extension<RequestObservation>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // 先校验原生 JSON media type，再进入统一 route/egress pipeline。
+    // Validate the native JSON media type before entering the shared Route/egress pipeline.
     if !has_json_content_type(&headers) {
         return unsupported_media_type();
     }
     forward_request(state, observation, ApiProtocol::Responses, headers, body).await
 }
 
-/// 判断请求是否恰好携带 application/json media type。
+/// Returns whether the request carries exactly the application/json media type.
 fn has_json_content_type(headers: &HeaderMap) -> bool {
-    // 拒绝缺失或重复 Content-Type，避免多个值造成边界解释不一致。
+    // Reject missing or duplicate Content-Type values so multiple values cannot create ambiguous boundaries.
     let mut values = headers.get_all(CONTENT_TYPE).iter();
     let Some(value) = values.next() else {
         return false;
@@ -130,7 +130,7 @@ fn has_json_content_type(headers: &HeaderMap) -> bool {
     if values.next().is_some() {
         return false;
     }
-    // 忽略 media type 参数，但只接受 application/json。
+    // Ignore media-type parameters but accept only application/json.
     value
         .to_str()
         .ok()
@@ -138,7 +138,7 @@ fn has_json_content_type(headers: &HeaderMap) -> bool {
         .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
 }
 
-/// 为非 JSON 请求生成稳定的协议错误响应。
+/// Builds a stable protocol error response for a non-JSON request.
 fn unsupported_media_type() -> Response {
     api_error(
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -153,9 +153,9 @@ pub(super) struct HealthResponse {
     registry_version: String,
 }
 
-/// 返回本地服务健康状态和当前编译 registry 版本。
+/// Returns local service health and the current compiled registry version.
 pub(super) async fn health(State(state): State<GatewayState>) -> Json<HealthResponse> {
-    // 仅报告服务存活和编译期 registry 版本，不探测真实 Provider。
+    // Report service liveness and the compiled registry version only; do not probe real Providers.
     Json(HealthResponse {
         status: "ok",
         registry_version: state.registry.version().as_str().to_owned(),

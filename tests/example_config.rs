@@ -1,4 +1,4 @@
-//! 验证仓库示例配置、编译模型目录和默认 route 事实保持一致。
+//! Verifies that example configuration, the compiled model catalog, and default route facts remain consistent.
 
 use openbridge::{
     config::parse_bootstrap_config,
@@ -34,7 +34,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         "nvidia/nemotron-3-ultra-550b-a55b",
     ];
 
-    // 家族和版本模块迁移不得改变 canonical 模型目录的内容或稳定顺序。
+    // Moving family and version modules must not change catalog contents or stable order.
     let actual = definition
         .models
         .iter()
@@ -48,7 +48,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             .all(|model| model.id != "openai/configured-model")
     );
 
-    // 除 OpenRouter 未精确收录的 Codex Spark 外，每个模型都有官方目录描述。
+    // Every model has an official catalog description except Codex Spark, which OpenRouter does not list precisely.
     assert!(
         definition.models.iter().all(|model| {
             model.id == "openai/gpt-5.3-codex-spark" || model.description.is_some()
@@ -118,7 +118,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         ]
     );
 
-    // 代表性模型保留 context、输出上限和标准 reasoning level。
+    // Representative models retain context, output limits, and standard reasoning levels.
     let deepseek = definition
         .models
         .iter()
@@ -168,7 +168,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             .any(|parameter| parameter == "structured_outputs")
     );
 
-    // 当前目录类型不表示 embedding/rerank，避免把不可路由协议伪装为文本模型。
+    // The current catalog type does not represent embedding or rerank, preventing unroutable protocols from posing as text models.
     assert!(
         definition
             .models
@@ -361,7 +361,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         assert_eq!(plan.upstream_target_id(), "longcat-2");
     }
 
-    // 反向 Bridge 的 reasoning 输出证据未知，因此固定 Responses 契约不能只选择 Native 放行。
+    // Reverse-Bridge reasoning output is unverified, so the fixed Responses contract cannot allow Native alone.
     let body = bytes::Bytes::from(r#"{"model":"LongCat-2.0","input":"hello","reasoning":{}}"#);
     let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
     assert!(matches!(
@@ -372,7 +372,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
 
 #[test]
 fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
-    // 构造完整编译注册表并核对两个 DeepSeek target 的固定受信边界。
+    // Build the complete compiled registry and check the fixed trusted boundaries of both DeepSeek targets.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id, canonical_model) in [
@@ -411,7 +411,7 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
         );
         assert!(target.upstream_api("responses").is_none());
 
-        // 验证下游 Chat 走 Native，Responses 只走显式 Chat bridge。
+        // Verify that downstream Chat uses Native and Responses uses only the explicit Chat bridge.
         let public_model = registry
             .public_model(public_name)
             .expect("DeepSeek Public Model should be compiled");
@@ -438,7 +438,7 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
             format!("{prefix}-responses-via-chat")
         );
 
-        // 验证 DeepSeek Responses bridge 会在真实 route planning 后保留 reasoning effort。
+        // Verify that the DeepSeek Responses bridge preserves reasoning effort after real route planning.
         let responses_reasoning = bytes::Bytes::from(format!(
             r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
         ));
@@ -452,7 +452,7 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
 
 #[test]
 fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
-    // 构造完整编译注册表，读取两个具体模型的实际 target 与 Provider API 分类。
+    // Build the complete compiled registry and read the actual targets and Provider API classes for two models.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
 
@@ -465,7 +465,7 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
     );
     assert!(deepseek.upstream_api("responses").is_none());
 
-    // DeepSeek Responses 只能选择 Chat Bridge，并使用已确认的 PlainText 上游 channel。
+    // DeepSeek Responses may select only Chat Bridge and must use the confirmed PlainText upstream channel.
     let deepseek_body =
         bytes::Bytes::from(r#"{"model":"deepseek-v4-flash","input":"hello","reasoning":{}}"#);
     let deepseek_profile = analyze_request(ApiProtocol::Responses, &deepseek_body).unwrap();
@@ -489,7 +489,7 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
         ReasoningOutput::Unknown
     );
 
-    // MiMo 的 Bridge 无法安全表示既有 reasoning item，固定契约不能为此跳过 Bridge 候选。
+    // MiMo Bridge cannot safely represent existing reasoning items, so the fixed contract cannot skip its Bridge candidate.
     let mimo_body = bytes::Bytes::from(
         r#"{"model":"mimo-v2.5","input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"prior"}]}]}"#,
     );
@@ -502,7 +502,7 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
 
 #[test]
 fn mimo_models_are_compiled_with_dual_native_first_routes() {
-    // 构造完整编译注册表并核对两个 MiMo target 的固定受信边界。
+    // Build the complete compiled registry and check the fixed trusted boundaries of both MiMo targets.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id, canonical_model, route_prefix) in [
@@ -553,7 +553,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             ReasoningOutput::Unknown
         );
 
-        // 验证编译后的两个 Native API 与 MiMo Provider contract 保持同一能力边界。
+        // Verify that both compiled Native APIs share the MiMo Provider contract's capability boundary.
         let chat_capabilities = match target.upstream_api("chat").unwrap().capabilities() {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities,
             UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
@@ -576,7 +576,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         assert!(!responses_capabilities.previous_response_id);
         assert!(!responses_capabilities.background);
 
-        // 验证两种下游协议都按 Native-first、反向 Bridge-second 排序。
+        // Verify Native-first, reverse-Bridge-second ordering for both downstream protocols.
         let public_model = registry
             .public_model(public_name)
             .expect("MiMo Public Model should be compiled");
@@ -607,7 +607,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
         }
 
-        // function tools 属于两个完整 Route 的共同能力，保持 Native-first 和 Bridge fallback。
+        // Function tools are shared by both complete Routes, preserving Native-first and Bridge fallback ordering.
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -631,7 +631,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             assert_eq!(plan.candidates().len(), 2);
         }
 
-        // image 与 structured output 不是反向 Bridge 的完整共同语义，因此固定契约统一拒绝。
+        // Image and structured output are not fully shared by the reverse Bridge, so the fixed contract rejects both.
         for (protocol, body) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -666,7 +666,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             ));
         }
 
-        // 验证 MiMo 的无状态边界仍拒绝 stateful Responses 请求。
+        // Verify that MiMo's stateless boundary still rejects stateful Responses requests.
         for body in [
             format!(r#"{{"model":"{public_name}","input":"hello","store":true}}"#),
             format!(
@@ -686,7 +686,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
 
 #[test]
 fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example() {
-    // 构造完整注册表，并从无真实值的 TOML 模板加载全部 credential pool。
+    // Build the complete registry and load every credential pool from a TOML template with no real values.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     let pool_ids = registry
@@ -701,7 +701,7 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
     .unwrap()
     .build();
 
-    // 验证每个 target 可按 Provider 与 pool 取回模板中的合成凭证。
+    // Verify that each target retrieves the template credential by Provider and pool.
     for target_id in registry.upstream_target_ids() {
         let target = registry.upstream_target(target_id).unwrap();
         assert!(
@@ -729,7 +729,7 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
         .find(|target| target.id == "openai-main")
         .unwrap();
 
-    // 关闭 Chat native capability，Chat 下游请求必须改走 Responses bridge。
+    // Disable Chat Native capability so downstream Chat requests must use the Responses bridge.
     if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut target.upstream_apis[0].capabilities
     {
@@ -747,7 +747,7 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
     );
     assert!(plan.candidates()[0].bridge().is_some());
 
-    // 反向关闭 Responses native capability，Responses 下游请求必须改走 Chat bridge。
+    // Disable Responses Native capability so downstream Responses requests must use the Chat bridge.
     let target = definition
         .upstream_targets
         .iter_mut()

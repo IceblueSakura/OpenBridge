@@ -1,6 +1,6 @@
-//! 通过运行时安装的 OpenAI Python/Node SDK 验证 loopback HTTP/SSE 兼容性。
+//! Verifies loopback HTTP/SSE compatibility with OpenAI Python and Node SDKs installed at runtime.
 //!
-//! 这些测试默认被忽略；只有显式执行 ignored test 时才会安装或调用外部 SDK。
+//! These tests are ignored by default; external SDKs are installed or invoked only when ignored tests are explicitly run.
 
 mod support;
 

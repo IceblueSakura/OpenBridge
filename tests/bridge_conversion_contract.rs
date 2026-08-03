@@ -1,7 +1,7 @@
-//! 使用 accepted canonical artifacts 约束双向 Protocol Bridge 的转换结果。
+//! Constrains bidirectional Protocol Bridge conversion with accepted canonical artifacts.
 //!
-//! 这些测试直接验证 BridgePlan 的请求、非流式响应和流式 renderer；生产 Router 接入由
-//! forwarding contract 另行约束。
+//! These tests verify BridgePlan requests, non-streaming responses, and stream renderers directly.
+//! Production Router integration is covered separately by the forwarding contract.
 
 use bytes::Bytes;
 use openbridge::{
@@ -127,7 +127,7 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
         },
     ];
 
-    // 对每个 accepted case 验证请求与响应均使用同一 BridgePlan 双向闭合。
+    // Verify that each accepted case closes bidirectionally through one BridgePlan.
     for case in cases {
         let client_request = fixture(case.directory, "client-request.json");
         let (plan, upstream_request) = BridgePlan::prepare(
@@ -183,7 +183,7 @@ fn canonical_text_and_parallel_tool_streams_render_in_both_directions() {
         ),
     ];
 
-    // 逐 event 渲染并在 EOF 完成状态校验，避免网络 chunk 边界影响逻辑结果。
+    // Render each event and validate state at EOF so network chunk boundaries cannot affect semantics.
     for (downstream, upstream, directory) in cases {
         let (plan, upstream_request) = BridgePlan::prepare(
             downstream,
@@ -291,7 +291,7 @@ fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
     )
     .expect("Responses request should be bridgeable");
 
-    // 非 stop/tool_calls 的 Chat finish reason 不能被伪造成 response.completed。
+    // A Chat finish reason other than stop or tool_calls must not be fabricated as response.completed.
     let mut renderer = plan.stream_renderer();
     let events = decode(
         br#"data: {"id":"chatcmpl_length","choices":[{"delta":{"content":"partial"},"finish_reason":"length","index":0}]}
@@ -300,7 +300,7 @@ fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
     );
     assert!(renderer.render(events[0].clone()).is_err());
 
-    // Chat finish reason 后的普通 chunk 不能继续污染已结束的 Responses 生命周期。
+    // A normal chunk after the Chat finish reason must not mutate the completed Responses lifecycle.
     let mut renderer = plan.stream_renderer();
     let events = decode(
         br#"data: {"id":"chatcmpl_late","choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}
@@ -317,7 +317,7 @@ data: {"id":"chatcmpl_late","choices":[{"delta":{"content":"late"},"finish_reaso
 
 #[test]
 fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
-    // 验证标准 Responses reasoning 配置和历史 reasoning item 可转换到 Chat。
+    // Verify that standard Responses reasoning configuration and history items convert to Chat.
     let responses_request = serde_json::json!({
         "model": "public-model",
         "reasoning": {"effort": "high"},
@@ -348,7 +348,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
         "call_lookup"
     );
 
-    // 验证 Chat reasoning_content 在非流式 tool response 中仍生成独立 Responses item。
+    // Verify that Chat reasoning_content still creates a separate Responses item in non-streaming tool responses.
     let responses = responses_plan
         .render_non_stream(Bytes::from_static(
             br#"{"id":"chatcmpl_reasoning_roundtrip","object":"chat.completion","model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"reasoning_content":"decide lookup","tool_calls":[{"id":"call_lookup","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"Hangzhou\"}"}}]},"finish_reason":"tool_calls"}]}"#,
@@ -373,7 +373,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
             .all(|item| item["type"] != "message")
     );
 
-    // 验证 Chat 标准 reasoning_effort 和 assistant reasoning_content 可进入 Responses。
+    // Verify that standard Chat reasoning_effort and assistant reasoning_content enter Responses.
     let chat_request = serde_json::json!({
         "model": "public-model",
         "reasoning_effort": "high",
@@ -541,7 +541,7 @@ data: [DONE]
 
 #[test]
 fn bridge_rejects_opaque_or_unsupported_reasoning() {
-    // 未声明 reasoning 能力时，不允许将 provider reasoning 静默丢弃。
+    // Provider reasoning must not be silently discarded when reasoning capability is undeclared.
     assert!(BridgePlan::prepare(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -553,7 +553,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
     )
     .is_err());
 
-    // Responses 只接受标准 reasoning.effort，不接受 Chat 的顶层 reasoning_effort 别名。
+    // Responses accepts only standard reasoning.effort, not Chat's top-level reasoning_effort alias.
     assert!(
         BridgePlan::prepare_with_reasoning_output(
             ApiProtocol::Responses,
@@ -568,7 +568,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
         .is_err()
     );
 
-    // Chat 只接受标准 reasoning_effort，不接受 Responses 的 reasoning 对象。
+    // Chat accepts only standard reasoning_effort, not the Responses reasoning object.
     assert!(BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -581,7 +581,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
     )
     .is_err());
 
-    // Responses reasoning 的未建模子字段不能被静默丢弃。
+    // Unmodeled fields under Responses reasoning must not be silently discarded.
     assert!(BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
@@ -594,7 +594,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
     )
     .is_err());
 
-    // reasoning_effort 的非标准布尔形状不能在 Bridge 中静默丢弃。
+    // A non-standard boolean reasoning_effort shape must not be silently discarded by the Bridge.
     assert!(BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -607,7 +607,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
     )
     .is_err());
 
-    // reasoning_content 只能出现在 assistant history，不能因 stream 简写而被跳过。
+    // reasoning_content is valid only in assistant history and must not be skipped by stream shorthand.
     assert!(BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -620,7 +620,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
     )
     .is_err());
 
-    // Responses encrypted continuation 不是可转换的明文 reasoning，必须在 egress 前拒绝。
+    // Encrypted Responses continuation is not convertible plaintext reasoning and must be rejected before egress.
     let opaque_request = Bytes::from_static(
         br#"{"model":"public-model","input":[{"encrypted_content":"opaque","id":"rs_opaque","status":"completed","summary":[],"type":"reasoning"}]}"#,
     );
@@ -636,7 +636,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
         .is_err()
     );
 
-    // 非流式响应同样不能把 opaque reasoning 降级为 Chat reasoning_content。
+    // Non-streaming responses must not downgrade opaque reasoning to Chat reasoning_content.
     let (plan, _) = BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -666,7 +666,7 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
         "responses_to_chat/responses_to_chat.unknown_tool_result.reject",
     ];
 
-    // 所有拒绝样本必须在生成 ApiRequest 前失败，不能依赖上游碰运气拒绝。
+    // Every reject case must fail before ApiRequest creation instead of relying on upstream rejection.
     for directory in cases {
         let request = fixture(directory, "client-request.json");
         let downstream = if directory.starts_with("responses_to_chat") {
@@ -692,7 +692,7 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
         );
     }
 
-    // 未建模的普通顶层字段也不能在转换时静默消失。
+    // Unmodeled ordinary top-level fields must not silently disappear during conversion.
     assert!(
         BridgePlan::prepare(
             ApiProtocol::Responses,

@@ -1,4 +1,4 @@
-//! LongCat Upstream Target 与原生 Upstream API 注册。
+//! Registers the LongCat Upstream Target and Native Upstream APIs.
 
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ use crate::{
 
 use super::CONTRACT;
 
-/// 构造 LongCat-2.0 的 upstream targets。
+/// Builds the LongCat-2.0 upstream targets.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "longcat-2".to_owned(),

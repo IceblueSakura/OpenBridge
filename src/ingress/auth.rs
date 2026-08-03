@@ -1,8 +1,8 @@
-//! 下游 Bearer header 解析。
+//! Parses downstream Bearer headers.
 
 use http::{HeaderMap, header::AUTHORIZATION};
 
-/// 从 Authorization header 提取非空 Bearer token，不记录或复制 token 内容。
+/// Extracts a non-empty Bearer token from the Authorization header without logging or copying its content.
 pub(super) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(AUTHORIZATION)

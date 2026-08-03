@@ -1,4 +1,4 @@
-"""把 canonical corpus case 编译为独立 mock server/client runtime plan。"""
+"""Compile canonical corpus cases into independent mock server/client runtime plans."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from .corpuslib import (
 def validate_runtime_document(
     root: Path, schema_name: str, document: dict[str, Any]
 ) -> None:
-    """按 corpus schema 校验一个运行时文档，并报告第一个错误位置。"""
+    """Validate one runtime document against the corpus schema and report the first error location."""
     schema_path = root / "schemas" / f"{schema_name}.schema.json"
     schema = load_json(schema_path)
     Draft202012Validator.check_schema(schema)
@@ -36,7 +36,7 @@ def validate_runtime_document(
 
 
 def find_case(root: Path, case_id: str) -> Case:
-    """按稳定 case id 查找 canonical case，找不到时抛出 CorpusError。"""
+    """Find a canonical case by stable case ID and raise CorpusError when absent."""
     for case in discover_cases(root):
         if case.case_id == case_id:
             return case
@@ -44,7 +44,7 @@ def find_case(root: Path, case_id: str) -> Case:
 
 
 def _protocol_path(direction: str, side: str) -> str:
-    """根据 case direction 为 client/upstream 选择原生 endpoint path。"""
+    """Select the native endpoint path for the client or upstream from the case direction."""
     if side == "client":
         chat = direction in {"chat_native", "chat_to_responses"}
     elif side == "upstream":
@@ -55,7 +55,7 @@ def _protocol_path(direction: str, side: str) -> str:
 
 
 def _artifact_bytes(case: Case, artifact_name: str) -> bytes:
-    """读取 case artifact，并拒绝相对路径逃出 case 目录。"""
+    """Read a case artifact and reject relative paths that escape the case directory."""
     relative = case.data["artifacts"].get(artifact_name)
     if not relative:
         raise CorpusError(f"{case.case_id}: missing artifact {artifact_name}")
@@ -71,7 +71,7 @@ def _variant_chunks(
     artifact_name: str,
     variant: str,
 ) -> tuple[list[str], str]:
-    """读取 canonical 或唯一的 generated variant chunk 与 wire 摘要。"""
+    """Read canonical or uniquely selected generated-variant chunks and wire digests."""
     canonical = _artifact_bytes(case, artifact_name)
     if variant == "canonical":
         return [base64.b64encode(canonical).decode("ascii")], sha256_bytes(canonical)
@@ -97,7 +97,7 @@ def build_server_scenario(
     chunk_delay_ms: int = 0,
     abort_delay_ms: int = 10,
 ) -> dict[str, Any]:
-    """编译一个包含预期请求和上游响应的 self-contained mock server 场景。"""
+    """Compile a self-contained mock-server scenario with an expected request and upstream response."""
     case = find_case(root, case_id)
     artifacts = case.data["artifacts"]
     if "expected_upstream_request" not in artifacts:
@@ -154,7 +154,7 @@ def build_client_plan(
     base_url: str,
     timeout_ms: int = 5000,
 ) -> dict[str, Any]:
-    """编译一个向 OpenBridge loopback endpoint 发请求的 mock client plan。"""
+    """Compile a mock-client plan that sends a request to the OpenBridge loopback endpoint."""
     case = find_case(root, case_id)
     body = _artifact_bytes(case, "client_request")
     path = _protocol_path(case.data["direction"], "client")
@@ -184,7 +184,7 @@ def build_server_suite(
     abort_delay_ms: int = 10,
     suite_id: str = "server-suite",
 ) -> dict[str, Any]:
-    """按调用方顺序编译多个 server scenario，并校验 suite schema。"""
+    """Compile multiple server scenarios in caller order and validate the suite schema."""
     if not case_ids:
         raise CorpusError("server suite requires at least one case")
     exchanges = [

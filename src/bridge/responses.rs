@@ -1,7 +1,8 @@
-//! Responses SSE event 的 bridge 生命周期状态机。
+//! Bridge lifecycle state machine for Responses SSE events.
 //!
-//! 本模块固定 response、output item 与 function call identity，逐项累计 text 和 arguments，
-//! 并要求 completed terminal 前所有 output item 已明确完成。
+//! This module fixes response, output-item, and function-call identities, accumulates text and
+//! arguments item by item, and requires every output item to be explicitly complete before the
+//! completed terminal.
 
 use std::collections::BTreeMap;
 
@@ -29,7 +30,7 @@ enum ResponsesItem {
     Tool(BridgeToolCall),
 }
 
-/// 按 Responses SSE event 生命周期重建 bridge 语义的单请求状态。
+/// Per-request state that reconstructs Bridge semantics from the Responses SSE lifecycle.
 #[derive(Debug)]
 pub struct ResponsesStreamState {
     lifecycle: Lifecycle,
@@ -38,7 +39,7 @@ pub struct ResponsesStreamState {
 }
 
 impl ResponsesStreamState {
-    /// 创建等待 `response.created` 的空状态机。
+    /// Creates an empty state machine waiting for `response.created`.
     pub fn new() -> Self {
         Self {
             lifecycle: Lifecycle::AwaitingStart,
@@ -47,9 +48,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 消费一个已完成 framing 的 Responses SSE event。
+    /// Consumes one fully framed Responses SSE event.
     pub fn ingest(&mut self, event: &SseEvent) -> Result<(), BridgeStreamError> {
-        // 解析 JSON 并统一校验 SSE event 名称与 payload type。
+        // Parse the JSON and validate the SSE event name and payload type together.
         let value: Value =
             serde_json::from_str(event.data()).map_err(|_| BridgeStreamError::InvalidJson)?;
         let payload_type = required_str(&value, "type")?;
@@ -57,7 +58,7 @@ impl ResponsesStreamState {
             return Err(BridgeStreamError::EventTypeConflict);
         }
 
-        // 按显式事件类型推进 lifecycle 与 output item 状态。
+        // Advance lifecycle and output-item state from the explicit event type.
         match payload_type {
             "response.created" => self.on_created(&value),
             "response.output_item.added" => self.on_item_added(&value),
@@ -80,7 +81,7 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 在上游 EOF 时验证唯一 terminal 已出现。
+    /// Verifies that the single terminal appeared when the upstream reaches EOF.
     pub fn finish(&self) -> Result<(), BridgeStreamError> {
         match self.lifecycle {
             Lifecycle::Terminal(_) => Ok(()),
@@ -90,7 +91,7 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 返回已经确认的唯一终态。
+    /// Returns the confirmed terminal state.
     pub fn terminal(&self) -> Option<StreamTerminal> {
         match self.lifecycle {
             Lifecycle::Terminal(terminal) => Some(terminal),
@@ -98,7 +99,7 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 返回按 output index 拼接的 assistant 文本。
+    /// Returns assistant text concatenated by output index.
     pub fn text(&self) -> String {
         self.items
             .values()
@@ -109,7 +110,7 @@ impl ResponsesStreamState {
             .collect()
     }
 
-    /// 返回按 output index 拼接的 plain reasoning 文本。
+    /// Returns plain reasoning text concatenated by output index.
     pub fn reasoning_text(&self) -> String {
         self.items
             .values()
@@ -120,7 +121,7 @@ impl ResponsesStreamState {
             .collect()
     }
 
-    /// 返回按 output index 排序的 function tool calls。
+    /// Returns function tool calls ordered by output index.
     pub fn tool_calls(&self) -> Vec<&BridgeToolCall> {
         self.items
             .values()
@@ -131,9 +132,9 @@ impl ResponsesStreamState {
             .collect()
     }
 
-    /// 接受唯一 `response.created` 并固定 response identity。
+    /// Accepts the single `response.created` event and fixes the response identity.
     fn on_created(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 只允许创建一次 response，并固定 response identity。
+        // Allow only one response creation and fix the response identity.
         if self.lifecycle != Lifecycle::AwaitingStart {
             return Err(BridgeStreamError::UnexpectedEvent);
         }
@@ -145,9 +146,9 @@ impl ResponsesStreamState {
         Ok(())
     }
 
-    /// 注册一个具有唯一 index、item id 与 call id 的 output item。
+    /// Registers an output item with a unique index, item ID, and call ID.
     fn on_item_added(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 校验 stream 已开始并提取稳定 output identity。
+        // Verify that the stream has started and extract the stable output identity.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         if self.items.contains_key(&output_index) {
@@ -163,7 +164,7 @@ impl ResponsesStreamState {
             return Err(BridgeStreamError::DuplicateIdentity);
         }
 
-        // 按 item 类型初始化独立的文本或 tool-call accumulator。
+        // Initialize an independent text or tool-call accumulator for the item type.
         let parsed = match required_str(item, "type")? {
             "message" => ResponsesItem::Message {
                 item_id,
@@ -204,9 +205,9 @@ impl ResponsesStreamState {
         Ok(())
     }
 
-    /// 将 text delta 绑定到已注册且未完成的 message item。
+    /// Binds a text delta to a registered, incomplete message item.
     fn on_text_delta(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 将 delta 绑定到已经注册的 message item，不以 index 猜测 identity。
+        // Bind the delta to the registered message item instead of inferring identity from an index.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -225,9 +226,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 将 reasoning summary/text delta 绑定到已注册的 reasoning item。
+    /// Binds a reasoning summary/text delta to a registered reasoning item.
     fn on_reasoning_delta(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // reasoning 与 visible text 分开累计，不能借用 Chat message 的 text accumulator。
+        // Accumulate reasoning separately from visible text; do not reuse the Chat message text accumulator.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -246,9 +247,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 校验 reasoning summary part 的 identity 与初始文本。
+    /// Validates the reasoning summary-part identity and initial text.
     fn on_reasoning_part_added(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // Responses summary part 仍属于同一个 reasoning output item。
+        // The Responses summary part still belongs to the same reasoning output item.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -277,9 +278,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 对照累计值校验 reasoning summary/text done 快照。
+    /// Validates a reasoning summary/text completion snapshot against accumulated values.
     fn on_reasoning_done(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // done event 必须与已经收到的 reasoning delta 完全一致。
+        // The done event must exactly match the reasoning deltas already received.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -295,9 +296,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 将 arguments delta 绑定到已注册且未完成的 function call item。
+    /// Binds an arguments delta to a registered, incomplete function-call item.
     fn on_arguments_delta(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 将 arguments 分片绑定到稳定 item id，并拒绝完成后的追加。
+        // Bind argument fragments to the stable item ID and reject appends after completion.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -314,9 +315,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 对照累计值校验完整 function arguments 快照。
+    /// Validates the complete function-arguments snapshot against accumulated values.
     fn on_arguments_done(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 验证上游 done 快照与累计 arguments 完全一致且已经形成 JSON object。
+        // Verify that the upstream done snapshot matches the accumulated arguments and forms a JSON object.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let item_id = required_str(value, "item_id")?;
@@ -332,9 +333,9 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 对照完整快照验证并完成指定 output item。
+    /// Validates and completes the specified output item against its full snapshot.
     fn on_item_done(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 对照完整 item 快照验证 identity 与累计内容，再标记完成。
+        // Validate identity and accumulated content against the full item snapshot, then mark it complete.
         self.ensure_streaming()?;
         let output_index = required_u64(value, "output_index")?;
         let snapshot = value.get("item").ok_or(BridgeStreamError::InvalidJson)?;
@@ -390,13 +391,13 @@ impl ResponsesStreamState {
         }
     }
 
-    /// 接受显式 Responses terminal，并验证 response identity 与完成边界。
+    /// Accepts an explicit Responses terminal and validates response identity and completion boundaries.
     fn on_terminal(
         &mut self,
         value: &Value,
         terminal: StreamTerminal,
     ) -> Result<(), BridgeStreamError> {
-        // 拒绝重复 terminal，并验证 terminal response identity 未漂移。
+        // Reject a duplicate terminal and verify that its response identity has not changed.
         if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
             return Err(BridgeStreamError::DuplicateTerminal);
         }
@@ -408,7 +409,7 @@ impl ResponsesStreamState {
             return Err(BridgeStreamError::IdentityConflict);
         }
 
-        // 成功 terminal 必须等待所有 output item 完成；失败终态不伪造完成状态。
+        // A successful terminal must wait for every output item to complete; failure states never masquerade as completion.
         if terminal == StreamTerminal::Completed
             && self.items.values().any(|item| match item {
                 ResponsesItem::Message { completed, .. } => !completed,
@@ -422,20 +423,20 @@ impl ResponsesStreamState {
         Ok(())
     }
 
-    /// 接受独立 `error` event，并把它固定为当前 response 的失败终态。
+    /// Accepts an independent `error` event and fixes it as the current response's failure terminal.
     fn on_error(&mut self) -> Result<(), BridgeStreamError> {
-        // 拒绝在既有 terminal 后追加独立 error event。
+        // Reject an independent error event after an existing terminal.
         if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
             return Err(BridgeStreamError::DuplicateTerminal);
         }
 
-        // 独立 error 只有在 response 已创建后才能结束当前 stream。
+        // An independent error can terminate the stream only after the response is created.
         self.ensure_streaming()?;
         self.lifecycle = Lifecycle::Terminal(StreamTerminal::Error);
         Ok(())
     }
 
-    /// 确认当前状态允许消费普通 Responses output event。
+    /// Confirms that the current state allows a normal Responses output event.
     fn ensure_streaming(&self) -> Result<(), BridgeStreamError> {
         match self.lifecycle {
             Lifecycle::Streaming => Ok(()),
@@ -452,7 +453,7 @@ impl Default for ResponsesStreamState {
     }
 }
 
-/// 提取 reasoning item 的明文 content 与 summary，并拒绝 opaque continuation。
+/// Extracts plain content and summary from a reasoning item and rejects opaque continuation.
 fn reasoning_item_text(item: &Value) -> Result<String, BridgeStreamError> {
     reject_encrypted_reasoning(item)?;
     let mut text = String::new();
@@ -471,7 +472,7 @@ fn reasoning_item_text(item: &Value) -> Result<String, BridgeStreamError> {
     Ok(text)
 }
 
-/// 拒绝无法从 Responses opaque continuation 转换成 Chat 明文的 reasoning item。
+/// Rejects reasoning items whose opaque Responses continuation cannot become plain Chat text.
 fn reject_encrypted_reasoning(item: &Value) -> Result<(), BridgeStreamError> {
     let Some(value) = item
         .get("encrypted_content")

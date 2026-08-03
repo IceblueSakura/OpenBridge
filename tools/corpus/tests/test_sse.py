@@ -1,4 +1,4 @@
-"""验证独立 SSE parser 对分片、冲突和未终止 event 的处理。"""
+"""Verify independent SSE parser handling of fragments, conflicts, and unterminated events."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ CORPUS_ROOT = Path(__file__).parents[3] / "testdata"
 def test_incremental_parser_handles_every_generated_wire_variant(
     tmp_path: Path,
 ) -> None:
-    """验证所有生成的 wire 分片形式都能由增量 parser 完整读取。"""
+    """Verify that the incremental parser fully reads every generated wire-fragment form."""
     root = tmp_path / "testdata"
     shutil.copytree(
         CORPUS_ROOT,
@@ -42,7 +42,7 @@ def test_incremental_parser_handles_every_generated_wire_variant(
 
 
 def test_parser_preserves_event_and_payload_type_conflict() -> None:
-    """验证 event 字段和 JSON type 冲突会保留两边事实并标记冲突。"""
+    """Verify that event-field and JSON-type conflicts preserve both facts and mark the conflict."""
     events = parse_sse(
         b"event: response.completed\n"
         b'data: {"type":"response.failed"}\n\n'
@@ -55,7 +55,7 @@ def test_parser_preserves_event_and_payload_type_conflict() -> None:
 
 
 def test_eof_does_not_dispatch_unterminated_event() -> None:
-    """验证 EOF 前没有空行终止的 SSE event 不会被错误派发。"""
+    """Verify that an SSE event not terminated by a blank line before EOF is not dispatched."""
     parser = IncrementalSseParser()
     assert parser.feed(b"data: {\"value\":1}\n") == []
     parser.close()

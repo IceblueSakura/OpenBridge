@@ -1,35 +1,37 @@
-//! provider-independent capability 上界与协议分域值对象。
+//! Provider-independent capability ceilings and protocol-specific value objects.
 //!
-//! capability 只能在 registry 构建阶段从 Provider contract 收窄；子集判断只保护静态定义
-//! 不发生能力扩大。请求路径使用预编译的 Public Model 固定契约，不对 Route 逐项比较能力。
+//! Capabilities may only be narrowed from the Provider contract during registry construction; subset
+//! checks prevent static definitions from expanding. The request path uses the precompiled Public
+//! Model contract instead of comparing capabilities Route by Route.
 
-/// 上游生成 reasoning 的可观察输出类型。
+/// Observable output type for upstream-generated reasoning.
 ///
-/// `Unknown` 表示没有足够的 wire 证据，不能被当作可读文本；`Opaque` 覆盖 provider-issued
-/// 的不可读 continuation，例如 Responses 的 `encrypted_content`。只有 `PlainText` 与
-/// `Summary` 能进入跨协议 reasoning channel，且具体可转换方向仍由上游协议决定。
+/// `Unknown` means that wire evidence is insufficient to treat the output as readable text;
+/// `Opaque` covers unreadable Provider-issued continuations such as Responses
+/// `encrypted_content`. Only `PlainText` and `Summary` can enter a cross-protocol reasoning
+/// channel, and the convertible direction remains protocol-specific.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ReasoningOutput {
-    /// 没有足够的上游 wire 证据判断输出格式。
+    /// Upstream wire evidence is insufficient to determine the output format.
     #[default]
     Unknown,
-    /// 上游明确不返回 reasoning 输出。
+    /// The upstream explicitly returns no reasoning output.
     Unsupported,
-    /// 上游返回可读的完整 reasoning 文本。
+    /// The upstream returns readable complete reasoning text.
     PlainText,
-    /// 上游只返回可读的 reasoning summary。
+    /// The upstream returns only a readable reasoning summary.
     Summary,
-    /// 上游返回不可读的 opaque/encrypted continuation。
+    /// The upstream returns an unreadable opaque or encrypted continuation.
     Opaque,
 }
 
 impl ReasoningOutput {
-    /// 判断该输出是否包含可读 reasoning 文本或 summary。
+    /// Returns whether this output contains readable reasoning text or a summary.
     pub const fn is_readable(self) -> bool {
         matches!(self, Self::PlainText | Self::Summary)
     }
 
-    /// 判断当前配置是否没有向 provider contract 声称额外的 reasoning 输出能力。
+    /// Returns whether this configuration claims no additional reasoning output capability over the Provider contract.
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         matches!(
             (self, upper),
@@ -41,9 +43,10 @@ impl ReasoningOutput {
     }
 }
 
-/// Responses Create 可引用的 OpenAI-hosted tool 种类。
+/// OpenAI-hosted tool kinds that a Responses Create request can reference.
 ///
-/// 这些枚举只保留标准协议位置；当前 pipeline、adapter 和 Provider 注册均未实现这些工具。
+/// These variants reserve standard protocol positions; the current pipeline, adapters, and Provider
+/// registrations do not implement these tools.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostedToolKind {
@@ -71,54 +74,55 @@ pub enum HostedToolKind {
     ProgrammaticToolCalling,
 }
 
-/// Responses Create 的 `include` 标准附加输出种类。
+/// Standard additional output kinds for the Responses Create `include` field.
 ///
-/// 枚举值使用语义化 Rust 名称，Rustdoc 标明对应 wire path；当前仅作为预留接口。
+/// Variants use descriptive Rust names and Rustdoc identifies their wire paths; they currently
+/// serve as reserved interface positions.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResponseInclude {
-    /// `web_search_call.action.sources`。
+    /// `web_search_call.action.sources`.
     WebSearchCallSources,
-    /// `code_interpreter_call.outputs`。
+    /// `code_interpreter_call.outputs`.
     CodeInterpreterCallOutputs,
-    /// `computer_call_output.output.image_url`。
+    /// `computer_call_output.output.image_url`.
     ComputerCallOutputImageUrl,
-    /// `file_search_call.results`。
+    /// `file_search_call.results`.
     FileSearchCallResults,
-    /// `message.input_image.image_url`。
+    /// `message.input_image.image_url`.
     InputImageImageUrl,
-    /// `message.output_text.logprobs`。
+    /// `message.output_text.logprobs`.
     OutputTextLogprobs,
-    /// `reasoning.encrypted_content`。
+    /// `reasoning.encrypted_content`.
     ReasoningEncryptedContent,
 }
 
-/// Chat Completions 与 Responses 共享的生成能力投影。
+/// Shared generation-capability projection for Chat Completions and Responses.
 ///
-/// 该值只用于请求分析和协议公共子集判断；静态注册应使用协议专有的
-/// [`ChatCompletionsCapabilities`] 或 [`ResponsesCapabilities`]。
+/// This value is used only for request analysis and common-protocol subset checks; static
+/// registrations must use [`ChatCompletionsCapabilities`] or [`ResponsesCapabilities`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GenerationCapabilities {
-    /// 该端点是否可用。
+    /// Whether the endpoint is enabled.
     pub(crate) enabled: bool,
-    /// 是否支持以 SSE 返回增量结果。
+    /// Whether incremental results can be returned over SSE.
     pub(crate) streaming: bool,
-    /// 是否支持 JSON-schema function tool 调用。
+    /// Whether JSON Schema function-tool calls are supported.
     pub(crate) function_calling: bool,
-    /// 对请求 wire 字段 `parallel_tool_calls: true` 的支持。
+    /// Whether the request wire field `parallel_tool_calls: true` is supported.
     pub(crate) parallel_tool_calls: bool,
-    /// 是否支持图像输入内容 part。
+    /// Whether image input content parts are supported.
     pub(crate) image_input: bool,
-    /// 是否支持结构化输出约束。
+    /// Whether structured-output constraints are supported.
     pub(crate) structured_outputs: bool,
-    /// 对请求 wire 字段 `store: true` 的支持。
+    /// Whether the request wire field `store: true` is supported.
     pub(crate) store: bool,
-    /// 上游 reasoning 输出的可观察类型。
+    /// Observable type of upstream reasoning output.
     pub(crate) reasoning_output: ReasoningOutput,
 }
 
 impl GenerationCapabilities {
-    /// 判断当前能力是否未超过给定上界。
+    /// Returns whether the current capabilities stay within the given ceiling.
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
             && (!self.streaming || upper.streaming)
@@ -131,52 +135,53 @@ impl GenerationCapabilities {
     }
 }
 
-/// Chat Completions Create endpoint 的能力上界。
+/// Capability ceiling for the Chat Completions Create endpoint.
 ///
-/// 已实现字段保持当前 routing 语义；audio/file/custom tool、predicted outputs 等新增字段
-/// 只保留定义位置，启用时会在 registry 编译阶段触发 `unimplemented!`。
+/// Implemented fields retain current routing semantics. New fields such as audio, file, custom
+/// tools, and predicted outputs only reserve definition positions and trigger `unimplemented!`
+/// during registry compilation if enabled.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ChatCompletionsCapabilities {
-    /// Chat Completions endpoint 是否可用。
+    /// Whether the Chat Completions endpoint is enabled.
     pub enabled: bool,
-    /// 是否支持 Chat Completions streaming。
+    /// Whether Chat Completions streaming is supported.
     pub streaming: bool,
-    /// 是否支持 JSON-schema function tool 调用。
+    /// Whether JSON Schema function-tool calls are supported.
     pub function_calling: bool,
-    /// 对请求 wire 字段 `parallel_tool_calls: true` 的支持。
+    /// Whether the request wire field `parallel_tool_calls: true` is supported.
     pub parallel_tool_calls: bool,
-    /// 是否支持 `image_url` 输入内容 part。
+    /// Whether `image_url` input content parts are supported.
     pub image_input: bool,
-    /// 是否支持 `response_format` 或 strict function 的结构化输出约束。
+    /// Whether `response_format` or strict-function structured-output constraints are supported.
     pub structured_outputs: bool,
-    /// 对请求 wire 字段 `store: true` 的支持。
+    /// Whether the request wire field `store: true` is supported.
     pub store: bool,
-    /// 上游 reasoning 输出的可观察类型。
+    /// Observable type of upstream reasoning output.
     pub reasoning_output: ReasoningOutput,
-    /// 是否支持 `type: "custom"` tool。
+    /// Whether `type: "custom"` tools are supported.
     pub custom_tool_calling: bool,
-    /// 是否支持 `input_audio` 输入内容 part。
+    /// Whether `input_audio` input content parts are supported.
     pub audio_input: bool,
-    /// 是否支持 `file` 输入内容 part。
+    /// Whether `file` input content parts are supported.
     pub file_input: bool,
-    /// 是否支持 `modalities` 中的 audio 输出。
+    /// Whether audio output in `modalities` is supported.
     pub audio_output: bool,
-    /// 是否支持 `prediction` predicted outputs。
+    /// Whether `prediction` predicted outputs are supported.
     pub predicted_outputs: bool,
-    /// 是否支持 `web_search_options`。
+    /// Whether `web_search_options` is supported.
     pub web_search: bool,
-    /// 是否支持 prompt cache key/options/breakpoint 语义。
+    /// Whether prompt cache key/options/breakpoint semantics are supported.
     pub prompt_caching: bool,
-    /// 是否支持请求级 moderation 配置。
+    /// Whether request-level moderation configuration is supported.
     pub moderation: bool,
-    /// 是否支持 token log probabilities。
+    /// Whether token log probabilities are supported.
     pub logprobs: bool,
-    /// 是否支持 `n > 1` 的多个 choice。
+    /// Whether multiple choices with `n > 1` are supported.
     pub multiple_choices: bool,
 }
 
 impl ChatCompletionsCapabilities {
-    /// 提取 Chat Completions 与 Responses 共享的生成能力。
+    /// Extracts generation capabilities shared by Chat Completions and Responses.
     pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
         GenerationCapabilities {
             enabled: self.enabled,
@@ -190,18 +195,18 @@ impl ChatCompletionsCapabilities {
         }
     }
 
-    /// 判断当前 Chat Completions 能力是否未超过给定上界。
+    /// Returns whether the current Chat Completions capabilities stay within the given ceiling.
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
-        // 阻止预留字段在实现请求处理前进入静态能力契约。
+        // Prevent reserved fields from entering the static capability contract before request handling exists.
         self.assert_reserved_unimplemented();
         upper.assert_reserved_unimplemented();
 
-        // 比较当前已实现的协议公共能力。
+        // Compare currently implemented common-protocol capabilities.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
     }
 
-    /// 在预留字段被静态注册时停止编译，避免形成虚假的运行时能力。
+    /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
             || self.audio_input
@@ -219,56 +224,56 @@ impl ChatCompletionsCapabilities {
     }
 }
 
-/// Responses Create endpoint 的能力上界。
+/// Capability ceiling for the Responses Create endpoint.
 ///
-/// resource retrieve/cancel/delete 等其他 endpoint 不属于此结构；新增 Create 字段当前只保留
-/// 类型位置，启用时会在 registry 编译阶段触发 `unimplemented!`。
+/// Other endpoints such as resource retrieve/cancel/delete are outside this structure. New Create
+/// fields currently reserve type positions and trigger `unimplemented!` during registry compilation if enabled.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResponsesCapabilities {
-    /// Responses endpoint 是否可用。
+    /// Whether the Responses endpoint is enabled.
     pub enabled: bool,
-    /// 是否支持 Responses streaming。
+    /// Whether Responses streaming is supported.
     pub streaming: bool,
-    /// 是否支持 function tool 调用。
+    /// Whether function-tool calls are supported.
     pub function_calling: bool,
-    /// 是否支持并行 tool calls。
+    /// Whether parallel tool calls are supported.
     pub parallel_tool_calls: bool,
-    /// 是否支持图像输入。
+    /// Whether image input is supported.
     pub image_input: bool,
-    /// 是否支持结构化输出。
+    /// Whether structured output is supported.
     pub structured_outputs: bool,
-    /// 是否支持持久化 response。
+    /// Whether persistent responses are supported.
     pub store: bool,
-    /// 是否支持以 `previous_response_id` 继续对话状态。
+    /// Whether conversation state can continue with `previous_response_id`.
     pub previous_response_id: bool,
-    /// 是否支持后台响应。
+    /// Whether background responses are supported.
     pub background: bool,
-    /// 上游 reasoning 输出的可观察类型。
+    /// Observable type of upstream reasoning output.
     pub reasoning_output: ReasoningOutput,
-    /// 是否支持 `type: "custom"` tool。
+    /// Whether `type: "custom"` tools are supported.
     pub custom_tool_calling: bool,
-    /// 已声明支持的 OpenAI-hosted tool 种类。
+    /// Declared OpenAI-hosted tool kinds.
     pub hosted_tools: &'static [HostedToolKind],
-    /// 是否支持 file input item/content part。
+    /// Whether file input items/content parts are supported.
     pub file_input: bool,
-    /// 是否支持 `conversation` 持久状态。
+    /// Whether persistent `conversation` state is supported.
     pub conversation: bool,
-    /// 是否支持 `prompt` 模板引用。
+    /// Whether `prompt` template references are supported.
     pub prompt_templates: bool,
-    /// 是否支持 prompt cache key/options/breakpoint 语义。
+    /// Whether prompt cache key/options/breakpoint semantics are supported.
     pub prompt_caching: bool,
-    /// 是否支持 `context_management`。
+    /// Whether `context_management` is supported.
     pub context_management: bool,
-    /// 已声明支持的 `include` 附加输出种类。
+    /// Declared additional output kinds supported by `include`.
     pub include: &'static [ResponseInclude],
-    /// 是否支持请求级 moderation 配置。
+    /// Whether request-level moderation configuration is supported.
     pub moderation: bool,
-    /// 是否支持 message output text log probabilities。
+    /// Whether message output-text log probabilities are supported.
     pub logprobs: bool,
 }
 
 impl ResponsesCapabilities {
-    /// 提取 Responses 与 Chat 共享的端点能力。
+    /// Extracts endpoint capabilities shared by Responses and Chat.
     pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
         GenerationCapabilities {
             enabled: self.enabled,
@@ -282,20 +287,20 @@ impl ResponsesCapabilities {
         }
     }
 
-    /// 判断当前 Responses 能力是否未超过给定上界。
+    /// Returns whether the current Responses capabilities stay within the given ceiling.
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
-        // 阻止预留字段在实现请求处理前进入静态能力契约。
+        // Prevent reserved fields from entering the static capability contract before request handling exists.
         self.assert_reserved_unimplemented();
         upper.assert_reserved_unimplemented();
 
-        // 比较已实现的公共能力与 Responses 状态能力。
+        // Compare implemented common capabilities and Responses state capabilities.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
             && (!self.previous_response_id || upper.previous_response_id)
             && (!self.background || upper.background)
     }
 
-    /// 在预留字段被静态注册时停止编译，避免形成虚假的运行时能力。
+    /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
             || !self.hosted_tools.is_empty()
@@ -313,15 +318,16 @@ impl ResponsesCapabilities {
     }
 }
 
-/// Provider contract 的协议分域能力上界。
+/// Protocol-specific capability ceilings for a Provider contract.
 ///
-/// Upstream API 只能把 Provider contract 已支持的能力关闭，不能把未实现的能力打开；请求
-/// 路径使用另行预编译的 Public Model 固定契约。Chat Completions 与 Responses 分开建模，
-/// 以免把一个端点的观察错误外推到另一个端点。
+/// An Upstream API may disable capabilities supported by the Provider contract but cannot enable
+/// unimplemented capabilities. The request path uses a separately precompiled Public Model
+/// contract. Chat Completions and Responses are modeled separately so observations from one
+/// endpoint are not incorrectly applied to the other.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ApiCapabilities {
-    /// Chat Completions endpoint 的能力上界。
+    /// Capability ceiling for the Chat Completions endpoint.
     pub chat_completions: ChatCompletionsCapabilities,
-    /// Responses endpoint 的能力上界。
+    /// Capability ceiling for the Responses endpoint.
     pub responses: ResponsesCapabilities,
 }

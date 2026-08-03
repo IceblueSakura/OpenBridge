@@ -1,8 +1,8 @@
-//! Kimi K3 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the Kimi K3 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 Kimi K3 的完整模型事实。
+/// Builds the complete model facts for Kimi K3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "moonshotai/kimi-k3".to_owned(),

@@ -1,7 +1,8 @@
-//! 共享上游 HTTP transport。
+//! Shared upstream HTTP transport.
 //!
-//! client 复用连接池、禁用重定向，并只接受 adapter 生成的相对 URI 与配置验证过的 endpoint base。
-//! response body 以流形式交给 ingress；不预读或缓冲 token，因此下游取消会 drop 上游流。
+//! The client reuses a connection pool, disables redirects, and accepts only adapter-generated
+//! relative URIs with configuration-validated endpoint bases. Response bodies are streamed to
+//! ingress without pre-reading or buffering tokens, so downstream cancellation drops the upstream stream.
 
 use std::{fmt, time::Duration};
 
@@ -14,26 +15,26 @@ use url::Url;
 
 use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
 
-/// 上游 transport 在构造 client、发送请求或读取超时边界时报告的错误。
+/// Error reported by upstream transport while building the client, sending a request, or enforcing timeouts.
 #[derive(Debug, Error)]
 pub enum TransportError {
-    /// reqwest client 无法按 bootstrap 策略创建。
+    /// The reqwest client cannot be built using bootstrap policy.
     #[error("failed to construct the upstream HTTP client")]
     ClientBuild(#[source] reqwest::Error),
-    /// 上游请求在发送或接收过程中失败。
+    /// The upstream request failed while sending or receiving.
     #[error("upstream request failed")]
     Request(#[source] reqwest::Error),
-    /// 上游请求超过 target 的超时时间。
+    /// The upstream request exceeded the target timeout.
     #[error("upstream request timed out")]
     Timeout,
-    /// adapter 生成了带 authority、scheme 或非法 path 的 URI。
+    /// The adapter generated a URI with an authority, scheme, or invalid path.
     #[error("provider adapter produced an invalid relative upstream target")]
     InvalidTarget,
 }
 
-/// ingress 与真实 HTTP client/测试 transport 之间的最小发送契约。
+/// Minimal send contract between ingress and the real HTTP client/test transport.
 pub trait UpstreamTransport: Send + Sync {
-    /// 将 adapter 请求发送到指定 target，并保留流式响应 body。
+    /// Sends an adapter request to the target and preserves the streaming response body.
     fn send<'a>(
         &'a self,
         target: &'a UpstreamTarget,
@@ -42,13 +43,13 @@ pub trait UpstreamTransport: Send + Sync {
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>>;
 }
 
-/// 复用连接池的共享上游 HTTP client。
+/// Shared upstream HTTP client with a reused connection pool.
 pub struct UpstreamClient {
     client: reqwest::Client,
 }
 
 impl UpstreamClient {
-    /// 按 bootstrap 策略创建一个禁用重定向的上游 client。
+    /// Creates an upstream client with redirects disabled according to bootstrap policy.
     pub fn new(
         connect_timeout: Duration,
         pool_idle_timeout: Duration,
@@ -64,19 +65,20 @@ impl UpstreamClient {
         Ok(Self { client })
     }
 
-    /// 将相对 URI 与 Upstream Target endpoint base 合成为唯一 egress URL。
+    /// Combines a relative URI with the Upstream Target endpoint base into the single egress URL.
     ///
-    /// 这里再次拒绝 scheme/authority/path 不合法的 URI，即使 adapter 是编译期代码；配置
-    /// allowlist 与该检查共同避免未来 adapter 修改意外扩大 SSRF 出站面。
+    /// Rejects invalid URI scheme/authority/path again even though the adapter is compile-time code.
+    /// The configuration allowlist and this check together prevent future adapter changes from
+    /// expanding the SSRF egress surface.
     pub async fn send(
         &self,
         target: &UpstreamTarget,
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> Result<UpstreamResponse, TransportError> {
-        // 将 adapter 相对 URI 与已校验 endpoint base 合成为受信 URL。
+        // Combine the adapter relative URI with the validated endpoint base into a trusted URL.
         let url = resolve_upstream_url(target.endpoint_base(), request.relative_uri())?;
-        // 交给共享 client 发送，并保留流式响应 body。
+        // Send through the shared client and preserve the streaming response body.
         self.send_request(UpstreamRequest::new(
             url,
             request.method().clone(),
@@ -87,12 +89,12 @@ impl UpstreamClient {
         .await
     }
 
-    /// 用共享 client 发送已绑定 URL 的请求，并保留响应 stream body。
+    /// Sends a request with a bound URL through the shared client and preserves the response stream body.
     async fn send_request(
         &self,
         request: UpstreamRequest,
     ) -> Result<UpstreamResponse, TransportError> {
-        // 应用 target 超时和连接池 client，发送不跟随重定向的请求。
+        // Apply the target timeout and pooled client, sending without following redirects.
         let response = self
             .client
             .request(request.method, request.url)
@@ -108,7 +110,7 @@ impl UpstreamClient {
                     TransportError::Request(error)
                 }
             })?;
-        // 复制 status/header，并将 response stream 交给上层消费。
+        // Copy status/headers and pass the response stream to the caller.
         let status = response.status();
         let headers = response.headers().clone();
         let body = Body::from_stream(response.bytes_stream());
@@ -120,7 +122,7 @@ impl UpstreamClient {
     }
 }
 
-/// 校验 adapter 相对 URI，并将其安全拼接到已验证的 endpoint base。
+/// Validates an adapter relative URI and safely joins it to a validated endpoint base.
 fn resolve_upstream_url(endpoint_base: &Url, relative_uri: &Uri) -> Result<Url, TransportError> {
     if relative_uri.scheme().is_some()
         || relative_uri.authority().is_some()
@@ -156,7 +158,7 @@ struct UpstreamRequest {
 }
 
 impl UpstreamRequest {
-    /// 创建已绑定 URL、method、header、body 和 timeout 的内部请求值对象。
+    /// Creates an internal request value with bound URL, method, headers, body, and timeout.
     fn new(url: Url, method: Method, headers: HeaderMap, body: Bytes, timeout: Duration) -> Self {
         Self {
             url,
@@ -181,7 +183,7 @@ impl fmt::Debug for UpstreamRequest {
     }
 }
 
-/// 上游响应的状态、前置头和流式 body。
+/// Upstream response status, initial headers, and streaming body.
 pub struct UpstreamResponse {
     status: StatusCode,
     headers: HeaderMap,
@@ -189,7 +191,7 @@ pub struct UpstreamResponse {
 }
 
 impl UpstreamResponse {
-    /// 创建一个用于测试或 transport 边界的响应。
+    /// Creates a response for tests or transport boundaries.
     pub fn new(status: StatusCode, headers: HeaderMap, body: Body) -> Self {
         Self {
             status,
@@ -198,17 +200,17 @@ impl UpstreamResponse {
         }
     }
 
-    /// 返回 HTTP status。
+    /// Returns the HTTP status.
     pub fn status(&self) -> StatusCode {
         self.status
     }
 
-    /// 返回上游响应头。
+    /// Returns upstream response headers.
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
-    /// 消费响应并取得其流式 body。
+    /// Consumes the response and returns its streaming body.
     pub fn into_body(self) -> Body {
         self.body
     }

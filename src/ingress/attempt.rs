@@ -1,7 +1,8 @@
-//! 单个下游请求内的有限上游 attempt、候选保留与退避策略。
+//! Bounded upstream attempts, candidate retention, and backoff for one downstream request.
 //!
-//! 本模块只管理请求级计数和时间边界，不选择 Route、Provider 或错误类别。调用方必须先
-//! 完成 RoutePlan 与 adapter 分类；固定硬上限保证任何请求都不能形成无限上游循环。
+//! This module manages request-level counts and time boundaries only; it does not select Routes,
+//! Providers, or error categories. Callers must provide a RoutePlan and adapter classification.
+//! Fixed hard limits ensure that no request can create an infinite upstream loop.
 
 use std::time::Duration;
 
@@ -10,18 +11,18 @@ const MAX_CANDIDATE_ATTEMPTS: usize = 2;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(50);
 const MAX_BACKOFF: Duration = Duration::from_millis(500);
 
-/// 一个 retryable failure 之后允许采取的下一步。
+/// Next action allowed after a retryable failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AttemptStep {
-    /// 退避后重试当前候选。
+    /// Retry the current candidate after backoff.
     RetryCandidate,
-    /// 退避后进入下一个已规划候选。
+    /// Move to the next planned candidate after backoff.
     NextCandidate,
-    /// 总预算或候选已耗尽，返回当前失败。
+    /// The total budget or candidates are exhausted; return the current failure.
     Finish,
 }
 
-/// 单个下游请求共享的 attempt 预算和 capped exponential backoff 状态。
+/// Shared attempt budget and capped exponential-backoff state for one downstream request.
 pub(super) struct AttemptManager {
     attempts_started: usize,
     candidate_attempts: usize,
@@ -29,7 +30,7 @@ pub(super) struct AttemptManager {
 }
 
 impl AttemptManager {
-    /// 创建尚未发起上游调用的请求级管理器。
+    /// Creates a request-level manager before any upstream call starts.
     pub(super) fn new() -> Self {
         Self {
             attempts_started: 0,
@@ -38,39 +39,40 @@ impl AttemptManager {
         }
     }
 
-    /// 开始一个新候选并清空其局部 attempt 计数。
+    /// Starts a new candidate and clears its local attempt count.
     pub(super) fn begin_candidate(&mut self) {
         self.candidate_attempts = 0;
     }
 
-    /// 消耗一次请求级和候选级 attempt 预算。
+    /// Consumes one request-level and candidate-level attempt budget.
     pub(super) fn start_attempt(&mut self) -> bool {
-        // 拒绝超过请求级硬上限的调用。
+        // Reject a call that would exceed the request-level hard limit.
         if self.attempts_started >= MAX_REQUEST_ATTEMPTS {
             return false;
         }
 
-        // 同时记录请求级与当前候选的 attempt。
+        // Record the attempt at both request and current-candidate levels.
         self.attempts_started += 1;
         self.candidate_attempts += 1;
         true
     }
 
-    /// 返回本请求已经实际开始的 attempt 数量。
+    /// Returns the number of attempts actually started for this request.
     pub(super) fn attempts_started(&self) -> usize {
         self.attempts_started
     }
 
-    /// 根据剩余未尝试候选数选择 retry、fallback 或结束。
+    /// Selects retry, fallback, or completion based on remaining untried candidates.
     ///
-    /// 当前候选只有在预算仍能容纳剩余候选时才可重试；无论 Route 数量如何，请求级硬
-    /// 上限始终优先，避免配置规模放大单请求上游调用次数。
+    /// The current candidate may retry only when the budget can still accommodate remaining
+    /// candidates. The request-level hard limit always takes priority, regardless of Route count,
+    /// so configuration size cannot multiply upstream calls per request.
     pub(super) fn next_step(&self, untried_candidates: usize) -> AttemptStep {
-        // 判断当前重试是否仍能为预算范围内的未尝试候选保留机会。
+        // Determine whether a retry preserves a chance for every remaining candidate within budget.
         let reserves_untried_candidates =
             self.attempts_started + untried_candidates < MAX_REQUEST_ATTEMPTS;
 
-        // 优先有限重试当前候选，再选择 fallback，最终收敛为返回当前失败。
+        // Prefer bounded retry on the current candidate, then fallback, and finally return the current failure.
         if self.candidate_attempts < MAX_CANDIDATE_ATTEMPTS
             && reserves_untried_candidates
             && self.attempts_started < MAX_REQUEST_ATTEMPTS
@@ -83,18 +85,19 @@ impl AttemptManager {
         }
     }
 
-    /// 等待下一次 attempt，并推进 capped exponential backoff。
+    /// Waits for the next attempt and advances capped exponential backoff.
     ///
-    /// 下游任务被取消时，`sleep` future 与整个 manager 一同释放，不会在后台唤醒并继续请求。
+    /// When the downstream task is cancelled, the `sleep` future and manager are dropped together;
+    /// no background wake-up can continue the request.
     pub(super) async fn wait_before_next_attempt(&mut self) {
-        // 固化本次延迟并计算下一档 capped exponential backoff。
+        // Fix this delay and compute the next capped exponential-backoff value.
         let delay = self.take_backoff_delay();
 
-        // 等待可取消的 Tokio timer 后再允许下一次上游调用。
+        // Wait for a cancellable Tokio timer before allowing the next upstream call.
         tokio::time::sleep(delay).await;
     }
 
-    /// 取出当前 attempt 的退避延迟，并递增到下一次 capped 值。
+    /// Returns the current attempt backoff and advances to the next capped value.
     fn take_backoff_delay(&mut self) -> Duration {
         let delay = self.next_backoff;
         self.next_backoff = self.next_backoff.saturating_mul(2).min(MAX_BACKOFF);
@@ -111,13 +114,13 @@ mod tests {
         let mut attempts = AttemptManager::new();
         attempts.begin_candidate();
 
-        // 验证候选局部重试不会挤占剩余候选的保留机会。
+        // Verify that a candidate-local retry preserves opportunities for remaining candidates.
         assert!(attempts.start_attempt());
         assert_eq!(attempts.next_step(3), AttemptStep::RetryCandidate);
         assert!(attempts.start_attempt());
         assert_eq!(attempts.next_step(3), AttemptStep::NextCandidate);
 
-        // 消耗剩余请求预算并验证硬上限拒绝额外 attempt。
+        // Consume the remaining request budget and verify that the hard limit rejects another attempt.
         for _ in 2..MAX_REQUEST_ATTEMPTS {
             attempts.begin_candidate();
             assert!(attempts.start_attempt());
@@ -130,7 +133,7 @@ mod tests {
     fn backoff_doubles_and_stops_at_the_cap() {
         let mut attempts = AttemptManager::new();
 
-        // 验证延迟按二倍增长，并在 500 ms 上限保持稳定。
+        // Verify that the delay doubles and remains capped at 500 ms.
         assert_eq!(attempts.take_backoff_delay(), INITIAL_BACKOFF);
         assert_eq!(
             attempts.take_backoff_delay(),

@@ -1,7 +1,8 @@
-//! canonical corpus 与真实 loopback HTTP SUT 的最小回放 runner。
+//! Minimal replay runner for the canonical corpus and a real loopback HTTP SUT.
 //!
-//! runner 只在测试进程内创建显式 loopback 地址，生产 registry 仍保持 HTTPS-only；它不读取
-//! `.env`、不调用真实 Provider，也不把认证 header 或业务正文写入 observation。
+//! The runner creates an explicit loopback address only in the test process while the production
+//! registry remains HTTPS-only. It does not read `.env`, call a real Provider, or write
+//! authentication headers or business bodies to observations.
 
 use std::sync::{Arc, Mutex};
 
@@ -23,17 +24,17 @@ use openbridge::{
 use serde_json::Value;
 use tokio::{net::TcpListener, task::JoinHandle};
 
-/// 一次 loopback replay 的安全摘要。
+/// Safe summary of one loopback replay.
 pub struct ReplayObservation {
-    /// OpenBridge 最终返回的 HTTP status。
+    /// Final HTTP status returned by OpenBridge.
     pub status: StatusCode,
-    /// OpenBridge 最终保留的安全 `Retry-After`。
+    /// Safe `Retry-After` value retained by OpenBridge.
     pub retry_after: Option<String>,
-    /// Mock upstream 实际收到的 attempt 数量。
+    /// Number of attempts actually received by the mock upstream.
     pub upstream_attempts: usize,
-    /// 每次上游 JSON request 是否匹配 canonical expectation。
+    /// Whether each upstream JSON request matches the canonical expectation.
     pub upstream_request_matches: Vec<bool>,
-    /// 下游 JSON body 是否匹配 canonical expectation。
+    /// Whether the downstream JSON body matches the canonical expectation.
     pub downstream_body_matches: bool,
 }
 
@@ -56,13 +57,13 @@ impl UpstreamTransport for LoopbackReplayTransport {
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // 固定测试 runner 创建的 loopback origin，并保留 adapter 生成的相对 path。
+        // Fix the loopback origin created by the test runner while preserving the adapter-generated relative path.
         let url = format!("{}{}", self.base_url, request.relative_uri());
         let method = request.method().clone();
         let body = request.body().clone();
         let client = self.client.clone();
 
-        // 经过真实 HTTP client/socket 发出请求，并保留 streaming body 边界。
+        // Send the request through a real HTTP client and socket while preserving streaming body boundaries.
         Box::pin(async move {
             let response = client
                 .request(method, url)
@@ -82,9 +83,9 @@ impl UpstreamTransport for LoopbackReplayTransport {
     }
 }
 
-/// 回放一个 canonical Responses 429 case，并返回不含正文与凭证的验证摘要。
+/// Replays a canonical Responses 429 case and returns a summary without bodies or credentials.
 pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
-    // 从固定 corpus 目录加载四份 canonical wire artifact。
+    // Load four canonical wire artifacts from the fixed corpus directory.
     assert_eq!(case_id, "responses_native.rate_limit.non_stream");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("testdata/cases/native")
@@ -95,7 +96,7 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
         .expect("canonical upstream response must be readable");
     let expected_client = read_json(root.join("expected-client-response.json"));
 
-    // 启动记录实际 HTTP request 的 mock upstream listener。
+    // Start the mock upstream listener that records actual HTTP requests.
     let observations = Arc::new(Mutex::new(Vec::new()));
     let upstream_state = MockUpstreamState {
         expected_request: expected_upstream,
@@ -115,7 +116,7 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
             .with_state(upstream_state),
     );
 
-    // 用生产 Router 与 adapter 启动 SUT，但仅在测试 transport 内替换为 loopback origin。
+    // Start the SUT with the production Router and adapter, replacing the origin only inside test transport.
     let registry = openbridge::registry::build_registry(
         super::bootstrap(super::BOOTSTRAP),
         super::definition("process-replay", "public-model", "upstream-model"),
@@ -139,7 +140,7 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
         .expect("OpenBridge replay address must exist");
     let gateway_task = spawn_server(gateway_listener, build_router(state));
 
-    // 经真实下游 HTTP client 发送 canonical request，并读取最终安全响应。
+    // Send the canonical request through a real downstream HTTP client and read the final safe response.
     let response = reqwest::Client::new()
         .post(format!("http://{gateway_address}/v1/responses"))
         .header(CONTENT_TYPE, "application/json")
@@ -161,7 +162,7 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
     let body: Value =
         serde_json::from_slice(&body).expect("OpenBridge replay response must be JSON");
 
-    // 停止两个 listener，并只返回不含敏感内容的比较摘要。
+    // Stop both listeners and return only a comparison summary without sensitive content.
     gateway_task.abort();
     upstream_task.abort();
     let upstream_request_matches = observations
@@ -182,7 +183,7 @@ async fn mock_rate_limit(
     _headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // 比较请求 JSON，但 observation 只保留布尔结果而不回显 body 或认证 header。
+    // Compare request JSON while observations retain only booleans and never echo bodies or authentication headers.
     let matches =
         serde_json::from_slice::<Value>(&body).is_ok_and(|value| value == state.expected_request);
     state
@@ -191,7 +192,7 @@ async fn mock_rate_limit(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .push(matches);
 
-    // 为每个 attempt 返回同一 canonical 429 与 Retry-After。
+    // Return the same canonical 429 and Retry-After for every attempt.
     Response::builder()
         .status(StatusCode::TOO_MANY_REQUESTS)
         .header(CONTENT_TYPE, "application/json")
@@ -201,13 +202,13 @@ async fn mock_rate_limit(
 }
 
 fn read_json(path: std::path::PathBuf) -> Value {
-    // 读取并解析 canonical JSON artifact，错误直接绑定到测试 fixture。
+    // Read and parse the canonical JSON artifact, binding errors directly to the test fixture.
     let bytes = std::fs::read(path).expect("canonical JSON artifact must be readable");
     serde_json::from_slice(&bytes).expect("canonical JSON artifact must be valid")
 }
 
 fn spawn_server(listener: TcpListener, router: Router) -> JoinHandle<()> {
-    // 在独立任务中运行 loopback server，由测试结束路径显式 abort。
+    // Run the loopback server in an independent task and explicitly abort it on test completion.
     tokio::spawn(async move {
         axum::serve(listener, router)
             .await

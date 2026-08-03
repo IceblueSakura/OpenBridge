@@ -1,4 +1,4 @@
-//! OpenRouter Nemotron Upstream Target 与无状态 Native API 注册。
+//! Registers the OpenRouter Nemotron Upstream Target and stateless Native APIs.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use crate::{
 
 use super::CONTRACT;
 
-/// 构造当前编译版本内置的 OpenRouter Nemotron target。
+/// Builds the OpenRouter Nemotron target built into this compiled version.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openrouter-nemotron-3-ultra".to_owned(),

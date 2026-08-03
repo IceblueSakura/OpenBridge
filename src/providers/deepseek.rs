@@ -1,6 +1,7 @@
-//! DeepSeek Provider 的编译期实现入口。
+//! Compile-time entry point for the DeepSeek Provider.
 //!
-//! 当前注册 DeepSeek V4 Pro/Flash 的 Chat Native surface；Responses 由编译 Route 显式 bridge 到 Chat。
+//! Registers Chat Native surfaces for DeepSeek V4 Pro and Flash; compiled Routes explicitly bridge
+//! Responses requests to Chat.
 
 mod definition;
 mod registration;

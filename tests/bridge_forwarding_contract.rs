@@ -1,4 +1,4 @@
-//! 验证 Bridged Route 通过生产 Router 执行双向协议转换。
+//! Verifies bidirectional protocol conversion through the production Router on a Bridged Route.
 
 mod support;
 
@@ -130,7 +130,7 @@ fn app_with_reasoning_output(
     transport: Arc<dyn UpstreamTransport>,
     reasoning_output: ReasoningOutput,
 ) -> axum::Router {
-    // 只保留一条方向相反的 Bridged Route，确保 Native 候选不能掩盖转换行为。
+    // Keep only the reverse Bridged Route so a Native candidate cannot mask conversion behavior.
     let mut definition = support::definition("bridge-forward", "public-model", "upstream-model");
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
     definition.models[0].reasoning = ReasoningSupport::Supported;
@@ -250,7 +250,7 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         ),
     ];
 
-    // 逐方向验证生产路径的 endpoint、请求转换、响应转换和 Public Model 隔离。
+    // Verify the production endpoint, request conversion, response conversion, and Public Model isolation in both directions.
     for (downstream, upstream, client_path, upstream_path, directory) in cases {
         let transport = Arc::new(ExpectedTransport {
             expected_path: upstream_path,
@@ -325,7 +325,7 @@ async fn production_router_converts_text_and_parallel_tool_streams_in_both_direc
         ),
     ];
 
-    // 生产 Body stream 必须保持语义和唯一 terminal，同时实际调用相反协议 endpoint。
+    // The production body stream must preserve semantics and one terminal while calling the reverse protocol endpoint.
     for (downstream, upstream, client_path, upstream_path, directory) in cases {
         let transport = Arc::new(ExpectedTransport {
             expected_path: upstream_path,
@@ -400,7 +400,7 @@ data: [DONE]
     let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert!(!String::from_utf8_lossy(&body).contains("response.output_text"));
 
-    // 通过生产 HTTP stream 状态机确认 reasoning、tool arguments 与终态均已闭合。
+    // Use the production HTTP stream state machine to confirm closed reasoning, tool arguments, and terminal state.
     let mut state = ResponsesStreamState::new();
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(&body).unwrap();
@@ -416,7 +416,7 @@ data: [DONE]
         Some(openbridge::bridge::StreamTerminal::Completed)
     );
 
-    // Mock upstream 必须收到标准 Responses reasoning 到 Chat 的显式 effort 映射。
+    // The mock upstream must receive the explicit standard Responses reasoning-to-Chat effort mapping.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].0, "/chat/completions");
@@ -473,7 +473,7 @@ async fn production_router_rejects_unbridgeable_requests_before_egress() {
         transport.clone(),
     );
 
-    // Bridge preflight 必须在 credential/transport 边界前拒绝全部 canonical reject cases。
+    // Bridge preflight must reject every canonical reject case before the credential or transport boundary.
     for directory in directories {
         let response = app
             .clone()
@@ -537,7 +537,7 @@ async fn invalid_bridged_stream_closes_without_fabricating_a_terminal() {
     .await
     .unwrap();
 
-    // HTTP 已提交后只能让 body 以错误结束，不能补造 response.completed 或 fallback。
+    // After HTTP commitment, the body may end with an error but cannot fabricate response.completed or fallback.
     assert_eq!(response.status(), StatusCode::OK);
     assert!(to_bytes(response.into_body(), 1024 * 1024).await.is_err());
     assert_eq!(transport.requests.lock().unwrap().len(), 1);

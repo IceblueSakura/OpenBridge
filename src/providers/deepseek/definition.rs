@@ -1,4 +1,4 @@
-//! DeepSeek Provider 的静态契约与 Chat-only OpenAI-compatible profile。
+//! Static DeepSeek Provider contract and Chat-only OpenAI-compatible profile.
 
 use http::HeaderMap;
 
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// DeepSeek Chat Completions 能力上界；Chat reasoning 以 `reasoning_content` 明文输出。
+/// DeepSeek Chat Completions capability ceiling; Chat reasoning is emitted as `reasoning_content` text.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::DeepSeek,
     ApiCapabilities {
@@ -62,7 +62,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// DeepSeek 使用的 Chat-only OpenAI-compatible wire profile。
+/// Chat-only OpenAI-compatible wire profile used by DeepSeek.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::DeepSeek,
     &CONTRACT,
@@ -72,11 +72,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     transform_request_headers,
 );
 
-/// DeepSeek contract 与 adapter 的唯一静态描述符。
+/// Single static descriptor for the DeepSeek contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// 保留 DeepSeek 后续普通请求头转换的独立 hook 边界。
+/// Preserves the dedicated hook boundary for future DeepSeek ordinary-header transforms.
 fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,

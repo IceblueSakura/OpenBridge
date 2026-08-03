@@ -1,25 +1,25 @@
-//! 增量 SSE framing decoder。
+//! Incremental SSE framing decoder.
 //!
-//! 网络 chunk 不是 UTF-8、行或 SSE event 边界。本 decoder 只负责把 byte stream 组织成
-//! 完整 `SseEvent`：支持 CRLF、注释、多行 `data:` 和 event size 上限；具体 event 的协议
-//! 含义由 `ProviderAdapter::classify_sse_event` 判定。
+//! Network chunks are not UTF-8, line, or SSE-event boundaries. This decoder only organizes the
+//! byte stream into complete `SseEvent` values with CRLF, comments, multiline `data:`, and event
+//! size-limit support. `ProviderAdapter::classify_sse_event` determines event semantics.
 
 use bytes::BytesMut;
 use thiserror::Error;
 
-/// SSE framing 或单事件大小校验失败。
+/// SSE framing or single-event size validation failed.
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum SseDecodeError {
-    /// 当前 event 累积的字节数超过配置上限。
+    /// The current event's accumulated bytes exceed the configured limit.
     #[error("SSE event exceeds the configured size limit")]
     EventTooLarge,
-    /// SSE 字段不是合法 UTF-8。
+    /// An SSE field is not valid UTF-8.
     #[error("SSE field is not valid UTF-8")]
     InvalidUtf8,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 一个已完成 SSE framing 的事件。
+/// Fully framed SSE event.
 pub struct SseEvent {
     event: Option<String>,
     data: String,
@@ -28,31 +28,31 @@ pub struct SseEvent {
 }
 
 impl SseEvent {
-    /// 返回可选的 SSE event 名称。
+    /// Returns the optional SSE event name.
     pub fn event(&self) -> Option<&str> {
         self.event.as_deref()
     }
 
-    /// 返回拼接后的 data 字段。
+    /// Returns the concatenated data field.
     pub fn data(&self) -> &str {
         &self.data
     }
 
-    /// 返回可选的 SSE id。
+    /// Returns the optional SSE ID.
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
     }
 
-    /// 返回可选的 retry 毫秒值。
+    /// Returns the optional retry value in milliseconds.
     pub fn retry_ms(&self) -> Option<u64> {
         self.retry_ms
     }
 }
 
-/// 保留未完成行/事件状态的增量 decoder。
+/// Incremental decoder retaining incomplete line/event state.
 ///
-/// `max_event_bytes` 按正在组装的 SSE event 计量而不是按网络 chunk 计量，防止攻击者通过
-/// 无限分片规避内存限制。
+/// `max_event_bytes` is measured per assembled SSE event rather than per network chunk, preventing
+/// attackers from bypassing memory limits with unlimited fragmentation.
 pub struct SseDecoder {
     max_event_bytes: usize,
     buffered: BytesMut,
@@ -61,7 +61,7 @@ pub struct SseDecoder {
 }
 
 impl SseDecoder {
-    /// 创建一个限制单事件大小的增量 decoder。
+    /// Creates an incremental decoder with a per-event size limit.
     pub fn new(max_event_bytes: usize) -> Self {
         Self {
             max_event_bytes,
@@ -71,9 +71,9 @@ impl SseDecoder {
         }
     }
 
-    /// 向 decoder 写入网络 chunk，并返回已经完成的 event。
+    /// Writes a network chunk to the decoder and returns completed events.
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<SseEvent>, SseDecodeError> {
-        // 缓存 chunk 并按换行拆分完整 SSE line。
+        // Buffer the chunk and split complete SSE lines at newline boundaries.
         self.buffered.extend_from_slice(chunk);
         let mut events = Vec::new();
 
@@ -92,7 +92,7 @@ impl SseDecoder {
                 raw_line.truncate(raw_line.len() - 1);
             }
 
-            // 处理空行结束的 event、注释行和普通 UTF-8 字段。
+            // Process blank-line event termination, comment lines, and ordinary UTF-8 fields.
             if raw_line.is_empty() {
                 if let Some(event) = self.current.take_event() {
                     events.push(event);
@@ -109,14 +109,14 @@ impl SseDecoder {
             self.current.apply_line(line);
         }
 
-        // 检查尚未结束的 line/event 是否已超出总大小上限。
+        // Check whether an incomplete line/event exceeds the total size limit.
         self.ensure_size_limit()?;
         Ok(events)
     }
 
-    /// 标记输入结束，并返回 EOF 前已完成的 event。
+    /// Marks input complete and returns events completed before EOF.
     pub fn finish(&mut self) -> Result<Vec<SseEvent>, SseDecodeError> {
-        // 将 EOF 前残留的无换行内容作为最后一行处理。
+        // Process content remaining before EOF without a newline as the final line.
         if !self.buffered.is_empty() {
             self.current_bytes = self
                 .current_bytes
@@ -137,12 +137,12 @@ impl SseDecoder {
             }
         }
 
-        // 清理计数并只返回已有字段的最后一个 event。
+        // Clear counters and return only the final event with fields already collected.
         self.current_bytes = 0;
         Ok(self.current.take_event().into_iter().collect())
     }
 
-    /// 检查尚未形成完整 line 的缓冲区是否仍在单 event 上限内。
+    /// Checks whether the buffer for an incomplete line remains within the per-event limit.
     fn ensure_size_limit(&self) -> Result<(), SseDecodeError> {
         if self.current_bytes.saturating_add(self.buffered.len()) > self.max_event_bytes {
             Err(SseDecodeError::EventTooLarge)
@@ -162,9 +162,9 @@ struct EventBuilder {
 }
 
 impl EventBuilder {
-    /// 解析一行 SSE field，并只保留当前协议边界需要的字段。
+    /// Parses one SSE field and retains only fields required by the current protocol boundary.
     fn apply_line(&mut self, line: &str) {
-        // 解析 field/value，并忽略 SSE 协议未建模的字段。
+        // Parse the field/value and ignore SSE fields not modeled by the protocol.
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
         let value = value.strip_prefix(' ').unwrap_or(value);
 
@@ -191,9 +191,9 @@ impl EventBuilder {
         }
     }
 
-    /// 在空行或 EOF 边界转移当前 event，并重置 builder 状态。
+    /// Finalizes the current event at a blank line or EOF and resets builder state.
     fn take_event(&mut self) -> Option<SseEvent> {
-        // 空事件不产生输出，完整事件则一次性转移字段所有权。
+        // Empty events produce no output; complete events transfer field ownership once.
         if !self.has_fields {
             return None;
         }

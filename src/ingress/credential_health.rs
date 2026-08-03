@@ -1,7 +1,8 @@
-//! Provider credential pool 的进程内 round-robin 与成员 cooldown。
+//! In-process round-robin selection and member cooldown for Provider credential pools.
 //!
-//! 状态键只包含注册表 pool id、非敏感成员 id 与 generation。模块不持有 secret，不解析
-//! 错误 body，也不把某个成员的 429 扩散为 Provider 或 target 整体故障。
+//! State keys contain only registry pool IDs, non-sensitive member IDs, and generations. The module
+//! holds no secrets, parses no error bodies, and does not turn one member's 429 into a Provider- or
+//! target-wide failure.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -27,14 +28,14 @@ struct PoolState {
     cooldowns: HashMap<MemberKey, Instant>,
 }
 
-/// 所有 GatewayState clone 共享的 pool 选择与 cooldown 状态。
+/// Pool-selection and cooldown state shared by every GatewayState clone.
 #[derive(Debug, Default)]
 pub(super) struct CredentialHealth {
     pools: Mutex<HashMap<String, PoolState>>,
 }
 
 impl CredentialHealth {
-    /// 按共享 cursor 选择一个未冷却且未在本请求中拒绝的成员索引。
+    /// Selects an index for a member that is not cooling down or rejected by this request.
     pub(super) fn select_member(
         &self,
         pool_id: &str,
@@ -42,7 +43,7 @@ impl CredentialHealth {
         rejected: &HashSet<String>,
         now: Instant,
     ) -> Option<usize> {
-        // 清理过期 cooldown 并从共享 cursor 开始扫描一圈。
+        // Remove expired cooldowns and scan one full cycle from the shared cursor.
         let mut pools = self
             .pools
             .lock()
@@ -57,14 +58,14 @@ impl CredentialHealth {
                 continue;
             }
 
-            // 选中后立即推进 cursor，使并发请求自然分散到后续成员。
+            // Advance the cursor immediately after selection so concurrent requests spread naturally.
             state.cursor = (index + 1) % members.len();
             return Some(index);
         }
         None
     }
 
-    /// 判断 pool 是否还有本请求可尝试的健康成员，不推进 round-robin cursor。
+    /// Returns whether the pool has a healthy member this request may try without advancing the round-robin cursor.
     pub(super) fn has_available_member(
         &self,
         pool_id: &str,
@@ -72,7 +73,7 @@ impl CredentialHealth {
         rejected: &HashSet<String>,
         now: Instant,
     ) -> bool {
-        // 清理过期条目后只执行无副作用可用性检查。
+        // Remove expired entries, then perform a side-effect-free availability check.
         let mut pools = self
             .pools
             .lock()
@@ -85,7 +86,7 @@ impl CredentialHealth {
         })
     }
 
-    /// 根据 429 的 `Retry-After` 为单个成员记录有界跨请求 cooldown。
+    /// Records a bounded cross-request cooldown for one member from `Retry-After` after a 429.
     pub(super) fn record_rate_limited(
         &self,
         pool_id: &str,
@@ -93,7 +94,7 @@ impl CredentialHealth {
         headers: &HeaderMap,
         now: Instant,
     ) {
-        // 缺失或非法 header 使用统一默认值，并把异常长建议限制到硬上限。
+        // Use one default for missing or invalid headers and cap unusually long suggestions.
         let delay = retry_after_delay(headers)
             .unwrap_or(DEFAULT_COOLDOWN)
             .min(MAX_COOLDOWN);
@@ -111,9 +112,9 @@ impl CredentialHealth {
             .or_insert(deadline);
     }
 
-    /// 成功响应只清除当前成员的 cooldown，不影响同 pool 其他成员。
+    /// A successful response clears only this member's cooldown and does not affect other pool members.
     pub(super) fn record_success(&self, pool_id: &str, member: &UpstreamCredential<'_>) {
-        // 精确删除包含 generation 的成员键，避免旧状态污染新快照。
+        // Remove the exact member key, including generation, so old state cannot affect a new snapshot.
         let mut pools = self
             .pools
             .lock()
@@ -124,7 +125,7 @@ impl CredentialHealth {
     }
 }
 
-/// 用非敏感 member id 与 generation 隔离不同启动快照的 cooldown。
+/// Isolates cooldowns from different startup snapshots with non-sensitive member IDs and generations.
 fn member_key(member: &UpstreamCredential<'_>) -> MemberKey {
     MemberKey {
         member_id: member.member_id().to_owned(),
@@ -169,7 +170,7 @@ mod tests {
 
     #[test]
     fn selector_advances_one_shared_round_robin_cursor() {
-        // 连续选择在同一个 pool 状态上确定性推进，不需要读取 secret。
+        // Consecutive selections advance deterministically on one pool state without reading secrets.
         let store = credential_store(1);
         let members = store
             .upstream_pool(
@@ -193,7 +194,7 @@ mod tests {
 
     #[test]
     fn cooldown_is_capped_and_generation_changes_isolate_old_state() {
-        // 超长 Retry-After 最多冷却 30 秒，期间仍可选择健康 peer。
+        // An excessive Retry-After cools down a member for at most 30 seconds; healthy peers remain selectable.
         let store = credential_store(1);
         let members = store
             .upstream_pool(
@@ -227,7 +228,7 @@ mod tests {
             Some(0)
         );
 
-        // 新 generation 即使复用 member ID，也不继承旧快照的 cooldown。
+        // A new generation does not inherit an old cooldown even when it reuses a member ID.
         selector.record_rate_limited("openai-primary", &members[0], &headers, now);
         let next_store = credential_store(2);
         let next_members = next_store
@@ -244,7 +245,7 @@ mod tests {
         );
         assert!(selector.has_available_member("openai-primary", &next_members, &rejected, now,));
 
-        // 非法 Retry-After 使用 1 秒默认值，而不是永久封锁成员。
+        // An invalid Retry-After uses the one-second default instead of permanently blocking the member.
         let default_selector = CredentialHealth::default();
         let mut invalid_headers = HeaderMap::new();
         invalid_headers.insert("retry-after", HeaderValue::from_static("invalid"));

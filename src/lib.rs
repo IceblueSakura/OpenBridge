@@ -1,7 +1,8 @@
-//! OpenBridge 的运行时库。
+//! OpenBridge runtime library.
 //!
-//! 当前 crate 实现 OpenAI-compatible 的原生转发基线：bootstrap 配置与显式代码注册表
-//! 在启动时编译为不可变 registry，HTTP 热路径只读取该 registry。
+//! This crate implements the native OpenAI-compatible forwarding baseline: bootstrap configuration
+//! and the explicit code registry are compiled into an immutable registry at startup, and the
+//! HTTP hot path reads only that registry.
 
 pub mod bridge;
 pub mod config;

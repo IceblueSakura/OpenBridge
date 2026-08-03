@@ -1,4 +1,4 @@
-"""验证 canonical case 对单次 client/server observation 的判定行为。"""
+"""Verify canonical-case decisions for one client/server observation."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ CORPUS_ROOT = Path(__file__).parents[3] / "testdata"
 
 
 def _matching_observations(case_id: str) -> tuple[dict, dict]:
-    """根据 canonical artifact 构造一对应通过校验的脱敏 observation。"""
+    """Build a matching redacted observation from canonical artifacts."""
     case_path = next(CORPUS_ROOT.rglob(f"{case_id}/case.json"))
     case = json.loads(case_path.read_text(encoding="utf-8"))
     expected_client = (
@@ -63,7 +63,7 @@ def _matching_observations(case_id: str) -> tuple[dict, dict]:
 
 
 def test_matching_client_and_server_observations_pass() -> None:
-    """验证匹配的 client/server observation 通过确定性比较。"""
+    """Verify that matching client/server observations pass deterministic comparison."""
     client, server = _matching_observations("responses_native.text.non_stream")
 
     assert verify_case_observations(
@@ -75,7 +75,7 @@ def test_matching_client_and_server_observations_pass() -> None:
 
 
 def test_mismatches_report_safe_field_paths() -> None:
-    """验证差异只报告安全字段路径，不回显私有正文。"""
+    """Verify that differences report only safe field paths without echoing private bodies."""
     client, server = _matching_observations("responses_native.text.non_stream")
     client["body_json"]["output"][0]["content"][0]["text"] = "private output"
     client["body_json"]["private field name"] = "private value"
@@ -95,7 +95,7 @@ def test_mismatches_report_safe_field_paths() -> None:
 
 
 def test_reject_case_does_not_require_server_observation() -> None:
-    """验证 reject case 不执行上游请求时无需 server observation。"""
+    """Verify that a reject case needs no server observation when no upstream request executes."""
     case_id = "responses_to_chat.continuation.reject"
     case_path = next(CORPUS_ROOT.rglob(f"{case_id}/case.json"))
     case = json.loads(case_path.read_text(encoding="utf-8"))
@@ -123,7 +123,7 @@ def test_reject_case_does_not_require_server_observation() -> None:
 
 
 def test_upstream_case_requires_server_observation() -> None:
-    """验证发生一次上游 attempt 的 case 必须提供 server observation。"""
+    """Verify that a case with one upstream attempt must provide a server observation."""
     client, _ = _matching_observations("responses_native.text.non_stream")
 
     errors = verify_case_observations(
@@ -137,7 +137,7 @@ def test_upstream_case_requires_server_observation() -> None:
 
 
 def test_stream_observations_compare_exact_wire_and_terminal() -> None:
-    """验证流式 observation 同时比较原始 wire hash 和 terminal 列表。"""
+    """Verify that streaming observations compare both raw wire digests and terminal lists."""
     case_id = "responses_native.sse_framing"
     case_path = next(CORPUS_ROOT.rglob(f"{case_id}/case.json"))
     case = json.loads(case_path.read_text(encoding="utf-8"))
@@ -186,7 +186,7 @@ def test_stream_observations_compare_exact_wire_and_terminal() -> None:
 
 
 def test_http_error_observations_require_declared_response_headers() -> None:
-    """验证 HTTP error 的 response headers 必须与 canonical 声明一致。"""
+    """Verify that HTTP error response headers match the canonical declaration."""
     case_id = "responses_native.rate_limit.non_stream"
     client, server = _matching_observations(case_id)
     client["end"] = "error_response"
@@ -219,7 +219,7 @@ def test_http_error_observations_require_declared_response_headers() -> None:
 
 
 def test_observation_hash_must_match_recorded_body() -> None:
-    """验证 observation 的 body hash 必须匹配记录的 base64 body。"""
+    """Verify that an observation body digest matches its recorded Base64 body."""
     client, server = _matching_observations("responses_native.text.non_stream")
     client["body_sha256"] = "0" * 64
 
@@ -234,7 +234,7 @@ def test_observation_hash_must_match_recorded_body() -> None:
 
 
 def test_malformed_nested_observation_shape_is_a_corpus_error() -> None:
-    """验证嵌套 observation 类型错误会形成 CorpusError。"""
+    """Verify that nested observation type errors become CorpusError."""
     client, server = _matching_observations("responses_native.text.non_stream")
     client["response"] = []
 
@@ -251,7 +251,7 @@ def test_cli_reports_verdict_without_echoing_body(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """验证 CLI 只输出 verdict 和安全字段路径，不回显响应正文。"""
+    """Verify that the CLI prints only verdicts and safe field paths, not response bodies."""
     case_id = "responses_native.text.non_stream"
     client, server = _matching_observations(case_id)
     client_path = tmp_path / "client.json"

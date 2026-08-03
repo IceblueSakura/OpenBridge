@@ -1,10 +1,11 @@
-//! Provider 静态 contract 与 adapter 的单一描述符。
+//! Single descriptor for a Provider's static contract and adapter.
 //!
-//! 描述符只聚合已编译元数据，不注册 target、Route 或 Public Model，也不读取 credential。
+//! The descriptor aggregates compiled metadata only; it does not register targets, Routes, or
+//! Public Models and does not read credentials.
 
 use super::{ProviderAdapter, ProviderContract, ProviderKind};
 
-/// 同时绑定一个 Provider 的静态 contract 与闭合 adapter。
+/// Binds a Provider's static contract and closed adapter.
 #[derive(Clone, Copy)]
 pub struct ProviderDefinition {
     contract: &'static ProviderContract,
@@ -12,22 +13,22 @@ pub struct ProviderDefinition {
 }
 
 impl ProviderDefinition {
-    /// 创建由具体 Provider 模块拥有的静态描述符。
+    /// Creates a static descriptor owned by the concrete Provider module.
     pub(crate) const fn new(contract: &'static ProviderContract, adapter: ProviderAdapter) -> Self {
         Self { contract, adapter }
     }
 
-    /// 返回描述符对应的 Provider kind。
+    /// Returns the Provider kind represented by the descriptor.
     pub fn kind(&self) -> ProviderKind {
         self.contract.kind()
     }
 
-    /// 返回 Provider 的静态能力与配置上界。
+    /// Returns the Provider's static capabilities and configuration ceiling.
     pub fn contract(&self) -> &'static ProviderContract {
         self.contract
     }
 
-    /// 返回 Provider 的闭合请求与响应 adapter。
+    /// Returns the Provider's closed request and response adapter.
     pub fn adapter(&self) -> ProviderAdapter {
         self.adapter
     }

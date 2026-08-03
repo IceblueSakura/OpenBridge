@@ -1,6 +1,7 @@
-//! 仅用于 bootstrap TOML 反序列化的私有文档模型。
+//! Private document model used only to deserialize bootstrap TOML.
 //!
-//! Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 均由 Rust 代码注册，不属于运行时配置。
+//! Provider, Model, Upstream Target, Upstream API, Route, and Public Model entries are registered
+//! in Rust code and are not runtime configuration.
 
 use serde::Deserialize;
 use std::path::PathBuf;

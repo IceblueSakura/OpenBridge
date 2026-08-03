@@ -1,4 +1,4 @@
-//! Native 与 Bridged 上游 SSE body 的增量处理。
+//! Incremental processing of Native and Bridged upstream SSE bodies.
 
 use std::io;
 
@@ -13,14 +13,14 @@ use crate::{
     transport::sse::SseDecoder,
 };
 
-/// 增量解码上游 SSE，并用单请求 Bridge renderer 生成目标协议 event。
+/// Incrementally decodes upstream SSE and uses a per-request Bridge renderer to emit target-protocol events.
 pub(super) fn bridge_sse_body(
     body: axum::body::Body,
     renderer: BridgeStreamRenderer,
     max_sse_event_bytes: usize,
     observation: RequestObservation,
 ) -> axum::body::Body {
-    // 保持 source、decoder 与 renderer 同生命周期，下游 drop 会同步取消上游 body。
+    // Keep the source, decoder, and renderer together so downstream drop cancels the upstream body.
     let stream = stream::unfold(
         (
             Box::pin(body.into_data_stream()),
@@ -125,12 +125,12 @@ pub(super) fn bridge_sse_body(
     axum::body::Body::from_stream(stream)
 }
 
-/// 在不重写原始 bytes 的前提下观察上游 SSE 生命周期。
+/// Observes the upstream SSE lifecycle without rewriting the original bytes.
 ///
-/// decoder 仅用于处理跨网络 chunk 的 UTF-8/SSE framing，并委托 provider adapter 识别协议
-/// terminal event。合法 EOF 但未看到 terminal 会保留已收到的 bytes 并记录 warning；无效
-/// framing、无效 UTF-8 或上游 body error 则以 stream error 关闭。body 被下游丢弃时，
-/// `source` 一并 drop，从而取消 reqwest 的上游字节流。
+/// The decoder handles UTF-8/SSE framing across network chunks and delegates protocol-terminal
+/// detection to the Provider adapter. A clean EOF without a terminal preserves received bytes and
+/// records a warning; invalid framing, invalid UTF-8, or an upstream body error closes with a stream
+/// error. When downstream drops the body, `source` is dropped as well, cancelling the reqwest stream.
 pub(super) fn validate_sse_body(
     body: axum::body::Body,
     protocol: ApiProtocol,
@@ -138,7 +138,7 @@ pub(super) fn validate_sse_body(
     max_sse_event_bytes: usize,
     observation: RequestObservation,
 ) -> axum::body::Body {
-    // 创建保持上游 source 生命周期的增量 SSE decoder。
+    // Create an incremental SSE decoder that owns the upstream source lifetime.
     let stream = stream::unfold(
         (
             Box::pin(body.into_data_stream()),
@@ -151,7 +151,7 @@ pub(super) fn validate_sse_body(
             if finished {
                 return None;
             }
-            // 读取下一个上游 chunk，并只观察 framing/terminal，不改写原始 bytes。
+            // Read the next upstream chunk and observe framing/terminal state without rewriting bytes.
             match source.as_mut().next().await {
                 Some(Ok(chunk)) => {
                     observation.record_upstream_chunk(&chunk);
@@ -238,7 +238,7 @@ pub(super) fn validate_sse_body(
     axum::body::Body::from_stream(stream)
 }
 
-/// 分类一个或多个已完成 framing 的 SSE event，并更新 terminal/failure 观测。
+/// Classifies one or more fully framed SSE events and updates terminal/failure observation.
 fn observe_sse_events(
     adapter: ProviderAdapter,
     protocol: ApiProtocol,
@@ -246,7 +246,7 @@ fn observe_sse_events(
     terminal_seen: &mut bool,
     observation: &RequestObservation,
 ) -> Result<(), ()> {
-    // 逐个交给 Provider adapter 分类，只记录 terminal/failure，不保存事件正文。
+    // Classify each event through the Provider adapter; record only terminal/failure state, not event content.
     for event in events {
         let decoded = adapter
             .classify_sse_event(protocol, event)

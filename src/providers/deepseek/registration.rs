@@ -1,4 +1,4 @@
-//! DeepSeek V4 Upstream Target 与 Chat Upstream API 注册。
+//! Registers DeepSeek V4 Upstream Targets and Chat Upstream APIs.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use crate::{
 
 use super::CONTRACT;
 
-/// 构造 DeepSeek V4 Pro 与 Flash 的固定 upstream targets。
+/// Builds the fixed upstream targets for DeepSeek V4 Pro and Flash.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
@@ -32,7 +32,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     ]
 }
 
-/// 为一个 DeepSeek V4 模型构造 Chat-only target。
+/// Builds a Chat-only target for a DeepSeek V4 model.
 fn target(
     id: &str,
     canonical_model: &str,

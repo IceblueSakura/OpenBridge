@@ -1,11 +1,11 @@
-//! Xiaomi MiMo-V2.5 的完整 canonical 模型事实。
+//! Complete canonical model facts for Xiaomi MiMo-V2.5.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// MiMo-V2.5 在 OpenBridge 模型目录中的稳定 id。
+/// Stable OpenBridge catalog ID for MiMo-V2.5.
 pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
 
-/// 构造 MiMo-V2.5 的 context、参数和 reasoning 事实。
+/// Builds the context, parameter, and reasoning facts for MiMo-V2.5.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),

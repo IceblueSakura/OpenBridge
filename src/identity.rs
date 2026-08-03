@@ -1,7 +1,7 @@
-//! 启动时加载的下游用户与 API Key 注册表。
+//! Startup-loaded registry of downstream users and API keys.
 //!
-//! 用户文件只在监听开始前读取一次。运行期间注册表保持不可变；新增用户、停用用户或更换
-//! API Key 都需要修改文件并重启进程。
+//! The user file is read once before listening starts. The registry remains immutable during
+//! runtime; adding users, disabling users, or replacing API keys requires a file change and restart.
 
 use std::{
     collections::BTreeSet,
@@ -18,7 +18,7 @@ use crate::credential::{CredentialStore, CredentialStoreBuilder, CredentialStore
 const USERS_SCHEMA_VERSION: u32 = 1;
 const MIN_API_KEY_BYTES: usize = 32;
 
-/// 认证成功后的稳定下游用户身份。
+/// Stable downstream-user identity after successful authentication.
 #[derive(Debug, Eq, PartialEq)]
 pub struct User {
     id: String,
@@ -26,35 +26,35 @@ pub struct User {
 }
 
 impl User {
-    /// 返回稳定的下游用户 id。
+    /// Returns the stable downstream-user ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// 返回用于展示或审计的用户名称。
+    /// Returns the user name used for display or audit.
     pub fn name(&self) -> &str {
         &self.name
     }
 }
 
-/// 运行期间只读的下游用户注册表。
+/// Read-only downstream-user registry for the runtime.
 pub struct UserRegistry {
     users: Vec<Arc<User>>,
 }
 
 impl UserRegistry {
-    /// 通过统一 CredentialStore 认证 API Key，并返回对应的稳定用户身份。
+    /// Authenticates an API key through the shared CredentialStore and returns its stable user identity.
     pub fn authenticate(
         &self,
         credentials: &CredentialStore,
         candidate: &str,
     ) -> Option<Arc<User>> {
-        // 让 Store 完成用途隔离和 constant-time Key 匹配，再按非敏感用户 ID 查询身份。
+        // Let the Store enforce purpose isolation and constant-time key matching, then look up the identity by non-sensitive user ID.
         let user_id = credentials.authenticate_downstream(candidate)?;
         self.users.iter().find(|user| user.id() == user_id).cloned()
     }
 
-    /// 枚举所有已启用用户，但不暴露任何 API key。
+    /// Enumerates all enabled users without exposing any API key.
     pub fn users(&self) -> impl Iterator<Item = &User> {
         self.users.iter().map(Arc::as_ref)
     }
@@ -69,18 +69,18 @@ impl fmt::Debug for UserRegistry {
     }
 }
 
-/// 已解析的下游用户元数据与待合并 credential 构造器。
+/// Parsed downstream-user metadata and a credential builder awaiting merge.
 ///
-/// 调用方必须在启动阶段继续加入上游 credential，再构造唯一的运行时 Store。
+/// The caller must add upstream credentials during startup before building the single runtime Store.
 pub struct UserConfiguration {
     users: UserRegistry,
     credentials: CredentialStoreBuilder,
 }
 
 impl UserConfiguration {
-    /// 解析并校验用户 TOML，把身份元数据与 secret 分离到各自所有者。
+    /// Parses and validates user TOML, separating identity metadata and secrets into their owners.
     pub fn from_toml(document: &str) -> Result<Self, UserRegistryError> {
-        // 解析文档并确认用户配置 schema。
+        // Parse the document and verify the user-configuration schema.
         let raw: RawUsers = toml::from_str(document).map_err(|_| UserRegistryError::Parse)?;
         if raw.schema_version != USERS_SCHEMA_VERSION {
             return Err(UserRegistryError::UnsupportedSchema {
@@ -88,7 +88,7 @@ impl UserConfiguration {
             });
         }
 
-        // 校验用户元数据，并把全部 Key 交给 Store builder 检查唯一性。
+        // Validate user metadata and let the Store builder check all key uniqueness.
         let mut ids = BTreeSet::new();
         let mut users = Vec::new();
         let mut credentials = CredentialStoreBuilder::new();
@@ -120,7 +120,7 @@ impl UserConfiguration {
                 }));
             }
         }
-        // 拒绝没有任何可用于认证的用户的注册表。
+        // Reject a registry with no user available for authentication.
         if users.is_empty() {
             return Err(UserRegistryError::NoEnabledUsers);
         }
@@ -130,12 +130,12 @@ impl UserConfiguration {
         })
     }
 
-    /// 返回已启用的非敏感用户注册表。
+    /// Returns the enabled non-sensitive user registry.
     pub fn users(&self) -> &UserRegistry {
         &self.users
     }
 
-    /// 拆分用户注册表与 credential 构造器，供 composition root 完成启动快照。
+    /// Splits the user registry and credential builder so the composition root can complete the startup snapshot.
     pub fn into_parts(self) -> (UserRegistry, CredentialStoreBuilder) {
         (self.users, self.credentials)
     }
@@ -151,9 +151,9 @@ impl fmt::Debug for UserConfiguration {
     }
 }
 
-/// 将 credential builder 错误收敛为用户配置层的稳定错误。
+/// Collapses credential-builder errors into stable user-configuration errors.
 fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
-    // 将 credential builder 的细粒度错误收敛为不泄露 secret 的用户配置错误。
+    // Collapse detailed credential-builder errors into user-configuration errors that reveal no secrets.
     match error {
         CredentialStoreError::DuplicateDownstreamSecret => UserRegistryError::DuplicateApiKey,
         CredentialStoreError::DuplicateId => UserRegistryError::DuplicateApiKey,
@@ -166,42 +166,42 @@ fn map_credential_error(error: CredentialStoreError) -> UserRegistryError {
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
-/// 下游用户 TOML 解析或校验失败。
+/// Downstream-user TOML parsing or validation failed.
 pub enum UserRegistryError {
-    /// TOML 文档无法解析为用户配置。
+    /// The TOML document could not be parsed as user configuration.
     #[error("invalid user configuration")]
     Parse,
-    /// 文档声明了当前运行时不支持的 schema 版本。
+    /// The document declares a schema version unsupported by this runtime.
     #[error("unsupported user configuration schema version {actual}")]
     UnsupportedSchema {
-        /// 文档中声明的 schema 版本。
+        /// Schema version declared by the document.
         actual: u32,
     },
-    /// 用户 id 为空。
+    /// The user ID is blank.
     #[error("user id must not be blank")]
     BlankUserId,
-    /// 用户 id 重复。
+    /// The user ID is duplicated.
     #[error("user id '{id}' is configured more than once")]
     DuplicateUserId {
-        /// 重复的用户 id。
+        /// Duplicated user ID.
         id: String,
     },
-    /// 用户名称为空。
+    /// The user name is blank.
     #[error("user '{id}' name must not be blank")]
     BlankUserName {
-        /// 名称为空的用户 id。
+        /// User ID whose name is blank.
         id: String,
     },
-    /// API key 长度不足安全下限。
+    /// The API key is shorter than the security minimum.
     #[error("user '{id}' API key must contain at least 32 bytes")]
     ApiKeyTooShort {
-        /// API key 不合规的用户 id。
+        /// User ID whose API key is invalid.
         id: String,
     },
-    /// 同一个 API key 被多个用户复用。
+    /// The same API key is reused by multiple users.
     #[error("the same downstream API key is configured for more than one user")]
     DuplicateApiKey,
-    /// 配置中没有任何已启用用户。
+    /// The configuration has no enabled user.
     #[error("at least one downstream user must be enabled")]
     NoEnabledUsers,
 }
@@ -227,46 +227,46 @@ const fn enabled_by_default() -> bool {
     true
 }
 
-/// 用户配置文件路径。
+/// Path to the user configuration file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserConfigPath(PathBuf);
 
 impl UserConfigPath {
-    /// 创建一个由调用方指定路径的用户配置定位器。
+    /// Creates a user-configuration locator for a caller-supplied path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
 
-    /// 返回用户配置文件路径。
+    /// Returns the user configuration file path.
     pub fn path(&self) -> &Path {
         &self.0
     }
 
-    /// 读取并解析用户配置文件。
+    /// Reads and parses the user configuration file.
     pub fn load(&self) -> Result<UserConfiguration, UserConfigFileError> {
-        // 读取配置文件并保留路径上下文。
+        // Read the configuration file while preserving path context.
         let document = fs::read_to_string(&self.0).map_err(|source| UserConfigFileError::Read {
             path: self.0.clone(),
             source,
         })?;
-        // 校验内容并转换为不可变用户注册表。
+        // Validate the content and convert it into an immutable user registry.
         UserConfiguration::from_toml(&document).map_err(UserConfigFileError::Invalid)
     }
 }
 
 #[derive(Debug, Error)]
-/// 用户配置文件读取或内容校验失败。
+/// User configuration file reading or content validation failed.
 pub enum UserConfigFileError {
-    /// 无法读取用户配置文件。
+    /// The user configuration file could not be read.
     #[error("failed to read user configuration '{path}'")]
     Read {
-        /// 读取失败的文件路径。
+        /// Path of the file that could not be read.
         path: PathBuf,
         #[source]
-        /// 底层文件系统错误。
+        /// Underlying filesystem error.
         source: io::Error,
     },
-    /// 文件已读取，但内容未通过用户注册表校验。
+    /// The file was read, but its content failed user-registry validation.
     #[error("user configuration validation failed")]
     Invalid(#[source] UserRegistryError),
 }

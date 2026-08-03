@@ -1,7 +1,8 @@
-//! provider adapter 使用的安全 header、SSE 与错误分类契约。
+//! Safe header, SSE, and error-classification contracts used by Provider adapters.
 //!
-//! `SafeHeaders` 和 `SensitiveHeaders` 被故意分开：前者不能承载认证/host/cookie，后者
-//! 只在 egress 前转换成标记为 sensitive 的 HTTP header，并在释放时清零字符串内容。
+//! `SafeHeaders` and `SensitiveHeaders` are intentionally separate: the former cannot carry
+//! authentication, host, or cookie headers; the latter is converted to HTTP headers marked
+//! sensitive only before egress and zeroes its strings on drop.
 
 use std::{collections::HashMap, fmt};
 
@@ -15,23 +16,23 @@ use crate::transport::sse::SseEvent;
 
 use super::AdapterError;
 
-/// 允许受信 Provider hook 增删改的非敏感请求头集合。
+/// Non-sensitive request headers that trusted Provider hooks may add, change, or remove.
 ///
-/// 认证、cookie、host 和 proxy authorization 等头不能通过此类型写入。
+/// Authentication, cookie, host, and proxy-authorization headers cannot be written through this type.
 #[derive(Default)]
 pub struct SafeHeaders(HeaderMap);
 
 impl SafeHeaders {
-    /// 读取一个已允许的请求头。
+    /// Reads an allowed request header.
     pub fn get(&self, name: HeaderName) -> Option<&HeaderValue> {
         self.0.get(name)
     }
 
-    /// 写入或替换一个普通请求头。
+    /// Writes or replaces an ordinary request header.
     ///
-    /// 认证、cookie、Host 与 proxy authentication header 会被拒绝。
+    /// Rejects authentication, cookie, Host, and proxy-authentication headers.
     pub fn insert(&mut self, name: HeaderName, value: HeaderValue) -> Result<(), AdapterError> {
-        // 拒绝认证、cookie、host 和 proxy authorization，维持普通 header 的安全边界。
+        // Reject authentication, cookie, host, and proxy authorization to preserve the ordinary-header boundary.
         if name == AUTHORIZATION || name == PROXY_AUTHORIZATION || name == COOKIE || name == HOST {
             return Err(AdapterError::SensitiveHeaderInSafeSet);
         }
@@ -39,12 +40,12 @@ impl SafeHeaders {
         Ok(())
     }
 
-    /// 删除一个请求头并返回原值。
+    /// Removes a request header and returns its previous value.
     pub fn remove(&mut self, name: HeaderName) -> Option<HeaderValue> {
         self.0.remove(name)
     }
 
-    /// 消费安全 header 集合，交给 egress 组装最终请求。
+    /// Consumes the safe-header set for egress to assemble the final request.
     pub(crate) fn into_inner(self) -> HeaderMap {
         self.0
     }
@@ -88,30 +89,30 @@ mod tests {
     }
 }
 
-/// 仅在发送到上游前附加、并在调试输出中隐藏值的敏感请求头集合。
+/// Sensitive request headers added only before upstream send and hidden in debug output.
 #[derive(Default)]
 pub struct SensitiveHeaders(HashMap<HeaderName, Zeroizing<String>>);
 
 impl SensitiveHeaders {
-    /// 判断集合中是否包含指定头名。
+    /// Returns whether the set contains the named header.
     pub fn contains(&self, name: HeaderName) -> bool {
         self.0.contains_key(&name)
     }
 
-    /// 仅在 crate 内测试中读取敏感 header，生产代码不提供该访问路径。
+    /// Reads a sensitive header only in crate tests; production code has no such access path.
     #[cfg(test)]
     pub(super) fn expose(&self, name: HeaderName) -> Option<&str> {
         self.0.get(&name).map(|value| value.as_str())
     }
 
-    /// 暂存一个仍由 zeroizing 容器持有的敏感 header 值。
+    /// Stores a sensitive header value still held by a zeroizing container.
     pub(crate) fn insert(&mut self, name: HeaderName, value: Zeroizing<String>) {
         self.0.insert(name, value);
     }
 
-    /// 将敏感值转换为标记后的 HTTP header，并消费临时容器。
+    /// Converts the sensitive value into a marked HTTP header and consumes the temporary container.
     pub(crate) fn append_to(self, headers: &mut HeaderMap) -> Result<(), AdapterError> {
-        // 将敏感字符串一次性转换为 HTTP header，并标记为 sensitive 后释放来源容器。
+        // Convert the sensitive string once, mark the HTTP header sensitive, and release the source container.
         for (name, value) in self.0 {
             let mut value = HeaderValue::from_str(value.as_str())
                 .map_err(|_| AdapterError::InvalidAuthenticationHeader)?;
@@ -133,17 +134,17 @@ impl fmt::Debug for SensitiveHeaders {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// 上游 SSE event 在 ingress 中的生命周期状态。
+/// Lifecycle state of an upstream SSE event in ingress.
 pub enum StreamEventStatus {
-    /// event 不是终止事件，继续读取上游。
+    /// The event is not terminal; continue reading upstream.
     Continue,
-    /// event 表示正常完成。
+    /// The event represents normal completion.
     Completed,
-    /// event 表示 provider 侧失败。
+    /// The event represents a Provider-side failure.
     Failed,
 }
 
-/// 一个已完成 framing、但尚未由 ingress 重写的 SSE event。
+/// Fully framed SSE event not yet rewritten by ingress.
 #[derive(Debug)]
 pub struct ClassifiedSseEvent {
     event: SseEvent,
@@ -151,68 +152,68 @@ pub struct ClassifiedSseEvent {
 }
 
 impl ClassifiedSseEvent {
-    /// 创建一个已完成 framing 且已分类生命周期的 SSE event。
+    /// Creates an SSE event with completed framing and classified lifecycle.
     pub(crate) fn new(event: SseEvent, status: StreamEventStatus) -> Self {
         Self { event, status }
     }
 
-    /// 返回原始 SSE event。
+    /// Returns the raw SSE event.
     pub fn event(&self) -> &SseEvent {
         &self.event
     }
 
-    /// 返回 adapter 对 event 的生命周期判定。
+    /// Returns the adapter's lifecycle classification for the event.
     pub fn status(&self) -> StreamEventStatus {
         self.status
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// 上游 HTTP failure 的粗粒度类别。
+/// Coarse category for an upstream HTTP failure.
 pub enum UpstreamErrorKind {
-    /// 请求内容或参数不合法。
+    /// The request content or parameters are invalid.
     InvalidRequest,
-    /// 上游拒绝认证。
+    /// The upstream rejected authentication.
     Authentication,
-    /// 上游限流。
+    /// The upstream rate-limited the request.
     RateLimited,
-    /// 上游暂时不可用。
+    /// The upstream is temporarily unavailable.
     UpstreamUnavailable,
-    /// 其他上游失败。
+    /// Another upstream failure.
     UpstreamFailure,
 }
 
-/// adapter 对 HTTP status 给出的重试边界，而非“总是重试”的指令。
+/// Retry boundary reported by an adapter for an HTTP status, not an instruction to always retry.
 ///
-/// ingress 还会叠加 streaming、attempt 上限、candidate 顺序和是否已经下游输出等条件；
-/// `BeforeFirstEvent` 的含义是绝不能用于拼接已开始的 token stream。
+/// Ingress also applies streaming, attempt limits, candidate order, and downstream-output conditions;
+/// `BeforeFirstEvent` can never be used to append to a token stream that has already started.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetryHint {
-    /// 不允许基于该 status 自动重试。
+    /// Automatic retry is not allowed for this status.
     Never,
-    /// 仅允许在尚未向下游输出第一个 event 前重试。
+    /// Retry is allowed only before the first event is sent downstream.
     BeforeFirstEvent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// adapter 对上游 status 给出的错误类别和重试边界。
+/// Error category and retry boundary reported by an adapter for an upstream status.
 pub struct StatusClassification {
     kind: UpstreamErrorKind,
     retry_hint: RetryHint,
 }
 
 impl StatusClassification {
-    /// 创建一个绑定错误类别和最早重试边界的 status 结果。
+    /// Creates a status result bound to an error category and earliest retry boundary.
     pub(crate) fn new(kind: UpstreamErrorKind, retry_hint: RetryHint) -> Self {
         Self { kind, retry_hint }
     }
 
-    /// 返回上游错误类别。
+    /// Returns the upstream error category.
     pub fn kind(&self) -> UpstreamErrorKind {
         self.kind
     }
 
-    /// 返回 adapter 建议的最早重试边界。
+    /// Returns the earliest retry boundary suggested by the adapter.
     pub fn retry_hint(&self) -> RetryHint {
         self.retry_hint
     }

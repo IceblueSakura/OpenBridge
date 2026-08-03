@@ -1,4 +1,4 @@
-//! 集成测试共享的配置、凭证与 RoutePlan fixture。
+//! Shared configuration, credential, and RoutePlan fixtures for integration tests.
 
 use std::time::Duration;
 
@@ -51,7 +51,7 @@ pub fn users_and_credential_pool(
     registry: &RuntimeRegistry,
     upstream_secrets: &[&str],
 ) -> (Arc<UserRegistry>, Arc<CredentialStore>) {
-    // 解析下游用户，并取得同一个 credential builder。
+    // Parse downstream users and obtain the same credential builder.
     let configuration = UserConfiguration::from_toml(&format!(
         r#"
 schema_version = 1
@@ -66,7 +66,7 @@ enabled = true
     .expect("test user registry must be valid");
     let (users, mut credentials) = configuration.into_parts();
 
-    // 为测试 registry 中全部 pool 注入一项合成 secret。
+    // Inject one synthetic secret into every pool in the test registry.
     for pool_id in registry.credential_pool_ids() {
         let pool = registry.credential_pool(pool_id).unwrap();
         for (index, upstream_secret) in upstream_secrets.iter().enumerate() {

@@ -1,11 +1,11 @@
-//! Xiaomi MiMo 家族的 canonical 模型聚合入口。
+//! Aggregates canonical model facts for the Xiaomi MiMo family.
 
 use crate::registry::ModelConfig;
 
 pub(crate) mod v2_5;
 pub(crate) mod v2_5_pro;
 
-/// 返回 MiMo 家族所有编译进二进制的 canonical 模型事实。
+/// Returns all MiMo model facts compiled into the binary.
 pub(crate) fn configs() -> Vec<ModelConfig> {
     vec![v2_5_pro::config(), v2_5::config()]
 }

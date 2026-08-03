@@ -1,4 +1,4 @@
-//! 基于不可变 registry 生成有序 Native/Bridged Route 候选。
+//! Generates ordered Native/Bridged Route candidates from the immutable registry.
 
 use bytes::Bytes;
 use serde_json::Value;
@@ -19,17 +19,17 @@ use super::{
     },
 };
 
-/// 沿 Public Model 的有序 Route 生成 Native 或 Bridged 执行计划。
+/// Generates a Native or Bridged execution plan along the Public Model's ordered Routes.
 ///
-/// Native 请求字段除后续 adapter 改写的 `model` 外保持原样；Bridged 请求只转换明确
-/// allowlist 内的共同语义。Public Model 能力只预检一次；任一 BridgePlan 失败会拒绝整个
-/// 请求，不会成为跳过该 Route 的条件。
+/// Native request fields remain unchanged except for the `model` later rewritten by the adapter;
+/// Bridged requests convert only shared semantics in the explicit allowlist. Public Model
+/// request. A failed BridgePlan rejects the request and does not become a reason to skip the Route.
 pub fn plan_request(
     registry: &RuntimeRegistry,
     requirements: &RequestRequirements,
     body: Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
-    // 解析 Public Model，并在查看任何 Route 前按其唯一接口契约完成能力预检。
+    // Resolve the Public Model and complete its unique interface preflight before inspecting any Route.
     let public_model = registry
         .public_model(requirements.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?;
@@ -44,7 +44,7 @@ pub fn plan_request(
         return Err(error);
     }
 
-    // 严格按配置顺序构造可执行 Route；请求能力不改变候选资格或顺序。
+    // Build executable Routes in configuration order; request capabilities do not change eligibility or order.
     let mut protocol_mismatch_seen = false;
     let mut prepared_candidates = Vec::new();
     for route_id in public_model.routes() {
@@ -99,7 +99,7 @@ pub fn plan_request(
             reasoning_level_mapping,
         });
     }
-    // 没有候选时返回最具体的规划错误，否则构造带 fallback 边界的计划。
+    // Return the most specific planning error when no candidate exists; otherwise build a plan with fallback boundaries.
     if prepared_candidates.is_empty() {
         return Err(if protocol_mismatch_seen {
             RequestPlanningError::UnsupportedProtocol
@@ -115,13 +115,13 @@ pub fn plan_request(
     })
 }
 
-/// 将候选的显式 level 映射写入独立请求副本，并保留其他 Native 字段。
+/// Writes a candidate's explicit level mapping to an independent request copy while preserving other Native fields.
 fn apply_reasoning_level_mapping(
     request: ApiRequest,
     requested: RequestedReasoning,
     upstream_api: &UpstreamApi,
 ) -> Result<(ApiRequest, Option<ReasoningLevelMapping>), RequestPlanningError> {
-    // 只有已识别 level 且候选显式声明映射时才改写请求。
+    // Rewrite only when the level is recognized and the candidate declares an explicit mapping.
     let RequestedReasoning::Level(level) = requested else {
         return Ok((request, None));
     };
@@ -133,7 +133,7 @@ fn apply_reasoning_level_mapping(
         upstream: upstream.to_owned(),
     };
 
-    // 按请求分析使用的相同字段优先级改写唯一生效位置。
+    // Rewrite the single effective location using the same field priority as request analysis.
     let mut document: Value =
         serde_json::from_slice(request.body()).map_err(|_| RequestPlanningError::InvalidJson)?;
     let object = document
@@ -151,20 +151,20 @@ fn apply_reasoning_level_mapping(
         reasoning.insert("effort".to_owned(), Value::String(mapping.upstream.clone()));
     }
 
-    // 重新序列化候选请求，映射事实留在 RouteCandidate 供 tracing 观察。
+    // Re-serialize the candidate request and retain mapping facts in RouteCandidate for tracing.
     let body = serde_json::to_vec(&document)
         .map(Bytes::from)
         .map_err(|_| RequestPlanningError::InvalidJson)?;
     Ok((ApiRequest::new(request.protocol(), body), Some(mapping)))
 }
 
-/// 按 Public Model 的固定接口契约返回最具体的 fail-closed 规划错误。
+/// Returns the most specific fail-closed planning error from the Public Model's fixed interface contract.
 fn public_model_preflight_error(
     requested_features: RequestedCapabilities,
     requested_output_tokens: Option<u64>,
     interface: &ModelInterfaceCapabilities,
 ) -> Option<RequestPlanningError> {
-    // 先校验共享生成能力，未知状态与明确不支持都不能进入 egress。
+    // Validate shared generation capabilities first; unknown and explicitly unsupported states cannot reach egress.
     if requested_features.unmodeled_tools {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
@@ -191,7 +191,7 @@ fn public_model_preflight_error(
     }) {
         return Some(RequestPlanningError::OutputLimitExceeded);
     }
-    // 最后校验 reasoning 的支持状态和固定公共 level 集合。
+    // Finally validate reasoning support and the fixed public level set.
     match requested_features.reasoning {
         RequestedReasoning::None | RequestedReasoning::Level(ReasoningLevel::None) => {}
         RequestedReasoning::Unspecified

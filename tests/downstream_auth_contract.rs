@@ -1,4 +1,4 @@
-//! 验证下游用户文件的 schema、启停状态、API Key 认证和错误脱敏行为。
+//! Verifies the downstream user-file schema, enabled state, API-key authentication, and error redaction.
 
 use openbridge::identity::{UserConfiguration, UserRegistryError};
 

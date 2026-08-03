@@ -1,8 +1,9 @@
-//! 受限 Chat Completions 与 Responses 双向转换的公开计划与 renderer 门面。
+//! Public plan and renderer facade for restricted bidirectional Chat Completions and Responses conversion.
 //!
-//! 请求、非流式响应、流式响应和共享 wire 辅助逻辑分别位于私有子模块。本模块保持
-//! `BridgePlan`、`BridgeStreamRenderer` 与错误类型的稳定边界，不执行 tool，也不放宽
-//! Provider 私有扩展或未建模语义的 fail-closed 规则。
+//! Request, non-streaming response, streaming response, and shared wire helpers live in private
+//! submodules. This module owns the stable boundary for `BridgePlan`, `BridgeStreamRenderer`,
+//! and errors; it never executes tools or relaxes fail-closed rules for Provider extensions or
+//! unmodeled semantics.
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -23,22 +24,22 @@ mod response;
 mod shared;
 mod stream;
 
-/// 请求、响应或 stream 无法按受限 Bridge 契约转换时返回的错误。
+/// Error returned when a request, response, or stream cannot be converted under the restricted Bridge contract.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum BridgeError {
-    /// 输入不是符合方向要求的 JSON object。
+    /// The input is not a JSON object valid for the requested direction.
     #[error("bridge input is not a valid protocol object")]
     InvalidShape,
-    /// 输入使用了 Bridge 未声明支持的语义。
+    /// The input uses semantics not declared as Bridge-supported.
     #[error("bridge input uses unsupported semantics")]
     UnsupportedSemantics,
-    /// function call/result identity 缺失、重复或无法关联。
+    /// A function call/result identity is missing, duplicated, or unmatchable.
     #[error("bridge tool identity is invalid")]
     InvalidToolIdentity,
-    /// function arguments 不是闭合 JSON object。
+    /// Function arguments are not a closed JSON object.
     #[error("bridge function arguments are invalid")]
     InvalidToolArguments,
-    /// 上游 stream 生命周期失败。
+    /// The upstream stream lifecycle failed.
     #[error("bridge stream lifecycle is invalid")]
     InvalidStream,
 }
@@ -49,7 +50,7 @@ impl From<BridgeStreamError> for BridgeError {
     }
 }
 
-/// 一条已经固定转换方向、Public Model 和上游模型的执行计划。
+/// Execution plan with a fixed conversion direction, Public Model, and upstream model.
 #[derive(Clone, Debug)]
 pub struct BridgePlan {
     downstream_protocol: ApiProtocol,
@@ -59,7 +60,7 @@ pub struct BridgePlan {
 }
 
 impl BridgePlan {
-    /// 校验并转换下游请求，返回不可变计划与上游协议请求。
+    /// Validates and converts a downstream request into an immutable plan and upstream protocol request.
     pub fn prepare(
         downstream_protocol: ApiProtocol,
         upstream_protocol: ApiProtocol,
@@ -77,7 +78,8 @@ impl BridgePlan {
         )
     }
 
-    /// 校验并转换请求，并按上游协议声明的输出类型决定 reasoning 是否可跨协议传递。
+    /// Validates and converts a request, allowing reasoning to cross protocols only when the upstream
+    /// protocol declares a representable output type.
     pub fn prepare_with_reasoning_output(
         downstream_protocol: ApiProtocol,
         upstream_protocol: ApiProtocol,
@@ -86,10 +88,10 @@ impl BridgePlan {
         body: Bytes,
         reasoning_output: ReasoningOutput,
     ) -> Result<(Self, ApiRequest), BridgeError> {
-        // 只把当前上游协议能够安全映射的 readable reasoning 交给方向转换器。
+        // Pass only reasoning that the current upstream protocol can safely represent to the directional converter.
         let reasoning_supported = bridge_reasoning_supported(upstream_protocol, reasoning_output);
 
-        // 拒绝同协议调用和不受支持的扩展，再执行方向专用转换。
+        // Reject same-protocol calls and unsupported extensions before running directional conversion.
         if downstream_protocol == upstream_protocol {
             return Err(BridgeError::UnsupportedSemantics);
         }
@@ -105,7 +107,7 @@ impl BridgePlan {
             _ => return Err(BridgeError::UnsupportedSemantics),
         };
 
-        // 固化响应转换需要的下游事实，并把紧凑 JSON 交给 Provider adapter。
+        // Fix the downstream facts required for response conversion and pass compact JSON to the Provider adapter.
         let request = ApiRequest::new(
             upstream_protocol,
             Bytes::from(serde_json::to_vec(&converted).map_err(|_| BridgeError::InvalidShape)?),
@@ -121,19 +123,19 @@ impl BridgePlan {
         ))
     }
 
-    /// 返回计划的下游协议。
+    /// Returns the plan's downstream protocol.
     pub fn downstream_protocol(&self) -> ApiProtocol {
         self.downstream_protocol
     }
 
-    /// 返回计划实际调用的上游协议。
+    /// Returns the protocol actually called by the plan.
     pub fn upstream_protocol(&self) -> ApiProtocol {
         self.upstream_protocol
     }
 
-    /// 将一个完整成功上游 JSON response 转换为下游协议。
+    /// Converts a complete successful upstream JSON response to the downstream protocol.
     pub fn render_non_stream(&self, body: Bytes) -> Result<Bytes, BridgeError> {
-        // 解析上游对象并按固定方向生成下游 response。
+        // Parse the upstream object and build the downstream response for the fixed direction.
         let source = parse_value_object(&body)?;
         let converted = match (self.downstream_protocol, self.upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
@@ -149,13 +151,13 @@ impl BridgePlan {
             .map_err(|_| BridgeError::InvalidShape)
     }
 
-    /// 创建只服务于本次请求的增量 SSE renderer。
+    /// Creates an incremental SSE renderer dedicated to this request.
     pub fn stream_renderer(&self) -> BridgeStreamRenderer {
         BridgeStreamRenderer::new(self.clone())
     }
 }
 
-/// 判断上游 reasoning 输出能否被当前 Bridge 方向安全表示。
+/// Determines whether upstream reasoning output is safely representable in the current Bridge direction.
 fn bridge_reasoning_supported(
     upstream_protocol: ApiProtocol,
     reasoning_output: ReasoningOutput,
@@ -166,7 +168,7 @@ fn bridge_reasoning_supported(
     }
 }
 
-/// 将上游完整 SSE event 增量渲染成下游协议 event。
+/// Renders a complete upstream SSE event into downstream protocol events.
 pub struct BridgeStreamRenderer {
     plan: BridgePlan,
     state: StreamState,
@@ -191,7 +193,7 @@ impl BridgeStreamRenderer {
         Self { plan, state }
     }
 
-    /// 消费一个已完成 framing 的上游 event，并返回零个或多个下游 SSE event bytes。
+    /// Consumes one fully framed upstream event and returns zero or more downstream SSE event bytes.
     pub fn render(&mut self, event: SseEvent) -> Result<Bytes, BridgeError> {
         match &mut self.state {
             StreamState::ResponsesToChat(state) => state.render(event, &self.plan.public_model),
@@ -199,7 +201,7 @@ impl BridgeStreamRenderer {
         }
     }
 
-    /// 结束上游输入并确认显式 terminal 已经到达。
+    /// Ends upstream input and confirms that an explicit terminal has arrived.
     pub fn finish(&mut self) -> Result<Bytes, BridgeError> {
         match &mut self.state {
             StreamState::ResponsesToChat(state) => state.finish(),

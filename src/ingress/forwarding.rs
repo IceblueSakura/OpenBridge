@@ -1,4 +1,4 @@
-//! 已规划 Route candidate 的 credential rotation、有限 retry/fallback 与响应接管。
+//! Credential rotation, bounded retry/fallback, and response takeover for planned Route candidates.
 
 use std::collections::HashSet;
 
@@ -31,13 +31,13 @@ struct StoredHttpFailure {
     bridge: Option<BridgePlan>,
 }
 
-/// 将一个已经过 HTTP 输入检查的请求送往有序 Native/Bridged candidate。
+/// Sends a request that passed HTTP input checks through ordered Native/Bridged candidates.
 ///
-/// 每次调用共享启动时构建的不可变 registry。仅 streaming 请求可在**尚未返回任何下游
-/// body**时重试：一旦 `UpstreamResponse`
-/// 被交给客户端，后续 SSE bytes 只能原样继续或以 body error 终止，绝不能拼接第二个
-/// 上游尝试。`previous_response_id` 等 target-bound state 会令 pipeline 关闭跨 candidate
-/// fallback，但仍可在同一 candidate 上执行有限 pre-output retry。
+/// Each call uses the immutable registry built at startup. A streaming request may retry only
+/// before any downstream body is returned. Once an `UpstreamResponse` is given to the client,
+/// later SSE bytes may only continue unchanged or terminate with a body error; a second upstream
+/// attempt can never be appended. Target-bound state such as `previous_response_id` disables
+/// cross-candidate fallback while allowing bounded pre-output retry on the same candidate.
 pub(super) async fn forward_request(
     state: GatewayState,
     observation: RequestObservation,
@@ -45,7 +45,7 @@ pub(super) async fn forward_request(
     downstream_headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // 分析请求事实，完成一次 Public Model 预检并生成固定顺序的 RoutePlan。
+    // Analyze request facts, perform one Public Model preflight, and build the fixed-order RoutePlan.
     let registry = state.registry.clone();
     let requirements = match analyze_request(protocol, &body) {
         Ok(requirements) => requirements,
@@ -70,7 +70,7 @@ pub(super) async fn forward_request(
     let mut cooldown_skipped = false;
     let mut last_http_failure = None;
 
-    // 按优先级准备每个 candidate 的 target、credential、adapter 和原生请求。
+    // Prepare each candidate's target, credential, adapter, and Native request by priority.
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
@@ -82,7 +82,7 @@ pub(super) async fn forward_request(
                 "Configured upstream target is unavailable",
             );
         };
-        // 新无状态请求跳过仍在 cooldown 的 scope；target-bound continuation 始终尝试原目标。
+        // New stateless requests skip scopes still cooling down; target-bound continuations always try the original target.
         if observe_cross_request_health
             && !state.health.is_available(
                 candidate.upstream_target_id(),
@@ -138,9 +138,9 @@ pub(super) async fn forward_request(
         let mut rejected_members = HashSet::new();
         let mut current_member = None;
 
-        // 在尚未向下游提交 response 时选择成员并执行请求级受限 attempt。
+        // Select members and execute bounded request-level attempts before committing a downstream response.
         loop {
-            // 429 后从共享 cursor 选择下一成员；5xx 与 transport retry 保留当前成员。
+            // After 429, select the next member from the shared cursor; 5xx and transport retries keep the current member.
             let member_index = match current_member {
                 Some(index) => index,
                 None => {
@@ -215,7 +215,7 @@ pub(super) async fn forward_request(
                 .await
             {
                 Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
-                    // 按 HTTP 分类分别记录成员级 429 或目标级暂时不可用。
+                    // Record member-level 429 or target-level temporary unavailability by HTTP category.
                     observation.record_attempt_http_result(
                         attempts.attempts_started() as u64,
                         upstream.status(),
@@ -294,7 +294,7 @@ pub(super) async fn forward_request(
                     }
                 }
                 Ok(upstream) => {
-                    // 只有成功 HTTP response 才清除该 target 的已知 cooldown。
+                    // Clear the target's known cooldown only after a successful HTTP response.
                     observation.record_attempt_http_result(
                         attempts.attempts_started() as u64,
                         upstream.status(),
@@ -322,7 +322,7 @@ pub(super) async fn forward_request(
                     .await;
                 }
                 Err(error) if should_retry_error(&error) => {
-                    // timeout/transport failure 只隔离 fault domain，不污染 quota scope。
+                    // Timeout/transport failure isolates only the fault domain and does not affect the quota scope.
                     observation.record_attempt_transport_failure(
                         attempts.attempts_started() as u64,
                         transport_error_kind(&error),
@@ -387,17 +387,17 @@ pub(super) async fn forward_request(
     }
 }
 
-/// 判断 status 是否允许在首个下游 event 前继续当前 attempt 流程。
+/// Returns whether a status permits continuing the current attempt before the first downstream event.
 fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode) -> bool {
     adapter.classify_status(status).retry_hint() == crate::provider::RetryHint::BeforeFirstEvent
 }
 
-/// 只把可安全重新发送的 timeout/request transport failure 纳入 retry。
+/// Includes only timeout/request transport failures that can be safely resent in retry.
 fn should_retry_error(error: &TransportError) -> bool {
     matches!(error, TransportError::Timeout | TransportError::Request(_))
 }
 
-/// 将 transport 错误映射为不含底层消息的低基数观测类别。
+/// Maps transport errors to low-cardinality observation categories without underlying messages.
 fn transport_error_kind(error: &TransportError) -> &'static str {
     match error {
         TransportError::ClientBuild(_) => "client_build",

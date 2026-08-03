@@ -1,4 +1,4 @@
-//! 验证上下游 credential 合并、用途隔离、唯一性和 state-affinity 约束。
+//! Verifies downstream/upstream credential merging, purpose isolation, uniqueness, and state affinity.
 
 use openbridge::{
     credential::{

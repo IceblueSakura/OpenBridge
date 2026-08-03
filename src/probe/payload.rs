@@ -1,7 +1,7 @@
-//! capability probe 的固定 JSON 请求与协议响应形状判定。
+//! Fixed JSON requests and protocol-response shape checks for capability probes.
 //!
-//! 本模块只生成内置 prompt、function schema 和 tool-result replay，不接受外部 URL、model
-//! 选择或任意请求正文。
+//! This module generates only built-in prompts, function schemas, and tool-result replays. It
+//! accepts no external URL, model selection, or arbitrary request body.
 
 use serde_json::{Value, json};
 
@@ -10,7 +10,7 @@ use crate::core::ApiProtocol;
 const PROBE_PROMPT: &str = "Reply with exactly OK.";
 const TOOL_NAME: &str = "openbridge_probe";
 
-/// 构造最小非流式文本 probe 请求。
+/// Builds the minimum non-streaming text probe request.
 pub(super) fn probe_text_request(
     protocol: ApiProtocol,
     model: &str,
@@ -33,7 +33,7 @@ pub(super) fn probe_text_request(
     }
 }
 
-/// 构造目标协议的固定 function tool 定义。
+/// Builds the fixed function-tool definition for the target protocol.
 fn tool_definition(protocol: ApiProtocol) -> Value {
     match protocol {
         ApiProtocol::ChatCompletions => json!({
@@ -61,7 +61,7 @@ fn tool_definition(protocol: ApiProtocol) -> Value {
     }
 }
 
-/// 构造要求调用固定 function 的首轮 probe 请求。
+/// Builds the first probe request that requires the fixed function call.
 pub(super) fn probe_tool_request(
     protocol: ApiProtocol,
     model: &str,
@@ -89,7 +89,7 @@ pub(super) fn probe_tool_request(
     }
 }
 
-/// 从首轮响应提取稳定 tool identity，并构造结果回放请求。
+/// Extracts stable tool identity from the first response and builds the result-replay request.
 pub(super) fn tool_result_replay_request(
     protocol: ApiProtocol,
     model: &str,
@@ -143,7 +143,7 @@ pub(super) fn tool_result_replay_request(
     }
 }
 
-/// 判断成功 JSON 是否具有目标协议的最小 response 形状。
+/// Returns whether successful JSON has the minimum response shape for the target protocol.
 pub(super) fn is_protocol_response(protocol: ApiProtocol, response: &Value) -> bool {
     match protocol {
         ApiProtocol::ChatCompletions => response

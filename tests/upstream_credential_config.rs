@@ -1,4 +1,4 @@
-//! 验证私有上游 credential TOML 的解析、pool 绑定和环境变量隔离边界。
+//! Verifies private upstream credential TOML parsing, pool binding, and environment-variable isolation.
 
 use openbridge::{
     credential::CredentialSource,
@@ -16,13 +16,13 @@ api_keys = ["synthetic-openai-key-a", "synthetic-openai-key-b"]
 
 #[test]
 fn upstream_toml_loads_a_required_pool_without_environment_locators() {
-    // 构造仅要求 OpenAI pool 的运行时注册表。
+    // Build a runtime registry that requires only the OpenAI pool.
     let bootstrap =
         openbridge::config::parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
             .unwrap();
     let registry = build_compiled_registry(bootstrap).unwrap();
 
-    // 从私有 TOML 加载指定 pool，并验证有序成员和来源类别。
+    // Load the selected pool from private TOML and verify ordered members and source category.
     let configuration = UpstreamCredentialConfiguration::from_toml(UPSTREAM_CREDENTIALS).unwrap();
     let credentials = configuration
         .into_builder_for(&registry, ["openai-primary"])
@@ -45,7 +45,7 @@ fn upstream_toml_loads_a_required_pool_without_environment_locators() {
 
 #[test]
 fn upstream_toml_rejects_invalid_pool_documents_without_exposing_secrets() {
-    // 覆盖空 pool、空白 key、重复 key 和重复 pool id。
+    // Cover empty pools, blank keys, duplicate keys, and duplicate pool IDs.
     let cases = [
         (
             "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = []\n",
@@ -82,13 +82,13 @@ fn upstream_toml_rejects_invalid_pool_documents_without_exposing_secrets() {
 
 #[test]
 fn upstream_toml_rejects_unknown_and_missing_required_pools_before_insertion() {
-    // 构造完整编译期注册表，作为唯一合法 pool 清单。
+    // Build the complete compile-time registry as the only valid pool list.
     let bootstrap =
         openbridge::config::parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
             .unwrap();
     let registry = build_compiled_registry(bootstrap).unwrap();
 
-    // 拒绝 TOML 中未由代码注册的 pool。
+    // Reject a pool in TOML that is not registered in code.
     let unknown = UpstreamCredentialConfiguration::from_toml(
         "schema_version = 1\n[[credential_pools]]\nid = \"unknown\"\napi_keys = [\"secret\"]\n",
     )
@@ -102,7 +102,7 @@ fn upstream_toml_rejects_unknown_and_missing_required_pools_before_insertion() {
         }
     );
 
-    // 拒绝调用方要求但 TOML 未配置的编译期 pool。
+    // Reject a compile-time pool required by the caller but absent from TOML.
     let missing = UpstreamCredentialConfiguration::from_toml(UPSTREAM_CREDENTIALS).unwrap();
     assert_eq!(
         missing

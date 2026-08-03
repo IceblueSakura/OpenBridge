@@ -1,4 +1,4 @@
-//! 注册表编译后的不可变运行时实体。
+//! Immutable runtime entities produced by registry compilation.
 
 use std::{collections::BTreeMap, time::Duration};
 
@@ -15,7 +15,7 @@ use super::{
     ReasoningSupport, RouteMode, StateAffinity, TransportKind, UpstreamApiCapabilities,
 };
 
-/// 启动后供请求路径读取的模型元数据。
+/// Model metadata read by the request path after startup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelInfo {
     pub(super) id: String,
@@ -31,58 +31,58 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
-    /// 返回稳定模型 id。
+    /// Returns the stable model ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// 返回展示名称。
+    /// Returns the display name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// 返回可选模型描述。
+    /// Returns the optional model description.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
 
-    /// 返回生效后的上下文长度。
+    /// Returns the effective context length.
     pub const fn context_length(&self) -> ModelContextLength {
         self.context_length
     }
 
-    /// 返回已确认的模型任务模式；`None` 表示定义层仍未知。
+    /// Returns the confirmed model task mode; `None` means it remains unknown at the definition layer.
     pub const fn mode(&self) -> Option<ModelMode> {
         self.mode
     }
 
-    /// 返回已确认的输入模态；`None` 不等同于明确不支持。
+    /// Returns confirmed input modalities; `None` does not mean explicitly unsupported.
     pub fn input_modalities(&self) -> Option<&[InputModality]> {
         self.input_modalities.as_deref()
     }
 
-    /// 返回已确认的输出模态；`None` 不等同于明确不支持。
+    /// Returns confirmed output modalities; `None` does not mean explicitly unsupported.
     pub fn output_modalities(&self) -> Option<&[OutputModality]> {
         self.output_modalities.as_deref()
     }
 
-    /// 返回生效后的支持参数。
+    /// Returns the effective supported parameters.
     pub fn supported_parameters(&self) -> &[String] {
         &self.supported_parameters
     }
 
-    /// 返回生效后的 reasoning 状态。
+    /// Returns the effective reasoning state.
     pub const fn reasoning(&self) -> ReasoningSupport {
         self.reasoning
     }
 
-    /// 返回生效后的 reasoning 强度。
+    /// Returns the effective reasoning levels.
     pub fn reasoning_levels(&self) -> &[ReasoningLevel] {
         &self.reasoning_levels
     }
 }
 
-/// 启动后供请求路径读取的不可变 registry snapshot。
+/// Immutable registry snapshot read by the request path after startup.
 #[derive(Debug)]
 pub struct RuntimeRegistry {
     pub(super) version: RegistryVersion,
@@ -95,42 +95,42 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
-    /// 返回编译期注册表版本。
+    /// Returns the compile-time registry version.
     pub fn version(&self) -> &RegistryVersion {
         &self.version
     }
 
-    /// 返回 bootstrap 的 loopback 监听地址。
+    /// Returns the bootstrap loopback listen address.
     pub fn listen(&self) -> std::net::SocketAddr {
         self.bootstrap.listen()
     }
 
-    /// 返回运行时资源限制。
+    /// Returns runtime resource limits.
     pub fn limits(&self) -> &RuntimeLimits {
         self.bootstrap.limits()
     }
 
-    /// 返回上游 HTTP client 策略。
+    /// Returns the upstream HTTP client policy.
     pub fn http_client(&self) -> &HttpClientConfig {
         self.bootstrap.http_client()
     }
 
-    /// 按内部模型 id 查询模型元数据。
+    /// Looks up model metadata by internal model ID.
     pub fn model(&self, id: &str) -> Option<&ModelInfo> {
         self.models.get(id)
     }
 
-    /// 按 pool id 查询已校验的 credential pool。
+    /// Looks up a validated credential pool by pool ID.
     pub fn credential_pool(&self, id: &str) -> Option<&CredentialPoolBinding> {
         self.credential_pools.get(id)
     }
 
-    /// 枚举全部 credential pool id。
+    /// Enumerates all credential-pool IDs.
     pub fn credential_pool_ids(&self) -> impl Iterator<Item = &str> {
         self.credential_pools.keys().map(String::as_str)
     }
 
-    /// 判断 pool 是否服务于实际启用 continuation 的 TargetBound Responses API。
+    /// Returns whether the pool serves a TargetBound Responses API with continuation enabled.
     pub fn credential_pool_requires_single_member(&self, pool_id: &str) -> bool {
         self.upstream_targets.values().any(|target| {
             target.enabled()
@@ -146,29 +146,29 @@ impl RuntimeRegistry {
         })
     }
 
-    /// 按内部 target id 查询解析结果。
+    /// Looks up a resolved target by internal target ID.
     pub fn upstream_target(&self, id: &str) -> Option<&UpstreamTarget> {
         self.upstream_targets.get(id)
     }
 
-    /// 枚举所有内部 target id。
+    /// Enumerates all internal target IDs.
     pub fn upstream_target_ids(&self) -> impl Iterator<Item = &str> {
         self.upstream_targets.keys().map(String::as_str)
     }
 
-    /// 按 route id 查询已解析的 route。
+    /// Looks up a resolved Route by Route ID.
     pub fn route(&self, id: &str) -> Option<&Route> {
         self.routes.get(id)
     }
 
-    /// 按下游公开名称查询 Public Model。
+    /// Looks up a Public Model by its downstream name.
     pub fn public_model(&self, name: &str) -> Option<&PublicModel> {
         self.public_models
             .get(name)
             .filter(|model| model.is_available())
     }
 
-    /// 枚举下游 `/v1/models` 可公开的 Public Model。
+    /// Enumerates Public Models exposed by the downstream `/v1/models` endpoint.
     pub fn public_models(&self) -> impl Iterator<Item = &PublicModel> {
         self.public_models
             .values()
@@ -176,18 +176,18 @@ impl RuntimeRegistry {
     }
 }
 
-/// 已通过校验的 registry 版本标识。
+/// Validated registry version identifier.
 #[derive(Debug)]
 pub struct RegistryVersion(pub(super) String);
 
 impl RegistryVersion {
-    /// 返回版本字符串。
+    /// Returns the version string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-/// 已解析的 credential pool binding。
+/// Resolved credential-pool binding.
 #[derive(Debug)]
 pub struct CredentialPoolBinding {
     pub(super) id: String,
@@ -196,23 +196,23 @@ pub struct CredentialPoolBinding {
 }
 
 impl CredentialPoolBinding {
-    /// 返回 credential pool id。
+    /// Returns the credential-pool ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// 返回允许消费该 pool 的 Provider。
+    /// Returns the Provider allowed to consume this pool.
     pub fn provider(&self) -> ProviderKind {
         self.provider
     }
 
-    /// 返回 credential 类型。
+    /// Returns the credential type.
     pub fn kind(&self) -> CredentialKind {
         self.kind
     }
 }
 
-/// 已通过 endpoint、credential 和模型引用校验的上游 target。
+/// Upstream target that passed endpoint, credential, and model-reference validation.
 #[derive(Debug)]
 pub struct UpstreamTarget {
     pub(super) id: String,
@@ -228,64 +228,64 @@ pub struct UpstreamTarget {
 }
 
 impl UpstreamTarget {
-    /// 返回 target id。
+    /// Returns the target ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// 返回 target 使用的 provider kind。
+    /// Returns the Provider kind used by the target.
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
-    /// 返回 target 引用的 credential pool id。
+    /// Returns the credential-pool ID referenced by the target.
     pub fn credential_pool_id(&self) -> &str {
         &self.credential_pool
     }
 
-    /// 返回 target 引用的 canonical 模型 id。
+    /// Returns the canonical model ID referenced by the target.
     pub fn model_id(&self) -> &str {
         &self.model_id
     }
 
-    /// 返回经过校验的 endpoint base URL。
+    /// Returns the validated endpoint base URL.
     pub fn endpoint_base(&self) -> &Url {
         &self.endpoint_base
     }
 
-    /// 返回可选的共享 quota scope。
+    /// Returns the optional shared quota scope.
     pub fn quota_scope(&self) -> Option<&str> {
         self.quota_scope.as_deref()
     }
 
-    /// 返回可选的故障隔离域。
+    /// Returns the optional fault-isolation domain.
     pub fn fault_domain(&self) -> Option<&str> {
         self.fault_domain.as_deref()
     }
 
-    /// 返回单次上游请求超时时间。
+    /// Returns the timeout for one upstream request.
     pub fn request_timeout(&self) -> Duration {
         self.request_timeout
     }
 
-    /// 判断 target 是否允许新的无状态请求选择。
+    /// Returns whether new stateless requests may select the target.
     pub fn enabled(&self) -> bool {
         self.enabled
     }
 
-    /// 按 Upstream API id 查询已解析 API。
+    /// Looks up a resolved API by Upstream API ID.
     pub fn upstream_api(&self, id: &str) -> Option<&UpstreamApi> {
         self.upstream_apis.get(id)
     }
 
-    /// 按原生协议查找一个 Upstream API。
+    /// Finds an Upstream API by native protocol.
     pub fn upstream_api_for_protocol(&self, protocol: ApiProtocol) -> Option<&UpstreamApi> {
         self.upstream_apis
             .values()
             .find(|upstream_api| upstream_api.protocol() == protocol)
     }
 
-    /// 枚举 target 下所有 Upstream API 及其 id。
+    /// Enumerates all Upstream APIs and IDs under the target.
     pub fn upstream_apis(&self) -> impl Iterator<Item = (&str, &UpstreamApi)> {
         self.upstream_apis
             .iter()
@@ -293,7 +293,7 @@ impl UpstreamTarget {
     }
 }
 
-/// 已解析并应用模型规则的 Upstream API。
+/// Upstream API with model rules resolved and applied.
 #[derive(Debug)]
 pub struct UpstreamApi {
     pub(super) protocol: ApiProtocol,
@@ -307,47 +307,47 @@ pub struct UpstreamApi {
 }
 
 impl UpstreamApi {
-    /// 返回 Upstream API 的原生协议。
+    /// Returns the Upstream API's native protocol.
     pub fn protocol(&self) -> ApiProtocol {
         self.protocol
     }
 
-    /// 返回应用规则后的模型元数据。
+    /// Returns model metadata after applying rules.
     pub fn model(&self) -> &ModelInfo {
         &self.model
     }
 
-    /// 返回发送给上游的真实模型 id。
+    /// Returns the actual model ID sent upstream.
     pub fn upstream_model(&self) -> &str {
         &self.upstream_model
     }
 
-    /// 返回 provider 识别用的 endpoint profile。
+    /// Returns the endpoint profile used for Provider identification.
     pub fn endpoint_profile(&self) -> &str {
         &self.endpoint_profile
     }
 
-    /// 返回使用的 transport profile。
+    /// Returns the transport profile in use.
     pub fn transport(&self) -> TransportKind {
         self.transport
     }
 
-    /// 返回该 API 的协议能力。
+    /// Returns the API's protocol capabilities.
     pub fn capabilities(&self) -> UpstreamApiCapabilities {
         self.capabilities
     }
 
-    /// 返回该 API 已声明的 reasoning 输出类型。
+    /// Returns the reasoning output type declared by the API.
     pub fn reasoning_output(&self) -> ReasoningOutput {
         self.capabilities.reasoning_output()
     }
 
-    /// 返回 continuation state 的归属策略。
+    /// Returns the ownership policy for continuation state.
     pub fn state_affinity(&self) -> StateAffinity {
         self.state_affinity
     }
 
-    /// 返回指定标准 level 在该 Upstream API 上的显式 wire 映射。
+    /// Returns the explicit wire mapping for a standard level on this Upstream API.
     pub fn reasoning_level_mapping(&self, level: ReasoningLevel) -> Option<&str> {
         self.reasoning_level_mappings
             .get(&level)
@@ -355,7 +355,7 @@ impl UpstreamApi {
     }
 }
 
-/// 已解析的 route 绑定关系。
+/// Resolved Route binding.
 #[derive(Debug)]
 pub struct Route {
     pub(super) upstream_target: String,
@@ -365,22 +365,22 @@ pub struct Route {
 }
 
 impl Route {
-    /// 返回 route 绑定的 Upstream Target id。
+    /// Returns the Upstream Target ID bound to the Route.
     pub fn upstream_target(&self) -> &str {
         &self.upstream_target
     }
 
-    /// 返回 route 绑定的 Upstream API id。
+    /// Returns the Upstream API ID bound to the Route.
     pub fn upstream_api(&self) -> &str {
         &self.upstream_api
     }
 
-    /// 返回 route 接受的下游协议。
+    /// Returns the downstream protocol accepted by the Route.
     pub fn downstream_protocol(&self) -> ApiProtocol {
         self.downstream_protocol
     }
 
-    /// 返回 route 的处理模式。
+    /// Returns the Route handling mode.
     pub fn mode(&self) -> RouteMode {
         self.mode
     }

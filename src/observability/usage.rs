@@ -1,6 +1,7 @@
-//! 下游 JSON 与 SSE 中明确 usage 和首个业务输出的有界解析。
+//! Bounded parsing of explicit usage and first business output in downstream JSON and SSE.
 //!
-//! 解析失败只表示观测缺失，不改变代理字节或响应状态；缓存与 SSE event 均受现有上限约束。
+//! Parse failures indicate missing observation only; they do not change proxy bytes or response
+//! status. Caches and SSE events remain subject to existing limits.
 
 use bytes::Bytes;
 use serde_json::Value;
@@ -19,7 +20,7 @@ pub(super) struct TokenUsage {
 }
 
 impl TokenUsage {
-    /// 合并两份 usage，优先保留已经解析到的字段并补齐缺失字段。
+    /// Merges two usage values, preserving parsed fields and filling missing fields.
     pub(super) fn merge(&mut self, other: Self) {
         self.input_tokens = self.input_tokens.or(other.input_tokens);
         self.output_tokens = self.output_tokens.or(other.output_tokens);
@@ -31,28 +32,28 @@ impl TokenUsage {
     }
 }
 
-/// response body 的 usage 解析状态；解析失败只表示观测缺失，不改变代理响应。
+/// Usage parsing state for a response body; parse failure indicates missing observation only.
 pub(crate) enum UsageCapture {
-    /// 当前 response 不携带可解析 usage。
+    /// The current response carries no parseable usage.
     None,
-    /// 有界缓存一个 JSON body，超限后放弃 usage 解析但继续透传。
+    /// Bounded JSON-body cache; abandon usage parsing after the limit while continuing passthrough.
     Json {
         bytes: Vec<u8>,
         limit: usize,
         truncated: bool,
     },
-    /// 按既有 SSE event 上限增量解析下游 event。
+    /// Incrementally parses downstream events using the existing SSE event limit.
     Sse { decoder: SseDecoder, invalid: bool },
 }
 
 impl UsageCapture {
-    /// 根据成功 response 的 media type 创建有界 usage 解析器。
+    /// Creates a bounded usage parser from a successful response media type.
     pub(crate) fn for_response(
         content_type: Option<&str>,
         max_json_body_bytes: usize,
         max_sse_event_bytes: usize,
     ) -> Self {
-        // 按 response media type 选择 JSON、SSE 或不观测三种有界策略。
+        // Select bounded JSON, SSE, or no-observation behavior from the response media type.
         match content_type {
             Some(value) if value.starts_with("application/json") => Self::Json {
                 bytes: Vec::new(),
@@ -67,9 +68,9 @@ impl UsageCapture {
         }
     }
 
-    /// 观察一个透传 chunk；任何解析问题都不会改变下游字节或状态。
+    /// Observes a passthrough chunk; parse problems never change downstream bytes or status.
     pub(crate) fn observe_chunk(&mut self, observation: &RequestObservation, chunk: &Bytes) {
-        // 只更新观测状态，绝不修改或阻断当前下游 bytes。
+        // Update observation state only; never modify or block current downstream bytes.
         match self {
             Self::None => {}
             Self::Json {
@@ -91,9 +92,9 @@ impl UsageCapture {
         }
     }
 
-    /// 正常 EOF 时完成 usage 解析并只写入结构化计数。
+    /// Completes usage parsing at normal EOF and writes structured counters only.
     pub(crate) fn finish(&mut self, observation: &RequestObservation) {
-        // 在真实 EOF 边界冲刷最后一个 JSON/SSE event，并记录可解析的 usage。
+        // Flush the final JSON/SSE event at real EOF and record parseable usage.
         match self {
             Self::None => {}
             Self::Json {
@@ -119,9 +120,9 @@ impl UsageCapture {
     }
 }
 
-/// 观察完整 SSE events 中的首个业务输出和明确 usage。
+/// Observes the first business output and explicit usage in complete SSE events.
 fn observe_usage_events(observation: &RequestObservation, events: Vec<SseEvent>) {
-    // 只解析完整 event 的 data JSON，不保留 event 或业务输出。
+    // Parse only complete event data JSON; retain neither the event nor business output.
     for event in events {
         if event.data() == "[DONE]" {
             continue;
@@ -137,9 +138,9 @@ fn observe_usage_events(observation: &RequestObservation, events: Vec<SseEvent>)
     }
 }
 
-/// 判断 event 是否携带首个 text 或 function arguments 增量。
+/// Returns whether an event carries the first text or function-argument increment.
 pub(super) fn is_business_output(value: &Value) -> bool {
-    // Responses 只有 text/function arguments delta 属于首个业务输出，lifecycle metadata 不计入。
+    // For Responses, only text/function-argument deltas are business output; lifecycle metadata is excluded.
     if value
         .get("type")
         .and_then(Value::as_str)
@@ -153,7 +154,7 @@ pub(super) fn is_business_output(value: &Value) -> bool {
         return true;
     }
 
-    // Chat 只把非空 content 或 tool-call 增量视为业务输出。
+    // For Chat, only non-empty content or tool-call deltas count as business output.
     value
         .get("choices")
         .and_then(Value::as_array)
@@ -173,7 +174,7 @@ pub(super) fn is_business_output(value: &Value) -> bool {
         })
 }
 
-/// 判断完整 JSON response 是否声明失败或未完整终态。
+/// Returns whether a complete JSON response declares failure or lacks a complete terminal state.
 pub(super) fn is_failed_terminal(value: &Value) -> bool {
     value
         .get("status")
@@ -181,9 +182,9 @@ pub(super) fn is_failed_terminal(value: &Value) -> bool {
         .is_some_and(|status| matches!(status, "failed" | "incomplete"))
 }
 
-/// 从 Chat 或 Responses JSON 形状中提取明确 usage。
+/// Extracts explicit usage from Chat or Responses JSON shapes.
 pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
-    // 同时识别 Chat 顶层 usage 与 Responses event 中的 response.usage。
+    // Recognize Chat top-level usage and response.usage in Responses events.
     let usage = value
         .get("usage")
         .or_else(|| {
@@ -239,7 +240,7 @@ pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
     }
 }
 
-/// 从 Provider usage 的嵌套 details 对象读取一个明确 token 字段。
+/// Reads one explicit token field from a nested Provider usage details object.
 fn nested_usage_token(
     usage: &serde_json::Map<String, Value>,
     object: &str,

@@ -1,7 +1,7 @@
-//! Responses SSE event 到 Chat Completions chunks 的增量转换。
+//! Incremental conversion from Responses SSE events to Chat Completions chunks.
 //!
-//! renderer 先调用严格 Responses 状态机固定 lifecycle 与 identity，再把 text/function
-//! arguments delta 映射为 Chat chunk，并只在 completed terminal 后生成 `[DONE]`。
+//! The renderer first uses the strict Responses state machine to fix lifecycle and identities,
+//! then maps text/function argument deltas to Chat chunks and emits `[DONE]` only after a completed terminal.
 
 use std::collections::BTreeMap;
 
@@ -18,7 +18,7 @@ use super::{
     shared::sse_data,
 };
 
-/// 将单个 Responses SSE 生命周期增量转换为 Chat chunks。
+/// Converts one Responses SSE lifecycle increment into Chat chunks.
 pub(in crate::bridge::conversion) struct ResponsesToChatStream {
     state: ResponsesStreamState,
     reasoning_supported: bool,
@@ -32,7 +32,7 @@ pub(in crate::bridge::conversion) struct ResponsesToChatStream {
 }
 
 impl ResponsesToChatStream {
-    /// 创建等待 Responses `response.created` 的 renderer。
+    /// Creates a renderer waiting for `response.created`.
     pub(in crate::bridge::conversion) fn new(reasoning_supported: bool) -> Self {
         Self {
             state: ResponsesStreamState::new(),
@@ -47,13 +47,13 @@ impl ResponsesToChatStream {
         }
     }
 
-    /// 校验并转换一个完整 Responses SSE event。
+    /// Validates and converts one complete Responses SSE event.
     pub(in crate::bridge::conversion) fn render(
         &mut self,
         event: SseEvent,
         public_model: &str,
     ) -> Result<Bytes, BridgeError> {
-        // 先让严格状态机验证 event/type、identity 与 terminal，再生成目标 wire。
+        // Let the strict state machine validate event/type, identity, and terminal before generating target wire data.
         self.state.ingest(&event)?;
         let value: Value =
             serde_json::from_str(event.data()).map_err(|_| BridgeError::InvalidStream)?;
@@ -192,7 +192,7 @@ impl ResponsesToChatStream {
         Ok(Bytes::from(output))
     }
 
-    /// 在 EOF 时确认状态机与目标 Chat terminal 均已完成。
+    /// Confirms that the state machine and target Chat terminal are complete at EOF.
     pub(in crate::bridge::conversion) fn finish(&mut self) -> Result<Bytes, BridgeError> {
         self.state.finish()?;
         if !self.terminal_emitted || (!self.has_text && !self.has_reasoning && !self.has_tools) {
@@ -201,15 +201,15 @@ impl ResponsesToChatStream {
         Ok(Bytes::new())
     }
 
-    /// 返回已由 Responses response id 派生的 Chat completion id。
+    /// Returns the Chat completion ID derived from the Responses response ID.
     fn chat_id(&self) -> Result<&str, BridgeError> {
         self.chat_id.as_deref().ok_or(BridgeError::InvalidStream)
     }
 }
 
-/// 删除内部拼装使用的 null role，保持 Chat delta 的最小 wire 形状。
+/// Removes the null role used for internal assembly to keep the Chat delta wire shape minimal.
 fn strip_null_role(mut value: Value) -> Value {
-    // 删除仅用于内部拼装的 null role，避免生成无意义的 Chat 字段。
+    // Remove the null role used only for internal assembly to avoid a meaningless Chat field.
     if value.get("role").is_some_and(Value::is_null) {
         value
             .as_object_mut()
@@ -219,14 +219,14 @@ fn strip_null_role(mut value: Value) -> Value {
     value
 }
 
-/// 将一个 Chat delta 封装为 data-only SSE chunk。
+/// Wraps a Chat delta as a data-only SSE chunk.
 fn chat_chunk(
     id: &str,
     model: &str,
     delta: Value,
     finish_reason: Value,
 ) -> Result<Vec<u8>, BridgeError> {
-    // 统一封装单 choice Chat chunk，并编码为 data-only SSE block。
+    // Wrap the single-choice Chat chunk and encode it as a data-only SSE block.
     sse_data(&json!({
         "choices": [{"delta": delta, "finish_reason": finish_reason, "index": 0}],
         "id": id,

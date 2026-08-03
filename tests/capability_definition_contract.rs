@@ -1,4 +1,4 @@
-//! 验证 canonical Model 与 Chat/Responses capability 的协议命名和预留边界。
+//! Verifies protocol naming and reserved boundaries for canonical Model and Chat/Responses capabilities.
 
 mod support;
 
@@ -42,7 +42,7 @@ type ResponsesReservation = fn(&mut ResponsesCapabilities);
 
 #[test]
 fn definitions_expose_protocol_specific_reserved_fields() {
-    // 构造 canonical Model 的预留 mode 与输入输出模态。
+    // Build reserved canonical Model modes and input/output modalities.
     let mut definition = support::definition("reserved-model-facts", "public-model", "upstream");
     let model = &mut definition.models[0];
     model.mode = Some(ModelMode::Chat);
@@ -58,7 +58,7 @@ fn definitions_expose_protocol_specific_reserved_fields() {
         OutputModality::Audio,
     ]);
 
-    // 构造 Chat Completions 尚未进入请求路径的标准能力位置。
+    // Build standard Chat Completions capability positions not yet on the request path.
     let chat = ChatCompletionsCapabilities {
         custom_tool_calling: true,
         audio_input: true,
@@ -73,7 +73,7 @@ fn definitions_expose_protocol_specific_reserved_fields() {
         ..ChatCompletionsCapabilities::default()
     };
 
-    // 构造 Responses 尚未进入请求路径的 tool、状态与附加输出位置。
+    // Build Responses tool, state, and additional-output positions not yet on the request path.
     let responses = ResponsesCapabilities {
         custom_tool_calling: true,
         hosted_tools: HOSTED_TOOLS,
@@ -113,7 +113,7 @@ fn canonical_model_mode_and_modalities_compile_into_public_model_information() {
         OutputModality::Audio,
     ]);
 
-    // 编译 canonical facts，并确认模型上界与接口实际能力保持分层。
+    // Compile canonical facts and confirm that model ceilings remain separate from interface capabilities.
     let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
     let model = registry.model("openai/test-model").unwrap();
     assert_eq!(model.mode(), Some(ModelMode::Chat));
@@ -158,7 +158,7 @@ fn every_chat_reservation_stops_before_registry_compilation() {
         }),
     ];
 
-    // 逐项启用 Chat capability，并确认任何单字段都不能进入 runtime registry。
+    // Enable each Chat capability and confirm that no individual field enters the runtime registry.
     for (case, configure) in cases {
         let mut definition = support::definition(case, "public-model", "upstream");
         let UpstreamApiCapabilities::ChatCompletions(capabilities) =
@@ -205,7 +205,7 @@ fn every_responses_reservation_stops_before_registry_compilation() {
         ("logprobs", |capabilities| capabilities.logprobs = true),
     ];
 
-    // 逐项启用 Responses capability，并确认任何单字段都不能进入 runtime registry。
+    // Enable each Responses capability and confirm that no individual field enters the runtime registry.
     for (case, configure) in cases {
         let mut definition = support::definition(case, "public-model", "upstream");
         let UpstreamApiCapabilities::Responses(capabilities) =
@@ -310,7 +310,7 @@ fn every_reserved_chat_request_field_stops_before_route_planning() {
         ),
     ];
 
-    // 逐项提交 Chat 请求，证明 Native 路径不会把预留字段透传到 Provider adapter。
+    // Submit each Chat request and prove that the Native path does not pass reserved fields to the Provider adapter.
     assert_reserved_requests_unimplemented(&registry, ApiProtocol::ChatCompletions, cases);
 }
 
@@ -371,17 +371,17 @@ fn every_reserved_responses_request_field_stops_before_route_planning() {
         ),
     ];
 
-    // 逐项提交 Responses 请求，证明 Native 路径不会把预留字段透传到 Provider adapter。
+    // Submit each Responses request and prove that the Native path does not pass reserved fields to the Provider adapter.
     assert_reserved_requests_unimplemented(&registry, ApiProtocol::Responses, cases);
 }
 
-/// 逐项提交预留请求并核对协议专有的稳定 panic 文本。
+/// Submits each reserved request and checks its protocol-specific stable panic text.
 fn assert_reserved_requests_unimplemented(
     registry: &openbridge::registry::RuntimeRegistry,
     protocol: ApiProtocol,
     cases: Vec<(&str, Value)>,
 ) {
-    // 为每个字段独立序列化并进入生产请求分析/规划入口。
+    // Serialize each field independently and pass it through the production analysis and planning entry point.
     for (case, request) in cases {
         let body = serde_json::to_vec(&request).expect("reserved request fixture must serialize");
         let error = support::prepare(registry, protocol, body.into())
@@ -393,15 +393,15 @@ fn assert_reserved_requests_unimplemented(
     }
 }
 
-/// 捕获并核对预留接口的稳定 `unimplemented!` 文本。
+/// Captures and checks the stable `unimplemented!` text for the reserved interface.
 fn assert_unimplemented(case: &str, expected: &str, action: impl FnOnce()) {
-    // 捕获 panic，避免一个字段阻止同组其他预留字段得到验证。
+    // Capture the panic so one field does not prevent the remaining fields from being checked.
     let panic = match catch_unwind(AssertUnwindSafe(action)) {
         Ok(()) => panic!("{case} must stop at its unimplemented boundary"),
         Err(panic) => panic,
     };
 
-    // 归一化 Rust 常见 panic payload 并核对稳定说明。
+    // Normalize common Rust panic payloads and check the stable message.
     let message = if let Some(message) = panic.downcast_ref::<&str>() {
         *message
     } else if let Some(message) = panic.downcast_ref::<String>() {

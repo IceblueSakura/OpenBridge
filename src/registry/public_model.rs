@@ -1,7 +1,8 @@
-//! 下游 Public Model 的固定能力契约与安全序列化模型。
+//! Fixed downstream Public Model contracts and safe serialization models.
 //!
-//! 本模块只编译客户端可依赖的静态模型事实和 Chat/Responses 接口能力。能力取所有可执行
-//! Route 的保守交集，但响应中不保留或暴露 Provider、Target、Route、上游模型及凭据边界。
+//! This module compiles only client-visible model facts and Chat/Responses interface capabilities.
+//! Capabilities use the conservative intersection of all executable Routes, while responses retain
+//! no Provider, Target, Route, upstream-model, or credential boundary.
 
 use std::collections::BTreeSet;
 
@@ -15,23 +16,23 @@ use super::{
     UpstreamApiCapabilities,
 };
 
-/// 扩展模型信息对象的稳定 schema 版本。
+/// Stable schema version for the extended model-information object.
 pub const MODEL_INFO_SCHEMA_VERSION: &str = "1";
 
-/// 能力证据状态；`unknown` 不能在请求预检中当作支持。
+/// Capability evidence state; `unknown` cannot count as supported during request preflight.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportState {
-    /// 所有可执行 Route 都明确支持该能力。
+    /// Every executable Route explicitly supports the capability.
     Supported,
-    /// 至少一条可执行 Route 明确不支持该能力。
+    /// At least one executable Route explicitly does not support the capability.
     Unsupported,
-    /// 当前静态事实不足以安全判断。
+    /// Current static facts are insufficient for a safe decision.
     Unknown,
 }
 
 impl SupportState {
-    /// 将明确的布尔能力转换为公开状态。
+    /// Converts an explicit Boolean capability into a public state.
     const fn from_bool(supported: bool) -> Self {
         if supported {
             Self::Supported
@@ -40,12 +41,12 @@ impl SupportState {
         }
     }
 
-    /// 判断能力是否能被请求路径当作已保证支持。
+    /// Returns whether the request path can treat the capability as guaranteed.
     pub(crate) const fn is_supported(self) -> bool {
         matches!(self, Self::Supported)
     }
 
-    /// 计算多个完整 Route 契约输入的保守交集。
+    /// Computes the conservative intersection of complete Route contracts.
     fn intersection(values: impl Iterator<Item = Self>) -> Self {
         let mut saw_value = false;
         let mut saw_unknown = false;
@@ -75,17 +76,17 @@ impl From<ReasoningSupport> for SupportState {
     }
 }
 
-/// Public Model 可承担的任务类别。
+/// Task categories a Public Model can perform.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelTask {
-    /// 对话生成任务。
+    /// Conversational generation.
     Chat,
-    /// 通用文本生成任务。
+    /// General text generation.
     TextGeneration,
 }
 
-/// Public Model 的上下文窗口限制。
+/// Public Model context-window limits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ContextWindow {
     max_context_tokens: Option<u32>,
@@ -94,7 +95,7 @@ pub struct ContextWindow {
 }
 
 impl ContextWindow {
-    /// 从 registry 内部的三段限制构造公开对象。
+    /// Builds the public object from the three registry-internal limits.
     const fn from_model(value: ModelContextLength) -> Self {
         Self {
             max_context_tokens: value.context_tokens(),
@@ -103,12 +104,12 @@ impl ContextWindow {
         }
     }
 
-    /// 返回公开契约保证的最大输出 token 数。
+    /// Returns the maximum output-token count guaranteed by the public contract.
     pub(crate) const fn max_output_tokens(self) -> Option<u32> {
         self.max_output_tokens
     }
 
-    /// 对所有 Route 的已知限制取最小值；任一值未知时保持未知。
+    /// Takes the minimum known limit across all Routes; any unknown value remains unknown.
     fn intersection<'a>(values: impl Iterator<Item = &'a Self> + Clone) -> Self {
         Self {
             max_context_tokens: intersect_optional_limit(
@@ -124,7 +125,7 @@ impl ContextWindow {
     }
 }
 
-/// Public Model 已确认的输入与输出模态。
+/// Confirmed Public Model input and output modalities.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelModalities {
     input: Vec<InputModality>,
@@ -132,7 +133,7 @@ pub struct ModelModalities {
 }
 
 impl ModelModalities {
-    /// 计算多个 Route 契约输入的稳定集合交集。
+    /// Computes the stable set intersection of multiple Route contracts.
     fn intersection<'a>(values: impl Iterator<Item = &'a Self> + Clone) -> Self {
         Self {
             input: intersect_sets(values.clone().map(|value| value.input.as_slice())),
@@ -141,26 +142,26 @@ impl ModelModalities {
     }
 }
 
-/// 模型本体的 reasoning 能力。
+/// Reasoning capabilities of the model itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelReasoningCapabilities {
     support: SupportState,
     levels: Vec<ReasoningLevel>,
 }
 
-/// 接口可观察的 reasoning 输出形态。
+/// Reasoning output form observable through the interface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningOutputMode {
-    /// 上游明确不返回 reasoning 输出。
+    /// The upstream explicitly returns no reasoning output.
     Unsupported,
-    /// 返回可读的完整 reasoning 文本。
+    /// Returns readable complete reasoning text.
     PlainText,
-    /// 只返回可读 reasoning summary。
+    /// Returns only a readable reasoning summary.
     Summary,
-    /// 返回不可读 opaque continuation。
+    /// Returns an unreadable opaque continuation.
     Opaque,
-    /// 当前证据不足以判断输出形态。
+    /// Current evidence is insufficient to determine the output form.
     Unknown,
 }
 
@@ -176,7 +177,7 @@ impl From<ReasoningOutput> for ReasoningOutputMode {
     }
 }
 
-/// 模型本体的公开能力摘要。
+/// Public capability summary of the model itself.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelCapabilities {
     tasks: Vec<ModelTask>,
@@ -188,7 +189,7 @@ pub struct ModelCapabilities {
     reasoning: ModelReasoningCapabilities,
 }
 
-/// Public Model 的 function tool 能力。
+/// Public Model function-tool capabilities.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolCapabilities {
     support: SupportState,
@@ -198,7 +199,7 @@ pub struct ToolCapabilities {
     strict_schema: SupportState,
 }
 
-/// 下游可声明的工具种类。
+/// Tool kinds that downstream clients may declare.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolType {
@@ -206,21 +207,21 @@ pub enum ToolType {
     Function,
 }
 
-/// function tool 的选择模式。
+/// Function-tool selection mode.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolChoiceMode {
-    /// 禁止模型调用工具。
+    /// Prevents the model from calling tools.
     None,
-    /// 由模型自动选择是否调用工具。
+    /// Lets the model decide whether to call a tool.
     Auto,
-    /// 要求模型至少调用一个工具。
+    /// Requires the model to call at least one tool.
     Required,
-    /// 指定一个命名 function。
+    /// Selects a named function.
     Named,
 }
 
-/// 结构化输出能力。
+/// Structured-output capabilities.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StructuredOutputCapabilities {
     support: SupportState,
@@ -228,17 +229,17 @@ pub struct StructuredOutputCapabilities {
     strict_schema: SupportState,
 }
 
-/// OpenBridge 当前建模的结构化输出模式。
+/// Structured-output modes currently modeled by OpenBridge.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StructuredOutputMode {
-    /// JSON object 输出约束。
+    /// JSON object output constraint.
     JsonObject,
-    /// JSON schema 输出约束。
+    /// JSON Schema output constraint.
     JsonSchema,
 }
 
-/// 单个下游接口的 reasoning 能力。
+/// Reasoning capabilities of one downstream interface.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct InterfaceReasoningCapabilities {
     support: SupportState,
@@ -246,7 +247,7 @@ pub struct InterfaceReasoningCapabilities {
     output: ReasoningOutputMode,
 }
 
-/// 单个下游接口的持久状态能力。
+/// Persistent-state capabilities of one downstream interface.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StateCapabilities {
     store: SupportState,
@@ -254,7 +255,7 @@ pub struct StateCapabilities {
     background: SupportState,
 }
 
-/// 一个协议接口唯一、固定且可直接用于请求预检的能力契约。
+/// Unique, fixed capability contract for one protocol interface, used directly by request preflight.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelInterfaceCapabilities {
     context_window: ContextWindow,
@@ -270,63 +271,63 @@ pub struct ModelInterfaceCapabilities {
 }
 
 impl ModelInterfaceCapabilities {
-    /// 判断接口是否保证支持 streaming。
+    /// Returns whether the interface guarantees streaming support.
     pub(crate) const fn supports_streaming(&self) -> bool {
         self.streaming.is_supported()
     }
 
-    /// 判断接口是否保证支持 function tools。
+    /// Returns whether the interface guarantees function-tool support.
     pub(crate) const fn supports_function_calling(&self) -> bool {
         self.tools.support.is_supported()
     }
 
-    /// 判断接口是否保证支持并行 function calls。
+    /// Returns whether the interface guarantees parallel function calls.
     pub(crate) const fn supports_parallel_tool_calls(&self) -> bool {
         self.tools.parallel_calls.is_supported()
     }
 
-    /// 判断接口是否保证支持图像输入。
+    /// Returns whether the interface guarantees image input.
     pub(crate) fn supports_image_input(&self) -> bool {
         self.modalities.input.contains(&InputModality::Image)
     }
 
-    /// 判断接口是否保证支持结构化输出。
+    /// Returns whether the interface guarantees structured output.
     pub(crate) const fn supports_structured_outputs(&self) -> bool {
         self.structured_outputs.support.is_supported()
     }
 
-    /// 判断接口是否保证支持 `store: true`。
+    /// Returns whether the interface guarantees `store: true`.
     pub(crate) const fn supports_store(&self) -> bool {
         self.state.store.is_supported()
     }
 
-    /// 判断接口是否保证支持 `previous_response_id`。
+    /// Returns whether the interface guarantees `previous_response_id`.
     pub(crate) const fn supports_previous_response_id(&self) -> bool {
         self.state.previous_response_id.is_supported()
     }
 
-    /// 判断接口是否保证支持后台响应。
+    /// Returns whether the interface guarantees background responses.
     pub(crate) const fn supports_background(&self) -> bool {
         self.state.background.is_supported()
     }
 
-    /// 返回接口保证的最大输出 token 数。
+    /// Returns the maximum output-token count guaranteed by the interface.
     pub(crate) const fn max_output_tokens(&self) -> Option<u32> {
         self.context_window.max_output_tokens()
     }
 
-    /// 返回接口 reasoning 的证据状态。
+    /// Returns the interface's reasoning evidence state.
     pub(crate) const fn reasoning_support(&self) -> SupportState {
         self.reasoning.support
     }
 
-    /// 返回接口保证支持的 reasoning level 集合。
+    /// Returns the reasoning levels guaranteed by the interface.
     pub(crate) fn reasoning_levels(&self) -> &[ReasoningLevel] {
         &self.reasoning.levels
     }
 }
 
-/// Public Model 的两个 OpenAI-compatible 接口契约。
+/// The two OpenAI-compatible interface contracts of a Public Model.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelInterfaces {
     chat_completions: Option<ModelInterfaceCapabilities>,
@@ -334,7 +335,7 @@ pub struct ModelInterfaces {
 }
 
 impl ModelInterfaces {
-    /// 按下游协议返回固定接口契约。
+    /// Returns the fixed interface contract for the downstream protocol.
     pub(crate) const fn for_protocol(
         &self,
         protocol: ApiProtocol,
@@ -345,13 +346,13 @@ impl ModelInterfaces {
         }
     }
 
-    /// 判断至少存在一个可执行接口。
+    /// Returns whether at least one executable interface exists.
     const fn is_available(&self) -> bool {
         self.chat_completions.is_some() || self.responses.is_some()
     }
 }
 
-/// OpenAI 标准 Models resource 的严格四字段投影。
+/// Strict four-field projection of the standard OpenAI Models resource.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StandardModel {
     id: String,
@@ -361,13 +362,13 @@ pub struct StandardModel {
 }
 
 impl StandardModel {
-    /// 返回下游稳定 Public Model id。
+    /// Returns the stable downstream Public Model ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 }
 
-/// OpenBridge 扩展接口返回的完整 Public Model 信息。
+/// Complete Public Model information returned by the OpenBridge extension interface.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PublicModelInfo {
     schema_version: &'static str,
@@ -381,12 +382,12 @@ pub struct PublicModelInfo {
 }
 
 impl PublicModelInfo {
-    /// 返回 OpenAI 标准四字段投影。
+    /// Returns the standard OpenAI four-field projection.
     pub fn standard(&self) -> &StandardModel {
         &self.standard
     }
 
-    /// 按协议返回与请求预检共用的固定能力契约。
+    /// Returns the fixed capability contract shared with request preflight for the protocol.
     pub(crate) const fn interface(
         &self,
         protocol: ApiProtocol,
@@ -395,7 +396,7 @@ impl PublicModelInfo {
     }
 }
 
-/// 已解析的下游 Public Model、固定信息对象和有序 Route 列表。
+/// Resolved downstream Public Model, fixed information object, and ordered Route list.
 #[derive(Debug)]
 pub struct PublicModel {
     pub(super) routes: Vec<String>,
@@ -403,22 +404,22 @@ pub struct PublicModel {
 }
 
 impl PublicModel {
-    /// 返回按优先级排列的 Route id；能力不会改变该顺序。
+    /// Returns Route IDs ordered by priority; capabilities do not change this order.
     pub fn routes(&self) -> &[String] {
         &self.routes
     }
 
-    /// 返回扩展接口使用的完整安全模型信息。
+    /// Returns complete safe model information for the extension interface.
     pub fn info(&self) -> &PublicModelInfo {
         &self.info
     }
 
-    /// 返回 OpenAI 标准 Models resource 投影。
+    /// Returns the standard OpenAI Models resource projection.
     pub fn standard(&self) -> &StandardModel {
         self.info.standard()
     }
 
-    /// 按下游协议返回请求预检使用的唯一能力契约。
+    /// Returns the unique capability contract used by request preflight for the downstream protocol.
     pub(crate) const fn interface(
         &self,
         protocol: ApiProtocol,
@@ -426,33 +427,33 @@ impl PublicModel {
         self.info.interface(protocol)
     }
 
-    /// 判断模型是否仍对客户端可见且至少存在一个可执行接口。
+    /// Returns whether the model remains visible to clients and has at least one executable interface.
     pub(crate) fn is_available(&self) -> bool {
         self.info.lifecycle.status != ModelLifecycleStatus::Retired
             && self.info.interfaces.is_available()
     }
 }
 
-/// 编译 Public Model 时使用的单条可执行 Route 视图。
+/// View of one executable Route used while compiling a Public Model.
 pub(super) struct PublicRouteBinding<'a> {
     pub(super) route: &'a Route,
     pub(super) upstream_api: &'a UpstreamApi,
     pub(super) target_enabled: bool,
 }
 
-/// 从完整 Route 集合编译不含部署细节的固定 Public Model。
+/// Compiles a fixed Public Model without deployment details from the complete Route set.
 pub(super) fn compile_public_model(
     config: PublicModelConfig,
     bindings: &[PublicRouteBinding<'_>],
 ) -> PublicModel {
-    // 只把静态启用且 endpoint capability 已启用的 Route 纳入可执行契约。
+    // Include only statically enabled Routes whose endpoint capability is enabled.
     let contributions = bindings
         .iter()
         .filter(|binding| binding.target_enabled)
         .filter_map(RouteContractContribution::from_binding)
         .collect::<Vec<_>>();
 
-    // 分协议计算唯一保守交集，并从所有可执行 Route 汇总模型本体事实。
+    // Compute the unique conservative intersection per protocol and aggregate model facts across executable Routes.
     let chat_completions = aggregate_interface(
         contributions
             .iter()
@@ -465,7 +466,7 @@ pub(super) fn compile_public_model(
     );
     let capabilities = aggregate_model_capabilities(&contributions);
 
-    // 固化标准投影与扩展对象；Route id 仅保留在私有执行对象中。
+    // Freeze the standard projection and extension object; retain Route IDs only in private execution data.
     let info = PublicModelInfo {
         schema_version: MODEL_INFO_SCHEMA_VERSION,
         standard: StandardModel {
@@ -514,7 +515,7 @@ struct RouteContractContribution {
 }
 
 impl RouteContractContribution {
-    /// 将 Native 或 Bridged Route 转换为固定公共契约的一项编译输入。
+    /// Converts a Native or Bridged Route into one fixed public-contract input.
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
         let route = binding.route;
         let upstream_api = binding.upstream_api;
@@ -523,7 +524,7 @@ impl RouteContractContribution {
             return None;
         }
 
-        // Bridge 只公开当前转换器完整支持的公共子集。
+        // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
         let structured_outputs = generation.structured_outputs && !bridged;
         let image_input = generation.image_input && !bridged;
@@ -543,7 +544,7 @@ impl RouteContractContribution {
             audio_output,
         ) = protocol_specific_capabilities(route, upstream_api, bridged);
 
-        // 将模型参数和协议控制字段收窄为该 Route 完整接受的集合。
+        // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
             sorted_unique(upstream_api.model().supported_parameters().iter().cloned());
         let interface_parameters = interface_parameters(
@@ -619,7 +620,7 @@ impl RouteContractContribution {
     }
 }
 
-/// 返回下游接口实际可观察的 reasoning 输出形态。
+/// Returns the reasoning output form actually observable through the downstream interface.
 fn route_reasoning_output(
     upstream_api: &UpstreamApi,
     bridged: bool,
@@ -635,7 +636,7 @@ fn route_reasoning_output(
     }
 }
 
-/// 按协议读取 Native endpoint 的专有能力，Bridge 一律收窄状态与额外模态。
+/// Reads protocol-specific Native endpoint capabilities; the Bridge always narrows state and extra modalities.
 fn protocol_specific_capabilities(
     route: &Route,
     upstream_api: &UpstreamApi,
@@ -665,7 +666,7 @@ fn protocol_specific_capabilities(
     }
 }
 
-/// 计算模型 reasoning 经当前 Route 后是否仍能作为下游请求能力公开。
+/// Determines whether model reasoning remains publishable as a downstream request capability after this Route.
 fn route_reasoning_support(upstream_api: &UpstreamApi, bridged: bool) -> SupportState {
     let model_support = SupportState::from(upstream_api.model().reasoning());
     if !bridged || model_support != SupportState::Supported {
@@ -681,7 +682,7 @@ fn route_reasoning_support(upstream_api: &UpstreamApi, bridged: bool) -> Support
     }
 }
 
-/// 生成单条 Route 对下游保证接受的参数名集合。
+/// Produces the parameter names that one Route guarantees to accept downstream.
 #[allow(clippy::too_many_arguments)]
 fn interface_parameters(
     protocol: ApiProtocol,
@@ -696,7 +697,7 @@ fn interface_parameters(
     previous_response_id: bool,
     background: bool,
 ) -> Vec<String> {
-    // Native 保留已确认模型参数，Bridge 只保留转换器的显式 allowlist。
+    // Native retains confirmed model parameters; Bridge keeps only the converter's explicit allowlist.
     let mut parameters = model_parameters
         .iter()
         .filter(|parameter| {
@@ -705,7 +706,7 @@ fn interface_parameters(
         .cloned()
         .collect::<BTreeSet<_>>();
 
-    // 加入并收窄 OpenBridge 已实际门控的协议控制字段。
+    // Add and narrow protocol-control fields actually gated by OpenBridge.
     if streaming {
         parameters.insert("stream".to_owned());
     }
@@ -758,7 +759,7 @@ fn interface_parameters(
     parameters.into_iter().collect()
 }
 
-/// 判断参数能否由当前 Bridge 请求转换器完整表示。
+/// Returns whether the current Bridge request converter can represent a parameter completely.
 fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
     match protocol {
         ApiProtocol::ChatCompletions => matches!(
@@ -787,7 +788,7 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
     }
 }
 
-/// 把同一协议的全部 Route 契约输入收敛为唯一接口契约。
+/// Reduces all Route contract inputs for one protocol to a unique interface contract.
 fn aggregate_interface<'a>(
     contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
 ) -> Option<ModelInterfaceCapabilities> {
@@ -796,7 +797,7 @@ fn aggregate_interface<'a>(
         return None;
     }
 
-    // 分别计算标量、集合与 reasoning 输出的保守交集。
+    // Compute conservative intersections for scalars, sets, and reasoning output separately.
     let context_window =
         ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
@@ -826,7 +827,7 @@ fn aggregate_interface<'a>(
     let reasoning_output =
         intersect_reasoning_output(contributions.iter().map(|value| value.reasoning_output));
 
-    // 根据聚合状态构造稳定的工具、结构化输出和 state 子对象。
+    // Build stable tool, structured-output, and state subobjects from the aggregate state.
     Some(ModelInterfaceCapabilities {
         context_window,
         modalities,
@@ -895,7 +896,7 @@ fn aggregate_interface<'a>(
     })
 }
 
-/// 聚合 Public Model 的模型本体能力，不混入 Provider 或 Route 身份。
+/// Aggregates Public Model model capabilities without mixing in Provider or Route identity.
 fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> ModelCapabilities {
     if contributions.is_empty() {
         return ModelCapabilities {
@@ -915,7 +916,7 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
         };
     }
 
-    // 模型本体事实同样按所有可执行 Route 取交集，避免 fallback 扩大公开能力。
+    // Intersect model facts across executable Routes so fallback cannot expand public capability.
     let reasoning =
         SupportState::intersection(contributions.iter().map(|value| value.model_reasoning));
     let declared_modalities = contributions
@@ -953,7 +954,7 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
     }
 }
 
-/// 只有全部 Route 都提供数值时才返回安全最小值。
+/// Returns a safe minimum only when every Route provides a value.
 fn intersect_optional_limit(values: impl Iterator<Item = Option<u32>>) -> Option<u32> {
     let values = values.collect::<Vec<_>>();
     if values.is_empty() || values.iter().any(Option::is_none) {
@@ -963,7 +964,7 @@ fn intersect_optional_limit(values: impl Iterator<Item = Option<u32>>) -> Option
     }
 }
 
-/// 对有序可比较集合计算稳定交集。
+/// Computes a stable intersection for ordered comparable sets.
 fn intersect_sets<'a, T>(values: impl Iterator<Item = &'a [T]>) -> Vec<T>
 where
     T: Clone + Ord + 'a,
@@ -978,12 +979,12 @@ where
     intersection.into_iter().collect()
 }
 
-/// 将任意参数迭代器去重并按 wire 名称排序。
+/// Deduplicates a parameter iterator and sorts it by wire name.
 fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
     values.collect::<BTreeSet<_>>().into_iter().collect()
 }
 
-/// 复制并稳定排序一个已校验无重复的枚举集合。
+/// Copies and stably sorts an already validated, duplicate-free enum set.
 fn sorted_values<T: Clone + Ord>(values: &[T]) -> Vec<T> {
     values
         .iter()
@@ -993,7 +994,7 @@ fn sorted_values<T: Clone + Ord>(values: &[T]) -> Vec<T> {
         .collect()
 }
 
-/// 仅在所有 Route 返回相同 reasoning 输出形态时公开该形态。
+/// Publishes a reasoning output form only when every Route returns the same form.
 fn intersect_reasoning_output(
     mut values: impl Iterator<Item = ReasoningOutputMode>,
 ) -> ReasoningOutputMode {

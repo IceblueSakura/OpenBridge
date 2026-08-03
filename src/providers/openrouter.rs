@@ -1,7 +1,7 @@
-//! OpenRouter Provider 的编译期实现入口。
+//! Compile-time entry point for the OpenRouter Provider.
 //!
-//! 当前注册 Nemotron 3 Ultra 的 Chat 与无状态 Responses Native surface；服务端状态、
-//! 动态路由字段和 OpenRouter 可选归因 header 不在已承诺边界内。
+//! Registers Chat and stateless Responses Native surfaces for Nemotron 3 Ultra; server-side state,
+//! dynamic routing fields, and optional OpenRouter attribution headers are outside the committed boundary.
 
 mod definition;
 mod registration;

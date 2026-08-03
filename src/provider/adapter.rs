@@ -1,4 +1,4 @@
-//! 已编译 Provider adapter 的闭合请求与响应分派。
+//! Closed request and response dispatch for compiled Provider adapters.
 
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
@@ -16,33 +16,34 @@ use super::{
     StatusClassification,
 };
 
-/// provider adapter 在请求、认证或响应阶段报告的失败。
+/// Failure reported by a Provider adapter during request, authentication, or response handling.
 #[derive(Debug, Error)]
 pub enum AdapterError {
-    /// 请求协议不在 adapter 的支持范围内。
+    /// The request protocol is outside the adapter's supported scope.
     #[error("request protocol is not supported by this provider adapter")]
     UnsupportedProtocol,
-    /// credential 所属 provider 与 adapter 不一致。
+    /// The credential Provider does not match the adapter.
     #[error("credential provider does not match the provider adapter")]
     CredentialProviderMismatch,
-    /// credential kind 不在 Provider 静态契约允许范围内。
+    /// The credential kind is outside the Provider's static contract.
     #[error("credential kind is not supported by the provider adapter")]
     CredentialKindMismatch,
-    /// 敏感 header 被错误地放入普通 header 集合。
+    /// A sensitive header was incorrectly placed in the ordinary-header set.
     #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
-    /// 请求正文无法解析或改写为合法 JSON object。
+    /// The request body cannot be parsed or rewritten as a valid JSON object.
     #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,
-    /// credential 无法编码为合法 HTTP header。
+    /// The credential cannot be encoded as a valid HTTP header.
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,
 }
 
-/// 已经选择协议、但尚未绑定 Upstream Target origin 的上游请求。
+/// Upstream request with a selected protocol but no Upstream Target origin bound yet.
 ///
-/// adapter 只能产生相对 URI；transport 将其与配置中已 allowlist 的 origin 拼接。这是阻止
-/// provider adapter 或下游请求绕过 egress allowlist 的第二道边界。
+/// Adapters can produce only relative URIs; transport joins them to an allowlisted configured
+/// origin. This is the second boundary preventing a Provider adapter or downstream request from
+/// bypassing the egress allowlist.
 #[derive(Clone)]
 pub struct PreparedUpstreamRequest {
     method: Method,
@@ -51,7 +52,7 @@ pub struct PreparedUpstreamRequest {
 }
 
 impl PreparedUpstreamRequest {
-    /// 创建尚未绑定 endpoint origin 的 adapter 请求。
+    /// Creates an adapter request without a bound endpoint origin.
     pub(crate) fn new(method: Method, relative_uri: Uri, body: Bytes) -> Self {
         Self {
             method,
@@ -60,17 +61,17 @@ impl PreparedUpstreamRequest {
         }
     }
 
-    /// 返回 HTTP method。
+    /// Returns the HTTP method.
     pub fn method(&self) -> &Method {
         &self.method
     }
 
-    /// 返回不含 authority 的相对 URI。
+    /// Returns the relative URI without an authority.
     pub fn relative_uri(&self) -> &Uri {
         &self.relative_uri
     }
 
-    /// 返回改写后的请求 body。
+    /// Returns the rewritten request body.
     pub fn body(&self) -> &Bytes {
         &self.body
     }
@@ -81,58 +82,58 @@ enum ProviderAdapterImplementation {
     OpenAiCompatible(OpenAiCompatibleAdapter),
 }
 
-/// 已编译 Provider adapter 的闭合分派入口。
+/// Closed dispatch entry point for compiled Provider adapters.
 #[derive(Clone, Copy)]
 pub struct ProviderAdapter {
     implementation: ProviderAdapterImplementation,
 }
 
 impl ProviderAdapter {
-    /// 将一个 OpenAI-compatible wire profile 包装为闭合 Provider adapter。
+    /// Wraps an OpenAI-compatible wire profile as a closed Provider adapter.
     pub(crate) const fn from_openai_compatible(adapter: OpenAiCompatibleAdapter) -> Self {
         Self {
             implementation: ProviderAdapterImplementation::OpenAiCompatible(adapter),
         }
     }
 
-    /// 根据注册表中的 provider kind 选择 adapter。
+    /// Selects an adapter from the Provider kind in the registry.
     pub fn for_kind(kind: ProviderKind) -> Self {
         kind.definition().adapter()
     }
 
-    /// 取得当前闭合分派所持有的 OpenAI-compatible profile。
+    /// Returns the OpenAI-compatible profile held by this closed dispatch.
     fn openai_compatible(&self) -> OpenAiCompatibleAdapter {
         match self.implementation {
             ProviderAdapterImplementation::OpenAiCompatible(adapter) => adapter,
         }
     }
 
-    /// 返回 adapter 的静态 provider 契约。
+    /// Returns the adapter's static Provider contract.
     pub fn contract(&self) -> &'static ProviderContract {
         self.openai_compatible().contract()
     }
 
-    /// 合并普通 header hook 与最后附加的 Provider 敏感认证 header。
+    /// Merges the ordinary-header hook with the final Provider-sensitive authentication header.
     pub(crate) fn build_outbound_headers(
         &self,
         credential: &UpstreamCredential<'_>,
         downstream_headers: &HeaderMap,
     ) -> Result<HeaderMap, AdapterError> {
-        // 构造 Provider 基础 header，并运行只允许写入 SafeHeaders 的请求 hook。
+        // Build Provider base headers and run the request hook, which may write only SafeHeaders.
         let mut safe_headers = self.prepare_headers()?;
         self.apply_request_header_hook(downstream_headers, &mut safe_headers)?;
         let mut headers = safe_headers.into_inner();
 
-        // 最后附加 credential adapter 生成的敏感 header，避免下游 hook 覆盖认证材料。
+        // Append the credential adapter's sensitive header last so a downstream hook cannot overwrite authentication material.
         self.prepare_auth_headers(credential)?
             .append_to(&mut headers)?;
         Ok(headers)
     }
 
-    /// 运行 Provider 的受信 request-header hook。
+    /// Runs the Provider's trusted request-header hook.
     ///
-    /// hook 可以增添、替换、转换或删除普通 header；认证、cookie、Host 与 proxy
-    /// authentication header 仍由 `SafeHeaders` 拒绝。
+    /// The hook may add, replace, transform, or remove ordinary headers; `SafeHeaders` still
+    /// rejects authentication, cookie, Host, and proxy-authentication headers.
     pub fn apply_request_header_hook(
         &self,
         downstream_headers: &HeaderMap,
@@ -142,15 +143,15 @@ impl ProviderAdapter {
             .apply_request_header_hook(downstream_headers, headers)
     }
 
-    /// 由编译期 adapter 固定生成的上游模型发现请求。
+    /// Upstream model-discovery request fixed by the compile-time adapter.
     ///
-    /// 该请求只用于管理员显式 probe；它不会成为下游 `/v1/models` 的实现，后者始终
-    /// 只暴露 OpenBridge 的 Public Model。
+    /// This request is for explicit administrative probes only; it does not implement downstream
+    /// `/v1/models`, which always exposes OpenBridge Public Models.
     pub(crate) fn prepare_model_list_request(&self) -> PreparedUpstreamRequest {
         self.openai_compatible().prepare_model_list_request()
     }
 
-    /// 按 RoutePlan 确定的执行协议和上游模型 id 构造相对上游请求。
+    /// Builds a relative upstream request from the execution protocol and upstream model ID in RoutePlan.
     pub fn prepare_request(
         &self,
         request: &ApiRequest,
@@ -160,12 +161,12 @@ impl ProviderAdapter {
             .prepare_request(request, upstream_model)
     }
 
-    /// 构造不包含认证材料的安全请求头。
+    /// Builds safe request headers without authentication material.
     pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
         self.openai_compatible().prepare_headers()
     }
 
-    /// 构造只在 egress 前附加的敏感认证请求头。
+    /// Builds sensitive authentication headers added only before egress.
     pub fn prepare_auth_headers(
         &self,
         credential: &UpstreamCredential<'_>,
@@ -173,7 +174,7 @@ impl ProviderAdapter {
         self.openai_compatible().prepare_auth_headers(credential)
     }
 
-    /// 判断一个已完成 framing 的 SSE event 是否终止或失败。
+    /// Returns whether a fully framed SSE event is terminal or failed.
     pub fn classify_sse_event(
         &self,
         protocol: ApiProtocol,
@@ -182,7 +183,7 @@ impl ProviderAdapter {
         Ok(self.openai_compatible().classify_sse_event(protocol, event))
     }
 
-    /// 将上游 HTTP status 映射为粗粒度错误和重试边界。
+    /// Maps an upstream HTTP status to a coarse error and retry boundary.
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         self.openai_compatible().classify_status(status)
     }

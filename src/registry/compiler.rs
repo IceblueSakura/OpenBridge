@@ -1,4 +1,4 @@
-//! 静态注册表的校验与运行时快照编译。
+//! Validates the static registry and compiles the runtime snapshot.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,15 +14,16 @@ use super::{
     },
 };
 
-/// 校验完整 registry 定义并构造请求路径只读的运行时 snapshot。
+/// Validates the complete registry definition and builds the request-path read-only runtime snapshot.
 ///
-/// 校验阶段拒绝未知引用、重复 id、能力越权、非安全 endpoint 和不一致的模型收窄规则；
-/// 成功后返回值不再依赖运行时配置注册新 provider 或 target。
+/// Validation rejects unknown references, duplicate IDs, excessive capabilities, unsafe endpoints,
+/// and inconsistent model-narrowing rules. After success, the result no longer depends on runtime
+/// configuration to register Providers or targets.
 pub fn build_registry(
     bootstrap: BootstrapConfig,
     definition: RegistryConfig,
 ) -> Result<RuntimeRegistry, RegistryError> {
-    // 校验版本并建立 canonical model 索引。
+    // Validate the version and build the canonical model index.
     if definition.version.trim().is_empty() {
         return Err(RegistryError::BlankVersion);
     }
@@ -51,7 +52,7 @@ pub fn build_registry(
         }
     }
 
-    // 校验 credential pool 的 Provider 归属与认证类型。
+    // Validate credential-pool Provider ownership and credential types.
     let mut credential_pools = BTreeMap::new();
     for pool in definition.credential_pools {
         if pool.id.trim().is_empty() {
@@ -75,7 +76,7 @@ pub fn build_registry(
         }
     }
 
-    // 校验 target、pool 引用、endpoint 和 Upstream API，并解析模型收窄规则。
+    // Validate targets, pool references, endpoints, and Upstream APIs, then resolve model-narrowing rules.
     let mut upstream_targets = BTreeMap::new();
     for target in definition.upstream_targets {
         let credential_pool = credential_pools
@@ -199,7 +200,7 @@ pub fn build_registry(
         }
     }
 
-    // 校验 route 引用及 native 协议一致性。
+    // Validate Route references and Native protocol consistency.
     let mut routes = BTreeMap::new();
     for route in definition.routes {
         let target = upstream_targets
@@ -239,7 +240,7 @@ pub fn build_registry(
         }
     }
 
-    // 校验 Public Model 的 route 顺序、唯一性和完整引用。
+    // Validate Public Model Route order, uniqueness, and complete references.
     let mut public_models = BTreeMap::new();
     for public_model in definition.public_models {
         validate_public_model_config(&public_model)?;
@@ -297,7 +298,7 @@ pub fn build_registry(
         }
     }
 
-    // 固化所有解析结果为请求路径只读 snapshot。
+    // Freeze all resolved results into the request-path read-only snapshot.
     Ok(RuntimeRegistry {
         version: RegistryVersion(definition.version),
         bootstrap,

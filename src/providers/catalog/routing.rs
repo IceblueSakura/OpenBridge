@@ -1,19 +1,20 @@
-//! 内置 Public Model 与其完整 Route 集合。
+//! Built-in Public Models and their complete Route sets.
 //!
-//! 每个 Public Model 和它引用的 Route 在同一注册单元中生成，避免分别维护 Route ID 与候选顺序。
+//! Each Public Model and its referenced Routes are created in one registration unit so that
+//! Route IDs and candidate order cannot drift apart.
 
 use crate::{
     core::ApiProtocol,
     registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
 };
 
-/// 编译目录使用的 Route 与 Public Model 聚合结果。
+/// Aggregated Route and Public Model definitions used by the compiled catalog.
 pub(super) struct CompiledRouting {
     pub(super) routes: Vec<RouteConfig>,
     pub(super) public_models: Vec<PublicModelConfig>,
 }
 
-/// 返回所有编译进二进制的 Public Model 及其 Route。
+/// Returns all Public Models and their Routes compiled into the binary.
 pub(super) fn compiled_routing() -> CompiledRouting {
     let registrations = [
         PublicModelRegistration {
@@ -60,7 +61,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
         },
     ];
 
-    // 按显式注册顺序共同生成 Route 与 Public Model 候选。
+    // Build Route and Public Model candidates in explicit registration order.
     let mut routes = Vec::with_capacity(registrations.len() * 4);
     let mut public_models = Vec::with_capacity(registrations.len());
     for registration in registrations {
@@ -90,7 +91,7 @@ enum PublicModelSurface {
 }
 
 impl PublicModelRegistration {
-    /// 按注册的 surface 类型生成完整 route 与 Public Model 候选。
+    /// Builds the complete Route and Public Model candidates for a registered surface.
     fn compile(self) -> CompiledPublicModel {
         match self.surface {
             PublicModelSurface::DualProtocolWithBridges => self.compile_dual_protocol(),
@@ -101,15 +102,15 @@ impl PublicModelRegistration {
         }
     }
 
-    /// 生成 Chat/Responses Native-first 与反向 Bridge 的完整 surface。
+    /// Builds the complete Chat/Responses surface with Native-first ordering and reverse Bridge candidates.
     fn compile_dual_protocol(self) -> CompiledPublicModel {
-        // 生成两个 Native 与两个反向 Bridged Route 的稳定 ID。
+        // Assign stable IDs to the two Native and two reverse Bridged Routes.
         let chat = format!("{}-chat", self.route_prefix);
         let chat_via_responses = format!("{}-chat-via-responses", self.route_prefix);
         let responses = format!("{}-responses", self.route_prefix);
         let responses_via_chat = format!("{}-responses-via-chat", self.route_prefix);
 
-        // 按下游协议的 Native-first 顺序构造完整 Route 集合。
+        // Build the complete Route set in downstream-protocol Native-first order.
         let routes = vec![
             route(
                 &chat,
@@ -141,7 +142,7 @@ impl PublicModelRegistration {
             ),
         ];
 
-        // 复用同一批 ID 构造 Public Model 的稳定候选顺序。
+        // Reuse the same IDs to build the stable Public Model candidate order.
         let public_model = PublicModelConfig {
             id: self.public_name.to_owned(),
             created: 1_785_715_200,
@@ -156,9 +157,9 @@ impl PublicModelRegistration {
         }
     }
 
-    /// 只生成两个协议的 Native surface，不加入 Bridge 或 fallback。
+    /// Builds only the two Native surfaces without Bridge or fallback candidates.
     fn compile_dual_protocol_native_only(self) -> CompiledPublicModel {
-        // 生成 Chat 与 Responses Native Route，避免暗示 Bridge 可用。
+        // Build Chat and Responses Native Routes without implying Bridge support.
         let chat = format!("{}-chat", self.route_prefix);
         let responses = format!("{}-responses", self.route_prefix);
         let routes = vec![
@@ -178,7 +179,7 @@ impl PublicModelRegistration {
             ),
         ];
 
-        // 让 Public Model 只引用各协议当前唯一完整候选。
+        // Make each Public Model reference its only complete candidate for the protocol.
         let public_model = PublicModelConfig {
             id: self.public_name.to_owned(),
             created: 1_785_715_200,
@@ -193,9 +194,9 @@ impl PublicModelRegistration {
         }
     }
 
-    /// 生成 Chat Native 与 Responses→Chat Bridge surface。
+    /// Builds a Chat Native surface and a Responses-to-Chat Bridge surface.
     fn compile_chat_native_with_responses_bridge(self) -> CompiledPublicModel {
-        // 生成 Chat Native 与 Responses bridge 的稳定 ID。
+        // Assign stable IDs to the Chat Native and Responses Bridge Routes.
         let chat = format!("{}-chat", self.route_prefix);
         let responses_via_chat = format!("{}-responses-via-chat", self.route_prefix);
         let routes = vec![
@@ -215,7 +216,7 @@ impl PublicModelRegistration {
             ),
         ];
 
-        // 让两个下游协议各引用唯一完整候选。
+        // Make each downstream protocol reference its only complete candidate.
         let public_model = PublicModelConfig {
             id: self.public_name.to_owned(),
             created: 1_785_715_200,
@@ -236,7 +237,7 @@ struct CompiledPublicModel {
     public_model: PublicModelConfig,
 }
 
-/// 构造一个绑定 target、Upstream API、下游协议和处理模式的 route 定义。
+/// Builds a Route definition bound to a target, Upstream API, downstream protocol, and handling mode.
 fn route(
     id: &str,
     upstream_target: &str,
@@ -244,7 +245,7 @@ fn route(
     downstream_protocol: ApiProtocol,
     mode: RouteMode,
 ) -> RouteConfig {
-    // 将调用点的协议方向和模式固化为一个不可变 route 定义。
+    // Freeze the call site's protocol direction and mode into an immutable Route definition.
     RouteConfig {
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),

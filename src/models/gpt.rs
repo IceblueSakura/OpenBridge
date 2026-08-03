@@ -1,4 +1,4 @@
-//! OpenAI GPT 家族的 canonical 模型聚合入口。
+//! Aggregates canonical model facts for the OpenAI GPT family.
 
 use crate::registry::ModelConfig;
 
@@ -8,7 +8,7 @@ pub(crate) mod v5_6_luna;
 pub(crate) mod v5_6_sol;
 pub(crate) mod v5_6_terra;
 
-/// 返回 GPT 家族所有编译进二进制的 canonical 模型事实。
+/// Returns all GPT model facts compiled into the binary.
 pub(crate) fn configs() -> Vec<ModelConfig> {
     vec![
         v5_6_sol::config(),

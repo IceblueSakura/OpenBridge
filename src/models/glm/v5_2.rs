@@ -1,8 +1,8 @@
-//! GLM-5.2 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the GLM-5.2 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 GLM-5.2 的完整模型事实。
+/// Builds the complete model facts for GLM-5.2.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "z-ai/glm-5.2".to_owned(),

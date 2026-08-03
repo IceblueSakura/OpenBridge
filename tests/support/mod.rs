@@ -1,4 +1,4 @@
-//! 为集成测试提供不含真实凭证的 bootstrap、registry 和 credential fixture。
+//! Provides bootstrap, registry, and credential fixtures without real credentials for integration tests.
 
 #![allow(dead_code)]
 

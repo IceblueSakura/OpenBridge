@@ -1,7 +1,8 @@
-//! 编译期 Provider 契约与闭合 adapter dispatch 的包入口。
+//! Package entry point for compile-time Provider contracts and closed adapter dispatch.
 //!
-//! 路由配置只能选择已编译的 Provider；具体子模块分别拥有静态契约、请求响应分派和
-//! 安全 header/SSE/error 数据契约。本文件仅声明模块并保持既有公共 API 路径。
+//! Route configuration can select only compiled Providers. Submodules own static contracts,
+//! request/response dispatch, and safe header/SSE/error data contracts. This file only declares
+//! modules and preserves existing public API paths.
 
 mod adapter;
 mod contracts;

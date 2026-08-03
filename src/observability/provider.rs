@@ -1,8 +1,9 @@
-//! Provider attempt 的性能、usage 与 cache 遥测。
+//! Performance, usage, and cache telemetry for Provider attempts.
 //!
-//! 本模块把每次实际上游调用绑定到编译期 route、target、Upstream API、Provider 与协议，
-//! 在原始 upstream body/SSE 边界记录时间和明确 usage，再在 attempt 终态写入进程内快照。
-//! 指标不保存业务正文、credential、endpoint URL 或下游身份。
+//! This module binds each actual upstream call to compile-time Route, target, Upstream API,
+//! Provider, and protocol dimensions. It records timing and explicit usage at raw upstream
+//! body/SSE boundaries, then writes a process snapshot at attempt termination. Metrics store no
+//! business bodies, credentials, endpoint URLs, or downstream identities.
 
 use std::{
     collections::BTreeMap,
@@ -20,29 +21,29 @@ use crate::{core::ApiProtocol, provider::ProviderKind};
 
 use super::{request::RequestObservation, usage::TokenUsage};
 
-/// Provider 性能快照使用的有限、非敏感维度。
+/// Bounded, non-sensitive dimensions used by Provider performance snapshots.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ProviderMetricKey {
-    /// 编译期 Provider 名称。
+    /// Compile-time Provider name.
     pub provider: String,
-    /// 编译期 Route 标识。
+    /// Compile-time Route identifier.
     pub route_id: String,
-    /// 编译期 Upstream Target 标识。
+    /// Compile-time Upstream Target identifier.
     pub upstream_target: String,
-    /// 编译期 Upstream API 标识。
+    /// Compile-time Upstream API identifier.
     pub upstream_api: String,
-    /// 下游使用的 Public Model 名称。
+    /// Public Model name used downstream.
     pub public_model: String,
-    /// 下游请求协议。
+    /// Downstream request protocol.
     pub protocol: String,
-    /// Native 或 Bridged 执行模式。
+    /// Native or Bridged execution mode.
     pub route_mode: String,
-    /// 请求是否要求 streaming response。
+    /// Whether the request requires a streaming response.
     pub streaming: bool,
 }
 
 impl ProviderMetricKey {
-    /// 从受信编译期标识构造 Provider 性能维度。
+    /// Builds Provider performance dimensions from trusted compile-time identifiers.
     pub(super) fn new(
         provider: ProviderKind,
         route_id: &str,
@@ -70,30 +71,30 @@ impl ProviderMetricKey {
     }
 }
 
-/// Provider attempt 的执行模式上下文。
+/// Execution-mode context for a Provider attempt.
 #[derive(Clone, Copy)]
 pub(super) struct ProviderMetricExecution {
-    /// 请求是否要求 streaming response。
+    /// Whether the request requires a streaming response.
     pub(super) streaming: bool,
-    /// 当前 route 是否使用 Protocol Bridge。
+    /// Whether the current Route uses the Protocol Bridge.
     pub(super) bridged: bool,
 }
 
-/// 一个时间字段的 count/sum/min/max 聚合。
+/// Count/sum/min/max aggregate for one timing field.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct TimingSnapshot {
-    /// 有效观测数量。
+    /// Number of valid observations.
     pub count: u64,
-    /// 所有有效观测的毫秒总和。
+    /// Sum of all valid observations in milliseconds.
     pub sum_ms: u64,
-    /// 有效观测的最小毫秒数。
+    /// Minimum valid observation in milliseconds.
     pub min_ms: Option<u64>,
-    /// 有效观测的最大毫秒数。
+    /// Maximum valid observation in milliseconds.
     pub max_ms: Option<u64>,
 }
 
 impl TimingSnapshot {
-    /// 加入一个有界的毫秒观测。
+    /// Adds a bounded millisecond observation.
     fn record(&mut self, value: u64) {
         self.count = self.count.saturating_add(1);
         self.sum_ms = self.sum_ms.saturating_add(value);
@@ -102,21 +103,21 @@ impl TimingSnapshot {
     }
 }
 
-/// output tokens/sec 的定点聚合；所有 milli 字段等于真实值乘以 1000。
+/// Fixed-point aggregate for output tokens/sec; every milli field equals the real value multiplied by 1,000.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct RateSnapshot {
-    /// 有效速度观测数量。
+    /// Number of valid speed observations.
     pub count: u64,
-    /// milli tokens/sec 的总和。
+    /// Sum of milli tokens/sec.
     pub sum_milli_tokens_per_second: u64,
-    /// 最小 milli tokens/sec。
+    /// Minimum milli tokens/sec.
     pub min_milli_tokens_per_second: Option<u64>,
-    /// 最大 milli tokens/sec。
+    /// Maximum milli tokens/sec.
     pub max_milli_tokens_per_second: Option<u64>,
 }
 
 impl RateSnapshot {
-    /// 加入一个以 milli tokens/sec 表示的速度观测。
+    /// Adds a speed observation expressed in milli tokens/sec.
     fn record(&mut self, value: u64) {
         self.count = self.count.saturating_add(1);
         self.sum_milli_tokens_per_second = self.sum_milli_tokens_per_second.saturating_add(value);
@@ -131,80 +132,80 @@ impl RateSnapshot {
     }
 }
 
-/// 一个 Provider/Route 维度的 attempt 性能与 usage 快照。
+/// Performance and usage snapshot for one Provider/Route dimension.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct ProviderMetricSnapshot {
-    /// 该快照的受信维度。
+    /// Trusted dimensions of this snapshot.
     pub key: ProviderMetricKey,
-    /// 已完成收口的实际上游 attempt 数。
+    /// Actual upstream attempts fully finalized.
     pub attempts_started: u64,
-    /// 上游 body 正常结束的 attempt 数。
+    /// Attempts whose upstream body ended normally.
     pub attempts_completed: u64,
-    /// 返回非 2xx status 的 attempt 数。
+    /// Attempts returning a non-2xx status.
     pub attempts_http_failed: u64,
-    /// 未取得 HTTP response 的 transport failure 数。
+    /// Transport failures without an HTTP response.
     pub attempts_transport_failed: u64,
-    /// 上游 body/SSE/协议失败的 attempt 数。
+    /// Attempts failing at the upstream body, SSE, or protocol boundary.
     pub attempts_stream_failed: u64,
-    /// 上游 body 尚未完成即被取消的 attempt 数。
+    /// Attempts cancelled before the upstream body completed.
     pub attempts_cancelled: u64,
-    /// 上游 response headers ready 的时间聚合。
+    /// Timing aggregate until upstream response headers are ready.
     pub response_ready_ms: TimingSnapshot,
-    /// 上游首个非空 body chunk 的时间聚合。
+    /// Timing aggregate until the first non-empty upstream body chunk.
     pub upstream_first_byte_ms: TimingSnapshot,
-    /// 上游首个 text/tool 业务输出的时间聚合。
+    /// Timing aggregate until the first upstream text/tool business output.
     pub upstream_ttft_ms: TimingSnapshot,
-    /// 下游观察到首个 text/tool 业务输出的时间聚合。
+    /// Timing aggregate until downstream observes the first text/tool business output.
     pub gateway_ttft_ms: TimingSnapshot,
-    /// 上游 body 生命周期时间聚合。
+    /// Timing aggregate for the upstream body lifetime.
     pub duration_ms: TimingSnapshot,
-    /// 从上游首个业务输出到 upstream body 完成的时间聚合。
+    /// Timing aggregate from first upstream business output to upstream body completion.
     pub generation_duration_ms: TimingSnapshot,
-    /// 根据明确 output usage 和 generation duration 计算的速度聚合。
+    /// Speed aggregate calculated from explicit output usage and generation duration.
     pub output_speed: RateSnapshot,
-    /// 有明确 usage 的 attempt 数。
+    /// Attempts with explicit usage.
     pub usage_observations: u64,
-    /// 明确返回输入 token 的 attempt 数，用于计算每请求平均输入 token。
+    /// Attempts explicitly returning input tokens, used for average input tokens per request.
     pub input_token_observations: u64,
-    /// 明确返回输出 token 的 attempt 数，用于计算每请求平均输出 token。
+    /// Attempts explicitly returning output tokens, used for average output tokens per request.
     pub output_token_observations: u64,
-    /// 明确返回总 token 的 attempt 数，用于计算每请求平均总 token。
+    /// Attempts explicitly returning total tokens, used for average total tokens per request.
     pub total_token_observations: u64,
-    /// 明确 usage 的输入 token 累计值。
+    /// Cumulative input tokens from explicit usage.
     pub input_tokens: u64,
-    /// 明确 usage 的输出 token 累计值。
+    /// Cumulative output tokens from explicit usage.
     pub output_tokens: u64,
-    /// 明确 usage 的总 token 累计值。
+    /// Cumulative total tokens from explicit usage.
     pub total_tokens: u64,
-    /// 具有明确缓存字段的 usage attempt 数。
+    /// Attempts whose usage includes explicit cache fields.
     pub cache_observations: u64,
-    /// 明确返回 cache read token 字段的 usage attempt 数，作为命中率分母。
+    /// Attempts whose usage explicitly returns cache-read tokens, used as the hit-rate denominator.
     pub cache_read_observations: u64,
-    /// 明确报告缓存读取 token 的 attempt 数。
+    /// Attempts explicitly reporting cache-read tokens.
     pub cache_hit_requests: u64,
-    /// 明确报告的缓存读取 token 累计值。
+    /// Cumulative explicitly reported cache-read tokens.
     pub cached_input_tokens: u64,
-    /// 明确报告的缓存写入 token 累计值。
+    /// Cumulative explicitly reported cache-write tokens.
     pub cache_write_input_tokens: u64,
 }
 
-/// Provider attempt 的最终结果类别。
+/// Final result category for a Provider attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AttemptOutcome {
-    /// 上游 body 正常完成。
+    /// The upstream body completed normally.
     Completed,
-    /// 上游返回非 2xx HTTP status。
+    /// The upstream returned a non-2xx HTTP status.
     HttpFailed,
-    /// 未取得 HTTP response。
+    /// No HTTP response was received.
     TransportFailed,
-    /// body、SSE framing 或协议 terminal 失败。
+    /// The body, SSE framing, or protocol terminal failed.
     StreamFailed,
-    /// 上游 body 在完成前被取消。
+    /// The upstream body was cancelled before completion.
     Cancelled,
 }
 
 impl AttemptOutcome {
-    /// 返回稳定的 trace outcome 名称。
+    /// Returns the stable trace outcome name.
     fn as_str(self) -> &'static str {
         match self {
             Self::Completed => "completed",
@@ -216,14 +217,14 @@ impl AttemptOutcome {
     }
 }
 
-/// 共享的 Provider snapshot 存储。
+/// Shared Provider snapshot storage.
 #[derive(Clone, Default)]
 pub(super) struct ProviderMetrics {
     inner: Arc<Mutex<BTreeMap<ProviderMetricKey, ProviderMetricSnapshot>>>,
 }
 
 impl ProviderMetrics {
-    /// 创建一个尚未收口的 Provider attempt 观测句柄。
+    /// Creates an open Provider-attempt observation handle.
     pub(super) fn start(&self, key: ProviderMetricKey) -> ProviderAttemptObservation {
         ProviderAttemptObservation {
             metrics: self.clone(),
@@ -233,7 +234,7 @@ impl ProviderMetrics {
         }
     }
 
-    /// 返回按维度排序的 Provider 快照。
+    /// Returns Provider snapshots ordered by dimension.
     pub(super) fn snapshots(&self) -> Vec<ProviderMetricSnapshot> {
         self.inner
             .lock()
@@ -243,7 +244,7 @@ impl ProviderMetrics {
             .collect()
     }
 
-    /// 将一个已收口的 attempt summary 合并到对应维度。
+    /// Merges a finalized attempt summary into its corresponding dimension.
     fn record(&self, key: &ProviderMetricKey, summary: AttemptSummary) {
         let mut snapshots = self
             .inner
@@ -332,7 +333,7 @@ impl ProviderMetrics {
     }
 }
 
-/// 一个实际 Provider attempt 的生命周期观测句柄。
+/// Lifecycle observation handle for one actual Provider attempt.
 #[derive(Clone)]
 pub(super) struct ProviderAttemptObservation {
     metrics: ProviderMetrics,
@@ -367,7 +368,7 @@ struct AttemptSummary {
 }
 
 impl ProviderAttemptObservation {
-    /// 记录上游 response headers ready 的 attempt 相对时间。
+    /// Records the attempt-relative time when upstream response headers are ready.
     pub(super) fn record_response_ready(&self) {
         self.with_state(|state| {
             state
@@ -376,7 +377,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// 记录原始上游 body 的首个非空 chunk。
+    /// Records the first non-empty chunk of the raw upstream body.
     pub(super) fn record_first_byte(&self) {
         self.with_state(|state| {
             state
@@ -385,7 +386,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// 记录原始上游 SSE 中首个 text/tool 业务输出。
+    /// Records the first text/tool business output in raw upstream SSE.
     pub(super) fn record_upstream_ttft(&self) {
         self.with_state(|state| {
             state
@@ -394,14 +395,14 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// 记录下游观察到的首个业务输出时间。
+    /// Records when downstream observes the first business output.
     pub(super) fn record_gateway_ttft(&self, elapsed_ms: u64) {
         self.with_state(|state| {
             state.gateway_ttft_ms.get_or_insert(elapsed_ms);
         });
     }
 
-    /// 记录原始上游 body 正常到达 EOF。
+    /// Records normal EOF of the raw upstream body.
     pub(super) fn record_upstream_complete(&self) {
         self.with_state(|state| {
             state
@@ -410,12 +411,12 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// 记录上游 body/SSE/协议失败，但把最终收口交给请求生命周期。
+    /// Records an upstream body/SSE/protocol failure while leaving finalization to the request lifecycle.
     pub(super) fn record_stream_failure(&self) {
         self.with_state(|state| state.stream_failed = true);
     }
 
-    /// 合并一份明确 usage，保留已经得到的 cache 字段。
+    /// Merges explicit usage while preserving cache fields already collected.
     pub(super) fn record_usage(&self, usage: TokenUsage) {
         self.with_state(|state| {
             if let Some(current) = state.usage.as_mut() {
@@ -426,7 +427,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// 以指定结果收口 attempt，并保证同一 attempt 只写入一次 snapshot。
+    /// Finalizes the attempt with the given result and writes its snapshot at most once.
     pub(super) fn finish(&self, requested_outcome: AttemptOutcome) {
         let summary = {
             let mut state = self.lock_state();
@@ -499,12 +500,12 @@ impl ProviderAttemptObservation {
         );
     }
 
-    /// 在状态锁内执行一个短小的更新。
+    /// Performs a small update while holding the state lock.
     fn with_state(&self, update: impl FnOnce(&mut ProviderAttemptState)) {
         update(&mut self.lock_state());
     }
 
-    /// 获取 attempt 状态锁，并允许本地继续处理 poisoned 状态。
+    /// Acquires the attempt-state lock and continues using locally poisoned state.
     fn lock_state(&self) -> std::sync::MutexGuard<'_, ProviderAttemptState> {
         self.state
             .lock()
@@ -512,7 +513,7 @@ impl ProviderAttemptObservation {
     }
 }
 
-/// 透明观察非 SSE 上游 body，并解析有界 JSON usage。
+/// Transparently observes a non-SSE upstream body and parses bounded JSON usage.
 pub(super) fn observe_json_body(
     body: Body,
     observation: RequestObservation,
@@ -538,9 +539,9 @@ struct ProviderBodyObserver {
 }
 
 impl ProviderBodyObserver {
-    /// 在原始 upstream body 完成时解析 usage 并提交 Provider attempt 终态。
+    /// Parses usage and submits the Provider-attempt terminal when the raw upstream body completes.
     fn complete(&mut self) {
-        // 防止最后一个 frame 与后续 EOF 重复提交同一 attempt。
+        // Prevent the final frame and later EOF from submitting the same attempt twice.
         if self.finished {
             return;
         }
@@ -553,7 +554,7 @@ impl ProviderBodyObserver {
         self.finished = true;
     }
 
-    /// 在 upstream body error 边界提交失败终态。
+    /// Submits a failure terminal at the upstream body-error boundary.
     fn fail(&mut self) {
         if self.finished {
             return;
@@ -567,7 +568,7 @@ impl HttpBody for ProviderBodyObserver {
     type Data = Bytes;
     type Error = axum::Error;
 
-    /// 透传原始 frame，并记录上游首字节与有界 JSON usage。
+    /// Forwards raw frames and records the upstream first byte and bounded JSON usage.
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
@@ -586,7 +587,7 @@ impl HttpBody for ProviderBodyObserver {
                         observer.truncated = true;
                     }
                 }
-                // 已知长度 upstream body 可在最后一个 frame 后直接完成，避免嵌套 wrapper 等待额外 EOF。
+                // A known-length upstream body can complete after the final frame without waiting for another EOF through nested wrappers.
                 if observer.body.is_end_stream() {
                     observer.complete();
                 }
@@ -604,12 +605,12 @@ impl HttpBody for ProviderBodyObserver {
         }
     }
 
-    /// 只有真实 upstream EOF 或 error 后才报告 body 结束。
+    /// Reports body completion only after real upstream EOF or error.
     fn is_end_stream(&self) -> bool {
         self.finished
     }
 
-    /// 保留原始 body 的大小提示。
+    /// Preserves the raw body size hint.
     fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }

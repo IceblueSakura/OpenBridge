@@ -1,4 +1,4 @@
-//! 内置 Model、Upstream Target、Route 与 Public Model 的编译目录装配。
+//! Assembles the built-in Model, Upstream Target, Route, and Public Model catalog.
 
 mod routing;
 
@@ -13,12 +13,12 @@ use crate::{
 
 use super::{deepseek, longcat, mimo, openai, openrouter};
 
-/// 当前内置 provider/model registry 的版本标识。
+/// Version identifier for the built-in provider and model registry.
 pub const REGISTRY_VERSION: &str = "dev-1";
 
-/// 返回所有编译进二进制的 Model、Upstream Target、Route 与 Public Model。
+/// Returns all Model, Upstream Target, Route, and Public Model entries compiled into the binary.
 pub fn compiled_config() -> RegistryConfig {
-    // 聚合各 Provider 的 target 与独立的 Public Model route 注册。
+    // Aggregate provider targets and independent Public Model route registrations.
     let routing = routing::compiled_routing();
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
@@ -43,7 +43,7 @@ pub fn compiled_config() -> RegistryConfig {
     }
 }
 
-/// 构造由私有 upstream credential TOML 提供 secret 的 Provider credential pool。
+/// Builds the Provider credential pool populated from the private upstream credential TOML.
 fn credential_pool(id: &str, provider: ProviderKind) -> CredentialPoolConfig {
     CredentialPoolConfig {
         id: id.to_owned(),
@@ -52,7 +52,7 @@ fn credential_pool(id: &str, provider: ProviderKind) -> CredentialPoolConfig {
     }
 }
 
-/// 校验并构造内置 registry。
+/// Validates and builds the built-in registry.
 pub fn build_compiled_registry(
     bootstrap: BootstrapConfig,
 ) -> Result<RuntimeRegistry, RegistryError> {

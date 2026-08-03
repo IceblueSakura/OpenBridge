@@ -1,4 +1,4 @@
-//! 编译期 Provider 种类与静态能力契约。
+//! Compile-time Provider kinds and static capability contracts.
 
 use crate::{
     core::ApiCapabilities,
@@ -7,10 +7,11 @@ use crate::{
 
 use super::ProviderDefinition;
 
-/// 可由 route 配置引用的闭合 provider 集合。
+/// Closed set of Providers that Route configuration may reference.
 ///
-/// 新 provider 必须新增 enum 变体及其 adapter/tests；未知字符串在配置加载时失败，不能
-/// 退化为“通用 HTTP provider”。这让认证与协议行为保持可审查、可编译的边界。
+/// A new Provider must add an enum variant and its adapter/tests. Unknown strings fail during
+/// configuration loading and cannot degrade into a generic HTTP Provider. This keeps authentication
+/// and protocol behavior within auditable, compile-time boundaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
     /// OpenAI-compatible provider。
@@ -26,20 +27,22 @@ pub enum ProviderKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// provider 支持的 credential 类型。
+/// Credential types supported by a Provider.
 pub enum CredentialKind {
-    /// 使用 HTTP Bearer API key。
+    /// Uses an HTTP Bearer API key.
     ApiKey,
-    /// 使用外部签发的 OAuth2 Bearer access token。
+    /// Uses an externally issued OAuth2 Bearer access token.
     ///
-    /// 该类型只描述资源请求使用的 credential，不代表网关已经实现 token 获取或 refresh。
+    /// This type describes a credential used for resource requests; it does not mean the gateway
+    /// implements token acquisition or refresh.
     OAuth2BearerAccessToken,
 }
 
-/// provider 的静态能力与可配置范围。
+/// Static Provider capabilities and configuration scope.
 ///
-/// Upstream API capability 只能收窄此契约，不能自行声明 adapter 未实现的特性；endpoint
-/// profile 与 credential kind 同样由这里限制，避免 route TOML 变成动态 provider DSL。
+/// Upstream API capabilities may only narrow this contract and cannot declare adapter features that
+/// do not exist. Endpoint profiles and credential kinds are restricted here as well, preventing
+/// Route TOML from becoming a dynamic Provider DSL.
 #[derive(Debug)]
 pub struct ProviderContract {
     kind: ProviderKind,
@@ -49,7 +52,7 @@ pub struct ProviderContract {
 }
 
 impl ProviderContract {
-    /// 创建 provider 的静态契约。
+    /// Creates the static contract for a Provider.
     pub const fn new(
         kind: ProviderKind,
         capabilities: ApiCapabilities,
@@ -64,29 +67,29 @@ impl ProviderContract {
         }
     }
 
-    /// 返回契约对应的 provider kind。
+    /// Returns the Provider kind represented by the contract.
     pub fn kind(&self) -> ProviderKind {
         self.kind
     }
 
-    /// 返回 adapter 支持的能力上界。
+    /// Returns the capability ceiling supported by the adapter.
     pub fn capabilities(&self) -> &ApiCapabilities {
         &self.capabilities
     }
 
-    /// 返回允许配置的 endpoint profile 名称。
+    /// Returns permitted endpoint-profile names.
     pub fn endpoint_profiles(&self) -> &'static [&'static str] {
         self.endpoint_profiles
     }
 
-    /// 返回允许配置的 credential 类型。
+    /// Returns permitted credential types.
     pub fn credential_kinds(&self) -> &'static [CredentialKind] {
         self.credential_kinds
     }
 }
 
 impl ProviderKind {
-    /// 返回该 provider 的唯一编译期描述符。
+    /// Returns the unique compile-time descriptor for the Provider.
     pub fn definition(self) -> &'static ProviderDefinition {
         match self {
             Self::OpenAi => &openai::DEFINITION,
@@ -97,22 +100,22 @@ impl ProviderKind {
         }
     }
 
-    /// 返回该 provider 的编译期契约。
+    /// Returns the Provider's compile-time contract.
     pub fn contract(self) -> &'static ProviderContract {
         self.definition().contract()
     }
 
-    /// 返回该 Provider contract 的能力上界副本。
+    /// Returns a copy of the Provider contract's capability ceiling.
     pub(crate) fn capabilities(self) -> ApiCapabilities {
         *self.contract().capabilities()
     }
 
-    /// 判断静态 Provider 是否注册了指定 endpoint profile。
+    /// Returns whether the static Provider registers the endpoint profile.
     pub(crate) fn accepts_endpoint_profile(self, profile: &str) -> bool {
         self.contract().endpoint_profiles().contains(&profile)
     }
 
-    /// 判断静态 Provider 是否允许指定 credential kind。
+    /// Returns whether the static Provider permits the credential kind.
     pub(crate) fn accepts_credential_kind(self, credential: CredentialKind) -> bool {
         self.contract().credential_kinds().contains(&credential)
     }

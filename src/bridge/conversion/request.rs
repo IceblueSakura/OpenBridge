@@ -1,7 +1,7 @@
-//! Chat Completions 与 Responses 请求转换的方向门面。
+//! Directional facade for Chat Completions and Responses request conversion.
 //!
-//! 两个协议方向分别维护自身的 message/tool ledger；顶层字段 allowlist 由独立 validation
-//! 模块统一执行。所有子模块继续对未建模语义 fail closed。
+//! Each protocol direction maintains its own message/tool ledger; a dedicated validation module
+//! enforces the top-level field allowlist. All submodules continue to fail closed on unmodeled semantics.
 
 mod chat_to_responses;
 mod responses_to_chat;

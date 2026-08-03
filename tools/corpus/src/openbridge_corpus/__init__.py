@@ -1,3 +1,3 @@
-"""OpenBridge 独立协议 corpus 与 mock testkit 的公共包。"""
+"""Public package for the independent OpenBridge protocol corpus and mock testkit."""
 
 __version__ = "0.6.0"

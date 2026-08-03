@@ -1,6 +1,7 @@
-//! 显式执行上游模型发现与协议能力 probe 的本地 CLI。
+//! Local CLI for explicit upstream model discovery and protocol capability probes.
 //!
-//! 该工具只输出 JSON report，不启动下游 HTTP 服务，也不修改代码注册表。
+//! The tool prints only a JSON report, does not start the downstream HTTP service, and does not
+//! modify the code registry.
 
 use std::env;
 
@@ -14,12 +15,12 @@ use openbridge::{
 };
 
 #[tokio::main]
-/// 解析 probe 参数、绑定受信 target 并输出脱敏 capability report。
+/// Parses probe arguments, binds the trusted target, and prints a redacted capability report.
 async fn main() -> Result<()> {
-    // 解析 CLI 选择。
+    // Parse CLI selections.
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
 
-    // 读取 bootstrap 和私有上游 credential 配置。
+    // Load bootstrap and private upstream credential configuration.
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
@@ -28,7 +29,7 @@ async fn main() -> Result<()> {
             .load()
             .context("failed to load upstream credentials")?;
 
-    // 构造与数据面相同的受信 registry 和共享 upstream client。
+    // Build the trusted registry and shared upstream client used by the data plane.
     let registry =
         build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
     let upstream = UpstreamClient::new(
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    // 只把管理员选中 target 的上游 pool 移入不可变 credential 快照。
+    // Move only the selected target's upstream pool into the immutable credential snapshot.
     let required_pool_id = registry
         .upstream_target(&arguments.upstream_target_id)
         .map(|target| target.credential_pool_id());
@@ -48,7 +49,7 @@ async fn main() -> Result<()> {
     credentials
         .validate_registry(&registry)
         .context("selected credential pool violates registry state-affinity constraints")?;
-    // 执行管理员显式选择的 probe 并只输出脱敏 JSON 报告。
+    // Run the administrator-selected probes and print only the redacted JSON report.
     let report = probe_upstream_target(
         &registry,
         &arguments.upstream_target_id,
@@ -72,9 +73,9 @@ struct ProbeArguments {
 }
 
 impl ProbeArguments {
-    /// 将命令行 selector 解析为一个 target 和固定 probe 选择集合。
+    /// Parses command-line selectors into one target and a fixed set of probes.
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
-        // 逐项解析 target 和 probe 选择，不接受未声明的 CLI 参数。
+        // Parse target and probe selections one at a time and reject undeclared CLI arguments.
         let mut upstream_target_id = None;
         let mut selection = ProbeOptions::default();
         let mut arguments = arguments.into_iter();
@@ -98,7 +99,7 @@ impl ProbeArguments {
                 _ => anyhow::bail!("unknown argument '{argument}'; run with --help"),
             }
         }
-        // 校验 target 必填，并在未指定选择时默认执行全部 probe。
+        // Require a target and default to all probes when no selection was specified.
         let upstream_target_id = upstream_target_id.context("--target is required")?;
         if selection.is_empty() {
             selection = ProbeOptions::all();
@@ -110,7 +111,7 @@ impl ProbeArguments {
     }
 }
 
-/// 打印不含凭证和运行时状态的本地 probe 用法说明。
+/// Prints local probe usage without credentials or runtime state.
 fn print_usage() {
     println!(
         "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\

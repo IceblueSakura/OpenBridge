@@ -1,6 +1,6 @@
-//! OpenAI Provider 的编译期实现入口。
+//! Compile-time entry point for the OpenAI Provider.
 //!
-//! 静态 Provider 定义与 target/upstream API 注册分别由独立子模块拥有。
+//! Static Provider definitions and target/Upstream API registrations are owned by separate submodules.
 
 mod definition;
 mod registration;

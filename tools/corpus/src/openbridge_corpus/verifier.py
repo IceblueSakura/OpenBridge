@@ -1,4 +1,4 @@
-"""将单个 canonical case 与脱敏的 Mock Client/Server observation 进行确定性比较。"""
+"""Deterministically compare one canonical case with redacted Mock Client/Server observations."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .plans import find_case, validate_runtime_document
 
 
 def _artifact_path(case: Case, name: str) -> Path:
-    """解析 case artifact 路径，并拒绝逃出 case 目录。"""
+    """Resolve a case artifact path and reject paths that escape the case directory."""
     relative = case.data["artifacts"].get(name)
     if not relative:
         raise CorpusError(f"{case.case_id}: missing artifact {name}")
@@ -29,7 +29,7 @@ def _compare_json(
     path: str,
     errors: list[str],
 ) -> None:
-    """递归比较 JSON 值，只报告字段路径而不回显可能敏感的内容。"""
+    """Recursively compare JSON values and report field paths without echoing sensitive content."""
     if type(expected) is not type(actual):
         errors.append(f"{path} has a different JSON type")
         return
@@ -61,8 +61,8 @@ def _decode_observation_body(
     observation: dict[str, Any],
     errors: list[str],
 ) -> tuple[bytes | None, Any]:
-    """校验 observation body 的 Base64、摘要和可选 JSON 投影。"""
-    # 解码原始 body，并先确认 observation 自身的摘要可信。
+    """Validate an observation body's Base64, digest, and optional JSON projection."""
+    # Decode the raw body and first verify that the observation's own digest is trustworthy.
     try:
         body = base64.b64decode(observation["body_base64"], validate=True)
     except (binascii.Error, ValueError, TypeError):
@@ -71,7 +71,7 @@ def _decode_observation_body(
     if sha256_bytes(body) != observation["body_sha256"]:
         errors.append(f"{role}.body_sha256 does not match body_base64")
 
-    # 解析原始 JSON，并核对 observation 提供的 JSON 投影未被独立篡改。
+    # Parse the raw JSON and verify that the observation's JSON projection was not altered independently.
     parsed: Any = None
     try:
         parsed = json.loads(body)
@@ -91,7 +91,7 @@ def _required_object(
     field: str,
     path: str,
 ) -> dict[str, Any]:
-    """读取 verifier 必需的嵌套对象，并把形状错误转换为 CorpusError。"""
+    """Read nested objects required by the verifier and convert shape errors to CorpusError."""
     value = observation.get(field)
     if not isinstance(value, dict):
         raise CorpusError(f"{path} must be an object")
@@ -99,7 +99,7 @@ def _required_object(
 
 
 def _header_values(response: dict[str, Any]) -> dict[str, list[str]]:
-    """按小写名称收集 response observation 中的 header 值。"""
+    """Collect response-observation header values by lowercase name."""
     result: dict[str, list[str]] = {}
     for item in response.get("headers", []):
         if not isinstance(item, list) or len(item) != 2:
@@ -116,7 +116,7 @@ def _verify_identity(
     observation: dict[str, Any],
     errors: list[str],
 ) -> None:
-    """验证 observation 的角色与 case identity。"""
+    """Validate observation role and case identity."""
     if observation.get("role") != role:
         errors.append(f"{role}.role differs")
     if observation.get("case_id") != case.case_id:
@@ -128,8 +128,8 @@ def _verify_client(
     observation: dict[str, Any],
     errors: list[str],
 ) -> None:
-    """验证下游 body、transport 结果和 terminal 观察。"""
-    # 校验 observation 自洽性并选择 JSON 或原始 wire oracle。
+    """Validate downstream body, transport results, and terminal observations."""
+    # Validate observation consistency and select the JSON or raw-wire oracle.
     body, body_json = _decode_observation_body("client", observation, errors)
     artifacts = case.data["artifacts"]
     if "expected_client_stream" in artifacts:
@@ -146,7 +146,7 @@ def _verify_client(
     else:
         raise CorpusError(f"{case.case_id}: missing expected client artifact")
 
-    # 核对 case 声明的 HTTP 与结束分类，但不推断缺失的 transport 元数据。
+    # Check the case-declared HTTP and completion classifications without inferring missing transport metadata.
     transport = case.data.get("transport")
     response = _required_object(observation, "response", "client.response")
     if transport is not None:
@@ -163,7 +163,7 @@ def _verify_client(
             if value not in headers.get(name.lower(), []):
                 errors.append(f"client.response.headers.{name.lower()} differs")
 
-    # 核对 terminal identity 与数量，避免 item 事件被误当成 response terminal。
+    # Check terminal identity and count so item events cannot be mistaken for response terminals.
     terminal_kinds = response.get("terminal_kinds", [])
     expectation = case.data["expectation"]
     expected_terminal = expectation["terminal"]
@@ -179,7 +179,7 @@ def _verify_client(
 
 
 def _expected_upstream_path(direction: str) -> str:
-    """返回 case direction 对应的上游 endpoint path。"""
+    """Return the upstream endpoint path for the case direction."""
     if direction in {"chat_native", "responses_to_chat"}:
         return "/v1/chat/completions"
     return "/v1/responses"
@@ -190,13 +190,13 @@ def _verify_server(
     observation: dict[str, Any],
     errors: list[str],
 ) -> None:
-    """验证单次上游请求、响应状态和结束分类。"""
-    # 校验 observation body 与 canonical 上游请求的 JSON 语义。
+    """Validate one upstream request, response status, and completion classification."""
+    # Validate the JSON semantics of the observation body against the canonical upstream request.
     _, body_json = _decode_observation_body("server", observation, errors)
     expected_json = load_json(_artifact_path(case, "expected_upstream_request"))
     _compare_json(expected_json, body_json, "server.body_json", errors)
 
-    # 核对请求 endpoint 与单次 fixture response 的 transport 结果。
+    # Check the request endpoint and transport result of the single fixture response.
     request = _required_object(observation, "request", "server.request")
     response = _required_object(observation, "response", "server.response")
     if request.get("method") != "POST":
@@ -218,19 +218,19 @@ def verify_case_observations(
     client_observation: dict[str, Any],
     server_observation: dict[str, Any] | None,
 ) -> list[str]:
-    """比较单个 case 的 observations，返回不含正文的稳定错误列表。
+    """Compare observations for one case and return stable errors without bodies.
 
-    输入文档不符合 observation schema、case 不存在或当前 case 声明超过一个上游 attempt 时抛出
-    ``CorpusError``。空列表表示当前判定边界内全部匹配。
+    Raise ``CorpusError`` when the input fails the observation schema, the case is missing, or the case
+    declares more than one upstream attempt. An empty list means all values match within this boundary.
     """
-    # 加载 case，并先拒绝结构不合法的 observation。
+    # Load the case and first reject structurally invalid observations.
     case = find_case(root, case_id)
     validate_runtime_document(root, "observation", client_observation)
     errors: list[str] = []
     _verify_identity(case, "mock_client", client_observation, errors)
     _verify_client(case, client_observation, errors)
 
-    # 按 case 声明核对零次或单次上游 attempt，不推断 retry/fallback 序列。
+    # Check the zero or one upstream attempt declared by the case without inferring retry/fallback sequences.
     attempts = case.data["expectation"]["upstream_attempts"]
     if attempts == 0:
         if server_observation is not None:
@@ -247,5 +247,5 @@ def verify_case_observations(
             f"{case.case_id}: single-case verifier supports at most one upstream attempt"
         )
 
-    # 去重并保留确定的发现顺序，便于 CLI 和测试稳定消费。
+    # Deduplicate while preserving discovery order for stable CLI and test consumption.
     return list(dict.fromkeys(errors))

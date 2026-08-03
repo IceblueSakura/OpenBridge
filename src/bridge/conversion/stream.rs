@@ -1,6 +1,7 @@
-//! Chat Completions 与 Responses SSE renderer 的方向门面。
+//! Directional facade for Chat Completions and Responses SSE renderers.
 //!
-//! 两个协议方向分别维护独立增量状态；共享模块只负责编码目标 SSE wire block。
+//! Each protocol direction maintains independent incremental state; the shared module only encodes
+//! target SSE wire blocks.
 
 mod chat_to_responses;
 mod responses_to_chat;

@@ -1,4 +1,4 @@
-//! 验证 Public Model 固定能力预检、有序 Route 计划和 reasoning 映射。
+//! Verifies Public Model capability preflight, ordered Route planning, and reasoning mapping.
 
 mod support;
 
@@ -56,7 +56,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     ];
     let registry = build_test_registry(definition);
 
-    // 验证 Responses 标准 reasoning.effort 按选定 Upstream API 的规则改写。
+    // Verify that standard Responses reasoning.effort is rewritten by the selected Upstream API.
     let request = json!({
         "model": "public-model",
         "input": "hello",
@@ -75,7 +75,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
         serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
     assert_eq!(unmapped["reasoning"]["effort"], "xhigh");
 
-    // Responses 不接受 Chat 的顶层 reasoning_effort 别名。
+    // Responses does not accept Chat's top-level reasoning_effort alias.
     let nonstandard = serde_json::to_vec(&json!({
         "model": "public-model",
         "input": "hello",
@@ -87,7 +87,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
         RequestPlanningError::ReasoningLevelUnsupported
     ));
 
-    // Chat 的 reasoning_effort 使用同一候选级映射边界。
+    // Chat reasoning_effort uses the same candidate-level mapping boundary.
     let chat = serde_json::to_vec(&json!({
         "model": "public-model",
         "messages": [],
@@ -101,7 +101,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     assert_eq!(mapped["reasoning_effort"], "max");
     assert_eq!(unmapped["reasoning_effort"], "xhigh");
 
-    // Provider 私有目标值不能反向扩大下游可请求的公共 level 集合。
+    // Provider-private target values must not expand the public level set available downstream.
     let unsupported = serde_json::to_vec(&json!({
         "model": "public-model",
         "input": "hello",
@@ -116,7 +116,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
 
 #[test]
 fn native_routes_accept_declared_none_and_max_reasoning_levels() {
-    // 新增 canonical level 必须保持稳定 wire 往返。
+    // A new canonical level must preserve stable wire round trips.
     assert_eq!(
         ReasoningLevel::from_wire("none"),
         Some(ReasoningLevel::None)
@@ -125,7 +125,7 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
     assert_eq!(ReasoningLevel::from_wire("max"), Some(ReasoningLevel::Max));
     assert_eq!(ReasoningLevel::Max.as_wire(), "max");
 
-    // 模型显式声明后，Chat 与 Responses 请求分别保留对应 level。
+    // After explicit model declaration, Chat and Responses requests preserve their respective levels.
     let mut definition = base_definition();
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
     definition.models[0].reasoning = ReasoningSupport::Supported;
@@ -299,7 +299,7 @@ fn public_model_preflight_rejects_capabilities_not_guaranteed_by_its_contract() 
 
 #[test]
 fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
-    // 构造能力较弱的首选 Chat Route 与支持 tools 的后续 Route。
+    // Build a preferred Chat Route with weaker capability and a later Route supporting tools.
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -330,7 +330,7 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
     }))
     .unwrap();
 
-    // Public Model 的固定交集不支持 tools，不能因后续 Route 更强而改变候选资格。
+    // The Public Model fixed intersection does not support tools; a stronger later Route cannot change eligibility.
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities

@@ -1,4 +1,4 @@
-//! 观测 usage 归一化与脱敏终态 event 的单元测试。
+//! Unit tests for usage normalization and redacted terminal events.
 
 use std::{
     io::{self, Write},
@@ -40,7 +40,7 @@ impl<'a> MakeWriter<'a> for LogBuffer {
 
 #[test]
 fn extracts_chat_and_responses_usage_without_business_content() {
-    // 验证两种协议的明确 usage 使用统一内部计数。
+    // Verify that explicit usage from both protocols uses shared internal counters.
     assert_eq!(
         extract_usage(&json!({
             "usage": {
@@ -90,7 +90,7 @@ fn completion_event_contains_diagnostics_but_no_body_or_credentials() {
         .with_writer(logs.clone())
         .finish();
 
-    // 在局部 subscriber 中生成终态 event，验证稳定字段与脱敏边界。
+    // Emit a terminal event in a local subscriber and verify stable fields and redaction boundaries.
     tracing::subscriber::with_default(subscriber, || {
         let span = tracing::info_span!(
             "downstream_request",

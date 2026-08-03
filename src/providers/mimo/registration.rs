@@ -1,4 +1,4 @@
-//! Xiaomi MiMo V2.5 Upstream Target 与双协议 Upstream API 注册。
+//! Registers Xiaomi MiMo V2.5 Upstream Targets and dual-protocol Upstream APIs.
 
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ use crate::{
 
 use super::CONTRACT;
 
-/// 构造 MiMo V2.5 Pro 与 V2.5 的固定 upstream targets。
+/// Builds the fixed upstream targets for MiMo V2.5 Pro and V2.5.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
@@ -22,7 +22,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     ]
 }
 
-/// 为一个 MiMo V2.5 模型构造 Chat/Responses target。
+/// Builds a Chat/Responses target for a MiMo V2.5 model.
 fn target(
     id: &str,
     canonical_model: &str,

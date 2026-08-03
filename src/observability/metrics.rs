@@ -1,6 +1,6 @@
-//! 进程内低基数累计值及其只读快照。
+//! In-process low-cardinality counters and read-only snapshots.
 //!
-//! 计数器不按 request、user、route 或 target 分组，供未来 metrics exporter 读取。
+//! Counters are not grouped by request, user, Route, or target and are intended for future metrics exporters.
 
 use std::sync::{
     Arc,
@@ -11,46 +11,46 @@ use super::provider::{
     ProviderAttemptObservation, ProviderMetricKey, ProviderMetricSnapshot, ProviderMetrics,
 };
 
-/// 可由未来 metrics exporter 读取的进程内低基数累计值。
+/// In-process low-cardinality counters available to future metrics exporters.
 #[derive(Clone, Default)]
 pub struct GatewayMetrics {
     pub(super) inner: Arc<MetricCounters>,
 }
 
-/// `GatewayMetrics` 在同一时刻的只读快照。
+/// Read-only snapshot of `GatewayMetrics` at one point in time.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GatewayMetricsSnapshot {
-    /// 已认证请求开始总数。
+    /// Total authenticated requests started.
     pub requests_started: u64,
-    /// 2xx response body 正常结束总数。
+    /// Total 2xx response bodies completed normally.
     pub requests_completed: u64,
-    /// 非 2xx response body 正常结束总数。
+    /// Total non-2xx response bodies completed normally.
     pub requests_http_failed: u64,
-    /// 2xx body、SSE framing 或协议 terminal 异常总数。
+    /// Total 2xx body, SSE-framing, or protocol-terminal failures.
     pub requests_failed: u64,
-    /// 下游在 body 结束前丢弃请求总数。
+    /// Total requests dropped downstream before body completion.
     pub requests_cancelled: u64,
-    /// 实际发起的上游 attempt 总数。
+    /// Total upstream attempts actually started.
     pub upstream_attempts: u64,
-    /// 返回非 2xx HTTP 状态的上游 attempt 总数。
+    /// Total upstream attempts returning non-2xx HTTP status.
     pub upstream_http_failures: u64,
-    /// 未取得 HTTP response 的上游 transport failure 总数。
+    /// Total upstream transport failures without an HTTP response.
     pub upstream_transport_failures: u64,
-    /// 在同一候选内执行的 retry 总数。
+    /// Total retries performed within a candidate.
     pub upstream_retries: u64,
-    /// 429 后切换 credential pool 成员的总数。
+    /// Total credential-pool member rotations after 429.
     pub credential_rotations: u64,
-    /// 进入下一 Route 候选的 fallback 总数。
+    /// Total fallbacks to the next Route candidate.
     pub route_fallbacks: u64,
-    /// 因 cooldown 跳过的候选总数。
+    /// Total candidates skipped because of cooldown.
     pub cooldown_skips: u64,
-    /// 明确解析到 usage 的请求总数。
+    /// Total requests with explicitly parsed usage.
     pub usage_observations: u64,
-    /// Provider 明确返回的输入 token 累计值。
+    /// Cumulative input tokens explicitly returned by Providers.
     pub input_tokens: u64,
-    /// Provider 明确返回的输出 token 累计值。
+    /// Cumulative output tokens explicitly returned by Providers.
     pub output_tokens: u64,
-    /// Provider 明确返回或可由输入输出相加得到的总 token 累计值。
+    /// Cumulative total tokens explicitly returned by Providers or derived from input plus output.
     pub total_tokens: u64,
 }
 
@@ -76,12 +76,12 @@ pub(super) struct MetricCounters {
 }
 
 impl GatewayMetrics {
-    /// 返回按 Provider attempt 维度排序的性能快照。
+    /// Returns performance snapshots ordered by Provider-attempt dimensions.
     pub fn provider_snapshots(&self) -> Vec<ProviderMetricSnapshot> {
         self.inner.provider.snapshots()
     }
 
-    /// 创建一个绑定到 Provider 维度的 attempt 观测句柄。
+    /// Creates an attempt-observation handle bound to Provider dimensions.
     pub(super) fn start_provider_attempt(
         &self,
         key: ProviderMetricKey,
@@ -89,9 +89,9 @@ impl GatewayMetrics {
         self.inner.provider.start(key)
     }
 
-    /// 返回不带高基数标签的累计值快照。
+    /// Returns a counter snapshot without high-cardinality labels.
     pub fn snapshot(&self) -> GatewayMetricsSnapshot {
-        // 使用 relaxed 读取独立单调计数；快照不承诺跨字段事务一致性。
+        // Read independent monotonic counters with relaxed ordering; the snapshot is not transactionally consistent across fields.
         GatewayMetricsSnapshot {
             requests_started: self.inner.requests_started.load(Ordering::Relaxed),
             requests_completed: self.inner.requests_completed.load(Ordering::Relaxed),

@@ -1,4 +1,4 @@
-//! 验证 Provider adapter 的 header 隔离、能力上界、错误分类和 SSE 终态。
+//! Verifies Provider adapter header isolation, capability ceilings, error classification, and SSE terminals.
 
 use http::{
     HeaderMap, HeaderValue, StatusCode,
@@ -238,7 +238,7 @@ fn openai_event_profiles_fail_closed_on_conflicting_terminal_discriminators() {
 
 #[test]
 fn responses_terminal_discriminators_reject_unconfigured_wire_shapes() {
-    // 构造只应由另一 discriminator 接受或未配置的 terminal wire。
+    // Build terminal wire accepted only by another discriminator or not configured.
     let mut decoder = SseDecoder::new(256);
     let data_type_completed = decoder
         .push(b"data: {\"type\":\"response.completed\"}\n\n")
@@ -260,7 +260,7 @@ fn responses_terminal_discriminators_reject_unconfigured_wire_shapes() {
         .unwrap()
         .remove(0);
 
-    // 验证每个 Provider 只接受编译期绑定的 terminal discriminator 与词汇。
+    // Verify that each Provider accepts only its compile-time terminal discriminator and vocabulary.
     assert_eq!(
         ProviderAdapter::for_kind(ProviderKind::OpenAi)
             .classify_sse_event(ApiProtocol::Responses, data_type_completed)

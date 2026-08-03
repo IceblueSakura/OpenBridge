@@ -1,7 +1,7 @@
-//! Chat Completions SSE chunk 的 bridge 生命周期状态机。
+//! Bridge lifecycle state machine for Chat Completions SSE chunks.
 //!
-//! 本模块按 tool index 累计 function call identity 与 arguments，并要求 finish reason 后出现
-//! 显式 `[DONE]` terminal；EOF 不会被视为成功完成。
+//! This module accumulates function-call identities and arguments by tool index and requires an
+//! explicit `[DONE]` terminal after the finish reason; EOF never counts as successful completion.
 
 use std::collections::BTreeMap;
 
@@ -14,7 +14,7 @@ use super::{
     shared::{required_str, required_u64, validate_arguments},
 };
 
-/// 按 Chat Completions SSE chunk 生命周期重建 bridge 语义的单请求状态。
+/// Per-request state that reconstructs Bridge semantics from the Chat Completions SSE lifecycle.
 #[derive(Debug)]
 pub struct ChatStreamState {
     lifecycle: Lifecycle,
@@ -25,7 +25,7 @@ pub struct ChatStreamState {
 }
 
 impl ChatStreamState {
-    /// 创建等待第一个 Chat chunk 的空状态机。
+    /// Creates an empty state machine waiting for the first Chat chunk.
     pub fn new() -> Self {
         Self {
             lifecycle: Lifecycle::AwaitingStart,
@@ -36,9 +36,9 @@ impl ChatStreamState {
         }
     }
 
-    /// 消费一个已完成 framing 的 Chat SSE event。
+    /// Consumes one fully framed Chat SSE event.
     pub fn ingest(&mut self, event: &SseEvent) -> Result<(), BridgeStreamError> {
-        // 单独处理 Chat `[DONE]` terminal，并拒绝缺少 finish reason 的提前结束。
+        // Handle the Chat `[DONE]` terminal separately and reject early termination without a finish reason.
         if event.data() == "[DONE]" {
             if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
                 return Err(BridgeStreamError::DuplicateTerminal);
@@ -57,7 +57,7 @@ impl ChatStreamState {
             return Err(BridgeStreamError::UnexpectedEvent);
         }
 
-        // 解析单 choice chunk，并按 delta 顺序更新文本与 tool accumulators。
+        // Parse the single-choice chunk and update text and tool accumulators in delta order.
         let value: Value =
             serde_json::from_str(event.data()).map_err(|_| BridgeStreamError::InvalidJson)?;
         let choices = value
@@ -87,7 +87,7 @@ impl ChatStreamState {
             }
         }
 
-        // finish reason 固定输出结束语义，但 `[DONE]` 才是 Chat stream terminal。
+        // The finish reason fixes output semantics, but `[DONE]` is the Chat stream terminal.
         if let Some(value) = choice.get("finish_reason").filter(|value| !value.is_null()) {
             let finish_reason = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
             if !matches!(finish_reason, "stop" | "tool_calls") {
@@ -105,7 +105,7 @@ impl ChatStreamState {
         Ok(())
     }
 
-    /// 在上游 EOF 时验证 `[DONE]` 已出现。
+    /// Verifies that `[DONE]` appeared when the upstream reaches EOF.
     pub fn finish(&self) -> Result<(), BridgeStreamError> {
         match self.lifecycle {
             Lifecycle::Terminal(_) => Ok(()),
@@ -115,7 +115,7 @@ impl ChatStreamState {
         }
     }
 
-    /// 返回已经确认的唯一终态。
+    /// Returns the confirmed terminal state.
     pub fn terminal(&self) -> Option<StreamTerminal> {
         match self.lifecycle {
             Lifecycle::Terminal(terminal) => Some(terminal),
@@ -123,24 +123,24 @@ impl ChatStreamState {
         }
     }
 
-    /// 返回按 chunk 顺序拼接的 assistant 文本。
+    /// Returns assistant text concatenated in chunk order.
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    /// 返回按 chunk 顺序拼接的 provider reasoning 文本。
+    /// Returns provider reasoning text concatenated in chunk order.
     pub fn reasoning_text(&self) -> &str {
         &self.reasoning_text
     }
 
-    /// 返回按 Chat tool index 排序的 function tool calls。
+    /// Returns function tool calls ordered by Chat tool index.
     pub fn tool_calls(&self) -> Vec<&BridgeToolCall> {
         self.tools.values().collect()
     }
 
-    /// 累计一个 tool-call delta，并固定首次出现的 identity。
+    /// Accumulates a tool-call delta and fixes its identity at first appearance.
     fn ingest_tool_delta(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
-        // 用 index 关联同一流内分片，但首次出现时固定 call id 与 name。
+        // Use the index to associate fragments within the stream, but fix the call ID and name on first appearance.
         let index = required_u64(value, "index")?;
         let function = value
             .get("function")
@@ -163,7 +163,7 @@ impl ChatStreamState {
             return Ok(());
         }
 
-        // 新 tool index 必须同时携带稳定 call id 与 function name。
+        // A new tool index must carry both a stable call ID and function name.
         let call_id = required_str(value, "id")?.to_owned();
         if self.tools.values().any(|tool| tool.call_id == call_id) {
             return Err(BridgeStreamError::DuplicateIdentity);
@@ -186,9 +186,9 @@ impl ChatStreamState {
         Ok(())
     }
 
-    /// 在 finish reason 或 terminal 边界验证并完成所有 tool arguments。
+    /// Validates and completes all tool arguments at the finish-reason or terminal boundary.
     fn validate_all_arguments(&mut self) -> Result<(), BridgeStreamError> {
-        // 在 finish reason 或 terminal 边界验证所有 arguments 并标记完成。
+        // Validate every argument and mark it complete at the finish-reason or terminal boundary.
         for tool in self.tools.values_mut() {
             validate_arguments(&tool.arguments)?;
             tool.completed = true;

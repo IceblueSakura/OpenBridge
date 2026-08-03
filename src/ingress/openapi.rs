@@ -1,8 +1,9 @@
-//! 提供静态 OpenAPI 规范与 Swagger UI 测试页面。
+//! Provides the static OpenAPI specification and Swagger UI test page.
 //!
-//! 文档资源只描述下游公开的 health、models、Chat 和 Responses endpoint，不读取 registry
-//! 中的 Provider、target 或 credential 细节。Swagger UI 页面允许调用方在浏览器内临时填写
-//! Bearer token；实际业务 endpoint 仍由既有认证 middleware 保护。
+//! Documentation resources describe only public health, models, Chat, and Responses endpoints and
+//! do not read Provider, target, or credential details from the registry. Swagger UI lets callers
+//! enter a temporary Bearer token in the browser; existing authentication middleware still protects
+//! business endpoints.
 
 use axum::response::{Html, IntoResponse};
 use http::{HeaderMap, HeaderValue, header::CONTENT_TYPE};
@@ -10,9 +11,9 @@ use http::{HeaderMap, HeaderValue, header::CONTENT_TYPE};
 const OPENAPI_SPEC: &str = include_str!("../../docs/openapi.yaml");
 const SWAGGER_UI_PAGE: &str = include_str!("../../docs/swagger-ui.html");
 
-/// 返回静态 OpenAPI YAML，并保持文档资源不受业务 Bearer 认证影响。
+/// Returns static OpenAPI YAML without requiring business Bearer authentication.
 pub(super) async fn openapi_spec() -> impl IntoResponse {
-    // 设置明确的 YAML media type，避免浏览器或 Swagger UI 按 HTML 解析规范。
+    // Set an explicit YAML media type so browsers and Swagger UI do not parse the specification as HTML.
     let mut headers = HeaderMap::new();
     headers.insert(
         CONTENT_TYPE,
@@ -21,7 +22,7 @@ pub(super) async fn openapi_spec() -> impl IntoResponse {
     (headers, OPENAPI_SPEC)
 }
 
-/// 返回 Swagger UI 页面；页面通过同源 URL 加载本地 OpenAPI 规范。
+/// Returns the Swagger UI page, which loads the local OpenAPI specification from a same-origin URL.
 pub(super) async fn swagger_ui() -> Html<&'static str> {
     Html(SWAGGER_UI_PAGE)
 }

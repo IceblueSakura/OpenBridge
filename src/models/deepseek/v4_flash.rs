@@ -1,11 +1,11 @@
-//! DeepSeek V4 Flash 的完整 canonical 模型事实。
+//! Complete canonical model facts for DeepSeek V4 Flash.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// DeepSeek V4 Flash 在 OpenBridge 模型目录中的稳定 id。
+/// Stable OpenBridge catalog ID for DeepSeek V4 Flash.
 pub(crate) const ID: &str = "deepseek/deepseek-v4-flash";
 
-/// 构造 DeepSeek V4 Flash 的 context、参数和 reasoning 事实。
+/// Builds the context, parameter, and reasoning facts for DeepSeek V4 Flash.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),

@@ -1,4 +1,4 @@
-//! Bridge 请求顶层字段 allowlist 与 function tool 类型校验。
+//! Bridge request top-level allowlist and function-tool type validation.
 
 use serde_json::{Map, Value};
 
@@ -6,12 +6,12 @@ use crate::core::ApiProtocol;
 
 use super::super::BridgeError;
 
-/// 校验请求顶层字段与 tool 类型均属于 Bridge 显式支持范围。
+/// Validates that request fields and tool types are explicitly supported by the Bridge.
 pub(in crate::bridge::conversion) fn reject_unsupported_request(
     protocol: ApiProtocol,
     source: &Map<String, Value>,
 ) -> Result<(), BridgeError> {
-    // Bridge 与 Native Path 不同：任何未建模顶层字段都必须显式拒绝，不能转换时静默丢失。
+    // Unlike the Native path, the Bridge must explicitly reject every unmodeled top-level field instead of dropping it during conversion.
     let allowed: &[&str] = match protocol {
         ApiProtocol::ChatCompletions => &[
             "max_completion_tokens",
@@ -46,7 +46,7 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
         return Err(BridgeError::UnsupportedSemantics);
     }
 
-    // 拒绝需要状态亲和、异构语义或尚未建模转换策略的顶层字段。
+    // Reject top-level fields that require state affinity, heterogeneous semantics, or an unmodeled conversion strategy.
     let unsupported = [
         "background",
         "conversation",
@@ -71,7 +71,7 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
         return Err(BridgeError::UnsupportedSemantics);
     }
 
-    // 只允许标准 function tool，避免 hosted/custom tool 被降级为普通函数。
+    // Allow only standard function tools so hosted or custom tools cannot be downgraded to ordinary functions.
     if source
         .get("tools")
         .and_then(Value::as_array)

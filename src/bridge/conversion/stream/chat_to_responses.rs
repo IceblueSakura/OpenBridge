@@ -1,7 +1,8 @@
-//! Chat Completions SSE chunks 到 typed Responses events 的增量转换。
+//! Incremental conversion from Chat Completions SSE chunks to typed Responses events.
 //!
-//! renderer 先调用严格 Chat 状态机固定 lifecycle 与 call identity，再生成 Responses item、
-//! arguments 和 completed events；`[DONE]` 到达前不会生成目标 terminal。
+//! The renderer first uses the strict Chat state machine to fix lifecycle and call identities,
+//! then emits Responses items, arguments, and completed events; it emits no target terminal before
+//! `[DONE]` arrives.
 
 use std::collections::{BTreeMap, btree_map::Entry};
 
@@ -18,7 +19,7 @@ use super::{
     shared::response_event,
 };
 
-/// 将单个 Chat SSE 生命周期增量转换为 typed Responses events。
+/// Converts one Chat SSE lifecycle increment into typed Responses events.
 pub(in crate::bridge::conversion) struct ChatToResponsesStream {
     state: ChatStreamState,
     reasoning_supported: bool,
@@ -44,7 +45,7 @@ struct StreamCall {
 }
 
 impl ChatToResponsesStream {
-    /// 创建等待首个 Chat chunk 的 renderer。
+    /// Creates a renderer waiting for the first Chat chunk.
     pub(in crate::bridge::conversion) fn new(reasoning_supported: bool) -> Self {
         Self {
             state: ChatStreamState::new(),
@@ -63,13 +64,13 @@ impl ChatToResponsesStream {
         }
     }
 
-    /// 校验并转换一个完整 Chat SSE event。
+    /// Validates and converts one complete Chat SSE event.
     pub(in crate::bridge::conversion) fn render(
         &mut self,
         event: SseEvent,
         public_model: &str,
     ) -> Result<Bytes, BridgeError> {
-        // 先用严格 Chat 状态机固定 index/call identity 和 DONE 终态。
+        // Use the strict Chat state machine to fix index/call identities and the DONE terminal first.
         self.state.ingest(&event)?;
         if event.data() == "[DONE]" {
             return self.render_done(public_model);
@@ -98,7 +99,7 @@ impl ChatToResponsesStream {
             self.created_emitted = true;
         }
 
-        // 将单 choice Chat delta 展开为 typed Responses lifecycle events。
+        // Expand the single-choice Chat delta into typed Responses lifecycle events.
         let choice = value
             .get("choices")
             .and_then(Value::as_array)
@@ -175,9 +176,9 @@ impl ChatToResponsesStream {
         Ok(Bytes::from(output))
     }
 
-    /// 注册或追加一个 Chat tool-call delta，并生成对应 Responses events。
+    /// Registers or appends a Chat tool-call delta and emits the corresponding Responses events.
     fn render_tool_delta(&mut self, tool_call: &Value) -> Result<Vec<u8>, BridgeError> {
-        // 固定新 tool call 的 index 与 identity，再累计当前 arguments 分片。
+        // Fix the new tool call's index and identity, then accumulate the current argument fragment.
         let tool_call = tool_call.as_object().ok_or(BridgeError::InvalidStream)?;
         let index = tool_call
             .get("index")
@@ -229,9 +230,9 @@ impl ChatToResponsesStream {
         Ok(output)
     }
 
-    /// 按 Chat finish reason 生成 Responses output item 完成事件。
+    /// Emits Responses output-item completion events from the Chat finish reason.
     fn render_item_completion(&mut self) -> Result<Vec<u8>, BridgeError> {
-        // 按 finish reason 完成全部 tool items 或唯一 message item。
+        // Complete all tool items or the single message item according to the finish reason.
         let mut output = Vec::new();
         if self.finish_reason.as_deref() == Some("tool_calls") {
             let output_offset = u64::from(self.reasoning_item_id.is_some());
@@ -270,9 +271,9 @@ impl ChatToResponsesStream {
         Ok(output)
     }
 
-    /// 将 Chat `[DONE]` 转换为唯一 Responses completed terminal。
+    /// Converts Chat `[DONE]` into the single Responses completed terminal.
     fn render_done(&mut self, public_model: &str) -> Result<Bytes, BridgeError> {
-        // 验证 Chat 已给出 finish reason，再构造唯一 Responses completed terminal。
+        // Verify that Chat supplied a finish reason, then build the single Responses completed terminal.
         if !self.created_emitted || self.finish_reason.is_none() {
             return Err(BridgeError::InvalidStream);
         }
@@ -307,7 +308,7 @@ impl ChatToResponsesStream {
         Ok(Bytes::from(bytes))
     }
 
-    /// 在 EOF 时确认状态机与目标 Responses terminal 均已完成。
+    /// Confirms that the state machine and target Responses terminal are complete at EOF.
     pub(in crate::bridge::conversion) fn finish(&mut self) -> Result<Bytes, BridgeError> {
         self.state.finish()?;
         if !self.terminal_emitted {
@@ -316,16 +317,16 @@ impl ChatToResponsesStream {
         Ok(Bytes::new())
     }
 
-    /// 返回已由首个 Chat response id 派生的 Responses message id。
+    /// Returns the Responses message ID derived from the first Chat response ID.
     fn message_id(&self) -> &str {
         self.message_id
             .as_deref()
             .expect("message id follows response id")
     }
 
-    /// 将 Chat reasoning_content 增量映射为 Responses reasoning text lifecycle。
+    /// Maps Chat reasoning_content increments to the Responses reasoning text lifecycle.
     fn render_reasoning_delta(&mut self, reasoning: &str) -> Result<Vec<u8>, BridgeError> {
-        // 首个 reasoning delta 建立独立 output item，避免与 message/tool index 冲突。
+        // The first reasoning delta creates an independent output item to avoid message/tool index collisions.
         let mut output = Vec::new();
         if self.reasoning_item_id.is_none() {
             let response_id = self
@@ -357,7 +358,7 @@ impl ChatToResponsesStream {
         Ok(output)
     }
 
-    /// 结束 reasoning output item，并发出完整 text 与 item 快照。
+    /// Completes the reasoning output item and emits complete text and item snapshots.
     fn close_reasoning(&mut self) -> Result<Vec<u8>, BridgeError> {
         if self.reasoning_item_id.is_none() || self.reasoning_completed {
             return Ok(Vec::new());
@@ -391,7 +392,7 @@ impl ChatToResponsesStream {
         Ok(output)
     }
 
-    /// 返回 reasoning output item 的稳定 completed 快照。
+    /// Returns the stable completed snapshot for the reasoning output item.
     fn reasoning_value(&self) -> Value {
         json!({
             "content": [{"text": self.reasoning_text, "type": "reasoning_text"}],
@@ -402,7 +403,7 @@ impl ChatToResponsesStream {
         })
     }
 
-    /// 返回 reasoning 存在时 message 的后续 output index。
+    /// Returns the next message output index when reasoning is present.
     fn message_output_index(&self) -> u64 {
         if self.reasoning_item_id.is_some() {
             1
@@ -411,12 +412,12 @@ impl ChatToResponsesStream {
         }
     }
 
-    /// 返回 reasoning 存在时 function call 的偏移 output index。
+    /// Returns the function-call output-index offset when reasoning is present.
     fn call_output_index(&self, index: u64) -> u64 {
         index + u64::from(self.reasoning_item_id.is_some())
     }
 
-    /// 构造当前 assistant message 的完整 Responses item 快照。
+    /// Builds the complete Responses item snapshot for the current assistant message.
     fn message_value(&self) -> Value {
         json!({
             "content": [{"annotations": [], "text": self.text, "type": "output_text"}],
@@ -428,7 +429,7 @@ impl ChatToResponsesStream {
     }
 }
 
-/// 将累计的 Chat tool call 转为 completed Responses function item 快照。
+/// Converts an accumulated Chat tool call into a completed Responses function-item snapshot.
 fn call_value(call: &StreamCall) -> Value {
     json!({
         "arguments": call.arguments,

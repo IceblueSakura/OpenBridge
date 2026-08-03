@@ -1,7 +1,8 @@
-//! OpenAI-compatible HTTP ingress 的包入口。
+//! Package entry point for OpenAI-compatible HTTP ingress.
 //!
-//! 子模块分别拥有 Router/认证、请求生命周期、endpoint、有限 attempt/fallback、
-//! Native/Bridged streaming 和响应归一化。本文件仅声明模块并暴露服务装配入口。
+//! Submodules own Router/authentication, request lifecycle, endpoints, bounded attempts/fallback,
+//! Native/Bridged streaming, and response normalization. This file only declares modules and
+//! exposes the service assembly entry point.
 
 mod attempt;
 mod auth;

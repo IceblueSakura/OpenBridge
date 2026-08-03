@@ -1,4 +1,4 @@
-//! OpenAI Upstream Target 与原生 Upstream API 注册。
+//! Registers the OpenAI Upstream Target and Native Upstream APIs.
 
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use crate::{
     registry::UpstreamTargetConfig,
 };
 
-/// 构造当前编译版本内置的 OpenAI upstream targets。
+/// Builds the OpenAI upstream targets built into this compiled version.
 pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openai-main".to_owned(),
@@ -30,7 +30,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     }]
 }
 
-/// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。
+/// Returns conservative OpenAI capabilities that must be expanded only after an upstream probe.
 pub const fn conservative_openai_capabilities() -> ApiCapabilities {
     ApiCapabilities {
         chat_completions: ChatCompletionsCapabilities {

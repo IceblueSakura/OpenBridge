@@ -1,6 +1,7 @@
-//! 双向转换共用的 JSON 校验、字段复制和稳定 identity 映射辅助函数。
+//! Shared JSON validation, field copying, and stable identity mapping helpers for bidirectional conversion.
 //!
-//! 本模块不决定协议方向，只提供 request、response 与 stream renderer 共享的纯函数。
+//! This module does not choose a protocol direction; it provides pure functions shared by request,
+//! response, and stream renderers.
 
 use std::collections::BTreeSet;
 
@@ -8,7 +9,7 @@ use serde_json::{Map, Value};
 
 use super::BridgeError;
 
-/// 解析完整 JSON body，并要求根值为 object。
+/// Parses a complete JSON body and requires an object root.
 pub(super) fn parse_value_object(body: &[u8]) -> Result<Map<String, Value>, BridgeError> {
     serde_json::from_slice::<Value>(body)
         .map_err(|_| BridgeError::InvalidShape)?
@@ -17,13 +18,13 @@ pub(super) fn parse_value_object(body: &[u8]) -> Result<Map<String, Value>, Brid
         .ok_or(BridgeError::InvalidShape)
 }
 
-/// 从源对象复制显式列出的共同字段。
+/// Copies explicitly listed shared fields from a source object.
 pub(super) fn copy_fields(
     source: &Map<String, Value>,
     target: &mut Map<String, Value>,
     fields: &[&str],
 ) {
-    // 只复制调用方显式允许的共同字段，不把未知协议字段带入另一方向。
+    // Copy only fields explicitly allowed by the caller; do not carry unknown protocol fields across.
     for field in fields {
         if let Some(value) = source.get(*field) {
             target.insert((*field).to_owned(), value.clone());
@@ -31,7 +32,7 @@ pub(super) fn copy_fields(
     }
 }
 
-/// 读取必需的非空字符串字段。
+/// Reads a required non-empty string field.
 pub(super) fn required_string(
     object: &Map<String, Value>,
     field: &str,
@@ -44,7 +45,7 @@ pub(super) fn required_string(
         .ok_or(BridgeError::InvalidShape)
 }
 
-/// 验证 function arguments 是非空且闭合的 JSON object。
+/// Validates that function arguments are a non-empty, closed JSON object.
 pub(super) fn validate_arguments(arguments: &str) -> Result<(), BridgeError> {
     if arguments.is_empty()
         || !serde_json::from_str::<Value>(arguments).is_ok_and(|value| value.is_object())
@@ -54,7 +55,7 @@ pub(super) fn validate_arguments(arguments: &str) -> Result<(), BridgeError> {
     Ok(())
 }
 
-/// 从 Chat call id 派生 Responses stream item id。
+/// Derives a Responses stream item ID from a Chat call ID.
 pub(super) fn bridge_item_id(call_id: &str) -> String {
     call_id
         .strip_prefix("call_")
@@ -62,7 +63,7 @@ pub(super) fn bridge_item_id(call_id: &str) -> String {
         .unwrap_or_else(|| format!("fc_{call_id}"))
 }
 
-/// 从 call id 派生非流式 Responses item id 的首选形式。
+/// Derives the preferred non-streaming Responses item ID from a call ID.
 fn non_stream_item_id(call_id: &str) -> String {
     call_id
         .rsplit_once('_')
@@ -70,29 +71,29 @@ fn non_stream_item_id(call_id: &str) -> String {
         .unwrap_or_else(|| format!("fc_tool_{call_id}"))
 }
 
-/// 分配在当前 response 内唯一的非流式 Responses item id。
+/// Allocates a non-streaming Responses item ID unique within the current response.
 pub(super) fn allocate_non_stream_item_id(
     call_id: &str,
     ordinal: usize,
     used: &mut BTreeSet<String>,
 ) -> String {
-    // 优先使用由 call id 推导的稳定形式。
+    // Prefer the stable form derived from the call ID.
     let preferred = non_stream_item_id(call_id);
     if used.insert(preferred.clone()) {
         return preferred;
     }
-    // 发生推导冲突时加入序号，确保当前 response 内 identity 唯一。
+    // Add a sequence when derivation collides so the identity remains unique within the response.
     let unique = format!("fc_tool_{ordinal}_{}", id_suffix(call_id, "call_"));
     used.insert(unique.clone());
     unique
 }
 
-/// 去除已知协议 identity 前缀；前缀不匹配时保留原值。
+/// Removes a known protocol identity prefix and preserves values with other prefixes.
 pub(super) fn id_suffix<'a>(id: &'a str, prefix: &str) -> &'a str {
     id.strip_prefix(prefix).unwrap_or(id)
 }
 
-/// 在 Chat 与 Responses identity 前缀之间执行稳定映射。
+/// Performs stable mapping between Chat and Responses identity prefixes.
 pub(super) fn map_id(id: &str, from: &str, to: &str) -> String {
     format!("{to}{}", id_suffix(id, from))
 }

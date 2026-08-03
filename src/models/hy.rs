@@ -1,10 +1,10 @@
-//! Tencent HY 家族的 canonical 模型聚合入口。
+//! Aggregates canonical model facts for the Tencent HY family.
 
 use crate::registry::ModelConfig;
 
 pub(crate) mod v3;
 
-/// 返回 HY 家族所有编译进二进制的 canonical 模型事实。
+/// Returns all HY model facts compiled into the binary.
 pub(crate) fn configs() -> Vec<ModelConfig> {
     vec![v3::config()]
 }

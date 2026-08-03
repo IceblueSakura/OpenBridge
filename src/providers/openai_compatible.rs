@@ -1,7 +1,8 @@
-//! OpenAI-compatible Provider 共享的 HTTP JSON/SSE wire 实现。
+//! Shared HTTP JSON/SSE wire implementation for OpenAI-compatible Providers.
 //!
-//! Provider 身份、能力、endpoint path 与 request-header hook 仍由各 Provider 的编译期定义拥有；
-//! 本模块只复用协议机制，不提供动态 Provider DSL 或运行时转换配置。
+//! Provider identity, capabilities, endpoint paths, and request-header hooks remain owned by each
+//! Provider's compile-time definition; this module only reuses protocol mechanics and provides no
+//! dynamic Provider DSL or runtime transform configuration.
 
 use bytes::Bytes;
 use http::{
@@ -25,19 +26,19 @@ use crate::{
     transport::sse::SseEvent,
 };
 
-/// Provider 编译期 hook，可按自身协议规则转换普通请求头。
+/// Compile-time Provider hook for transforming ordinary headers according to Provider rules.
 pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(), AdapterError>;
 
 #[derive(Clone, Copy)]
-/// OpenAI terminal 事件词汇在 SSE event 中的判别来源。
+/// Source used to identify OpenAI terminal event names in SSE events.
 enum OpenAiTerminalDiscriminator {
-    /// 从 SSE `event:` 字段读取 terminal 名称。
+    /// Reads the terminal name from the SSE `event:` field.
     SseEventField,
-    /// 从 data JSON 顶层 `type` 字段读取 terminal 名称。
+    /// Reads the terminal name from the top-level `type` field in the data JSON.
     DataJsonType,
 }
 
-/// 一个静态 OpenAI-compatible wire profile。
+/// A static OpenAI-compatible wire profile.
 #[derive(Clone, Copy)]
 pub(crate) struct OpenAiCompatibleAdapter {
     kind: ProviderKind,
@@ -50,7 +51,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
 }
 
 impl OpenAiCompatibleAdapter {
-    /// 构造由具体 Provider 拥有的静态 wire profile。
+    /// Builds the static wire profile owned by the concrete Provider.
     pub(crate) const fn new(
         kind: ProviderKind,
         contract: &'static ProviderContract,
@@ -70,18 +71,18 @@ impl OpenAiCompatibleAdapter {
         }
     }
 
-    /// 从 data JSON 顶层 `type` 读取 OpenAI Responses terminal 名称。
+    /// Reads the OpenAI Responses terminal name from the top-level `type` field in data JSON.
     pub(crate) const fn with_openai_data_type_responses_terminal(mut self) -> Self {
         self.responses_terminal_discriminator = OpenAiTerminalDiscriminator::DataJsonType;
         self
     }
 
-    /// 返回 profile 绑定的静态 Provider contract。
+    /// Returns the static Provider contract bound to this profile.
     pub(crate) fn contract(self) -> &'static ProviderContract {
         self.contract
     }
 
-    /// 构造管理员 probe 使用的固定模型列表请求。
+    /// Builds the fixed model-list request used by the administrative probe.
     pub(crate) fn prepare_model_list_request(self) -> PreparedUpstreamRequest {
         PreparedUpstreamRequest::new(
             Method::GET,
@@ -90,13 +91,13 @@ impl OpenAiCompatibleAdapter {
         )
     }
 
-    /// 替换上游 model，并绑定 profile 声明的相对 endpoint。
+    /// Replaces the upstream model and binds the profile's declared relative endpoint.
     pub(crate) fn prepare_request(
         self,
         request: &ApiRequest,
         upstream_model: &str,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        // 按请求协议选择静态相对 endpoint。
+        // Select the static relative endpoint for the request protocol.
         let path = match request.protocol() {
             ApiProtocol::ChatCompletions => self.chat_path,
             ApiProtocol::Responses => self.responses_path,
@@ -104,7 +105,7 @@ impl OpenAiCompatibleAdapter {
         .ok_or(AdapterError::UnsupportedProtocol)?;
         let relative_uri = Uri::from_static(path);
 
-        // 解析并替换只能由 adapter 决定的上游 model 字段。
+        // Parse and replace the upstream model field controlled only by the adapter.
         let mut document: serde_json::Value =
             serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
         document
@@ -115,7 +116,7 @@ impl OpenAiCompatibleAdapter {
                 serde_json::Value::String(upstream_model.to_owned()),
             );
 
-        // 重新序列化原生 JSON，保留其余协议字段不变。
+        // Re-serialize the native JSON while preserving all other protocol fields.
         let body = serde_json::to_vec(&document)
             .map(Bytes::from)
             .map_err(|_| AdapterError::InvalidRequestBody)?;
@@ -126,14 +127,14 @@ impl OpenAiCompatibleAdapter {
         ))
     }
 
-    /// 构造 OpenAI-compatible JSON 请求的基础普通 header。
+    /// Builds the base ordinary headers for an OpenAI-compatible JSON request.
     pub(crate) fn prepare_headers(self) -> Result<SafeHeaders, AdapterError> {
         let mut headers = SafeHeaders::default();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"))?;
         Ok(headers)
     }
 
-    /// 执行具体 Provider 编译期定义的普通请求头转换。
+    /// Applies the ordinary-header transform defined by the concrete Provider.
     pub(crate) fn apply_request_header_hook(
         self,
         downstream_headers: &HeaderMap,
@@ -142,12 +143,12 @@ impl OpenAiCompatibleAdapter {
         (self.request_header_hook)(downstream_headers, headers)
     }
 
-    /// 构造与 Provider 身份绑定的 Bearer 认证 header。
+    /// Builds a Bearer authentication header bound to the Provider identity.
     pub(crate) fn prepare_auth_headers(
         self,
         credential: &crate::credential::UpstreamCredential<'_>,
     ) -> Result<SensitiveHeaders, AdapterError> {
-        // 校验 credential Provider 归属，避免跨 Provider 复用 secret。
+        // Verify credential ownership to prevent cross-Provider secret reuse.
         if credential.provider() != self.kind {
             return Err(AdapterError::CredentialProviderMismatch);
         }
@@ -158,7 +159,7 @@ impl OpenAiCompatibleAdapter {
             return Err(AdapterError::CredentialKindMismatch);
         }
 
-        // 在 zeroizing 字符串中组装敏感 Bearer header。
+        // Assemble the sensitive Bearer header inside a zeroizing string.
         let mut bearer = Zeroizing::new("Bearer ".to_owned());
         bearer.push_str(credential.expose_secret());
         let mut headers = SensitiveHeaders::default();
@@ -166,7 +167,7 @@ impl OpenAiCompatibleAdapter {
         Ok(headers)
     }
 
-    /// 识别 OpenAI-compatible Chat/Responses SSE terminal 或 failure event。
+    /// Identifies OpenAI-compatible Chat/Responses SSE terminal or failure events.
     pub(crate) fn classify_sse_event(
         self,
         protocol: ApiProtocol,
@@ -182,14 +183,14 @@ impl OpenAiCompatibleAdapter {
         ClassifiedSseEvent::new(event, status)
     }
 
-    /// 按具体 OpenAI-compatible profile 识别 Responses SSE 终态。
+    /// Identifies Responses SSE terminal states using the concrete OpenAI-compatible profile.
     fn classify_responses_sse_event(self, event: &SseEvent) -> StreamEventStatus {
         classify_openai_responses_terminal(event, self.responses_terminal_discriminator)
     }
 
-    /// 将 OpenAI-compatible HTTP status 映射为错误与重试分类。
+    /// Maps an OpenAI-compatible HTTP status to an error and retry classification.
     pub(crate) fn classify_status(self, status: StatusCode) -> StatusClassification {
-        // 先按 OpenAI-compatible status 族选择错误类别，再决定是否允许 pre-output retry。
+        // Select the error class from the OpenAI-compatible status family, then decide whether pre-output retry is allowed.
         let (kind, retry_hint) = match status {
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
                 (UpstreamErrorKind::InvalidRequest, RetryHint::Never)
@@ -210,12 +211,12 @@ impl OpenAiCompatibleAdapter {
     }
 }
 
-/// 按编译期 discriminator 读取 OpenAI Responses terminal，并拒绝双来源冲突。
+/// Reads an OpenAI Responses terminal using the compile-time discriminator and rejects conflicting sources.
 fn classify_openai_responses_terminal(
     event: &SseEvent,
     discriminator: OpenAiTerminalDiscriminator,
 ) -> StreamEventStatus {
-    // 读取 profile 指定的 terminal 来源，未命中时保持非终态。
+    // Read the terminal source selected by the profile; remain non-terminal when it is absent.
     let (selected, corroborating) = match discriminator {
         OpenAiTerminalDiscriminator::SseEventField => {
             let selected = classify_openai_terminal_name(event.event());
@@ -231,7 +232,7 @@ fn classify_openai_responses_terminal(
         return StreamEventStatus::Continue;
     };
 
-    // 同一 event 的两个明确 terminal 相互冲突时必须失败关闭。
+    // Fail closed when both explicit terminal sources conflict in one event.
     if corroborating.is_some_and(|status| status != selected) {
         StreamEventStatus::Failed
     } else {
@@ -239,9 +240,9 @@ fn classify_openai_responses_terminal(
     }
 }
 
-/// 将 OpenAI Responses terminal 名称映射为统一 stream 状态。
+/// Maps an OpenAI Responses terminal name to the unified stream state.
 fn classify_openai_terminal_name(name: Option<&str>) -> Option<StreamEventStatus> {
-    // 只把协议明确声明的 terminal 名称转换为统一生命周期状态。
+    // Convert only protocol-defined terminal names into unified lifecycle states.
     match name {
         Some("response.completed") => Some(StreamEventStatus::Completed),
         Some("response.failed" | "response.incomplete") => Some(StreamEventStatus::Failed),
@@ -249,20 +250,20 @@ fn classify_openai_terminal_name(name: Option<&str>) -> Option<StreamEventStatus
     }
 }
 
-/// 从 data JSON 顶层 `type` 提取 OpenAI Responses terminal 名称。
+/// Extracts an OpenAI Responses terminal name from the top-level `type` in data JSON.
 fn classify_data_json_openai_terminal(event: &SseEvent) -> Option<StreamEventStatus> {
-    // 解析最小 event envelope，不保留或记录业务正文。
+    // Parse the minimal event envelope without retaining or logging business content.
     let document = serde_json::from_str::<serde_json::Value>(event.data()).ok()?;
     classify_openai_terminal_name(document.get("type").and_then(serde_json::Value::as_str))
 }
 
-/// 构造一对显式 Chat/Responses HTTP JSON/SSE Upstream API。
+/// Builds an explicit pair of Chat/Responses HTTP JSON/SSE Upstream APIs.
 pub(crate) fn native_upstream_apis(
     upstream_model: &str,
     endpoint_profile: &str,
     capabilities: ApiCapabilities,
 ) -> Vec<UpstreamApiConfig> {
-    // 为同一个 target 构造共享 model/profile 的 Chat 与 Responses 原生供应。
+    // Build Chat and Responses Native supplies sharing the same target, model, and profile.
     vec![
         UpstreamApiConfig {
             id: "chat".to_owned(),

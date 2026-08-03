@@ -1,7 +1,7 @@
-//! 编译期定义与请求路径只读注册表的包入口。
+//! Package entry point for compile-time definitions and the request-path read-only registry.
 //!
-//! 各子模块分别拥有静态定义、编译错误、运行时实体和启动期编译逻辑；本文件仅声明
-//! 模块并保持既有公共 API 路径。
+//! Submodules own static definitions, compilation errors, runtime entities, and startup compilation
+//! logic; this file only declares modules and preserves the existing public API paths.
 
 mod compiler;
 mod definition;

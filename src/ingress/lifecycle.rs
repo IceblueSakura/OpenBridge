@@ -1,4 +1,4 @@
-//! 下游 response body 的取消、终态与 usage 观测生命周期。
+//! Cancellation, terminal-state, and usage-observation lifecycle for downstream response bodies.
 
 use std::{
     pin::Pin,
@@ -12,20 +12,20 @@ use http_body::{Body as HttpBody, Frame, SizeHint};
 
 use crate::observability::{RequestObservation, UsageCapture};
 
-/// 在 response body 建立前捕获 middleware future 被取消的请求。
+/// Captures a request whose middleware future is cancelled before a response body exists.
 pub(super) struct RequestLifecycleGuard {
     observation: Option<RequestObservation>,
 }
 
 impl RequestLifecycleGuard {
-    /// 创建仍由 request future 负责的生命周期 guard。
+    /// Creates a lifecycle guard still owned by the request future.
     pub(super) fn new(observation: RequestObservation) -> Self {
         Self {
             observation: Some(observation),
         }
     }
 
-    /// response body wrapper 建立后移交取消和终态责任。
+    /// Transfers cancellation and terminal-state responsibility after the response-body wrapper is created.
     pub(super) fn handoff_to_body(&mut self) {
         self.observation.take();
     }
@@ -33,21 +33,21 @@ impl RequestLifecycleGuard {
 
 impl Drop for RequestLifecycleGuard {
     fn drop(&mut self) {
-        // pending send、backoff 或 handler 阶段被取消时尚无 body wrapper，必须在这里收口。
+        // Close the request here when cancellation occurs during pending send, backoff, or handler work before a body wrapper exists.
         if let Some(observation) = self.observation.take() {
             observation.cancel();
         }
     }
 }
 
-/// 用不改写字节的外层 stream 在真实 EOF、错误或 drop 时结束请求观测。
+/// Uses a byte-transparent outer stream to finish request observation at real EOF, error, or drop.
 pub(super) fn observe_response_body(
     response: &mut Response,
     observation: RequestObservation,
     max_json_body_bytes: usize,
     max_sse_event_bytes: usize,
 ) {
-    // 只为成功 JSON/SSE response 创建有界 usage 解析器。
+    // Create a bounded usage parser only for successful JSON/SSE responses.
     let content_type = response
         .headers()
         .get(CONTENT_TYPE)
@@ -62,7 +62,7 @@ pub(super) fn observe_response_body(
         axum::body::Body::new(RequestBodyObserver::new(body, observation, usage));
 }
 
-/// 保留原始 HTTP frame，并在 body 的实际消费边界提交请求终态。
+/// Preserves raw HTTP frames and submits the request terminal at the actual body-consumption boundary.
 struct RequestBodyObserver {
     body: axum::body::Body,
     observation: RequestObservation,
@@ -71,7 +71,7 @@ struct RequestBodyObserver {
 }
 
 impl RequestBodyObserver {
-    /// 创建尚未产生首字节或终态的透明 body wrapper。
+    /// Creates a transparent body wrapper with no first byte or terminal state yet.
     fn new(body: axum::body::Body, observation: RequestObservation, usage: UsageCapture) -> Self {
         Self {
             body,
@@ -81,9 +81,9 @@ impl RequestBodyObserver {
         }
     }
 
-    /// 在真实 EOF 边界冲刷 usage 并提交一次成功终态。
+    /// Flushes usage and submits one successful terminal at the real EOF boundary.
     fn complete(&mut self) {
-        // 正常 EOF 先提交最后一个 usage event，再提交请求终态。
+        // At normal EOF, submit the final usage event before the request terminal.
         if self.finished {
             return;
         }
@@ -92,9 +92,9 @@ impl RequestBodyObserver {
         self.finished = true;
     }
 
-    /// 在 body error 边界记录失败类别并提交一次终态。
+    /// Records a failure category and submits one terminal at the body-error boundary.
     fn fail(&mut self, kind: &'static str) {
-        // body error 已是最终可见边界，不能等待下一次 poll 才记录。
+        // A body error is the final visible boundary; do not wait for another poll to record it.
         if self.finished {
             return;
         }
@@ -108,13 +108,13 @@ impl HttpBody for RequestBodyObserver {
     type Data = Bytes;
     type Error = axum::Error;
 
-    /// 透传底层 frame，并在数据、错误或 EOF 边界更新观测状态。
+    /// Forwards underlying frames and updates observation state at data, error, or EOF boundaries.
     fn poll_frame(
         self: Pin<&mut Self>,
         context: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let observer = self.get_mut();
-        // 保留所有 data/trailer frame，只在 data frame 上观察首字节和 usage。
+        // Preserve every data/trailer frame; observe first byte and usage only on data frames.
         match Pin::new(&mut observer.body).poll_frame(context) {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(chunk) = frame.data_ref() {
@@ -123,7 +123,7 @@ impl HttpBody for RequestBodyObserver {
                     }
                     observer.usage.observe_chunk(&observer.observation, chunk);
                 }
-                // 底层在最后一个 data/trailer frame 后即可声明结束，无需等待 transport 再次 poll EOF。
+                // The underlying stream may end after the last data/trailer frame without another transport EOF poll.
                 if observer.body.is_end_stream() {
                     observer.complete();
                 }
@@ -141,13 +141,13 @@ impl HttpBody for RequestBodyObserver {
         }
     }
 
-    /// 只有已提交 EOF 或错误后才向 Hyper 报告 body 结束。
+    /// Reports body completion to Hyper only after EOF or error has been submitted.
     fn is_end_stream(&self) -> bool {
-        // 外层只有在提交 EOF 或错误后才能报告结束，否则 Hyper 可能跳过最终 poll 并把完整 body 误记为取消。
+        // Report completion only after EOF or error; otherwise Hyper may skip the final poll and misclassify a complete body as cancelled.
         self.finished
     }
 
-    /// 保留底层 body 的大小提示，不对流内容做额外缓存。
+    /// Preserves the underlying body-size hint without buffering stream content.
     fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }
@@ -155,7 +155,7 @@ impl HttpBody for RequestBodyObserver {
 
 impl Drop for RequestBodyObserver {
     fn drop(&mut self) {
-        // 尚未观察到底层终态表示 HTTP transport 在 response 完成前停止消费。
+        // Missing an underlying terminal means HTTP transport stopped consuming before the response completed.
         if !self.finished {
             self.observation.cancel();
         }
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn complete_single_frame_body_finishes_without_a_separate_eof_poll() {
-        // 构造会在首帧后立即报告底层 end-stream 的完整内存 body。
+        // Build a complete in-memory body whose underlying end-stream arrives immediately after the first frame.
         let metrics = GatewayMetrics::default();
         let observation = RequestObservation::new(metrics.clone(), tracing::Span::none());
         observation.record_response_ready(http::StatusCode::OK);
@@ -187,7 +187,7 @@ mod tests {
             ));
             let mut context = Context::from_waker(noop_waker_ref());
 
-            // 消费唯一 data frame 后，外层立即继承底层终态并提交 completed。
+            // After consuming the only data frame, the outer stream inherits the terminal and submits completed immediately.
             assert!(matches!(
                 observer.as_mut().poll_frame(&mut context),
                 std::task::Poll::Ready(Some(Ok(_)))
@@ -195,7 +195,7 @@ mod tests {
             assert!(observer.is_end_stream());
         }
 
-        // 正常 EOF 只能累计 completed，不能在 Drop 中误记 cancelled。
+        // Normal EOF may count only as completed; Drop must not misclassify it as cancelled.
         let snapshot = metrics.snapshot();
         assert_eq!(snapshot.requests_completed, 1);
         assert_eq!(snapshot.requests_cancelled, 0);

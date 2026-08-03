@@ -1,4 +1,4 @@
-//! 下游安全响应头与统一错误响应。
+//! Safe downstream response headers and normalized error responses.
 
 use axum::{
     Json,
@@ -12,12 +12,12 @@ use serde::Serialize;
 
 use crate::{pipeline::RequestPlanningError, transport::upstream::TransportError};
 
-/// 仅透传 OpenAI-compatible client 需要且不会改变 proxy 安全边界的上游响应头。
+/// Forwards only upstream response headers required by OpenAI-compatible clients that do not alter the proxy security boundary.
 ///
-/// 不透传 cookie、认证、连接管理或任意自定义 header；这样上游无法借 proxy 向客户端设置
-/// 会话状态，也不会泄露内部 transport 细节。
+/// Cookie, authentication, connection-management, and arbitrary custom headers are not forwarded;
+/// upstream services cannot use the proxy to set client session state or reveal transport details.
 pub(super) fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
-    // 仅复制协议所需且不会泄露认证/连接状态的响应头。
+    // Copy only protocol-required headers that do not reveal authentication or connection state.
     let mut filtered = HeaderMap::new();
     for (name, value) in upstream {
         let name_text = name.as_str();
@@ -33,7 +33,7 @@ pub(super) fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
     filtered
 }
 
-/// 将请求规划错误映射为稳定的下游 HTTP 错误，不泄露内部 route 详情。
+/// Maps request-planning errors to stable downstream HTTP errors without exposing Route details.
 pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
         RequestPlanningError::InvalidJson
@@ -62,7 +62,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
     }
 }
 
-/// 将 transport 失败收敛为 timeout 或通用 gateway error。
+/// Collapses transport failures into timeout or generic gateway errors.
 pub(super) fn upstream_error(error: TransportError) -> Response {
     match error {
         TransportError::Timeout => api_error(
@@ -91,12 +91,12 @@ struct ErrorBody {
     code: &'static str,
 }
 
-/// 构造不包含上游正文、凭证或内部拓扑的 OpenAI-compatible error envelope。
+/// Builds an OpenAI-compatible error envelope without upstream bodies, credentials, or internal topology.
 pub(super) fn api_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
     api_error_with_param(status, code, message, None)
 }
 
-/// 构造不区分内部存在性、并把错误定位到 `model` 参数的 404 响应。
+/// Builds a 404 response that does not distinguish internal existence and locates the error at `model`.
 pub(super) fn model_not_found() -> Response {
     api_error_with_param(
         StatusCode::NOT_FOUND,
@@ -106,7 +106,7 @@ pub(super) fn model_not_found() -> Response {
     )
 }
 
-/// 构造可选定位到标准请求参数的统一错误 envelope。
+/// Builds a normalized error envelope optionally located at a standard request parameter.
 fn api_error_with_param(
     status: StatusCode,
     code: &'static str,

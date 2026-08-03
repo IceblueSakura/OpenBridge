@@ -1,4 +1,4 @@
-//! 注册表编译前的模型、能力、credential 与 endpoint 规则校验。
+//! Pre-compilation validation for model, capability, credential, and endpoint rules.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,9 +9,9 @@ use super::{
     ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError, UpstreamApiModelRules,
 };
 
-/// 校验 canonical 模型字段、参数名称和 reasoning 配置的一致性。
+/// Validates canonical-model fields, parameter names, and reasoning configuration.
 pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryError> {
-    // 校验模型身份和展示字段不能为空。
+    // Validate that model identity and display fields are not blank.
     for (field, value) in [("id", model.id.as_str()), ("name", model.name.as_str())] {
         if value.trim().is_empty() {
             return Err(RegistryError::BlankModelField {
@@ -30,7 +30,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             field: "description",
         });
     }
-    // 校验显式模型模态是非空、无重复的已知事实集合。
+    // Validate that explicit model modalities are non-empty, duplicate-free known facts.
     validate_model_modalities(
         &model.id,
         "input_modalities",
@@ -41,7 +41,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
         "output_modalities",
         model.output_modalities.as_deref(),
     )?;
-    // 校验已知上下文限制为正数。
+    // Validate that known context limits are positive.
     for (limit, value) in [
         ("context", model.context_length.context_tokens()),
         ("input", model.context_length.input_tokens()),
@@ -69,7 +69,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             model: model.id.clone(),
         });
     }
-    // 校验支持参数名称格式和唯一性。
+    // Validate supported parameter-name format and uniqueness.
     let mut seen = BTreeSet::new();
     for parameter in &model.supported_parameters {
         if !is_valid_parameter_name(parameter) {
@@ -85,13 +85,13 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
-    // 校验 reasoning 状态、参数声明和 level 列表彼此一致。
+    // Validate consistency among reasoning state, parameter declarations, and levels.
     validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
         |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
     )
 }
 
-/// 校验一个显式模态集合不为空且不包含重复值。
+/// Validates that an explicit modality set is non-empty and duplicate-free.
 fn validate_model_modalities<T: Copy + Ord>(
     model: &str,
     field: &'static str,
@@ -110,9 +110,9 @@ fn validate_model_modalities<T: Copy + Ord>(
     Ok(())
 }
 
-/// 校验 Public Model 的公共身份、稳定时间和生命周期一致性。
+/// Validates Public Model public identity, stable timestamps, and lifecycle consistency.
 pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<(), RegistryError> {
-    // 校验公开 id 是可安全放入单段 URL path 的稳定标识。
+    // Validate that the public ID is a stable identifier safe for one URL path segment.
     let mut characters = model.id.chars();
     let valid_id = model.id.len() <= 128
         && characters
@@ -125,7 +125,7 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
         });
     }
 
-    // 校验展示字段和稳定创建时间。
+    // Validate display fields and the stable creation time.
     if model.display_name.trim().is_empty() {
         return Err(RegistryError::BlankPublicModelField {
             public_model: model.id.clone(),
@@ -148,7 +148,7 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
         });
     }
 
-    // 校验生命周期时间不能早于创建时间且状态与时间字段相符。
+    // Validate that lifecycle timestamps are not earlier than creation and match the status.
     let invalid_lifecycle = match model.lifecycle.status {
         ModelLifecycleStatus::Active => {
             model.lifecycle.deprecated_at.is_some() || model.lifecycle.retired_at.is_some()
@@ -182,7 +182,7 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
     Ok(())
 }
 
-/// 校验 reasoning level 只在 supported 状态下出现且不重复。
+/// Validates that reasoning levels appear only in the supported state and are unique.
 fn validate_reasoning_levels(
     model: &str,
     reasoning: ReasoningSupport,
@@ -204,7 +204,7 @@ fn validate_reasoning_levels(
     Ok(())
 }
 
-/// 校验 reasoning 状态与模型支持参数集合的一致性。
+/// Validates consistency between reasoning state and the model's supported-parameter set.
 fn validate_reasoning_config(
     model: &str,
     parameters: &[String],
@@ -224,13 +224,13 @@ fn validate_reasoning_config(
     }
 }
 
-/// 将 Upstream API 的收窄规则应用到 canonical 模型事实。
+/// Applies Upstream API narrowing rules to canonical model facts.
 pub(super) fn apply_model_rules(
     model: ModelInfo,
     upstream_api: &str,
     rules: UpstreamApiModelRules,
 ) -> Result<ModelInfo, RegistryError> {
-    // 先验证上下文长度规则不会扩大 canonical 模型上限。
+    // First verify that context rules do not expand the canonical model ceiling.
     validate_model_limit(
         upstream_api,
         "context_length.context",
@@ -249,7 +249,7 @@ pub(super) fn apply_model_rules(
         model.context_length.output_tokens(),
         rules.context_length.output_tokens(),
     )?;
-    // 计算 reasoning 收窄结果并拒绝能力扩大。
+    // Compute the narrowed reasoning state and reject capability expansion.
     let reasoning = rules.reasoning.unwrap_or(model.reasoning);
     if reasoning_rank(reasoning) > reasoning_rank(model.reasoning) {
         return Err(RegistryError::UpstreamApiModelRuleWidensModel {
@@ -257,7 +257,7 @@ pub(super) fn apply_model_rules(
             field: "reasoning",
         });
     }
-    // 应用参数禁用集合，并拒绝禁用模型未声明的参数。
+    // Apply disabled parameters and reject parameters not declared by the model.
     let disabled = rules.disabled_parameters.iter().collect::<BTreeSet<_>>();
     for parameter in &disabled {
         if !model.supported_parameters.contains(parameter) {
@@ -269,7 +269,7 @@ pub(super) fn apply_model_rules(
             );
         }
     }
-    // 构造有效参数集合并重新验证 reasoning 语义。
+    // Build the effective parameter set and revalidate reasoning semantics.
     let supported_parameters = model
         .supported_parameters
         .iter()
@@ -323,7 +323,7 @@ pub(super) fn apply_model_rules(
     })
 }
 
-/// 校验 Upstream API 的单项模型限制为正且不超过 canonical 上限。
+/// Validates that one Upstream API model limit is positive and within the canonical ceiling.
 fn validate_model_limit(
     upstream_api: &str,
     field: &'static str,
@@ -348,7 +348,7 @@ fn validate_model_limit(
     Ok(())
 }
 
-/// 校验应用收窄规则后的 reasoning 状态和参数集合。
+/// Validates reasoning state and parameters after narrowing rules are applied.
 fn validate_effective_reasoning_config(
     upstream_api: &str,
     parameters: &[String],
@@ -372,13 +372,14 @@ fn validate_effective_reasoning_config(
     }
 }
 
-/// 校验映射不会扩大 canonical reasoning 契约，并编译为唯一源 level 的只读表。
+/// Validates that mappings do not expand the canonical reasoning contract and compiles a read-only
+/// table with one target per source level.
 pub(super) fn validate_reasoning_level_mappings(
     upstream_api: &str,
     model: &ModelInfo,
     mappings: Vec<ReasoningLevelMapping>,
 ) -> Result<BTreeMap<ReasoningLevel, String>, RegistryError> {
-    // 逐项校验源 level 已由有效模型声明，目标是受限 wire 名称。
+    // Verify each source level is declared by the effective model and each target is a restricted wire name.
     let mut resolved = BTreeMap::new();
     for mapping in mappings {
         if model.reasoning() != ReasoningSupport::Supported
@@ -396,7 +397,7 @@ pub(super) fn validate_reasoning_level_mappings(
             });
         }
 
-        // 同一源 level 只能映射到一个确定目标，避免候选内出现歧义。
+        // Each source level may map to one fixed target only, avoiding ambiguity within a candidate.
         if resolved
             .insert(mapping.downstream, mapping.upstream)
             .is_some()
@@ -410,7 +411,7 @@ pub(super) fn validate_reasoning_level_mappings(
     Ok(resolved)
 }
 
-/// 合并两个可选限制，并取已知限制中的较小值。
+/// Merges two optional limits and returns the smaller known limit.
 fn min_known_limit(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -420,7 +421,7 @@ fn min_known_limit(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     }
 }
 
-/// 将 reasoning 状态映射为可比较的保守性等级。
+/// Maps a reasoning state to a comparable conservatism rank.
 fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
     match reasoning {
         ReasoningSupport::Unsupported => 0,
@@ -429,7 +430,7 @@ fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
     }
 }
 
-/// 判断模型参数名是否符合内部的受限小写 wire 名称格式。
+/// Returns whether a model parameter name matches the restricted lowercase wire format.
 fn is_valid_parameter_name(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -437,9 +438,9 @@ fn is_valid_parameter_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-/// 校验并规范化只允许 HTTPS、无凭据和安全 path 前缀的 endpoint base。
+/// Validates and normalizes an endpoint base that allows only HTTPS, no credentials, and a safe path prefix.
 pub(super) fn normalize_endpoint_base(value: &str) -> Option<Url> {
-    // 解析 endpoint 并拒绝 scheme、凭据、query、fragment 或不安全 host/path 形状。
+    // Parse the endpoint and reject invalid scheme, credentials, query, fragment, or host/path shapes.
     let mut url = Url::parse(value).ok()?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -451,14 +452,14 @@ pub(super) fn normalize_endpoint_base(value: &str) -> Option<Url> {
     {
         return None;
     }
-    // 统一 path 尾斜杠，保证后续相对 URI 拼接不会丢失目录前缀。
+    // Normalize the trailing slash so later relative-URI joins preserve the directory prefix.
     if url.path() != "/" && !url.path().ends_with('/') {
         url.set_path(&format!("{}/", url.path()));
     }
     Some(url)
 }
 
-/// 拒绝 endpoint path 中的 authority 绕过、空段和 dot-segment。
+/// Rejects authority bypasses, empty segments, and dot segments in an endpoint path.
 fn is_safe_endpoint_prefix(path: &str) -> bool {
     if path.is_empty() || path == "/" {
         return true;

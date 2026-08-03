@@ -1,11 +1,11 @@
-//! NVIDIA Nemotron 3 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the NVIDIA Nemotron 3 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// Nemotron 3 Ultra 在 OpenBridge 模型目录中的稳定 id。
+/// Stable OpenBridge catalog ID for Nemotron 3 Ultra.
 pub(crate) const ULTRA_ID: &str = "nvidia/nemotron-3-ultra-550b-a55b";
 
-/// 构造 Nemotron 3 Ultra 的完整模型事实。
+/// Builds the complete model facts for Nemotron 3 Ultra.
 pub(crate) fn ultra() -> ModelConfig {
     ModelConfig {
         id: ULTRA_ID.to_owned(),

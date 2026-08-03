@@ -1,4 +1,4 @@
-"""维护 OpenBridge canonical protocol corpus、派生变体、报告和确定性打包。"""
+"""Maintain the OpenBridge canonical protocol corpus, derived variants, reports, and deterministic packages."""
 
 from __future__ import annotations
 
@@ -38,31 +38,31 @@ SECRET_PATTERNS = [
 
 
 class CorpusError(RuntimeError):
-    """表示 corpus 内容、schema 或派生输出边界不合法。"""
+    """Indicate invalid corpus content, schema, or derived-output boundaries."""
 
     pass
 
 
 @dataclass(frozen=True)
 class Case:
-    """表示一个由 case.json 描述的 canonical corpus case。"""
+    """Represent a canonical corpus case described by case.json."""
 
     path: Path
     data: dict[str, Any]
 
     @property
     def directory(self) -> Path:
-        """返回 case 所在目录。"""
+        """Return the directory containing the case."""
         return self.path.parent
 
     @property
     def case_id(self) -> str:
-        """返回 manifest 中的稳定 case id。"""
+        """Return the stable case ID from the manifest."""
         return str(self.data["id"])
 
 
 def load_json(path: Path) -> Any:
-    """读取 JSON，并拒绝重复 object key 或底层文本错误。"""
+    """Read JSON and reject duplicate object keys or underlying text errors."""
     try:
         return _loads_json(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
@@ -70,7 +70,7 @@ def load_json(path: Path) -> Any:
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """构造 JSON object，并在同一对象重复 key 时失败。"""
+    """Build a JSON object and fail when one object repeats a key."""
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
@@ -80,27 +80,27 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _loads_json(text: str) -> Any:
-    """使用重复 key 检查解析 JSON 文本。"""
+    """Parse JSON text with duplicate-key detection."""
     return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
 
 
 def dump_json(data: Any) -> str:
-    """以稳定排序和 UTF-8 友好的格式序列化 JSON。"""
+    """Serialize JSON with stable ordering and UTF-8-friendly formatting."""
     return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def sha256_bytes(data: bytes) -> str:
-    """返回 bytes 的十六进制 SHA-256 摘要。"""
+    """Return the hexadecimal SHA-256 digest of bytes."""
     return hashlib.sha256(data).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
-    """读取文件并返回其 SHA-256 摘要。"""
+    """Read a file and return its SHA-256 digest."""
     return sha256_bytes(path.read_bytes())
 
 
 def _schema_validator(root: Path, name: str) -> Draft202012Validator:
-    """加载并检查指定 corpus schema，返回带格式检查器的 validator。"""
+    """Load and validate the selected corpus schema, returning a validator with format checks."""
     schema_path = root / "schemas" / f"{name}.schema.json"
     schema = load_json(schema_path)
     Draft202012Validator.check_schema(schema)
@@ -110,7 +110,7 @@ def _schema_validator(root: Path, name: str) -> Draft202012Validator:
 def _schema_errors(
     validator: Draft202012Validator, data: Any, label: str
 ) -> list[str]:
-    """将 schema validator 的所有错误转换为稳定、带路径的文本。"""
+    """Convert all schema-validator errors to stable path-qualified text."""
     errors: list[str] = []
     for error in sorted(validator.iter_errors(data), key=lambda item: list(item.path)):
         location = ".".join(str(part) for part in error.path) or "(root)"
@@ -119,7 +119,7 @@ def _schema_errors(
 
 
 def discover_cases(root: Path) -> list[Case]:
-    """按稳定路径顺序发现 root 下所有 canonical case。"""
+    """Discover all canonical cases under root in stable path order."""
     cases_root = root / "cases"
     return [
         Case(path=path, data=load_json(path))
@@ -128,7 +128,7 @@ def discover_cases(root: Path) -> list[Case]:
 
 
 def _resolve_inside(base: Path, relative: str, allowed_root: Path) -> Path:
-    """解析相对路径，并拒绝逃出允许根目录的 artifact 或派生文件。"""
+    """Resolve a relative path and reject artifacts or derived files outside the allowed root."""
     candidate = (base / relative).resolve()
     resolved_root = allowed_root.resolve()
     if candidate != resolved_root and resolved_root not in candidate.parents:
@@ -137,7 +137,7 @@ def _resolve_inside(base: Path, relative: str, allowed_root: Path) -> Path:
 
 
 def _derived_output(root: Path, output: Path | None, directory: str) -> Path:
-    """解析派生输出目录，并防止覆盖 canonical corpus。"""
+    """Resolve a derived-output directory and prevent overwriting the canonical corpus."""
     allowed_root = (root / directory).resolve()
     candidate = (output if output is not None else allowed_root).resolve()
     if candidate != allowed_root and allowed_root not in candidate.parents:
@@ -146,7 +146,7 @@ def _derived_output(root: Path, output: Path | None, directory: str) -> Path:
 
 
 def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
-    """解析 SSE bytes，并将每个 event 转成 lint 所需的字典。"""
+    """Parse SSE bytes and convert each event to the dictionary required by lint."""
     text = data.decode("utf-8")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     blocks = normalized.split("\n\n")
@@ -182,7 +182,7 @@ def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
 
 
 def terminal_kinds(data: bytes) -> list[str]:
-    """解析 bytes 并返回按出现顺序记录的 terminal 类型。"""
+    """Parse bytes and return terminal types in occurrence order."""
     terminals: list[str] = []
     for item in _parse_sse_events(data):
         payload = item["data"]
@@ -198,7 +198,7 @@ def terminal_kinds(data: bytes) -> list[str]:
 
 
 def _event_type_conflicts(data: bytes) -> list[tuple[str, str]]:
-    """返回 SSE event 字段与 JSON payload type 不一致的 event 对。"""
+    """Return events whose SSE field conflicts with the JSON payload type."""
     conflicts: list[tuple[str, str]] = []
     for item in _parse_sse_events(data):
         event_name = item["event"]
@@ -210,7 +210,7 @@ def _event_type_conflicts(data: bytes) -> list[tuple[str, str]]:
 
 
 def _events_after_terminal(data: bytes) -> int:
-    """统计首个 terminal event 之后仍出现的 SSE event 数量。"""
+    """Count SSE events that appear after the first terminal event."""
     terminal_seen = False
     trailing_events = 0
     for item in _parse_sse_events(data):
@@ -229,7 +229,7 @@ def _events_after_terminal(data: bytes) -> int:
 
 
 def _validate_case_semantics(case: Case, root: Path) -> list[str]:
-    """校验单个 case 的 artifact、transport、feature 和 terminal 语义。"""
+    """Validate one case's artifact, transport, feature, and terminal semantics."""
     errors: list[str] = []
     data = case.data
     expectation = data["expectation"]
@@ -243,7 +243,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
         and transport["failure_phase"] == "before_first_output"
     )
 
-    # 校验 case 目录、分类和 stream 对 artifact 组合的约束。
+    # Validate case directories, classifications, and stream artifact combinations.
     if case.directory.name != case.case_id:
         errors.append(
             f"{case.path}: directory name must equal case id {case.case_id!r}"
@@ -317,7 +317,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             if data["recipes"] and not stream:
                 errors.append(f"{case.path}: non-stream case must not define recipes")
 
-    # 校验下游 SSE terminal 声明与计数一致。
+    # Validate downstream SSE terminal declarations against their counts.
     terminal = expectation["terminal"]
     terminal_count = expectation["terminal_count"]
     if (terminal == "none") != (terminal_count == 0):
@@ -328,7 +328,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
     if not stream and terminal != "none":
         errors.append(f"{case.path}: non-stream case cannot define an SSE terminal")
 
-    # 校验 transport 的失败阶段、取消和完成分类。
+    # Validate transport failure stages, cancellation, and completion classifications.
     if transport is not None:
         failure_phase = transport["failure_phase"]
         output_observed = transport["downstream_output_observed"]
@@ -369,7 +369,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     "upstream_end"
                 )
 
-    # 解析所有 artifact，并校验 JSON、SSE、路径和声明完整性。
+    # Parse every artifact and validate JSON, SSE, paths, and declaration completeness.
     referenced_artifacts: set[Path] = set()
     for artifact_name, relative in artifacts.items():
         try:
@@ -415,7 +415,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     f"{artifact_path}: {trailing_events} event(s) occur after terminal"
                 )
 
-    # 用上游 SSE 内容证明特殊 feature 的声明。
+    # Prove special feature declarations with upstream SSE content.
     upstream_stream = artifacts.get("upstream_stream")
     if upstream_stream:
         stream_path = _resolve_inside(case.directory, upstream_stream, case.directory)
@@ -446,7 +446,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
                     "upstream event"
                 )
 
-    # 用预期下游 SSE 内容证明 terminal identity 与数量。
+    # Prove terminal identity and count with expected downstream SSE content.
     expected_stream = artifacts.get("expected_client_stream")
     if expected_stream:
         stream_path = _resolve_inside(case.directory, expected_stream, case.directory)
@@ -471,13 +471,13 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             f"{case.path}: terminal_count is non-zero without expected_client_stream"
         )
 
-    # 拒绝 case 目录内未由 manifest 声明的额外 oracle。
+    # Reject extra oracles in a case directory that the manifest does not declare.
     declared_files = referenced_artifacts | {case.path.resolve()}
     for path in sorted(case.directory.rglob("*")):
         if path.is_file() and path.resolve() not in declared_files:
             errors.append(f"{case.path}: undeclared case file {path.relative_to(case.directory)}")
 
-    # 校验 provenance 与生成 recipe 均留在 corpus root 内且真实存在。
+    # Validate that provenance and generation recipes remain within the corpus root and exist.
     provenance = data["provenance_ref"]
     try:
         provenance_path = _resolve_inside(root, provenance, root)
@@ -498,7 +498,7 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
 
 
 def lint_corpus(root: Path) -> list[str]:
-    """校验 corpus schema、引用、语义、完整性和疑似 secret。"""
+    """Validate corpus schemas, references, semantics, integrity, and suspected secrets."""
     root = root.resolve()
     errors: list[str] = []
     required = [
@@ -598,17 +598,17 @@ def lint_corpus(root: Path) -> list[str]:
 
 
 def _chunk_one_byte(data: bytes) -> list[bytes]:
-    """将 wire 拆成单字节 chunk，覆盖最细粒度的读取边界。"""
+    """Split wire data into single-byte chunks to cover the smallest read boundaries."""
     return [data[index : index + 1] for index in range(len(data))]
 
 
 def _chunk_lines(data: bytes) -> list[bytes]:
-    """按换行边界切分 wire，同时保留行结束符。"""
+    """Split wire data at line boundaries while preserving line endings."""
     return data.splitlines(keepends=True) or [data]
 
 
 def _chunk_utf8_split(data: bytes) -> list[bytes]:
-    """优先在多字节 UTF-8 序列中间切分 wire。"""
+    """Prefer splitting wire data inside multibyte UTF-8 sequences."""
     for index, value in enumerate(data):
         if value >= 0x80 and index + 1 < len(data):
             return [data[: index + 1], data[index + 1 :]]
@@ -617,7 +617,7 @@ def _chunk_utf8_split(data: bytes) -> list[bytes]:
 
 
 def _chunk_seeded(data: bytes, seed: int) -> list[bytes]:
-    """使用稳定 seed 生成受限随机 chunk 序列。"""
+    """Generate a bounded random chunk sequence from a stable seed."""
     generator = random.Random(seed)
     chunks: list[bytes] = []
     index = 0
@@ -630,7 +630,7 @@ def _chunk_seeded(data: bytes, seed: int) -> list[bytes]:
 
 
 def _chunk_event_pairs(data: bytes) -> list[bytes]:
-    """按相邻 SSE event 成对组合 chunk，覆盖 event 跨读取边界的情况。"""
+    """Pair chunks around adjacent SSE events to cover events crossing read boundaries."""
     parts = re.split(rb"((?:\r\n|\r|\n){2})", data)
     frames: list[bytes] = []
     for index in range(0, len(parts) - 1, 2):
@@ -643,7 +643,7 @@ def _chunk_event_pairs(data: bytes) -> list[bytes]:
 
 
 def _to_crlf(data: bytes) -> bytes:
-    """将已有换行规范化为 CRLF，避免重复转换产生不同结果。"""
+    """Normalize existing line endings to CRLF without applying conversion twice."""
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
 
 
@@ -657,7 +657,7 @@ def _variant_payload(
     chunks: list[bytes],
     transformation: str,
 ) -> dict[str, Any]:
-    """构造并校验一个 wire variant 的摘要、分片和重建元数据。"""
+    """Build and validate digest, chunk, and reconstruction metadata for one wire variant."""
     rebuilt = b"".join(chunks)
     if rebuilt != wire:
         raise CorpusError(f"{case_id}/{artifact}/{kind}: chunks do not reconstruct wire")
@@ -681,7 +681,7 @@ def _variant_payload(
 def generate_variants(
     root: Path, seed: int | None = None, output: Path | None = None
 ) -> dict[str, Any]:
-    """按 recipe 生成确定性的分片、换行和编码 wire 变体。"""
+    """Generate a deterministic wire variant with the recipe's chunking, line endings, and encoding."""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:
@@ -797,7 +797,7 @@ def generate_variants(
 
 
 def build_report(root: Path) -> dict[str, Any]:
-    """汇总 case、feature、状态、来源和生成覆盖率。"""
+    """Summarize case, feature, status, provenance, and generation coverage."""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:
@@ -849,7 +849,7 @@ def build_report(root: Path) -> dict[str, Any]:
 
 
 def write_report(root: Path, output: Path | None = None) -> dict[str, Any]:
-    """构造 corpus 报告，并可选写入受保护的 reports 派生目录。"""
+    """Build the corpus report and optionally write it to the protected reports output directory."""
     report = build_report(root)
     if output is not None:
         output = _derived_output(root.resolve(), output, "reports")
@@ -859,7 +859,7 @@ def write_report(root: Path, output: Path | None = None) -> dict[str, Any]:
 
 
 def _packable_files(root: Path) -> Iterable[Path]:
-    """枚举确定性 ZIP 中允许打包的 canonical 文件。"""
+    """Enumerate canonical files permitted in a deterministic ZIP."""
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -870,7 +870,7 @@ def _packable_files(root: Path) -> Iterable[Path]:
 
 
 def pack_corpus(root: Path, output: Path | None = None) -> tuple[Path, str]:
-    """校验并生成时间戳固定、摘要可复现的 canonical corpus ZIP。"""
+    """Validate and generate a canonical corpus ZIP with fixed timestamps and reproducible digests."""
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:

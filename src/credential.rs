@@ -1,8 +1,9 @@
-//! 启动时构造的上下游 credential 快照。
+//! Startup-built credential snapshot for downstream users and upstream Providers.
 //!
-//! 本模块统一持有下游用户与上游 Provider 的 secret，但通过带用途的 [`CredentialId`]
-//! 和目的专用访问方法保持两个信任方向隔离。运行时 Store 不读取配置文件，不提供
-//! 通用明文查询，也不会在 `Debug`、错误或日志中暴露 secret。
+//! This module owns downstream-user and upstream-Provider secrets, but keeps the trust directions
+//! isolated through purpose-bound [`CredentialId`] values and purpose-specific accessors. The
+//! runtime Store does not read configuration files, expose generic plaintext queries, or reveal
+//! secrets through `Debug`, errors, or logs.
 
 use std::{fmt, time::SystemTime};
 
@@ -15,48 +16,48 @@ use crate::{
     registry::RuntimeRegistry,
 };
 
-/// 一项 credential 的稳定运行时标识与用途。
+/// Stable runtime identity and purpose for one credential.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CredentialId {
-    /// 下游用户 Bearer API Key。
+    /// Downstream-user Bearer API key.
     DownstreamUser {
-        /// 认证成功后绑定的稳定用户 ID。
+        /// Stable user ID bound after authentication.
         user_id: String,
     },
-    /// 上游 Provider credential pool 成员。
+    /// Upstream Provider credential-pool member.
     UpstreamPoolMember {
-        /// 注册表中全局唯一的 pool ID。
+        /// Pool ID unique within the registry.
         pool_id: String,
-        /// pool 内稳定的非敏感成员 ID。
+        /// Stable non-sensitive member ID within the pool.
         member_id: String,
-        /// 允许消费此 secret 的 Provider。
+        /// Provider permitted to consume this secret.
         provider: ProviderKind,
     },
 }
 
-/// Credential 在 Store 中承担的用途与认证类型。
+/// Credential purpose and authentication type within the Store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialType {
-    /// 下游用户 Bearer API Key。
+    /// Downstream-user Bearer API key.
     DownstreamApiKey,
-    /// 上游 Provider 声明的 credential kind。
+    /// Credential kind declared by the upstream Provider.
     Upstream(CredentialKind),
 }
 
-/// Secret 进入 Store 的受信来源类别。
+/// Trusted source category for a secret entering the Store.
 ///
-/// 该枚举只保留低敏感度类别，不保存文件路径、issuer URL 或其他来源细节。
+/// This enum retains only low-sensitivity categories; it stores no file paths, issuer URLs, or other source details.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialSource {
-    /// 来自私有下游用户配置。
+    /// From private downstream-user configuration.
     UserConfiguration,
-    /// 来自私有上游 credential 配置。
+    /// From private upstream credential configuration.
     UpstreamConfiguration,
-    /// 由受信 composition root 或测试直接注入。
+    /// Injected directly by the trusted composition root or a test.
     Programmatic,
 }
 
-/// 与 secret 一起冻结的非敏感 credential 运行时元数据。
+/// Non-sensitive credential metadata frozen with the secret.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CredentialMetadata {
     credential_type: CredentialType,
@@ -66,7 +67,7 @@ pub struct CredentialMetadata {
 }
 
 impl CredentialMetadata {
-    /// 创建第一代上游 credential 元数据。
+    /// Creates first-generation upstream credential metadata.
     pub fn upstream(kind: CredentialKind, source: CredentialSource) -> Self {
         Self {
             credential_type: CredentialType::Upstream(kind),
@@ -76,7 +77,7 @@ impl CredentialMetadata {
         }
     }
 
-    /// 创建下游用户 API Key 的固定元数据。
+    /// Creates fixed metadata for a downstream-user API key.
     fn downstream_user() -> Self {
         Self {
             credential_type: CredentialType::DownstreamApiKey,
@@ -86,34 +87,34 @@ impl CredentialMetadata {
         }
     }
 
-    /// 覆盖 credential generation；零值会在插入 Store 时被拒绝。
+    /// Overrides credential generation; zero is rejected when inserted into the Store.
     pub fn with_generation(mut self, generation: u64) -> Self {
         self.generation = generation;
         self
     }
 
-    /// 设置 credential 的已知过期时间。
+    /// Sets the credential's known expiration time.
     pub fn with_expires_at(mut self, expires_at: SystemTime) -> Self {
         self.expires_at = Some(expires_at);
         self
     }
 
-    /// 返回 credential 的用途与认证类型。
+    /// Returns the credential purpose and authentication type.
     pub fn credential_type(&self) -> CredentialType {
         self.credential_type
     }
 
-    /// 返回 secret 的受信来源类别。
+    /// Returns the trusted source category for the secret.
     pub fn source(&self) -> CredentialSource {
         self.source
     }
 
-    /// 返回从一开始递增的 credential generation。
+    /// Returns the credential generation, which starts at one.
     pub fn generation(&self) -> u64 {
         self.generation
     }
 
-    /// 返回已知过期时间；静态来源未提供时为 `None`。
+    /// Returns the known expiration time, or `None` when no static source provides one.
     pub fn expires_at(&self) -> Option<SystemTime> {
         self.expires_at
     }
@@ -126,29 +127,29 @@ struct CredentialEntry {
     enabled: bool,
 }
 
-/// 启动阶段收集并校验 credential 的构造器。
+/// Startup builder that collects and validates credentials.
 ///
-/// Builder 可以接收来自私有上下游配置或受控测试的 secret；调用 [`Self::build`]
-/// 后只保留启用项，并生成不可变运行时快照。
+/// The builder accepts secrets from private downstream/upstream configuration or controlled tests.
+/// [`Self::build`] retains enabled entries and creates an immutable runtime snapshot.
 #[derive(Default)]
 pub struct CredentialStoreBuilder {
     entries: Vec<CredentialEntry>,
 }
 
 impl CredentialStoreBuilder {
-    /// 创建空的 credential 构造器。
+    /// Creates an empty credential builder.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 加入一个下游用户 API Key，并在所有启用状态之间检查 ID 与 Key 唯一性。
+    /// Adds a downstream-user API key and checks ID and key uniqueness across all enabled states.
     pub fn insert_downstream(
         &mut self,
         user_id: impl Into<String>,
         secret: SecretString,
         enabled: bool,
     ) -> Result<(), CredentialStoreError> {
-        // 构造带下游用途的 ID，并拒绝重复用户绑定。
+        // Build the downstream-purpose ID and reject duplicate user bindings.
         let id = CredentialId::DownstreamUser {
             user_id: user_id.into(),
         };
@@ -156,7 +157,7 @@ impl CredentialStoreBuilder {
             return Err(CredentialStoreError::DuplicateId);
         }
 
-        // 比较全部下游 Key，避免启停状态掩盖重复 credential。
+        // Compare every downstream key so enabled state cannot hide a duplicate credential.
         let candidate = secret.expose_secret().as_bytes();
         if self.entries.iter().any(|entry| {
             matches!(entry.id, CredentialId::DownstreamUser { .. })
@@ -165,7 +166,7 @@ impl CredentialStoreBuilder {
             return Err(CredentialStoreError::DuplicateDownstreamSecret);
         }
 
-        // 暂存启停状态，构造最终 Store 时只保留启用用户。
+        // Retain enabled state temporarily; the final Store keeps enabled users only.
         self.entries.push(CredentialEntry {
             id,
             secret,
@@ -175,7 +176,7 @@ impl CredentialStoreBuilder {
         Ok(())
     }
 
-    /// 加入一个已由调用方解析的上游 credential pool 成员。
+    /// Adds an upstream credential-pool member already parsed by the caller.
     pub fn insert_upstream_member(
         &mut self,
         provider: ProviderKind,
@@ -184,7 +185,7 @@ impl CredentialStoreBuilder {
         secret: SecretString,
         metadata: CredentialMetadata,
     ) -> Result<(), CredentialStoreError> {
-        // 校验 secret 与元数据属于可用的上游 credential。
+        // Validate that the secret and metadata describe a usable upstream credential.
         if secret.expose_secret().is_empty() {
             return Err(CredentialStoreError::Unavailable);
         }
@@ -194,7 +195,7 @@ impl CredentialStoreBuilder {
             return Err(CredentialStoreError::InvalidMetadata);
         }
 
-        // 构造带 Provider 与 pool 归属的成员 ID，并拒绝重复成员或 secret。
+        // Build the Provider- and pool-bound member ID and reject duplicate members or secrets.
         let pool_id = pool_id.into();
         let member_id = member_id.into();
         if pool_id.trim().is_empty() || member_id.trim().is_empty() {
@@ -233,11 +234,11 @@ impl CredentialStoreBuilder {
         Ok(())
     }
 
-    /// 构造只包含启用 credential 的不可变运行时快照。
+    /// Builds an immutable runtime snapshot containing enabled credentials only.
     pub fn build(mut self) -> CredentialStore {
-        // 丢弃禁用用户的 secret，确保它们不进入长期运行时 Store。
+        // Drop disabled-user secrets so they do not enter the long-lived runtime Store.
         self.entries.retain(|entry| entry.enabled);
-        // 将完成校验的条目封装为唯一运行时 secret 所有者。
+        // Wrap validated entries as the sole runtime owners of the secrets.
         CredentialStore {
             entries: self.entries,
         }
@@ -253,18 +254,18 @@ impl fmt::Debug for CredentialStoreBuilder {
     }
 }
 
-/// 进程生命周期内不可变的上下游 credential 快照。
+/// Immutable downstream/upstream credential snapshot for the process lifetime.
 pub struct CredentialStore {
     entries: Vec<CredentialEntry>,
 }
 
 impl CredentialStore {
-    /// 校验运行时 pool 成员数与 registry 的 state affinity 约束一致。
+    /// Validates runtime pool membership against the registry's state-affinity constraints.
     pub fn validate_registry(
         &self,
         registry: &RuntimeRegistry,
     ) -> Result<(), CredentialStoreError> {
-        // continuation 无法安全跨 key 重放，因此对应 pool 必须恰好只有一个成员。
+        // Continuations cannot be safely replayed across keys, so the corresponding pool must have exactly one member.
         for pool_id in registry.credential_pool_ids() {
             if !registry.credential_pool_requires_single_member(pool_id) {
                 continue;
@@ -289,9 +290,9 @@ impl CredentialStore {
         Ok(())
     }
 
-    /// 使用 constant-time equality 匹配启用的下游 API Key，并返回对应用户 ID。
+    /// Matches an enabled downstream API key with constant-time equality and returns its user ID.
     pub fn authenticate_downstream(&self, candidate: &str) -> Option<&str> {
-        // 遍历全部下游 Key，避免通过提前返回暴露匹配位置。
+        // Scan every downstream key so an early return cannot expose the match position.
         let candidate = candidate.as_bytes();
         let mut matched = None;
         for entry in &self.entries {
@@ -306,14 +307,14 @@ impl CredentialStore {
         matched
     }
 
-    /// 按 Provider 与 pool ID 借用全部有序成员，归属不匹配或为空时 fail closed。
+    /// Borrows all ordered members for a Provider and pool ID; fail closed on mismatch or emptiness.
     pub fn upstream_pool(
         &self,
         provider: ProviderKind,
         pool_id: &str,
         kind: CredentialKind,
     ) -> Result<Vec<UpstreamCredential<'_>>, CredentialStoreError> {
-        // 只选择完整 Provider、pool 与 credential kind 都匹配的成员。
+        // Select only members matching the Provider, pool, and credential kind exactly.
         let members = self
             .entries
             .iter()
@@ -347,12 +348,12 @@ impl CredentialStore {
         Ok(members)
     }
 
-    /// 枚举非敏感 credential ID，供配置契约和诊断计数验证。
+    /// Enumerates non-sensitive credential IDs for configuration contracts and diagnostic counts.
     pub fn credential_ids(&self) -> impl Iterator<Item = &CredentialId> {
         self.entries.iter().map(|entry| &entry.id)
     }
 
-    /// 枚举 credential ID 与非敏感元数据，供受控诊断和策略快照使用。
+    /// Enumerates credential IDs and non-sensitive metadata for controlled diagnostics and policy snapshots.
     pub fn credential_metadata(
         &self,
     ) -> impl Iterator<Item = (&CredentialId, &CredentialMetadata)> {
@@ -378,7 +379,7 @@ impl fmt::Debug for CredentialStore {
     }
 }
 
-/// 已验证 Provider 归属的短时上游 credential 借用视图。
+/// Short-lived upstream credential view with verified Provider ownership.
 pub struct UpstreamCredential<'a> {
     provider: ProviderKind,
     pool_id: &'a str,
@@ -388,29 +389,29 @@ pub struct UpstreamCredential<'a> {
 }
 
 impl UpstreamCredential<'_> {
-    /// 返回允许消费此 secret 的 Provider。
+    /// Returns the Provider permitted to consume this secret.
     pub fn provider(&self) -> ProviderKind {
         self.provider
     }
 
-    /// 返回代码注册的 credential pool ID。
+    /// Returns the code-registered credential pool ID.
     pub fn pool_id(&self) -> &str {
         self.pool_id
     }
 
-    /// 返回 pool 内稳定的非敏感成员 ID。
+    /// Returns the stable non-sensitive member ID within the pool.
     pub fn member_id(&self) -> &str {
         self.member_id
     }
 
-    /// 返回该借用视图绑定的非敏感运行时元数据。
+    /// Returns the non-sensitive runtime metadata bound to this view.
     pub fn metadata(&self) -> &CredentialMetadata {
         self.metadata
     }
 
-    /// 仅在已完成用途校验的 Provider egress 边界借出 secret。
+    /// Exposes the secret only at a Provider egress boundary that completed purpose validation.
     pub(crate) fn expose_secret(&self) -> &str {
-        // 只在已完成 Provider、pool 和 kind 校验的 egress 边界暴露 secret。
+        // Expose the secret only after Provider, pool, and kind validation at the egress boundary.
         self.secret.expose_secret()
     }
 }
@@ -429,27 +430,27 @@ impl fmt::Debug for UpstreamCredential<'_> {
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-/// credential 快照构造或用途受限查询失败。
+/// Credential snapshot construction or purpose-restricted lookup failed.
 pub enum CredentialStoreError {
-    /// 相同用途的 credential ID 重复。
+    /// A credential ID is duplicated for the same purpose.
     #[error("credential id is configured more than once")]
     DuplicateId,
-    /// 同一个下游 API Key 被多个用户复用。
+    /// The same downstream API key is reused by multiple users.
     #[error("the same downstream API key is configured for more than one user")]
     DuplicateDownstreamSecret,
-    /// 同一个 pool 重复配置了相同上游 secret。
+    /// The same upstream secret is configured more than once in a pool.
     #[error("the same upstream secret is configured more than once in a credential pool")]
     DuplicateUpstreamSecret,
-    /// 启用 continuation 的 TargetBound API 引用了多成员 pool。
+    /// A TargetBound API with continuation enabled references a multi-member pool.
     #[error("state-bound upstream APIs require a single-member credential pool")]
     StatefulPoolHasMultipleMembers,
-    /// pool 或 member 的非敏感 ID 为空。
+    /// A pool or member non-sensitive ID is blank.
     #[error("credential pool and member ids must not be blank")]
     InvalidPoolIdentity,
-    /// Credential 元数据与用途不匹配或 generation 非法。
+    /// Credential metadata does not match its purpose or has an invalid generation.
     #[error("credential metadata is invalid")]
     InvalidMetadata,
-    /// secret 缺失、为空或与请求的用途/binding 不匹配。
+    /// The secret is missing, empty, or does not match the requested purpose/binding.
     #[error("credential is unavailable")]
     Unavailable,
 }
@@ -465,7 +466,7 @@ mod tests {
 
     #[test]
     fn state_bound_continuation_rejects_a_multi_member_pool() {
-        // 为内置 OpenAI Responses API 开启 continuation，形成实际 state-bound 约束。
+        // Enable continuation for the built-in OpenAI Responses API to create a real state-bound constraint.
         let mut definition = crate::providers::compiled_config();
         if let crate::registry::UpstreamApiCapabilities::Responses(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[1].capabilities
@@ -477,7 +478,7 @@ mod tests {
                 .unwrap();
         let registry = crate::registry::build_registry(bootstrap, definition).unwrap();
 
-        // 注入两个成员并验证启动期 fail closed，而不是在请求中猜测 key affinity。
+        // Inject two members and verify startup fails closed instead of guessing key affinity per request.
         let mut credentials = CredentialStoreBuilder::new();
         for (index, secret) in ["key-a", "key-b"].into_iter().enumerate() {
             credentials
@@ -501,7 +502,7 @@ mod tests {
 
     #[test]
     fn runtime_store_owns_a_redacted_snapshot_and_rejects_empty_upstream_secrets() {
-        // 注入启动阶段解析出的 secret，并构造不可变运行时快照。
+        // Inject a startup-parsed secret and build the immutable runtime snapshot.
         let mut credentials = CredentialStoreBuilder::new();
         credentials
             .insert_upstream_member(
@@ -516,7 +517,7 @@ mod tests {
             )
             .unwrap();
 
-        // 验证运行时 Store 保留启动快照，且任何 Debug 输出都不包含明文。
+        // Verify that the runtime Store retains the startup snapshot and Debug output contains no plaintext.
         let credentials = credentials.build();
         let credential = credentials
             .upstream_pool(
@@ -535,7 +536,7 @@ mod tests {
         assert_eq!(credential.metadata().expires_at(), None);
         assert!(!format!("{credentials:?} {credential:?}").contains("startup-secret"));
 
-        // 拒绝空的上游 Key，确保错误发生在请求路径之外。
+        // Reject an empty upstream key so the error occurs outside the request path.
         let mut invalid = CredentialStoreBuilder::new();
         assert_eq!(
             invalid

@@ -1,6 +1,6 @@
-//! Xiaomi MiMo Provider 的编译期实现入口。
+//! Compile-time entry point for the Xiaomi MiMo Provider.
 //!
-//! 当前注册 MiMo V2.5 Pro/V2.5 的 Chat 与无状态 Responses Native surface。
+//! Registers Chat and stateless Responses Native surfaces for MiMo V2.5 Pro and V2.5.
 
 mod definition;
 mod registration;

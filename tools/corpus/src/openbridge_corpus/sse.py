@@ -1,4 +1,4 @@
-"""独立协议 corpus 使用的增量 SSE 解析与 terminal 观察逻辑。"""
+"""Incremental SSE parsing and terminal observation logic for the independent protocol corpus."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ TERMINAL_TYPES = {
 
 @dataclass(frozen=True)
 class SseEvent:
-    """保存一个完整 SSE event 的字段、JSON 解析结果和 terminal 判定。"""
+    """Store one complete SSE event's fields, JSON result, and terminal classification."""
 
     event_field: str | None
     data_text: str
@@ -28,7 +28,7 @@ class SseEvent:
     terminal: str | None
 
     def as_dict(self) -> dict[str, Any]:
-        """将事件转换为可写入 observation 的 JSON 对象。"""
+        """Convert the event to a JSON object suitable for an observation."""
         return {
             "data_json": self.data_json,
             "data_text": self.data_text,
@@ -41,10 +41,10 @@ class SseEvent:
 
 
 class IncrementalSseParser:
-    """增量解析 SSE 字节流，不假设网络读取边界与行或 event 边界重合。"""
+    """Incrementally parse an SSE byte stream without assuming network, line, or event boundaries coincide."""
 
     def __init__(self) -> None:
-        """初始化不假设网络分片边界的 SSE 行和 event 累积状态。"""
+        """Initialize SSE line and event accumulation without assuming network fragment boundaries."""
         self._line = bytearray()
         self._skip_lf = False
         self._event_field: str | None = None
@@ -52,7 +52,7 @@ class IncrementalSseParser:
         self._closed = False
 
     def feed(self, data: bytes) -> list[SseEvent]:
-        """输入一个网络 chunk，并返回其中已由空行终止的 event。"""
+        """Feed one network chunk and return events terminated by a blank line."""
         if self._closed:
             raise RuntimeError("cannot feed a closed SSE parser")
         events: list[SseEvent] = []
@@ -71,7 +71,7 @@ class IncrementalSseParser:
         return events
 
     def close(self) -> None:
-        """关闭流，并丢弃 EOF 前未由空行终止的 event。"""
+        """Close the stream and discard events not terminated by a blank line before EOF."""
 
         self._closed = True
         self._line.clear()
@@ -79,7 +79,7 @@ class IncrementalSseParser:
         self._data_lines.clear()
 
     def _finish_line(self) -> list[SseEvent]:
-        """完成当前行，更新 SSE 字段并在空行处派发 event。"""
+        """Complete the current line, update SSE fields, and dispatch an event at a blank line."""
         raw = bytes(self._line)
         self._line.clear()
         if not raw:
@@ -98,7 +98,7 @@ class IncrementalSseParser:
         return []
 
     def _dispatch(self) -> SseEvent | None:
-        """组合 data 行、解析 JSON，并计算 terminal 与类型冲突信息。"""
+        """Combine data lines, parse JSON, and compute terminal and type-conflict information."""
         if not self._data_lines:
             self._event_field = None
             return None
@@ -139,7 +139,7 @@ class IncrementalSseParser:
 
 
 def parse_sse(data: bytes) -> list[SseEvent]:
-    """一次性解析完整 SSE bytes，并丢弃 EOF 前未终止的 event。"""
+    """Parse complete SSE bytes at once and discard events not terminated before EOF."""
     parser = IncrementalSseParser()
     events = parser.feed(data)
     parser.close()

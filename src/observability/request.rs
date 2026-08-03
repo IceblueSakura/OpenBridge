@@ -1,8 +1,9 @@
-//! 单个已认证请求的 tracing、终态与低基数计数提交。
+//! Tracing, terminal-state, and low-cardinality counter submission for one authenticated request.
 //!
-//! request、user、credential 与 endpoint 事实只进入当前 span；已校验的 route、target、Upstream API、
-//! Provider 和 Public Model 另由 Provider attempt 快照使用。共享状态只保存终态诊断、usage 与有限计数，
-//! 并保证 finish/cancel 至多提交一次。
+//! Request, user, credential, and endpoint facts enter only the current span. Validated Route,
+//! target, Upstream API, Provider, and Public Model dimensions are used separately by Provider
+//! attempt snapshots. Shared state stores only terminal diagnostics, usage, and bounded counters,
+//! and guarantees that finish/cancel is submitted at most once.
 
 use std::{
     sync::{
@@ -26,7 +27,7 @@ use super::{
     usage::{TokenUsage, is_business_output, is_failed_terminal},
 };
 
-/// 单个已认证请求共享的 span、终态和 usage 观测句柄。
+/// Shared span, terminal-state, and usage observation handle for one authenticated request.
 #[derive(Clone)]
 pub(crate) struct RequestObservation {
     inner: Arc<RequestObservationInner>,
@@ -60,7 +61,7 @@ struct RequestState {
 }
 
 impl RequestObservation {
-    /// 创建请求观测并立即累计已开始请求。
+    /// Creates request observation and immediately increments started requests.
     pub(crate) fn new(metrics: GatewayMetrics, span: Span) -> Self {
         metrics
             .inner
@@ -76,7 +77,7 @@ impl RequestObservation {
         }
     }
 
-    /// 把下游协议与 Public Model 记录到请求 span。
+    /// Records the downstream protocol and Public Model in the request span.
     pub(crate) fn record_request(
         &self,
         protocol: ApiProtocol,
@@ -94,7 +95,7 @@ impl RequestObservation {
         self.inner.span.record("public_model", public_model);
     }
 
-    /// 记录一次真实上游 attempt 及其已编译路由事实。
+    /// Records one actual upstream attempt and its compiled Route facts.
     pub(crate) fn record_attempt(
         &self,
         attempt: u64,
@@ -104,7 +105,7 @@ impl RequestObservation {
         provider: ProviderKind,
         bridged: bool,
     ) {
-        // 创建 Provider 维度的 attempt 句柄，并把路由细节限制在当前 trace 内。
+        // Create a Provider-dimension attempt handle and keep Route details within the current trace.
         let (protocol, public_model, streaming) = {
             let state = self.lock_state();
             (state.protocol, state.public_model.clone(), state.streaming)
@@ -142,9 +143,9 @@ impl RequestObservation {
         });
     }
 
-    /// 记录一次 attempt 的脱敏 HTTP 结果，并累计非成功状态。
+    /// Records a redacted HTTP result for an attempt and counts non-success statuses.
     pub(crate) fn record_attempt_http_result(&self, attempt: u64, status: StatusCode) {
-        // 成功 status 只记录 response-ready；非成功 status 在 headers 边界收口 attempt。
+        // A successful status records response-ready; a non-success status finalizes the attempt at the headers boundary.
         if status.is_success() {
             if let Some(provider_attempt) = self.active_attempt() {
                 provider_attempt.record_response_ready();
@@ -169,9 +170,9 @@ impl RequestObservation {
         });
     }
 
-    /// 记录一次未取得 HTTP response 的安全 transport 失败类别。
+    /// Records a safe transport-failure category without an HTTP response.
     pub(crate) fn record_attempt_transport_failure(&self, attempt: u64, kind: &'static str) {
-        // 在没有 HTTP headers 的边界收口 Provider attempt。
+        // Finalize the Provider attempt at the boundary where no HTTP headers exist.
         if let Some(provider_attempt) = self.take_active_attempt() {
             provider_attempt.finish(AttemptOutcome::TransportFailed);
         }
@@ -189,7 +190,7 @@ impl RequestObservation {
         });
     }
 
-    /// 记录同一候选内的一次 retry。
+    /// Records one retry within the same candidate.
     pub(crate) fn record_retry(&self) {
         self.inner
             .metrics
@@ -202,7 +203,7 @@ impl RequestObservation {
             .in_scope(|| tracing::info!("upstream_retry"));
     }
 
-    /// 记录 429 后在同一 Provider pool 内切换到另一个成员。
+    /// Records rotation to another member in the same Provider pool after 429.
     pub(crate) fn record_credential_rotation(&self) {
         self.inner
             .metrics
@@ -215,7 +216,7 @@ impl RequestObservation {
             .in_scope(|| tracing::info!("credential_rotated"));
     }
 
-    /// 记录进入下一 Route 候选的一次 fallback。
+    /// Records one fallback to the next Route candidate.
     pub(crate) fn record_fallback(&self) {
         self.inner
             .metrics
@@ -228,7 +229,7 @@ impl RequestObservation {
             .in_scope(|| tracing::info!("route_fallback"));
     }
 
-    /// 记录因 cooldown 跳过一个候选。
+    /// Records a candidate skipped because of cooldown.
     pub(crate) fn record_cooldown_skip(&self, upstream_target: &str) {
         self.inner
             .metrics
@@ -241,7 +242,7 @@ impl RequestObservation {
         });
     }
 
-    /// 标记 handler 已生成 response headers，但尚未完成 body。
+    /// Marks that the handler generated response headers but has not completed the body.
     pub(crate) fn record_response_ready(&self, status: StatusCode) {
         let elapsed = self.elapsed_ms();
         self.with_state(|state| {
@@ -251,7 +252,7 @@ impl RequestObservation {
         self.inner.span.record("status", status.as_u16());
     }
 
-    /// 标记首个非空下游 body chunk。
+    /// Marks the first non-empty downstream body chunk.
     pub(crate) fn record_first_body_byte(&self) {
         let elapsed = self.elapsed_ms();
         self.with_state(|state| {
@@ -259,7 +260,7 @@ impl RequestObservation {
         });
     }
 
-    /// 标记 SSE 中首个 text/tool 增量，不把 metadata event 误当成 TTFT。
+    /// Marks the first text/tool increment in SSE without treating metadata events as TTFT.
     pub(super) fn record_first_output(&self) {
         let elapsed = self.elapsed_ms();
         self.with_state(|state| {
@@ -270,7 +271,7 @@ impl RequestObservation {
         }
     }
 
-    /// 记录 body/SSE 异常；同一请求只保留首个失败类别。
+    /// Records a body/SSE failure; one request retains only its first failure category.
     pub(crate) fn record_stream_failure(&self, kind: &'static str) {
         self.with_state(|state| {
             state.failure_kind.get_or_insert(kind);
@@ -280,7 +281,7 @@ impl RequestObservation {
         }
     }
 
-    /// 从下游 JSON 或 SSE 中记录一次明确 usage。
+    /// Records explicit usage from downstream JSON or SSE.
     pub(super) fn record_usage(&self, usage: TokenUsage) {
         self.with_state(|state| {
             if let Some(current) = state.usage.as_mut() {
@@ -294,7 +295,7 @@ impl RequestObservation {
         }
     }
 
-    /// 记录原始上游 body 的首个非空 chunk。
+    /// Records the first non-empty chunk of the raw upstream body.
     pub(crate) fn record_upstream_chunk(&self, chunk: &bytes::Bytes) {
         if !chunk.is_empty()
             && let Some(provider_attempt) = self.active_attempt()
@@ -303,7 +304,7 @@ impl RequestObservation {
         }
     }
 
-    /// 记录原始上游 JSON/SSE data 的业务输出、terminal 和 usage。
+    /// Records business output, terminal, and usage from raw upstream JSON/SSE data.
     pub(crate) fn record_upstream_value(&self, value: &serde_json::Value) {
         if is_business_output(value)
             && let Some(provider_attempt) = self.active_attempt()
@@ -318,7 +319,7 @@ impl RequestObservation {
         }
     }
 
-    /// 记录一组已经完成 framing 的原始上游 SSE events。
+    /// Records a group of fully framed raw upstream SSE events.
     pub(crate) fn record_upstream_events(&self, events: &[crate::transport::sse::SseEvent]) {
         for event in events {
             if event.data() == "[DONE]" {
@@ -330,21 +331,21 @@ impl RequestObservation {
         }
     }
 
-    /// 记录原始上游 body 到达 EOF。
+    /// Records raw upstream body EOF.
     pub(crate) fn record_upstream_complete(&self) {
         if let Some(provider_attempt) = self.active_attempt() {
             provider_attempt.record_upstream_complete();
         }
     }
 
-    /// 记录原始上游 body 或 framing 失败。
+    /// Records raw upstream body or framing failure.
     pub(crate) fn record_upstream_failure(&self) {
         if let Some(provider_attempt) = self.active_attempt() {
             provider_attempt.record_stream_failure();
         }
     }
 
-    /// 用透明 wrapper 观察成功的非 SSE 上游 body。
+    /// Observes a successful non-SSE upstream body through a transparent wrapper.
     pub(crate) fn observe_upstream_json_body(
         &self,
         body: axum::body::Body,
@@ -357,19 +358,19 @@ impl RequestObservation {
         }
     }
 
-    /// 正常 EOF 时提交唯一终态。
+    /// Submits the single terminal at normal EOF.
     pub(crate) fn finish(&self) {
         self.finish_with_cancel(false);
     }
 
-    /// body 在 EOF 前被下游丢弃时提交唯一取消终态。
+    /// Submits the single cancellation terminal when downstream drops the body before EOF.
     pub(crate) fn cancel(&self) {
         self.finish_with_cancel(true);
     }
 
-    /// 以正常或取消状态提交唯一请求终态。
+    /// Submits the single request terminal as normal or cancelled.
     fn finish_with_cancel(&self, cancelled: bool) {
-        // 在锁内确定唯一终态并复制 event 所需字段。
+        // Determine the single terminal under the lock and copy fields needed by the event.
         let summary = {
             let mut state = self.lock_state();
             if state.finished {
@@ -394,7 +395,7 @@ impl RequestObservation {
             }
         };
 
-        // 累计低基数终态和 usage，再输出一条可由 OpenTelemetry trace 导出的总结 event。
+        // Count the low-cardinality terminal and usage, then emit a summary event exportable by OpenTelemetry tracing.
         self.record_completion_metrics(&summary);
         if let Some(provider_attempt) = summary.active_attempt.as_ref() {
             let outcome = if summary.cancelled {
@@ -409,9 +410,9 @@ impl RequestObservation {
         self.emit_completion(&summary);
     }
 
-    /// 累计一次请求终态及其明确 usage。
+    /// Counts one request terminal and its explicit usage.
     fn record_completion_metrics(&self, summary: &CompletionSummary) {
-        // 先按取消、流失败、成功 HTTP 和其他 HTTP failure 归类请求终态。
+        // Classify the request terminal as cancellation, stream failure, successful HTTP, or other HTTP failure.
         let counters = &self.inner.metrics.inner;
         if summary.cancelled {
             counters.requests_cancelled.fetch_add(1, Ordering::Relaxed);
@@ -427,7 +428,7 @@ impl RequestObservation {
                 .requests_http_failed
                 .fetch_add(1, Ordering::Relaxed);
         }
-        // 再把 Provider 明确返回的 token usage 以饱和加法写入低基数累计值。
+        // Add Provider-reported token usage to low-cardinality counters with saturation.
         if let Some(usage) = summary.usage {
             counters.usage_observations.fetch_add(1, Ordering::Relaxed);
             saturating_add(&counters.input_tokens, usage.input_tokens.unwrap_or(0));
@@ -436,9 +437,9 @@ impl RequestObservation {
         }
     }
 
-    /// 在请求 span 中输出不含业务正文和 credential 的终态 event。
+    /// Emits a terminal event in the request span without business bodies or credentials.
     fn emit_completion(&self, summary: &CompletionSummary) {
-        // 将内部状态收敛为稳定 outcome 名称，不把底层错误正文写入 event。
+        // Collapse internal state into a stable outcome name without writing underlying error text to the event.
         let outcome = if summary.cancelled {
             "cancelled"
         } else if summary.failure_kind.is_some() {
@@ -451,7 +452,7 @@ impl RequestObservation {
         } else {
             "http_failed"
         };
-        // 只输出时间、尝试次数、终态类别和结构化 usage 计数。
+        // Emit only timing, attempt counts, terminal category, and structured usage counters.
         let usage = summary.usage.unwrap_or_default();
         self.inner.span.in_scope(|| {
             tracing::info!(
@@ -475,17 +476,17 @@ impl RequestObservation {
         });
     }
 
-    /// 返回请求开始后经过的毫秒数，用于 TTFT/TTFB 和总耗时观测。
+    /// Returns milliseconds elapsed since request start for TTFT/TTFB and total-duration observation.
     fn elapsed_ms(&self) -> u64 {
         self.inner.started.elapsed().as_millis() as u64
     }
 
-    /// 在短暂持有状态锁的范围内更新本请求的观测状态。
+    /// Updates this request's observation state while briefly holding the state lock.
     fn with_state(&self, update: impl FnOnce(&mut RequestState)) {
         update(&mut self.lock_state());
     }
 
-    /// 获取请求状态锁，并将 poisoned mutex 视为可继续读取的本地状态。
+    /// Acquires the request-state lock and treats a poisoned mutex as locally usable state.
     fn lock_state(&self) -> std::sync::MutexGuard<'_, RequestState> {
         self.inner
             .state
@@ -512,26 +513,26 @@ struct CompletionSummary {
     active_attempt: Option<ProviderAttemptObservation>,
 }
 
-/// 以饱和加法累计不可信的外部 usage 值。
+/// Accumulates untrusted external usage values with saturating addition.
 fn saturating_add(counter: &AtomicU64, value: u64) {
-    // 外部 usage 即使异常巨大也只能让累计值饱和，不能回绕为较小数字。
+    // Extremely large external usage may saturate the counter but cannot wrap to a smaller value.
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         Some(current.saturating_add(value))
     });
 }
 
 impl RequestObservation {
-    /// 读取当前尚未收口的 Provider attempt。
+    /// Reads the current open Provider attempt.
     fn active_attempt(&self) -> Option<ProviderAttemptObservation> {
         self.lock_state().active_attempt.clone()
     }
 
-    /// 取出当前 Provider attempt，避免 HTTP/transport failure 重复收口。
+    /// Takes the current Provider attempt so HTTP/transport failure cannot finalize it twice.
     fn take_active_attempt(&self) -> Option<ProviderAttemptObservation> {
         self.with_state_return(|state| state.active_attempt.take())
     }
 
-    /// 在状态锁内执行更新并返回结果。
+    /// Applies an update under the state lock and returns its result.
     fn with_state_return<T>(&self, update: impl FnOnce(&mut RequestState) -> T) -> T {
         update(&mut self.lock_state())
     }

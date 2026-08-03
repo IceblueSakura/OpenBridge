@@ -1,4 +1,4 @@
-//! 验证请求终态观测、usage 提取和敏感业务内容不进入诊断输出。
+//! Verifies request-terminal observation, usage extraction, and exclusion of sensitive business content from diagnostics.
 
 mod support;
 
@@ -226,7 +226,7 @@ fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, G
 }
 
 async fn serve_loopback(app: axum::Router) -> (String, tokio::task::JoinHandle<()>) {
-    // 为每个测试绑定独立随机端口，避免并行执行时共享网络状态。
+    // Bind a separate random port to each test to avoid shared network state during parallel execution.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -238,7 +238,7 @@ async fn serve_loopback(app: axum::Router) -> (String, tokio::task::JoinHandle<(
 }
 
 async fn wait_for_request_terminal(metrics: &GatewayMetrics) -> GatewayMetricsSnapshot {
-    // 使用有界轮询等待服务端提交终态，不引入依赖调度时序的 sleep。
+    // Use bounded polling for the server terminal state without scheduling-dependent sleeps.
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         loop {
             let snapshot = metrics.snapshot();
@@ -278,11 +278,11 @@ fn responses_request(body: &'static str) -> Request<Body> {
 
 #[tokio::test]
 async fn real_http_known_length_response_is_not_misclassified_as_cancelled() {
-    // 启动真实 Axum/Hyper loopback，覆盖内存 oneshot 不会触发的 transport body drop 路径。
+    // Start a real Axum/Hyper loopback to cover transport body-drop paths that an in-memory oneshot does not trigger.
     let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
     let (base_url, server) = serve_loopback(app).await;
 
-    // 通过真实 HTTP client 完整读取已知长度的模型列表响应。
+    // Read the known-length model-list response completely through a real HTTP client.
     let response = reqwest::Client::new()
         .get(format!("{base_url}/v1/models"))
         .header("authorization", "Bearer downstream-test-token-00000000000")
@@ -292,7 +292,7 @@ async fn real_http_known_length_response_is_not_misclassified_as_cancelled() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(!response.bytes().await.unwrap().is_empty());
 
-    // 等待服务端提交唯一终态，并区分正常完成与误报取消。
+    // Wait for the server to commit one terminal state and distinguish normal completion from false cancellation.
     let snapshot = wait_for_request_terminal(&metrics).await;
     server.abort();
     let _ = server.await;
@@ -303,7 +303,7 @@ async fn real_http_known_length_response_is_not_misclassified_as_cancelled() {
 
 #[tokio::test]
 async fn real_http_native_json_completes_both_provider_and_downstream_observers() {
-    // 使用 Native JSON passthrough 叠加 Provider 与 downstream 两层 body observer。
+    // Use Native JSON passthrough with Provider and downstream body observers.
     let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
     let (base_url, server) = serve_loopback(app).await;
     let response = reqwest::Client::new()
@@ -317,7 +317,7 @@ async fn real_http_native_json_completes_both_provider_and_downstream_observers(
     assert_eq!(response.status(), StatusCode::OK);
     assert!(!response.bytes().await.unwrap().is_empty());
 
-    // 两层 observer 都必须在最后一个 frame 上完成，且 usage 只能提交一次。
+    // Both observers must finish on the last frame, and usage may be submitted only once.
     let snapshot = wait_for_request_terminal(&metrics).await;
     server.abort();
     let _ = server.await;

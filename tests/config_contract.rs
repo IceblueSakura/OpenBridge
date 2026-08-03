@@ -1,4 +1,4 @@
-//! 验证 bootstrap、registry 编译、引用完整性和 endpoint/credential 边界。
+//! Verifies bootstrap, registry compilation, reference integrity, and endpoint/credential boundaries.
 
 mod support;
 
@@ -271,7 +271,7 @@ fn reasoning_level_mappings_are_validated_at_registry_build_time() {
         definition
     };
 
-    // 拒绝 canonical Model 未声明的映射源和非法上游 wire 值。
+    // Reject undeclared canonical Model mappings and invalid upstream wire values.
     let unknown_source = configured(ReasoningLevelMapping {
         downstream: ReasoningLevel::High,
         upstream: "max".to_owned(),
@@ -289,7 +289,7 @@ fn reasoning_level_mappings_are_validated_at_registry_build_time() {
         Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
     ));
 
-    // 同一 Upstream API 不得为同一个下游 level 声明歧义目标。
+    // One Upstream API must not declare ambiguous targets for the same downstream level.
     let mut duplicate = configured(ReasoningLevelMapping {
         downstream: ReasoningLevel::XHigh,
         upstream: "max".to_owned(),
@@ -401,7 +401,7 @@ fn registry_rejects_capability_elevation_and_unsupported_credential_kind() {
 
 #[test]
 fn registry_rejects_invalid_credential_pool_identity_and_target_ownership() {
-    // pool ID 必须非空且唯一，target 只能引用同 Provider 的已知 pool。
+    // Pool IDs must be non-empty and unique; a target may reference only a known pool for the same Provider.
     let mut blank = definition("test", "code-primary", "test-model");
     blank.credential_pools[0].id = "   ".to_owned();
     blank.upstream_targets[0].credential_pool = "   ".to_owned();

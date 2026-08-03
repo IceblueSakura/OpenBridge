@@ -1,8 +1,8 @@
-//! GPT-5.5 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the GPT-5.5 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 LiteLLM 配置已确认的 GPT-5.5 模型事实。
+/// Builds the GPT-5.5 model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "openai/gpt-5.5".to_owned(),

@@ -1,4 +1,4 @@
-//! OpenAI Provider 的静态契约与 OpenAI-compatible wire profile。
+//! Static OpenAI Provider contract and OpenAI-compatible wire profile.
 
 use http::{HeaderMap, header::USER_AGENT};
 
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// OpenAI adapter 的静态能力与允许的 endpoint/credential 范围。
+/// Static OpenAI adapter capabilities and permitted endpoint/credential scope.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::OpenAi,
     ApiCapabilities {
@@ -62,7 +62,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// OpenAI 使用的静态 OpenAI-compatible wire profile。
+/// Static OpenAI-compatible wire profile used by OpenAI.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::OpenAi,
     &CONTRACT,
@@ -72,11 +72,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     transform_request_headers,
 );
 
-/// OpenAI contract 与 adapter 的唯一静态描述符。
+/// Single static descriptor for the OpenAI contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// 应用 OpenAI 当前要求的普通请求头转换。
+/// Applies the ordinary-header transform currently required by OpenAI.
 fn transform_request_headers(
     downstream: &HeaderMap,
     upstream: &mut SafeHeaders,

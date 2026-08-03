@@ -1,10 +1,10 @@
-//! Chat 与 Responses bridge 状态机共用的 wire 字段与 arguments 校验。
+//! Shared wire-field and argument validation for the Chat and Responses Bridge state machines.
 
 use serde_json::Value;
 
 use super::BridgeStreamError;
 
-/// 读取必需字符串字段。
+/// Reads a required string field.
 pub(super) fn required_str<'a>(
     value: &'a Value,
     field: &str,
@@ -15,7 +15,7 @@ pub(super) fn required_str<'a>(
         .ok_or(BridgeStreamError::InvalidJson)
 }
 
-/// 读取必需无符号整数 identity 字段。
+/// Reads a required unsigned-integer identity field.
 pub(super) fn required_u64(value: &Value, field: &str) -> Result<u64, BridgeStreamError> {
     value
         .get(field)
@@ -23,9 +23,9 @@ pub(super) fn required_u64(value: &Value, field: &str) -> Result<u64, BridgeStre
         .ok_or(BridgeStreamError::InvalidJson)
 }
 
-/// 验证 function arguments 是完整 JSON object。
+/// Validates that function arguments are a complete JSON object.
 pub(super) fn validate_arguments(arguments: &str) -> Result<(), BridgeStreamError> {
-    // function arguments 必须是完整 JSON object，不能仅凭字符串结束位置推断完成。
+    // Function arguments must be a complete JSON object; a string boundary alone cannot prove completion.
     let parsed: Value =
         serde_json::from_str(arguments).map_err(|_| BridgeStreamError::InvalidToolArguments)?;
     if parsed.is_object() {

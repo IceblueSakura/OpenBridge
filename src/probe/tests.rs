@@ -1,4 +1,4 @@
-//! capability probe 的受信 egress、协议请求与报告单元测试。
+//! Unit tests for trusted capability-probe egress, protocol requests, and reports.
 
 use std::sync::Mutex;
 

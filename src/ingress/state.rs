@@ -1,4 +1,4 @@
-//! HTTP ingress 使用的共享服务状态。
+//! Shared service state used by HTTP ingress.
 
 use std::sync::Arc;
 
@@ -9,10 +9,11 @@ use crate::{
 
 use super::{credential_health::CredentialHealth, health::TargetHealth};
 
-/// handler 依赖的不可变服务句柄。
+/// Immutable service handles required by handlers.
 ///
-/// 编译期注册表在启动后保持不可变；上游 transport 与 credential source 以 trait/值对象
-/// 注入，因此 contract test 可以验证 HTTP/SSE 边界而无需真实 provider 或明文环境 secret。
+/// The compile-time registry remains immutable after startup. Upstream transport and credential
+/// sources are injected as traits/value objects, allowing contract tests to verify HTTP/SSE
+/// boundaries without a real Provider or plaintext environment secret.
 #[derive(Clone)]
 pub struct GatewayState {
     pub(super) registry: Arc<RuntimeRegistry>,
@@ -25,7 +26,7 @@ pub struct GatewayState {
 }
 
 impl GatewayState {
-    /// 创建可注入 transport 与 credential source 的服务状态。
+    /// Creates service state with injectable transport and credential sources.
     pub fn new(
         registry: Arc<RuntimeRegistry>,
         upstream: Arc<dyn UpstreamTransport>,
@@ -43,7 +44,7 @@ impl GatewayState {
         }
     }
 
-    /// 返回共享的进程内低基数累计值句柄，供 exporter 或测试读取快照。
+    /// Returns the shared in-process low-cardinality counter handle for exporter or test snapshots.
     pub fn metrics(&self) -> GatewayMetrics {
         self.metrics.clone()
     }

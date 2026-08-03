@@ -1,8 +1,9 @@
-//! 管理员显式执行的上游 capability probe 门面。
+//! Facade for explicit administrative upstream capability probes.
 //!
-//! probe 复用 Upstream Target 的受信 endpoint、credential 和编译期 adapter，但不走下游
-//! HTTP API，也不修改代码注册表。`session` 负责受信执行，`payload` 负责固定 wire 请求与
-//! 响应形状；公开报告只作为服务所有者更新 capability 配置时的证据。
+//! Probes reuse the Upstream Target's trusted endpoint, credential, and compile-time adapter, but
+//! do not use the downstream HTTP API or modify the code registry. `session` performs
+//! trusted execution, `payload` owns fixed wire requests and response shapes, and
+//! public reports provide evidence for service owners updating capability configuration.
 
 use http::StatusCode;
 use serde::Serialize;
@@ -13,22 +14,22 @@ mod session;
 
 pub use session::probe_upstream_target;
 
-/// 明确选择要执行的 probe。CLI 不传任何选择时使用 `all()`；库调用方可仅执行无费用的
-/// `list_models`，或只验证特定协议。
+/// Explicit probe selection. The CLI uses `all()` when no selection is supplied;
+/// library callers may run only the free `list_models` probe or validate one protocol.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProbeOptions {
-    /// 是否执行 `/v1/models` probe。
+    /// Whether to run the `/v1/models` probe.
     pub list_models: bool,
-    /// 是否执行 Chat Completions 文本请求 probe。
+    /// Whether to run the Chat Completions text-request probe.
     pub chat: bool,
-    /// 是否执行 Responses 文本请求 probe。
+    /// Whether to run the Responses text-request probe.
     pub responses: bool,
-    /// 是否执行 function call 及结果回放 probe。
+    /// Whether to run the function-call and result-replay probe.
     pub function_calling: bool,
 }
 
 impl ProbeOptions {
-    /// 选择全部已实现的 probe。
+    /// Selects every implemented probe.
     pub const fn all() -> Self {
         Self {
             list_models: true,
@@ -38,34 +39,35 @@ impl ProbeOptions {
         }
     }
 
-    /// 判断是否没有选择任何 probe。
+    /// Returns whether no probe is selected.
     pub const fn is_empty(self) -> bool {
         !self.list_models && !self.chat && !self.responses && !self.function_calling
     }
 }
 
-/// probe 对某个能力的保守结论。
+/// Conservative probe conclusion for one capability.
 ///
-/// `unsupported` 只用于端点明确不存在（404/405/501）。认证、限流、网络故障及请求
-/// 形状被拒绝均保留为 `unknown`，避免把一次临时故障错误报告为静态不支持。
+/// `unsupported` is used only when the endpoint explicitly does not exist (404/405/501).
+/// Authentication, rate limits, network failures, and rejected request shapes remain
+/// `unknown` so transient failures are not reported as static lack of support.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportStatus {
-    /// 请求符合该 probe 预期的协议形状。
+    /// The request matched the protocol shape expected by the probe.
     Supported,
-    /// endpoint 明确返回不支持该操作的 status。
+    /// The endpoint explicitly returned a status indicating that the operation is unsupported.
     Unsupported,
-    /// 请求失败或响应形状不足以作出结论。
+    /// The request failed or the response shape is insufficient for a conclusion.
     Unknown,
 }
 
-/// 单项 probe 的状态和可选 HTTP status。
+/// Status and optional HTTP status for one probe.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProbeResult {
-    /// 本次 probe 的保守结论。
+    /// Conservative conclusion for this probe.
     pub state: SupportStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// 上游返回的 HTTP status；尚未收到响应时为空。
+    /// HTTP status returned by upstream; absent before a response is received.
     pub http_status: Option<u16>,
 }
 
@@ -104,64 +106,64 @@ impl ProbeResult {
     }
 }
 
-/// `/v1/models` probe 的模型列表观察结果。
+/// Model-list observation from the `/v1/models` probe.
 #[derive(Debug, Serialize)]
 pub struct ModelListProbeResult {
-    /// `/v1/models` 请求本身的结论。
+    /// Conclusion for the `/v1/models` request itself.
     pub outcome: ProbeResult,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// 配置的 upstream model 是否出现在返回列表中。
+    /// Whether the configured upstream model appears in the returned list.
     pub configured_model_listed: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    /// 从响应中提取的 model id，可能为空或不完整。
+    /// Model IDs extracted from the response; the list may be empty or incomplete.
     pub model_ids: Vec<String>,
 }
 
-/// function calling probe 及其 tool-result replay 的观察结果。
+/// Observation from the function-calling probe and its tool-result replay.
 #[derive(Debug, Serialize)]
 pub struct ToolCallProbeResult {
-    /// 初始 function call 请求结论。
+    /// Conclusion for the initial function-call request.
     pub initial_call: ProbeResult,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// 将 tool result 回放后的请求结论。
+    /// Conclusion for the request after replaying the tool result.
     pub result_replay: Option<ProbeResult>,
 }
 
-/// 单个 Upstream Target 的 probe 报告。它不包含 credential、请求正文或上游响应正文。
+/// Probe report for one Upstream Target. It contains no credential, request body, or upstream response body.
 #[derive(Debug, Serialize)]
 pub struct TargetProbeReport {
-    /// 被 probe 的内部 target id。
+    /// Internal target ID probed.
     pub upstream_target_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// `/v1/models` 的观察结果。
+    /// Observation from `/v1/models`.
     pub list_models: Option<ModelListProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Chat Completions 文本 probe 的观察结果。
+    /// Observation from the Chat Completions text probe.
     pub chat: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Responses 文本 probe 的观察结果。
+    /// Observation from the Responses text probe.
     pub responses: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Chat Completions function calling probe 的观察结果。
+    /// Observation from the Chat Completions function-calling probe.
     pub chat_function_calling: Option<ToolCallProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Responses function calling probe 的观察结果。
+    /// Observation from the Responses function-calling probe.
     pub responses_function_calling: Option<ToolCallProbeResult>,
 }
 
 #[derive(Debug, Error)]
-/// probe 准备阶段失败。
+/// Probe preparation failed.
 pub enum ProbeError {
-    /// 请求的 Upstream Target 未注册。
+    /// The requested Upstream Target is not registered.
     #[error("configured upstream target '{upstream_target}' does not exist")]
     UnknownUpstreamTarget {
-        /// 未找到的内部 target id。
+        /// Missing internal target ID.
         upstream_target: String,
     },
-    /// 受信 credential source 无法提供所需 secret。
+    /// The trusted credential source cannot provide the required secret.
     #[error("upstream credentials are unavailable for probe")]
     CredentialUnavailable,
-    /// adapter 无法为 probe 构造认证 header。
+    /// The adapter cannot build authentication headers for the probe.
     #[error("provider authentication could not be prepared for probe")]
     AuthenticationPreparation,
 }

@@ -1,7 +1,7 @@
-//! 请求分析与 Route 规划的包入口。
+//! Package entry point for request analysis and Route planning.
 //!
-//! 子模块分别拥有稳定错误、计划数据类型、请求事实分析和 registry 路由规划；本文件
-//! 仅声明模块并保持既有公共 API 路径。
+//! Submodules own stable errors, plan data types, request-fact analysis, and registry Route
+//! planning; this file only declares modules and preserves existing public API paths.
 
 mod analysis;
 mod error;

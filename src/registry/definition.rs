@@ -1,4 +1,4 @@
-//! 注册表编译前的静态定义。
+//! Static definitions compiled into the registry.
 
 use std::time::Duration;
 
@@ -14,39 +14,39 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-/// 模型 reasoning 能力的证据状态。
+/// Evidence state for model reasoning capability.
 pub enum ReasoningSupport {
     #[default]
-    /// 配置没有足够证据判断是否支持 reasoning。
+    /// The configuration lacks enough evidence to determine reasoning support.
     Unknown,
-    /// 模型明确支持 reasoning。
+    /// The model explicitly supports reasoning.
     Supported,
-    /// 模型明确不支持 reasoning。
+    /// The model explicitly does not support reasoning.
     Unsupported,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
-/// 模型支持的 reasoning 强度。
+/// Reasoning levels supported by a model.
 pub enum ReasoningLevel {
-    /// 显式禁用 reasoning。
+    /// Explicitly disables reasoning.
     None,
-    /// 最低 reasoning 强度。
+    /// Minimum reasoning level.
     Minimal,
-    /// 低 reasoning 强度。
+    /// Low reasoning level.
     Low,
-    /// 中等 reasoning 强度。
+    /// Medium reasoning level.
     Medium,
-    /// 高 reasoning 强度。
+    /// High reasoning level.
     High,
-    /// 超高 reasoning 强度。
+    /// Extra-high reasoning level.
     XHigh,
-    /// 最大 reasoning 强度。
+    /// Maximum reasoning level.
     Max,
 }
 
 impl ReasoningLevel {
-    /// 将协议中的 wire 字符串解析为目录枚举。
+    /// Parses a protocol wire string into a catalog enum.
     pub fn from_wire(value: &str) -> Option<Self> {
         match value {
             "none" => Some(Self::None),
@@ -60,7 +60,7 @@ impl ReasoningLevel {
         }
     }
 
-    /// 返回标准下游协议使用的 wire 字符串。
+    /// Returns the wire string used by the standard downstream protocol.
     pub const fn as_wire(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -75,27 +75,27 @@ impl ReasoningLevel {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 一个标准下游 reasoning level 到 Upstream API wire level 的显式映射。
+/// Explicit mapping from a standard downstream reasoning level to an Upstream API wire level.
 pub struct ReasoningLevelMapping {
-    /// Public Model 已声明支持的标准下游 level。
+    /// Standard downstream level declared by the Public Model.
     pub downstream: ReasoningLevel,
-    /// 选定 Upstream API 实际接受的安全 wire 值。
+    /// Safe wire value accepted by the selected Upstream API.
     pub upstream: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
-/// 模型总上下文、输入和输出 token 的独立上限。
+/// Independent model limits for total context, input, and output tokens.
 pub struct ModelContextLength {
-    /// 已知的输入与输出合计 token 上限；`None` 表示未知。
+    /// Known combined input/output token limit; `None` means unknown.
     max_context_tokens: Option<u32>,
-    /// 已知的最大输入 token 数；`None` 表示未知。
+    /// Known maximum input token count; `None` means unknown.
     max_input_tokens: Option<u32>,
-    /// 已知的最大输出 token 数；`None` 表示未知。
+    /// Known maximum output token count; `None` means unknown.
     max_output_tokens: Option<u32>,
 }
 
 impl ModelContextLength {
-    /// 创建一组可独立未知的总上下文、输入和输出限制。
+    /// Creates independently optional total-context, input, and output limits.
     pub const fn new(
         max_context_tokens: Option<u32>,
         max_input_tokens: Option<u32>,
@@ -108,35 +108,36 @@ impl ModelContextLength {
         }
     }
 
-    /// 返回输入与输出合计的最大 token 数。
+    /// Returns the maximum combined input and output token count.
     pub const fn context_tokens(self) -> Option<u32> {
         self.max_context_tokens
     }
 
-    /// 返回最大输入 token 数。
+    /// Returns the maximum input token count.
     pub const fn input_tokens(self) -> Option<u32> {
         self.max_input_tokens
     }
 
-    /// 返回最大输出 token 数。
+    /// Returns the maximum output token count.
     pub const fn output_tokens(self) -> Option<u32> {
         self.max_output_tokens
     }
 }
 
-/// canonical Model 的任务模式。
+/// Task mode of a canonical Model.
 ///
-/// 当前 OpenBridge 只注册可用于 Chat Completions/Responses 生成面的 `Chat` 模型；该枚举
-/// 预留给未来模型信息投影，尚未参与 registry capability 计算。
+/// OpenBridge currently registers only `Chat` models for Chat Completions/Responses generation.
+/// This enum reserves a position for future model-information projection and is not used in registry
+/// capability calculations.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelMode {
-    /// 对话式文本/多模态生成模型。
+    /// Conversational text or multimodal generation model.
     Chat,
 }
 
-/// canonical Model 可接受的输入模态。
+/// Input modalities accepted by a canonical Model.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -151,7 +152,7 @@ pub enum InputModality {
     File,
 }
 
-/// canonical Model 可生成的输出模态。
+/// Output modalities a canonical Model can generate.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -165,65 +166,65 @@ pub enum OutputModality {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 与 Provider 无关的 canonical 模型事实。
+/// Provider-independent canonical model facts.
 pub struct ModelConfig {
-    /// 目录内部稳定的模型 id。
+    /// Stable model ID within the catalog.
     pub id: String,
-    /// 给客户端展示的模型名称。
+    /// Model name shown to clients.
     pub name: String,
-    /// 可选的模型描述。
+    /// Optional model description.
     pub description: Option<String>,
-    /// 模型本身声明的上下文长度。
+    /// Context length declared by the model.
     pub context_length: ModelContextLength,
-    /// 已确认的模型任务模式；`None` 表示当前定义尚未提供证据。
+    /// Confirmed model task mode; `None` means the definition has no evidence.
     pub mode: Option<ModelMode>,
-    /// 已确认的输入模态；`None` 表示未知，不能解释为空集合或明确不支持。
+    /// Confirmed input modalities; `None` means unknown, not an empty set or explicit rejection.
     pub input_modalities: Option<Vec<InputModality>>,
-    /// 已确认的输出模态；`None` 表示未知，不能解释为空集合或明确不支持。
+    /// Confirmed output modalities; `None` means unknown, not an empty set or explicit rejection.
     pub output_modalities: Option<Vec<OutputModality>>,
-    /// 模型支持的 OpenAI-compatible 参数名。
+    /// OpenAI-compatible parameter names supported by the model.
     pub supported_parameters: Vec<String>,
-    /// 模型 reasoning 支持状态。
+    /// Model reasoning support state.
     pub reasoning: ReasoningSupport,
-    /// 模型接受的 reasoning 强度集合。
+    /// Reasoning levels accepted by the model.
     pub reasoning_levels: Vec<ReasoningLevel>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-/// Upstream API 对 canonical 模型事实施加的收窄规则。
+/// Narrowing rules an Upstream API applies to canonical model facts.
 pub struct UpstreamApiModelRules {
-    /// Upstream API 可进一步收紧的上下文长度。
+    /// Context length the Upstream API may narrow further.
     pub context_length: ModelContextLength,
-    /// Upstream API 可进一步收紧的 reasoning 状态。
+    /// Reasoning state the Upstream API may narrow further.
     pub reasoning: Option<ReasoningSupport>,
-    /// Upstream API 禁用但不能新增的参数名。
+    /// Parameter names the Upstream API disables but cannot add.
     pub disabled_parameters: Vec<String>,
-    /// 标准下游 reasoning level 到该 Upstream API wire 值的显式映射。
+    /// Explicit mapping from standard downstream reasoning levels to this Upstream API's wire values.
     pub reasoning_level_mappings: Vec<ReasoningLevelMapping>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 一个 Provider 共享的 credential pool 声明。
+/// Credential-pool declaration shared by a Provider.
 pub struct CredentialPoolConfig {
-    /// 注册表中的 pool id。
+    /// Pool ID in the registry.
     pub id: String,
-    /// 允许消费该 pool 的 Provider。
+    /// Provider allowed to consume this pool.
     pub provider: ProviderKind,
-    /// adapter 支持的 credential 类型。
+    /// Credential type supported by the adapter.
     pub kind: CredentialKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// 与具体协议绑定的 Upstream API capability 配置。
+/// Upstream API capability configuration bound to a concrete protocol.
 pub enum UpstreamApiCapabilities {
-    /// Chat Completions endpoint 的能力。
+    /// Chat Completions endpoint capabilities.
     ChatCompletions(ChatCompletionsCapabilities),
-    /// Responses endpoint 的能力。
+    /// Responses endpoint capabilities.
     Responses(ResponsesCapabilities),
 }
 
 impl UpstreamApiCapabilities {
-    /// 返回该 capability 配置对应的原生协议。
+    /// Returns the native protocol represented by this capability configuration.
     pub const fn protocol(self) -> ApiProtocol {
         match self {
             Self::ChatCompletions(_) => ApiProtocol::ChatCompletions,
@@ -231,7 +232,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
-    /// 返回不包含 Responses 专有状态的协议公共能力。
+    /// Returns common protocol capabilities without Responses-specific state.
     pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities.generation_capabilities(),
@@ -239,7 +240,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
-    /// 如果这是 Responses 配置，则返回其完整能力。
+    /// Returns the complete capability set when this is a Responses configuration.
     pub const fn responses(self) -> Option<ResponsesCapabilities> {
         match self {
             Self::ChatCompletions(_) => None,
@@ -247,7 +248,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
-    /// 返回该 Upstream API 已声明的 reasoning 输出类型。
+    /// Returns the reasoning output type declared by this Upstream API.
     pub const fn reasoning_output(self) -> crate::core::ReasoningOutput {
         match self {
             Self::ChatCompletions(capabilities) => capabilities.reasoning_output,
@@ -266,133 +267,133 @@ impl UpstreamApiCapabilities {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// 当前支持的上游 transport profile。
+/// Supported upstream transport profile.
 pub enum TransportKind {
-    /// HTTP JSON 请求和 SSE response body。
+    /// HTTP JSON requests and SSE response bodies.
     HttpJsonSse,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// provider-issued continuation state 的归属范围。
+/// Ownership scope for Provider-issued continuation state.
 pub enum StateAffinity {
-    /// 请求不携带必须固定 target 的状态。
+    /// The request carries no state that requires a fixed target.
     Unbound,
-    /// 状态绑定到当前 Upstream Target，禁止跨 target fallback。
+    /// State is bound to the current Upstream Target; cross-target fallback is forbidden.
     TargetBound,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 一个 target 对外提供的原生 Upstream API。
+/// Native Upstream API exposed by a target.
 pub struct UpstreamApiConfig {
-    /// target 内稳定的 Upstream API id。
+    /// Stable Upstream API ID within the target.
     pub id: String,
-    /// Upstream API 原生提供的协议。
+    /// Protocol natively provided by the Upstream API.
     pub protocol: ApiProtocol,
-    /// 发往上游的真实模型 id。
+    /// Actual model ID sent upstream.
     pub upstream_model: String,
-    /// provider 允许的 endpoint profile。
+    /// Endpoint profile permitted by the Provider.
     pub endpoint_profile: String,
-    /// 当前原生 transport profile。
+    /// Current Native transport profile.
     pub transport: TransportKind,
-    /// 对 Model 事实的 Upstream API 级收窄规则。
+    /// Upstream API-level narrowing rules for Model facts.
     pub model_rules: UpstreamApiModelRules,
-    /// 单协议能力证据。
+    /// Single-protocol capability evidence.
     pub capabilities: UpstreamApiCapabilities,
-    /// continuation/state 所有权策略。
+    /// Continuation/state ownership policy.
     pub state_affinity: StateAffinity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 可被 route 选择的受信上游 target。
+/// Trusted upstream target eligible for Route selection.
 pub struct UpstreamTargetConfig {
-    /// 注册表中的 target id。
+    /// Target ID in the registry.
     pub id: String,
-    /// 编译期 Provider Family。
+    /// Compile-time Provider family.
     pub provider: ProviderKind,
-    /// 引用的 Model id。
+    /// Referenced Model ID.
     pub model: String,
-    /// 经过校验的 HTTPS endpoint base。
+    /// Validated HTTPS endpoint base.
     pub base_url: String,
-    /// target 引用的共享 credential pool id。
+    /// Shared credential-pool ID referenced by the target.
     pub credential_pool: String,
-    /// 可选的明确共享 quota scope。
+    /// Optional explicit shared quota scope.
     pub quota_scope: Option<String>,
-    /// 可选的故障/cooldown 域。
+    /// Optional fault/cooldown domain.
     pub fault_domain: Option<String>,
-    /// 单次上游请求超时时间。
+    /// Timeout for one upstream request.
     pub request_timeout: Duration,
-    /// 是否允许新的无状态请求选择该 target。
+    /// Whether new stateless requests may select this target.
     pub enabled: bool,
-    /// target 原生提供的协议级供应。
+    /// Protocol-level Native supplies provided by the target.
     pub upstream_apis: Vec<UpstreamApiConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// route 的请求处理模式。
+/// Request handling mode for a Route.
 pub enum RouteMode {
-    /// 保持下游协议和上游协议原生一致。
+    /// Keeps downstream and upstream protocols natively identical.
     Native,
-    /// 在两个 OpenAI-compatible 协议之间执行显式受限转换。
+    /// Performs an explicit restricted conversion between the two OpenAI-compatible protocols.
     Bridged,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 将下游协议绑定到一个 Upstream API 的 route。
+/// Route binding a downstream protocol to an Upstream API.
 pub struct RouteConfig {
-    /// 注册表中的 route id。
+    /// Route ID in the registry.
     pub id: String,
-    /// 被 route 引用的 Upstream Target id。
+    /// Upstream Target ID referenced by the Route.
     pub upstream_target: String,
-    /// 被 route 引用的 Upstream API id。
+    /// Upstream API ID referenced by the Route.
     pub upstream_api: String,
-    /// route 接受的下游原生协议。
+    /// Downstream native protocol accepted by the Route.
     pub downstream_protocol: ApiProtocol,
-    /// route 的处理模式。
+    /// Route handling mode.
     pub mode: RouteMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 向下游公开的模型及其有序 route 候选。
+/// Model exposed downstream with ordered Route candidates.
 pub struct PublicModelConfig {
-    /// 对下游公开的稳定 model id。
+    /// Stable model ID exposed downstream.
     pub id: String,
-    /// Public Model 契约首次创建的稳定 Unix 秒。
+    /// Stable Unix seconds when the Public Model contract was first created.
     pub created: u64,
-    /// 面向客户端展示的名称。
+    /// Name shown to clients.
     pub display_name: String,
-    /// 面向客户端展示的可选说明。
+    /// Optional description shown to clients.
     pub description: Option<String>,
-    /// Public Model 的静态生命周期。
+    /// Static Public Model lifecycle.
     pub lifecycle: ModelLifecycle,
-    /// 按优先级排列的完整 Route id。
+    /// Complete Route IDs ordered by priority.
     pub routes: Vec<String>,
 }
 
-/// Public Model 的生命周期状态。
+/// Public Model lifecycle status.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelLifecycleStatus {
-    /// 模型可用于新请求。
+    /// The model accepts new requests.
     Active,
-    /// 模型仍可调用，但调用方应迁移。
+    /// The model remains callable, but callers should migrate.
     Deprecated,
-    /// 模型不再接受请求。
+    /// The model no longer accepts requests.
     Retired,
 }
 
-/// Public Model 的静态生命周期信息。
+/// Static Public Model lifecycle information.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelLifecycle {
-    /// 当前生命周期状态。
+    /// Current lifecycle status.
     pub status: ModelLifecycleStatus,
-    /// 可选的弃用 Unix 秒。
+    /// Optional Unix seconds when deprecation began.
     pub deprecated_at: Option<u64>,
-    /// 可选的停用 Unix 秒。
+    /// Optional Unix seconds when retirement began.
     pub retired_at: Option<u64>,
 }
 
 impl ModelLifecycle {
-    /// 创建没有弃用或停用时间的 active 生命周期。
+    /// Creates an active lifecycle with no deprecation or retirement time.
     pub const fn active() -> Self {
         Self {
             status: ModelLifecycleStatus::Active,
@@ -403,18 +404,18 @@ impl ModelLifecycle {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// 启动时编译 registry 所需的完整定义。
+/// Complete definition required to compile the registry at startup.
 pub struct RegistryConfig {
-    /// 用于报告和审计的注册表版本。
+    /// Registry version used for reporting and audit.
     pub version: String,
-    /// 完整模型定义集合。
+    /// Complete model definitions.
     pub models: Vec<ModelConfig>,
-    /// 完整 credential pool 定义集合。
+    /// Complete credential-pool definitions.
     pub credential_pools: Vec<CredentialPoolConfig>,
-    /// 完整 Upstream Target 定义集合。
+    /// Complete Upstream Target definitions.
     pub upstream_targets: Vec<UpstreamTargetConfig>,
-    /// 完整 Route 定义集合。
+    /// Complete Route definitions.
     pub routes: Vec<RouteConfig>,
-    /// 完整 Public Model 定义集合。
+    /// Complete Public Model definitions.
     pub public_models: Vec<PublicModelConfig>,
 }

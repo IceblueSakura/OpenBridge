@@ -1,8 +1,8 @@
-//! MiniMax M3 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the MiniMax M3 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// 构造 MiniMax M3 的完整模型事实。
+/// Builds the complete model facts for MiniMax M3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "minimax/minimax-m3".to_owned(),

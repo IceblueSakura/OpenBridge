@@ -1,4 +1,4 @@
-//! Xiaomi MiMo Provider 的静态契约与双协议 OpenAI-compatible profile。
+//! Static Xiaomi MiMo Provider contract and dual-protocol OpenAI-compatible profile.
 
 use http::HeaderMap;
 
@@ -11,7 +11,8 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// MiMo Chat Completions 与 Responses 的已确认能力上界；reasoning 输出仍未确认可读 wire。
+/// Confirmed MiMo capability ceiling for Chat Completions and Responses; readable reasoning output
+/// is not yet confirmed on the wire.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::MiMo,
     ApiCapabilities {
@@ -62,7 +63,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// MiMo 使用的双协议 OpenAI-compatible wire profile。
+/// Dual-protocol OpenAI-compatible wire profile used by MiMo.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::MiMo,
     &CONTRACT,
@@ -72,11 +73,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     transform_request_headers,
 );
 
-/// MiMo contract 与 adapter 的唯一静态描述符。
+/// Single static descriptor for the MiMo contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// 保留 MiMo 后续普通请求头转换的独立 hook 边界。
+/// Preserves the dedicated hook boundary for future MiMo ordinary-header transforms.
 fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,

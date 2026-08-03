@@ -1,8 +1,8 @@
-//! Tencent HY3 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the Tencent HY3 line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 
-/// 构造 HY3 的完整模型事实。
+/// Builds the complete model facts for HY3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: "tencent/hy3".to_owned(),

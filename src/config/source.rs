@@ -1,4 +1,4 @@
-//! bootstrap 配置文件定位与加载。
+//! Locates and loads the bootstrap configuration file.
 
 use std::{
     env, fs, io,
@@ -9,40 +9,40 @@ use thiserror::Error;
 
 use super::{BootstrapConfig, BootstrapConfigError, parse_bootstrap_config};
 
-/// 默认 bootstrap 配置路径。
+/// Default bootstrap configuration path.
 pub const DEFAULT_BOOTSTRAP_PATH: &str = "config/bootstrap.toml";
 
-/// 用于定位 bootstrap 配置文件的值对象。
+/// Value object used to locate the bootstrap configuration file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BootstrapConfigPath(PathBuf);
 
 impl BootstrapConfigPath {
-    /// 创建一个由调用方指定路径的配置定位器。
+    /// Creates a configuration locator for a caller-supplied path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
 
-    /// 环境变量只选择启动配置文件位置，不能注册或修改 Provider。
+    /// Uses the environment variable only to select the startup file; it cannot register or modify a Provider.
     pub fn from_environment() -> Self {
         Self::new(
             env::var("OPENBRIDGE_CONFIG").unwrap_or_else(|_| DEFAULT_BOOTSTRAP_PATH.to_owned()),
         )
     }
 
-    /// 返回配置文件路径。
+    /// Returns the configuration file path.
     pub fn path(&self) -> &Path {
         &self.0
     }
 
-    /// 读取并解析 bootstrap 文件。
+    /// Reads and parses the bootstrap file.
     pub fn load(&self) -> Result<BootstrapConfig, BootstrapConfigFileError> {
-        // 读取指定路径，保留路径和底层错误供启动诊断使用。
+        // Read the specified path while preserving path and source errors for startup diagnostics.
         let document =
             fs::read_to_string(&self.0).map_err(|source| BootstrapConfigFileError::Read {
                 path: self.0.clone(),
                 source,
             })?;
-        // 解析内容并统一包装为文件级错误。
+        // Parse the content and wrap errors as file-level failures.
         parse_bootstrap_config(&document).map_err(BootstrapConfigFileError::Invalid)
     }
 }
@@ -53,19 +53,19 @@ impl Default for BootstrapConfigPath {
     }
 }
 
-/// bootstrap 文件读取或内容校验失败。
+/// Bootstrap file reading or content validation failed.
 #[derive(Debug, Error)]
 pub enum BootstrapConfigFileError {
-    /// 无法从指定路径读取 bootstrap 文件。
+    /// The bootstrap file could not be read from the specified path.
     #[error("failed to read bootstrap configuration '{path}'")]
     Read {
-        /// 读取失败的文件路径。
+        /// Path of the file that could not be read.
         path: PathBuf,
         #[source]
-        /// 底层文件系统错误。
+        /// Underlying filesystem error.
         source: io::Error,
     },
-    /// 文件已读取，但内容未通过 bootstrap 校验。
+    /// The file was read, but its content failed bootstrap validation.
     #[error("bootstrap configuration validation failed")]
     Invalid(#[source] BootstrapConfigError),
 }

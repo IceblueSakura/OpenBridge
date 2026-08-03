@@ -1,4 +1,4 @@
-"""OpenBridge protocol corpus 与独立 mock testkit 的命令行入口。"""
+"""Command-line entry point for the OpenBridge protocol corpus and independent mock testkit."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ from .verifier import verify_case_observations
 
 
 def _parser() -> argparse.ArgumentParser:
-    """构造 corpus lint/generate/report/pack 和 mock 子命令解析器。"""
-    # 构造共享 corpus root 与必选子命令入口。
+    """Build parsers for corpus lint/generate/report/pack and mock subcommands."""
+    # Build the shared corpus root and required subcommand entry points.
     parser = argparse.ArgumentParser(
         description=(
             "Validate and build the standalone protocol corpus, or run its "
@@ -44,7 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # 注册 canonical corpus 校验与派生物命令。
+    # Register canonical corpus validation and derived-output commands.
     subparsers.add_parser("lint", help="Validate schemas, cases, artifacts, and provenance.")
 
     generate = subparsers.add_parser(
@@ -59,7 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     pack = subparsers.add_parser("pack", help="Build a deterministic corpus ZIP.")
     pack.add_argument("--output", type=Path)
 
-    # 注册 scenario、suite 与 client plan 编译命令。
+    # Register scenario, suite, and client-plan compilation commands.
     server_plan = subparsers.add_parser(
         "build-server-scenario",
         help="Compile a self-contained Mock Server scenario from one corpus case.",
@@ -90,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     client_plan.add_argument("--timeout-ms", type=int, default=5000)
     client_plan.add_argument("--output", type=Path)
 
-    # 注册 Mock 进程执行与单 case observation 判定命令。
+    # Register mock-process execution and single-case observation verification commands.
     server = subparsers.add_parser(
         "mock-server", help="Run one precompiled Mock Server scenario."
     )
@@ -118,7 +118,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _runtime_output(root: Path, output: Path | None, default_name: str) -> Path:
-    """解析并限制派生 runtime 输出路径，防止写出 corpus runtime 边界。"""
+    """Resolve and constrain a derived runtime output path within the corpus runtime boundary."""
     runtime_root = (root / "runtime").resolve()
     candidate = (
         output.resolve() if output is not None else runtime_root / default_name
@@ -132,14 +132,14 @@ def _runtime_output(root: Path, output: Path | None, default_name: str) -> Path:
 def _write_runtime(
     root: Path, output: Path | None, default_name: str, document: dict
 ) -> Path:
-    """以稳定 JSON 格式写入 runtime 派生文档。"""
+    """Write a runtime-derived document in stable JSON format."""
     path = _runtime_output(root, output, default_name)
     path.write_text(dump_json(document), encoding="utf-8", newline="\n")
     return path
 
 
 async def _run_server(args: argparse.Namespace, root: Path) -> dict:
-    """启动 mock server、等待一个场景或 suite 完成并返回 observation。"""
+    """Start the mock server, wait for one scenario or suite, and return observations."""
     document = load_json(args.scenario)
     is_suite = "exchanges" in document
     validate_runtime_document(
@@ -176,12 +176,12 @@ async def _run_server(args: argparse.Namespace, root: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """执行一个 corpus 或 mock testkit 子命令并返回进程退出码。"""
-    # 解析命令并固定本次 corpus root。
+    """Run one corpus or mock testkit subcommand and return its process exit code."""
+    # Parse the command and fix the corpus root for this invocation.
     args = _parser().parse_args(argv)
     root = args.root.resolve()
     try:
-        # 执行 canonical corpus 的校验与派生物构建。
+        # Validate the canonical corpus and build derived outputs.
         if args.command == "lint":
             errors = lint_corpus(root)
             if errors:
@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"packed {output} sha256={digest}")
             return 0
 
-        # 编译可重建的 Mock Server/Client runtime 文档。
+        # Compile reproducible Mock Server/Client runtime documents.
         if args.command == "build-server-scenario":
             scenario = build_server_scenario(
                 root,
@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {output}")
             return 0
 
-        # 运行独立 Mock Server/Client 并写出脱敏 observation。
+        # Run the independent Mock Server/Client and write redacted observations.
         if args.command == "mock-server":
             observation = asyncio.run(_run_server(args, root))
             validate_runtime_document(
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {output}")
             return 0
 
-        # 比较已生成的单 case observations 与 canonical oracles。
+        # Compare generated single-case observations with canonical oracles.
         if args.command == "verify-observations":
             client_observation = load_json(args.client_observation)
             server_observation = (

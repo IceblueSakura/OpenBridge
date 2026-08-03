@@ -1,7 +1,8 @@
-//! 已选定上游响应的 Native/Bridged body 接管与安全下游构造。
+//! Native/Bridged body takeover and safe downstream construction for a selected upstream response.
 //!
-//! 本模块在 retry/fallback 已结束后处理 status、响应头、SSE 校验和非流式 Bridge；错误
-//! response body 保持原样，且一旦接管 body 就不会再拼接其他上游 attempt。
+//! This module handles status, response headers, SSE validation, and non-streaming Bridge conversion
+//! after retry/fallback ends. Error response bodies remain unchanged, and taking over a body never
+//! appends another upstream attempt.
 
 use axum::{body::to_bytes, response::Response};
 use http::{StatusCode, header::CONTENT_TYPE};
@@ -16,7 +17,7 @@ use super::super::{
     streaming::{bridge_sse_body, validate_sse_body},
 };
 
-/// 一次已选定候选的响应转换、SSE 和观测上下文。
+/// Response-conversion, SSE, and observation context for one selected candidate.
 pub(super) struct UpstreamResponseContext {
     pub(super) validate_sse: bool,
     pub(super) protocol: ApiProtocol,
@@ -27,16 +28,17 @@ pub(super) struct UpstreamResponseContext {
     pub(super) observation: RequestObservation,
 }
 
-/// 将上游 status、安全响应头和 Native/Bridged body 交给下游。
+/// Sends upstream status, safe response headers, and Native/Bridged body downstream.
 ///
-/// SSE 仅在原请求要求 streaming、上游返回成功状态且 `Content-Type` 确为
-/// `text/event-stream` 时验证。错误响应即使对应 streaming request 也可能是 JSON 或其他
-/// 诊断 body；对其做 SSE 解码会破坏可见的 HTTP 错误语义。
+/// SSE is validated only when the original request requires streaming, the upstream returns a
+/// successful status, and `Content-Type` is exactly `text/event-stream`. An error response may
+/// be JSON or another diagnostic body even for a streaming request; decoding it as SSE would damage
+/// visible HTTP error semantics.
 pub(super) async fn upstream_response(
     upstream: UpstreamResponse,
     context: UpstreamResponseContext,
 ) -> Response {
-    // 拆分已固定的响应处理事实，避免函数调用点遗漏协议或观测边界。
+    // Split fixed response facts so call sites cannot omit protocol or observation boundaries.
     let UpstreamResponseContext {
         validate_sse,
         protocol,
@@ -47,7 +49,7 @@ pub(super) async fn upstream_response(
         observation,
     } = context;
 
-    // 提取 status 和安全响应头，并仅对成功 SSE response 启用观察器。
+    // Extract status and safe response headers, enabling an observer only for successful SSE responses.
     let status = upstream.status();
     let response_headers = filtered_upstream_headers(upstream.headers());
     let is_sse = upstream
@@ -58,7 +60,7 @@ pub(super) async fn upstream_response(
                 .to_str()
                 .is_ok_and(|value| value.starts_with("text/event-stream"))
         });
-    // 先拒绝声明需要 bridge 却不是 SSE 的 streaming 成功响应。
+    // Reject a successful streaming response that requires Bridge but is not SSE.
     if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
         observation.record_stream_failure("invalid_upstream_response");
         return api_error(
@@ -68,7 +70,7 @@ pub(super) async fn upstream_response(
         );
     }
 
-    // 对成功的非 SSE body 增加透明 Provider usage/首字节观察，不改变下游 bytes。
+    // Add transparent Provider usage/first-byte observation to successful non-SSE bodies without changing downstream bytes.
     let upstream_body = upstream.into_body();
     let upstream_body = if status.is_success() && !is_sse {
         observation.observe_upstream_json_body(upstream_body, max_json_body_bytes)
@@ -76,7 +78,7 @@ pub(super) async fn upstream_response(
         upstream_body
     };
 
-    // 再按成功 SSE、成功 JSON/Native 和错误 body 三类选择接管策略。
+    // Select takeover behavior among successful SSE, successful JSON/Native, and error bodies.
     let body = if validate_sse && status.is_success() && is_sse {
         if let Some(bridge) = bridge {
             bridge_sse_body(
@@ -123,7 +125,7 @@ pub(super) async fn upstream_response(
         upstream_body
     };
 
-    // 构造保留安全上游 headers 的最终下游 response。
+    // Build the final downstream response with safe upstream headers preserved.
     let mut response = Response::builder()
         .status(status)
         .body(body)

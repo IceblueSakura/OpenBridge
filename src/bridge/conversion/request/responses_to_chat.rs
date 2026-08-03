@@ -1,7 +1,7 @@
-//! Responses 请求到 Chat Completions 请求的受限转换。
+//! Restricted conversion from Responses requests to Chat Completions requests.
 //!
-//! 本模块展开 input items、包装 function schema 与 tool choice，并按 wire 顺序维护 function
-//! call/output ledger，拒绝重复、未知或漂移的 identity。
+//! This module expands input items, wraps function schemas and tool choices, and maintains a
+//! function call/output ledger in wire order. Duplicate, unknown, and drifting identities are rejected.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,18 +12,18 @@ use super::super::{
     shared::{copy_fields, required_string, validate_arguments},
 };
 
-/// 将一个已通过顶层校验的 Responses 请求转换为 Chat 请求。
+/// Converts a Responses request that passed top-level validation into a Chat request.
 pub(in crate::bridge::conversion) fn responses_request_to_chat(
     source: &Map<String, Value>,
     upstream_model: &str,
     reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
-    // 将 Responses input 展开为 Chat messages，并校验 call/output ledger。
+    // Expand Responses input into Chat messages and validate the call/output ledger.
     let input = source.get("input").ok_or(BridgeError::InvalidShape)?;
     let messages = responses_input_to_chat(input, reasoning_supported)?;
     let stream = source.get("stream").and_then(Value::as_bool) == Some(true);
 
-    // 复制共同字段，并把 flat function schema 包装为 Chat function 对象。
+    // Copy shared fields and wrap the flat function schema as a Chat function object.
     let mut result = Map::new();
     result.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
     result.insert("messages".to_owned(), Value::Array(messages));
@@ -62,7 +62,7 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
     Ok(Value::Object(result))
 }
 
-/// 将 Responses input 展开为有序 Chat messages，并校验 call/result identity。
+/// Expands Responses input into ordered Chat messages and validates call/result identities.
 fn responses_input_to_chat(
     input: &Value,
     reasoning_supported: bool,
@@ -79,7 +79,7 @@ fn responses_input_to_chat(
     let mut item_ids = BTreeSet::new();
     let mut pending_reasoning = String::new();
 
-    // 先按 wire 顺序建立 call ledger，message/output 转换时保持原顺序。
+    // Build the call ledger in wire order before converting messages and outputs in their original order.
     for item in items {
         let item = item.as_object().ok_or(BridgeError::InvalidShape)?;
         match item.get("type").and_then(Value::as_str) {
@@ -188,7 +188,7 @@ fn responses_input_to_chat(
     Ok(messages)
 }
 
-/// 按原始 call 顺序构造 Chat assistant tool-call message。
+/// Builds a Chat assistant tool-call message in the original call order.
 fn chat_assistant_tool_message(
     order: &[String],
     calls: &BTreeMap<String, Value>,
@@ -205,15 +205,15 @@ fn chat_assistant_tool_message(
     message
 }
 
-/// 将一个 Responses message item 转换为 Chat message。
+/// Converts one Responses message item into a Chat message.
 fn responses_message_to_chat(
     item: &Map<String, Value>,
     reasoning: Option<&str>,
 ) -> Result<Value, BridgeError> {
-    // 先读取并保留 Responses message 的角色字段。
+    // Read and preserve the Responses message role.
     let role = required_string(item, "role")?;
     let content = item.get("content").ok_or(BridgeError::InvalidShape)?;
-    // 再把字符串或 input_text parts 合并为 Chat 的单一 content 字符串。
+    // Merge strings or input_text parts into the Chat single content string.
     let content = match content {
         Value::String(text) => Value::String(text.clone()),
         Value::Array(parts) => {
@@ -236,9 +236,9 @@ fn responses_message_to_chat(
     Ok(message)
 }
 
-/// 解析 Responses reasoning 配置，并转换为 Chat 的 reasoning_effort。
+/// Parses Responses reasoning configuration and converts it to Chat `reasoning_effort`.
 fn responses_reasoning_effort(source: &Map<String, Value>) -> Result<Option<String>, BridgeError> {
-    // 只读取 Responses 标准 reasoning 对象，并拒绝未建模的子字段。
+    // Read only the standard Responses reasoning object and reject unmodeled child fields.
     let object_effort = source
         .get("reasoning")
         .filter(|value| !value.is_null())
@@ -263,7 +263,7 @@ fn responses_reasoning_effort(source: &Map<String, Value>) -> Result<Option<Stri
     Ok(object_effort)
 }
 
-/// 提取 plain Responses reasoning item，拒绝无法由 Chat 表示的 opaque continuation。
+/// Extracts a plain Responses reasoning item and rejects opaque continuation that Chat cannot represent.
 fn responses_reasoning_item_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
     reject_encrypted_reasoning(item)?;
     let mut text = String::new();
@@ -287,7 +287,7 @@ fn responses_reasoning_item_text(item: &Map<String, Value>) -> Result<String, Br
     Ok(text)
 }
 
-/// 拒绝无法由 Chat 明文表示的 Responses opaque reasoning continuation。
+/// Rejects an opaque Responses reasoning continuation that cannot be represented as plain Chat text.
 fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
     let Some(value) = item
         .get("encrypted_content")
@@ -303,18 +303,18 @@ fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeErr
     }
 }
 
-/// 将 Responses function tool schema 包装为 Chat function tool。
+/// Wraps a Responses function-tool schema as a Chat function tool.
 fn responses_tool_to_chat(tool: &Value) -> Result<Value, BridgeError> {
-    // 校验 Responses flat function tool，并移除目标协议不使用的 type 字段。
+    // Validate the flat Responses function tool and remove the type field unused by the target protocol.
     let tool = tool.as_object().ok_or(BridgeError::InvalidShape)?;
     let mut function = tool.clone();
     function.remove("type");
     Ok(json!({"function": function, "type": "function"}))
 }
 
-/// 将 Responses tool choice 转换为 Chat tool choice。
+/// Converts a Responses tool choice into a Chat tool choice.
 fn responses_tool_choice_to_chat(choice: &Value) -> Result<Value, BridgeError> {
-    // 直接保留三种两协议共用的字符串选择值。
+    // Preserve the three string selections shared by both protocols.
     if choice
         .as_str()
         .is_some_and(|choice| matches!(choice, "auto" | "none" | "required"))
@@ -324,7 +324,7 @@ fn responses_tool_choice_to_chat(choice: &Value) -> Result<Value, BridgeError> {
     let choice = choice
         .as_object()
         .ok_or(BridgeError::UnsupportedSemantics)?;
-    // 校验命名 function 选择并重新包装为 Chat function 对象。
+    // Validate the named function selection and wrap it again as a Chat function object.
     if choice.get("type").and_then(Value::as_str) != Some("function") {
         return Err(BridgeError::UnsupportedSemantics);
     }

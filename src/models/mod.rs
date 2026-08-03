@@ -1,7 +1,8 @@
-//! OpenBridge 编译进二进制的 canonical 模型目录。
+//! Canonical model catalog compiled into the OpenBridge binary.
 //!
-//! 模型事实与具体 Provider/endpoint 解耦；多个 Upstream Target 可以引用同一个模型 id，
-//! 各 Upstream API 提供上游 model id 与更保守的协议级约束。
+//! Model facts are independent of providers and endpoints; multiple Upstream Targets can
+//! reference the same model ID, while each Upstream API supplies its upstream model ID and
+//! more conservative protocol constraints.
 
 mod catalog;
 pub(crate) mod deepseek;

@@ -1,4 +1,4 @@
-//! Bootstrap TOML 的解析与运行时边界校验。
+//! Parses bootstrap TOML and validates runtime boundaries.
 
 use std::{net::SocketAddr, time::Duration};
 
@@ -7,18 +7,19 @@ use super::{
     RuntimeLimits, document::RawBootstrap,
 };
 
-/// 解析并校验 bootstrap TOML。
+/// Parses and validates bootstrap TOML.
 ///
-/// 该函数只产生启动配置，不会注册 provider、model、target、upstream API 或 route。
+/// This function produces startup configuration only; it does not register providers, models,
+/// targets, Upstream APIs, or Routes.
 pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, BootstrapConfigError> {
-    // 解析 bootstrap 文档并确认 schema 版本。
+    // Parse the bootstrap document and verify its schema version.
     let raw: RawBootstrap = toml::from_str(document).map_err(|_| BootstrapConfigError::Parse)?;
     if raw.schema_version != BOOTSTRAP_SCHEMA_VERSION {
         return Err(BootstrapConfigError::UnsupportedSchema {
             actual: raw.schema_version,
         });
     }
-    // 校验所有内存、超时和连接池限制均可提供有效边界。
+    // Validate that all memory, timeout, and connection-pool limits are usable.
     validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
     validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
     validate_nonzero(
@@ -33,7 +34,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         "upstream_pool_max_idle_per_host",
         raw.upstream_pool_max_idle_per_host,
     )?;
-    // 解析并限制监听地址为 loopback，避免 bootstrap 直接暴露服务。
+    // Parse and restrict the listen address to loopback so bootstrap cannot expose the service directly.
     let listen = raw
         .listen
         .parse::<SocketAddr>()
@@ -43,7 +44,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             listen: raw.listen.clone(),
         })?;
 
-    // 将原始字段转换成运行时值对象。
+    // Convert raw fields into runtime value objects.
     Ok(BootstrapConfig {
         listen,
         users_file: raw.users_file,
@@ -60,12 +61,12 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
     })
 }
 
-/// 拒绝零值配置，统一保护内存、时间和连接池边界。
+/// Rejects zero-valued configuration to protect memory, time, and connection-pool boundaries.
 fn validate_nonzero(
     name: &'static str,
     value: impl Copy + PartialEq + From<u8>,
 ) -> Result<(), BootstrapConfigError> {
-    // 统一拒绝零值，保证后续内存和时间边界不会退化为无效配置。
+    // Reject zero values consistently so later memory and time boundaries remain valid.
     if value == 0.into() {
         Err(BootstrapConfigError::InvalidLimit { name })
     } else {

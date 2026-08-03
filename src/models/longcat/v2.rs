@@ -1,11 +1,11 @@
-//! LongCat 2.x 版本线的完整 canonical 模型事实。
+//! Complete canonical model facts for the LongCat 2.x line.
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningSupport};
 
-/// LongCat 2.0 在 OpenBridge 模型目录中的稳定 id。
+/// Stable OpenBridge catalog ID for LongCat 2.0.
 pub(crate) const ID: &str = "meituan/longcat-2.0";
 
-/// 构造 LongCat 2.0 的完整模型事实。
+/// Builds the complete model facts for LongCat 2.0.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Sparse Mixture-of-Experts model for coding, repository changes, and long-horizon agents."
                 .to_owned(),
         ),
-        // 目录公布的是总 context window；当前路由只校验单独声明的输出上限，组合上限仍由上游裁决。
+        // The catalog publishes the total context window; routing validates only the declared output limit, while the upstream enforces the combined limit.
         context_length: ModelContextLength::new(Some(1_048_756), None, Some(262_144)),
         mode: None,
         input_modalities: None,
