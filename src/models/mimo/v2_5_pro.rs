@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Xiaomi flagship model for complex software engineering and long-horizon agentic tasks."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_050_000), None, Some(131_072)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

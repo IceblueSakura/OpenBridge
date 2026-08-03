@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_050_000), None, Some(131_072)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

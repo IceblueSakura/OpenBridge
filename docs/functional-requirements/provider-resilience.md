@@ -9,13 +9,13 @@
 ## 当前路由边界
 
 - 下游只选择 Public Model，不得指定 Provider、Upstream Target、Upstream API、endpoint 或 credential；
-- Public Model 按配置顺序提供完整 Route，每条候选必须独立满足协议、能力、模型限制和 reasoning 要求；
-- 不同 Route 的能力不能按字段求并集；未知能力不得出站尝试；
+- Public Model 按协议提供一个由全部静态可执行 Route 保守相交的固定能力契约；未知能力不得出站尝试；
+- 请求能力只在 Public Model 边界校验，不用于跳过、筛选或重排 Route；通过后所有候选保持配置顺序；
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model；
 - `previous_response_id` 等 Provider-bound state 禁止跨 Upstream Target fallback；非空 ID 只有在 issuing
   Upstream Target/Upstream API 可由配置唯一确定时才能形成候选，否则在 egress 前拒绝；
-- `store: true` 只允许进入明确支持该能力的 Native Responses Route，不得进入 Bridge 或通过字段删除降级为
-  无状态调用。
+- `store: true` 只有在所选 Public Model 的固定 Responses 契约明确支持时才可进入；该契约必须由全部对应
+  Native Responses Route 共同保证，不得进入 Bridge 或通过字段删除降级为无状态调用。
 
 ## 当前 retry 与 fallback
 
@@ -24,7 +24,7 @@
 - 429、明确的 5xx、连接失败或 timeout 可按 adapter 分类进入有限 retry；
 - 所有候选共享请求级硬预算；每个候选有独立局部上限，且局部 retry 不能无界挤占尚未尝试的候选；
 - retry 与 fallback 之间使用 capped exponential backoff，等待随下游任务取消；
-- 只有 RoutePlan 允许 fallback 时才能进入下一条完整候选；“同模型其他 Provider”指同一 Public Model 已配置且通过完整 capability/state gate 的 Route，不按模型字符串猜测等价性；
+- 只有 RoutePlan 允许 fallback 时才能进入下一条配置候选；候选已受同一 Public Model 固定契约约束，不按请求能力或模型字符串猜测等价性；
 - 有状态 Responses 不进入跨 Target fallback；不能把另一个支持同模型或同协议的 Target 当作原 response ID 的
   issuing target；
 - 认证失败、无效请求和本地能力拒绝不应作为普通 transient failure 重试；

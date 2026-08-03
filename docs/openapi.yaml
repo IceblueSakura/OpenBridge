@@ -8,8 +8,8 @@ info:
     该规范只描述当前服务实际提供的 endpoint。模型、Provider、上游 URL、credential
     和 route 由服务端启动时的受信代码注册表决定，客户端只能选择 Public Model。
 
-    请求是否可执行仍由选定模型的完整 Native 或 Bridged Route 决定；OpenAPI schema
-    不等价于所有模型、Provider 或协议扩展都已启用。
+    请求是否可执行由客户端明确选择的 Public Model 固定能力契约决定；能力不参与
+    Public Model 或 Route 选择。OpenAPI schema 不等价于所有模型都支持每项可选能力。
 servers:
   - url: /
     description: 当前 OpenBridge 服务
@@ -17,7 +17,7 @@ tags:
   - name: system
     description: 本地服务存活与文档资源
   - name: models
-    description: 已认证的 Public Model 列表
+    description: 已认证的标准与扩展 Public Model 信息
   - name: chat
     description: Chat Completions 兼容接口
   - name: responses
@@ -108,9 +108,83 @@ paths:
                 data:
                   - id: code-primary
                     object: model
+                    created: 1785715200
                     owned_by: openbridge
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /v1/models/{model}:
+    get:
+      tags: [models]
+      summary: 获取一个标准 Public Model
+      operationId: retrieveModel
+      description: 返回与标准列表元素相同的 OpenAI Model 四字段对象，不附加扩展能力字段。
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 标准 Public Model 对象
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardModel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
+
+  /openbridge/v1/models:
+    get:
+      tags: [models]
+      summary: 列出 Public Model 扩展能力
+      operationId: listExtendedModels
+      description: |
+        返回由不可变 registry 预编译的模型事实和每协议唯一固定能力契约。响应不包含
+        Provider、Target、Route、上游模型、endpoint、credential、健康或价格信息。
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Public Model 扩展能力列表
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtendedModelListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /openbridge/v1/models/{model}:
+    get:
+      tags: [models]
+      summary: 获取一个 Public Model 扩展能力对象
+      operationId: retrieveExtendedModel
+      description: 返回与扩展列表中对应元素逐字段相同的完整对象。
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: Public Model 扩展能力对象
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicModelInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
 
   /v1/chat/completions:
     post:
@@ -179,7 +253,8 @@ paths:
       description: |
         接收 Responses JSON 请求，按完整 route 执行 Native 转发或受限的
         Responses-to-Chat bridge。OpenBridge 的核心兼容面是无状态 Responses；store、
-        previous_response_id 和 background 仍受选定 route 的能力与 state-affinity 约束。
+        previous_response_id 和 background 受所选 Public Model 的固定能力契约约束，
+        state-affinity 继续约束后续执行和 fallback。
         将 stream 设为 true 时，成功响应使用 text/event-stream。
       security:
         - BearerAuth: []
@@ -241,9 +316,19 @@ components:
       schema:
         type: string
 
+  parameters:
+    ModelId:
+      name: model
+      in: path
+      required: true
+      description: OpenBridge 对下游公开的稳定单段模型 id。
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+
   responses:
     BadRequest:
-      description: 请求 JSON、Public Model 或 capability 不满足当前 route。
+      description: 请求 JSON 无效，或所选 Public Model 的固定接口契约不支持请求能力。
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -287,9 +372,9 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              message: The requested model is not available
+              message: The requested model does not exist or is not available
               type: invalid_request_error
-              param: null
+              param: model
               code: model_not_found
     UnsupportedMediaType:
       description: 请求必须使用 application/json。
@@ -358,11 +443,12 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/PublicModel'
+            $ref: '#/components/schemas/StandardModel'
 
-    PublicModel:
+    StandardModel:
       type: object
-      required: [id, object, owned_by]
+      additionalProperties: false
+      required: [id, object, created, owned_by]
       properties:
         id:
           type: string
@@ -370,9 +456,276 @@ components:
         object:
           type: string
           enum: [model]
+        created:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Public Model 契约首次创建的稳定 Unix 秒。
         owned_by:
           type: string
           enum: [openbridge]
+
+    ExtendedModelListResponse:
+      type: object
+      additionalProperties: false
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicModelInfo'
+
+    PublicModelInfo:
+      type: object
+      additionalProperties: false
+      required:
+        [schema_version, id, object, created, owned_by, name, description, lifecycle, capabilities, interfaces]
+      properties:
+        schema_version:
+          type: string
+          enum: ['1']
+        id:
+          type: string
+        object:
+          type: string
+          enum: [model]
+        created:
+          type: integer
+          format: int64
+          minimum: 1
+        owned_by:
+          type: string
+          enum: [openbridge]
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        lifecycle:
+          $ref: '#/components/schemas/ModelLifecycle'
+        capabilities:
+          $ref: '#/components/schemas/ModelCapabilities'
+        interfaces:
+          $ref: '#/components/schemas/ModelInterfaces'
+
+    ModelLifecycle:
+      type: object
+      additionalProperties: false
+      required: [status, deprecated_at, retired_at]
+      properties:
+        status:
+          type: string
+          enum: [active, deprecated, retired]
+        deprecated_at:
+          type: integer
+          format: int64
+          nullable: true
+        retired_at:
+          type: integer
+          format: int64
+          nullable: true
+
+    ContextWindow:
+      type: object
+      additionalProperties: false
+      required: [max_context_tokens, max_input_tokens, max_output_tokens]
+      properties:
+        max_context_tokens:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        max_input_tokens:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+
+    ModelModalities:
+      type: object
+      additionalProperties: false
+      required: [input, output]
+      properties:
+        input:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [text, image, audio, file]
+        output:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [text, image, audio]
+
+    ModelCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        [tasks, context_window, modalities, supported_parameters, tokenizer, knowledge_cutoff, reasoning]
+      properties:
+        tasks:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [chat, text_generation]
+        context_window:
+          $ref: '#/components/schemas/ContextWindow'
+        modalities:
+          $ref: '#/components/schemas/ModelModalities'
+        supported_parameters:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        tokenizer:
+          type: string
+          nullable: true
+        knowledge_cutoff:
+          type: string
+          nullable: true
+        reasoning:
+          $ref: '#/components/schemas/ModelReasoningCapabilities'
+
+    ModelReasoningCapabilities:
+      type: object
+      additionalProperties: false
+      required: [support, levels]
+      properties:
+        support:
+          $ref: '#/components/schemas/SupportState'
+        levels:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+
+    ModelInterfaces:
+      type: object
+      additionalProperties: false
+      required: [chat_completions, responses]
+      properties:
+        chat_completions:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ModelInterfaceCapabilities'
+        responses:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ModelInterfaceCapabilities'
+
+    ModelInterfaceCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        [context_window, modalities, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state]
+      properties:
+        context_window:
+          $ref: '#/components/schemas/ContextWindow'
+        modalities:
+          $ref: '#/components/schemas/ModelModalities'
+        supported_parameters:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        streaming:
+          $ref: '#/components/schemas/SupportState'
+        system_messages:
+          $ref: '#/components/schemas/SupportState'
+        tools:
+          $ref: '#/components/schemas/ToolCapabilities'
+        structured_outputs:
+          $ref: '#/components/schemas/StructuredOutputCapabilities'
+        reasoning:
+          $ref: '#/components/schemas/InterfaceReasoningCapabilities'
+        prompt_caching:
+          $ref: '#/components/schemas/SupportState'
+        state:
+          $ref: '#/components/schemas/StateCapabilities'
+
+    SupportState:
+      type: string
+      enum: [supported, unsupported, unknown]
+      description: unknown 不能在请求预检中当作已支持。
+
+    ToolCapabilities:
+      type: object
+      additionalProperties: false
+      required: [support, types, tool_choice_modes, parallel_calls, strict_schema]
+      properties:
+        support:
+          $ref: '#/components/schemas/SupportState'
+        types:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [function]
+        tool_choice_modes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [none, auto, required, named]
+        parallel_calls:
+          $ref: '#/components/schemas/SupportState'
+        strict_schema:
+          $ref: '#/components/schemas/SupportState'
+
+    StructuredOutputCapabilities:
+      type: object
+      additionalProperties: false
+      required: [support, modes, strict_schema]
+      properties:
+        support:
+          $ref: '#/components/schemas/SupportState'
+        modes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [json_object, json_schema]
+        strict_schema:
+          $ref: '#/components/schemas/SupportState'
+
+    InterfaceReasoningCapabilities:
+      type: object
+      additionalProperties: false
+      required: [support, levels, output]
+      properties:
+        support:
+          $ref: '#/components/schemas/SupportState'
+        levels:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+        output:
+          type: string
+          enum: [unsupported, plain_text, summary, opaque, unknown]
+
+    StateCapabilities:
+      type: object
+      additionalProperties: false
+      required: [store, previous_response_id, background]
+      properties:
+        store:
+          $ref: '#/components/schemas/SupportState'
+        previous_response_id:
+          $ref: '#/components/schemas/SupportState'
+        background:
+          $ref: '#/components/schemas/SupportState'
 
     ChatCompletionRequest:
       type: object

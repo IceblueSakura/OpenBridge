@@ -10,7 +10,7 @@
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
 cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
-尚未实现。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期 Provider attempt 维度
+与固定 Public Model 能力预检也已接入。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期 Provider attempt 维度
 聚合的性能/usage/cache 快照，但尚未接入 OpenTelemetry/Prometheus exporter。
 
 ## 1. 分层结构
@@ -22,9 +22,9 @@ composition root
           ↓
 immutable RuntimeRegistry + UserRegistry + CredentialStore
           ↓
-HTTP ingress
+HTTP Models projection / request ingress
           ↓
-RequestRequirements → RoutePlan / optional BridgePlan
+RequestRequirements → Public Model interface preflight → RoutePlan / optional BridgePlan
           ↓
 ProviderAdapter + UpstreamTarget + UpstreamApi
           ↓
@@ -50,7 +50,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 上游凭证 | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration` | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`GenerationCapabilities` | 下游协议、原始请求、协议分域能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
-| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
+| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据 |
 | 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
 | Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
@@ -94,7 +94,7 @@ BootstrapConfigPath::load
 
 ## 3. 注册表层
 
-实现位置：`src/registry/definition.rs`、`src/registry/runtime.rs`、`src/registry/compiler.rs`、
+实现位置：`src/registry/definition.rs`、`src/registry/runtime.rs`、`src/registry/public_model.rs`、`src/registry/compiler.rs`、
 `src/registry/validation.rs`、`src/models/*`、`src/providers/*`；`src/registry/mod.rs`
 只保留包入口与公共重导出。
 
@@ -113,19 +113,20 @@ RegistryConfig
 | 实体 | 所有内容 |
 |---|---|
 | `ProviderContract` | Provider 代码拥有的 endpoint profile、credential kind 与能力上界 |
-| `ModelConfig` | 与供应商无关的模型事实、context、参数与 reasoning 元数据 |
+| `ModelConfig` | 与供应商无关的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential pool 引用、timeout、启停及 quota/fault 边界 |
 | `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
 | `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
-| `PublicModelConfig` | 下游稳定模型名与有序完整 Route ID |
+| `PublicModelConfig` | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID |
+| `PublicModelInfo` | 标准身份、模型事实及每协议唯一固定能力契约；不包含任何部署字段 |
 
 当前编译目录包含 17 个 `ModelConfig`：LongCat-2.0，以及从 LiteLLM 部署清单整理出的 16 个唯一
 Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，家族目录下每个扁平叶模块只定义一个
 具体模型。版本、checkpoint 和命名变体直接组成模块名：例如 `gpt/v5_6_sol.rs`、
 `deepseek/v4_flash.rs`、`mimo/v2_5_pro.rs` 与 `qwen/v3_7_max.rs`；不增加版本聚合层。家族根模块直接维持
 目录顺序，源码使用 `gpt::v5_6_sol::ID` 这类扁平作用域名称。每个具体模型仍完整拥有 id、名称、context、
-参数、reasoning 状态和 level，不从共享默认值拼装模型字段。目录存在不等于
+参数、reasoning 状态和 level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于
 可调用；只有被 Upstream Target 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
 当前 `ModelConfig` 不表示 embedding/rerank，因此两个 Nemotron retrieval 条目没有被伪装成文本模型。
 其中 16 个模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；
@@ -136,7 +137,8 @@ Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，
 限制、能力证据和 state affinity。共享 endpoint、credential、Model 与故障边界属于 target。
 
 `build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Upstream API
-协议/能力一致性、model rules 只收窄、Native/Bridged route 协议方向及 Public Model route 顺序。成功后生成：
+协议/能力一致性、model rules 只收窄、三段 context 关系、Native/Bridged route 协议方向、Public Model
+身份/生命周期及 route 顺序。随后按协议对所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
 
 ```text
 RuntimeRegistry
@@ -157,7 +159,10 @@ Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` �
 | Endpoint | 当前处理 |
 |---|---|
 | `GET /healthz` | 返回状态与注册表版本 |
-| `GET /v1/models` | 枚举 Public Model 名称 |
+| `GET /v1/models` | 返回 Public Model 的 OpenAI 标准四字段列表 |
+| `GET /v1/models/{model}` | 返回一个标准四字段 Model 对象 |
+| `GET /openbridge/v1/models` | 返回完整 Public Model 能力列表 |
+| `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象 |
 | `POST /v1/chat/completions` | 进入 Chat Native/Bridged RoutePlan |
 | `POST /v1/responses` | 进入 Responses Native/Bridged RoutePlan |
 
@@ -173,23 +178,24 @@ Ingress 执行认证、body/content-type 限制、本地错误归一化和当前
 raw body + downstream protocol
 → analyze_request
 → RequestRequirements
-→ Public Model ordered Routes
-→ protocol / capability / limit / reasoning gates
+→ Public Model fixed interface capability / limit / reasoning preflight
+→ Public Model ordered Routes（能力不参与筛选或重排）
 → RoutePlan<RouteCandidate>
 ```
 
 `RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
 reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为
 显式 level，字段缺失才表示调用方没有请求 reasoning。
-`RoutePlan` 固定有序的 Route、Upstream Target 与 Upstream API。Native candidate 通常保留原始 `ApiRequest`；
+`PublicModelInfo` 与 planner 共用同一个 `ModelInterfaceCapabilities`：不支持或未知能力在查看候选前失败；
+支持后 `RoutePlan` 固定原配置中的 Route、Upstream Target 与 Upstream API 顺序。Native candidate 通常保留原始 `ApiRequest`；
 当该 Upstream API 显式配置 reasoning level 映射时，只在候选请求副本中把 canonical level 改为安全 wire 值。
 映射源必须属于有效 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；未映射候选
 保持原始 level，未知下游 level 仍失败关闭。
 Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `ApiRequest`。Provider adapter 仍只负责
 目标 endpoint、真实 model、header 与认证改写。
 
-请求携带 `previous_response_id` 时，计划关闭跨 target fallback。不同 route 或不同 Upstream API 的能力不会
-按字段求并集；一条候选必须独立满足完整请求。
+请求携带 `previous_response_id` 时，计划关闭跨 target fallback。不同 Route 或 Upstream API 的能力只在 registry
+构建时做保守交集，绝不按字段求并集；请求能力不用于跳过较弱 Route 选择较强 Route。
 
 ## 6. Provider 适配层
 

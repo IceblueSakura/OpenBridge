@@ -4,7 +4,7 @@
 
 use crate::{
     core::ApiProtocol,
-    registry::{PublicModelConfig, RouteConfig, RouteMode},
+    registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
 };
 
 /// 编译目录使用的 Route 与 Public Model 聚合结果。
@@ -143,7 +143,11 @@ impl PublicModelRegistration {
 
         // 复用同一批 ID 构造 Public Model 的稳定候选顺序。
         let public_model = PublicModelConfig {
-            name: self.public_name.to_owned(),
+            id: self.public_name.to_owned(),
+            created: 1_785_715_200,
+            display_name: self.public_name.to_owned(),
+            description: None,
+            lifecycle: ModelLifecycle::active(),
             routes: vec![chat, chat_via_responses, responses, responses_via_chat],
         };
         CompiledPublicModel {
@@ -176,7 +180,11 @@ impl PublicModelRegistration {
 
         // 让 Public Model 只引用各协议当前唯一完整候选。
         let public_model = PublicModelConfig {
-            name: self.public_name.to_owned(),
+            id: self.public_name.to_owned(),
+            created: 1_785_715_200,
+            display_name: self.public_name.to_owned(),
+            description: None,
+            lifecycle: ModelLifecycle::active(),
             routes: vec![chat, responses],
         };
         CompiledPublicModel {
@@ -209,7 +217,11 @@ impl PublicModelRegistration {
 
         // 让两个下游协议各引用唯一完整候选。
         let public_model = PublicModelConfig {
-            name: self.public_name.to_owned(),
+            id: self.public_name.to_owned(),
+            created: 1_785_715_200,
+            display_name: self.public_name.to_owned(),
+            description: None,
+            lifecycle: ModelLifecycle::active(),
             routes: vec![chat, responses_via_chat],
         };
         CompiledPublicModel {

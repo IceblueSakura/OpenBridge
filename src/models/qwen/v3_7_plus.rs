@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Cost-effective multimodal Qwen3.7 model for coding, tool use, productivity, and GUI agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_000_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_000_000), None, Some(131_072)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

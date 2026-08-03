@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Large Mixture-of-Experts model for advanced reasoning, coding, and agent workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(384_000)),
+        context_length: ModelContextLength::new(Some(1_048_576), None, Some(384_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

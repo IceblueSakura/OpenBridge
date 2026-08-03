@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(393_216)),
+        context_length: ModelContextLength::new(Some(1_048_576), None, Some(393_216)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

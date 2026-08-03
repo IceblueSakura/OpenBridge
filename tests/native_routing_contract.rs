@@ -229,7 +229,7 @@ fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
     let unknown = build_test_registry(definition(ReasoningOutput::Unknown));
     assert!(matches!(
         support::prepare(&unknown, ApiProtocol::Responses, request.clone().into()).unwrap_err(),
-        RequestPlanningError::UnsupportedCapabilities
+        RequestPlanningError::ReasoningLevelUnsupported
     ));
 
     let readable = build_test_registry(definition(ReasoningOutput::PlainText));
@@ -298,9 +298,49 @@ fn native_routing_rejects_features_disabled_by_the_upstream_api() {
 }
 
 #[test]
+fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
+    // 构造能力较弱的首选 Chat Route 与支持 tools 的后续 Route。
+    let mut definition = base_definition();
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = false;
+    }
+    let mut stronger = definition.upstream_targets[0].clone();
+    stronger.id = "openai-stronger".to_owned();
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut stronger.upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = true;
+    }
+    definition.upstream_targets.push(stronger);
+    definition.routes.push(RouteConfig {
+        id: "stronger-chat".to_owned(),
+        upstream_target: "openai-stronger".to_owned(),
+        upstream_api: "chat".to_owned(),
+        downstream_protocol: ApiProtocol::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes = vec!["public-chat".to_owned(), "stronger-chat".to_owned()];
+    let registry = build_test_registry(definition);
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{"type": "function", "function": {"name": "probe"}}]
+    }))
+    .unwrap();
+
+    // Public Model 的固定交集不支持 tools，不能因后续 Route 更强而改变候选资格。
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+}
+
+#[test]
 fn routing_gates_output_parallel_image_and_reasoning_requirements() {
     let mut definition = base_definition();
-    definition.models[0].context_length = ModelContextLength::new(None, Some(32));
+    definition.models[0].context_length = ModelContextLength::new(None, None, Some(32));
     let registry = build_test_registry(definition);
 
     let too_large = serde_json::to_vec(&json!({
@@ -363,13 +403,13 @@ fn routing_gates_output_parallel_image_and_reasoning_requirements() {
 }
 
 #[test]
-fn upstream_api_rules_select_the_unconstrained_candidate() {
+fn public_model_output_limit_uses_the_most_restrictive_route() {
     let mut definition = base_definition();
     let mut limited = definition.upstream_targets[0].clone();
     limited.id = "openai-limited".to_owned();
     limited.upstream_apis[0].upstream_model = "limited-upstream-model".to_owned();
     limited.upstream_apis[0].model_rules.context_length =
-        ModelContextLength::new(None, Some(4_096));
+        ModelContextLength::new(None, None, Some(4_096));
     definition.upstream_targets.push(limited);
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "limited-chat".to_owned(),
@@ -387,11 +427,10 @@ fn upstream_api_rules_select_the_unconstrained_candidate() {
     }))
     .unwrap();
 
-    let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, request.into())
-        .expect("the unconstrained candidate should remain eligible");
-
-    assert_eq!(prepared.upstream_target_id(), "openai-main");
-    assert_eq!(prepared.candidates().len(), 1);
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, request.into()).unwrap_err(),
+        RequestPlanningError::OutputLimitExceeded
+    ));
 }
 
 #[test]
@@ -459,7 +498,7 @@ fn routing_scopes_capabilities_by_protocol_and_detects_strict_functions() {
 }
 
 #[test]
-fn native_routing_selects_the_first_capability_compatible_candidate() {
+fn native_routing_preserves_configured_order_without_capability_selection() {
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -488,14 +527,18 @@ fn native_routing_selects_the_first_capability_compatible_candidate() {
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
-        "tools": [{"type": "function", "function": {"name": "probe"}}]
+        "messages": []
     }))
     .unwrap();
 
     let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, body.clone().into())
-        .expect("a later compatible candidate should be selected");
+        .expect("a capability-neutral request should preserve both configured routes");
 
-    assert_eq!(prepared.upstream_target_id(), "openai-tools");
+    assert_eq!(prepared.upstream_target_id(), "openai-main");
+    assert_eq!(prepared.candidates().len(), 2);
+    assert_eq!(
+        prepared.candidates()[1].upstream_target_id(),
+        "openai-tools"
+    );
     assert_eq!(prepared.request().body(), &body.as_slice());
 }

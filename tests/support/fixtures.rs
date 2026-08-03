@@ -13,10 +13,10 @@ use openbridge::{
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CredentialPoolConfig, ModelConfig, ModelContextLength, PublicModelConfig, ReasoningSupport,
-        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, StateAffinity, TransportKind,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
-        build_registry,
+        CredentialPoolConfig, ModelConfig, ModelContextLength, ModelLifecycle, PublicModelConfig,
+        ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, StateAffinity,
+        TransportKind, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig, build_registry,
     },
 };
 
@@ -138,7 +138,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             id: "openai/test-model".to_owned(),
             name: "Test model".to_owned(),
             description: Some("Model used by integration tests.".to_owned()),
-            context_length: ModelContextLength::new(Some(128_000), Some(8_192)),
+            context_length: ModelContextLength::new(Some(128_000), None, Some(8_192)),
             mode: None,
             input_modalities: None,
             output_modalities: None,
@@ -203,7 +203,11 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             },
         ],
         public_models: vec![PublicModelConfig {
-            name: alias.to_owned(),
+            id: alias.to_owned(),
+            created: 1_785_715_200,
+            display_name: "Test public model".to_owned(),
+            description: Some("Public model used by integration tests.".to_owned()),
+            lifecycle: ModelLifecycle::active(),
             routes: vec!["public-chat".to_owned(), "public-responses".to_owned()],
         }],
     }

@@ -30,7 +30,7 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 当前 checkout 已实现 OpenAI、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
 OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 与
 Responses→Chat Bridge 路由，
-以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、HTTP 429 credential
+以及有序 Route、固定 Public Model capability gate、标准/扩展 Models 接口、输出前 retry/fallback、HTTP 429 credential
 rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；Bridge 对未知字段、未确认的
 reasoning 输出、opaque continuation、hosted/custom tool、image、structured output 和后台状态会在 egress 前拒绝。Native Route 则按选定
@@ -56,8 +56,8 @@ cargo run --bin openbridge --locked
 `config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。
 服务与 `openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、
 Provider、Model 和 Route 均只在启动时加载，变更需要重启进程。请求观测不保存业务正文或 credential；
-request/user/credential/endpoint URL 不进入指标 key，已校验的 Provider、route、target、Upstream API 和
-Public Model 只用于 Provider attempt 遥测维度或 trace 诊断。
+request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测与 trace 只使用已校验的
+Provider、route、target、Upstream API 和 Public Model 身份作为低基数维度。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -73,7 +73,7 @@ OpenAPI:    http://127.0.0.1:8080/openapi.yaml
 ```
 
 Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后，
-即可在页面内测试受保护的 `/v1/models`、`/v1/chat/completions` 和 `/v1/responses`。
+即可在页面内测试受保护的标准/扩展 Models、`/v1/chat/completions` 和 `/v1/responses`。
 页面依赖固定版本的 jsDelivr Swagger UI 静态资源，OpenAPI 规范由本地服务提供。
 
 原生请求示例：

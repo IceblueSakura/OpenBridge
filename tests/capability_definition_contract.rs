@@ -10,10 +10,7 @@ use openbridge::{
         ResponsesCapabilities,
     },
     pipeline::RequestPlanningError,
-    registry::{
-        InputModality, ModelConfig, ModelMode, OutputModality, UpstreamApiCapabilities,
-        build_registry,
-    },
+    registry::{InputModality, ModelMode, OutputModality, UpstreamApiCapabilities, build_registry},
 };
 use serde_json::{Value, json};
 
@@ -40,7 +37,6 @@ const INCLUDES: &[ResponseInclude] = &[
     ResponseInclude::ReasoningEncryptedContent,
 ];
 
-type ModelReservation = fn(&mut ModelConfig);
 type ChatReservation = fn(&mut ChatCompletionsCapabilities);
 type ResponsesReservation = fn(&mut ResponsesCapabilities);
 
@@ -102,30 +98,37 @@ fn definitions_expose_protocol_specific_reserved_fields() {
 }
 
 #[test]
-fn every_model_reservation_stops_at_the_processing_boundary() {
-    let cases: [(&str, ModelReservation); 3] = [
-        ("mode", |model| model.mode = Some(ModelMode::Chat)),
-        ("input_modalities", |model| {
-            model.input_modalities = Some(vec![InputModality::Text])
-        }),
-        ("output_modalities", |model| {
-            model.output_modalities = Some(vec![OutputModality::Text])
-        }),
-    ];
+fn canonical_model_mode_and_modalities_compile_into_public_model_information() {
+    let mut definition = support::definition("model-facts", "public-model", "upstream");
+    definition.models[0].mode = Some(ModelMode::Chat);
+    definition.models[0].input_modalities = Some(vec![
+        InputModality::Text,
+        InputModality::Image,
+        InputModality::Audio,
+        InputModality::File,
+    ]);
+    definition.models[0].output_modalities = Some(vec![
+        OutputModality::Text,
+        OutputModality::Image,
+        OutputModality::Audio,
+    ]);
 
-    // 逐项构造独立 definition，避免前一个预留字段掩盖后一个字段的失败边界。
-    for (case, configure) in cases {
-        let mut definition = support::definition(case, "public-model", "upstream");
-        configure(&mut definition.models[0]);
+    // 编译 canonical facts，并确认模型上界与接口实际能力保持分层。
+    let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+    let model = registry.model("openai/test-model").unwrap();
+    assert_eq!(model.mode(), Some(ModelMode::Chat));
+    assert_eq!(model.input_modalities().unwrap().len(), 4);
+    assert_eq!(model.output_modalities().unwrap().len(), 3);
 
-        assert_unimplemented(
-            case,
-            "model mode and modality processing is not implemented",
-            move || {
-                let _ = build_registry(support::bootstrap(support::BOOTSTRAP), definition);
-            },
-        );
-    }
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["capabilities"]["modalities"]["input"],
+        json!(["text", "image", "audio", "file"])
+    );
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["modalities"]["input"],
+        json!(["text"])
+    );
 }
 
 #[test]

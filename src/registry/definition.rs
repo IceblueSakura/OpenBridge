@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use serde::Serialize;
+
 use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, GenerationCapabilities,
@@ -10,7 +12,8 @@ use crate::{
     provider::{CredentialKind, ProviderKind},
 };
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 /// 模型 reasoning 能力的证据状态。
 pub enum ReasoningSupport {
     #[default]
@@ -22,7 +25,8 @@ pub enum ReasoningSupport {
     Unsupported,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 /// 模型支持的 reasoning 强度。
 pub enum ReasoningLevel {
     /// 显式禁用 reasoning。
@@ -79,32 +83,44 @@ pub struct ReasoningLevelMapping {
     pub upstream: String,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-/// 模型输入和输出上下文长度的独立上限。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+/// 模型总上下文、输入和输出 token 的独立上限。
 pub struct ModelContextLength {
+    /// 已知的输入与输出合计 token 上限；`None` 表示未知。
+    max_context_tokens: Option<u32>,
     /// 已知的最大输入 token 数；`None` 表示未知。
-    input_tokens: Option<u32>,
+    max_input_tokens: Option<u32>,
     /// 已知的最大输出 token 数；`None` 表示未知。
-    output_tokens: Option<u32>,
+    max_output_tokens: Option<u32>,
 }
 
 impl ModelContextLength {
-    /// 创建一组可独立未知的上下文长度限制。
-    pub const fn new(input_tokens: Option<u32>, output_tokens: Option<u32>) -> Self {
+    /// 创建一组可独立未知的总上下文、输入和输出限制。
+    pub const fn new(
+        max_context_tokens: Option<u32>,
+        max_input_tokens: Option<u32>,
+        max_output_tokens: Option<u32>,
+    ) -> Self {
         Self {
-            input_tokens,
-            output_tokens,
+            max_context_tokens,
+            max_input_tokens,
+            max_output_tokens,
         }
+    }
+
+    /// 返回输入与输出合计的最大 token 数。
+    pub const fn context_tokens(self) -> Option<u32> {
+        self.max_context_tokens
     }
 
     /// 返回最大输入 token 数。
     pub const fn input_tokens(self) -> Option<u32> {
-        self.input_tokens
+        self.max_input_tokens
     }
 
     /// 返回最大输出 token 数。
     pub const fn output_tokens(self) -> Option<u32> {
-        self.output_tokens
+        self.max_output_tokens
     }
 }
 
@@ -113,7 +129,8 @@ impl ModelContextLength {
 /// 当前 OpenBridge 只注册可用于 Chat Completions/Responses 生成面的 `Chat` 模型；该枚举
 /// 预留给未来模型信息投影，尚未参与 registry capability 计算。
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ModelMode {
     /// 对话式文本/多模态生成模型。
     Chat,
@@ -121,7 +138,8 @@ pub enum ModelMode {
 
 /// canonical Model 可接受的输入模态。
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InputModality {
     /// Text input。
     Text,
@@ -135,7 +153,8 @@ pub enum InputModality {
 
 /// canonical Model 可生成的输出模态。
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OutputModality {
     /// Text output。
     Text,
@@ -335,10 +354,52 @@ pub struct RouteConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// 向下游公开的模型及其有序 route 候选。
 pub struct PublicModelConfig {
-    /// 对下游公开的稳定 model name。
-    pub name: String,
+    /// 对下游公开的稳定 model id。
+    pub id: String,
+    /// Public Model 契约首次创建的稳定 Unix 秒。
+    pub created: u64,
+    /// 面向客户端展示的名称。
+    pub display_name: String,
+    /// 面向客户端展示的可选说明。
+    pub description: Option<String>,
+    /// Public Model 的静态生命周期。
+    pub lifecycle: ModelLifecycle,
     /// 按优先级排列的完整 Route id。
     pub routes: Vec<String>,
+}
+
+/// Public Model 的生命周期状态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelLifecycleStatus {
+    /// 模型可用于新请求。
+    Active,
+    /// 模型仍可调用，但调用方应迁移。
+    Deprecated,
+    /// 模型不再接受请求。
+    Retired,
+}
+
+/// Public Model 的静态生命周期信息。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ModelLifecycle {
+    /// 当前生命周期状态。
+    pub status: ModelLifecycleStatus,
+    /// 可选的弃用 Unix 秒。
+    pub deprecated_at: Option<u64>,
+    /// 可选的停用 Unix 秒。
+    pub retired_at: Option<u64>,
+}
+
+impl ModelLifecycle {
+    /// 创建没有弃用或停用时间的 active 生命周期。
+    pub const fn active() -> Self {
+        Self {
+            status: ModelLifecycleStatus::Active,
+            deprecated_at: None,
+            retired_at: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

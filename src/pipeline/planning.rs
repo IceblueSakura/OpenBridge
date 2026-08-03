@@ -5,10 +5,10 @@ use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest},
+    core::ApiRequest,
     registry::{
-        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RouteMode, RuntimeRegistry,
-        UpstreamApi, UpstreamApiCapabilities,
+        ModelInterfaceCapabilities, ReasoningLevel, ReasoningLevelMapping, RouteMode,
+        RuntimeRegistry, SupportState, UpstreamApi,
     },
 };
 
@@ -28,16 +28,25 @@ pub fn plan_request(
     profile: &RequestRequirements,
     body: Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
-    // 解析 Public Model 的有序 route 引用。
-    let routes = registry
+    // 解析 Public Model，并在查看任何 Route 前按其唯一接口契约完成能力预检。
+    let public_model = registry
         .public_model(profile.public_model())
-        .ok_or(RequestPlanningError::UnknownModel)?
-        .routes();
-    // 按 route 顺序执行协议、target 状态和 capability gate。
+        .ok_or(RequestPlanningError::UnknownModel)?;
+    let interface = public_model
+        .interface(profile.protocol())
+        .ok_or(RequestPlanningError::UnsupportedProtocol)?;
+    if let Some(error) = public_model_error(
+        profile.requested_capabilities,
+        profile.requested_output_tokens,
+        interface,
+    ) {
+        return Err(error);
+    }
+
+    // 严格按配置顺序构造可执行 Route；请求能力不改变候选资格或顺序。
     let mut protocol_mismatch_seen = false;
-    let mut first_candidate_error = None;
     let mut prepared_candidates = Vec::new();
-    for route_id in routes {
+    for route_id in public_model.routes() {
         let route = registry
             .route(route_id)
             .ok_or(RequestPlanningError::NoRoute)?;
@@ -54,16 +63,11 @@ pub fn plan_request(
         let upstream_api = target
             .upstream_api(route.upstream_api())
             .ok_or(RequestPlanningError::NoRoute)?;
-        if let Some(error) = candidate_error(
-            upstream_api.protocol(),
-            profile.requested_capabilities,
-            upstream_api.capabilities(),
-            upstream_api.model().context_length().output_tokens(),
-            upstream_api.model().reasoning(),
-            upstream_api.model().reasoning_levels(),
-            profile.requested_output_tokens,
-        ) {
-            first_candidate_error.get_or_insert(error);
+        if !upstream_api
+            .capabilities()
+            .generation_capabilities()
+            .enabled
+        {
             continue;
         }
         let (request, bridge) = match route.mode() {
@@ -77,11 +81,7 @@ pub fn plan_request(
                 upstream_api.reasoning_output(),
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
-                Err(_) => {
-                    first_candidate_error
-                        .get_or_insert(RequestPlanningError::UnsupportedCapabilities);
-                    continue;
-                }
+                Err(_) => return Err(RequestPlanningError::UnsupportedCapabilities),
             },
         };
         let (request, reasoning_level_mapping) = apply_reasoning_level_mapping(
@@ -100,11 +100,11 @@ pub fn plan_request(
     }
     // 没有候选时返回最具体的规划错误，否则构造带 fallback 边界的计划。
     if prepared_candidates.is_empty() {
-        return Err(first_candidate_error.unwrap_or(if protocol_mismatch_seen {
+        return Err(if protocol_mismatch_seen {
             RequestPlanningError::UnsupportedProtocol
         } else {
             RequestPlanningError::NoRoute
-        }));
+        });
     }
 
     Ok(RoutePlan {
@@ -157,57 +157,50 @@ fn apply_reasoning_level_mapping(
     Ok((ApiRequest::new(request.protocol(), body), Some(mapping)))
 }
 
-/// 返回一个候选不满足当前请求时最具体的 fail-closed 规划错误。
-fn candidate_error(
-    protocol: ApiProtocol,
+/// 按 Public Model 的固定接口契约返回最具体的 fail-closed 规划错误。
+fn public_model_error(
     requested_features: RequestedCapabilities,
-    capabilities: UpstreamApiCapabilities,
-    configured_max_output_tokens: Option<u32>,
-    reasoning: ReasoningSupport,
-    reasoning_levels: &[ReasoningLevel],
     requested_output_tokens: Option<u64>,
+    interface: &ModelInterfaceCapabilities,
 ) -> Option<RequestPlanningError> {
-    // 先确认候选原生协议已启用，并校验共享生成能力。
-    let generation_capabilities = capabilities.generation_capabilities();
-    if !generation_capabilities.enabled {
-        return Some(RequestPlanningError::UnsupportedProtocol);
-    }
+    // 先校验共享生成能力，未知状态与明确不支持都不能进入 egress。
     if requested_features.unmodeled_tools {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    if requested_features.generation.streaming && !generation_capabilities.streaming {
+    if requested_features.generation.streaming && !interface.supports_streaming() {
         return Some(RequestPlanningError::StreamingUnsupported);
     }
-    if !requested_features
-        .generation
-        .is_subset_of(generation_capabilities)
+    if (requested_features.generation.function_calling && !interface.supports_function_calling())
+        || (requested_features.generation.parallel_tool_calls
+            && !interface.supports_parallel_tool_calls())
+        || (requested_features.generation.image_input && !interface.supports_image_input())
+        || (requested_features.generation.structured_outputs
+            && !interface.supports_structured_outputs())
+        || (requested_features.generation.store && !interface.supports_store())
     {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    // 再检查 Responses 专有 state/background 约束与配置上限。
-    if protocol == ApiProtocol::Responses {
-        let Some(responses) = capabilities.responses() else {
-            return Some(RequestPlanningError::UnsupportedProtocol);
-        };
-        if (requested_features.previous_response_id && !responses.previous_response_id)
-            || (requested_features.background && !responses.background)
-        {
-            return Some(RequestPlanningError::UnsupportedCapabilities);
-        }
+    if (requested_features.previous_response_id && !interface.supports_previous_response_id())
+        || (requested_features.background && !interface.supports_background())
+    {
+        return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    if configured_max_output_tokens.is_some_and(|limit| {
+    if interface.max_output_tokens().is_some_and(|limit| {
         requested_output_tokens.is_some_and(|requested| requested > u64::from(limit))
     }) {
         return Some(RequestPlanningError::OutputLimitExceeded);
     }
-    // 最后校验 reasoning 的支持状态和请求的具体 level。
+    // 最后校验 reasoning 的支持状态和固定公共 level 集合。
     match requested_features.reasoning {
         RequestedReasoning::None | RequestedReasoning::Level(ReasoningLevel::None) => {}
-        RequestedReasoning::Unspecified if reasoning != ReasoningSupport::Supported => {
+        RequestedReasoning::Unspecified
+            if interface.reasoning_support() != SupportState::Supported =>
+        {
             return Some(RequestPlanningError::ReasoningUnsupported);
         }
         RequestedReasoning::Level(level)
-            if reasoning != ReasoningSupport::Supported || !reasoning_levels.contains(&level) =>
+            if interface.reasoning_support() != SupportState::Supported
+                || !interface.reasoning_levels().contains(&level) =>
         {
             return Some(RequestPlanningError::ReasoningLevelUnsupported);
         }

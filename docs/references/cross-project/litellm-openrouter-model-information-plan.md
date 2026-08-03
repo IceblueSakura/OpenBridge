@@ -1,9 +1,9 @@
-# LiteLLM / OpenRouter 模型信息模型调研与 OpenBridge 候选接口计划
+# LiteLLM / OpenRouter 模型信息模型调研与 OpenBridge 接口计划
 
 ## 文档状态与范围
 
 - **调研时间**：2026-08-03。
-- **文档性质**：外部参考事实、模型能力字段对照和一个候选接口计划；不构成当前实现授权，也不修改 `current-focus.md`。
+- **文档性质**：外部参考事实、模型能力字段对照和 OpenBridge 已采纳的核心模型与接口计划；live source 与实施现状文档仍是当前行为依据。
 - **调研重点**：能返回单个或全部模型信息的接口，以及其中可用于描述模型能力的字段。
 - **明确排除**：部署配置、凭据、上游地址、Provider/target 选择、路由健康、租户权限、运行时指标和控制面 UI。
 - **复核条件**：LiteLLM 的 `main` 源码、模型价格/上下文目录和官方文档会持续演进；OpenRouter Models API 也可能增加字段。升级实现前必须重新核对官方资料和当前 OpenBridge checkout。
@@ -248,511 +248,203 @@ Model
 3. **能力证据与不确定性**：字段来自静态注册、Provider API 注册和 route 约束中的哪一类；未知必须与不支持区分。公共响应只给非敏感、面向客户端的证据类别，不给内部拓扑。
 
 不建议把以下内容塞入同一个公共模型对象：Provider 名称、上游 model 名称、route/deployment id、base URL、credential locator、`litellm_params`、团队/访问组、TPM/RPM、健康状态、延迟、价格、质量排行和 endpoint 级供应详情。
-
 ## 4. OpenBridge 最终模型设计
 
-### 4.1 设计优先级与四层边界
+### 4.1 设计结论与边界
 
-本节先定义最终公共契约，再把当前代码视为迁移输入。现有 `ModelConfig`、`PublicModelConfig` 或 capability 布尔字段不限制最终数据模型；实现阶段可以大范围调整类型和 registry 编译流程。
+Public Model 是客户端主动选择的稳定服务契约，不是 Router 临时选择出的模型组。OpenBridge 为每个 Public Model 编译恰好一份 Chat Completions 契约和一份 Responses 契约；客户端请求只针对所选模型做能力预检，不根据能力切换 Public Model，也不根据能力跳过、重排或筛选 Route。
 
-最终模型分为四层：
+最终信息分为三层：
 
-| 层 | 核心对象 | 职责 | 是否公开 |
+| 层次 | 公共对象 | 语义 | 对外返回 |
 |---|---|---|---|
-| 公共身份 | `PublicModelIdentity` | 稳定 Public Model id、展示名称、描述、创建时间、所有者和生命周期 | 是 |
-| 模型固有能力 | `ModelCapabilities` | 任务、上下文窗口、输入/输出模态、tokenizer、知识截止和 reasoning 上界 | 是 |
-| 协议可调用能力 | `ModelInterfaceCapabilities` | Chat/Responses 上实际可依赖的参数、stream、tools、结构化输出、reasoning 输出和状态能力 | 是 |
-| 私有供应与部署 | `CanonicalModel`、Provider、Target、Upstream API、Route、credential | 证明和实现公共契约，完成收窄、wire mapping、重试和 fallback | 否 |
+| 标准身份 | StandardModel | id、object、created、owned_by | 是 |
+| 模型事实 | ModelCapabilities | 任务、上下文、模态、参数和 reasoning | 是 |
+| 接口契约 | ModelInterfaceCapabilities | Chat/Responses 实际保证的 stream、tools、结构化输出、reasoning 和 state | 是 |
+| 私有执行 | Canonical Model、Provider、Target、Upstream API、Route、credential | 收窄、转换、顺序、retry、fallback 与 cooldown | 否 |
 
-Public Model 应成为独立的客户端服务契约，而不是从第一条 route 或某个 Provider deployment 临时拼出的别名。最终 registry 中应显式声明 Public Model 的身份和模型固有能力，再由编译器验证每个协议 capability profile 至少存在一条完整 route 可以满足。底层 route 可以拥有额外能力，但不能扩大未声明的公共契约。
+公共能力描述调用方在当前 OpenBridge 构建中可依赖的静态边界，不描述瞬时健康、延迟、配额、价格或部署数量。Route 仍负责执行和韧性，但不能扩大 Public Model 契约。
 
-`CanonicalModel` 继续保存内部、Provider-independent 的参考事实；`PublicModel` 可以绑定多个 canonical model 或 deployment，但对客户端只呈现自己的稳定身份和已验证能力。这样即使 fallback 指向不同模型，也不会把某个上游名称、描述或上下文限制误当成 Public Model 的唯一真相。
+### 4.2 值对象与未知语义
 
-### 4.2 基础值对象与未知语义
-
-最终 schema 使用有界、可扩展的类型，不接收或透传 LiteLLM 的任意 `model_info` 键。
-
-| 值对象 | 建议值 | 语义 |
+| 值对象 | wire 值 | 语义 |
 |---|---|---|
-| `SupportState` | `supported`、`unsupported`、`conditional`、`unknown` | `conditional` 仅用于聚合结果并要求检查完整 profiles；`unknown` 表示证据不足。两者在请求规划中都不能直接当作已支持 |
-| `ModelTask` | `chat`、`text_generation`、`embedding`、`rerank`、`image_generation`、`audio_transcription`、`audio_speech`、`moderation`、`search` | 模型能完成的任务，不等同于 HTTP API 名称 |
-| `Modality` | `text`、`image`、`audio`、`video`、`file` | 输入/输出内容类型；后续只能以新增枚举值扩展 |
-| `ReasoningLevel` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | 下游统一 reasoning 强度；`none` 表示显式禁用 |
-| `ReasoningOutput` | `unsupported`、`plain_text`、`summary`、`opaque`、`unknown` | 模型/接口可观察的 reasoning 输出形态 |
-| `LifecycleStatus` | `active`、`deprecated`、`retired` | `retired` 不再出现在可路由列表；`deprecated` 仍可调用但有生命周期提示 |
-| `ApiInterface` | `chat_completions`、`responses` | 当前公开协议；未来增加新键，不复用 `ModelTask` |
+| SupportState | supported、unsupported、unknown | 只有 supported 能通过请求预检；unknown 必须 fail closed |
+| ModelTask | chat、text_generation | 当前 Public Model 的任务类别 |
+| InputModality | text、image、audio、file | 模型或接口可接收的内容类型 |
+| OutputModality | text、image、audio | 模型或接口可生成的内容类型 |
+| ReasoningLevel | none、minimal、low、medium、high、xhigh、max | 标准下游 reasoning 强度 |
+| ReasoningOutputMode | unsupported、plain_text、summary、opaque、unknown | 下游接口可观察的 reasoning 输出形态 |
+| LifecycleStatus | active、deprecated、retired | retired 不再进入可调用目录 |
 
-统一空值规则：
+统一规则：
 
-- 未知数值、日期、tokenizer 或知识截止使用 JSON `null`；
-- 已知不支持使用 `unsupported` 或空集合，不能用 `null` 代替；
-- `conditional` 只允许出现在 `interfaces.<api>.guaranteed` 的聚合字段中，模型固有能力和单个完整 profile 不得使用；
-- 模态和参数数组只列出**已保证支持**的值，未列出不代表模型本体永久不支持；
-- 某个 API 完全不可用时，`interfaces` 中对应值为 `null`；
-- 所有数组使用稳定、去重顺序，所有枚举 wire 值保持小写 snake_case。
+- 未知 token 限制、tokenizer、知识截止和日期使用 JSON null。
+- 明确不支持使用 unsupported 或空集合，不能伪装成 unknown。
+- 数组只列出已确认值，必须去重并确定性排序。
+- 某协议没有可执行 Route 时，interfaces 中对应值为 null。
+- 扩展对象使用 schema_version 进行兼容演进；第一版值为 1。
+- 公共对象不出现 Provider、Target、Route、upstream model、endpoint、credential 或 wire mapping。
 
-### 4.3 完整公共 `ModelInfo` 数据模型
+### 4.3 完整公共数据模型
 
-公共对象由同一份 `PublicModelDefinition` 编译产生。OpenAI 标准接口只投影其中四个标准字段，两个扩展接口返回完整对象。
+    PublicModelInfo
+    ├── schema_version: "1"
+    ├── id: string
+    ├── object: "model"
+    ├── created: int64
+    ├── owned_by: "openbridge"
+    ├── name: string
+    ├── description: string | null
+    ├── lifecycle: ModelLifecycle
+    ├── capabilities: ModelCapabilities
+    └── interfaces: ModelInterfaces
+        ├── chat_completions: ModelInterfaceCapabilities | null
+        └── responses: ModelInterfaceCapabilities | null
 
-```text
-PublicModelInfo
-├── id: string
-├── object: "model"
-├── created: int64
-├── owned_by: "openbridge"
-├── name: string
-├── description: string | null
-├── lifecycle: ModelLifecycle
-├── capabilities: ModelCapabilities
-└── interfaces: map<ApiInterface, ModelInterfaceCapabilities | null>
+    ModelCapabilities
+    ├── tasks: ModelTask[]
+    ├── context_window: ContextWindow
+    ├── modalities: ModelModalities
+    ├── supported_parameters: string[]
+    ├── tokenizer: string | null
+    ├── knowledge_cutoff: string | null
+    └── reasoning: ModelReasoningCapabilities
 
-ModelCapabilities
-├── tasks: ModelTask[]
-├── context_window: ContextWindow
-├── modalities: Modalities
-├── tokenizer: string | null
-├── knowledge_cutoff: string | null
-└── reasoning: ModelReasoningCapabilities
+    ModelInterfaceCapabilities
+    ├── context_window: ContextWindow
+    ├── modalities: ModelModalities
+    ├── supported_parameters: string[]
+    ├── streaming: SupportState
+    ├── system_messages: SupportState
+    ├── tools: ToolCapabilities
+    ├── structured_outputs: StructuredOutputCapabilities
+    ├── reasoning: InterfaceReasoningCapabilities
+    ├── prompt_caching: SupportState
+    └── state: StateCapabilities
 
-ModelInterfaceCapabilities
-├── guaranteed: AggregatedCapabilityProfile
-└── profiles: CapabilityProfile[]
-
-AggregatedCapabilityProfile
-└── 与 CapabilityProfile 同形，但 SupportState 可使用 conditional
-
-CapabilityProfile
-├── context_window: ContextWindow
-├── modalities: Modalities
-├── parameters: ParameterCapabilities
-├── streaming: SupportState
-├── system_messages: SupportState
-├── tools: ToolCapabilities
-├── structured_outputs: StructuredOutputCapabilities
-├── reasoning: InterfaceReasoningCapabilities
-├── prompt_caching: SupportState
-└── state: StateCapabilities
-```
-
-完整 JSON 示例：
-
-```json
-{
-  "id": "code-primary",
-  "object": "model",
-  "created": 1730000000,
-  "owned_by": "openbridge",
-  "name": "Code Primary",
-  "description": "面向编码和工具调用的公共模型",
-  "lifecycle": {
-    "status": "active",
-    "deprecated_at": null,
-    "replacement_model": null
-  },
-  "capabilities": {
-    "tasks": ["chat", "text_generation"],
-    "context_window": {
-      "max_context_tokens": 128000,
-      "max_input_tokens": 120000,
-      "max_output_tokens": 16000
-    },
-    "modalities": {
-      "input": ["text", "image"],
-      "output": ["text"]
-    },
-    "tokenizer": null,
-    "knowledge_cutoff": null,
-    "reasoning": {
-      "support": "supported",
-      "required": false,
-      "levels": ["none", "low", "medium", "high"],
-      "default_level": null
-    }
-  },
-  "interfaces": {
-    "chat_completions": {
-      "guaranteed": {
-        "context_window": {
-          "max_context_tokens": 128000,
-          "max_input_tokens": 120000,
-          "max_output_tokens": 16000
-        },
-        "modalities": {
-          "input": ["text"],
-          "output": ["text"]
-        },
-        "parameters": {
-          "supported": [
-            "max_completion_tokens",
-            "reasoning_effort",
-            "stream",
-            "temperature",
-            "tool_choice",
-            "tools"
-          ],
-          "constraints": {
-            "reasoning_effort": {
-              "type": "enum",
-              "values": ["none", "low", "medium", "high"]
-            },
-            "temperature": {
-              "type": "number",
-              "minimum": 0.0,
-              "maximum": 2.0
-            }
-          }
-        },
-        "streaming": "supported",
-        "system_messages": "supported",
-        "tools": {
-          "support": "supported",
-          "types": ["function"],
-          "tool_choice_modes": ["none", "auto", "required", "named"],
-          "parallel_calls": "supported",
-          "strict_schema": "supported"
-        },
-        "structured_outputs": {
-          "support": "supported",
-          "modes": ["json_object", "json_schema"],
-          "strict_schema": "supported"
-        },
-        "reasoning": {
-          "support": "supported",
-          "levels": ["none", "low", "medium", "high"],
-          "output_modes": ["summary"]
-        },
-        "prompt_caching": "unknown",
-        "state": {
-          "store": "unsupported",
-          "previous_response_id": "unsupported",
-          "background": "unsupported"
-        }
-      },
-      "profiles": [
-        {
-          "context_window": {
-            "max_context_tokens": 128000,
-            "max_input_tokens": 120000,
-            "max_output_tokens": 16000
-          },
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          },
-          "parameters": {
-            "supported": [
-              "max_completion_tokens",
-              "reasoning_effort",
-              "stream",
-              "temperature",
-              "tool_choice",
-              "tools"
-            ],
-            "constraints": {
-              "reasoning_effort": {
-                "type": "enum",
-                "values": ["none", "low", "medium", "high"]
-              },
-              "temperature": {
-                "type": "number",
-                "minimum": 0.0,
-                "maximum": 2.0
-              }
-            }
-          },
-          "streaming": "supported",
-          "system_messages": "supported",
-          "tools": {
-            "support": "supported",
-            "types": ["function"],
-            "tool_choice_modes": ["none", "auto", "required", "named"],
-            "parallel_calls": "supported",
-            "strict_schema": "supported"
-          },
-          "structured_outputs": {
-            "support": "supported",
-            "modes": ["json_object", "json_schema"],
-            "strict_schema": "supported"
-          },
-          "reasoning": {
-            "support": "supported",
-            "levels": ["none", "low", "medium", "high"],
-            "output_modes": ["summary"]
-          },
-          "prompt_caching": "unknown",
-          "state": {
-            "store": "unsupported",
-            "previous_response_id": "unsupported",
-            "background": "unsupported"
-          }
-        }
-      ]
-    },
-    "responses": {
-      "guaranteed": {
-        "context_window": {
-          "max_context_tokens": 128000,
-          "max_input_tokens": 120000,
-          "max_output_tokens": 16000
-        },
-        "modalities": {
-          "input": ["text"],
-          "output": ["text"]
-        },
-        "parameters": {
-          "supported": ["input", "max_output_tokens", "reasoning", "stream", "tools"],
-          "constraints": {}
-        },
-        "streaming": "supported",
-        "system_messages": "supported",
-        "tools": {
-          "support": "supported",
-          "types": ["function"],
-          "tool_choice_modes": ["none", "auto", "required", "named"],
-          "parallel_calls": "supported",
-          "strict_schema": "supported"
-        },
-        "structured_outputs": {
-          "support": "supported",
-          "modes": ["json_schema"],
-          "strict_schema": "supported"
-        },
-        "reasoning": {
-          "support": "supported",
-          "levels": ["none", "low", "medium", "high"],
-          "output_modes": ["summary"]
-        },
-        "prompt_caching": "unknown",
-        "state": {
-          "store": "unsupported",
-          "previous_response_id": "unsupported",
-          "background": "unsupported"
-        }
-      },
-      "profiles": []
-    }
-  }
-}
-```
-
-示例中的值只用于展示 schema，不是任何当前 Public Model 的事实。`responses.profiles` 为空表示没有高于 `guaranteed` 的附加完整能力组合；当存在条件能力时，`profiles` 必须列出每个高于 guaranteed、去重后的完整 profile。
-
-主要字段约束：
-
-| 字段 | 最终语义 |
+| 子对象 | 字段 |
 |---|---|
-| `id` | 下游稳定 Public Model id；必须是安全 URL path segment，不能使用上游 model id |
-| `created` | Public Model 契约首次创建时间的稳定 Unix 秒；不得使用进程启动时间或每次构建时间 |
-| `owned_by` | 固定为 `openbridge` 或另一个明确公共所有者；不得返回实际 Provider |
-| `capabilities.tasks` | 模型任务类别；与 Chat/Responses HTTP interface 分开 |
-| `context_window.max_context_tokens` | 输入和输出合计窗口上限 |
-| `max_input_tokens` / `max_output_tokens` | 输入和输出各自上限；两个最大值不保证可同时使用，也不能简单相加 |
-| `modalities` | 模型固有、已声明的输入/输出模态上界；接口 profile 只能收窄 |
-| `parameters.supported` | 该协议 profile 保证接受的 OpenAI-compatible 参数名；Provider 私有参数不进入此集合 |
-| `parameters.constraints` | 可选的公开数值/枚举约束；只允许 typed constraint，不返回 wire mapping 或默认 Provider 参数 |
-| `tools` | tool 类型、`tool_choice` 模式、并行调用和 strict function schema 能力 |
-| `structured_outputs` | JSON object、JSON schema 和 strict schema 等结构化输出模式 |
-| `reasoning` | 模型支持/必需状态、标准 effort 等级，以及具体接口可返回的 reasoning 输出形态 |
-| `state` | `store`、`previous_response_id`、`background` 等 API 状态能力；它们不是模型固有能力 |
+| ContextWindow | max_context_tokens、max_input_tokens、max_output_tokens |
+| ToolCapabilities | support、types、tool_choice_modes、parallel_calls、strict_schema |
+| StructuredOutputCapabilities | support、modes、strict_schema |
+| InterfaceReasoningCapabilities | support、levels、output |
+| StateCapabilities | store、previous_response_id、background |
+| ModelLifecycle | status、deprecated_at、retired_at |
 
-`capabilities` 适合模型目录展示和粗粒度筛选，实际构造 Chat/Responses 请求时必须以目标 `interfaces.<api>.guaranteed` 和 `profiles` 为准。模型固有能力中出现某个模态或 reasoning，不代表每个 HTTP interface 都开放该能力，也不证明任意两个字段可以组合使用。
+capabilities 表达模型本体事实上界；interfaces 表达具体下游协议的固定可调用契约。模型本体支持 image 或 reasoning，不代表两个接口都开放该能力，调用方应以目标 interfaces 项为准。
 
-### 4.4 `guaranteed` 与完整 capability profiles
+### 4.4 固定契约的编译与请求规则
 
-模型固有能力与协议可调用能力使用不同聚合语义：
+OpenBridge 不返回 guaranteed 加 profiles，也不保留 conditional。每个协议只有一个固定契约，由该 Public Model 对应协议的全部静态启用、可执行 Route 保守相交得到：
 
-- `capabilities` 是 Public Model 显式声明的模型固有能力上界；编译器验证每个接口 profile 都是其子集；
-- `interfaces.<api>.guaranteed` 是该 API 所有完整可执行 profile 的保守交集，适合只需要简单布尔判断的客户端；
-- `interfaces.<api>.profiles` 只列出**高于 guaranteed 基线**的、去重后的完整能力组合；没有条件能力时返回空数组；
-- 一个请求能力组合可被声明为支持，当且仅当它完全落在 `guaranteed` 内，或至少有一个完整 profile 同时覆盖全部要求；
-- profile 不带 route id、Provider、上游模型、优先级、权重、健康或 deployment 数量，多个等价 route 只生成一个 profile；
-- profile 仅描述静态服务契约，不反映瞬时 cooldown、限流或故障。
-
-交集规则必须固定：
-
-| 字段类型 | `guaranteed` 计算 |
+| 字段类型 | 固定契约计算 |
 |---|---|
-| `SupportState` | 全部为 `supported` 才是 `supported`；全部明确为 `unsupported` 才是 `unsupported`；已知 profile 在支持与不支持之间分化时为 `conditional`；证据不足时为 `unknown` |
-| token 上限 | 取所有已知上限中的最小值；任一完整 profile 未知时，guaranteed 对应值为 `null` |
-| 模态、参数、tool 类型、choice、reasoning level/output mode | 集合交集 |
-| typed parameter constraint | 取安全交集；无法得到非空有效区间时该参数退出 guaranteed 参数集合 |
-| `lifecycle` | 属于 Public Model 本身，不从 route 聚合 |
+| 布尔能力 | 所有 Route 都支持才是 supported；任一 Route 明确不支持则为 unsupported；仅有未知证据时为 unknown |
+| token 上限 | 所有 Route 都有已知值时取最小值；任一未知则为 null |
+| 模态、参数、reasoning level | 集合交集，并确定性排序 |
+| reasoning 输出 | 所有 Route 形态相同才公开该形态，否则为 unknown |
+| Bridge | 只保留转换器完整支持的公共子集；不能因某条 Native Route 更强而扩大契约 |
 
-例如，一个完整 profile 同时支持 image+tools，另一个只支持 text+tools，则 guaranteed 可以把 tools 标为 `supported`，但 image 只存在于第一个附加 profile。若两个 profile 分别只支持 image 和 tools，guaranteed 中两者都不能标为 `supported`，相应聚合状态为 `conditional`，附加 profiles 必须分别保持完整组合，绝不能合成 image+tools。
+例如首条 Chat Route 不支持 function tools、第二条 Route 支持 tools，Public Model 的 Chat tools.support 仍为 unsupported。工具请求在任何上游调用前返回错误，不能跳过首条 Route 去选择第二条。
+
+固定契约只影响请求是否被接受：
+
+1. 解析客户端明确指定的 Public Model。
+2. 用目标接口的唯一契约完成一次能力预检。
+3. 不支持或未知时返回 HTTP 400 和 unsupported_model_capability。
+4. 通过后严格按配置顺序构造 Route 候选。
+5. Route 只因协议不匹配、Target 静态禁用或 Upstream API 静态禁用而不可执行；请求能力不得改变候选顺序。
+6. retry、fallback、cooldown 和 state-affinity 继续属于执行层。
 
 ### 4.5 编译期不变量
 
-最终 registry 必须在启动时拒绝以下不一致：
+registry 构建必须拒绝：
 
-1. Public Model id 不是安全单段资源 id，或 `created` 不是稳定的非负 Unix 时间；
-2. interface profile 的 task、上下文、模态、reasoning 等能力扩大了 Public Model 固有能力上界；
-3. advertised profile 没有任何一条完整 Native/Bridged route 能同时满足；
-4. `tools.support = supported` 但没有 tool 类型或缺少相应公共参数；
-5. parallel tool calls 已支持但 function tool 本身不支持；
-6. reasoning 为 `unsupported` 却声明 levels、默认 level 或输出模式；
-7. `default_level` 不属于声明的 reasoning levels；
-8. structured output mode、state 能力或参数 constraint 与协议 schema 冲突；
-9. 模型固有能力或完整 profile 使用仅允许聚合结果出现的 `conditional`；
-10. 数组重复、顺序不稳定、出现未注册枚举或任意 Provider 私有字段；
-11. 公共序列化对象中出现 Provider、Target、Route、upstream model、endpoint、credential 或 wire mapping。
+1. Public Model id 不是安全单段资源 id，或 created 为零。
+2. 展示名称为空，描述为空白字符串。
+3. 生命周期状态与时间字段不一致，或时间早于 created。
+4. 上下文、输入或输出限制为零，或输入/输出上限超过总上下文。
+5. 显式模态集合为空或重复。
+6. Public Model 没有 Route、重复引用 Route 或引用未知对象。
+7. Upstream API 规则扩大 canonical 模型事实，或收窄后产生不一致上下文。
+8. reasoning 支持状态、level 与参数声明不一致。
+9. 公共序列化对象中出现任何部署、凭据或 wire mapping 字段。
 
-每个附加 profile 还必须完整包含 guaranteed 基线，并至少严格增加一个已验证能力；否则应在编译时去重或拒绝。
+retired 或没有任何可执行接口的 Public Model 不进入下游可见目录。未知能力保持 unknown 或 null，不能提升为 supported。
 
-### 4.6 当前代码的迁移方向
+### 4.6 当前代码映射
 
-当前代码只作为迁移差距，不作为最终 schema 的约束。后续实现至少需要：
-
-- 将现在只含 `name + routes` 的 `PublicModelConfig` 拆为公共 catalog definition 与私有 routing binding；
-- 为 Public Model 增加稳定 `created`、展示元数据、生命周期和完整 `ModelCapabilities`；
-- 将现有 `ModelContextLength` 扩展为 total/input/output 三个独立 token 上限；
-- 增加 typed task、modality、tool type/choice、structured output、parameter constraint、prompt caching 和状态能力；
-- 保留 canonical model、Provider 和 Upstream API 的逐层收窄，但让编译器验证公共 profile，而不是由 handler 临时遍历 route 拼 JSON；
-- 在不可变 `RuntimeRegistry` 中预编译 `PublicModelInfo`、标准 `Model` 投影和协议 capability profiles；
-- 让请求规划与模型信息接口共享同一 profile 判定逻辑，避免“目录宣称支持、planner 却拒绝”或反向漂移。
-
-本轮只确定最终设计并修改调研文档，不修改这些 Rust 类型或运行时行为。
+- PublicModelConfig 声明稳定 id、created、display_name、description、lifecycle 和私有 Route 顺序。
+- ModelContextLength 独立保存 total、input、output 三项限制。
+- registry 构建阶段从有效 Model、Upstream API 和 Native/Bridged Route 编译 PublicModelInfo。
+- RuntimeRegistry 只向 handler 和 planner 暴露不可变 Public Model；HTTP handler 不临时遍历 Route。
+- planner 先读取 Public Model 的接口契约，能力通过后才按原 Route 顺序生成执行计划。
+- StandardModel 是完整 PublicModelInfo 的严格四字段投影。
+- mode 与模态已进入模型信息；未实现的 hosted/custom tool、audio/file 请求、prompt caching 等协议能力仍在请求分析阶段拒绝。
 
 ## 5. 三类模型信息接口
 
 ### 5.1 接口矩阵
 
-产品上分为三类接口。为了完整覆盖官方 OpenAI Models resource，第一类包含 list 和 retrieve 两个标准 operation；扩展列表与扩展单个详情分别是第二、第三类。
+| 类别 | HTTP 接口 | 返回对象 |
+|---|---|---|
+| OpenAI 标准 Models | GET /v1/models | StandardModel list envelope |
+| OpenAI 标准 Models | GET /v1/models/{model} | 单个 StandardModel |
+| OpenBridge 扩展列表 | GET /openbridge/v1/models | PublicModelInfo list envelope |
+| OpenBridge 扩展单模型 | GET /openbridge/v1/models/{model} | 单个 PublicModelInfo |
 
-| 类别 | HTTP 接口 | 返回对象 | 目标 |
-|---|---|---|---|
-| 1. OpenAI 标准 Models | `GET /v1/models` | 标准 list envelope | 兼容 OpenAI SDK 和只需要 model id 的客户端 |
-| 1. OpenAI 标准 Models | `GET /v1/models/{model}` | 标准 `Model` 对象 | 完整标准 retrieve 语义；不返回扩展能力 |
-| 2. 扩展 Model 列表 | `GET /v1/model/info` | `PublicModelInfo` list envelope | 一次读取所有公共模型的完整能力 |
-| 3. 扩展单模型详情 | `GET /v1/model/info/{model}` | 单个 `PublicModelInfo` | 精确读取一个公共模型的完整能力 |
-
-Public Model id 必须验证为安全 URL path segment，例如 `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`。上游可能带 `/` 的 model id 继续留在私有 binding 中，不得直接成为公共资源 id。
+Public Model id 采用安全单段格式 [A-Za-z0-9][A-Za-z0-9._:-]{0,127}。包含斜杠的 canonical 或上游模型 id 只能留在私有 registry 中。
 
 ### 5.2 OpenAI 标准 Models 契约
 
-官方 OpenAI Models API 的标准 `Model` 只包含基本身份字段。OpenBridge 的最终标准投影为：
+标准对象严格只有四个字段：
 
-```json
-{
-  "id": "code-primary",
-  "object": "model",
-  "created": 1730000000,
-  "owned_by": "openbridge"
-}
-```
-
-列表响应：
-
-```json
-{
-  "object": "list",
-  "data": [
     {
       "id": "code-primary",
       "object": "model",
-      "created": 1730000000,
+      "created": 1785715200,
       "owned_by": "openbridge"
     }
-  ]
-}
-```
 
-规则：
+列表使用 object=list 与 data 数组；retrieve 直接返回对象。标准接口不能附加 capabilities。created 是 Public Model 契约首次创建的稳定 Unix 秒，不使用进程启动时间。
 
-- `/v1/models` 和 `/v1/models/{model}` 只使用这四个标准字段，不偷偷加入 `capabilities`；
-- `created` 来自 Public Model 定义中的稳定时间；当前实现需要补齐该字段；
-- 标准 retrieve 直接返回一个 `Model`，不包 `{data: ...}`；
-- list 与 retrieve 必须来自同一份 `PublicModelInfo` 编译结果，不能维护两份模型目录；
-- 未知或不可见模型返回 404，并使用稳定 OpenAI-compatible error，不暴露它是否存在于内部 deployment。
+### 5.3 OpenBridge 扩展列表和详情
 
-### 5.3 扩展 Model 列表契约
+GET /openbridge/v1/models 返回 object=list 与完整 PublicModelInfo 数组。GET /openbridge/v1/models/{model} 直接返回对应元素；同一 registry snapshot 下，详情必须与列表中的元素逐字段相同。
 
-`GET /v1/model/info` 返回完整 `PublicModelInfo`：
+第一版返回全部可见静态 Public Models，不分页、不搜索、不按 Provider 过滤，也不在请求期间调用外部目录。未来需要分页时只能扩展列表 envelope，不能改变单个 PublicModelInfo 的语义。
 
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "code-primary",
-      "object": "model",
-      "created": 1730000000,
-      "owned_by": "openbridge",
-      "name": "Code Primary",
-      "description": "面向编码和工具调用的公共模型",
-      "lifecycle": {},
-      "capabilities": {},
-      "interfaces": {}
-    }
-  ]
-}
-```
+### 5.4 共同安全和错误边界
 
-上例中的空对象仅用于缩短 envelope 示例，实际每个元素必须使用 4.3 节的完整 schema。第一版返回全部静态 Public Models，不分页、不按 Provider 过滤，也不在请求期间访问外部目录。若未来模型数量确实需要分页，应在不改变单个 `PublicModelInfo` 的前提下增加 cursor envelope。
+- 四个 operation 使用与 Chat/Responses 相同的 Bearer 认证。
+- 模型按 Public Model id 确定性排序。
+- 标准与扩展接口读取同一不可变 registry snapshot。
+- 未知模型返回 404 model_not_found，param 为 model。
+- 请求能力不支持时返回 400 unsupported_model_capability，并在 egress 前结束。
+- 不返回 Provider、canonical/upstream model id、Target、Route、Native/Bridge 模式、base URL、endpoint profile、credential、header 或 wire mapping。
+- 不返回价格、成本、TPM/RPM、健康、延迟、指标、排行或 benchmark。
+- 不通过 LiteLLM/OpenRouter 目录动态发现或自动注册模型。
 
-### 5.4 扩展单模型详情契约
+### 5.5 验证边界
 
-`GET /v1/model/info/{model}` 直接返回与扩展列表元素完全相同的 `PublicModelInfo`，不再包一层 `data`：
+确定性 Rust 测试至少覆盖：
 
-```json
-{
-  "id": "code-primary",
-  "object": "model",
-  "created": 1730000000,
-  "owned_by": "openbridge",
-  "name": "Code Primary",
-  "description": "面向编码和工具调用的公共模型",
-  "lifecycle": {},
-  "capabilities": {},
-  "interfaces": {}
-}
-```
+1. 标准 list/retrieve 的严格四字段投影。
+2. 扩展 list/detail 逐字段一致和私有部署字段缺失。
+3. 非法 Public Model 身份、上下文、模态和生命周期在 registry 构建时失败。
+4. 较弱首选 Route 与较强后续 Route 的交集仍拒绝能力请求。
+5. 能力错误为 unsupported_model_capability，且上游 transport 调用次数为零。
+6. 能力中立请求保持原 Route 顺序和 fallback 候选。
+7. OpenAPI 同时包含四个模型信息 operation。
 
-单模型接口与列表接口必须逐字段一致；同一 registry snapshot 下，`GET /v1/model/info/{id}` 应等于 `GET /v1/model/info` 中对应 `data[]` 元素。
-
-### 5.5 三类接口的共同边界
-
-- 三类接口使用相同 Bearer 认证和用户可见范围，模型集合与业务请求可选择的 Public Models 一致；
-- 模型按 Public Model id 确定性排序，单个请求读取同一不可变 registry snapshot；
-- 返回值不因瞬时 Provider 健康、credential 轮换、cooldown、延迟或配额变化而抖动；
-- 标准接口是完整对象的严格投影，扩展列表和扩展单个接口共享一个 serializer/DTO；
-- 不包含 Provider、canonical/upstream model id、Target、Route、Native/Bridge 模式、base URL、endpoint profile、credential、header、wire mapping、团队或访问组；
-- 不包含价格、成本、TPM/RPM、实时健康、延迟、TTFT、错误统计、质量排行或 benchmark；
-- 不通过 LiteLLM/OpenRouter 的目录动态发现或自动注册模型；外部目录只作为人工核实来源；
-- 未知能力保持 `unknown`/`null`，请求规划继续 fail closed。
-
-建议未知模型错误：
-
-```json
-{
-  "error": {
-    "message": "The requested model does not exist or is not available",
-    "type": "invalid_request_error",
-    "param": "model",
-    "code": "model_not_found"
-  }
-}
-```
-
-### 5.6 实施前置条件与验证边界
-
-只有在后续明确批准实现时，才进入代码调整。最小验证范围包括：
-
-1. registry 定义和编译失败测试：非法 public id、不稳定/缺失 `created`、能力扩大、无完整 route 的 profile、reasoning/tools/constraint 不一致；
-2. capability profile 测试：交集、unknown、数值上限、集合交集、去重，以及 image/tools 分属不同 profile 时不能合成；
-3. 三类接口测试：认证、稳定排序、空列表、标准四字段投影、扩展完整 schema、标准/扩展单模型 404；
-4. 一致性测试：标准列表、标准 retrieve、扩展列表、扩展单个详情共享同一模型集合和 snapshot；
-5. 安全测试：序列化 JSON 中不得出现 Provider、Target、Route、upstream model、URL、credential 或 wire mapping 字段；
-6. 新的客户端可见验收优先使用 OpenAI SDK 或独立 Python/curl 验证标准 Models API，再运行聚焦 Rust 契约测试；
-7. 按仓库默认基线运行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`。
-
-这些检查只能证明 OpenBridge 自有 registry 和 HTTP 契约，不证明 LiteLLM/OpenRouter 目录新鲜度、真实 Provider 的长期能力、负载表现或生产兼容性。当前只完成设计文档，尚未修改代码或执行运行时验证。
+这些检查只证明 OpenBridge 自有 registry、planner 和 HTTP 契约，不证明 LiteLLM/OpenRouter 目录新鲜度、真实 Provider 能力、外部 SDK、负载或长期运行兼容性。
 
 ## 6. 结论
 
-LiteLLM 最值得借鉴的是能力目录的字段宽度和 `mode`/`supports_*` 的可枚举化；但 `/model/info` 和 `/model_group/info` 明确展示了 deployment/聚合边界，不能原样对外。OpenRouter 最值得借鉴的是以单一 `Model` 对象组织 canonical identity、architecture、context、supported parameters 和 reasoning；但 `pricing`、`benchmarks`、`top_provider` 与 endpoint 详情应与协议能力隔离。
+LiteLLM 最值得借鉴的是能力目录字段宽度与 mode、supports 类字段的可枚举化；其 model/info 和 model_group/info 混有 deployment 信息，不能原样公开。OpenRouter 最值得借鉴的是用同一个 Model 对象组织 identity、architecture、context、supported parameters 和 reasoning；pricing、benchmarks、top_provider 与 endpoint 详情仍不属于 OpenBridge 的模型能力契约。
 
-OpenBridge 的最终落点不是“给现有 `ModelConfig` 多序列化几个字段”，而是建立独立的 Public Model capability contract：公共身份和模型固有能力显式声明，Chat/Responses 用 guaranteed + anonymous complete profiles 表达真正可调用的组合，私有 route/deployment 只负责证明和实现该契约。对外提供 OpenAI 标准 Models、扩展模型列表和扩展单模型详情三类接口，且所有响应来自同一份编译后的 `PublicModelInfo`。
+OpenBridge 的落点是一份由 registry 预编译的 PublicModelInfo：标准接口只投影四个身份字段，扩展接口返回模型事实与每协议唯一固定契约，请求预检读取同一对象。能力用于正确拒绝客户端已选择模型不支持的请求，不用于选模、Route 筛选或 Route 重排。
 
 ## 7. 来源与复核入口
 

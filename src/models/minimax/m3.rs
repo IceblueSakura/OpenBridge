@@ -11,7 +11,7 @@ pub(crate) fn config() -> ModelConfig {
             "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(512_000)),
+        context_length: ModelContextLength::new(Some(1_048_576), None, Some(512_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

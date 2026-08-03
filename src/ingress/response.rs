@@ -43,11 +43,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             "invalid_request_error",
             "Request body is invalid",
         ),
-        RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => api_error(
-            StatusCode::NOT_FOUND,
-            "model_not_found",
-            "The requested model is not available",
-        ),
+        RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => model_not_found(),
         RequestPlanningError::UnimplementedCapabilities => api_error(
             StatusCode::BAD_REQUEST,
             "unimplemented_request",
@@ -60,8 +56,8 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
         | RequestPlanningError::ReasoningUnsupported
         | RequestPlanningError::ReasoningLevelUnsupported => api_error(
             StatusCode::BAD_REQUEST,
-            "unsupported_request",
-            "The selected model does not support this request",
+            "unsupported_model_capability",
+            "The selected model does not support the requested capability",
         ),
     }
 }
@@ -97,13 +93,33 @@ struct ErrorBody {
 
 /// 构造不包含上游正文、凭证或内部拓扑的 OpenAI-compatible error envelope。
 pub(super) fn api_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+    api_error_with_param(status, code, message, None)
+}
+
+/// 构造不区分内部存在性、并把错误定位到 `model` 参数的 404 响应。
+pub(super) fn model_not_found() -> Response {
+    api_error_with_param(
+        StatusCode::NOT_FOUND,
+        "model_not_found",
+        "The requested model does not exist or is not available",
+        Some("model"),
+    )
+}
+
+/// 构造可选定位到标准请求参数的统一错误 envelope。
+fn api_error_with_param(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+    param: Option<&'static str>,
+) -> Response {
     (
         status,
         Json(ErrorEnvelope {
             error: ErrorBody {
                 message,
                 r#type: "invalid_request_error",
-                param: None,
+                param,
                 code,
             },
         }),

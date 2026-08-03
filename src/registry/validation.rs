@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use url::Url;
 
 use super::{
-    ModelConfig, ModelContextLength, ModelInfo, ReasoningLevel, ReasoningLevelMapping,
-    ReasoningSupport, RegistryError, UpstreamApiModelRules,
+    ModelConfig, ModelContextLength, ModelInfo, ModelLifecycleStatus, PublicModelConfig,
+    ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError, UpstreamApiModelRules,
 };
 
 /// 校验 canonical 模型字段、参数名称和 reasoning 配置的一致性。
@@ -30,13 +30,20 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             field: "description",
         });
     }
-    // 阻止预留模型字段在有效能力计算实现前进入运行时 registry。
-    if model.mode.is_some() || model.input_modalities.is_some() || model.output_modalities.is_some()
-    {
-        unimplemented!("model mode and modality processing is not implemented");
-    }
+    // 校验显式模型模态是非空、无重复的已知事实集合。
+    validate_model_modalities(
+        &model.id,
+        "input_modalities",
+        model.input_modalities.as_deref(),
+    )?;
+    validate_model_modalities(
+        &model.id,
+        "output_modalities",
+        model.output_modalities.as_deref(),
+    )?;
     // 校验已知上下文限制为正数。
     for (limit, value) in [
+        ("context", model.context_length.context_tokens()),
         ("input", model.context_length.input_tokens()),
         ("output", model.context_length.output_tokens()),
     ] {
@@ -46,6 +53,21 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
                 limit,
             });
         }
+    }
+    if model.context_length.input_tokens().is_some_and(|input| {
+        model
+            .context_length
+            .context_tokens()
+            .is_some_and(|context| input > context)
+    }) || model.context_length.output_tokens().is_some_and(|output| {
+        model
+            .context_length
+            .context_tokens()
+            .is_some_and(|context| output > context)
+    }) {
+        return Err(RegistryError::InconsistentModelContextLength {
+            model: model.id.clone(),
+        });
     }
     // 校验支持参数名称格式和唯一性。
     let mut seen = BTreeSet::new();
@@ -67,6 +89,97 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
     validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
         |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
     )
+}
+
+/// 校验一个显式模态集合不为空且不包含重复值。
+fn validate_model_modalities<T: Copy + Ord>(
+    model: &str,
+    field: &'static str,
+    modalities: Option<&[T]>,
+) -> Result<(), RegistryError> {
+    let Some(modalities) = modalities else {
+        return Ok(());
+    };
+    let mut seen = BTreeSet::new();
+    if modalities.is_empty() || modalities.iter().any(|modality| !seen.insert(*modality)) {
+        return Err(RegistryError::InconsistentModelCapabilities {
+            model: model.to_owned(),
+            field,
+        });
+    }
+    Ok(())
+}
+
+/// 校验 Public Model 的公共身份、稳定时间和生命周期一致性。
+pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<(), RegistryError> {
+    // 校验公开 id 是可安全放入单段 URL path 的稳定标识。
+    let mut characters = model.id.chars();
+    let valid_id = model.id.len() <= 128
+        && characters
+            .next()
+            .is_some_and(|value| value.is_ascii_alphanumeric())
+        && characters.all(|value| value.is_ascii_alphanumeric() || "._:-".contains(value));
+    if !valid_id {
+        return Err(RegistryError::InvalidPublicModelId {
+            public_model: model.id.clone(),
+        });
+    }
+
+    // 校验展示字段和稳定创建时间。
+    if model.display_name.trim().is_empty() {
+        return Err(RegistryError::BlankPublicModelField {
+            public_model: model.id.clone(),
+            field: "display_name",
+        });
+    }
+    if model
+        .description
+        .as_deref()
+        .is_some_and(|description| description.trim().is_empty())
+    {
+        return Err(RegistryError::BlankPublicModelField {
+            public_model: model.id.clone(),
+            field: "description",
+        });
+    }
+    if model.created == 0 {
+        return Err(RegistryError::InvalidPublicModelCreated {
+            public_model: model.id.clone(),
+        });
+    }
+
+    // 校验生命周期时间不能早于创建时间且状态与时间字段相符。
+    let invalid_lifecycle = match model.lifecycle.status {
+        ModelLifecycleStatus::Active => {
+            model.lifecycle.deprecated_at.is_some() || model.lifecycle.retired_at.is_some()
+        }
+        ModelLifecycleStatus::Deprecated => {
+            model
+                .lifecycle
+                .deprecated_at
+                .is_none_or(|deprecated| deprecated < model.created)
+                || model.lifecycle.retired_at.is_some()
+        }
+        ModelLifecycleStatus::Retired => {
+            model
+                .lifecycle
+                .retired_at
+                .is_none_or(|retired| retired < model.created)
+                || model.lifecycle.deprecated_at.is_some_and(|deprecated| {
+                    deprecated < model.created
+                        || model
+                            .lifecycle
+                            .retired_at
+                            .is_some_and(|retired| deprecated > retired)
+                })
+        }
+    };
+    if invalid_lifecycle {
+        return Err(RegistryError::InvalidPublicModelLifecycle {
+            public_model: model.id.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// 校验 reasoning level 只在 supported 状态下出现且不重复。
@@ -120,6 +233,12 @@ pub(super) fn apply_model_rules(
     // 先验证上下文长度规则不会扩大 canonical 模型上限。
     validate_model_limit(
         upstream_api,
+        "context_length.context",
+        model.context_length.context_tokens(),
+        rules.context_length.context_tokens(),
+    )?;
+    validate_model_limit(
+        upstream_api,
         "context_length.input",
         model.context_length.input_tokens(),
         rules.context_length.input_tokens(),
@@ -158,20 +277,39 @@ pub(super) fn apply_model_rules(
         .cloned()
         .collect::<Vec<_>>();
     validate_effective_reasoning_config(upstream_api, &supported_parameters, reasoning)?;
+    let context_length = ModelContextLength::new(
+        min_known_limit(
+            model.context_length.context_tokens(),
+            rules.context_length.context_tokens(),
+        ),
+        min_known_limit(
+            model.context_length.input_tokens(),
+            rules.context_length.input_tokens(),
+        ),
+        min_known_limit(
+            model.context_length.output_tokens(),
+            rules.context_length.output_tokens(),
+        ),
+    );
+    if context_length.input_tokens().is_some_and(|input| {
+        context_length
+            .context_tokens()
+            .is_some_and(|context| input > context)
+    }) || context_length.output_tokens().is_some_and(|output| {
+        context_length
+            .context_tokens()
+            .is_some_and(|context| output > context)
+    }) {
+        return Err(RegistryError::InconsistentUpstreamApiModelRules {
+            upstream_api: upstream_api.to_owned(),
+            detail: "effective input or output limit exceeds the total context window",
+        });
+    }
     Ok(ModelInfo {
         id: model.id,
         name: model.name,
         description: model.description,
-        context_length: ModelContextLength::new(
-            min_known_limit(
-                model.context_length.input_tokens(),
-                rules.context_length.input_tokens(),
-            ),
-            min_known_limit(
-                model.context_length.output_tokens(),
-                rules.context_length.output_tokens(),
-            ),
-        ),
+        context_length,
         mode: model.mode,
         input_modalities: model.input_modalities,
         output_modalities: model.output_modalities,

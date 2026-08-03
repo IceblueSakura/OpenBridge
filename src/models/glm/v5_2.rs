@@ -11,7 +11,7 @@ pub(crate) fn config() -> ModelConfig {
             "Large-scale reasoning model for long-horizon agents and project-level software engineering."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), None, Some(131_072)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

@@ -661,6 +661,24 @@ fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
     )
 }
 
+async fn authenticated_response(app: &axum::Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::get(path)
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn authenticated_get(app: &axum::Router, path: &str) -> Value {
+    let response = authenticated_response(app, path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap()
+}
+
 fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
     // 编译真实代码注册表，确保测试使用 mimo-v2.5 的生产 route 顺序与 capability。
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
@@ -833,24 +851,180 @@ async fn provider_request_header_hook_overrides_user_agent_for_upstream() {
 #[tokio::test]
 async fn models_lists_only_public_models_after_authentication() {
     let app = app_with_transport(Arc::new(RecordingTransport::default()));
-    let request = Request::get("/v1/models")
-        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
-    let models: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(models["object"], "list");
+    // 标准列表只返回 OpenAI Model 的四个标准字段。
+    let standard_list = authenticated_get(&app, "/v1/models").await;
+    assert_eq!(standard_list["object"], "list");
     assert_eq!(
-        models["data"],
+        standard_list["data"],
         serde_json::json!([
-            {"id": "public-model", "object": "model", "owned_by": "openbridge"}
+            {
+                "id": "public-model",
+                "object": "model",
+                "created": 1_785_715_200_u64,
+                "owned_by": "openbridge"
+            }
         ])
     );
-    assert!(!std::str::from_utf8(&body).unwrap().contains("openai-main"));
+
+    // 标准单模型对象与列表元素完全相同，未知 id 使用安全 404。
+    let standard_detail = authenticated_get(&app, "/v1/models/public-model").await;
+    assert_eq!(standard_detail, standard_list["data"][0]);
+    let unknown = authenticated_response(&app, "/v1/models/not-configured").await;
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+    let unknown: Value =
+        serde_json::from_slice(&to_bytes(unknown.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(unknown["error"]["code"], "model_not_found");
+    assert_eq!(unknown["error"]["param"], "model");
+    let unknown = authenticated_response(&app, "/openbridge/v1/models/not-configured").await;
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+    let unknown: Value =
+        serde_json::from_slice(&to_bytes(unknown.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(unknown["error"]["code"], "model_not_found");
+    assert_eq!(unknown["error"]["param"], "model");
+
+    // 扩展列表和单模型接口共享同一个完整能力 DTO。
+    let extended_list = authenticated_get(&app, "/openbridge/v1/models").await;
+    assert_eq!(extended_list["object"], "list");
+    let extended = &extended_list["data"][0];
+    let extended_detail = authenticated_get(&app, "/openbridge/v1/models/public-model").await;
+    assert_eq!(&extended_detail, extended);
+    assert_eq!(extended["schema_version"], "1");
+    assert_eq!(extended["name"], "Test public model");
+    assert_eq!(extended["lifecycle"]["status"], "active");
+    assert_eq!(
+        extended["capabilities"]["context_window"],
+        serde_json::json!({
+            "max_context_tokens": 128_000,
+            "max_input_tokens": null,
+            "max_output_tokens": 8_192
+        })
+    );
+    assert_eq!(
+        extended["interfaces"]["chat_completions"]["tools"]["support"],
+        "supported"
+    );
+    assert_eq!(
+        extended["interfaces"]["chat_completions"]["tools"]["parallel_calls"],
+        "unsupported"
+    );
+    assert_eq!(
+        extended["interfaces"]["responses"]["state"]["previous_response_id"],
+        "unsupported"
+    );
+
+    // 公共对象不得包含部署拓扑、上游模型、endpoint 或 credential pool 标识。
+    let serialized = serde_json::to_string(&extended_list).unwrap();
+    for private_value in [
+        "openai-main",
+        "upstream-model",
+        "api.openai.com",
+        "openai-primary",
+        "routes",
+        "upstream_api",
+    ] {
+        assert!(
+            !serialized.contains(private_value),
+            "leaked {private_value}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn retired_public_models_are_hidden_and_cannot_be_requested() {
+    // 将有效 Public Model 标记为已停用，并保留合法的生命周期时间。
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    definition.public_models[0].lifecycle = openbridge::registry::ModelLifecycle {
+        status: openbridge::registry::ModelLifecycleStatus::Retired,
+        deprecated_at: None,
+        retired_at: Some(definition.public_models[0].created + 1),
+    };
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // 标准与扩展目录共享同一个可见性判断，详情也统一隐藏存在性。
+    for path in ["/v1/models", "/openbridge/v1/models"] {
+        let list = authenticated_get(&app, path).await;
+        assert_eq!(list["data"], serde_json::json!([]));
+    }
+    for path in [
+        "/v1/models/public-model",
+        "/openbridge/v1/models/public-model",
+    ] {
+        let response = authenticated_response(&app, path).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // 生成路径读取相同目录，停用模型必须在任何 egress 前返回 404。
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn unsupported_public_model_capability_fails_before_any_upstream_attempt() {
+    // 构造 tools 能力较弱的首选 Route 和能力较强的后续 Route。
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = false;
+    }
+    let mut stronger = definition.upstream_targets[0].clone();
+    stronger.id = "openai-stronger".to_owned();
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut stronger.upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = true;
+    }
+    definition.upstream_targets.push(stronger);
+    definition.routes.push(RouteConfig {
+        id: "stronger-chat".to_owned(),
+        upstream_target: "openai-stronger".to_owned(),
+        upstream_api: "chat".to_owned(),
+        downstream_protocol: ApiProtocol::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes = vec!["public-chat".to_owned(), "stronger-chat".to_owned()];
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // 固定 Public Model 契约在 egress 前拒绝工具请求，不能选择较强 Route。
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert!(transport.requests.lock().unwrap().is_empty());
+
+    // 扩展接口报告同一份交集结果，而不是后续 Route 的额外能力。
+    let detail = authenticated_get(&app, "/openbridge/v1/models/public-model").await;
+    assert_eq!(
+        detail["interfaces"]["chat_completions"]["tools"]["support"],
+        "unsupported"
+    );
 }
 
 #[tokio::test]
@@ -1609,21 +1783,17 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
 
 #[tokio::test]
 async fn mimo_responses_native_preserves_parallel_tool_stream() {
-    // 构造实际 compiled MiMo route 和包含全部已声明能力的下游请求。
+    // 构造实际 compiled MiMo Route 和 Native/Bridge 都保证的并行工具请求。
     let transport = Arc::new(MimoResponsesToolStreamTransport::default());
     let app = app_with_compiled_registry(transport.clone());
     let request_body = r#"{
         "model":"mimo-v2.5",
-        "input":[{"role":"user","content":[
-            {"type":"input_text","text":"查天气和时间"},
-            {"type":"input_image","image_url":"https://example.invalid/context.png"}
-        ]}],
+        "input":"查天气和时间",
         "stream":true,
         "parallel_tool_calls":true,
-        "text":{"format":{"type":"json_schema","name":"tool_result","schema":{"type":"object"}}},
         "tools":[
-            {"type":"function","name":"lookup_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}},"strict":true},
-            {"type":"function","name":"lookup_time","parameters":{"type":"object","properties":{"tz":{"type":"string"}}},"strict":true}
+            {"type":"function","name":"lookup_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}},
+            {"type":"function","name":"lookup_time","parameters":{"type":"object","properties":{"tz":{"type":"string"}}}}
         ]
     }"#;
 
@@ -1667,7 +1837,7 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
     assert_eq!(tool_calls[1].name(), "lookup_time");
     assert_eq!(tool_calls[1].arguments(), r#"{"tz":"Asia/Shanghai"}"#);
 
-    // 确认请求仍走 MiMo Responses endpoint，并保留完整 capability 组合与模型名。
+    // 确认请求仍走 MiMo Responses endpoint，并保留共同能力组合与模型名。
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].path, "/v1/responses");
@@ -1675,11 +1845,7 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
     assert_eq!(requests[0].body["model"], "mimo-v2.5");
     assert_eq!(requests[0].body["stream"], true);
     assert_eq!(requests[0].body["parallel_tool_calls"], true);
-    assert_eq!(
-        requests[0].body["input"][0]["content"][1]["type"],
-        "input_image"
-    );
-    assert_eq!(requests[0].body["text"]["format"]["type"], "json_schema");
+    assert_eq!(requests[0].body["input"], "查天气和时间");
     assert_eq!(requests[0].body["tools"].as_array().unwrap().len(), 2);
 }
 

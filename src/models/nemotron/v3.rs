@@ -14,7 +14,7 @@ pub(crate) fn ultra() -> ModelConfig {
             "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(512_288), None),
+        context_length: ModelContextLength::new(Some(512_288), None, None),
         mode: None,
         input_modalities: None,
         output_modalities: None,

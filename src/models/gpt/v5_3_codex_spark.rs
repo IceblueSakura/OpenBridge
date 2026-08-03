@@ -8,7 +8,7 @@ pub(crate) fn config() -> ModelConfig {
         id: "openai/gpt-5.3-codex-spark".to_owned(),
         name: "GPT-5.3 Codex Spark".to_owned(),
         description: None,
-        context_length: ModelContextLength::new(Some(128_000), Some(128_000)),
+        context_length: ModelContextLength::new(Some(128_000), None, Some(128_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

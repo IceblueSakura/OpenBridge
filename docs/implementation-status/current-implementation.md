@@ -30,7 +30,10 @@ Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential 
 | `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
 | `GET /openapi.yaml` | 返回当前构建内置的 OpenAPI 3.0.3 YAML | 无 |
 | `GET /swagger-ui`、`GET /swagger-ui/` | 返回用于本地接口测试的 Swagger UI 页面 | 无 |
-| `GET /v1/models` | 返回代码注册的 Public Model | 静态 Bearer |
+| `GET /v1/models` | 返回代码注册 Public Model 的 OpenAI 标准四字段列表 | 静态 Bearer |
+| `GET /v1/models/{model}` | 返回一个 OpenAI 标准四字段 Model 对象 | 静态 Bearer |
+| `GET /openbridge/v1/models` | 返回 Public Model 模型事实与固定接口能力列表 | 静态 Bearer |
+| `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象 | 静态 Bearer |
 | `POST /v1/chat/completions` | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE | 静态 Bearer |
 | `POST /v1/responses` | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE | 静态 Bearer |
 
@@ -88,11 +91,19 @@ embedding/rerank 因当前没有对应协议模型类型而未纳入 `ModelConfi
 canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
+Public Model 现在拥有稳定 `id`、`created`、展示元数据和生命周期。registry 为每个下游协议把全部静态可执行
+Route 编译为一个固定 `ModelInterfaceCapabilities`：布尔能力仅在全部 Route 支持时为 `supported`，token
+上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持 `unknown`/`null`。
+同一个预编译 `PublicModelInfo` 同时生成标准 Models 投影、扩展 Models 响应和请求能力预检，不包含 Provider、
+Target、Route、upstream model、endpoint、credential、健康或价格信息。retired 或没有可执行接口的 Public Model
+不进入可见目录。
+
 请求路径当前会：
 
 - 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按
   `pool_id + member_id + ProviderKind + CredentialKind` 借用上游 Key 及其非敏感元数据；
-- 在 egress 前校验 Public Model、协议、streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；
+- 在查看 Route 候选前，用所选 Public Model 的唯一协议契约校验 streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；不支持时返回 `unsupported_model_capability`，且不调用上游；
+- 能力校验通过后保持 Public Model 的原 Route 顺序；不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
 - 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
   当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；
 - 对 Native Route 按选定 Upstream API 的已校验代码规则映射 reasoning level；映射仅修改候选请求副本，
@@ -150,7 +161,7 @@ credential 覆盖，只加载选中 target 的 pool 并固定使用首个 member
 ## 验证状态
 
 仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
-capability routing、`/v1/models`、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
+固定 Public Model 能力预检、标准/扩展 Models list/retrieve、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 credential round-robin/429 rotation/member cooldown、fault domain cooldown、continuation 单成员约束、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
 HTTP 429 process replay 和 probe。
@@ -272,17 +283,30 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   logprobs 与 multiple choices；Responses 预留 custom/hosted tools、file input、conversation、prompt template、prompt
   caching、context management、标准 `include` 枚举、moderation 与 logprobs。所有 Provider contract 和 Upstream API
   definition 均保持新增字段为 `false` 或空集合。
-- 没有增加对应 Bridge、adapter 或 Provider 实现。进入 registry 编译的 Model 或 Upstream API definition 若启用任一
-  预留字段，仍触发带稳定说明的 `unimplemented!`；请求分析会逐协议识别 custom/hosted tool、audio/file、predicted
+- 没有增加对应 Bridge、adapter 或 Provider 请求实现。Model 的 mode 与输入/输出模态已进入 registry 和扩展模型信息；
+  Upstream API definition 若启用任一尚未实现的协议能力，仍触发带稳定说明的 `unimplemented!`。请求分析会逐协议识别 custom/hosted tool、audio/file、predicted
   output、web search、prompt cache、conversation、prompt template、context management、include、moderation、logprobs
   与 multiple choices 等已预留 wire 语义，并在 route/egress 前返回 `UnimplementedCapabilities`。Ingress 将其映射为
   HTTP 400、code `unimplemented_request`；真正未知的 tool type 继续返回既有 `UnsupportedCapabilities`。
-- `capability_definition_contract` 6 个测试逐项覆盖 3 个 Model、10 个 Chat definition、10 个 Responses definition、
+- `capability_definition_contract` 覆盖 Model mode/模态编译，以及 10 个 Chat definition、10 个 Responses definition、
   10 个 Chat 请求和 10 个 Responses 请求预留触发点；`native_routing_contract` 11 个、`bridge_forwarding_contract` 9 个
   和 `provider_boundary_contract` 16 个测试通过。随后 `cargo fmt -- --check`、`cargo test --locked`、
   `cargo clippy --locked --all-targets -- -D warnings` 与 `git diff --check` 均通过。全量 Rust 结果为 158 个测试通过、
   1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored；没有修改 protocol corpus，也没有运行外部 SDK、真实
   Provider、负载或长期验证。
+
+2026-08-03 完成固定 Public Model 能力契约与模型信息接口：
+
+- `PublicModelInfo` 现在包含稳定标准身份、生命周期、模型事实，以及 Chat Completions/Responses 各自唯一的
+  `ModelInterfaceCapabilities`；同一个 registry 编译对象同时驱动标准四字段投影、扩展 list/detail 和请求预检。
+- 固定接口能力由对应协议的全部静态可执行 Route 保守相交。请求只校验客户端明确选择的 Public Model；能力不足或
+  未知时在 egress 前返回 HTTP 400 `unsupported_model_capability`，不会改选模型、跳过 Route 或重排 fallback。
+- 已接入 `GET /v1/models`、`GET /v1/models/{model}`、`GET /openbridge/v1/models` 和
+  `GET /openbridge/v1/models/{model}`。四个接口共享 Bearer 认证和不可变可见目录；未知或 retired 模型统一隐藏，
+  扩展响应不包含 Provider、Target、Route、upstream model、endpoint、credential、健康、价格或指标。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；
+  全量 Rust 结果为 164 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。未修改 `testdata/`
+  或 `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
 
 ## 当前未实现
 

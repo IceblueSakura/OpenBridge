@@ -11,7 +11,7 @@ pub(crate) fn config() -> ModelConfig {
             "Tencent Mixture-of-Experts model for configurable reasoning and production agent workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(262_144), Some(128_000)),
+        context_length: ModelContextLength::new(Some(262_144), None, Some(128_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

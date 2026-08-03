@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    InputModality, ModelContextLength, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport,
-    RouteMode, StateAffinity, TransportKind, UpstreamApiCapabilities,
+    InputModality, ModelContextLength, ModelMode, OutputModality, PublicModel, ReasoningLevel,
+    ReasoningSupport, RouteMode, StateAffinity, TransportKind, UpstreamApiCapabilities,
 };
 
 /// 启动后供请求路径读取的模型元数据。
@@ -163,12 +163,16 @@ impl RuntimeRegistry {
 
     /// 按下游公开名称查询 Public Model。
     pub fn public_model(&self, name: &str) -> Option<&PublicModel> {
-        self.public_models.get(name)
+        self.public_models
+            .get(name)
+            .filter(|model| model.is_available())
     }
 
     /// 枚举下游 `/v1/models` 可公开的 Public Model。
-    pub fn public_models(&self) -> impl Iterator<Item = &str> {
-        self.public_models.keys().map(String::as_str)
+    pub fn public_models(&self) -> impl Iterator<Item = &PublicModel> {
+        self.public_models
+            .values()
+            .filter(|model| model.is_available())
     }
 }
 
@@ -379,18 +383,5 @@ impl Route {
     /// 返回 route 的处理模式。
     pub fn mode(&self) -> RouteMode {
         self.mode
-    }
-}
-
-/// 已解析的下游 Public Model 及有序 route 列表。
-#[derive(Debug)]
-pub struct PublicModel {
-    pub(super) routes: Vec<String>,
-}
-
-impl PublicModel {
-    /// 返回按优先级排列的 route id。
-    pub fn routes(&self) -> &[String] {
-        &self.routes
     }
 }

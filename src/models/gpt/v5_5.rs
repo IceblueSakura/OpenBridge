@@ -11,7 +11,7 @@ pub(crate) fn config() -> ModelConfig {
             "OpenAI frontier model for complex professional work with strong reasoning and reliability."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(128_000)),
+        context_length: ModelContextLength::new(Some(1_050_000), None, Some(128_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

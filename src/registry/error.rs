@@ -121,6 +121,20 @@ pub enum RegistryError {
         /// 不合法的长度字段名。
         limit: &'static str,
     },
+    /// canonical 模型的输入或输出上限超过总上下文窗口。
+    #[error("model '{model}' input or output limit exceeds its total context window")]
+    InconsistentModelContextLength {
+        /// 不合法的模型 id。
+        model: String,
+    },
+    /// canonical 模型的显式任务或模态事实不一致。
+    #[error("model '{model}' field '{field}' must be a non-empty unique capability set")]
+    InconsistentModelCapabilities {
+        /// 不合法的模型 id。
+        model: String,
+        /// 不一致的能力字段名。
+        field: &'static str,
+    },
     /// canonical 模型参数名不符合受限 wire 名称格式。
     #[error("model '{model}' declares invalid supported parameter '{parameter}'")]
     InvalidSupportedParameter {
@@ -206,6 +220,32 @@ pub enum RegistryError {
     BridgedRouteProtocolMatch {
         /// 协议方向无转换意义的 route id。
         route: String,
+    },
+    /// Public Model id 不是安全的单段 URL 资源标识。
+    #[error("public model '{public_model}' id is not a safe URL path segment")]
+    InvalidPublicModelId {
+        /// 不合法的 Public Model id。
+        public_model: String,
+    },
+    /// Public Model 的公共展示字段为空。
+    #[error("public model '{public_model}' field '{field}' must not be blank")]
+    BlankPublicModelField {
+        /// 不合法的 Public Model id。
+        public_model: String,
+        /// 为空的公共字段名。
+        field: &'static str,
+    },
+    /// Public Model 没有有效的稳定创建时间。
+    #[error("public model '{public_model}' created timestamp must be greater than zero")]
+    InvalidPublicModelCreated {
+        /// 不合法的 Public Model id。
+        public_model: String,
+    },
+    /// Public Model 的生命周期状态与时间不一致。
+    #[error("public model '{public_model}' has inconsistent lifecycle timestamps")]
+    InvalidPublicModelLifecycle {
+        /// 不合法的 Public Model id。
+        public_model: String,
     },
     /// Public Model 重复引用同一个 route。
     #[error("public model '{public_model}' contains duplicate route '{route}'")]

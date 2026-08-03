@@ -1,25 +1,35 @@
 //! OpenAI-compatible endpoint 与健康检查 handler。
 
-use axum::{Extension, Json, extract::State, response::Response};
+use axum::{
+    Extension, Json,
+    extract::{Path, State},
+    response::{IntoResponse, Response},
+};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 use serde::Serialize;
 
-use crate::{core::ApiProtocol, observability::RequestObservation};
+use crate::{
+    core::ApiProtocol,
+    observability::RequestObservation,
+    registry::{PublicModelInfo, StandardModel},
+};
 
-use super::{forwarding::forward_request, response::api_error, state::GatewayState};
+use super::{
+    forwarding::forward_request,
+    response::{api_error, model_not_found},
+    state::GatewayState,
+};
 
 /// 只从不可变 registry 生成 Public Model 列表，不暴露上游模型或 target。
-pub(super) async fn models(State(state): State<GatewayState>) -> Json<ModelListResponse> {
-    // 读取稳定的 Public Model id 并构造 OpenAI-compatible list envelope。
+pub(super) async fn models(
+    State(state): State<GatewayState>,
+) -> Json<ModelListResponse<StandardModel>> {
+    // 从完整 Public Model 信息投影严格的 OpenAI 标准四字段对象。
     let data = state
         .registry
         .public_models()
-        .map(|id| PublicModel {
-            id: id.to_owned(),
-            object: "model",
-            owned_by: "openbridge",
-        })
+        .map(|model| model.standard().clone())
         .collect();
     Json(ModelListResponse {
         object: "list",
@@ -27,17 +37,52 @@ pub(super) async fn models(State(state): State<GatewayState>) -> Json<ModelListR
     })
 }
 
-#[derive(Serialize)]
-pub(super) struct ModelListResponse {
-    object: &'static str,
-    data: Vec<PublicModel>,
+/// 返回一个 Public Model 的 OpenAI 标准四字段投影。
+pub(super) async fn model(
+    State(state): State<GatewayState>,
+    Path(model): Path<String>,
+) -> Response {
+    // 查询与列表相同的不可变目录并隐藏所有内部模型或部署信息。
+    state
+        .registry
+        .public_model(&model)
+        .map(|model| Json(model.standard().clone()).into_response())
+        .unwrap_or_else(model_not_found)
+}
+
+/// 返回全部 Public Model 的 OpenBridge 扩展能力对象。
+pub(super) async fn extended_models(
+    State(state): State<GatewayState>,
+) -> Json<ModelListResponse<PublicModelInfo>> {
+    // 克隆预编译 DTO，handler 不在请求期间遍历 Route 或重新推导能力。
+    let data = state
+        .registry
+        .public_models()
+        .map(|model| model.info().clone())
+        .collect();
+    Json(ModelListResponse {
+        object: "list",
+        data,
+    })
+}
+
+/// 返回一个 Public Model 的完整 OpenBridge 扩展能力对象。
+pub(super) async fn extended_model(
+    State(state): State<GatewayState>,
+    Path(model): Path<String>,
+) -> Response {
+    // 复用扩展列表的同一个预编译 DTO，保证逐字段一致。
+    state
+        .registry
+        .public_model(&model)
+        .map(|model| Json(model.info().clone()).into_response())
+        .unwrap_or_else(model_not_found)
 }
 
 #[derive(Serialize)]
-struct PublicModel {
-    id: String,
+pub(super) struct ModelListResponse<T> {
     object: &'static str,
-    owned_by: &'static str,
+    data: Vec<T>,
 }
 
 /// 接收 Chat Completions JSON 请求，并交给统一 forwarding pipeline。

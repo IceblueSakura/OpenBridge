@@ -10,8 +10,9 @@ use openbridge::{
     },
     provider::{CredentialKind, ProviderKind},
     registry::{
-        ModelContextLength, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
-        ReasoningSupport, RegistryError, UpstreamApiCapabilities, build_registry,
+        ModelContextLength, ModelLifecycle, ModelLifecycleStatus, PublicModelConfig,
+        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError,
+        UpstreamApiCapabilities, build_registry,
     },
 };
 
@@ -115,10 +116,18 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
 #[test]
 fn model_config_and_typed_rules_are_validated() {
     let mut invalid = definition("test", "code-primary", "test-model");
-    invalid.models[0].context_length = ModelContextLength::new(None, Some(0));
+    invalid.models[0].context_length = ModelContextLength::new(None, None, Some(0));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), invalid),
         Err(RegistryError::InvalidModelContextLength { .. })
+    ));
+
+    let mut inconsistent_context = definition("test", "code-primary", "test-model");
+    inconsistent_context.models[0].context_length =
+        ModelContextLength::new(Some(4_096), None, Some(8_192));
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), inconsistent_context),
+        Err(RegistryError::InconsistentModelContextLength { .. })
     ));
 
     let mut duplicate = definition("test", "code-primary", "test-model");
@@ -160,7 +169,7 @@ fn upstream_api_rules_only_reduce_model_info() {
     definition.models[0].reasoning = ReasoningSupport::Supported;
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
-        .context_length = ModelContextLength::new(Some(64_000), Some(4_096));
+        .context_length = ModelContextLength::new(Some(64_000), None, Some(4_096));
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
         .reasoning = Some(ReasoningSupport::Unsupported);
@@ -189,19 +198,63 @@ fn upstream_api_rules_cannot_widen_model_info() {
     let mut widened = definition("test", "code-primary", "test-model");
     widened.upstream_targets[0].upstream_apis[0]
         .model_rules
-        .context_length = ModelContextLength::new(None, Some(8_193));
+        .context_length = ModelContextLength::new(None, None, Some(8_193));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), widened),
         Err(RegistryError::UpstreamApiModelLimitExceedsModel { .. })
     ));
 
-    let mut definition = definition("test", "code-primary", "test-model");
-    definition.upstream_targets[0].upstream_apis[0]
+    let mut widened_reasoning = definition("test", "code-primary", "test-model");
+    widened_reasoning.upstream_targets[0].upstream_apis[0]
         .model_rules
         .reasoning = Some(ReasoningSupport::Supported);
     assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), definition),
+        build_registry(bootstrap(BOOTSTRAP), widened_reasoning),
         Err(RegistryError::UpstreamApiModelRuleWidensModel { .. })
+    ));
+
+    let mut inconsistent = definition("test", "code-primary", "test-model");
+    inconsistent.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .context_length = ModelContextLength::new(Some(4_096), None, None);
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), inconsistent),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
+}
+
+#[test]
+fn public_model_identity_and_lifecycle_are_validated() {
+    let mut invalid_id = definition("test", "code-primary", "test-model");
+    invalid_id.public_models[0].id = "provider/model".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_id),
+        Err(RegistryError::InvalidPublicModelId { .. })
+    ));
+
+    let mut missing_created = definition("test", "code-primary", "test-model");
+    missing_created.public_models[0].created = 0;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), missing_created),
+        Err(RegistryError::InvalidPublicModelCreated { .. })
+    ));
+
+    let mut blank_name = definition("test", "code-primary", "test-model");
+    blank_name.public_models[0].display_name = "  ".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), blank_name),
+        Err(RegistryError::BlankPublicModelField { .. })
+    ));
+
+    let mut invalid_lifecycle = definition("test", "code-primary", "test-model");
+    invalid_lifecycle.public_models[0].lifecycle = ModelLifecycle {
+        status: ModelLifecycleStatus::Deprecated,
+        deprecated_at: None,
+        retired_at: None,
+    };
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_lifecycle),
+        Err(RegistryError::InvalidPublicModelLifecycle { .. })
     ));
 }
 
@@ -312,7 +365,11 @@ fn registry_rejects_duplicate_and_unknown_references() {
 
     let mut duplicate_candidate = definition("test", "code-primary", "test-model");
     duplicate_candidate.public_models = vec![PublicModelConfig {
-        name: "code-primary".to_owned(),
+        id: "code-primary".to_owned(),
+        created: 1_785_715_200,
+        display_name: "Code Primary".to_owned(),
+        description: None,
+        lifecycle: ModelLifecycle::active(),
         routes: vec!["public-chat".to_owned(), "public-chat".to_owned()],
     }];
     assert!(matches!(

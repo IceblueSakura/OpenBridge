@@ -29,7 +29,9 @@ use crate::{
 
 use super::{
     auth,
-    handlers::{chat_completions, health, models, responses},
+    handlers::{
+        chat_completions, extended_model, extended_models, health, model, models, responses,
+    },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
     response::api_error,
@@ -67,6 +69,9 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
         .route("/v1/models", get(models))
+        .route("/v1/models/{model}", get(model))
+        .route("/openbridge/v1/models", get(extended_models))
+        .route("/openbridge/v1/models/{model}", get(extended_model))
         .route_layer(middleware::from_fn_with_state(
             DownstreamAuthState {
                 users: state.users.clone(),

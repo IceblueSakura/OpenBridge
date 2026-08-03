@@ -14,7 +14,7 @@ pub(crate) fn config() -> ModelConfig {
             "Balanced GPT-5.6 model for everyday coding, reasoning, and agentic workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(128_000)),
+        context_length: ModelContextLength::new(Some(1_050_000), None, Some(128_000)),
         mode: None,
         input_modalities: None,
         output_modalities: None,

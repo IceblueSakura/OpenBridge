@@ -5,11 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::BootstrapConfig;
 
 use super::{
-    CredentialPoolBinding, ModelInfo, PublicModel, RegistryConfig, RegistryError, RegistryVersion,
-    Route, RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
+    CredentialPoolBinding, ModelInfo, RegistryConfig, RegistryError, RegistryVersion, Route,
+    RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
+    public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
-        validate_reasoning_level_mappings,
+        validate_public_model_config, validate_reasoning_level_mappings,
     },
 };
 
@@ -241,40 +242,57 @@ pub fn build_registry(
     // 校验 Public Model 的 route 顺序、唯一性和完整引用。
     let mut public_models = BTreeMap::new();
     for public_model in definition.public_models {
+        validate_public_model_config(&public_model)?;
         if public_model.routes.is_empty() {
             return Err(RegistryError::EmptyPublicModel {
-                public_model: public_model.name,
+                public_model: public_model.id,
             });
         }
         let mut seen = BTreeSet::new();
-        for route in &public_model.routes {
-            if !seen.insert(route) {
+        let mut bindings = Vec::with_capacity(public_model.routes.len());
+        for route_id in &public_model.routes {
+            if !seen.insert(route_id) {
                 return Err(RegistryError::DuplicatePublicModelRoute {
-                    public_model: public_model.name,
-                    route: route.clone(),
+                    public_model: public_model.id,
+                    route: route_id.clone(),
                 });
             }
-            if !routes.contains_key(route) {
-                return Err(RegistryError::UnknownReference {
+            let route = routes
+                .get(route_id)
+                .ok_or_else(|| RegistryError::UnknownReference {
                     entity: "public model",
-                    id: public_model.name,
+                    id: public_model.id.clone(),
                     target: "route",
-                    reference: route.clone(),
-                });
-            }
+                    reference: route_id.clone(),
+                })?;
+            let target = upstream_targets
+                .get(route.upstream_target())
+                .ok_or_else(|| RegistryError::UnknownReference {
+                    entity: "public model",
+                    id: public_model.id.clone(),
+                    target: "upstream target",
+                    reference: route.upstream_target().to_owned(),
+                })?;
+            let upstream_api = target.upstream_api(route.upstream_api()).ok_or_else(|| {
+                RegistryError::UnknownReference {
+                    entity: "public model",
+                    id: public_model.id.clone(),
+                    target: "upstream API",
+                    reference: format!("{}/{}", route.upstream_target(), route.upstream_api()),
+                }
+            })?;
+            bindings.push(PublicRouteBinding {
+                route,
+                upstream_api,
+                target_enabled: target.enabled(),
+            });
         }
-        if public_models
-            .insert(
-                public_model.name.clone(),
-                PublicModel {
-                    routes: public_model.routes,
-                },
-            )
-            .is_some()
-        {
+        let id = public_model.id.clone();
+        let resolved = compile_public_model(public_model, &bindings);
+        if public_models.insert(id.clone(), resolved).is_some() {
             return Err(RegistryError::DuplicateId {
                 entity: "public model",
-                id: public_model.name,
+                id,
             });
         }
     }

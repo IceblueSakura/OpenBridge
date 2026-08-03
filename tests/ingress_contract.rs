@@ -77,6 +77,9 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
     assert!(spec.contains("openapi: 3.0.3"));
     assert!(spec.contains("/healthz:"));
     assert!(spec.contains("/v1/models:"));
+    assert!(spec.contains("/v1/models/{model}:"));
+    assert!(spec.contains("/openbridge/v1/models:"));
+    assert!(spec.contains("/openbridge/v1/models/{model}:"));
     assert!(spec.contains("/v1/chat/completions:"));
     assert!(spec.contains("/v1/responses:"));
 

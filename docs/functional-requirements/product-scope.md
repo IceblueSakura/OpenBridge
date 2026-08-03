@@ -44,7 +44,8 @@ credential、endpoint 和内部 Route。
 | 接口 | 当前用途 |
 |---|---|
 | `GET /healthz` | 返回最小本地存活状态和注册表版本。 |
-| `GET /v1/models` | 返回代码注册的 Public Model。 |
+| `GET /v1/models`、`GET /v1/models/{model}` | 返回代码注册 Public Model 的 OpenAI 标准四字段 list/retrieve。 |
+| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一目录的模型事实与每协议固定能力契约。 |
 | `POST /v1/chat/completions` | 在已声明能力和完整 Route 内提供 OpenAI-compatible Chat JSON/SSE。 |
 | `POST /v1/responses` | 在已声明能力和完整 Route 内提供 OpenAI-compatible Responses JSON/SSE。 |
 

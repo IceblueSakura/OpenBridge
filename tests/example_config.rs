@@ -60,7 +60,8 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .iter()
         .find(|model| model.id == "meituan/longcat-2.0")
         .expect("OpenRouter LongCat id is canonical");
-    assert_eq!(longcat.context_length.input_tokens(), Some(1_048_756));
+    assert_eq!(longcat.context_length.context_tokens(), Some(1_048_756));
+    assert_eq!(longcat.context_length.input_tokens(), None);
     assert_eq!(longcat.context_length.output_tokens(), Some(262_144));
 
     let sol = definition
@@ -68,7 +69,8 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .iter()
         .find(|model| model.id == "openai/gpt-5.6-sol")
         .unwrap();
-    assert_eq!(sol.context_length.input_tokens(), Some(1_050_000));
+    assert_eq!(sol.context_length.context_tokens(), Some(1_050_000));
+    assert_eq!(sol.context_length.input_tokens(), None);
     assert_eq!(sol.context_length.output_tokens(), Some(128_000));
     assert_eq!(
         sol.reasoning_levels,
@@ -103,7 +105,8 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .iter()
         .find(|model| model.id == "openai/gpt-5.3-codex-spark")
         .unwrap();
-    assert_eq!(codex_spark.context_length.input_tokens(), Some(128_000));
+    assert_eq!(codex_spark.context_length.context_tokens(), Some(128_000));
+    assert_eq!(codex_spark.context_length.input_tokens(), None);
     assert_eq!(codex_spark.context_length.output_tokens(), Some(128_000));
     assert_eq!(
         codex_spark.reasoning_levels,
@@ -121,7 +124,8 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .iter()
         .find(|model| model.id == "deepseek/deepseek-v4-pro")
         .unwrap();
-    assert_eq!(deepseek.context_length.input_tokens(), Some(1_048_576));
+    assert_eq!(deepseek.context_length.context_tokens(), Some(1_048_576));
+    assert_eq!(deepseek.context_length.input_tokens(), None);
     assert_eq!(deepseek.context_length.output_tokens(), Some(384_000));
     assert_eq!(
         deepseek.reasoning_levels,
@@ -154,7 +158,8 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .iter()
         .find(|model| model.id == "nvidia/nemotron-3-ultra-550b-a55b")
         .unwrap();
-    assert_eq!(nemotron.context_length.input_tokens(), Some(512_288));
+    assert_eq!(nemotron.context_length.context_tokens(), Some(512_288));
+    assert_eq!(nemotron.context_length.input_tokens(), None);
     assert_eq!(nemotron.context_length.output_tokens(), None);
     assert!(
         nemotron
@@ -220,9 +225,10 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     );
     assert_eq!(target.endpoint_base().as_str(), "https://api.longcat.chat/");
     assert_eq!(
-        chat.model().context_length().input_tokens(),
+        chat.model().context_length().context_tokens(),
         Some(1_048_756)
     );
+    assert_eq!(chat.model().context_length().input_tokens(), None);
     assert_eq!(chat.model().context_length().output_tokens(), Some(262_144));
     assert_eq!(chat.model().reasoning(), ReasoningSupport::Supported);
     assert!(
@@ -345,7 +351,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         ),
         (
             ApiProtocol::Responses,
-            r#"{"model":"LongCat-2.0","input":"hello","tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}],"reasoning":{}}"#,
+            r#"{"model":"LongCat-2.0","input":"hello","tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
         ),
     ] {
         let body = bytes::Bytes::copy_from_slice(body.as_bytes());
@@ -354,6 +360,14 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .expect("LongCat should remain on the native path for both protocols");
         assert_eq!(plan.upstream_target_id(), "longcat-2");
     }
+
+    // 反向 Bridge 的 reasoning 输出证据未知，因此固定 Responses 契约不能只选择 Native 放行。
+    let body = bytes::Bytes::from(r#"{"model":"LongCat-2.0","input":"hello","reasoning":{}}"#);
+    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+    assert!(matches!(
+        plan_request(&registry, &profile, body),
+        Err(openbridge::pipeline::RequestPlanningError::ReasoningUnsupported)
+    ));
 }
 
 #[test]
@@ -475,18 +489,15 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
         ReasoningOutput::Unknown
     );
 
-    // MiMo 的 reasoning output 未知，因此带 reasoning 的请求只能保留 Native route，不能进入 Bridge。
+    // MiMo 的 Bridge 无法安全表示既有 reasoning item，固定契约不能为此跳过 Bridge 候选。
     let mimo_body = bytes::Bytes::from(
         r#"{"model":"mimo-v2.5","input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"prior"}]}]}"#,
     );
     let mimo_profile = analyze_request(ApiProtocol::Responses, &mimo_body).unwrap();
-    let mimo_plan = plan_request(&registry, &mimo_profile, mimo_body).unwrap();
-    assert_eq!(mimo_plan.candidates().len(), 1);
-    assert_eq!(
-        mimo_plan.candidates()[0].route_id(),
-        "mimo-v2-5-mimo-responses"
-    );
-    assert!(mimo_plan.candidates()[0].bridge().is_none());
+    assert!(matches!(
+        plan_request(&registry, &mimo_profile, mimo_body),
+        Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+    ));
 }
 
 #[test]
@@ -596,26 +607,12 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
         }
 
-        // 验证声明的复杂请求组合均可进入对应 Native-first route。
+        // function tools 属于两个完整 Route 的共同能力，保持 Native-first 和 Bridge fallback。
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
                 format!(
                     r#"{{"model":"{public_name}","messages":[],"tools":[{{"type":"function","function":{{"name":"lookup","parameters":{{"type":"object"}}}}}}],"parallel_tool_calls":true}}"#
-                ),
-                format!("{route_prefix}-chat"),
-            ),
-            (
-                ApiProtocol::ChatCompletions,
-                format!(
-                    r#"{{"model":"{public_name}","messages":[{{"role":"user","content":[{{"type":"image_url","image_url":{{"url":"https://example.invalid/image.png"}}}}]}}]}}"#
-                ),
-                format!("{route_prefix}-chat"),
-            ),
-            (
-                ApiProtocol::ChatCompletions,
-                format!(
-                    r#"{{"model":"{public_name}","messages":[],"response_format":{{"type":"json_schema","json_schema":{{"name":"answer","schema":{{"type":"object"}}}}}}}}"#
                 ),
                 format!("{route_prefix}-chat"),
             ),
@@ -626,25 +623,47 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
                 ),
                 format!("{route_prefix}-responses"),
             ),
+        ] {
+            let body = bytes::Bytes::from(body);
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            assert_eq!(plan.candidates()[0].route_id(), expected_route);
+            assert_eq!(plan.candidates().len(), 2);
+        }
+
+        // image 与 structured output 不是反向 Bridge 的完整共同语义，因此固定契约统一拒绝。
+        for (protocol, body) in [
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[{{"role":"user","content":[{{"type":"image_url","image_url":{{"url":"https://example.invalid/image.png"}}}}]}}]}}"#
+                ),
+            ),
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[],"response_format":{{"type":"json_schema","json_schema":{{"name":"answer","schema":{{"type":"object"}}}}}}}}"#
+                ),
+            ),
             (
                 ApiProtocol::Responses,
                 format!(
                     r#"{{"model":"{public_name}","input":[{{"type":"input_image","image_url":"https://example.invalid/image.png"}}]}}"#
                 ),
-                format!("{route_prefix}-responses"),
             ),
             (
                 ApiProtocol::Responses,
                 format!(
                     r#"{{"model":"{public_name}","input":"return json","text":{{"format":{{"type":"json_schema","name":"answer","schema":{{"type":"object"}}}}}}}}"#
                 ),
-                format!("{route_prefix}-responses"),
             ),
         ] {
             let body = bytes::Bytes::from(body);
             let profile = analyze_request(protocol, &body).unwrap();
-            let plan = plan_request(&registry, &profile, body).unwrap();
-            assert_eq!(plan.candidates()[0].route_id(), expected_route);
+            assert!(matches!(
+                plan_request(&registry, &profile, body),
+                Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+            ));
         }
 
         // 验证 MiMo 的无状态边界仍拒绝 stateful Responses 请求。

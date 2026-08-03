@@ -21,7 +21,8 @@
 | 接口 | 功能要求 | 不包含的语义 |
 |---|---|---|
 | `GET /healthz` | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。 | Provider 健康探测、控制面或客户端管理。 |
-| `GET /v1/models` | 只返回代码注册表声明的 Public Models，使用稳定的 OpenAI-compatible model-list 形状。 | 枚举上游模型、Provider/target id 或动态能力发现。 |
+| `GET /v1/models`、`GET /v1/models/{model}` | 返回代码注册表声明的 Public Models，严格使用 OpenAI 标准四字段 list/retrieve 形状。 | 扩展能力、上游模型或部署信息。 |
+| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses 固定能力契约。 | Provider/target/route、credential、健康、价格或动态发现。 |
 | `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE 请求。 | 对全部 Chat 扩展或 hosted tool 的默认兼容承诺。 |
 | `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 
@@ -32,9 +33,10 @@
 ### 3.1 Public Model 与 routes
 
 - 下游只能提供已配置的 Public Model；它表示 OpenBridge 对下游提供的稳定服务契约，而不是某个上游模型名的透明别名。
-- 每个 Public Model 绑定有序的完整 routes；route 固定 Upstream Target、Upstream API、下游协议和 `Native`/`Bridged` 模式。`Native` 要求协议相同，`Bridged` 要求协议相反且存在完整 `BridgePlan`。请求必须由一条完整 route 同时满足全部语义要求，不能把不同 route 的独立能力字段简单求并集后宣称支持某种组合。
+- 每个 Public Model 为 Chat Completions 和 Responses 分别提供至多一个固定能力契约。契约由该协议全部静态可执行 Route 保守相交：布尔能力必须全部支持，token 上限取安全最小值，集合取交集，未知保持 fail closed；不得通过字段并集扩大能力。
+- 能力只用于校验客户端明确选择的 Public Model，不用于选模、跳过 Route、重排 Route 或改变 fallback 候选。能力预检通过后，Route 仍按配置顺序固定 Upstream Target、Upstream API、下游协议和 `Native`/`Bridged` 模式；`Native` 要求协议相同，`Bridged` 要求协议相反且通过完整 `BridgePlan` preflight。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游 URL、模型、credential、provider family、route、转换脚本或 header 转换规则。Provider 的受信代码 hook 可以按编译期规则增添、替换、转换或删除普通 header，但认证、cookie、Host 与 proxy header 始终隔离。
-- `GET /v1/models` 的可见集合与可路由 Public Model 一致；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
+- 标准与扩展 Models 接口的可见集合与可调用 Public Model 一致，且读取同一个不可变编译对象；上游 `/v1/models`、probe 结果和未配置模型不得自动暴露。
 - 请求开始后，Public Model、RoutePlan、credential pool binding 与注册表版本保持固定；无状态 attempt 可按策略选择 pool member。
 
 ### 3.2 输入保护
@@ -109,7 +111,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | 时机 | 必需行为 |
 |---|---|
 | ingress、Public Model、能力、认证或配置拒绝 | 上游调用前返回安全、稳定的 OpenAI-compatible JSON error；不暴露 URL、credential、候选列表或内部栈。 |
-| 没有完整 Native/Bridge Execution Plan 满足请求 | 在 egress 前返回下游协议可表达的稳定 `unsupported`/capability error；不得通过字段级能力并集或静默丢失伪造支持。 |
+| 所选 Public Model 的固定接口契约不支持请求 | 在 egress 前返回稳定 `unsupported_model_capability`；不得改选模型、筛选 Route 或静默丢失字段。 |
 | 上游在首输出前明确返回协议/能力不支持 | 若仍有满足同一完整请求且不违反状态亲和的安全候选，按路由策略继续；全部候选耗尽后才把安全、归一化的最终不支持结果返回下游。 |
 | 首个业务输出前的上游失败 | 依[路由与 Provider 韧性](provider-resilience.md)判断有限 retry/fallback，最终保留安全的 status、error code、request id 与 allowlist rate-limit 信息。 |
 | 已开始 JSON/SSE body 后的失败 | 只使用目标协议已有的 terminal/error 或关闭语义；不重写已发内容、不注入私有 event、不切换 candidate。 |
@@ -121,14 +123,14 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 
 | ID | 应被保护的用户可观察行为 |
 |---|---|
-| API-01 | 有效静态 token 可访问模型与业务 endpoint；认证失败、未知 Public Model、不支持 feature 与非 JSON 请求在 egress 前安全失败。 |
-| API-02 | `GET /v1/models` 仅暴露代码注册的 Public Model，且不因 probe 或上游模型列表泄露内部目标。 |
+| API-01 | 有效静态 token 可访问标准/扩展模型与业务 endpoint；认证失败、未知 Public Model、不支持 feature 与非 JSON 请求在 egress 前安全失败。 |
+| API-02 | 标准 Models list/retrieve 只返回四个标准字段；扩展 list/detail 返回同一编译能力对象，且都不因 probe 或上游模型列表泄露内部目标。 |
 | API-03 | Native Chat/Responses JSON 与 SSE 除受信模型/认证改写外保持 wire 语义；未知合法同协议字段/event 不因网关丢失。 |
 | API-04 | SSE 分片、终态、EOF、上游 error 和下游 cancel 不会产生伪成功、重复 terminal 或跨 Upstream Target 拼接。 |
 | API-05 | 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；网关不执行工具。 |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。 |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。 |
-| API-08 | 客户端只选择 Public Model 与下游协议；只有完整 Native Route 或通过 preflight 的 Bridged Route 可以成为执行候选。 |
+| API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，支持时保持配置 Route 顺序，不按请求能力筛选或重排候选。 |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。 |
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |

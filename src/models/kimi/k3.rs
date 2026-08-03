@@ -11,7 +11,7 @@ pub(crate) fn config() -> ModelConfig {
             "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), None),
+        context_length: ModelContextLength::new(Some(1_048_576), None, None),
         mode: None,
         input_modalities: None,
         output_modalities: None,
