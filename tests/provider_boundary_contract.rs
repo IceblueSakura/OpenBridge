@@ -5,13 +5,10 @@ use http::{
     header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
 };
 use openbridge::{
-    core::{
-        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, ReasoningOutput,
-        ResponsesCapabilities,
-    },
+    core::{ApiProtocol, ReasoningOutput},
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
+        CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
         UpstreamErrorKind,
     },
     transport::sse::SseDecoder,
@@ -456,43 +453,4 @@ fn openrouter_authentication_is_bound_to_its_own_credential() {
 
     assert!(headers.contains(AUTHORIZATION));
     assert!(!format!("{credential:?} {headers:?}").contains("openrouter-test-value"));
-}
-
-#[test]
-fn capability_adapter_rejects_feature_elevation_before_egress() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-    let supported = ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
-            ..ChatCompletionsCapabilities::default()
-        },
-        ..ApiCapabilities::default()
-    };
-    let elevated = ApiCapabilities {
-        responses: ResponsesCapabilities {
-            background: true,
-            ..ResponsesCapabilities::default()
-        },
-        ..ApiCapabilities::default()
-    };
-
-    adapter.validate_capabilities(supported).unwrap();
-    assert!(matches!(
-        adapter.validate_capabilities(elevated).unwrap_err(),
-        AdapterError::UnsupportedCapabilities
-    ));
-
-    let elevated_reasoning = ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            reasoning_output: ReasoningOutput::PlainText,
-            ..ChatCompletionsCapabilities::default()
-        },
-        ..ApiCapabilities::default()
-    };
-    assert!(matches!(
-        adapter
-            .validate_capabilities(elevated_reasoning)
-            .unwrap_err(),
-        AdapterError::UnsupportedCapabilities
-    ));
 }

@@ -6,8 +6,9 @@
 |---|---|---|
 | 产品范围 | 服务为谁解决什么问题，哪些能力不做 | [产品范围](product-scope.md) |
 | 网关 API 与兼容 | 客户端可调用什么、JSON/SSE/tool/continuation 如何表现 | [网关 API 与客户端兼容](gateway-api-compatibility.md) |
+| 模型与能力契约 | Public Model 如何公开、聚合能力、预检请求且不参与 Route 选择 | [Public Model 与模型能力契约](model-information-and-capability-contract.md) |
 | 配置与凭证 | 配置文件、private secret、API-key pool、header、网络和 reload 如何受信管理 | [配置、凭证与受信运行边界](configuration-and-credentials.md) |
-| 路由与可用性 | Route 选择、有限 retry/fallback、key 级 cooldown 和状态亲和如何处理 | [路由与 Provider 韧性](provider-resilience.md) |
+| 路由与可用性 | 已接受请求如何按固定 Route 顺序执行有限 retry/fallback、cooldown 和状态亲和 | [路由与 Provider 韧性](provider-resilience.md) |
 | 交付与证据 | 如何以 TDD、fixture、SDK/独立客户端和真实环境证据约束兼容声明 | [交付与证据要求](delivery-and-evidence.md) |
 
 功能需求中的“必须”“不得”“只允许”是验收约束，不代表当前实现已经满足；代码、测试、probe 或真实运行已经证明的内容只写入 `../implementation-status/`。

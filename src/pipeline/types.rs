@@ -6,7 +6,7 @@ use crate::{
     registry::{ReasoningLevel, ReasoningLevelMapping},
 };
 
-/// 从下游请求中提取出的、与 registry 无关的路由事实。
+/// 从下游请求中提取出的、与 registry 无关的请求事实。
 #[derive(Debug)]
 pub struct RequestRequirements {
     pub(super) public_model: String,
@@ -16,7 +16,7 @@ pub struct RequestRequirements {
     pub(super) requested_capabilities: RequestedCapabilities,
 }
 
-/// 已完成 Public Model/Route/capability 解析的执行计划。
+/// 已通过 Public Model 固定契约预检并绑定有序 Route 的执行计划。
 ///
 /// candidates 保持 route 配置顺序；`allows_fallback` 不是一般性的重试开关，而是保护
 /// `previous_response_id` 等 provider-issued opaque state 不被重放到其他 target。
@@ -27,7 +27,7 @@ pub struct RoutePlan {
     pub(super) allows_fallback: bool,
 }
 
-/// 一个已通过能力门控、绑定到具体 target/upstream API 的执行候选。
+/// 一个继承 Public Model 预检结果、绑定到具体 target/upstream API 的执行候选。
 #[derive(Debug)]
 pub struct RouteCandidate {
     pub(super) route_id: String,
@@ -39,7 +39,7 @@ pub struct RouteCandidate {
 }
 
 /// 单次请求实际使用的能力。它不等同于 upstream API 配置：`generation` 是两个端点共享的
-/// 需求，Responses 专有状态单独保留，避免被误用于 Chat Completions 路由。
+/// 需求，Responses 专有状态单独保留，避免混淆两个接口的固定契约。
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RequestedCapabilities {
     pub(super) generation: GenerationCapabilities,
@@ -86,7 +86,7 @@ impl RoutePlan {
         self.primary().request()
     }
 
-    /// 返回按 route 顺序排列的兼容候选。
+    /// 返回按配置 Route 顺序排列的执行候选。
     pub fn candidates(&self) -> &[RouteCandidate] {
         &self.candidates
     }

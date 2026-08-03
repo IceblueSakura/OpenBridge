@@ -1,7 +1,7 @@
 //! provider-independent capability 上界与协议分域值对象。
 //!
-//! capability 只能在 registry 构建阶段从 provider contract 收窄；请求 routing 复用这里的
-//! 子集判断，确保未实现的能力不会通过配置或协议字段越权进入 egress。
+//! capability 只能在 registry 构建阶段从 Provider contract 收窄；子集判断只保护静态定义
+//! 不发生能力扩大。请求路径使用预编译的 Public Model 固定契约，不对 Route 逐项比较能力。
 
 /// 上游生成 reasoning 的可观察输出类型。
 ///
@@ -315,21 +315,13 @@ impl ResponsesCapabilities {
 
 /// Provider contract 的协议分域能力上界。
 ///
-/// Upstream API 只能把 provider contract 已支持的能力关闭，不能把未实现的能力打开；请求
-/// routing 使用同一集合在网络调用前拒绝不受支持的 feature。Chat Completions 与
-/// Responses 分开建模，以免把一个端点的观察错误外推到另一个端点。
+/// Upstream API 只能把 Provider contract 已支持的能力关闭，不能把未实现的能力打开；请求
+/// 路径使用另行预编译的 Public Model 固定契约。Chat Completions 与 Responses 分开建模，
+/// 以免把一个端点的观察错误外推到另一个端点。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ApiCapabilities {
     /// Chat Completions endpoint 的能力上界。
     pub chat_completions: ChatCompletionsCapabilities,
     /// Responses endpoint 的能力上界。
     pub responses: ResponsesCapabilities,
-}
-
-impl ApiCapabilities {
-    /// 按 Chat/Responses 两个协议分域判断能力是否收窄。
-    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
-        self.chat_completions.is_subset_of(upper.chat_completions)
-            && self.responses.is_subset_of(upper.responses)
-    }
 }

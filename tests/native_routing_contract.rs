@@ -1,4 +1,4 @@
-//! 验证请求事实、能力门禁、Native/Bridged route 候选和 reasoning 映射。
+//! 验证 Public Model 固定能力预检、有序 Route 计划和 reasoning 映射。
 
 mod support;
 
@@ -168,7 +168,7 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
 }
 
 #[test]
-fn routing_rejects_conflicting_reasoning_configuration_sources() {
+fn request_preflight_rejects_conflicting_reasoning_configuration_sources() {
     let mut definition = base_definition();
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
     definition.models[0].reasoning = ReasoningSupport::Supported;
@@ -265,7 +265,7 @@ fn native_routing_preserves_original_request_for_the_provider_adapter() {
 }
 
 #[test]
-fn native_routing_rejects_unknown_public_models() {
+fn public_model_preflight_rejects_unknown_models() {
     let registry = build_test_registry(base_definition());
     let body = serde_json::to_vec(&json!({"model": "missing", "messages": []})).unwrap();
 
@@ -276,7 +276,7 @@ fn native_routing_rejects_unknown_public_models() {
 }
 
 #[test]
-fn native_routing_rejects_features_disabled_by_the_upstream_api() {
+fn public_model_preflight_rejects_capabilities_not_guaranteed_by_its_contract() {
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -338,7 +338,7 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
 }
 
 #[test]
-fn routing_gates_output_parallel_image_and_reasoning_requirements() {
+fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements() {
     let mut definition = base_definition();
     definition.models[0].context_length = ModelContextLength::new(None, None, Some(32));
     let registry = build_test_registry(definition);
@@ -434,7 +434,7 @@ fn public_model_output_limit_uses_the_most_restrictive_route() {
 }
 
 #[test]
-fn routing_scopes_capabilities_by_protocol_and_detects_strict_functions() {
+fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -498,7 +498,7 @@ fn routing_scopes_capabilities_by_protocol_and_detects_strict_functions() {
 }
 
 #[test]
-fn native_routing_preserves_configured_order_without_capability_selection() {
+fn route_plan_preserves_configured_order_after_public_model_preflight() {
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -532,7 +532,7 @@ fn native_routing_preserves_configured_order_without_capability_selection() {
     .unwrap();
 
     let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, body.clone().into())
-        .expect("a capability-neutral request should preserve both configured routes");
+        .expect("a request accepted by the fixed contract should preserve configured routes");
 
     assert_eq!(prepared.upstream_target_id(), "openai-main");
     assert_eq!(prepared.candidates().len(), 2);

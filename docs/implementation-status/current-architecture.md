@@ -138,7 +138,9 @@ Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，
 
 `build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Upstream API
 协议/能力一致性、model rules 只收窄、三段 context 关系、Native/Bridged route 协议方向、Public Model
-身份/生命周期及 route 顺序。随后按协议对所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
+身份/生命周期及 route 顺序。公共对象与请求预检必须保持的需求见
+[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按协议对
+所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
 
 ```text
 RuntimeRegistry

@@ -218,8 +218,8 @@ pub fn prepare(
     protocol: ApiProtocol,
     body: bytes::Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
-    let profile = analyze_request(protocol, &body)?;
-    plan_request(registry, &profile, body)
+    let requirements = analyze_request(protocol, &body)?;
+    plan_request(registry, &requirements, body)
 }
 
 pub fn registry(version: &str, alias: &str, upstream_model: &str) -> RuntimeRegistry {

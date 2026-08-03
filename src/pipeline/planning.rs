@@ -22,22 +22,23 @@ use super::{
 /// 沿 Public Model 的有序 Route 生成 Native 或 Bridged 执行计划。
 ///
 /// Native 请求字段除后续 adapter 改写的 `model` 外保持原样；Bridged 请求只转换明确
-/// allowlist 内的共同语义。capability gate 和 Bridge preflight 都在 egress 前完成。
+/// allowlist 内的共同语义。Public Model 能力只预检一次；任一 BridgePlan 失败会拒绝整个
+/// 请求，不会成为跳过该 Route 的条件。
 pub fn plan_request(
     registry: &RuntimeRegistry,
-    profile: &RequestRequirements,
+    requirements: &RequestRequirements,
     body: Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
     // 解析 Public Model，并在查看任何 Route 前按其唯一接口契约完成能力预检。
     let public_model = registry
-        .public_model(profile.public_model())
+        .public_model(requirements.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?;
     let interface = public_model
-        .interface(profile.protocol())
+        .interface(requirements.protocol())
         .ok_or(RequestPlanningError::UnsupportedProtocol)?;
-    if let Some(error) = public_model_error(
-        profile.requested_capabilities,
-        profile.requested_output_tokens,
+    if let Some(error) = public_model_preflight_error(
+        requirements.requested_capabilities,
+        requirements.requested_output_tokens,
         interface,
     ) {
         return Err(error);
@@ -50,7 +51,7 @@ pub fn plan_request(
         let route = registry
             .route(route_id)
             .ok_or(RequestPlanningError::NoRoute)?;
-        if route.downstream_protocol() != profile.protocol() {
+        if route.downstream_protocol() != requirements.protocol() {
             protocol_mismatch_seen = true;
             continue;
         }
@@ -71,11 +72,11 @@ pub fn plan_request(
             continue;
         }
         let (request, bridge) = match route.mode() {
-            RouteMode::Native => (ApiRequest::new(profile.protocol, body.clone()), None),
+            RouteMode::Native => (ApiRequest::new(requirements.protocol, body.clone()), None),
             RouteMode::Bridged => match BridgePlan::prepare_with_reasoning_output(
-                profile.protocol,
+                requirements.protocol,
                 upstream_api.protocol(),
-                profile.public_model(),
+                requirements.public_model(),
                 upstream_api.upstream_model(),
                 body.clone(),
                 upstream_api.reasoning_output(),
@@ -86,7 +87,7 @@ pub fn plan_request(
         };
         let (request, reasoning_level_mapping) = apply_reasoning_level_mapping(
             request,
-            profile.requested_capabilities.reasoning,
+            requirements.requested_capabilities.reasoning,
             upstream_api,
         )?;
         prepared_candidates.push(RouteCandidate {
@@ -109,8 +110,8 @@ pub fn plan_request(
 
     Ok(RoutePlan {
         candidates: prepared_candidates,
-        is_streaming: profile.is_streaming,
-        allows_fallback: !profile.requested_capabilities.previous_response_id,
+        is_streaming: requirements.is_streaming,
+        allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
 }
 
@@ -158,7 +159,7 @@ fn apply_reasoning_level_mapping(
 }
 
 /// 按 Public Model 的固定接口契约返回最具体的 fail-closed 规划错误。
-fn public_model_error(
+fn public_model_preflight_error(
     requested_features: RequestedCapabilities,
     requested_output_tokens: Option<u64>,
     interface: &ModelInterfaceCapabilities,

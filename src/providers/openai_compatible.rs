@@ -208,18 +208,6 @@ impl OpenAiCompatibleAdapter {
         };
         StatusClassification::new(kind, retry_hint)
     }
-
-    /// 校验请求能力没有超过具体 Provider 的静态契约。
-    pub(crate) fn validate_capabilities(
-        self,
-        requested: ApiCapabilities,
-    ) -> Result<(), AdapterError> {
-        if requested.is_subset_of(*self.contract.capabilities()) {
-            Ok(())
-        } else {
-            Err(AdapterError::UnsupportedCapabilities)
-        }
-    }
 }
 
 /// 按编译期 discriminator 读取 OpenAI Responses terminal，并拒绝双来源冲突。

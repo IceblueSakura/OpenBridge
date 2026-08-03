@@ -5,7 +5,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, ApiRequest},
+    core::{ApiProtocol, ApiRequest},
     credential::UpstreamCredential,
     providers::openai_compatible::OpenAiCompatibleAdapter,
     transport::sse::SseEvent,
@@ -16,7 +16,7 @@ use super::{
     StatusClassification,
 };
 
-/// provider adapter 在请求、认证、响应或能力校验阶段报告的失败。
+/// provider adapter 在请求、认证或响应阶段报告的失败。
 #[derive(Debug, Error)]
 pub enum AdapterError {
     /// 请求协议不在 adapter 的支持范围内。
@@ -31,9 +31,6 @@ pub enum AdapterError {
     /// 敏感 header 被错误地放入普通 header 集合。
     #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
-    /// 请求声明了 adapter 不支持的 capability。
-    #[error("requested capabilities are not supported by the provider adapter")]
-    UnsupportedCapabilities,
     /// 请求正文无法解析或改写为合法 JSON object。
     #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,
@@ -188,11 +185,6 @@ impl ProviderAdapter {
     /// 将上游 HTTP status 映射为粗粒度错误和重试边界。
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         self.openai_compatible().classify_status(status)
-    }
-
-    /// 在发送请求前校验请求能力是否属于 adapter 的静态上界。
-    pub fn validate_capabilities(&self, requested: ApiCapabilities) -> Result<(), AdapterError> {
-        self.openai_compatible().validate_capabilities(requested)
     }
 }
 

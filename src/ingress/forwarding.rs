@@ -45,14 +45,18 @@ pub(super) async fn forward_request(
     downstream_headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // 分析请求事实并生成带 capability/fallback 边界的 route plan。
+    // 分析请求事实，完成一次 Public Model 预检并生成固定顺序的 RoutePlan。
     let registry = state.registry.clone();
-    let profile = match analyze_request(protocol, &body) {
-        Ok(profile) => profile,
+    let requirements = match analyze_request(protocol, &body) {
+        Ok(requirements) => requirements,
         Err(error) => return route_error(error),
     };
-    observation.record_request(protocol, profile.public_model(), profile.is_streaming());
-    let plan = match plan_request(&registry, &profile, body) {
+    observation.record_request(
+        protocol,
+        requirements.public_model(),
+        requirements.is_streaming(),
+    );
+    let plan = match plan_request(&registry, &requirements, body) {
         Ok(plan) => plan,
         Err(error) => return route_error(error),
     };
@@ -372,7 +376,7 @@ pub(super) async fn forward_request(
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "upstream_cooldown",
-            "All compatible upstream targets are temporarily unavailable",
+            "All configured upstream targets are temporarily unavailable",
         )
     } else {
         api_error(

@@ -2,20 +2,20 @@
 
 ## 状态
 
-本文描述当前代码已具备或必须保持的 Route 选择、有限 retry/fallback、单进程短时 cooldown 与状态亲和
-边界，并定义已经实现的同 Provider API-key pool 行为。实现事实仍以实施现状为准；动态权重、持久化
+本文定义请求通过 Public Model 预检后的固定 Route 执行、有限 retry/fallback、单进程短时 cooldown 与状态亲和
+边界，以及同 Provider API-key pool 的目标行为。实现事实仍以实施现状为准；动态权重、持久化
 健康、跨进程协调和分布式限流尚未实现。
 
 ## 当前路由边界
 
 - 下游只选择 Public Model，不得指定 Provider、Upstream Target、Upstream API、endpoint 或 credential；
-- Public Model 按协议提供一个由全部静态可执行 Route 保守相交的固定能力契约；未知能力不得出站尝试；
-- 请求能力只在 Public Model 边界校验，不用于跳过、筛选或重排 Route；通过后所有候选保持配置顺序；
+- Public Model 的固定能力计算与请求预检统一由[模型能力契约](model-information-and-capability-contract.md)定义；本页不再为单个候选计算能力；
+- 进入本层的请求已经完成一次能力预检；请求能力不得跳过、筛选、截断或重排 Route，所有静态可执行候选保持配置顺序；
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model；
 - `previous_response_id` 等 Provider-bound state 禁止跨 Upstream Target fallback；非空 ID 只有在 issuing
   Upstream Target/Upstream API 可由配置唯一确定时才能形成候选，否则在 egress 前拒绝；
 - `store: true` 只有在所选 Public Model 的固定 Responses 契约明确支持时才可进入；该契约必须由全部对应
-  Native Responses Route 共同保证，不得进入 Bridge 或通过字段删除降级为无状态调用。
+  Responses Route 共同保证，任何 `Bridged` Route 都不能通过字段删除把它降级为无状态调用。
 
 ## 当前 retry 与 fallback
 
@@ -24,7 +24,7 @@
 - 429、明确的 5xx、连接失败或 timeout 可按 adapter 分类进入有限 retry；
 - 所有候选共享请求级硬预算；每个候选有独立局部上限，且局部 retry 不能无界挤占尚未尝试的候选；
 - retry 与 fallback 之间使用 capped exponential backoff，等待随下游任务取消；
-- 只有 RoutePlan 允许 fallback 时才能进入下一条配置候选；候选已受同一 Public Model 固定契约约束，不按请求能力或模型字符串猜测等价性；
+- 只有 RoutePlan 允许 fallback 时才能进入下一条配置候选；本层不重新比较候选能力，也不根据模型字符串猜测等价性；
 - 有状态 Responses 不进入跨 Target fallback；不能把另一个支持同模型或同协议的 Target 当作原 response ID 的
   issuing target；
 - 认证失败、无效请求和本地能力拒绝不应作为普通 transient failure 重试；
@@ -91,7 +91,7 @@
 - 同一请求将 pool 中所有当时可尝试 member 都收到 429，或开始 candidate 时所有 member 都在 cooldown，
   即视为当前 pool 不可用；不得等待最早 deadline 后在同一请求内重新绕一圈；
 - pool 不可用时优先进入 RoutePlan 中下一条完整 candidate。若本请求已经获得安全 429 且没有后续 candidate，
-  返回最后一个安全 429 与 allowlist `Retry-After`；若没有发起任何 attempt、所有兼容 candidate 都因既有
+  返回最后一个安全 429 与 allowlist `Retry-After`；若没有发起任何 attempt、所有配置 candidate 都因既有
   cooldown 跳过，则返回稳定的 `503 upstream_cooldown`；
 - pool 共享由 pool ID 决定；现有 `quota_scope` 仍用于 target 级边界，但单个 member 的 429 不直接冷却整个
   quota scope。第一阶段不从“一次 429”推断账号级或 Provider 级配额。
@@ -118,8 +118,8 @@
 
 ## 当前验证重点
 
-- Route 按完整能力组合确定性选择；
-- `store: true` 与非空 `previous_response_id` 只进入能力已声明且 issuing target 可唯一确定的 Native Route；
+- Public Model 能力只预检一次；通过后 RoutePlan 保留配置顺序，不按能力改变候选资格或顺序；
+- `store: true` 与非空 `previous_response_id` 只有在固定契约支持且 issuing target 可唯一确定时才可进入 Native Route；
 - 有状态 Responses 不进入 Bridge 或跨 target fallback；
 - stream/non-stream 提交下游 response 前的 retry/fallback 具有 request-wide 硬上限和指数退避；
 - 下游取消 pending send 或退避时不会启动后续 attempt；
@@ -134,6 +134,7 @@
 ## 关联文档
 
 - [网关 API 与客户端兼容](gateway-api-compatibility.md)
+- [Public Model 与模型能力契约](model-information-and-capability-contract.md)
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现说明](../implementation-status/current-implementation.md)

@@ -45,7 +45,7 @@ impl SupportState {
         matches!(self, Self::Supported)
     }
 
-    /// 计算多个完整 Route profile 的保守交集。
+    /// 计算多个完整 Route 契约输入的保守交集。
     fn intersection(values: impl Iterator<Item = Self>) -> Self {
         let mut saw_value = false;
         let mut saw_unknown = false;
@@ -132,7 +132,7 @@ pub struct ModelModalities {
 }
 
 impl ModelModalities {
-    /// 计算多个 Route profile 的稳定集合交集。
+    /// 计算多个 Route 契约输入的稳定集合交集。
     fn intersection<'a>(values: impl Iterator<Item = &'a Self> + Clone) -> Self {
         Self {
             input: intersect_sets(values.clone().map(|value| value.input.as_slice())),
@@ -446,24 +446,24 @@ pub(super) fn compile_public_model(
     bindings: &[PublicRouteBinding<'_>],
 ) -> PublicModel {
     // 只把静态启用且 endpoint capability 已启用的 Route 纳入可执行契约。
-    let profiles = bindings
+    let contributions = bindings
         .iter()
         .filter(|binding| binding.target_enabled)
-        .filter_map(RouteCapabilityProfile::from_binding)
+        .filter_map(RouteContractContribution::from_binding)
         .collect::<Vec<_>>();
 
     // 分协议计算唯一保守交集，并从所有可执行 Route 汇总模型本体事实。
     let chat_completions = aggregate_interface(
-        profiles
+        contributions
             .iter()
-            .filter(|profile| profile.protocol == ApiProtocol::ChatCompletions),
+            .filter(|contribution| contribution.protocol == ApiProtocol::ChatCompletions),
     );
     let responses = aggregate_interface(
-        profiles
+        contributions
             .iter()
-            .filter(|profile| profile.protocol == ApiProtocol::Responses),
+            .filter(|contribution| contribution.protocol == ApiProtocol::Responses),
     );
-    let capabilities = aggregate_model_capabilities(&profiles);
+    let capabilities = aggregate_model_capabilities(&contributions);
 
     // 固化标准投影与扩展对象；Route id 仅保留在私有执行对象中。
     let info = PublicModelInfo {
@@ -490,7 +490,7 @@ pub(super) fn compile_public_model(
 }
 
 #[derive(Clone)]
-struct RouteCapabilityProfile {
+struct RouteContractContribution {
     protocol: ApiProtocol,
     context_window: ContextWindow,
     modalities: ModelModalities,
@@ -513,8 +513,8 @@ struct RouteCapabilityProfile {
     background: SupportState,
 }
 
-impl RouteCapabilityProfile {
-    /// 将 Native 或 Bridged Route 转换为面向下游协议的完整能力 profile。
+impl RouteContractContribution {
+    /// 将 Native 或 Bridged Route 转换为固定公共契约的一项编译输入。
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
         let route = binding.route;
         let upstream_api = binding.upstream_api;
@@ -787,44 +787,44 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
     }
 }
 
-/// 把同一协议的全部完整 Route profile 收敛为唯一接口契约。
+/// 把同一协议的全部 Route 契约输入收敛为唯一接口契约。
 fn aggregate_interface<'a>(
-    profiles: impl Iterator<Item = &'a RouteCapabilityProfile> + Clone,
+    contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
 ) -> Option<ModelInterfaceCapabilities> {
-    let profiles = profiles.collect::<Vec<_>>();
-    if profiles.is_empty() {
+    let contributions = contributions.collect::<Vec<_>>();
+    if contributions.is_empty() {
         return None;
     }
 
     // 分别计算标量、集合与 reasoning 输出的保守交集。
     let context_window =
-        ContextWindow::intersection(profiles.iter().map(|profile| &profile.context_window));
+        ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
-        ModelModalities::intersection(profiles.iter().map(|profile| &profile.modalities));
+        ModelModalities::intersection(contributions.iter().map(|value| &value.modalities));
     let supported_parameters = intersect_sets(
-        profiles
+        contributions
             .iter()
-            .map(|profile| profile.interface_parameters.as_slice()),
+            .map(|value| value.interface_parameters.as_slice()),
     );
-    let streaming = SupportState::intersection(profiles.iter().map(|profile| profile.streaming));
+    let streaming = SupportState::intersection(contributions.iter().map(|value| value.streaming));
     let function_calling =
-        SupportState::intersection(profiles.iter().map(|profile| profile.function_calling));
+        SupportState::intersection(contributions.iter().map(|value| value.function_calling));
     let parallel_tool_calls =
-        SupportState::intersection(profiles.iter().map(|profile| profile.parallel_tool_calls));
+        SupportState::intersection(contributions.iter().map(|value| value.parallel_tool_calls));
     let structured_outputs =
-        SupportState::intersection(profiles.iter().map(|profile| profile.structured_outputs));
-    let reasoning = SupportState::intersection(profiles.iter().map(|profile| profile.reasoning));
+        SupportState::intersection(contributions.iter().map(|value| value.structured_outputs));
+    let reasoning = SupportState::intersection(contributions.iter().map(|value| value.reasoning));
     let reasoning_levels = if reasoning.is_supported() {
         intersect_sets(
-            profiles
+            contributions
                 .iter()
-                .map(|profile| profile.reasoning_levels.as_slice()),
+                .map(|value| value.reasoning_levels.as_slice()),
         )
     } else {
         Vec::new()
     };
     let reasoning_output =
-        intersect_reasoning_output(profiles.iter().map(|profile| profile.reasoning_output));
+        intersect_reasoning_output(contributions.iter().map(|value| value.reasoning_output));
 
     // 根据聚合状态构造稳定的工具、结构化输出和 state 子对象。
     Some(ModelInterfaceCapabilities {
@@ -833,7 +833,7 @@ fn aggregate_interface<'a>(
         supported_parameters,
         streaming,
         system_messages: SupportState::intersection(
-            profiles.iter().map(|profile| profile.system_messages),
+            contributions.iter().map(|value| value.system_messages),
         ),
         tools: ToolCapabilities {
             support: function_calling,
@@ -881,23 +881,23 @@ fn aggregate_interface<'a>(
             output: reasoning_output,
         },
         prompt_caching: SupportState::intersection(
-            profiles.iter().map(|profile| profile.prompt_caching),
+            contributions.iter().map(|value| value.prompt_caching),
         ),
         state: StateCapabilities {
-            store: SupportState::intersection(profiles.iter().map(|profile| profile.store)),
+            store: SupportState::intersection(contributions.iter().map(|value| value.store)),
             previous_response_id: SupportState::intersection(
-                profiles.iter().map(|profile| profile.previous_response_id),
+                contributions.iter().map(|value| value.previous_response_id),
             ),
             background: SupportState::intersection(
-                profiles.iter().map(|profile| profile.background),
+                contributions.iter().map(|value| value.background),
             ),
         },
     })
 }
 
 /// 聚合 Public Model 的模型本体能力，不混入 Provider 或 Route 身份。
-fn aggregate_model_capabilities(profiles: &[RouteCapabilityProfile]) -> ModelCapabilities {
-    if profiles.is_empty() {
+fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> ModelCapabilities {
+    if contributions.is_empty() {
         return ModelCapabilities {
             tasks: Vec::new(),
             context_window: ContextWindow::from_model(ModelContextLength::default()),
@@ -917,24 +917,24 @@ fn aggregate_model_capabilities(profiles: &[RouteCapabilityProfile]) -> ModelCap
 
     // 模型本体事实同样按所有可执行 Route 取交集，避免 fallback 扩大公开能力。
     let reasoning =
-        SupportState::intersection(profiles.iter().map(|profile| profile.model_reasoning));
-    let declared_modalities = profiles
+        SupportState::intersection(contributions.iter().map(|value| value.model_reasoning));
+    let declared_modalities = contributions
         .iter()
-        .map(|profile| profile.model_modalities.as_ref())
+        .map(|value| value.model_modalities.as_ref())
         .collect::<Option<Vec<_>>>();
     ModelCapabilities {
         tasks: vec![ModelTask::Chat, ModelTask::TextGeneration],
         context_window: ContextWindow::intersection(
-            profiles.iter().map(|profile| &profile.context_window),
+            contributions.iter().map(|value| &value.context_window),
         ),
         modalities: declared_modalities.map_or_else(
-            || ModelModalities::intersection(profiles.iter().map(|profile| &profile.modalities)),
+            || ModelModalities::intersection(contributions.iter().map(|value| &value.modalities)),
             |modalities| ModelModalities::intersection(modalities.into_iter()),
         ),
         supported_parameters: intersect_sets(
-            profiles
+            contributions
                 .iter()
-                .map(|profile| profile.model_parameters.as_slice()),
+                .map(|value| value.model_parameters.as_slice()),
         ),
         tokenizer: None,
         knowledge_cutoff: None,
@@ -942,9 +942,9 @@ fn aggregate_model_capabilities(profiles: &[RouteCapabilityProfile]) -> ModelCap
             support: reasoning,
             levels: if reasoning.is_supported() {
                 intersect_sets(
-                    profiles
+                    contributions
                         .iter()
-                        .map(|profile| profile.model_reasoning_levels.as_slice()),
+                        .map(|value| value.model_reasoning_levels.as_slice()),
                 )
             } else {
                 Vec::new()

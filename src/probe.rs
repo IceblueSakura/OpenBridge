@@ -47,7 +47,7 @@ impl ProbeOptions {
 /// probe 对某个能力的保守结论。
 ///
 /// `unsupported` 只用于端点明确不存在（404/405/501）。认证、限流、网络故障及请求
-/// 形状被拒绝均保留为 `unknown`，避免一次临时故障错误关闭一条路由能力。
+/// 形状被拒绝均保留为 `unknown`，避免把一次临时故障错误报告为静态不支持。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportStatus {

@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-/// 请求不能被安全地绑定到兼容 Route 时返回的规划错误。
+/// 请求不能通过 Public Model 预检或绑定到配置 Route 时返回的规划错误。
 #[derive(Debug, Error)]
 pub enum RequestPlanningError {
     /// 请求 body 不是 JSON object。
@@ -14,17 +14,17 @@ pub enum RequestPlanningError {
     /// 请求的 public model 未在 registry 中注册。
     #[error("requested model is not configured")]
     UnknownModel,
-    /// Public Model 没有可用的 route。
-    #[error("configured model has no route candidate")]
+    /// Public Model 没有静态可执行 Route。
+    #[error("configured model has no executable route")]
     NoRoute,
-    /// route 与请求协议不匹配。
-    #[error("selected route does not support this protocol")]
+    /// Public Model 没有请求协议对应的固定接口。
+    #[error("selected model does not support this protocol")]
     UnsupportedProtocol,
-    /// route 不支持请求的 streaming 模式。
-    #[error("selected route does not support streaming")]
+    /// Public Model 的固定接口不支持 streaming。
+    #[error("selected model does not support streaming")]
     StreamingUnsupported,
-    /// route 不支持请求声明的 capability。
-    #[error("selected route does not support requested capabilities")]
+    /// Public Model 的固定接口不支持请求能力。
+    #[error("selected model does not support requested capabilities")]
     UnsupportedCapabilities,
     /// 请求使用了已命名但尚未实现的预留 capability。
     #[error("requested capabilities are reserved but not implemented")]

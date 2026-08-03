@@ -30,11 +30,13 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 当前 checkout 已实现 OpenAI、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
 OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 与
 Responses→Chat Bridge 路由，
-以及有序 Route、固定 Public Model capability gate、标准/扩展 Models 接口、输出前 retry/fallback、HTTP 429 credential
+以及有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
+retry/fallback、HTTP 429 credential
 rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；Bridge 对未知字段、未确认的
 reasoning 输出、opaque continuation、hosted/custom tool、image、structured output 和后台状态会在 egress 前拒绝。Native Route 则按选定
-Provider/Upstream API 的完整 capability 保留这些已声明的原生语义，当前编译注册项仍优先使用各 Provider 自身的 Native API，尚未注册真实异构协议 Provider。
+Provider/Upstream API 保留固定公共契约已接受的原生语义和同协议合法字段；单条 Native Route 的额外能力不会
+扩大 Public Model。当前编译注册项仍优先使用各 Provider 自身的 Native API，尚未注册真实异构协议 Provider。
 每个已认证请求在 response body 正常 EOF、流错误或
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
@@ -85,9 +87,11 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-Native Route 由 Provider adapter 写入实际上游 `model`；选定 Upstream API 还可对 canonical Model 已声明的
+请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。Native Route
+由 Provider adapter 写入实际上游 `model`；选定 Upstream API 还可对 canonical Model 已声明的
 reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
-没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝。
+没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
+Public Model 契约或导致跳过前序 Route。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。
 Provider 的受信 request-header hook 可按编译期规则增添、替换、转换或删除普通 header；OpenAI 与 LongCat
 转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing header，共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header
@@ -109,7 +113,8 @@ Responses 能力。LongCat 当前 Chat/Responses 均配置为 `Unknown` reasonin
 `mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
 及同 target 的反向 Bridge 候选。MiMo 两个协议的 reasoning 输出能力均为 `Unknown`，尚未增加可读 reasoning wire 映射；两个 Native API
 声明支持 image input、structured output 和 `parallel_tool_calls`，但仍关闭 `store`、`background` 与
-`previous_response_id`。这些能力不自动扩大反向 Bridge 的转换范围。
+`previous_response_id`。image 与 structured output 只是 Native API 事实；反向 Bridge 不支持时，它们不会进入
+Public Model 的固定接口契约。`parallel_tool_calls` 只有在全部对应 Route 都支持时才对下游公开。
 
 下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML 数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
 
@@ -160,8 +165,9 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [参考文档](docs/references/README.md) | OpenAI/OpenRouter 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单配置所有者部署、下游用户、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
+| [Public Model 与模型能力契约](docs/functional-requirements/model-information-and-capability-contract.md) | 模型信息、固定能力预检、Models API 与禁止能力路由边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
-| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | Route 候选选择、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
+| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | 固定 Route 顺序、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |
 | [当前实现说明](docs/implementation-status/current-implementation.md) | 当前代码真正验证的行为和未证明事项 | 实施现状 |
 | [遥测指标](docs/implementation-status/telemetry-metrics.md) | Provider attempt 性能、usage、cache 指标口径和读取边界 | 实施现状 |
 | [当前代码架构](docs/implementation-status/current-architecture.md) | 按层次描述当前源码模块、请求路径、依赖和结构限制 | 实施现状 |
@@ -187,8 +193,8 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - **Credential Pool**：同一 Provider/credential kind 下可被多个 Target 共享的有序 API-key 集合。
 - **Upstream Target**：共享 endpoint、credential pool、Model、timeout 与故障边界的上游调用目标。
 - **Upstream API**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state affinity。
-- **Public Model**：客户端使用的稳定模型名，例如 `code-primary`，映射到有序 Route ID。
-- **RoutePlan**：单次请求固定的 Upstream Target/Upstream API、协议模式、能力判断、credential pool binding、转换约束与 fallback 边界；实际 member 由 attempt 选择。
+- **Public Model**：客户端使用的稳定模型身份、每协议唯一固定能力契约及私有有序 Route ID，例如 `code-primary`。
+- **RoutePlan**：请求通过 Public Model 预检后固定的 Upstream Target/Upstream API、协议模式、credential pool binding、转换约束与 fallback 边界；实际 member 由 attempt 选择。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
 - **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。
 - **Tool Bridge**：把本地或 MCP 工具补充给 Agent；与 Protocol Bridge 不同。

@@ -472,5 +472,6 @@ OpenBridge 的落点是一份由 registry 预编译的 PublicModelInfo：标准�
 
 ### OpenBridge 当前边界
 
+- [Public Model 与模型能力契约](../../functional-requirements/model-information-and-capability-contract.md)：最终采用的公共身份、固定能力、Models API、安全字段与禁止能力路由要求。
 - [Gateway API compatibility](../../functional-requirements/gateway-api-compatibility.md)：Public Model、`/v1/models` 和不暴露上游枚举/部署选择的产品边界。
 - [Capability probing status](../../implementation-status/capability-probing.md)：canonical model facts、有效 Provider/API capability 和 probe 不做动态发现的实现事实。

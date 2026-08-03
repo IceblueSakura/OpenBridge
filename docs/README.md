@@ -36,10 +36,11 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
 2. [产品范围](functional-requirements/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
-3. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
-4. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 的性能、usage、cache
+3. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)：确认模型信息、固定能力预检和禁止能力路由边界。
+4. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
+5. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 的性能、usage、cache
    口径及进程内读取边界。
-5. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
+6. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
 
 这一阶段暂时不要钻进具体函数。读完后应能回答：
 
@@ -88,8 +89,9 @@ bootstrap + users + private upstream credential TOML
 | Router 与 endpoint | [`ingress::build_router`](../src/ingress/router.rs) | 哪些 endpoint 公开？哪些需要下游认证？ |
 | HTTP 基础检查 | `require_user`、`responses`、`has_json_content_type` | 认证、Content-Type 和 body 上限在哪次 egress 前完成？ |
 | 请求编排 | [`ingress::forward_request`](../src/ingress/forwarding.rs) | 请求规划、候选循环、retry/fallback 和响应返回如何连接？ |
-| 请求事实提取 | [`pipeline::analyze_request`](../src/pipeline/analysis.rs) | 从 JSON 中提取了哪些 capability、limit、reasoning 和 state-affinity 事实？ |
-| 路由规划 | [`pipeline::plan_request`](../src/pipeline/planning.rs) | 一条 candidate 为什么必须独立满足完整请求？ |
+| 请求事实提取 | [`pipeline::analyze_request`](../src/pipeline/analysis.rs) | 从 JSON 中提取哪些 capability、limit、reasoning 和 state-affinity 事实供统一预检？ |
+| Public Model 预检 | [`PublicModelInfo`](../src/registry/public_model.rs)、[`pipeline::plan_request`](../src/pipeline/planning.rs) | 为什么能力只校验一次，未知或不支持为何在查看 Route 前失败？ |
+| Route 计划 | [`pipeline::plan_request`](../src/pipeline/planning.rs) | 预检通过后为何必须保持配置 Route 的资格与顺序？ |
 | 运行事实查询 | [`RuntimeRegistry`](../src/registry/runtime.rs) | Public Model 如何落到 Route、Target 与 Upstream API？ |
 | Provider 改写 | [`ProviderAdapter::prepare_request`](../src/provider/adapter.rs) | 上游相对 path、真实 model、普通 header 与认证 header 在哪里产生？ |
 | HTTP 发送 | [`UpstreamClient::send`](../src/transport/upstream.rs) | endpoint base、相对 URI、timeout、redirect 和连接复用如何受控？ |
@@ -102,6 +104,7 @@ bootstrap + users + private upstream credential TOML
 HTTP request
 → authenticate and bound body
 → analyze RequestRequirements
+→ preflight the selected Public Model interface once
 → plan ordered RouteCandidates
 → select Target + Upstream API + ProviderAdapter
 → prepare relative request and sensitive auth
@@ -110,8 +113,8 @@ HTTP request
 ```
 
 配套阅读 [`tests/native_routing_contract.rs`](../tests/native_routing_contract.rs) 和
-[`tests/forwarding_contract.rs`](../tests/forwarding_contract.rs)。前者回答“为什么选择或拒绝 route”，后者回答
-“实际转发、fallback、错误、取消和响应是什么”。
+[`tests/forwarding_contract.rs`](../tests/forwarding_contract.rs)。前者回答“为什么 Public Model 在 Route 前拒绝请求、
+以及通过后如何保持 Route 顺序”，后者回答“实际转发、fallback、错误、取消和响应是什么”。
 
 ## 6. 第四阶段：理解核心数据所有权
 
@@ -120,15 +123,17 @@ HTTP request
 | 问题 | 先读文档 | 再读源码 |
 |---|---|---|
 | 模型事实放在哪里 | [当前代码架构第 3 节](implementation-status/current-architecture.md#3-注册表层) | [`src/models/`](../src/models)、`ModelConfig`、`ModelInfo` |
+| Public Model 能力如何形成 | [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md) | [`src/registry/public_model.rs`](../src/registry/public_model.rs)、`PublicModelInfo` |
 | Provider 能力上界是谁定义 | [网关 API 与兼容](functional-requirements/gateway-api-compatibility.md) | [`src/provider/kind.rs`](../src/provider/kind.rs)、[`src/providers/`](../src/providers) |
 | target 与 upstream API 为什么分开 | [当前代码架构](implementation-status/current-architecture.md) | `UpstreamTargetConfig`、`UpstreamApiConfig` |
-| Public Model 如何选择候选 | [路由与 Provider 韧性](functional-requirements/provider-resilience.md) | `PublicModelConfig`、`RouteConfig`、`plan_request` |
+| Route 如何保持配置顺序 | [路由与 Provider 韧性](functional-requirements/provider-resilience.md) | `PublicModelConfig`、`RouteConfig`、`plan_request` |
 | capability 为什么只能收窄 | [配置与凭证边界](functional-requirements/configuration-and-credentials.md) | [`src/core/capability.rs`](../src/core/capability.rs)、`build_registry` |
 
 建议自己画一条具体映射：
 
 ```text
 public model name
+→ fixed Chat/Responses interface contract
 → ordered route ids
 → route(downstream protocol + mode)
 → upstream target(endpoint + credential + timeout)
@@ -183,7 +188,7 @@ public model name
 | 测试资产 | 主要保护内容 | 不证明什么 |
 |---|---|---|
 | `tests/config_contract.rs`、`tests/upstream_credential_config.rs` | bootstrap、registry 引用、私有 credential TOML、能力收窄与 endpoint | 真实网络或 Provider 可用性 |
-| `tests/native_routing_contract.rs` | 请求事实、capability gate、route 候选和 state affinity | HTTP/SSE 实际发送 |
+| `tests/native_routing_contract.rs` | 请求事实、Public Model 固定能力预检、Route 顺序和 state affinity | HTTP/SSE 实际发送 |
 | `tests/forwarding_contract.rs` | Ingress 到 transport 的 JSON/SSE、fallback、timeout、取消和 header 行为 | 外部 SDK 或真实 Provider 兼容 |
 | `tests/provider*_contract.rs` | Provider 请求、认证、能力和错误边界 | 全部 Provider 私有扩展 |
 | `tests/sdk_compatibility.rs` | 当前 OpenAI Python/Node SDK 的 loopback 兼容路径 | 默认测试不会执行；需要显式 ignored run |
@@ -198,7 +203,7 @@ public model name
 | 你要解决的问题 | 阅读路线 |
 |---|---|
 | 启动失败或配置被拒绝 | 配置需求 → `src/config` → `src/providers/catalog.rs` → `build_registry` → `config_contract.rs` |
-| 请求为何没有 route | API 兼容需求 → `analyze_request` → `plan_request` → `native_routing_contract.rs` |
+| 请求为何在 Route 前被拒绝或没有可执行 Route | 模型能力契约 → `analyze_request` → `plan_request` → `native_routing_contract.rs` |
 | 模型名或 endpoint 改写错误 | registry ownership → Provider adapter → `UpstreamClient::send` → provider tests |
 | SSE 提前结束、重复 terminal 或乱码 | Responses/Chat 协议参考 → `transport/sse.rs` → `ingress/streaming.rs` → SSE/forwarding tests |
 | fallback 或 retry 不符合预期 | Provider 韧性需求 → `ingress/forwarding.rs` → status/error classification → forwarding tests |

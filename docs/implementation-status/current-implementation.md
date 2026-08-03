@@ -308,6 +308,24 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   全量 Rust 结果为 164 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。未修改 `testdata/`
   或 `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
 
+2026-08-03 完成能力路由遗留审计与需求归并：
+
+- `plan_request` 只在 Route 循环前读取一次 `ModelInterfaceCapabilities`；循环中的候选资格只受下游协议、Target
+  静态启停和 Upstream API 静态启停影响。`BridgePlan` 失败会拒绝整个请求，不会跳过该 Route；候选级
+  reasoning wire 映射只改写请求副本，不改变资格或顺序。
+- `forward_request` 只因 cooldown、credential 可用性、可重试 HTTP/transport failure 和 state affinity 执行
+  retry/fallback，不读取或比较模型能力。已删除没有生产调用方的 `ProviderAdapter::validate_capabilities` 及其重复
+  `ApiCapabilities` 子集入口；Provider 能力上界仍只在 registry 构建时校验。
+- 内部 Public Model 聚合输入已改称 Route contract contribution；请求事实、错误说明和测试名称统一为
+  Public Model 固定契约预检，不再把能力描述成候选级运行时检查，也不再使用“兼容候选”术语。
+- 新增[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)，集中维护
+  身份、生命周期、固定交集、Models API、错误、禁止能力路由、验收与非目标；API、配置、产品范围和 Provider
+  韧性文档只保留各自所有权并链接该页。
+- `cargo fmt -- --check`、`cargo test --locked --target-dir target\model-contract-audit`、
+  `cargo clippy --locked --target-dir target\model-contract-audit -- -D warnings` 与 `git diff --check` 均通过；全量
+  Rust 结果为 163 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改 `testdata/` 或
+  `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
+
 ## 当前未实现
 
 当前 checked-in OpenAI/LongCat/OpenRouter/DeepSeek/MiMo 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
@@ -324,6 +342,7 @@ Upstream API 显式声明后生效。Bridged Route 支持明文 reasoning channe
 ## 相关资源
 
 - [当前代码架构](current-architecture.md)
+- [Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)
 - [能力探测](capability-probing.md)
 - [协议测试语料与工具](protocol-test-corpus.md)
 - [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)

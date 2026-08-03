@@ -680,7 +680,7 @@ async fn authenticated_get(app: &axum::Router, path: &str) -> Value {
 }
 
 fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
-    // 编译真实代码注册表，确保测试使用 mimo-v2.5 的生产 route 顺序与 capability。
+    // 编译真实代码注册表，确保测试使用 mimo-v2.5 的固定公共契约与生产 Route 顺序。
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
         .expect("checked-in bootstrap must be valid");
     let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
@@ -1028,7 +1028,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
 }
 
 #[tokio::test]
-async fn streaming_requests_fail_over_to_the_next_compatible_target_before_output() {
+async fn streaming_requests_fail_over_to_the_next_configured_target_before_output() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
