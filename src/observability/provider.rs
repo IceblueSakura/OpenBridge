@@ -537,6 +537,32 @@ struct ProviderBodyObserver {
     finished: bool,
 }
 
+impl ProviderBodyObserver {
+    /// 在原始 upstream body 完成时解析 usage 并提交 Provider attempt 终态。
+    fn complete(&mut self) {
+        // 防止最后一个 frame 与后续 EOF 重复提交同一 attempt。
+        if self.finished {
+            return;
+        }
+        if !self.truncated
+            && let Ok(value) = serde_json::from_slice::<Value>(&self.bytes)
+        {
+            self.observation.record_upstream_value(&value);
+        }
+        self.observation.record_upstream_complete();
+        self.finished = true;
+    }
+
+    /// 在 upstream body error 边界提交失败终态。
+    fn fail(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.observation.record_upstream_failure();
+        self.finished = true;
+    }
+}
+
 impl HttpBody for ProviderBodyObserver {
     type Data = Bytes;
     type Error = axum::Error;
@@ -560,21 +586,18 @@ impl HttpBody for ProviderBodyObserver {
                         observer.truncated = true;
                     }
                 }
+                // 已知长度 upstream body 可在最后一个 frame 后直接完成，避免嵌套 wrapper 等待额外 EOF。
+                if observer.body.is_end_stream() {
+                    observer.complete();
+                }
                 std::task::Poll::Ready(Some(Ok(frame)))
             }
             std::task::Poll::Ready(Some(Err(error))) => {
-                observer.observation.record_upstream_failure();
-                observer.finished = true;
+                observer.fail();
                 std::task::Poll::Ready(Some(Err(error)))
             }
             std::task::Poll::Ready(None) => {
-                if !observer.truncated
-                    && let Ok(value) = serde_json::from_slice::<Value>(&observer.bytes)
-                {
-                    observer.observation.record_upstream_value(&value);
-                }
-                observer.observation.record_upstream_complete();
-                observer.finished = true;
+                observer.complete();
                 std::task::Poll::Ready(None)
             }
             std::task::Poll::Pending => std::task::Poll::Pending,

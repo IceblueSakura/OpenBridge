@@ -14,6 +14,7 @@ use axum::{
 use futures_util::{StreamExt, future::BoxFuture, stream};
 use openbridge::{
     ingress::{GatewayState, build_router},
+    observability::{GatewayMetrics, GatewayMetricsSnapshot},
     provider::PreparedUpstreamRequest,
     registry::UpstreamTarget,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -212,9 +213,7 @@ impl UpstreamTransport for ProviderMetricsStreamingTransport {
     }
 }
 
-fn app_with_transport(
-    transport: Arc<dyn UpstreamTransport>,
-) -> (axum::Router, openbridge::observability::GatewayMetrics) {
+fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, GatewayMetrics) {
     let registry = support::registry("observability-test", "code-primary", "test-model");
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
@@ -224,6 +223,37 @@ fn app_with_transport(
     let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
     let metrics = state.metrics();
     (build_router(state), metrics)
+}
+
+async fn serve_loopback(app: axum::Router) -> (String, tokio::task::JoinHandle<()>) {
+    // 为每个测试绑定独立随机端口，避免并行执行时共享网络状态。
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("loopback server should run");
+    });
+    (format!("http://{address}"), server)
+}
+
+async fn wait_for_request_terminal(metrics: &GatewayMetrics) -> GatewayMetricsSnapshot {
+    // 使用有界轮询等待服务端提交终态，不引入依赖调度时序的 sleep。
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let snapshot = metrics.snapshot();
+            let terminal_count = snapshot.requests_completed
+                + snapshot.requests_http_failed
+                + snapshot.requests_failed
+                + snapshot.requests_cancelled;
+            if terminal_count > 0 {
+                break snapshot;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("request observation should reach a terminal state")
 }
 
 fn request(body: &'static str) -> Request<Body> {
@@ -244,6 +274,62 @@ fn responses_request(body: &'static str) -> Request<Body> {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .unwrap()
+}
+
+#[tokio::test]
+async fn real_http_known_length_response_is_not_misclassified_as_cancelled() {
+    // 启动真实 Axum/Hyper loopback，覆盖内存 oneshot 不会触发的 transport body drop 路径。
+    let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
+    let (base_url, server) = serve_loopback(app).await;
+
+    // 通过真实 HTTP client 完整读取已知长度的模型列表响应。
+    let response = reqwest::Client::new()
+        .get(format!("{base_url}/v1/models"))
+        .header("authorization", "Bearer downstream-test-token-00000000000")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.bytes().await.unwrap().is_empty());
+
+    // 等待服务端提交唯一终态，并区分正常完成与误报取消。
+    let snapshot = wait_for_request_terminal(&metrics).await;
+    server.abort();
+    let _ = server.await;
+
+    assert_eq!(snapshot.requests_completed, 1);
+    assert_eq!(snapshot.requests_cancelled, 0);
+}
+
+#[tokio::test]
+async fn real_http_native_json_completes_both_provider_and_downstream_observers() {
+    // 使用 Native JSON passthrough 叠加 Provider 与 downstream 两层 body observer。
+    let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
+    let (base_url, server) = serve_loopback(app).await;
+    let response = reqwest::Client::new()
+        .post(format!("{base_url}/v1/chat/completions"))
+        .header("authorization", "Bearer downstream-test-token-00000000000")
+        .header(CONTENT_TYPE, "application/json")
+        .body(r#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.bytes().await.unwrap().is_empty());
+
+    // 两层 observer 都必须在最后一个 frame 上完成，且 usage 只能提交一次。
+    let snapshot = wait_for_request_terminal(&metrics).await;
+    server.abort();
+    let _ = server.await;
+    assert_eq!(snapshot.requests_completed, 1);
+    assert_eq!(snapshot.requests_cancelled, 0);
+    assert_eq!(snapshot.usage_observations, 1);
+
+    let provider_snapshots = metrics.provider_snapshots();
+    assert_eq!(provider_snapshots.len(), 1);
+    assert_eq!(provider_snapshots[0].attempts_completed, 1);
+    assert_eq!(provider_snapshots[0].attempts_cancelled, 0);
+    assert_eq!(provider_snapshots[0].usage_observations, 1);
 }
 
 #[tokio::test]

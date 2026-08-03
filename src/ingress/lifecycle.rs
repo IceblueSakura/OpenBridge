@@ -123,6 +123,10 @@ impl HttpBody for RequestBodyObserver {
                     }
                     observer.usage.observe_chunk(&observer.observation, chunk);
                 }
+                // 底层在最后一个 data/trailer frame 后即可声明结束，无需等待 transport 再次 poll EOF。
+                if observer.body.is_end_stream() {
+                    observer.complete();
+                }
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
@@ -151,7 +155,7 @@ impl HttpBody for RequestBodyObserver {
 
 impl Drop for RequestBodyObserver {
     fn drop(&mut self) {
-        // 未到 EOF 且未产生 body error 表示下游不再消费 response。
+        // 尚未观察到底层终态表示 HTTP transport 在 response 完成前停止消费。
         if !self.finished {
             self.observation.cancel();
         }
@@ -170,29 +174,26 @@ mod tests {
     use crate::observability::{GatewayMetrics, RequestObservation, UsageCapture};
 
     #[test]
-    fn complete_single_frame_body_waits_for_observer_eof_before_reporting_end_stream() {
+    fn complete_single_frame_body_finishes_without_a_separate_eof_poll() {
         // 构造会在首帧后立即报告底层 end-stream 的完整内存 body。
         let metrics = GatewayMetrics::default();
         let observation = RequestObservation::new(metrics.clone(), tracing::Span::none());
         observation.record_response_ready(http::StatusCode::OK);
-        let mut observer = pin!(RequestBodyObserver::new(
-            Body::from("complete"),
-            observation,
-            UsageCapture::None,
-        ));
-        let mut context = Context::from_waker(noop_waker_ref());
+        {
+            let mut observer = pin!(RequestBodyObserver::new(
+                Body::from("complete"),
+                observation,
+                UsageCapture::None,
+            ));
+            let mut context = Context::from_waker(noop_waker_ref());
 
-        // 消费唯一 data frame 后，外层仍需等待一次 EOF poll 才能提交 completed。
-        assert!(matches!(
-            observer.as_mut().poll_frame(&mut context),
-            std::task::Poll::Ready(Some(Ok(_)))
-        ));
-        assert!(!observer.is_end_stream());
-        assert!(matches!(
-            observer.as_mut().poll_frame(&mut context),
-            std::task::Poll::Ready(None)
-        ));
-        drop(observer);
+            // 消费唯一 data frame 后，外层立即继承底层终态并提交 completed。
+            assert!(matches!(
+                observer.as_mut().poll_frame(&mut context),
+                std::task::Poll::Ready(Some(Ok(_)))
+            ));
+            assert!(observer.is_end_stream());
+        }
 
         // 正常 EOF 只能累计 completed，不能在 Drop 中误记 cancelled。
         let snapshot = metrics.snapshot();

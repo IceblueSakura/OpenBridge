@@ -109,8 +109,13 @@ Provider attempt 还会输出脱敏的 `provider_attempt_completed` tracing even
 - 下游取消只有在原始 upstream body 尚未完成时才计入 Provider `attempts_cancelled`；
 - `gateway_ttft_ms` 包含路由、transport、bridge 和网关输出路径，不能直接当作 Provider 内部生成 TTFT。
 
-本轮只实现采集和读取，不根据这些指标重排 Route candidate，也不改变 capability gate、state affinity、
-retry/fallback、cooldown 或首个下游输出后的提交边界。
+对于已知长度的 JSON body，底层 `HttpBody` 可以在返回最后一个 data/trailer frame 后立即声明
+end-stream，Hyper 不保证再 poll 一次独立 EOF。Provider 与下游两层 observer 都在该最后 frame 上提交完成；
+只有底层尚未结束时发生的 Drop 才归类为取消。该语义保留原始 size hint，同时避免把已经完整发送的
+`/v1/models`、Native JSON 或非流式 Bridge 响应误记为 `cancelled`。
+
+本次修复只统一 body observer 的终态提交时机，不根据这些指标重排 Route candidate，也不改变
+capability gate、state affinity、retry/fallback、cooldown 或首个下游输出后的提交边界。
 
 ## 当前验证证据
 
@@ -120,11 +125,13 @@ retry/fallback、cooldown 或首个下游输出后的提交边界。
 - streaming upstream TTFT 与 gateway TTFT 的分离；
 - retry 后的 HTTP failure/完成 attempt 归类；
 - response body 取消、pending send 取消、SSE EOF-before-terminal 和 failed terminal。
+- 真实 Axum/Hyper loopback 下的已知长度模型列表，以及嵌套 Provider/downstream observer 的 Native JSON 完成终态。
 
-这些测试使用 fake transport，只证明 OpenBridge 进程内采集和安全边界；它们不证明真实 Provider 的延迟、
-token 计数、cache 语义、负载表现或长期运行结果。
+测试通过 fake upstream transport 隔离 Provider 网络依赖，并通过真实 Axum/Hyper loopback 覆盖下游 HTTP
+transport；它们只证明 OpenBridge 进程内采集和本地传输边界，不证明真实 Provider 的延迟、token 计数、
+cache 语义、负载表现或长期运行结果。
 
-本轮实际验证：`cargo test --locked --test observability_contract` 的 8 个观测契约测试通过；完整
+本轮实际验证：`cargo test --locked --test observability_contract` 的 10 个观测契约测试通过；完整
 `cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和
 `git diff --check` 均通过。`tests/sdk_compatibility.rs` 仍按仓库约定保持 ignored，未运行外部 SDK、
 真实 Provider、负载或长期运行验收。
