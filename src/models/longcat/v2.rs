@@ -16,6 +16,9 @@ pub(crate) fn config() -> ModelConfig {
         ),
         // 目录公布的是总 context window；当前路由只校验单独声明的输出上限，组合上限仍由上游裁决。
         context_length: ModelContextLength::new(Some(1_048_756), Some(262_144)),
+        mode: None,
+        input_modalities: None,
+        output_modalities: None,
         supported_parameters: vec![
             "frequency_penalty",
             "include_reasoning",

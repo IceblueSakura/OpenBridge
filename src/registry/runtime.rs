@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    ModelContextLength, ReasoningLevel, ReasoningSupport, RouteMode, StateAffinity, TransportKind,
-    UpstreamApiCapabilities,
+    InputModality, ModelContextLength, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport,
+    RouteMode, StateAffinity, TransportKind, UpstreamApiCapabilities,
 };
 
 /// 启动后供请求路径读取的模型元数据。
@@ -22,6 +22,9 @@ pub struct ModelInfo {
     pub(super) name: String,
     pub(super) description: Option<String>,
     pub(super) context_length: ModelContextLength,
+    pub(super) mode: Option<ModelMode>,
+    pub(super) input_modalities: Option<Vec<InputModality>>,
+    pub(super) output_modalities: Option<Vec<OutputModality>>,
     pub(super) supported_parameters: Vec<String>,
     pub(super) reasoning: ReasoningSupport,
     pub(super) reasoning_levels: Vec<ReasoningLevel>,
@@ -46,6 +49,21 @@ impl ModelInfo {
     /// 返回生效后的上下文长度。
     pub const fn context_length(&self) -> ModelContextLength {
         self.context_length
+    }
+
+    /// 返回已确认的模型任务模式；`None` 表示定义层仍未知。
+    pub const fn mode(&self) -> Option<ModelMode> {
+        self.mode
+    }
+
+    /// 返回已确认的输入模态；`None` 不等同于明确不支持。
+    pub fn input_modalities(&self) -> Option<&[InputModality]> {
+        self.input_modalities.as_deref()
+    }
+
+    /// 返回已确认的输出模态；`None` 不等同于明确不支持。
+    pub fn output_modalities(&self) -> Option<&[OutputModality]> {
+        self.output_modalities.as_deref()
     }
 
     /// 返回生效后的支持参数。

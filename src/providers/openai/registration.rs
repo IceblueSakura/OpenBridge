@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
     models::gpt,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
@@ -33,7 +33,7 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
 /// 返回保守的 OpenAI capability 配置，需经实际上游 probe 后再扩大。
 pub const fn conservative_openai_capabilities() -> ApiCapabilities {
     ApiCapabilities {
-        chat_completions: EndpointCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
@@ -42,6 +42,16 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
             structured_outputs: false,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            audio_input: false,
+            file_input: false,
+            audio_output: false,
+            predicted_outputs: false,
+            web_search: false,
+            prompt_caching: false,
+            moderation: false,
+            logprobs: false,
+            multiple_choices: false,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -54,6 +64,16 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
             previous_response_id: false,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            hosted_tools: &[],
+            file_input: false,
+            conversation: false,
+            prompt_templates: false,
+            prompt_caching: false,
+            context_management: false,
+            include: &[],
+            moderation: false,
+            logprobs: false,
         },
     }
 }

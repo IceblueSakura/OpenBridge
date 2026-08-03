@@ -41,13 +41,64 @@ impl ReasoningOutput {
     }
 }
 
-/// 一个 OpenAI-compatible 生成端点的能力上界。
+/// Responses Create 可引用的 OpenAI-hosted tool 种类。
 ///
-/// 这些名称是 OpenBridge 的语义能力名，不是把请求 wire 字段直接复制到配置中。实际
-/// 字段仍由协议决定，例如 image input 在 Chat 中为 `image_url`、在 Responses 中为
-/// `input_image`，而 `function_calling` 的请求载体为 `tools`。
+/// 这些枚举只保留标准协议位置；当前 pipeline、adapter 和 Provider 注册均未实现这些工具。
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HostedToolKind {
+    /// Web search tool。
+    WebSearch,
+    /// File search tool。
+    FileSearch,
+    /// Code Interpreter tool。
+    CodeInterpreter,
+    /// Computer Use tool。
+    ComputerUse,
+    /// Image generation tool。
+    ImageGeneration,
+    /// Remote MCP tool。
+    Mcp,
+    /// Hosted shell tool。
+    Shell,
+    /// Apply patch tool。
+    ApplyPatch,
+    /// Tool search tool。
+    ToolSearch,
+    /// Skills tool。
+    Skills,
+    /// Programmatic Tool Calling tool。
+    ProgrammaticToolCalling,
+}
+
+/// Responses Create 的 `include` 标准附加输出种类。
+///
+/// 枚举值使用语义化 Rust 名称，Rustdoc 标明对应 wire path；当前仅作为预留接口。
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResponseInclude {
+    /// `web_search_call.action.sources`。
+    WebSearchCallSources,
+    /// `code_interpreter_call.outputs`。
+    CodeInterpreterCallOutputs,
+    /// `computer_call_output.output.image_url`。
+    ComputerCallOutputImageUrl,
+    /// `file_search_call.results`。
+    FileSearchCallResults,
+    /// `message.input_image.image_url`。
+    InputImageImageUrl,
+    /// `message.output_text.logprobs`。
+    OutputTextLogprobs,
+    /// `reasoning.encrypted_content`。
+    ReasoningEncryptedContent,
+}
+
+/// Chat Completions 与 Responses 共享的生成能力投影。
+///
+/// 该值只用于请求分析和协议公共子集判断；静态注册应使用协议专有的
+/// [`ChatCompletionsCapabilities`] 或 [`ResponsesCapabilities`]。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct EndpointCapabilities {
+pub struct GenerationCapabilities {
     /// 该端点是否可用。
     pub enabled: bool,
     /// 是否支持以 SSE 返回增量结果。
@@ -66,7 +117,7 @@ pub struct EndpointCapabilities {
     pub reasoning_output: ReasoningOutput,
 }
 
-impl EndpointCapabilities {
+impl GenerationCapabilities {
     /// 判断当前能力是否未超过给定上界。
     pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
@@ -80,7 +131,98 @@ impl EndpointCapabilities {
     }
 }
 
-/// Responses API 专有能力，以及与其共享的端点能力。
+/// Chat Completions Create endpoint 的能力上界。
+///
+/// 已实现字段保持当前 routing 语义；audio/file/custom tool、predicted outputs 等新增字段
+/// 只保留定义位置，启用时会在 registry 编译阶段触发 `unimplemented!`。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChatCompletionsCapabilities {
+    /// Chat Completions endpoint 是否可用。
+    pub enabled: bool,
+    /// 是否支持 Chat Completions streaming。
+    pub streaming: bool,
+    /// 是否支持 JSON-schema function tool 调用。
+    pub function_calling: bool,
+    /// 对请求 wire 字段 `parallel_tool_calls: true` 的支持。
+    pub parallel_tool_calls: bool,
+    /// 是否支持 `image_url` 输入内容 part。
+    pub image_input: bool,
+    /// 是否支持 `response_format` 或 strict function 的结构化输出约束。
+    pub structured_outputs: bool,
+    /// 对请求 wire 字段 `store: true` 的支持。
+    pub store: bool,
+    /// 上游 reasoning 输出的可观察类型。
+    pub reasoning_output: ReasoningOutput,
+    /// 是否支持 `type: "custom"` tool。
+    pub custom_tool_calling: bool,
+    /// 是否支持 `input_audio` 输入内容 part。
+    pub audio_input: bool,
+    /// 是否支持 `file` 输入内容 part。
+    pub file_input: bool,
+    /// 是否支持 `modalities` 中的 audio 输出。
+    pub audio_output: bool,
+    /// 是否支持 `prediction` predicted outputs。
+    pub predicted_outputs: bool,
+    /// 是否支持 `web_search_options`。
+    pub web_search: bool,
+    /// 是否支持 prompt cache key/options/breakpoint 语义。
+    pub prompt_caching: bool,
+    /// 是否支持请求级 moderation 配置。
+    pub moderation: bool,
+    /// 是否支持 token log probabilities。
+    pub logprobs: bool,
+    /// 是否支持 `n > 1` 的多个 choice。
+    pub multiple_choices: bool,
+}
+
+impl ChatCompletionsCapabilities {
+    /// 提取 Chat Completions 与 Responses 共享的生成能力。
+    pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
+        GenerationCapabilities {
+            enabled: self.enabled,
+            streaming: self.streaming,
+            function_calling: self.function_calling,
+            parallel_tool_calls: self.parallel_tool_calls,
+            image_input: self.image_input,
+            structured_outputs: self.structured_outputs,
+            store: self.store,
+            reasoning_output: self.reasoning_output,
+        }
+    }
+
+    /// 判断当前 Chat Completions 能力是否未超过给定上界。
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        // 阻止预留字段在实现请求处理前进入静态能力契约。
+        self.assert_reserved_unimplemented();
+        upper.assert_reserved_unimplemented();
+
+        // 比较当前已实现的协议公共能力。
+        self.generation_capabilities()
+            .is_subset_of(upper.generation_capabilities())
+    }
+
+    /// 在预留字段被静态注册时停止编译，避免形成虚假的运行时能力。
+    fn assert_reserved_unimplemented(self) {
+        if self.custom_tool_calling
+            || self.audio_input
+            || self.file_input
+            || self.audio_output
+            || self.predicted_outputs
+            || self.web_search
+            || self.prompt_caching
+            || self.moderation
+            || self.logprobs
+            || self.multiple_choices
+        {
+            unimplemented!("reserved Chat Completions capabilities are not implemented");
+        }
+    }
+}
+
+/// Responses Create endpoint 的能力上界。
+///
+/// resource retrieve/cancel/delete 等其他 endpoint 不属于此结构；新增 Create 字段当前只保留
+/// 类型位置，启用时会在 registry 编译阶段触发 `unimplemented!`。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResponsesCapabilities {
     /// Responses endpoint 是否可用。
@@ -103,12 +245,32 @@ pub struct ResponsesCapabilities {
     pub background: bool,
     /// 上游 reasoning 输出的可观察类型。
     pub reasoning_output: ReasoningOutput,
+    /// 是否支持 `type: "custom"` tool。
+    pub custom_tool_calling: bool,
+    /// 已声明支持的 OpenAI-hosted tool 种类。
+    pub hosted_tools: &'static [HostedToolKind],
+    /// 是否支持 file input item/content part。
+    pub file_input: bool,
+    /// 是否支持 `conversation` 持久状态。
+    pub conversation: bool,
+    /// 是否支持 `prompt` 模板引用。
+    pub prompt_templates: bool,
+    /// 是否支持 prompt cache key/options/breakpoint 语义。
+    pub prompt_caching: bool,
+    /// 是否支持 `context_management`。
+    pub context_management: bool,
+    /// 已声明支持的 `include` 附加输出种类。
+    pub include: &'static [ResponseInclude],
+    /// 是否支持请求级 moderation 配置。
+    pub moderation: bool,
+    /// 是否支持 message output text log probabilities。
+    pub logprobs: bool,
 }
 
 impl ResponsesCapabilities {
     /// 提取 Responses 与 Chat 共享的端点能力。
-    pub(crate) const fn protocol_capabilities(self) -> EndpointCapabilities {
-        EndpointCapabilities {
+    pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
+        GenerationCapabilities {
             enabled: self.enabled,
             streaming: self.streaming,
             function_calling: self.function_calling,
@@ -121,11 +283,33 @@ impl ResponsesCapabilities {
     }
 
     /// 判断当前 Responses 能力是否未超过给定上界。
-    pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
-        self.protocol_capabilities()
-            .is_subset_of(upper.protocol_capabilities())
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        // 阻止预留字段在实现请求处理前进入静态能力契约。
+        self.assert_reserved_unimplemented();
+        upper.assert_reserved_unimplemented();
+
+        // 比较已实现的公共能力与 Responses 状态能力。
+        self.generation_capabilities()
+            .is_subset_of(upper.generation_capabilities())
             && (!self.previous_response_id || upper.previous_response_id)
             && (!self.background || upper.background)
+    }
+
+    /// 在预留字段被静态注册时停止编译，避免形成虚假的运行时能力。
+    fn assert_reserved_unimplemented(self) {
+        if self.custom_tool_calling
+            || !self.hosted_tools.is_empty()
+            || self.file_input
+            || self.conversation
+            || self.prompt_templates
+            || self.prompt_caching
+            || self.context_management
+            || !self.include.is_empty()
+            || self.moderation
+            || self.logprobs
+        {
+            unimplemented!("reserved Responses capabilities are not implemented");
+        }
     }
 }
 
@@ -137,14 +321,14 @@ impl ResponsesCapabilities {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ApiCapabilities {
     /// Chat Completions endpoint 的能力上界。
-    pub chat_completions: EndpointCapabilities,
+    pub chat_completions: ChatCompletionsCapabilities,
     /// Responses endpoint 的能力上界。
     pub responses: ResponsesCapabilities,
 }
 
 impl ApiCapabilities {
     /// 按 Chat/Responses 两个协议分域判断能力是否收窄。
-    pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
         self.chat_completions.is_subset_of(upper.chat_completions)
             && self.responses.is_subset_of(upper.responses)
     }

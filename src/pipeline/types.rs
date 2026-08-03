@@ -2,7 +2,7 @@
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest, EndpointCapabilities},
+    core::{ApiProtocol, ApiRequest, GenerationCapabilities},
     registry::{ReasoningLevel, ReasoningLevelMapping},
 };
 
@@ -42,7 +42,7 @@ pub struct RouteCandidate {
 /// 需求，Responses 专有状态单独保留，避免被误用于 Chat Completions 路由。
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RequestedCapabilities {
-    pub(super) protocol: EndpointCapabilities,
+    pub(super) protocol: GenerationCapabilities,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,

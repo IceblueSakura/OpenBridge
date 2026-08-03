@@ -6,7 +6,8 @@ use http::{
 };
 use openbridge::{
     core::{
-        ApiCapabilities, ApiProtocol, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities,
+        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, ReasoningOutput,
+        ResponsesCapabilities,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
@@ -461,9 +462,9 @@ fn openrouter_authentication_is_bound_to_its_own_credential() {
 fn capability_adapter_rejects_feature_elevation_before_egress() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
     let supported = ApiCapabilities {
-        chat_completions: EndpointCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
             enabled: true,
-            ..EndpointCapabilities::default()
+            ..ChatCompletionsCapabilities::default()
         },
         ..ApiCapabilities::default()
     };
@@ -482,9 +483,9 @@ fn capability_adapter_rejects_feature_elevation_before_egress() {
     ));
 
     let elevated_reasoning = ApiCapabilities {
-        chat_completions: EndpointCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
             reasoning_output: ReasoningOutput::PlainText,
-            ..EndpointCapabilities::default()
+            ..ChatCompletionsCapabilities::default()
         },
         ..ApiCapabilities::default()
     };

@@ -7,6 +7,7 @@ mod capability;
 mod request;
 
 pub use capability::{
-    ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities,
+    ApiCapabilities, ChatCompletionsCapabilities, GenerationCapabilities, HostedToolKind,
+    ReasoningOutput, ResponseInclude, ResponsesCapabilities,
 };
 pub use request::{ApiProtocol, ApiRequest};

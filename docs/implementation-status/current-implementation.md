@@ -255,6 +255,23 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内
   采集边界，不证明真实 Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
 
+2026-08-03 完成 Chat/Responses definition 命名拆分与标准字段预留：
+
+- 原通用 `EndpointCapabilities` 已拆为可注册的 `ChatCompletionsCapabilities`、`ResponsesCapabilities`，以及只供请求
+  分析和公共子集判断使用的 `GenerationCapabilities`。现有 routing 字段与行为保持不变。
+- canonical `ModelConfig`/`ModelInfo` 增加可选 `ModelMode`、`InputModality` 和 `OutputModality`；输入枚举覆盖
+  text/image/audio/file，输出枚举覆盖 text/image/audio。所有 checked-in Model 均保留 `None`，未知不被解释成空集合。
+- Chat 预留 custom tool、audio/file input、audio output、predicted outputs、web search、prompt caching、moderation、
+  logprobs 与 multiple choices；Responses 预留 custom/hosted tools、file input、conversation、prompt template、prompt
+  caching、context management、标准 `include` 枚举、moderation 与 logprobs。所有 Provider contract 和 Upstream API
+  definition 均保持新增字段为 `false` 或空集合。
+- 本轮没有增加对应 request parser、Bridge、adapter 或 Provider 行为。进入 registry 编译的 Model 或 Upstream API
+  definition 若启用任一预留字段，会触发带稳定说明的 `unimplemented!`，不会被发布为运行时可用能力。
+- `capability_definition_contract` 4 个测试、`config_contract` 11 个、`native_routing_contract` 11 个和
+  `provider_boundary_contract` 16 个测试通过；随后 `cargo fmt -- --check`、`cargo test --locked`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。全量 Rust 结果为 155 个测试通过、1 个需要外部
+  OpenAI Python/Node SDK 的集成测试 ignored；没有修改 protocol corpus，也没有运行外部 SDK、真实 Provider、负载或长期验证。
+
 ## 当前未实现
 
 当前 checked-in OpenAI/LongCat/OpenRouter/DeepSeek/MiMo 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体

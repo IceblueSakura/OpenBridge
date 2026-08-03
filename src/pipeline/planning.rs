@@ -168,19 +168,19 @@ fn candidate_error(
     requested_output_tokens: Option<u64>,
 ) -> Option<RequestPlanningError> {
     // 先确认候选原生协议已启用，并拒绝未建模的工具语义。
-    let protocol_capabilities = capabilities.protocol_capabilities();
-    if !protocol_capabilities.enabled {
+    let generation_capabilities = capabilities.generation_capabilities();
+    if !generation_capabilities.enabled {
         return Some(RequestPlanningError::UnsupportedProtocol);
     }
     if requested_features.unmodeled_tools {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }
-    if requested_features.protocol.streaming && !protocol_capabilities.streaming {
+    if requested_features.protocol.streaming && !generation_capabilities.streaming {
         return Some(RequestPlanningError::StreamingUnsupported);
     }
     if !requested_features
         .protocol
-        .is_subset_of(protocol_capabilities)
+        .is_subset_of(generation_capabilities)
     {
         return Some(RequestPlanningError::UnsupportedCapabilities);
     }

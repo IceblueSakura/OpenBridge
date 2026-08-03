@@ -10,7 +10,7 @@
 - Structured Outputs：https://platform.openai.com/docs/guides/structured-outputs
 - OpenAPI path：`/chat/completions`（`GET` list、`POST` create）；`/chat/completions/{completion_id}` 与 `/messages` 是已存储 completion 的资源面。
 
-本文是 2026-07-18 的协议快照。准确可支持字段必须再按目标 model 核对。
+本文是 2026-08-03 复核的协议快照。准确可支持字段必须再按目标 model 核对。
 
 ## 2. 主请求契约
 
@@ -34,8 +34,8 @@ Authorization: Bearer $OPENAI_API_KEY
 | 字段 | 语义 | 转换器必须保留的性质 |
 |---|---|---|
 | `model` | 使用的模型标识 | 原样传递或由显式 deployment mapping 替换；不能从 endpoint 名称猜模型能力 |
-| `messages[]` | 到当前请求为止的有序对话 transcript | **顺序**、role、content part、tool correlation 都是语义，不可按 role 分组 |
-| `tools[]` | 可调用的 function/custom tool 定义 | schema、name、strict 与 tool choice 共同决定行为 |
+| `messages[]` | 到当前请求为止的有序对话 transcript；content part 可包含 text、image、audio 与 file | **顺序**、role、content part、tool correlation 都是语义，不可按 role 分组，也不能把非文本 part 静默删除 |
+| `tools[]` | 可调用的 function/custom tool 定义 | tool type、schema/name/strict 或 custom format 与 tool choice 共同决定行为 |
 | `tool_choice` | 禁止、自动、要求或指定工具 | 不是可忽略的展示参数 |
 | `parallel_tool_calls` | 是否允许并行 tool calls | 会影响输出的 call 数量和执行策略 |
 | `response_format` | text/JSON mode/JSON Schema structured output | Chat 的结构化输出位置；不能直接命名为 Responses `text.format` |
@@ -43,7 +43,10 @@ Authorization: Bearer $OPENAI_API_KEY
 | `max_completion_tokens` | 最大生成 token 上限（含 reasoning model 的可见和 reasoning token） | 不要与 Responses `max_output_tokens` 机械视为同一字段 |
 | `temperature`, `top_p`, `seed`, `logprobs`, `top_logprobs`, `n`, `stop` | 生成控制/采样 | 支持度依 model 而异，转换时应走 capability gate |
 | `modalities`, `audio` | 多模态输出控制 | 仅支持模型可用，不能在 text-only target 静默删除 |
-| `metadata`, `store`, `service_tier`, `user`, prompt cache 相关字段 | 存储、运营与追踪控制 | 需和目标服务的存储/审计策略独立映射 |
+| `prediction` | 已知输出内容的 predicted output 配置 | 只在目标 model 明确支持时使用，不能当作普通 prompt 文本 |
+| `reasoning_effort` | Chat reasoning effort 配置 | 与 Responses 的 `reasoning.effort` 是不同 wire 位置，只能经显式 Bridge 规则转换 |
+| `web_search_options` | Chat 内建 web search 配置 | 工具执行责任和 citations 不能降级成 client function tool |
+| prompt cache、moderation、`metadata`、`store`、`service_tier`、`user` 等字段 | 缓存、安全、存储、运营与追踪控制 | 需按目标模型、Provider 和数据治理契约独立 gate，不能因字段存在就宣称支持 |
 
 Reference 明确说明：参数支持会随 model 变化，尤其是 reasoning model。因此 request validator 应分成“通用 JSON shape”与“model capability policy”两层。
 
@@ -217,3 +220,4 @@ Chat 的 response-level structured output 位于：
 - 对 stream 分别追踪 content、refusal、tool calls、arguments、finish reason、usage。
 - `function_call` / `functions` 是 deprecated compatibility 面；不要在新 canonical IR 中将它设计成主形状。
 - `store`、metadata、service tier、user、prompt cache 等不是纯生成字段；只有在明确目标等价时才转发。
+- audio/file content、custom tool、predicted output、web search 和 moderation 都需要协议专有 capability；仅在定义层预留名称不等于请求路径已实现。

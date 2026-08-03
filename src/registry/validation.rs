@@ -30,6 +30,11 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             field: "description",
         });
     }
+    // 阻止预留模型字段在有效能力计算实现前进入运行时 registry。
+    if model.mode.is_some() || model.input_modalities.is_some() || model.output_modalities.is_some()
+    {
+        unimplemented!("model mode and modality processing is not implemented");
+    }
     // 校验已知上下文限制为正数。
     for (limit, value) in [
         ("input", model.context_length.input_tokens()),
@@ -167,6 +172,9 @@ pub(super) fn apply_model_rules(
                 rules.context_length.output_tokens(),
             ),
         ),
+        mode: model.mode,
+        input_modalities: model.input_modalities,
+        output_modalities: model.output_modalities,
         supported_parameters,
         reasoning,
         reasoning_levels: if reasoning == ReasoningSupport::Supported {

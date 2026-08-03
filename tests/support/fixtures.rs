@@ -5,7 +5,8 @@ use std::time::Duration;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{
-        ApiCapabilities, ApiProtocol, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities,
+        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, ReasoningOutput,
+        ResponsesCapabilities,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
@@ -85,7 +86,7 @@ enabled = true
 
 pub fn capabilities() -> ApiCapabilities {
     ApiCapabilities {
-        chat_completions: EndpointCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
@@ -94,6 +95,16 @@ pub fn capabilities() -> ApiCapabilities {
             structured_outputs: false,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            audio_input: false,
+            file_input: false,
+            audio_output: false,
+            predicted_outputs: false,
+            web_search: false,
+            prompt_caching: false,
+            moderation: false,
+            logprobs: false,
+            multiple_choices: false,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -106,6 +117,16 @@ pub fn capabilities() -> ApiCapabilities {
             previous_response_id: false,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            hosted_tools: &[],
+            file_input: false,
+            conversation: false,
+            prompt_templates: false,
+            prompt_caching: false,
+            context_management: false,
+            include: &[],
+            moderation: false,
+            logprobs: false,
         },
     }
 }
@@ -118,6 +139,9 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             name: "Test model".to_owned(),
             description: Some("Model used by integration tests.".to_owned()),
             context_length: ModelContextLength::new(Some(128_000), Some(8_192)),
+            mode: None,
+            input_modalities: None,
+            output_modalities: None,
             supported_parameters: Vec::new(),
             reasoning: ReasoningSupport::Unknown,
             reasoning_levels: Vec::new(),

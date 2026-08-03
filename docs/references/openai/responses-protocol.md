@@ -54,7 +54,7 @@ Authorization: Bearer $OPENAI_API_KEY
 | 字段 | 作用 | 协议含义 |
 |---|---|---|
 | `model` | 目标模型 | capability 的主键；不应由 converter 假设所有字段都支持 |
-| `input` | string 或异构 item list | 以有序 item log 表达当前输入、历史输出、tool call/result 等 |
+| `input` | string 或异构 item list；message content 可含 text、image 与 file | 以有序 item log 表达当前输入、历史输出、tool call/result 等，非文本 content 不能静默丢失 |
 | `instructions` | 顶层指令 | 独立于 `input[]` 的 instruction channel；和 Chat `system/developer` 不能简单一对一折叠 |
 | `conversation` | conversation id/object | 该 conversation 的 items 被 prepend；response 完成后 input/output items 自动加入 conversation |
 | `previous_response_id` | 前一 response 的链式 continuation | 复用服务端 response chain，不代表历史 input token 不计费 |
@@ -62,7 +62,7 @@ Authorization: Bearer $OPENAI_API_KEY
 | `text.format` | text / JSON mode / JSON Schema output | Responses 的 structured output 位置，区别于 Chat `response_format` |
 | `reasoning` | Responses 顶层 reasoning 配置对象 | 需与 `reasoning.effort`、encrypted reasoning replay 及 model capability 一起处理 |
 | `reasoning_effort` | 当前 Responses Create 参考未列出的顶层字段 | Responses Bridge/Native 均拒绝；它只属于 Chat 或 Provider 私有兼容面的字段 |
-| `include` | 请求附加输出数据 | 例如 file search results、web sources、message logprobs、`reasoning.encrypted_content` |
+| `include` | 请求附加输出数据 | 当前标准值覆盖 web sources、code interpreter outputs、computer output image URL、file search results、input image URL、message logprobs 和 `reasoning.encrypted_content`；应按枚举逐项 gate |
 | `store` | 服务端保存行为 | 与 resource retrieval、background 和 ZDR/stateless 设计相关 |
 | `background`, `stream` | 异步资源生命周期与 SSE | 二者组合会改变 retrieve/cancel/reconnect 需求 |
 | `truncation`, `context_management`, `max_output_tokens` | context 与输出边界 | 不要用 Chat 字段名直接代换 |
@@ -183,7 +183,7 @@ sequenceDiagram
 3. 并行调用可能存在；`call_id` 才是稳定关系键，不能以 `output` array index 关联。
 4. 要继续工具循环，不能丢原 prompt、工具定义、model 生成的 call item 或 result item。
 
-Responses 可以含 OpenAI-hosted tools 和 custom client tools。将前者降级为 Chat function tool，或反向把 Chat 函数虚构成 hosted tool，都会改变执行责任与安全边界；必须由 capability profile 显式决定。
+Responses 可以含 OpenAI-hosted tools 和 custom client tools。当前 hosted 类别覆盖 web/file search、Code Interpreter、Computer Use、image generation、remote MCP、shell/apply patch、tool search、skills 与 Programmatic Tool Calling 等协议表面。将前者降级为 Chat function tool，或反向把 Chat 函数虚构成 hosted tool，都会改变执行责任与安全边界；必须由 capability profile 按 tool kind 显式决定。
 
 ## 5. 三种多轮状态策略
 

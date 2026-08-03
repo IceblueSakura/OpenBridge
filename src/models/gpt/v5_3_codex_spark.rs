@@ -9,6 +9,9 @@ pub(crate) fn config() -> ModelConfig {
         name: "GPT-5.3 Codex Spark".to_owned(),
         description: None,
         context_length: ModelContextLength::new(Some(128_000), Some(128_000)),
+        mode: None,
+        input_modalities: None,
+        output_modalities: None,
         supported_parameters: vec!["reasoning".to_owned()],
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![

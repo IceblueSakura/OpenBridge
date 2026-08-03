@@ -4,7 +4,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, EndpointCapabilities, ReasoningOutput},
+    core::{ApiProtocol, GenerationCapabilities, ReasoningOutput},
     registry::ReasoningLevel,
 };
 
@@ -43,7 +43,7 @@ pub fn analyze_request(
         .and_then(Value::as_array)
         .is_some_and(|tools| tools.iter().any(|tool| !is_function_tool(tool)));
     let requested_capabilities = RequestedCapabilities {
-        protocol: EndpointCapabilities {
+        protocol: GenerationCapabilities {
             enabled: false,
             streaming: is_streaming,
             function_calling: requests_function_calling,

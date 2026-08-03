@@ -48,7 +48,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | Credential | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时解析 pool、合并上下游 secret、隔离用途并提供只读成员借用视图 |
 | 下游身份 | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User` | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份 |
 | 上游凭证 | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration` | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder |
-| API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities` | 下游协议、原始请求和协议能力 |
+| API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`GenerationCapabilities` | 下游协议、原始请求、协议分域能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
 | 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供请求路径只读使用的数据 |
 | 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
@@ -220,6 +220,15 @@ pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint
 Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
 但尚未调用真实异构协议 Provider。
+
+静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达；
+`GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册的模糊 endpoint 类型。canonical
+`ModelConfig` 预留 `mode`、`input_modalities` 和 `output_modalities`；Chat 预留 audio/file/custom tool、audio output、
+predicted output、web search、prompt caching、moderation、logprobs 和 multiple choices；Responses 另以
+`HostedToolKind`、`ResponseInclude` 及状态字段预留 hosted tool、附加输出、conversation、prompt template 和 context
+management。所有 checked-in Model 与 Provider/API definition 均保持这些字段为 `None`、`false` 或空集合；进入
+registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字段，就会在监听和 egress 前触发
+`unimplemented!`，因此这些类型位置不构成已实现能力声明。
 
 OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Responses Upstream API 和 Public Model
 `nemotron-3-ultra`；两个协议各有唯一 Native route，使用基础 upstream model

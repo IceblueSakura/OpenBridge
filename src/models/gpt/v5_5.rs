@@ -12,6 +12,9 @@ pub(crate) fn config() -> ModelConfig {
                 .to_owned(),
         ),
         context_length: ModelContextLength::new(Some(1_050_000), Some(128_000)),
+        mode: None,
+        input_modalities: None,
+        output_modalities: None,
         supported_parameters: [
             "include_reasoning",
             "max_completion_tokens",

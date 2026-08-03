@@ -12,6 +12,9 @@ pub(crate) fn config() -> ModelConfig {
                 .to_owned(),
         ),
         context_length: ModelContextLength::new(Some(1_048_576), None),
+        mode: None,
+        input_modalities: None,
+        output_modalities: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",

@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    core::{
+        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, GenerationCapabilities,
+        ResponsesCapabilities,
+    },
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -105,6 +108,43 @@ impl ModelContextLength {
     }
 }
 
+/// canonical Model 的任务模式。
+///
+/// 当前 OpenBridge 只注册可用于 Chat Completions/Responses 生成面的 `Chat` 模型；该枚举
+/// 预留给未来模型信息投影，尚未参与 registry capability 计算。
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModelMode {
+    /// 对话式文本/多模态生成模型。
+    Chat,
+}
+
+/// canonical Model 可接受的输入模态。
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputModality {
+    /// Text input。
+    Text,
+    /// Image input。
+    Image,
+    /// Audio input。
+    Audio,
+    /// File input。
+    File,
+}
+
+/// canonical Model 可生成的输出模态。
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputModality {
+    /// Text output。
+    Text,
+    /// Image output。
+    Image,
+    /// Audio output。
+    Audio,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// 与 Provider 无关的 canonical 模型事实。
 pub struct ModelConfig {
@@ -116,6 +156,12 @@ pub struct ModelConfig {
     pub description: Option<String>,
     /// 模型本身声明的上下文长度。
     pub context_length: ModelContextLength,
+    /// 已确认的模型任务模式；`None` 表示当前定义尚未提供证据。
+    pub mode: Option<ModelMode>,
+    /// 已确认的输入模态；`None` 表示未知，不能解释为空集合或明确不支持。
+    pub input_modalities: Option<Vec<InputModality>>,
+    /// 已确认的输出模态；`None` 表示未知，不能解释为空集合或明确不支持。
+    pub output_modalities: Option<Vec<OutputModality>>,
     /// 模型支持的 OpenAI-compatible 参数名。
     pub supported_parameters: Vec<String>,
     /// 模型 reasoning 支持状态。
@@ -152,7 +198,7 @@ pub struct CredentialPoolConfig {
 /// 与具体协议绑定的 Upstream API capability 配置。
 pub enum UpstreamApiCapabilities {
     /// Chat Completions endpoint 的能力。
-    ChatCompletions(EndpointCapabilities),
+    ChatCompletions(ChatCompletionsCapabilities),
     /// Responses endpoint 的能力。
     Responses(ResponsesCapabilities),
 }
@@ -167,10 +213,10 @@ impl UpstreamApiCapabilities {
     }
 
     /// 返回不包含 Responses 专有状态的协议公共能力。
-    pub const fn protocol_capabilities(self) -> EndpointCapabilities {
+    pub const fn generation_capabilities(self) -> GenerationCapabilities {
         match self {
-            Self::ChatCompletions(capabilities) => capabilities,
-            Self::Responses(capabilities) => capabilities.protocol_capabilities(),
+            Self::ChatCompletions(capabilities) => capabilities.generation_capabilities(),
+            Self::Responses(capabilities) => capabilities.generation_capabilities(),
         }
     }
 
@@ -190,7 +236,7 @@ impl UpstreamApiCapabilities {
         }
     }
 
-    pub(super) const fn is_subset_of(self, upper: ApiCapabilities) -> bool {
+    pub(super) fn is_subset_of(self, upper: ApiCapabilities) -> bool {
         match self {
             Self::ChatCompletions(capabilities) => {
                 capabilities.is_subset_of(upper.chat_completions)

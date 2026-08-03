@@ -3,7 +3,7 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -15,7 +15,7 @@ use crate::{
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::MiMo,
     ApiCapabilities {
-        chat_completions: EndpointCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
             function_calling: true,
@@ -24,6 +24,16 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             structured_outputs: true,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            audio_input: false,
+            file_input: false,
+            audio_output: false,
+            predicted_outputs: false,
+            web_search: false,
+            prompt_caching: false,
+            moderation: false,
+            logprobs: false,
+            multiple_choices: false,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -36,6 +46,16 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             previous_response_id: false,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            hosted_tools: &[],
+            file_input: false,
+            conversation: false,
+            prompt_templates: false,
+            prompt_caching: false,
+            context_management: false,
+            include: &[],
+            moderation: false,
+            logprobs: false,
         },
     },
     &["mimo-openai"],
