@@ -65,6 +65,10 @@ struct FailedTerminalTransport;
 
 struct FailedJsonTerminalTransport;
 
+struct ProviderMetricsJsonTransport;
+
+struct ProviderMetricsStreamingTransport;
+
 impl UpstreamTransport for PendingStreamTransport {
     fn send<'a>(
         &'a self,
@@ -159,6 +163,55 @@ impl UpstreamTransport for FailedJsonTerminalTransport {
     }
 }
 
+impl UpstreamTransport for ProviderMetricsJsonTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(
+                    r#"{"id":"chatcmpl-provider-metrics","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4}}}"#,
+                ),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for ProviderMetricsStreamingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let chunks = stream::iter(vec![
+                Ok::<_, std::io::Error>(bytes::Bytes::from_static(
+                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+                )),
+                Ok(bytes::Bytes::from_static(
+                    b"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2}}}\n\n",
+                )),
+                Ok(bytes::Bytes::from_static(b"data: [DONE]\n\n")),
+            ]);
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from_stream(chunks),
+            ))
+        })
+    }
+}
+
 fn app_with_transport(
     transport: Arc<dyn UpstreamTransport>,
 ) -> (axum::Router, openbridge::observability::GatewayMetrics) {
@@ -221,6 +274,83 @@ async fn completed_request_records_attempt_retry_and_confirmed_usage_once() {
     assert_eq!(snapshot.input_tokens, 11);
     assert_eq!(snapshot.output_tokens, 7);
     assert_eq!(snapshot.total_tokens, 18);
+
+    let provider_snapshot = &metrics.provider_snapshots()[0];
+    assert_eq!(provider_snapshot.attempts_started, 2);
+    assert_eq!(provider_snapshot.attempts_completed, 1);
+    assert_eq!(provider_snapshot.attempts_http_failed, 1);
+}
+
+#[tokio::test]
+async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
+    let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
+
+    let response = app
+        .oneshot(request(
+            r#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    let snapshots = metrics.provider_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    let snapshot = &snapshots[0];
+    assert_eq!(snapshot.key.provider, "openai");
+    assert_eq!(snapshot.key.public_model, "code-primary");
+    assert_eq!(snapshot.key.protocol, "chat_completions");
+    assert_eq!(snapshot.key.route_mode, "native");
+    assert!(!snapshot.key.streaming);
+    assert_eq!(snapshot.attempts_started, 1);
+    assert_eq!(snapshot.attempts_completed, 1);
+    assert_eq!(snapshot.attempts_http_failed, 0);
+    assert_eq!(snapshot.usage_observations, 1);
+    assert_eq!(snapshot.input_token_observations, 1);
+    assert_eq!(snapshot.output_token_observations, 1);
+    assert_eq!(snapshot.total_token_observations, 1);
+    assert_eq!(snapshot.input_tokens, 10);
+    assert_eq!(snapshot.output_tokens, 6);
+    assert_eq!(snapshot.total_tokens, 16);
+    assert_eq!(snapshot.cached_input_tokens, 4);
+    assert_eq!(snapshot.cache_observations, 1);
+    assert_eq!(snapshot.cache_read_observations, 1);
+    assert_eq!(snapshot.cache_hit_requests, 1);
+    assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
+    assert_eq!(snapshot.upstream_ttft_ms.count, 0);
+    assert_eq!(snapshot.duration_ms.count, 1);
+}
+
+#[tokio::test]
+async fn provider_snapshot_separates_upstream_and_gateway_ttft_for_streaming() {
+    let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsStreamingTransport));
+
+    let response = app
+        .oneshot(request(
+            r#"{"model":"code-primary","stream":true,"messages":[{"role":"user","content":"hello"}]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    let snapshots = metrics.provider_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    let snapshot = &snapshots[0];
+    assert!(snapshot.key.streaming);
+    assert_eq!(snapshot.attempts_completed, 1);
+    assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
+    assert_eq!(snapshot.upstream_ttft_ms.count, 1);
+    assert_eq!(snapshot.gateway_ttft_ms.count, 1);
+    assert_eq!(snapshot.usage_observations, 1);
+    assert_eq!(snapshot.input_token_observations, 1);
+    assert_eq!(snapshot.output_token_observations, 1);
+    assert_eq!(snapshot.total_token_observations, 1);
+    assert_eq!(snapshot.input_tokens, 8);
+    assert_eq!(snapshot.output_tokens, 5);
+    assert_eq!(snapshot.cached_input_tokens, 2);
+    assert_eq!(snapshot.cache_read_observations, 1);
+    assert_eq!(snapshot.cache_hit_requests, 1);
 }
 
 #[tokio::test]
@@ -240,6 +370,7 @@ async fn dropping_an_unfinished_stream_records_cancellation_not_completion() {
     assert_eq!(snapshot.requests_completed, 0);
     assert_eq!(snapshot.requests_cancelled, 1);
     assert_eq!(snapshot.upstream_attempts, 1);
+    assert_eq!(metrics.provider_snapshots()[0].attempts_cancelled, 1);
 }
 
 #[tokio::test]
@@ -281,6 +412,7 @@ async fn cancelling_before_response_headers_still_records_one_terminal() {
     assert_eq!(snapshot.requests_cancelled, 1);
     assert_eq!(snapshot.upstream_attempts, 1);
     assert_eq!(snapshot.requests_completed, 0);
+    assert_eq!(metrics.provider_snapshots()[0].attempts_cancelled, 1);
 }
 
 #[tokio::test]

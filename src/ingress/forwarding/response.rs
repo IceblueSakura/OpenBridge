@@ -60,6 +60,7 @@ pub(super) async fn upstream_response(
         });
     // 先拒绝声明需要 bridge 却不是 SSE 的 streaming 成功响应。
     if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
+        observation.record_stream_failure("invalid_upstream_response");
         return api_error(
             StatusCode::BAD_GATEWAY,
             "invalid_upstream_response",
@@ -67,17 +68,26 @@ pub(super) async fn upstream_response(
         );
     }
 
+    // 对成功的非 SSE body 增加透明 Provider usage/首字节观察，不改变下游 bytes。
+    let upstream_body = upstream.into_body();
+    let upstream_body = if status.is_success() && !is_sse {
+        observation.observe_upstream_json_body(upstream_body, max_json_body_bytes)
+    } else {
+        upstream_body
+    };
+
     // 再按成功 SSE、成功 JSON/Native 和错误 body 三类选择接管策略。
     let body = if validate_sse && status.is_success() && is_sse {
         if let Some(bridge) = bridge {
             bridge_sse_body(
-                upstream.into_body(),
+                upstream_body,
                 bridge.stream_renderer(),
                 max_sse_event_bytes,
+                observation.clone(),
             )
         } else {
             validate_sse_body(
-                upstream.into_body(),
+                upstream_body,
                 protocol,
                 adapter,
                 max_sse_event_bytes,
@@ -86,7 +96,7 @@ pub(super) async fn upstream_response(
         }
     } else if status.is_success() {
         if let Some(bridge) = bridge {
-            let upstream_body = match to_bytes(upstream.into_body(), max_json_body_bytes).await {
+            let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {
                 Ok(body) => body,
                 Err(_) => {
                     return api_error(
@@ -107,10 +117,10 @@ pub(super) async fn upstream_response(
                 }
             }
         } else {
-            upstream.into_body()
+            upstream_body
         }
     } else {
-        upstream.into_body()
+        upstream_body
     };
 
     // 构造保留安全上游 headers 的最终下游 response。

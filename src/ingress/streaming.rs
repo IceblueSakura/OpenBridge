@@ -18,6 +18,7 @@ pub(super) fn bridge_sse_body(
     body: axum::body::Body,
     renderer: BridgeStreamRenderer,
     max_sse_event_bytes: usize,
+    observation: RequestObservation,
 ) -> axum::body::Body {
     // 保持 source、decoder 与 renderer 同生命周期，下游 drop 会同步取消上游 body。
     let stream = stream::unfold(
@@ -26,63 +27,74 @@ pub(super) fn bridge_sse_body(
             SseDecoder::new(max_sse_event_bytes),
             renderer,
             false,
+            observation,
         ),
-        move |(mut source, mut decoder, mut renderer, finished)| async move {
+        move |(mut source, mut decoder, mut renderer, finished, observation)| async move {
             if finished {
                 return None;
             }
             match source.as_mut().next().await {
                 Some(Ok(chunk)) => {
+                    observation.record_upstream_chunk(&chunk);
                     let events = match decoder.push(&chunk) {
                         Ok(events) => events,
                         Err(_) => {
+                            observation.record_upstream_failure();
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, renderer, true),
+                                (source, decoder, renderer, true, observation),
                             ));
                         }
                     };
+                    observation.record_upstream_events(&events);
                     let mut output = Vec::new();
                     for event in events {
                         match renderer.render(event) {
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
+                                observation.record_upstream_failure();
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
-                                    (source, decoder, renderer, true),
+                                    (source, decoder, renderer, true, observation),
                                 ));
                             }
                         }
                     }
                     Some((
                         Ok::<_, io::Error>(Bytes::from(output)),
-                        (source, decoder, renderer, false),
+                        (source, decoder, renderer, false, observation),
                     ))
                 }
                 Some(Err(_)) => Some((
                     Err(io::Error::other(
                         "upstream SSE stream terminated unexpectedly",
                     )),
-                    (source, decoder, renderer, true),
+                    {
+                        observation.record_upstream_failure();
+                        (source, decoder, renderer, true, observation)
+                    },
                 )),
                 None => {
                     let events = match decoder.finish() {
                         Ok(events) => events,
                         Err(_) => {
+                            observation.record_upstream_failure();
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, renderer, true),
+                                (source, decoder, renderer, true, observation),
                             ));
                         }
                     };
+                    observation.record_upstream_events(&events);
                     let mut output = Vec::new();
                     for event in events {
                         match renderer.render(event) {
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
+                                observation.record_upstream_failure();
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
-                                    (source, decoder, renderer, true),
+                                    (source, decoder, renderer, true, observation),
                                 ));
                             }
                         }
@@ -90,18 +102,20 @@ pub(super) fn bridge_sse_body(
                     match renderer.finish() {
                         Ok(bytes) => output.extend_from_slice(&bytes),
                         Err(_) => {
+                            observation.record_upstream_failure();
                             return Some((
                                 Err(io::Error::other("upstream bridge stream is invalid")),
-                                (source, decoder, renderer, true),
+                                (source, decoder, renderer, true, observation),
                             ));
                         }
                     }
+                    observation.record_upstream_complete();
                     if output.is_empty() {
                         None
                     } else {
                         Some((
                             Ok::<_, io::Error>(Bytes::from(output)),
-                            (source, decoder, renderer, true),
+                            (source, decoder, renderer, true, observation),
                         ))
                     }
                 }
@@ -139,38 +153,52 @@ pub(super) fn validate_sse_body(
             }
             // 读取下一个上游 chunk，并只观察 framing/terminal，不改写原始 bytes。
             match source.as_mut().next().await {
-                Some(Ok(chunk)) => match decoder.push(&chunk) {
-                    Ok(events) => {
-                        match observe_sse_events(
-                            adapter,
-                            protocol,
-                            events,
-                            &mut terminal_seen,
-                            &observation,
-                        ) {
-                            Ok(()) => Some((
-                                Ok::<_, io::Error>(chunk),
-                                (source, decoder, terminal_seen, false, observation),
-                            )),
-                            Err(()) => Some((
+                Some(Ok(chunk)) => {
+                    observation.record_upstream_chunk(&chunk);
+                    match decoder.push(&chunk) {
+                        Ok(events) => {
+                            observation.record_upstream_events(&events);
+                            match observe_sse_events(
+                                adapter,
+                                protocol,
+                                events,
+                                &mut terminal_seen,
+                                &observation,
+                            ) {
+                                Ok(()) => Some((
+                                    Ok::<_, io::Error>(chunk),
+                                    (source, decoder, terminal_seen, false, observation),
+                                )),
+                                Err(()) => {
+                                    observation.record_upstream_failure();
+                                    Some((
+                                        Err(io::Error::other("upstream SSE stream is invalid")),
+                                        (source, decoder, terminal_seen, true, observation),
+                                    ))
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            observation.record_upstream_failure();
+                            Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
                                 (source, decoder, terminal_seen, true, observation),
-                            )),
+                            ))
                         }
                     }
-                    Err(_) => Some((
-                        Err(io::Error::other("upstream SSE stream is invalid")),
+                }
+                Some(Err(_)) => {
+                    observation.record_upstream_failure();
+                    Some((
+                        Err(io::Error::other(
+                            "upstream SSE stream terminated unexpectedly",
+                        )),
                         (source, decoder, terminal_seen, true, observation),
-                    )),
-                },
-                Some(Err(_)) => Some((
-                    Err(io::Error::other(
-                        "upstream SSE stream terminated unexpectedly",
-                    )),
-                    (source, decoder, terminal_seen, true, observation),
-                )),
+                    ))
+                }
                 None => match decoder.finish() {
                     Ok(events) => {
+                        observation.record_upstream_events(&events);
                         if observe_sse_events(
                             adapter,
                             protocol,
@@ -180,11 +208,13 @@ pub(super) fn validate_sse_body(
                         )
                         .is_err()
                         {
+                            observation.record_upstream_failure();
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
                                 (source, decoder, terminal_seen, true, observation),
                             ));
                         }
+                        observation.record_upstream_complete();
                         if !terminal_seen {
                             observation.record_stream_failure("sse_eof_before_terminal");
                             tracing::warn!(
@@ -194,10 +224,13 @@ pub(super) fn validate_sse_body(
                         }
                         None
                     }
-                    Err(_) => Some((
-                        Err(io::Error::other("upstream SSE stream is invalid")),
-                        (source, decoder, terminal_seen, true, observation),
-                    )),
+                    Err(_) => {
+                        observation.record_upstream_failure();
+                        Some((
+                            Err(io::Error::other("upstream SSE stream is invalid")),
+                            (source, decoder, terminal_seen, true, observation),
+                        ))
+                    }
                 },
             }
         },

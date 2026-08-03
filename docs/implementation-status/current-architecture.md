@@ -10,8 +10,8 @@
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
 cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
-尚未实现。请求生命周期观测已接入 tracing 和无高基数标签的进程内累计值，但尚未接入 OpenTelemetry/
-Prometheus exporter。
+尚未实现。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期 Provider attempt 维度
+聚合的性能/usage/cache 快照，但尚未接入 OpenTelemetry/Prometheus exporter。
 
 ## 1. 分层结构
 
@@ -34,7 +34,7 @@ upstream provider
 
 response body EOF / error / drop
           ↓
-tracing lifecycle events + GatewayMetrics
+tracing lifecycle events + GatewayMetrics + ProviderMetricSnapshot
 ```
 
 依赖方向保持单向：配置和注册表不执行网络 I/O；pipeline 不按 Provider 名称分支；adapter 不选择
@@ -55,7 +55,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
 | Transport | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse` | 可替换的发送边界、生产 HTTP client 和上游响应 |
-| Observability | `RequestObservation`、`UsageCapture`、`GatewayMetrics` | 请求终态 tracing、usage 解析和低基数累计值 |
+| Observability | `RequestObservation`、`UsageCapture`、`ProviderAttemptObservation`、`GatewayMetrics`、`ProviderMetricSnapshot` | 请求终态 tracing、原始 upstream body/SSE 观测、Provider attempt 性能和 usage/cache 快照 |
 | Probe | `ProbeOptions`、`ProbeResult`、`TargetProbeReport` | 探测输入、单项观察和 target 汇总报告 |
 
 命名规则保持简单：`*Config` 表示构建前配置，去掉 `Config` 表示校验后的运行实体，`*Info` 表示只读事实，
@@ -252,8 +252,8 @@ Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff �
 `RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，仅在自身提交真实 EOF 或 body error 后报告
 end-stream，并在真实 EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把 headers ready
 误当成 TTFT。JSON usage 只在配置上限内临时解析，SSE usage 按完整 event 解析；业务正文不会写入 tracing 或
-进程内累计值。attempt 的 route/target/Provider 等高基数事实只属于 tracing event，`GatewayMetrics` 只维护
-进程级低基数单调计数。
+进程内累计值。Provider attempt 的 route/target/Provider 等受信编译期维度进入独立快照，request/user/
+credential/endpoint URL 仍不进入指标 key；`GatewayMetrics` 继续只维护进程级低基数单调计数。
 
 `ingress::credential_health::CredentialHealth` 与 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。
 前者维护每 pool round-robin cursor，以及按 `member_id + generation` 隔离的 429 cooldown；`Retry-After`
@@ -267,7 +267,7 @@ target。两类状态都不持久化、不跨进程，也不执行动态权重�
 stream 的分片，不用它替代 call id。两侧要求唯一 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受
 显式 allowlist 内的共同 text/function 与明文 reasoning channel 语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
 
-`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、metrics 与 usage 拆到
+`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider metrics 与 usage 拆到
 同名目录，后者将固定 payload 和受信 probe session 拆到同名目录；各自测试也位于私有 `tests.rs`。
 
 ## 8. Probe 与验证层
@@ -292,5 +292,6 @@ Provider 边界、路由、HTTP/SSE、Bridge、retry/fallback、credential rotat
 ## 关联文档
 
 - [当前实现说明](current-implementation.md)
+- [遥测指标](telemetry-metrics.md)
 - [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
 - [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)

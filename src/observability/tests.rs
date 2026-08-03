@@ -43,13 +43,20 @@ fn extracts_chat_and_responses_usage_without_business_content() {
     // 验证两种协议的明确 usage 使用统一内部计数。
     assert_eq!(
         extract_usage(&json!({
-            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+            "usage": {
+                "prompt_tokens": 2,
+                "completion_tokens": 3,
+                "total_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 1}
+            },
             "choices": [{"message": {"content": "must not be retained"}}]
         })),
         Some(TokenUsage {
             input_tokens: Some(2),
             output_tokens: Some(3),
             total_tokens: Some(5),
+            cached_input_tokens: Some(1),
+            cache_write_input_tokens: None,
         })
     );
     assert_eq!(
@@ -60,6 +67,8 @@ fn extracts_chat_and_responses_usage_without_business_content() {
             input_tokens: Some(7),
             output_tokens: Some(11),
             total_tokens: Some(18),
+            cached_input_tokens: None,
+            cache_write_input_tokens: None,
         })
     );
     assert_eq!(
@@ -94,6 +103,8 @@ fn completion_event_contains_diagnostics_but_no_body_or_credentials() {
             input_tokens: Some(2),
             output_tokens: Some(3),
             total_tokens: Some(5),
+            cached_input_tokens: None,
+            cache_write_input_tokens: None,
         });
         observation.finish();
     });

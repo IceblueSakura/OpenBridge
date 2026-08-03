@@ -14,6 +14,21 @@ pub(super) struct TokenUsage {
     pub(super) input_tokens: Option<u64>,
     pub(super) output_tokens: Option<u64>,
     pub(super) total_tokens: Option<u64>,
+    pub(super) cached_input_tokens: Option<u64>,
+    pub(super) cache_write_input_tokens: Option<u64>,
+}
+
+impl TokenUsage {
+    /// 合并两份 usage，优先保留已经解析到的字段并补齐缺失字段。
+    pub(super) fn merge(&mut self, other: Self) {
+        self.input_tokens = self.input_tokens.or(other.input_tokens);
+        self.output_tokens = self.output_tokens.or(other.output_tokens);
+        self.total_tokens = self.total_tokens.or(other.total_tokens);
+        self.cached_input_tokens = self.cached_input_tokens.or(other.cached_input_tokens);
+        self.cache_write_input_tokens = self
+            .cache_write_input_tokens
+            .or(other.cache_write_input_tokens);
+    }
 }
 
 /// response body 的 usage 解析状态；解析失败只表示观测缺失，不改变代理响应。
@@ -123,7 +138,7 @@ fn observe_usage_events(observation: &RequestObservation, events: Vec<SseEvent>)
 }
 
 /// 判断 event 是否携带首个 text 或 function arguments 增量。
-fn is_business_output(value: &Value) -> bool {
+pub(super) fn is_business_output(value: &Value) -> bool {
     // Responses 只有 text/function arguments delta 属于首个业务输出，lifecycle metadata 不计入。
     if value
         .get("type")
@@ -159,7 +174,7 @@ fn is_business_output(value: &Value) -> bool {
 }
 
 /// 判断完整 JSON response 是否声明失败或未完整终态。
-fn is_failed_terminal(value: &Value) -> bool {
+pub(super) fn is_failed_terminal(value: &Value) -> bool {
     value
         .get("status")
         .and_then(Value::as_str)
@@ -193,13 +208,46 @@ pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
                 .zip(output_tokens)
                 .map(|(input, output)| input.saturating_add(output))
         });
-    if input_tokens.is_none() && output_tokens.is_none() && total_tokens.is_none() {
+    let cached_input_tokens = usage
+        .get("cached_input_tokens")
+        .or_else(|| usage.get("cache_read_input_tokens"))
+        .or_else(|| usage.get("cached_tokens"))
+        .and_then(Value::as_u64)
+        .or_else(|| nested_usage_token(usage, "prompt_tokens_details", "cached_tokens"))
+        .or_else(|| nested_usage_token(usage, "input_tokens_details", "cached_tokens"));
+    let cache_write_input_tokens = usage
+        .get("cache_write_input_tokens")
+        .or_else(|| usage.get("cache_creation_input_tokens"))
+        .and_then(Value::as_u64)
+        .or_else(|| nested_usage_token(usage, "prompt_tokens_details", "cache_creation_tokens"))
+        .or_else(|| nested_usage_token(usage, "input_tokens_details", "cache_creation_tokens"));
+    if input_tokens.is_none()
+        && output_tokens.is_none()
+        && total_tokens.is_none()
+        && cached_input_tokens.is_none()
+        && cache_write_input_tokens.is_none()
+    {
         None
     } else {
         Some(TokenUsage {
             input_tokens,
             output_tokens,
             total_tokens,
+            cached_input_tokens,
+            cache_write_input_tokens,
         })
     }
+}
+
+/// 从 Provider usage 的嵌套 details 对象读取一个明确 token 字段。
+fn nested_usage_token(
+    usage: &serde_json::Map<String, Value>,
+    object: &str,
+    field: &str,
+) -> Option<u64> {
+    usage
+        .get(object)
+        .and_then(Value::as_object)
+        .and_then(|details| details.get(field))
+        .and_then(Value::as_u64)
 }

@@ -34,7 +34,9 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
 2. [产品范围](functional-requirements/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
 3. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
-4. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
+4. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 的性能、usage、cache
+   口径及进程内读取边界。
+5. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
 
 这一阶段暂时不要钻进具体函数。读完后应能回答：
 
@@ -197,6 +199,7 @@ public model name
 | 模型名或 endpoint 改写错误 | registry ownership → Provider adapter → `UpstreamClient::send` → provider tests |
 | SSE 提前结束、重复 terminal 或乱码 | Responses/Chat 协议参考 → `transport/sse.rs` → `ingress/streaming.rs` → SSE/forwarding tests |
 | fallback 或 retry 不符合预期 | Provider 韧性需求 → `ingress/forwarding.rs` → status/error classification → forwarding tests |
+| 比较 Provider 性能、usage 或 cache | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/provider.rs` → `observability_contract.rs` |
 | credential/header 泄露风险 | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests |
 | 新增 Provider | Provider contract → canonical model → compiled registry → adapter → probe → contract tests |
 | 扩充协议测试 | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests |

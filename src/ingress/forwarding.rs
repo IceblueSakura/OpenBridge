@@ -51,7 +51,7 @@ pub(super) async fn forward_request(
         Ok(profile) => profile,
         Err(error) => return route_error(error),
     };
-    observation.record_request(protocol, profile.public_model());
+    observation.record_request(protocol, profile.public_model(), profile.is_streaming());
     let plan = match plan_request(&registry, &profile, body) {
         Ok(plan) => plan,
         Err(error) => return route_error(error),
@@ -194,6 +194,7 @@ pub(super) async fn forward_request(
                 attempts.attempts_started() as u64,
                 candidate.route_id(),
                 candidate.upstream_target_id(),
+                candidate.upstream_api_id(),
                 target.kind(),
                 candidate.bridge().is_some(),
             );

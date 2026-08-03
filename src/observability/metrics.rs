@@ -7,6 +7,10 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use super::provider::{
+    ProviderAttemptObservation, ProviderMetricKey, ProviderMetricSnapshot, ProviderMetrics,
+};
+
 /// 可由未来 metrics exporter 读取的进程内低基数累计值。
 #[derive(Clone, Default)]
 pub struct GatewayMetrics {
@@ -52,6 +56,7 @@ pub struct GatewayMetricsSnapshot {
 
 #[derive(Default)]
 pub(super) struct MetricCounters {
+    pub(super) provider: ProviderMetrics,
     pub(super) requests_started: AtomicU64,
     pub(super) requests_completed: AtomicU64,
     pub(super) requests_http_failed: AtomicU64,
@@ -71,6 +76,19 @@ pub(super) struct MetricCounters {
 }
 
 impl GatewayMetrics {
+    /// 返回按 Provider attempt 维度排序的性能快照。
+    pub fn provider_snapshots(&self) -> Vec<ProviderMetricSnapshot> {
+        self.inner.provider.snapshots()
+    }
+
+    /// 创建一个绑定到 Provider 维度的 attempt 观测句柄。
+    pub(super) fn start_provider_attempt(
+        &self,
+        key: ProviderMetricKey,
+    ) -> ProviderAttemptObservation {
+        self.inner.provider.start(key)
+    }
+
     /// 返回不带高基数标签的累计值快照。
     pub fn snapshot(&self) -> GatewayMetricsSnapshot {
         // 使用 relaxed 读取独立单调计数；快照不承诺跨字段事务一致性。

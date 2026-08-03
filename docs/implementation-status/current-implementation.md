@@ -110,26 +110,11 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 - 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测；
   外层 body observer 仅在自身提交 EOF 或错误后报告 end-stream，避免完整单帧 body 被误记为下游取消。
 
-## 请求观测与进程内统计
+## 遥测指标
 
-`src/observability.rs` 是观测门面；`src/observability/request.rs`、`metrics.rs` 与 `usage.rs` 分别处理
-单请求生命周期、低基数累计值和 Provider 明确返回的 usage：
-
-- `downstream_request` span 保存 request id、稳定 user id、协议、Public Model 和最终 HTTP status；
-- `upstream_attempt` 及其 HTTP/transport result、retry、credential rotation、fallback、cooldown skip 使用独立 tracing event，包含
-  已编译 route/target/Provider 等诊断字段，但不包含 endpoint、credential、header 或业务正文；
-- `downstream_request_completed` 在 response 前取消、body 的真实 EOF、body/SSE 错误或 drop 时产生一次，记录
-  `response_ready_ms`、`first_body_byte_ms`、SSE 首个 text/tool 增量的 `first_output_ms`、总耗时、attempt 数、
-  终态类别和已确认 usage；JSON/SSE 的 `failed`/`incomplete` 不会因 HTTP 200 被计为成功，返回 response
-  headers 也不再被误记为请求完成；
-- `GatewayMetrics` 使用无高基数标签的原子累计值保存成功、HTTP 失败、body/协议失败、取消、attempt HTTP/transport
-  失败、retry、credential rotation、fallback、cooldown skip 和 input/output/total token；`snapshot` 是非事务的单调累计视图；
-- JSON usage 使用配置大小限制内的临时缓冲，SSE usage 按 event 上限增量解析；超限、缺失或不可解析时不估算
-  token，也不改变代理响应。
-
-当前没有接入 OpenTelemetry SDK/exporter、Prometheus、指标 HTTP API、持久化或分布式聚合。未来 trace
-exporter 可直接消费稳定 span/event；metrics exporter 应读取低基数累计值或用等价 Meter instrument 替换，
-不得把 request/user/route/target 变成指标标签。
+请求生命周期 tracing、全局低基数累计值和按 Provider attempt 聚合的性能、usage、cache 指标已拆分到
+[遥测指标](telemetry-metrics.md)。本页只保留运行行为和验证范围，不复制容易漂移的指标字段、采集口径或
+未接入 exporter 的限制。
 
 ## Protocol Bridge
 
@@ -216,6 +201,19 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 - 新增配置与规划契约覆盖 DeepSeek/MiMo/LongCat 的运行时 capability 值、Provider contract 的 reasoning capability 越权拒绝，以及
   `Unknown`/`PlainText` Bridge candidate 的选择差异。该层仍是 deterministic Rust tests 与 mock/high-level evidence，不等同于
   MiMo/LongCat 的 readable reasoning real-provider acceptance。
+
+2026-08-03 完成 Provider attempt 遥测扩展：
+
+- 每个已收口的实际上游 attempt 现在按编译期 Provider、Route、Target、Upstream API、Public Model、协议、
+  streaming 和 Native/Bridge 模式聚合独立快照，记录 response-ready、首个上游 body byte、上下游 TTFT、body
+  生命周期、明确 usage、token observation、output speed 和 cache read/write 观测；request/user/credential/
+  endpoint URL 与正文不进入指标 key。
+- `GatewayMetrics::provider_snapshots` 提供进程内只读快照；当前未接入 `/metrics`、Prometheus/OpenTelemetry
+  exporter、持久化、分布式聚合或按遥测结果动态重排 Route。
+- 新增的 8 个 `observability_contract` 测试覆盖 JSON/streaming usage 与 cache、Provider/route mode 维度、
+  retry HTTP failure、SSE terminal/EOF failure 和下游取消；`cargo test --locked`、`cargo fmt -- --check`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内
+  采集边界，不证明真实 Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
 
 ## 当前未实现
 
