@@ -3,7 +3,7 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// MiMo Chat Completions 与 Responses 的保守能力上界。
+/// MiMo Chat Completions 与 Responses 的保守能力上界；当前未确认可读 reasoning 输出。
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::MiMo,
     ApiCapabilities {
@@ -23,6 +23,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: false,
             structured_outputs: false,
             store: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -34,6 +35,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
     },
     &["mimo-openai"],

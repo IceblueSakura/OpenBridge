@@ -35,4 +35,7 @@ pub enum RequestPlanningError {
     /// 模型不支持请求的 reasoning level。
     #[error("selected model does not support the requested reasoning level")]
     ReasoningLevelUnsupported,
+    /// 请求同时提供了冲突的 reasoning 配置来源或形状。
+    #[error("request contains conflicting reasoning configuration")]
+    InvalidReasoningConfiguration,
 }

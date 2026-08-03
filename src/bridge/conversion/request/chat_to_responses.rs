@@ -16,6 +16,7 @@ use super::super::{
 pub(in crate::bridge::conversion) fn chat_request_to_responses(
     source: &Map<String, Value>,
     upstream_model: &str,
+    reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
     // 转换 Chat messages，并验证 tool call/result 的局部 identity ledger。
     let messages = source
@@ -24,7 +25,7 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
         .ok_or(BridgeError::InvalidShape)?;
     let stream = source.get("stream").and_then(Value::as_bool) == Some(true);
     let tools_present = source.get("tools").is_some();
-    let input = chat_messages_to_responses(messages, stream, tools_present)?;
+    let input = chat_messages_to_responses(messages, stream, tools_present, reasoning_supported)?;
 
     // 复制两协议共同字段，并转换 function schema 与输出 token 字段。
     let mut result = Map::new();
@@ -36,6 +37,12 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
         &mut result,
         &["parallel_tool_calls", "temperature", "top_p"],
     );
+    if let Some(effort) = chat_reasoning_effort(source)? {
+        if !reasoning_supported && effort != "none" {
+            return Err(BridgeError::UnsupportedSemantics);
+        }
+        result.insert("reasoning".to_owned(), json!({"effort": effort}));
+    }
     if let Some(max_tokens) = source
         .get("max_completion_tokens")
         .or_else(|| source.get("max_tokens"))
@@ -67,11 +74,15 @@ fn chat_messages_to_responses(
     messages: &[Value],
     stream: bool,
     tools_present: bool,
+    reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
     // 对最常见的单条流式文本保留 Responses 简写，其他 history 使用显式 input items。
     if stream && messages.len() == 1 {
         let message = messages[0].as_object().ok_or(BridgeError::InvalidShape)?;
         if message.get("role").and_then(Value::as_str) == Some("user")
+            && !message
+                .get("reasoning_content")
+                .is_some_and(|value| !value.is_null() && value != &Value::String(String::new()))
             && let Some(text) = message.get("content").and_then(Value::as_str)
         {
             return Ok(Value::String(text.to_owned()));
@@ -88,6 +99,16 @@ fn chat_messages_to_responses(
             .get("role")
             .and_then(Value::as_str)
             .ok_or(BridgeError::InvalidShape)?;
+        let reasoning = if role == "assistant" {
+            chat_reasoning_content(message, reasoning_supported)?
+        } else if message
+            .get("reasoning_content")
+            .is_some_and(|value| !value.is_null() && value != &Value::String(String::new()))
+        {
+            return Err(BridgeError::UnsupportedSemantics);
+        } else {
+            None
+        };
         match role {
             "assistant" if message.get("tool_calls").is_some() => {
                 if message
@@ -100,6 +121,9 @@ fn chat_messages_to_responses(
                     .get("tool_calls")
                     .and_then(Value::as_array)
                     .ok_or(BridgeError::InvalidShape)?;
+                if let Some(reasoning) = reasoning {
+                    input.push(reasoning_item(&format!("rs_{}", input.len()), &reasoning));
+                }
                 for call in calls {
                     let call = call.as_object().ok_or(BridgeError::InvalidShape)?;
                     let id = required_string(call, "id")?;
@@ -147,6 +171,9 @@ fn chat_messages_to_responses(
             }
             "user" | "assistant" | "system" | "developer" => {
                 let content = message.get("content").ok_or(BridgeError::InvalidShape)?;
+                if let Some(reasoning) = reasoning {
+                    input.push(reasoning_item(&format!("rs_{}", input.len()), &reasoning));
+                }
                 let converted = chat_content_to_responses(content, tools_present)?;
                 input.push(json!({"content": converted, "role": role, "type": "message"}));
             }
@@ -154,6 +181,50 @@ fn chat_messages_to_responses(
         }
     }
     Ok(Value::Array(input))
+}
+
+/// 解析 Chat 标准的 reasoning_effort。
+fn chat_reasoning_effort(source: &Map<String, Value>) -> Result<Option<String>, BridgeError> {
+    // 只读取 Chat 标准字段，并拒绝非字符串值。
+    source
+        .get("reasoning_effort")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            value
+                .as_str()
+                .map(ToOwned::to_owned)
+                .ok_or(BridgeError::InvalidShape)
+        })
+        .transpose()
+}
+
+/// 读取 assistant message 的 provider reasoning extension，并转换为纯文本 reasoning item。
+fn chat_reasoning_content(
+    message: &Map<String, Value>,
+    reasoning_supported: bool,
+) -> Result<Option<String>, BridgeError> {
+    let Some(value) = message
+        .get("reasoning_content")
+        .filter(|value| !value.is_null() && *value != &Value::String(String::new()))
+    else {
+        return Ok(None);
+    };
+    let text = value.as_str().ok_or(BridgeError::InvalidShape)?;
+    if !reasoning_supported {
+        return Err(BridgeError::UnsupportedSemantics);
+    }
+    Ok((!text.is_empty()).then(|| text.to_owned()))
+}
+
+/// 构造可被 Responses 后续 turn 重放的明文 reasoning item。
+fn reasoning_item(item_id: &str, text: &str) -> Value {
+    json!({
+        "content": [{"text": text, "type": "reasoning_text"}],
+        "id": item_id,
+        "status": "completed",
+        "summary": [],
+        "type": "reasoning"
+    })
 }
 
 /// 将 Chat message content 转换为 Responses input content。

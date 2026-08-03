@@ -36,7 +36,9 @@ pub(super) fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
 /// 将请求规划错误映射为稳定的下游 HTTP 错误，不泄露内部 route 详情。
 pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
-        RequestPlanningError::InvalidJson | RequestPlanningError::MissingModel => api_error(
+        RequestPlanningError::InvalidJson
+        | RequestPlanningError::MissingModel
+        | RequestPlanningError::InvalidReasoningConfiguration => api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
             "Request body is invalid",

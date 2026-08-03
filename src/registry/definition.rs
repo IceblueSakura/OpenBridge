@@ -182,6 +182,14 @@ impl UpstreamApiCapabilities {
         }
     }
 
+    /// 返回该 Upstream API 已声明的 reasoning 输出类型。
+    pub const fn reasoning_output(self) -> crate::core::ReasoningOutput {
+        match self {
+            Self::ChatCompletions(capabilities) => capabilities.reasoning_output,
+            Self::Responses(capabilities) => capabilities.reasoning_output,
+        }
+    }
+
     pub(super) const fn is_subset_of(self, upper: ApiCapabilities) -> bool {
         match self {
             Self::ChatCompletions(capabilities) => {

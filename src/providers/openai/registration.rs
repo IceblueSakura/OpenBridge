@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
     models::gpt,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
@@ -41,6 +41,7 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
             image_input: false,
             structured_outputs: false,
             store: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -52,6 +53,7 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
             store: false,
             previous_response_id: false,
             background: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
     }
 }

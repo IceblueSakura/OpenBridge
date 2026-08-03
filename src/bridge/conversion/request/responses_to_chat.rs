@@ -16,10 +16,11 @@ use super::super::{
 pub(in crate::bridge::conversion) fn responses_request_to_chat(
     source: &Map<String, Value>,
     upstream_model: &str,
+    reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
     // 将 Responses input 展开为 Chat messages，并校验 call/output ledger。
     let input = source.get("input").ok_or(BridgeError::InvalidShape)?;
-    let messages = responses_input_to_chat(input)?;
+    let messages = responses_input_to_chat(input, reasoning_supported)?;
     let stream = source.get("stream").and_then(Value::as_bool) == Some(true);
 
     // 复制共同字段，并把 flat function schema 包装为 Chat function 对象。
@@ -32,6 +33,12 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
         &mut result,
         &["parallel_tool_calls", "temperature", "top_p"],
     );
+    if let Some(effort) = responses_reasoning_effort(source)? {
+        if !reasoning_supported && effort != "none" {
+            return Err(BridgeError::UnsupportedSemantics);
+        }
+        result.insert("reasoning_effort".to_owned(), Value::String(effort));
+    }
     if let Some(max_tokens) = source.get("max_output_tokens") {
         result.insert("max_completion_tokens".to_owned(), max_tokens.clone());
     }
@@ -56,7 +63,10 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
 }
 
 /// 将 Responses input 展开为有序 Chat messages，并校验 call/result identity。
-fn responses_input_to_chat(input: &Value) -> Result<Vec<Value>, BridgeError> {
+fn responses_input_to_chat(
+    input: &Value,
+    reasoning_supported: bool,
+) -> Result<Vec<Value>, BridgeError> {
     if let Some(text) = input.as_str() {
         return Ok(vec![json!({"content": text, "role": "user"})]);
     }
@@ -67,17 +77,40 @@ fn responses_input_to_chat(input: &Value) -> Result<Vec<Value>, BridgeError> {
     let mut emitted_calls = false;
     let mut seen_results = BTreeSet::new();
     let mut item_ids = BTreeSet::new();
+    let mut pending_reasoning = String::new();
 
     // 先按 wire 顺序建立 call ledger，message/output 转换时保持原顺序。
     for item in items {
         let item = item.as_object().ok_or(BridgeError::InvalidShape)?;
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
+                let role = required_string(item, "role")?;
+                if !pending_reasoning.is_empty() && role != "assistant" {
+                    return Err(BridgeError::UnsupportedSemantics);
+                }
                 if !calls.is_empty() && !emitted_calls {
-                    messages.push(chat_assistant_tool_message(&call_order, &calls));
+                    messages.push(chat_assistant_tool_message(
+                        &call_order,
+                        &calls,
+                        (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+                    ));
+                    pending_reasoning.clear();
                     emitted_calls = true;
                 }
-                messages.push(responses_message_to_chat(item)?);
+                messages.push(responses_message_to_chat(
+                    item,
+                    (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+                )?);
+                pending_reasoning.clear();
+            }
+            Some("reasoning") => {
+                if !reasoning_supported {
+                    return Err(BridgeError::UnsupportedSemantics);
+                }
+                if emitted_calls {
+                    return Err(BridgeError::InvalidToolIdentity);
+                }
+                pending_reasoning.push_str(&responses_reasoning_item_text(item)?);
             }
             Some("function_call") => {
                 if emitted_calls {
@@ -111,7 +144,12 @@ fn responses_input_to_chat(input: &Value) -> Result<Vec<Value>, BridgeError> {
                     if calls.is_empty() {
                         return Err(BridgeError::InvalidToolIdentity);
                     }
-                    messages.push(chat_assistant_tool_message(&call_order, &calls));
+                    messages.push(chat_assistant_tool_message(
+                        &call_order,
+                        &calls,
+                        (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+                    ));
+                    pending_reasoning.clear();
                     emitted_calls = true;
                 }
                 let call_id = required_string(item, "call_id")?;
@@ -133,22 +171,45 @@ fn responses_input_to_chat(input: &Value) -> Result<Vec<Value>, BridgeError> {
         }
     }
     if !calls.is_empty() && !emitted_calls {
-        messages.push(chat_assistant_tool_message(&call_order, &calls));
+        messages.push(chat_assistant_tool_message(
+            &call_order,
+            &calls,
+            (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+        ));
+        pending_reasoning.clear();
+    }
+    if !pending_reasoning.is_empty() {
+        messages.push(json!({
+            "content": Value::Null,
+            "reasoning_content": pending_reasoning,
+            "role": "assistant"
+        }));
     }
     Ok(messages)
 }
 
 /// 按原始 call 顺序构造 Chat assistant tool-call message。
-fn chat_assistant_tool_message(order: &[String], calls: &BTreeMap<String, Value>) -> Value {
-    json!({
+fn chat_assistant_tool_message(
+    order: &[String],
+    calls: &BTreeMap<String, Value>,
+    reasoning: Option<&str>,
+) -> Value {
+    let mut message = json!({
         "content": Value::Null,
         "role": "assistant",
         "tool_calls": order.iter().filter_map(|id| calls.get(id)).cloned().collect::<Vec<_>>()
-    })
+    });
+    if let Some(reasoning) = reasoning {
+        message["reasoning_content"] = Value::String(reasoning.to_owned());
+    }
+    message
 }
 
 /// 将一个 Responses message item 转换为 Chat message。
-fn responses_message_to_chat(item: &Map<String, Value>) -> Result<Value, BridgeError> {
+fn responses_message_to_chat(
+    item: &Map<String, Value>,
+    reasoning: Option<&str>,
+) -> Result<Value, BridgeError> {
     // 先读取并保留 Responses message 的角色字段。
     let role = required_string(item, "role")?;
     let content = item.get("content").ok_or(BridgeError::InvalidShape)?;
@@ -168,7 +229,78 @@ fn responses_message_to_chat(item: &Map<String, Value>) -> Result<Value, BridgeE
         }
         _ => return Err(BridgeError::UnsupportedSemantics),
     };
-    Ok(json!({"content": content, "role": role}))
+    let mut message = json!({"content": content, "role": role});
+    if let Some(reasoning) = reasoning {
+        message["reasoning_content"] = Value::String(reasoning.to_owned());
+    }
+    Ok(message)
+}
+
+/// 解析 Responses reasoning 配置，并转换为 Chat 的 reasoning_effort。
+fn responses_reasoning_effort(source: &Map<String, Value>) -> Result<Option<String>, BridgeError> {
+    // 只读取 Responses 标准 reasoning 对象，并拒绝未建模的子字段。
+    let object_effort = source
+        .get("reasoning")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            let object = value.as_object().ok_or(BridgeError::InvalidShape)?;
+            if object.keys().any(|key| key != "effort") {
+                return Err(BridgeError::UnsupportedSemantics);
+            }
+            object
+                .get("effort")
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(ToOwned::to_owned)
+                        .ok_or(BridgeError::InvalidShape)
+                })
+                .transpose()
+        })
+        .transpose()?
+        .flatten();
+    Ok(object_effort)
+}
+
+/// 提取 plain Responses reasoning item，拒绝无法由 Chat 表示的 opaque continuation。
+fn responses_reasoning_item_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
+    reject_encrypted_reasoning(item)?;
+    let mut text = String::new();
+    for field in ["content", "summary"] {
+        let Some(parts) = item.get(field).and_then(Value::as_array) else {
+            continue;
+        };
+        for part in parts {
+            let part = part.as_object().ok_or(BridgeError::InvalidShape)?;
+            let expected = if field == "content" {
+                "reasoning_text"
+            } else {
+                "summary_text"
+            };
+            if part.get("type").and_then(Value::as_str) != Some(expected) {
+                return Err(BridgeError::UnsupportedSemantics);
+            }
+            text.push_str(&required_string(part, "text")?);
+        }
+    }
+    Ok(text)
+}
+
+/// 拒绝无法由 Chat 明文表示的 Responses opaque reasoning continuation。
+fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
+    let Some(value) = item
+        .get("encrypted_content")
+        .filter(|value| !value.is_null())
+    else {
+        return Ok(());
+    };
+    let content = value.as_str().ok_or(BridgeError::InvalidShape)?;
+    if content.is_empty() {
+        Ok(())
+    } else {
+        Err(BridgeError::UnsupportedSemantics)
+    }
 }
 
 /// 将 Responses function tool schema 包装为 Chat function tool。

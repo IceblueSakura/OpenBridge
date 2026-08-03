@@ -2,7 +2,7 @@
 
 use openbridge::{
     config::parse_bootstrap_config,
-    core::ApiProtocol,
+    core::{ApiProtocol, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
     provider::ProviderKind,
@@ -213,6 +213,11 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let chat = target.upstream_api("chat").unwrap();
     assert_eq!(target.kind(), ProviderKind::LongCat);
     assert_eq!(chat.upstream_model(), "LongCat-2.0");
+    assert_eq!(chat.reasoning_output(), ReasoningOutput::Unknown);
+    assert_eq!(
+        target.upstream_api("responses").unwrap().reasoning_output(),
+        ReasoningOutput::Unknown
+    );
     assert_eq!(target.endpoint_base().as_str(), "https://api.longcat.chat/");
     assert_eq!(
         chat.model().context_length().input_tokens(),
@@ -288,7 +293,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert!(!responses_capabilities.background);
 
     let body = bytes::Bytes::from_static(
-        br#"{"model":"nemotron-3-ultra","messages":[],"reasoning":{"effort":"high"},"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+        br#"{"model":"nemotron-3-ultra","messages":[],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"probe"}}]}"#,
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
@@ -386,6 +391,10 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
             target.upstream_api("chat").unwrap().upstream_model(),
             public_name
         );
+        assert_eq!(
+            target.upstream_api("chat").unwrap().reasoning_output(),
+            ReasoningOutput::PlainText
+        );
         assert!(target.upstream_api("responses").is_none());
 
         // 验证下游 Chat 走 Native，Responses 只走显式 Chat bridge。
@@ -414,6 +423,16 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
             plan.candidates()[0].route_id(),
             format!("{prefix}-responses-via-chat")
         );
+
+        // 验证 DeepSeek Responses bridge 会在真实 route planning 后保留 reasoning effort。
+        let responses_reasoning = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::Responses, &responses_reasoning).unwrap();
+        let plan = plan_request(&registry, &profile, responses_reasoning).unwrap();
+        let upstream: serde_json::Value =
+            serde_json::from_slice(plan.request().body()).expect("bridge request must be JSON");
+        assert_eq!(upstream["reasoning_effort"], "high");
     }
 }
 
@@ -460,6 +479,14 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         assert_eq!(
             target.upstream_api("responses").unwrap().upstream_model(),
             public_name
+        );
+        assert_eq!(
+            target.upstream_api("chat").unwrap().reasoning_output(),
+            ReasoningOutput::Unknown
+        );
+        assert_eq!(
+            target.upstream_api("responses").unwrap().reasoning_output(),
+            ReasoningOutput::Unknown
         );
 
         // 验证两种下游协议都按 Native-first、反向 Bridge-second 排序。

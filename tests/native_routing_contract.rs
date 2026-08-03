@@ -3,11 +3,11 @@
 mod support;
 
 use openbridge::{
-    core::ApiProtocol,
+    core::{ApiProtocol, ReasoningOutput},
     pipeline::RequestPlanningError,
     registry::{
         ModelContextLength, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
-        RegistryConfig, RuntimeRegistry, build_registry,
+        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, build_registry,
     },
 };
 use serde_json::{Value, json};
@@ -56,40 +56,36 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     ];
     let registry = build_test_registry(definition);
 
-    // 验证 Responses 的两种标准字段形状都按选定 Upstream API 的规则改写。
-    for request in [
-        json!({
-            "model": "public-model",
-            "input": "hello",
-            "reasoning": {"effort": "xhigh"}
-        }),
-        json!({
-            "model": "public-model",
-            "input": "hello",
-            "reasoning_effort": "xhigh"
-        }),
-    ] {
-        let prepared = support::prepare(
-            &registry,
-            ApiProtocol::Responses,
-            serde_json::to_vec(&request).unwrap().into(),
-        )
-        .unwrap();
-        let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
-        if request.get("reasoning_effort").is_some() {
-            assert_eq!(upstream["reasoning_effort"], "max");
-        } else {
-            assert_eq!(upstream["reasoning"]["effort"], "max");
-        }
-        assert_eq!(prepared.candidates().len(), 2);
-        let unmapped: Value =
-            serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
-        if request.get("reasoning_effort").is_some() {
-            assert_eq!(unmapped["reasoning_effort"], "xhigh");
-        } else {
-            assert_eq!(unmapped["reasoning"]["effort"], "xhigh");
-        }
-    }
+    // 验证 Responses 标准 reasoning.effort 按选定 Upstream API 的规则改写。
+    let request = json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning": {"effort": "xhigh"}
+    });
+    let prepared = support::prepare(
+        &registry,
+        ApiProtocol::Responses,
+        serde_json::to_vec(&request).unwrap().into(),
+    )
+    .unwrap();
+    let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+    assert_eq!(upstream["reasoning"]["effort"], "max");
+    assert_eq!(prepared.candidates().len(), 2);
+    let unmapped: Value =
+        serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
+    assert_eq!(unmapped["reasoning"]["effort"], "xhigh");
+
+    // Responses 不接受 Chat 的顶层 reasoning_effort 别名。
+    let nonstandard = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning_effort": "xhigh"
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, nonstandard.into()).unwrap_err(),
+        RequestPlanningError::ReasoningLevelUnsupported
+    ));
 
     // Chat 的 reasoning_effort 使用同一候选级映射边界。
     let chat = serde_json::to_vec(&json!({
@@ -169,6 +165,77 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
             Some(expected)
         );
     }
+}
+
+#[test]
+fn routing_rejects_conflicting_reasoning_configuration_sources() {
+    let mut definition = base_definition();
+    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.models[0].reasoning_levels = vec![ReasoningLevel::Low, ReasoningLevel::High];
+    let registry = build_test_registry(definition);
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "reasoning": {"effort": "low"},
+        "reasoning_effort": "high"
+    }))
+    .unwrap();
+
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+        RequestPlanningError::InvalidReasoningConfiguration
+    ));
+}
+
+#[test]
+fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
+    fn definition(reasoning_output: ReasoningOutput) -> RegistryConfig {
+        let mut definition = base_definition();
+        definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+        definition.models[0].reasoning = ReasoningSupport::Supported;
+        definition.models[0].reasoning_levels = vec![ReasoningLevel::High];
+
+        definition.credential_pools[0].id = "deepseek-primary".to_owned();
+        definition.credential_pools[0].provider = openbridge::provider::ProviderKind::DeepSeek;
+        let target = &mut definition.upstream_targets[0];
+        target.provider = openbridge::provider::ProviderKind::DeepSeek;
+        target.base_url = "https://api.deepseek.com".to_owned();
+        target.credential_pool = "deepseek-primary".to_owned();
+        target.upstream_apis.truncate(1);
+        target.upstream_apis[0].endpoint_profile = "deepseek-openai".to_owned();
+        if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+            &mut target.upstream_apis[0].capabilities
+        {
+            capabilities.reasoning_output = reasoning_output;
+        }
+        definition.routes = vec![RouteConfig {
+            id: "responses-via-chat".to_owned(),
+            upstream_target: "openai-main".to_owned(),
+            upstream_api: "chat".to_owned(),
+            downstream_protocol: ApiProtocol::Responses,
+            mode: RouteMode::Bridged,
+        }];
+        definition.public_models[0].routes = vec!["responses-via-chat".to_owned()];
+        definition
+    }
+
+    let request = serde_json::to_vec(&serde_json::json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning": {"effort": "high"}
+    }))
+    .unwrap();
+    let unknown = build_test_registry(definition(ReasoningOutput::Unknown));
+    assert!(matches!(
+        support::prepare(&unknown, ApiProtocol::Responses, request.clone().into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+
+    let readable = build_test_registry(definition(ReasoningOutput::PlainText));
+    let plan = support::prepare(&readable, ApiProtocol::Responses, request.into())
+        .expect("plain-text reasoning should remain bridgeable");
+    assert!(plan.candidates()[0].bridge().is_some());
 }
 
 fn build_test_registry(definition: RegistryConfig) -> RuntimeRegistry {
@@ -283,18 +350,16 @@ fn routing_gates_output_parallel_image_and_reasoning_requirements() {
         RequestPlanningError::ReasoningLevelUnsupported
     ));
 
-    let mut definition = base_definition();
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::Low];
-    let registry = build_test_registry(definition);
-    let reasoning = serde_json::to_vec(&json!({
+    let invalid_shape = serde_json::to_vec(&json!({
         "model": "public-model",
         "input": "hello",
-        "reasoning_effort": "low"
+        "reasoning": false
     }))
     .unwrap();
-    assert!(support::prepare(&registry, ApiProtocol::Responses, reasoning.into()).is_ok());
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, invalid_shape.into()).unwrap_err(),
+        RequestPlanningError::ReasoningLevelUnsupported
+    ));
 }
 
 #[test]

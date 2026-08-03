@@ -4,7 +4,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, EndpointCapabilities},
+    core::{ApiProtocol, EndpointCapabilities, ReasoningOutput},
     registry::ReasoningLevel,
 };
 
@@ -52,9 +52,10 @@ pub fn analyze_request(
             image_input: requests_image_input(protocol, object),
             structured_outputs: requests_structured_outputs(object),
             store: object.get("store").and_then(Value::as_bool) == Some(true),
+            reasoning_output: ReasoningOutput::Unknown,
         },
         unmodeled_tools: requests_unmodeled_tools,
-        reasoning: requested_reasoning(object),
+        reasoning: requested_reasoning(protocol, object),
         previous_response_id: protocol == ApiProtocol::Responses
             && object
                 .get("previous_response_id")
@@ -125,32 +126,68 @@ fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u6
         .max()
 }
 
-/// `reasoning` 是 OpenAI-compatible 请求中的模型级能力；`reasoning_effort` 同样代表
-/// 调用方要求使用该能力。没有该字段时不得据模型目录推测调用方需要 reasoning。
-fn requested_reasoning(object: &serde_json::Map<String, Value>) -> RequestedReasoning {
-    // 优先解析兼容请求中的顶层 reasoning_effort。
-    if let Some(value) = object
+/// 按协议读取标准 reasoning 配置；没有该字段时不得据模型目录推测调用方需要 reasoning。
+fn requested_reasoning(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> RequestedReasoning {
+    // Responses 只接受标准 reasoning 对象，拒绝 Chat 的顶层 shorthand。
+    if protocol == ApiProtocol::Responses && object.contains_key("reasoning_effort") {
+        return RequestedReasoning::UnknownLevel;
+    }
+
+    // Chat 只接受标准 reasoning_effort，拒绝 Responses 的 reasoning 对象。
+    if protocol == ApiProtocol::ChatCompletions && object.contains_key("reasoning") {
+        return if object.contains_key("reasoning_effort") {
+            RequestedReasoning::Conflicting
+        } else {
+            RequestedReasoning::UnknownLevel
+        };
+    }
+
+    // 分别读取当前协议的标准字段，后续统一检查是否歧义。
+    let shorthand_value = object
         .get("reasoning_effort")
-        .filter(|value| !value.is_null())
-    {
-        return value
-            .as_str()
+        .filter(|value| !value.is_null());
+    let shorthand = shorthand_value
+        .and_then(Value::as_str)
+        .and_then(ReasoningLevel::from_wire);
+    let reasoning_value = object.get("reasoning").filter(|value| !value.is_null());
+    let object_effort = reasoning_value
+        .and_then(Value::as_object)
+        .and_then(|reasoning| reasoning.get("effort"));
+    let object_level = object_effort
+        .and_then(Value::as_str)
+        .and_then(ReasoningLevel::from_wire);
+
+    // 同时出现两个配置来源时必须相同，否则在 Native/Bridge 两条路径都 fail closed。
+    if shorthand_value.is_some() && reasoning_value.is_some() {
+        return match (shorthand, object_level) {
+            (Some(left), Some(right)) if left == right => RequestedReasoning::Level(left),
+            (Some(_), Some(_)) => RequestedReasoning::Conflicting,
+            _ => RequestedReasoning::UnknownLevel,
+        };
+    }
+    if shorthand_value.is_some() {
+        return shorthand_value
+            .and_then(Value::as_str)
             .and_then(ReasoningLevel::from_wire)
             .map(RequestedReasoning::Level)
             .unwrap_or(RequestedReasoning::UnknownLevel);
     }
-    let Some(reasoning) = object
-        .get("reasoning")
-        .filter(|value| !value.is_null() && *value != &Value::Bool(false))
-    else {
+    let Some(reasoning) = reasoning_value else {
         return RequestedReasoning::None;
     };
-    // 没有顶层 shorthand 时读取 Responses reasoning 对象的 effort。
+    // 没有 shorthand 时读取 Responses reasoning 对象的 effort。
     let Some(effort) = reasoning
         .as_object()
         .and_then(|reasoning| reasoning.get("effort"))
     else {
-        return RequestedReasoning::Unspecified;
+        return if reasoning.is_object() {
+            RequestedReasoning::Unspecified
+        } else {
+            RequestedReasoning::UnknownLevel
+        };
     };
     // 将已知 wire level 映射为内部枚举，未知值保持 fail closed。
     effort

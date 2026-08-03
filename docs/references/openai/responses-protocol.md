@@ -5,6 +5,7 @@
 `POST /v1/responses` 是 OpenAI 当前面向 text、multimodal、tools、agent state 与 streaming 的主生成 API。它不是“Chat Completions 的换字段版本”：输入/输出是异构 item 列表，服务端有 response lifecycle、conversation、background、compaction 和 typed SSE event。
 
 - API Reference：https://developers.openai.com/api/reference/resources/responses/methods/create
+- Reasoning guide：https://developers.openai.com/api/docs/guides/reasoning
 - Migration guide：https://platform.openai.com/docs/guides/migrate-to-responses
 - Streaming guide：https://platform.openai.com/docs/guides/streaming-responses
 - Conversation state：https://platform.openai.com/docs/guides/conversation-state
@@ -12,7 +13,7 @@
 - Background mode：https://platform.openai.com/docs/guides/background
 - OpenAPI paths：`/responses`, `/responses/{response_id}`, `/responses/{response_id}/input_items`, `/responses/{response_id}/cancel`, `/responses/compact`, `/responses/input_tokens`。
 
-本文以 2026-07-25 查阅的官方规范为准；model-specific 和 beta 特性必须单独 capability gate。第 6.1～6.3 节另以本地 Codex 固定证据快照 `main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` 的实际 parser 作补充核对：它用于识别**客户端依赖的扩展**，不把这些扩展误写成公开 Responses 契约。2026-08-01 已在当前 `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` 复核相关 event parser 仍存在；细粒度行号仍以固定快照为准。
+本文以 2026-08-03 复核的官方规范为准；model-specific 和 beta 特性必须单独 capability gate。第 6.1～6.3 节另以本地 Codex 固定证据快照 `main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` 的实际 parser 作补充核对：它用于识别**客户端依赖的扩展**，不把这些扩展误写成公开 Responses 契约。2026-08-01 已在当前 `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` 复核相关 event parser 仍存在；细粒度行号仍以固定快照为准。
 
 ## 2. 主请求契约
 
@@ -59,7 +60,8 @@ Authorization: Bearer $OPENAI_API_KEY
 | `previous_response_id` | 前一 response 的链式 continuation | 复用服务端 response chain，不代表历史 input token 不计费 |
 | `tools`, `tool_choice`, `parallel_tool_calls`, `max_tool_calls` | 自定义与内置工具控制 | Responses tool 类型和 output item 比 Chat 更广 |
 | `text.format` | text / JSON mode / JSON Schema output | Responses 的 structured output 位置，区别于 Chat `response_format` |
-| `reasoning` | reasoning 配置 | 需与 encrypted reasoning replay 及 model capability 一起处理 |
+| `reasoning` | Responses 顶层 reasoning 配置对象 | 需与 `reasoning.effort`、encrypted reasoning replay 及 model capability 一起处理 |
+| `reasoning_effort` | 当前 Responses Create 参考未列出的顶层字段 | Responses Bridge/Native 均拒绝；它只属于 Chat 或 Provider 私有兼容面的字段 |
 | `include` | 请求附加输出数据 | 例如 file search results、web sources、message logprobs、`reasoning.encrypted_content` |
 | `store` | 服务端保存行为 | 与 resource retrieval、background 和 ZDR/stateless 设计相关 |
 | `background`, `stream` | 异步资源生命周期与 SSE | 二者组合会改变 retrieve/cancel/reconnect 需求 |
@@ -75,6 +77,16 @@ Authorization: Bearer $OPENAI_API_KEY
 - must-preserve 的是 item **顺序、type、id/call_id、内容与状态**，不是仅最终 `output_text`。
 
 输入 message 的 role 可为 `user`、`assistant`、`system`、`developer`；Reference 还定义 assistant `phase`（`commentary` / `final_answer`）供某些 Codex 类模型的 follow-up replay 使用。
+
+### 2.3 `reasoning` 与 `reasoning_effort` 的标准边界（2026-08-03 复核）
+
+本次直接复核 OpenAI 的 [Responses Create API Reference](https://developers.openai.com/api/reference/resources/responses/methods/create) 与 [Reasoning models guide](https://developers.openai.com/api/docs/guides/reasoning)，结论如下：
+
+- **Responses 包含 `reasoning`**：它是请求顶层的 reasoning 配置对象；官方 Responses 示例使用 `reasoning: {"effort": "low"}`，其中 `reasoning.effort` 控制 reasoning effort。支持值和默认值由具体 model 决定，不能由 converter 固定假设。
+- **Responses 不包含标准顶层 `reasoning_effort`**：当前 Responses Create 参考与官方 reasoning 示例均以 `reasoning.effort` 为字段路径，没有将 `reasoning_effort` 定义为 Responses 请求的标准顶层字段。该名称可以存在于 Chat 请求或 Provider 私有协议中，但不能反向写成 Responses 标准；当前 OpenBridge 对 Responses 直接拒绝该字段。
+- **`reasoning` 还可能是 output item 类型**：Responses 的 `output[]` 可以包含 `type: "reasoning"`；无状态或 ZDR 场景下，`encrypted_content` 用于后续 turn 的 reasoning continuity。这里的 output item 与请求顶层 `reasoning` 配置不是同一个 JSON 位置，但二者共同构成 Responses 的 reasoning 契约。
+
+因此，Responses 标准字段应使用 `reasoning.effort`，Chat 标准字段应使用 `reasoning_effort`；二者不互相作为入站别名。当前 Bridge 还要求选定 Upstream API 的 `ReasoningOutput` 与方向匹配：Chat 上游必须是 `PlainText`，Responses 上游可为 `PlainText` 或 `Summary`。满足 capability gate 时，Responses 的 `reasoning` 配置映射为 Chat 的 `reasoning_effort`，Chat 的 `reasoning_content` 映射为 Responses `reasoning` output/input item 与对应 SSE channel；reasoning 不进入 `output_text` 或 Chat `content`。无法转换的 `encrypted_content` continuation 仍在 egress/stream state 边界 fail closed，不伪造为明文。
 
 ## 3. 输出对象与生命周期
 

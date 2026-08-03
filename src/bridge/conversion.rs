@@ -8,7 +8,7 @@ use bytes::Bytes;
 use thiserror::Error;
 
 use crate::{
-    core::{ApiProtocol, ApiRequest},
+    core::{ApiProtocol, ApiRequest, ReasoningOutput},
     transport::sse::SseEvent,
 };
 
@@ -55,6 +55,7 @@ pub struct BridgePlan {
     downstream_protocol: ApiProtocol,
     upstream_protocol: ApiProtocol,
     public_model: String,
+    reasoning_supported: bool,
 }
 
 impl BridgePlan {
@@ -66,6 +67,28 @@ impl BridgePlan {
         upstream_model: &str,
         body: Bytes,
     ) -> Result<(Self, ApiRequest), BridgeError> {
+        Self::prepare_with_reasoning_output(
+            downstream_protocol,
+            upstream_protocol,
+            public_model,
+            upstream_model,
+            body,
+            ReasoningOutput::Unsupported,
+        )
+    }
+
+    /// 校验并转换请求，并按上游协议声明的输出类型决定 reasoning 是否可跨协议传递。
+    pub fn prepare_with_reasoning_output(
+        downstream_protocol: ApiProtocol,
+        upstream_protocol: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        body: Bytes,
+        reasoning_output: ReasoningOutput,
+    ) -> Result<(Self, ApiRequest), BridgeError> {
+        // 只把当前上游协议能够安全映射的 readable reasoning 交给方向转换器。
+        let reasoning_supported = bridge_reasoning_supported(upstream_protocol, reasoning_output);
+
         // 拒绝同协议调用和不受支持的扩展，再执行方向专用转换。
         if downstream_protocol == upstream_protocol {
             return Err(BridgeError::UnsupportedSemantics);
@@ -74,10 +97,10 @@ impl BridgePlan {
         reject_unsupported_request(downstream_protocol, &source)?;
         let converted = match (downstream_protocol, upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
-                chat_request_to_responses(&source, upstream_model)?
+                chat_request_to_responses(&source, upstream_model, reasoning_supported)?
             }
             (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => {
-                responses_request_to_chat(&source, upstream_model)?
+                responses_request_to_chat(&source, upstream_model, reasoning_supported)?
             }
             _ => return Err(BridgeError::UnsupportedSemantics),
         };
@@ -92,6 +115,7 @@ impl BridgePlan {
                 downstream_protocol,
                 upstream_protocol,
                 public_model: public_model.to_owned(),
+                reasoning_supported,
             },
             request,
         ))
@@ -113,10 +137,10 @@ impl BridgePlan {
         let source = parse_value_object(&body)?;
         let converted = match (self.downstream_protocol, self.upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
-                responses_response_to_chat(&source, &self.public_model)?
+                responses_response_to_chat(&source, &self.public_model, self.reasoning_supported)?
             }
             (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => {
-                chat_response_to_responses(&source, &self.public_model)?
+                chat_response_to_responses(&source, &self.public_model, self.reasoning_supported)?
             }
             _ => return Err(BridgeError::UnsupportedSemantics),
         };
@@ -128,6 +152,17 @@ impl BridgePlan {
     /// 创建只服务于本次请求的增量 SSE renderer。
     pub fn stream_renderer(&self) -> BridgeStreamRenderer {
         BridgeStreamRenderer::new(self.clone())
+    }
+}
+
+/// 判断上游 reasoning 输出能否被当前 Bridge 方向安全表示。
+fn bridge_reasoning_supported(
+    upstream_protocol: ApiProtocol,
+    reasoning_output: ReasoningOutput,
+) -> bool {
+    match upstream_protocol {
+        ApiProtocol::ChatCompletions => reasoning_output == ReasoningOutput::PlainText,
+        ApiProtocol::Responses => reasoning_output.is_readable(),
     }
 }
 
@@ -146,10 +181,10 @@ impl BridgeStreamRenderer {
     fn new(plan: BridgePlan) -> Self {
         let state = match (plan.downstream_protocol, plan.upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
-                StreamState::ResponsesToChat(ResponsesToChatStream::new())
+                StreamState::ResponsesToChat(ResponsesToChatStream::new(plan.reasoning_supported))
             }
             (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => {
-                StreamState::ChatToResponses(ChatToResponsesStream::new())
+                StreamState::ChatToResponses(ChatToResponsesStream::new(plan.reasoning_supported))
             }
             _ => unreachable!("BridgePlan always has opposite protocols"),
         };

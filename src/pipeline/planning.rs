@@ -68,12 +68,13 @@ pub fn plan_request(
         }
         let (request, bridge) = match route.mode() {
             RouteMode::Native => (ApiRequest::new(profile.protocol, body.clone()), None),
-            RouteMode::Bridged => match BridgePlan::prepare(
+            RouteMode::Bridged => match BridgePlan::prepare_with_reasoning_output(
                 profile.protocol,
                 upstream_api.protocol(),
                 profile.public_model(),
                 upstream_api.upstream_model(),
                 body.clone(),
+                upstream_api.reasoning_output(),
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
                 Err(_) => {
@@ -201,7 +202,7 @@ fn candidate_error(
     }
     // 最后校验 reasoning 的支持状态和请求的具体 level。
     match requested_features.reasoning {
-        RequestedReasoning::None => {}
+        RequestedReasoning::None | RequestedReasoning::Level(ReasoningLevel::None) => {}
         RequestedReasoning::Unspecified if reasoning != ReasoningSupport::Supported => {
             return Some(RequestPlanningError::ReasoningUnsupported);
         }
@@ -212,6 +213,9 @@ fn candidate_error(
         }
         RequestedReasoning::UnknownLevel => {
             return Some(RequestPlanningError::ReasoningLevelUnsupported);
+        }
+        RequestedReasoning::Conflicting => {
+            return Some(RequestPlanningError::InvalidReasoningConfiguration);
         }
         RequestedReasoning::Unspecified | RequestedReasoning::Level(_) => {}
     }

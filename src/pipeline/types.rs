@@ -55,6 +55,7 @@ pub(super) enum RequestedReasoning {
     Unspecified,
     Level(ReasoningLevel),
     UnknownLevel,
+    Conflicting,
 }
 
 impl RequestRequirements {

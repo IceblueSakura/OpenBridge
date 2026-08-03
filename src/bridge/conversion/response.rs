@@ -16,6 +16,7 @@ use super::{
 pub(super) fn responses_response_to_chat(
     source: &Map<String, Value>,
     public_model: &str,
+    reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
     // 只把显式 completed response 投影为 Chat 成功；其他终态不能伪造成 stop。
     if source.get("object").and_then(Value::as_str) != Some("response")
@@ -28,11 +29,18 @@ pub(super) fn responses_response_to_chat(
         .and_then(Value::as_array)
         .ok_or(BridgeError::InvalidShape)?;
     let mut text = String::new();
+    let mut reasoning = String::new();
     let mut tool_calls = Vec::new();
     for item in output {
         let item = item.as_object().ok_or(BridgeError::InvalidShape)?;
         match item.get("type").and_then(Value::as_str) {
             Some("message") => text.push_str(&responses_output_text(item)?),
+            Some("reasoning") => {
+                if !reasoning_supported {
+                    return Err(BridgeError::UnsupportedSemantics);
+                }
+                reasoning.push_str(&responses_reasoning_text(item)?);
+            }
             Some("function_call") => {
                 let arguments = required_string(item, "arguments")?;
                 validate_arguments(&arguments)?;
@@ -53,8 +61,21 @@ pub(super) fn responses_response_to_chat(
     let upstream_id = required_string(source, "id")?;
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::String("assistant".to_owned()));
+    if !reasoning.is_empty() {
+        message.insert(
+            "reasoning_content".to_owned(),
+            Value::String(reasoning.clone()),
+        );
+    }
     let finish_reason = if tool_calls.is_empty() {
-        message.insert("content".to_owned(), Value::String(text));
+        message.insert(
+            "content".to_owned(),
+            if text.is_empty() && !reasoning.is_empty() {
+                Value::Null
+            } else {
+                Value::String(text)
+            },
+        );
         "stop"
     } else {
         message.insert(
@@ -103,10 +124,46 @@ fn responses_output_text(item: &Map<String, Value>) -> Result<String, BridgeErro
     Ok(text)
 }
 
+/// 提取 Responses reasoning item 的明文 content/summary，并拒绝 opaque continuation。
+fn responses_reasoning_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
+    reject_encrypted_reasoning(item)?;
+    let mut text = String::new();
+    for (field, expected_type) in [("content", "reasoning_text"), ("summary", "summary_text")] {
+        let Some(parts) = item.get(field).and_then(Value::as_array) else {
+            continue;
+        };
+        for part in parts {
+            let part = part.as_object().ok_or(BridgeError::InvalidShape)?;
+            if part.get("type").and_then(Value::as_str) != Some(expected_type) {
+                return Err(BridgeError::UnsupportedSemantics);
+            }
+            text.push_str(&required_string(part, "text")?);
+        }
+    }
+    Ok(text)
+}
+
+/// 拒绝无法由 Chat 明文表示的 Responses opaque reasoning continuation。
+fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
+    let Some(value) = item
+        .get("encrypted_content")
+        .filter(|value| !value.is_null())
+    else {
+        return Ok(());
+    };
+    let content = value.as_str().ok_or(BridgeError::InvalidShape)?;
+    if content.is_empty() {
+        Ok(())
+    } else {
+        Err(BridgeError::UnsupportedSemantics)
+    }
+}
+
 /// 将完整成功的单 choice Chat response 转换为 Responses 对象。
 pub(super) fn chat_response_to_responses(
     source: &Map<String, Value>,
     public_model: &str,
+    reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
     // 只接受一个完成 choice，避免合并多 choice 时制造未定义顺序。
     let choices = source
@@ -133,6 +190,24 @@ pub(super) fn chat_response_to_responses(
     let suffix = id_suffix(&upstream_id, "chatcmpl_");
     let mut output = Vec::new();
     let mut item_ids = BTreeSet::new();
+    if let Some(reasoning) = message
+        .get("reasoning_content")
+        .filter(|value| !value.is_null() && *value != &Value::String(String::new()))
+    {
+        if !reasoning_supported {
+            return Err(BridgeError::UnsupportedSemantics);
+        }
+        let reasoning = reasoning.as_str().ok_or(BridgeError::InvalidShape)?;
+        if !reasoning.is_empty() {
+            output.push(json!({
+                "content": [{"text": reasoning, "type": "reasoning_text"}],
+                "id": format!("rs_{suffix}"),
+                "status": "completed",
+                "summary": [],
+                "type": "reasoning"
+            }));
+        }
+    }
     if let Some(content) = message.get("content").and_then(Value::as_str)
         && !content.is_empty()
     {

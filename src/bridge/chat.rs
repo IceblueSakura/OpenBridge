@@ -20,6 +20,7 @@ pub struct ChatStreamState {
     lifecycle: Lifecycle,
     finish_reason_seen: bool,
     text: String,
+    reasoning_text: String,
     tools: BTreeMap<u64, BridgeToolCall>,
 }
 
@@ -30,6 +31,7 @@ impl ChatStreamState {
             lifecycle: Lifecycle::AwaitingStart,
             finish_reason_seen: false,
             text: String::new(),
+            reasoning_text: String::new(),
             tools: BTreeMap::new(),
         }
     }
@@ -51,6 +53,9 @@ impl ChatStreamState {
         if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
             return Err(BridgeStreamError::UnexpectedEvent);
         }
+        if self.finish_reason_seen {
+            return Err(BridgeStreamError::UnexpectedEvent);
+        }
 
         // 解析单 choice chunk，并按 delta 顺序更新文本与 tool accumulators。
         let value: Value =
@@ -65,8 +70,16 @@ impl ChatStreamState {
         self.lifecycle = Lifecycle::Streaming;
         let choice = &choices[0];
         let delta = choice.get("delta").ok_or(BridgeStreamError::InvalidJson)?;
-        if let Some(content) = delta.get("content").and_then(Value::as_str) {
+        if let Some(value) = delta.get("content").filter(|value| !value.is_null()) {
+            let content = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
             self.text.push_str(content);
+        }
+        if let Some(value) = delta
+            .get("reasoning_content")
+            .filter(|value| !value.is_null())
+        {
+            let reasoning = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
+            self.reasoning_text.push_str(reasoning);
         }
         if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
             for tool_call in tool_calls {
@@ -75,9 +88,16 @@ impl ChatStreamState {
         }
 
         // finish reason 固定输出结束语义，但 `[DONE]` 才是 Chat stream terminal。
-        if !choice.get("finish_reason").is_none_or(Value::is_null) {
+        if let Some(value) = choice.get("finish_reason").filter(|value| !value.is_null()) {
+            let finish_reason = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
+            if !matches!(finish_reason, "stop" | "tool_calls") {
+                return Err(BridgeStreamError::UnexpectedEvent);
+            }
             if self.finish_reason_seen {
                 return Err(BridgeStreamError::DuplicateTerminal);
+            }
+            if (finish_reason == "tool_calls") != !self.tools.is_empty() {
+                return Err(BridgeStreamError::UnexpectedEvent);
             }
             self.finish_reason_seen = true;
             self.validate_all_arguments()?;
@@ -106,6 +126,11 @@ impl ChatStreamState {
     /// 返回按 chunk 顺序拼接的 assistant 文本。
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// 返回按 chunk 顺序拼接的 provider reasoning 文本。
+    pub fn reasoning_text(&self) -> &str {
+        &self.reasoning_text
     }
 
     /// 返回按 Chat tool index 排序的 function tool calls。

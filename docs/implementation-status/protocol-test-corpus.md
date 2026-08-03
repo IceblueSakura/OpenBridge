@@ -97,12 +97,12 @@ git diff --check
 - Rust bridge replay 只读复用 canonical SSE，验证双向文本/并行 tool identity、四类 Responses terminal、
   不完整 arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
 - Rust conversion/forwarding contracts 复用 accepted bridge artifacts，验证双向 request、non-stream response、
-  text/function SSE renderer、生产 `Bridged` Route 和 canonical preflight rejects。
+  text/function/reasoning SSE renderer、生产 `Bridged` Route 和 canonical preflight rejects。
 
 ## 这不证明什么
 
 - 不证明全部 45 个 case 已被 OpenBridge 执行或通过；当前 Rust tests 覆盖明确列出的 bridge 与 429 fixture；
-- 不证明 continuation、hosted/custom tool、reasoning、image 或 Provider 私有扩展可跨协议转换；
+- 不证明 continuation、hosted/custom tool、opaque 或未建模 reasoning、image 或 Provider 私有扩展可跨协议转换；
 - 不证明 canonical oracle 等于完整 OpenAI API；
 - 不证明外部项目默认分支在未来保持相同行为；
 - 不证明真实 SDK、Agent 或 Provider 兼容。

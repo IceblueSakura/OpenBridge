@@ -3,7 +3,7 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -23,6 +23,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: false,
             structured_outputs: false,
             store: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -34,6 +35,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
     },
     &["openrouter-chat", "openrouter-responses"],

@@ -3,6 +3,44 @@
 //! capability 只能在 registry 构建阶段从 provider contract 收窄；请求 routing 复用这里的
 //! 子集判断，确保未实现的能力不会通过配置或协议字段越权进入 egress。
 
+/// 上游生成 reasoning 的可观察输出类型。
+///
+/// `Unknown` 表示没有足够的 wire 证据，不能被当作可读文本；`Opaque` 覆盖 provider-issued
+/// 的不可读 continuation，例如 Responses 的 `encrypted_content`。只有 `PlainText` 与
+/// `Summary` 能进入跨协议 reasoning channel，且具体可转换方向仍由上游协议决定。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ReasoningOutput {
+    /// 没有足够的上游 wire 证据判断输出格式。
+    #[default]
+    Unknown,
+    /// 上游明确不返回 reasoning 输出。
+    Unsupported,
+    /// 上游返回可读的完整 reasoning 文本。
+    PlainText,
+    /// 上游只返回可读的 reasoning summary。
+    Summary,
+    /// 上游返回不可读的 opaque/encrypted continuation。
+    Opaque,
+}
+
+impl ReasoningOutput {
+    /// 判断该输出是否包含可读 reasoning 文本或 summary。
+    pub const fn is_readable(self) -> bool {
+        matches!(self, Self::PlainText | Self::Summary)
+    }
+
+    /// 判断当前配置是否没有向 provider contract 声称额外的 reasoning 输出能力。
+    pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
+        matches!(
+            (self, upper),
+            (Self::Unknown | Self::Unsupported, _)
+                | (Self::PlainText, Self::PlainText)
+                | (Self::Summary, Self::Summary)
+                | (Self::Opaque, Self::Opaque)
+        )
+    }
+}
+
 /// 一个 OpenAI-compatible 生成端点的能力上界。
 ///
 /// 这些名称是 OpenBridge 的语义能力名，不是把请求 wire 字段直接复制到配置中。实际
@@ -24,6 +62,8 @@ pub struct EndpointCapabilities {
     pub structured_outputs: bool,
     /// 对请求 wire 字段 `store: true` 的支持。
     pub store: bool,
+    /// 上游 reasoning 输出的可观察类型。
+    pub reasoning_output: ReasoningOutput,
 }
 
 impl EndpointCapabilities {
@@ -36,6 +76,7 @@ impl EndpointCapabilities {
             && (!self.image_input || upper.image_input)
             && (!self.structured_outputs || upper.structured_outputs)
             && (!self.store || upper.store)
+            && self.reasoning_output.is_subset_of(upper.reasoning_output)
     }
 }
 
@@ -60,6 +101,8 @@ pub struct ResponsesCapabilities {
     pub previous_response_id: bool,
     /// 是否支持后台响应。
     pub background: bool,
+    /// 上游 reasoning 输出的可观察类型。
+    pub reasoning_output: ReasoningOutput,
 }
 
 impl ResponsesCapabilities {
@@ -73,6 +116,7 @@ impl ResponsesCapabilities {
             image_input: self.image_input,
             structured_outputs: self.structured_outputs,
             store: self.store,
+            reasoning_output: self.reasoning_output,
         }
     }
 

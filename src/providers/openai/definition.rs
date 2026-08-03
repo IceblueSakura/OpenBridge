@@ -3,7 +3,7 @@
 use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -23,6 +23,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: true,
             structured_outputs: true,
             store: true,
+            reasoning_output: ReasoningOutput::Unknown,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -34,6 +35,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: true,
             previous_response_id: true,
             background: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
     },
     &["public-api"],

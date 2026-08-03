@@ -3,7 +3,7 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, EndpointCapabilities, ResponsesCapabilities},
+    core::{ApiCapabilities, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// DeepSeek Chat Completions 能力上界。
+/// DeepSeek Chat Completions 能力上界；Chat reasoning 以 `reasoning_content` 明文输出。
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::DeepSeek,
     ApiCapabilities {
@@ -23,6 +23,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: false,
             structured_outputs: false,
             store: false,
+            reasoning_output: ReasoningOutput::PlainText,
         },
         responses: ResponsesCapabilities {
             enabled: false,
@@ -34,6 +35,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
+            reasoning_output: ReasoningOutput::Unsupported,
         },
     },
     &["deepseek-openai"],

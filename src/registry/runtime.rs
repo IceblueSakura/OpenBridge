@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::{
     config::{BootstrapConfig, HttpClientConfig, RuntimeLimits},
-    core::ApiProtocol,
+    core::{ApiProtocol, ReasoningOutput},
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -313,6 +313,11 @@ impl UpstreamApi {
     /// 返回该 API 的协议能力。
     pub fn capabilities(&self) -> UpstreamApiCapabilities {
         self.capabilities
+    }
+
+    /// 返回该 API 已声明的 reasoning 输出类型。
+    pub fn reasoning_output(&self) -> ReasoningOutput {
+        self.capabilities.reasoning_output()
     }
 
     /// 返回 continuation state 的归属策略。

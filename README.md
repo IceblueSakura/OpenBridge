@@ -32,8 +32,8 @@ OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，�
 Responses→Chat Bridge 路由，
 以及有序 Route、capability gate、受保护的 `/v1/models`、输出前 retry/fallback、HTTP 429 credential
 rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
-text、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、continuation、hosted/custom tool、
-reasoning、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用各 Provider
+已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；未知字段、未确认的
+reasoning 输出、opaque continuation、hosted/custom tool、image、structured output 和后台状态会在 egress 前拒绝。当前编译注册项仍优先使用各 Provider
 自身已声明的 Native API，尚未注册真实异构协议 Provider。每个已认证请求在 response body 正常 EOF、流错误或
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
@@ -89,10 +89,13 @@ OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `ope
 
 DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool 和固定
 `https://api.deepseek.com` endpoint。每个模型的 Chat 使用 Native Route，Responses 只通过受限 Bridge 转换到
-Chat Upstream API；不伪装上游 Responses 能力。Xiaomi MiMo 当前注册 `mimo-v2.5-pro` 与 `mimo-v2.5`，使用
+Chat Upstream API；Chat 的 reasoning 输出能力明确配置为 `PlainText`（对应 `reasoning_content`），不伪装上游
+Responses 能力。LongCat 当前 Chat/Responses 均配置为 `Unknown` reasoning 输出；现有协议、文本和工具测试没有证明
+可读 reasoning，因此只有 Native 路径可保留这类上游语义，Bridge 不会猜测转换。Xiaomi MiMo 当前注册
+`mimo-v2.5-pro` 与 `mimo-v2.5`，使用
 `mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
-及同 target 的反向 Bridge 候选。两者都未增加 reasoning wire 映射、图像、structured output、并行 tool、
-store、background 或 continuation 能力。
+及同 target 的反向 Bridge 候选。MiMo 两个协议的 reasoning 输出能力均为 `Unknown`，尚未增加可读 reasoning wire 映射；两者都未增加图像、structured output、并行
+tool、store、background 或 continuation 能力。
 
 下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML 数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
 

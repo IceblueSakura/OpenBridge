@@ -5,7 +5,9 @@ use http::{
     header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
 };
 use openbridge::{
-    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    core::{
+        ApiCapabilities, ApiProtocol, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities,
+    },
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
@@ -429,6 +431,20 @@ fn capability_adapter_rejects_feature_elevation_before_egress() {
     adapter.validate_capabilities(supported).unwrap();
     assert!(matches!(
         adapter.validate_capabilities(elevated).unwrap_err(),
+        AdapterError::UnsupportedCapabilities
+    ));
+
+    let elevated_reasoning = ApiCapabilities {
+        chat_completions: EndpointCapabilities {
+            reasoning_output: ReasoningOutput::PlainText,
+            ..EndpointCapabilities::default()
+        },
+        ..ApiCapabilities::default()
+    };
+    assert!(matches!(
+        adapter
+            .validate_capabilities(elevated_reasoning)
+            .unwrap_err(),
         AdapterError::UnsupportedCapabilities
     ));
 }

@@ -21,23 +21,27 @@ use super::{
 /// 将单个 Responses SSE 生命周期增量转换为 Chat chunks。
 pub(in crate::bridge::conversion) struct ResponsesToChatStream {
     state: ResponsesStreamState,
+    reasoning_supported: bool,
     chat_id: Option<String>,
     role_emitted: bool,
     tool_indices: BTreeMap<u64, u64>,
     has_text: bool,
+    has_reasoning: bool,
     has_tools: bool,
     terminal_emitted: bool,
 }
 
 impl ResponsesToChatStream {
     /// 创建等待 Responses `response.created` 的 renderer。
-    pub(in crate::bridge::conversion) fn new() -> Self {
+    pub(in crate::bridge::conversion) fn new(reasoning_supported: bool) -> Self {
         Self {
             state: ResponsesStreamState::new(),
+            reasoning_supported,
             chat_id: None,
             role_emitted: false,
             tool_indices: BTreeMap::new(),
             has_text: false,
+            has_reasoning: false,
             has_tools: false,
             terminal_emitted: false,
         }
@@ -96,22 +100,52 @@ impl ResponsesToChatStream {
                         strip_null_role(delta),
                         Value::Null,
                     )?);
+                } else if item.get("type").and_then(Value::as_str) == Some("reasoning")
+                    && !self.reasoning_supported
+                {
+                    return Err(BridgeError::UnsupportedSemantics);
                 }
             }
-            "response.output_text.delta" => {
-                self.has_text = true;
+            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
+                if !self.reasoning_supported {
+                    return Err(BridgeError::UnsupportedSemantics);
+                }
+                self.has_reasoning = true;
+                let reasoning = value
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .ok_or(BridgeError::InvalidStream)?;
                 let mut delta = Map::new();
                 if !self.role_emitted {
                     delta.insert("role".to_owned(), Value::String("assistant".to_owned()));
                     self.role_emitted = true;
                 }
                 delta.insert(
-                    "content".to_owned(),
-                    value
-                        .get("delta")
-                        .cloned()
-                        .ok_or(BridgeError::InvalidStream)?,
+                    "reasoning_content".to_owned(),
+                    Value::String(reasoning.to_owned()),
                 );
+                output.extend(chat_chunk(
+                    self.chat_id()?,
+                    public_model,
+                    Value::Object(delta),
+                    Value::Null,
+                )?);
+            }
+            "response.reasoning_summary_part.added"
+            | "response.reasoning_summary_text.done"
+            | "response.reasoning_text.done" => {}
+            "response.output_text.delta" => {
+                self.has_text = true;
+                let text = value
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .ok_or(BridgeError::InvalidStream)?;
+                let mut delta = Map::new();
+                if !self.role_emitted {
+                    delta.insert("role".to_owned(), Value::String("assistant".to_owned()));
+                    self.role_emitted = true;
+                }
+                delta.insert("content".to_owned(), Value::String(text.to_owned()));
                 output.extend(chat_chunk(
                     self.chat_id()?,
                     public_model,
@@ -161,7 +195,7 @@ impl ResponsesToChatStream {
     /// 在 EOF 时确认状态机与目标 Chat terminal 均已完成。
     pub(in crate::bridge::conversion) fn finish(&mut self) -> Result<Bytes, BridgeError> {
         self.state.finish()?;
-        if !self.terminal_emitted || (!self.has_text && !self.has_tools) {
+        if !self.terminal_emitted || (!self.has_text && !self.has_reasoning && !self.has_tools) {
             return Err(BridgeError::InvalidStream);
         }
         Ok(Bytes::new())

@@ -21,6 +21,11 @@ enum ResponsesItem {
         text: String,
         completed: bool,
     },
+    Reasoning {
+        item_id: String,
+        text: String,
+        completed: bool,
+    },
     Tool(BridgeToolCall),
 }
 
@@ -57,6 +62,13 @@ impl ResponsesStreamState {
             "response.created" => self.on_created(&value),
             "response.output_item.added" => self.on_item_added(&value),
             "response.output_text.delta" => self.on_text_delta(&value),
+            "response.reasoning_summary_part.added" => self.on_reasoning_part_added(&value),
+            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
+                self.on_reasoning_delta(&value)
+            }
+            "response.reasoning_summary_text.done" | "response.reasoning_text.done" => {
+                self.on_reasoning_done(&value)
+            }
             "response.function_call_arguments.delta" => self.on_arguments_delta(&value),
             "response.function_call_arguments.done" => self.on_arguments_done(&value),
             "response.output_item.done" => self.on_item_done(&value),
@@ -92,7 +104,18 @@ impl ResponsesStreamState {
             .values()
             .filter_map(|item| match item {
                 ResponsesItem::Message { text, .. } => Some(text.as_str()),
-                ResponsesItem::Tool(_) => None,
+                ResponsesItem::Reasoning { .. } | ResponsesItem::Tool(_) => None,
+            })
+            .collect()
+    }
+
+    /// 返回按 output index 拼接的 plain reasoning 文本。
+    pub fn reasoning_text(&self) -> String {
+        self.items
+            .values()
+            .filter_map(|item| match item {
+                ResponsesItem::Reasoning { text, .. } => Some(text.as_str()),
+                ResponsesItem::Message { .. } | ResponsesItem::Tool(_) => None,
             })
             .collect()
     }
@@ -103,7 +126,7 @@ impl ResponsesStreamState {
             .values()
             .filter_map(|item| match item {
                 ResponsesItem::Tool(tool) => Some(tool),
-                ResponsesItem::Message { .. } => None,
+                ResponsesItem::Message { .. } | ResponsesItem::Reasoning { .. } => None,
             })
             .collect()
     }
@@ -134,6 +157,7 @@ impl ResponsesStreamState {
         let item_id = required_str(item, "id")?.to_owned();
         if self.items.values().any(|known| match known {
             ResponsesItem::Message { item_id: known, .. } => known == &item_id,
+            ResponsesItem::Reasoning { item_id: known, .. } => known == &item_id,
             ResponsesItem::Tool(tool) => tool.item_id.as_deref() == Some(item_id.as_str()),
         }) {
             return Err(BridgeStreamError::DuplicateIdentity);
@@ -146,6 +170,14 @@ impl ResponsesStreamState {
                 text: String::new(),
                 completed: false,
             },
+            "reasoning" => {
+                reject_encrypted_reasoning(item)?;
+                ResponsesItem::Reasoning {
+                    item_id,
+                    text: reasoning_item_text(item)?,
+                    completed: false,
+                }
+            }
             "function_call" => {
                 let call_id = required_str(item, "call_id")?.to_owned();
                 if self.items.values().any(
@@ -188,6 +220,76 @@ impl ResponsesStreamState {
                 text.push_str(delta);
                 Ok(())
             }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// 将 reasoning summary/text delta 绑定到已注册的 reasoning item。
+    fn on_reasoning_delta(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
+        // reasoning 与 visible text 分开累计，不能借用 Chat message 的 text accumulator。
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        let delta = required_str(value, "delta")?;
+        match self.items.get_mut(&output_index) {
+            Some(ResponsesItem::Reasoning {
+                item_id: known,
+                text,
+                completed: false,
+            }) if known == item_id => {
+                text.push_str(delta);
+                Ok(())
+            }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// 校验 reasoning summary part 的 identity 与初始文本。
+    fn on_reasoning_part_added(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
+        // Responses summary part 仍属于同一个 reasoning output item。
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        let part = value
+            .get("part")
+            .and_then(Value::as_object)
+            .ok_or(BridgeStreamError::InvalidJson)?;
+        if part.get("type").and_then(Value::as_str) != Some("summary_text") {
+            return Err(BridgeStreamError::UnexpectedEvent);
+        }
+        let text = part
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or(BridgeStreamError::InvalidJson)?;
+        match self.items.get_mut(&output_index) {
+            Some(ResponsesItem::Reasoning {
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id => {
+                accumulated.push_str(text);
+                Ok(())
+            }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// 对照累计值校验 reasoning summary/text done 快照。
+    fn on_reasoning_done(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
+        // done event 必须与已经收到的 reasoning delta 完全一致。
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        let text = required_str(value, "text")?;
+        match self.items.get(&output_index) {
+            Some(ResponsesItem::Reasoning {
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id && accumulated == text => Ok(()),
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -257,6 +359,20 @@ impl ResponsesStreamState {
                 *completed = true;
                 Ok(())
             }
+            Some(ResponsesItem::Reasoning {
+                item_id,
+                text,
+                completed,
+            }) => {
+                if *completed || required_str(snapshot, "id")? != item_id {
+                    return Err(BridgeStreamError::IdentityConflict);
+                }
+                if reasoning_item_text(snapshot)? != *text {
+                    return Err(BridgeStreamError::IdentityConflict);
+                }
+                *completed = true;
+                Ok(())
+            }
             Some(ResponsesItem::Tool(tool)) => {
                 if tool.completed
                     || required_str(snapshot, "id")? != tool.item_id.as_deref().unwrap_or_default()
@@ -296,6 +412,7 @@ impl ResponsesStreamState {
         if terminal == StreamTerminal::Completed
             && self.items.values().any(|item| match item {
                 ResponsesItem::Message { completed, .. } => !completed,
+                ResponsesItem::Reasoning { completed, .. } => !completed,
                 ResponsesItem::Tool(tool) => !tool.completed,
             })
         {
@@ -332,5 +449,40 @@ impl ResponsesStreamState {
 impl Default for ResponsesStreamState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// 提取 reasoning item 的明文 content 与 summary，并拒绝 opaque continuation。
+fn reasoning_item_text(item: &Value) -> Result<String, BridgeStreamError> {
+    reject_encrypted_reasoning(item)?;
+    let mut text = String::new();
+    for (field, expected_type) in [("content", "reasoning_text"), ("summary", "summary_text")] {
+        let Some(parts) = item.get(field).and_then(Value::as_array) else {
+            continue;
+        };
+        for part in parts {
+            let part = part.as_object().ok_or(BridgeStreamError::InvalidJson)?;
+            if part.get("type").and_then(Value::as_str) != Some(expected_type) {
+                return Err(BridgeStreamError::UnexpectedEvent);
+            }
+            text.push_str(required_str(&Value::Object(part.clone()), "text")?);
+        }
+    }
+    Ok(text)
+}
+
+/// 拒绝无法从 Responses opaque continuation 转换成 Chat 明文的 reasoning item。
+fn reject_encrypted_reasoning(item: &Value) -> Result<(), BridgeStreamError> {
+    let Some(value) = item
+        .get("encrypted_content")
+        .filter(|value| !value.is_null())
+    else {
+        return Ok(());
+    };
+    let content = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
+    if content.is_empty() {
+        Ok(())
+    } else {
+        Err(BridgeStreamError::UnexpectedEvent)
     }
 }

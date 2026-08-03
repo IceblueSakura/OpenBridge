@@ -18,10 +18,13 @@ use futures_util::future::BoxFuture;
 use http::{HeaderMap, Request, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState},
-    core::ApiProtocol,
+    core::{ApiProtocol, ReasoningOutput},
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
-    registry::{RegistryError, RouteConfig, RouteMode, UpstreamTarget, build_registry},
+    registry::{
+        ReasoningLevel, ReasoningSupport, RegistryError, RouteConfig, RouteMode, UpstreamTarget,
+        build_registry,
+    },
     transport::{
         sse::SseDecoder,
         upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -118,17 +121,45 @@ fn app(
     upstream: ApiProtocol,
     transport: Arc<dyn UpstreamTransport>,
 ) -> axum::Router {
+    app_with_reasoning_output(downstream, upstream, transport, ReasoningOutput::Unknown)
+}
+
+fn app_with_reasoning_output(
+    downstream: ApiProtocol,
+    upstream: ApiProtocol,
+    transport: Arc<dyn UpstreamTransport>,
+    reasoning_output: ReasoningOutput,
+) -> axum::Router {
     // 只保留一条方向相反的 Bridged Route，确保 Native 候选不能掩盖转换行为。
     let mut definition = support::definition("bridge-forward", "public-model", "upstream-model");
+    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
+    definition.models[0].reasoning = ReasoningSupport::Supported;
+    definition.models[0].reasoning_levels = vec![ReasoningLevel::High];
+    let use_deepseek_chat =
+        upstream == ApiProtocol::ChatCompletions && reasoning_output == ReasoningOutput::PlainText;
+    if use_deepseek_chat {
+        definition.credential_pools[0].id = "deepseek-primary".to_owned();
+        definition.credential_pools[0].provider = openbridge::provider::ProviderKind::DeepSeek;
+        let target = &mut definition.upstream_targets[0];
+        target.provider = openbridge::provider::ProviderKind::DeepSeek;
+        target.base_url = "https://api.deepseek.com".to_owned();
+        target.credential_pool = "deepseek-primary".to_owned();
+        target.upstream_apis.retain(|api| api.id == "chat");
+        target.upstream_apis[0].endpoint_profile = "deepseek-openai".to_owned();
+    }
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.parallel_tool_calls = true;
+        capabilities.parallel_tool_calls = !use_deepseek_chat;
+        capabilities.reasoning_output = reasoning_output;
     }
-    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
-    {
-        capabilities.parallel_tool_calls = true;
+    if !use_deepseek_chat {
+        if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+            &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+        {
+            capabilities.parallel_tool_calls = true;
+            capabilities.reasoning_output = reasoning_output;
+        }
     }
     definition.routes = vec![RouteConfig {
         id: "bridge-route".to_owned(),
@@ -174,6 +205,10 @@ fn assert_stream_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]
             }
             expected_state.finish().unwrap();
             assert_eq!(actual_state.text(), expected_state.text());
+            assert_eq!(
+                actual_state.reasoning_text(),
+                expected_state.reasoning_text()
+            );
             assert_eq!(actual_state.tool_calls(), expected_state.tool_calls());
         }
         ApiProtocol::Responses => {
@@ -188,6 +223,10 @@ fn assert_stream_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]
             }
             expected_state.finish().unwrap();
             assert_eq!(actual_state.text(), expected_state.text());
+            assert_eq!(
+                actual_state.reasoning_text(),
+                expected_state.reasoning_text()
+            );
             assert_eq!(actual_state.tool_calls(), expected_state.tool_calls());
         }
     }
@@ -318,6 +357,100 @@ async fn production_router_converts_text_and_parallel_tool_streams_in_both_direc
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].0, upstream_path);
     }
+}
+
+#[tokio::test]
+async fn production_router_keeps_reasoning_and_ignores_empty_chat_content_before_tool_terminal() {
+    let upstream = Bytes::from_static(
+        br#"data: {"id":"chatcmpl_mock_reasoning","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_mock_reasoning","choices":[{"delta":{"reasoning_content":"check args","content":""},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_mock_reasoning","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_lookup","function":{"name":"lookup","arguments":""}}]},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_mock_reasoning","choices":[{"delta":{"content":"","tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"Hangzhou\"}"}}]},"finish_reason":"tool_calls","index":0}]}
+
+data: [DONE]
+
+"#,
+    );
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/chat/completions",
+        upstream_body: upstream,
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+    let response = app_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport.clone(),
+        ReasoningOutput::PlainText,
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert!(!String::from_utf8_lossy(&body).contains("response.output_text"));
+
+    // 通过生产 HTTP stream 状态机确认 reasoning、tool arguments 与终态均已闭合。
+    let mut state = ResponsesStreamState::new();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    for event in events {
+        state.ingest(&event).unwrap();
+    }
+    state.finish().unwrap();
+    assert_eq!(state.reasoning_text(), "check args");
+    assert_eq!(state.tool_calls().len(), 1);
+    assert_eq!(
+        state.terminal(),
+        Some(openbridge::bridge::StreamTerminal::Completed)
+    );
+
+    // Mock upstream 必须收到标准 Responses reasoning 到 Chat 的显式 effort 映射。
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/chat/completions");
+    assert_eq!(requests[0].1["reasoning_effort"], "high");
+}
+
+#[tokio::test]
+async fn production_router_rejects_reasoning_when_upstream_output_is_unknown() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/chat/completions",
+        upstream_body: Bytes::new(),
+        content_type: "application/json",
+        requests: Mutex::new(Vec::new()),
+    });
+    let response = app(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport.clone(),
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","reasoning":{"effort":"high"}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(transport.requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

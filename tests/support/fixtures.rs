@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
-    core::{ApiCapabilities, ApiProtocol, EndpointCapabilities, ResponsesCapabilities},
+    core::{
+        ApiCapabilities, ApiProtocol, EndpointCapabilities, ReasoningOutput, ResponsesCapabilities,
+    },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
@@ -91,6 +93,7 @@ pub fn capabilities() -> ApiCapabilities {
             image_input: false,
             structured_outputs: false,
             store: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
         responses: ResponsesCapabilities {
             enabled: true,
@@ -102,6 +105,7 @@ pub fn capabilities() -> ApiCapabilities {
             store: false,
             previous_response_id: false,
             background: false,
+            reasoning_output: ReasoningOutput::Unknown,
         },
     }
 }

@@ -213,7 +213,9 @@ pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint
 查询，adapter 仍在 crate 内的认证 header 边界才访问 secret。`CredentialKind` 已能表达
 `OAuth2BearerAccessToken`，但现有 Provider contract 仍只允许 `ApiKey`，因此尚未形成 OAuth 出站路径。
 
-OpenAI、LongCat 与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
+每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
+才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat
+与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；每个 Public Model
 与它引用的四条 Route 由同一编译注册单元生成，每个下游协议先列 Native route，再列指向相反 Upstream API 的
 Bridged route。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
@@ -226,7 +228,9 @@ OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Respon
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、
 quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Public Model 为 Chat 提供唯一 Native 候选，
-为 Responses 提供唯一 Responses→Chat Bridged 候选，不把 Bridge 描述成 Provider 原生 Responses。
+为 Responses 提供唯一 Responses→Chat Bridged 候选，不把 Bridge 描述成 Provider 原生 Responses。DeepSeek Chat
+的 reasoning output 为 `PlainText`；MiMo 与 LongCat 的 Chat/Responses reasoning output 均为 `Unknown`，因此
+它们的 Native-first route 不受影响，但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。
 
 ## 7. Transport、SSE、attempt 与 health
 
@@ -261,7 +265,7 @@ target。两类状态都不持久化、不跨进程，也不执行动态权重�
 状态机，`bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE
 转换。Responses 侧分别固定 response id、item id、call id 和 output index；Chat 侧只用 tool index 关联同一
 stream 的分片，不用它替代 call id。两侧要求唯一 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受
-显式 allowlist 内的共同 text/function 语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
+显式 allowlist 内的共同 text/function 与明文 reasoning channel 语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
 
 `src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、metrics 与 usage 拆到
 同名目录，后者将固定 payload 和受信 probe session 拆到同名目录；各自测试也位于私有 `tests.rs`。
