@@ -115,7 +115,7 @@ Canonical files under `testdata/` are contract source files, not general scratch
 
 ### Language
 
-- Write source-code comments and API documentation in concise Simplified Chinese.
+- Write source-code comments, API documentation, and Python docstrings in concise English. English is the repository-wide comment language.
 - Keep code identifiers, protocol field names, type names, and established technical terms such as `Provider`, `SSE`, and `fallback` in their original English form.
 - Use complete, descriptive sentences. Keep comments short and current.
 
@@ -123,7 +123,7 @@ Canonical files under `testdata/` are contract source files, not general scratch
 
 - Add a `//!` module-level comment to each non-trivial Rust module. Describe the module's responsibility, important boundaries, and any security or protocol constraints.
 - Add `///` Rustdoc comments to public types, functions, methods, constants, fields, and enum variants. Document purpose and, when relevant, inputs, outputs, errors, side effects, ownership, security constraints, and protocol limitations.
-- Add Chinese docstrings to non-trivial Python modules and public functions under `tools/corpus/`. Document responsibilities, inputs, outputs, exceptions, and observable side effects when relevant.
+- Add English docstrings to non-trivial Python modules and public functions under `tools/corpus/`. Document responsibilities, inputs, outputs, exceptions, and observable side effects when relevant.
 - Apply the same standard to private helpers that implement non-obvious protocol rules, boundary validation, resource cleanup, concurrency coordination, or error propagation.
 - New or materially modified functions must comply fully. Update comments within the directly changed function or module, but do not perform repository-wide or unrelated comment-only rewrites unless explicitly requested.
 
@@ -139,18 +139,18 @@ Canonical files under `testdata/` are contract source files, not general scratch
 Example:
 
 ```rust
-/// 验证登录请求并返回认证结果。
+/// Validates a login request and returns the authentication result.
 pub fn login(request: LoginRequest, database: &Database) -> Result<Response, AuthError> {
-    // 解析请求并提取账号与凭据。
+    // Parse the request and extract the account credentials.
     let credentials = parse_credentials(request)?;
 
-    // 读取账号记录和密码摘要。
+    // Load the account record and password digest.
     let account = database.find_account(&credentials.account)?;
 
-    // 验证密码并统一处理认证失败。
+    // Verify the password and normalize authentication failures.
     verify_password(&credentials.password, &account.password_hash)?;
 
-    // 构造成功响应并返回。
+    // Build and return the successful response.
     Ok(build_login_response(account))
 }
 ```
@@ -165,7 +165,7 @@ pub fn login(request: LoginRequest, database: &Database) -> Result<Response, Aut
 Example:
 
 ```rust
-// 已向下游发送 body，不能再拼接第二个上游响应。
+// The downstream body has started; do not append a second upstream response.
 if response_started {
     return forward_stream_error(error);
 }
@@ -183,9 +183,9 @@ if response_started {
 
 Before completing a code change, verify that:
 
-- Module responsibilities and boundaries are documented in Chinese.
+- Module responsibilities and boundaries are documented in English.
 - Public APIs document their purpose and relevant errors, results, side effects, and constraints.
-- Every logical stage in each non-trivial function has a concise single-line Chinese comment.
+- Every logical stage in each non-trivial function has a concise single-line English comment.
 - Non-obvious branches and invariants explain why the boundary exists.
 - Complex reasoning is documented outside the function body when appropriate.
 - Comments contain no sensitive data and match the current implementation.
