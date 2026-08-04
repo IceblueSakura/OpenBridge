@@ -9,7 +9,7 @@
 
 ## 1. 用户结果
 
-客户端只需选择一个稳定 Public Model 和 Chat Completions 或 Responses 接口，即可在发起生成请求前读取同一份
+客户端只需选择一个稳定 Public Model 和 Chat Completions、Responses 或 Embeddings 接口，即可在发起模型请求前读取同一份
 静态能力契约。若所选模型不支持请求能力，OpenBridge 必须在任何上游调用前返回稳定错误；不得自动改选模型、
 寻找能力更强的 Route 或静默删除请求字段。
 
@@ -29,14 +29,17 @@
 mapping，也不得包含健康、延迟、配额、价格、成本、指标、排行或 benchmark。上游 `/models` 与 probe 结果不能
 自动注册或扩大 Public Model。
 
+[Model 目录与 Provider 接入配置](model-catalog-configuration.md)目前是待定方案，不属于本契约或当前实施任务。
+在它重新获得明确批准前，Canonical Model、Target/API、Route source 与 Public Model 继续由代码目录显式注册。
+
 ## 3. Public Model 身份、生命周期与可见性
 
 - `id` 是客户端请求和资源路径使用的稳定单段标识，格式为
   `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`；包含 `/` 的上游模型名不得直接成为 Public Model id。
 - `created` 是 Public Model 契约首次创建的稳定 Unix 秒，不使用进程启动时间。
 - `name`、可选 `description` 和 `lifecycle` 是面向客户端的静态元数据。
-- `active` 与 `deprecated` 模型仍可列出和调用；`retired` 模型对 list、retrieve 和生成请求统一表现为不可用。
-- 没有任何静态可执行 Chat/Responses 接口的 Public Model 不进入可见目录。
+- `active` 与 `deprecated` 模型仍可列出和调用；`retired` 模型对 list、retrieve 和模型请求统一表现为不可用。
+- 没有任何静态可执行 Chat/Responses/Embeddings 接口的 Public Model 不进入可见目录。
 - 标准列表、扩展列表、两个 retrieve 接口和请求预检必须读取同一个不可变 registry snapshot。
 
 ## 4. 模型事实与固定接口契约
@@ -48,10 +51,10 @@ mapping，也不得包含健康、延迟、配额、价格、成本、指标、�
 - OpenAI 标准身份：`id`、`object`、`created`、`owned_by`；
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
 - 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
-- 接口契约：`chat_completions` 与 `responses` 各自至多一个 `ModelInterfaceCapabilities`；
+- 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，`embeddings` 至多一个 Embedding 接口能力对象；
 - schema 版本：首版固定为字符串 `"1"`。
 
-模型事实是模型本体的安全公共上界；生成请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有
+模型事实是模型本体的安全公共上界；模型请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有
 可执行 Route 时，其接口值为 `null`。canonical Model 的参数事实只参与编译各接口的
 `supported_parameters`，模型事实层不得再公开一份不能直接用于请求放行的重复列表。
 
@@ -70,7 +73,7 @@ OpenRouter canonical model 的 `context_length` 是模型目录公开的上下�
 
 ### 4.3 固定契约计算
 
-每个 Public Model 对 Chat Completions 和 Responses 分别只有一个固定契约。registry 在启动时把该协议全部
+每个 Public Model 对 Chat Completions、Responses 和 Embeddings 分别只有一个固定契约。registry 在启动时把该协议全部
 静态启用、可执行的 Route 作为契约输入，并按以下规则保守相交：
 
 | 字段 | 计算规则 |
@@ -80,6 +83,8 @@ OpenRouter canonical model 的 `context_length` 是模型目录公开的上下�
 | 模态、参数、reasoning level | 取集合交集并稳定排序 |
 | reasoning 输出形态 | 全部 Route 形态相同时公开该值，否则为 `unknown` |
 | `Bridged` Route | 只贡献当前转换器完整支持的公共子集；不能借 Native Route 的额外能力扩大契约 |
+
+Embedding 接口不使用生成协议的 token-output、tool、reasoning 或 stream 字段。它应独立保守相交 input forms、output encodings、dimensions 和输入/批量限制；不同 vector identity 未被显式证明等价时，不得编译进同一可 fallback 契约。Embedding Route 只允许 Native，不从 Chat/Responses Bridge 派生。
 
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
 `previous_response_id` 除了要求全部 Responses Route 明确支持，还要求这些 Route 唯一解析到同一个 Upstream
@@ -91,9 +96,9 @@ Model 时才形成聚合；模型 ID 相同不能自动新增候选。聚合后�
 
 ## 5. 请求预检与禁止能力路由
 
-生成请求必须遵循固定顺序：
+模型请求必须遵循固定顺序：
 
-1. 分析请求协议、Public Model、streaming、tool、模态、结构化输出、reasoning、state 和输出限制等事实。
+1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming、tool、模态、结构化输出、reasoning、state 和输出限制等事实。
 2. 查询所选 Public Model 的目标接口固定契约。
 3. 对所有已建模请求能力执行一次 fail-closed 预检。
 4. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
@@ -144,7 +149,7 @@ registry 必须在监听前拒绝：
 - total/input/output context 为零，或输入/输出上限超过 total context；
 - 显式模态集合为空或重复；
 - 空 Route 列表、重复 Route 或未知引用；
-- Upstream API 规则扩大 canonical Model，或收窄后产生不一致事实；
+- Upstream API 规则扩大 canonical Model，或收窄后产生不一致事实；Embedding identity、dimension、encoding 或 input-form 声明矛盾；
 - reasoning 状态、level、参数声明或 wire mapping 不一致；
 - Upstream API 能力超过 Provider contract 上界。
 
@@ -158,7 +163,7 @@ registry 必须在监听前拒绝：
 | MODEL-04 | 较弱首选 Route 与较强后续 Route 的交集仍拒绝能力请求，且不发生 egress。 |
 | MODEL-05 | 能力预检通过后保留全部配置 Route 的原顺序，不按请求能力跳过或重排。 |
 | MODEL-06 | unknown 能力 fail closed；token 上限与集合按保守交集计算。 |
-| MODEL-07 | Chat 与 Responses 能力相互隔离，不能用一个接口的能力扩大另一个接口。 |
+| MODEL-07 | Chat、Responses 与 Embeddings 能力相互隔离，不能用一个接口的能力扩大另一个接口。 |
 | MODEL-08 | 未知模型和 retired 模型统一返回安全 `model_not_found`；能力不足返回 `unsupported_model_capability`。 |
 | MODEL-09 | registry 在启动时拒绝非法身份、生命周期、上下文、模态、引用和能力扩大。 |
 
@@ -172,12 +177,14 @@ SDK、负载、长期运行或 LiteLLM/OpenRouter 目录新鲜度。
 - 暴露 deployment、endpoint、credential、健康、价格、配额或指标接口；
 - 从 LiteLLM、OpenRouter、Provider `/models` 或 probe 动态发现和注册模型；
 - 模型推荐、自动迁移、alias resolution、ACL、分页搜索或 capability query API；
-- 在未实现协议语义前，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state 或 opaque reasoning。
+- 在未实现协议语义前，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state、embedding 参数或 opaque reasoning。
 
 ## 关联文档
 
 - [产品范围](product-scope.md)
 - [网关 API 与客户端兼容](gateway-api-compatibility.md)
+- [Embeddings 与 Native 多模态扩展](embedding-and-native-multimodal.md)
+- [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
 - [模型信息模型调研](../references/cross-project/litellm-openrouter-model-information-plan.md)

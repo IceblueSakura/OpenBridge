@@ -22,6 +22,8 @@
 - [API 规范目录](openai/api-specification-catalog.md)
 - [Chat Completions 协议](openai/chat-completions-protocol.md)
 - [Responses 协议](openai/responses-protocol.md)
+- [Embedding 与多模态 API 转发参考](openai/embedding-and-multimodal-forwarding.md)
+- [扩展协议实现细节索引](openai/implementation-details/README.md)：Embeddings、Chat/Responses 多模态、Audio、Images、Files、检索资源、Videos 与 Realtime 各自的 wire、状态、路由和测试边界。
 
 ## OpenRouter 模型目录
 

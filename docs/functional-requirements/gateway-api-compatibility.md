@@ -11,8 +11,9 @@
 初期的兼容目标按优先级为：
 
 1. OpenAI SDK 的 Chat Completions 与 Responses HTTP JSON/SSE；
-2. 独立 Python 脚本或 curl 的最小 HTTP/header/SSE 复现；
-3. 只有在明确声明时，才验证 Codex、Hermes 等具体客户端的 profile、transport 与 tool-loop 行为。
+2. OpenAI-compatible Embeddings，以及 Chat/Responses 同协议 Native 多模态输入；
+3. 独立 Python 脚本或 curl 的最小 HTTP/header/SSE 复现；
+4. 只有在明确声明时，才验证 Codex、Hermes 等具体客户端的 profile、transport 与 tool-loop 行为。
 
 “某个请求能被转发”不等于“某个 Agent 已完整兼容”。每项声明必须限定 endpoint、stream、tool、continuation、Provider 与实际验证版本。
 
@@ -22,9 +23,10 @@
 |---|---|---|
 | `GET /healthz` | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。 | Provider 健康探测、控制面或客户端管理。 |
 | `GET /v1/models`、`GET /v1/models/{model}` | 按[模型能力契约](model-information-and-capability-contract.md)返回严格的 OpenAI 标准四字段 list/retrieve。 | 扩展能力、上游模型或部署信息。 |
-| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses 固定能力契约。 | Provider/target/route、credential、健康、价格或动态发现。 |
-| `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE 请求。 | 对全部 Chat 扩展或 hosted tool 的默认兼容承诺。 |
-| `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE 请求。 | Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
+| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses/Embeddings 固定能力契约。 | Provider/target/route、credential、健康、价格或动态发现。 |
+| `POST /v1/chat/completions` | 支持已声明能力范围内的 Chat JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。 | 多模态 Bridge、audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。 |
+| `POST /v1/responses` | 支持已声明能力范围内的 Responses JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。 | 多模态 Bridge、Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
+| `POST /v1/embeddings` | 支持独立 Embedding Public Model 的 OpenAI-compatible JSON 请求/响应。 | streaming、向量转换/存储/检索，或无等价证明的跨模型 fallback。 |
 
 业务 endpoint 必须使用用户表分配的静态 Bearer API Key。用户表只在启动时读取，不提供在线 key issuance、scope、即时撤销、配额或 billing identity；变更需要重启。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
 
@@ -132,11 +134,12 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。 |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。 |
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
+| API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。 |
 
 ## 8. 非目标
 
 - GUI、Web 控制台、客户端安装/注册/配置管理；
-- Realtime、Responses WebSocket、Files、Conversations、管理 API 或“实现全部 OpenAI API”；
+- Realtime、Responses WebSocket、Files、Images、Videos、Conversations、管理 API 或“实现全部 OpenAI API”；
 - 保存、查询、删除、翻译或跨 Provider/Target 迁移 response 状态，以及未有真实需求前实现 continuation ledger；
 - 让 Chat ↔ Responses、任何 tool 或 Provider 私有扩展自动无损互转；
 - 代表下游 Agent 执行任意 function tool、shell、computer 或网页操作；

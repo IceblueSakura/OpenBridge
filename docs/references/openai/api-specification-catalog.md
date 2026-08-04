@@ -4,10 +4,11 @@
 
 本文是学习和实现协议转换前的 API 地图，不是对每个字段的重复抄录。它以 OpenAI 官方 OpenAPI 规范和 API Reference 为准；字段支持仍取决于具体 model、账户权限和 beta 状态。
 
-- **采集日期**：2026-07-18。
-- **机器可读规范**：官方 `openai/openai-openapi`，OpenAPI `3.1.0`，`info.version=2.3.0`，本次读取到 **179 个 path key**。
+- **初次采集日期**：2026-07-18；**扩展 endpoint 复核日期**：2026-08-04。
+- **机器可读规范**：官方 endpoint catalog，OpenAPI `3.1.0`，`info.version=2.3.0`；2026-08-04 读取到 **182 个 endpoint path**。该在线目录会变化，数字只标识本次快照。
 - **人读规范**：OpenAI Developers API Reference 及官方 guides。
 - **本系列的重点**：`/chat/completions` 与 `/responses`；其完整学习文档见 [Chat Completions 协议](chat-completions-protocol.md) 和 [Responses 协议](responses-protocol.md)。
+- **本系列的扩展专题**：总览见 [Embedding 与多模态 API 转发参考](embedding-and-multimodal-forwarding.md)，逐协议实现接缝见[扩展协议实现细节索引](implementation-details/README.md)。参考文档本身不构成功能承诺；现阶段只批准 Embeddings 与 Chat/Responses Native 多模态，范围见[功能需求](../../functional-requirements/embedding-and-native-multimodal.md)。
 
 官方来源：
 

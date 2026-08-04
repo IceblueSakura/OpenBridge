@@ -30,6 +30,26 @@ credential、endpoint 和内部 Route。
   trace，进程内统计只累计低基数终态、attempt 结果和 Provider 明确返回的 usage；
 - 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
 
+现阶段已批准但尚未由实现现状证明的扩展结果只有两项：
+
+- 通过独立 Embedding Public Model 调用 `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
+- 在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input audio，且无资源归属时拒绝 `file_id`。
+
+具体行为和非目标以 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项不改变
+“每次只实施一个可观察行为”的约束，也不代表当前 checkout 已经提供对应能力。
+
+[Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
+在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。
+
+## 静态装配原则
+
+- 配置与代码中的部署决策必须尽可能在启动时完成，生成不可变 registry、用户和 credential snapshot；请求路径不得
+  重新解析文件、合并配置或构建新的候选集合；
+- Model、Provider 与 Route 候选资格和顺序在启动时固定；不实现按请求动态发现、打分、加权、筛选或重排；
+- 不实现用户配额、计费、动态租户策略、配置文件监听、热重载或局部 snapshot 替换；所有配置变化都通过重启生效；
+- 固定候选上的有限 retry、fallback、credential rotation 与 cooldown 只用于执行已批准的可用性策略，不得扩大能力、
+  改变静态候选资格或演变为动态路由控制面。
+
 ## 部署与信任边界
 
 - 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
@@ -49,11 +69,18 @@ credential、endpoint 和内部 Route。
 | `POST /v1/chat/completions` | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。 |
 | `POST /v1/responses` | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。 |
 
+## 已批准的接口扩展
+
+| 接口 | 目标用途 | 当前证据入口 |
+|---|---|---|
+| `POST /v1/embeddings` | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 实现前以[当前开发焦点](../implementation-plans/current-focus.md)为准；完成后写入 implementation status。 |
+| 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。 | 需求见[扩展需求](embedding-and-native-multimodal.md)，当前实现边界仍见 implementation status。 |
+
 ## 暂不纳入当前产品承诺
 
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
-- Responses WebSocket、Realtime、Files、Conversations 等资源 API；
+- Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
 - OAuth、keyring、加密 secret 文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；

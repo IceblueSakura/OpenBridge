@@ -16,6 +16,13 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
 7. 以 bootstrap-only 配置管理进程资源策略，以私有 TOML 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB 和终态错误率统计。
 
+现阶段已批准的扩展目标只包括：
+
+- 独立的 OpenAI-compatible `POST /v1/embeddings`；
+- Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio。
+
+两项仍按一个当前焦点依次实施；当前代码是否已经支持，必须以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
+
 核心稳定后再考虑：
 
 - Provider-hosted tool facade；
@@ -170,6 +177,7 @@ cargo test --locked --test sdk_compatibility -- --ignored
 | [参考文档](docs/references/README.md) | OpenAI/OpenRouter 协议和参考项目事实 | 参考文档 |
 | [产品范围](docs/functional-requirements/product-scope.md) | 单配置所有者部署、下游用户、边界与非目标 | 功能需求 |
 | [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md) | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求 |
+| [Embeddings 与 Native 多模态扩展](docs/functional-requirements/embedding-and-native-multimodal.md) | 现阶段两个扩展目标的 wire、能力、资源与失败边界 | 功能需求 |
 | [Public Model 与模型能力契约](docs/functional-requirements/model-information-and-capability-contract.md) | 模型信息、固定能力预检、Models API 与禁止能力路由边界 | 功能需求 |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界 | 功能需求 |
 | [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md) | 固定 Route 顺序、状态亲和、限流、冷却、重试与错误传播 | 功能需求 |

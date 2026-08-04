@@ -6,6 +6,9 @@
 Upstream Target、Upstream API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显式注册；运行时配置不提供 Provider DSL，也不支持
 route 热重载。
 
+[Model 目录与 Provider 接入配置](model-catalog-configuration.md)目前是待定方案，不属于本页当前约束，也不进入
+实施。除非再次明确批准，启动过程、注册表所有权和验收要求继续以代码注册方式为准。
+
 ## 1. 所有权划分
 
 | 来源 | 内容 | 能否包含 secret |
@@ -142,6 +145,7 @@ read bootstrap.toml
 ## 关联文档
 
 - [Public Model 与模型能力契约](model-information-and-capability-contract.md)
+- [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [能力探测](../implementation-status/capability-probing.md)

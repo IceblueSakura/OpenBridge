@@ -36,11 +36,12 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
 2. [产品范围](functional-requirements/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
-3. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)：确认模型信息、固定能力预检和禁止能力路由边界。
-4. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
-5. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 的性能、usage、cache
+3. [Embeddings 与 Native 多模态扩展](functional-requirements/embedding-and-native-multimodal.md)：确认现阶段只新增 1/2，其他媒体/资源协议仍是参考。
+4. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)：确认模型信息、固定能力预检和禁止能力路由边界。
+5. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
+6. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 的性能、usage、cache
    口径及进程内读取边界。
-6. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
+7. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
 
 这一阶段暂时不要钻进具体函数。读完后应能回答：
 
@@ -210,12 +211,14 @@ public model name
 | 比较 Provider 性能、usage 或 cache | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/provider.rs` → `observability_contract.rs` |
 | credential/header 泄露风险 | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests |
 | 新增 Provider | Provider contract → canonical model → compiled registry → adapter → probe → contract tests |
+| 实现 Embeddings 或 Native 多模态 | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [逐协议实现细节](references/openai/implementation-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试 | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：
 
 - [Chat Completions 协议](references/openai/chat-completions-protocol.md)
 - [Responses 协议](references/openai/responses-protocol.md)
+- [扩展协议实现细节](references/openai/implementation-details/README.md)
 - [参考项目比较矩阵](references/project-comparison.md)
 - [Chat/Responses、SSE 与工具测试集调研](references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
 
