@@ -91,8 +91,8 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 一个 Public Model 显式列出多个 Provider route source；对每个下游协议，先按 Provider 声明顺序生成全部 Native
 候选，再按相同顺序生成 Bridge 候选。相同 canonical Model ID 不会触发自动发现或隐式聚合。当前 checked-in
 Public Model 仍各自只注册一个 Provider source，因为尚无第二个已确认的真实 Provider 绑定。Native Route
-由 Provider adapter 写入实际上游 `model`；选定 Upstream API 还可对 canonical Model 已声明的
-reasoning level 应用显式候选级 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
+规划保留 canonical 请求；Provider adapter 在准备选定 Upstream API 的 egress 请求时写入实际上游 `model`，
+并可对 canonical Model 已声明的 reasoning level 应用显式 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
 Public Model 契约或导致跳过前序 Route。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。

@@ -1,9 +1,9 @@
 //! Downstream native protocols and request value objects that passed basic HTTP checks.
 //!
-//! `ApiRequest` stores JSON bytes for the protocol fixed by RoutePlan: a Native Route normally
-//! preserves the downstream body and may apply an explicit reasoning-level mapping to a candidate
-//! copy; a Bridged Route stores the target-protocol body produced by `BridgePlan`. The adapter then
-//! supplies the real model and upstream relative request.
+//! `ApiRequest` stores JSON bytes for the protocol fixed by RoutePlan: a Native Route preserves the
+//! canonical downstream body, while a Bridged Route stores the target-protocol body produced by
+//! `BridgePlan`. The Provider adapter then supplies the real model, applies target wire mappings,
+//! and binds the upstream relative request.
 
 use bytes::Bytes;
 

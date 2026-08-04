@@ -242,18 +242,18 @@ impl ProbeSession<'_> {
         protocol: ApiProtocol,
         body: Value,
     ) -> Result<JsonResponse, ProbeResult> {
-        // Serialize the probe body and let the compile-time adapter bind the upstream model and relative path.
+        // Serialize the probe body and resolve the selected Upstream API for egress preparation.
         let body = serde_json::to_vec(&body).expect("probe request JSON is serializable");
         let request = ApiRequest::new(protocol, Bytes::from(body));
+        let upstream_api = self
+            .target
+            .upstream_api_for_protocol(protocol)
+            .expect("probe protocol has a configured upstream API");
+
+        // Let the compile-time adapter bind the model, wire mappings, and relative path.
         let request = self
             .adapter
-            .prepare_request(
-                &request,
-                self.target
-                    .upstream_api_for_protocol(protocol)
-                    .expect("probe protocol has a configured upstream API")
-                    .upstream_model(),
-            )
+            .prepare_routed_request(&request, upstream_api)
             .expect("compiled provider adapter accepts both probe protocols");
 
         // Send through trusted transport and decode the response under the shared body limit.

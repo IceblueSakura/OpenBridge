@@ -1,11 +1,12 @@
 //! Package entry point for request analysis and Route planning.
 //!
-//! Submodules own stable errors, plan data types, request-fact analysis, and registry Route
-//! planning; this file only declares modules and preserves existing public API paths.
+//! Submodules own stable errors, plan data types, request-fact analysis, fixed-interface preflight,
+//! and registry Route planning; this file only declares modules and preserves public API paths.
 
 mod analysis;
 mod error;
 mod planning;
+mod preflight;
 mod types;
 
 pub use analysis::analyze_request;

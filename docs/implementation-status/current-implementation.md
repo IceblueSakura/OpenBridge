@@ -115,8 +115,8 @@ Target、Route、upstream model、endpoint、credential、健康或价格信息�
 - 能力校验通过后保持 Public Model 的原 Route 顺序；不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
 - 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
   当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；
-- 对 Native Route 按选定 Upstream API 的已校验代码规则映射 reasoning level；映射仅修改候选请求副本，
-  Chat 只接受标准 `reasoning_effort`，Responses 只接受标准 `reasoning.effort`，并通过
+- RoutePlan 保留 canonical reasoning level；Provider adapter 准备选定 Upstream API 的 egress 请求时才按已校验
+  规则映射 wire 值。映射仅修改待发送副本，Chat 只接受标准 `reasoning_effort`，Responses 只接受标准 `reasoning.effort`，并通过
   `reasoning_level_mapped` tracing event 记录源/目标；不把跨协议字段别名当作标准字段；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
 - 经各 Provider 的受信 request-header hook 处理普通 header；OpenAI 与 LongCat 把下游 `User-Agent` 覆盖到上游，OpenRouter 不转发可选 attribution/routing header；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy header 隔离；
@@ -169,7 +169,7 @@ credential 覆盖，只加载选中 target 的 pool 并固定使用首个 member
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/候选级 level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/egress level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
 固定 Public Model 能力预检、标准/扩展 Models list/retrieve、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
 credential round-robin/429 rotation/member cooldown、fault domain cooldown、continuation 单成员约束、retry header、SSE terminal、partial failure、pending
 send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、真实 loopback
@@ -320,8 +320,8 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 2026-08-03 完成能力路由遗留审计与需求归并：
 
 - `plan_request` 只在 Route 循环前读取一次 `ModelInterfaceCapabilities`；循环中的候选资格只受下游协议、Target
-  静态启停和 Upstream API 静态启停影响。`BridgePlan` 失败会拒绝整个请求，不会跳过该 Route；候选级
-  reasoning wire 映射只改写请求副本，不改变资格或顺序。
+  静态启停和 Upstream API 静态启停影响。`BridgePlan` 失败会拒绝整个请求，不会跳过该 Route；reasoning wire
+  映射不改变候选资格或顺序。
 - `forward_request` 只因 cooldown、credential 可用性、可重试 HTTP/transport failure 和 state affinity 执行
   retry/fallback，不读取或比较模型能力。已删除没有生产调用方的 `ProviderAdapter::validate_capabilities` 及其重复
   `ApiCapabilities` 子集入口；Provider 能力上界仍只在 registry 构建时校验。
@@ -378,8 +378,20 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   能力交集、真实 attempt 顺序、唯一 issuer continuation 与歧义 preflight 聚焦测试均通过。
 - 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
   `git diff --check`，全量 Rust 结果为 166 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试
-  ignored，Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行
+ ignored，Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行
   外部 SDK、真实 Provider、负载或长期验收。
+
+2026-08-04 完成 Route planning 职责拆分与 reasoning wire 映射下沉：
+
+- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 只在预检后
+  按配置顺序生成 Native/Bridged candidate、绑定 Target/API，并设置 fallback 边界。
+- `RouteCandidate` 不再保存已应用的 reasoning mapping，Native 与 Bridged `ApiRequest` 在 RoutePlan 中均保留目标
+  协议的 canonical level。OpenAI-compatible Provider adapter 在 egress JSON 准备阶段与真实 model 一次性完成
+  target-specific reasoning wire 改写；`PreparedUpstreamRequest` 只携带实际已应用映射用于 attempt tracing。
+- TDD 首先让规划测试因旧实现提前把 `xhigh` 改成 `max` 而失败；重构后该测试确认所有规划候选保留 `xhigh`，
+  forwarding contract 继续确认发送到显式映射 Upstream API 的 wire 值为 `max`。`cargo fmt -- --check` 与
+  `cargo test --locked` 均通过；全量 Rust 结果为 166 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试
+  ignored。未修改 `testdata/` 或 `tools/corpus/`，未运行 Python corpus、外部 SDK、真实 Provider、负载或长期验收。
 
 ## 当前未实现
 

@@ -3,7 +3,7 @@
 use crate::{
     bridge::BridgePlan,
     core::{ApiProtocol, ApiRequest, GenerationCapabilities},
-    registry::{ReasoningLevel, ReasoningLevelMapping},
+    registry::ReasoningLevel,
 };
 
 /// Registry-independent request facts extracted from a downstream request.
@@ -35,7 +35,6 @@ pub struct RouteCandidate {
     pub(super) upstream_api_id: String,
     pub(super) request: ApiRequest,
     pub(super) bridge: Option<BridgePlan>,
-    pub(super) reasoning_level_mapping: Option<ReasoningLevelMapping>,
 }
 
 /// Capabilities actually used by one request. This is not the Upstream API configuration:
@@ -143,10 +142,5 @@ impl RouteCandidate {
     /// Returns the response conversion plan for a Bridged Route; a Native candidate returns `None`.
     pub fn bridge(&self) -> Option<&BridgePlan> {
         self.bridge.as_ref()
-    }
-
-    /// Returns the reasoning-level mapping actually applied by the candidate.
-    pub fn reasoning_level_mapping(&self) -> Option<&ReasoningLevelMapping> {
-        self.reasoning_level_mapping.as_ref()
     }
 }

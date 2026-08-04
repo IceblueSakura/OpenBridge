@@ -1979,20 +1979,33 @@ async fn mimo_responses_native_preserves_parallel_tool_stream() {
 }
 
 #[tokio::test]
-async fn router_sends_the_candidate_mapped_reasoning_level_upstream() {
+async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
     definition.models[0].reasoning = ReasoningSupport::Supported;
     definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
-    definition.upstream_targets[0].upstream_apis[1]
-        .model_rules
-        .reasoning_level_mappings = vec![ReasoningLevelMapping {
-        downstream: ReasoningLevel::XHigh,
-        upstream: "max".to_owned(),
-    }];
+    for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
+        upstream_api.model_rules.reasoning_level_mappings = vec![ReasoningLevelMapping {
+            downstream: ReasoningLevel::XHigh,
+            upstream: "max".to_owned(),
+        }];
+    }
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
-    let request = Request::post("/v1/responses")
+
+    // Send the canonical Chat level through the selected Chat Upstream API mapping.
+    let chat = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","messages":[],"reasoning_effort":"xhigh"}"#,
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(chat).await.unwrap();
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    // Send the canonical Responses level through the selected Responses Upstream API mapping.
+    let responses = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(
             AUTHORIZATION,
@@ -2002,11 +2015,12 @@ async fn router_sends_the_candidate_mapped_reasoning_level_upstream() {
             r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"xhigh"}}"#,
         ))
         .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(responses).await.unwrap();
     let _ = to_bytes(response.into_body(), 4096).await.unwrap();
 
+    // Verify that each protocol rewrites only its standard reasoning field at egress.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].body["reasoning"]["effort"], "max");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].body["reasoning_effort"], "max");
+    assert_eq!(requests[1].body["reasoning"]["effort"], "max");
 }

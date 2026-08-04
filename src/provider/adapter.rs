@@ -8,6 +8,7 @@ use crate::{
     core::{ApiProtocol, ApiRequest},
     credential::UpstreamCredential,
     providers::openai_compatible::OpenAiCompatibleAdapter,
+    registry::{ReasoningLevelMapping, UpstreamApi},
     transport::sse::SseEvent,
 };
 
@@ -49,6 +50,7 @@ pub struct PreparedUpstreamRequest {
     method: Method,
     relative_uri: Uri,
     body: Bytes,
+    reasoning_level_mapping: Option<ReasoningLevelMapping>,
 }
 
 impl PreparedUpstreamRequest {
@@ -58,7 +60,17 @@ impl PreparedUpstreamRequest {
             method,
             relative_uri,
             body,
+            reasoning_level_mapping: None,
         }
+    }
+
+    /// Attaches the reasoning-level mapping applied while preparing the Provider wire request.
+    pub(crate) fn with_reasoning_level_mapping(
+        mut self,
+        mapping: Option<ReasoningLevelMapping>,
+    ) -> Self {
+        self.reasoning_level_mapping = mapping;
+        self
     }
 
     /// Returns the HTTP method.
@@ -74,6 +86,11 @@ impl PreparedUpstreamRequest {
     /// Returns the rewritten request body.
     pub fn body(&self) -> &Bytes {
         &self.body
+    }
+
+    /// Returns the reasoning-level mapping applied to this prepared wire request.
+    pub(crate) fn reasoning_level_mapping(&self) -> Option<&ReasoningLevelMapping> {
+        self.reasoning_level_mapping.as_ref()
     }
 }
 
@@ -151,7 +168,7 @@ impl ProviderAdapter {
         self.openai_compatible().prepare_model_list_request()
     }
 
-    /// Builds a relative upstream request from the execution protocol and upstream model ID in RoutePlan.
+    /// Builds a relative upstream request for a raw upstream model without Route-specific mappings.
     pub fn prepare_request(
         &self,
         request: &ApiRequest,
@@ -159,6 +176,16 @@ impl ProviderAdapter {
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         self.openai_compatible()
             .prepare_request(request, upstream_model)
+    }
+
+    /// Builds the selected Upstream API request and applies its explicit Provider wire mappings.
+    pub(crate) fn prepare_routed_request(
+        &self,
+        request: &ApiRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_routed_request(request, upstream_api)
     }
 
     /// Builds safe request headers without authentication material.

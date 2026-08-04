@@ -70,7 +70,7 @@ pub(super) async fn forward_request(
     let mut cooldown_skipped = false;
     let mut last_http_failure = None;
 
-    // Prepare each candidate's target, credential, adapter, and Native request by priority.
+    // Prepare each candidate's target, credential, adapter, and Provider wire request by priority.
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
@@ -123,17 +123,16 @@ pub(super) async fn forward_request(
             }
         };
         let adapter = ProviderAdapter::for_kind(target.kind());
-        let request =
-            match adapter.prepare_request(candidate.request(), upstream_api.upstream_model()) {
-                Ok(request) => request,
-                Err(_) => {
-                    return api_error(
-                        StatusCode::BAD_REQUEST,
-                        "unsupported_request",
-                        "Request is not supported by the selected provider",
-                    );
-                }
-            };
+        let request = match adapter.prepare_routed_request(candidate.request(), upstream_api) {
+            Ok(request) => request,
+            Err(_) => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "unsupported_request",
+                    "Request is not supported by the selected provider",
+                );
+            }
+        };
 
         let mut rejected_members = HashSet::new();
         let mut current_member = None;
@@ -202,7 +201,7 @@ pub(super) async fn forward_request(
                 target.kind(),
                 candidate.bridge().is_some(),
             );
-            if let Some(mapping) = candidate.reasoning_level_mapping() {
+            if let Some(mapping) = request.reasoning_level_mapping() {
                 tracing::info!(
                     downstream_reasoning_level = mapping.downstream.as_wire(),
                     upstream_reasoning_level = mapping.upstream,

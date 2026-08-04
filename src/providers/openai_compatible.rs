@@ -20,8 +20,8 @@ use crate::{
         UpstreamErrorKind,
     },
     registry::{
-        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules,
+        ReasoningLevel, ReasoningLevelMapping, StateAffinity, TransportKind, UpstreamApi,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
     },
     transport::sse::SseEvent,
 };
@@ -97,6 +97,25 @@ impl OpenAiCompatibleAdapter {
         request: &ApiRequest,
         upstream_model: &str,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.prepare_request_with_api(request, upstream_model, None)
+    }
+
+    /// Replaces target-specific wire values and binds the selected Upstream API endpoint.
+    pub(crate) fn prepare_routed_request(
+        self,
+        request: &ApiRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.prepare_request_with_api(request, upstream_api.upstream_model(), Some(upstream_api))
+    }
+
+    /// Builds one JSON request and optionally applies mappings from the selected Upstream API.
+    fn prepare_request_with_api(
+        self,
+        request: &ApiRequest,
+        upstream_model: &str,
+        upstream_api: Option<&UpstreamApi>,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
         // Select the static relative endpoint for the request protocol.
         let path = match request.protocol() {
             ApiProtocol::ChatCompletions => self.chat_path,
@@ -116,15 +135,23 @@ impl OpenAiCompatibleAdapter {
                 serde_json::Value::String(upstream_model.to_owned()),
             );
 
-        // Re-serialize the native JSON while preserving all other protocol fields.
+        // Apply only the selected Upstream API's explicit reasoning wire mapping.
+        let reasoning_level_mapping = upstream_api.and_then(|upstream_api| {
+            apply_reasoning_level_mapping(
+                request.protocol(),
+                document.as_object_mut()?,
+                upstream_api,
+            )
+        });
+
+        // Re-serialize once after all trusted Provider wire transformations.
         let body = serde_json::to_vec(&document)
             .map(Bytes::from)
             .map_err(|_| AdapterError::InvalidRequestBody)?;
-        Ok(PreparedUpstreamRequest::new(
-            Method::POST,
-            relative_uri,
-            body,
-        ))
+        Ok(
+            PreparedUpstreamRequest::new(Method::POST, relative_uri, body)
+                .with_reasoning_level_mapping(reasoning_level_mapping),
+        )
     }
 
     /// Builds the base ordinary headers for an OpenAI-compatible JSON request.
@@ -209,6 +236,31 @@ impl OpenAiCompatibleAdapter {
         };
         StatusClassification::new(kind, retry_hint)
     }
+}
+
+/// Applies one canonical reasoning level mapping at the protocol-defined wire location.
+fn apply_reasoning_level_mapping(
+    protocol: ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+    upstream_api: &UpstreamApi,
+) -> Option<ReasoningLevelMapping> {
+    // Locate only the standard reasoning field for the prepared request protocol.
+    let value = match protocol {
+        ApiProtocol::ChatCompletions => document.get_mut("reasoning_effort"),
+        ApiProtocol::Responses => document
+            .get_mut("reasoning")
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|reasoning| reasoning.get_mut("effort")),
+    }?;
+
+    // Resolve and write only an explicitly configured canonical-to-Provider mapping.
+    let downstream = value.as_str().and_then(ReasoningLevel::from_wire)?;
+    let upstream = upstream_api.reasoning_level_mapping(downstream)?.to_owned();
+    *value = serde_json::Value::String(upstream.clone());
+    Some(ReasoningLevelMapping {
+        downstream,
+        upstream,
+    })
 }
 
 /// Reads an OpenAI Responses terminal using the compile-time discriminator and rejects conflicting sources.

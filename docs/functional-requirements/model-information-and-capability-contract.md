@@ -111,7 +111,8 @@ Model 时才形成聚合；模型 ID 相同不能自动新增候选。聚合后�
 - 把一条 Route 的 tool、image、reasoning 或 token 优势与另一条 Route 的能力做字段并集。
 
 Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、顺序及 `Native`/`Bridged` 模式均来自固定配置。
-候选级 reasoning wire 映射只能改写该候选的请求副本，不能改变资格或顺序。若完整 `BridgePlan` 无法表示已通过
+reasoning wire 映射只能在选定候选的 Provider egress 请求准备阶段改写 wire 副本，不得写入 RoutePlan，也不能
+改变候选资格或顺序。若完整 `BridgePlan` 无法表示已通过
 公共预检的请求，整个请求必须失败，不能跳过该 Bridge 去选择其他 Route。
 运行期 cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属于可用性执行，不是能力路由；
 `previous_response_id` 等 state affinity 可以禁止跨 Target fallback，但不能选择能力更强的候选。

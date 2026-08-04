@@ -1,4 +1,4 @@
-//! Verifies Public Model capability preflight, ordered Route planning, and reasoning mapping.
+//! Verifies Public Model capability preflight and ordered Route planning.
 
 mod support;
 
@@ -17,7 +17,7 @@ fn base_definition() -> RegistryConfig {
 }
 
 #[test]
-fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
+fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
     let mut definition = base_definition();
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
     definition.models[0].reasoning = ReasoningSupport::Supported;
@@ -56,7 +56,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     ];
     let registry = build_test_registry(definition);
 
-    // Verify that standard Responses reasoning.effort is rewritten by the selected Upstream API.
+    // Verify that planning preserves the canonical Responses level for every candidate.
     let request = json!({
         "model": "public-model",
         "input": "hello",
@@ -68,8 +68,8 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
         serde_json::to_vec(&request).unwrap().into(),
     )
     .unwrap();
-    let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
-    assert_eq!(upstream["reasoning"]["effort"], "max");
+    let mapped: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+    assert_eq!(mapped["reasoning"]["effort"], "xhigh");
     assert_eq!(prepared.candidates().len(), 2);
     let unmapped: Value =
         serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
@@ -87,7 +87,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
         RequestPlanningError::ReasoningLevelUnsupported
     ));
 
-    // Chat reasoning_effort uses the same candidate-level mapping boundary.
+    // Verify that planning also preserves the canonical Chat level for every candidate.
     let chat = serde_json::to_vec(&json!({
         "model": "public-model",
         "messages": [],
@@ -98,7 +98,7 @@ fn native_routes_apply_explicit_reasoning_level_mappings_per_candidate() {
     let mapped: Value = serde_json::from_slice(prepared.candidates()[0].request().body()).unwrap();
     let unmapped: Value =
         serde_json::from_slice(prepared.candidates()[1].request().body()).unwrap();
-    assert_eq!(mapped["reasoning_effort"], "max");
+    assert_eq!(mapped["reasoning_effort"], "xhigh");
     assert_eq!(unmapped["reasoning_effort"], "xhigh");
 
     // Provider-private target values must not expand the public level set available downstream.

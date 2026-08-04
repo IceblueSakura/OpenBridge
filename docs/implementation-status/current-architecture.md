@@ -174,7 +174,7 @@ Ingress 执行认证、body/content-type 限制、本地错误归一化和当前
 ## 5. 请求分析与路由层
 
 实现位置：`src/core/*`、`src/pipeline/types.rs`、`src/pipeline/analysis.rs`、
-`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
+`src/pipeline/preflight.rs`、`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
 
 ```text
 raw body + downstream protocol
@@ -188,13 +188,14 @@ raw body + downstream protocol
 `RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
 reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为
 显式 level，字段缺失才表示调用方没有请求 reasoning。
-`PublicModelInfo` 与 planner 共用同一个 `ModelInterfaceCapabilities`：不支持或未知能力在查看候选前失败；
-支持后 `RoutePlan` 固定原配置中的 Route、Upstream Target 与 Upstream API 顺序。Native candidate 通常保留原始 `ApiRequest`；
-当该 Upstream API 显式配置 reasoning level 映射时，只在候选请求副本中把 canonical level 改为安全 wire 值。
-映射源必须属于有效 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；未映射候选
-保持原始 level，未知下游 level 仍失败关闭。
-Bridged candidate 在 egress 前生成受限 `BridgePlan` 与相反协议的 `ApiRequest`。Provider adapter 仍只负责
-目标 endpoint、真实 model、header 与认证改写。
+`preflight` 与 `PublicModelInfo` 共用同一个 `ModelInterfaceCapabilities`：不支持或未知能力在查看候选前失败；
+通过后 `planning` 只按原配置固定 Route、Upstream Target 与 Upstream API 顺序，并在需要时生成 `BridgePlan`。
+Native candidate 保留 canonical `ApiRequest`，Bridged candidate 保存目标协议的 canonical `ApiRequest`；两者都不在
+RoutePlan 中应用或记录 reasoning wire 映射。
+
+Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，写入真实 model，并按该 Upstream API 的显式配置
+把 canonical reasoning level 改为安全 wire 值。映射源必须属于有效 Model 的 level 集合，目标值必须满足受限
+wire 命名规则，同一源不得重复；没有映射的候选保持 canonical level，未知下游 level 仍在 preflight 失败关闭。
 
 请求携带 `previous_response_id` 时，计划关闭跨 target fallback。registry 还要求全部 Responses Route 的
 continuation issuer 唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前
@@ -212,7 +213,7 @@ continuation issuer 唯一解析到同一 Target/API；多个潜在签发者会�
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有
 Provider 契约、endpoint path、request-header hook 与 Responses terminal discriminator；共享 `openai_compatible`
-机制负责模型字段改写、Bearer 认证、响应/SSE terminal、
+机制负责模型字段与 reasoning level wire 映射、Bearer 认证、响应/SSE terminal、
 错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
