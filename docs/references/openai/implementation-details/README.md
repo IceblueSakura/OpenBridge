@@ -10,8 +10,8 @@
 
 | 编号 | 协议族 | 文档 | 当前决策 |
 |---|---|---|---|
-| 1 | Embeddings | [Embeddings](01-embeddings.md) | 已批准扩展目标；唯一当前开发焦点 |
-| 2 | Chat/Responses JSON 多模态 | [Chat/Responses 多模态](02-chat-responses-multimodal.md) | 已批准扩展目标；等待 1 收口后进入单独焦点 |
+| 1 | Embeddings | [Embeddings](01-embeddings.md) | 当前焦点：类型化 Embeddings interface 与单 Route Native 链路 |
+| 2 | Chat/Responses JSON 多模态 | [Chat/Responses 多模态](02-chat-responses-multimodal.md) | 已批准需求；未进入当前焦点，不构成实施授权 |
 | 3 | Text-to-speech | [Speech](03-audio-speech.md) | 参考储备，不在本轮目标范围 |
 | 4 | Transcription/Translation | [音频转写与翻译](04-audio-transcription-translation.md) | 参考储备，不在本轮目标范围 |
 | 5 | Images | [Images](05-images.md) | 参考储备；已从现阶段实施目标移除 |
@@ -20,7 +20,7 @@
 | 8 | Videos | [Videos](08-videos.md) | 参考储备，不在本轮目标范围 |
 | 9 | Realtime | [Realtime](09-realtime.md) | 参考储备，不在本轮目标范围 |
 
-编号保留协议评估时的稳定引用，不授权并行实现。现阶段只批准 1/2；仓库只允许 [`current-focus.md`](../../../implementation-plans/current-focus.md) 保存一个正在实施的可观察行为。完成 1 并把证据写入 implementation status 后，才可把 2 转成新的当前焦点。
+编号保留协议评估时的稳定引用，不授权其他条目并行实现。现阶段只有编号 1 写入 [`current-focus.md`](../../../implementation-plans/current-focus.md)：用一条 checked-in OpenAI target/model/Native Route 交付可调用的 Embeddings 行为。编号 2 必须等该焦点完成并清空后再选择一个独立行为；当前焦点不授权编号 2-9、真实 Provider live call、resource ledger 或多媒体 Bridge。
 
 ## 跨协议共同约束
 

@@ -2,7 +2,7 @@
 
 ## 目的与证据边界
 
-本文补充 OpenAI API 参考框架中与 embedding、文件、图像、音频/语音以及专用媒体 endpoint 相关的转发事实。它服务于后续 OpenBridge API 聚合实现的协议建模、路由约束和测试设计，不构成当前服务已经支持这些 endpoint 的承诺。逐协议细节见[扩展协议实现细节索引](implementation-details/README.md)；现阶段实施范围只包含 1/2，见[功能需求](../../functional-requirements/embedding-and-native-multimodal.md)。
+本文补充 OpenAI API 参考框架中与 embedding、文件、图像、音频/语音以及专用媒体 endpoint 相关的转发事实。它服务于后续 OpenBridge API 聚合实现的协议建模、路由约束和测试设计，不构成当前服务已经支持这些 endpoint 的承诺。逐协议细节见[扩展协议实现细节索引](implementation-details/README.md)；现阶段只有编号 1 Embeddings 进入类型化能力与 Native 转发焦点，编号 2 多模态仅保留为已批准需求，见[功能需求](../../functional-requirements/embedding-and-native-multimodal.md)和[当前开发焦点](../../implementation-plans/current-focus.md)。
 
 本文区分三类内容：
 
@@ -18,6 +18,7 @@
 - [官方 OpenAPI endpoint 列表](https://developers.openai.com/api/reference)
 - [openai/openai-openapi](https://github.com/openai/openai-openapi)
 - [Images and vision](https://developers.openai.com/api/docs/guides/images-vision)
+- [File inputs](https://developers.openai.com/api/docs/guides/file-inputs)
 - [Audio and speech](https://developers.openai.com/api/docs/guides/audio)
 - [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text)
 - [Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)
@@ -59,7 +60,7 @@
 
 当前官方 reference 对 embedding 输入给出单输入 token 上限、单请求总 token 上限以及输入数组大小限制；本次检索显示的值为每输入 8192 tokens、单请求合计 300,000 tokens、数组不超过 2048 项。实现时应把这些视为当前 OpenAI profile 的验证依据，而不是所有 Provider 的通用上限。
 
-成功响应的稳定形状是 `object: "list"`、有序的 `data[]`、每项的 `embedding` 与 `index`、响应 `model` 和 `usage`。`float` 响应可能很大，`base64` 响应又有自己的解码边界；两者都不应经过通用 JSON 文本归一化器重排或舍入。
+成功响应的稳定形状是 `object: "list"`、有序的 `data[]`、每项的 `embedding` 与 `index`、响应 `model` 和 `usage`。`float` 响应可能很大，`base64` 响应又有自己的解码边界；两者都不应经过通用 JSON 文本归一化器重排或舍入。OpenBridge 需要把响应 `model` 投影回下游 Public Model，避免真实 upstream model 泄漏，同时保持向量、index、object 和 usage 的值语义。
 
 官方参考：[Create embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create)、[Vector embeddings guide](https://developers.openai.com/api/docs/guides/embeddings)。
 
@@ -79,10 +80,16 @@ embedding model family/version
 
 因此：
 
-- 同一 Provider/Target 的 credential retry 可以沿用通用的输出前 retry 边界，但必须有独立的 body replay 和预算检查。
+- 同一 Provider/Target 的 credential retry 可以沿用通用的输出前 retry 边界，但必须有独立的 body replay 预算检查；超过 replay budget 的合法请求只执行第一次 attempt，不能无界缓存，也不能因内部重放优化额外拒绝。
 - 跨 Provider fallback 只有在 registry 明确声明向量身份等价、维度一致且下游接受该等价性时才可启用；默认应关闭或在预检阶段拒绝。
 - 不要把 Chat/Responses 的 Bridge 用于“把文本请求转换成 embedding 请求”，也不要把 embedding response 当作 Chat message。
 - `dimensions`、`encoding_format`、批量输入和 `usage` 都属于 endpoint contract；不应由一个面向生成模型的 `GenerationCapabilities` 布尔字段代替。
+
+### 2.3 可执行能力而不是模型标签
+
+扩展 Models 接口应新增独立 `interfaces.embeddings`，至少公开 input forms、默认/可显式请求的 output encoding、默认维度、可请求维度域、有效批量/token 上界与顶层 `supported_parameters`。省略字段时的 encoding/dimension default 与“请求能否显式携带该字段”是不同事实；allowed domain 需要 `null`、集合、区间或离散集合，不能只用布尔值。
+
+多 Route 聚合时，集合求交、数值上限取小、dimension domain 求交；默认维度或内部 vector identity 不一致时不能形成一个可 fallback interface。vector identity 属于私有 registry 事实，只做等价判断，不应通过 Models API 暴露 Provider/upstream model 拓扑。当前焦点先限制为单条 Native Embeddings Route。
 
 ## 3. 多模态输入的 wire 形状
 
@@ -93,12 +100,14 @@ Chat 和 Responses 都能承载多模态输入，但它们不是同一个 conten
 | 逻辑内容 | Chat Completions | Responses | 关键风险 |
 |---|---|---|---|
 | 文本 | message `content` 中的 `text` part，或纯字符串 | `input_text`，或顶层字符串 | 不要只保留拼接后的文本而丢掉原 part 顺序 |
-| 图像 | `image_url`，通常包含 URL 或 data URL 及 detail | `input_image`，可使用 URL/data URL 或受支持的 file reference | URL、data URL、file ID 的 issuer 和大小边界不同 |
-| 文件 | Chat 的 `file` content part，具体字段按当前 model/schema 检查 | `input_file`，常见输入形状包括 `file_id`、`file_data`、`file_url` 与 `filename` | 文件引用不是跨 Provider 可移植的普通字符串 |
-| 音频输入 | `input_audio`，包含编码后的数据和格式 | 不应根据 Chat 的字段推断 Responses 一定支持同样的 audio part；按当前 Responses schema/model 复核 | Chat audio、文件转写和 Realtime voice 是三种不同语义 |
+| 图像 | user-message `image_url.url` 使用远程 URL/data URL，detail 位于嵌套对象 | `input_image` 的 `image_url` 使用远程 URL/data URL，或使用 `file_id`；detail 位于 part 顶层 | URL、data URL、file ID 的 issuer 和大小边界不同 |
+| 文件 | user-message `file.file_data`（官方描述为 base64 string）或 `file.file_id`，可带 filename；没有标准 MIME/`file_url`/detail | `input_file` 的 `file_data`（guide 使用 data URL）、`file_url` 或 `file_id`，可带 filename/detail | inline encoding 不同；文件引用不是跨 Provider 可移植的普通字符串，source 必须一选一 |
+| 音频输入 | user-message `input_audio.data` 为 base64，当前标准 format 为 `wav`/`mp3` | 本阶段不从 Chat 字段推断 Responses audio part | Chat audio、文件转写和 Realtime voice 是三种不同语义 |
 | 音频输出 | `modalities: ["text", "audio"]` 加 `audio` 配置 | Responses 是否开放相同 output audio item 取决于当前 model/API profile | 不能把音频 output data 静默降成 transcript 文本 |
 
-官方 Chat reference 明确说明 message 可能包含 text、image 和 audio 等 modality；官方 Responses reference 的当前示例重点覆盖 `input_image` 和 `input_file`。模型能力仍然决定字段是否可用，不能由 schema 接受就向所有 Public Model 宣称支持。
+官方 Chat reference 明确说明 message 可能包含 text、image、file 和 audio 等 content part；官方 Responses reference 的当前示例覆盖 `input_image` 和 `input_file`。模型能力仍然决定字段是否可用，不能由 schema 接受就向所有 Public Model 宣称支持。
+
+当前官方 Images guide 把 `original` 列为 Chat/Responses 图像 detail，但 2026-08-04 的官方 Python SDK 生成类型中，Responses 已包含 `original`，Chat 仍只列 `auto/low/high`。这种官方 artifact 漂移正是 detail 必须成为逐 Upstream API 集合的原因；实施时要以目标 schema、SDK 和真实 endpoint 的共同证据决定，而不是维护一个全局枚举。
 
 参考：[Chat API](https://developers.openai.com/api/reference/resources/chat)、[Create a model response](https://developers.openai.com/api/reference/resources/responses/methods/create)、[Images and vision](https://developers.openai.com/api/docs/guides/images-vision)。
 
@@ -133,6 +142,19 @@ File API 至少包括以下不同的操作语义：
 - 返回的 `file_id` 必须记录 issuer/Provider/Target/credential scope，或者转换为网关自己的 opaque ID；当前 OpenBridge 没有通用 resource ledger，因此不能假设跨 Route 可恢复。
 
 参考：[Create file](https://developers.openai.com/api/reference/resources/files/methods/create)、[Create upload](https://developers.openai.com/api/reference/resources/uploads/methods/create)、[File search guide](https://developers.openai.com/api/docs/guides/tools-file-search)。
+
+### 3.4 source-aware Public Model contract
+
+现阶段 image/file/audio input 需要三个协议内子契约，而不是三个 bool：
+
+| 子契约 | 必须相交的集合 | 必须取小的上限 |
+|---|---|---|
+| image | remote/data/file-ID source、inline media type、detail default/allowed domain | part 数、remote URL 长度、单 part inline 编码/解码字节 |
+| file | inline/remote/file-ID source、raw-base64/data-URL encoding、可验证 media type、detail default/allowed domain 及适用文件类别 | part 数、remote URL 长度、单 part inline 编码/解码字节 |
+| audio | inline source、audio format | part 数、单 part inline 编码/解码字节 |
+| interface total | 可用子契约 | 总媒体 part、累计 inline 编码字节、累计 inline 解码字节 |
+
+Public Model 的 `modalities.input` 仍只是模型/接口摘要；客户端能否发送某个具体 part 必须由 `multimodal_input` 子契约回答。内容 part 内的 source/detail/format 不加入顶层 `supported_parameters`。任何 Bridged candidate 在本阶段都对媒体集合贡献空集，保证 Models API、preflight 和固定候选不会出现“公开支持但 fallback 无法执行”的矛盾。
 
 ## 4. Audio/voice 转发
 
@@ -189,6 +211,7 @@ Video endpoint 还要额外处理异步 resource status、轮询间隔、取消/
 | request analysis 目前只识别 image input；Chat 的 `input_audio`/`file` 和 Responses 的 `input_file` 会进入 reserved/unimplemented 拒绝路径 | [`src/pipeline/analysis.rs`](../../../src/pipeline/analysis.rs) |
 | capability 类型已经预留 audio/file/custom tool 等字段，但 registry compilation 会对这些 reserved 字段 `unimplemented!` | [`src/core/capability.rs`](../../../src/core/capability.rs) |
 | canonical model 已有 Audio/File/Video input modality 和 Audio/Image output modality 的枚举位置，但 `ModelMode` 当前只有 Chat | [`src/registry/definition.rs`](../../../src/registry/definition.rs) |
+| registry 已按 Public Model/下游协议预编译唯一 execution interface，能力投影、preflight 与固定候选共享同一对象；当前只有 Chat/Responses 两种 interface | [`src/registry/public_model.rs`](../../../src/registry/public_model.rs) |
 | 本服务 OpenAPI 只描述实际提供的 Chat/Responses/Models/health/docs endpoint | [`docs/openapi.yaml`](../../openapi.yaml) |
 
 因此，不能仅把 `audio_input`、`file_input` 或 `InputModality::Audio` 改成 `true` 就宣称完成 embedding、File 或 voice 转发；这会绕过 body、response、resource、retry 和安全边界。
@@ -212,6 +235,7 @@ Video endpoint 还要额外处理异步 resource status、轮询间隔、取消/
 - `ApiProtocol` 是 Chat/Responses 的协议分类，不应继续承担所有 OpenAI API 族的 endpoint identity。
 - `GenerationCapabilities` 只适合生成请求的共同能力；embedding 的维度/编码、文件的 purpose、音频的 format/voice、二进制响应都应有专门 contract。
 - `ModelConfig` 的 modality 是模型事实；endpoint capability 才是某个 Public Model 是否允许某个请求形状的公共契约。
+- 现有 `ModelExecutionInterface` 是扩展的正确编译接缝：新增能力必须与其固定 candidate 列表一起编译，由 Models projection 与 preflight 共享，不能在 planning 或 forwarding 重新求值。
 - File/voice/vector resource 不一定有 `model` 字段，不能强行经过“先读 model 再规划 Route”的生成请求路径。
 - Dedicated endpoint 没有 Chat ↔ Responses 的通用 Bridge。没有原生上游 API 或明确的语义转换器时，应在 egress 前返回稳定 unsupported error。
 

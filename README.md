@@ -21,7 +21,7 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 - 独立的 OpenAI-compatible `POST /v1/embeddings`；
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio。
 
-两项仍按一个当前焦点依次实施；当前代码是否已经支持，必须以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
+两项必须分别进入独立的当前焦点并串行实施。当前活动焦点只有 Embeddings；其完成、验证并清空后，Native 多模态才可选择一个独立行为进入下一份焦点。当前代码是否已经支持，必须以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
 
 核心稳定后再考虑：
 
