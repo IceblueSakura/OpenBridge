@@ -19,6 +19,7 @@ pub use definition::{
     UpstreamTargetConfig,
 };
 pub use error::RegistryError;
+pub(crate) use public_model::ModelExecutionInterface;
 pub use public_model::{
     ContextWindow, InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities,
     ModelInterfaces, ModelModalities, ModelReasoningCapabilities, ModelTask, PublicModel,

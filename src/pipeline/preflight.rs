@@ -4,7 +4,8 @@
 //! capabilities, apply Provider wire mappings, or influence configured Route order.
 
 use crate::registry::{
-    ModelInterfaceCapabilities, PublicModel, ReasoningLevel, RuntimeRegistry, SupportState,
+    ModelExecutionInterface, ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry,
+    SupportState,
 };
 
 use super::{
@@ -12,26 +13,26 @@ use super::{
     types::{RequestRequirements, RequestedCapabilities, RequestedReasoning},
 };
 
-/// Resolves the selected Public Model and validates the request against its protocol interface.
+/// Resolves the selected Public Model and validates the request against its compiled protocol interface.
 pub(super) fn preflight_public_model<'a>(
     registry: &'a RuntimeRegistry,
     requirements: &RequestRequirements,
-) -> Result<&'a PublicModel, RequestPlanningError> {
-    // Resolve the downstream model and protocol interface without consulting any Route candidate.
+) -> Result<&'a ModelExecutionInterface, RequestPlanningError> {
+    // Resolve the downstream model and its precompiled protocol interface without consulting any Route candidate.
     let public_model = registry
         .public_model(requirements.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?;
     let interface = public_model
-        .interface(requirements.protocol())
+        .execution_interface(requirements.protocol())
         .ok_or(RequestPlanningError::UnsupportedProtocol)?;
 
     // Validate every modeled request fact against the single fixed interface contract.
     validate_interface_request(
         requirements.requested_capabilities,
         requirements.requested_output_tokens,
-        interface,
+        interface.capabilities(),
     )?;
-    Ok(public_model)
+    Ok(interface)
 }
 
 /// Returns the most specific fail-closed error from the fixed interface contract.

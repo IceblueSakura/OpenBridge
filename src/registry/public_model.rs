@@ -1,8 +1,9 @@
 //! Fixed downstream Public Model contracts and safe serialization models.
 //!
-//! This module compiles only client-visible model facts and Chat/Responses interface capabilities.
-//! Capabilities use the conservative intersection of all executable Routes, while responses retain
-//! no Provider, Target, Route, upstream-model, or credential boundary.
+//! This module compiles client-visible model facts together with private Chat/Responses execution
+//! interfaces. Each execution interface pairs one conservative capability contract with its fixed
+//! static Route candidates, while serialized responses retain no Provider, Target, Route,
+//! upstream-model, or credential boundary.
 
 use std::collections::BTreeSet;
 
@@ -333,24 +334,6 @@ pub struct ModelInterfaces {
     responses: Option<ModelInterfaceCapabilities>,
 }
 
-impl ModelInterfaces {
-    /// Returns the fixed interface contract for the downstream protocol.
-    pub(crate) const fn for_protocol(
-        &self,
-        protocol: ApiProtocol,
-    ) -> Option<&ModelInterfaceCapabilities> {
-        match protocol {
-            ApiProtocol::ChatCompletions => self.chat_completions.as_ref(),
-            ApiProtocol::Responses => self.responses.as_ref(),
-        }
-    }
-
-    /// Returns whether at least one executable interface exists.
-    const fn is_available(&self) -> bool {
-        self.chat_completions.is_some() || self.responses.is_some()
-    }
-}
-
 /// Strict four-field projection of the standard OpenAI Models resource.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StandardModel {
@@ -385,25 +368,135 @@ impl PublicModelInfo {
     pub fn standard(&self) -> &StandardModel {
         &self.standard
     }
+}
 
-    /// Returns the fixed capability contract shared with request preflight for the protocol.
-    pub(crate) const fn interface(
-        &self,
-        protocol: ApiProtocol,
-    ) -> Option<&ModelInterfaceCapabilities> {
-        self.interfaces.for_protocol(protocol)
+/// Private execution candidate compiled from one statically executable Route.
+///
+/// This type is never serialized or exposed by a downstream API. It freezes the Route identity and
+/// the planning facts needed to construct a Native request or `BridgePlan` without re-resolving the
+/// Public Model's configured Route list during a request.
+#[derive(Clone, Debug)]
+pub(crate) struct RouteExecutionCandidate {
+    route_id: String,
+    upstream_target_id: String,
+    upstream_api_id: String,
+    downstream_protocol: ApiProtocol,
+    upstream_protocol: ApiProtocol,
+    mode: RouteMode,
+    upstream_model: String,
+    reasoning_output: ReasoningOutput,
+}
+
+impl RouteExecutionCandidate {
+    /// Returns the configured Route ID retained for forwarding diagnostics and attempt attribution.
+    pub(crate) fn route_id(&self) -> &str {
+        &self.route_id
+    }
+
+    /// Returns the prevalidated Upstream Target ID used by forwarding.
+    pub(crate) fn upstream_target_id(&self) -> &str {
+        &self.upstream_target_id
+    }
+
+    /// Returns the prevalidated Upstream API ID used by forwarding.
+    pub(crate) fn upstream_api_id(&self) -> &str {
+        &self.upstream_api_id
+    }
+
+    /// Returns the downstream protocol represented by this interface candidate.
+    pub(crate) const fn downstream_protocol(&self) -> ApiProtocol {
+        self.downstream_protocol
+    }
+
+    /// Returns the native protocol expected by the selected Upstream API.
+    pub(crate) const fn upstream_protocol(&self) -> ApiProtocol {
+        self.upstream_protocol
+    }
+
+    /// Returns whether forwarding is Native or must use the restricted protocol bridge.
+    pub(crate) const fn mode(&self) -> RouteMode {
+        self.mode
+    }
+
+    /// Returns the trusted model ID used only while rendering a bridged upstream request.
+    pub(crate) fn upstream_model(&self) -> &str {
+        &self.upstream_model
+    }
+
+    /// Returns the upstream reasoning-output classification required by bridge preparation.
+    pub(crate) const fn reasoning_output(&self) -> ReasoningOutput {
+        self.reasoning_output
     }
 }
 
-/// Resolved downstream Public Model, fixed information object, and ordered Route list.
+/// One immutable executable interface shared by request preflight and Route planning.
+#[derive(Debug)]
+pub(crate) struct ModelExecutionInterface {
+    capabilities: ModelInterfaceCapabilities,
+    candidates: Vec<RouteExecutionCandidate>,
+}
+
+impl ModelExecutionInterface {
+    /// Returns the fixed capability contract derived from exactly these static candidates.
+    pub(crate) const fn capabilities(&self) -> &ModelInterfaceCapabilities {
+        &self.capabilities
+    }
+
+    /// Returns static candidates in their configured priority order.
+    pub(crate) fn candidates(&self) -> &[RouteExecutionCandidate] {
+        &self.candidates
+    }
+}
+
+/// Chat/Responses execution interfaces compiled from one Public Model's static Route bindings.
+#[derive(Debug)]
+struct ModelExecutionInterfaces {
+    chat_completions: Option<ModelExecutionInterface>,
+    responses: Option<ModelExecutionInterface>,
+}
+
+impl ModelExecutionInterfaces {
+    /// Returns the interface that owns both preflight capabilities and planning candidates.
+    const fn for_protocol(&self, protocol: ApiProtocol) -> Option<&ModelExecutionInterface> {
+        match protocol {
+            ApiProtocol::ChatCompletions => self.chat_completions.as_ref(),
+            ApiProtocol::Responses => self.responses.as_ref(),
+        }
+    }
+
+    /// Returns whether this Public Model has any statically executable downstream protocol.
+    const fn is_available(&self) -> bool {
+        self.chat_completions.is_some() || self.responses.is_some()
+    }
+
+    /// Projects capability copies into the safe Models response without candidate topology.
+    fn public_projection(&self) -> ModelInterfaces {
+        ModelInterfaces {
+            chat_completions: self
+                .chat_completions
+                .as_ref()
+                .map(|interface| interface.capabilities.clone()),
+            responses: self
+                .responses
+                .as_ref()
+                .map(|interface| interface.capabilities.clone()),
+        }
+    }
+}
+
+/// Resolved downstream Public Model, fixed information object, diagnostic Route IDs, and execution interfaces.
 #[derive(Debug)]
 pub struct PublicModel {
     pub(super) routes: Vec<String>,
+    execution_interfaces: ModelExecutionInterfaces,
     pub(super) info: PublicModelInfo,
 }
 
 impl PublicModel {
-    /// Returns Route IDs ordered by priority; capabilities do not change this order.
+    /// Returns configured Route IDs ordered by priority for diagnostics and tests.
+    ///
+    /// Request planning does not read this raw list; it consumes the protocol-specific static
+    /// candidate set in [`Self::execution_interface`].
     pub fn routes(&self) -> &[String] {
         &self.routes
     }
@@ -418,23 +511,24 @@ impl PublicModel {
         self.info.standard()
     }
 
-    /// Returns the unique capability contract used by request preflight for the downstream protocol.
-    pub(crate) const fn interface(
+    /// Returns the precompiled interface used by both request preflight and Route planning.
+    pub(crate) const fn execution_interface(
         &self,
         protocol: ApiProtocol,
-    ) -> Option<&ModelInterfaceCapabilities> {
-        self.info.interface(protocol)
+    ) -> Option<&ModelExecutionInterface> {
+        self.execution_interfaces.for_protocol(protocol)
     }
 
     /// Returns whether the model remains visible to clients and has at least one executable interface.
     pub(crate) fn is_available(&self) -> bool {
         self.info.lifecycle.status != ModelLifecycleStatus::Retired
-            && self.info.interfaces.is_available()
+            && self.execution_interfaces.is_available()
     }
 }
 
-/// View of one executable Route used while compiling a Public Model.
+/// Validated Route binding used to compile one Public Model's static execution interfaces.
 pub(super) struct PublicRouteBinding<'a> {
+    pub(super) route_id: String,
     pub(super) route: &'a Route,
     pub(super) upstream_api: &'a UpstreamApi,
     pub(super) target_enabled: bool,
@@ -445,24 +539,18 @@ pub(super) fn compile_public_model(
     config: PublicModelConfig,
     bindings: &[PublicRouteBinding<'_>],
 ) -> PublicModel {
-    // Include only statically enabled Routes whose endpoint capability is enabled.
-    let contributions = bindings
+    // Compile static eligibility once so every protocol contract and request plan shares the same candidates.
+    let candidates = bindings
         .iter()
-        .filter(|binding| binding.target_enabled)
-        .filter_map(RouteContractContribution::from_binding)
+        .filter_map(PrecompiledRouteCandidate::from_binding)
         .collect::<Vec<_>>();
 
-    // Compute the unique conservative intersection per protocol and aggregate model facts across executable Routes.
-    let chat_completions = aggregate_interface(
-        contributions
-            .iter()
-            .filter(|contribution| contribution.protocol == ApiProtocol::ChatCompletions),
-    );
-    let responses = aggregate_interface(
-        contributions
-            .iter()
-            .filter(|contribution| contribution.protocol == ApiProtocol::Responses),
-    );
+    // Derive protocol contracts and model facts exclusively from the compiled static candidates.
+    let contributions = candidates
+        .iter()
+        .map(|candidate| candidate.contribution.clone())
+        .collect::<Vec<_>>();
+    let execution_interfaces = compile_execution_interfaces(&candidates);
     let capabilities = aggregate_model_capabilities(&contributions);
     let description = config.description.or_else(|| {
         intersect_optional_string(
@@ -472,7 +560,7 @@ pub(super) fn compile_public_model(
         )
     });
 
-    // Freeze the standard projection and extension object; retain Route IDs only in private execution data.
+    // Freeze the standard projection and safe extension object without exposing execution topology.
     let info = PublicModelInfo {
         schema_version: MODEL_INFO_SCHEMA_VERSION,
         standard: StandardModel {
@@ -485,20 +573,91 @@ pub(super) fn compile_public_model(
         description,
         lifecycle: config.lifecycle,
         capabilities,
-        interfaces: ModelInterfaces {
-            chat_completions,
-            responses,
-        },
+        interfaces: execution_interfaces.public_projection(),
     };
     PublicModel {
         routes: config.routes,
+        execution_interfaces,
         info,
+    }
+}
+
+/// Compiles the unique Chat and Responses execution interfaces from one Public Model's candidates.
+fn compile_execution_interfaces(
+    candidates: &[PrecompiledRouteCandidate],
+) -> ModelExecutionInterfaces {
+    // Partition the already ordered candidates by their fixed downstream protocol.
+    ModelExecutionInterfaces {
+        chat_completions: compile_execution_interface(candidates.iter().filter(|candidate| {
+            candidate.execution.downstream_protocol() == ApiProtocol::ChatCompletions
+        })),
+        responses: compile_execution_interface(candidates.iter().filter(|candidate| {
+            candidate.execution.downstream_protocol() == ApiProtocol::Responses
+        })),
+    }
+}
+
+/// Pairs one protocol's conservative capability contract with its fixed static candidates.
+fn compile_execution_interface<'a>(
+    candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
+) -> Option<ModelExecutionInterface> {
+    // Materialize one protocol's static candidates without changing their configuration order.
+    let candidates = candidates.collect::<Vec<_>>();
+    let contributions = candidates
+        .iter()
+        .map(|candidate| candidate.contribution.clone())
+        .collect::<Vec<_>>();
+    let capabilities = aggregate_interface(contributions.iter())?;
+
+    // Freeze the matching planning data beside the contract that was derived from it.
+    Some(ModelExecutionInterface {
+        capabilities,
+        candidates: candidates
+            .into_iter()
+            .map(|candidate| candidate.execution.clone())
+            .collect(),
+    })
+}
+
+/// Static candidate and capability input compiled together from one resolved Route binding.
+struct PrecompiledRouteCandidate {
+    execution: RouteExecutionCandidate,
+    contribution: RouteContractContribution,
+}
+
+impl PrecompiledRouteCandidate {
+    /// Includes only a statically enabled Target/API and preserves its validated Route facts.
+    fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
+        // Reject disabled Targets and APIs before either capability aggregation or request planning can see them.
+        if !binding.target_enabled
+            || !binding
+                .upstream_api
+                .capabilities()
+                .generation_capabilities()
+                .enabled
+        {
+            return None;
+        }
+
+        // Freeze every planning fact that otherwise required a request-time Route/API lookup.
+        Some(Self {
+            execution: RouteExecutionCandidate {
+                route_id: binding.route_id.clone(),
+                upstream_target_id: binding.route.upstream_target().to_owned(),
+                upstream_api_id: binding.route.upstream_api().to_owned(),
+                downstream_protocol: binding.route.downstream_protocol(),
+                upstream_protocol: binding.upstream_api.protocol(),
+                mode: binding.route.mode(),
+                upstream_model: binding.upstream_api.upstream_model().to_owned(),
+                reasoning_output: binding.upstream_api.reasoning_output(),
+            },
+            contribution: RouteContractContribution::from_binding(binding),
+        })
     }
 }
 
 #[derive(Clone)]
 struct RouteContractContribution {
-    protocol: ApiProtocol,
     continuation_issuer: ContinuationIssuer,
     context_window: ContextWindow,
     modalities: ModelModalities,
@@ -532,13 +691,10 @@ struct ContinuationIssuer {
 
 impl RouteContractContribution {
     /// Converts a Native or Bridged Route into one fixed public-contract input.
-    fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
+    fn from_binding(binding: &PublicRouteBinding<'_>) -> Self {
         let route = binding.route;
         let upstream_api = binding.upstream_api;
         let generation = upstream_api.capabilities().generation_capabilities();
-        if !generation.enabled {
-            return None;
-        }
 
         // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
@@ -611,8 +767,7 @@ impl RouteContractContribution {
             Vec::new()
         };
 
-        Some(Self {
-            protocol: route.downstream_protocol(),
+        Self {
             continuation_issuer: ContinuationIssuer {
                 upstream_target: route.upstream_target().to_owned(),
                 upstream_api: route.upstream_api().to_owned(),
@@ -638,7 +793,7 @@ impl RouteContractContribution {
             store: SupportState::from_bool(store),
             previous_response_id: SupportState::from_bool(previous_response_id),
             background: SupportState::from_bool(background),
-        })
+        }
     }
 }
 

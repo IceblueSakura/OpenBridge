@@ -797,6 +797,7 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(plan.candidates().len(), 1);
     assert_eq!(
         plan.candidates()[0].route_id(),
         "code-primary-openai-chat-via-responses"
@@ -823,6 +824,7 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
     let body = bytes::Bytes::from_static(br#"{"model":"code-primary","input":"hello"}"#);
     let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(plan.candidates().len(), 1);
     assert_eq!(
         plan.candidates()[0].route_id(),
         "code-primary-openai-responses-via-chat"

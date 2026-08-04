@@ -101,18 +101,18 @@ canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄�
 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
 Public Model 现在拥有稳定 `id`、`created`、展示元数据和生命周期。registry 为每个下游协议把全部静态可执行
-Route 编译为一个固定 `ModelInterfaceCapabilities`：布尔能力仅在全部 Route 支持时为 `supported`，token
-上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持 `unknown`/`null`。
-同一个预编译 `PublicModelInfo` 同时生成标准 Models 投影、扩展 Models 响应和请求能力预检，不包含 Provider、
-Target、Route、upstream model、endpoint、credential、健康或价格信息。retired 或没有可执行接口的 Public Model
-不进入可见目录。
+Route 编译为一个内部 `ModelExecutionInterface`；它同时持有固定 `ModelInterfaceCapabilities` 与有序候选。布尔能力仅在
+全部候选支持时为 `supported`，token 上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持
+`unknown`/`null`。`PublicModelInfo` 只投影该契约的安全副本，用于标准 Models 投影和扩展 Models 响应，不包含 Provider、
+Target、Route、upstream model、endpoint、credential、健康或价格信息。preflight 读取同一执行接口；retired 或没有可执行
+接口的 Public Model 不进入可见目录。
 
 请求路径当前会：
 
 - 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按
   `pool_id + member_id + ProviderKind + CredentialKind` 借用上游 Key 及其非敏感元数据；
-- 在查看 Route 候选前，用所选 Public Model 的唯一协议契约校验 streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；不支持时返回 `unsupported_model_capability`，且不调用上游；
-- 能力校验通过后保持 Public Model 的原 Route 顺序；不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
+- 在查看 Route 候选前，用所选 Public Model 的预编译协议接口校验 streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；不支持时返回 `unsupported_model_capability`，且不调用上游；
+- 能力校验通过后只使用同一接口预编译的有序候选；不扫描 Public Model 的原始 Route ID，也不重复检查 Target/API 静态启停或协议资格，不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
 - 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
   当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；
 - RoutePlan 保留 canonical reasoning level；Provider adapter 准备选定 Upstream API 的 egress 请求时才按已校验
@@ -319,9 +319,9 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 
 2026-08-03 完成能力路由遗留审计与需求归并：
 
-- `plan_request` 只在 Route 循环前读取一次 `ModelInterfaceCapabilities`；循环中的候选资格只受下游协议、Target
-  静态启停和 Upstream API 静态启停影响。`BridgePlan` 失败会拒绝整个请求，不会跳过该 Route；reasoning wire
-  映射不改变候选资格或顺序。
+- registry compiler 先把每协议的静态可执行候选与 `ModelInterfaceCapabilities` 编译进同一个执行接口；`plan_request`
+  在预检后只读取该接口，不再在请求期扫描 Route、解析 Target/API 或判断静态启停。`BridgePlan` 失败会拒绝整个请求，
+  不会跳过该 Route；reasoning wire 映射不改变候选资格或顺序。
 - `forward_request` 只因 cooldown、credential 可用性、可重试 HTTP/transport failure 和 state affinity 执行
   retry/fallback，不读取或比较模型能力。已删除没有生产调用方的 `ProviderAdapter::validate_capabilities` 及其重复
   `ApiCapabilities` 子集入口；Provider 能力上界仍只在 registry 构建时校验。
@@ -383,8 +383,8 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 
 2026-08-04 完成 Route planning 职责拆分与 reasoning wire 映射下沉：
 
-- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 只在预检后
-  按配置顺序生成 Native/Bridged candidate、绑定 Target/API，并设置 fallback 边界。
+- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 在预检后
+  消费已编译的候选，构造 Native/Bridged candidate 并设置 fallback 边界。
 - `RouteCandidate` 不再保存已应用的 reasoning mapping，Native 与 Bridged `ApiRequest` 在 RoutePlan 中均保留目标
   协议的 canonical level。OpenAI-compatible Provider adapter 在 egress JSON 准备阶段与真实 model 一次性完成
   target-specific reasoning wire 改写；`PreparedUpstreamRequest` 只携带实际已应用映射用于 attempt tracing。
@@ -392,6 +392,23 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   forwarding contract 继续确认发送到显式映射 Upstream API 的 wire 值为 `max`。`cargo fmt -- --check` 与
   `cargo test --locked` 均通过；全量 Rust 结果为 166 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试
   ignored。未修改 `testdata/` 或 `tools/corpus/`，未运行 Python corpus、外部 SDK、真实 Provider、负载或长期验收。
+
+2026-08-04 完成 Public Model 协议执行接口预编译：
+
+- registry compiler 在完成引用、协议和 Native/Bridged 方向校验后，按 Public Model/下游协议一次性编译
+  `ModelExecutionInterface`。每个接口把保守的 `ModelInterfaceCapabilities` 与同一组静态启用候选绑定；候选冻结
+  Route/Target/Upstream API ID、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models
+  DTO 仍只投影安全能力，不暴露上述拓扑。
+- `preflight` 和 `planning` 现在读取同一个执行接口：前者完成一次能力校验，后者仅按预编译顺序构造 Native 请求或
+  `BridgePlan`。请求路径不再扫描 `PublicModel.routes()`、查询全局 Route 表或重复判断 Target/API 静态启停；forwarding
+  仍独占 credential member、retry/fallback、cooldown、取消和 state-affinity 行为。
+- TDD 先加入 compiler 单元测试，旧代码因缺少 `execution_interface` 编译失败；实现后该测试验证禁用 Chat Native API
+  时只保留 Chat→Responses Bridge。`native_routing_contract` 进一步验证禁用的弱 Route 既不收窄公开能力，也不进入
+  RoutePlan；既有多 Provider Native-first、continuation issuer 和 forwarding 回归保持通过。
+- 已通过 `cargo test --locked --test example_config`、`cargo test --locked --test native_routing_contract`、
+  `cargo test --locked --test forwarding_contract`、`cargo fmt -- --check`、`cargo test --locked`、
+  `cargo clippy --locked -- -D warnings` 和 `git diff --check`。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python
+  corpus baseline；未运行外部 SDK、真实 Provider、负载或长期验收，SDK 兼容测试仍为 ignored。
 
 ## 当前未实现
 

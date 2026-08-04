@@ -50,7 +50,7 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 | 上游凭证 | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration` | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder |
 | API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`GenerationCapabilities` | 下游协议、原始请求、协议分域能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
-| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据 |
+| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据 |
 | 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
 | Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
@@ -180,16 +180,21 @@ Ingress 执行认证、body/content-type 限制、本地错误归一化和当前
 raw body + downstream protocol
 → analyze_request
 → RequestRequirements
-→ Public Model fixed interface capability / limit / reasoning preflight
-→ Public Model ordered Routes（能力不参与筛选或重排）
+→ Public Model protocol execution interface（fixed capability + static ordered candidates）
+→ capability / limit / reasoning preflight
 → RoutePlan<RouteCandidate>
 ```
 
 `RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
 reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为
 显式 level，字段缺失才表示调用方没有请求 reasoning。
-`preflight` 与 `PublicModelInfo` 共用同一个 `ModelInterfaceCapabilities`：不支持或未知能力在查看候选前失败；
-通过后 `planning` 只按原配置固定 Route、Upstream Target 与 Upstream API 顺序，并在需要时生成 `BridgePlan`。
+registry compiler 在完成 Route、Target 与 Upstream API 引用和方向校验后，为每个 Public Model/下游协议编译一个
+`ModelExecutionInterface`。它把 `ModelInterfaceCapabilities` 与同一组静态启用候选保存在一起；候选冻结 Route、
+Target、Upstream API、上下游协议和 `Native`/`Bridged` 模式。`PublicModelInfo` 只投影这份固定能力契约的安全副本，
+不包含候选拓扑。
+`preflight` 从该执行接口读取能力，因此不支持或未知能力在查看候选前失败；通过后 `planning` 只遍历同一接口的
+固定候选，不再扫描 `PublicModel` 的原始 Route ID，也不重复检查 Target/API 静态启停或协议资格，并在需要时生成
+`BridgePlan`。Bridge 构造失败仍拒绝整个请求，不能跳过该候选。
 Native candidate 保留 canonical `ApiRequest`，Bridged candidate 保存目标协议的 canonical `ApiRequest`；两者都不在
 RoutePlan 中应用或记录 reasoning wire 映射。
 

@@ -365,6 +365,7 @@ pub fn build_registry(
 
             // Collect the Route, Upstream API, and target-enabled snapshot while preserving the Public Model candidate order.
             bindings.push(PublicRouteBinding {
+                route_id: route_id.clone(),
                 route,
                 upstream_api,
                 target_enabled: target.enabled(),
@@ -394,4 +395,50 @@ pub fn build_registry(
         routes,
         public_models,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        config::parse_bootstrap_config, core::ApiProtocol, providers::compiled_config,
+        registry::UpstreamApiCapabilities,
+    };
+
+    use super::build_registry;
+
+    #[test]
+    fn compiler_pairs_static_candidates_with_their_protocol_interface() {
+        // Disable the Chat Native API so only the precompiled Responses bridge remains executable.
+        let mut definition = compiled_config();
+        let target = definition
+            .upstream_targets
+            .iter_mut()
+            .find(|target| target.id == "openai-main")
+            .expect("the compiled OpenAI target must exist");
+        if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+            &mut target.upstream_apis[0].capabilities
+        {
+            capabilities.enabled = false;
+        }
+
+        // Compile the registry and read the candidate set owned by the Chat execution interface.
+        let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml"))
+            .expect("the checked-in bootstrap must remain valid");
+        let registry = build_registry(bootstrap, definition).expect("the registry must compile");
+        let interface = registry
+            .public_model("code-primary")
+            .expect("the Public Model must remain visible through its bridge")
+            .execution_interface(ApiProtocol::ChatCompletions)
+            .expect("the Chat execution interface must be compiled");
+
+        // Keep the candidate order and static eligibility next to the fixed protocol contract.
+        assert_eq!(
+            interface
+                .candidates()
+                .iter()
+                .map(|candidate| candidate.route_id())
+                .collect::<Vec<_>>(),
+            ["code-primary-openai-chat-via-responses"]
+        );
+    }
 }

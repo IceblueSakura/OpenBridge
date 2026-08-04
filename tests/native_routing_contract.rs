@@ -542,3 +542,72 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
     );
     assert_eq!(prepared.request().body(), &body.as_slice());
 }
+
+#[test]
+fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() {
+    let mut definition = base_definition();
+
+    // Keep a weaker configured Route disabled so it cannot narrow the visible contract or enter planning.
+    definition.upstream_targets[0].enabled = false;
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = false;
+    }
+    let mut enabled = definition.upstream_targets[0].clone();
+    enabled.id = "openai-enabled".to_owned();
+    enabled.enabled = true;
+    enabled.upstream_apis[0].upstream_model = "enabled-tool-model".to_owned();
+    if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut enabled.upstream_apis[0].capabilities
+    {
+        capabilities.function_calling = true;
+    }
+    definition.upstream_targets.push(enabled);
+    definition.routes.push(RouteConfig {
+        id: "enabled-chat".to_owned(),
+        upstream_target: "openai-enabled".to_owned(),
+        upstream_api: "chat".to_owned(),
+        downstream_protocol: ApiProtocol::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes = vec![
+        "public-chat".to_owned(),
+        "enabled-chat".to_owned(),
+        "public-responses".to_owned(),
+    ];
+    let registry = build_test_registry(definition);
+
+    // Verify that only the enabled Route shapes both the published Chat contract and its candidates.
+    let info = serde_json::to_value(
+        registry
+            .public_model("public-model")
+            .expect("the enabled Chat interface must keep the model visible")
+            .info(),
+    )
+    .unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["tools"]["support"],
+        "supported"
+    );
+    let body = serde_json::to_vec(&json!({"model": "public-model", "messages": []})).unwrap();
+    let plan = support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap();
+    assert_eq!(
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        ["enabled-chat"]
+    );
+
+    // Confirm that the same static contract admits the enabled Route's function-tool request.
+    let tool_body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{"type": "function", "function": {"name": "probe"}}]
+    }))
+    .unwrap();
+    let tool_plan = support::prepare(&registry, ApiProtocol::ChatCompletions, tool_body.into())
+        .expect("the disabled weaker Route must not reject the enabled interface capability");
+    assert_eq!(tool_plan.candidates()[0].route_id(), "enabled-chat");
+}
