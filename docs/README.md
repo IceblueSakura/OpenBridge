@@ -213,6 +213,7 @@ Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target �
 | 比较 Provider 性能、usage 或 cache          | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/provider.rs` → `observability_contract.rs`                                                                                |
 | credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
+| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/probe contract tests             |
 | 实现 Embeddings 或 Native 多模态            | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 
@@ -221,6 +222,7 @@ Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target �
 - [Chat Completions 协议](references/openai/chat-completions-protocol.md)
 - [Responses 协议](references/openai/responses-protocol.md)
 - [扩展协议调研](references/openai/protocol-details/README.md)
+- [Codex OAuth 调研](references/codex/codex-device-auth-token-refresh-analysis.md)
 - [参考项目比较矩阵](references/project-comparison.md)
 - [Chat/Responses、SSE 与工具测试集调研](references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
 

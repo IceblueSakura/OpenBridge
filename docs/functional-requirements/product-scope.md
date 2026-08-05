@@ -21,8 +21,8 @@ Route。
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
 - 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
-- 上游 API key 来自被忽略的私有 upstream credential TOML，下游静态 Bearer token 来自私有用户文件；二者在启动时合并为不可变
-  credential 快照；
+- 常驻数据面的上游 API key 来自被忽略的私有 upstream credential TOML，下游静态 Bearer token 来自私有用户文件；二者在启动时
+  合并为不可变 credential 快照；第一阶段 ChatGPT target 只允许管理员 probe 从显式指定的 Codex auth file 构造一次性只读快照；
 - 所选 Public Model 先按每 operation 唯一固定契约完成能力预检；通过后 Route 保持配置顺序，不按请求能力筛选或重排；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
@@ -36,9 +36,16 @@ Route。
   `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
 - 已批准但尚未进入实施：在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input
   audio，且无资源归属时拒绝 `file_id`。
+- 已批准并进入当前焦点：定义独立、默认禁用且不加入 Public Model 的 ChatGPT Provider，使用本机 Codex file credential store
+  对固定模型目录和 Responses endpoint 执行一次脱敏真实 probe。
+- 已批准为串行后续：第一阶段完成后另立焦点，实现 OAuth2 PKCE 登录、可刷新 credential 持久化和有界 token 续约。
 
-具体行为和非目标以 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项不改变
+Embeddings 与 Native 多模态的具体行为和非目标以
+[Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
 “每次只实施一个可观察行为”的约束；当前 checkout 只提供已在 implementation status 明确记录的能力。
+
+ChatGPT 两阶段边界以[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；第二阶段获得方向
+批准不等于可以与当前焦点并行实施。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
 在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。
@@ -86,9 +93,8 @@ Route。
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
-- OAuth、keyring、加密 secret 文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential
-  控制面；未来若重新获准，仍须先满足[上游 OAuth credential lifecycle 条件性安全边界](upstream-oauth-credential-lifecycle.md)
-  ，该文档不改变当前非目标；
+- 除[ChatGPT subscription OAuth 两阶段范围](upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret
+  文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；

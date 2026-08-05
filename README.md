@@ -23,11 +23,12 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 现阶段已批准的扩展目标只包括：
 
 - 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
-- Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio。
+- Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
+- 两阶段 ChatGPT subscription OAuth：先完成默认禁用的 Provider 与只读 Codex auth probe，再另立焦点实现 PKCE 登录和 token 续约。
 
-两项目标必须分别进入独立的当前焦点并串行实施。Embeddings 焦点已经完成并清空；当前没有活动焦点，Native
-多模态仍须另选一个独立行为、补充失败测试和验证边界后才能开始。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)
-为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings 已完成；当前焦点只覆盖 ChatGPT 第一阶段，第二阶段和 Native 多模态都不能
+并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
+与 Realtime 只保留协议参考，不在现阶段实施范围。
 
 核心稳定后再考虑：
 
@@ -35,7 +36,6 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 - Anthropic Messages 协议兼容与异构 Provider 验证（与 Provider-hosted tool facade 同级）；
 - 本地/MCP Tool Bridge；
 - headless 的健康、日志与诊断；
-- 可选 OAuth credential adapter；
 - 更多路由策略。
 
 ## 当前可运行基线
