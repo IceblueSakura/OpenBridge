@@ -14,7 +14,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
 | `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数                   | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
-| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential pool id 与有序上游 API key                                                                                    | 是                                 |
+| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator                                        | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
 | `src/providers/*`                           | Provider 定义、共享协议机制、request-header hook、target/upstream API、endpoint、credential pool/binding、route 与 Public Model | 否                                 |
 | 下游业务请求                                | Public Model 和模型调用参数                                                                                                     | 否；也不能选择 endpoint/credential |
@@ -60,21 +60,24 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 - 代码注册表只保存非敏感 pool/member id、Provider 和 credential kind，不保存 secret 或 secret locator；
 - 服务与常规 API-key probe 只从 bootstrap 指定的私有 upstream credential TOML 读取上游 API key，不读取 `*_API_KEYS`、旧单值
   环境变量或 `.env`；ChatGPT 第一阶段只允许下文定义的显式、只读 Codex auth probe 例外；
-- TOML 只允许声明 `schema_version` 与 `credential_pools`；每个 pool 只包含编译期 pool id 和有序 `api_keys` 数组，不能配置
-  Provider、credential kind、endpoint、route 或 member id；
+- TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且只能在有序 `api_keys` 数组与单一
+  `auth_json_file` locator 中二选一，不能配置 Provider、credential kind、endpoint、route 或 member id；
 - 未由代码注册的 pool、重复 pool、服务所需或 probe 选中但缺失的 pool、空数组、空白成员或 pool 内重复 secret 必须在 listener
   绑定或网络 probe 前失败；
-- 服务在监听前把已启用用户 Key 与所有已启用 Upstream Target 引用的 pool 一次性装入不可变 `CredentialStore`；
+- 服务在监听前把已启用用户 Key 与所有已启用 API-key Target 引用的 pool 一次性装入不可变 `CredentialStore`，并把所有显式配置的
+  OAuth2 auth 文件一次性装入不可变 `OAuth2CredentialManager`；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
-- 每个 Store 条目必须冻结受控的 credential type、source、从 1 开始的 generation 与可选过期时间；source 只保存
-  `UserConfiguration`、`UpstreamConfiguration` 或 `Programmatic` 类别，不能把文件路径、issuer URL 或任意业务字符串作为诊断元数据；
+- 每个 credential 条目必须冻结受控的 type、source、从 1 开始的 generation 与可选过期时间；source 只保存
+  `UserConfiguration`、`UpstreamConfiguration`、`CodexAuthFile`、`OAuth2AuthJsonFile` 或 `Programmatic` 类别，不能把文件路径、
+  issuer URL 或任意业务字符串作为诊断元数据；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的
   Debug/输出都不得包含 secret；
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整
   `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 Key
   缺失或为空时在监听前失败；
-- 运行时不得重新读取 `users.toml` 或 `upstream-credentials.toml`；改变任何 Key 必须重启，不支持热更新；
+- 运行时不得重新读取 `users.toml`、`upstream-credentials.toml` 或已装入 manager 的 OAuth2 auth 文件；改变任何 Key、locator 或
+  token bundle 必须重启。本焦点不支持热更新、refresh 或 401 recovery；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook
   可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。具体 Provider 的 header policy
   属于实现事实，不应在本需求文档中固化。
@@ -115,6 +118,20 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 - 第二阶段的登录、可刷新 bundle、持久化和 guarded reload/refresh 以
   [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准，必须另立焦点。
 
+### 3.3 OpenBridge-owned OAuth2 auth 文件
+
+- OAuth2 auth 文件路径只来自 private upstream credential TOML 的 `auth_json_file`；相对路径以该 TOML 所在目录为基准，业务请求、
+  Provider response 和 probe 参数不能覆盖；
+- 配置项仍使用编译期 credential binding id，loader 必须从 `RuntimeRegistry` 解析唯一 Provider 与
+  `OAuth2BearerAccessToken` kind；TOML 不获得动态 Provider 选择权；
+- 每个 OAuth2 Provider 最多配置一个 auth 文件，并派生一个稳定的内部 member id；本阶段不提供 auth 文件数组、账号 pool、轮转、
+  cooldown 或负载均衡；
+- ChatGPT 文件使用当前 Codex `AuthDotJson` 的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索或回退到
+  `$CODEX_HOME/auth.json`，第一阶段 `--codex-auth-file` probe 仍是独立只读测试路径；
+- 文件在 listener 绑定前一次性读取；错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
+- `OAuth2CredentialManager` 在本焦点中只持有启动快照和后续 lifecycle 所需 locator，不提供修改、reload、refresh、后台调度或
+  401 recovery API。
+
 ## 4. Endpoint 与出站边界
 
 Endpoint 只来自代码注册项。Registry builder 必须拒绝：
@@ -139,15 +156,15 @@ read bootstrap.toml
 → validate UpstreamCredentialConfiguration
 → compiled_config()
 → validate and build RuntimeRegistry
-→ bind required upstream credential pools by compiled pool id
-→ build immutable CredentialStore
+→ bind required API-key pools and configured OAuth2 auth files by compiled binding id
+→ build immutable CredentialStore + OAuth2CredentialManager
 → create shared HTTP client
-→ Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore>
+→ Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore> + Arc<OAuth2CredentialManager>
 → start listener
 ```
 
-注册表启动后不可变。服务没有文件监听、user/route reload、`ArcSwap` 或部分更新语义。运行中的请求和 后续请求都读取同一组
-`RuntimeRegistry`、`UserRegistry` 与 `CredentialStore`；改变任一启动输入都必须重启。
+注册表与 credential manager 启动后不可变。服务没有文件监听、user/route/auth reload、`ArcSwap` 或部分更新语义。运行中的请求和
+后续请求都读取同一组 `RuntimeRegistry`、`UserRegistry`、`CredentialStore` 与 `OAuth2CredentialManager`；改变任一启动输入都必须重启。
 
 ## 6. 验收要求
 

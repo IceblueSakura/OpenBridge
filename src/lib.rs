@@ -14,6 +14,7 @@ pub mod identity;
 pub mod ingress;
 pub mod models;
 pub mod observability;
+pub mod oauth2_credentials;
 pub mod pipeline;
 pub mod probe;
 pub mod provider;

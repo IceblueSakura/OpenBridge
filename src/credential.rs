@@ -55,6 +55,8 @@ pub enum CredentialSource {
     UpstreamConfiguration,
     /// Read once from an administrator-selected Codex auth file for an explicit probe.
     CodexAuthFile,
+    /// Read once from an OpenBridge-owned OAuth2 auth file during startup.
+    OAuth2AuthJsonFile,
     /// Injected directly by the trusted composition root or a test.
     Programmatic,
 }

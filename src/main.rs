@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
 
     // Merge downstream and upstream keys into an immutable credential snapshot before listening.
     let (users, mut credential_builder) = user_configuration.into_parts();
-    upstream_configuration
+    let oauth2_credentials = upstream_configuration
         .load_into_for(
             &mut credential_builder,
             &registry,
@@ -75,12 +75,13 @@ async fn main() -> Result<()> {
         registry.http_client().pool_idle_timeout(),
         registry.http_client().pool_max_idle_per_host(),
     )
-        .context("failed to initialize upstream HTTP client")?;
-    let app_state = GatewayState::new(
+    .context("failed to initialize upstream HTTP client")?;
+    let app_state = GatewayState::new_with_oauth2_credentials(
         Arc::new(registry),
         Arc::new(upstream),
         Arc::new(users),
         credentials,
+        Arc::new(oauth2_credentials),
     );
     // Bind the loopback listener and start the HTTP service with graceful shutdown.
     let listener = TcpListener::bind(listen)

@@ -210,7 +210,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
     assert_eq!(deepseek.tokenizer.as_deref(), Some("DeepSeek"));
     assert_eq!(
         deepseek.reasoning_levels,
-        [ReasoningLevel::XHigh, ReasoningLevel::High]
+        [ReasoningLevel::Max, ReasoningLevel::High]
     );
 
     let deepseek_flash = definition

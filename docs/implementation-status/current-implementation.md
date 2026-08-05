@@ -13,7 +13,7 @@
 ```bash
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
-# 编辑两份私有 TOML，分别填写下游用户 Key 与编译期 pool 对应的上游 API key。
+# 编辑两份私有 TOML；填写用户/API key，并按需启用注释中的 ChatGPT auth_json_file。
 cargo run --bin openbridge --locked
 ```
 
@@ -42,18 +42,49 @@ OpenAPI 规范源文件为 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI �
 [`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、 Upstream Target 或
 credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
 
-下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个可路由 Provider 的上游 API-key pool 来自私有
-`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组；该 TOML 明确拒绝写入注册的 OAuth
-pool。服务与普通 probe 不读取上游 key 环境变量或 `.env`。服务在 listener 绑定前把已启用用户 Key 与全部启用 target 引用的
-API-key pool 合并为不可变 `CredentialStore`；未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会阻止启动。
-运行时请求只读取该快照，不重新读取文件；改变 pool 必须重启。Store 条目同时冻结 credential type、仅含类别的 source、generation
-与可选过期时间；文件路径不进入运行时诊断元数据。上游借用同时匹配
-`pool_id + member_id + ProviderKind + CredentialKind`。
+下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。私有 `config/upstream-credentials.toml` 的每个编译期 binding
+现在只能在有序 `api_keys` 与单一 `auth_json_file` 中二选一；Provider 与 credential kind 仍只从代码注册表解析。服务与普通
+API-key probe 不读取上游 key 环境变量或 `.env`，普通 probe 也不会打开未选中的 OAuth locator。服务在 listener 绑定前把已启用用户
+Key 与全部启用 target 引用的 API-key pool 合并为不可变 `CredentialStore`，并把所有显式配置的 ChatGPT OAuth2 文件校验为完整
+token bundle 后装入独立的不可变 `OAuth2CredentialManager`。未知或重复 binding、source/kind 错配、同 Provider 多 auth 文件、
+损坏 TOML、无效 API-key pool 或损坏/过期 OAuth2 bundle 会阻止启动。运行时不重新读取 TOML 或 auth 文件；两份快照均不提供热更新。
+Store 和 manager 条目只公开非敏感 identity/metadata；文件路径不进入诊断元数据或 `Debug`。
 
-第六个 ChatGPT Provider 注册一个默认禁用的 OAuth pool/target；常驻服务不读取或要求其 credential。只有管理员显式执行专用 probe
-并传入 `--codex-auth-file` 时，composition root 才一次性只读当前 access token、账户绑定、FedRAMP claim 与 expiry，构造临时
-purpose-bound credential；不保留 refresh token，不写回源文件，也不启动、链接或依赖 Codex CLI。当前仍没有 token 获取、PKCE/device
-login、refresh、热更新或 401 refresh/retry 行为。
+第六个 ChatGPT Provider 注册一个默认禁用且没有 Route/Public Model 的 OAuth pool/target。`--codex-auth-file` 仍只是独立的显式
+probe 测试入口：它一次性只读当前 access token、账户绑定、FedRAMP claim 与 expiry，构造临时 purpose-bound credential，不保留
+refresh token。与之分离的 OpenBridge-owned `auth_json_file` 使用 Codex-compatible 字段形状保存完整 id/access/refresh token bundle；
+只有管理员在 upstream TOML 中显式配置时，常驻服务才在启动阶段读取并保留它。两条路径都不写源文件，也不启动、链接或依赖 Codex CLI。
+当前仍没有 token 获取、PKCE/device login、refresh、热更新或 401 refresh/retry 行为。
+
+### 2026-08-05 OpenBridge-owned OAuth2 启动快照
+
+- upstream credential schema v1 的每个 `credential_pools` 项现在是互斥 union：API-key binding 使用有序 `api_keys`，OAuth2 binding
+  使用单一 `auth_json_file`；registry 仍决定 Provider 与 credential kind，同一个 OAuth2 Provider 不能绑定多个文件；
+- `OAuth2CredentialManager` 在启动时读取 OpenBridge-owned Codex-compatible ChatGPT JSON，要求显式 ChatGPT auth mode、完整且非空的
+  id/access/refresh token、未过期 access-token expiry、一致的 account binding 与非空的可选 `last_refresh`，然后保留不可变且
+  `Debug` 脱敏的单 Provider 快照；
+- 相对 locator 以 upstream TOML 的目录为基准。真实进程 composition test 已证明 OAuth2 文件在 listener 绑定前加载；启动后修改源文件
+  不会改变 manager。普通 API-key probe 只打开选中的 API-key source，不读取同一 TOML 中未选中的 OAuth2 locator；
+- manager 已进入 `GatewayState`，但 ChatGPT target 仍默认禁用且没有 Route/Public Model。当前 manager 没有 refresh、reload、持久化、
+  后台任务或 401 recovery API；这些仍属于下一焦点；
+- `tests/example_config.rs` 的 DeepSeek V4 Pro reasoning level 断言已与当前模型定义同步为 `Max, High`，没有修改模型配置。
+
+本轮实际执行并通过：
+
+```text
+cargo test --locked --lib oauth2_credentials
+cargo test --locked --test upstream_credential_config
+cargo test --locked --test startup_contract
+cargo test --locked --test codex_auth_file_contract
+cargo test --locked --test example_config compiled_model_catalog_includes_litellm_text_models
+cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
+```
+
+完整 Rust 测试通过，两个显式外部客户端测试保持 ignored。聚焦修改的 OAuth2 manager、upstream credential、startup 与 state/main Rust
+文件通过单文件 `rustfmt --check`；仓库级 `cargo fmt -- --check` 在当前 rustfmt 1.9.0 下仍因大量本轮未修改源码的既有格式差异失败，
+本轮没有机械改写这些无关文件。未使用真实 auth 文件或真实 Provider；未运行外部 SDK、PKCE/device login、refresh、负载或长期运行验收。
 
 ## Provider 与请求行为
 
@@ -70,7 +101,7 @@ registry。ChatGPT 只形成默认禁用的 probe target；当前可路由目录
 | DeepSeek              | `deepseek-v4-pro`            | `deepseek-v4-pro`                                   | Chat Native；无 Responses 接口                                        | `deepseek-primary`                       |
 | DeepSeek + OpenRouter | `deepseek-v4-flash`          | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native                | `deepseek-primary`、`openrouter-primary` |
 | Xiaomi MiMo           | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5`                        | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary`                           |
-| ChatGPT subscription  | 无                           | `chatgpt-gpt-5-6-sol`（默认禁用）                   | 无 Route/Public Model；仅管理员显式 models/Responses probe            | `chatgpt-codex`（OAuth，probe-only）     |
+| ChatGPT subscription  | 无                           | `chatgpt-gpt-5-6-sol`（默认禁用）                   | 无 Route/Public Model；仅管理员显式 models/Responses probe            | `chatgpt-codex`（OAuth；可选启动快照）   |
 
 代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按 source
 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册 或加入候选。上表中

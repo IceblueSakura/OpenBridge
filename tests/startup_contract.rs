@@ -6,8 +6,10 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use openbridge::{
     config::{BootstrapConfigFileError, BootstrapConfigPath},
     identity::{UserConfigFileError, UserConfigPath},
@@ -15,6 +17,7 @@ use openbridge::{
     providers,
     upstream_credentials::{UpstreamCredentialConfigFileError, UpstreamCredentialConfigPath},
 };
+use serde_json::{Value, json};
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -51,6 +54,19 @@ impl Drop for TempWorkspace {
 
 fn toml_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn jwt(payload: Value) -> String {
+    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none","typ":"JWT"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+    format!("{header}.{payload}.synthetic-signature")
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 #[test]
@@ -114,7 +130,7 @@ fn process_loads_all_startup_snapshots_before_reporting_a_bound_listener_failure
     let occupied_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let listen = occupied_listener.local_addr().unwrap();
 
-    // Write valid synthetic downstream and API-key snapshots for every data-plane pool.
+    // Write valid synthetic downstream, API-key, and OpenBridge-owned OAuth2 startup inputs.
     let users = workspace.write(
         "users.toml",
         r#"schema_version = 1
@@ -138,6 +154,31 @@ enabled = true
             pool.id
         ));
     }
+    let access_token = jwt(json!({"exp": unix_now().saturating_add(3_600)}));
+    let id_token = jwt(json!({
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "synthetic-startup-account",
+            "chatgpt_account_is_fedramp": false
+        }
+    }));
+    workspace.write(
+        "chatgpt-auth.json",
+        &json!({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": null,
+            "tokens": {
+                "id_token": id_token.clone(),
+                "access_token": access_token.clone(),
+                "refresh_token": "synthetic-startup-refresh",
+                "account_id": "synthetic-startup-account"
+            },
+            "last_refresh": "2026-08-05T00:00:00Z"
+        })
+        .to_string(),
+    );
+    upstream.push_str(
+        "\n[[credential_pools]]\nid = \"chatgpt-codex\"\nauth_json_file = \"chatgpt-auth.json\"\n",
+    );
     let upstream = workspace.write("upstream-credentials.toml", &upstream);
     let bootstrap = workspace.write(
         "bootstrap.toml",
@@ -173,6 +214,11 @@ upstream_pool_max_idle_per_host = 16
     );
     assert!(!stderr.contains("startup-downstream-key"));
     assert!(!stderr.contains("synthetic-startup-key"));
+    assert!(!stderr.contains("synthetic-startup-refresh"));
+    assert!(!stderr.contains("synthetic-startup-account"));
+    assert!(!stderr.contains(&access_token));
+    assert!(!stderr.contains(&id_token));
+    assert!(!stderr.contains("chatgpt-auth.json"));
 }
 
 #[test]

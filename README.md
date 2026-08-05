@@ -67,14 +67,15 @@ Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每�
 ```bash
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
-# 编辑两份私有 TOML，分别填写下游用户 Key 与编译期 pool 对应的上游 API key。
+# 编辑两份私有 TOML；填写用户/API key，并按需启用注释中的 ChatGPT auth_json_file。
 cargo run --bin openbridge --locked
 ```
 
 `config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。 服务与
-`openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、 Provider、Model 和 Route
-均只在启动时加载，变更需要重启进程。请求观测不保存业务正文或 credential； request/user/credential/endpoint URL 不进入指标
-key；Provider attempt 遥测与 trace 只使用已校验的 Provider、route、target、Upstream API 和 Public Model 身份作为低基数维度。
+`openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、配置的 OpenBridge-owned OAuth2 auth 文件、
+Provider、Model 和 Route均只在启动时加载；OAuth2 bundle 进入独立的不可变 manager，本阶段不 reload 或 refresh，任何变更都需要
+重启进程。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
+与 trace 只使用已校验的 Provider、route、target、Upstream API 和 Public Model 身份作为低基数维度。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -148,10 +149,11 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 `previous_response_id`。image 与 structured output 只是 Native API 事实；反向 Bridge 不支持时，它们不会进入 Public Model
 的固定接口契约。`parallel_tool_calls` 只有在全部对应 Route 都支持时才对下游公开。
 
-下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML
-数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key
-合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env`
-不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
+下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 在有序 `api_keys` 与单一
+`auth_json_file` 中二选一。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前
+把已启用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
+`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/过期 OAuth2 bundle 都会阻止
+启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取 TOML 或 auth 文件，本阶段也不 refresh，修改凭据必须重启。
 
 认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、 Provider 与脱敏
 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool

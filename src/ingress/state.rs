@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use crate::{
-    credential::CredentialStore, identity::UserRegistry, observability::GatewayMetrics,
+    credential::CredentialStore, identity::UserRegistry,
+    oauth2_credentials::OAuth2CredentialManager, observability::GatewayMetrics,
     registry::RuntimeRegistry, transport::upstream::UpstreamTransport,
 };
 
@@ -20,6 +21,7 @@ pub struct GatewayState {
     pub(super) upstream: Arc<dyn UpstreamTransport>,
     pub(super) users: Arc<UserRegistry>,
     pub(super) credentials: Arc<CredentialStore>,
+    oauth2_credentials: Arc<OAuth2CredentialManager>,
     pub(super) health: Arc<TargetHealth>,
     pub(super) credential_health: Arc<CredentialHealth>,
     pub(super) metrics: GatewayMetrics,
@@ -33,15 +35,38 @@ impl GatewayState {
         users: Arc<UserRegistry>,
         credentials: Arc<CredentialStore>,
     ) -> Self {
+        Self::new_with_oauth2_credentials(
+            registry,
+            upstream,
+            users,
+            credentials,
+            Arc::new(OAuth2CredentialManager::empty()),
+        )
+    }
+
+    /// Creates service state with an immutable startup-loaded OAuth2 credential manager.
+    pub fn new_with_oauth2_credentials(
+        registry: Arc<RuntimeRegistry>,
+        upstream: Arc<dyn UpstreamTransport>,
+        users: Arc<UserRegistry>,
+        credentials: Arc<CredentialStore>,
+        oauth2_credentials: Arc<OAuth2CredentialManager>,
+    ) -> Self {
         Self {
             registry,
             upstream,
             users,
             credentials,
+            oauth2_credentials,
             health: Arc::new(TargetHealth::default()),
             credential_health: Arc::new(CredentialHealth::default()),
             metrics: GatewayMetrics::default(),
         }
+    }
+
+    /// Returns the immutable OAuth2 startup snapshot for trusted runtime composition.
+    pub fn oauth2_credentials(&self) -> &OAuth2CredentialManager {
+        &self.oauth2_credentials
     }
 
     /// Returns the shared in-process low-cardinality counter handle for exporter or test snapshots.

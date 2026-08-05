@@ -21,7 +21,7 @@ bootstrap / users / upstream credentials
           ↓
 composition root
           ↓
-immutable RuntimeRegistry + UserRegistry + CredentialStore
+immutable RuntimeRegistry + UserRegistry + CredentialStore + OAuth2CredentialManager
           ↓
 HTTP Models projection / request ingress
           ↓
@@ -46,9 +46,9 @@ Route；transport 不解释模型和协议能力。
 | 层            | 核心类型                                                                                                                                                                                                               | 简单定义                                                                                            |
 |---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | 启动配置      | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig`                                                                                                                                                                 | 进程启动参数、request/response/replay/SSE 限制和 HTTP client 参数                                   |
-| Credential    | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential`                                                                                     | 启动时解析 pool、合并上下游 secret、隔离用途并提供只读成员借用视图                                  |
+| Credential    | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`OAuth2CredentialManager`、`UpstreamCredential`                                                          | 启动时解析 binding，分别冻结 API key 与 OAuth2 bundle，并提供受限只读视图                            |
 | 下游身份      | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User`                                                                                                                                                          | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份                                       |
-| 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder                               |
+| 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 binding id 分别装载有序 API key 或单一 OAuth2 auth 文件                    |
 | API 语义      | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`GenerationCapabilities`                        | 独立 operation、generation 协议/请求、Embeddings 请求、分域能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置      | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig`                                                                                                                         | 编译期写入并等待校验的配置                                                                          |
 | 运行注册表    | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据                                                    |
@@ -78,9 +78,9 @@ BootstrapConfigPath::load
 → providers::build_compiled_registry
 → UpstreamCredentialConfiguration::load_into_for
 → CredentialStore::validate_registry
-→ immutable CredentialStore
+→ immutable CredentialStore + OAuth2CredentialManager
 → UpstreamClient::new
-→ GatewayState::new
+→ GatewayState::new_with_oauth2_credentials
 → ingress::build_router
 → axum::serve
 ```
@@ -89,9 +89,11 @@ BootstrapConfigPath::load
 参数。四个 limit 都是必填非零值，replay limit 不得超过 request limit。用户文件、 上游 credential
 文件、Provider、模型、target、upstream API、route 和 endpoint 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
 `UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
-`CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 再为所有启用 target 引用的 pool 解析 TOML `api_keys`
-数组。未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会在 listener 绑定前 失败。构造后的 Store 是上下游
-secret 的唯一运行时所有者，请求路径不再读取 credential 来源。
+`CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为互斥的 `api_keys` 或
+`auth_json_file`。启用 target 引用的 API-key pool 进入不可变 `CredentialStore`；所有显式配置的 OAuth2 文件在监听前完成完整 bundle
+校验并进入独立的不可变 `OAuth2CredentialManager`，相对 locator 以 upstream TOML 目录为基准。未知、缺失或重复 binding、source/kind
+错配、同 Provider 多 auth 文件、损坏 TOML、无效 API-key pool 或损坏/过期 OAuth2 bundle 会在 listener 绑定前失败。两份 credential
+快照和 locator 启动后都不 reload；manager 当前没有 refresh、持久化或后台调度接口。
 
 ## 3. 注册表层
 
