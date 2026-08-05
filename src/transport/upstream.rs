@@ -14,9 +14,7 @@ use url::Url;
 
 use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
 
-mod error;
-
-pub use error::TransportError;
+pub use crate::transport::error::TransportError;
 
 /// Minimal send contract between ingress and the real HTTP client/test transport.
 pub trait UpstreamTransport: Send + Sync {
