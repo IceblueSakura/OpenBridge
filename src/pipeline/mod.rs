@@ -10,7 +10,7 @@ mod preflight;
 mod types;
 
 pub use analysis::{analyze_embedding_request, analyze_request};
-pub use error::RequestPlanningError;
+pub use error::{EmbeddingRequestError, RequestPlanningError};
 pub use planning::{plan_embedding_request, plan_request};
 pub use types::{
     EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan, RequestRequirements,

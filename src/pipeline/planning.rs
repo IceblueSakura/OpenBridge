@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    error::RequestPlanningError,
+    error::{EmbeddingRequestError, RequestPlanningError},
     preflight::{preflight_embedding_public_model, preflight_public_model},
     types::{
         EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
@@ -75,12 +75,12 @@ pub fn plan_embedding_request(
     registry: &RuntimeRegistry,
     requirements: &EmbeddingRequestRequirements,
     body: Bytes,
-) -> Result<EmbeddingRoutePlan, RequestPlanningError> {
+) -> Result<EmbeddingRoutePlan, EmbeddingRequestError> {
     // Complete fixed-interface preflight and retain its resolved response expectations.
     let (interface, encoding, dimensions) =
         preflight_embedding_public_model(registry, requirements)?;
     let [candidate] = interface.candidates() else {
-        return Err(RequestPlanningError::NoRoute);
+        return Err(EmbeddingRequestError::RouteUnavailable);
     };
 
     // Enforce the compiler invariant again without interpreting request facts or selecting another Route.
@@ -88,7 +88,7 @@ pub fn plan_embedding_request(
         || candidate.downstream_operation() != OperationKind::EmbeddingsCreate
         || candidate.upstream_operation() != OperationKind::EmbeddingsCreate
     {
-        return Err(RequestPlanningError::NoRoute);
+        return Err(EmbeddingRequestError::RouteUnavailable);
     }
 
     // Bind the preserved body to the one trusted target/API identity owned by the interface.

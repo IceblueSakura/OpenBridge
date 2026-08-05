@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     forwarding::{forward_embeddings_request, forward_request},
-    response::{api_error, model_not_found},
+    response::{api_error, embedding_unsupported_media_type, model_not_found},
     state::GatewayState,
 };
 
@@ -129,7 +129,7 @@ pub(super) async fn embeddings(
 ) -> Response {
     // Validate the JSON-only media type before endpoint-specific analysis or egress.
     if !has_json_content_type(&headers) {
-        return unsupported_media_type();
+        return embedding_unsupported_media_type();
     }
     forward_embeddings_request(state, observation, headers, body).await
 }

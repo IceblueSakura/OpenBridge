@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use http::{
-    HeaderName, StatusCode,
+    HeaderName, Method, StatusCode,
     header::{AUTHORIZATION, WWW_AUTHENTICATE},
 };
 use tower::ServiceBuilder;
@@ -35,7 +35,7 @@ use super::{
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
-    response::api_error,
+    response::{api_error, embedding_request_too_large},
     state::GatewayState,
 };
 
@@ -65,6 +65,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .layer(SetRequestIdLayer::new(request_id.clone(), MakeRequestUuid))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::new(request_id))
+        .layer(middleware::from_fn(normalize_embedding_request_limit))
         .layer(RequestBodyLimitLayer::new(max_request_body_bytes));
     // Assemble business and model-list endpoints with shared Bearer authentication.
     let protected = Router::new()
@@ -95,6 +96,21 @@ pub fn build_router(state: GatewayState) -> Router {
         .merge(protected)
         .layer(middleware)
         .with_state(state)
+}
+
+/// Replaces only the Embeddings body-limit response with its exact JSON error contract.
+async fn normalize_embedding_request_limit(request: Request, next: Next) -> Response {
+    // Capture endpoint identity before the body-limit service consumes the request.
+    let is_embeddings =
+        request.method() == Method::POST && request.uri().path() == "/v1/embeddings";
+
+    // Run the configured hard-limit service and retain all non-limit responses unchanged.
+    let response = next.run(request).await;
+    if is_embeddings && response.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        embedding_request_too_large()
+    } else {
+        response
+    }
 }
 
 /// Authenticates a downstream Bearer token and binds non-sensitive user identity and request observation to the handler.

@@ -2,8 +2,8 @@
 //!
 //! Request analysis, fixed-interface preflight, trusted egress, and pre-commit validation are
 //! complete here. A single compiled Route may reuse its finite attempt budget only for request
-//! bodies within the independent replay limit. Stable errors and operation-aware metrics remain
-//! owned by later current-focus stages.
+//! bodies within the independent replay limit. Errors are gateway-owned and discard upstream
+//! bodies; operation-aware metrics remain owned by a later current-focus stage.
 
 use std::collections::HashSet;
 
@@ -15,12 +15,14 @@ use crate::{
     observability::RequestObservation,
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
-    transport::upstream::UpstreamResponse,
 };
 
 use super::super::{
     attempt::{AttemptManager, AttemptStep},
-    response::{api_error, filtered_upstream_headers, route_error, upstream_error},
+    response::{
+        embedding_route_error, embedding_server_error, embedding_upstream_error,
+        normalized_embedding_upstream_error,
+    },
     state::GatewayState,
 };
 use super::{should_retry_error, should_retry_status};
@@ -38,12 +40,12 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     let registry = state.registry.clone();
     let requirements = match analyze_embedding_request(&body) {
         Ok(requirements) => requirements,
-        Err(error) => return route_error(error),
+        Err(error) => return embedding_route_error(error),
     };
     let replayable = body.len() <= registry.limits().max_replay_body_bytes();
     let plan = match plan_embedding_request(&registry, &requirements, body) {
         Ok(plan) => plan,
-        Err(error) => return route_error(error),
+        Err(error) => return embedding_route_error(error),
     };
     let candidate = plan.candidate();
 
@@ -64,7 +66,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     ) {
         Ok(credentials) => credentials,
         Err(_) => {
-            return api_error(
+            return embedding_server_error(
                 StatusCode::BAD_GATEWAY,
                 "upstream_authentication_error",
                 "Upstream credentials are unavailable",
@@ -78,11 +80,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     {
         Ok(request) => request,
         Err(_) => {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                "unsupported_request",
-                "Request is not supported by the selected provider",
-            );
+            return configuration_error("Provider request preparation failed");
         }
     };
     let mut attempts = AttemptManager::new();
@@ -108,7 +106,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     index
                 }
                 None => {
-                    return api_error(
+                    return embedding_server_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "upstream_cooldown",
                         "The configured upstream target is temporarily unavailable",
@@ -123,7 +121,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
             Err(_) => return configuration_error("Provider authentication could not be prepared"),
         };
         if !attempts.start_attempt() {
-            return api_error(
+            return embedding_server_error(
                 StatusCode::BAD_GATEWAY,
                 "upstream_attempts_exhausted",
                 "The upstream attempt budget was exhausted",
@@ -176,7 +174,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     observation.record_retry();
                     continue;
                 }
-                return non_success_response(upstream);
+                return normalized_embedding_upstream_error(upstream);
             }
             Ok(upstream) => {
                 // Record the HTTP outcome before consuming a bounded success body or returning an error.
@@ -185,7 +183,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     upstream.status(),
                 );
                 if !upstream.status().is_success() {
-                    return non_success_response(upstream);
+                    return normalized_embedding_upstream_error(upstream);
                 }
 
                 // Validate the complete bounded success before any downstream response bytes are committed.
@@ -203,7 +201,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     Ok(response) => response,
                     Err(_) => {
                         observation.record_stream_failure("invalid_upstream_response");
-                        return api_error(
+                        return embedding_server_error(
                             StatusCode::BAD_GATEWAY,
                             "invalid_upstream_response",
                             "The upstream response is invalid",
@@ -233,7 +231,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     observation.record_retry();
                     continue;
                 }
-                return upstream_error(error);
+                return embedding_upstream_error(error);
             }
             Err(error) => {
                 // Fail immediately for non-retryable local transport construction or target errors.
@@ -241,27 +239,15 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     attempts.attempts_started() as u64,
                     transport_error_kind(&error),
                 );
-                return upstream_error(error);
+                return embedding_upstream_error(error);
             }
         }
     }
 }
 
-/// Preserves a non-success response until the endpoint error matrix is normalized in stage 5.
-fn non_success_response(upstream: UpstreamResponse) -> Response {
-    let status = upstream.status();
-    let headers = filtered_upstream_headers(upstream.headers());
-    let mut response = Response::builder()
-        .status(status)
-        .body(upstream.into_body())
-        .expect("validated upstream status builds a response");
-    response.headers_mut().extend(headers);
-    response
-}
-
 /// Builds one stable internal configuration error without exposing registry topology.
 fn configuration_error(message: &'static str) -> Response {
-    api_error(
+    embedding_server_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "configuration_error",
         message,

@@ -96,6 +96,21 @@ struct BackoffEmbeddingTransport {
     second_attempt: Arc<tokio::sync::Notify>,
 }
 
+#[derive(Clone, Copy)]
+enum FixedEmbeddingTransportFailure {
+    Timeout,
+    InvalidTarget,
+}
+
+struct FailingEmbeddingTransport {
+    attempts: AtomicUsize,
+    failure: FixedEmbeddingTransportFailure,
+}
+
+struct UnsafeUpstreamFailureTransport {
+    attempts: AtomicUsize,
+}
+
 struct DropSignal(Arc<AtomicBool>);
 
 impl Drop for DropSignal {
@@ -242,6 +257,63 @@ impl UpstreamTransport for BackoffEmbeddingTransport {
         // Return a retryable status so a replayable request enters the cancellable backoff.
         Box::pin(async {
             Ok(SyntheticEmbeddingResponse::status(StatusCode::SERVICE_UNAVAILABLE).into_upstream())
+        })
+    }
+}
+
+impl UpstreamTransport for FailingEmbeddingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Record each bounded attempt and construct only the requested synthetic transport category.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        let failure = self.failure;
+        Box::pin(async move {
+            Err(match failure {
+                FixedEmbeddingTransportFailure::Timeout => TransportError::Timeout,
+                FixedEmbeddingTransportFailure::InvalidTarget => TransportError::InvalidTarget,
+            })
+        })
+    }
+}
+
+impl UpstreamTransport for UnsafeUpstreamFailureTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Count the non-retryable upstream rejection and attach both safe and forbidden headers.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        headers.insert(
+            "openai-request-id",
+            HeaderValue::from_static("req_synthetic"),
+        );
+        headers.insert(
+            "x-ratelimit-limit-requests",
+            HeaderValue::from_static("100"),
+        );
+        headers.insert("set-cookie", HeaderValue::from_static("private=value"));
+        headers.insert(
+            "x-internal-target",
+            HeaderValue::from_static("private-target"),
+        );
+
+        // Return a body carrying every value that the normalized downstream error must discard.
+        Box::pin(async move {
+            Ok(UpstreamResponse::new(
+                StatusCode::BAD_REQUEST,
+                headers,
+                Body::from(
+                    r#"{"error":{"message":"UPSTREAM_BODY_SENTINEL embedding-upstream https://private.invalid private-key"}}"#,
+                ),
+            ))
         })
     }
 }
@@ -467,14 +539,51 @@ fn app_with_transport_and_credentials(
 }
 
 fn embedding_request(body: Value) -> Request<Body> {
-    Request::builder()
+    embedding_raw_request(serde_json::to_vec(&body).unwrap(), Some("application/json"))
+}
+
+fn embedding_raw_request(body: impl Into<Body>, content_type: Option<&str>) -> Request<Body> {
+    // Build one authenticated endpoint request with an optional media type for error cases.
+    let mut request = Request::builder()
         .method("POST")
         .uri("/v1/embeddings")
         .header("authorization", format!("Bearer {DOWNSTREAM_KEY}"))
-        .header(CONTENT_TYPE, "application/json")
-        .header("x-upstream-credential", "client-controlled-value")
-        .body(Body::from(serde_json::to_vec(&body).unwrap()))
-        .unwrap()
+        .header("x-upstream-credential", "client-controlled-value");
+    if let Some(content_type) = content_type {
+        request = request.header(CONTENT_TYPE, content_type);
+    }
+    request.body(body.into()).unwrap()
+}
+
+async fn assert_embedding_error(
+    response: axum::response::Response,
+    status: StatusCode,
+    error_type: &str,
+    code: &str,
+    param: Option<&str>,
+) -> Value {
+    // Read the complete small gateway-owned envelope and require the expected HTTP status.
+    assert_eq!(response.status(), status);
+    let body = to_bytes(response.into_body(), 4_096).await.unwrap();
+    let document: Value = serde_json::from_slice(&body).expect("error response must be JSON");
+
+    // Verify exactly the four OpenAI-compatible error fields and their stable classifications.
+    let error = document["error"]
+        .as_object()
+        .expect("error response must contain an object");
+    assert_eq!(error.len(), 4);
+    assert!(
+        error["message"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert_eq!(error["type"], error_type);
+    assert_eq!(error["code"], code);
+    assert_eq!(
+        error["param"],
+        param.map_or(Value::Null, |value| json!(value))
+    );
+    document
 }
 
 #[tokio::test]
@@ -685,13 +794,15 @@ async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() 
             })))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-        let body = to_bytes(response.into_body(), 4_096).await.unwrap();
-        assert!(
-            !std::str::from_utf8(&body)
-                .unwrap()
-                .contains("must-not-leak")
-        );
+        let document = assert_embedding_error(
+            response,
+            StatusCode::BAD_GATEWAY,
+            "server_error",
+            "invalid_upstream_response",
+            None,
+        )
+        .await;
+        assert!(!document.to_string().contains("must-not-leak"));
         assert_eq!(transport.requests.lock().unwrap().len(), 1);
     }
 
@@ -714,13 +825,15 @@ async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() 
         })))
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    let body = to_bytes(response.into_body(), 4_096).await.unwrap();
-    assert!(
-        !std::str::from_utf8(&body)
-            .unwrap()
-            .contains(&"x".repeat(32))
-    );
+    let document = assert_embedding_error(
+        response,
+        StatusCode::BAD_GATEWAY,
+        "server_error",
+        "invalid_upstream_response",
+        None,
+    )
+    .await;
+    assert!(!document.to_string().contains(&"x".repeat(32)));
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
 
@@ -742,7 +855,14 @@ async fn invalid_base64_length_is_rejected_for_the_effective_dimension() {
         })))
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_embedding_error(
+        response,
+        StatusCode::BAD_GATEWAY,
+        "server_error",
+        "invalid_upstream_response",
+        None,
+    )
+    .await;
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
 
@@ -1067,6 +1187,270 @@ async fn embedding_local_rejections_make_zero_upstream_calls() {
     let response = app.oneshot(unauthenticated).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn embedding_error_matrix_fixes_local_status_type_code_param_and_zero_egress() {
+    let (app, transport) = app();
+    let cases = vec![
+        (
+            embedding_raw_request(b"{".to_vec(), Some("application/json")),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            None,
+        ),
+        (
+            embedding_raw_request(b"[]".to_vec(), Some("application/json")),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            None,
+        ),
+        (
+            embedding_request(json!({"input":"alpha"})),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("model"),
+        ),
+        (
+            embedding_request(json!({"model":"","input":"alpha"})),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("model"),
+        ),
+        (
+            embedding_request(json!({"model":"embedding-test"})),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({"model":"embedding-test","input":null})),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({"model":"embedding-test","input":["alpha",1]})),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":"alpha","encoding_format":"hex"
+            })),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("encoding_format"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":"alpha","dimensions":0
+            })),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("dimensions"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":"alpha","user":false
+            })),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            Some("user"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":"alpha","unknown":true
+            })),
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            None,
+        ),
+        (
+            embedding_request(json!({"model":"missing-test","input":"alpha"})),
+            StatusCode::NOT_FOUND,
+            "model_not_found",
+            Some("model"),
+        ),
+        (
+            embedding_request(json!({"model":"generation-test","input":"alpha"})),
+            StatusCode::BAD_REQUEST,
+            "unsupported_model_capability",
+            Some("model"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":["a","b","c"]
+            })),
+            StatusCode::BAD_REQUEST,
+            "unsupported_model_capability",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":[1,2,3,4]
+            })),
+            StatusCode::BAD_REQUEST,
+            "unsupported_model_capability",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":[[1,2,3],[4,5]]
+            })),
+            StatusCode::BAD_REQUEST,
+            "unsupported_model_capability",
+            Some("input"),
+        ),
+        (
+            embedding_request(json!({
+                "model":"embedding-test","input":"alpha","dimensions":3
+            })),
+            StatusCode::BAD_REQUEST,
+            "unsupported_model_capability",
+            Some("dimensions"),
+        ),
+    ];
+
+    // Exercise representative syntax, model, and fixed-capability failures independently.
+    for (request, status, code, param) in cases {
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_embedding_error(response, status, "invalid_request_error", code, param).await;
+        assert!(transport.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn embedding_media_and_request_limits_use_exact_zero_egress_errors() {
+    // Reject the JSON-only endpoint media contract with its endpoint-specific stable code.
+    let (app, transport) = app();
+    let response = app
+        .oneshot(embedding_raw_request(
+            br#"{"model":"embedding-test","input":"alpha"}"#.to_vec(),
+            Some("text/plain"),
+        ))
+        .await
+        .unwrap();
+    assert_embedding_error(
+        response,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "invalid_request_error",
+        "unsupported_media_type",
+        None,
+    )
+    .await;
+    assert!(transport.requests.lock().unwrap().is_empty());
+
+    // Lower request and replay limits together and exceed the hard request limit before authentication parsing.
+    let constrained_bootstrap = BOOTSTRAP
+        .replace(
+            "max_request_body_bytes = 1048576",
+            "max_request_body_bytes = 128",
+        )
+        .replace(
+            "max_replay_body_bytes = 262144",
+            "max_replay_body_bytes = 128",
+        );
+    let (app, transport) = app_with_bootstrap_and_responses(&constrained_bootstrap, []);
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":"x".repeat(256)
+        })))
+        .await
+        .unwrap();
+    assert_embedding_error(
+        response,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "invalid_request_error",
+        "request_too_large",
+        None,
+    )
+    .await;
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn embedding_transport_errors_use_server_envelopes_and_bounded_attempts() {
+    let cases = [
+        (
+            FixedEmbeddingTransportFailure::Timeout,
+            StatusCode::GATEWAY_TIMEOUT,
+            "upstream_timeout",
+            2,
+        ),
+        (
+            FixedEmbeddingTransportFailure::InvalidTarget,
+            StatusCode::BAD_GATEWAY,
+            "upstream_error",
+            1,
+        ),
+    ];
+
+    // Exhaust retryable timeout and non-retryable transport categories through isolated transports.
+    for (failure, status, code, expected_attempts) in cases {
+        let transport = Arc::new(FailingEmbeddingTransport {
+            attempts: AtomicUsize::new(0),
+            failure,
+        });
+        let app = app_with_transport_and_credentials(
+            BOOTSTRAP,
+            transport.clone(),
+            &["upstream-test-key"],
+        );
+        let response = app
+            .oneshot(embedding_request(json!({
+                "model":"embedding-test","input":"transport error"
+            })))
+            .await
+            .unwrap();
+        assert_embedding_error(response, status, "server_error", code, None).await;
+        assert_eq!(transport.attempts.load(Ordering::SeqCst), expected_attempts);
+    }
+}
+
+#[tokio::test]
+async fn embedding_upstream_http_errors_discard_body_and_private_headers() {
+    // Return one non-retryable Provider status carrying private diagnostics and topology sentinels.
+    let transport = Arc::new(UnsafeUpstreamFailureTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let app =
+        app_with_transport_and_credentials(BOOTSTRAP, transport.clone(), &["upstream-test-key"]);
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test","input":"safe downstream input"
+        })))
+        .await
+        .unwrap();
+
+    // Preserve only the safe status and allowlisted request/rate-limit headers.
+    assert_eq!(response.headers()["openai-request-id"], "req_synthetic");
+    assert_eq!(response.headers()["x-ratelimit-limit-requests"], "100");
+    assert!(response.headers().get("set-cookie").is_none());
+    assert!(response.headers().get("x-internal-target").is_none());
+    let document = assert_embedding_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "server_error",
+        "upstream_error",
+        None,
+    )
+    .await;
+
+    // Verify no upstream body, model, endpoint, or credential sentinel reaches the client.
+    let serialized = document.to_string();
+    for sentinel in [
+        "UPSTREAM_BODY_SENTINEL",
+        "embedding-upstream",
+        "private.invalid",
+        "private-key",
+        "private-target",
+    ] {
+        assert!(!serialized.contains(sentinel));
+    }
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
