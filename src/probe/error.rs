@@ -1,0 +1,29 @@
+//! Errors raised while preparing an explicit upstream capability probe.
+//!
+//! These errors describe probe admission failures only; probe observations remain in the
+//! report types owned by the parent module.
+
+use thiserror::Error;
+
+/// Probe preparation failed.
+#[derive(Debug, Error)]
+pub enum ProbeError {
+    /// The requested Upstream Target is not registered.
+    #[error("configured upstream target '{upstream_target}' does not exist")]
+    UnknownUpstreamTarget {
+        /// Missing internal target ID.
+        upstream_target: String,
+    },
+    /// The selected target is registered but disabled for all executable paths.
+    #[error("configured upstream target '{upstream_target}' is disabled")]
+    DisabledUpstreamTarget {
+        /// Disabled internal target ID.
+        upstream_target: String,
+    },
+    /// The trusted credential source cannot provide the required secret.
+    #[error("upstream credentials are unavailable for probe")]
+    CredentialUnavailable,
+    /// The adapter cannot build authentication headers for the probe.
+    #[error("provider authentication could not be prepared for probe")]
+    AuthenticationPreparation,
+}

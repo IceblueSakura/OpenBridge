@@ -2,7 +2,6 @@
 
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
-use thiserror::Error;
 
 use crate::{
     core::{ApiProtocol, ApiRequest, EmbeddingRequest},
@@ -17,31 +16,9 @@ use super::{
     StatusClassification,
 };
 
-/// Failure reported by a Provider adapter during request, authentication, or response handling.
-#[derive(Debug, Error)]
-pub enum AdapterError {
-    /// The request protocol is outside the adapter's supported scope.
-    #[error("request protocol is not supported by this provider adapter")]
-    UnsupportedProtocol,
-    /// The credential Provider does not match the adapter.
-    #[error("credential provider does not match the provider adapter")]
-    CredentialProviderMismatch,
-    /// The credential kind is outside the Provider's static contract.
-    #[error("credential kind is not supported by the provider adapter")]
-    CredentialKindMismatch,
-    /// A sensitive header was incorrectly placed in the ordinary-header set.
-    #[error("sensitive header cannot be emitted as a regular provider header")]
-    SensitiveHeaderInSafeSet,
-    /// The request body cannot be parsed or rewritten as a valid JSON object.
-    #[error("request body could not be transformed by the provider adapter")]
-    InvalidRequestBody,
-    /// The credential cannot be encoded as a valid HTTP header.
-    #[error("provider authentication material cannot be encoded as an HTTP header")]
-    InvalidAuthenticationHeader,
-    /// The credential omits Provider-specific account or routing context.
-    #[error("provider authentication context is incomplete")]
-    IncompleteAuthenticationContext,
-}
+mod error;
+
+pub use error::AdapterError;
 
 /// Upstream request with a selected protocol but no Upstream Target origin bound yet.
 ///

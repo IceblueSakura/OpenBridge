@@ -7,11 +7,12 @@
 
 use http::StatusCode;
 use serde::Serialize;
-use thiserror::Error;
 
+mod error;
 mod payload;
 mod session;
 
+pub use error::ProbeError;
 pub use session::probe_upstream_target;
 
 /// Explicit probe selection. The CLI uses `all()` when no selection is supplied;
@@ -149,29 +150,6 @@ pub struct TargetProbeReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Observation from the Responses function-calling probe.
     pub responses_function_calling: Option<ToolCallProbeResult>,
-}
-
-#[derive(Debug, Error)]
-/// Probe preparation failed.
-pub enum ProbeError {
-    /// The requested Upstream Target is not registered.
-    #[error("configured upstream target '{upstream_target}' does not exist")]
-    UnknownUpstreamTarget {
-        /// Missing internal target ID.
-        upstream_target: String,
-    },
-    /// The selected target is registered but disabled for all executable paths.
-    #[error("configured upstream target '{upstream_target}' is disabled")]
-    DisabledUpstreamTarget {
-        /// Disabled internal target ID.
-        upstream_target: String,
-    },
-    /// The trusted credential source cannot provide the required secret.
-    #[error("upstream credentials are unavailable for probe")]
-    CredentialUnavailable,
-    /// The adapter cannot build authentication headers for the probe.
-    #[error("provider authentication could not be prepared for probe")]
-    AuthenticationPreparation,
 }
 
 #[cfg(test)]

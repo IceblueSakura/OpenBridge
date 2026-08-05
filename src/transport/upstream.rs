@@ -10,27 +10,13 @@ use axum::body::Body;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use http::{HeaderMap, Method, StatusCode, Uri};
-use thiserror::Error;
 use url::Url;
 
 use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
 
-/// Error reported by upstream transport while building the client, sending a request, or enforcing timeouts.
-#[derive(Debug, Error)]
-pub enum TransportError {
-    /// The reqwest client cannot be built using bootstrap policy.
-    #[error("failed to construct the upstream HTTP client")]
-    ClientBuild(#[source] reqwest::Error),
-    /// The upstream request failed while sending or receiving.
-    #[error("upstream request failed")]
-    Request(#[source] reqwest::Error),
-    /// The upstream request exceeded the target timeout.
-    #[error("upstream request timed out")]
-    Timeout,
-    /// The adapter generated a URI with an authority, scheme, or invalid path.
-    #[error("provider adapter produced an invalid relative upstream target")]
-    InvalidTarget,
-}
+mod error;
+
+pub use error::TransportError;
 
 /// Minimal send contract between ingress and the real HTTP client/test transport.
 pub trait UpstreamTransport: Send + Sync {
