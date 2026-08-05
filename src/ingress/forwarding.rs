@@ -286,7 +286,9 @@ pub(super) async fn forward_request(
                                     protocol,
                                     adapter,
                                     max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
-                                    max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                                    max_json_body_bytes: registry
+                                        .limits()
+                                        .max_json_response_body_bytes(),
                                     bridge: candidate.bridge().cloned(),
                                     observation: observation.clone(),
                                 },
@@ -316,7 +318,7 @@ pub(super) async fn forward_request(
                             protocol,
                             adapter,
                             max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
-                            max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                            max_json_body_bytes: registry.limits().max_json_response_body_bytes(),
                             bridge: candidate.bridge().cloned(),
                             observation: observation.clone(),
                         },
@@ -368,7 +370,7 @@ pub(super) async fn forward_request(
                 protocol,
                 adapter: failure.adapter,
                 max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
-                max_json_body_bytes: registry.limits().max_request_body_bytes(),
+                max_json_body_bytes: registry.limits().max_json_response_body_bytes(),
                 bridge: failure.bridge,
                 observation,
             },

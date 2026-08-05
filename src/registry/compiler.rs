@@ -441,7 +441,11 @@ pub fn build_registry(
 
         // Compile the client-visible contract from the complete bindings; publish only the conservative intersection of executable Route capabilities.
         let id = public_model.id.clone();
-        let resolved = compile_public_model(public_model, &bindings);
+        let resolved = compile_public_model(
+            public_model,
+            &bindings,
+            bootstrap.limits().max_json_response_body_bytes(),
+        )?;
 
         // Build a unique Public Model index so one downstream model ID cannot map to multiple contracts.
         if public_models.insert(id.clone(), resolved).is_some() {

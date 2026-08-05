@@ -141,6 +141,33 @@ fn embedding_definition_compiles_into_the_typed_models_interface() {
 }
 
 #[test]
+fn embedding_compiler_derives_batch_limit_from_the_json_response_budget() {
+    // Force the worst-case 1,024-dimension float response to fit once but not twice.
+    let one_vector_budget = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 40000",
+    );
+    let registry = build_registry(bootstrap(&one_vector_budget), embedding_definition()).unwrap();
+    let actual =
+        serde_json::to_value(registry.public_model("embedding-test").unwrap().info()).unwrap();
+    assert_eq!(
+        actual["interfaces"]["embeddings"]["limits"]["max_inputs"],
+        1
+    );
+
+    // Reject startup when even one valid worst-case vector cannot fit the configured budget.
+    let impossible_budget = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 1024",
+    );
+    assert!(matches!(
+        build_registry(bootstrap(&impossible_budget), embedding_definition()),
+        Err(RegistryError::EmbeddingResponseBudgetTooSmall { public_model })
+            if public_model == "embedding-test"
+    ));
+}
+
+#[test]
 fn embedding_compiler_rejects_invalid_closed_contracts() {
     // Exercise each independently owned closed set, default, domain, limit, and parameter boundary.
     let cases: &[fn(&mut EmbeddingsCapabilities)] = &[

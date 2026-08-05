@@ -28,6 +28,7 @@ listen = "127.0.0.1:8080"
 users_file = "config/users.toml"
 upstream_credentials_file = "config/upstream-credentials.toml"
 max_request_body_bytes = 1048576
+max_json_response_body_bytes = 16777216
 max_sse_event_bytes = 262144
 upstream_connect_timeout_ms = 5000
 upstream_pool_idle_timeout_ms = 90000

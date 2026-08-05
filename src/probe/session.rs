@@ -65,7 +65,7 @@ pub async fn probe_upstream_target(
         transport,
         adapter,
         headers,
-        max_response_bytes: registry.limits().max_request_body_bytes(),
+        max_response_bytes: registry.limits().max_json_response_body_bytes(),
     };
 
     // Run each probe independently so one failure affects only its outcome.

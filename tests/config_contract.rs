@@ -41,6 +41,7 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
         std::path::Path::new("config/upstream-credentials.toml")
     );
     assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
+    assert_eq!(registry.limits().max_json_response_body_bytes(), 16_777_216);
     assert_eq!(
         registry.http_client().connect_timeout(),
         Duration::from_secs(5)
@@ -109,6 +110,23 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
         parse_bootstrap_config(&zero),
         Err(BootstrapConfigError::InvalidLimit {
             name: "max_sse_event_bytes"
+        })
+    ));
+
+    // Require an independent non-zero JSON response budget instead of deriving it from requests.
+    let missing_response_limit = BOOTSTRAP.replace("max_json_response_body_bytes = 16777216\n", "");
+    assert!(matches!(
+        parse_bootstrap_config(&missing_response_limit),
+        Err(BootstrapConfigError::Parse)
+    ));
+    let zero_response_limit = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 0",
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&zero_response_limit),
+        Err(BootstrapConfigError::InvalidLimit {
+            name: "max_json_response_body_bytes"
         })
     ));
 }

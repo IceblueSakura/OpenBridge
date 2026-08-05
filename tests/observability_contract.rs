@@ -70,6 +70,8 @@ struct ProviderMetricsJsonTransport;
 
 struct ProviderMetricsStreamingTransport;
 
+struct JsonResponseAboveRequestLimitTransport;
+
 impl UpstreamTransport for PendingStreamTransport {
     fn send<'a>(
         &'a self,
@@ -208,6 +210,30 @@ impl UpstreamTransport for ProviderMetricsStreamingTransport {
                 StatusCode::OK,
                 headers,
                 Body::from_stream(chunks),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for JsonResponseAboveRequestLimitTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Place usage after a body section larger than the independent downstream request limit.
+        let body = format!(
+            r#"{{"padding":"{}","usage":{{"prompt_tokens":13,"completion_tokens":5,"total_tokens":18}}}}"#,
+            "x".repeat(1_100_000)
+        );
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(body),
             ))
         })
     }
@@ -365,6 +391,29 @@ async fn completed_request_records_attempt_retry_and_confirmed_usage_once() {
     assert_eq!(provider_snapshot.attempts_started, 2);
     assert_eq!(provider_snapshot.attempts_completed, 1);
     assert_eq!(provider_snapshot.attempts_http_failed, 1);
+}
+
+#[tokio::test]
+async fn json_observation_uses_response_budget_not_downstream_request_limit() {
+    let (app, metrics) = app_with_transport(Arc::new(JsonResponseAboveRequestLimitTransport));
+
+    // Read a response larger than the 1 MiB request limit but below the 16 MiB response budget.
+    let response = app
+        .oneshot(request(
+            r#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 2_000_000).await.unwrap();
+    assert!(body.len() > 1_048_576);
+
+    // Capture usage located after the request-limit boundary exactly once.
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.usage_observations, 1);
+    assert_eq!(snapshot.input_tokens, 13);
+    assert_eq!(snapshot.output_tokens, 5);
+    assert_eq!(snapshot.total_tokens, 18);
 }
 
 #[tokio::test]

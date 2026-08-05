@@ -80,7 +80,7 @@ pub fn build_router(state: GatewayState) -> Router {
                 users: state.users.clone(),
                 credentials: state.credentials.clone(),
                 metrics: state.metrics.clone(),
-                max_json_body_bytes: state.registry.limits().max_request_body_bytes(),
+                max_json_body_bytes: state.registry.limits().max_json_response_body_bytes(),
                 max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
             },
             require_user,

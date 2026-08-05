@@ -21,6 +21,10 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
     }
     // Validate that all memory, timeout, and connection-pool limits are usable.
     validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
+    validate_nonzero(
+        "max_json_response_body_bytes",
+        raw.max_json_response_body_bytes,
+    )?;
     validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
     validate_nonzero(
         "upstream_connect_timeout_ms",
@@ -51,6 +55,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         upstream_credentials_file: raw.upstream_credentials_file,
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
+            max_json_response_body_bytes: raw.max_json_response_body_bytes,
             max_sse_event_bytes: raw.max_sse_event_bytes,
         },
         http_client: HttpClientConfig {

@@ -299,4 +299,12 @@ pub enum RegistryError {
         /// Public Model name containing the unsupported candidate set.
         public_model: String,
     },
+    /// The configured JSON response budget cannot contain one valid worst-case Embeddings result.
+    #[error(
+        "public model '{public_model}' cannot fit one Embeddings result within the JSON response budget"
+    )]
+    EmbeddingResponseBudgetTooSmall {
+        /// Public Model whose maximum dimension and encoding cannot fit the runtime response limit.
+        public_model: String,
+    },
 }

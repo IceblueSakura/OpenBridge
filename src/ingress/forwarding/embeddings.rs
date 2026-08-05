@@ -1,8 +1,8 @@
-//! Single-attempt Native Embeddings forwarding before bounded response validation is introduced.
+//! Single-attempt Native Embeddings forwarding with bounded success-response validation.
 //!
-//! Request analysis, fixed-interface preflight, and trusted egress are complete here. Response
-//! buffering/validation, replay eligibility, stable Embeddings errors, and operation-aware metrics
-//! remain owned by later current-focus stages.
+//! Request analysis, fixed-interface preflight, trusted egress, and pre-commit validation are
+//! complete here. Replay eligibility, stable errors, and operation-aware metrics remain owned by
+//! later current-focus stages.
 
 use std::collections::HashSet;
 
@@ -20,6 +20,8 @@ use super::super::{
     response::{api_error, filtered_upstream_headers, route_error, upstream_error},
     state::GatewayState,
 };
+
+mod response;
 
 /// Sends one preflighted Native Embeddings request to its single trusted candidate.
 pub(in crate::ingress) async fn forward_embeddings_request(
@@ -115,15 +117,40 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     };
     observation.record_attempt_http_result(1, upstream.status());
     if upstream.status().is_success() {
+        // Validate the complete bounded success before any downstream response bytes are committed.
+        let response = match response::validated_embedding_response(
+            upstream,
+            requirements.public_model(),
+            upstream_api.upstream_model(),
+            plan.input_count(),
+            plan.encoding(),
+            plan.dimensions(),
+            registry.limits().max_json_response_body_bytes(),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(_) => {
+                observation.record_stream_failure("invalid_upstream_response");
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "invalid_upstream_response",
+                    "The upstream response is invalid",
+                );
+            }
+        };
+
+        // Clear health state only after the upstream success body passes the endpoint contract.
         state
             .credential_health
             .record_success(credential_pool.id(), credential);
         state
             .health
             .record_success(candidate.upstream_target_id(), target);
+        return response;
     }
 
-    // Pass through the selected response only until stage 3 installs pre-commit bounded validation.
+    // Preserve non-success status and safe headers until the stage-5 error contract normalizes them.
     let status = upstream.status();
     let headers = filtered_upstream_headers(upstream.headers());
     let mut response = Response::builder()

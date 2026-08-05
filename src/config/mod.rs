@@ -73,7 +73,7 @@ impl BootstrapConfig {
         &self.upstream_credentials_file
     }
 
-    /// Returns runtime limits for request bodies and SSE events.
+    /// Returns independent runtime limits for request bodies, JSON responses, and SSE events.
     pub fn limits(&self) -> &RuntimeLimits {
         &self.limits
     }
@@ -84,10 +84,11 @@ impl BootstrapConfig {
     }
 }
 
-/// Memory boundaries for downstream requests and SSE events.
+/// Independent memory boundaries for downstream requests, JSON responses, and SSE events.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RuntimeLimits {
     max_request_body_bytes: usize,
+    max_json_response_body_bytes: usize,
     max_sse_event_bytes: usize,
 }
 
@@ -95,6 +96,11 @@ impl RuntimeLimits {
     /// Returns the maximum body size allowed for one downstream request.
     pub fn max_request_body_bytes(&self) -> usize {
         self.max_request_body_bytes
+    }
+
+    /// Returns the maximum successful non-streaming JSON response size buffered before commit.
+    pub fn max_json_response_body_bytes(&self) -> usize {
+        self.max_json_response_body_bytes
     }
 
     /// Returns the maximum size allowed for one SSE event.

@@ -1,8 +1,9 @@
-//! Verifies Embeddings request analysis, fixed-interface preflight, and trusted Native egress.
+//! Verifies Embeddings analysis, fixed preflight, trusted egress, and bounded success validation.
 
 mod support;
 
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -13,7 +14,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use http::{HeaderMap, Method};
+use http::{HeaderMap, HeaderValue, Method};
 use openbridge::{
     config::parse_bootstrap_config,
     core::{
@@ -63,9 +64,54 @@ struct RecordedEmbeddingRequest {
     body: Value,
 }
 
-#[derive(Default)]
 struct RecordingEmbeddingTransport {
     requests: Mutex<Vec<RecordedEmbeddingRequest>>,
+    responses: Mutex<VecDeque<SyntheticEmbeddingResponse>>,
+}
+
+struct SyntheticEmbeddingResponse {
+    status: StatusCode,
+    content_type: Option<HeaderValue>,
+    body: Vec<u8>,
+}
+
+impl SyntheticEmbeddingResponse {
+    /// Builds one synthetic JSON success response without retaining business payloads elsewhere.
+    fn json(body: Value) -> Self {
+        Self {
+            status: StatusCode::OK,
+            content_type: Some(HeaderValue::from_static("application/json")),
+            body: serde_json::to_vec(&body).unwrap(),
+        }
+    }
+
+    /// Builds one raw response for media-type, budget, or JSON-shape rejection cases.
+    fn raw(content_type: Option<&'static str>, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            status: StatusCode::OK,
+            content_type: content_type.map(HeaderValue::from_static),
+            body: body.into(),
+        }
+    }
+
+    /// Converts the owned synthetic response into the transport contract.
+    fn into_upstream(self) -> UpstreamResponse {
+        let mut headers = HeaderMap::new();
+        if let Some(content_type) = self.content_type {
+            headers.insert(CONTENT_TYPE, content_type);
+        }
+        UpstreamResponse::new(self.status, headers, Body::from(self.body))
+    }
+}
+
+impl RecordingEmbeddingTransport {
+    /// Creates an isolated recorder with optional ordered upstream responses.
+    fn new(responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>) -> Self {
+        Self {
+            requests: Mutex::new(Vec::new()),
+            responses: Mutex::new(responses.into_iter().collect()),
+        }
+    }
 }
 
 impl UpstreamTransport for RecordingEmbeddingTransport {
@@ -92,24 +138,61 @@ impl UpstreamTransport for RecordingEmbeddingTransport {
                 .map(str::to_owned),
             body: serde_json::from_slice(request.body()).unwrap(),
         };
+        let default_response = valid_embedding_response(&recorded.body);
         self.requests.lock().unwrap().push(recorded);
 
-        // Return a synthetic body; bounded validation and model projection belong to stage 3.
-        Box::pin(async {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                http::HeaderValue::from_static("application/json"),
-            );
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                headers,
-                Body::from(
-                    r#"{"object":"list","data":[],"model":"embedding-upstream","usage":{"prompt_tokens":0,"total_tokens":0}}"#,
-                ),
-            ))
-        })
+        // Return the ordered rejection fixture or a valid response derived from the request shape.
+        let response = self
+            .responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or(default_response);
+        Box::pin(async move { Ok(response.into_upstream()) })
     }
+}
+
+/// Builds a valid response for the existing request/egress cases after response validation lands.
+fn valid_embedding_response(request: &Value) -> SyntheticEmbeddingResponse {
+    // Derive only the public input count, effective encoding, and dimension from the synthetic request.
+    let input = &request["input"];
+    let input_count = match input {
+        Value::String(_) => 1,
+        Value::Array(values) if values.first().is_some_and(Value::is_number) => 1,
+        Value::Array(values) => values.len(),
+        _ => unreachable!("preflighted test input has one supported shape"),
+    };
+    let encoding = request["encoding_format"].as_str().unwrap_or("float");
+    let dimensions = request["dimensions"].as_u64().unwrap_or(4) as usize;
+
+    // Preserve one deterministic vector per logical input in canonical order.
+    let data = (0..input_count)
+        .map(|index| {
+            let embedding = match encoding {
+                "float" => Value::Array(
+                    (0..dimensions)
+                        .map(|offset| json!((index * dimensions + offset + 1) as f64 / 10.0))
+                        .collect(),
+                ),
+                "base64" if dimensions == 2 => json!("AQIDBAUGBwg="),
+                _ => unreachable!("synthetic cases use only supported encoding dimensions"),
+            };
+            json!({
+                "object": "embedding",
+                "embedding": embedding,
+                "index": index
+            })
+        })
+        .collect::<Vec<_>>();
+    SyntheticEmbeddingResponse::json(json!({
+        "object": "list",
+        "data": data,
+        "model": "embedding-upstream",
+        "usage": {
+            "prompt_tokens": input_count,
+            "total_tokens": input_count
+        }
+    }))
 }
 
 fn embedding_capabilities() -> EmbeddingsCapabilities {
@@ -189,12 +272,25 @@ fn embedding_registry_definition() -> RegistryConfig {
 }
 
 fn app() -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
+    app_with_bootstrap_and_responses(BOOTSTRAP, [])
+}
+
+fn app_with_responses(
+    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
+    app_with_bootstrap_and_responses(BOOTSTRAP, responses)
+}
+
+fn app_with_bootstrap_and_responses(
+    bootstrap_document: &str,
+    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
     // Compile the synthetic mixed-operation registry and inject isolated test credentials/transport.
-    let bootstrap = parse_bootstrap_config(BOOTSTRAP).unwrap();
+    let bootstrap = parse_bootstrap_config(bootstrap_document).unwrap();
     let registry = Arc::new(build_registry(bootstrap, embedding_registry_definition()).unwrap());
     let (users, credentials) =
         users_and_credentials(DOWNSTREAM_KEY, &registry, "upstream-test-key");
-    let transport = Arc::new(RecordingEmbeddingTransport::default());
+    let transport = Arc::new(RecordingEmbeddingTransport::new(responses));
     let state = GatewayState::new(registry, transport.clone(), users, credentials);
     (build_router(state), transport)
 }
@@ -286,6 +382,219 @@ async fn omitted_fields_resolve_interface_defaults_without_adapter_invention() {
     assert!(requests[0].body.get("encoding_format").is_none());
     assert!(requests[0].body.get("dimensions").is_none());
     assert!(requests[0].body.get("user").is_none());
+}
+
+#[tokio::test]
+async fn bounded_success_response_projects_model_and_preserves_embedding_values() {
+    let float_response = SyntheticEmbeddingResponse::json(json!({
+        "object": "list",
+        "data": [
+            {"object":"embedding","embedding":[0.25,-0.5],"index":0},
+            {"object":"embedding","embedding":[1.25,2.5],"index":1}
+        ],
+        "model": "embedding-upstream",
+        "usage": {"prompt_tokens":7,"total_tokens":7}
+    }));
+    let base64_response = SyntheticEmbeddingResponse::json(json!({
+        "object": "list",
+        "data": [
+            {"object":"embedding","embedding":"AQIDBAUGBwg=","index":0}
+        ],
+        "model": "embedding-upstream",
+        "usage": {"prompt_tokens":3,"total_tokens":3}
+    }));
+    let (app, transport) = app_with_responses([float_response, base64_response]);
+
+    // Validate and project a float response without changing vector values or input order.
+    let response = app
+        .clone()
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":["alpha","beta"],
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    let actual: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4_096).await.unwrap()).unwrap();
+    assert_eq!(actual["object"], "list");
+    assert_eq!(actual["model"], "embedding-test");
+    assert_eq!(actual["data"][0]["embedding"], json!([0.25, -0.5]));
+    assert_eq!(actual["data"][0]["index"], 0);
+    assert_eq!(actual["data"][1]["embedding"], json!([1.25, 2.5]));
+    assert_eq!(actual["data"][1]["index"], 1);
+    assert_eq!(actual["usage"], json!({"prompt_tokens":7,"total_tokens":7}));
+
+    // Preserve an already encoded base64 vector byte-for-byte while projecting only the model.
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":"alpha",
+            "encoding_format":"base64",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actual: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4_096).await.unwrap()).unwrap();
+    assert_eq!(actual["model"], "embedding-test");
+    assert_eq!(actual["data"][0]["embedding"], "AQIDBAUGBwg=");
+    assert_eq!(actual["usage"], json!({"prompt_tokens":3,"total_tokens":3}));
+    assert_eq!(transport.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() {
+    let valid_body = || {
+        json!({
+            "object":"list",
+            "data":[{"object":"embedding","embedding":[0.25,-0.5],"index":0}],
+            "model":"embedding-upstream",
+            "usage":{"prompt_tokens":1,"total_tokens":1}
+        })
+    };
+    let invalid_cases = [
+        SyntheticEmbeddingResponse::raw(
+            Some("text/plain"),
+            serde_json::to_vec(&valid_body()).unwrap(),
+        ),
+        SyntheticEmbeddingResponse::raw(Some("application/json"), b"{".to_vec()),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"collection","data":[{"object":"embedding","embedding":[0.25,-0.5],"index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":[0.25,-0.5],"index":0}],
+            "model":"different-upstream-model","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[],"model":"embedding-upstream",
+            "usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":[0.25,-0.5],"index":1}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"vector","embedding":[0.25,-0.5],"index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":"not-float","index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":[0.25],"index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":[0.25,-0.5],"index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":"one","total_tokens":1}
+        })),
+        SyntheticEmbeddingResponse::json(json!({
+            "object":"list","data":[{"object":"embedding","embedding":[0.25,-0.5],"index":0}],
+            "model":"embedding-upstream","usage":{"prompt_tokens":1,"total_tokens":1},
+            "internal_target":"must-not-leak"
+        })),
+    ];
+
+    // Reject every invalid success body after exactly one upstream call without echoing its contents.
+    for response in invalid_cases {
+        let (app, transport) = app_with_responses([response]);
+        let response = app
+            .oneshot(embedding_request(json!({
+                "model":"embedding-test",
+                "input":"alpha",
+                "encoding_format":"float",
+                "dimensions":2
+            })))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = to_bytes(response.into_body(), 4_096).await.unwrap();
+        assert!(
+            !std::str::from_utf8(&body)
+                .unwrap()
+                .contains("must-not-leak")
+        );
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    // Enforce the response budget before parsing and never truncate or pass through an oversized body.
+    let constrained_bootstrap = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 512",
+    );
+    let oversized = SyntheticEmbeddingResponse::raw(
+        Some("application/json"),
+        format!(r#"{{"sentinel":"{}"}}"#, "x".repeat(600)).into_bytes(),
+    );
+    let (app, transport) = app_with_bootstrap_and_responses(&constrained_bootstrap, [oversized]);
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":"alpha",
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4_096).await.unwrap();
+    assert!(
+        !std::str::from_utf8(&body)
+            .unwrap()
+            .contains(&"x".repeat(32))
+    );
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn invalid_base64_length_is_rejected_for_the_effective_dimension() {
+    let response = SyntheticEmbeddingResponse::json(json!({
+        "object":"list",
+        "data":[{"object":"embedding","embedding":"AQ==","index":0}],
+        "model":"embedding-upstream",
+        "usage":{"prompt_tokens":1,"total_tokens":1}
+    }));
+    let (app, transport) = app_with_responses([response]);
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":"alpha",
+            "encoding_format":"base64",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn compiler_derived_response_batch_limit_is_enforced_before_egress() {
+    let constrained_bootstrap = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 400",
+    );
+    let (app, transport) = app_with_bootstrap_and_responses(&constrained_bootstrap, []);
+
+    // The declared max of two is narrowed to one by the worst-case response serialization bound.
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":["alpha","beta"],
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(transport.requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -413,7 +722,7 @@ async fn embedding_endpoint_is_authenticated_and_json_only_before_egress() {
 }
 
 #[test]
-fn checked_in_catalog_remains_generation_only_during_synthetic_egress_stage() {
+fn checked_in_catalog_remains_generation_only_before_registration_stage() {
     // Keep Embeddings callable only through this stage's synthetic registry fixture.
     let definition = compiled_config();
     assert!(
