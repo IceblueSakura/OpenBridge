@@ -24,6 +24,26 @@ The main repository areas are:
 - `testdata/`: canonical protocol corpus and schemas.
 - `tools/corpus/`: the independent Python mock/testkit tooling for the protocol corpus.
 
+## Module Boundaries
+
+- Split modules by ownership or independent protocol domain, not by line count. A large file that owns one state
+  machine, store, transport boundary, or compiler rule set may remain cohesive.
+- Keep a module root as a small facade when it has multiple child responsibilities. Preserve existing public crate paths
+  through explicit re-exports instead of making private submodule paths part of the API.
+- `src/core/capability.rs` combines capability domains only at `ApiCapabilities`; generation rules belong in
+  `core/capability/generation.rs`, while Embeddings input, encoding, dimension, and limit rules belong in
+  `core/capability/embeddings.rs`.
+- `src/pipeline/analysis.rs` is the analysis facade. Chat/Responses request facts belong in
+  `pipeline/analysis/generation.rs`; the closed Embeddings request union belongs in
+  `pipeline/analysis/embeddings.rs`. Neither analyzer may resolve registry entities or select Routes.
+- `src/registry/public_model.rs` owns only downstream-safe Models DTOs and their preflight accessors.
+  `public_model/execution.rs` owns private operation interfaces and candidates;
+  `public_model/compiler.rs` orchestrates startup compilation; its `contract.rs` and `embedding_budget.rs` children own
+  conservative aggregation and checked Embeddings response-budget narrowing. Do not serialize execution topology or
+  move request-time routing into these compiler modules.
+- Keep the existing Provider and canonical Model ownership conventions: Provider family roots aggregate their trusted
+  definition/registration modules, and developer roots aggregate explicit per-model leaf definitions.
+
 ## Sources of Truth
 
 Read [README.md](README.md) and [docs/README.md](docs/README.md) before making non-trivial behavioral or architectural

@@ -56,6 +56,36 @@ TOML 显式配置的 OpenBridge-owned `auth_json_file` 进入独立启动快照�
 identity 探测或专用 ChatGPT probe。当前仍没有 token 获取、PKCE/device login、refresh、数据面接入、热更新或 401
 refresh/retry 行为。
 
+### 2026-08-05 `src` 模块职责收敛
+
+- 对 `src` 全量模块树、根模块重导出、主要类型/函数、文件体量和跨层数据流完成结构审计；按“独立变化原因”而不是行数识别出三个混合职责根文件，
+  其余较大的 Bridge/SSE 状态机、Credential Store、Observability、Provider adapter 与 registry validation/compiler 文件仍保持单一责任，
+  未做机械拆分；
+- `core/capability.rs` 现在只作为 capability facade 并组合 `ApiCapabilities`；Chat/Responses generation 与 Embeddings 的字段、校验和
+  subset 规则分别位于 `core/capability/generation.rs`、`embeddings.rs`；
+- `pipeline/analysis.rs` 现在只重导出 operation-specific analyzer；Chat/Responses 请求事实与严格 Embeddings request union 分别位于
+  `pipeline/analysis/generation.rs`、`embeddings.rs`，二者仍不查询 registry、不选择 Route、不改写 body；
+- `registry/public_model.rs` 只保留下游安全 DTO 与 preflight accessor；私有 execution interface/candidate、编译编排、Route 契约贡献/保守
+  交集和 Embeddings response budget 分别进入 `public_model/execution.rs`、`compiler.rs`、`compiler/contract.rs` 与
+  `compiler/embedding_budget.rs`。Registry 总编译器仍经原 facade 调用，公共 Models serialization 不包含执行拓扑；
+- `openbridge::core::*`、`openbridge::pipeline::*`、`openbridge::registry::*` 的既有重导出和全部运行行为保持不变。功能需求将物理文件布局从
+  产品契约中移除，当前模块树与维护约束分别同步到当前代码架构和 `AGENTS.md`。
+
+改动前后实际执行并通过：
+
+```text
+cargo test --locked
+cargo check --locked
+cargo fmt -- --check
+cargo test --locked --test capability_definition_contract --test embedding_definition_contract --test embedding_registry_contract --test native_routing_contract
+cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
+```
+
+本轮没有修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；两个外部客户端测试保持 ignored。未运行外部 SDK、真实
+Provider、Agent runtime、负载或长期验收；本次结构 refactor 不把确定性回归提升为这些外部兼容证据。
+
 ### 2026-08-05 OpenBridge-owned OAuth2 启动快照
 
 - upstream credential schema v1 的每个 `credential_pools` 项现在是互斥 union：API-key binding 使用有序 `api_keys`，OAuth2 binding

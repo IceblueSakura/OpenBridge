@@ -30,12 +30,13 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 
 ## 2. 代码注册表要求
 
-- 每个具体 Provider 由 `src/providers/<provider>.rs` 根模块聚合，并在同名目录内分别拥有静态 definition 与可选
-  registration；具体 Provider 不使用 `mod.rs`，同一 wire family 的协议机制可以由闭合的编译期模块共享；
+本节约束逻辑所有权和受信装配结果，不把当前 Rust 文件名、目录层级或 facade 形式固化为产品契约。当前物理模块边界见
+[当前代码架构](../implementation-status/current-architecture.md)，维护规则见仓库 `AGENTS.md`。
+
+- 每个具体 Provider family 必须有唯一、闭合的静态 definition owner；同一 wire family 的协议机制可以由受信编译期代码共享；
 - 静态 Provider definition 不自动构成运行链路；只有显式加入 compiled target、Route 与 Public Model 后才可被请求选择；
-- 同一模型研发者命名空间由一个 `src/models/<developer>.rs` 根模块聚合；`src/models/<developer>/` 下每个扁平叶模块只定义一个具体
-  Model，并以研发者与模型 slug 组成 snake_case 模块名；每个具体 Model 仍完整声明自身事实；
-- `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
+- 每个 canonical Model 必须由一个显式定义完整拥有自身事实；目录聚合不能提供会隐式扩大单个 Model 能力的运行时默认值；
+- 编译目录必须只有一个显式 composition root；Provider、Model、Target、API、Route 与 Public Model 不得通过链接器、反射或文件扫描自动注册；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界和 credential kind；
 - Provider 实例绑定一个 `ProviderKind` 与一个受信 BaseURL；同一 Family 的不同区域或其他多 URL 部署必须注册为不同实例，不能由
@@ -173,7 +174,7 @@ read bootstrap.toml
 | CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning/level 映射和不安全 URL 在监听前失败。                                                                |
 | CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 仅能经受信 Provider 代码 hook 转换，不能由业务请求选择转换规则。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。                                                                                        |
-| CFG-05 | 每个 Provider 由独立文件实现，并由单一显式 registry 函数注册。                                                                                                 |
+| CFG-05 | 每个 Provider family 由独立、闭合的 definition owner 管理，并经单一显式 composition root 注册；不存在自动注册。                                             |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。                                                                                                        |
 | CFG-07 | listener 只允许 loopback；非 loopback 地址必须在监听前拒绝。                                                                                                   |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。                                                                                          |

@@ -63,6 +63,28 @@ Route；transport 不解释模型和协议能力。
 `*Result` 表示一次操作结果，`*Error` 表示失败。`UpstreamTransport` 是当前唯一公开 trait，只用于隔离真实 HTTP 发送与可控
 transport；Provider 的请求、认证、SSE 和错误处理统一由闭合 `ProviderAdapter` 直接分派， 不再拆成多组单方法 trait。
 
+### 1.2 源码模块所有权
+
+当前模块按独立责任和协议域拆分，不以文件行数作为边界。单一状态机、Store、transport 或编译规则即使较大仍保持内聚；只有同时拥有
+不同变化原因的文件才下沉私有子模块。`mod.rs`、`*.rs` facade 与同名目录只是 Rust 物理组织，不构成下游兼容契约。
+
+| 责任域                    | 当前模块                                                                                                  | 边界                                                                                         |
+|---------------------------|-----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| 进程装配与启动输入        | `main.rs`、`config/*`、`identity.rs`、`upstream_credentials.rs`、`oauth2_credentials.rs`                  | 启动时读取、校验并冻结配置；不进入请求期动态注册                                             |
+| Credential 存储          | `credential.rs`                                                                                           | 统一 purpose-bound secret Store 与受限借用；不拥有文件格式或 Route                           |
+| 协议与能力事实            | `core/request.rs`、`core/capability.rs`、`core/capability/{generation,embeddings}.rs`                     | facade 只汇总公共类型；generation 与 Embeddings 的字段、校验和 subset 规则分域               |
+| Canonical Model/Provider  | `models/*`、`provider/*`、`providers/*`                                                                   | Model 事实、Provider 抽象与受信具体实现分开；显式 catalog 负责装配                            |
+| Registry                  | `registry/{definition,runtime,validation,compiler}.rs`、`registry/public_model*`                          | 配置、校验、运行实体、公共 DTO、私有执行快照和编译算法不互相混放                             |
+| 请求分析与规划            | `pipeline/analysis*`、`pipeline/{types,preflight,planning,error}.rs`                                      | analysis 只提取请求事实；preflight 只读固定契约；planning 只消费同一执行接口的固定候选        |
+| HTTP 与上游传输           | `ingress/*`、`transport/*`                                                                                | ingress 拥有认证、响应与 attempt 生命周期；transport 只发送受信相对请求并处理 HTTP/SSE framing |
+| Protocol Bridge          | `bridge.rs`、`bridge/*`                                                                                   | facade、请求/响应转换与双协议 stream 状态机分开；不选择 Provider 或 Route                     |
+| 观测与管理员探测          | `observability.rs`、`observability/*`、`probe.rs`、`probe/*`                                              | 观测不保存业务正文或 secret；probe 只使用已注册且显式选择的 target                            |
+
+本轮结构审计将三个混合职责的根文件收敛为 facade：`core/capability.rs` 按 generation/Embeddings 分域，
+`pipeline/analysis.rs` 按 generation/Embeddings 请求分析分域，`registry/public_model.rs` 将下游 DTO、私有执行快照、契约聚合与
+Embeddings response budget 编译分开。原有 `openbridge::core::*`、`openbridge::pipeline::*`、`openbridge::registry::*` 重导出路径和
+运行数据流保持不变。
+
 ## 2. 装配与配置层
 
 实现位置：`src/main.rs`、`src/config/*`、`src/providers/catalog.rs` 与
@@ -98,9 +120,14 @@ BootstrapConfigPath::load
 ## 3. 注册表层
 
 实现位置：`src/registry/definition.rs`、`src/registry/runtime.rs`、`src/registry/public_model.rs`、
-`src/registry/compiler.rs`、
+`src/registry/public_model/execution.rs`、`src/registry/public_model/compiler.rs`、
+`src/registry/public_model/compiler/{contract,embedding_budget}.rs`、`src/registry/compiler.rs`、
 `src/registry/validation.rs`、`src/models/*`、`src/providers/*`；`src/registry/mod.rs`
 只保留包入口与公共重导出。
+
+`public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；`execution.rs` 保存不序列化的 operation interface/candidate；
+`compiler.rs` 只编排静态候选与投影构建，`contract.rs` 负责每 Route 贡献和保守交集，`embedding_budget.rs` 负责 checked
+worst-case JSON budget。Registry 总编译器仍通过 facade 调用这一边界，不依赖私有子模块路径。
 
 ```text
 RegistryConfig
@@ -185,8 +212,13 @@ URL、credential 或内部 route ID。
 
 ## 5. 请求分析与路由层
 
-实现位置：`src/core/*`、`src/pipeline/types.rs`、`src/pipeline/analysis.rs`、
+实现位置：`src/core/request.rs`、`src/core/capability.rs`、`src/core/capability/{generation,embeddings}.rs`、
+`src/pipeline/types.rs`、`src/pipeline/analysis.rs`、`src/pipeline/analysis/{generation,embeddings}.rs`、
 `src/pipeline/preflight.rs`、`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
+
+`core/capability.rs` 只在 `ApiCapabilities` 汇总 operation family；generation 与 Embeddings 子模块分别拥有自己的闭合字段、校验和
+subset 规则。`pipeline/analysis.rs` 只重导出两个 analyzer：generation analyzer 处理 Chat/Responses 请求事实，Embeddings analyzer
+处理严格 input union 与 endpoint 字段；二者都不查询 registry、不构造 RoutePlan，也不改写 body。
 
 ```text
 raw body + downstream operation
