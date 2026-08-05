@@ -6,24 +6,16 @@ use std::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::{Duration, SystemTime},
 };
 
 use axum::body::Body;
-use bytes::Bytes;
-use futures_util::{future::BoxFuture, stream};
-use http::{
-    HeaderMap, HeaderValue, Method, StatusCode,
-    header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
-};
+use futures_util::future::BoxFuture;
+use http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
-use super::{
-    ProbeError, ProbeOptions, SupportStatus, probe_chatgpt_upstream_target, probe_upstream_target,
-};
+use super::{ProbeError, ProbeOptions, SupportStatus, probe_upstream_target};
 use crate::{
-    codex_identity::CodexRequestIdentity,
     config::parse_bootstrap_config,
     credential::{CredentialMetadata, CredentialSource, CredentialStore, CredentialStoreBuilder},
     provider::PreparedUpstreamRequest,
@@ -31,262 +23,6 @@ use crate::{
     registry::{RuntimeRegistry, UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
-
-#[derive(Default)]
-struct ChatGptFixtureTransport {
-    requests: Mutex<Vec<(Method, String, Value, HeaderMap)>>,
-}
-
-impl UpstreamTransport for ChatGptFixtureTransport {
-    fn send<'a>(
-        &'a self,
-        target: &'a UpstreamTarget,
-        request: PreparedUpstreamRequest,
-        headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        Box::pin(async move {
-            // Capture the trusted endpoint, exact relative URI, body, and assembled header boundary.
-            assert_eq!(
-                target.endpoint_base().as_str(),
-                "https://chatgpt.com/backend-api/codex/"
-            );
-            let body = if request.body().is_empty() {
-                Value::Null
-            } else {
-                serde_json::from_slice(request.body()).unwrap()
-            };
-            self.requests.lock().unwrap().push((
-                request.method().clone(),
-                request.relative_uri().to_string(),
-                body,
-                headers,
-            ));
-
-            // Return the Codex models envelope or deliberately fragmented Responses SSE terminal.
-            if request.relative_uri().path() == "/models" {
-                return Ok(UpstreamResponse::new(
-                    StatusCode::OK,
-                    HeaderMap::new(),
-                    Body::from(
-                        json!({"models": [{"slug": "gpt-5.6-sol"}, {"slug": "other-model"}]})
-                            .to_string(),
-                    ),
-                ));
-            }
-            if request.relative_uri().path() == "/responses" {
-                let chunks = stream::iter([
-                    Ok::<_, std::io::Error>(Bytes::from_static(
-                        b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"O",
-                    )),
-                    Ok::<_, std::io::Error>(Bytes::from_static(
-                        b"K\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\"}}\n\n",
-                    )),
-                ]);
-                let mut response_headers = HeaderMap::new();
-                response_headers.insert(
-                    CONTENT_TYPE,
-                    HeaderValue::from_static("text/event-stream; charset=utf-8"),
-                );
-                return Ok(UpstreamResponse::new(
-                    StatusCode::OK,
-                    response_headers,
-                    Body::from_stream(chunks),
-                ));
-            }
-            Ok(UpstreamResponse::new(
-                StatusCode::NOT_FOUND,
-                HeaderMap::new(),
-                Body::empty(),
-            ))
-        })
-    }
-}
-
-#[tokio::test]
-async fn chatgpt_probe_matches_codex_identity_models_and_responses_sse() {
-    // Build a synthetic Codex identity and account-bound credential without reading local state.
-    let registry = registry();
-    let identity = CodexRequestIdentity::for_test("Windows", "11", "x86_64", "WindowsTerminal/1.0");
-    let target = registry.upstream_target("chatgpt-gpt-5-6-sol").unwrap();
-    assert_eq!(
-        target
-            .upstream_api(crate::core::OperationKind::Responses)
-            .unwrap()
-            .upstream_model(),
-        "gpt-5.6-sol"
-    );
-    let credentials = chatgpt_credentials(&registry);
-    let transport = ChatGptFixtureTransport::default();
-
-    // Run only the two first-stage operations through the dedicated identity-bound entry point.
-    let report = probe_chatgpt_upstream_target(
-        &registry,
-        "chatgpt-gpt-5-6-sol",
-        &transport,
-        &credentials,
-        ProbeOptions {
-            list_models: true,
-            responses: true,
-            ..ProbeOptions::default()
-        },
-        &identity,
-    )
-    .await
-    .unwrap();
-    let list_models = report.list_models.as_ref().unwrap();
-    assert_eq!(list_models.outcome.state, SupportStatus::Supported);
-    assert_eq!(list_models.configured_model_listed, Some(true));
-    assert_eq!(list_models.model_ids, ["gpt-5.6-sol", "other-model"]);
-    assert_eq!(
-        report.responses.as_ref().unwrap().state,
-        SupportStatus::Supported
-    );
-    assert!(report.chat.is_none());
-    assert!(report.chat_function_calling.is_none());
-    assert!(report.responses_function_calling.is_none());
-    let compatibility = report.codex_compatibility.as_ref().unwrap();
-    assert!(compatibility.user_agent_matches_reference_profile);
-    assert_eq!(compatibility.profile_version, "0.145.0");
-    assert_eq!(compatibility.platform_family, std::env::consts::FAMILY);
-    assert_eq!(compatibility.platform_os, std::env::consts::OS);
-
-    // Verify the fixed paths, query, request body, and exact Codex request identity.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0].0, Method::GET);
-    assert_eq!(requests[0].1, "/models?client_version=0.145.0");
-    assert_eq!(requests[1].0, Method::POST);
-    assert_eq!(requests[1].1, "/responses");
-    assert_eq!(requests[1].2["model"], "gpt-5.6-sol");
-    assert_eq!(requests[1].2["stream"], true);
-    assert_eq!(requests[1].2["store"], false);
-    assert_eq!(requests[1].2["tool_choice"], "auto");
-    assert_eq!(requests[1].2["parallel_tool_calls"], false);
-    for (_, _, _, headers) in requests.iter() {
-        assert_eq!(
-            headers[USER_AGENT],
-            "codex_cli_rs/0.145.0 (Windows 11; x86_64) WindowsTerminal/1.0"
-        );
-        assert_eq!(headers["originator"], "codex_cli_rs");
-        assert!(!headers.contains_key("version"));
-        assert_eq!(headers[AUTHORIZATION], "Bearer access-token-sensitive");
-        assert_eq!(headers["chatgpt-account-id"], "account-sensitive");
-        assert_eq!(headers["x-openai-fedramp"], "true");
-        assert!(headers[AUTHORIZATION].is_sensitive());
-        assert!(headers["chatgpt-account-id"].is_sensitive());
-        assert!(headers["x-openai-fedramp"].is_sensitive());
-    }
-    assert!(!requests[0].3.contains_key(ACCEPT));
-    assert_eq!(requests[1].3[ACCEPT], "text/event-stream");
-
-    // Ensure the serialized report and Debug identity omit every raw request credential and UA.
-    let output = serde_json::to_string(&report).unwrap();
-    let debug = format!("{identity:?}");
-    for forbidden in [
-        "access-token-sensitive",
-        "account-sensitive",
-        "WindowsTerminal/1.0",
-    ] {
-        assert!(!output.contains(forbidden));
-        assert!(!debug.contains(forbidden));
-    }
-}
-
-#[tokio::test]
-async fn chatgpt_responses_probe_fails_closed_without_one_unique_success_terminal() {
-    // Build the dedicated credential and source-compatible identity once for each isolated case.
-    let registry = registry();
-    let credentials = chatgpt_credentials(&registry);
-    let identity = CodexRequestIdentity::for_test("Windows", "11", "x86_64", "WindowsTerminal/1.0");
-    let selection = ProbeOptions {
-        responses: true,
-        ..ProbeOptions::default()
-    };
-
-    // Reject EOF without completion, duplicate completion, and explicit failure terminals.
-    for body in [
-        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n",
-        "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\"}\n\n",
-        "event: response.failed\ndata: {\"type\":\"response.failed\"}\n\n",
-    ] {
-        let transport = StaticTransport::event_stream(body.as_bytes().to_vec());
-        let report = probe_chatgpt_upstream_target(
-            &registry,
-            "chatgpt-gpt-5-6-sol",
-            &transport,
-            &credentials,
-            selection,
-            &identity,
-        )
-        .await
-        .unwrap();
-        assert_eq!(report.responses.unwrap().state, SupportStatus::Unknown);
-        assert_eq!(transport.requests.load(Ordering::Relaxed), 1);
-    }
-
-    // Accept Codex-framed SSE even when the backend omits Content-Type, as its client does.
-    let completed = b"event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n";
-    let missing_content_type = StaticTransport::response(StatusCode::OK, completed.to_vec());
-    let report = probe_chatgpt_upstream_target(
-        &registry,
-        "chatgpt-gpt-5-6-sol",
-        &missing_content_type,
-        &credentials,
-        selection,
-        &identity,
-    )
-    .await
-    .unwrap();
-    assert_eq!(report.responses.unwrap().state, SupportStatus::Supported);
-
-    // Never retry an authentication error during the read-only first stage.
-    let unauthorized = StaticTransport::response(StatusCode::UNAUTHORIZED, Vec::new());
-    let report = probe_chatgpt_upstream_target(
-        &registry,
-        "chatgpt-gpt-5-6-sol",
-        &unauthorized,
-        &credentials,
-        selection,
-        &identity,
-    )
-    .await
-    .unwrap();
-    let outcome = report.responses.unwrap();
-    assert_eq!(outcome.state, SupportStatus::Unknown);
-    assert_eq!(outcome.http_status, Some(StatusCode::UNAUTHORIZED.as_u16()));
-    assert_eq!(unauthorized.requests.load(Ordering::Relaxed), 1);
-
-    // Enforce the configured per-event and total-body limits before accepting a terminal.
-    let event_limited_registry = registry_with_sse_limit(32);
-    let credentials = chatgpt_credentials(&event_limited_registry);
-    let transport = StaticTransport::event_stream(completed.to_vec());
-    let report = probe_chatgpt_upstream_target(
-        &event_limited_registry,
-        "chatgpt-gpt-5-6-sol",
-        &transport,
-        &credentials,
-        selection,
-        &identity,
-    )
-    .await
-    .unwrap();
-    assert_eq!(report.responses.unwrap().state, SupportStatus::Unknown);
-
-    let body_limited_registry = registry_with_response_limit(1_000_000);
-    let credentials = chatgpt_credentials(&body_limited_registry);
-    let transport = StaticTransport::event_stream(vec![b'x'; 1_000_001]);
-    let report = probe_chatgpt_upstream_target(
-        &body_limited_registry,
-        "chatgpt-gpt-5-6-sol",
-        &transport,
-        &credentials,
-        selection,
-        &identity,
-    )
-    .await
-    .unwrap();
-    assert_eq!(report.responses.unwrap().state, SupportStatus::Unknown);
-}
 
 const BOOTSTRAP: &str = r#"
 schema_version = 2
@@ -337,42 +73,8 @@ fn registry_with_response_limit(max_response_bytes: usize) -> RuntimeRegistry {
     build_registry(parse_bootstrap_config(&bootstrap).unwrap(), definition).unwrap()
 }
 
-fn registry_with_sse_limit(max_sse_event_bytes: usize) -> RuntimeRegistry {
-    // Override only the per-event SSE budget in the standard bootstrap fixture.
-    let bootstrap = BOOTSTRAP.replace(
-        "max_sse_event_bytes = 262144",
-        &format!("max_sse_event_bytes = {max_sse_event_bytes}"),
-    );
-    build_registry(
-        parse_bootstrap_config(&bootstrap).unwrap(),
-        providers::compiled_config(),
-    )
-    .unwrap()
-}
-
 fn credentials(registry: &RuntimeRegistry) -> CredentialStore {
     credentials_for_target(registry, "openai-main")
-}
-
-fn chatgpt_credentials(registry: &RuntimeRegistry) -> CredentialStore {
-    // Build one complete synthetic account-bound OAuth credential for the disabled probe target.
-    let target = registry.upstream_target("chatgpt-gpt-5-6-sol").unwrap();
-    let pool = registry
-        .credential_pool(target.credential_pool_id())
-        .unwrap();
-    let mut credentials = CredentialStoreBuilder::new();
-    credentials
-        .insert_chatgpt_oauth_member(
-            pool.id(),
-            "chatgpt-codex#1",
-            SecretString::from("access-token-sensitive"),
-            SecretString::from("account-sensitive"),
-            true,
-            CredentialMetadata::upstream(pool.kind(), CredentialSource::Programmatic)
-                .with_expires_at(SystemTime::now() + Duration::from_secs(3_600)),
-        )
-        .unwrap();
-    credentials.build()
 }
 
 fn credentials_for_target(registry: &RuntimeRegistry, target_id: &str) -> CredentialStore {
@@ -485,16 +187,6 @@ impl StaticTransport {
             fails: false,
             requests: AtomicUsize::new(0),
         }
-    }
-
-    fn event_stream(body: impl Into<Vec<u8>>) -> Self {
-        // Attach the fixed SSE response type while retaining the standard request counter.
-        let mut transport = Self::response(StatusCode::OK, body);
-        transport.headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("text/event-stream; charset=utf-8"),
-        );
-        transport
     }
 
     fn failure() -> Self {
@@ -674,6 +366,34 @@ async fn probe_rejects_unknown_target_before_any_egress() {
         error,
         super::ProbeError::UnknownUpstreamTarget { .. }
     ));
+}
+
+#[tokio::test]
+async fn probe_rejects_disabled_target_before_credentials_or_egress() {
+    // Select the registered but disabled ChatGPT target without any local credential source.
+    let registry = registry();
+    let transport = StaticTransport::response(StatusCode::OK, b"{}".to_vec());
+    let credentials = CredentialStoreBuilder::new().build();
+
+    // Reject the target through the generic enabled boundary before credential lookup or egress.
+    let error = probe_upstream_target(
+        &registry,
+        "chatgpt-gpt-5-6-sol",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            list_models: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "configured upstream target 'chatgpt-gpt-5-6-sol' is disabled"
+    );
+    assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]

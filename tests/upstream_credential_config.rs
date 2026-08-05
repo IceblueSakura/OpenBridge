@@ -189,7 +189,7 @@ fn upstream_toml_rejects_api_keys_for_the_registered_chatgpt_oauth_binding() {
 
 #[test]
 fn upstream_toml_loads_one_chatgpt_auth_file_into_an_immutable_oauth2_manager() {
-    // Write one complete synthetic Codex-compatible ChatGPT auth document.
+    // Write one complete synthetic ChatGPT OAuth auth document.
     let expires_at = unix_now().saturating_add(3_600);
     let access_token = jwt(json!({"exp": expires_at}));
     let id_token = jwt(json!({

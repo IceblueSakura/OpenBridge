@@ -10,25 +10,6 @@ use crate::core::ApiProtocol;
 const PROBE_PROMPT: &str = "Reply with exactly OK.";
 const TOOL_NAME: &str = "openbridge_probe";
 
-/// Builds the fixed streaming Responses text request accepted by the ChatGPT Codex backend.
-pub(super) fn codex_responses_text_request(model: &str) -> Value {
-    // Match the current Codex input envelope and disable storage and parallel tool execution.
-    json!({
-        "model": model,
-        "input": [{
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": PROBE_PROMPT}],
-        }],
-        "tools": [],
-        "tool_choice": "auto",
-        "parallel_tool_calls": false,
-        "store": false,
-        "stream": true,
-        "include": ["reasoning.encrypted_content"],
-    })
-}
-
 /// Builds the minimum non-streaming text probe request.
 pub(super) fn probe_text_request(
     protocol: ApiProtocol,

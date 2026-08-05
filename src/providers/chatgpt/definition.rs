@@ -3,7 +3,7 @@
 //! This profile permits only OAuth bearer credentials and fixed Codex backend paths. It does not
 //! expose Chat Completions, Embeddings, WebSocket, or a generic OpenAI-compatible endpoint.
 
-use http::{HeaderMap, HeaderName, header::USER_AGENT};
+use http::HeaderMap;
 
 use crate::{
     core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
@@ -75,24 +75,16 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
-.with_codex_model_list_profile()
 .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the ChatGPT contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// Preserves a dedicated trusted-header hook for the Codex-compatible identity added by the probe.
+/// Preserves the dedicated hook boundary for future ChatGPT ordinary-header transforms.
 fn transform_request_headers(
-    downstream: &HeaderMap,
-    upstream: &mut SafeHeaders,
+    _downstream: &HeaderMap,
+    _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
-    // Copy only the complete trusted Codex identity assembled by the dedicated probe entry point.
-    for name in [USER_AGENT, HeaderName::from_static("originator")] {
-        let value = downstream
-            .get(name.clone())
-            .ok_or(AdapterError::InvalidClientIdentity)?;
-        upstream.insert(name, value.clone())?;
-    }
     Ok(())
 }

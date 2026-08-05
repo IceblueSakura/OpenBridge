@@ -5,8 +5,6 @@
 //! HTTP hot path reads only that registry.
 
 pub mod bridge;
-pub mod codex_auth;
-pub mod codex_identity;
 pub mod config;
 pub mod core;
 pub mod credential;

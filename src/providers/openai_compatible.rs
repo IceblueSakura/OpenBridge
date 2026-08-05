@@ -38,15 +38,6 @@ enum OpenAiTerminalDiscriminator {
     DataJsonType,
 }
 
-#[derive(Clone, Copy)]
-/// Provider-specific path/query and response-envelope profile for model discovery.
-enum ModelListProfile {
-    /// Uses the ordinary OpenAI-compatible path and `data[].id` response shape.
-    OpenAiDataId,
-    /// Adds the source-pinned Codex compatibility version query and reads `models[].slug`.
-    CodexModelsSlugWithClientVersion,
-}
-
 /// A static OpenAI-compatible wire profile.
 #[derive(Clone, Copy)]
 pub(crate) struct OpenAiCompatibleAdapter {
@@ -56,7 +47,6 @@ pub(crate) struct OpenAiCompatibleAdapter {
     responses_path: Option<&'static str>,
     embeddings_path: Option<&'static str>,
     model_list_path: &'static str,
-    model_list_profile: ModelListProfile,
     request_header_hook: RequestHeaderHook,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
 }
@@ -79,7 +69,6 @@ impl OpenAiCompatibleAdapter {
             responses_path,
             embeddings_path,
             model_list_path,
-            model_list_profile: ModelListProfile::OpenAiDataId,
             request_header_hook,
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
         }
@@ -91,12 +80,6 @@ impl OpenAiCompatibleAdapter {
         self
     }
 
-    /// Selects the fixed Codex model-list query and response-envelope profile.
-    pub(crate) const fn with_codex_model_list_profile(mut self) -> Self {
-        self.model_list_profile = ModelListProfile::CodexModelsSlugWithClientVersion;
-        self
-    }
-
     /// Returns the static Provider contract bound to this profile.
     pub(crate) fn contract(self) -> &'static ProviderContract {
         self.contract
@@ -105,23 +88,9 @@ impl OpenAiCompatibleAdapter {
     /// Builds the fixed model-list request used by the administrative probe.
     pub(crate) fn prepare_model_list_request(
         self,
-        client_version: Option<&str>,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        // Bind either the static OpenAI path or the versioned Codex query without accepting a URL.
-        let relative_uri = match self.model_list_profile {
-            ModelListProfile::OpenAiDataId => Uri::from_static(self.model_list_path),
-            ModelListProfile::CodexModelsSlugWithClientVersion => {
-                let client_version = client_version
-                    .filter(|value| !value.is_empty())
-                    .ok_or(AdapterError::InvalidClientIdentity)?;
-                let query = url::form_urlencoded::Serializer::new(String::new())
-                    .append_pair("client_version", client_version)
-                    .finish();
-                format!("{}?{query}", self.model_list_path)
-                    .parse()
-                    .map_err(|_| AdapterError::InvalidClientIdentity)?
-            }
-        };
+        // Bind the static OpenAI-compatible path without accepting a URL or query override.
+        let relative_uri = Uri::from_static(self.model_list_path);
         Ok(PreparedUpstreamRequest::new(
             Method::GET,
             relative_uri,
@@ -131,17 +100,13 @@ impl OpenAiCompatibleAdapter {
 
     /// Extracts model identifiers through the selected static response-envelope profile.
     pub(crate) fn model_list_ids(self, response: &serde_json::Value) -> Option<Vec<String>> {
-        // Select the Provider-owned array and identifier field without retaining other metadata.
-        let (array, field) = match self.model_list_profile {
-            ModelListProfile::OpenAiDataId => ("data", "id"),
-            ModelListProfile::CodexModelsSlugWithClientVersion => ("models", "slug"),
-        };
+        // Read the common OpenAI-compatible envelope without retaining other metadata.
         Some(
             response
-                .get(array)?
+                .get("data")?
                 .as_array()?
                 .iter()
-                .filter_map(|entry| entry.get(field).and_then(serde_json::Value::as_str))
+                .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
                 .map(str::to_owned)
                 .collect(),
         )

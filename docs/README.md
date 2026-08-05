@@ -174,15 +174,15 @@ public model name
 3. [`src/providers/openai.rs`](../src/providers/openai.rs)、[`longcat.rs`](../src/providers/longcat.rs)、
    [`openrouter.rs`](../src/providers/openrouter.rs)、[`deepseek.rs`](../src/providers/deepseek.rs)、
    [`mimo.rs`](../src/providers/mimo.rs) 与 [`chatgpt.rs`](../src/providers/chatgpt.rs)：六个已注册 Provider 如何聚合各自目录中的
-   contract、endpoint path、request-header hook 与注册事实；其中 ChatGPT 仅有默认禁用的 probe target，没有 Route/Public Model。
+   contract、endpoint path、request-header hook 与注册事实；其中 ChatGPT 仅有默认禁用的隔离 target，没有 Route/Public Model。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
 5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 MiMo 注册双协议和
-Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 使用固定 Codex backend
-models/Responses profile，只能由管理员通过只读 auth file 执行显式 probe，OpenBridge 不调用或依赖 Codex CLI；
+Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 保留默认禁用且没有
+Route/Public Model 的独立 Provider 与 OAuth2 启动快照，不提供本机 Codex credential、identity 或 executable probe；
 `deepseek-v4-flash` 的 Responses 下游请求使用显式 OpenRouter Native route，`deepseek-v4-pro` 没有 Responses 接口。
 这些路径仍不证明异构 wire protocol Provider 已经实现。
 
@@ -214,7 +214,7 @@ models/Responses profile，只能由管理员通过只读 auth file 执行显式
 | 比较 Provider 性能、usage 或 cache          | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/provider.rs` → `observability_contract.rs`                                                                                |
 | credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
-| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/probe contract tests             |
+| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
 | 实现 Embeddings 或 Native 多模态            | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 

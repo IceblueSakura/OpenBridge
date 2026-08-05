@@ -63,7 +63,7 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 - 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
 - 代码注册表只保存非敏感 pool/member id、Provider 和 credential kind，不保存 secret 或 secret locator；
 - 服务与常规 API-key probe 只从 bootstrap 指定的私有 upstream credential TOML 读取上游 API key，不读取 `*_API_KEYS`、旧单值
-  环境变量或 `.env`；ChatGPT 第一阶段只允许下文定义的显式、只读 Codex auth probe 例外；
+  环境变量或 `.env`；任何 probe 都不得发现或导入本机 Codex credential、环境或 terminal 状态；
 - TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且只能在有序 `api_keys` 数组与单一
   `auth_json_file` locator 中二选一，不能配置 Provider、credential kind、endpoint、route 或 member id；
 - 未由代码注册的 pool、重复 pool、服务所需或 probe 选中但缺失的 pool、空数组、空白成员或 pool 内重复 secret 必须在 listener
@@ -72,7 +72,7 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   OAuth2 auth 文件一次性装入不可变 `OAuth2CredentialManager`；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
 - 每个 credential 条目必须冻结受控的 type、source、从 1 开始的 generation 与可选过期时间；source 只保存
-  `UserConfiguration`、`UpstreamConfiguration`、`CodexAuthFile`、`OAuth2AuthJsonFile` 或 `Programmatic` 类别，不能把文件路径、
+  `UserConfiguration`、`UpstreamConfiguration`、`OAuth2AuthJsonFile` 或 `Programmatic` 类别，不能把文件路径、
   issuer URL 或任意业务字符串作为诊断元数据；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的
   Debug/输出都不得包含 secret；
@@ -105,21 +105,15 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 - 更换 API key、改变 pool member 或顺序仍需重启。API-key pool 不承担 OAuth、余额查询、keyring、加密 secret 文件、远程 secret
   manager、动态 reload 或跨进程 pool 状态；ChatGPT OAuth 使用独立 credential kind 和生命周期要求。
 
-### 3.2 第一阶段 ChatGPT probe credential
+### 3.2 ChatGPT 本地状态隔离
 
-- ChatGPT target 使用独立 `OAuth2BearerAccessToken` pool，默认禁用且不加入 Route/Public Model；因此常驻服务不从 API-key TOML
-  要求该 pool，也不读取 Codex auth file；
-- 只有管理员显式选择 ChatGPT target 的 probe 可以提供 Codex auth file 路径；业务请求、bootstrap 和 upstream credential TOML
-  都不能选择或覆盖该路径；
-- loader 只读取本次请求需要的 access token、账户绑定、FedRAMP routing claim 和 expiry，不保留 refresh token，不写回文件，不把
-  文件复制为 OpenBridge credential 配置；
-- access token、account header 与 FedRAMP routing header 都视为敏感认证上下文；路径、token、账户、JWT payload 和完整 auth record
-  不进入 report、日志、metric、Debug 或错误正文；
-- probe 所需 Codex-compatible `User-Agent` 按记录的 Codex 源码和编译期 profile 在 OpenBridge 内构造；不得调用 Codex executable
-  或 app-server，业务请求也不能注入或覆盖；
-- invalid/expired token、缺失账户、错误 auth mode、并发读取到损坏文件或 401 都 fail closed，第一阶段不 refresh、不重放且保持原文件
-  不变；
-- 第二阶段的登录、可刷新 bundle、持久化和 guarded reload/refresh 以
+- ChatGPT target 使用独立 `OAuth2BearerAccessToken` pool，默认禁用且不加入 Route/Public Model；通用 probe 只允许选择已启用的 target；
+- OpenBridge 不搜索 `$CODEX_HOME`、Codex auth cache 或其他本机 Agent 状态，不接受 probe 专用 Codex auth file 或 executable selector；
+- OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS、architecture 或 terminal 构造 Codex-compatible 请求身份，也不启动 Codex
+  CLI 或 app-server；
+- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；该启动快照不因 target 默认禁用而变成隐式 probe
+  credential；
+- 后续登录、可刷新 bundle、持久化和 guarded reload/refresh 以
   [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准，必须另立焦点。
 
 ### 3.3 OpenBridge-owned OAuth2 auth 文件
@@ -130,8 +124,8 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   `OAuth2BearerAccessToken` kind；TOML 不获得动态 Provider 选择权；
 - 每个 OAuth2 Provider 最多配置一个 auth 文件，并派生一个稳定的内部 member id；本阶段不提供 auth 文件数组、账号 pool、轮转、
   cooldown 或负载均衡；
-- ChatGPT 文件使用当前 Codex `AuthDotJson` 的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索或回退到
-  `$CODEX_HOME/auth.json`，第一阶段 `--codex-auth-file` probe 仍是独立只读测试路径；
+- ChatGPT 文件使用当前兼容的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索、导入或回退到
+  `$CODEX_HOME/auth.json`；
 - 文件在 listener 绑定前一次性读取；错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
 - `OAuth2CredentialManager` 在本焦点中只持有启动快照和后续 lifecycle 所需 locator，不提供修改、reload、refresh、后台调度或
   401 recovery API。
@@ -187,7 +181,7 @@ read bootstrap.toml
 | CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool，或任一已启用 Upstream Target 引用的 API-key pool 缺失、为空或不能解析时，会在 listener 绑定前阻止服务启动。 |
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；启动拒绝空 pool、重复 member、Provider/kind 不匹配或缺失 secret。                                               |
 | CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。                                                                            |
-| CFG-13 | ChatGPT probe-only target 不进入常驻 Route；其 Codex auth loader 只读最小字段、保持账户绑定和 token 脱敏，并且不把 OAuth credential 混入 API-key TOML。         |
+| CFG-13 | ChatGPT target 默认禁用且不进入 Route/Public Model；probe 不接受本机 Codex auth、environment、terminal 或 executable selector，OAuth credential 只从 OpenBridge-owned 配置加载。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |

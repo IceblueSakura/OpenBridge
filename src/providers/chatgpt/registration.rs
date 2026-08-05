@@ -1,6 +1,6 @@
-//! Registers the disabled ChatGPT Codex probe target and its sole Responses API.
+//! Registers the disabled ChatGPT target and its sole Responses API.
 //!
-//! No Route or Public Model references this target during the first OAuth delivery stage, so the
+//! No Route or Public Model references this target in the current OAuth lifecycle stage, so the
 //! long-lived service neither selects it nor requires its credential.
 
 use std::time::Duration;
@@ -18,7 +18,7 @@ use super::CONTRACT;
 
 const PROVIDER_INSTANCE_ID: &str = "chatgpt";
 
-/// Builds the trusted ChatGPT Codex backend deployment used by the probe target.
+/// Builds the trusted ChatGPT backend deployment referenced by the disabled target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     ProviderInstanceConfig {
         id: PROVIDER_INSTANCE_ID.to_owned(),
@@ -27,7 +27,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed ChatGPT target available only to explicit administrative probes.
+/// Builds the fixed disabled ChatGPT target reserved for a later data-plane integration.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "chatgpt-gpt-5-6-sol".to_owned(),

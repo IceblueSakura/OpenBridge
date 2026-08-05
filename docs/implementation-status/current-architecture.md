@@ -240,9 +240,9 @@ header allowlist。credential header 在 hook 之后独立附加。credential po
 `pool_id + member_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目 冻结
 credential type、来源类别、generation 与可选过期时间，来源类别不保存文件路径。Store 不公开通用明文查询，adapter 仍在 crate
 内的认证 header 边界才访问 secret。五个数据面 Provider 只允许 `ApiKey`；ChatGPT contract 只允许
-`OAuth2BearerAccessToken`，并要求同一临时 credential 同时携带 access token、account ID、FedRAMP routing flag 与已知 expiry。
-ChatGPT adapter 把 Bearer、account 与条件性 FedRAMP header 全部放入敏感 header 集。API-key TOML 不能填充 OAuth pool；只有专用
-probe composition root 能从显式 Codex auth file 构造该临时 member，常驻服务不读取该文件。
+`OAuth2BearerAccessToken`，其 Provider authentication adapter 要求 access token、account ID、FedRAMP routing flag 与已知 expiry
+保持为不可拆分的 credential material，并把 Bearer、account 与条件性 FedRAMP header 全部放入敏感 header 集。API-key TOML 不能填充
+OAuth pool；当前 OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有，尚未接入 `CredentialStore` 或数据面 adapter 借用路径。
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
@@ -254,11 +254,10 @@ source；每个下游协议先按 source 顺序生成全部 Native route，再�
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
-ChatGPT registration 固定 `chatgpt-gpt-5-6-sol` target、Codex backend base、`models` 与 `responses` path、上游模型
-`gpt-5.6-sol` 和 `chatgpt-codex` OAuth pool。target 默认禁用且没有 Route/Public Model，因此不进入 ingress/planning 数据面。
-其 adapter 使用 Codex 模型目录的 `models[].slug` shape 与 source-pinned `client_version` query；专用 Responses probe 使用有界 SSE
-framing 和 data JSON terminal。`codex_identity` 由编译期 profile version、`os_info`、architecture 与环境 terminal token 构造
-source-compatible User-Agent/originator，不执行 Codex 子进程或 app-server 协议。
+ChatGPT registration 固定 `chatgpt-gpt-5-6-sol` target、Codex backend base、`responses` path、上游模型 `gpt-5.6-sol` 和
+`chatgpt-codex` OAuth pool。target 默认禁用且没有 Route/Public Model，因此不进入 ingress/planning 数据面，也不能由通用 probe
+执行。当前源码没有本机 Codex auth loader、client-version model-list profile、OS/environment/terminal identity 构造或 Codex
+executable/app-server 调用。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
 `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。
@@ -327,11 +326,8 @@ terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowli
 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用 target
 endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不 加载下游用户
-Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
-
-ChatGPT target 是受限例外：尽管 target 默认禁用，专用入口可在管理员同时提供 `--codex-auth-file` 和显式 models/Responses selector
-时执行；它不加载 API-key TOML，不接受 executable 或完整 User-Agent selector，也不改变常驻服务注册表。auth 文件只读一次，报告与错误
-保持 credential、账户、路径、完整 header 和正文脱敏。
+Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。probe 只允许已启用 target，并只加载所选 target 的
+API-key pool；禁用 target 在 credential 读取与 egress 前被拒绝。CLI 没有本机 Agent auth、client identity 或 executable selector。
 
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部

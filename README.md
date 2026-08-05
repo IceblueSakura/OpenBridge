@@ -24,10 +24,11 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 
 - 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
-- 两阶段 ChatGPT subscription OAuth：先完成默认禁用的 Provider 与只读 Codex auth probe，再另立焦点实现 PKCE 登录和 token 续约。
+- ChatGPT subscription OAuth：保留默认禁用的独立 Provider 与 OpenBridge-owned OAuth2 启动快照，后续另立焦点实现 PKCE 登录、
+  token 续约和数据面接入；不导入本机 Codex 状态。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings 已完成；当前焦点只覆盖 ChatGPT 第一阶段，第二阶段和 Native 多模态都不能
-并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings 与 OAuth2 启动快照已完成；ChatGPT 登录、refresh、数据面接入和 Native
+多模态不能并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
 与 Realtime 只保留协议参考，不在现阶段实施范围。
 
 核心稳定后再考虑：

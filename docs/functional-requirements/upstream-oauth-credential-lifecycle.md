@@ -2,70 +2,57 @@
 
 ## 状态
 
-**本文定义必须串行实施的两阶段范围。** 第一阶段只完成 ChatGPT Provider 与真实上游 probe；第二阶段先建立 OpenBridge 自有的
-OAuth2 credential 配置与只读启动快照，再分别实现 PKCE 登录和 token 续约。第一阶段的已实现事实见
-[当前实现说明](../implementation-status/current-implementation.md)；第二阶段每个短周期行为都必须单独写入
-[当前开发焦点](../implementation-plans/current-focus.md)后才获得实施授权。
+本文定义 ChatGPT subscription credential 的当前边界与后续生命周期方向。当前已实现独立的 ChatGPT Provider/Provider instance、
+默认禁用且没有 Route/Public Model 的 target，以及从 private upstream credential TOML 显式配置的 OpenBridge-owned OAuth2
+auth 文件启动快照。
 
-外部行为以当前 Codex 源码为主要实现基线，产品文档只补充公开登录与凭证存储边界。每次进入焦点必须记录实际源码 commit、编译期
-compatibility profile、平台和真实验收日期，不能把历史快照或一次成功调用视为长期稳定协议。
+本机 Codex auth loader、OS/environment/terminal identity 探测、Codex CLI-compatible User-Agent 和专用 ChatGPT probe 已移除。
+OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable 或 app-server。后续 PKCE 登录、token refresh、持久化和数据面
+接入必须分别进入[当前开发焦点](../implementation-plans/current-focus.md)。
+
+外部 OAuth 行为仍应在实现前重新核对 Provider 官方资料和届时的参考实现，不能把历史快照或一次成功调用视为长期稳定协议。
 
 - [Codex 设备登录与 token 刷新调研](../references/codex/codex-device-auth-token-refresh-analysis.md)
 - [Codex 浏览器 OAuth 调研](../references/codex/codex-oauth-and-tool-call-analysis.md)
 - [OAuth 设备登录与 token 刷新综合调研](../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)
 
-## 1. 两阶段范围
+## 1. 当前边界与后续范围
 
-### 1.1 第一阶段：Provider 与只读 credential probe
+### 1.1 Provider 与 OpenBridge-owned 启动快照
 
-第一阶段的用户可观察结果是：管理员显式运行 probe 时，OpenBridge 可以从指定的 Codex file credential store 只读加载当前 ChatGPT
-access token 与账户绑定，按记录的 Codex 源码基线在 OpenBridge 内构造 source-compatible `User-Agent`，请求固定 ChatGPT Codex
-backend 的模型目录和一个 Responses 文本调用，并只输出脱敏结果。
-
-第一阶段必须满足：
+当前实现必须满足：
 
 1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
-2. BaseURL 来自编译期 ChatGPT Provider instance，operation path 和必要普通 header 来自 ChatGPT/Codex adapter；业务请求、credential 文件和 probe 参数都不能覆盖上游 URL、
-   model path、`originator`、`version` 或任意 header。
-3. 当前 ChatGPT Provider instance 只注册固定 Codex backend BaseURL，adapter 只开放 `GET models` 与 `POST responses`；不声称 Chat Completions、Embeddings、
-   WebSocket 或其他 ChatGPT resource API。
-4. ChatGPT target 默认禁用且不加入 Route/Public Model，只允许显式管理员 probe 选择。常驻服务启动不读取 Codex credential，也不因该
-   target 要求新的运行时 secret。
-5. Codex auth 文件路径由管理员显式选择；loader 只读取一次，不写回、不删除、不反序列化或复制 refresh token，也不复制文件到
-   OpenBridge 配置、fixture 或输出目录。
-6. loader 只接受当前 Codex ChatGPT auth 形状，提取本次请求所需的 access token、账户绑定、FedRAMP routing claim 和可验证的
-   access-token expiry；API key、personal access token、缺失账户、空 token、无效 JSON/JWT 或已经过期的 token 在网络前失败。
-7. `User-Agent` 必须由记录的 Codex 源码规则、显式编译期 profile version、同源 OS 信息依赖、当前 OS/architecture 与 terminal
-   detection 在 OpenBridge 内构造，并用确定性 fixture 逐字节验证；不得调用 Codex executable、app-server 或读取其运行时状态。
-   `originator`、models `client_version`、account header 和按账户条件启用的 FedRAMP header 同样按该次源码基线验证，但完整
-   User-Agent、账户和认证 header 值不得出现在 probe report。
-8. 第一阶段不读取 refresh token、不执行 refresh、不在 401 后重放、不启动浏览器或设备码登录。过期、401、403 或账户不匹配只产生脱敏
-   失败并保持 auth 文件不变。
+2. BaseURL、operation path 与 credential kind 来自受信 Rust 注册；业务请求和 credential 文件不能覆盖上游 URL、model path 或
+   任意 header。
+3. ChatGPT target 默认禁用且不加入 Route/Public Model；通用 probe 在 credential 读取或 egress 前拒绝所有禁用 target。
+4. private upstream credential TOML 可为 ChatGPT OAuth2 binding 显式配置一个 OpenBridge-owned `auth_json_file`；不得默认、
+   搜索、导入或回退到 `$CODEX_HOME/auth.json`。
+5. 启动 loader 校验完整 id/access/refresh token bundle、账户绑定与 access-token expiry，并把它装入独立的不可变
+   `OAuth2CredentialManager`；当前不 reload、不 refresh、不写回。
+6. OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS 或 architecture 构造 Agent identity，也不接受 Codex auth file、
+   executable 或任意 client identity probe selector。
+7. token、账户、locator、JWT payload 和完整 auth record 不进入 report、日志、metric、Debug、错误或测试 fixture。
 
-真实 probe 只证明指定账户、指定模型、当次 endpoint 和当次 Codex 请求身份可用；它不证明第三方 gateway 获得通用授权、生产稳定性、
-其他订阅计划、多账户兼容或未来 endpoint 不变。
+当前 target 没有可执行数据面 Route，因此启动快照只建立 credential ownership 和后续 lifecycle 边界，不代表 ChatGPT 请求已可从常驻
+服务发出。
 
-### 1.2 第二阶段：PKCE 登录与 token 续约
+### 1.2 后续 PKCE 登录与 token 续约
 
-第二阶段在单独焦点中实现 OpenBridge 自己管理的 ChatGPT OAuth credential：
+后续行为必须分别获准并实现：
 
-1. 私有 `upstream-credentials.toml` 可为编译期 OAuth2 credential binding 配置一个 `auth_json_file`；每个 Provider 只允许一个文件，
-   文件使用当前 Codex `AuthDotJson` 的 ChatGPT OAuth 字段形状，但由 OpenBridge 独立拥有，不指向或隐式发现 Codex 用户目录；
-2. 进程在监听前读取配置和完整 token bundle，校验 Provider/kind、auth mode、账户绑定、access-token expiry 与 refresh token，构建不可变
-   `OAuth2CredentialManager`；启动后不重新读取 TOML 或 auth 文件，不启动 refresh worker；
-3. 显式管理员登录入口实现 authorization-code + PKCE `S256`，并按届时 Codex 源码决定浏览器 callback 与设备交互的具体 adapter；
-4. 登录临时状态、authorization code、PKCE verifier 和 device state 只在有界会话中存在，失败或取消后清除；
-5. token exchange 后校验 issuer、audience、scope、账户/workspace 与 access-token expiry，再原子持久化完整 credential bundle；
-6. 请求前按 expiry safety window 合并 refresh，401 recovery 先 reload、再至多一次 refresh/重放，并受 response commit 边界约束；
-7. rotated refresh token 与 access token、expiry、identity 和 generation 原子写回，终态错误转为 `reauth_required`；
-8. 第一阶段的 Codex auth 文件始终只是一次性只读验收来源，不能成为常驻服务的隐式 credential backend。
+1. 显式管理员登录入口实现 authorization-code + PKCE `S256`，并按届时正式协议决定浏览器 callback 与设备交互 adapter；
+2. 登录临时状态、authorization code、PKCE verifier 和 device state 只在有界会话中存在，失败或取消后清除；
+3. token exchange 后校验 issuer、audience、scope、账户/workspace 与 access-token expiry，再原子持久化完整 credential bundle；
+4. 请求前按 expiry safety window 合并 refresh，401 recovery 先 reload、再至多一次 refresh/重放，并受 response commit 边界约束；
+5. rotated refresh token 与 access token、expiry、identity 和 generation 原子写回，终态错误转为 `reauth_required`；
+6. 数据面接入必须显式建立 OAuth2 manager 到 Provider authentication header 的受控借用边界，不得恢复本机 Codex state 导入。
 
-当前焦点只实现第 1～2 项的配置、加载与不可变 manager。PKCE、持久化写入、refresh、文件 reload、401 recovery 和真实登录验收必须
-分别另立焦点，并重新核对届时 Codex 源码后再确定。
+当前实现只覆盖静态配置、启动加载和不可变 manager。PKCE、持久化写入、refresh、文件 reload、401 recovery 和真实登录验收均未实现。
 
 ## 2. Provider OAuth preflight
 
-进入第二阶段或把 ChatGPT target 接入常驻数据面前，必须用 Provider 官方资料、当前 Codex 源码和明确授权确认：
+实现登录、refresh 或把 ChatGPT target 接入常驻数据面前，必须用 Provider 官方资料、当前参考实现和明确授权确认：
 
 - authorization server、issuer、device authorization endpoint 与 token endpoint；
 - client registration、client 类型、允许的 grant 和 client authentication；
@@ -75,12 +62,12 @@ backend 的模型目录和一个 Responses 文本调用，并只输出脱敏结�
 - subscription 使用资格，以及自动化 gateway/proxy 场景的允许范围；
 - reauthorization、用户撤销、管理员禁用和 credential 删除流程。
 
-Codex 内置的 client identity、私有 endpoint、redirect、scope 或 header 只能证明该 Codex 快照的实现行为。第一阶段的明确本机验收授权
-不自动扩大为公开协议或生产承诺。
+参考实现中的 client identity、私有 endpoint、redirect、scope 或 header 只证明对应快照的实现行为，不自动扩大为公开协议或生产承诺，
+也不构成重新引入本机 Codex state 探测的理由。
 
 ## 3. 登录入口与控制面边界
 
-第二阶段的登录必须是显式运维命令或受保护的管理操作，不能在普通模型请求路径中自动开始。
+后续登录必须是显式运维命令或受保护的管理操作，不能在普通模型请求路径中自动开始。
 
 1. Provider、endpoint、client registration 和 scope 只能来自受信注册；下游业务请求不能提供或覆盖。
 2. login session 使用 Provider 给定的 TTL，只向发起者显示 verification URI 与一次性 user code。
@@ -94,9 +81,9 @@ Codex 内置的 client identity、私有 endpoint、redirect、scope 或 header 
 
 ## 4. Credential bundle
 
-第二阶段的可刷新 credential 至少以同一版本管理：
+后续可刷新 credential 至少以同一版本管理：
 
-当前 ChatGPT 文件保持 Codex-compatible JSON 字段：顶层 `auth_mode`、`OPENAI_API_KEY`、`tokens` 与 `last_refresh`，其中
+当前 ChatGPT 文件使用兼容的 OAuth JSON 字段：顶层 `auth_mode`、`OPENAI_API_KEY`、`tokens` 与 `last_refresh`，其中
 `tokens` 包含 `id_token`、`access_token`、`refresh_token` 和 `account_id`。OpenBridge 不在该文件中加入 Provider、endpoint、
 pool、status 或 locator 字段；这些非 secret 绑定来自编译期注册表和私有 upstream credential TOML。
 
@@ -182,21 +169,21 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定 Codex backend BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
-| OAUTH-02 | 第一阶段 target 默认禁用、没有 Route/Public Model，只能由显式管理员 probe 选择，常驻服务不要求或读取 Codex credential。                                   |
-| OAUTH-03 | Codex auth loader 只读最小字段，过期、错型、缺失账户或损坏文件在 egress 前失败；文件内容、token、账户和路径不进入报告、日志或测试 fixture。                 |
-| OAUTH-04 | 模型目录与 Responses probe 使用当前 Codex 源码定义的路径、query、认证和普通 header；OpenBridge 通过固定 profile 构造并逐字节验证 `User-Agent`，不调用或依赖 Codex CLI。 |
-| OAUTH-05 | 真实验收记录 Codex source commit、compatibility profile、平台、endpoint、model、HTTP/SSE 终态和脱敏 header parity；未运行层不声称成功。                         |
-| OAUTH-06 | upstream credential TOML 以互斥的 `api_keys`/`auth_json_file` 绑定编译期 credential kind；每个 OAuth2 Provider 只加载一个 OpenBridge-owned Codex-compatible auth 文件。 |
-| OAUTH-07 | 启动时完整校验 OAuth2 bundle 并构建不可变、脱敏的 `OAuth2CredentialManager`；启动后不 reload、不 refresh，现有 API-key pool 行为不变。                    |
-| OAUTH-08 | 第二阶段登录使用 PKCE `S256`、有界 state/device session、严格 callback/token 校验和失败清理，不在普通请求中隐式启动。                                      |
-| OAUTH-09 | refresh 具有 expiry safety window、single-flight、guarded reload、原子 rotation 写回和有界 401 recovery；终态错误或身份变化 fail closed。                  |
+| OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定受信 BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
+| OAUTH-02 | ChatGPT target 默认禁用且没有 Route/Public Model；通用 probe 在 credential 读取和 egress 前拒绝禁用 target。 |
+| OAUTH-03 | ChatGPT OAuth 文件只由 private upstream credential TOML 显式定位并由 OpenBridge 拥有；不得搜索、导入或回退到本机 Codex state。 |
+| OAUTH-04 | 生产代码不读取 terminal 环境、不构造 Codex CLI-compatible identity，也不提供 Codex auth/executable probe selector。 |
+| OAUTH-05 | 启动 loader 完整校验 OAuth2 bundle 并构建不可变、脱敏的 `OAuth2CredentialManager`；启动后不 reload、不 refresh。 |
+| OAUTH-06 | upstream credential TOML 以互斥的 `api_keys`/`auth_json_file` 绑定编译期 credential kind；每个 OAuth2 Provider 只加载一个 OpenBridge-owned auth 文件。 |
+| OAUTH-07 | 数据面接入必须通过受控 credential 借用生成 Provider authentication header，不得把 locator 或完整 token bundle 暴露给普通请求路径。 |
+| OAUTH-08 | 后续登录使用 PKCE `S256`、有界 state/device session、严格 callback/token 校验和失败清理，不在普通请求中隐式启动。 |
+| OAUTH-09 | refresh 具有 expiry safety window、single-flight、guarded reload、原子 rotation 写回和有界 401 recovery；终态错误或身份变化 fail closed。 |
 
 ## 9. 仍不在范围内
 
 - subscription 多账号池、账号级负载均衡、余额/配额控制面或账号自动轮转；
-- 把第一阶段 probe target 暴露为 Public Model 或常驻数据面 Route；
-- 导入 Hermes、LiteLLM 或任意非 Codex credential cache；
+- 未经独立焦点和 credential 借用设计就把默认禁用的 ChatGPT target 暴露为 Public Model 或常驻数据面 Route；
+- 导入 Codex、Hermes、LiteLLM 或任意其他应用的 credential cache；
 - 下游 user OAuth、平台代理 authorization server、动态 endpoint/client registration/scope；
 - 未经重新核对当前 Codex 源码和真实验收就复制私有 flow；
 - keyring、远程 secret manager、跨主机 refresh 协调或多实例共享 credential；这些能力需要另行批准。

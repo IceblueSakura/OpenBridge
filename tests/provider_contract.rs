@@ -8,8 +8,8 @@ use openbridge::{
 };
 
 #[test]
-fn chatgpt_provider_uses_codex_backend_profiles_and_oauth_credential() {
-    // Verify the independent Provider contract exposes only the Codex Responses surface.
+fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
+    // Verify the independent Provider contract exposes only the ChatGPT Responses surface.
     let contract = ProviderKind::ChatGpt.contract();
     assert_eq!(
         contract.credential_kinds(),
@@ -20,7 +20,7 @@ fn chatgpt_provider_uses_codex_backend_profiles_and_oauth_credential() {
     assert!(contract.capabilities().responses.streaming);
     assert!(!contract.capabilities().embeddings.enabled);
 
-    // Verify the adapter binds Responses to the Codex backend path and rejects Chat Completions.
+    // Verify the adapter binds Responses to the fixed backend path and rejects Chat Completions.
     let adapter = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
     let responses = ApiRequest::new(
         ApiProtocol::Responses,

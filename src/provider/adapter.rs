@@ -41,9 +41,6 @@ pub enum AdapterError {
     /// The credential omits Provider-specific account or routing context.
     #[error("provider authentication context is incomplete")]
     IncompleteAuthenticationContext,
-    /// The required trusted client identity is absent or cannot form the fixed request profile.
-    #[error("provider client identity is invalid")]
-    InvalidClientIdentity,
 }
 
 /// Upstream request with a selected protocol but no Upstream Target origin bound yet.
@@ -172,10 +169,8 @@ impl ProviderAdapter {
     /// `/v1/models`, which always exposes OpenBridge Public Models.
     pub(crate) fn prepare_model_list_request(
         &self,
-        client_version: Option<&str>,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.openai_compatible()
-            .prepare_model_list_request(client_version)
+        self.openai_compatible().prepare_model_list_request()
     }
 
     /// Extracts model identifiers from the Provider-specific model-list envelope.

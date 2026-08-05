@@ -12,7 +12,7 @@ use thiserror::Error;
 mod payload;
 mod session;
 
-pub use session::{probe_chatgpt_upstream_target, probe_upstream_target};
+pub use session::probe_upstream_target;
 
 /// Explicit probe selection. The CLI uses `all()` when no selection is supplied;
 /// library callers may run only the free `list_models` probe or validate one protocol.
@@ -129,27 +129,11 @@ pub struct ToolCallProbeResult {
     pub result_replay: Option<ProbeResult>,
 }
 
-/// Redacted facts for the source-pinned Codex-compatible request identity.
-#[derive(Debug, Serialize)]
-pub struct CodexCompatibilityReport {
-    /// Pinned Codex release profile used to construct headers and model queries.
-    pub profile_version: String,
-    /// OpenBridge runtime platform family used by the compatibility formatter.
-    pub platform_family: String,
-    /// OpenBridge runtime operating system used by the compatibility formatter.
-    pub platform_os: String,
-    /// Whether the private User-Agent was constructed through the pinned Codex source profile.
-    pub user_agent_matches_reference_profile: bool,
-}
-
 /// Probe report for one Upstream Target. It contains no credential, request body, or upstream response body.
 #[derive(Debug, Serialize)]
 pub struct TargetProbeReport {
     /// Internal target ID probed.
     pub upstream_target_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Redacted Codex source-compatibility facts used by a ChatGPT probe.
-    pub codex_compatibility: Option<CodexCompatibilityReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Observation from the Provider's fixed model-list endpoint.
     pub list_models: Option<ModelListProbeResult>,
@@ -176,21 +160,18 @@ pub enum ProbeError {
         /// Missing internal target ID.
         upstream_target: String,
     },
+    /// The selected target is registered but disabled for all executable paths.
+    #[error("configured upstream target '{upstream_target}' is disabled")]
+    DisabledUpstreamTarget {
+        /// Disabled internal target ID.
+        upstream_target: String,
+    },
     /// The trusted credential source cannot provide the required secret.
     #[error("upstream credentials are unavailable for probe")]
     CredentialUnavailable,
     /// The adapter cannot build authentication headers for the probe.
     #[error("provider authentication could not be prepared for probe")]
     AuthenticationPreparation,
-    /// The disabled ChatGPT target requires the dedicated Codex-compatible probe entry point.
-    #[error("ChatGPT probe requires its compiled Codex-compatible request identity")]
-    CodexIdentityRequired,
-    /// The dedicated ChatGPT entry point was used with another Provider target.
-    #[error("Codex-compatible identity is valid only for the ChatGPT probe target")]
-    CodexIdentityUnexpected,
-    /// The first-stage ChatGPT probe supports only models and Responses selections.
-    #[error("ChatGPT first-stage probe selection is invalid")]
-    InvalidChatGptSelection,
 }
 
 #[cfg(test)]

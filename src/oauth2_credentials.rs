@@ -373,7 +373,7 @@ pub enum OAuth2CredentialManagerError {
     /// The configured auth file could not be read.
     #[error("OAuth2 auth file could not be read")]
     Read,
-    /// The file is not a valid Codex-compatible JSON auth document.
+    /// The file is not a valid ChatGPT OAuth JSON document.
     #[error("OAuth2 auth file is invalid")]
     InvalidDocument,
     /// The file does not explicitly select managed ChatGPT authentication.

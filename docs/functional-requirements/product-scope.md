@@ -22,7 +22,7 @@ Route。
 - 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
 - 常驻数据面的上游 API key 来自被忽略的私有 upstream credential TOML，下游静态 Bearer token 来自私有用户文件；二者在启动时
-  合并为不可变 credential 快照；第一阶段 ChatGPT target 只允许管理员 probe 从显式指定的 Codex auth file 构造一次性只读快照；
+  合并为不可变 credential 快照；ChatGPT OAuth2 bundle 只从显式配置的 OpenBridge-owned auth 文件进入独立启动快照；
 - 所选 Public Model 先按每 operation 唯一固定契约完成能力预检；通过后 Route 保持配置顺序，不按请求能力筛选或重排；
 - 流式请求仅可在首个业务输出前进行有限 retry/fallback；
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
@@ -36,16 +36,16 @@ Route。
   `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
 - 已批准但尚未进入实施：在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input
   audio，且无资源归属时拒绝 `file_id`。
-- 已批准的第一阶段边界：独立、默认禁用且不加入 Public Model 的 ChatGPT Provider，只能使用管理员显式指定的 Codex file
-  credential store 对固定模型目录和 Responses endpoint 执行一次脱敏真实 probe；实施事实见当前实现说明。
-- 已批准为串行后续、但尚未进入当前焦点：另立焦点后实现 OAuth2 PKCE 登录、可刷新 credential 持久化和有界 token 续约。
+- 已实现静态边界：独立、默认禁用且不加入 Public Model 的 ChatGPT Provider，以及只从 OpenBridge-owned 配置加载的不可变 OAuth2
+  启动快照；不提供本机 Codex auth、environment、terminal 或 executable probe。
+- 已批准为串行后续、但尚未进入当前焦点：另立焦点后实现 OAuth2 PKCE 登录、可刷新 credential 持久化、有界 token 续约和数据面接入。
 
 Embeddings 与 Native 多模态的具体行为和非目标以
 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
 “每次只实施一个可观察行为”的约束；当前 checkout 只提供已在 implementation status 明确记录的能力。
 
-ChatGPT 两阶段边界以[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；第二阶段获得方向
-批准不等于当前已获实施授权。
+ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；后续方向
+获得批准不等于当前已获实施授权。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
 在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。

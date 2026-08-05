@@ -15,7 +15,7 @@ use openbridge::{
 };
 
 #[test]
-fn chatgpt_probe_target_is_compiled_but_not_publicly_routable() {
+fn chatgpt_target_is_compiled_disabled_and_not_publicly_routable() {
     // Locate the dedicated OAuth pool and disabled ChatGPT target in the compiled definition.
     let definition = compiled_config();
     let pool = definition
@@ -30,7 +30,7 @@ fn chatgpt_probe_target_is_compiled_but_not_publicly_routable() {
         .upstream_targets
         .iter()
         .find(|target| target.id == "chatgpt-gpt-5-6-sol")
-        .expect("ChatGPT probe target should be compiled");
+        .expect("disabled ChatGPT target should be compiled");
     assert_eq!(target.provider_instance, "chatgpt");
     assert_eq!(target.model, "openai/gpt-5.6-sol");
     let provider_instance = definition
