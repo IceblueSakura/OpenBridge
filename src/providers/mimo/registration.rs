@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    models::mimo, provider::ProviderKind, providers::openai_compatible::native_upstream_apis,
+    models::xiaomi, provider::ProviderKind, providers::openai_compatible::native_upstream_apis,
     registry::UpstreamTargetConfig,
 };
 
@@ -14,11 +14,16 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
             "mimo-v2-5-pro",
-            mimo::v2_5_pro::ID,
+            xiaomi::mimo_v2_5_pro::ID,
             "mimo-v2.5-pro",
             "mimo-primary",
         ),
-        target("mimo-v2-5", mimo::v2_5::ID, "mimo-v2.5", "mimo-primary"),
+        target(
+            "mimo-v2-5",
+            xiaomi::mimo_v2_5::ID,
+            "mimo-v2.5",
+            "mimo-primary",
+        ),
     ]
 }
 

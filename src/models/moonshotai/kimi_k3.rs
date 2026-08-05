@@ -1,51 +1,55 @@
-//! Complete canonical model facts for the GPT-5.5 line.
+//! Complete canonical model facts for Kimi K3 (`moonshotai/kimi-k3`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
     ReasoningSupport,
 };
 
-/// Builds the GPT-5.5 model facts confirmed by the LiteLLM configuration.
+/// Builds the complete model facts for Kimi K3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "openai/gpt-5.5".to_owned(),
-        name: "GPT-5.5".to_owned(),
+        id: "moonshotai/kimi-k3".to_owned(),
+        name: "Kimi K3".to_owned(),
         description: Some(
-            "OpenAI frontier model for complex professional work with strong reasoning and reliability."
+            "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), None),
         mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![
-            InputModality::Text,
-            InputModality::Image,
-            InputModality::File,
-        ]),
+        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("GPT".to_owned()),
-        knowledge_cutoff: Some("2025-12-01".to_owned()),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
         supported_parameters: [
+            "frequency_penalty",
             "include_reasoning",
-            "max_completion_tokens",
+            "logit_bias",
+            "logprobs",
             "max_tokens",
+            "min_p",
+            "presence_penalty",
             "reasoning",
             "reasoning_effort",
+            "repetition_penalty",
             "response_format",
             "seed",
+            "stop",
             "structured_outputs",
+            "temperature",
             "tool_choice",
             "tools",
+            "top_k",
+            "top_logprobs",
+            "top_p",
         ]
         .into_iter()
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![
-            ReasoningLevel::XHigh,
+            ReasoningLevel::Max,
             ReasoningLevel::High,
-            ReasoningLevel::Medium,
             ReasoningLevel::Low,
-            ReasoningLevel::None,
         ],
     }
 }

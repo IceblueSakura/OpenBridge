@@ -1,20 +1,17 @@
-//! Complete canonical model facts for GPT-5.6 Luna.
+//! Complete canonical model facts for OpenAI GPT-5.5 (`openai/gpt-5.5`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
     ReasoningSupport,
 };
 
-/// Stable OpenBridge catalog ID for GPT-5.6 Luna.
-pub(crate) const ID: &str = "openai/gpt-5.6-luna";
-
-/// Builds the GPT-5.6 Luna model facts confirmed by the LiteLLM configuration.
+/// Builds the GPT-5.5 model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: ID.to_owned(),
-        name: "GPT-5.6 Luna".to_owned(),
+        id: "openai/gpt-5.5".to_owned(),
+        name: "GPT-5.5".to_owned(),
         description: Some(
-            "Fast, cost-efficient GPT-5.6 model for chat, classification, and lightweight agents."
+            "OpenAI frontier model for complex professional work with strong reasoning and reliability."
                 .to_owned(),
         ),
         context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
@@ -26,7 +23,7 @@ pub(crate) fn config() -> ModelConfig {
         ]),
         output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: Some("GPT".to_owned()),
-        knowledge_cutoff: Some("2026-02-16".to_owned()),
+        knowledge_cutoff: Some("2025-12-01".to_owned()),
         supported_parameters: [
             "include_reasoning",
             "max_completion_tokens",
@@ -44,7 +41,6 @@ pub(crate) fn config() -> ModelConfig {
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![
-            ReasoningLevel::Max,
             ReasoningLevel::XHigh,
             ReasoningLevel::High,
             ReasoningLevel::Medium,

@@ -1,20 +1,20 @@
-//! Complete canonical model facts for GPT-5.6 Terra.
+//! Complete canonical model facts for OpenAI GPT-5.6 Luna (`openai/gpt-5.6-luna`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
     ReasoningSupport,
 };
 
-/// Stable OpenBridge catalog ID for GPT-5.6 Terra.
-pub(crate) const ID: &str = "openai/gpt-5.6-terra";
+/// Stable OpenBridge catalog ID for GPT-5.6 Luna.
+pub(crate) const ID: &str = "openai/gpt-5.6-luna";
 
-/// Builds the GPT-5.6 Terra model facts confirmed by the LiteLLM configuration.
+/// Builds the GPT-5.6 Luna model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "GPT-5.6 Terra".to_owned(),
+        name: "GPT-5.6 Luna".to_owned(),
         description: Some(
-            "Balanced GPT-5.6 model for everyday coding, reasoning, and agentic workflows."
+            "Fast, cost-efficient GPT-5.6 model for chat, classification, and lightweight agents."
                 .to_owned(),
         ),
         context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),

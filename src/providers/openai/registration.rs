@@ -7,7 +7,7 @@ use crate::{
         ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding, EmbeddingInputForm,
         EmbeddingsCapabilities, OperationKind, ReasoningOutput, ResponsesCapabilities,
     },
-    models::{embedding, gpt},
+    models::openai,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
     registry::{
@@ -40,7 +40,7 @@ fn generation_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-main".to_owned(),
         provider: ProviderKind::OpenAi,
-        model: gpt::v5_6_sol::ID.to_owned(),
+        model: openai::gpt_5_6_sol::ID.to_owned(),
         base_url: "https://api.openai.com".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
@@ -60,7 +60,7 @@ fn embedding_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-text-embedding-3-small".to_owned(),
         provider: ProviderKind::OpenAi,
-        model: embedding::TEXT_EMBEDDING_3_SMALL_ID.to_owned(),
+        model: openai::text_embedding_3_small::ID.to_owned(),
         base_url: "https://api.openai.com".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,

@@ -1,21 +1,16 @@
-//! Canonical facts for OpenAI embedding models.
+//! Canonical facts for OpenAI's `text-embedding-3-small` model.
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
 };
 
 /// Stable OpenBridge catalog ID for `text-embedding-3-small`.
-pub(crate) const TEXT_EMBEDDING_3_SMALL_ID: &str = "openai/text-embedding-3-small";
-
-/// Returns all OpenAI embedding model facts compiled into the binary.
-pub(crate) fn configs() -> Vec<ModelConfig> {
-    vec![text_embedding_3_small()]
-}
+pub(crate) const ID: &str = "openai/text-embedding-3-small";
 
 /// Builds the provider-independent facts confirmed for `text-embedding-3-small`.
-fn text_embedding_3_small() -> ModelConfig {
+pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: TEXT_EMBEDDING_3_SMALL_ID.to_owned(),
+        id: ID.to_owned(),
         name: "Text Embedding 3 Small".to_owned(),
         description: Some(
             "OpenAI embedding model for mapping text and token inputs to numeric vectors."

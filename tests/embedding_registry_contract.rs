@@ -16,7 +16,7 @@ use serde_json::json;
 
 const CANONICAL_MODEL: &str = "openai/text-embedding-3-small";
 const TARGET: &str = "openai-text-embedding-3-small";
-const ROUTE: &str = "embedding-primary-openai-embeddings";
+const ROUTE: &str = "text-embedding-3-small-openai-embeddings";
 
 #[test]
 fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
@@ -107,7 +107,7 @@ fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
     let public_model = definition
         .public_models
         .iter()
-        .find(|model| model.id == "embedding-primary")
+        .find(|model| model.id == "text-embedding-3-small")
         .expect("the embedding Public Model must be compiled");
     assert_eq!(public_model.routes, [ROUTE]);
 }
@@ -121,11 +121,11 @@ fn checked_in_embedding_interface_is_discoverable_and_directly_plannable() {
 
     // Verify the Models projection exposes only the fixed Embeddings contract without topology.
     let public_model = registry
-        .public_model("embedding-primary")
+        .public_model("text-embedding-3-small")
         .expect("the embedding Public Model must be available");
     assert_eq!(public_model.routes(), [ROUTE]);
     let info = serde_json::to_value(public_model.info()).unwrap();
-    assert_eq!(info["id"], "embedding-primary");
+    assert_eq!(info["id"], "text-embedding-3-small");
     assert_eq!(info["capabilities"]["tasks"], json!(["embedding"]));
     assert_eq!(info["interfaces"]["chat_completions"], json!(null));
     assert_eq!(info["interfaces"]["responses"], json!(null));
@@ -160,7 +160,7 @@ fn checked_in_embedding_interface_is_discoverable_and_directly_plannable() {
 
     // Plan one request from the same published contract and retain only the trusted candidate.
     let body = Bytes::from_static(
-        br#"{"model":"embedding-primary","input":["alpha","beta"],"encoding_format":"base64","user":"synthetic-user"}"#,
+        br#"{"model":"text-embedding-3-small","input":["alpha","beta"],"encoding_format":"base64","user":"synthetic-user"}"#,
     );
     let requirements = analyze_embedding_request(&body).unwrap();
     let plan = plan_embedding_request(&registry, &requirements, body).unwrap();
@@ -172,8 +172,9 @@ fn checked_in_embedding_interface_is_discoverable_and_directly_plannable() {
     assert_eq!(plan.dimensions(), 1_536);
 
     // Keep explicit dimensions closed until an evidence-backed domain is registered.
-    let dimensions =
-        Bytes::from_static(br#"{"model":"embedding-primary","input":"alpha","dimensions":512}"#);
+    let dimensions = Bytes::from_static(
+        br#"{"model":"text-embedding-3-small","input":"alpha","dimensions":512}"#,
+    );
     let requirements = analyze_embedding_request(&dimensions).unwrap();
     assert!(matches!(
         plan_embedding_request(&registry, &requirements, dimensions),

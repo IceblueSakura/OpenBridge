@@ -126,10 +126,11 @@ RegistryConfig
 | `PublicModelInfo` | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段 |
 
 当前编译目录包含 18 个 `ModelConfig`：17 个既有 generation 模型，以及独立的
-`openai/text-embedding-3-small` Embedding 模型。同一模型家族由 `src/models/<family>.rs` 聚合，家族目录下每个扁平叶模块只定义一个
-具体模型。版本、checkpoint 和命名变体直接组成模块名：例如 `gpt/v5_6_sol.rs`、
-`deepseek/v4_flash.rs`、`mimo/v2_5_pro.rs` 与 `qwen/v3_7_max.rs`；不增加版本聚合层。家族根模块直接维持
-目录顺序，源码使用 `gpt::v5_6_sol::ID` 这类扁平作用域名称。每个具体模型仍完整拥有 id、名称、context、
+`openai/text-embedding-3-small` Embedding 模型。同一研发者命名空间由 `src/models/<developer>.rs` 聚合，目录下每个扁平叶模块只定义一个
+具体模型。版本、checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、
+`deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。研发者根模块直接维持
+目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
+`z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、context、
 参数、reasoning 状态和 level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于
 可调用；只有被 Upstream Target 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
 `ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被
@@ -244,11 +245,11 @@ pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat
 与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API。OpenAI 另有
-`openai-text-embedding-3-small` target、`embeddings` API 和 `embedding-primary-openai-embeddings` Native Route，
+`openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route，
 不复用 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model
 由一个编译注册单元持有有序 Provider route source；每个下游协议先按 source 顺序生成全部 Native route，再按
-相同顺序生成指向相反 Upstream API 的 Bridged route。当前 checked-in 注册项的 source 列表都只有一个元素，
-尚未增加未经真实能力证据确认的跨 Provider 模型绑定。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
+相同顺序生成指向相反 Upstream API 的 Bridged route。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source，
+其余 checked-in generation 注册项各只有一个 source。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
 quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证，
 但尚未调用真实异构协议 Provider。
 
@@ -267,16 +268,16 @@ registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字
 映射为稳定的 `unimplemented_request` HTTP 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。
 因此这些类型位置与请求错误边界都不构成已实现能力声明。
 
-OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`、Chat/Responses Upstream API 和 Public Model
-`nemotron-3-ultra`；两个协议各有唯一 Native route，使用基础 upstream model
-`nvidia/nemotron-3-ultra-550b-a55b`。Responses API 的 state affinity 是 `Unbound`，`store`、
+OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`、Chat/Responses Upstream API，并作为
+`deepseek-v4-flash` Public Model 的第二个 Provider source；两个协议各有唯一 Native route，使用基础 upstream model
+`deepseek/deepseek-v4-flash`。Responses API 的 state affinity 是 `Unbound`，`store`、
 `previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route、fallback 或 `:free` 变体。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、
-quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Public Model 为 Chat 提供唯一 Native 候选，
-为 Responses 提供唯一 Responses→Chat Bridged 候选，不把 Bridge 描述成 Provider 原生 Responses。DeepSeek Chat
-的 reasoning output 为 `PlainText`；MiMo 与 LongCat 的 Chat/Responses reasoning output 均为 `Unknown`，因此
-它们的 Native-first route 不受影响，但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。
+quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；`deepseek-v4-pro` Public Model 仅保留 Chat Native，
+`deepseek-v4-flash` 则把 DeepSeek Chat Native 与 OpenRouter Chat/Responses Native 聚合。DeepSeek Chat 的 reasoning output
+为 `PlainText`；MiMo 与 LongCat 的 Chat/Responses reasoning output 均为 `Unknown`，因此它们的 Native-first route 不受影响，
+但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。
 
 ## 7. Transport、SSE、attempt 与 health
 

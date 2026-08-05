@@ -497,7 +497,7 @@ mod tests {
             .expect("the checked-in bootstrap must remain valid");
         let registry = build_registry(bootstrap, definition).expect("the registry must compile");
         let interface = registry
-            .public_model("code-primary")
+            .public_model("gpt-5.6-sol")
             .expect("the Public Model must remain visible through its bridge")
             .execution_interface(ApiProtocol::ChatCompletions.operation())
             .expect("the Chat execution interface must be compiled");
@@ -509,7 +509,7 @@ mod tests {
                 .iter()
                 .map(|candidate| candidate.route_id())
                 .collect::<Vec<_>>(),
-            ["code-primary-openai-chat-via-responses"]
+            ["gpt-5.6-sol-openai-chat-via-responses"]
         );
     }
 }

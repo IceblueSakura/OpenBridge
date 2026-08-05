@@ -19,13 +19,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
             "deepseek-v4-pro",
-            deepseek::v4_pro::ID,
+            deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
             "deepseek-primary",
         ),
         target(
             "deepseek-v4-flash",
-            deepseek::v4_flash::ID,
+            deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash",
             "deepseek-primary",
         ),

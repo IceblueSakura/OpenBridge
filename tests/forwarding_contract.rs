@@ -958,22 +958,22 @@ async fn models_lists_only_public_models_after_authentication() {
 }
 
 #[tokio::test]
-async fn compiled_models_endpoint_exposes_openrouter_model_facts() {
+async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
     let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
     let list = compiled_authenticated_get(&app, "/openbridge/v1/models").await;
-    let code_primary = list["data"]
+    let gpt_sol = list["data"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|model| model["id"] == "code-primary")
-        .expect("compiled code model should be listed");
+        .find(|model| model["id"] == "gpt-5.6-sol")
+        .expect("compiled GPT model should be listed");
 
     assert_eq!(
-        code_primary["description"],
+        gpt_sol["description"],
         "OpenAI flagship model for complex reasoning, coding, and multi-step agentic workflows."
     );
     assert_eq!(
-        code_primary["capabilities"]["context_window"],
+        gpt_sol["capabilities"]["context_window"],
         serde_json::json!({
             "max_context_tokens": 1_050_000,
             "max_input_tokens": 1_050_000,
@@ -981,25 +981,22 @@ async fn compiled_models_endpoint_exposes_openrouter_model_facts() {
         })
     );
     assert_eq!(
-        code_primary["capabilities"]["modalities"]["input"],
+        gpt_sol["capabilities"]["modalities"]["input"],
         serde_json::json!(["text", "image", "file"])
     );
-    assert_eq!(code_primary["capabilities"]["tokenizer"], "GPT");
+    assert_eq!(gpt_sol["capabilities"]["tokenizer"], "GPT");
+    assert_eq!(gpt_sol["capabilities"]["knowledge_cutoff"], "2026-02-16");
     assert_eq!(
-        code_primary["capabilities"]["knowledge_cutoff"],
-        "2026-02-16"
-    );
-    assert_eq!(
-        code_primary["capabilities"]["reasoning"]["levels"],
+        gpt_sol["capabilities"]["reasoning"]["levels"],
         serde_json::json!(["none", "low", "medium", "high", "xhigh", "max"])
     );
     assert_eq!(
-        code_primary["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
+        gpt_sol["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
         1_050_000
     );
 
-    let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/code-primary").await;
-    assert_eq!(detail, *code_primary);
+    let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/gpt-5.6-sol").await;
+    assert_eq!(detail, *gpt_sol);
 }
 
 #[tokio::test]

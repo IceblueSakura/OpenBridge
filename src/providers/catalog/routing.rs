@@ -18,9 +18,9 @@ pub(super) struct CompiledRouting {
 pub(super) fn compiled_routing() -> CompiledRouting {
     let registrations = [
         PublicModelRegistration {
-            public_name: "code-primary",
+            public_name: "gpt-5.6-sol",
             providers: &[ProviderRouteRegistration {
-                route_prefix: "code-primary-openai",
+                route_prefix: "gpt-5.6-sol-openai",
                 upstream_target: "openai-main",
                 surface: PublicModelSurface::DualProtocolWithBridges,
             }],
@@ -34,28 +34,27 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             }],
         },
         PublicModelRegistration {
-            public_name: "nemotron-3-ultra",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "nemotron-3-ultra-openrouter",
-                upstream_target: "openrouter-nemotron-3-ultra",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
-            }],
-        },
-        PublicModelRegistration {
             public_name: "deepseek-v4-pro",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "deepseek-v4-pro-deepseek",
                 upstream_target: "deepseek-v4-pro",
-                surface: PublicModelSurface::ChatNativeWithResponsesBridge,
+                surface: PublicModelSurface::ChatNativeOnly,
             }],
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-flash",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "deepseek-v4-flash-deepseek",
-                upstream_target: "deepseek-v4-flash",
-                surface: PublicModelSurface::ChatNativeWithResponsesBridge,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-flash-deepseek",
+                    upstream_target: "deepseek-v4-flash",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-flash-openrouter",
+                    upstream_target: "openrouter-deepseek-v4-flash",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
@@ -99,7 +98,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
 fn embedding_registration() -> CompiledPublicModel {
     // Bind the downstream operation directly to the dedicated trusted target and API.
     let route = RouteConfig {
-        id: "embedding-primary-openai-embeddings".to_owned(),
+        id: "text-embedding-3-small-openai-embeddings".to_owned(),
         upstream_target: "openai-text-embedding-3-small".to_owned(),
         upstream_api: "embeddings".to_owned(),
         downstream_operation: crate::core::OperationKind::EmbeddingsCreate,
@@ -108,9 +107,9 @@ fn embedding_registration() -> CompiledPublicModel {
 
     // Publish exactly that Route without adding Bridge or fallback candidates.
     let public_model = PublicModelConfig {
-        id: "embedding-primary".to_owned(),
+        id: "text-embedding-3-small".to_owned(),
         created: 1_785_715_200,
-        display_name: "Embedding Primary".to_owned(),
+        display_name: "text-embedding-3-small".to_owned(),
         description: Some(
             "OpenAI text embedding model with a fixed Native execution path.".to_owned(),
         ),
@@ -144,8 +143,8 @@ enum PublicModelSurface {
     DualProtocolWithBridges,
     /// Provides both Native protocols without Bridge paths.
     DualProtocolNativeOnly,
-    /// Provides Chat Native and a Responses-to-Chat Bridge path.
-    ChatNativeWithResponsesBridge,
+    /// Provides only a Chat Completions Native path.
+    ChatNativeOnly,
 }
 
 /// Global Route phase used to keep every Provider's Native candidate ahead of Bridge candidates.
@@ -215,9 +214,10 @@ impl ProviderRouteRegistration {
                 )
             }
             RoutePhase::ResponsesNative
-                if !matches!(
+                if matches!(
                     self.surface,
-                    PublicModelSurface::ChatNativeWithResponsesBridge
+                    PublicModelSurface::DualProtocolWithBridges
+                        | PublicModelSurface::DualProtocolNativeOnly
                 ) =>
             {
                 (
@@ -228,7 +228,7 @@ impl ProviderRouteRegistration {
                 )
             }
             RoutePhase::ResponsesBridge
-                if !matches!(self.surface, PublicModelSurface::DualProtocolNativeOnly) =>
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
             {
                 (
                     "responses-via-chat",

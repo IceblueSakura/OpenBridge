@@ -1,7 +1,7 @@
 //! Compile-time entry point for the DeepSeek Provider.
 //!
-//! Registers Chat Native surfaces for DeepSeek V4 Pro and Flash; compiled Routes explicitly bridge
-//! Responses requests to Chat.
+//! Registers Chat Native surfaces for DeepSeek V4 Pro and Flash; Responses for Flash is supplied by
+//! the explicit OpenRouter route source rather than by a DeepSeek Protocol Bridge.
 
 mod definition;
 mod registration;

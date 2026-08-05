@@ -33,7 +33,7 @@ Bootstrap schema v2 要求 `max_request_body_bytes`、`max_json_response_body_by
 
 - 每个具体 Provider 由 `src/providers/<provider>.rs` 根模块聚合，并在同名目录内分别拥有静态 definition 与可选 registration；具体 Provider 不使用 `mod.rs`，同一 wire family 的协议机制可以由闭合的编译期模块共享；
 - 静态 Provider definition 不自动构成运行链路；只有显式加入 compiled target、Route 与 Public Model 后才可被请求选择；
-- 同一模型家族由一个 `src/models/<family>.rs` 根模块聚合；`src/models/<family>/` 下每个扁平叶模块只定义一个具体 Model，并以版本、checkpoint 或命名变体组成模块名；每个具体 Model 仍完整声明自身事实；
+- 同一模型研发者命名空间由一个 `src/models/<developer>.rs` 根模块聚合；`src/models/<developer>/` 下每个扁平叶模块只定义一个具体 Model，并以研发者与模型 slug 组成 snake_case 模块名；每个具体 Model 仍完整声明自身事实；
 - `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
 - Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；

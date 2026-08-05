@@ -61,17 +61,18 @@ registry。当前可路由目录如下；“Bridge 候选”只表示已注册�
 
 | Provider | Public Model | 固定 Upstream Target | 下游可用 Route surface | Credential pool |
 |---|---|---|---|---|
-| OpenAI | `code-primary` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` |
-| OpenAI | `embedding-primary` | `openai-text-embedding-3-small` | `embeddings` Upstream API 的唯一 Native Route；无 Bridge/fallback | `openai-primary` |
+| OpenAI | `gpt-5.6-sol` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` |
+| OpenAI | `text-embedding-3-small` | `openai-text-embedding-3-small` | `embeddings` Upstream API 的唯一 Native Route；无 Bridge/fallback | `openai-primary` |
 | LongCat | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary` |
-| OpenRouter | `nemotron-3-ultra` | `openrouter-nemotron-3-ultra` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` |
-| DeepSeek | `deepseek-v4-pro`、`deepseek-v4-flash` | 同名两个 target | Chat Native；Responses→Chat Bridge；无原生 Responses Upstream API | `deepseek-primary` |
+| OpenRouter | `deepseek-v4-flash` | `openrouter-deepseek-v4-flash` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` |
+| DeepSeek | `deepseek-v4-pro` | `deepseek-v4-pro` | Chat Native；无 Responses 接口 | `deepseek-primary` |
+| DeepSeek + OpenRouter | `deepseek-v4-flash` | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native | `deepseek-primary`、`openrouter-primary` |
 | Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` |
 
 代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按
 source 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册
-或加入候选。上表 checked-in generation Public Model 的 source 列表目前都只有一个元素；本次没有添加未经真实能力证据
-确认的第二 Provider 绑定，因此默认运行目录尚不发生真实跨 Provider fallback。
+或加入候选。上表中 `deepseek-v4-flash` 显式拥有两个 Provider source；其他 checked-in generation Public Model 目前各只有一个 source。
+跨 Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。
 聚合 Responses Route 的 `previous_response_id` 还要求全部可执行 Route 唯一绑定同一个 Target/API；多个潜在
 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无 issuer ledger
 时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
@@ -89,14 +90,29 @@ MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均�
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。
 descriptor 不注册 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
 
-canonical 模型目录当前包含 18 个定义：17 个 generation 模型和独立的
-`openai/text-embedding-3-small` Embedding 模型。其中 16 个 generation 模型来自 LiteLLM 部署清单中的唯一 Chat/Responses 模型组，
-覆盖 GPT-5.6/5.5/5.3 Codex Spark、DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3、MiniMax M3、
-Hy3 与 Nemotron 3 Ultra；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。
-其中 GPT-5.6 Sol、LongCat 2.0、Nemotron 3 Ultra、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与
-Public Model 引用；`text-embedding-3-small` 由独立 OpenAI target 与 `embedding-primary` 引用。其余目录项
-尚未新增 Provider target 或 Public Model route，不构成真实可调用声明。`ModelConfig` 已能表达 Embedding，
-但仍没有 rerank task；Nemotron retrieval 条目未被伪装成可调用模型。
+canonical 模型目录当前包含 16 个定义：15 个 generation 模型和独立的
+`openai/text-embedding-3-small` Embedding 模型。其中 generation 模型覆盖 GPT-5.6/5.5/5.3 Codex Spark、
+DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3；已确认的 context、输出上限、参数、reasoning 状态和
+level 保存在各自模型模块。GPT-5.6 Sol、LongCat 2.0、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与
+Public Model 引用；`deepseek-v4-flash` 由 DeepSeek 与 OpenRouter 两个 target 共享同一个 canonical model，
+`text-embedding-3-small` 由独立 OpenAI target 引用。其余目录项尚未新增 Provider target 或 Public Model route，
+不构成真实可调用声明。`ModelConfig` 已能表达 Embedding，但仍没有 rerank task。
+
+2026-08-05 调整 checked-in 模型与 Provider 路由矩阵：
+
+- Public Model `code-primary` 和 `embedding-primary` 分别改为实际模型名 `gpt-5.6-sol` 与
+  `text-embedding-3-small`；对应的 OpenAPI、README、Embeddings contract 和 Models/forwarding 测试已同步。
+- OpenRouter 移除 Nemotron target/public route，改为 `openrouter-deepseek-v4-flash`，以
+  `deepseek/deepseek-v4-flash` 提供 Chat/Responses Native；`deepseek-v4-flash` Public Model 显式聚合
+  DeepSeek Chat 与 OpenRouter Chat/Responses，保留固定 source 顺序。
+- DeepSeek 两个直连 target 均保持 Chat-only；`deepseek-v4-pro` 不再生成 Responses Bridge，`deepseek-v4-flash`
+  的 Responses 只通过 OpenRouter Native route 可用。canonical catalog 同时移除 `tencent/hy3` 与不再绑定的
+  `nvidia/nemotron-3-ultra-550b-a55b` 模型定义及模块。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`
+  均通过；全量 Rust 结果为 199 个测试通过、2 个显式外部 SDK/独立客户端集成测试 ignored。
+
+本轮证据仅覆盖本地 compiled registry、Models projection、preflight/planning、mock forwarding 和 Provider contract；
+未运行真实 OpenRouter/DeepSeek 请求、外部 SDK、Codex/Hermes、负载或长期运行验收。
 
 2026-08-03 在 2026-08-02 快照基础上按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、
 context/input projection、最大输出、输入/输出模态、tokenizer、knowledge cutoff、参数和 reasoning efforts。
@@ -113,7 +129,7 @@ Embeddings 接口持有分型 `EmbeddingInterfaceCapabilities` 与唯一 Native 
 Target、Route、upstream model、endpoint、credential、健康或价格信息。preflight 读取同一执行接口；retired 或没有可执行
 接口的 Public Model 不进入可见目录。
 
-`embedding-primary` 的固定接口公开四种非空 input form、默认 `float` 和显式 `float`/`base64`、默认维度
+`text-embedding-3-small` 的固定接口公开四种非空 input form、默认 `float` 和显式 `float`/`base64`、默认维度
 1536、单输入 8192 token 与单请求总计 300,000 token；`max_inputs` 由上游 2048 上界和 bootstrap JSON
 response budget 的 checked worst-case 序列化边界共同收窄。只有 token-array 两种输入在本地精确计数，字符串
 不做 tokenizer 估算。当前没有证据支持精确可变维度域，因此 `dimensions.allowed = null`，显式
@@ -124,7 +140,7 @@ Embeddings ingress 只接受 `model`、`input`、`encoding_format`、`dimensions
 planning 从扩展 Models 投影所依赖的同一个预编译执行接口读取能力；adapter 固定写入
 `/v1/embeddings`、`text-embedding-3-small` 与 OpenAI credential，客户端不能选择上游 topology。成功体在
 `max_json_response_body_bytes` 内完整读取，校验 media type、object/model/data/index、float/base64、维度和
-usage 后才把 model 投影回 `embedding-primary` 并提交下游。非法成功体返回安全 502，不透传 body。
+usage 后才把 model 投影回 `text-embedding-3-small` 并提交下游。非法成功体返回安全 502，不透传 body。
 
 单 Route Embeddings 沿用每 candidate 最多两次的 attempt 边界：429 轮换同 pool credential，5xx/timeout
 保留当前 credential；只有 body 不超过 `max_replay_body_bytes` 才允许第二次发送。更大的合法 body 只尝试

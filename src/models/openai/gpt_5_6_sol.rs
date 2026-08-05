@@ -1,46 +1,43 @@
-//! Complete canonical model facts for the Kimi K3 line.
+//! Complete canonical model facts for OpenAI GPT-5.6 Sol (`openai/gpt-5.6-sol`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
     ReasoningSupport,
 };
 
-/// Builds the complete model facts for Kimi K3.
+/// Stable OpenBridge catalog ID for GPT-5.6 Sol.
+pub(crate) const ID: &str = "openai/gpt-5.6-sol";
+
+/// Builds the GPT-5.6 Sol model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "moonshotai/kimi-k3".to_owned(),
-        name: "Kimi K3".to_owned(),
+        id: ID.to_owned(),
+        name: "GPT-5.6 Sol".to_owned(),
         description: Some(
-            "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."
+            "OpenAI flagship model for complex reasoning, coding, and multi-step agentic workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), None),
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
         mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::File,
+        ]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Other".to_owned()),
-        knowledge_cutoff: None,
+        tokenizer: Some("GPT".to_owned()),
+        knowledge_cutoff: Some("2026-02-16".to_owned()),
         supported_parameters: [
-            "frequency_penalty",
             "include_reasoning",
-            "logit_bias",
-            "logprobs",
+            "max_completion_tokens",
             "max_tokens",
-            "min_p",
-            "presence_penalty",
             "reasoning",
             "reasoning_effort",
-            "repetition_penalty",
             "response_format",
             "seed",
-            "stop",
             "structured_outputs",
-            "temperature",
             "tool_choice",
             "tools",
-            "top_k",
-            "top_logprobs",
-            "top_p",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -48,8 +45,11 @@ pub(crate) fn config() -> ModelConfig {
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![
             ReasoningLevel::Max,
+            ReasoningLevel::XHigh,
             ReasoningLevel::High,
+            ReasoningLevel::Medium,
             ReasoningLevel::Low,
+            ReasoningLevel::None,
         ],
     }
 }

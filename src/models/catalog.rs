@@ -2,22 +2,19 @@
 
 use crate::registry::ModelConfig;
 
-use super::{deepseek, embedding, glm, gpt, hy, kimi, longcat, mimo, minimax, nemotron, qwen};
+use super::{deepseek, meituan, minimax, moonshotai, openai, qwen, xiaomi, z_ai};
 
 /// Returns every provider-independent model fact compiled into the binary.
 pub(crate) fn compiled_configs() -> Vec<ModelConfig> {
     [
-        longcat::configs(),
-        gpt::configs(),
-        embedding::configs(),
+        meituan::configs(),
+        openai::configs(),
         deepseek::configs(),
-        mimo::configs(),
+        xiaomi::configs(),
         qwen::configs(),
-        glm::configs(),
-        kimi::configs(),
+        z_ai::configs(),
+        moonshotai::configs(),
         minimax::configs(),
-        hy::configs(),
-        nemotron::configs(),
     ]
     .concat()
 }

@@ -1,4 +1,4 @@
-//! Complete canonical model facts for the GPT-5.3 line.
+//! Complete canonical model facts for OpenAI GPT-5.3 (`openai/gpt-5.3-codex-spark`).
 
 use crate::registry::{ModelConfig, ModelContextLength, ReasoningLevel, ReasoningSupport};
 

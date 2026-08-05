@@ -1,31 +1,27 @@
-//! Complete canonical model facts for Xiaomi MiMo-V2.5.
+//! Complete canonical model facts for DeepSeek V4 Pro (`deepseek/deepseek-v4-pro`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
 };
 
-/// Stable OpenBridge catalog ID for MiMo-V2.5.
-pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
+/// Stable OpenBridge catalog ID for DeepSeek V4 Pro.
+pub(crate) const ID: &str = "deepseek/deepseek-v4-pro";
 
-/// Builds the context, parameter, and reasoning facts for MiMo-V2.5.
+/// Builds the context, parameter, and reasoning facts for DeepSeek V4 Pro.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "MiMo-V2.5".to_owned(),
+        name: "DeepSeek V4 Pro".to_owned(),
         description: Some(
-            "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
+            "Large Mixture-of-Experts model for advanced reasoning, coding, and agent workflows."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(384_000)),
         mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![
-            InputModality::Text,
-            InputModality::Audio,
-            InputModality::Image,
-            InputModality::Video,
-        ]),
+        input_modalities: Some(vec![InputModality::Text]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Other".to_owned()),
+        tokenizer: Some("DeepSeek".to_owned()),
         knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
@@ -36,6 +32,7 @@ pub(crate) fn config() -> ModelConfig {
             "min_p",
             "presence_penalty",
             "reasoning",
+            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -52,6 +49,6 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![ReasoningLevel::Max, ReasoningLevel::High],
     }
 }

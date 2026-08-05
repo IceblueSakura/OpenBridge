@@ -1,34 +1,42 @@
-//! Complete canonical model facts for Qwen3.7 Max.
+//! Complete canonical model facts for MiMo-V2.5 (`xiaomi/mimo-v2.5`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
 };
 
-/// Stable OpenBridge catalog ID for Qwen3.7 Max.
-pub(crate) const ID: &str = "qwen/qwen3.7-max";
+/// Stable OpenBridge catalog ID for MiMo-V2.5.
+pub(crate) const ID: &str = "xiaomi/mimo-v2.5";
 
-/// Builds the context, parameter, and reasoning facts for Qwen3.7 Max.
+/// Builds the context, parameter, and reasoning facts for MiMo-V2.5.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "Qwen3.7 Max".to_owned(),
+        name: "MiMo-V2.5".to_owned(),
         description: Some(
-            "Qwen3.7 flagship model for agent-centric coding, office, and productivity workloads."
+            "Native omnimodal Xiaomi model for cost-efficient agents and image or video understanding."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_000_000), Some(1_000_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
         mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text]),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Audio,
+            InputModality::Image,
+            InputModality::Video,
+        ]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Qwen".to_owned()),
+        tokenizer: Some("Other".to_owned()),
         knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
+            "logit_bias",
             "logprobs",
             "max_tokens",
+            "min_p",
             "presence_penalty",
             "reasoning",
+            "repetition_penalty",
             "response_format",
             "seed",
             "stop",

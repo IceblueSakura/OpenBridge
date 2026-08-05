@@ -122,7 +122,7 @@ async fn python_client_discovers_and_calls_the_checked_in_embedding_model() {
         summary,
         json!({
             "default_dimensions": 1536,
-            "discovered_model": "embedding-primary",
+            "discovered_model": "text-embedding-3-small",
             "encoding": "float",
             "vectors": 2
         })

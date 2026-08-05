@@ -1,4 +1,4 @@
-//! Complete canonical model facts for the LongCat 2.x line.
+//! Complete canonical model facts for LongCat 2.0 (`meituan/longcat-2.0`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,

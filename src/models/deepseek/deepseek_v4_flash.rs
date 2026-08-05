@@ -1,26 +1,27 @@
-//! Complete canonical model facts for Xiaomi MiMo-V2.5-Pro.
+//! Complete canonical model facts for DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
 };
 
-/// Stable OpenBridge catalog ID for MiMo-V2.5-Pro.
-pub(crate) const ID: &str = "xiaomi/mimo-v2.5-pro";
+/// Stable OpenBridge catalog ID for DeepSeek V4 Flash.
+pub(crate) const ID: &str = "deepseek/deepseek-v4-flash";
 
-/// Builds the context, parameter, and reasoning facts for MiMo-V2.5-Pro.
+/// Builds the context, parameter, and reasoning facts for DeepSeek V4 Flash.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "MiMo-V2.5-Pro".to_owned(),
+        name: "DeepSeek V4 Flash".to_owned(),
         description: Some(
-            "Xiaomi flagship model for complex software engineering and long-horizon agentic tasks."
+            "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(393_216)),
         mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![InputModality::Text]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Other".to_owned()),
+        tokenizer: Some("DeepSeek".to_owned()),
         knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
@@ -31,6 +32,7 @@ pub(crate) fn config() -> ModelConfig {
             "min_p",
             "presence_penalty",
             "reasoning",
+            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -39,6 +41,7 @@ pub(crate) fn config() -> ModelConfig {
             "temperature",
             "tool_choice",
             "tools",
+            "top_a",
             "top_k",
             "top_logprobs",
             "top_p",
@@ -47,6 +50,10 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![
+            ReasoningLevel::Max,
+            ReasoningLevel::High,
+            ReasoningLevel::Low,
+        ],
     }
 }

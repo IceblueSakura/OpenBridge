@@ -34,8 +34,6 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
         "minimax/minimax-m3",
-        "tencent/hy3",
-        "nvidia/nemotron-3-ultra-550b-a55b",
     ];
 
     // Moving family and version modules must not change catalog contents or stable order.
@@ -164,45 +162,92 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         .unwrap();
     assert_eq!(deepseek_flash.context_length.output_tokens(), Some(393_216));
 
-    let hy3 = definition
-        .models
-        .iter()
-        .find(|model| model.id == "tencent/hy3")
-        .unwrap();
-    assert_eq!(
-        hy3.reasoning_levels,
-        [
-            ReasoningLevel::High,
-            ReasoningLevel::Low,
-            ReasoningLevel::None
-        ]
-    );
-
-    let nemotron = definition
-        .models
-        .iter()
-        .find(|model| model.id == "nvidia/nemotron-3-ultra-550b-a55b")
-        .unwrap();
-    assert_eq!(nemotron.context_length.context_tokens(), Some(512_288));
-    assert_eq!(nemotron.context_length.input_tokens(), Some(512_288));
-    assert_eq!(nemotron.context_length.output_tokens(), None);
-    assert_eq!(nemotron.mode, Some(ModelMode::Chat));
-    assert_eq!(nemotron.input_modalities, Some(vec![InputModality::Text]));
-    assert_eq!(nemotron.output_modalities, Some(vec![OutputModality::Text]));
-    assert_eq!(nemotron.tokenizer.as_deref(), Some("Other"));
-    assert!(
-        nemotron
-            .supported_parameters
-            .iter()
-            .any(|parameter| parameter == "structured_outputs")
-    );
-
     // Keep unrelated rerank models out until that task and protocol have an executable contract.
     assert!(
         definition
             .models
             .iter()
             .all(|model| !model.id.contains("rerank"))
+    );
+}
+
+#[test]
+fn requested_public_model_and_provider_matrix_is_compiled() {
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let definition = compiled_config();
+
+    // Keep removed model facts out of the compiled canonical catalog.
+    assert!(
+        !definition
+            .models
+            .iter()
+            .any(|model| model.id == "tencent/hy3")
+    );
+    assert!(
+        !definition
+            .models
+            .iter()
+            .any(|model| model.id == "nvidia/nemotron-3-ultra-550b-a55b")
+    );
+
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Publish the actual OpenAI model names instead of deployment aliases.
+    assert!(registry.public_model("gpt-5.6-sol").is_some());
+    assert!(registry.public_model("text-embedding-3-small").is_some());
+    assert!(registry.public_model("code-primary").is_none());
+    assert!(registry.public_model("embedding-primary").is_none());
+
+    // Replace the OpenRouter Nemotron target with a DeepSeek V4 Flash target.
+    assert!(
+        registry
+            .upstream_target("openrouter-nemotron-3-ultra")
+            .is_none()
+    );
+    let openrouter_flash = registry
+        .upstream_target("openrouter-deepseek-v4-flash")
+        .expect("OpenRouter DeepSeek V4 Flash target should be compiled");
+    assert_eq!(openrouter_flash.kind(), ProviderKind::OpenRouter);
+    assert_eq!(openrouter_flash.model_id(), "deepseek/deepseek-v4-flash");
+    assert_eq!(
+        openrouter_flash
+            .upstream_api("responses")
+            .unwrap()
+            .upstream_model(),
+        "deepseek/deepseek-v4-flash"
+    );
+
+    // Keep Pro Chat-only while Flash obtains a Native Responses candidate from OpenRouter.
+    let pro = registry
+        .public_model("deepseek-v4-pro")
+        .expect("DeepSeek V4 Pro should remain visible");
+    assert_eq!(pro.routes(), ["deepseek-v4-pro-deepseek-chat"]);
+    let pro_info = serde_json::to_value(pro.info()).unwrap();
+    assert_eq!(pro_info["interfaces"]["responses"], serde_json::Value::Null);
+
+    let flash = registry
+        .public_model("deepseek-v4-flash")
+        .expect("DeepSeek V4 Flash should remain visible");
+    assert_eq!(
+        flash.routes(),
+        [
+            "deepseek-v4-flash-deepseek-chat",
+            "deepseek-v4-flash-openrouter-chat",
+            "deepseek-v4-flash-openrouter-responses",
+        ]
+    );
+    let responses = bytes::Bytes::from_static(
+        br#"{"model":"deepseek-v4-flash","input":"hello","stream":true}"#,
+    );
+    let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+    let plan = plan_request(&registry, &profile, responses).unwrap();
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "deepseek-v4-flash-openrouter-responses"
+    );
+    assert_eq!(
+        plan.candidates()[0].upstream_target_id(),
+        "openrouter-deepseek-v4-flash"
     );
 }
 
@@ -218,31 +263,6 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let registry =
         build_compiled_registry(bootstrap).expect("compiled registry must remain internally valid");
 
-    let nemotron_info = serde_json::to_value(
-        registry
-            .public_model("nemotron-3-ultra")
-            .expect("Nemotron Public Model should be visible")
-            .info(),
-    )
-    .unwrap();
-    assert_eq!(
-        nemotron_info["description"],
-        "Hybrid Transformer-Mamba Mixture-of-Experts model for reasoning and agent orchestration."
-    );
-    assert_eq!(
-        nemotron_info["capabilities"]["context_window"]["max_input_tokens"],
-        512_288
-    );
-    assert_eq!(
-        nemotron_info["capabilities"]["modalities"]["input"],
-        serde_json::json!(["text"])
-    );
-    assert_eq!(nemotron_info["capabilities"]["tokenizer"], "Other");
-    assert_eq!(
-        nemotron_info["capabilities"]["knowledge_cutoff"],
-        serde_json::Value::Null
-    );
-
     assert_eq!(registry.version().as_str(), "dev-1");
     assert!(registry.listen().ip().is_loopback());
     let users = UserConfigPath::new("config/users.example.toml")
@@ -251,14 +271,14 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert_eq!(users.users().users().next().unwrap().id(), "local-user");
     assert_eq!(
         registry
-            .public_model("code-primary")
+            .public_model("gpt-5.6-sol")
             .expect("public model is compiled")
             .routes(),
         [
-            "code-primary-openai-chat",
-            "code-primary-openai-chat-via-responses",
-            "code-primary-openai-responses",
-            "code-primary-openai-responses-via-chat",
+            "gpt-5.6-sol-openai-chat",
+            "gpt-5.6-sol-openai-chat-via-responses",
+            "gpt-5.6-sol-openai-responses",
+            "gpt-5.6-sol-openai-responses-via-chat",
         ]
     );
 
@@ -314,20 +334,21 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     );
 
     let openrouter_public = registry
-        .public_model("nemotron-3-ultra")
-        .expect("OpenRouter Nemotron public model is compiled");
+        .public_model("deepseek-v4-flash")
+        .expect("OpenRouter DeepSeek V4 Flash public model is compiled");
     assert_eq!(
         openrouter_public.routes(),
         [
-            "nemotron-3-ultra-openrouter-chat",
-            "nemotron-3-ultra-openrouter-responses"
+            "deepseek-v4-flash-deepseek-chat",
+            "deepseek-v4-flash-openrouter-chat",
+            "deepseek-v4-flash-openrouter-responses"
         ]
     );
     let openrouter = registry
-        .upstream_target("openrouter-nemotron-3-ultra")
-        .expect("OpenRouter Nemotron target is compiled");
+        .upstream_target("openrouter-deepseek-v4-flash")
+        .expect("OpenRouter DeepSeek V4 Flash target is compiled");
     assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
-    assert_eq!(openrouter.model_id(), "nvidia/nemotron-3-ultra-550b-a55b");
+    assert_eq!(openrouter.model_id(), "deepseek/deepseek-v4-flash");
     assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
     assert!(registry.credential_pool("openrouter-primary").is_some());
     assert_eq!(
@@ -337,12 +358,12 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let openrouter_chat = openrouter.upstream_api("chat").unwrap();
     assert_eq!(
         openrouter_chat.upstream_model(),
-        "nvidia/nemotron-3-ultra-550b-a55b"
+        "deepseek/deepseek-v4-flash"
     );
     let openrouter_responses = openrouter.upstream_api("responses").unwrap();
     assert_eq!(
         openrouter_responses.upstream_model(),
-        "nvidia/nemotron-3-ultra-550b-a55b"
+        "deepseek/deepseek-v4-flash"
     );
     let responses_capabilities = match openrouter_responses.capabilities() {
         UpstreamApiCapabilities::Responses(capabilities) => capabilities,
@@ -357,34 +378,36 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert!(!responses_capabilities.background);
 
     let body = bytes::Bytes::from_static(
-        br#"{"model":"nemotron-3-ultra","messages":[],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+        br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"probe"}}]}"#,
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
     assert_eq!(
-        plan.candidates()[0].route_id(),
-        "nemotron-3-ultra-openrouter-chat"
-    );
-    assert_eq!(
-        plan.candidates()[0].upstream_target_id(),
-        "openrouter-nemotron-3-ultra"
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        [
+            "deepseek-v4-flash-deepseek-chat",
+            "deepseek-v4-flash-openrouter-chat"
+        ]
     );
 
     let responses = bytes::Bytes::from_static(
-        br#"{"model":"nemotron-3-ultra","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
+        br#"{"model":"deepseek-v4-flash","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
     );
     let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
     let plan = plan_request(&registry, &profile, responses).unwrap();
     assert_eq!(
         plan.candidates()[0].route_id(),
-        "nemotron-3-ultra-openrouter-responses"
+        "deepseek-v4-flash-openrouter-responses"
     );
 
     for unsupported in [
-        br#"{"model":"nemotron-3-ultra","input":"hello","store":true}"#.as_slice(),
-        br#"{"model":"nemotron-3-ultra","input":"hello","previous_response_id":"resp_123"}"#
+        br#"{"model":"deepseek-v4-flash","input":"hello","store":true}"#.as_slice(),
+        br#"{"model":"deepseek-v4-flash","input":"hello","previous_response_id":"resp_123"}"#
             .as_slice(),
-        br#"{"model":"nemotron-3-ultra","input":"hello","background":true}"#.as_slice(),
+        br#"{"model":"deepseek-v4-flash","input":"hello","background":true}"#.as_slice(),
     ] {
         let body = bytes::Bytes::copy_from_slice(unsupported);
         let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
@@ -429,7 +452,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
 }
 
 #[test]
-fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
+fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
     // Build the complete compiled registry and check the fixed trusted boundaries of both DeepSeek targets.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -469,42 +492,44 @@ fn deepseek_models_are_compiled_with_chat_native_and_responses_bridge_routes() {
         );
         assert!(target.upstream_api("responses").is_none());
 
-        // Verify that downstream Chat uses Native and Responses uses only the explicit Chat bridge.
+        // Verify that downstream Chat retains the direct DeepSeek Native candidate.
         let public_model = registry
             .public_model(public_name)
             .expect("DeepSeek Public Model should be compiled");
-        let prefix = format!("{public_name}-deepseek");
-        assert_eq!(
-            public_model.routes(),
-            [
-                format!("{prefix}-chat"),
-                format!("{prefix}-responses-via-chat"),
-            ]
-        );
         let chat = bytes::Bytes::from(format!(
             r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}]}}"#
         ));
         let profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
         let plan = plan_request(&registry, &profile, chat).unwrap();
-        assert_eq!(plan.candidates()[0].route_id(), format!("{prefix}-chat"));
-        let responses =
-            bytes::Bytes::from(format!(r#"{{"model":"{public_name}","input":"hello"}}"#));
-        let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
-        let plan = plan_request(&registry, &profile, responses).unwrap();
         assert_eq!(
             plan.candidates()[0].route_id(),
-            format!("{prefix}-responses-via-chat")
+            format!("{public_name}-deepseek-chat")
         );
 
-        // Verify that the DeepSeek Responses bridge preserves reasoning effort after real route planning.
-        let responses_reasoning = bytes::Bytes::from(format!(
-            r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
-        ));
-        let profile = analyze_request(ApiProtocol::Responses, &responses_reasoning).unwrap();
-        let plan = plan_request(&registry, &profile, responses_reasoning).unwrap();
-        let upstream: serde_json::Value =
-            serde_json::from_slice(plan.request().body()).expect("bridge request must be JSON");
-        assert_eq!(upstream["reasoning_effort"], "high");
+        let info = serde_json::to_value(public_model.info()).unwrap();
+        if public_name == "deepseek-v4-pro" {
+            assert_eq!(public_model.routes(), ["deepseek-v4-pro-deepseek-chat"]);
+            assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
+        } else {
+            // Flash aggregates direct DeepSeek Chat with OpenRouter Chat/Responses Native routes.
+            assert_eq!(
+                public_model.routes(),
+                [
+                    "deepseek-v4-flash-deepseek-chat",
+                    "deepseek-v4-flash-openrouter-chat",
+                    "deepseek-v4-flash-openrouter-responses",
+                ]
+            );
+            let responses =
+                bytes::Bytes::from_static(br#"{"model":"deepseek-v4-flash","input":"hello"}"#);
+            let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+            let plan = plan_request(&registry, &profile, responses).unwrap();
+            assert_eq!(
+                plan.candidates()[0].route_id(),
+                "deepseek-v4-flash-openrouter-responses"
+            );
+            assert!(info["interfaces"]["responses"].is_object());
+        }
     }
 }
 
@@ -523,17 +548,17 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
     );
     assert!(deepseek.upstream_api("responses").is_none());
 
-    // DeepSeek Responses may select only Chat Bridge and must use the confirmed PlainText upstream channel.
+    // DeepSeek's direct target remains Chat-only; Flash Responses is served by OpenRouter Native.
     let deepseek_body =
         bytes::Bytes::from(r#"{"model":"deepseek-v4-flash","input":"hello","reasoning":{}}"#);
     let deepseek_profile = analyze_request(ApiProtocol::Responses, &deepseek_body).unwrap();
     let deepseek_plan = plan_request(&registry, &deepseek_profile, deepseek_body).unwrap();
     assert_eq!(
         deepseek_plan.candidates()[0].route_id(),
-        "deepseek-v4-flash-deepseek-responses-via-chat"
+        "deepseek-v4-flash-openrouter-responses"
     );
-    assert_eq!(deepseek_plan.candidates()[0].upstream_api_id(), "chat");
-    assert!(deepseek_plan.candidates()[0].bridge().is_some());
+    assert_eq!(deepseek_plan.candidates()[0].upstream_api_id(), "responses");
+    assert!(deepseek_plan.candidates()[0].bridge().is_none());
 
     let mimo = registry
         .upstream_target("mimo-v2-5")
@@ -799,14 +824,14 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
     }
     let registry = build_registry(bootstrap.clone(), definition.clone()).unwrap();
     let body = bytes::Bytes::from_static(
-        br#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#,
+        br#"{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}"#,
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
     assert_eq!(plan.candidates().len(), 1);
     assert_eq!(
         plan.candidates()[0].route_id(),
-        "code-primary-openai-chat-via-responses"
+        "gpt-5.6-sol-openai-chat-via-responses"
     );
     assert!(plan.candidates()[0].bridge().is_some());
 
@@ -827,13 +852,13 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
         capabilities.enabled = false;
     }
     let registry = build_registry(bootstrap, definition).unwrap();
-    let body = bytes::Bytes::from_static(br#"{"model":"code-primary","input":"hello"}"#);
+    let body = bytes::Bytes::from_static(br#"{"model":"gpt-5.6-sol","input":"hello"}"#);
     let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
     assert_eq!(plan.candidates().len(), 1);
     assert_eq!(
         plan.candidates()[0].route_id(),
-        "code-primary-openai-responses-via-chat"
+        "gpt-5.6-sol-openai-responses-via-chat"
     );
     assert!(plan.candidates()[0].bridge().is_some());
 }

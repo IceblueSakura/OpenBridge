@@ -1,20 +1,20 @@
-//! Complete canonical model facts for the Tencent HY3 line.
+//! Complete canonical model facts for GLM-5.2 (`z-ai/glm-5.2`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
     ReasoningSupport,
 };
 
-/// Builds the complete model facts for HY3.
+/// Builds the complete model facts for GLM-5.2.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "tencent/hy3".to_owned(),
-        name: "Hy3".to_owned(),
+        id: "z-ai/glm-5.2".to_owned(),
+        name: "GLM-5.2".to_owned(),
         description: Some(
-            "Tencent Mixture-of-Experts model for configurable reasoning and production agent workflows."
+            "Large-scale reasoning model for long-horizon agents and project-level software engineering."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(262_144), Some(262_144), Some(128_000)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(131_072)),
         mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![InputModality::Text]),
         output_modalities: Some(vec![OutputModality::Text]),
@@ -24,9 +24,10 @@ pub(crate) fn config() -> ModelConfig {
             "frequency_penalty",
             "include_reasoning",
             "logit_bias",
-            "max_completion_tokens",
+            "logprobs",
             "max_tokens",
             "min_p",
+            "parallel_tool_calls",
             "presence_penalty",
             "reasoning",
             "reasoning_effort",
@@ -39,16 +40,13 @@ pub(crate) fn config() -> ModelConfig {
             "tool_choice",
             "tools",
             "top_k",
+            "top_logprobs",
             "top_p",
         ]
         .into_iter()
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![
-            ReasoningLevel::High,
-            ReasoningLevel::Low,
-            ReasoningLevel::None,
-        ],
+        reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
     }
 }

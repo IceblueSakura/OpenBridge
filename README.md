@@ -34,10 +34,9 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 ## 当前可运行基线
 
-当前 checkout 已实现 OpenAI、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
-OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 与
-Responses→Chat Bridge 路由，
-并通过独立 Public Model `embedding-primary` 把 Embeddings JSON 请求固定转发到专用 OpenAI target
+当前 checkout 已实现 OpenAI `gpt-5.6-sol`、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
+OpenRouter 的 `deepseek-v4-flash` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 路由，
+并通过独立 Public Model `text-embedding-3-small` 把 Embeddings JSON 请求固定转发到专用 OpenAI target
 `openai-text-embedding-3-small`，其 upstream model 为 `text-embedding-3-small`。该 Embeddings 链路使用严格请求 union、预提交有界成功体校验、单 Route 有限
 retry 与 operation 级脱敏观测；显式 `dimensions` 暂不公开，默认维度为 1536。
 同时实现有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
@@ -94,25 +93,25 @@ Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填�
 curl http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
+  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}'
 ```
 
 Embeddings 客户端应先读取扩展 Models 中的固定接口，再只发送该接口公开的参数：
 
 ```bash
-curl http://127.0.0.1:8080/openbridge/v1/models/embedding-primary \
+curl http://127.0.0.1:8080/openbridge/v1/models/text-embedding-3-small \
   -H 'Authorization: Bearer replace-with-a-local-client-token'
 
 curl http://127.0.0.1:8080/v1/embeddings \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"embedding-primary","input":["alpha","beta"],"encoding_format":"float"}'
+  -d '{"model":"text-embedding-3-small","input":["alpha","beta"],"encoding_format":"float"}'
 ```
 
 请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。代码目录允许
 一个 generation Public Model 显式列出多个 Provider route source；对每个 generation 下游协议，先按 Provider 声明顺序生成全部 Native
 候选，再按相同顺序生成 Bridge 候选。相同 canonical Model ID 不会触发自动发现或隐式聚合。当前 checked-in
-generation Public Model 的 source 列表仍各自只有一个元素，因为尚无第二个已确认的真实 Provider 绑定。Native Route
+generation Public Model 的 source 列表中，`deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 Provider；其余已接入模型目前各自只有一个 source。Native Route
 规划保留 canonical 请求；Provider adapter 在准备选定 Upstream API 的 egress 请求时写入实际上游 `model`，
 并可对 canonical Model 已声明的 reasoning level 应用显式 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
@@ -126,15 +125,15 @@ Provider 的受信 request-header hook 可按编译期规则增添、替换、�
 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
 Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
 
-OpenRouter 当前注册固定 target `openrouter-nemotron-3-ultra`，使用 `openrouter-primary` credential pool，把 Public Model
-`nemotron-3-ultra` 原生转发到基础模型 `nvidia/nemotron-3-ultra-550b-a55b`。该注册项支持 Chat Completions
+OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`，使用 `openrouter-primary` credential pool，把 Public Model
+`deepseek-v4-flash` 原生转发到基础模型 `deepseek/deepseek-v4-flash`。该注册项支持 Chat Completions
 和无状态 Responses；`store: true`、非空 `previous_response_id` 与 `background: true` 会在 egress 前拒绝。
 它不启用 Protocol Bridge、fallback 或带额外会话记录政策的 `:free` 变体。
 
 DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool 和固定
-`https://api.deepseek.com` endpoint。每个模型的 Chat 使用 Native Route，Responses 只通过受限 Bridge 转换到
-Chat Upstream API；Chat 的 reasoning 输出能力明确配置为 `PlainText`（对应 `reasoning_content`），不伪装上游
-Responses 能力。LongCat 当前 Chat/Responses 均配置为 `Unknown` reasoning 输出；现有协议、文本和工具测试没有证明
+`https://api.deepseek.com` endpoint。两个 DeepSeek target 都只注册 Chat Native API；`deepseek-v4-pro` 对下游仅公开
+Chat，`deepseek-v4-flash` 通过显式 OpenRouter source 增加无状态 Responses Native。Chat 的 reasoning 输出能力明确配置为
+`PlainText`（对应 `reasoning_content`），不把它伪装成 DeepSeek 原生 Responses 能力。LongCat 当前 Chat/Responses 均配置为 `Unknown` reasoning 输出；现有协议、文本和工具测试没有证明
 可读 reasoning，因此只有 Native 路径可保留这类上游语义，Bridge 不会猜测转换。Xiaomi MiMo 当前注册
 `mimo-v2.5-pro` 与 `mimo-v2.5`，使用
 `mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route
@@ -227,7 +226,7 @@ cargo test --locked --test embedding_client_contract -- --ignored
 - **Credential Pool**：同一 Provider/credential kind 下可被多个 Target 共享的有序 API-key 集合。
 - **Upstream Target**：共享 endpoint、credential pool、Model、timeout 与故障边界的上游调用目标。
 - **Upstream API**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state affinity。
-- **Public Model**：客户端使用的稳定模型身份、每协议唯一固定能力契约及私有有序 Route ID，例如 `code-primary`。
+- **Public Model**：客户端使用的稳定模型身份、每协议唯一固定能力契约及私有有序 Route ID，例如 `gpt-5.6-sol`。
 - **RoutePlan**：请求通过 Public Model 预检后固定的 Upstream Target/Upstream API、协议模式、credential pool binding、转换约束与 fallback 边界；实际 member 由 attempt 选择。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
 - **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。

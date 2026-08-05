@@ -15,7 +15,7 @@
 
 ## 代码注册的模型事实
 
-`src/models/<family>/` 下的版本叶模块各自拥有一个完整 `ModelConfig`，家族模块只负责聚合。当前类型可记录：
+`src/models/<developer>/` 下的模型叶模块各自拥有一个完整 `ModelConfig`，研发者模块只负责聚合。当前类型可记录：
 
 - canonical model id 与展示元数据；
 - 已核实的总上下文/输入上限、最大输出上限、输入/输出模态、tokenizer 和 knowledge cutoff；

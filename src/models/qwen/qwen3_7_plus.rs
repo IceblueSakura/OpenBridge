@@ -1,4 +1,4 @@
-//! Complete canonical model facts for Qwen3.7 Plus.
+//! Complete canonical model facts for Qwen3.7 Plus (`qwen/qwen3.7-plus`).
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,

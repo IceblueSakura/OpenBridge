@@ -110,7 +110,7 @@ paths:
               example:
                 object: list
                 data:
-                  - id: code-primary
+                  - id: gpt-5.6-sol
                     object: model
                     created: 1785715200
                     owned_by: openbridge
@@ -213,14 +213,14 @@ paths:
               nonStreaming:
                 summary: Non-streaming text request
                 value:
-                  model: code-primary
+                  model: gpt-5.6-sol
                   messages:
                     - role: user
                       content: hello
               streaming:
                 summary: Streaming text request
                 value:
-                  model: code-primary
+                  model: gpt-5.6-sol
                   messages:
                     - role: user
                       content: hello
@@ -275,12 +275,12 @@ paths:
               nonStreaming:
                 summary: Non-streaming text request
                 value:
-                  model: code-primary
+                  model: gpt-5.6-sol
                   input: hello
               streaming:
                 summary: Streaming text request
                 value:
-                  model: code-primary
+                  model: gpt-5.6-sol
                   input: hello
                   stream: true
       responses:
@@ -332,7 +332,7 @@ paths:
               stringBatch:
                 summary: Float embeddings for two text inputs
                 value:
-                  model: embedding-primary
+                  model: text-embedding-3-small
                   input: [alpha, beta]
                   encoding_format: float
       responses:
@@ -1024,7 +1024,7 @@ components:
         model:
           type: string
           description: OpenBridge Public Model name.
-          example: code-primary
+          example: gpt-5.6-sol
         messages:
           type: array
           items:
@@ -1067,7 +1067,7 @@ components:
         model:
           type: string
           description: OpenBridge Public Model name.
-          example: code-primary
+          example: gpt-5.6-sol
         input:
           nullable: true
           oneOf:
@@ -1113,7 +1113,7 @@ components:
           type: string
           minLength: 1
           description: OpenBridge Embedding Public Model name.
-          example: embedding-primary
+          example: text-embedding-3-small
         input:
           oneOf:
             - type: string

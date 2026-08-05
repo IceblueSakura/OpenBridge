@@ -1,22 +1,25 @@
-//! Complete canonical model facts for the GLM-5.2 line.
+//! Complete canonical model facts for MiniMax M3 (`minimax/minimax-m3`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
 };
 
-/// Builds the complete model facts for GLM-5.2.
+/// Builds the complete model facts for MiniMax M3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "z-ai/glm-5.2".to_owned(),
-        name: "GLM-5.2".to_owned(),
+        id: "minimax/minimax-m3".to_owned(),
+        name: "MiniMax M3".to_owned(),
         description: Some(
-            "Large-scale reasoning model for long-horizon agents and project-level software engineering."
+            "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(131_072)),
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), Some(512_000)),
         mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text]),
+        input_modalities: Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::Video,
+        ]),
         output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: Some("Other".to_owned()),
         knowledge_cutoff: None,
@@ -27,10 +30,8 @@ pub(crate) fn config() -> ModelConfig {
             "logprobs",
             "max_tokens",
             "min_p",
-            "parallel_tool_calls",
             "presence_penalty",
             "reasoning",
-            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -47,6 +48,6 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
+        reasoning_levels: Vec::new(),
     }
 }

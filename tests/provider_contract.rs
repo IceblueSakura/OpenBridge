@@ -101,26 +101,26 @@ fn openrouter_adapter_supports_chat_and_responses() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
     let chat = ApiRequest::new(
         ApiProtocol::ChatCompletions,
-        Bytes::from_static(br#"{"model":"nemotron-3-ultra","messages":[]}"#),
+        Bytes::from_static(br#"{"model":"deepseek-v4-flash","messages":[]}"#),
     );
 
     let upstream = adapter
-        .prepare_request(&chat, "nvidia/nemotron-3-ultra-550b-a55b")
+        .prepare_request(&chat, "deepseek/deepseek-v4-flash")
         .unwrap();
     assert_eq!(upstream.method(), Method::POST);
     assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "nvidia/nemotron-3-ultra-550b-a55b");
+    assert_eq!(body["model"], "deepseek/deepseek-v4-flash");
 
     let responses = ApiRequest::new(
         ApiProtocol::Responses,
-        Bytes::from_static(br#"{"model":"nemotron-3-ultra","input":"hello"}"#),
+        Bytes::from_static(br#"{"model":"deepseek-v4-flash","input":"hello"}"#),
     );
     let upstream = adapter
-        .prepare_request(&responses, "nvidia/nemotron-3-ultra-550b-a55b")
+        .prepare_request(&responses, "deepseek/deepseek-v4-flash")
         .unwrap();
     assert_eq!(upstream.method(), Method::POST);
     assert_eq!(upstream.relative_uri().to_string(), "/responses");
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "nvidia/nemotron-3-ultra-550b-a55b");
+    assert_eq!(body["model"], "deepseek/deepseek-v4-flash");
 }
