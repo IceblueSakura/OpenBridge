@@ -70,6 +70,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     &CONTRACT,
     Some("/openai/v1/chat/completions"),
     Some("/openai/v1/responses"),
+    None,
     "/v1/models",
     transform_request_headers,
 )

@@ -12,7 +12,7 @@ use http::{
 use zeroize::Zeroizing;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, ApiRequest},
+    core::{ApiCapabilities, ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
     credential::CredentialType,
     provider::{
         AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderContract, ProviderKind,
@@ -45,6 +45,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     contract: &'static ProviderContract,
     chat_path: Option<&'static str>,
     responses_path: Option<&'static str>,
+    embeddings_path: Option<&'static str>,
     model_list_path: &'static str,
     request_header_hook: RequestHeaderHook,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
@@ -57,6 +58,7 @@ impl OpenAiCompatibleAdapter {
         contract: &'static ProviderContract,
         chat_path: Option<&'static str>,
         responses_path: Option<&'static str>,
+        embeddings_path: Option<&'static str>,
         model_list_path: &'static str,
         request_header_hook: RequestHeaderHook,
     ) -> Self {
@@ -65,6 +67,7 @@ impl OpenAiCompatibleAdapter {
             contract,
             chat_path,
             responses_path,
+            embeddings_path,
             model_list_path,
             request_header_hook,
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
@@ -107,6 +110,42 @@ impl OpenAiCompatibleAdapter {
         upstream_api: &UpstreamApi,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         self.prepare_request_with_api(request, upstream_api.upstream_model(), Some(upstream_api))
+    }
+
+    /// Replaces the Public Model and binds the fixed Native Embeddings endpoint.
+    pub(crate) fn prepare_embedding_routed_request(
+        self,
+        request: &EmbeddingRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        // Require an Embeddings API and a Provider profile with one trusted relative path.
+        if upstream_api.operation() != OperationKind::EmbeddingsCreate {
+            return Err(AdapterError::UnsupportedProtocol);
+        }
+        let path = self
+            .embeddings_path
+            .ok_or(AdapterError::UnsupportedProtocol)?;
+
+        // Parse the preflighted object and replace only the registry-owned model field.
+        let mut document: serde_json::Value =
+            serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
+        document
+            .as_object_mut()
+            .ok_or(AdapterError::InvalidRequestBody)?
+            .insert(
+                "model".to_owned(),
+                serde_json::Value::String(upstream_api.upstream_model().to_owned()),
+            );
+
+        // Re-serialize once without converting input, encoding, dimensions, or user fields.
+        let body = serde_json::to_vec(&document)
+            .map(Bytes::from)
+            .map_err(|_| AdapterError::InvalidRequestBody)?;
+        Ok(PreparedUpstreamRequest::new(
+            Method::POST,
+            Uri::from_static(path),
+            body,
+        ))
     }
 
     /// Builds one JSON request and optionally applies mappings from the selected Upstream API.
@@ -366,6 +405,7 @@ mod tests {
             &crate::providers::openai::CONTRACT,
             Some("/chat"),
             Some("/responses"),
+            None,
             "/models",
             transform_headers,
         );

@@ -3,14 +3,20 @@
 //! Preflight owns only the fixed downstream contract. It does not inspect candidate-specific
 //! capabilities, apply Provider wire mappings, or influence configured Route order.
 
-use crate::registry::{
-    ModelExecutionInterface, ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry,
-    SupportState,
+use crate::{
+    core::{EmbeddingEncoding, OperationKind},
+    registry::{
+        ModelExecutionInterface, ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry,
+        SupportState,
+    },
 };
 
 use super::{
     error::RequestPlanningError,
-    types::{RequestRequirements, RequestedCapabilities, RequestedReasoning},
+    types::{
+        EmbeddingRequestRequirements, RequestRequirements, RequestedCapabilities,
+        RequestedReasoning,
+    },
 };
 
 /// Resolves the selected Public Model and validates the request against its compiled protocol interface.
@@ -33,6 +39,70 @@ pub(super) fn preflight_public_model<'a>(
         interface.capabilities(),
     )?;
     Ok(interface)
+}
+
+/// Resolves and validates one Embeddings request against its immutable typed execution interface.
+pub(super) fn preflight_embedding_public_model<'a>(
+    registry: &'a RuntimeRegistry,
+    requirements: &EmbeddingRequestRequirements,
+) -> Result<(&'a ModelExecutionInterface, EmbeddingEncoding, u32), RequestPlanningError> {
+    // Resolve only the selected Public Model and its precompiled Embeddings execution interface.
+    let public_model = registry
+        .public_model(requirements.public_model())
+        .ok_or(RequestPlanningError::UnknownModel)?;
+    let interface = public_model
+        .execution_interface(OperationKind::EmbeddingsCreate)
+        .ok_or(RequestPlanningError::UnsupportedProtocol)?;
+    let capabilities = interface
+        .embedding_capabilities()
+        .ok_or(RequestPlanningError::UnsupportedProtocol)?;
+
+    // Validate input shape, batch size, and optional top-level field ownership.
+    if !capabilities.supports_input_form(requirements.input_form)
+        || requirements.input_count > capabilities.max_inputs()
+        || (requirements.user_present && !capabilities.supports_parameter("user"))
+        || (requirements.requested_encoding.is_some()
+            && !capabilities.supports_parameter("encoding_format"))
+        || (requirements.requested_dimensions.is_some()
+            && !capabilities.supports_parameter("dimensions"))
+    {
+        return Err(RequestPlanningError::UnsupportedCapabilities);
+    }
+
+    // Resolve explicit/default encoding and dimensions directly from the same projected contract.
+    let encoding = capabilities
+        .resolve_encoding(requirements.requested_encoding)
+        .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+    let dimensions = capabilities
+        .resolve_dimensions(requirements.requested_dimensions)
+        .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+
+    // Enforce exact token-array limits only for forms declared locally countable by the interface.
+    if capabilities.counts_tokens_locally(requirements.input_form) {
+        let token_counts = requirements
+            .token_counts
+            .as_deref()
+            .ok_or(RequestPlanningError::InvalidJson)?;
+        if capabilities
+            .max_tokens_per_input()
+            .is_some_and(|limit| token_counts.iter().any(|count| *count > limit))
+        {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+        let total = token_counts
+            .iter()
+            .try_fold(0_u64, |total, count| total.checked_add(u64::from(*count)))
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        if capabilities
+            .max_total_tokens()
+            .is_some_and(|limit| total > u64::from(limit))
+        {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+    }
+
+    // Return resolved response expectations beside the exact interface used for planning.
+    Ok((interface, encoding, dimensions))
 }
 
 /// Returns the most specific fail-closed error from the fixed interface contract.

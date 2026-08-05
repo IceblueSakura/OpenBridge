@@ -68,6 +68,27 @@ pub struct ApiRequest {
     body: Bytes,
 }
 
+/// Embeddings Create request that passed endpoint-specific analysis and fixed-interface preflight.
+///
+/// This type remains separate from [`ApiRequest`] because Embeddings cannot enter the generation
+/// Protocol Bridge or inherit Chat/Responses semantics.
+#[derive(Clone, Debug)]
+pub struct EmbeddingRequest {
+    body: Bytes,
+}
+
+impl EmbeddingRequest {
+    /// Creates a preflighted Native Embeddings request from its preserved JSON bytes.
+    pub(crate) fn new(body: Bytes) -> Self {
+        Self { body }
+    }
+
+    /// Returns the original downstream JSON bytes before trusted model rewriting.
+    pub fn body(&self) -> &Bytes {
+        &self.body
+    }
+}
+
 impl ApiRequest {
     /// Creates a request view with a protocol identifier.
     pub fn new(protocol: ApiProtocol, body: Bytes) -> Self {

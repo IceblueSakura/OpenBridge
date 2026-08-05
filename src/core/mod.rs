@@ -12,4 +12,4 @@ pub use capability::{
     EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ReasoningOutput, ResponseInclude,
     ResponsesCapabilities,
 };
-pub use request::{ApiProtocol, ApiRequest, OperationKind};
+pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

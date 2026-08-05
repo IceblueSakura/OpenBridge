@@ -23,7 +23,10 @@ use super::{
 
 use self::response::{UpstreamResponseContext, upstream_response};
 
+mod embeddings;
 mod response;
+
+pub(super) use embeddings::forward_embeddings_request;
 
 struct StoredHttpFailure {
     upstream: UpstreamResponse,

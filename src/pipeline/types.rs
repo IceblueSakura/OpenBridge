@@ -2,7 +2,10 @@
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest, GenerationCapabilities},
+    core::{
+        ApiProtocol, ApiRequest, EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest,
+        GenerationCapabilities,
+    },
     registry::ReasoningLevel,
 };
 
@@ -14,6 +17,36 @@ pub struct RequestRequirements {
     pub(super) is_streaming: bool,
     pub(super) requested_output_tokens: Option<u64>,
     pub(super) requested_capabilities: RequestedCapabilities,
+}
+
+/// Registry-independent facts extracted from one strict Embeddings Create request.
+#[derive(Debug)]
+pub struct EmbeddingRequestRequirements {
+    pub(super) public_model: String,
+    pub(super) input_form: EmbeddingInputForm,
+    pub(super) input_count: u32,
+    pub(super) token_counts: Option<Vec<u32>>,
+    pub(super) requested_encoding: Option<EmbeddingEncoding>,
+    pub(super) requested_dimensions: Option<u32>,
+    pub(super) user_present: bool,
+}
+
+/// Single-candidate Native execution plan for an Embeddings Create request.
+#[derive(Debug)]
+pub struct EmbeddingRoutePlan {
+    pub(super) candidate: EmbeddingRouteCandidate,
+    pub(super) input_count: u32,
+    pub(super) encoding: EmbeddingEncoding,
+    pub(super) dimensions: u32,
+}
+
+/// Trusted Native Embeddings Route candidate bound to one target and Upstream API.
+#[derive(Debug)]
+pub struct EmbeddingRouteCandidate {
+    pub(super) route_id: String,
+    pub(super) upstream_target_id: String,
+    pub(super) upstream_api_id: String,
+    pub(super) request: EmbeddingRequest,
 }
 
 /// Execution plan that passed the Public Model fixed contract and binds ordered Routes.
@@ -72,6 +105,67 @@ impl RequestRequirements {
     /// Returns whether the request requires a streaming response.
     pub fn is_streaming(&self) -> bool {
         self.is_streaming
+    }
+}
+
+impl EmbeddingRequestRequirements {
+    /// Returns the Public Model selected by the downstream Embeddings request.
+    pub fn public_model(&self) -> &str {
+        &self.public_model
+    }
+
+    /// Returns the exact analyzed input form.
+    pub fn input_form(&self) -> EmbeddingInputForm {
+        self.input_form
+    }
+
+    /// Returns the number of logical embedding inputs.
+    pub fn input_count(&self) -> u32 {
+        self.input_count
+    }
+}
+
+impl EmbeddingRoutePlan {
+    /// Returns the single trusted Embeddings candidate.
+    pub fn candidate(&self) -> &EmbeddingRouteCandidate {
+        &self.candidate
+    }
+
+    /// Returns the expected number of response vectors.
+    pub fn input_count(&self) -> u32 {
+        self.input_count
+    }
+
+    /// Returns the effective output encoding after fixed-interface preflight.
+    pub fn encoding(&self) -> EmbeddingEncoding {
+        self.encoding
+    }
+
+    /// Returns the effective vector dimension after fixed-interface preflight.
+    pub fn dimensions(&self) -> u32 {
+        self.dimensions
+    }
+}
+
+impl EmbeddingRouteCandidate {
+    /// Returns the candidate Route ID.
+    pub fn route_id(&self) -> &str {
+        &self.route_id
+    }
+
+    /// Returns the trusted Upstream Target ID.
+    pub fn upstream_target_id(&self) -> &str {
+        &self.upstream_target_id
+    }
+
+    /// Returns the trusted Upstream API ID.
+    pub fn upstream_api_id(&self) -> &str {
+        &self.upstream_api_id
+    }
+
+    /// Returns the preserved Native Embeddings request.
+    pub fn request(&self) -> &EmbeddingRequest {
+        &self.request
     }
 }
 

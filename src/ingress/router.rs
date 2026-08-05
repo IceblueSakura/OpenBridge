@@ -30,7 +30,8 @@ use crate::{
 use super::{
     auth,
     handlers::{
-        chat_completions, extended_model, extended_models, health, model, models, responses,
+        chat_completions, embeddings, extended_model, extended_models, health, model, models,
+        responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
@@ -69,6 +70,7 @@ pub fn build_router(state: GatewayState) -> Router {
     let protected = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
+        .route("/v1/embeddings", post(embeddings))
         .route("/v1/models", get(models))
         .route("/v1/models/{model}", get(model))
         .route("/openbridge/v1/models", get(extended_models))

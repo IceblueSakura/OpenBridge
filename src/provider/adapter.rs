@@ -5,7 +5,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 use thiserror::Error;
 
 use crate::{
-    core::{ApiProtocol, ApiRequest},
+    core::{ApiProtocol, ApiRequest, EmbeddingRequest},
     credential::UpstreamCredential,
     providers::openai_compatible::OpenAiCompatibleAdapter,
     registry::{ReasoningLevelMapping, UpstreamApi},
@@ -186,6 +186,16 @@ impl ProviderAdapter {
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         self.openai_compatible()
             .prepare_routed_request(request, upstream_api)
+    }
+
+    /// Builds the selected Native Embeddings request using the Provider's fixed relative path.
+    pub(crate) fn prepare_embedding_routed_request(
+        &self,
+        request: &EmbeddingRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_embedding_routed_request(request, upstream_api)
     }
 
     /// Builds safe request headers without authentication material.

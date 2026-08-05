@@ -4,14 +4,17 @@ use bytes::Bytes;
 
 use crate::{
     bridge::BridgePlan,
-    core::ApiRequest,
+    core::{ApiRequest, EmbeddingRequest, OperationKind},
     registry::{RouteMode, RuntimeRegistry},
 };
 
 use super::{
     error::RequestPlanningError,
-    preflight::preflight_public_model,
-    types::{RequestRequirements, RouteCandidate, RoutePlan},
+    preflight::{preflight_embedding_public_model, preflight_public_model},
+    types::{
+        EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
+        RequestRequirements, RouteCandidate, RoutePlan,
+    },
 };
 
 /// Generates a Native or Bridged execution plan from one Public Model's precompiled interface.
@@ -64,5 +67,40 @@ pub fn plan_request(
         candidates: prepared_candidates,
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
+    })
+}
+
+/// Generates the single Native Embeddings candidate from its precompiled execution interface.
+pub fn plan_embedding_request(
+    registry: &RuntimeRegistry,
+    requirements: &EmbeddingRequestRequirements,
+    body: Bytes,
+) -> Result<EmbeddingRoutePlan, RequestPlanningError> {
+    // Complete fixed-interface preflight and retain its resolved response expectations.
+    let (interface, encoding, dimensions) =
+        preflight_embedding_public_model(registry, requirements)?;
+    let [candidate] = interface.candidates() else {
+        return Err(RequestPlanningError::NoRoute);
+    };
+
+    // Enforce the compiler invariant again without interpreting request facts or selecting another Route.
+    if candidate.mode() != RouteMode::Native
+        || candidate.downstream_operation() != OperationKind::EmbeddingsCreate
+        || candidate.upstream_operation() != OperationKind::EmbeddingsCreate
+    {
+        return Err(RequestPlanningError::NoRoute);
+    }
+
+    // Bind the preserved body to the one trusted target/API identity owned by the interface.
+    Ok(EmbeddingRoutePlan {
+        candidate: EmbeddingRouteCandidate {
+            route_id: candidate.route_id().to_owned(),
+            upstream_target_id: candidate.upstream_target_id().to_owned(),
+            upstream_api_id: candidate.upstream_api_id().to_owned(),
+            request: EmbeddingRequest::new(body),
+        },
+        input_count: requirements.input_count,
+        encoding,
+        dimensions,
     })
 }
