@@ -319,7 +319,7 @@ impl UpstreamTransport for UnsafeUpstreamFailureTransport {
 
 impl RecordingEmbeddingTransport {
     /// Creates an isolated recorder with optional ordered upstream responses.
-    fn new(responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>) -> Self {
+    fn new(responses: impl IntoIterator<Item=SyntheticEmbeddingResponse>) -> Self {
         Self {
             requests: Mutex::new(Vec::new()),
             responses: Mutex::new(responses.into_iter().collect()),
@@ -489,14 +489,14 @@ fn app() -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
 }
 
 fn app_with_responses(
-    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+    responses: impl IntoIterator<Item=SyntheticEmbeddingResponse>,
 ) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
     app_with_bootstrap_and_responses(BOOTSTRAP, responses)
 }
 
 fn app_with_credentials_and_responses(
     upstream_secrets: &[&str],
-    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+    responses: impl IntoIterator<Item=SyntheticEmbeddingResponse>,
 ) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
     // Compile the synthetic registry and inject the requested ordered credential members.
     let bootstrap = parse_bootstrap_config(BOOTSTRAP).unwrap();
@@ -510,7 +510,7 @@ fn app_with_credentials_and_responses(
 
 fn app_with_bootstrap_and_responses(
     bootstrap_document: &str,
-    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+    responses: impl IntoIterator<Item=SyntheticEmbeddingResponse>,
 ) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
     // Compile the synthetic mixed-operation registry and inject isolated test credentials/transport.
     let bootstrap = parse_bootstrap_config(bootstrap_document).unwrap();
@@ -639,7 +639,7 @@ async fn omitted_fields_resolve_interface_defaults_without_adapter_invention() {
         parse_bootstrap_config(BOOTSTRAP).unwrap(),
         embedding_registry_definition(),
     )
-    .unwrap();
+        .unwrap();
     let plan = plan_embedding_request(&registry, &requirements, body).unwrap();
     assert_eq!(plan.input_count(), 1);
     assert_eq!(plan.encoding(), EmbeddingEncoding::Float);
@@ -800,7 +800,7 @@ async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() 
             "invalid_upstream_response",
             None,
         )
-        .await;
+            .await;
         assert!(!document.to_string().contains("must-not-leak"));
         assert_eq!(transport.requests.lock().unwrap().len(), 1);
     }
@@ -831,7 +831,7 @@ async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() 
         "invalid_upstream_response",
         None,
     )
-    .await;
+        .await;
     assert!(!document.to_string().contains(&"x".repeat(32)));
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
@@ -861,7 +861,7 @@ async fn invalid_base64_length_is_rejected_for_the_effective_dimension() {
         "invalid_upstream_response",
         None,
     )
-    .await;
+        .await;
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
 
@@ -1338,7 +1338,7 @@ async fn embedding_media_and_request_limits_use_exact_zero_egress_errors() {
         "unsupported_media_type",
         None,
     )
-    .await;
+        .await;
     assert!(transport.requests.lock().unwrap().is_empty());
 
     // Lower request and replay limits together and exceed the hard request limit before authentication parsing.
@@ -1366,7 +1366,7 @@ async fn embedding_media_and_request_limits_use_exact_zero_egress_errors() {
         "request_too_large",
         None,
     )
-    .await;
+        .await;
     assert!(transport.requests.lock().unwrap().is_empty());
 }
 
@@ -1436,7 +1436,7 @@ async fn embedding_upstream_http_errors_discard_body_and_private_headers() {
         "upstream_error",
         None,
     )
-    .await;
+        .await;
 
     // Verify no upstream body, model, endpoint, or credential sentinel reaches the client.
     let serialized = document.to_string();

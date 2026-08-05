@@ -206,7 +206,7 @@ pub(super) fn validate_sse_body(
                             &mut terminal_seen,
                             &observation,
                         )
-                        .is_err()
+                            .is_err()
                         {
                             observation.record_upstream_failure();
                             return Some((

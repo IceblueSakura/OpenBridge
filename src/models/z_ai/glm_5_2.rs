@@ -43,9 +43,9 @@ pub(crate) fn config() -> ModelConfig {
             "top_logprobs",
             "top_p",
         ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect(),
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![ReasoningLevel::XHigh, ReasoningLevel::High],
     }

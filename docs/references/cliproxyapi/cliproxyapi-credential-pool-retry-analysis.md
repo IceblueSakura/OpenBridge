@@ -8,7 +8,8 @@
 
 ## 观察事实
 
-- `request-retry`、`max-retry-credentials`、`max-retry-interval` 与 cooldown 开关分别配置，说明请求 attempt、可尝试 credential 数量和跨请求健康状态是不同预算。
+- `request-retry`、`max-retry-credentials`、`max-retry-interval` 与 cooldown 开关分别配置，说明请求 attempt、可尝试
+  credential 数量和跨请求健康状态是不同预算。
 - 默认 routing 策略是 round-robin；quota failure 会冷却当前 credential，并在 cooldown 到期后重新加入 rotation。
 - 配置示例把 `403/408/500/502/503/504` 也列入 request retry，并支持 cooldown 持久化。
 - 这些 status 和持久化选择与 CLIProxyAPI 的多账号/OAuth 产品形状相关，不是通用 API-key 语义。
@@ -21,6 +22,7 @@
 
 ## 一手资料
 
-- [`config.example.yaml`](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/config.example.yaml)
+- [
+  `config.example.yaml`](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/config.example.yaml)
 - [Authentication and cooldown](https://router-for-me-cliproxyapi.mintlify.app/concepts/authentication)
 

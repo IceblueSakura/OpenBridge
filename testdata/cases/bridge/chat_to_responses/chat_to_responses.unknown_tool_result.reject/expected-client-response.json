@@ -1,1 +1,8 @@
-{"error":{"code":"unknown_tool_call","message":"tool message references unknown tool_call_id call_missing.","param":"messages[0].tool_call_id","type":"invalid_request_error"}}
+{
+  "error": {
+    "code": "unknown_tool_call",
+    "message": "tool message references unknown tool_call_id call_missing.",
+    "param": "messages[0].tool_call_id",
+    "type": "invalid_request_error"
+  }
+}

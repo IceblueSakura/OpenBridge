@@ -1,1 +1,5 @@
-{"input":"Missing model.","model":"public-model","stream":false}
+{
+  "input": "Missing model.",
+  "model": "public-model",
+  "stream": false
+}

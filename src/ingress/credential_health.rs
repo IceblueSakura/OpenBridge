@@ -161,7 +161,7 @@ mod tests {
                         CredentialKind::ApiKey,
                         CredentialSource::Programmatic,
                     )
-                    .with_generation(generation),
+                        .with_generation(generation),
                 )
                 .unwrap();
         }
@@ -243,7 +243,7 @@ mod tests {
             selector.select_member("openai-primary", &next_members, &rejected_peer, now),
             Some(0)
         );
-        assert!(selector.has_available_member("openai-primary", &next_members, &rejected, now,));
+        assert!(selector.has_available_member("openai-primary", &next_members, &rejected, now, ));
 
         // An invalid Retry-After uses the one-second default instead of permanently blocking the member.
         let default_selector = CredentialHealth::default();

@@ -103,7 +103,7 @@ pub(super) async fn chat_completions(
         headers,
         body,
     )
-    .await
+        .await
 }
 
 /// Accepts a Responses JSON request and sends it to the shared forwarding pipeline.

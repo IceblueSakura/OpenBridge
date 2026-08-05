@@ -20,5 +20,6 @@
 
 ## 证据边界
 
-官方协议页说明公开 wire contract，不证明任一具体 API key、账户、区域或模型当前可用，也不证明所有可选 Chat 字段、SSE/tool lifecycle 已经通过真实请求验证。
+官方协议页说明公开 wire contract，不证明任一具体 API key、账户、区域或模型当前可用，也不证明所有可选 Chat 字段、SSE/tool
+lifecycle 已经通过真实请求验证。
 

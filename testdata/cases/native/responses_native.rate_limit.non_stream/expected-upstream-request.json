@@ -1,1 +1,5 @@
-{"input":"__fixture:rate-limit__","model":"upstream-model","stream":false}
+{
+  "input": "__fixture:rate-limit__",
+  "model": "upstream-model",
+  "stream": false
+}

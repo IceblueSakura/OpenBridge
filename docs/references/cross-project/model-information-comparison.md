@@ -11,19 +11,20 @@
 
 ## 1. 核心差异
 
-| 维度 | LiteLLM | OpenRouter |
-| --- | --- | --- |
-| 最小兼容列表 | `/models` 返回 OpenAI-compatible model id | Models API 本身返回较完整目录对象 |
-| 详细资源 | deployment、model group 与全局 catalog 分开 | canonical model 与 endpoint detail 分开 |
-| 单模型详情 | `/model/info` 偏 deployment；catalog 有独立详情 | `/api/v1/model/{author}/{slug}` 返回 `Model` |
-| 模态 | 多个 `supports_*` 旗标 | `architecture.input_modalities/output_modalities` |
-| 参数 | `supports_*` 与 supported OpenAI params | `supported_parameters` + defaults |
-| 上下文 | `max_input_tokens` / `max_output_tokens` | `context_length` + top-provider output limit |
-| reasoning | `supports_reasoning` 及目录扩展 | 参数支持与可选 effort/default 元数据 |
-| 供应信息 | deployment、model group、team、rate limit | top provider、endpoint resource、user catalog |
-| 经济/质量 | price catalog、region 等 | pricing、benchmarks、quality indexes |
+| 维度         | LiteLLM                                         | OpenRouter                                        |
+|--------------|-------------------------------------------------|---------------------------------------------------|
+| 最小兼容列表 | `/models` 返回 OpenAI-compatible model id       | Models API 本身返回较完整目录对象                 |
+| 详细资源     | deployment、model group 与全局 catalog 分开     | canonical model 与 endpoint detail 分开           |
+| 单模型详情   | `/model/info` 偏 deployment；catalog 有独立详情 | `/api/v1/model/{author}/{slug}` 返回 `Model`      |
+| 模态         | 多个 `supports_*` 旗标                          | `architecture.input_modalities/output_modalities` |
+| 参数         | `supports_*` 与 supported OpenAI params         | `supported_parameters` + defaults                 |
+| 上下文       | `max_input_tokens` / `max_output_tokens`        | `context_length` + top-provider output limit      |
+| reasoning    | `supports_reasoning` 及目录扩展                 | 参数支持与可选 effort/default 元数据              |
+| 供应信息     | deployment、model group、team、rate limit       | top provider、endpoint resource、user catalog     |
+| 经济/质量    | price catalog、region 等                        | pricing、benchmarks、quality indexes              |
 
-LiteLLM 的优势是明确展示 Proxy deployment 和丰富的全局目录字段；OpenRouter 的优势是用同一种 `Model` 对象组织 identity、architecture、context 和 supported parameters。
+LiteLLM 的优势是明确展示 Proxy deployment 和丰富的全局目录字段；OpenRouter 的优势是用同一种 `Model` 对象组织
+identity、architecture、context 和 supported parameters。
 
 ## 2. 可共同归纳的信息层
 
@@ -57,4 +58,5 @@ LiteLLM 的优势是明确展示 Proxy deployment 和丰富的全局目录字段
 
 ## 5. 复核条件
 
-LiteLLM routes、Model Catalog 字段和 OpenRouter Models API 都会演进。引用某个字段做兼容结论前，需要重新固定源码或官方响应快照，并区分 canonical model、deployment、Provider endpoint 与用户视图。
+LiteLLM routes、Model Catalog 字段和 OpenRouter Models API 都会演进。引用某个字段做兼容结论前，需要重新固定源码或官方响应快照，并区分
+canonical model、deployment、Provider endpoint 与用户视图。

@@ -1,1 +1,16 @@
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"fixture response","role":"assistant"}}],"created":0,"id":"chatcmpl_native_text","model":"upstream-model","object":"chat.completion"}
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "fixture response",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 0,
+  "id": "chatcmpl_native_text",
+  "model": "upstream-model",
+  "object": "chat.completion"
+}

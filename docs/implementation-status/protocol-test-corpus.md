@@ -3,23 +3,23 @@
 ## 状态
 
 **Confirmed。** corpus 与 Python testkit 仍保持 runtime-independent；Rust contract tests 现在只读选定 canonical
-artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT 回放。它们未接入外部 SDK、Codex、Hermes
-或真实 Provider。
+artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT 回放。它们未接入外部 SDK、Codex、Hermes 或真实 Provider。
 
-日常使用和维护说明见 [Corpus 指南](../../testdata/README.md) 与 [Testkit 指南](../../tools/corpus/README.md)；本文件只记录已执行验证与尚未证明的边界。
+日常使用和维护说明见 [Corpus 指南](../../testdata/README.md) 与 [Testkit 指南](../../tools/corpus/README.md)
+；本文件只记录已执行验证与尚未证明的边界。
 
 ## 当前版本
 
-| 项目 | 值 |
-|---|---|
-| Corpus | `testdata/`，版本 `0.6.0` |
-| 工具 | `tools/corpus/`，独立 `uv + Python` project |
-| Python | 3.12 |
-| Canonical cases | 45 |
-| Review 状态 | 20 `accepted`、25 `reviewed` |
-| 分类 | 13 `exact`、6 `reject`、26 `native_only` |
-| 默认生成结果 | seed `20260726` 下 306 个 SSE wire variants |
-| 工具测试 | 36 个 pytest tests |
+| 项目            | 值                                          |
+|-----------------|---------------------------------------------|
+| Corpus          | `testdata/`，版本 `0.6.0`                   |
+| 工具            | `tools/corpus/`，独立 `uv + Python` project |
+| Python          | 3.12                                        |
+| Canonical cases | 45                                          |
+| Review 状态     | 20 `accepted`、25 `reviewed`                |
+| 分类            | 13 `exact`、6 `reject`、26 `native_only`    |
+| 默认生成结果    | seed `20260726` 下 306 个 SSE wire variants |
+| 工具测试        | 36 个 pytest tests                          |
 
 覆盖内容：
 
@@ -37,7 +37,8 @@ artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT �
 - 400、401、403、404、422、429、500、502、503、504 HTTP error matrix；
 - delta-seconds/HTTP-date `Retry-After`、纯文本/损坏 JSON body 与错误状态携带 SSE Content-Type；
 - hosted tool 与无受限 ledger continuation 的 proposed preflight reject；
-- JSON Schema、provenance、secret scan、重复 JSON key、case 内路径与未声明文件、artifact 组合、terminal count、deterministic generation、coverage report 与 deterministic ZIP。
+- JSON Schema、provenance、secret scan、重复 JSON key、case 内路径与未声明文件、artifact 组合、terminal count、deterministic
+  generation、coverage report 与 deterministic ZIP。
 
 ## Mock Server/Client
 
@@ -48,11 +49,11 @@ artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT �
 - 基于 `asyncio + h11` 的 HTTP/1.1 Mock Server 与无自动重试的 Mock Client；
 - normal terminal、HTTP error、transport abort、EOF 和 cancellation observation；
 - 单 exchange 与有序多-exchange loopback；
-- 零次或单次上游 attempt 的 canonical observation 判定，覆盖 identity、上下游 path、JSON/SSE body、
-  HTTP status、结束分类、terminal、声明的下游 response headers 与 body hash 自洽性。
+- 零次或单次上游 attempt 的 canonical observation 判定，覆盖 identity、上下游 path、JSON/SSE body、 HTTP
+  status、结束分类、terminal、声明的下游 response headers 与 body hash 自洽性。
 
-这些工具不加载或启动 OpenBridge，不读取 credential，也不调用真实 Provider。`testdata/runtime/` 中的 scenario、
-plan 和 observation 均为可重建临时产物，不进入 corpus ZIP。
+这些工具不加载或启动 OpenBridge，不读取 credential，也不调用真实 Provider。`testdata/runtime/` 中的 scenario、 plan 和
+observation 均为可重建临时产物，不进入 corpus ZIP。
 
 ## 验证命令与结果
 
@@ -92,10 +93,10 @@ git diff --check
 - pack 不包含 derived directories，并具有固定 entry metadata 和内容 manifest；
 - coverage report 会显式暴露未固定 source ref 和 pending license，而不是把它们隐藏为已完成。
 - 进程级 loopback 已验证 scenario/plan 编译、Mock Server/Client 调用和双方 terminal observation。
-- 单 case verifier 能确定地接受匹配 observation，并以不回显正文的字段路径拒绝 JSON、SSE、path、transport、
-  terminal、header 或摘要不匹配。
-- Rust bridge replay 只读复用 canonical SSE，验证双向文本/并行 tool identity、四类 Responses terminal、
-  不完整 arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
+- 单 case verifier 能确定地接受匹配 observation，并以不回显正文的字段路径拒绝 JSON、SSE、path、transport、 terminal、header
+  或摘要不匹配。
+- Rust bridge replay 只读复用 canonical SSE，验证双向文本/并行 tool identity、四类 Responses terminal、 不完整
+  arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
 - Rust conversion/forwarding contracts 复用 accepted bridge artifacts，验证双向 request、non-stream response、
   text/function/reasoning SSE renderer、生产 `Bridged` Route 和 canonical preflight rejects。
 

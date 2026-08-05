@@ -138,7 +138,7 @@ impl RuntimeRegistry {
     }
 
     /// Enumerates all credential-pool IDs.
-    pub fn credential_pool_ids(&self) -> impl Iterator<Item = &str> {
+    pub fn credential_pool_ids(&self) -> impl Iterator<Item=&str> {
         self.credential_pools.keys().map(String::as_str)
     }
 
@@ -148,13 +148,13 @@ impl RuntimeRegistry {
             target.enabled()
                 && target.credential_pool_id() == pool_id
                 && target.upstream_apis.values().any(|upstream_api| {
-                    upstream_api.state_affinity() == StateAffinity::TargetBound
-                        && matches!(
+                upstream_api.state_affinity() == StateAffinity::TargetBound
+                    && matches!(
                             upstream_api.capabilities(),
                             UpstreamApiCapabilities::Responses(capabilities)
                                 if capabilities.previous_response_id
                         )
-                })
+            })
         })
     }
 
@@ -164,7 +164,7 @@ impl RuntimeRegistry {
     }
 
     /// Enumerates all internal target IDs.
-    pub fn upstream_target_ids(&self) -> impl Iterator<Item = &str> {
+    pub fn upstream_target_ids(&self) -> impl Iterator<Item=&str> {
         self.upstream_targets.keys().map(String::as_str)
     }
 
@@ -181,7 +181,7 @@ impl RuntimeRegistry {
     }
 
     /// Enumerates Public Models exposed by the downstream `/v1/models` endpoint.
-    pub fn public_models(&self) -> impl Iterator<Item = &PublicModel> {
+    pub fn public_models(&self) -> impl Iterator<Item=&PublicModel> {
         self.public_models
             .values()
             .filter(|model| model.is_available())
@@ -298,7 +298,7 @@ impl UpstreamTarget {
     }
 
     /// Enumerates all Upstream APIs and IDs under the target.
-    pub fn upstream_apis(&self) -> impl Iterator<Item = (&str, &UpstreamApi)> {
+    pub fn upstream_apis(&self) -> impl Iterator<Item=(&str, &UpstreamApi)> {
         self.upstream_apis
             .iter()
             .map(|(id, upstream_api)| (id.as_str(), upstream_api))

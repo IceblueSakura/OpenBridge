@@ -16,5 +16,6 @@
 
 ## 覆盖与边界
 
-适合 endpoint/SDK-shape smoke 和 Go SDK 消费互证；不检查 source protocol 到 target protocol 的内部转换，也不能替代精确 event 序列、identity、terminal 和错误策略断言。
+适合 endpoint/SDK-shape smoke 和 Go SDK 消费互证；不检查 source protocol 到 target protocol 的内部转换，也不能替代精确
+event 序列、identity、terminal 和错误策略断言。
 

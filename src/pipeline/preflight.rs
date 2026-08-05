@@ -129,10 +129,10 @@ fn validate_interface_request(
     }
     if (requested_features.generation.function_calling && !interface.supports_function_calling())
         || (requested_features.generation.parallel_tool_calls
-            && !interface.supports_parallel_tool_calls())
+        && !interface.supports_parallel_tool_calls())
         || (requested_features.generation.image_input && !interface.supports_image_input())
         || (requested_features.generation.structured_outputs
-            && !interface.supports_structured_outputs())
+        && !interface.supports_structured_outputs())
         || (requested_features.generation.store && !interface.supports_store())
         || (requested_features.previous_response_id && !interface.supports_previous_response_id())
         || (requested_features.background && !interface.supports_background())
@@ -151,16 +151,16 @@ fn validate_interface_request(
     match requested_features.reasoning {
         RequestedReasoning::None | RequestedReasoning::Level(ReasoningLevel::None) => {}
         RequestedReasoning::Unspecified
-            if interface.reasoning_support() != SupportState::Supported =>
-        {
-            return Err(RequestPlanningError::ReasoningUnsupported);
-        }
+        if interface.reasoning_support() != SupportState::Supported =>
+            {
+                return Err(RequestPlanningError::ReasoningUnsupported);
+            }
         RequestedReasoning::Level(level)
-            if interface.reasoning_support() != SupportState::Supported
-                || !interface.reasoning_levels().contains(&level) =>
-        {
-            return Err(RequestPlanningError::ReasoningLevelUnsupported);
-        }
+        if interface.reasoning_support() != SupportState::Supported
+            || !interface.reasoning_levels().contains(&level) =>
+            {
+                return Err(RequestPlanningError::ReasoningLevelUnsupported);
+            }
         RequestedReasoning::UnknownLevel => {
             return Err(RequestPlanningError::ReasoningLevelUnsupported);
         }

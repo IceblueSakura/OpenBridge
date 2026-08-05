@@ -128,8 +128,8 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
     let mut characters = model.id.chars();
     let valid_id = model.id.len() <= 128
         && characters
-            .next()
-            .is_some_and(|value| value.is_ascii_alphanumeric())
+        .next()
+        .is_some_and(|value| value.is_ascii_alphanumeric())
         && characters.all(|value| value.is_ascii_alphanumeric() || "._:-".contains(value));
     if !valid_id {
         return Err(RegistryError::InvalidPublicModelId {
@@ -178,12 +178,12 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
                 .retired_at
                 .is_none_or(|retired| retired < model.created)
                 || model.lifecycle.deprecated_at.is_some_and(|deprecated| {
-                    deprecated < model.created
-                        || model
-                            .lifecycle
-                            .retired_at
-                            .is_some_and(|retired| deprecated > retired)
-                })
+                deprecated < model.created
+                    || model
+                    .lifecycle
+                    .retired_at
+                    .is_some_and(|retired| deprecated > retired)
+            })
         }
     };
     if invalid_lifecycle {
@@ -448,8 +448,8 @@ fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
 fn is_valid_parameter_name(value: &str) -> bool {
     !value.is_empty()
         && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 /// Validates and normalizes an endpoint base that allows only HTTPS, no credentials, and a safe path prefix.
@@ -486,7 +486,7 @@ fn is_safe_endpoint_prefix(path: &str) -> bool {
             && segment != "."
             && segment != ".."
             && segment.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
-            })
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+        })
     })
 }

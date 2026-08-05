@@ -142,7 +142,7 @@ impl UpstreamTransport for PendingStreamTransport {
                     b"data: {\"id\":\"chatcmpl-observed\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
                 ))
             })
-            .chain(stream::pending()));
+                .chain(stream::pending()));
             Ok(UpstreamResponse::new(StatusCode::OK, headers, body))
         })
     }
@@ -449,7 +449,7 @@ fn embedding_observability_app(
         parse_bootstrap_config(support::BOOTSTRAP).unwrap(),
         definition,
     )
-    .unwrap();
+        .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -487,8 +487,8 @@ async fn wait_for_request_terminal(metrics: &GatewayMetrics) -> GatewayMetricsSn
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("request observation should reach a terminal state")
+        .await
+        .expect("request observation should reach a terminal state")
 }
 
 fn request(body: &'static str) -> Request<Body> {

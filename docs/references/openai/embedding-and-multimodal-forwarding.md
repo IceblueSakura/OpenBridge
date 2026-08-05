@@ -2,7 +2,8 @@
 
 ## 目的与证据边界
 
-本文记录 Embeddings、文件、图像、音频/语音和专用媒体 endpoint 之间的协议边界。逐协议资料见[扩展协议调研索引](protocol-details/README.md)。
+本文记录 Embeddings、文件、图像、音频/语音和专用媒体 endpoint
+之间的协议边界。逐协议资料见[扩展协议调研索引](protocol-details/README.md)。
 
 复核时间：2026-08-04，Asia/Shanghai。官方 schema、限额、model capability 和 beta 状态会变化；本文不是永久兼容声明。
 
@@ -19,25 +20,26 @@
 
 ## 1. Endpoint family map
 
-| API family | 代表路径 | Request | Success response | Lifecycle |
-| --- | --- | --- | --- | --- |
-| Embeddings | `POST /v1/embeddings` | JSON | JSON vector list | 一次无会话 operation |
-| Files | `/v1/files`、`/{file_id}`、`/content` | query、multipart、binary download | resource JSON 或 bytes | opaque resource lifecycle |
-| Uploads | `/v1/uploads`、`/parts`、`/complete`、`/cancel` | JSON + multipart parts | upload state / final file | 有过期与一次性 complete 的 transaction |
-| Transcription | `/v1/audio/transcriptions` | multipart | JSON/text/subtitle 或特定 stream | upload + model processing |
-| Translation | `/v1/audio/translations` | multipart | JSON/text/subtitle | upload + model processing |
-| Text-to-speech | `/v1/audio/speech` | JSON | audio bytes/stream | media response，不是 text SSE |
-| Chat multimodal | `/v1/chat/completions` | JSON content parts | Chat JSON/SSE | message/chunk lifecycle |
-| Responses multimodal | `/v1/responses` | JSON items/content parts | Responses JSON/typed SSE | item/response lifecycle |
-| Images | `/v1/images/*` | JSON 或 multipart | URL/base64 或专用 stream | generation/edit/variation |
-| Videos | `/v1/videos/*` | JSON 或 multipart | async resource / video bytes | create/poll/download/delete |
-| Realtime | `/v1/realtime/*` | WebRTC/WebSocket/session HTTP | 双向 media/events | long-lived session |
+| API family           | 代表路径                                        | Request                           | Success response                 | Lifecycle                              |
+|----------------------|-------------------------------------------------|-----------------------------------|----------------------------------|----------------------------------------|
+| Embeddings           | `POST /v1/embeddings`                           | JSON                              | JSON vector list                 | 一次无会话 operation                   |
+| Files                | `/v1/files`、`/{file_id}`、`/content`           | query、multipart、binary download | resource JSON 或 bytes           | opaque resource lifecycle              |
+| Uploads              | `/v1/uploads`、`/parts`、`/complete`、`/cancel` | JSON + multipart parts            | upload state / final file        | 有过期与一次性 complete 的 transaction |
+| Transcription        | `/v1/audio/transcriptions`                      | multipart                         | JSON/text/subtitle 或特定 stream | upload + model processing              |
+| Translation          | `/v1/audio/translations`                        | multipart                         | JSON/text/subtitle               | upload + model processing              |
+| Text-to-speech       | `/v1/audio/speech`                              | JSON                              | audio bytes/stream               | media response，不是 text SSE          |
+| Chat multimodal      | `/v1/chat/completions`                          | JSON content parts                | Chat JSON/SSE                    | message/chunk lifecycle                |
+| Responses multimodal | `/v1/responses`                                 | JSON items/content parts          | Responses JSON/typed SSE         | item/response lifecycle                |
+| Images               | `/v1/images/*`                                  | JSON 或 multipart                 | URL/base64 或专用 stream         | generation/edit/variation              |
+| Videos               | `/v1/videos/*`                                  | JSON 或 multipart                 | async resource / video bytes     | create/poll/download/delete            |
+| Realtime             | `/v1/realtime/*`                                | WebRTC/WebSocket/session HTTP     | 双向 media/events                | long-lived session                     |
 
 相同的 `model` 字段或 `stream` 概念不能消除这些 request encoding、response media type 和状态机差异。
 
 ## 2. Embeddings 的独立语义
 
-Embeddings response 是按 `index` 对齐 input 的向量列表，并带 model 与 input/total usage。它没有 assistant role、tool item、completion token 或 Responses terminal event。
+Embeddings response 是按 `index` 对齐 input 的向量列表，并带 model 与 input/total usage。它没有 assistant role、tool
+item、completion token 或 Responses terminal event。
 
 需要分别记录：
 
@@ -53,13 +55,13 @@ Embeddings response 是按 `index` 对齐 input 的向量列表，并带 model �
 
 两种生成 API 都支持 content-part union，但字段不完全同构：
 
-| Source | Chat | Responses |
-| --- | --- | --- |
-| Image URL/data | `image_url` part | `input_image` part |
-| Hosted image/file | Chat file/image union 允许的 id 形状 | `input_image` / `input_file` 的 `file_id` |
-| Remote file URL | 取决于 Chat file schema/profile | `input_file.file_url` 等 union |
-| Inline file | file data + filename | file data + filename |
-| Audio input | `input_audio` | 由 Responses 当前 schema/model profile 决定 |
+| Source            | Chat                                 | Responses                                   |
+|-------------------|--------------------------------------|---------------------------------------------|
+| Image URL/data    | `image_url` part                     | `input_image` part                          |
+| Hosted image/file | Chat file/image union 允许的 id 形状 | `input_image` / `input_file` 的 `file_id`   |
+| Remote file URL   | 取决于 Chat file schema/profile      | `input_file.file_url` 等 union              |
+| Inline file       | file data + filename                 | file data + filename                        |
+| Audio input       | `input_audio`                        | 由 Responses 当前 schema/model profile 决定 |
 
 part type、source、detail、format、filename、顺序和嵌套字段都是 wire 语义。将所有内容先转成文本会丢失来源与媒体信息。
 
@@ -84,13 +86,15 @@ voice、audio format、sample encoding、VAD、transcript 和 media streaming �
 
 ## 6. Images 与 Videos
 
-Images generation/edit/variation 是独立 endpoint family。结果可以是短期 URL、base64 或特定 streaming event。Videos 是异步 resource workflow，需要 poll 状态并单独下载 content。
+Images generation/edit/variation 是独立 endpoint family。结果可以是短期 URL、base64 或特定 streaming event。Videos 是异步
+resource workflow，需要 poll 状态并单独下载 content。
 
 这两类 operation 可能已经被服务接受并产生费用；网络结果不确定时不能只根据客户端未收到响应就假定安全重放。
 
 ## 7. Resource identity 与 state
 
-File、Upload、Vector Store、Video、Realtime session 与 Responses continuation 分别签发不同 opaque identity。跨 endpoint、账户或 Provider 的可移植性必须由正式 contract 明确，不能由字符串形状推断。
+File、Upload、Vector Store、Video、Realtime session 与 Responses continuation 分别签发不同 opaque identity。跨 endpoint、账户或
+Provider 的可移植性必须由正式 contract 明确，不能由字符串形状推断。
 
 ## 8. 共同安全与证据边界
 

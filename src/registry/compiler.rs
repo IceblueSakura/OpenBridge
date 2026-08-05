@@ -338,8 +338,8 @@ pub fn build_registry(
         // A Bridged Route must connect the two distinct generation protocols; Embeddings has no Bridge.
         if route.mode == RouteMode::Bridged
             && (route.downstream_operation.api_protocol().is_none()
-                || upstream_api.api_protocol().is_none()
-                || route.downstream_operation == upstream_api.operation())
+            || upstream_api.api_protocol().is_none()
+            || route.downstream_operation == upstream_api.operation())
         {
             return Err(RegistryError::InvalidBridgedRouteOperations { route: route.id });
         }

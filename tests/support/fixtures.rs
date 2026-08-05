@@ -65,7 +65,7 @@ api_key = "{api_key}"
 enabled = true
 "#
     ))
-    .expect("test user registry must be valid");
+        .expect("test user registry must be valid");
     let (users, mut credentials) = configuration.into_parts();
 
     // Inject one synthetic secret into every pool in the test registry.
@@ -232,5 +232,5 @@ pub fn registry(version: &str, alias: &str, upstream_model: &str) -> RuntimeRegi
         bootstrap(BOOTSTRAP),
         definition(version, alias, upstream_model),
     )
-    .expect("test registry must be valid")
+        .expect("test registry must be valid")
 }

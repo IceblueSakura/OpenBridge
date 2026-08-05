@@ -16,5 +16,5 @@ pub(crate) fn compiled_configs() -> Vec<ModelConfig> {
         moonshotai::configs(),
         minimax::configs(),
     ]
-    .concat()
+        .concat()
 }

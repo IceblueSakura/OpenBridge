@@ -41,8 +41,8 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
                 CredentialKind::ApiKey,
                 CredentialSource::UpstreamConfiguration,
             )
-            .with_generation(7)
-            .with_expires_at(expires_at),
+                .with_generation(7)
+                .with_expires_at(expires_at),
         )
         .unwrap();
     let credentials = credentials.build();
@@ -58,7 +58,7 @@ fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacte
     );
     assert_eq!(
         credentials
-            .upstream_pool(ProviderKind::LongCat, "shared-id", CredentialKind::ApiKey,)
+            .upstream_pool(ProviderKind::LongCat, "shared-id", CredentialKind::ApiKey, )
             .unwrap_err(),
         CredentialStoreError::Unavailable
     );

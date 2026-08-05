@@ -1,1 +1,11 @@
-{"input":[{"call_id":"call_missing","output":"orphan","type":"function_call_output"}],"model":"public-model","stream":false}
+{
+  "input": [
+    {
+      "call_id": "call_missing",
+      "output": "orphan",
+      "type": "function_call_output"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

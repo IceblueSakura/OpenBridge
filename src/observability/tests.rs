@@ -75,8 +75,8 @@ fn extracts_chat_and_responses_usage_without_business_content() {
         extract_usage(&json!({
             "usage": {"input_tokens": u64::MAX, "output_tokens": 1}
         }))
-        .unwrap()
-        .total_tokens,
+            .unwrap()
+            .total_tokens,
         Some(u64::MAX)
     );
 }

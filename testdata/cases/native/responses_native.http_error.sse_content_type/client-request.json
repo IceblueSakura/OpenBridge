@@ -1,1 +1,5 @@
-{"input":"Wrong content type.","model":"public-model","stream":true}
+{
+  "input": "Wrong content type.",
+  "model": "public-model",
+  "stream": true
+}

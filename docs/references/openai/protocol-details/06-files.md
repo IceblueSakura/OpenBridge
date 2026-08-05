@@ -2,7 +2,8 @@
 
 ## 1. Resource surface
 
-Files API 是资源生命周期，不是一次模型生成调用。官方 surface 包括 create/upload、list、retrieve metadata、retrieve content 与 delete。
+Files API 是资源生命周期，不是一次模型生成调用。官方 surface 包括 create/upload、list、retrieve metadata、retrieve content 与
+delete。
 
 资料：[Files API](https://developers.openai.com/api/reference/resources/files)、[Create file](https://developers.openai.com/api/reference/resources/files/methods/create)、[File inputs](https://developers.openai.com/api/docs/guides/file-inputs)。
 
@@ -15,7 +16,8 @@ Files API 是资源生命周期，不是一次模型生成调用。官方 surfac
 
 ## 3. Retrieve/delete/content
 
-metadata retrieve、content download 与 delete 是不同 method。delete 不是普通 GET/POST 重试场景；content response 也可能是 binary，不是统一 JSON。
+metadata retrieve、content download 与 delete 是不同 method。delete 不是普通 GET/POST 重试场景；content response 也可能是
+binary，不是统一 JSON。
 
 ## 4. 边界
 

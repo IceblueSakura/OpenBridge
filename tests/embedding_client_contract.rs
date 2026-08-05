@@ -72,7 +72,7 @@ impl UpstreamTransport for EmbeddingFixtureTransport {
                 "model": "text-embedding-3-small",
                 "usage": {"prompt_tokens": 2, "total_tokens": 2}
             }))
-            .expect("fixture response must encode");
+                .expect("fixture response must encode");
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             Ok(UpstreamResponse::new(
@@ -146,8 +146,8 @@ async fn run_python_client(base_url: String) -> Output {
             .output()
             .expect("the Python client process must start")
     })
-    .await
-    .expect("the Python client task must complete")
+        .await
+        .expect("the Python client task must complete")
 }
 
 /// Panics with captured child output when the independent client exits unsuccessfully.

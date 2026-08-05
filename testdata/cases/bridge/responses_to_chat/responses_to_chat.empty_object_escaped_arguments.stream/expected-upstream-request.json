@@ -1,1 +1,22 @@
-{"messages":[{"content":"Echo twice.","role":"user"}],"model":"upstream-model","parallel_tool_calls":true,"stream":true,"tools":[{"function":{"name":"echo","parameters":{"type":"object"}},"type":"function"}]}
+{
+  "messages": [
+    {
+      "content": "Echo twice.",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "parallel_tool_calls": true,
+  "stream": true,
+  "tools": [
+    {
+      "function": {
+        "name": "echo",
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

@@ -121,7 +121,7 @@ pub async fn replay_rate_limit_case(case_id: &str) -> ReplayObservation {
         super::bootstrap(super::BOOTSTRAP),
         super::definition("process-replay", "public-model", "upstream-model"),
     )
-    .expect("replay registry must be valid");
+        .expect("replay registry must be valid");
     let transport = LoopbackReplayTransport {
         base_url: format!("http://{upstream_address}"),
         client: reqwest::Client::new(),

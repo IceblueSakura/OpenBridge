@@ -2,7 +2,8 @@
 
 ## 1. Endpoint 与 response
 
-Text-to-speech 使用独立 Audio Speech endpoint。request 是 JSON，核心语义包括 model、input text、voice 与输出音频格式；response 是音频 bytes 或音频 stream，不是 Chat/Responses JSON object。
+Text-to-speech 使用独立 Audio Speech endpoint。request 是 JSON，核心语义包括 model、input text、voice 与输出音频格式；response
+是音频 bytes 或音频 stream，不是 Chat/Responses JSON object。
 
 资料：[Create speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)、[Audio and speech](https://developers.openai.com/api/docs/guides/audio)、[Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)。
 

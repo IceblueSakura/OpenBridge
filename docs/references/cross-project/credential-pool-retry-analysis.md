@@ -14,11 +14,11 @@
 
 三个项目都处理“当前候选失败后是否换另一个候选”，但隔离单位并不相同：
 
-| 项目 | 选择/隔离单位 | 请求内边界 | 跨请求状态 |
-| --- | --- | --- | --- |
-| CLIProxyAPI | credential/account | request retry 与最大 credential 数分别限制 | credential cooldown，可持久化 |
-| LiteLLM | deployment | retry/fallback 有独立配置 | deployment cooldown，可结合 Redis |
-| cc-switch | Provider | `max_retries + 1` 且受 Provider 数量限制 | 持久化 circuit breaker |
+| 项目        | 选择/隔离单位      | 请求内边界                                 | 跨请求状态                        |
+|-------------|--------------------|--------------------------------------------|-----------------------------------|
+| CLIProxyAPI | credential/account | request retry 与最大 credential 数分别限制 | credential cooldown，可持久化     |
+| LiteLLM     | deployment         | retry/fallback 有独立配置                  | deployment cooldown，可结合 Redis |
+| cc-switch   | Provider           | `max_retries + 1` 且受 Provider 数量限制   | 持久化 circuit breaker            |
 
 因此，`credential`、`deployment` 和 `Provider` 不能仅因都能“切换”而视为同一故障域。
 
@@ -27,18 +27,19 @@
 1. **attempt 必须有硬上限。** CLIProxyAPI 把可尝试 credential 数与 request retry 分开；cc-switch 同时受显式最大次数和候选数量限制。
 2. **cooldown 是跨请求状态。** 它描述某个资源在一段时间内不应再次被选择，不等于当前请求必须等待其恢复。
 3. **健康应隔离到项目定义的最小可替换资源。** LiteLLM 冷却单个 deployment，而不是整个 model group。
-4. **错误分类决定是否切换。** cc-switch 不对已归类为客户端输入无效的错误继续 failover；CLIProxyAPI 与 LiteLLM 的 status 集合则受各自产品策略影响。
+4. **错误分类决定是否切换。** cc-switch 不对已归类为客户端输入无效的错误继续 failover；CLIProxyAPI 与 LiteLLM 的 status
+   集合则受各自产品策略影响。
 5. **候选扩大不能隐式扩大调用预算。** pool/group/provider 列表增长不能自动增加单请求的无限尝试。
 
 ## 3. 差异与不可合并项
 
-| 维度 | CLIProxyAPI | LiteLLM | cc-switch |
-| --- | --- | --- | --- |
-| 429 | credential quota/cooldown 语义较强 | deployment cooldown | 由 Provider failover 分类处理 |
-| 5xx/transport | 可进入 request retry | deployment retry/fallback | Provider/transport failover |
-| 4xx | 示例包含部分 4xx | 可按错误类型配置 | 客户端无效错误不继续 |
-| 分布式协调 | 项目可持久化部分 cooldown | 可使用 Redis | 桌面应用持久化 circuit breaker |
-| 管理面 | 账号/OAuth 聚合 | team、budget、virtual key | UI 与客户端配置接管 |
+| 维度          | CLIProxyAPI                        | LiteLLM                   | cc-switch                      |
+|---------------|------------------------------------|---------------------------|--------------------------------|
+| 429           | credential quota/cooldown 语义较强 | deployment cooldown       | 由 Provider failover 分类处理  |
+| 5xx/transport | 可进入 request retry               | deployment retry/fallback | Provider/transport failover    |
+| 4xx           | 示例包含部分 4xx                   | 可按错误类型配置          | 客户端无效错误不继续           |
+| 分布式协调    | 项目可持久化部分 cooldown          | 可使用 Redis              | 桌面应用持久化 circuit breaker |
+| 管理面        | 账号/OAuth 聚合                    | team、budget、virtual key | UI 与客户端配置接管            |
 
 这些差异说明不存在可从三个项目直接抽取的统一 status 表。真正的 retry contract 仍需先确定资源身份、失败作用域、请求是否已产生副作用，以及流式输出是否已经开始。
 

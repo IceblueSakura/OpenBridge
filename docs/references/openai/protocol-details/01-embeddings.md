@@ -10,7 +10,8 @@
 - 支持模型可接受 `dimensions`；
 - 可选 `user`。
 
-成功响应使用 `object: "list"`，包含有序 `data[]`。每项有 `object: "embedding"`、`embedding` 与 `index`；顶层还含 `model` 和 token `usage`。
+成功响应使用 `object: "list"`，包含有序 `data[]`。每项有 `object: "embedding"`、`embedding` 与 `index`；顶层还含 `model` 和
+token `usage`。
 
 资料：[Create embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create)、[Embeddings guide](https://developers.openai.com/api/docs/guides/embeddings)、[Python SDK request type](https://github.com/openai/openai-python/blob/main/src/openai/types/embedding_create_params.py)。
 

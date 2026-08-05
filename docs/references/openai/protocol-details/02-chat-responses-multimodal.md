@@ -22,7 +22,8 @@ Chat `image_url` 和 Responses `input_image` 语义相近，但不是字段级�
 
 ## 4. Audio input
 
-Chat 可使用 `input_audio` part，通常携带 base64 audio data 与 format。它与 Audio Transcription endpoint、TTS endpoint 和 Realtime audio session 是不同协议面。
+Chat 可使用 `input_audio` part，通常携带 base64 audio data 与 format。它与 Audio Transcription endpoint、TTS endpoint 和
+Realtime audio session 是不同协议面。
 
 ## 5. Source 与安全边界
 

@@ -2,7 +2,8 @@
 
 ## 1. Transport 与 session
 
-Realtime 使用 WebRTC 或 WebSocket 等双向长连接 transport，围绕 session、conversation item、audio buffer、response 和 tool event 交互。它不是 HTTP request + SSE response 的单向生命周期。
+Realtime 使用 WebRTC 或 WebSocket 等双向长连接 transport，围绕 session、conversation item、audio buffer、response 和 tool
+event 交互。它不是 HTTP request + SSE response 的单向生命周期。
 
 资料：[Realtime](https://developers.openai.com/api/docs/guides/realtime)、[WebRTC](https://developers.openai.com/api/docs/guides/realtime-webrtc)、[WebSocket](https://developers.openai.com/api/docs/guides/realtime-websocket)、[Conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)、[Transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)。
 
@@ -15,7 +16,8 @@ Realtime 使用 WebRTC 或 WebSocket 等双向长连接 transport，围绕 sessi
 
 ## 3. Client secret 与直连
 
-官方资料包含为浏览器/移动客户端创建短期 client secret 的模式。客户端直连上游与由中间服务中继所有 media 是两种不同拓扑；短期 token 的 audience、TTL、scope 与泄露影响需要分别记录。
+官方资料包含为浏览器/移动客户端创建短期 client secret 的模式。客户端直连上游与由中间服务中继所有 media 是两种不同拓扑；短期
+token 的 audience、TTL、scope 与泄露影响需要分别记录。
 
 ## 4. 边界
 

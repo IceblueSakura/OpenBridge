@@ -68,7 +68,7 @@ impl ProviderMetricKey {
             } else {
                 "native"
             }
-            .to_owned(),
+                .to_owned(),
             streaming: execution.streaming,
         }
     }

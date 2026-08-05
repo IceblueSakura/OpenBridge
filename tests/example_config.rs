@@ -783,10 +783,10 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
     let credentials = UpstreamCredentialConfiguration::from_toml(include_str!(
         "../config/upstream-credentials.example.toml"
     ))
-    .unwrap()
-    .into_builder_for(&registry, pool_ids.iter().map(String::as_str))
-    .unwrap()
-    .build();
+        .unwrap()
+        .into_builder_for(&registry, pool_ids.iter().map(String::as_str))
+        .unwrap()
+        .build();
 
     // Verify that each target retrieves the template credential by Provider and pool.
     for target_id in registry.upstream_target_ids() {
@@ -1005,7 +1005,7 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
             .expect("aggregated Public Model exists")
             .info(),
     )
-    .unwrap();
+        .unwrap();
     assert_eq!(
         info["interfaces"]["chat_completions"]["tools"]["support"],
         "unsupported"

@@ -1,1 +1,30 @@
-{"input":[{"arguments":"{\"city\":\"A\"}","call_id":"call_a","id":"fc_a","name":"lookup","type":"function_call"},{"arguments":"{\"city\":\"B\"}","call_id":"call_b","id":"fc_b","name":"lookup","type":"function_call"},{"call_id":"call_b","output":"result B","type":"function_call_output"},{"call_id":"call_a","output":"result A","type":"function_call_output"}],"model":"public-model","stream":false}
+{
+  "input": [
+    {
+      "arguments": "{\"city\":\"A\"}",
+      "call_id": "call_a",
+      "id": "fc_a",
+      "name": "lookup",
+      "type": "function_call"
+    },
+    {
+      "arguments": "{\"city\":\"B\"}",
+      "call_id": "call_b",
+      "id": "fc_b",
+      "name": "lookup",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_b",
+      "output": "result B",
+      "type": "function_call_output"
+    },
+    {
+      "call_id": "call_a",
+      "output": "result A",
+      "type": "function_call_output"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

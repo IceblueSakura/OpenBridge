@@ -1,6 +1,7 @@
 # OpenBridge Testkit
 
-`tools/corpus/` 是与 OpenBridge runtime 解耦的 Python 工具包。它管理 [../../testdata/](../../testdata/README.md) 的 canonical corpus，并提供增量 SSE parser、HTTP/1.1 Mock Server、Mock Client、scenario/plan 编译和 observation 输出。
+`tools/corpus/` 是与 OpenBridge runtime 解耦的 Python 工具包。它管理 [../../testdata/](../../testdata/README.md) 的
+canonical corpus，并提供增量 SSE parser、HTTP/1.1 Mock Server、Mock Client、scenario/plan 编译和 observation 输出。
 
 它服务于未来的黑盒链路：
 
@@ -24,18 +25,18 @@ uv run --project tools/corpus corpus --root testdata lint
 
 ## 命令参考
 
-| 命令 | 输入 | 输出 | 用途 |
-|---|---|---|---|
-| `lint` | canonical corpus | stdout/exit code | 校验 schema、路径、artifact 组合、SSE、provenance 与 secret scan |
-| `generate` | case SSE + recipe + seed | `testdata/generated/` | 生成确定的 Base64 wire chunks 与 manifest |
-| `report` | canonical corpus | stdout 或 `testdata/reports/` | 输出覆盖、status、来源与缺口统计 |
-| `pack` | canonical corpus | `testdata/dist/` | 构建 deterministic ZIP 和 SHA-256 sidecar |
-| `build-server-scenario` | 一个有上游 attempt 的 case | `testdata/runtime/` | 编译一个自包含上游 HTTP scenario |
-| `build-server-suite` | 有序 case 列表 | `testdata/runtime/` | 编译按请求顺序消费的多 exchange suite |
-| `build-client-plan` | 一个 case + SUT/base URL | `testdata/runtime/` | 编译 Mock Client 请求计划 |
-| `mock-server` | scenario 或 suite JSON | ready/observation JSON | 启动 HTTP/1.1 upstream fixture |
-| `mock-client` | client plan JSON | observation JSON | 发送一次请求并记录结果 |
-| `verify-observations` | case + client/server observations | stdout/exit code | 用 canonical oracle 判定单 case 结果 |
+| 命令                    | 输入                              | 输出                          | 用途                                                             |
+|-------------------------|-----------------------------------|-------------------------------|------------------------------------------------------------------|
+| `lint`                  | canonical corpus                  | stdout/exit code              | 校验 schema、路径、artifact 组合、SSE、provenance 与 secret scan |
+| `generate`              | case SSE + recipe + seed          | `testdata/generated/`         | 生成确定的 Base64 wire chunks 与 manifest                        |
+| `report`                | canonical corpus                  | stdout 或 `testdata/reports/` | 输出覆盖、status、来源与缺口统计                                 |
+| `pack`                  | canonical corpus                  | `testdata/dist/`              | 构建 deterministic ZIP 和 SHA-256 sidecar                        |
+| `build-server-scenario` | 一个有上游 attempt 的 case        | `testdata/runtime/`           | 编译一个自包含上游 HTTP scenario                                 |
+| `build-server-suite`    | 有序 case 列表                    | `testdata/runtime/`           | 编译按请求顺序消费的多 exchange suite                            |
+| `build-client-plan`     | 一个 case + SUT/base URL          | `testdata/runtime/`           | 编译 Mock Client 请求计划                                        |
+| `mock-server`           | scenario 或 suite JSON            | ready/observation JSON        | 启动 HTTP/1.1 upstream fixture                                   |
+| `mock-client`           | client plan JSON                  | observation JSON              | 发送一次请求并记录结果                                           |
+| `verify-observations`   | case + client/server observations | stdout/exit code              | 用 canonical oracle 判定单 case 结果                             |
 
 默认 corpus root 是 `./testdata`。传递 `--root testdata` 可使脚本和 CI 的工作目录显式。
 
@@ -48,7 +49,8 @@ uv run --project tools/corpus corpus --root testdata report --output testdata/re
 uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
 ```
 
-`generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation 的输出受限于 `runtime/`。这是故意的防护：工具不能清理或写入 canonical case 目录。
+`generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation
+的输出受限于 `runtime/`。这是故意的防护：工具不能清理或写入 canonical case 目录。
 
 ## 从 case 到 HTTP loopback
 
@@ -67,7 +69,8 @@ uv run --project tools/corpus corpus --root testdata mock-server `
   --observation testdata/runtime/server-observation.json
 ```
 
-Server 立即把实际端口写入 `server-ready.json`，然后等待一个 scenario 被消费。读取其中的 `base_url` 后，在第二个终端构建并运行 Client：
+Server 立即把实际端口写入 `server-ready.json`，然后等待一个 scenario 被消费。读取其中的 `base_url` 后，在第二个终端构建并运行
+Client：
 
 ```powershell
 uv run --project tools/corpus corpus --root testdata build-client-plan `
@@ -97,13 +100,15 @@ uv run --project tools/corpus corpus --root testdata mock-server `
   --observation testdata/runtime/server-observation.json
 ```
 
-每个普通 POST 原子地消费一个 exchange；`/health` 与 `/healthz`、非法 JSON、未知 endpoint 和错误 HTTP method 不会消费。没有剩余 exchange 时，Server 返回 `409`。suite 目前是静态、有序、单进程队列，不是并发调度器。
+每个普通 POST 原子地消费一个 exchange；`/health` 与 `/healthz`、非法 JSON、未知 endpoint 和错误 HTTP method 不会消费。没有剩余
+exchange 时，Server 返回 `409`。suite 目前是静态、有序、单进程队列，不是并发调度器。
 
 ## Scenario 与 Client plan
 
 ### Server scenario
 
-`build-server-scenario` 从 case 的 `expected_upstream_request`、`upstream_response` 或 `upstream_stream` 编译 JSON。其 response 包含：
+`build-server-scenario` 从 case 的 `expected_upstream_request`、`upstream_response` 或 `upstream_stream` 编译 JSON。其
+response 包含：
 
 - status、headers、完整 wire 的 SHA-256；
 - Base64 chunk 数组；
@@ -111,28 +116,33 @@ uv run --project tools/corpus corpus --root testdata mock-server `
 - `termination`：`complete` 正常完成 HTTP message，或 `abort` 在写出 chunks 后异常断连；
 - `abort_delay_ms`。
 
-`--variant canonical` 使用原始 artifact bytes；其他 variant 需要先运行 `generate`。可用 `--chunk-delay-ms` 让 cancellation/abort 演示更容易复现，但它不模拟吞吐、背压或真实 TCP packet。
+`--variant canonical` 使用原始 artifact bytes；其他 variant 需要先运行 `generate`。可用 `--chunk-delay-ms` 让
+cancellation/abort 演示更容易复现，但它不模拟吞吐、背压或真实 TCP packet。
 
 ### Client plan
 
-`build-client-plan` 从 case 的 `client_request` 编译 HTTP URL、method、headers、Base64 body、SHA-256、stream 标记、timeout 与可选 `cancel_after_event`。Client 只支持绝对 `http://` URL；目前不支持 HTTPS、HTTP/2、proxy 或 WebSocket。
+`build-client-plan` 从 case 的 `client_request` 编译 HTTP URL、method、headers、Base64 body、SHA-256、stream 标记、timeout 与可选
+`cancel_after_event`。Client 只支持绝对 `http://` URL；目前不支持 HTTPS、HTTP/2、proxy 或 WebSocket。
 
-所有 plan 与 scenario 都经过 `testdata/schemas/` 的 JSON Schema 校验。直接编辑 runtime JSON 时，也应通过对应命令重新验证，而不是将其作为新的 canonical oracle。
+所有 plan 与 scenario 都经过 `testdata/schemas/` 的 JSON Schema 校验。直接编辑 runtime JSON 时，也应通过对应命令重新验证，而不是将其作为新的
+canonical oracle。
 
 ## Mock Server 行为
 
 Mock Server 基于 `asyncio + h11`，默认只监听 `127.0.0.1` 和随机可用端口。
 
-| 请求条件 | 响应 | 是否消费 exchange |
-|---|---|---|
-| `GET /health` 或 `/healthz` | `200`，body 含 `status` 与 `pending_exchanges` | 否 |
-| 非 POST 业务请求 | `405 method_not_allowed` JSON error | 否 |
-| 非 `/v1/chat/completions`、`/v1/responses` 路径 | `404 unknown_fixture_endpoint` JSON error | 否 |
-| 非法 JSON body | `400 invalid_json` JSON error | 否 |
-| 无剩余 suite exchange | `409 no_pending_exchange` JSON error | 否 |
-| 有效业务请求 | 按下一个 scenario 写 status、headers 与 chunks | 是 |
+| 请求条件                                        | 响应                                           | 是否消费 exchange |
+|-------------------------------------------------|------------------------------------------------|-------------------|
+| `GET /health` 或 `/healthz`                     | `200`，body 含 `status` 与 `pending_exchanges` | 否                |
+| 非 POST 业务请求                                | `405 method_not_allowed` JSON error            | 否                |
+| 非 `/v1/chat/completions`、`/v1/responses` 路径 | `404 unknown_fixture_endpoint` JSON error      | 否                |
+| 非法 JSON body                                  | `400 invalid_json` JSON error                  | 否                |
+| 无剩余 suite exchange                           | `409 no_pending_exchange` JSON error           | 否                |
+| 有效业务请求                                    | 按下一个 scenario 写 status、headers 与 chunks | 是                |
 
-Server 不会在收包过程中主动比较 request 与 `expected_request`；它会在 observation 中记录 method、target、脱敏 headers、raw body、JSON（若可解析）、hash、response status、终止方式、SSE terminal 和 timing。单 case 可在运行完成后交给 `verify-observations` 判定；多 attempt/retry/fallback runner 仍需负责序列编排。
+Server 不会在收包过程中主动比较 request 与 `expected_request`；它会在 observation 中记录 method、target、脱敏 headers、raw
+body、JSON（若可解析）、hash、response status、终止方式、SSE terminal 和 timing。单 case 可在运行完成后交给
+`verify-observations` 判定；多 attempt/retry/fallback runner 仍需负责序列编排。
 
 被记录时会脱敏 `authorization`、`cookie`、`proxy-authorization`、`set-cookie` 与 `x-api-key` 的值。
 
@@ -149,22 +159,25 @@ Mock Client 基于 `asyncio + h11`，每个 plan 只发送一次请求：
 
 结束分类如下：
 
-| `end` | 含义 |
-|---|---|
-| `response` | 已正常完成的非 SSE 成功响应 |
-| `error_response` | 已完成 HTTP message 且 status 为 `4xx/5xx` |
-| `terminal` | SSE 正常出现协议 terminal |
-| `eof` | SSE HTTP message 完成但没有 terminal |
+| `end`             | 含义                                        |
+|-------------------|---------------------------------------------|
+| `response`        | 已正常完成的非 SSE 成功响应                 |
+| `error_response`  | 已完成 HTTP message 且 status 为 `4xx/5xx`  |
+| `terminal`        | SSE 正常出现协议 terminal                   |
+| `eof`             | SSE HTTP message 完成但没有 terminal        |
 | `transport_error` | 未完整完成 HTTP message、连接异常或 timeout |
-| `cancelled` | Mock Client 按计划主动终止连接 |
+| `cancelled`       | Mock Client 按计划主动终止连接              |
 
-HTTP status 的错误分类优先于 Content-Type：即使上游错误地将 `500` 标为 `text/event-stream`，Client 仍记录 `error_response`，不会将其伪装为 SSE EOF 或 terminal。
+HTTP status 的错误分类优先于 Content-Type：即使上游错误地将 `500` 标为 `text/event-stream`，Client 仍记录 `error_response`
+，不会将其伪装为 SSE EOF 或 terminal。
 
 ## SSE parser 的边界
 
-增量 parser 直接消费 bytes，支持 LF、CRLF、CR、comment、多个 `data:` 行、一个 read 内多个 event、UTF-8 跨 chunk、`[DONE]` 和 Responses terminal。它同时保留 SSE `event:` field 与 JSON payload 的 `type`；两者冲突时记录 `type_conflict`。
+增量 parser 直接消费 bytes，支持 LF、CRLF、CR、comment、多个 `data:` 行、一个 read 内多个 event、UTF-8 跨 chunk、`[DONE]` 和
+Responses terminal。它同时保留 SSE `event:` field 与 JSON payload 的 `type`；两者冲突时记录 `type_conflict`。
 
-EOF 不会派发缺少最后空行的半个 event。SSE `error`、Responses `failed`/`incomplete` 是逻辑 terminal；HTTP error、EOF、transport abort 与 client cancellation 是不同层次的结果。
+EOF 不会派发缺少最后空行的半个 event。SSE `error`、Responses `failed`/`incomplete` 是逻辑 terminal；HTTP
+error、EOF、transport abort 与 client cancellation 是不同层次的结果。
 
 ## Observation 与后续 runner
 
@@ -176,7 +189,8 @@ EOF 不会派发缺少最后空行的半个 event。SSE `error`、Responses `fai
 - HTTP response/request envelope；
 - 对 SSE，解析后的 event、terminal 与 conflict 信息。
 
-多 exchange Server 的 observation 用 `mock_server_run` 包装并按 suite 顺序保存。Schema 有意允许单 exchange observation 附加字段，使工具能增加非破坏性的诊断；runner 应只依赖明确文档化或 schema 定义的稳定字段。
+多 exchange Server 的 observation 用 `mock_server_run` 包装并按 suite 顺序保存。Schema 有意允许单 exchange observation
+附加字段，使工具能增加非破坏性的诊断；runner 应只依赖明确文档化或 schema 定义的稳定字段。
 
 ### 单 case observation 判定
 
@@ -189,12 +203,12 @@ uv run --project tools/corpus corpus --root testdata verify-observations `
   --server-observation testdata/runtime/server-observation.json
 ```
 
-`upstream_attempts = 0` 的 preflight reject case 省略 `--server-observation`。命令校验 observation schema 与
-body hash，然后比较 case identity、上下游请求 path、JSON 或 SSE body、HTTP status、结束分类、terminal 和
-case 声明的下游 response headers。通过返回 `0`；失败返回 `1`，只输出字段路径或摘要，不回显完整正文。
+`upstream_attempts = 0` 的 preflight reject case 省略 `--server-observation`。命令校验 observation schema 与 body
+hash，然后比较 case identity、上下游请求 path、JSON 或 SSE body、HTTP status、结束分类、terminal 和 case 声明的下游 response
+headers。通过返回 `0`；失败返回 `1`，只输出字段路径或摘要，不回显完整正文。
 
-该命令只判定零次或单次上游 attempt，且不负责启动 OpenBridge、Mock Server 或 Mock Client。它不判定 route
-选择、retry/fallback 序列、时序窗口、SDK/CLI 行为或真实 Provider 兼容性。
+该命令只判定零次或单次上游 attempt，且不负责启动 OpenBridge、Mock Server 或 Mock Client。它不判定 route 选择、retry/fallback
+序列、时序窗口、SDK/CLI 行为或真实 Provider 兼容性。
 
 典型 process runner 应进行：
 
@@ -206,8 +220,7 @@ canonical client request -> SUT -> Mock Server
        +-> Mock Client <-----+-> 比较 expected client body/SSE/terminal
 ```
 
-testkit 已能对单 case 的最终 observations 做 canonical comparison，但不负责进程编排、多 attempt 序列或 SUT
-产品策略推断。
+testkit 已能对单 case 的最终 observations 做 canonical comparison，但不负责进程编排、多 attempt 序列或 SUT 产品策略推断。
 
 ## 开发与变更规则
 

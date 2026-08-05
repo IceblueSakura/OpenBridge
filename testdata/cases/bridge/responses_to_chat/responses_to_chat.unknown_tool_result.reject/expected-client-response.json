@@ -1,1 +1,8 @@
-{"error":{"code":"unknown_tool_call","message":"function_call_output references unknown call_id call_missing.","param":"input[0].call_id","type":"invalid_request_error"}}
+{
+  "error": {
+    "code": "unknown_tool_call",
+    "message": "function_call_output references unknown call_id call_missing.",
+    "param": "input[0].call_id",
+    "type": "invalid_request_error"
+  }
+}

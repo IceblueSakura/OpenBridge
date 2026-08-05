@@ -151,9 +151,9 @@ impl ChatStreamState {
                 .and_then(Value::as_str)
                 .is_some_and(|id| id != existing.call_id)
                 || function
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| name != existing.name)
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name != existing.name)
             {
                 return Err(BridgeStreamError::IdentityConflict);
             }

@@ -4,7 +4,9 @@
 
 - 在线复核日期：2026-07-26
 - 本次在线检查未固定 commit。
-- 来源：[Open Responses](https://www.openresponses.org/)、[Acceptance Tests](https://www.openresponses.org/compliance)、[repository](https://github.com/openresponses/openresponses)、[`compliance-tests.ts`](https://github.com/openresponses/openresponses/blob/main/src/lib/compliance-tests.ts)、[CLI](https://github.com/openresponses/openresponses/blob/main/bin/compliance-test.ts)
+-
+来源：[Open Responses](https://www.openresponses.org/)、[Acceptance Tests](https://www.openresponses.org/compliance)、[repository](https://github.com/openresponses/openresponses)、[
+`compliance-tests.ts`](https://github.com/openresponses/openresponses/blob/main/src/lib/compliance-tests.ts)、[CLI](https://github.com/openresponses/openresponses/blob/main/bin/compliance-test.ts)
 
 ## 观察事实
 
@@ -16,5 +18,6 @@
 
 ## 覆盖与边界
 
-它对 Responses schema、terminal 与 continuation 的黑盒 acceptance 较强；function tool 场景较浅，不覆盖复杂并行调用、arguments 任意分片、tool result 往返或 Chat 转换。其规范版本必须与 OpenAI 官方 Responses 分开记录。
+它对 Responses schema、terminal 与 continuation 的黑盒 acceptance 较强；function tool 场景较浅，不覆盖复杂并行调用、arguments
+任意分片、tool result 往返或 Chat 转换。其规范版本必须与 OpenAI 官方 Responses 分开记录。
 

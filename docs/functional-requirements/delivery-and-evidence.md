@@ -11,7 +11,8 @@
 1. 从[产品范围](product-scope.md)或一个已知缺陷中选择一个可观察行为，写清楚输入、预期输出和不覆盖的边界。
 2. 先添加或调整一个会失败的自动化测试、fixture 或最小客户端复现。
 3. 只实现足以让该测试通过的最小代码；不为尚未有测试的未来方向预建抽象。
-4. 运行与该行为相称的回归：先运行本地单元/契约测试，再使用 OpenAI SDK、独立 Python 脚本或 curl 复核实际客户端可见行为；只有明确的目标客户端兼容行为才使用对应客户端 runtime。
+4. 运行与该行为相称的回归：先运行本地单元/契约测试，再使用 OpenAI SDK、独立 Python 脚本或 curl
+   复核实际客户端可见行为；只有明确的目标客户端兼容行为才使用对应客户端 runtime。
 5. 在测试保持通过的前提下重构；若发现新语义，先补失败测试而不是扩展原实现。
 6. 更新[当前实现说明](../implementation-status/current-implementation.md)中的已证明事实。当前开发焦点完成后替换或清空，不在原文档累积下一批工作包。
 
@@ -21,15 +22,16 @@
 
 日常验证按以下优先级选择，按行为需要叠加，而不是要求每次都跑完整大套件：
 
-| 层次 | 主要用途 | 说明 |
-|---|---|---|
-| Rust 单元/集成/fixture 测试 | 快速、确定地保护单个行为 | 应覆盖成功、预期错误、流边界和取消等与当前改动相关的路径。 |
-| OpenAI SDK | 验证 Chat 与 Responses 的客户端可见 HTTP/SSE 行为 | 是首选日常互操作证据；同时覆盖 stream/non-stream，按改动需要覆盖 tool loop。 |
-| 独立 Python 脚本或 curl | 以最小客户端复现验证 HTTP header、JSON、SSE 与错误语义 | 是首选日常协议证据；应保持无 Agent runtime 依赖并可脱敏重跑。 |
-| 目标 Agent 客户端 | 验证该客户端特有的 profile、扩展或真实 tool loop | 仅在明确声明 Codex、Hermes 等具体客户端兼容时使用，不作为通用行为的默认验收依赖。 |
-| 真实 Provider | 定位 Provider、模型、配额或网络特有差异 | 只在 SDK/独立客户端/fixture 无法解释行为，或当前改动直接涉及该 Provider 时使用。 |
+| 层次                        | 主要用途                                               | 说明                                                                              |
+|-----------------------------|--------------------------------------------------------|-----------------------------------------------------------------------------------|
+| Rust 单元/集成/fixture 测试 | 快速、确定地保护单个行为                               | 应覆盖成功、预期错误、流边界和取消等与当前改动相关的路径。                        |
+| OpenAI SDK                  | 验证 Chat 与 Responses 的客户端可见 HTTP/SSE 行为      | 是首选日常互操作证据；同时覆盖 stream/non-stream，按改动需要覆盖 tool loop。      |
+| 独立 Python 脚本或 curl     | 以最小客户端复现验证 HTTP header、JSON、SSE 与错误语义 | 是首选日常协议证据；应保持无 Agent runtime 依赖并可脱敏重跑。                     |
+| 目标 Agent 客户端           | 验证该客户端特有的 profile、扩展或真实 tool loop       | 仅在明确声明 Codex、Hermes 等具体客户端兼容时使用，不作为通用行为的默认验收依赖。 |
+| 真实 Provider               | 定位 Provider、模型、配额或网络特有差异                | 只在 SDK/独立客户端/fixture 无法解释行为，或当前改动直接涉及该 Provider 时使用。  |
 
-离线 fixture 用于可重复的 framing、错误、EOF、partial stream、cancel 与 tool-call 回归；它们不替代目标客户端观察。真实 Provider 一次成功也不替代可重复测试。
+离线 fixture 用于可重复的 framing、错误、EOF、partial stream、cancel 与 tool-call 回归；它们不替代目标客户端观察。真实
+Provider 一次成功也不替代可重复测试。
 
 ## SDK 与客户端工具的滚动记录
 

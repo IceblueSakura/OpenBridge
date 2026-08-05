@@ -37,7 +37,7 @@ pub fn compiled_config() -> RegistryConfig {
             deepseek::upstream_targets(),
             mimo::upstream_targets(),
         ]
-        .concat(),
+            .concat(),
         routes: routing.routes,
         public_models: routing.public_models,
     }

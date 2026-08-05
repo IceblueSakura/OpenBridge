@@ -125,15 +125,15 @@ impl UpstreamTransport for FixtureTransport {
                     json!({"object": "list", "data": [{"id": "test-model"}, {"id": "other-model"}]})
                 }
                 "/v1/chat/completions"
-                    if body.get("tools").is_some() && !has_tool_result(&body) =>
-                {
-                    json!({
+                if body.get("tools").is_some() && !has_tool_result(&body) =>
+                    {
+                        json!({
                         "object": "chat.completion",
                         "choices": [{"message": {"role": "assistant", "content": null, "tool_calls": [{
                             "id": "call_chat", "type": "function", "function": {"name": "openbridge_probe", "arguments": "{}"}
                         }]}}]
                     })
-                }
+                    }
                 "/v1/chat/completions" => {
                     json!({"object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": "OK"}}]})
                 }
@@ -216,7 +216,7 @@ struct SequenceTransport {
 }
 
 impl SequenceTransport {
-    fn new(responses: impl IntoIterator<Item = (StatusCode, Vec<u8>)>) -> Self {
+    fn new(responses: impl IntoIterator<Item=(StatusCode, Vec<u8>)>) -> Self {
         Self {
             responses: Mutex::new(responses.into_iter().collect()),
         }
@@ -258,13 +258,13 @@ fn has_tool_result(body: &Value) -> bool {
                 .any(|message| message.get("role").and_then(Value::as_str) == Some("tool"))
         })
         || body
-            .get("input")
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                items.iter().any(|item| {
-                    item.get("type").and_then(Value::as_str) == Some("function_call_output")
-                })
+        .get("input")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call_output")
             })
+        })
 }
 
 #[tokio::test]
@@ -280,8 +280,8 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
         &credentials,
         ProbeOptions::all(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let list_models = report.list_models.unwrap();
     assert_eq!(list_models.outcome.state, SupportStatus::Supported);
@@ -346,8 +346,8 @@ async fn probe_rejects_unknown_target_before_any_egress() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap_err();
+        .await
+        .unwrap_err();
 
     assert!(matches!(
         error,
@@ -371,8 +371,8 @@ async fn probe_rejects_missing_credentials_before_any_egress() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap_err();
+        .await
+        .unwrap_err();
 
     assert!(matches!(error, ProbeError::CredentialUnavailable));
     assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
@@ -410,8 +410,8 @@ async fn probe_rejects_unusable_authentication_material_before_egress() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap_err();
+        .await
+        .unwrap_err();
 
     assert!(matches!(error, ProbeError::AuthenticationPreparation));
     assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
@@ -434,8 +434,8 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     let outcome = report.list_models.unwrap().outcome;
     assert_eq!(outcome.state, SupportStatus::Unknown);
     assert_eq!(outcome.http_status, None);
@@ -456,8 +456,8 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
                 ..ProbeOptions::default()
             },
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         let outcome = report.chat.unwrap();
         assert_eq!(outcome.state, expected);
         assert_eq!(outcome.http_status, Some(status.as_u16()));
@@ -476,8 +476,8 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
                 ..ProbeOptions::default()
             },
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         let result = report.list_models.unwrap();
         assert_eq!(result.outcome.state, SupportStatus::Unknown);
         assert_eq!(result.outcome.http_status, Some(StatusCode::OK.as_u16()));
@@ -502,8 +502,8 @@ async fn probe_rejects_oversized_bodies_and_unusable_tool_call_shapes() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     let outcome = report.list_models.unwrap().outcome;
     assert_eq!(outcome.state, SupportStatus::Unknown);
     assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
@@ -526,8 +526,8 @@ async fn probe_rejects_oversized_bodies_and_unusable_tool_call_shapes() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     let chat = report.chat_function_calling.unwrap();
     assert_eq!(chat.initial_call.state, SupportStatus::Unknown);
     assert!(chat.result_replay.is_none());
@@ -554,8 +554,8 @@ async fn probe_reports_an_unconfigured_protocol_without_egress() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let outcome = report.responses.unwrap();
     assert_eq!(outcome.state, SupportStatus::Unsupported);
@@ -594,8 +594,8 @@ async fn probe_keeps_initial_tool_support_when_result_replay_is_invalid() {
             ..ProbeOptions::default()
         },
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Preserve initial support while classifying each failed replay conservatively.
     let chat = report.chat_function_calling.unwrap();

@@ -1,1 +1,21 @@
-{"created_at":0,"id":"resp_native_text","model":"public-model","object":"response","output":[{"content":[{"text":"fixture response","type":"output_text"}],"id":"msg_native_text","role":"assistant","status":"completed","type":"message"}],"status":"completed"}
+{
+  "created_at": 0,
+  "id": "resp_native_text",
+  "model": "public-model",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "text": "fixture response",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_native_text",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "status": "completed"
+}

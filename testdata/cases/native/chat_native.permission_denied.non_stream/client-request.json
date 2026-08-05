@@ -1,1 +1,10 @@
-{"messages":[{"content":"Forbidden.","role":"user"}],"model":"public-model","stream":false}
+{
+  "messages": [
+    {
+      "content": "Forbidden.",
+      "role": "user"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

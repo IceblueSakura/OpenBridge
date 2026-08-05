@@ -92,7 +92,7 @@ fn upstream_toml_rejects_unknown_and_missing_required_pools_before_insertion() {
     let unknown = UpstreamCredentialConfiguration::from_toml(
         "schema_version = 1\n[[credential_pools]]\nid = \"unknown\"\napi_keys = [\"secret\"]\n",
     )
-    .unwrap();
+        .unwrap();
     assert_eq!(
         unknown
             .into_builder_for(&registry, ["openai-primary"])

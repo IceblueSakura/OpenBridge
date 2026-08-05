@@ -16,15 +16,15 @@
 
 ## 2. 评估维度
 
-| 维度 | 需要区分的问题 |
-| --- | --- |
-| 协议方向 | Native Chat、Native Responses、Responses → Chat、Chat → Responses 是否分别覆盖 |
-| 确定性 | 固定 transcript，还是依赖真实模型按 prompt 选择行为 |
-| 流式粒度 | 最终对象、semantic event、SSE framing 与任意 bytes 分片分别覆盖到哪一层 |
-| 工具身份 | `call_id`、item id、choice/output index、name 与 arguments 如何关联 |
-| 终态 | completed、failed、incomplete、`[DONE]`、EOF、cancel 与 transport error 是否区分 |
-| 状态 | continuation、store、reconnect 与 route/account affinity 是否覆盖 |
-| 集成性 | 能否离线运行、是否依赖 SDK、真实模型、项目内部类型或数据库 |
+| 维度     | 需要区分的问题                                                                   |
+|----------|----------------------------------------------------------------------------------|
+| 协议方向 | Native Chat、Native Responses、Responses → Chat、Chat → Responses 是否分别覆盖   |
+| 确定性   | 固定 transcript，还是依赖真实模型按 prompt 选择行为                              |
+| 流式粒度 | 最终对象、semantic event、SSE framing 与任意 bytes 分片分别覆盖到哪一层          |
+| 工具身份 | `call_id`、item id、choice/output index、name 与 arguments 如何关联              |
+| 终态     | completed、failed、incomplete、`[DONE]`、EOF、cancel 与 transport error 是否区分 |
+| 状态     | continuation、store、reconnect 与 route/account affinity 是否覆盖                |
+| 集成性   | 能否离线运行、是否依赖 SDK、真实模型、项目内部类型或数据库                       |
 
 只比较最终文本或最终 JSON，无法证明 streaming conversion 的 event 顺序、tool identity 或 terminal 正确。
 
@@ -32,15 +32,15 @@
 
 `强` 表示资产直接覆盖；`部分` 表示可提取场景或做互证；`无` 表示不能从现有资产推导。
 
-| 测试资产 | Chat | Responses | Bridge | SSE 语义 | 复杂 tools | fault/cancel | 确定性 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| gpt-oss compatibility-test | 部分 | 部分 | 无 | 部分 | 部分 | 无 | 弱 |
-| Open Responses Compliance | 无 | 强 | 无 | 部分 | 弱 | 部分 | 中 |
-| Codex tests | 无 | 强 | 无 | 强 | 强 | 部分 | 强 |
-| LiteLLM tests/issues | 部分 | 强 | 部分 | 强 | 强 | 部分 | 中 |
-| responses-proxy tests | 部分 | 强 | 单方向强 | 部分 | 部分 | 弱 | 强 |
-| openai-compatibility-tester | 强 | 强 | 无 | 部分 | 部分 | 部分 | 中 |
-| OpenAI SDK consumer tests | 强 | 强 | 无 | 部分 | 部分 | 弱 | 中 |
+| 测试资产                    | Chat | Responses |   Bridge | SSE 语义 | 复杂 tools | fault/cancel | 确定性 |
+|-----------------------------|-----:|----------:|---------:|---------:|-----------:|-------------:|-------:|
+| gpt-oss compatibility-test  | 部分 |      部分 |       无 |     部分 |       部分 |           无 |     弱 |
+| Open Responses Compliance   |   无 |        强 |       无 |     部分 |         弱 |         部分 |     中 |
+| Codex tests                 |   无 |        强 |       无 |       强 |         强 |         部分 |     强 |
+| LiteLLM tests/issues        | 部分 |        强 |     部分 |       强 |         强 |         部分 |     中 |
+| responses-proxy tests       | 部分 |        强 | 单方向强 |     部分 |       部分 |           弱 |     强 |
+| openai-compatibility-tester |   强 |        强 |       无 |     部分 |       部分 |         部分 |     中 |
+| OpenAI SDK consumer tests   |   强 |        强 |       无 |     部分 |       部分 |           弱 |     中 |
 
 “确定性弱”只表示结果受模型采样或远端服务影响，不是项目质量评价。
 

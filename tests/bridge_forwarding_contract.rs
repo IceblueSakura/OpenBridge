@@ -112,7 +112,7 @@ fn fixture(path: &str) -> Bytes {
                 .join("testdata/cases/bridge")
                 .join(path),
         )
-        .expect("bridge fixture"),
+            .expect("bridge fixture"),
     )
 }
 
@@ -155,7 +155,7 @@ fn app_with_reasoning_output(
     }
     if !use_deepseek_chat
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-            &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
         capabilities.parallel_tool_calls = true;
         capabilities.reasoning_output = reasoning_output;
@@ -278,7 +278,7 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         let expected: Value = serde_json::from_slice(&fixture(&format!(
             "{directory}/expected-client-response.json"
         )))
-        .unwrap();
+            .unwrap();
         assert_eq!(actual, expected);
 
         let requests = transport.requests.lock().unwrap();
@@ -287,7 +287,7 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         let expected_upstream: Value = serde_json::from_slice(&fixture(&format!(
             "{directory}/expected-upstream-request.json"
         )))
-        .unwrap();
+            .unwrap();
         assert_eq!(requests[0].1, expected_upstream);
     }
 }
@@ -385,17 +385,17 @@ data: [DONE]
         transport.clone(),
         ReasoningOutput::PlainText,
     )
-    .oneshot(
-        Request::post("/v1/responses")
-            .header(CONTENT_TYPE, "application/json")
-            .header("authorization", "Bearer downstream-token-0000000000000000")
-            .body(Body::from(
-                r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}"#,
-            ))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert!(!String::from_utf8_lossy(&body).contains("response.output_text"));
@@ -436,17 +436,17 @@ async fn production_router_rejects_reasoning_when_upstream_output_is_unknown() {
         ApiProtocol::ChatCompletions,
         transport.clone(),
     )
-    .oneshot(
-        Request::post("/v1/responses")
-            .header(CONTENT_TYPE, "application/json")
-            .header("authorization", "Bearer downstream-token-0000000000000000")
-            .body(Body::from(
-                r#"{"model":"public-model","input":"hello","reasoning":{"effort":"high"}}"#,
-            ))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","reasoning":{"effort":"high"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(transport.requests.lock().unwrap().is_empty());
@@ -525,17 +525,17 @@ async fn invalid_bridged_stream_closes_without_fabricating_a_terminal() {
         ApiProtocol::ChatCompletions,
         transport.clone(),
     )
-    .oneshot(
-        Request::post("/v1/responses")
-            .header(CONTENT_TYPE, "application/json")
-            .header("authorization", "Bearer downstream-token-0000000000000000")
-            .body(Body::from(fixture(&format!(
-                "{directory}/client-request.json"
-            ))))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(fixture(&format!(
+                    "{directory}/client-request.json"
+                ))))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     // After HTTP commitment, the body may end with an error but cannot fabricate response.completed or fallback.
     assert_eq!(response.status(), StatusCode::OK);
@@ -557,17 +557,17 @@ async fn bridged_stream_requires_an_upstream_sse_response() {
         ApiProtocol::ChatCompletions,
         transport,
     )
-    .oneshot(
-        Request::post("/v1/responses")
-            .header(CONTENT_TYPE, "application/json")
-            .header("authorization", "Bearer downstream-token-0000000000000000")
-            .body(Body::from(fixture(&format!(
-                "{directory}/client-request.json"
-            ))))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(fixture(&format!(
+                    "{directory}/client-request.json"
+                ))))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
 }

@@ -47,7 +47,7 @@ fn responses_stream_replay_preserves_parallel_tool_identity_and_arguments() {
     let state = replay_responses_fixture(include_bytes!(
         "../testdata/cases/bridge/chat_to_responses/chat_to_responses.parallel_tools.fragmented_arguments/upstream-stream.sse"
     ))
-    .expect("canonical Responses fixture must complete");
+        .expect("canonical Responses fixture must complete");
 
     // Verify that output-item, call, and argument identities are not conflated.
     assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
@@ -70,7 +70,7 @@ fn chat_stream_replay_preserves_parallel_tool_identity_and_arguments() {
     let state = replay_chat_fixture(include_bytes!(
         "../testdata/cases/bridge/responses_to_chat/responses_to_chat.parallel_tools.fragmented_arguments/upstream-stream.sse"
     ))
-    .expect("canonical Chat fixture must complete");
+        .expect("canonical Chat fixture must complete");
 
     // Verify that the Chat index links fragments without replacing the stable call ID.
     assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
@@ -91,7 +91,7 @@ fn stream_replay_rejects_incomplete_tool_arguments_at_terminal() {
     let error = replay_chat_fixture(include_bytes!(
         "../testdata/cases/bridge/responses_to_chat/responses_to_chat.incomplete_arguments.stream/upstream-stream.sse"
     ))
-    .expect_err("incomplete arguments must fail closed");
+        .expect_err("incomplete arguments must fail closed");
 
     assert_eq!(error, BridgeStreamError::InvalidToolArguments);
 }
@@ -101,11 +101,11 @@ fn text_stream_replay_requires_one_explicit_terminal() {
     let responses = replay_responses_fixture(include_bytes!(
         "../testdata/cases/bridge/chat_to_responses/chat_to_responses.text.stream/upstream-stream.sse"
     ))
-    .expect("Responses text fixture must complete");
+        .expect("Responses text fixture must complete");
     let chat = replay_chat_fixture(include_bytes!(
         "../testdata/cases/bridge/responses_to_chat/responses_to_chat.text.stream/upstream-stream.sse"
     ))
-    .expect("Chat text fixture must complete");
+        .expect("Chat text fixture must complete");
 
     assert_eq!(responses.text(), "你好");
     assert_eq!(chat.text(), "你好");
@@ -118,15 +118,15 @@ fn responses_failure_terminals_remain_distinct() {
     let failed = replay_responses_fixture(include_bytes!(
         "../testdata/cases/faults/responses_native.failed.terminal/upstream-stream.sse"
     ))
-    .expect("Responses failed fixture must reach a terminal");
+        .expect("Responses failed fixture must reach a terminal");
     let incomplete = replay_responses_fixture(include_bytes!(
         "../testdata/cases/faults/responses_native.incomplete.terminal/upstream-stream.sse"
     ))
-    .expect("Responses incomplete fixture must reach a terminal");
+        .expect("Responses incomplete fixture must reach a terminal");
     let error = replay_responses_fixture(include_bytes!(
         "../testdata/cases/faults/responses_native.error.terminal/upstream-stream.sse"
     ))
-    .expect("Responses error fixture must reach a terminal");
+        .expect("Responses error fixture must reach a terminal");
 
     // Preserve three failure terminals so the bridge cannot present error or incomplete as completed.
     assert_eq!(failed.terminal(), Some(StreamTerminal::Failed));
@@ -139,11 +139,11 @@ fn bridge_replay_fails_closed_on_event_type_conflict_and_eof() {
     let conflict = replay_responses_fixture(include_bytes!(
         "../testdata/cases/faults/responses_native.event_type_conflict/upstream-stream.sse"
     ))
-    .expect_err("event/type conflict must fail closed");
+        .expect_err("event/type conflict must fail closed");
     let eof = replay_chat_fixture(include_bytes!(
         "../testdata/cases/faults/chat_native.eof_before_done/upstream-stream.sse"
     ))
-    .expect_err("Chat EOF before DONE must fail closed");
+        .expect_err("Chat EOF before DONE must fail closed");
 
     assert_eq!(conflict, BridgeStreamError::EventTypeConflict);
     assert_eq!(eof, BridgeStreamError::EofBeforeTerminal);

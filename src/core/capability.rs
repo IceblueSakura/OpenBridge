@@ -423,15 +423,15 @@ impl EmbeddingsCapabilities {
         if let Some(domain) = self.allowed_dimensions {
             match domain {
                 EmbeddingDimensionDomain::Range { minimum, maximum }
-                    if minimum == 0 || minimum > maximum =>
-                {
-                    return Err("allowed dimension range must be positive and ordered");
-                }
+                if minimum == 0 || minimum > maximum =>
+                    {
+                        return Err("allowed dimension range must be positive and ordered");
+                    }
                 EmbeddingDimensionDomain::Values { values }
-                    if !is_strictly_sorted(values) || values.first() == Some(&0) =>
-                {
-                    return Err("allowed dimension values must be positive, unique, and ordered");
-                }
+                if !is_strictly_sorted(values) || values.first() == Some(&0) =>
+                    {
+                        return Err("allowed dimension values must be positive, unique, and ordered");
+                    }
                 _ => {}
             }
             if !domain.contains(self.default_dimensions) {
@@ -456,12 +456,12 @@ impl EmbeddingsCapabilities {
         // Restrict local counting to the ordered token-array subset of accepted input forms.
         if !is_sorted_unique_or_empty(self.locally_counted_input_forms)
             || self.locally_counted_input_forms.iter().any(|form| {
-                !self.input_forms.contains(form)
-                    || !matches!(
+            !self.input_forms.contains(form)
+                || !matches!(
                         form,
                         EmbeddingInputForm::TokenArray | EmbeddingInputForm::TokenArrayArray
                     )
-            })
+        })
         {
             return Err("locally counted forms must be an ordered accepted token-array subset");
         }
@@ -469,9 +469,9 @@ impl EmbeddingsCapabilities {
         // Keep the optional parameter set closed and consistent with explicit domains.
         if !is_sorted_unique_or_empty(self.supported_parameters)
             || self
-                .supported_parameters
-                .iter()
-                .any(|parameter| !matches!(*parameter, "dimensions" | "encoding_format" | "user"))
+            .supported_parameters
+            .iter()
+            .any(|parameter| !matches!(*parameter, "dimensions" | "encoding_format" | "user"))
         {
             return Err(
                 "supported_parameters must be an ordered subset of the Embeddings allowlist",
@@ -480,7 +480,7 @@ impl EmbeddingsCapabilities {
         if self.supported_parameters.contains(&"encoding_format")
             != self.allowed_encodings.is_some()
             || self.supported_parameters.contains(&"dimensions")
-                != self.allowed_dimensions.is_some()
+            != self.allowed_dimensions.is_some()
         {
             return Err(
                 "supported parameters must match the explicit encoding and dimension domains",
@@ -496,22 +496,22 @@ impl EmbeddingsCapabilities {
         }
         if !upper.enabled
             || self
-                .input_forms
-                .iter()
-                .any(|form| !upper.input_forms.contains(form))
+            .input_forms
+            .iter()
+            .any(|form| !upper.input_forms.contains(form))
             || !encoding_supported_by(upper, self.default_encoding)
             || !dimension_supported_by(upper, self.default_dimensions)
             || !limit_is_subset(self.max_inputs, upper.max_inputs)
             || !optional_limit_is_subset(self.max_tokens_per_input, upper.max_tokens_per_input)
             || !optional_limit_is_subset(self.max_total_tokens, upper.max_total_tokens)
             || self
-                .locally_counted_input_forms
-                .iter()
-                .any(|form| !upper.locally_counted_input_forms.contains(form))
+            .locally_counted_input_forms
+            .iter()
+            .any(|form| !upper.locally_counted_input_forms.contains(form))
             || self
-                .supported_parameters
-                .iter()
-                .any(|parameter| !upper.supported_parameters.contains(parameter))
+            .supported_parameters
+            .iter()
+            .any(|parameter| !upper.supported_parameters.contains(parameter))
         {
             return false;
         }
@@ -546,16 +546,16 @@ fn is_sorted_unique_or_empty<T: Ord>(values: &[T]) -> bool {
 fn encoding_supported_by(upper: EmbeddingsCapabilities, value: EmbeddingEncoding) -> bool {
     upper.default_encoding == value
         || upper
-            .allowed_encodings
-            .is_some_and(|encodings| encodings.contains(&value))
+        .allowed_encodings
+        .is_some_and(|encodings| encodings.contains(&value))
 }
 
 /// Returns whether the Provider ceiling can produce or explicitly accept one dimension.
 fn dimension_supported_by(upper: EmbeddingsCapabilities, value: u32) -> bool {
     upper.default_dimensions == value
         || upper
-            .allowed_dimensions
-            .is_some_and(|domain| domain.contains(value))
+        .allowed_dimensions
+        .is_some_and(|domain| domain.contains(value))
 }
 
 /// Returns whether a required positive limit is no wider than the Provider ceiling.

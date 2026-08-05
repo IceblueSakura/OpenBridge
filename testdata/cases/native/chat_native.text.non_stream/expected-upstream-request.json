@@ -1,1 +1,10 @@
-{"messages":[{"content":"hello","role":"user"}],"model":"upstream-model","stream":false}
+{
+  "messages": [
+    {
+      "content": "hello",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false
+}

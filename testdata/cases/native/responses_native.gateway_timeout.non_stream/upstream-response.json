@@ -1,1 +1,8 @@
-{"error":{"code":"gateway_timeout","message":"The upstream request timed out.","param":null,"type":"server_error"}}
+{
+  "error": {
+    "code": "gateway_timeout",
+    "message": "The upstream request timed out.",
+    "param": null,
+    "type": "server_error"
+  }
+}

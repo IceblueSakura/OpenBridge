@@ -4,7 +4,8 @@
 
 - 在线复核日期：2026-07-26
 - 本次在线检查未固定 commit。
-- 来源：[responses-proxy](https://github.com/CallOrRet/responses-proxy)、[`verification_tests.rs`](https://github.com/CallOrRet/responses-proxy/blob/main/tests/verification_tests.rs)
+- 来源：[responses-proxy](https://github.com/CallOrRet/responses-proxy)、[
+  `verification_tests.rs`](https://github.com/CallOrRet/responses-proxy/blob/main/tests/verification_tests.rs)
 
 ## 观察事实
 
@@ -15,5 +16,6 @@
 
 ## 覆盖与边界
 
-它对 Responses → Chat → Responses 单方向转换和 Rust streaming state fixture 有直接参考价值，但不是两个公共 endpoint 的双向通用套件。现有 tests 未形成完整 bytes fragmentation、fault、cancel 和 unsupported-field 矩阵；静默丢弃 tool 是项目策略。
+它对 Responses → Chat → Responses 单方向转换和 Rust streaming state fixture 有直接参考价值，但不是两个公共 endpoint
+的双向通用套件。现有 tests 未形成完整 bytes fragmentation、fault、cancel 和 unsupported-field 矩阵；静默丢弃 tool 是项目策略。
 

@@ -55,7 +55,7 @@ impl UserRegistry {
     }
 
     /// Enumerates all enabled users without exposing any API key.
-    pub fn users(&self) -> impl Iterator<Item = &User> {
+    pub fn users(&self) -> impl Iterator<Item=&User> {
         self.users.iter().map(Arc::as_ref)
     }
 }

@@ -1,1 +1,5 @@
-{"input":"Gateway timeout.","model":"upstream-model","stream":false}
+{
+  "input": "Gateway timeout.",
+  "model": "upstream-model",
+  "stream": false
+}

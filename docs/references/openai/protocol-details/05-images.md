@@ -2,7 +2,8 @@
 
 ## 1. Endpoint family
 
-Images API 包含 generation、edit 与 variation 等不同 operation。generation 常见为 JSON；edit/variation 可使用 multipart file，具体 shape 由 endpoint 和 model 决定。
+Images API 包含 generation、edit 与 variation 等不同 operation。generation 常见为 JSON；edit/variation 可使用 multipart
+file，具体 shape 由 endpoint 和 model 决定。
 
 资料：[Image generation](https://developers.openai.com/api/docs/guides/image-generation)、[Images API](https://developers.openai.com/api/reference/resources/images)、[Create image variation](https://developers.openai.com/api/reference/resources/images/methods/create_variation)。
 

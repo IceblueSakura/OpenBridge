@@ -1,1 +1,5 @@
-{"input":"Hello","model":"upstream-model","stream":true}
+{
+  "input": "Hello",
+  "model": "upstream-model",
+  "stream": true
+}

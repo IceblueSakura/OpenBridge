@@ -734,7 +734,7 @@ fn app_with_transport_and_pool(
         support::bootstrap(support::BOOTSTRAP),
         support::definition("forward-test", "public-model", "upstream-model"),
     )
-    .unwrap();
+        .unwrap();
     let (users, credentials) = support::users_and_credential_pool(
         "downstream-token-0000000000000000",
         &registry,
@@ -1204,7 +1204,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
     // All targets share one pool, allowing only the first live attempt during cooldown.
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        ["openai-main",]
+        ["openai-main", ]
     );
 }
 
@@ -1294,7 +1294,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        ["openai-main", "openai-main",]
+        ["openai-main", "openai-main", ]
     );
 }
 

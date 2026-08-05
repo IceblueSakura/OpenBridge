@@ -1,1 +1,5 @@
-{"input":"Authenticate.","model":"upstream-model","stream":false}
+{
+  "input": "Authenticate.",
+  "model": "upstream-model",
+  "stream": false
+}

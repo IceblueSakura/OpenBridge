@@ -1,1 +1,15 @@
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Both complete.","role":"assistant"}}],"id":"chatcmpl_reverse_results","model":"upstream-model","object":"chat.completion"}
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Both complete.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "id": "chatcmpl_reverse_results",
+  "model": "upstream-model",
+  "object": "chat.completion"
+}

@@ -2,9 +2,11 @@
 
 ## 状态
 
-**本文不是当前产品承诺，也不授权实施。** OAuth、subscription credential、keyring、远程 secret manager 与动态 credential 控制面仍由[产品范围](product-scope.md)明确排除。
+**本文不是当前产品承诺，也不授权实施。** OAuth、subscription credential、keyring、远程 secret manager 与动态 credential
+控制面仍由[产品范围](product-scope.md)明确排除。
 
-本文只保存一项条件性边界：如果未来某个上游 Provider 明确允许独立 gateway client，并且用户重新批准该行为，那么登录、持久化、refresh 和请求恢复至少必须满足本文要求。外部研究证据见[OAuth 设备登录与 token 刷新综合调研](../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)。
+本文只保存一项条件性边界：如果未来某个上游 Provider 明确允许独立 gateway client，并且用户重新批准该行为，那么登录、持久化、refresh
+和请求恢复至少必须满足本文要求。外部研究证据见[OAuth 设备登录与 token 刷新综合调研](../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)。
 
 ## 1. Provider OAuth preflight
 
@@ -53,9 +55,11 @@ status                 active / refresh_backoff / reauth_required / revoked / am
 refreshed_at           lifecycle metadata
 ```
 
-access token、rotated refresh token、expiry、scope 和 identity 必须原子写回。authorization server 返回新 refresh token 时必须替换旧值；未返回新值时是否保留旧值以 Provider contract 为准。
+access token、rotated refresh token、expiry、scope 和 identity 必须原子写回。authorization server 返回新 refresh token
+时必须替换旧值；未返回新值时是否保留旧值以 Provider contract 为准。
 
-日志、metric、lock key 和错误只使用非 secret `credential_id` 或脱敏 fingerprint；不得记录 token、authorization code、PKCE verifier、device auth ID 或完整 auth record。
+日志、metric、lock key 和错误只使用非 secret `credential_id` 或脱敏 fingerprint；不得记录 token、authorization code、PKCE
+verifier、device auth ID 或完整 auth record。
 
 ## 4. 到期驱动 refresh
 
@@ -92,25 +96,27 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 3. 401 后先 reload；若 credential version 已变化，用新 token 至多重试一次。
 4. version 未变且 Provider contract 允许时，可执行一次 refresh，再至多重试一次。
 5. 一旦下游业务 response 已开始，不得 refresh 后重放形成第二个上游响应。
-6. 第二次 401 或终态 OAuth error 将 credential 转为 `reauth_required`，不能进入无限 refresh、账号轮转或普通 Provider fallback。
+6. 第二次 401 或终态 OAuth error 将 credential 转为 `reauth_required`，不能进入无限 refresh、账号轮转或普通 Provider
+   fallback。
 
 401 还可能来自 audience、account/workspace header 或授权政策，不等于 access token 一定过期。refresh 前后身份绑定必须一致。
 
 ## 6. 失败分类
 
-| 失败 | 状态与行为 |
-| --- | --- |
-| device `authorization_pending` | 按当前 interval 继续 |
-| device `slow_down` | 增加 interval 后继续 |
-| device denied/expired | 终止，不创建 credential |
-| refresh 429/明确暂态 5xx | `refresh_backoff`，受 Retry-After、expiry 和硬预算约束 |
-| 确认请求未送达的网络错误 | Provider policy 允许时有界重试 |
-| rotation 结果不确定 | `ambiguous`；不得假定旧 refresh token 有效 |
-| `invalid_grant` / reused / revoked | `reauth_required` 或 `revoked`，停止自动 refresh |
-| CAS conflict | reload 胜出版本，不能覆盖较新 token |
-| secret-store write failure after possible rotation | `ambiguous`，不发布仅存在于内存的新 bundle |
+| 失败                                               | 状态与行为                                             |
+|----------------------------------------------------|--------------------------------------------------------|
+| device `authorization_pending`                     | 按当前 interval 继续                                   |
+| device `slow_down`                                 | 增加 interval 后继续                                   |
+| device denied/expired                              | 终止，不创建 credential                                |
+| refresh 429/明确暂态 5xx                           | `refresh_backoff`，受 Retry-After、expiry 和硬预算约束 |
+| 确认请求未送达的网络错误                           | Provider policy 允许时有界重试                         |
+| rotation 结果不确定                                | `ambiguous`；不得假定旧 refresh token 有效             |
+| `invalid_grant` / reused / revoked                 | `reauth_required` 或 `revoked`，停止自动 refresh       |
+| CAS conflict                                       | reload 胜出版本，不能覆盖较新 token                    |
+| secret-store write failure after possible rotation | `ambiguous`，不发布仅存在于内存的新 bundle             |
 
-不能只按 HTTP status 决定 refresh retry；OAuth error、是否收到响应、rotation policy、access token 剩余时间和 response commit 状态共同决定结果。
+不能只按 HTTP status 决定 refresh retry；OAuth error、是否收到响应、rotation policy、access token 剩余时间和 response commit
+状态共同决定结果。
 
 ## 7. 当前非目标保持不变
 

@@ -1,1 +1,10 @@
-{"messages":[{"content":"__fixture:rate-limit__","role":"user"}],"model":"upstream-model","stream":false}
+{
+  "messages": [
+    {
+      "content": "__fixture:rate-limit__",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false
+}

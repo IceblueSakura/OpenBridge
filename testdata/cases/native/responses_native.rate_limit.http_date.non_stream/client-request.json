@@ -1,1 +1,5 @@
-{"input":"Rate limit date.","model":"public-model","stream":false}
+{
+  "input": "Rate limit date.",
+  "model": "public-model",
+  "stream": false
+}

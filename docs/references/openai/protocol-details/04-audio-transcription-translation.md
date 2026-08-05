@@ -2,7 +2,8 @@
 
 ## 1. Endpoint 差异
 
-Transcription 与 Translation 是两个独立 endpoint。两者都接收 audio upload 和 model；transcription 保留/识别源语言，translation 产生目标语言文本，支持字段和模型范围不必相同。
+Transcription 与 Translation 是两个独立 endpoint。两者都接收 audio upload 和 model；transcription 保留/识别源语言，translation
+产生目标语言文本，支持字段和模型范围不必相同。
 
 资料：[Create transcription](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create)、[Create translation](https://developers.openai.com/api/reference/resources/audio/subresources/translations/methods/create)、[Speech to text](https://developers.openai.com/api/docs/guides/speech-to-text)。
 

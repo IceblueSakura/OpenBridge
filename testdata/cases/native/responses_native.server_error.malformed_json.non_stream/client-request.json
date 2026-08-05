@@ -1,1 +1,5 @@
-{"input":"Malformed server error.","model":"public-model","stream":false}
+{
+  "input": "Malformed server error.",
+  "model": "public-model",
+  "stream": false
+}

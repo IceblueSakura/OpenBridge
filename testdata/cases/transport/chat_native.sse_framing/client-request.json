@@ -1,1 +1,10 @@
-{"messages":[{"content":"Hello","role":"user"}],"model":"public-model","stream":true}
+{
+  "messages": [
+    {
+      "content": "Hello",
+      "role": "user"
+    }
+  ],
+  "model": "public-model",
+  "stream": true
+}

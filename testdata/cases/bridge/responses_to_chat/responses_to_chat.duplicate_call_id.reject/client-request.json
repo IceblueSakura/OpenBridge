@@ -1,1 +1,20 @@
-{"input":[{"arguments":"{}","call_id":"call_duplicate","id":"fc_one","name":"first","type":"function_call"},{"arguments":"{}","call_id":"call_duplicate","id":"fc_two","name":"second","type":"function_call"}],"model":"public-model","stream":false}
+{
+  "input": [
+    {
+      "arguments": "{}",
+      "call_id": "call_duplicate",
+      "id": "fc_one",
+      "name": "first",
+      "type": "function_call"
+    },
+    {
+      "arguments": "{}",
+      "call_id": "call_duplicate",
+      "id": "fc_two",
+      "name": "second",
+      "type": "function_call"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

@@ -167,11 +167,11 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 // Permit one shared-policy retry only when the body is independently replayable.
                 let has_retry_credential = !rate_limited
                     || state.credential_health.has_available_member(
-                        credential_pool.id(),
-                        &credentials,
-                        &rejected_members,
-                        std::time::Instant::now(),
-                    );
+                    credential_pool.id(),
+                    &credentials,
+                    &rejected_members,
+                    std::time::Instant::now(),
+                );
                 if replayable
                     && has_retry_credential
                     && attempts.next_step(0) == AttemptStep::RetryCandidate
@@ -202,7 +202,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     plan.dimensions(),
                     registry.limits().max_json_response_body_bytes(),
                 )
-                .await
+                    .await
                 {
                     Ok(response) => response,
                     Err(_) => {

@@ -160,7 +160,7 @@ impl OpenAiCompatibleAdapter {
             ApiProtocol::ChatCompletions => self.chat_path,
             ApiProtocol::Responses => self.responses_path,
         }
-        .ok_or(AdapterError::UnsupportedProtocol)?;
+            .ok_or(AdapterError::UnsupportedProtocol)?;
         let relative_uri = Uri::from_static(path);
 
         // Parse and replace the upstream model field controlled only by the adapter.

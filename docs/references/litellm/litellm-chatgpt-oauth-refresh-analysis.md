@@ -22,15 +22,21 @@ expiry 优先读取 `expires_at`，缺失时从 access token JWT `exp` 推导。
 
 ## 2. 设备登录与 refresh
 
-[`authenticator.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py) 请求 Codex 私有 device user code，显示 verification URL/code，轮询 authorization code 与 PKCE verifier，再执行 authorization-code exchange。最长等待 15 分钟。
+[
+`authenticator.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)
+请求 Codex 私有 device user code，显示 verification URL/code，轮询 authorization code 与 PKCE verifier，再执行
+authorization-code exchange。最长等待 15 分钟。
 
 refresh 使用 `grant_type=refresh_token`。若响应含新 refresh token 就替换，否则保留当前值，随后写回同一 JSON 文件。
 
 ## 3. account 与请求 header
 
-account ID 优先来自 auth record；缺失时从 id/access token claim 推导并写回。Chat 与 Responses transformation 在 validation/token-resolution 路径取得 access token 与 account context，再构造 bearer、account、originator、User-Agent 和 session header。
+account ID 优先来自 auth record；缺失时从 id/access token claim 推导并写回。Chat 与 Responses transformation 在
+validation/token-resolution 路径取得 access token 与 account context，再构造 bearer、account、originator、User-Agent 和
+session header。
 
-Responses transform 还强制部分 Codex-shaped 请求选项。这些行为属于 LiteLLM 的 ChatGPT provider adapter，而不是普通 OpenAI API-key adapter。
+Responses transform 还强制部分 Codex-shaped 请求选项。这些行为属于 LiteLLM 的 ChatGPT provider adapter，而不是普通 OpenAI
+API-key adapter。
 
 ## 4. 并发与持久化边界
 
@@ -42,7 +48,8 @@ Responses transform 还强制部分 Codex-shaped 请求选项。这些行为属�
 - 跨 worker refresh single-flight；
 - 多账号 isolation。
 
-因此并发调用可能同时看到过期 token 并执行 refresh。若 authorization server 使用 single-use rotation，最后写入者不能自动保证保存了有效 token pair。
+因此并发调用可能同时看到过期 token 并执行 refresh。若 authorization server 使用 single-use rotation，最后写入者不能自动保证保存了有效
+token pair。
 
 ## 5. 适用边界
 
@@ -53,5 +60,6 @@ Responses transform 还强制部分 Codex-shaped 请求选项。这些行为属�
 
 ## 一手源码
 
-- [`authenticator.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)
+- [
+  `authenticator.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)
 

@@ -44,9 +44,9 @@ pub(crate) fn config() -> ModelConfig {
             "top_k",
             "top_p",
         ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect(),
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: Vec::new(),
     }

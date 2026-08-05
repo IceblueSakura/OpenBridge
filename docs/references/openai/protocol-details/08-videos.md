@@ -2,7 +2,8 @@
 
 ## 1. 异步资源模型
 
-Video generation 是异步 resource workflow，不是一次 JSON response 即返回最终媒体。典型流程包含 create、retrieve/poll、list、download content 与 delete/cancel 类操作，具体 method 以当期 API 为准。
+Video generation 是异步 resource workflow，不是一次 JSON response 即返回最终媒体。典型流程包含
+create、retrieve/poll、list、download content 与 delete/cancel 类操作，具体 method 以当期 API 为准。
 
 资料：[Video generation](https://developers.openai.com/api/docs/guides/video-generation)、[Videos API](https://developers.openai.com/api/reference/resources/videos)。
 

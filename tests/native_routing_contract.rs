@@ -68,7 +68,7 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         ApiProtocol::Responses,
         serde_json::to_vec(&request).unwrap().into(),
     )
-    .unwrap();
+        .unwrap();
     let mapped: Value = serde_json::from_slice(prepared.request().body()).unwrap();
     assert_eq!(mapped["reasoning"]["effort"], "xhigh");
     assert_eq!(prepared.candidates().len(), 2);
@@ -82,7 +82,7 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         "input": "hello",
         "reasoning_effort": "xhigh"
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, nonstandard.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
@@ -94,7 +94,7 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         "messages": [],
         "reasoning_effort": "xhigh"
     }))
-    .unwrap();
+        .unwrap();
     let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, chat.into()).unwrap();
     let mapped: Value = serde_json::from_slice(prepared.candidates()[0].request().body()).unwrap();
     let unmapped: Value =
@@ -108,7 +108,7 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         "input": "hello",
         "reasoning": {"effort": "max"}
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, unsupported.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
@@ -159,7 +159,7 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
             protocol,
             serde_json::to_vec(&request).unwrap().into(),
         )
-        .unwrap();
+            .unwrap();
         let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
         assert_eq!(
             upstream.pointer(pointer).and_then(Value::as_str),
@@ -181,7 +181,7 @@ fn request_preflight_rejects_conflicting_reasoning_configuration_sources() {
         "reasoning": {"effort": "low"},
         "reasoning_effort": "high"
     }))
-    .unwrap();
+        .unwrap();
 
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
@@ -226,7 +226,7 @@ fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
         "input": "hello",
         "reasoning": {"effort": "high"}
     }))
-    .unwrap();
+        .unwrap();
     let unknown = build_test_registry(definition(ReasoningOutput::Unknown));
     assert!(matches!(
         support::prepare(&unknown, ApiProtocol::Responses, request.clone().into()).unwrap_err(),
@@ -258,7 +258,7 @@ fn native_routing_preserves_original_request_for_the_provider_adapter() {
         ApiProtocol::ChatCompletions,
         serde_json::to_vec(&original).unwrap().into(),
     )
-    .unwrap();
+        .unwrap();
     let preserved: Value = serde_json::from_slice(prepared.request().body()).unwrap();
 
     assert_eq!(prepared.upstream_target_id(), "openai-main");
@@ -323,7 +323,7 @@ fn public_model_preflight_rejects_streaming_when_the_fixed_interface_disables_it
         "messages": [],
         "stream": true
     }))
-    .unwrap();
+        .unwrap();
 
     // Reject the request at fixed-interface preflight before selecting egress.
     assert!(matches!(
@@ -346,7 +346,7 @@ fn public_model_preflight_rejects_capabilities_not_guaranteed_by_its_contract() 
         "messages": [],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
-    .unwrap();
+        .unwrap();
 
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
@@ -385,7 +385,7 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
         "messages": [],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
-    .unwrap();
+        .unwrap();
 
     // The Public Model fixed intersection does not support tools; a stronger later Route cannot change eligibility.
     assert!(matches!(
@@ -405,7 +405,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
         "messages": [],
         "max_completion_tokens": 33
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, too_large.into()).unwrap_err(),
         RequestPlanningError::OutputLimitExceeded
@@ -417,7 +417,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
         "tools": [{"type": "function", "function": {"name": "probe"}}],
         "parallel_tool_calls": true
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, parallel.into()).unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities
@@ -430,7 +430,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
             "content": [{"type": "image_url", "image_url": {"url": "https://example.invalid/image.png"}}]
         }]
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, image.into()).unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities
@@ -441,7 +441,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
         "input": "hello",
         "reasoning": {"effort": "low"}
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, reasoning.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
@@ -452,7 +452,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
         "input": "hello",
         "reasoning": false
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, invalid_shape.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
@@ -482,7 +482,7 @@ fn public_model_output_limit_uses_the_most_restrictive_route() {
         "messages": [],
         "max_completion_tokens": 4097
     }))
-    .unwrap();
+        .unwrap();
 
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, request.into()).unwrap_err(),
@@ -503,13 +503,13 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
     let chat_store = serde_json::to_vec(&json!({
         "model": "public-model", "messages": [], "store": true
     }))
-    .unwrap();
+        .unwrap();
     assert!(support::prepare(&registry, ApiProtocol::ChatCompletions, chat_store.into()).is_ok());
 
     let responses_store = serde_json::to_vec(&json!({
         "model": "public-model", "input": "hello", "store": true
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, responses_store.into()).unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities
@@ -518,7 +518,7 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
     let unmodeled_tool = serde_json::to_vec(&json!({
         "model": "public-model", "input": "hello", "tools": [{"type": "future_tool"}]
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, unmodeled_tool.into()).unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities
@@ -529,7 +529,7 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
         "messages": [],
         "tools": [{"type": "function", "function": {"name": "probe", "strict": true}}]
     }))
-    .unwrap();
+        .unwrap();
     assert!(matches!(
         support::prepare(
             &registry,
@@ -586,7 +586,7 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
         "model": "public-model",
         "messages": []
     }))
-    .unwrap();
+        .unwrap();
 
     let prepared = support::prepare(&registry, ApiProtocol::ChatCompletions, body.clone().into())
         .expect("a request accepted by the fixed contract should preserve configured routes");
@@ -642,7 +642,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
             .expect("the enabled Chat interface must keep the model visible")
             .info(),
     )
-    .unwrap();
+        .unwrap();
     assert_eq!(
         info["interfaces"]["chat_completions"]["tools"]["support"],
         "supported"
@@ -663,7 +663,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
         "messages": [],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
-    .unwrap();
+        .unwrap();
     let tool_plan = support::prepare(&registry, ApiProtocol::ChatCompletions, tool_body.into())
         .expect("the disabled weaker Route must not reject the enabled interface capability");
     assert_eq!(tool_plan.candidates()[0].route_id(), "enabled-chat");

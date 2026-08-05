@@ -29,7 +29,7 @@ tags:
 paths:
   /healthz:
     get:
-      tags: [system]
+      tags: [ system ]
       summary: Check local service health
       operationId: getHealth
       description: Does not access an upstream Provider or credential; returns only the local process registry snapshot version.
@@ -49,7 +49,7 @@ paths:
 
   /openapi.yaml:
     get:
-      tags: [system]
+      tags: [ system ]
       summary: Get the current OpenAPI specification
       operationId: getOpenApiSpec
       description: Returns the static OpenAPI YAML built with the current service.
@@ -63,7 +63,7 @@ paths:
 
   /swagger-ui:
     get:
-      tags: [system]
+      tags: [ system ]
       summary: Open Swagger UI test page
       operationId: getSwaggerUi
       description: Returns a Swagger UI page that loads the local OpenAPI specification.
@@ -77,7 +77,7 @@ paths:
 
   /swagger-ui/:
     get:
-      tags: [system]
+      tags: [ system ]
       summary: Open Swagger UI test page
       operationId: getSwaggerUiWithTrailingSlash
       description: Canonical URL for the Swagger UI test page.
@@ -91,12 +91,12 @@ paths:
 
   /v1/models:
     get:
-      tags: [models]
+      tags: [ models ]
       summary: List Public Models
       operationId: listModels
       description: Returns only Public Models declared by the server code registry; it does not enumerate upstream models or Providers.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: Public Model list
@@ -119,12 +119,12 @@ paths:
 
   /v1/models/{model}:
     get:
-      tags: [models]
+      tags: [ models ]
       summary: Get a standard Public Model
       operationId: retrieveModel
       description: Returns the four-field OpenAI Model object used by the standard list without extended capability fields.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/ModelId'
       responses:
@@ -144,7 +144,7 @@ paths:
 
   /openbridge/v1/models:
     get:
-      tags: [models]
+      tags: [ models ]
       summary: List Public Model extended capabilities
       operationId: listExtendedModels
       description: |
@@ -152,7 +152,7 @@ paths:
         per protocol. The response contains no Provider, Target, Route, upstream model, endpoint,
         credential, health, or pricing information.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: Public Model extended-capability list
@@ -168,12 +168,12 @@ paths:
 
   /openbridge/v1/models/{model}:
     get:
-      tags: [models]
+      tags: [ models ]
       summary: Get a Public Model extended-capability object
       operationId: retrieveExtendedModel
       description: Returns the complete object matching the corresponding extended-list element field for field.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/ModelId'
       responses:
@@ -193,7 +193,7 @@ paths:
 
   /v1/chat/completions:
     post:
-      tags: [chat]
+      tags: [ chat ]
       summary: Create a Chat Completion
       operationId: createChatCompletion
       description: |
@@ -202,7 +202,7 @@ paths:
         responses use text/event-stream. Tool calls are forwarded at the wire level only;
         OpenBridge does not execute tools.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -253,7 +253,7 @@ paths:
 
   /v1/responses:
     post:
-      tags: [responses]
+      tags: [ responses ]
       summary: Create a Response
       operationId: createResponse
       description: |
@@ -264,7 +264,7 @@ paths:
         constrain subsequent execution and fallback. When stream is true, successful responses use
         text/event-stream.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -311,7 +311,7 @@ paths:
 
   /v1/embeddings:
     post:
-      tags: [embeddings]
+      tags: [ embeddings ]
       summary: Create embeddings
       operationId: createEmbedding
       description: |
@@ -321,7 +321,7 @@ paths:
         effective limits. The response is read and validated under a bounded JSON budget before any
         bytes are committed downstream. Streaming and Embeddings bridges are not supported.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -333,7 +333,7 @@ paths:
                 summary: Float embeddings for two text inputs
                 value:
                   model: text-embedding-3-small
-                  input: [alpha, beta]
+                  input: [ alpha, beta ]
                   encoding_format: float
       responses:
         '200':
@@ -579,21 +579,21 @@ components:
   schemas:
     HealthResponse:
       type: object
-      required: [status, registry_version]
+      required: [ status, registry_version ]
       properties:
         status:
           type: string
-          enum: [ok]
+          enum: [ ok ]
         registry_version:
           type: string
 
     ModelListResponse:
       type: object
-      required: [object, data]
+      required: [ object, data ]
       properties:
         object:
           type: string
-          enum: [list]
+          enum: [ list ]
         data:
           type: array
           items:
@@ -602,14 +602,14 @@ components:
     StandardModel:
       type: object
       additionalProperties: false
-      required: [id, object, created, owned_by]
+      required: [ id, object, created, owned_by ]
       properties:
         id:
           type: string
           description: Stable model name exposed by OpenBridge downstream.
         object:
           type: string
-          enum: [model]
+          enum: [ model ]
         created:
           type: integer
           format: int64
@@ -617,16 +617,16 @@ components:
           description: Stable Unix seconds when the Public Model contract was first created.
         owned_by:
           type: string
-          enum: [openbridge]
+          enum: [ openbridge ]
 
     ExtendedModelListResponse:
       type: object
       additionalProperties: false
-      required: [object, data]
+      required: [ object, data ]
       properties:
         object:
           type: string
-          enum: [list]
+          enum: [ list ]
         data:
           type: array
           items:
@@ -636,23 +636,23 @@ components:
       type: object
       additionalProperties: false
       required:
-        [schema_version, id, object, created, owned_by, name, description, lifecycle, capabilities, interfaces]
+        [ schema_version, id, object, created, owned_by, name, description, lifecycle, capabilities, interfaces ]
       properties:
         schema_version:
           type: string
-          enum: ['1']
+          enum: [ '1' ]
         id:
           type: string
         object:
           type: string
-          enum: [model]
+          enum: [ model ]
         created:
           type: integer
           format: int64
           minimum: 1
         owned_by:
           type: string
-          enum: [openbridge]
+          enum: [ openbridge ]
         name:
           type: string
         description:
@@ -668,11 +668,11 @@ components:
     ModelLifecycle:
       type: object
       additionalProperties: false
-      required: [status, deprecated_at, retired_at]
+      required: [ status, deprecated_at, retired_at ]
       properties:
         status:
           type: string
-          enum: [active, deprecated, retired]
+          enum: [ active, deprecated, retired ]
         deprecated_at:
           type: integer
           format: int64
@@ -685,7 +685,7 @@ components:
     ContextWindow:
       type: object
       additionalProperties: false
-      required: [max_context_tokens, max_input_tokens, max_output_tokens]
+      required: [ max_context_tokens, max_input_tokens, max_output_tokens ]
       properties:
         max_context_tokens:
           type: integer
@@ -706,34 +706,34 @@ components:
     ModelModalities:
       type: object
       additionalProperties: false
-      required: [input, output]
+      required: [ input, output ]
       properties:
         input:
           type: array
           uniqueItems: true
           items:
             type: string
-            enum: [text, image, audio, file, video]
+            enum: [ text, image, audio, file, video ]
         output:
           type: array
           uniqueItems: true
           items:
             type: string
-            enum: [text, image, audio, embedding]
+            enum: [ text, image, audio, embedding ]
 
     ModelCapabilities:
       type: object
       additionalProperties: false
       description: Stable model facts. Request parameters are exposed only by the selected interface contract.
       required:
-        [tasks, context_window, modalities, tokenizer, knowledge_cutoff, reasoning]
+        [ tasks, context_window, modalities, tokenizer, knowledge_cutoff, reasoning ]
       properties:
         tasks:
           type: array
           uniqueItems: true
           items:
             type: string
-            enum: [chat, text_generation, embedding]
+            enum: [ chat, text_generation, embedding ]
         context_window:
           $ref: '#/components/schemas/ContextWindow'
         modalities:
@@ -750,7 +750,7 @@ components:
     ModelReasoningCapabilities:
       type: object
       additionalProperties: false
-      required: [support, levels]
+      required: [ support, levels ]
       properties:
         support:
           $ref: '#/components/schemas/SupportState'
@@ -763,7 +763,7 @@ components:
     ModelInterfaces:
       type: object
       additionalProperties: false
-      required: [chat_completions, responses, embeddings]
+      required: [ chat_completions, responses, embeddings ]
       properties:
         chat_completions:
           nullable: true
@@ -781,7 +781,7 @@ components:
     EmbeddingInterfaceCapabilities:
       type: object
       additionalProperties: false
-      required: [input_forms, encoding, dimensions, limits, supported_parameters]
+      required: [ input_forms, encoding, dimensions, limits, supported_parameters ]
       properties:
         input_forms:
           type: array
@@ -800,20 +800,20 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [dimensions, encoding_format, user]
+            enum: [ dimensions, encoding_format, user ]
 
     EmbeddingInputForm:
       type: string
-      enum: [string, string_array, token_array, token_array_array]
+      enum: [ string, string_array, token_array, token_array_array ]
 
     EmbeddingEncoding:
       type: string
-      enum: [float, base64]
+      enum: [ float, base64 ]
 
     EmbeddingEncodingCapabilities:
       type: object
       additionalProperties: false
-      required: [default, allowed]
+      required: [ default, allowed ]
       properties:
         default:
           $ref: '#/components/schemas/EmbeddingEncoding'
@@ -828,7 +828,7 @@ components:
     EmbeddingDimensionCapabilities:
       type: object
       additionalProperties: false
-      required: [default, allowed]
+      required: [ default, allowed ]
       properties:
         default:
           type: integer
@@ -848,11 +848,11 @@ components:
     EmbeddingDimensionRange:
       type: object
       additionalProperties: false
-      required: [kind, minimum, maximum]
+      required: [ kind, minimum, maximum ]
       properties:
         kind:
           type: string
-          enum: [range]
+          enum: [ range ]
         minimum:
           type: integer
           format: int64
@@ -867,11 +867,11 @@ components:
     EmbeddingDimensionValues:
       type: object
       additionalProperties: false
-      required: [kind, values]
+      required: [ kind, values ]
       properties:
         kind:
           type: string
-          enum: [values]
+          enum: [ values ]
         values:
           type: array
           minItems: 1
@@ -885,7 +885,7 @@ components:
     EmbeddingLimits:
       type: object
       additionalProperties: false
-      required: [max_inputs, max_tokens_per_input, max_total_tokens, locally_counted_input_forms]
+      required: [ max_inputs, max_tokens_per_input, max_total_tokens, locally_counted_input_forms ]
       properties:
         max_inputs:
           type: integer
@@ -914,7 +914,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [context_window, modalities, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state]
+        [ context_window, modalities, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state ]
       properties:
         context_window:
           $ref: '#/components/schemas/ContextWindow'
@@ -943,13 +943,13 @@ components:
 
     SupportState:
       type: string
-      enum: [supported, unsupported, unknown]
+      enum: [ supported, unsupported, unknown ]
       description: unknown must not be treated as supported during request preflight.
 
     ToolCapabilities:
       type: object
       additionalProperties: false
-      required: [support, types, tool_choice_modes, parallel_calls, strict_schema]
+      required: [ support, types, tool_choice_modes, parallel_calls, strict_schema ]
       properties:
         support:
           $ref: '#/components/schemas/SupportState'
@@ -958,13 +958,13 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [function]
+            enum: [ function ]
         tool_choice_modes:
           type: array
           uniqueItems: true
           items:
             type: string
-            enum: [none, auto, required, named]
+            enum: [ none, auto, required, named ]
         parallel_calls:
           $ref: '#/components/schemas/SupportState'
         strict_schema:
@@ -973,7 +973,7 @@ components:
     StructuredOutputCapabilities:
       type: object
       additionalProperties: false
-      required: [support, modes, strict_schema]
+      required: [ support, modes, strict_schema ]
       properties:
         support:
           $ref: '#/components/schemas/SupportState'
@@ -982,14 +982,14 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [json_object, json_schema]
+            enum: [ json_object, json_schema ]
         strict_schema:
           $ref: '#/components/schemas/SupportState'
 
     InterfaceReasoningCapabilities:
       type: object
       additionalProperties: false
-      required: [support, levels, output]
+      required: [ support, levels, output ]
       properties:
         support:
           $ref: '#/components/schemas/SupportState'
@@ -1000,13 +1000,13 @@ components:
             $ref: '#/components/schemas/ReasoningEffort'
         output:
           type: string
-          enum: [unsupported, plain_text, summary, opaque, unknown]
+          enum: [ unsupported, plain_text, summary, opaque, unknown ]
 
     StateCapabilities:
       type: object
       additionalProperties: false
       description: previous_response_id is supported only when every executable Responses route agrees and one upstream target/API is the unique continuation issuer.
-      required: [store, previous_response_id, background]
+      required: [ store, previous_response_id, background ]
       properties:
         store:
           $ref: '#/components/schemas/SupportState'
@@ -1017,7 +1017,7 @@ components:
 
     ChatCompletionRequest:
       type: object
-      required: [model, messages]
+      required: [ model, messages ]
       additionalProperties: true
       description: Chat Completions JSON accepted by the current route. Unlisted valid fields are preserved unchanged along the Native path.
       properties:
@@ -1060,7 +1060,7 @@ components:
 
     ResponsesRequest:
       type: object
-      required: [model]
+      required: [ model ]
       additionalProperties: true
       description: Responses JSON accepted by the current route. Stateless requests are OpenBridge's core compatibility surface.
       properties:
@@ -1106,7 +1106,7 @@ components:
     EmbeddingRequest:
       type: object
       additionalProperties: false
-      required: [model, input]
+      required: [ model, input ]
       description: Strict Embeddings Create request; the selected model interface may narrow every optional field and limit further.
       properties:
         model:
@@ -1154,12 +1154,12 @@ components:
 
     ChatMessage:
       type: object
-      required: [role]
+      required: [ role ]
       additionalProperties: true
       properties:
         role:
           type: string
-          enum: [system, developer, user, assistant, tool]
+          enum: [ system, developer, user, assistant, tool ]
         content:
           nullable: true
           oneOf:
@@ -1179,7 +1179,7 @@ components:
 
     ContentPart:
       type: object
-      required: [type]
+      required: [ type ]
       additionalProperties: true
       properties:
         type:
@@ -1192,7 +1192,7 @@ components:
 
     Tool:
       type: object
-      required: [type]
+      required: [ type ]
       additionalProperties: true
       description: Wire-level description of a standard function tool; OpenBridge does not execute returned tool calls.
       properties:
@@ -1206,7 +1206,7 @@ components:
     ReasoningEffort:
       type: string
       description: Canonical reasoning level used by both model information and downstream requests.
-      enum: [none, minimal, low, medium, high, xhigh, max]
+      enum: [ none, minimal, low, medium, high, xhigh, max ]
 
     ChatCompletionResponse:
       type: object
@@ -1251,11 +1251,11 @@ components:
     EmbeddingResponse:
       type: object
       additionalProperties: false
-      required: [object, data, model, usage]
+      required: [ object, data, model, usage ]
       properties:
         object:
           type: string
-          enum: [list]
+          enum: [ list ]
         data:
           type: array
           minItems: 1
@@ -1270,11 +1270,11 @@ components:
     EmbeddingData:
       type: object
       additionalProperties: false
-      required: [object, embedding, index]
+      required: [ object, embedding, index ]
       properties:
         object:
           type: string
-          enum: [embedding]
+          enum: [ embedding ]
         embedding:
           oneOf:
             - type: array
@@ -1293,7 +1293,7 @@ components:
     EmbeddingUsage:
       type: object
       additionalProperties: false
-      required: [prompt_tokens, total_tokens]
+      required: [ prompt_tokens, total_tokens ]
       properties:
         prompt_tokens:
           type: integer
@@ -1312,12 +1312,12 @@ components:
     ErrorResponse:
       type: object
       additionalProperties: false
-      required: [error]
+      required: [ error ]
       properties:
         error:
           type: object
           additionalProperties: false
-          required: [message, type, param, code]
+          required: [ message, type, param, code ]
           properties:
             message:
               type: string

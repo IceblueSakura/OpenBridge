@@ -1,1 +1,8 @@
-{"error":{"code":"permission_denied","message":"Permission denied.","param":null,"type":"permission_error"}}
+{
+  "error": {
+    "code": "permission_denied",
+    "message": "Permission denied.",
+    "param": null,
+    "type": "permission_error"
+  }
+}

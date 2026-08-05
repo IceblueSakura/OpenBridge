@@ -1,1 +1,8 @@
-{"error":{"code":"duplicate_tool_call_id","message":"call_id call_duplicate is bound to multiple function calls.","param":"input[1].call_id","type":"invalid_request_error"}}
+{
+  "error": {
+    "code": "duplicate_tool_call_id",
+    "message": "call_id call_duplicate is bound to multiple function calls.",
+    "param": "input[1].call_id",
+    "type": "invalid_request_error"
+  }
+}

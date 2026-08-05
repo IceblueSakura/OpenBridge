@@ -9,16 +9,16 @@
 
 ## 1. 接口分层
 
-| 接口 | 主要对象 | 返回重点 |
-| --- | --- | --- |
-| `/models`、`/v1/models` | OpenAI-compatible 可调用 model id | 最小 `Model` 条目，可受团队、路由和健康过滤 |
-| `/models/{model_id}` | 单个兼容 model id | 单个最小模型对象 |
-| `/model/info`、`/v1/model/info` | Proxy deployment | `model_name`、`litellm_params`、可扩展 `model_info` |
-| `/v2/model/info` | DB-backed deployment | 分页、搜索、团队和 deployment 元数据 |
-| `/model_group/info` | 逻辑模型组 | 多 deployment 的 Provider、限制、成本与 capability 聚合 |
-| `/model_catalog` | 全局模型目录 | mode、上下文、价格、模态及大量 `supports_*` 字段 |
-| `/model_catalog/{model_id}` | 单个目录模型 | 一条目录能力/成本记录 |
-| model metrics endpoints | 运行时观测 | latency、TTFT、failure 和 streaming 统计 |
+| 接口                            | 主要对象                          | 返回重点                                                |
+|---------------------------------|-----------------------------------|---------------------------------------------------------|
+| `/models`、`/v1/models`         | OpenAI-compatible 可调用 model id | 最小 `Model` 条目，可受团队、路由和健康过滤             |
+| `/models/{model_id}`            | 单个兼容 model id                 | 单个最小模型对象                                        |
+| `/model/info`、`/v1/model/info` | Proxy deployment                  | `model_name`、`litellm_params`、可扩展 `model_info`     |
+| `/v2/model/info`                | DB-backed deployment              | 分页、搜索、团队和 deployment 元数据                    |
+| `/model_group/info`             | 逻辑模型组                        | 多 deployment 的 Provider、限制、成本与 capability 聚合 |
+| `/model_catalog`                | 全局模型目录                      | mode、上下文、价格、模态及大量 `supports_*` 字段        |
+| `/model_catalog/{model_id}`     | 单个目录模型                      | 一条目录能力/成本记录                                   |
+| model metrics endpoints         | 运行时观测                        | latency、TTFT、failure 和 streaming 统计                |
 
 这些接口并不共享同一种“模型”语义：兼容列表、Proxy deployment、逻辑组、全局目录和运行时指标需要分开理解。
 
@@ -30,7 +30,8 @@
 
 ### 2.2 Deployment 与 model group
 
-`/model/info` 把调用名、上游参数和可扩展 `model_info` 放在一条 deployment 记录中。`model_group/info` 再把多个 deployment 聚合，可能同时返回 Provider、TPM/RPM、成本、访问控制和 `supports_*` 能力。
+`/model/info` 把调用名、上游参数和可扩展 `model_info` 放在一条 deployment 记录中。`model_group/info` 再把多个 deployment
+聚合，可能同时返回 Provider、TPM/RPM、成本、访问控制和 `supports_*` 能力。
 
 这种聚合说明管理面可以展示丰富信息，但一个 group 的字段不自动保证每个 deployment 都具有相同能力。
 
@@ -62,7 +63,8 @@ Model catalog entry
 └── economics, region and operations
 ```
 
-最后一层与协议能力不同。deployment id、base URL、credential locator、team/access group、健康、成本和 runtime metrics 也不属于同一种静态模型事实。
+最后一层与协议能力不同。deployment id、base URL、credential locator、team/access group、健康、成本和 runtime metrics
+也不属于同一种静态模型事实。
 
 ## 4. 适用边界
 
@@ -76,7 +78,9 @@ Model catalog entry
 
 - [LiteLLM Proxy model management](https://docs.litellm.ai/docs/proxy/model_management)
 - [LiteLLM Model Catalog API](https://api.litellm.ai/docs)
-- [`proxy_server.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/proxy/proxy_server.py)
+- [
+  `proxy_server.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/proxy/proxy_server.py)
 - [Model price and context catalog](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/model_prices_and_context_window.json)
-- [`litellm/types/router.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/types/router.py)
+- [
+  `litellm/types/router.py`](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/types/router.py)
 

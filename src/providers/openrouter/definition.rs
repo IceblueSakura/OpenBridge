@@ -73,7 +73,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
-.with_openai_data_type_responses_terminal();
+    .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the OpenRouter contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =

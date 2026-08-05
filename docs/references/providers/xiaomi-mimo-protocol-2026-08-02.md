@@ -18,5 +18,6 @@
 
 ## 证据边界
 
-endpoint 和字段说明不能单独证明 streaming、parallel tools、image、structured output 或 reasoning output 的完整 wire 行为。模型列表也不证明某个账户当前具备调用资格。
+endpoint 和字段说明不能单独证明 streaming、parallel tools、image、structured output 或 reasoning output 的完整 wire
+行为。模型列表也不证明某个账户当前具备调用资格。
 

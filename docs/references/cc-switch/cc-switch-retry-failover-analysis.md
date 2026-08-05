@@ -21,4 +21,5 @@
 
 ## 一手源码
 
-- [`forwarder.rs`](https://github.com/farion1231/cc-switch/blob/ebbf141fc71547a99f669df1be8e345130d1d890/src-tauri/src/proxy/forwarder.rs)
+- [
+  `forwarder.rs`](https://github.com/farion1231/cc-switch/blob/ebbf141fc71547a99f669df1be8e345130d1d890/src-tauri/src/proxy/forwarder.rs)

@@ -7,7 +7,9 @@
 - 阅读范围：`codex-rs/login` 的浏览器 OAuth、refresh、请求认证，以及 `codex-rs/core` 的 Responses tool invocation
 - 未读取、输出或复制本地 credential、auth cache、client identifier 或 token。
 
-本文保留旧快照的 loopback browser flow 与 tool invocation 证据。当前设备登录另见[Codex 设备登录与 token 刷新](codex-device-auth-token-refresh-analysis.md)，SSE/event 另见[Codex Responses SSE 与工具生命周期](codex-sse-and-tool-lifecycle-analysis.md)。
+本文保留旧快照的 loopback browser flow 与 tool invocation
+证据。当前设备登录另见[Codex 设备登录与 token 刷新](codex-device-auth-token-refresh-analysis.md)，SSE/event
+另见[Codex Responses SSE 与工具生命周期](codex-sse-and-tool-lifecycle-analysis.md)。
 
 ## 1. 浏览器 OAuth 登录
 
@@ -21,11 +23,13 @@
 6. 检查允许的 workspace；
 7. 将认证状态写入配置的 credential-store backend。
 
-该流程属于本地 CLI 产品。loopback redirect、client registration、scope、token endpoint 和 workspace policy 都是 Codex 当前 client contract 的组成部分。
+该流程属于本地 CLI 产品。loopback redirect、client registration、scope、token endpoint 和 workspace policy 都是 Codex 当前
+client contract 的组成部分。
 
 ## 2. Credential storage 与 refresh
 
-Codex auth state 可能包含 API key、id/access/refresh token、刷新时间、agent identity 或 personal access token。实际 backend 可以是文件或 OS credential store。
+Codex auth state 可能包含 API key、id/access/refresh token、刷新时间、agent identity 或 personal access token。实际 backend
+可以是文件或 OS credential store。
 
 refresh 路径具有以下性质：
 
@@ -40,7 +44,8 @@ refresh 路径具有以下性质：
 
 ## 3. Tool item 到 invocation
 
-Codex core 从 Responses output item 区分 function call、custom tool call、local shell 等工具形状。`ToolRouter` 依据 tool type/name 构造对应 invocation，并保留 call identity。
+Codex core 从 Responses output item 区分 function call、custom tool call、local shell 等工具形状。`ToolRouter` 依据 tool
+type/name 构造对应 invocation，并保留 call identity。
 
 function call 的关键数据包括：
 
@@ -53,7 +58,8 @@ function call 的关键数据包括：
 
 ## 4. Streaming arguments 与启动时机
 
-stream consumer 会累计 arguments/input delta，并在 item lifecycle 允许时形成完整 invocation。工具可以在 response terminal 之前启动；因此 item done 与 response completed 不是同一时刻。
+stream consumer 会累计 arguments/input delta，并在 item lifecycle 允许时形成完整 invocation。工具可以在 response terminal
+之前启动；因此 item done 与 response completed 不是同一时刻。
 
 并行工具执行还需要：
 
@@ -64,7 +70,8 @@ stream consumer 会累计 arguments/input delta，并在 item lifecycle 允许�
 
 ## 5. Tool output 回传
 
-本地工具结果被编码为对应 Responses input item，并在下一轮请求中与原 `call_id` 关联。tool execution、approval、sandbox、用户提示和本地副作用都属于 Codex Agent runtime。
+本地工具结果被编码为对应 Responses input item，并在下一轮请求中与原 `call_id` 关联。tool
+execution、approval、sandbox、用户提示和本地副作用都属于 Codex Agent runtime。
 
 ## 6. 证据边界
 

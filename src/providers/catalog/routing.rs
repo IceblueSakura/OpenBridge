@@ -204,39 +204,39 @@ impl ProviderRouteRegistration {
                 RouteMode::Native,
             ),
             RoutePhase::ChatBridge
-                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
-            {
-                (
-                    "chat-via-responses",
-                    "responses",
-                    ApiProtocol::ChatCompletions,
-                    RouteMode::Bridged,
-                )
-            }
+            if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+                {
+                    (
+                        "chat-via-responses",
+                        "responses",
+                        ApiProtocol::ChatCompletions,
+                        RouteMode::Bridged,
+                    )
+                }
             RoutePhase::ResponsesNative
-                if matches!(
+            if matches!(
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
                         | PublicModelSurface::DualProtocolNativeOnly
                 ) =>
-            {
-                (
-                    "responses",
-                    "responses",
-                    ApiProtocol::Responses,
-                    RouteMode::Native,
-                )
-            }
+                {
+                    (
+                        "responses",
+                        "responses",
+                        ApiProtocol::Responses,
+                        RouteMode::Native,
+                    )
+                }
             RoutePhase::ResponsesBridge
-                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
-            {
-                (
-                    "responses-via-chat",
-                    "chat",
-                    ApiProtocol::Responses,
-                    RouteMode::Bridged,
-                )
-            }
+            if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+                {
+                    (
+                        "responses-via-chat",
+                        "chat",
+                        ApiProtocol::Responses,
+                        RouteMode::Bridged,
+                    )
+                }
             _ => return None,
         };
 

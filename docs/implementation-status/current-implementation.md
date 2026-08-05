@@ -3,8 +3,8 @@
 ## 状态与范围
 
 本文只记录当前可运行入口、外部行为、Provider 注册和验证状态。模块分层、类型职责与内部数据流统一见
-[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录已通过全量 Rust 测试与
-Clippy，但不代表真实 Provider、外部 SDK、负载或长期运行验收。
+[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录已通过全量 Rust 测试与 Clippy，但不代表真实
+Provider、外部 SDK、负载或长期运行验收。
 
 ## 当前运行入口
 
@@ -17,151 +17,153 @@ cp config/upstream-credentials.example.toml config/upstream-credentials.toml
 cargo run --bin openbridge --locked
 ```
 
-schema v2 的 `bootstrap.toml` 包含 loopback listener、两份私有 credential 文件位置、彼此独立的
-request/JSON response/replay/SSE 上限和共享 HTTP client 参数。Provider、Model、
-Upstream Target、Upstream API、Route、Public Model、endpoint 和 credential pool binding 均由 Rust 代码注册；
-修改后需要重新编译或重启。
+schema v2 的 `bootstrap.toml` 包含 loopback listener、两份私有 credential 文件位置、彼此独立的 request/JSON
+response/replay/SSE 上限和共享 HTTP client 参数。Provider、Model、 Upstream Target、Upstream API、Route、Public Model、endpoint
+和 credential pool binding 均由 Rust 代码注册； 修改后需要重新编译或重启。
 
 运行配置与模板一一对应：`config/bootstrap.toml` 使用 `config/bootstrap.example.toml`，
 `config/users.toml` 使用 `config/users.example.toml`，`config/upstream-credentials.toml` 使用
 `config/upstream-credentials.example.toml`。
 
-| Endpoint | 当前行为 | 认证 |
-|---|---|---|
-| `GET /healthz` | 返回 `status` 与 `registry_version` | 无 |
-| `GET /openapi.yaml` | 返回当前构建内置的 OpenAPI 3.0.3 YAML | 无 |
-| `GET /swagger-ui`、`GET /swagger-ui/` | 返回用于本地接口测试的 Swagger UI 页面 | 无 |
-| `GET /v1/models` | 返回代码注册 Public Model 的 OpenAI 标准四字段列表 | 静态 Bearer |
-| `GET /v1/models/{model}` | 返回一个 OpenAI 标准四字段 Model 对象 | 静态 Bearer |
-| `GET /openbridge/v1/models` | 返回 Public Model 模型事实与固定接口能力列表 | 静态 Bearer |
-| `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象 | 静态 Bearer |
-| `POST /v1/chat/completions` | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE | 静态 Bearer |
-| `POST /v1/responses` | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE | 静态 Bearer |
-| `POST /v1/embeddings` | 按独立固定接口执行单条 Native Route，并在下游 commit 前校验有界 JSON 成功体 | 静态 Bearer |
+| Endpoint                              | 当前行为                                                                    | 认证        |
+|---------------------------------------|-----------------------------------------------------------------------------|-------------|
+| `GET /healthz`                        | 返回 `status` 与 `registry_version`                                         | 无          |
+| `GET /openapi.yaml`                   | 返回当前构建内置的 OpenAPI 3.0.3 YAML                                       | 无          |
+| `GET /swagger-ui`、`GET /swagger-ui/` | 返回用于本地接口测试的 Swagger UI 页面                                      | 无          |
+| `GET /v1/models`                      | 返回代码注册 Public Model 的 OpenAI 标准四字段列表                          | 静态 Bearer |
+| `GET /v1/models/{model}`              | 返回一个 OpenAI 标准四字段 Model 对象                                       | 静态 Bearer |
+| `GET /openbridge/v1/models`           | 返回 Public Model 模型事实与固定接口能力列表                                | 静态 Bearer |
+| `GET /openbridge/v1/models/{model}`   | 返回一个完整 Public Model 能力对象                                          | 静态 Bearer |
+| `POST /v1/chat/completions`           | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE          | 静态 Bearer |
+| `POST /v1/responses`                  | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE     | 静态 Bearer |
+| `POST /v1/embeddings`                 | 按独立固定接口执行单条 Native Route，并在下游 commit 前校验有界 JSON 成功体 | 静态 Bearer |
 
 OpenAPI 规范源文件为 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI 页面源文件为
-[`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、
-Upstream Target 或 credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
+[`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、 Upstream Target 或
+credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
 
 下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 来自私有
-`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组。服务与 probe
-不读取上游 key 环境变量或 `.env`；上游注册表只保存 pool ID、Provider 和 credential kind。
-服务在 listener 绑定前把已启用用户 Key 与全部启用 target 引用的 pool 合并为不可变 `CredentialStore`；
-未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会阻止启动。运行时请求只读取该快照，不重新读取文件；
-改变 pool 必须重启。
-Store 条目同时冻结 credential type、仅含类别的 source、generation 与可选过期时间；文件路径不进入
-这些运行时诊断元数据。上游借用同时匹配 `pool_id + member_id + ProviderKind + CredentialKind`。类型系统已能表达
-`OAuth2BearerAccessToken`，但现有 Provider contract 仍只接受 `ApiKey`，当前没有 token 获取、refresh、热更新
-或 401 refresh/retry 行为。
+`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组。服务与 probe 不读取上游 key
+环境变量或 `.env`；上游注册表只保存 pool ID、Provider 和 credential kind。 服务在 listener 绑定前把已启用用户 Key 与全部启用
+target 引用的 pool 合并为不可变 `CredentialStore`； 未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret
+会阻止启动。运行时请求只读取该快照，不重新读取文件； 改变 pool 必须重启。 Store 条目同时冻结 credential type、仅含类别的
+source、generation 与可选过期时间；文件路径不进入 这些运行时诊断元数据。上游借用同时匹配
+`pool_id + member_id + ProviderKind + CredentialKind`。类型系统已能表达
+`OAuth2BearerAccessToken`，但现有 Provider contract 仍只接受 `ApiKey`，当前没有 token 获取、refresh、热更新 或 401
+refresh/retry 行为。
 
 ## Provider 与请求行为
 
 闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo，五者都进入 compiled
 registry。当前可路由目录如下；“Bridge 候选”只表示已注册的协议转换路径，不表示上游原生支持该协议：
 
-| Provider | Public Model | 固定 Upstream Target | 下游可用 Route surface | Credential pool |
-|---|---|---|---|---|
-| OpenAI | `gpt-5.6-sol` | `openai-main` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary` |
-| OpenAI | `text-embedding-3-small` | `openai-text-embedding-3-small` | `embeddings` Upstream API 的唯一 Native Route；无 Bridge/fallback | `openai-primary` |
-| LongCat | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary` |
-| OpenRouter | `deepseek-v4-flash` | `openrouter-deepseek-v4-flash` | Chat 与无状态 Responses 各一条 Native Route；无 Bridge | `openrouter-primary` |
-| DeepSeek | `deepseek-v4-pro` | `deepseek-v4-pro` | Chat Native；无 Responses 接口 | `deepseek-primary` |
-| DeepSeek + OpenRouter | `deepseek-v4-flash` | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native | `deepseek-primary`、`openrouter-primary` |
-| Xiaomi MiMo | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5` | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary` |
+| Provider              | Public Model                 | 固定 Upstream Target                                | 下游可用 Route surface                                                | Credential pool                          |
+|-----------------------|------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------|------------------------------------------|
+| OpenAI                | `gpt-5.6-sol`                | `openai-main`                                       | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary`                         |
+| OpenAI                | `text-embedding-3-small`     | `openai-text-embedding-3-small`                     | `embeddings` Upstream API 的唯一 Native Route；无 Bridge/fallback     | `openai-primary`                         |
+| LongCat               | `LongCat-2.0`                | `longcat-2`                                         | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary`                        |
+| OpenRouter            | `deepseek-v4-flash`          | `openrouter-deepseek-v4-flash`                      | Chat 与无状态 Responses 各一条 Native Route；无 Bridge                | `openrouter-primary`                     |
+| DeepSeek              | `deepseek-v4-pro`            | `deepseek-v4-pro`                                   | Chat Native；无 Responses 接口                                        | `deepseek-primary`                       |
+| DeepSeek + OpenRouter | `deepseek-v4-flash`          | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native                | `deepseek-primary`、`openrouter-primary` |
+| Xiaomi MiMo           | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5`                        | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary`                           |
 
-代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按
-source 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册
-或加入候选。上表中 `deepseek-v4-flash` 显式拥有两个 Provider source；其他 checked-in generation Public Model 目前各只有一个 source。
-跨 Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。
-聚合 Responses Route 的 `previous_response_id` 还要求全部可执行 Route 唯一绑定同一个 Target/API；多个潜在
-签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无 issuer ledger
-时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
+代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按 source
+声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册 或加入候选。上表中
+`deepseek-v4-flash` 显式拥有两个 Provider source；其他 checked-in generation Public Model 目前各只有一个 source。 跨
+Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。 聚合 Responses Route 的 `previous_response_id` 还要求全部可执行
+Route 唯一绑定同一个 Target/API；多个潜在 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无
+issuer ledger 时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
 
-OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider
-分别拥有独立静态 definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用
-OpenAI-compatible wire，尚未接入或实测真实异构 wire protocol Provider。
+OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider 分别拥有独立静态
+definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用 OpenAI-compatible wire，尚未接入或实测真实异构
+wire protocol Provider。
 
 MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均声明支持
 `parallel_tool_calls`、image input 和 structured output；两种协议的 `store` 均关闭，Responses 的
-`previous_response_id` 与 `background` 均关闭。两种协议的 `reasoning_output` 保持 `Unknown`，因此这组声明只
-控制请求能力 gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，也不扩大反向 Bridge 的转换能力。
+`previous_response_id` 与 `background` 均关闭。两种协议的 `reasoning_output` 保持 `Unknown`，因此这组声明只 控制请求能力
+gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，也不扩大反向 Bridge 的转换能力。
 
 五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
-`ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。
-descriptor 不注册 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
+`ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。 descriptor 不注册
+target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
 
 canonical 模型目录当前包含 16 个定义：15 个 generation 模型和独立的
-`openai/text-embedding-3-small` Embedding 模型。其中 generation 模型覆盖 GPT-5.6/5.5/5.3 Codex Spark、
-DeepSeek V4、MiMo V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3；已确认的 context、输出上限、参数、reasoning 状态和
-level 保存在各自模型模块。GPT-5.6 Sol、LongCat 2.0、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与
-Public Model 引用；`deepseek-v4-flash` 由 DeepSeek 与 OpenRouter 两个 target 共享同一个 canonical model，
-`text-embedding-3-small` 由独立 OpenAI target 引用。其余目录项尚未新增 Provider target 或 Public Model route，
-不构成真实可调用声明。`ModelConfig` 已能表达 Embedding，但仍没有 rerank task。
+`openai/text-embedding-3-small` Embedding 模型。其中 generation 模型覆盖 GPT-5.6/5.5/5.3 Codex Spark、 DeepSeek V4、MiMo
+V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。GPT-5.6
+Sol、LongCat 2.0、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与 Public Model 引用；`deepseek-v4-flash` 由
+DeepSeek 与 OpenRouter 两个 target 共享同一个 canonical model，
+`text-embedding-3-small` 由独立 OpenAI target 引用。其余目录项尚未新增 Provider target 或 Public Model route， 不构成真实可调用声明。
+`ModelConfig` 已能表达 Embedding，但仍没有 rerank task。
 
 2026-08-05 调整 checked-in 模型与 Provider 路由矩阵：
 
 - Public Model `code-primary` 和 `embedding-primary` 分别改为实际模型名 `gpt-5.6-sol` 与
   `text-embedding-3-small`；对应的 OpenAPI、README、Embeddings contract 和 Models/forwarding 测试已同步。
 - OpenRouter 移除 Nemotron target/public route，改为 `openrouter-deepseek-v4-flash`，以
-  `deepseek/deepseek-v4-flash` 提供 Chat/Responses Native；`deepseek-v4-flash` Public Model 显式聚合
-  DeepSeek Chat 与 OpenRouter Chat/Responses，保留固定 source 顺序。
+  `deepseek/deepseek-v4-flash` 提供 Chat/Responses Native；`deepseek-v4-flash` Public Model 显式聚合 DeepSeek Chat 与
+  OpenRouter Chat/Responses，保留固定 source 顺序。
 - DeepSeek 两个直连 target 均保持 Chat-only；`deepseek-v4-pro` 不再生成 Responses Bridge，`deepseek-v4-flash`
   的 Responses 只通过 OpenRouter Native route 可用。canonical catalog 同时移除 `tencent/hy3` 与不再绑定的
   `nvidia/nemotron-3-ultra-550b-a55b` 模型定义及模块。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`
   均通过；全量 Rust 结果为 199 个测试通过、2 个显式外部 SDK/独立客户端集成测试 ignored。
 
-本轮证据仅覆盖本地 compiled registry、Models projection、preflight/planning、mock forwarding 和 Provider contract；
-未运行真实 OpenRouter/DeepSeek 请求、外部 SDK、Codex/Hermes、负载或长期运行验收。
+本轮证据仅覆盖本地 compiled registry、Models projection、preflight/planning、mock forwarding 和 Provider contract； 未运行真实
+OpenRouter/DeepSeek 请求、外部 SDK、Codex/Hermes、负载或长期运行验收。
 
 2026-08-03 在 2026-08-02 快照基础上按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、
 context/input projection、最大输出、输入/输出模态、tokenizer、knowledge cutoff、参数和 reasoning efforts。
 `openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
-`openai/gpt-5.3-codex` 代替；其 128,000 context、128,000 最大输出和四档 level 为人工修订值。Nemotron
-canonical 配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
+`openai/gpt-5.3-codex` 代替；其 128,000 context、128,000 最大输出和四档 level 为人工修订值。Nemotron canonical
+配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
-Public Model 现在拥有稳定 `id`、`created`、展示元数据和生命周期。registry 为每个下游 operation 把全部静态可执行
-Route 编译为一个内部 `ModelExecutionInterface`；generation 接口同时持有固定 `ModelInterfaceCapabilities` 与有序候选，
-Embeddings 接口持有分型 `EmbeddingInterfaceCapabilities` 与唯一 Native candidate。generation 布尔能力仅在
-全部候选支持时为 `supported`，token 上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持
+Public Model 现在拥有稳定 `id`、`created`、展示元数据和生命周期。registry 为每个下游 operation 把全部静态可执行 Route
+编译为一个内部 `ModelExecutionInterface`；generation 接口同时持有固定 `ModelInterfaceCapabilities` 与有序候选， Embeddings
+接口持有分型 `EmbeddingInterfaceCapabilities` 与唯一 Native candidate。generation 布尔能力仅在 全部候选支持时为
+`supported`，token 上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持
 `unknown`/`null`。`PublicModelInfo` 只投影该契约的安全副本，用于标准 Models 投影和扩展 Models 响应，不包含 Provider、
-Target、Route、upstream model、endpoint、credential、健康或价格信息。preflight 读取同一执行接口；retired 或没有可执行
-接口的 Public Model 不进入可见目录。
+Target、Route、upstream model、endpoint、credential、健康或价格信息。preflight 读取同一执行接口；retired 或没有可执行 接口的
+Public Model 不进入可见目录。
 
-`text-embedding-3-small` 的固定接口公开四种非空 input form、默认 `float` 和显式 `float`/`base64`、默认维度
-1536、单输入 8192 token 与单请求总计 300,000 token；`max_inputs` 由上游 2048 上界和 bootstrap JSON
-response budget 的 checked worst-case 序列化边界共同收窄。只有 token-array 两种输入在本地精确计数，字符串
-不做 tokenizer 估算。当前没有证据支持精确可变维度域，因此 `dimensions.allowed = null`，显式
+`text-embedding-3-small` 的固定接口公开四种非空 input form、默认 `float` 和显式 `float`/`base64`、默认维度 1536、单输入
+8192 token 与单请求总计 300,000 token；`max_inputs` 由上游 2048 上界和 bootstrap JSON response budget 的 checked
+worst-case 序列化边界共同收窄。只有 token-array 两种输入在本地精确计数，字符串 不做 tokenizer 估算。当前没有证据支持精确可变维度域，因此
+`dimensions.allowed = null`，显式
 `dimensions` 在 egress 前拒绝，接口参数仅包含 `encoding_format` 与 `user`。
 
-Embeddings ingress 只接受 `model`、`input`、`encoding_format`、`dimensions`、`user` 的严格 JSON object，
-把 string、string array、token array 与 token-array array 一次性判别为闭合 union。analysis、preflight 和
-planning 从扩展 Models 投影所依赖的同一个预编译执行接口读取能力；adapter 固定写入
+Embeddings ingress 只接受 `model`、`input`、`encoding_format`、`dimensions`、`user` 的严格 JSON object， 把 string、string
+array、token array 与 token-array array 一次性判别为闭合 union。analysis、preflight 和 planning 从扩展 Models
+投影所依赖的同一个预编译执行接口读取能力；adapter 固定写入
 `/v1/embeddings`、`text-embedding-3-small` 与 OpenAI credential，客户端不能选择上游 topology。成功体在
-`max_json_response_body_bytes` 内完整读取，校验 media type、object/model/data/index、float/base64、维度和
-usage 后才把 model 投影回 `text-embedding-3-small` 并提交下游。非法成功体返回安全 502，不透传 body。
+`max_json_response_body_bytes` 内完整读取，校验 media type、object/model/data/index、float/base64、维度和 usage 后才把 model
+投影回 `text-embedding-3-small` 并提交下游。非法成功体返回安全 502，不透传 body。
 
-单 Route Embeddings 沿用每 candidate 最多两次的 attempt 边界：429 轮换同 pool credential，5xx/timeout
-保留当前 credential；只有 body 不超过 `max_replay_body_bytes` 才允许第二次发送。更大的合法 body 只尝试
-一次，下游取消会停止 pending send、成功体读取和 backoff。所有本地 request/interface/limit 拒绝均为零
-egress；错误 envelope 固定包含 `message/type/param/code`，上游非成功 body 与私有 header 被丢弃。
+单 Route Embeddings 沿用每 candidate 最多两次的 attempt 边界：429 轮换同 pool credential，5xx/timeout 保留当前
+credential；只有 body 不超过 `max_replay_body_bytes` 才允许第二次发送。更大的合法 body 只尝试 一次，下游取消会停止 pending
+send、成功体读取和 backoff。所有本地 request/interface/limit 拒绝均为零 egress；错误 envelope 固定包含
+`message/type/param/code`，上游非成功 body 与私有 header 被丢弃。
 
 请求路径当前会：
 
 - 通过同一个 `CredentialStore` constant-time 匹配下游 Key，并按
   `pool_id + member_id + ProviderKind + CredentialKind` 借用上游 Key 及其非敏感元数据；
-- 在查看 Route 候选前，用所选 Public Model 的预编译协议接口校验 streaming、tools、image、structured output、store、continuation、background、输出限制和 reasoning；不支持时返回 `unsupported_model_capability`，且不调用上游；
-- 能力校验通过后只使用同一接口预编译的有序候选；不扫描 Public Model 的原始 Route ID，也不重复检查 Target/API 静态启停或协议资格，不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
-- 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许
-  当前 Model 显式声明的子集；`none` 保持为显式禁用值，不与字段缺失合并；
-- RoutePlan 保留 canonical reasoning level；Provider adapter 准备选定 Upstream API 的 egress 请求时才按已校验
-  规则映射 wire 值。映射仅修改待发送副本，Chat 只接受标准 `reasoning_effort`，Responses 只接受标准 `reasoning.effort`，并通过
+- 在查看 Route 候选前，用所选 Public Model 的预编译协议接口校验 streaming、tools、image、structured
+  output、store、continuation、background、输出限制和 reasoning；不支持时返回 `unsupported_model_capability`，且不调用上游；
+- 能力校验通过后只使用同一接口预编译的有序候选；不扫描 Public Model 的原始 Route ID，也不重复检查 Target/API
+  静态启停或协议资格，不根据请求能力跳过、筛选或重排 Route，能力较强的后续 Route 不能扩大公共契约；
+- 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` canonical reasoning level，并只允许 当前 Model 显式声明的子集；
+  `none` 保持为显式禁用值，不与字段缺失合并；
+- RoutePlan 保留 canonical reasoning level；Provider adapter 准备选定 Upstream API 的 egress 请求时才按已校验 规则映射
+  wire 值。映射仅修改待发送副本，Chat 只接受标准 `reasoning_effort`，Responses 只接受标准 `reasoning.effort`，并通过
   `reasoning_level_mapped` tracing event 记录源/目标；不把跨协议字段别名当作标准字段；
 - 将 selected Upstream API 的 `upstream_model` 写入请求；
-- 经各 Provider 的受信 request-header hook 处理普通 header；OpenAI 与 LongCat 把下游 `User-Agent` 覆盖到上游，OpenRouter 不转发可选 attribution/routing header；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy header 隔离；
+- 经各 Provider 的受信 request-header hook 处理普通 header；OpenAI 与 LongCat 把下游 `User-Agent` 覆盖到上游，OpenRouter
+  不转发可选 attribution/routing header；hook 容器支持普通 header 增添、替换、转换和删除，同时保持认证、cookie、Host 与 proxy
+  header 隔离；
 - 保留同协议下未知但合法的 JSON 字段；
-- 对 `Bridged` Route 只转换 allowlist 内的 text/function tool/tool result 与明文 reasoning channel 语义，未知或不可表达字段在 egress 前拒绝；
+- 对 `Bridged` Route 只转换 allowlist 内的 text/function tool/tool result 与明文 reasoning channel 语义，未知或不可表达字段在
+  egress 前拒绝；
 - 对 `previous_response_id` 关闭跨 target fallback；
 - Native Route 保持非流式 status/body 和流式原始 bytes；Bridged Route 转换非流式 JSON 与增量 SSE event；
 - 两种路径都检查 SSE UTF-8、framing、event size 与 terminal，并保持有限安全 header；
@@ -169,53 +171,58 @@ egress；错误 envelope 固定包含 `message/type/param/code`，上游非成�
   `response.incomplete` 识别终态，不要求上游额外发送 `event:` 字段；
 - OpenRouter Responses 按真实 Nemotron-3 stream 的 data JSON 顶层 `type` 识别 `response.completed`、
   `response.failed` 与 `response.incomplete`，不把尾随 `[DONE]` 代替语义终态；
-- OpenAI terminal 事件词汇与 discriminator 来源由编译期 adapter 分开建模；同一 SSE event 同时携带相互
-  冲突的 `event:` 与 data JSON `type` terminal 时失败关闭，各 Provider 不接受未绑定的 discriminator 或其他
-  terminal family；
-- 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限 retry/fallback，并执行 50～500 ms capped exponential backoff；
-- 无状态请求从 Provider pool 的共享 cursor 做 round-robin；只有 HTTP 429 会冷却当前 member 并在同一候选内轮转，5xx/timeout/transport retry 保持当前 member，其他 4xx 不轮转；
-- member cooldown 使用 `Retry-After` delta/date，缺失或非法时为 1 秒并封顶 30 秒；同请求不会回绕已经 429 的 member，pool 大小不扩大 6/2 attempt 上限；
-- 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport error；
-- 429 只记录 member cooldown；暂时性 5xx 与 transport failure 记录 target `fault_domain` cooldown。后续无状态请求跳过已知受限 member/target，target-bound continuation 要求单成员 pool 并继续尝试原 target；
+- OpenAI terminal 事件词汇与 discriminator 来源由编译期 adapter 分开建模；同一 SSE event 同时携带相互 冲突的 `event:` 与
+  data JSON `type` terminal 时失败关闭，各 Provider 不接受未绑定的 discriminator 或其他 terminal family；
+- 在 stream/non-stream 提交下游 response 前，对 transient status/transport error 使用请求级最多 6 次、每候选最多 2 次的有限
+  retry/fallback，并执行 50～500 ms capped exponential backoff；
+- 无状态请求从 Provider pool 的共享 cursor 做 round-robin；只有 HTTP 429 会冷却当前 member
+  并在同一候选内轮转，5xx/timeout/transport retry 保持当前 member，其他 4xx 不轮转；
+- member cooldown 使用 `Retry-After` delta/date，缺失或非法时为 1 秒并封顶 30 秒；同请求不会回绕已经 429 的 member，pool
+  大小不扩大 6/2 attempt 上限；
+- 当前候选耗尽后只沿 RoutePlan 进入同一 Public Model 的其他完整候选；全部失败时返回最后一个安全 HTTP 错误或稳定 transport
+  error；
+- 429 只记录 member cooldown；暂时性 5xx 与 transport failure 记录 target `fault_domain` cooldown。后续无状态请求跳过已知受限
+  member/target，target-bound continuation 要求单成员 pool 并继续尝试原 target；
 - 在下游中断 pending send、退避等待或丢弃 response body 时取消相应上游工作，不再启动后续 attempt；
-- 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测；
-  外层 body observer 仅在自身提交 EOF 或错误后报告 end-stream，避免完整单帧 body 被误记为下游取消。
+- 认证后将稳定用户身份写入请求上下文，并在 response body 正常 EOF、流错误或下游取消时恰好提交一次终态观测； 外层 body
+  observer 仅在自身提交 EOF 或错误后报告 end-stream，避免完整单帧 body 被误记为下游取消。
 
 ## 遥测指标
 
 请求生命周期 tracing、全局低基数累计值和按 Provider attempt 聚合的性能、usage、cache 指标已拆分到
-[遥测指标](telemetry-metrics.md)。本页只保留运行行为和验证范围，不复制容易漂移的指标字段、采集口径或
-未接入 exporter 的限制。
+[遥测指标](telemetry-metrics.md)。本页只保留运行行为和验证范围，不复制容易漂移的指标字段、采集口径或 未接入 exporter 的限制。
 
 ## Protocol Bridge
 
 `src/bridge.rs` 是 Protocol Bridge 门面；`chat.rs` 与 `responses.rs` 分别实现两种 stream 状态机，
 `conversion/request/*`、`response.rs` 与 `stream/*` 分别实现双向请求、非流式响应和增量 SSE 转换。
-`BridgePlan` 与 renderer 按 wire 顺序固定 response/item/call/index identity，累计 text 与 function arguments，
-区分 `completed`、`failed`、`incomplete` 和独立 `error` terminal，并在 event/type 冲突、identity 冲突、
-不完整 JSON arguments、terminal 后事件、重复 terminal 或 EOF-before-terminal 时失败关闭。
+`BridgePlan` 与 renderer 按 wire 顺序固定 response/item/call/index identity，累计 text 与 function arguments， 区分
+`completed`、`failed`、`incomplete` 和独立 `error` terminal，并在 event/type 冲突、identity 冲突、 不完整 JSON
+arguments、terminal 后事件、重复 terminal 或 EOF-before-terminal 时失败关闭。
 
-生产 Router 已验证双向 text、function schema、tool call/result、并行 fragmented arguments、非流式 JSON、
-流式 terminal 与 invalid stream 关闭。具备模型 reasoning capability 且由 `ReasoningOutput` 确认方向兼容可读输出的
-Responses reasoning 与 Chat `reasoning_content` 可在 Bridge 中保留为独立 reasoning channel；`encrypted_content`、
+生产 Router 已验证双向 text、function schema、tool call/result、并行 fragmented arguments、非流式 JSON、 流式 terminal 与
+invalid stream 关闭。具备模型 reasoning capability 且由 `ReasoningOutput` 确认方向兼容可读输出的 Responses reasoning 与
+Chat `reasoning_content` 可在 Bridge 中保留为独立 reasoning channel；`encrypted_content`、
 `previous_response_id`、hosted/custom tool、image、structured output、background/store、Provider 私有扩展和其他未建模字段
 不做降级转换，会在 egress 前拒绝；MiMo 对 image、structured output 和并行工具的声明仅适用于其 Native API。
 
 ## 显式 probe
 
-`openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential Store、adapter 与 transport，可以观察模型
-列表、最小 Chat/Responses 请求和 function call/result replay。它不接受 endpoint、model、header 或
-credential 覆盖，只加载选中 target 的 pool 并固定使用首个 member，不遍历或改变生产 cursor/cooldown；它不读取下游用户 Key，不修改注册表，也不自动改变 capability。
+`openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential Store、adapter 与 transport，可以观察模型 列表、最小
+Chat/Responses 请求和 function call/result replay。它不接受 endpoint、model、header 或 credential 覆盖，只加载选中 target 的
+pool 并固定使用首个 member，不遍历或改变生产 cursor/cooldown；它不读取下游用户 Key，不修改注册表，也不自动改变 capability。
 
 ## 验证状态
 
-仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/egress level 映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
-固定 Public Model 能力预检、标准/扩展 Models list/retrieve、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt 硬上限、
-credential round-robin/429 rotation/member cooldown、fault domain cooldown、continuation 单成员约束、retry header、SSE terminal、partial failure、pending
-send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产 Router Bridged Route、Embeddings
-definition/registry/request/response/replay/error/observability contract、真实 loopback HTTP 429 process replay 和 probe。
-`tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。日常客户端可见测试优先使用
-OpenAI SDK、独立 Python 脚本或 curl，不要求绑定 Codex/Hermes 等 Agent runtime。
+仓库中的 Rust 测试源码覆盖 bootstrap/registry 校验、私有 upstream credential TOML、模型规则、reasoning gate/egress level
+映射、统一 credential Store、认证、Provider descriptor 单一分派、DeepSeek/MiMo 编译 target 与候选顺序、Provider model 改写、
+固定 Public Model 能力预检、标准/扩展 Models list/retrieve、stream/non-stream 指数退避、跨 Provider fallback、请求级 attempt
+硬上限、 credential round-robin/429 rotation/member cooldown、fault domain cooldown、continuation 单成员约束、retry
+header、SSE terminal、partial failure、pending send/backoff/body 取消、canonical bridge request/response/SSE 转换、生产
+Router Bridged Route、Embeddings definition/registry/request/response/replay/error/observability contract、真实 loopback
+HTTP 429 process replay 和 probe。
+`tests/sdk_compatibility.rs` 是 ignored integration test，需要外部 Python/Node SDK。日常客户端可见测试优先使用 OpenAI
+SDK、独立 Python 脚本或 curl，不要求绑定 Codex/Hermes 等 Agent runtime。
 
 2026-08-02 最近一次执行：
 
@@ -226,32 +233,46 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-结果为 134 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警，
-格式与 diff 检查通过。另使用 `users.toml` 中的本地用户 key，通过逐行消费 SSE 的独立 PowerShell HTTP client
-显式调用真实 LongCat、MiMo 与 DeepSeek：三者的 Chat/Responses streaming 均返回 HTTP 200、
-`text/event-stream` 和明确终态；LongCat/MiMo 两种协议走 Native，DeepSeek Chat 走 Native、Responses 走
-Responses→Chat Bridge。另对真实 OpenRouter `nemotron-3-ultra` 先后执行修复前复现与修复后验收的 Responses
-Native streaming：两次均为 HTTP 200，所有 SSE frame 均未携带 `event:`，语义终态为 data JSON 顶层
+结果为 134 个测试通过、1 个需要下载 OpenAI Python/Node SDK 的集成测试 ignored，Clippy 零告警， 格式与 diff 检查通过。另使用
+`users.toml` 中的本地用户 key，通过逐行消费 SSE 的独立 PowerShell HTTP client 显式调用真实 LongCat、MiMo 与 DeepSeek：三者的
+Chat/Responses streaming 均返回 HTTP 200、
+`text/event-stream` 和明确终态；LongCat/MiMo 两种协议走 Native，DeepSeek Chat 走 Native、Responses 走 Responses→Chat
+Bridge。另对真实 OpenRouter `nemotron-3-ultra` 先后执行修复前复现与修复后验收的 Responses Native streaming：两次均为 HTTP
+200，所有 SSE frame 均未携带 `event:`，语义终态为 data JSON 顶层
 `type=response.completed`，随后发送 `[DONE]`；修复前网关误记为 `sse_eof_before_terminal`，修复后记录
-`outcome=completed`。这条真实证据只覆盖 2026-08-02 的成功流，不证明失败流、其他 OpenRouter 模型或未来
-wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证。
+`outcome=completed`。这条真实证据只覆盖 2026-08-02 的成功流，不证明失败流、其他 OpenRouter 模型或未来 wire 稳定性。没有运行外部
+SDK、Codex/Hermes、负载或长期验证。
 
 2026-08-03 补充 DeepSeek V4 Flash high-level tool-call 验证（修复前基线）：
 
-- 确定性回归通过：`bridge_conversion_contract` 5 个、`bridge_forwarding_contract` 7 个、`protocol_bridge_replay` 8 个测试通过；DeepSeek 编译路由、Chat-only Provider contract、DeepSeek/MiMo 原生协议声明三个精确测试各 1 个通过；`process_replay_contract` 1 个通过。
-- 真实 DeepSeek Chat Native、显式 high、非流式工具调用返回 HTTP 200，带有 `reasoning_content`、一个 function tool call、`finish_reason=tool_calls`，且 arguments 是合法 JSON。把完整 assistant `reasoning_content`、tool call 和 tool result 带入下一轮后，真实请求返回 HTTP 200、`finish_reason=stop` 和文本结果，证明 high thinking tool loop 在 Chat Native 上可用。
-- 真实 Responses 请求分别使用 `reasoning:{"effort":"high"}` 与顶层 `reasoning_effort:"high"` 时均在本地 Bridge preflight 返回 HTTP 400、`unsupported_request`。这是修复前 Bridge 的行为，不是 DeepSeek Responses 原生能力的验收结果。
-- 真实 Responses→Chat Bridge 流式工具调用（未显式设置 reasoning，仅作对照）曾返回 HTTP 200，但客户端以 curl 18 结束；收到 `response.created`、`response.output_item.added` 和完整的 `response.function_call_arguments.delta`，未收到 `response.function_call_arguments.done`、`response.output_item.done` 或 `response.completed`。arguments 拼接后是合法 JSON。结合真实 DeepSeek Chat high 的最终 tool-call chunk 为 `content:""` 且 `finish_reason=tool_calls`，修复前 converter 在“已有 tool call 后遇到空 content”分支提前失败；这是本轮修复的触发证据。
-- Responses 的 named/required `tool_choice` 触发上游 `Thinking mode does not support this tool_choice` 400；按本轮约束，非 thinking mode 不支持工具是上游预期行为，不将该限制计为 OpenBridge 转换缺陷。无显式 reasoning 的 Responses 对照路径能够产生 function call 并完成续轮，但不构成 high thinking 验收。
+- 确定性回归通过：`bridge_conversion_contract` 5 个、`bridge_forwarding_contract` 7 个、`protocol_bridge_replay` 8
+  个测试通过；DeepSeek 编译路由、Chat-only Provider contract、DeepSeek/MiMo 原生协议声明三个精确测试各 1 个通过；
+  `process_replay_contract` 1 个通过。
+- 真实 DeepSeek Chat Native、显式 high、非流式工具调用返回 HTTP 200，带有 `reasoning_content`、一个 function tool call、
+  `finish_reason=tool_calls`，且 arguments 是合法 JSON。把完整 assistant `reasoning_content`、tool call 和 tool result
+  带入下一轮后，真实请求返回 HTTP 200、`finish_reason=stop` 和文本结果，证明 high thinking tool loop 在 Chat Native 上可用。
+- 真实 Responses 请求分别使用 `reasoning:{"effort":"high"}` 与顶层 `reasoning_effort:"high"` 时均在本地 Bridge preflight
+  返回 HTTP 400、`unsupported_request`。这是修复前 Bridge 的行为，不是 DeepSeek Responses 原生能力的验收结果。
+- 真实 Responses→Chat Bridge 流式工具调用（未显式设置 reasoning，仅作对照）曾返回 HTTP 200，但客户端以 curl 18 结束；收到
+  `response.created`、`response.output_item.added` 和完整的 `response.function_call_arguments.delta`，未收到
+  `response.function_call_arguments.done`、`response.output_item.done` 或 `response.completed`。arguments 拼接后是合法
+  JSON。结合真实 DeepSeek Chat high 的最终 tool-call chunk 为 `content:""` 且 `finish_reason=tool_calls`，修复前 converter
+  在“已有 tool call 后遇到空 content”分支提前失败；这是本轮修复的触发证据。
+- Responses 的 named/required `tool_choice` 触发上游 `Thinking mode does not support this tool_choice` 400；按本轮约束，非
+  thinking mode 不支持工具是上游预期行为，不将该限制计为 OpenBridge 转换缺陷。无显式 reasoning 的 Responses 对照路径能够产生
+  function call 并完成续轮，但不构成 high thinking 验收。
 
-修复前结论是：DeepSeek V4 Flash 的 Chat Native high 工具调用和 reasoning continuation 已获真实 Provider 证据；Responses→Chat Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态前中断。测试使用了本地私有配置，未在文档或输出中记录凭证。
+修复前结论是：DeepSeek V4 Flash 的 Chat Native high 工具调用和 reasoning continuation 已获真实 Provider 证据；Responses→Chat
+Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态前中断。测试使用了本地私有配置，未在文档或输出中记录凭证。
 
 本轮未覆盖外部 OpenAI SDK、Codex/Hermes、负载、长期运行或生产环境验收；上述高层真实 Provider 结果属于修复前基线。
 
 2026-08-03 修订 MiMo Native capability contract：
 
-- `tests/provider_boundary_contract.rs` 的 `mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_reasoning`
-  通过，确认 Chat/Responses 的并行工具、image input、structured output，以及关闭的 state capability 和 `Unknown` reasoning output。
+- `tests/provider_boundary_contract.rs` 的
+  `mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_reasoning`
+  通过，确认 Chat/Responses 的并行工具、image input、structured output，以及关闭的 state capability 和 `Unknown` reasoning
+  output。
 - `tests/example_config.rs` 的 `mimo_models_are_compiled_with_dual_native_first_routes` 通过，确认两个 MiMo 模型的编译
   Upstream API、复杂请求 Native-first route 和 `store`/`previous_response_id`/`background` 拒绝边界一致。
 - 本轮执行 `cargo fmt -- --check` 与上述两个 focused `cargo test --locked --test ...`；这是 deterministic Rust contract
@@ -259,50 +280,72 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 
 2026-08-03 完成 MiMo Responses Native 复杂工具流回归：
 
-- `tests/forwarding_contract.rs` 的 `mimo_responses_native_preserves_parallel_tool_stream` 使用实际 compiled registry
-  中的 `mimo-v2.5`，提交同时包含 image input、structured output、两个 function tools 和
+- `tests/forwarding_contract.rs` 的 `mimo_responses_native_preserves_parallel_tool_stream` 使用实际 compiled registry 中的
+  `mimo-v2.5`，提交同时包含 image input、structured output、两个 function tools 和
   `parallel_tool_calls: true` 的 Responses streaming 请求。
 - mock upstream 将两个 function-call arguments 交错拆成 17-byte SSE chunks；Router 仍命中 `/v1/responses` Native，
   下游收到与上游完全相同的 bytes，Responses 状态机重建两个合法 arguments，并以唯一 `response.completed` 收口。
-- `cargo test --locked --test forwarding_contract` 30 个测试、`cargo test --locked --test native_routing_contract` 11 个测试、
-  `cargo test --locked --test provider_boundary_contract` 15 个测试和 `cargo test --locked --test example_config` 7 个测试均通过。
-  这仍是 mock/deterministic 测试证据，不等同于真实 MiMo Provider 或外部 SDK 验收。
-- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；
-  全量 Rust 结果为 148 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored，未运行该 SDK 测试。
+- `cargo test --locked --test forwarding_contract` 30 个测试、`cargo test --locked --test native_routing_contract` 11
+  个测试、
+  `cargo test --locked --test provider_boundary_contract` 15 个测试和 `cargo test --locked --test example_config` 7
+  个测试均通过。 这仍是 mock/deterministic 测试证据，不等同于真实 MiMo Provider 或外部 SDK 验收。
+- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`； 全量
+  Rust 结果为 148 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored，未运行该 SDK 测试。
 
 2026-08-03 补充 DeepSeek V4 Flash 与 MiMo V2.5 reasoning output 分类测试：
 
-- `tests/provider_boundary_contract.rs` 的 `deepseek_and_mimo_reasoning_output_types_are_explicit` 固定了 Provider contract：
-  DeepSeek Chat 为 `PlainText`，对应 `reasoning_content`；DeepSeek 没有原生 Responses output；MiMo Chat/Responses 均为 `Unknown`。
-- `tests/example_config.rs` 的 `compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes` 核对了具体 compiled
-  target：DeepSeek Responses 只能进入 Chat Bridge，MiMo 带 reasoning history 时保留 Responses Native，不能因 `Unknown`
+- `tests/provider_boundary_contract.rs` 的 `deepseek_and_mimo_reasoning_output_types_are_explicit` 固定了 Provider
+  contract： DeepSeek Chat 为 `PlainText`，对应 `reasoning_content`；DeepSeek 没有原生 Responses output；MiMo Chat/Responses
+  均为 `Unknown`。
+- `tests/example_config.rs` 的 `compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes` 核对了具体
+  compiled target：DeepSeek Responses 只能进入 Chat Bridge，MiMo 带 reasoning history 时保留 Responses Native，不能因
+  `Unknown`
   reasoning output 进入 Bridge。
-- `tests/forwarding_contract.rs` 的 `deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content` 使用实际 compiled
-  `deepseek-v4-flash` route 和分片 Chat SSE fixture，验证 `reasoning_content` 与 visible `content` 分离，并保留原始 Native bytes。
-  这些是 deterministic contract/wire tests；本轮没有重复真实 Provider 网络调用，因此 MiMo 的 `Unknown` 仍需真实 probe 才能升级为具体 output 类型。
-- 随后执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；全量 Rust
-  结果为 151 个测试通过、1 个外部 OpenAI Python/Node SDK 测试 ignored。
+- `tests/forwarding_contract.rs` 的 `deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content` 使用实际
+  compiled
+  `deepseek-v4-flash` route 和分片 Chat SSE fixture，验证 `reasoning_content` 与 visible `content` 分离，并保留原始 Native
+  bytes。 这些是 deterministic contract/wire tests；本轮没有重复真实 Provider 网络调用，因此 MiMo 的 `Unknown` 仍需真实
+  probe 才能升级为具体 output 类型。
+- 随后执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；全量
+  Rust 结果为 151 个测试通过、1 个外部 OpenAI Python/Node SDK 测试 ignored。
 
 2026-08-03 完成 Bridge reasoning 与 DeepSeek thinking 空文本修复：
 
-- `cargo fmt -- --check`、`cargo test --locked`、串行 `cargo test --locked -- --test-threads=1`、`cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；全量结果为 144 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。默认并行全量曾有一次观测测试日志捕获波动，单测复跑与串行全量均通过。
-- `bridge_conversion_contract` 11 个测试覆盖两种 reasoning request 配置、Responses reasoning item、非流式 tool response、Chat→Responses reasoning/text stream、Responses summary→Chat stream、empty `content`、非成功/迟到终态和 opaque/未知 reasoning 形状拒绝；`bridge_forwarding_contract` 9 个测试包含生产 Router + mock upstream 的同类闭环，并分别证明 `PlainText` 放行与 `Unknown` 在 egress 前拒绝；`native_routing_contract` 11 个测试覆盖 reasoning capability、`none`、冲突配置、输出类型路由门禁和 `reasoning:false` fail-closed；DeepSeek/MiMo/LongCat 编译配置断言通过。
-- Chat 上游的 reasoning-only 空 `content` chunk 不再启动或污染 visible message；tool-call arguments 会继续累计并完成 `response.function_call_arguments.done`、`response.output_item.done`、`response.completed`。当 reasoning item 占用 output index 0 时，普通 text/tool output index 会从 1 开始。
-- Chat Bridge 仅把 `stop` 与 `tool_calls` 视为可转换的成功 finish reason；`length`、`content_filter` 等非成功终态以及 finish reason 后追加 chunk 均 fail closed，不伪造 `response.completed`。
-- Responses 标准 `reasoning.effort` 与 Chat `reasoning_effort` 可在 Bridged Route 间映射；明文 `reasoning_content`、`reasoning_text` 和 `summary_text` 保持在独立 reasoning channel，不进入 user-visible text；opaque `encrypted_content` 和未知 reasoning 形状在 egress/stream state 边界拒绝。
-- Responses 顶层 `reasoning_effort` 不是标准字段，Native 与 Bridge 均拒绝；Chat 仅使用标准 `reasoning_effort`，Responses 仅使用标准 `reasoning.effort`，不保留跨协议入站别名。
-- Chat Bridge 对 `reasoning_effort` 的布尔等非标准形状 fail closed；显式 `null` 仍按省略处理。Responses 的 `reasoning:false`、非对象和未知子字段同样 fail closed，不再静默降级为无 reasoning。
-- 真实 `cargo run --locked --bin openbridge-probe -- --target deepseek-v4-flash --chat --function-calling` 返回 Chat 文本 HTTP 200、非 thinking function-calling HTTP 400，Responses function-calling 为 configured unsupported；这与已确认的 DeepSeek 上游模式/端点限制一致，不作为 Bridge 转换缺陷或 high reasoning 验收。修复后的 reasoning/tool Bridge 结论由 deterministic contract 与 mock HTTP 闭环证明；未在文档或用户可见输出中记录凭证，也没有运行外部 SDK、Codex/Hermes、负载或长期验证。
+- `cargo fmt -- --check`、`cargo test --locked`、串行 `cargo test --locked -- --test-threads=1`、
+  `cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；全量结果为 144 个测试通过、1 个需要外部 OpenAI
+  Python/Node SDK 的集成测试 ignored。默认并行全量曾有一次观测测试日志捕获波动，单测复跑与串行全量均通过。
+- `bridge_conversion_contract` 11 个测试覆盖两种 reasoning request 配置、Responses reasoning item、非流式 tool
+  response、Chat→Responses reasoning/text stream、Responses summary→Chat stream、empty `content`、非成功/迟到终态和
+  opaque/未知 reasoning 形状拒绝；`bridge_forwarding_contract` 9 个测试包含生产 Router + mock upstream 的同类闭环，并分别证明
+  `PlainText` 放行与 `Unknown` 在 egress 前拒绝；`native_routing_contract` 11 个测试覆盖 reasoning capability、`none`
+  、冲突配置、输出类型路由门禁和 `reasoning:false` fail-closed；DeepSeek/MiMo/LongCat 编译配置断言通过。
+- Chat 上游的 reasoning-only 空 `content` chunk 不再启动或污染 visible message；tool-call arguments 会继续累计并完成
+  `response.function_call_arguments.done`、`response.output_item.done`、`response.completed`。当 reasoning item 占用 output
+  index 0 时，普通 text/tool output index 会从 1 开始。
+- Chat Bridge 仅把 `stop` 与 `tool_calls` 视为可转换的成功 finish reason；`length`、`content_filter` 等非成功终态以及
+  finish reason 后追加 chunk 均 fail closed，不伪造 `response.completed`。
+- Responses 标准 `reasoning.effort` 与 Chat `reasoning_effort` 可在 Bridged Route 间映射；明文 `reasoning_content`、
+  `reasoning_text` 和 `summary_text` 保持在独立 reasoning channel，不进入 user-visible text；opaque `encrypted_content`
+  和未知 reasoning 形状在 egress/stream state 边界拒绝。
+- Responses 顶层 `reasoning_effort` 不是标准字段，Native 与 Bridge 均拒绝；Chat 仅使用标准 `reasoning_effort`，Responses
+  仅使用标准 `reasoning.effort`，不保留跨协议入站别名。
+- Chat Bridge 对 `reasoning_effort` 的布尔等非标准形状 fail closed；显式 `null` 仍按省略处理。Responses 的
+  `reasoning:false`、非对象和未知子字段同样 fail closed，不再静默降级为无 reasoning。
+- 真实 `cargo run --locked --bin openbridge-probe -- --target deepseek-v4-flash --chat --function-calling` 返回 Chat 文本
+  HTTP 200、非 thinking function-calling HTTP 400，Responses function-calling 为 configured unsupported；这与已确认的
+  DeepSeek 上游模式/端点限制一致，不作为 Bridge 转换缺陷或 high reasoning 验收。修复后的 reasoning/tool Bridge 结论由
+  deterministic contract 与 mock HTTP 闭环证明；未在文档或用户可见输出中记录凭证，也没有运行外部 SDK、Codex/Hermes、负载或长期验证。
 
 2026-08-03 追加 reasoning 输出 capability 配置：
 
 - 核心 capability 增加 `ReasoningOutput` 类型：`Unknown` 表示没有可读 wire 证据，`Unsupported` 表示明确无 reasoning 输出，
   `PlainText`/`Summary` 表示可读 channel，`Opaque` 表示包括 Responses `encrypted_content` 在内的不可读 continuation。
-- DeepSeek Chat contract 配置为 `PlainText`，对应本轮真实 V4 Flash high Chat 的 `reasoning_content` 证据；DeepSeek Responses
-  contract 配置为 `Unsupported` 且没有注册原生 Responses API。MiMo 与 LongCat 的 Chat/Responses 均配置为 `Unknown`，因为现有
-  真实测试只证明协议、文本/工具和 streaming 终态，未证明可读 reasoning wire 映射。
+- DeepSeek Chat contract 配置为 `PlainText`，对应本轮真实 V4 Flash high Chat 的 `reasoning_content` 证据；DeepSeek
+  Responses contract 配置为 `Unsupported` 且没有注册原生 Responses API。MiMo 与 LongCat 的 Chat/Responses 均配置为
+  `Unknown`，因为现有 真实测试只证明协议、文本/工具和 streaming 终态，未证明可读 reasoning wire 映射。
 - Bridge 规划现在消费选定 Upstream API 的 `ReasoningOutput`：Chat 上游只有 `PlainText` 可进入 Responses Bridge，Responses
-  上游允许 `PlainText` 或 `Summary` 进入 Chat Bridge；请求包含 reasoning 配置或 reasoning history 时，`Unknown`、`Unsupported`
+  上游允许 `PlainText` 或 `Summary` 进入 Chat Bridge；请求包含 reasoning 配置或 reasoning history 时，`Unknown`、
+  `Unsupported`
   和 `Opaque` candidate 在 egress 前返回能力错误。Native route 不受该 Bridge 输出门禁影响。
 - 新增配置与规划契约覆盖 DeepSeek/MiMo/LongCat 的运行时 capability 值、Provider contract 的 reasoning capability 越权拒绝，以及
   `Unknown`/`PlainText` Bridge candidate 的选择差异。该层仍是 deterministic Rust tests 与 mock/high-level evidence，不等同于
@@ -310,90 +353,88 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 
 2026-08-03 完成 Provider attempt 遥测扩展：
 
-- 每个已收口的实际上游 attempt 现在按编译期 Provider、Route、Target、Upstream API、Public Model、operation、
-  streaming 和 Native/Bridge 模式聚合独立快照，记录 response-ready、首个上游 body byte、上下游 TTFT、body
-  生命周期、明确 usage、token observation、output speed 和 cache read/write 观测；request/user/credential/
-  endpoint URL 与正文不进入指标 key。
+- 每个已收口的实际上游 attempt 现在按编译期 Provider、Route、Target、Upstream API、Public Model、operation、 streaming 和
+  Native/Bridge 模式聚合独立快照，记录 response-ready、首个上游 body byte、上下游 TTFT、body 生命周期、明确 usage、token
+  observation、output speed 和 cache read/write 观测；request/user/credential/ endpoint URL 与正文不进入指标 key。
 - `GatewayMetrics::provider_snapshots` 提供进程内只读快照；当前未接入 `/metrics`、Prometheus/OpenTelemetry
   exporter、持久化、分布式聚合或按遥测结果动态重排 Route。
-- 新增的 8 个 `observability_contract` 测试覆盖 JSON/streaming usage 与 cache、Provider/route mode 维度、
-  retry HTTP failure、SSE terminal/EOF failure 和下游取消；`cargo test --locked`、`cargo fmt -- --check`、
-  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内
-  采集边界，不证明真实 Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
+- 新增的 8 个 `observability_contract` 测试覆盖 JSON/streaming usage 与 cache、Provider/route mode 维度、 retry HTTP
+  failure、SSE terminal/EOF failure 和下游取消；`cargo test --locked`、`cargo fmt -- --check`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内 采集边界，不证明真实
+  Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
 
 2026-08-03 完成 Chat/Responses definition 命名拆分与标准字段预留：
 
 - 原通用 `EndpointCapabilities` 已拆为可注册的 `ChatCompletionsCapabilities`、`ResponsesCapabilities`，以及只供请求
-  分析和公共子集判断使用的 crate-private `GenerationCapabilities`；请求事实字段也使用 `generation` 命名，不再保留
-  模糊的 `protocol` capability 公共表面。
+  分析和公共子集判断使用的 crate-private `GenerationCapabilities`；请求事实字段也使用 `generation` 命名，不再保留 模糊的
+  `protocol` capability 公共表面。
 - canonical `ModelConfig`/`ModelInfo` 增加可选 `ModelMode`、`InputModality` 和 `OutputModality`；输入枚举覆盖
   text/image/audio/file，输出枚举覆盖 text/image/audio。所有 checked-in Model 均保留 `None`，未知不被解释成空集合。
-- Chat 预留 custom tool、audio/file input、audio output、predicted outputs、web search、prompt caching、moderation、
-  logprobs 与 multiple choices；Responses 预留 custom/hosted tools、file input、conversation、prompt template、prompt
-  caching、context management、标准 `include` 枚举、moderation 与 logprobs。所有 Provider contract 和 Upstream API
-  definition 均保持新增字段为 `false` 或空集合。
-- 没有增加对应 Bridge、adapter 或 Provider 请求实现。Model 的 mode 与输入/输出模态已进入 registry 和扩展模型信息；
-  Upstream API definition 若启用任一尚未实现的协议能力，仍触发带稳定说明的 `unimplemented!`。请求分析会逐协议识别 custom/hosted tool、audio/file、predicted
-  output、web search、prompt cache、conversation、prompt template、context management、include、moderation、logprobs
-  与 multiple choices 等已预留 wire 语义，并在 route/egress 前返回 `UnimplementedCapabilities`。Ingress 将其映射为
-  HTTP 400、code `unimplemented_request`；真正未知的 tool type 继续返回既有 `UnsupportedCapabilities`。
-- `capability_definition_contract` 覆盖 Model mode/模态编译，以及 10 个 Chat definition、10 个 Responses definition、
-  10 个 Chat 请求和 10 个 Responses 请求预留触发点；`native_routing_contract` 11 个、`bridge_forwarding_contract` 9 个
-  和 `provider_boundary_contract` 16 个测试通过。随后 `cargo fmt -- --check`、`cargo test --locked`、
-  `cargo clippy --locked --all-targets -- -D warnings` 与 `git diff --check` 均通过。全量 Rust 结果为 158 个测试通过、
-  1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored；没有修改 protocol corpus，也没有运行外部 SDK、真实
+- Chat 预留 custom tool、audio/file input、audio output、predicted outputs、web search、prompt caching、moderation、 logprobs 与
+  multiple choices；Responses 预留 custom/hosted tools、file input、conversation、prompt template、prompt caching、context
+  management、标准 `include` 枚举、moderation 与 logprobs。所有 Provider contract 和 Upstream API definition 均保持新增字段为
+  `false` 或空集合。
+- 没有增加对应 Bridge、adapter 或 Provider 请求实现。Model 的 mode 与输入/输出模态已进入 registry 和扩展模型信息； Upstream
+  API definition 若启用任一尚未实现的协议能力，仍触发带稳定说明的 `unimplemented!`。请求分析会逐协议识别 custom/hosted
+  tool、audio/file、predicted output、web search、prompt cache、conversation、prompt template、context
+  management、include、moderation、logprobs 与 multiple choices 等已预留 wire 语义，并在 route/egress 前返回
+  `UnimplementedCapabilities`。Ingress 将其映射为 HTTP 400、code `unimplemented_request`；真正未知的 tool type 继续返回既有
+  `UnsupportedCapabilities`。
+- `capability_definition_contract` 覆盖 Model mode/模态编译，以及 10 个 Chat definition、10 个 Responses definition、 10 个
+  Chat 请求和 10 个 Responses 请求预留触发点；`native_routing_contract` 11 个、`bridge_forwarding_contract` 9 个 和
+  `provider_boundary_contract` 16 个测试通过。随后 `cargo fmt -- --check`、`cargo test --locked`、
+  `cargo clippy --locked --all-targets -- -D warnings` 与 `git diff --check` 均通过。全量 Rust 结果为 158 个测试通过、 1
+  个需要外部 OpenAI Python/Node SDK 的集成测试 ignored；没有修改 protocol corpus，也没有运行外部 SDK、真实
   Provider、负载或长期验证。
 
 2026-08-03 完成固定 Public Model 能力契约与模型信息接口：
 
 - `PublicModelInfo` 现在包含稳定标准身份、生命周期、模型事实，以及 Chat Completions/Responses 各自唯一的
   `ModelInterfaceCapabilities`；同一个 registry 编译对象同时驱动标准四字段投影、扩展 list/detail 和请求预检。
-- 固定接口能力由对应协议的全部静态可执行 Route 保守相交。请求只校验客户端明确选择的 Public Model；能力不足或
-  未知时在 egress 前返回 HTTP 400 `unsupported_model_capability`，不会改选模型、跳过 Route 或重排 fallback。
+- 固定接口能力由对应协议的全部静态可执行 Route 保守相交。请求只校验客户端明确选择的 Public Model；能力不足或 未知时在
+  egress 前返回 HTTP 400 `unsupported_model_capability`，不会改选模型、跳过 Route 或重排 fallback。
 - 已接入 `GET /v1/models`、`GET /v1/models/{model}`、`GET /openbridge/v1/models` 和
-  `GET /openbridge/v1/models/{model}`。四个接口共享 Bearer 认证和不可变可见目录；未知或 retired 模型统一隐藏，
-  扩展响应不包含 Provider、Target、Route、upstream model、endpoint、credential、健康、价格或指标。
-- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；
-  全量 Rust 结果为 164 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。未修改 `testdata/`
+  `GET /openbridge/v1/models/{model}`。四个接口共享 Bearer 认证和不可变可见目录；未知或 retired 模型统一隐藏， 扩展响应不包含
+  Provider、Target、Route、upstream model、endpoint、credential、健康、价格或指标。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过； 全量
+  Rust 结果为 164 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。未修改 `testdata/`
   或 `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
 
 2026-08-03 完成能力路由遗留审计与需求归并：
 
 - registry compiler 先把每协议的静态可执行候选与 `ModelInterfaceCapabilities` 编译进同一个执行接口；`plan_request`
-  在预检后只读取该接口，不再在请求期扫描 Route、解析 Target/API 或判断静态启停。`BridgePlan` 失败会拒绝整个请求，
-  不会跳过该 Route；reasoning wire 映射不改变候选资格或顺序。
+  在预检后只读取该接口，不再在请求期扫描 Route、解析 Target/API 或判断静态启停。`BridgePlan` 失败会拒绝整个请求， 不会跳过该
+  Route；reasoning wire 映射不改变候选资格或顺序。
 - `forward_request` 只因 cooldown、credential 可用性、可重试 HTTP/transport failure 和 state affinity 执行
   retry/fallback，不读取或比较模型能力。已删除没有生产调用方的 `ProviderAdapter::validate_capabilities` 及其重复
   `ApiCapabilities` 子集入口；Provider 能力上界仍只在 registry 构建时校验。
-- 内部 Public Model 聚合输入已改称 Route contract contribution；请求事实、错误说明和测试名称统一为
-  Public Model 固定契约预检，不再把能力描述成候选级运行时检查，也不再使用“兼容候选”术语。
+- 内部 Public Model 聚合输入已改称 Route contract contribution；请求事实、错误说明和测试名称统一为 Public Model
+  固定契约预检，不再把能力描述成候选级运行时检查，也不再使用“兼容候选”术语。
 - 新增[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)，集中维护
-  身份、生命周期、固定交集、Models API、错误、禁止能力路由、验收与非目标；API、配置、产品范围和 Provider
-  韧性文档只保留各自所有权并链接该页。
+  身份、生命周期、固定交集、Models API、错误、禁止能力路由、验收与非目标；API、配置、产品范围和 Provider 韧性文档只保留各自所有权并链接该页。
 - `cargo fmt -- --check`、`cargo test --locked --target-dir target\model-contract-audit`、
-  `cargo clippy --locked --target-dir target\model-contract-audit -- -D warnings` 与 `git diff --check` 均通过；全量
-  Rust 结果为 163 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改 `testdata/` 或
+  `cargo clippy --locked --target-dir target\model-contract-audit -- -D warnings` 与 `git diff --check` 均通过；全量 Rust
+  结果为 163 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改 `testdata/` 或
   `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
 
 2026-08-03 完成基于 OpenRouter 精确目录的 Public Model 事实补全：
 
-- `src/models/` 下 16 个可精确匹配模型补全或校验现有描述、模型级 context、输入/输出模态、tokenizer 和
-  knowledge cutoff，并把 `top_provider.max_completion_tokens` 映射为最大输出上限。OpenRouter 没有独立的
-  max-input 字段，因此 `max_input_tokens` 使用已确认的模型级 `context_length`；不从总上下文减最大输出，
-  也不为没有精确记录的 `gpt-5.3-codex-spark` 猜测事实。
-- registry 会传递并保守相交 tokenizer、knowledge cutoff 和模型描述；不同 Route 的事实不一致或缺失时继续
-  返回 `null`。模型本体模态与实际 Chat/Responses 接口能力分开聚合，目录中的 video 不会扩大当前接口契约。
+- `src/models/` 下 16 个可精确匹配模型补全或校验现有描述、模型级 context、输入/输出模态、tokenizer 和 knowledge cutoff，并把
+  `top_provider.max_completion_tokens` 映射为最大输出上限。OpenRouter 没有独立的 max-input 字段，因此 `max_input_tokens`
+  使用已确认的模型级 `context_length`；不从总上下文减最大输出， 也不为没有精确记录的 `gpt-5.3-codex-spark` 猜测事实。
+- registry 会传递并保守相交 tokenizer、knowledge cutoff 和模型描述；不同 Route 的事实不一致或缺失时继续 返回 `null`
+  。模型本体模态与实际 Chat/Responses 接口能力分开聚合，目录中的 video 不会扩大当前接口契约。
 - `tests/example_config.rs` 覆盖编译目录和加载后的 Public Model 元数据；`tests/forwarding_contract.rs` 覆盖
   `/openbridge/v1/models` 与 detail 的一致性及客户端可见非空字段。`gpt-5.3-codex-spark` 和现有未知字段的
   `null` 语义仍由测试保护。
 - 本轮执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和
-  `git diff --check`，均通过；未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。
-  未运行外部 SDK、真实 Provider、负载或长期验证。
+  `git diff --check`，均通过；未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。 未运行外部 SDK、真实
+  Provider、负载或长期验证。
 
 2026-08-03 完成扩展 Models 首版 schema 的 reasoning wire 与参数所有权修正：
 
-- `ReasoningLevel::XHigh` 在扩展 Models list/detail 中统一序列化为请求解析器和 OpenAPI 使用的标准 `xhigh`，
-  不再返回无法直接回填请求的 `x_high`。
+- `ReasoningLevel::XHigh` 在扩展 Models list/detail 中统一序列化为请求解析器和 OpenAPI 使用的标准 `xhigh`， 不再返回无法直接回填请求的
+  `x_high`。
 - canonical `ModelInfo.supported_parameters` 继续参与 Upstream API 收窄和每协议固定接口交集，但
   `ModelCapabilities` 不再重复公开这份模型目录上界；客户端可调用参数只由目标
   `interfaces.*.supported_parameters` 公开。项目尚未发布，因此 schema version 保持首版字符串 `"1"`。
@@ -401,50 +442,49 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`
   均通过；全量 Rust 结果为 164 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。
 - 本地服务使用私有下游用户 Key 只读验证 7 个扩展模型：schema version 均为 `"1"`，模型事实层均无
-  `supported_parameters`，两个接口参数列表均保留，reasoning levels 包含 `xhigh` 且不含 `x_high`，标准/扩展
-  ID 与所有 detail 对象一致。该验证未调用真实 Provider；也未运行外部 SDK、负载或长期验收。
+  `supported_parameters`，两个接口参数列表均保留，reasoning levels 包含 `xhigh` 且不含 `x_high`，标准/扩展 ID 与所有 detail
+  对象一致。该验证未调用真实 Provider；也未运行外部 SDK、负载或长期验收。
 
 2026-08-04 完成同一 Public Model 的多 Provider 聚合装配与 continuation 安全边界：
 
-- `src/providers/catalog/routing.rs` 的单 target registration 已改为有序 Provider route source 列表；对每个
-  下游协议按 source 声明顺序生成全部 Native Route，再按同序生成 Bridge Route。已有 checked-in Public
-  Model 的 source 列表仍各只有一个元素，Route ID 与默认行为未改变，也未新增未经真实证据确认的 Provider 绑定。
-- `src/registry/public_model.rs` 在保守接口交集之外记录仅供内部判断的 Target/API continuation issuer；只有全部
-  Responses Route 支持且 issuer 唯一时才公开 `previous_response_id`。多个潜在签发者会把 typed state 收窄为
-  `unsupported`、移出 `supported_parameters`，请求在 transport 前以能力错误拒绝；同一 issuer 的多 Route 仍
-  保持第一候选执行和禁止 fallback。
-- TDD 首先确认目录测试因 registration 无法表达 source 列表而编译失败，并确认歧义 continuation 旧实现实际
-  调用首选 Target、返回 429 而不是预期的本地 400。修复后，目录顺序、跨 Provider 同 canonical Model 规划、
-  能力交集、真实 attempt 顺序、唯一 issuer continuation 与歧义 preflight 聚焦测试均通过。
+- `src/providers/catalog/routing.rs` 的单 target registration 已改为有序 Provider route source 列表；对每个 下游协议按
+  source 声明顺序生成全部 Native Route，再按同序生成 Bridge Route。已有 checked-in Public Model 的 source 列表仍各只有一个元素，Route
+  ID 与默认行为未改变，也未新增未经真实证据确认的 Provider 绑定。
+- `src/registry/public_model.rs` 在保守接口交集之外记录仅供内部判断的 Target/API continuation issuer；只有全部 Responses
+  Route 支持且 issuer 唯一时才公开 `previous_response_id`。多个潜在签发者会把 typed state 收窄为
+  `unsupported`、移出 `supported_parameters`，请求在 transport 前以能力错误拒绝；同一 issuer 的多 Route 仍 保持第一候选执行和禁止
+  fallback。
+- TDD 首先确认目录测试因 registration 无法表达 source 列表而编译失败，并确认歧义 continuation 旧实现实际 调用首选
+  Target、返回 429 而不是预期的本地 400。修复后，目录顺序、跨 Provider 同 canonical Model 规划、 能力交集、真实 attempt 顺序、唯一
+  issuer continuation 与歧义 preflight 聚焦测试均通过。
 - 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-  `git diff --check`，全量 Rust 结果为 166 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试
- ignored，Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行
-  外部 SDK、真实 Provider、负载或长期验收。
+  `git diff --check`，全量 Rust 结果为 166 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored，Clippy
+  零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行 外部 SDK、真实 Provider、负载或长期验收。
 
 2026-08-04 完成 Route planning 职责拆分与 reasoning wire 映射下沉：
 
-- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 在预检后
-  消费已编译的候选，构造 Native/Bridged candidate 并设置 fallback 边界。
-- `RouteCandidate` 不再保存已应用的 reasoning mapping，Native 与 Bridged `ApiRequest` 在 RoutePlan 中均保留目标
-  协议的 canonical level。OpenAI-compatible Provider adapter 在 egress JSON 准备阶段与真实 model 一次性完成
-  target-specific reasoning wire 改写；`PreparedUpstreamRequest` 只携带实际已应用映射用于 attempt tracing。
-- TDD 首先让规划测试因旧实现提前把 `xhigh` 改成 `max` 而失败；重构后该测试确认所有规划候选保留 `xhigh`，
-  forwarding contract 继续确认发送到显式映射 Upstream API 的 wire 值为 `max`。`cargo fmt -- --check` 与
-  `cargo test --locked` 均通过；全量 Rust 结果为 166 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试
-  ignored。未修改 `testdata/` 或 `tools/corpus/`，未运行 Python corpus、外部 SDK、真实 Provider、负载或长期验收。
+- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 在预检后 消费已编译的候选，构造
+  Native/Bridged candidate 并设置 fallback 边界。
+- `RouteCandidate` 不再保存已应用的 reasoning mapping，Native 与 Bridged `ApiRequest` 在 RoutePlan 中均保留目标 协议的
+  canonical level。OpenAI-compatible Provider adapter 在 egress JSON 准备阶段与真实 model 一次性完成 target-specific
+  reasoning wire 改写；`PreparedUpstreamRequest` 只携带实际已应用映射用于 attempt tracing。
+- TDD 首先让规划测试因旧实现提前把 `xhigh` 改成 `max` 而失败；重构后该测试确认所有规划候选保留 `xhigh`， forwarding
+  contract 继续确认发送到显式映射 Upstream API 的 wire 值为 `max`。`cargo fmt -- --check` 与
+  `cargo test --locked` 均通过；全量 Rust 结果为 166 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改
+  `testdata/` 或 `tools/corpus/`，未运行 Python corpus、外部 SDK、真实 Provider、负载或长期验收。
 
 2026-08-04 完成 Public Model 协议执行接口预编译：
 
 - registry compiler 在完成引用、operation 和 Native/Bridged 方向校验后，按 Public Model/下游 operation 一次性编译
   `ModelExecutionInterface`。每个接口把保守的 `ModelInterfaceCapabilities` 与同一组静态启用候选绑定；候选冻结
-  Route/Target/Upstream API ID、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models
-  DTO 仍只投影安全能力，不暴露上述拓扑。
+  Route/Target/Upstream API ID、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models DTO
+  仍只投影安全能力，不暴露上述拓扑。
 - `preflight` 和 `planning` 现在读取同一个执行接口：前者完成一次能力校验，后者仅按预编译顺序构造 Native 请求或
-  `BridgePlan`。请求路径不再扫描 `PublicModel.routes()`、查询全局 Route 表或重复判断 Target/API 静态启停；forwarding
-  仍独占 credential member、retry/fallback、cooldown、取消和 state-affinity 行为。
-- TDD 先加入 compiler 单元测试，旧代码因缺少 `execution_interface` 编译失败；实现后该测试验证禁用 Chat Native API
-  时只保留 Chat→Responses Bridge。`native_routing_contract` 进一步验证禁用的弱 Route 既不收窄公开能力，也不进入
-  RoutePlan；既有多 Provider Native-first、continuation issuer 和 forwarding 回归保持通过。
+  `BridgePlan`。请求路径不再扫描 `PublicModel.routes()`、查询全局 Route 表或重复判断 Target/API 静态启停；forwarding 仍独占
+  credential member、retry/fallback、cooldown、取消和 state-affinity 行为。
+- TDD 先加入 compiler 单元测试，旧代码因缺少 `execution_interface` 编译失败；实现后该测试验证禁用 Chat Native API 时只保留
+  Chat→Responses Bridge。`native_routing_contract` 进一步验证禁用的弱 Route 既不收窄公开能力，也不进入 RoutePlan；既有多
+  Provider Native-first、continuation issuer 和 forwarding 回归保持通过。
 - 已通过 `cargo test --locked --test example_config`、`cargo test --locked --test native_routing_contract`、
   `cargo test --locked --test forwarding_contract`、`cargo fmt -- --check`、`cargo test --locked`、
   `cargo clippy --locked -- -D warnings` 和 `git diff --check`。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python
@@ -453,8 +493,8 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
 2026-08-05 完成 Native Embeddings 垂直链路：
 
 - `OperationKind::EmbeddingsCreate`、分型 Embedding capability/execution interface、严格 request union、固定 Native
-  planning/adapter、预提交有界成功体 validator、有限 replay/取消、稳定错误 envelope 和 `operation` 级脱敏观测已接入
-  生产 Router；Models projection 与 preflight 使用同一个预编译接口。
+  planning/adapter、预提交有界成功体 validator、有限 replay/取消、稳定错误 envelope 和 `operation` 级脱敏观测已接入 生产
+  Router；Models projection 与 preflight 使用同一个预编译接口。
 - checked-in registry 新增 `openai/text-embedding-3-small`、专用 `openai-text-embedding-3-small` target、`embeddings`
   Upstream API、`embedding-primary-openai-embeddings` Route 与 Public Model `embedding-primary`。OpenAPI、配置说明、功能
   需求、实现细节和 README 已同步到该首版固定契约。
@@ -462,9 +502,9 @@ wire 稳定性。没有运行外部 SDK、Codex/Hermes、负载或长期验证�
   `/openbridge/v1/models`，再调用 `/v1/embeddings`，1 个显式 ignored integration case 通过。该闭环使用实际 Router、
   checked-in registry 和 deterministic in-memory upstream，不安装第三方包、不读取私有配置，也不调用真实 Provider。
 - 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-  `git diff --check`，均通过；全量 Rust 结果为 198 个测试通过、2 个显式 integration test ignored，其中独立 Python
-  loopback 已按上条单独运行通过；Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus
-  baseline；未运行外部 OpenAI SDK、真实 Provider、负载或长期验收。
+  `git diff --check`，均通过；全量 Rust 结果为 198 个测试通过、2 个显式 integration test ignored，其中独立 Python loopback
+  已按上条单独运行通过；Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行外部
+  OpenAI SDK、真实 Provider、负载或长期验收。
 
 ## 当前未实现
 

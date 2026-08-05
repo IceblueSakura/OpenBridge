@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
         registry.http_client().pool_idle_timeout(),
         registry.http_client().pool_max_idle_per_host(),
     )
-    .context("failed to initialize upstream HTTP client")?;
+        .context("failed to initialize upstream HTTP client")?;
     let app_state = GatewayState::new(
         Arc::new(registry),
         Arc::new(upstream),

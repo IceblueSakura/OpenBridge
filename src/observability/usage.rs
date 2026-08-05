@@ -166,9 +166,9 @@ pub(super) fn is_business_output(value: &Value) -> bool {
                         .and_then(Value::as_str)
                         .is_some_and(|content| !content.is_empty())
                         || delta
-                            .get("tool_calls")
-                            .and_then(Value::as_array)
-                            .is_some_and(|calls| !calls.is_empty())
+                        .get("tool_calls")
+                        .and_then(Value::as_array)
+                        .is_some_and(|calls| !calls.is_empty())
                 })
             })
         })

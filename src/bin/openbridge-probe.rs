@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
         registry.http_client().pool_idle_timeout(),
         registry.http_client().pool_max_idle_per_host(),
     )
-    .context("failed to initialize upstream HTTP client")?;
+        .context("failed to initialize upstream HTTP client")?;
     // Move only the selected target's upstream pool into the immutable credential snapshot.
     let required_pool_id = registry
         .upstream_target(&arguments.upstream_target_id)
@@ -57,8 +57,8 @@ async fn main() -> Result<()> {
         &credentials,
         arguments.selection,
     )
-    .await
-    .context("probe could not be prepared")?;
+        .await
+        .context("probe could not be prepared")?;
 
     println!(
         "{}",
@@ -74,7 +74,7 @@ struct ProbeArguments {
 
 impl ProbeArguments {
     /// Parses command-line selectors into one target and a fixed set of probes.
-    fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
+    fn parse(arguments: impl IntoIterator<Item=String>) -> Result<Self> {
         // Parse target and probe selections one at a time and reject undeclared CLI arguments.
         let mut upstream_target_id = None;
         let mut selection = ProbeOptions::default();
@@ -155,7 +155,7 @@ mod tests {
             "--list-models",
             "--function-calling",
         ])
-        .unwrap();
+            .unwrap();
         assert_eq!(
             alternate.selection,
             ProbeOptions {

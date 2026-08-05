@@ -1,1 +1,5 @@
-{"input":"Wrong content type.","model":"upstream-model","stream":true}
+{
+  "input": "Wrong content type.",
+  "model": "upstream-model",
+  "stream": true
+}

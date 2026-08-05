@@ -1,1 +1,5 @@
-{"input":"Authenticate.","model":"public-model","stream":false}
+{
+  "input": "Authenticate.",
+  "model": "public-model",
+  "stream": false
+}

@@ -68,7 +68,7 @@ impl UpstreamCredentialConfiguration {
     pub fn into_builder_for<'a>(
         self,
         registry: &RuntimeRegistry,
-        required_pool_ids: impl IntoIterator<Item = &'a str>,
+        required_pool_ids: impl IntoIterator<Item=&'a str>,
     ) -> Result<CredentialStoreBuilder, UpstreamCredentialConfigError> {
         let mut builder = CredentialStoreBuilder::new();
         self.load_into_for(&mut builder, registry, required_pool_ids)?;
@@ -80,7 +80,7 @@ impl UpstreamCredentialConfiguration {
         mut self,
         builder: &mut CredentialStoreBuilder,
         registry: &RuntimeRegistry,
-        required_pool_ids: impl IntoIterator<Item = &'a str>,
+        required_pool_ids: impl IntoIterator<Item=&'a str>,
     ) -> Result<(), UpstreamCredentialConfigError> {
         // Reject pools not registered in code so misspelled or stale secrets are not silently ignored.
         for configured_pool_id in self.pools.keys() {

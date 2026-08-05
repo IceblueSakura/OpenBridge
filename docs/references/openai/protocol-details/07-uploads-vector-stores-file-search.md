@@ -2,7 +2,8 @@
 
 ## 1. 与 Files 的关系
 
-Uploads、Vector Stores 和 Responses File Search 组成多个资源层：Upload 负责分片事务，File 是完成后的对象，Vector Store 管理检索集合，File Search 是 Responses hosted tool。
+Uploads、Vector Stores 和 Responses File Search 组成多个资源层：Upload 负责分片事务，File 是完成后的对象，Vector Store
+管理检索集合，File Search 是 Responses hosted tool。
 
 资料：[Uploads API](https://developers.openai.com/api/reference/resources/uploads)、[Vector Stores API](https://developers.openai.com/api/reference/resources/vector_stores)、[File search](https://developers.openai.com/api/docs/guides/tools-file-search)。
 
@@ -17,11 +18,13 @@ Uploads、Vector Stores 和 Responses File Search 组成多个资源层：Upload
 
 ## 3. Vector Store lifecycle
 
-Vector Store 是独立资源，可关联 files、形成 processing status，并支持 list/retrieve/update/delete 等操作。file processing 完成前不能假定检索可用。
+Vector Store 是独立资源，可关联 files、形成 processing status，并支持 list/retrieve/update/delete 等操作。file processing
+完成前不能假定检索可用。
 
 ## 4. Responses File Search
 
-File Search 通过 hosted tool 引用 vector-store identity。tool request、检索结果 include、citation/annotation 和资源权限共同决定 response shape。
+File Search 通过 hosted tool 引用 vector-store identity。tool request、检索结果 include、citation/annotation 和资源权限共同决定
+response shape。
 
 ## 5. 边界
 

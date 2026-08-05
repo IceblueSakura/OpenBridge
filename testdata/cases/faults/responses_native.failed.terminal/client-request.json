@@ -1,1 +1,5 @@
-{"input":"Fail.","model":"public-model","stream":true}
+{
+  "input": "Fail.",
+  "model": "public-model",
+  "stream": true
+}

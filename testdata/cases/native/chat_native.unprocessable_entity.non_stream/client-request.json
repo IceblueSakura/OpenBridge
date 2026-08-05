@@ -1,1 +1,10 @@
-{"messages":[{"content":"Unprocessable.","role":"user"}],"model":"public-model","stream":false}
+{
+  "messages": [
+    {
+      "content": "Unprocessable.",
+      "role": "user"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

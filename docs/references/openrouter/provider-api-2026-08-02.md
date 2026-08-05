@@ -14,7 +14,8 @@
 - API base 为 `https://openrouter.ai/api/v1`。
 - Chat Completions、Responses 和 Models 相对 path 分别为 `/chat/completions`、`/responses`、`/models`。
 - API key 使用 `Authorization: Bearer <OPENROUTER_API_KEY>`。
-- Responses 页面描述 JSON/SSE、reasoning 和 function tool；该 surface 是无状态的，`store: true` 和非空 `previous_response_id` 返回 400。
+- Responses 页面描述 JSON/SSE、reasoning 和 function tool；该 surface 是无状态的，`store: true` 和非空
+  `previous_response_id` 返回 400。
 - `HTTP-Referer`、`X-Title` 是可选 attribution/routing header，不是 Bearer 认证本身。
 
 ## 2. 官方示例与 live wire 差异
@@ -41,4 +42,5 @@
 
 ## 4. 复核条件
 
-endpoint、认证、模型 id、Responses beta 行为、数据政策、attribution header 或具体模型页面变化时，需要重新采集官方资料和 wire transcript，并分别记录模型变体。
+endpoint、认证、模型 id、Responses beta 行为、数据政策、attribution header 或具体模型页面变化时，需要重新采集官方资料和 wire
+transcript，并分别记录模型变体。

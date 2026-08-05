@@ -1,1 +1,10 @@
-{"messages":[{"content":"Invalid request.","role":"user"}],"model":"upstream-model","stream":false}
+{
+  "messages": [
+    {
+      "content": "Invalid request.",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false
+}

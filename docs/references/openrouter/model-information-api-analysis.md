@@ -8,13 +8,13 @@
 
 ## 1. 接口分层
 
-| 接口 | 粒度 | 返回重点 |
-| --- | --- | --- |
-| `GET /api/v1/models` | 公开模型目录 | `{data, links, total_count}` 与完整 `Model` 对象 |
-| `GET /api/v1/model/{author}/{slug}` | 单个模型 | 一个 `Model` 对象 |
-| `GET /api/v1/models/count` | 目录计数 | 可按输出模态过滤的数量 |
-| `GET /api/v1/models/user` | 用户偏好视图 | 叠加 Provider 偏好、隐私、guardrail 或区域约束 |
-| `GET /api/v1/models/{author}/{slug}/endpoints` | Provider endpoint | endpoint 价格、参数和供应详情 |
+| 接口                                           | 粒度              | 返回重点                                         |
+|------------------------------------------------|-------------------|--------------------------------------------------|
+| `GET /api/v1/models`                           | 公开模型目录      | `{data, links, total_count}` 与完整 `Model` 对象 |
+| `GET /api/v1/model/{author}/{slug}`            | 单个模型          | 一个 `Model` 对象                                |
+| `GET /api/v1/models/count`                     | 目录计数          | 可按输出模态过滤的数量                           |
+| `GET /api/v1/models/user`                      | 用户偏好视图      | 叠加 Provider 偏好、隐私、guardrail 或区域约束   |
+| `GET /api/v1/models/{author}/{slug}/endpoints` | Provider endpoint | endpoint 价格、参数和供应详情                    |
 
 列表接口支持文本、category、supported parameters、输入输出模态、context、价格、作者、Provider、区域、模型年龄和若干质量指标过滤。过滤条件不等于每个返回字段都属于稳定协议能力。
 
@@ -45,7 +45,8 @@ Model
 
 ## 3. 目录与 endpoint 的分离
 
-基础 Models API 返回 canonical 模型目录；Provider endpoint 详情通过独立资源访问。用户目录还会叠加账户偏好和政策。因此同一个模型 id 的目录事实、用户可见性和某个 endpoint 的实时供应状态需要分别解释。
+基础 Models API 返回 canonical 模型目录；Provider endpoint 详情通过独立资源访问。用户目录还会叠加账户偏好和政策。因此同一个模型
+id 的目录事实、用户可见性和某个 endpoint 的实时供应状态需要分别解释。
 
 ## 4. 适用边界
 
