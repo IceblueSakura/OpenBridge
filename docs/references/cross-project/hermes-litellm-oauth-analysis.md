@@ -14,6 +14,8 @@
 
 **2026-08-01 当前模块级复核。** Hermes `main` 已更新至 `470cf66b039c73bdd2c21d43094ce41a4db74eae`，其 Codex 登录、refresh、runtime credential、credential pool 与 account-header 路径仍可定位；LiteLLM `litellm_internal_staging` 已更新至 `23de7a15d9d40006ee596e617475ba101d60c5e9`，其 ChatGPT `Authenticator`、token/account 获取与 header 路径仍可定位。两边的行号和实现细节均可能已经演进，因此下文继续以固定快照为证据，且不扩大 OAuth 的授权边界。
 
+**2026-08-05 交叉调研补充。** Codex 官方设备登录、Codex/CLIProxyAPI 的当前实现、RFC 8628 差异，以及四个项目的 refresh scheduler/并发对比统一记录在[上游 OAuth 2.0 设备码登录与 token 刷新调研](upstream-oauth-device-code-token-refresh-analysis.md)。本文继续保留 Hermes/LiteLLM 的旧快照逐行证据。
+
 ## 1. 结论摘要
 
 1. Hermes 与 LiteLLM 都内置 ChatGPT/Codex subscription 的上游 OAuth client：device code → 用户授权 → authorization code + PKCE verifier → token exchange → 本地持久化。它们不是为 proxy 下游用户提供登录的 OAuth authorization server。
@@ -192,6 +194,7 @@ uv run pytest -q tests/hermes_cli/test_auth_codex_provider.py \
 - [产品范围](../../functional-requirements/product-scope.md)
 - [配置、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
 - [Codex OAuth 与工具调用源码调研](../codex/codex-oauth-and-tool-call-analysis.md)
+- [上游 OAuth 2.0 设备码登录与 token 刷新调研](upstream-oauth-device-code-token-refresh-analysis.md)
 - [Hermes Agent Chat/Responses 分析](../hermes/hermes-chat-responses-analysis.md)
 - [LiteLLM Chat/Responses 分析](../litellm/litellm-chat-responses-analysis.md)
 - [当前代码架构](../../implementation-status/current-architecture.md)

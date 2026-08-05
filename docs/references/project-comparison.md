@@ -76,7 +76,7 @@ source/commit + files or issue
 | Native Path 的字段保留与失败策略 | Codex、Hermes | LiteLLM | 对已支持协议最小改写；未知合法字段、SSE 与已输出错误的处理测试 | 只因 bridge 已存在就默认转换，或输出后 retry/fallback |
 | 注册表、secret 与单所有者部署 | OpenBridge 产品需求 | Codex/Hermes 配置形状仅作客户端接入样本 | 编译期 Provider 注册、启动时用户表、显式 secret binding 与脱敏要求 | 采用任何项目的账户池、在线 key 管理或 GUI 配置模型 |
 | usage、TTFT/TTFB 与错误率 | OpenBridge 产品需求 | LiteLLM 的 usage/error 字段仅作兼容检查 | 低基数聚合、唯一终态、正确分子/分母与无正文记录 | 复制 Proxy 的用户计费、审计或 callback/control-plane 链路 |
-| OAuth credential adapter | 官方资料和明确授权 | Codex/Hermes/CLIProxyAPI 仅可说明本地客户端行为和风险 | preflight/拒绝规则或经授权的独立 adapter 契约 | 由观察到的客户端流程推导可复用 client id、refresh 或账号身份 |
+| OAuth credential adapter | 官方资料、OAuth RFC 和明确授权 | [Codex/CLIProxyAPI/Hermes/LiteLLM 设备登录与 refresh 对比](cross-project/upstream-oauth-device-code-token-refresh-analysis.md)仅可说明客户端行为和风险 | Provider preflight、标准/私有 flow 分离、经授权的独立 adapter、rotation-safe 存储与有界 401 recovery | 由观察到的客户端流程推导可复用 client id、私有 endpoint、refresh 或账号身份 |
 
 ## 4. 各项目的研究入口与完成条件
 
@@ -84,7 +84,7 @@ source/commit + files or issue
 
 **先回答：** 当前本地 Codex 在 custom Provider profile 下实际发送、解析和期待什么？其 Rust SSE/tool lifecycle 中哪些是可证明的 wire 约束？
 
-- 已有材料：[Codex Responses SSE 与工具生命周期](codex/codex-sse-and-tool-lifecycle-analysis.md)、[Codex OAuth 安全边界](codex/codex-oauth-and-tool-call-analysis.md)；Codex [repository](https://github.com/openai/codex)；[配置参考](https://developers.openai.com/codex/config-reference)。
+- 已有材料：[Codex Responses SSE 与工具生命周期](codex/codex-sse-and-tool-lifecycle-analysis.md)、[Codex OAuth 安全边界](codex/codex-oauth-and-tool-call-analysis.md)、[设备登录与 refresh 交叉调研](cross-project/upstream-oauth-device-code-token-refresh-analysis.md)；Codex [repository](https://github.com/openai/codex)；[配置参考](https://developers.openai.com/codex/config-reference)。
 - 固定 commit 后优先阅读：SSE bytes 的分帧/解析和 terminal、event 到 response/tool item 的映射、`call_id` 传递、并行 tool、cancel；OAuth 仅保留为“不得外推”的安全边界。
 - 完成条件：指定 Codex 版本的 text/tool/parallel/cancel/error fixture 通过，并记录 `supports_websockets = false` 的实际 HTTP/SSE 观察。
 

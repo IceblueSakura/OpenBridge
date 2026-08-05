@@ -71,10 +71,11 @@
 
 ### OAuth 安全边界（非当前接入目标）
 
+- [上游 OAuth 2.0 设备码登录与 token 刷新](cross-project/upstream-oauth-device-code-token-refresh-analysis.md)：以 RFC 为基线，比较 Codex、CLIProxyAPI、Hermes 与 LiteLLM 的设备登录、到期调度、refresh rotation、并发和 401 恢复；区分 Codex 私有 flow 与标准 RFC 8628。
 - [Codex OAuth 与工具调用](codex/codex-oauth-and-tool-call-analysis.md)
 - [Hermes 与 LiteLLM OAuth](cross-project/hermes-litellm-oauth-analysis.md)
 
-这两篇只说明既有本地客户端的 OAuth 风险与不可外推范围；OAuth 是否可作为 OpenBridge 上游 credential 必须另依官方资料与明确授权判断。
+这些材料只说明规范基线、既有本地客户端的行为和不可外推风险；OAuth 是否可作为 OpenBridge 上游 credential，仍必须对每个 Provider 另依官方资料、独立 client registration 与明确授权判断。
 
 新增参考需记录来源、快照时间或提交、检查范围、观察事实、推论与适用边界；升级实现前仍需复核官方资料和本地验证。
 

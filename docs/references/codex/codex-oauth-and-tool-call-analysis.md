@@ -13,6 +13,8 @@
 
 **2026-08-01 当前模块级复核。** 本地 `main` 已 fast-forward 至 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`；`run_login_server`、PKCE、`UnauthorizedRecovery`、`refresh_lock`、`AuthManagerAuthProvider`、`ChatGPT-Account-ID`、`ToolRouter::build_tool_call` 与 `ToolInvocation` 仍可定位。login、core tools 与 model-provider 已演进，所以下文详细行号仍只对应固定证据快照，不能据此推断 OAuth 获得授权或形成 OpenBridge 功能承诺。
 
+**2026-08-05 设备登录补充。** 当前 Codex 官方文档与上述提交还包含 beta 的 `codex login --device-auth`。其源码不是原样 RFC 8628：客户端先轮询 Codex 私有 device-auth endpoint 取得 authorization code 与 PKCE material，再执行 authorization-code exchange。当前设备 flow、5 分钟按需 refresh、CLIProxyAPI 后台 scheduler，以及 Hermes/LiteLLM 对照统一记录在[上游 OAuth 2.0 设备码登录与 token 刷新调研](../cross-project/upstream-oauth-device-code-token-refresh-analysis.md)；本文下方旧快照的 loopback 证据仍只说明当时路径。
+
 ## 1. 结论摘要
 
 1. Codex 实现的是**本地客户端** OAuth 登录：loopback callback、authorization code + PKCE、`state` 校验、token exchange、工作区限制检查与本地凭证持久化。它证明 Codex 自身的行为，**不证明**第三方 proxy 可以复用其 OAuth client registration、redirect URI、端点或 token exchange。
@@ -177,3 +179,4 @@ Responses SSE / websocket item
 - [交付与证据要求](../../functional-requirements/delivery-and-evidence.md)
 - [Hermes Agent 协议分析](../hermes/hermes-chat-responses-analysis.md)
 - [Hermes 与 LiteLLM ChatGPT OAuth 实现调研](../cross-project/hermes-litellm-oauth-analysis.md)
+- [上游 OAuth 2.0 设备码登录与 token 刷新调研](../cross-project/upstream-oauth-device-code-token-refresh-analysis.md)
