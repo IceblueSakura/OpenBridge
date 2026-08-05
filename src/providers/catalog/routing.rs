@@ -84,9 +84,42 @@ pub(super) fn compiled_routing() -> CompiledRouting {
         public_models.push(compiled.public_model);
     }
 
+    // Add the independent Embeddings-only registration after all generation Public Models.
+    let embedding = embedding_registration();
+    routes.extend(embedding.routes);
+    public_models.push(embedding.public_model);
+
     CompiledRouting {
         routes,
         public_models,
+    }
+}
+
+/// Builds the single checked-in Embeddings Native Route and its Public Model.
+fn embedding_registration() -> CompiledPublicModel {
+    // Bind the downstream operation directly to the dedicated trusted target and API.
+    let route = RouteConfig {
+        id: "embedding-primary-openai-embeddings".to_owned(),
+        upstream_target: "openai-text-embedding-3-small".to_owned(),
+        upstream_api: "embeddings".to_owned(),
+        downstream_operation: crate::core::OperationKind::EmbeddingsCreate,
+        mode: RouteMode::Native,
+    };
+
+    // Publish exactly that Route without adding Bridge or fallback candidates.
+    let public_model = PublicModelConfig {
+        id: "embedding-primary".to_owned(),
+        created: 1_785_715_200,
+        display_name: "Embedding Primary".to_owned(),
+        description: Some(
+            "OpenAI text embedding model with a fixed Native execution path.".to_owned(),
+        ),
+        lifecycle: ModelLifecycle::active(),
+        routes: vec![route.id.clone()],
+    };
+    CompiledPublicModel {
+        routes: vec![route],
+        public_model,
     }
 }
 

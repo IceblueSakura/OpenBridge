@@ -29,7 +29,6 @@ use openbridge::{
     ingress::{GatewayState, build_router},
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::{PreparedUpstreamRequest, ProviderKind},
-    providers::compiled_config,
     registry::{
         InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
         PublicModelConfig, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
@@ -1478,34 +1477,4 @@ async fn embedding_endpoint_is_authenticated_and_json_only_before_egress() {
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
     assert!(transport.requests.lock().unwrap().is_empty());
-}
-
-#[test]
-fn checked_in_catalog_remains_generation_only_before_registration_stage() {
-    // Keep Embeddings callable only through this stage's synthetic registry fixture.
-    let definition = compiled_config();
-    assert!(
-        definition
-            .models
-            .iter()
-            .all(|model| model.mode != Some(ModelMode::Embedding))
-    );
-    assert!(definition.upstream_targets.iter().all(|target| {
-        target
-            .upstream_apis
-            .iter()
-            .all(|api| api.operation != OperationKind::EmbeddingsCreate)
-    }));
-    assert!(
-        definition
-            .routes
-            .iter()
-            .all(|route| route.downstream_operation != OperationKind::EmbeddingsCreate)
-    );
-    assert!(
-        definition
-            .public_models
-            .iter()
-            .all(|model| model.id != "embedding-primary")
-    );
 }

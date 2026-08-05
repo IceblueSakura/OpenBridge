@@ -24,6 +24,7 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         "openai/gpt-5.6-luna",
         "openai/gpt-5.5",
         "openai/gpt-5.3-codex-spark",
+        "openai/text-embedding-3-small",
         "deepseek/deepseek-v4-pro",
         "deepseek/deepseek-v4-flash",
         "xiaomi/mimo-v2.5-pro",
@@ -196,12 +197,12 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             .any(|parameter| parameter == "structured_outputs")
     );
 
-    // The current catalog type does not represent embedding or rerank, preventing unroutable protocols from posing as text models.
+    // Keep unrelated rerank models out until that task and protocol have an executable contract.
     assert!(
         definition
             .models
             .iter()
-            .all(|model| !model.id.contains("embed") && !model.id.contains("rerank"))
+            .all(|model| !model.id.contains("rerank"))
     );
 }
 

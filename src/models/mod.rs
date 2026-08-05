@@ -6,6 +6,7 @@
 
 mod catalog;
 pub(crate) mod deepseek;
+pub(crate) mod embedding;
 mod glm;
 pub(crate) mod gpt;
 mod hy;

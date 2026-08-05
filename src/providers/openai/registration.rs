@@ -3,16 +3,41 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
-    models::gpt,
+    core::{
+        ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding, EmbeddingInputForm,
+        EmbeddingsCapabilities, OperationKind, ReasoningOutput, ResponsesCapabilities,
+    },
+    models::{embedding, gpt},
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::UpstreamTargetConfig,
+    registry::{
+        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiModelRules, UpstreamTargetConfig,
+    },
 };
+
+const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] = &[
+    EmbeddingInputForm::String,
+    EmbeddingInputForm::StringArray,
+    EmbeddingInputForm::TokenArray,
+    EmbeddingInputForm::TokenArrayArray,
+];
+const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] =
+    &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
+const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
+    EmbeddingInputForm::TokenArray,
+    EmbeddingInputForm::TokenArrayArray,
+];
+const EMBEDDING_PARAMETERS: &[&str] = &["encoding_format", "user"];
 
 /// Builds the OpenAI upstream targets built into this compiled version.
 pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
-    vec![UpstreamTargetConfig {
+    vec![generation_target(), embedding_target()]
+}
+
+/// Builds the existing OpenAI generation target without adding request-time model selection.
+fn generation_target() -> UpstreamTargetConfig {
+    UpstreamTargetConfig {
         id: "openai-main".to_owned(),
         provider: ProviderKind::OpenAi,
         model: gpt::v5_6_sol::ID.to_owned(),
@@ -27,7 +52,49 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "public-api",
             conservative_openai_capabilities(),
         ),
-    }]
+    }
+}
+
+/// Builds the dedicated `text-embedding-3-small` target and its sole Native API.
+fn embedding_target() -> UpstreamTargetConfig {
+    UpstreamTargetConfig {
+        id: "openai-text-embedding-3-small".to_owned(),
+        provider: ProviderKind::OpenAi,
+        model: embedding::TEXT_EMBEDDING_3_SMALL_ID.to_owned(),
+        base_url: "https://api.openai.com".to_owned(),
+        credential_pool: "openai-primary".to_owned(),
+        quota_scope: None,
+        fault_domain: None,
+        request_timeout: Duration::from_secs(120),
+        enabled: true,
+        upstream_apis: vec![UpstreamApiConfig {
+            id: "embeddings".to_owned(),
+            operation: OperationKind::EmbeddingsCreate,
+            upstream_model: "text-embedding-3-small".to_owned(),
+            endpoint_profile: "public-api".to_owned(),
+            transport: TransportKind::HttpJson,
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),
+            state_affinity: StateAffinity::Unbound,
+        }],
+    }
+}
+
+/// Returns the checked-in OpenAI `text-embedding-3-small` execution contract.
+pub const fn text_embedding_3_small_capabilities() -> EmbeddingsCapabilities {
+    EmbeddingsCapabilities {
+        enabled: true,
+        input_forms: EMBEDDING_INPUT_FORMS,
+        default_encoding: EmbeddingEncoding::Float,
+        allowed_encodings: Some(EMBEDDING_ENCODINGS),
+        default_dimensions: 1_536,
+        allowed_dimensions: None,
+        max_inputs: 2_048,
+        max_tokens_per_input: Some(8_192),
+        max_total_tokens: Some(300_000),
+        locally_counted_input_forms: LOCALLY_COUNTED_EMBEDDING_FORMS,
+        supported_parameters: EMBEDDING_PARAMETERS,
+    }
 }
 
 /// Returns conservative OpenAI capabilities that must be expanded only after an upstream probe.
