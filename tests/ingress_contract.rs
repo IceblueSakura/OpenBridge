@@ -82,6 +82,10 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
     assert!(spec.contains("/openbridge/v1/models/{model}:"));
     assert!(spec.contains("/v1/chat/completions:"));
     assert!(spec.contains("/v1/responses:"));
+    assert!(spec.contains("/v1/embeddings:"));
+    assert!(spec.contains("EmbeddingInterfaceCapabilities:"));
+    assert!(spec.contains("EmbeddingRequest:"));
+    assert!(spec.contains("EmbeddingResponse:"));
 
     let response = test_app(support::registry("docs-test", "code-primary", "test-model"))
         .oneshot(Request::get("/swagger-ui/").body(Body::empty()).unwrap())

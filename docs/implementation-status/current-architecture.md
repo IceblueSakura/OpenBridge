@@ -5,12 +5,15 @@
 **已实现事实。** 当前生产注册表使用
 `ModelConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。
+Embeddings 使用独立的 `EmbeddingRequestRequirements + EmbeddingRoutePlan`，不进入 generation-only
+`ApiProtocol` 或 `BridgePlan`。
 本页不复制易漂移的测试数量；最近实际运行的命令、结果和未执行验收层统一见
 [当前实现说明](current-implementation.md#验证状态)。
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求
 cooldown、`BridgePlan`、双向 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口
-与固定 Public Model 能力预检也已接入。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期 Provider attempt 维度
+与固定 Public Model 能力预检也已接入。Embeddings 另有严格 JSON ingress、单条 Native Route 和预提交有界
+成功体校验。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期 Provider attempt 维度
 聚合的性能/usage/cache 快照，但尚未接入 OpenTelemetry/Prometheus exporter。
 
 ## 1. 分层结构
@@ -24,7 +27,7 @@ immutable RuntimeRegistry + UserRegistry + CredentialStore
           ↓
 HTTP Models projection / request ingress
           ↓
-RequestRequirements → Public Model interface preflight → RoutePlan / optional BridgePlan
+operation-specific requirements → Public Model interface preflight → RoutePlan / optional BridgePlan
           ↓
 ProviderAdapter + UpstreamTarget + UpstreamApi
           ↓
@@ -44,14 +47,14 @@ Public Model 或 Route；transport 不解释模型和协议能力。
 
 | 层 | 核心类型 | 简单定义 |
 |---|---|---|
-| 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、请求限制和 HTTP client 参数 |
+| 启动配置 | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig` | 进程启动参数、request/response/replay/SSE 限制和 HTTP client 参数 |
 | Credential | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`UpstreamCredential` | 启动时解析 pool、合并上下游 secret、隔离用途并提供只读成员借用视图 |
 | 下游身份 | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User` | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份 |
 | 上游凭证 | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration` | 校验私有 TOML，并按编译期 pool id 把有序 API key 移交给 Store builder |
-| API 语义 | `ApiProtocol`、`ApiRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`GenerationCapabilities` | 下游协议、原始请求、协议分域能力和仅供内部判定使用的公共生成能力投影 |
+| API 语义 | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`GenerationCapabilities` | 独立 operation、generation 协议/请求、Embeddings 请求、分域能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置 | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig` | 编译期写入并等待校验的配置 |
-| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据 |
-| 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate` | 请求需要什么、可走哪些 route、每条 route 绑定到哪里 |
+| 运行注册表 | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据 |
+| 请求规划 | `RequestRequirements`、`RoutePlan`、`RouteCandidate`、`EmbeddingRequestRequirements`、`EmbeddingRoutePlan` | 请求需要什么、可走哪些固定 route、每条 route 绑定到哪里 |
 | Bridge | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState` | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建 |
 | Provider | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest` | Provider 能力上界、闭合实现分派和待发送请求 |
 | Transport | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse` | 可替换的发送边界、生产 HTTP client 和上游响应 |
@@ -85,7 +88,8 @@ BootstrapConfigPath::load
 → axum::serve
 ```
 
-`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、请求/SSE 大小和 HTTP client 参数。用户文件、
+`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE
+大小和 HTTP client 参数。四个 limit 都是必填非零值，replay limit 不得超过 request limit。用户文件、
 上游 credential 文件、Provider、模型、target、upstream API、route 和 endpoint 都只在启动阶段加载；没有 route TOML、
 动态 Provider DSL 或热重载。`UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
 `CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 再为所有启用 target 引用的 pool 解析 TOML `api_keys`
@@ -116,30 +120,32 @@ RegistryConfig
 | `ModelConfig` | 与供应商无关的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind |
 | `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential pool 引用、timeout、启停及 quota/fault 边界 |
-| `UpstreamApiConfig` | 单一原生协议的 upstream model、served limits、能力证据、transport、state affinity 与 reasoning level 映射 |
-| `RouteConfig` | target、upstream API、下游协议和 `Native`/`Bridged` 执行模式 |
+| `UpstreamApiConfig` | 单一原生 operation 的 upstream model、served limits、能力证据、transport、state affinity 与可选 reasoning level 映射 |
+| `RouteConfig` | target、upstream API、下游 operation 和 `Native`/`Bridged` 执行模式 |
 | `PublicModelConfig` | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID |
-| `PublicModelInfo` | 标准身份、模型事实及每协议唯一固定能力契约；不包含任何部署字段 |
+| `PublicModelInfo` | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段 |
 
-当前编译目录包含 17 个 `ModelConfig`：LongCat-2.0，以及从 LiteLLM 部署清单整理出的 16 个唯一
-Chat/Responses 模型。同一模型家族由 `src/models/<family>.rs` 聚合，家族目录下每个扁平叶模块只定义一个
+当前编译目录包含 18 个 `ModelConfig`：17 个既有 generation 模型，以及独立的
+`openai/text-embedding-3-small` Embedding 模型。同一模型家族由 `src/models/<family>.rs` 聚合，家族目录下每个扁平叶模块只定义一个
 具体模型。版本、checkpoint 和命名变体直接组成模块名：例如 `gpt/v5_6_sol.rs`、
 `deepseek/v4_flash.rs`、`mimo/v2_5_pro.rs` 与 `qwen/v3_7_max.rs`；不增加版本聚合层。家族根模块直接维持
 目录顺序，源码使用 `gpt::v5_6_sol::ID` 这类扁平作用域名称。每个具体模型仍完整拥有 id、名称、context、
 参数、reasoning 状态和 level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于
 可调用；只有被 Upstream Target 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
-当前 `ModelConfig` 不表示 embedding/rerank，因此两个 Nemotron retrieval 条目没有被伪装成文本模型。
-其中 16 个模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；
+`ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被
+伪装成可调用 Embedding/rerank 模型。其中 16 个 generation 模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；
 `openai/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
 `:free` 变体边界见 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
-同一 target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、context/output
-限制、能力证据和 state affinity。共享 endpoint、credential、Model 与故障边界属于 target。
+同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、
+context/output 限制、能力证据和 state affinity。Embeddings checked-in 注册使用独立 target，只包含一个
+`HttpJson` API。共享 endpoint、credential、Model 与故障边界属于 target。
 
 `build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Upstream API
-协议/能力一致性、model rules 只收窄、三段 context 关系、Native/Bridged route 协议方向、Public Model
+operation/能力一致性、model rules 只收窄、三段 context 关系、Native/Bridged route 方向、Embeddings 单
+Native candidate 与闭合 capability、Public Model
 身份/生命周期及 route 顺序。公共对象与请求预检必须保持的需求见
-[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按协议对
+[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按 operation 对
 所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
 
 ```text
@@ -154,8 +160,9 @@ RuntimeRegistry
 ## 4. HTTP 接入层
 
 实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 endpoint，
-`forwarding.rs` 负责 candidate/retry/fallback，`forwarding/response.rs` 负责把已选上游响应交给 Native 或
-Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和
+`forwarding.rs` 负责 generation candidate/retry/fallback，`forwarding/embeddings.rs` 负责单 Route
+Embeddings attempt，`forwarding/embeddings/response.rs` 负责有界成功体校验，`forwarding/response.rs` 负责把
+已选 generation 上游响应交给 Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和
 请求终态观测。
 
 | Endpoint | 当前处理 |
@@ -167,6 +174,7 @@ Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` �
 | `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象 |
 | `POST /v1/chat/completions` | 进入 Chat Native/Bridged RoutePlan |
 | `POST /v1/responses` | 进入 Responses Native/Bridged RoutePlan |
+| `POST /v1/embeddings` | 进入严格 JSON Embeddings analysis/preflight 与唯一 Native candidate |
 
 Ingress 执行认证、body/content-type 限制、本地错误归一化和当前的首输出前 attempt 循环。它不接受
 客户端提供的上游 URL、credential 或内部 route ID。
@@ -177,19 +185,21 @@ Ingress 执行认证、body/content-type 限制、本地错误归一化和当前
 `src/pipeline/preflight.rs`、`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
 
 ```text
-raw body + downstream protocol
-→ analyze_request
-→ RequestRequirements
-→ Public Model protocol execution interface（fixed capability + static ordered candidates）
-→ capability / limit / reasoning preflight
-→ RoutePlan<RouteCandidate>
+raw body + downstream operation
+→ analyze_request / analyze_embedding_request
+→ RequestRequirements / EmbeddingRequestRequirements
+→ Public Model operation execution interface（fixed capability + static candidates）
+→ operation-specific capability and limit preflight
+→ RoutePlan<RouteCandidate> / EmbeddingRoutePlan
 ```
 
-`RequestRequirements` 只记录请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
+`RequestRequirements` 只记录 generation 请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。
 reasoning level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为
 显式 level，字段缺失才表示调用方没有请求 reasoning。
-registry compiler 在完成 Route、Target 与 Upstream API 引用和方向校验后，为每个 Public Model/下游协议编译一个
-`ModelExecutionInterface`。它把 `ModelInterfaceCapabilities` 与同一组静态启用候选保存在一起；候选冻结 Route、
+`EmbeddingRequestRequirements` 只保存 input form/count、可本地计算的 token counts、可选 encoding/dimensions
+和 `user` 是否出现，不复制业务输入。
+registry compiler 在完成 Route、Target 与 Upstream API 引用和方向校验后，为每个 Public Model/下游 operation 编译一个
+`ModelExecutionInterface`。它把 generation 或 Embeddings capability 与同一组静态启用候选保存在一起；候选冻结 Route、
 Target、Upstream API、上下游协议和 `Native`/`Bridged` 模式。`PublicModelInfo` 只投影这份固定能力契约的安全副本，
 不包含候选拓扑。
 `preflight` 从该执行接口读取能力，因此不支持或未知能力在查看候选前失败；通过后 `planning` 只遍历同一接口的
@@ -197,6 +207,8 @@ Target、Upstream API、上下游协议和 `Native`/`Bridged` 模式。`PublicMo
 `BridgePlan`。Bridge 构造失败仍拒绝整个请求，不能跳过该候选。
 Native candidate 保留 canonical `ApiRequest`，Bridged candidate 保存目标协议的 canonical `ApiRequest`；两者都不在
 RoutePlan 中应用或记录 reasoning wire 映射。
+Embeddings preflight 读取同一执行接口的四种 input form、encoding/dimension domain 和有效 limit；planning 只接受
+唯一 Native candidate，并把原始 `EmbeddingRequest` 交给 adapter 在 egress 时改写受信 model/path。
 
 Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，写入真实 model，并按该 Upstream API 的显式配置
 把 canonical reasoning level 改为安全 wire 值。映射源必须属于有效 Model 的 level 集合，目标值必须满足受限
@@ -219,7 +231,7 @@ continuation issuer 唯一解析到同一 Target/API；多个潜在签发者会�
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有
 Provider 契约、endpoint path、request-header hook 与 Responses terminal discriminator；共享 `openai_compatible`
 机制负责模型字段与 reasoning level wire 映射、Bearer 认证、响应/SSE terminal、
-错误分类和 Chat/Responses Upstream API pair 构造。DeepSeek 的 Responses path 缺失时在 adapter 内返回
+错误分类和 Chat/Responses Upstream API pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、
 转换或删除普通 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选
 attribution/routing header，共享层不维护普通 header allowlist。credential header 在 hook 之后独立附加。credential
@@ -231,7 +243,9 @@ pool id、Provider 与 credential kind 来自 `CredentialPoolBinding`，endpoint
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat
-与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API。目录中的每个 Public Model
+与 MiMo 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API。OpenAI 另有
+`openai-text-embedding-3-small` target、`embeddings` API 和 `embedding-primary-openai-embeddings` Native Route，
+不复用 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model
 由一个编译注册单元持有有序 Provider route source；每个下游协议先按 source 顺序生成全部 Native route，再按
 相同顺序生成指向相反 Upstream API 的 Bridged route。当前 checked-in 注册项的 source 列表都只有一个元素，
 尚未增加未经真实能力证据确认的跨 Provider 模型绑定。MiMo 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、
@@ -240,7 +254,8 @@ quota scope 与 fault domain。Bridge 生产路径由编译注册表、记录型
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达；
 crate-private `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊
-endpoint 类型。canonical
+endpoint 类型。`EmbeddingsCapabilities` 独立拥有 input forms、encoding/dimension domain、request limits 与
+可选参数，不参与 generation intersection 或 Bridge。canonical
 `ModelConfig` 记录已核实的 `mode`、`input_modalities`、`output_modalities`、tokenizer 和 knowledge cutoff；当前
 OpenRouter 精确匹配的 canonical 模型还记录模型级 `context_length` 作为总上下文和输入上限，并记录可用的
 最大输出上限。没有精确目录记录的 Codex Spark 继续保留未知字段。Chat 预留 audio/file/custom tool、audio output、
@@ -269,21 +284,23 @@ quota scope 与 fault domain。每个 target 只注册 Chat Upstream API；Publi
 
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target
 timeout。Native streaming response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged
-stream 则按完整 event 增量渲染目标协议 wire。下游丢弃任一 body 时，上游 stream 随之取消。
+stream 则按完整 event 增量渲染目标协议 wire。Embeddings success 在首次下游 commit 前按独立 JSON response
+budget 完整读取并校验；非法成功体不进入 retry。下游丢弃任一 body 时，上游 stream 随之取消。
 OpenAI-compatible adapter 统一使用 OpenAI terminal 词汇，并把 discriminator 来源作为编译期 Provider
 事实：OpenAI/MiMo 从 SSE `event:` 读取，LongCat/OpenRouter 从 data JSON 顶层 `type` 读取。discriminator
 不进入 TOML 或运行时探测；双来源 terminal 冲突时失败关闭，也不把尾随 `[DONE]` 代替 Responses 语义终态。
 
-`ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 共享最多 6 次的硬预算，
+`ingress::attempt::AttemptManager` 管理单请求 attempt 生命周期：stream/non-stream 与 Embeddings 共享最多 6 次的硬预算，
 每候选最多 2 次，attempt 间从 50 ms 起按二倍增长并 capped 到 500 ms；在预算可容纳时为未尝试候选保留
-机会。RoutePlan 允许时可进入同一 Public Model 的下一完整候选；下游取消会销毁 pending send、timer 或
+机会。generation RoutePlan 允许时可进入同一 Public Model 的下一完整候选；Embeddings 当前只有一个 candidate，
+且只有请求不超过 replay budget 才能使用第二次本地 attempt。下游取消会销毁 pending send、timer 或
 response body，提交 response 后不得再拼接另一上游响应。
 
 Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff 取消，建立后把责任移交给外层
 `RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，仅在自身提交真实 EOF 或 body error 后报告
 end-stream，并在真实 EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把 headers ready
 误当成 TTFT。JSON usage 只在配置上限内临时解析，SSE usage 按完整 event 解析；业务正文不会写入 tracing 或
-进程内累计值。Provider attempt 的 route/target/Provider 等受信编译期维度进入独立快照，request/user/
+进程内累计值。Provider attempt 的 operation/route/target/Provider 等受信编译期维度进入独立快照，request/user/
 credential/endpoint URL 仍不进入指标 key；`GatewayMetrics` 继续只维护进程级低基数单调计数。
 
 `ingress::credential_health::CredentialHealth` 与 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。
@@ -307,8 +324,8 @@ stream 的分片，不用它替代 call id。两侧要求唯一 terminal 和闭�
 target endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不
 加载下游用户 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
-测试夹具使用 target/upstream API/route 和 `RequestRequirements + RoutePlan` API。确定性测试保护注册表、
-Provider 边界、路由、HTTP/SSE、Bridge、retry/fallback、credential rotation/cooldown、取消与观测行为；它们
+测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、
+Provider 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们
 不自动升级为外部 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。最新实际执行结果
 只在[当前实现说明](current-implementation.md#验证状态)维护。
 
@@ -319,6 +336,7 @@ Provider 边界、路由、HTTP/SSE、Bridge、retry/fallback、credential rotat
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式指标聚合；
 - 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
 - Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。
+- 多 Embeddings candidate、embedding Bridge、向量转换/缓存/索引/检索和 string tokenizer。
 
 ## 关联文档
 

@@ -8,7 +8,7 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 核心方向：
 
-1. 原生转发 `POST /v1/responses` 与 `POST /v1/chat/completions` 的 HTTP JSON/SSE；
+1. 原生转发 `POST /v1/responses`、`POST /v1/chat/completions` 的 HTTP JSON/SSE，以及独立的 `POST /v1/embeddings` JSON；
 2. 聚合多个 Provider、Upstream Target 与稳定 Public Model；
 3. 以每 Provider 独立 Rust 模块承载协议行为，以显式注册表管理 Model、Upstream Target、Upstream API 和 Route；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
@@ -18,10 +18,10 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 
 现阶段已批准的扩展目标只包括：
 
-- 独立的 OpenAI-compatible `POST /v1/embeddings`；
+- 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio。
 
-两项必须分别进入独立的当前焦点并串行实施。当前活动焦点只有 Embeddings；其完成、验证并清空后，Native 多模态才可选择一个独立行为进入下一份焦点。当前代码是否已经支持，必须以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
+两项目标必须分别进入独立的当前焦点并串行实施。Embeddings 焦点已经完成并清空；当前没有活动焦点，Native 多模态仍须另选一个独立行为、补充失败测试和验证边界后才能开始。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，不在现阶段实施范围。
 
 核心稳定后再考虑：
 
@@ -37,7 +37,10 @@ OpenBridge 的核心是一个**单配置所有者、单服务、headless 的多 
 当前 checkout 已实现 OpenAI、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发，
 OpenRouter 的 `nemotron-3-ultra` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 与
 Responses→Chat Bridge 路由，
-以及有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
+并通过独立 Public Model `embedding-primary` 把 Embeddings JSON 请求固定转发到专用 OpenAI target
+`openai-text-embedding-3-small`，其 upstream model 为 `text-embedding-3-small`。该 Embeddings 链路使用严格请求 union、预提交有界成功体校验、单 Route 有限
+retry 与 operation 级脱敏观测；显式 `dimensions` 暂不公开，默认维度为 1536。
+同时实现有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
 retry/fallback、HTTP 429 credential
 rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream 取消传播。显式 `Bridged` Route 还可在两协议间转换
 已声明可转换的 text、明文 reasoning channel、function tool、tool result、非流式 JSON 与流式 SSE；Bridge 对未知字段、未确认的
@@ -82,7 +85,7 @@ OpenAPI:    http://127.0.0.1:8080/openapi.yaml
 ```
 
 Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后，
-即可在页面内测试受保护的标准/扩展 Models、`/v1/chat/completions` 和 `/v1/responses`。
+即可在页面内测试受保护的标准/扩展 Models、`/v1/chat/completions`、`/v1/responses` 和 `/v1/embeddings`。
 页面依赖固定版本的 jsDelivr Swagger UI 静态资源，OpenAPI 规范由本地服务提供。
 
 原生请求示例：
@@ -94,10 +97,22 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}'
 ```
 
+Embeddings 客户端应先读取扩展 Models 中的固定接口，再只发送该接口公开的参数：
+
+```bash
+curl http://127.0.0.1:8080/openbridge/v1/models/embedding-primary \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/v1/embeddings \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"embedding-primary","input":["alpha","beta"],"encoding_format":"float"}'
+```
+
 请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。代码目录允许
-一个 Public Model 显式列出多个 Provider route source；对每个下游协议，先按 Provider 声明顺序生成全部 Native
+一个 generation Public Model 显式列出多个 Provider route source；对每个 generation 下游协议，先按 Provider 声明顺序生成全部 Native
 候选，再按相同顺序生成 Bridge 候选。相同 canonical Model ID 不会触发自动发现或隐式聚合。当前 checked-in
-Public Model 仍各自只注册一个 Provider source，因为尚无第二个已确认的真实 Provider 绑定。Native Route
+generation Public Model 的 source 列表仍各自只有一个元素，因为尚无第二个已确认的真实 Provider 绑定。Native Route
 规划保留 canonical 请求；Provider adapter 在准备选定 Upstream API 的 egress 请求时写入实际上游 `model`，
 并可对 canonical Model 已声明的 reasoning level 应用显式 wire 映射（例如 `xhigh → max`），其余 JSON 与上游 JSON/SSE body 原生转发。
 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
@@ -130,7 +145,7 @@ Public Model 的固定接口契约。`parallel_tool_calls` 只有在全部对应
 
 下游用户和 API Key 来自私有 `users.toml`；上游 pool 来自私有 `upstream-credentials.toml` 的 `api_keys` TOML 数组。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前把已启用的上下游 Key 合并为不可变 `CredentialStore`；未知、缺失或重复 pool，以及空数组、空白成员或重复 secret 都会阻止启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取文件，修改 pool 必须重启。
 
-认证成功后的请求 span 记录 request id、user id、协议和 Public Model；每次上游 attempt 记录 route、target、
+认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、
 Provider 与脱敏 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个
 text/tool 增量、总耗时、retry/fallback/credential rotation/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
 保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，
@@ -160,6 +175,12 @@ uv run --project tools/corpus corpus --root testdata lint
 
 ```bash
 cargo test --locked --test sdk_compatibility -- --ignored
+```
+
+不安装第三方 Python 包的 Embeddings discovery→request loopback：
+
+```bash
+cargo test --locked --test embedding_client_contract -- --ignored
 ```
 
 这些 fixture 是确定性 wire regression。日常客户端可见行为优先使用 OpenAI SDK、独立 Python 脚本或 curl；只有当前行为明确以某个 Agent 为兼容目标时，才使用 Codex、Hermes 等客户端 runtime。SDK/工具不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows 上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。

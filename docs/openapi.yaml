@@ -24,6 +24,8 @@ tags:
     description: Chat Completions-compatible endpoints
   - name: responses
     description: Responses-compatible endpoints
+  - name: embeddings
+    description: JSON-only Embeddings Create endpoint
 paths:
   /healthz:
     get:
@@ -307,6 +309,63 @@ paths:
         '504':
           $ref: '#/components/responses/GatewayTimeout'
 
+  /v1/embeddings:
+    post:
+      tags: [embeddings]
+      summary: Create embeddings
+      operationId: createEmbedding
+      description: |
+        Accepts one strict OpenAI-compatible Embeddings JSON request and executes the single Native
+        candidate owned by the selected Public Model's fixed `interfaces.embeddings` contract.
+        The model interface is authoritative for accepted input forms, encodings, dimensions, and
+        effective limits. The response is read and validated under a bounded JSON budget before any
+        bytes are committed downstream. Streaming and Embeddings bridges are not supported.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              stringBatch:
+                summary: Float embeddings for two text inputs
+                value:
+                  model: embedding-primary
+                  input: [alpha, beta]
+                  encoding_format: float
+      responses:
+        '200':
+          description: Fully validated Embeddings JSON response
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          $ref: '#/components/responses/EmbeddingBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
+        '413':
+          $ref: '#/components/responses/EmbeddingRequestTooLarge'
+        '415':
+          $ref: '#/components/responses/EmbeddingUnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/EmbeddingUpstreamError'
+        '500':
+          $ref: '#/components/responses/EmbeddingConfigurationError'
+        '502':
+          $ref: '#/components/responses/EmbeddingUpstreamError'
+        '503':
+          $ref: '#/components/responses/EmbeddingUpstreamError'
+        '504':
+          $ref: '#/components/responses/EmbeddingGatewayTimeout'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -424,6 +483,96 @@ components:
             error:
               message: The upstream request timed out
               type: invalid_request_error
+              param: null
+              code: upstream_timeout
+    EmbeddingBadRequest:
+      description: The strict request shape is invalid, or the selected model's fixed Embeddings interface does not support the requested field or limit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The selected model does not support the requested Embeddings capability
+              type: invalid_request_error
+              param: dimensions
+              code: unsupported_model_capability
+    EmbeddingRequestTooLarge:
+      description: The request body exceeds the configured ingress limit before any upstream attempt.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The request body exceeds the configured limit
+              type: invalid_request_error
+              param: null
+              code: request_too_large
+    EmbeddingUnsupportedMediaType:
+      description: The Embeddings request must use application/json.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: Content-Type must be application/json
+              type: invalid_request_error
+              param: null
+              code: unsupported_media_type
+    EmbeddingConfigurationError:
+      description: The compiled Embeddings route cannot be resolved at runtime.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The configured Embeddings route is unavailable
+              type: server_error
+              param: null
+              code: configuration_error
+    EmbeddingUpstreamError:
+      description: The upstream attempt failed, rejected the request, exhausted its finite budget, or returned an invalid success body. Upstream bodies and private headers are not exposed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request failed
+              type: server_error
+              param: null
+              code: upstream_error
+    EmbeddingGatewayTimeout:
+      description: The Embeddings upstream request timed out before downstream commit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request timed out
+              type: server_error
               param: null
               code: upstream_timeout
 
@@ -570,7 +719,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [text, image, audio]
+            enum: [text, image, audio, embedding]
 
     ModelCapabilities:
       type: object
@@ -584,7 +733,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [chat, text_generation]
+            enum: [chat, text_generation, embedding]
         context_window:
           $ref: '#/components/schemas/ContextWindow'
         modalities:
@@ -614,7 +763,7 @@ components:
     ModelInterfaces:
       type: object
       additionalProperties: false
-      required: [chat_completions, responses]
+      required: [chat_completions, responses, embeddings]
       properties:
         chat_completions:
           nullable: true
@@ -624,6 +773,142 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/ModelInterfaceCapabilities'
+        embeddings:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/EmbeddingInterfaceCapabilities'
+
+    EmbeddingInterfaceCapabilities:
+      type: object
+      additionalProperties: false
+      required: [input_forms, encoding, dimensions, limits, supported_parameters]
+      properties:
+        input_forms:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EmbeddingInputForm'
+        encoding:
+          $ref: '#/components/schemas/EmbeddingEncodingCapabilities'
+        dimensions:
+          $ref: '#/components/schemas/EmbeddingDimensionCapabilities'
+        limits:
+          $ref: '#/components/schemas/EmbeddingLimits'
+        supported_parameters:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [dimensions, encoding_format, user]
+
+    EmbeddingInputForm:
+      type: string
+      enum: [string, string_array, token_array, token_array_array]
+
+    EmbeddingEncoding:
+      type: string
+      enum: [float, base64]
+
+    EmbeddingEncodingCapabilities:
+      type: object
+      additionalProperties: false
+      required: [default, allowed]
+      properties:
+        default:
+          $ref: '#/components/schemas/EmbeddingEncoding'
+        allowed:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EmbeddingEncoding'
+
+    EmbeddingDimensionCapabilities:
+      type: object
+      additionalProperties: false
+      required: [default, allowed]
+      properties:
+        default:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        allowed:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/EmbeddingDimensionDomain'
+
+    EmbeddingDimensionDomain:
+      oneOf:
+        - $ref: '#/components/schemas/EmbeddingDimensionRange'
+        - $ref: '#/components/schemas/EmbeddingDimensionValues'
+
+    EmbeddingDimensionRange:
+      type: object
+      additionalProperties: false
+      required: [kind, minimum, maximum]
+      properties:
+        kind:
+          type: string
+          enum: [range]
+        minimum:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        maximum:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+
+    EmbeddingDimensionValues:
+      type: object
+      additionalProperties: false
+      required: [kind, values]
+      properties:
+        kind:
+          type: string
+          enum: [values]
+        values:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 4294967295
+
+    EmbeddingLimits:
+      type: object
+      additionalProperties: false
+      required: [max_inputs, max_tokens_per_input, max_total_tokens, locally_counted_input_forms]
+      properties:
+        max_inputs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_tokens_per_input:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        max_total_tokens:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        locally_counted_input_forms:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EmbeddingInputForm'
 
     ModelInterfaceCapabilities:
       type: object
@@ -818,6 +1103,55 @@ components:
         background:
           type: boolean
 
+    EmbeddingRequest:
+      type: object
+      additionalProperties: false
+      required: [model, input]
+      description: Strict Embeddings Create request; the selected model interface may narrow every optional field and limit further.
+      properties:
+        model:
+          type: string
+          minLength: 1
+          description: OpenBridge Embedding Public Model name.
+          example: embedding-primary
+        input:
+          oneOf:
+            - type: string
+              minLength: 1
+            - type: array
+              minItems: 1
+              maxItems: 2048
+              items:
+                type: string
+                minLength: 1
+            - type: array
+              minItems: 1
+              items:
+                type: integer
+                format: int64
+                minimum: 0
+                maximum: 4294967295
+            - type: array
+              minItems: 1
+              maxItems: 2048
+              items:
+                type: array
+                minItems: 1
+                items:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  maximum: 4294967295
+        encoding_format:
+          $ref: '#/components/schemas/EmbeddingEncoding'
+        dimensions:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        user:
+          type: string
+
     ChatMessage:
       type: object
       required: [role]
@@ -914,6 +1248,62 @@ components:
           type: object
           additionalProperties: true
 
+    EmbeddingResponse:
+      type: object
+      additionalProperties: false
+      required: [object, data, model, usage]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/EmbeddingData'
+        model:
+          type: string
+          description: The downstream Public Model selected by the client.
+        usage:
+          $ref: '#/components/schemas/EmbeddingUsage'
+
+    EmbeddingData:
+      type: object
+      additionalProperties: false
+      required: [object, embedding, index]
+      properties:
+        object:
+          type: string
+          enum: [embedding]
+        embedding:
+          oneOf:
+            - type: array
+              minItems: 1
+              items:
+                type: number
+                format: double
+            - type: string
+              format: byte
+        index:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+
+    EmbeddingUsage:
+      type: object
+      additionalProperties: false
+      required: [prompt_tokens, total_tokens]
+      properties:
+        prompt_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        total_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+
     ServerSentEvents:
       type: string
       format: binary
@@ -921,10 +1311,12 @@ components:
 
     ErrorResponse:
       type: object
+      additionalProperties: false
       required: [error]
       properties:
         error:
           type: object
+          additionalProperties: false
           required: [message, type, param, code]
           properties:
             message:

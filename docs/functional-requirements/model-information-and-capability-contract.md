@@ -52,7 +52,7 @@ mapping，也不得包含健康、延迟、配额、价格、成本、指标、�
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
 - 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
 - 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，并可带协议内 source-aware `multimodal_input`；`embeddings` 至多一个独立 Embedding 接口能力对象；
-- schema 版本：首版固定为字符串 `"1"`。该扩展契约尚未发布，新增 Embeddings interface 时直接修正 v1 DTO、序列化、OpenAPI 和测试，不增加无意义的 v2、legacy 字段镜像或双写兼容层。
+- schema 版本：首版固定为字符串 `"1"`。Embeddings interface 首次加入前该扩展契约尚未发布，因此直接修正 v1 DTO、序列化、OpenAPI 和测试，不增加无意义的 v2、legacy 字段镜像或双写兼容层。
 
 模型事实是模型本体的安全公共上界；模型请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有
 可执行 Route 时，其接口值为 `null`。canonical Model 的参数事实只参与编译各接口的
@@ -73,7 +73,7 @@ OpenRouter canonical model 的 `context_length` 是模型目录公开的上下�
 
 ### 4.3 固定契约计算
 
-每个 Public Model 对 Chat Completions、Responses 和 Embeddings 分别只有一个固定契约。registry 在启动时把该协议全部
+每个 Public Model 对 Chat Completions、Responses 和 Embeddings 分别只有一个固定契约。registry 在启动时把该 operation 全部
 静态启用、可执行的 Route 作为契约输入，并按以下规则保守相交：
 
 | 字段 | 计算规则 |

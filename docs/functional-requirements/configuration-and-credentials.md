@@ -13,7 +13,7 @@ route 热重载。
 
 | 来源 | 内容 | 能否包含 secret |
 |---|---|---|
-| `config/bootstrap.toml` | loopback listener、两份私有 credential 文件位置、body/SSE 上限、共享 HTTP client 参数 | 否 |
+| `config/bootstrap.toml` | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数 | 否 |
 | 被忽略的 `config/users.toml` | 下游用户、API Key 与启停状态 | 是 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential pool id 与有序上游 API key | 是 |
 | `src/models/*` | Model 事实、token 限制、参数和 reasoning | 否 |
@@ -22,6 +22,9 @@ route 热重载。
 
 每个运行配置都有同名 `.example` 模板：`config/bootstrap.example.toml`、`config/users.example.toml` 和
 `config/upstream-credentials.example.toml`。模板不得包含真实凭证；Bootstrap 模板由测试约束为与默认配置一致。
+Bootstrap schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
+`max_replay_body_bytes` 与 `max_sse_event_bytes` 均为非零值，并要求 replay limit 不大于 request limit；这些
+字段职责独立，不互相提供缺省或回退。
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。

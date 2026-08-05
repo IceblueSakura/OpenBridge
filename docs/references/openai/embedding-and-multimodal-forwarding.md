@@ -89,7 +89,7 @@ embedding model family/version
 
 扩展 Models 接口应新增独立 `interfaces.embeddings`，至少公开 input forms、默认/可显式请求的 output encoding、默认维度、可请求维度域、有效批量/token 上界与顶层 `supported_parameters`。省略字段时的 encoding/dimension default 与“请求能否显式携带该字段”是不同事实；allowed domain 需要 `null`、集合、区间或离散集合，不能只用布尔值。
 
-多 Route 聚合时，集合求交、数值上限取小、dimension domain 求交；默认维度或内部 vector identity 不一致时不能形成一个可 fallback interface。vector identity 属于私有 registry 事实，只做等价判断，不应通过 Models API 暴露 Provider/upstream model 拓扑。当前焦点先限制为单条 Native Embeddings Route。
+多 Route 聚合时，集合求交、数值上限取小、dimension domain 求交；默认维度或内部 vector identity 不一致时不能形成一个可 fallback interface。vector identity 属于私有 registry 事实，只做等价判断，不应通过 Models API 暴露 Provider/upstream model 拓扑。当前首版实现限制为单条 Native Embeddings Route。
 
 ## 3. 多模态输入的 wire 形状
 

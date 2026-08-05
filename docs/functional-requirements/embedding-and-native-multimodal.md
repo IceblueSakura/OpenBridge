@@ -2,14 +2,14 @@
 
 ## 状态与范围
 
-**两项目标均已批准；当前只有 Embeddings 进入开发焦点。** 现阶段扩展范围仍只包含：
+**两项目标均已批准；Embeddings 已完成当前实现，Native 多模态尚未进入开发焦点。** 现阶段扩展范围仍只包含：
 
 1. OpenAI-compatible `POST /v1/embeddings`；
 2. 现有 Chat Completions/Responses 的 Native JSON 多模态输入。
 
-当前活动焦点只实施 Embeddings；Native 多模态仍是已批准但未进入实施的独立目标。扩展 Models 接口公开的类型化输入能力必须能被同一份不可变执行接口直接预检；只有该固定契约明确允许的输入形状、来源和选项才能进入 Native egress。它不是对所有 OpenAI 媒体 API 的并行实现授权，也不表示当前代码已经实现这些行为；完成事实仍只写入[当前实现说明](../implementation-status/current-implementation.md)。
+当前没有活动焦点；Native 多模态仍是已批准但未进入实施的独立目标。扩展 Models 接口公开的类型化输入能力必须能被同一份不可变执行接口直接预检；只有该固定契约明确允许的输入形状、来源和选项才能进入 Native egress。它不是对所有 OpenAI 媒体 API 的并行实现授权；Embeddings 的完成事实与实际证据只记录在[当前实现说明](../implementation-status/current-implementation.md)。
 
-扩展 schema 与这些 endpoint 尚未发布，因此实施采用首版最佳实践迁移：保持 `schema_version: "1"` 并直接修正 DTO、parser、registry、OpenAPI、配置与测试，不提供旧字段镜像、兼容 alias、双读写、默认回退或弃用窗口。当前 Embeddings 焦点不得顺带改动多模态 reserved bool；多模态进入后续独立焦点时再原子替换其 bool/保留位设计。
+扩展 schema 在本次实现前尚未发布，因此采用首版最佳实践迁移：保持 `schema_version: "1"` 并直接修正 DTO、parser、registry、OpenAPI、配置与测试，不提供旧字段镜像、兼容 alias、双读写、默认回退或弃用窗口。已完成的 Embeddings 实现没有顺带改动多模态 reserved bool；多模态进入后续独立焦点时再原子替换其 bool/保留位设计。
 
 协议字段、媒体形状和实现接缝分别见 [Embeddings 实现细节](../references/openai/implementation-details/01-embeddings.md) 与 [Chat/Responses 多模态实现细节](../references/openai/implementation-details/02-chat-responses-multimodal.md)。
 
@@ -122,7 +122,7 @@ Chat ↔ Responses Bridge 对本阶段多模态请求保持 fail closed。只有
 
 ## 7. Retry、fallback 与证据
 
-Embeddings 只有在请求 body 不超过独立 replay budget 且响应尚未提交时才可有限重放；超过 replay budget 但仍在 request hard limit 内的合法请求只执行第一次 attempt，不因内部重放优化被额外拒绝。跨 Target 只在 vector identity 等价得到显式 registry 证明时允许。当前焦点先限制为单条 Native Embeddings Route，不实现向量等价聚合。多模态 JSON/SSE 沿用现有首输出 commit 与取消边界，但大 body 同样只能执行一次。
+Embeddings 只有在请求 body 不超过独立 replay budget 且响应尚未提交时才可有限重放；超过 replay budget 但仍在 request hard limit 内的合法请求只执行第一次 attempt，不因内部重放优化被额外拒绝。跨 Target 只在 vector identity 等价得到显式 registry 证明时允许。当前实现限制为单条 Native Embeddings Route，不实现向量等价聚合。多模态 JSON/SSE 沿用现有首输出 commit 与取消边界，但大 body 同样只能执行一次。
 
 验收证据分层：
 

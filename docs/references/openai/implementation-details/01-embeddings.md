@@ -1,10 +1,10 @@
 # Embeddings 协议实现细节
 
-**目标状态：** 当前开发焦点中的唯一协议行为；本文描述待实现行为，不表示当前代码已经提供 `/v1/embeddings`。
+**当前边界：** 当前 checkout 已按本文首版契约提供 `/v1/embeddings`；已运行证据与尚未验证层以[当前实现说明](../../../implementation-status/current-implementation.md)为准。本文保留外部 wire 事实和实现接缝，不把 deterministic loopback 推导为真实 OpenAI Provider 验收。
 
 ## 1. 官方 wire contract
 
-目标入口是受保护的 `POST /v1/embeddings`。当前官方 endpoint 使用 `application/json` 请求和 JSON 成功响应，不使用 SSE。请求对象只建模下列标准字段：
+入口是受保护的 `POST /v1/embeddings`。当前官方 endpoint 使用 `application/json` 请求和 JSON 成功响应，不使用 SSE。请求对象只建模下列标准字段：
 
 | 字段 | 形状 | 第一版网关语义 |
 |---|---|---|
@@ -31,7 +31,7 @@
 
 ## 2. 独立 operation 与任务类型
 
-Embeddings 不能继续复用 `ApiProtocol` 中的 generation 语义或 `GenerationCapabilities`。实现需要独立表达：
+Embeddings 不复用 `ApiProtocol` 中的 generation 语义或 `GenerationCapabilities`。当前实现独立表达：
 
 - endpoint/operation identity：Embeddings Create；
 - Canonical task：Embedding，而不是 `ModelMode::Chat`；
@@ -40,9 +40,9 @@ Embeddings 不能继续复用 `ApiProtocol` 中的 generation 语义或 `Generat
 - Public Model interface：`interfaces.embeddings`；
 - request/response parser：不接受 stream、messages、tools、reasoning 或 generation output 字段。
 
-具体 Rust 类型可以与现有命名协调，但 exhaustive match、registry 引用验证、Provider adapter、ingress/OpenAPI 和测试都必须同步更新；不得只在 Router 增加路径后把请求塞进 Chat/Responses pipeline。
+Rust exhaustive match、registry 引用验证、Provider adapter、ingress/OpenAPI 和测试已同步更新；后续修改仍不得只在 Router 增加路径后把请求塞进 Chat/Responses pipeline。
 
-该接口和扩展 schema 尚未发布，直接按首版最佳实践建模：`schema_version` 保持 `"1"`，不保留 generation 布尔占位、旧 DTO、兼容 enum variant、请求字段 alias、双读写或转换 shim。bootstrap 新预算字段同样必须显式提供；缺失时启动失败，不从旧的 request limit 推导默认值。
+该接口和扩展 schema 在实现前尚未发布，因此直接按首版最佳实践建模：`schema_version` 保持 `"1"`，不保留 generation 布尔占位、旧 DTO、兼容 enum variant、请求字段 alias、双读写或转换 shim。bootstrap 新预算字段同样必须显式提供；缺失时启动失败，不从旧的 request limit 推导默认值。
 
 ## 3. Embeddings capability contract
 
@@ -117,24 +117,24 @@ immutable model family/checkpoint
 2. `input_forms`、`encoding.allowed` 和 `supported_parameters` 求交集；显式 encoding 交集为空但 default 一致时令 `allowed = null` 并移除 `encoding_format`，default 不同则拒绝聚合。
 3. `dimensions.allowed` 求区间/集合交集；结果为空但 default 一致时令 `allowed = null` 并移除 `dimensions` 参数，默认维度不同则拒绝聚合。
 4. 数值上限取最小已保证值，并始终受 gateway 全局 request/JSON response limit 约束；有效 `max_inputs` 必须用 checked arithmetic 被显式 batch cap、最大公开维度、允许 encoding 的最坏序列化上界、固定 JSON envelope 与 response budget 收窄。若无法证明至少一个输入的合法成功响应受预算约束，registry 启动失败。
-5. 多 candidate 只有 vector identity 完全相等时才能进入同一个 fallback group；第一版当前焦点限制为单 candidate。
+5. 多 candidate 只有 vector identity 完全相等时才能进入同一个 fallback group；当前首版实现限制为单 candidate。
 
-### 3.4 本轮唯一 checked-in 注册
+### 3.4 当前唯一 checked-in 注册
 
-本轮不能停在合成 registry fixture。完成时必须在编译目录中形成下面一条客户端可执行链：
+当前编译目录已经形成下面一条客户端可执行链，而不是只存在合成 registry fixture：
 
 | 层 | 固定注册 |
 |---|---|
 | Public Model | `embedding-primary` |
-| Canonical/upstream model | `text-embedding-3-small` |
+| Canonical/upstream model | `openai/text-embedding-3-small` / `text-embedding-3-small` |
 | Provider / credential pool | OpenAI / `openai-primary` |
-| Upstream Target | 新建仅绑定该 embedding model 的 OpenAI target，不复用绑定生成模型的 `openai-main` |
-| Upstream API | JSON `POST /v1/embeddings` |
-| Route | `embedding-primary` 仅有一条 Embeddings → Embeddings Native candidate |
+| Upstream Target | `openai-text-embedding-3-small`，仅绑定该 embedding model，不复用生成 target `openai-main` |
+| Upstream API | `embeddings`，JSON `POST /v1/embeddings` |
+| Route | `embedding-primary-openai-embeddings`，Public Model 仅有这一条 Embeddings → Embeddings Native candidate |
 
 该 target 必须继续使用固定 `https://api.openai.com` trusted origin、现有 OpenAI credential pool 和 Provider header policy；请求不能覆盖 URL、path、model、credential、header 或 Route。一个 target 只绑定一个 upstream model，不能把 `text-embedding-3-small` 作为 `openai-main` 的请求期 model 分支。
 
-初始 profile 只声明官方资料明确支持的事实：四种 input form、默认维度 1536、`float`/`base64` encoding、单输入 8192 tokens、单请求输入数组 2048 项和总计 300,000 tokens。`dimensions.allowed` 必须是有直接证据的显式 domain；若实现时仍无法从官方契约或经批准的真实 Provider 验收确认精确范围，则首版设为 `null` 并从 `supported_parameters` 移除 `dimensions`，不得把“可以缩短”推断成未经证明的整数区间。
+初始 profile 只声明官方资料明确支持的事实：四种 input form、默认维度 1536、`float`/`base64` encoding、单输入 8192 tokens、单请求输入数组 2048 项和总计 300,000 tokens。当前没有从官方契约或经批准的真实 Provider 验收确认精确可变维度域，因此 `dimensions.allowed = null`，`supported_parameters` 只有 `encoding_format` 与 `user`；不得把“可以缩短”推断成未经证明的整数区间。公开 `max_inputs` 还会被 bootstrap 的 JSON response budget 进一步收窄。
 
 ## 4. 请求分析与预检
 
@@ -179,7 +179,7 @@ Embeddings 是有界单个 JSON response，不进入 SSE lifecycle。bootstrap s
 - 单 candidate 可在响应提交前按现有 attempt budget 处理可重试 transport/429/5xx；只有 body 不超过 `max_replay_body_bytes` 才能执行第二次 attempt。
 - body 超过 replay budget 但仍在 request limit 内时，合法请求只执行第一次 attempt；不因为内部 replay 优化而返回新的客户端输入错误。
 - 下游取消停止当前发送/接收、credential 等待与 backoff。
-- 当前焦点不实现多 Embeddings Route；后续即使实现，也必须先证明 vector identity 等价。
+- 当前实现不提供多 Embeddings Route；后续即使实现，也必须先证明 vector identity 等价。
 - 上游错误只允许保留安全 status、request id 与 allowlist rate-limit header；不得回传 upstream body、endpoint、credential 或私有诊断。
 
 错误响应必须使用 `{ "error": { "message", "type", "param", "code" } }`，并按下表固定：
@@ -196,7 +196,7 @@ Embeddings 是有界单个 JSON response，不进入 SSE lifecycle。bootstrap s
 | transport timeout 且 attempt 用尽 | 504 | `server_error` | `upstream_timeout` | `null` | 不超过 attempt budget |
 | 其他 transport failure 且 attempt 用尽 | 502 | `server_error` | `upstream_error` | `null` | 不超过 attempt budget |
 
-Provider 返回的非成功 HTTP 状态继续服从共享 Provider retry/status contract，本焦点不重定义其状态分类；但 Embeddings 路径不得把非成功 body 交给成功响应 validator，也不得新增包含 upstream model、endpoint 或 payload 的错误文本。
+Provider 返回的非成功 HTTP 状态继续服从共享 Provider retry/status contract，Embeddings 不重定义其状态分类；但该路径不得把非成功 body 交给成功响应 validator，也不得新增包含 upstream model、endpoint 或 payload 的错误文本。
 
 可观测性直接使用独立 `OperationKind`，不把 Embeddings 塞进 generation-only `ApiProtocol`。现有 request/attempt snapshot 和低基数 label 中语义为 `protocol` 的字段原子迁移为 `operation`，不保留两套字段；三个取值固定为 `chat_completions`、`responses`、`embeddings_create`。Embeddings 只记录：
 
@@ -208,7 +208,7 @@ Provider 返回的非成功 HTTP 状态继续服从共享 Provider retry/status 
 
 ## 7. TDD 与验收矩阵
 
-| 层 | 必须先失败并最终证明的行为 |
+| 层 | 已建立的契约与继续适用的验收行为 |
 |---|---|
 | definition/registry | 独立 task/API/Route/interface；维度域和集合校验；generation/Bridge 错配启动失败 |
 | Models API | 标准四字段不变；扩展 `interfaces.embeddings` 精确投影且不泄漏 topology/vector identity |
@@ -222,7 +222,7 @@ Provider 返回的非成功 HTTP 状态继续服从共享 Provider retry/status 
 
 确定性 Rust/mock 测试只证明本地 registry、routing 与 wire 行为。真实模型可用性、字符串 token 限制、默认维度、归一化、向量质量、费用和跨服务等价性必须由经批准的 Provider 测试单独证明。
 
-## 8. 当前焦点内的非目标
+## 8. 当前实现的非目标
 
 - 不增加第二个 Provider/model/Route candidate，也不复用生成模型 target 做请求期 model 选择；
 - 不做跨 Provider 向量转换、降维、归一化、缓存、索引或检索；

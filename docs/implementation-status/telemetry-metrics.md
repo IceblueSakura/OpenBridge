@@ -26,7 +26,7 @@ Provider 性能、外部 exporter、负载能力或动态选路已经验收。
 | `upstream_target` | 编译期 Upstream Target 标识 |
 | `upstream_api` | 编译期 Upstream API 标识 |
 | `public_model` | 下游请求使用的 Public Model |
-| `protocol` | `chat_completions` 或 `responses` |
+| `operation` | `chat_completions`、`responses` 或 `embeddings_create` |
 | `route_mode` | `native` 或 `bridged` |
 | `streaming` | 是否为 streaming 请求 |
 
@@ -60,7 +60,8 @@ retry 和 fallback 仍由全局 `GatewayMetricsSnapshot` 记录；Provider 快�
 - `duration_ms`：原始 upstream body 生命周期；如果尚未观察到 EOF，则在 error/cancel 边界收口；
 - `generation_duration_ms`：`upstream_ttft_ms` 到原始 upstream body 完成之间的时间。
 
-非流式请求没有 `upstream_ttft_ms`。没有明确 output token，或生成时长为零时，不产生速度观测。
+非流式请求没有 `upstream_ttft_ms`。Embeddings 不产生上下游 TTFT 或 generation duration 样本。没有明确
+output token，或生成时长为零时，不产生速度观测。
 
 `output_speed` 使用定点整数表示：`milli_tokens_per_second = tokens_per_second × 1000`，避免在
 原子累计中使用浮点数。速度由 Provider 明确返回的 output token 和 generation duration 计算，不能由
@@ -77,6 +78,10 @@ SSE chunk 数或字节数推算。
   `prompt_tokens_details.cached_tokens` 或 `input_tokens_details.cached_tokens`；
 - cache write：`cache_write_input_tokens`、`cache_creation_input_tokens`，以及对应 details 字段。
 
+Embeddings 只把 `usage.prompt_tokens` 记录为 input tokens、把 `usage.total_tokens` 记录为 total tokens；不产生
+output-token observation、generation duration 或 output speed。原始文本、token array、`user`、float vector、
+base64 和完整 body 不进入 tracing event、metrics label 或 snapshot。
+
 `usage_observations` 只统计至少解析到一个 usage 字段的 attempt；`input_token_observations`、
 `output_token_observations` 和 `total_token_observations` 分别是对应 token 字段实际出现的次数。每请求
 平均 token 可用对应累计值除以对应 observation 数计算，缺失字段不会被当成零。
@@ -85,8 +90,9 @@ SSE chunk 数或字节数推算。
 `cache_hit_requests / cache_read_observations`；分母为零时命中率未知，没有 Provider cache 字段的请求
 不会被误记为 cache miss。`cache_hit_requests` 只在明确的 cache read token 大于零时增加。
 
-JSON body 和 SSE event 都使用现有请求大小/event 上限；超限、缺失或无法解析时保留下游原始响应，
-但不估算 token 或 cache usage。
+generation JSON usage capture 与 SSE event 分别使用 JSON response/event 上限；超限、缺失或无法解析时不估算
+token 或 cache usage。Embeddings 成功体由 endpoint validator 在同一 JSON response budget 内先完整验证，再记录
+明确 usage；非法成功体不提交下游。
 
 ## 读取方式
 
@@ -126,12 +132,14 @@ capability gate、state affinity、retry/fallback、cooldown 或首个下游输�
 - retry 后的 HTTP failure/完成 attempt 归类；
 - response body 取消、pending send 取消、SSE EOF-before-terminal 和 failed terminal。
 - 真实 Axum/Hyper loopback 下的已知长度模型列表，以及嵌套 Provider/downstream observer 的 Native JSON 完成终态。
+- Embeddings 的 `operation=embeddings_create`、input/total usage、无 output/throughput，以及正文、token、`user`、
+  vector/base64 哨兵不进入导出结果；replay 超限只记录一次 attempt。
 
 测试通过 fake upstream transport 隔离 Provider 网络依赖，并通过真实 Axum/Hyper loopback 覆盖下游 HTTP
 transport；它们只证明 OpenBridge 进程内采集和本地传输边界，不证明真实 Provider 的延迟、token 计数、
 cache 语义、负载表现或长期运行结果。
 
-本轮实际验证：`cargo test --locked --test observability_contract` 的 10 个观测契约测试通过；完整
+最近一次聚焦验证：`cargo test --locked --test observability_contract` 的 13 个观测契约测试通过；完整
 `cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和
 `git diff --check` 均通过。`tests/sdk_compatibility.rs` 仍按仓库约定保持 ignored，未运行外部 SDK、
 真实 Provider、负载或长期运行验收。
