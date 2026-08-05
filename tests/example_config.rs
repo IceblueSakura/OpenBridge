@@ -346,6 +346,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let responses_capabilities = match openrouter_responses.capabilities() {
         UpstreamApiCapabilities::Responses(capabilities) => capabilities,
         UpstreamApiCapabilities::ChatCompletions(_) => panic!("expected Responses capabilities"),
+        UpstreamApiCapabilities::Embeddings(_) => panic!("expected Responses capabilities"),
     };
     assert!(responses_capabilities.enabled);
     assert!(responses_capabilities.streaming);
@@ -613,6 +614,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         let chat_capabilities = match target.upstream_api("chat").unwrap().capabilities() {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities,
             UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
+            UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
         assert!(chat_capabilities.parallel_tool_calls);
         assert!(chat_capabilities.image_input);
@@ -622,6 +624,9 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         {
             UpstreamApiCapabilities::Responses(capabilities) => capabilities,
             UpstreamApiCapabilities::ChatCompletions(_) => {
+                panic!("expected Responses capabilities")
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {
                 panic!("expected Responses capabilities")
             }
         };
@@ -858,6 +863,9 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
             UpstreamApiCapabilities::Responses(capabilities) => {
                 capabilities.function_calling = false;
             }
+            UpstreamApiCapabilities::Embeddings(_) => {
+                panic!("generation target must not contain Embeddings capabilities")
+            }
         }
     }
     alternate.base_url = "https://api.openai.com".to_owned();
@@ -869,28 +877,28 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
             id: "longcat-openai-chat".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
             upstream_api: "chat".to_owned(),
-            downstream_protocol: ApiProtocol::ChatCompletions,
+            downstream_operation: ApiProtocol::ChatCompletions.operation(),
             mode: RouteMode::Native,
         },
         RouteConfig {
             id: "longcat-openai-chat-via-responses".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
             upstream_api: "responses".to_owned(),
-            downstream_protocol: ApiProtocol::ChatCompletions,
+            downstream_operation: ApiProtocol::ChatCompletions.operation(),
             mode: RouteMode::Bridged,
         },
         RouteConfig {
             id: "longcat-openai-responses".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
             upstream_api: "responses".to_owned(),
-            downstream_protocol: ApiProtocol::Responses,
+            downstream_operation: ApiProtocol::Responses.operation(),
             mode: RouteMode::Native,
         },
         RouteConfig {
             id: "longcat-openai-responses-via-chat".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
             upstream_api: "chat".to_owned(),
-            downstream_protocol: ApiProtocol::Responses,
+            downstream_operation: ApiProtocol::Responses.operation(),
             mode: RouteMode::Bridged,
         },
     ]);

@@ -29,7 +29,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         upstream_apis: vec![
             UpstreamApiConfig {
                 id: "chat".to_owned(),
-                protocol: ApiProtocol::ChatCompletions,
+                operation: ApiProtocol::ChatCompletions.operation(),
                 upstream_model: "nvidia/nemotron-3-ultra-550b-a55b".to_owned(),
                 endpoint_profile: "openrouter-chat".to_owned(),
                 transport: TransportKind::HttpJsonSse,
@@ -41,7 +41,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             },
             UpstreamApiConfig {
                 id: "responses".to_owned(),
-                protocol: ApiProtocol::Responses,
+                operation: ApiProtocol::Responses.operation(),
                 upstream_model: "nvidia/nemotron-3-ultra-550b-a55b".to_owned(),
                 endpoint_profile: "openrouter-responses".to_owned(),
                 transport: TransportKind::HttpJsonSse,

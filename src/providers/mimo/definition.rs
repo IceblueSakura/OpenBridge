@@ -58,6 +58,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
+        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     },
     &["mimo-openai"],
     &[CredentialKind::ApiKey],

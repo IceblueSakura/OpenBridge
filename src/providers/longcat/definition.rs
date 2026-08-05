@@ -58,6 +58,7 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
+        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     },
     &["longcat-openai"],
     &[CredentialKind::ApiKey],

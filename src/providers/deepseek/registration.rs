@@ -51,7 +51,7 @@ fn target(
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             id: "chat".to_owned(),
-            protocol: ApiProtocol::ChatCompletions,
+            operation: ApiProtocol::ChatCompletions.operation(),
             upstream_model: upstream_model.to_owned(),
             endpoint_profile: "deepseek-openai".to_owned(),
             transport: TransportKind::HttpJsonSse,

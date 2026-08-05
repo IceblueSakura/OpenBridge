@@ -23,7 +23,7 @@ pub(super) fn preflight_public_model<'a>(
         .public_model(requirements.public_model())
         .ok_or(RequestPlanningError::UnknownModel)?;
     let interface = public_model
-        .execution_interface(requirements.protocol())
+        .execution_interface(requirements.protocol().operation())
         .ok_or(RequestPlanningError::UnsupportedProtocol)?;
 
     // Validate every modeled request fact against the single fixed interface contract.

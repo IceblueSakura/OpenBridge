@@ -75,5 +75,6 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
             moderation: false,
             logprobs: false,
         },
+        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     }
 }

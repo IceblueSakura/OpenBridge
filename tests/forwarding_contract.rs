@@ -789,7 +789,7 @@ fn add_responses_fallback(
         id: route_id.clone(),
         upstream_target: target_id.to_owned(),
         upstream_api: "responses".to_owned(),
-        downstream_protocol: ApiProtocol::Responses,
+        downstream_operation: ApiProtocol::Responses.operation(),
         mode: RouteMode::Native,
     });
     definition.public_models[0].routes.push(route_id);
@@ -1065,7 +1065,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
         id: "stronger-chat".to_owned(),
         upstream_target: "openai-stronger".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: RouteMode::Native,
     });
     definition.public_models[0].routes = vec!["public-chat".to_owned(), "stronger-chat".to_owned()];
@@ -1111,7 +1111,7 @@ async fn streaming_requests_fail_over_to_the_next_configured_target_before_outpu
         id: "fallback-responses".to_owned(),
         upstream_target: "openai-fallback".to_owned(),
         upstream_api: "responses".to_owned(),
-        downstream_protocol: openbridge::core::ApiProtocol::Responses,
+        downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.public_models[0]
@@ -1427,7 +1427,7 @@ async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() 
         id: "fallback-responses".to_owned(),
         upstream_target: "openai-main".to_owned(),
         upstream_api: "responses".to_owned(),
-        downstream_protocol: openbridge::core::ApiProtocol::Responses,
+        downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.public_models[0]

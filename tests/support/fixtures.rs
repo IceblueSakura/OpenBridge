@@ -128,6 +128,7 @@ pub fn capabilities() -> ApiCapabilities {
             moderation: false,
             logprobs: false,
         },
+        embeddings: Default::default(),
     }
 }
 
@@ -166,7 +167,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             upstream_apis: vec![
                 UpstreamApiConfig {
                     id: "chat".to_owned(),
-                    protocol: ApiProtocol::ChatCompletions,
+                    operation: ApiProtocol::ChatCompletions.operation(),
                     upstream_model: upstream_model.to_owned(),
                     endpoint_profile: "public-api".to_owned(),
                     transport: TransportKind::HttpJsonSse,
@@ -178,7 +179,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                 },
                 UpstreamApiConfig {
                     id: "responses".to_owned(),
-                    protocol: ApiProtocol::Responses,
+                    operation: ApiProtocol::Responses.operation(),
                     upstream_model: upstream_model.to_owned(),
                     endpoint_profile: "public-api".to_owned(),
                     transport: TransportKind::HttpJsonSse,
@@ -193,14 +194,14 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                 id: "public-chat".to_owned(),
                 upstream_target: "openai-main".to_owned(),
                 upstream_api: "chat".to_owned(),
-                downstream_protocol: ApiProtocol::ChatCompletions,
+                downstream_operation: ApiProtocol::ChatCompletions.operation(),
                 mode: RouteMode::Native,
             },
             RouteConfig {
                 id: "public-responses".to_owned(),
                 upstream_target: "openai-main".to_owned(),
                 upstream_api: "responses".to_owned(),
-                downstream_protocol: ApiProtocol::Responses,
+                downstream_operation: ApiProtocol::Responses.operation(),
                 mode: RouteMode::Native,
             },
         ],

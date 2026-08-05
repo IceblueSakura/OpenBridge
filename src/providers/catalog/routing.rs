@@ -237,7 +237,7 @@ fn route(
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),
         upstream_api: upstream_api.to_owned(),
-        downstream_protocol,
+        downstream_operation: downstream_protocol.operation(),
         mode,
     }
 }

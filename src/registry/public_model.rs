@@ -1,6 +1,6 @@
 //! Fixed downstream Public Model contracts and safe serialization models.
 //!
-//! This module compiles client-visible model facts together with private Chat/Responses execution
+//! This module compiles client-visible model facts together with private operation execution
 //! interfaces. Each execution interface pairs one conservative capability contract with its fixed
 //! static Route candidates, while serialized responses retain no Provider, Target, Route,
 //! upstream-model, or credential boundary.
@@ -9,7 +9,10 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use crate::core::{ApiProtocol, ReasoningOutput};
+use crate::core::{
+    ApiProtocol, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
+    EmbeddingsCapabilities, OperationKind, ReasoningOutput,
+};
 
 use super::{
     InputModality, ModelContextLength, ModelLifecycle, ModelLifecycleStatus, OutputModality,
@@ -85,6 +88,8 @@ pub enum ModelTask {
     Chat,
     /// General text generation.
     TextGeneration,
+    /// Embedding-vector generation.
+    Embedding,
 }
 
 /// Public Model context-window limits.
@@ -270,6 +275,67 @@ pub struct ModelInterfaceCapabilities {
     state: StateCapabilities,
 }
 
+/// Encoding contract exposed by one Embeddings execution interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct EmbeddingEncodingCapabilities {
+    default: EmbeddingEncoding,
+    allowed: Option<Vec<EmbeddingEncoding>>,
+}
+
+/// Dimension contract exposed by one Embeddings execution interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct EmbeddingDimensionCapabilities {
+    default: u32,
+    allowed: Option<EmbeddingDimensionDomain>,
+}
+
+/// Request limits exposed by one Embeddings execution interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct EmbeddingLimits {
+    max_inputs: u32,
+    max_tokens_per_input: Option<u32>,
+    max_total_tokens: Option<u32>,
+    locally_counted_input_forms: Vec<EmbeddingInputForm>,
+}
+
+/// Unique fixed capability contract for the Embeddings Create operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct EmbeddingInterfaceCapabilities {
+    input_forms: Vec<EmbeddingInputForm>,
+    encoding: EmbeddingEncodingCapabilities,
+    dimensions: EmbeddingDimensionCapabilities,
+    limits: EmbeddingLimits,
+    supported_parameters: Vec<String>,
+}
+
+impl EmbeddingInterfaceCapabilities {
+    /// Builds the public contract from one validated static API profile.
+    fn from_capabilities(capabilities: EmbeddingsCapabilities) -> Self {
+        Self {
+            input_forms: capabilities.input_forms.to_vec(),
+            encoding: EmbeddingEncodingCapabilities {
+                default: capabilities.default_encoding,
+                allowed: capabilities.allowed_encodings.map(<[_]>::to_vec),
+            },
+            dimensions: EmbeddingDimensionCapabilities {
+                default: capabilities.default_dimensions,
+                allowed: capabilities.allowed_dimensions,
+            },
+            limits: EmbeddingLimits {
+                max_inputs: capabilities.max_inputs,
+                max_tokens_per_input: capabilities.max_tokens_per_input,
+                max_total_tokens: capabilities.max_total_tokens,
+                locally_counted_input_forms: capabilities.locally_counted_input_forms.to_vec(),
+            },
+            supported_parameters: capabilities
+                .supported_parameters
+                .iter()
+                .map(|parameter| (*parameter).to_owned())
+                .collect(),
+        }
+    }
+}
+
 impl ModelInterfaceCapabilities {
     /// Returns whether the interface guarantees streaming support.
     pub(crate) const fn supports_streaming(&self) -> bool {
@@ -327,11 +393,12 @@ impl ModelInterfaceCapabilities {
     }
 }
 
-/// The two OpenAI-compatible interface contracts of a Public Model.
+/// Typed OpenAI-compatible operation contracts of a Public Model.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelInterfaces {
     chat_completions: Option<ModelInterfaceCapabilities>,
     responses: Option<ModelInterfaceCapabilities>,
+    embeddings: Option<EmbeddingInterfaceCapabilities>,
 }
 
 /// Strict four-field projection of the standard OpenAI Models resource.
@@ -380,8 +447,8 @@ pub(crate) struct RouteExecutionCandidate {
     route_id: String,
     upstream_target_id: String,
     upstream_api_id: String,
-    downstream_protocol: ApiProtocol,
-    upstream_protocol: ApiProtocol,
+    downstream_operation: OperationKind,
+    upstream_operation: OperationKind,
     mode: RouteMode,
     upstream_model: String,
     reasoning_output: ReasoningOutput,
@@ -403,14 +470,23 @@ impl RouteExecutionCandidate {
         &self.upstream_api_id
     }
 
-    /// Returns the downstream protocol represented by this interface candidate.
-    pub(crate) const fn downstream_protocol(&self) -> ApiProtocol {
-        self.downstream_protocol
+    /// Returns the downstream operation represented by this interface candidate.
+    pub(crate) const fn downstream_operation(&self) -> OperationKind {
+        self.downstream_operation
     }
 
-    /// Returns the native protocol expected by the selected Upstream API.
-    pub(crate) const fn upstream_protocol(&self) -> ApiProtocol {
-        self.upstream_protocol
+    /// Returns the downstream generation protocol guaranteed by a generation execution interface.
+    pub(crate) fn downstream_protocol(&self) -> ApiProtocol {
+        self.downstream_operation
+            .api_protocol()
+            .expect("generation candidates have a downstream API protocol")
+    }
+
+    /// Returns the upstream generation protocol guaranteed by a generation execution interface.
+    pub(crate) fn upstream_protocol(&self) -> ApiProtocol {
+        self.upstream_operation
+            .api_protocol()
+            .expect("generation candidates have an upstream API protocol")
     }
 
     /// Returns whether forwarding is Native or must use the restricted protocol bridge.
@@ -432,14 +508,17 @@ impl RouteExecutionCandidate {
 /// One immutable executable interface shared by request preflight and Route planning.
 #[derive(Debug)]
 pub(crate) struct ModelExecutionInterface {
-    capabilities: ModelInterfaceCapabilities,
+    generation_capabilities: Option<ModelInterfaceCapabilities>,
+    embedding_capabilities: Option<EmbeddingInterfaceCapabilities>,
     candidates: Vec<RouteExecutionCandidate>,
 }
 
 impl ModelExecutionInterface {
     /// Returns the fixed capability contract derived from exactly these static candidates.
     pub(crate) const fn capabilities(&self) -> &ModelInterfaceCapabilities {
-        &self.capabilities
+        self.generation_capabilities
+            .as_ref()
+            .expect("generation preflight selected a generation execution interface")
     }
 
     /// Returns static candidates in their configured priority order.
@@ -448,25 +527,27 @@ impl ModelExecutionInterface {
     }
 }
 
-/// Chat/Responses execution interfaces compiled from one Public Model's static Route bindings.
+/// Operation execution interfaces compiled from one Public Model's static Route bindings.
 #[derive(Debug)]
 struct ModelExecutionInterfaces {
     chat_completions: Option<ModelExecutionInterface>,
     responses: Option<ModelExecutionInterface>,
+    embeddings: Option<ModelExecutionInterface>,
 }
 
 impl ModelExecutionInterfaces {
     /// Returns the interface that owns both preflight capabilities and planning candidates.
-    const fn for_protocol(&self, protocol: ApiProtocol) -> Option<&ModelExecutionInterface> {
-        match protocol {
-            ApiProtocol::ChatCompletions => self.chat_completions.as_ref(),
-            ApiProtocol::Responses => self.responses.as_ref(),
+    const fn for_operation(&self, operation: OperationKind) -> Option<&ModelExecutionInterface> {
+        match operation {
+            OperationKind::ChatCompletions => self.chat_completions.as_ref(),
+            OperationKind::Responses => self.responses.as_ref(),
+            OperationKind::EmbeddingsCreate => self.embeddings.as_ref(),
         }
     }
 
     /// Returns whether this Public Model has any statically executable downstream protocol.
     const fn is_available(&self) -> bool {
-        self.chat_completions.is_some() || self.responses.is_some()
+        self.chat_completions.is_some() || self.responses.is_some() || self.embeddings.is_some()
     }
 
     /// Projects capability copies into the safe Models response without candidate topology.
@@ -475,11 +556,15 @@ impl ModelExecutionInterfaces {
             chat_completions: self
                 .chat_completions
                 .as_ref()
-                .map(|interface| interface.capabilities.clone()),
+                .and_then(|interface| interface.generation_capabilities.clone()),
             responses: self
                 .responses
                 .as_ref()
-                .map(|interface| interface.capabilities.clone()),
+                .and_then(|interface| interface.generation_capabilities.clone()),
+            embeddings: self
+                .embeddings
+                .as_ref()
+                .and_then(|interface| interface.embedding_capabilities.clone()),
         }
     }
 }
@@ -514,9 +599,9 @@ impl PublicModel {
     /// Returns the precompiled interface used by both request preflight and Route planning.
     pub(crate) const fn execution_interface(
         &self,
-        protocol: ApiProtocol,
+        operation: OperationKind,
     ) -> Option<&ModelExecutionInterface> {
-        self.execution_interfaces.for_protocol(protocol)
+        self.execution_interfaces.for_operation(operation)
     }
 
     /// Returns whether the model remains visible to clients and has at least one executable interface.
@@ -582,36 +667,60 @@ pub(super) fn compile_public_model(
     }
 }
 
-/// Compiles the unique Chat and Responses execution interfaces from one Public Model's candidates.
+/// Compiles the unique operation execution interfaces from one Public Model's candidates.
 fn compile_execution_interfaces(
     candidates: &[PrecompiledRouteCandidate],
 ) -> ModelExecutionInterfaces {
-    // Partition the already ordered candidates by their fixed downstream protocol.
+    // Partition the already ordered candidates by their fixed downstream operation.
     ModelExecutionInterfaces {
-        chat_completions: compile_execution_interface(candidates.iter().filter(|candidate| {
-            candidate.execution.downstream_protocol() == ApiProtocol::ChatCompletions
-        })),
-        responses: compile_execution_interface(candidates.iter().filter(|candidate| {
-            candidate.execution.downstream_protocol() == ApiProtocol::Responses
-        })),
+        chat_completions: compile_execution_interface(
+            OperationKind::ChatCompletions,
+            candidates.iter().filter(|candidate| {
+                candidate.execution.downstream_operation() == OperationKind::ChatCompletions
+            }),
+        ),
+        responses: compile_execution_interface(
+            OperationKind::Responses,
+            candidates.iter().filter(|candidate| {
+                candidate.execution.downstream_operation() == OperationKind::Responses
+            }),
+        ),
+        embeddings: compile_execution_interface(
+            OperationKind::EmbeddingsCreate,
+            candidates.iter().filter(|candidate| {
+                candidate.execution.downstream_operation() == OperationKind::EmbeddingsCreate
+            }),
+        ),
     }
 }
 
-/// Pairs one protocol's conservative capability contract with its fixed static candidates.
+/// Pairs one operation's conservative capability contract with its fixed static candidates.
 fn compile_execution_interface<'a>(
+    operation: OperationKind,
     candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
 ) -> Option<ModelExecutionInterface> {
-    // Materialize one protocol's static candidates without changing their configuration order.
+    // Materialize one operation's static candidates without changing their configuration order.
     let candidates = candidates.collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
     let contributions = candidates
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let capabilities = aggregate_interface(contributions.iter())?;
+    let (generation_capabilities, embedding_capabilities) = match operation {
+        OperationKind::ChatCompletions | OperationKind::Responses => {
+            (aggregate_interface(contributions.iter()), None)
+        }
+        OperationKind::EmbeddingsCreate => {
+            (None, aggregate_embedding_interface(contributions.iter()))
+        }
+    };
 
     // Freeze the matching planning data beside the contract that was derived from it.
     Some(ModelExecutionInterface {
-        capabilities,
+        generation_capabilities,
+        embedding_capabilities,
         candidates: candidates
             .into_iter()
             .map(|candidate| candidate.execution.clone())
@@ -629,13 +738,7 @@ impl PrecompiledRouteCandidate {
     /// Includes only a statically enabled Target/API and preserves its validated Route facts.
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
         // Reject disabled Targets and APIs before either capability aggregation or request planning can see them.
-        if !binding.target_enabled
-            || !binding
-                .upstream_api
-                .capabilities()
-                .generation_capabilities()
-                .enabled
-        {
+        if !binding.target_enabled || !binding.upstream_api.capabilities().enabled() {
             return None;
         }
 
@@ -645,8 +748,8 @@ impl PrecompiledRouteCandidate {
                 route_id: binding.route_id.clone(),
                 upstream_target_id: binding.route.upstream_target().to_owned(),
                 upstream_api_id: binding.route.upstream_api().to_owned(),
-                downstream_protocol: binding.route.downstream_protocol(),
-                upstream_protocol: binding.upstream_api.protocol(),
+                downstream_operation: binding.route.downstream_operation(),
+                upstream_operation: binding.upstream_api.operation(),
                 mode: binding.route.mode(),
                 upstream_model: binding.upstream_api.upstream_model().to_owned(),
                 reasoning_output: binding.upstream_api.reasoning_output(),
@@ -658,6 +761,8 @@ impl PrecompiledRouteCandidate {
 
 #[derive(Clone)]
 struct RouteContractContribution {
+    model_tasks: Vec<ModelTask>,
+    embedding_capabilities: Option<EmbeddingsCapabilities>,
     continuation_issuer: ContinuationIssuer,
     context_window: ContextWindow,
     modalities: ModelModalities,
@@ -694,7 +799,13 @@ impl RouteContractContribution {
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Self {
         let route = binding.route;
         let upstream_api = binding.upstream_api;
-        let generation = upstream_api.capabilities().generation_capabilities();
+        let capabilities = upstream_api.capabilities();
+        if let Some(embeddings) = capabilities.embeddings() {
+            return Self::from_embedding_binding(binding, embeddings);
+        }
+        let generation = capabilities
+            .generation_capabilities()
+            .expect("generation operation has generation capabilities");
 
         // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
@@ -720,7 +831,9 @@ impl RouteContractContribution {
         let model_parameters =
             sorted_unique(upstream_api.model().supported_parameters().iter().cloned());
         let interface_parameters = interface_parameters(
-            route.downstream_protocol(),
+            route
+                .downstream_protocol()
+                .expect("generation Route has a downstream API protocol"),
             route.mode(),
             &model_parameters,
             generation.streaming,
@@ -768,6 +881,8 @@ impl RouteContractContribution {
         };
 
         Self {
+            model_tasks: vec![ModelTask::Chat, ModelTask::TextGeneration],
+            embedding_capabilities: None,
             continuation_issuer: ContinuationIssuer {
                 upstream_target: route.upstream_target().to_owned(),
                 upstream_api: route.upstream_api().to_owned(),
@@ -793,6 +908,69 @@ impl RouteContractContribution {
             store: SupportState::from_bool(store),
             previous_response_id: SupportState::from_bool(previous_response_id),
             background: SupportState::from_bool(background),
+        }
+    }
+
+    /// Converts one Native Embeddings Route into public model facts and its typed interface profile.
+    fn from_embedding_binding(
+        binding: &PublicRouteBinding<'_>,
+        capabilities: EmbeddingsCapabilities,
+    ) -> Self {
+        let route = binding.route;
+        let upstream_api = binding.upstream_api;
+
+        // Derive safe model facts without projecting target, API, or upstream-model identity.
+        let mut input = vec![InputModality::Text];
+        let mut output = vec![OutputModality::Embedding];
+        if let Some(model_input) = upstream_api.model().input_modalities() {
+            input.retain(|modality| model_input.contains(modality));
+        }
+        if let Some(model_output) = upstream_api.model().output_modalities() {
+            output.retain(|modality| model_output.contains(modality));
+        }
+        let model_modalities = upstream_api
+            .model()
+            .input_modalities()
+            .zip(upstream_api.model().output_modalities())
+            .map(|(input, output)| ModelModalities {
+                input: sorted_values(input),
+                output: sorted_values(output),
+            });
+        let model_reasoning = SupportState::from(upstream_api.model().reasoning());
+
+        // Populate generation-only fields with explicit unsupported values; they are never projected into this operation.
+        Self {
+            model_tasks: vec![ModelTask::Embedding],
+            embedding_capabilities: Some(capabilities),
+            continuation_issuer: ContinuationIssuer {
+                upstream_target: route.upstream_target().to_owned(),
+                upstream_api: route.upstream_api().to_owned(),
+            },
+            context_window: ContextWindow::from_model(upstream_api.model().context_length()),
+            modalities: ModelModalities { input, output },
+            model_modalities,
+            model_description: upstream_api.model().description().map(str::to_owned),
+            model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
+            model_knowledge_cutoff: upstream_api.model().knowledge_cutoff().map(str::to_owned),
+            model_reasoning,
+            model_reasoning_levels: if model_reasoning.is_supported() {
+                upstream_api.model().reasoning_levels().to_vec()
+            } else {
+                Vec::new()
+            },
+            interface_parameters: Vec::new(),
+            streaming: SupportState::Unsupported,
+            system_messages: SupportState::Unsupported,
+            function_calling: SupportState::Unsupported,
+            parallel_tool_calls: SupportState::Unsupported,
+            structured_outputs: SupportState::Unsupported,
+            reasoning: SupportState::Unsupported,
+            reasoning_levels: Vec::new(),
+            reasoning_output: ReasoningOutputMode::Unsupported,
+            prompt_caching: SupportState::Unsupported,
+            store: SupportState::Unsupported,
+            previous_response_id: SupportState::Unsupported,
+            background: SupportState::Unsupported,
         }
     }
 }
@@ -832,14 +1010,17 @@ fn protocol_specific_capabilities(
             capabilities.audio_output,
         ),
         UpstreamApiCapabilities::Responses(capabilities) => (
-            route.downstream_protocol() == ApiProtocol::Responses
+            route.downstream_operation() == OperationKind::Responses
                 && capabilities.previous_response_id,
-            route.downstream_protocol() == ApiProtocol::Responses && capabilities.background,
+            route.downstream_operation() == OperationKind::Responses && capabilities.background,
             capabilities.prompt_caching,
             false,
             capabilities.file_input,
             false,
         ),
+        UpstreamApiCapabilities::Embeddings(_) => {
+            unreachable!("Embeddings does not use generation protocol capabilities")
+        }
     }
 }
 
@@ -849,7 +1030,12 @@ fn route_reasoning_support(upstream_api: &UpstreamApi, bridged: bool) -> Support
     if !bridged || model_support != SupportState::Supported {
         return model_support;
     }
-    match (upstream_api.protocol(), upstream_api.reasoning_output()) {
+    match (
+        upstream_api
+            .api_protocol()
+            .expect("reasoning support is generation-only"),
+        upstream_api.reasoning_output(),
+    ) {
         (ApiProtocol::ChatCompletions, ReasoningOutput::PlainText)
         | (ApiProtocol::Responses, ReasoningOutput::PlainText | ReasoningOutput::Summary) => {
             SupportState::Supported
@@ -963,6 +1149,21 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
                 | "top_p"
         ),
     }
+}
+
+/// Projects the single validated Native Embeddings candidate into its typed public contract.
+fn aggregate_embedding_interface<'a>(
+    contributions: impl Iterator<Item = &'a RouteContractContribution>,
+) -> Option<EmbeddingInterfaceCapabilities> {
+    // Select only the Embeddings profile; the registry compiler rejects more than one executable candidate.
+    let capabilities = contributions
+        .filter_map(|contribution| contribution.embedding_capabilities)
+        .collect::<Vec<_>>();
+    debug_assert!(capabilities.len() <= 1);
+    capabilities
+        .first()
+        .copied()
+        .map(EmbeddingInterfaceCapabilities::from_capabilities)
 }
 
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.
@@ -1125,7 +1326,11 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
         .map(|value| value.model_modalities.as_ref())
         .collect::<Option<Vec<_>>>();
     ModelCapabilities {
-        tasks: vec![ModelTask::Chat, ModelTask::TextGeneration],
+        tasks: intersect_sets(
+            contributions
+                .iter()
+                .map(|contribution| contribution.model_tasks.as_slice()),
+        ),
         context_window: ContextWindow::intersection(
             contributions.iter().map(|value| &value.context_window),
         ),

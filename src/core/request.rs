@@ -7,6 +7,41 @@
 
 use bytes::Bytes;
 
+/// Stable identity for one client-visible API operation.
+///
+/// Chat Completions and Responses retain [`ApiProtocol`] because they can participate in the
+/// generation Protocol Bridge. Embeddings is an independent JSON operation and never becomes an
+/// `ApiProtocol` variant.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum OperationKind {
+    /// Creates a Chat Completions response.
+    ChatCompletions,
+    /// Creates a Responses response.
+    Responses,
+    /// Creates one or more embedding vectors.
+    EmbeddingsCreate,
+}
+
+impl OperationKind {
+    /// Returns the generation protocol for operations that can participate in the Protocol Bridge.
+    pub const fn api_protocol(self) -> Option<ApiProtocol> {
+        match self {
+            Self::ChatCompletions => Some(ApiProtocol::ChatCompletions),
+            Self::Responses => Some(ApiProtocol::Responses),
+            Self::EmbeddingsCreate => None,
+        }
+    }
+
+    /// Returns the stable low-cardinality operation name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Responses => "responses",
+            Self::EmbeddingsCreate => "embeddings_create",
+        }
+    }
+}
+
 /// Native protocol used by an OpenAI-compatible downstream request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiProtocol {
@@ -14,6 +49,16 @@ pub enum ApiProtocol {
     ChatCompletions,
     /// OpenAI Responses protocol.
     Responses,
+}
+
+impl ApiProtocol {
+    /// Returns the API operation represented by this generation protocol.
+    pub const fn operation(self) -> OperationKind {
+        match self {
+            Self::ChatCompletions => OperationKind::ChatCompletions,
+            Self::Responses => OperationKind::Responses,
+        }
+    }
 }
 
 /// Request that passed basic HTTP checks and can be handed to a Provider adapter.

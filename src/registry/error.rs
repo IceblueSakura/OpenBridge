@@ -95,14 +95,46 @@ pub enum RegistryError {
         /// Upstream API ID with the blank model ID.
         upstream_api: String,
     },
-    /// The Upstream API capability variant does not match its protocol.
+    /// The Upstream API capability variant does not match its operation.
     #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match protocol"
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match operation"
     )]
-    UpstreamApiProtocolMismatch {
+    UpstreamApiOperationMismatch {
         /// Owning target ID.
         upstream_target: String,
         /// Upstream API ID with the inconsistent configuration.
+        upstream_api: String,
+    },
+    /// An enabled Embeddings capability profile contains an invalid closed set, default, domain, or limit.
+    #[error(
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' has invalid Embeddings capabilities: {detail}"
+    )]
+    InvalidEmbeddingsCapabilities {
+        /// Owning target ID.
+        upstream_target: String,
+        /// Upstream API ID with the invalid profile.
+        upstream_api: String,
+        /// Stable validation detail without request or topology data.
+        detail: &'static str,
+    },
+    /// The Upstream API operation uses an incompatible transport profile.
+    #[error(
+        "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses a transport incompatible with its operation"
+    )]
+    UpstreamApiTransportMismatch {
+        /// Owning target ID.
+        upstream_target: String,
+        /// Upstream API ID with the invalid transport.
+        upstream_api: String,
+    },
+    /// An Embeddings API references a canonical model without the Embedding task.
+    #[error(
+        "upstream Embeddings API '{upstream_api}' on target '{upstream_target}' requires an embedding model"
+    )]
+    EmbeddingsModelTaskMismatch {
+        /// Owning target ID.
+        upstream_target: String,
+        /// Upstream API ID with the incompatible model.
         upstream_api: String,
     },
     /// A required canonical-model string is blank.
@@ -209,16 +241,16 @@ pub enum RegistryError {
         /// Upstream API ID declaring excessive capabilities.
         upstream_api: String,
     },
-    /// A Native Route downstream protocol differs from its Upstream API protocol.
-    #[error("native route '{route}' protocol does not match its upstream API")]
-    NativeRouteProtocolMismatch {
-        /// Route ID with the protocol mismatch.
+    /// A Native Route downstream operation differs from its Upstream API operation.
+    #[error("native route '{route}' operation does not match its upstream API")]
+    NativeRouteOperationMismatch {
+        /// Route ID with the operation mismatch.
         route: String,
     },
-    /// A Bridged Route has the same downstream and Upstream API protocol.
-    #[error("bridged route '{route}' must target the opposite upstream protocol")]
-    BridgedRouteProtocolMatch {
-        /// Route ID whose protocol direction has no conversion meaning.
+    /// A Bridged Route does not connect the two distinct generation protocols.
+    #[error("bridged route '{route}' must connect distinct generation protocol operations")]
+    InvalidBridgedRouteOperations {
+        /// Route ID whose operation direction has no conversion meaning.
         route: String,
     },
     /// The Public Model ID is not a safe single-segment URL resource identifier.
@@ -259,6 +291,12 @@ pub enum RegistryError {
     #[error("public model '{public_model}' must contain at least one route")]
     EmptyPublicModel {
         /// Public Model name with no Route.
+        public_model: String,
+    },
+    /// A Public Model contains more than one executable Embeddings candidate during the initial single-Route phase.
+    #[error("public model '{public_model}' contains multiple executable Embeddings candidates")]
+    MultipleEmbeddingsCandidates {
+        /// Public Model name containing the unsupported candidate set.
         public_model: String,
     },
 }

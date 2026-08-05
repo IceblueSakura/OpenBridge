@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::{
     config::{BootstrapConfig, HttpClientConfig, RuntimeLimits},
-    core::{ApiProtocol, ReasoningOutput},
+    core::{ApiProtocol, OperationKind, ReasoningOutput},
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -294,7 +294,7 @@ impl UpstreamTarget {
     pub fn upstream_api_for_protocol(&self, protocol: ApiProtocol) -> Option<&UpstreamApi> {
         self.upstream_apis
             .values()
-            .find(|upstream_api| upstream_api.protocol() == protocol)
+            .find(|upstream_api| upstream_api.operation() == protocol.operation())
     }
 
     /// Enumerates all Upstream APIs and IDs under the target.
@@ -308,7 +308,7 @@ impl UpstreamTarget {
 /// Upstream API with model rules resolved and applied.
 #[derive(Debug)]
 pub struct UpstreamApi {
-    pub(super) protocol: ApiProtocol,
+    pub(super) operation: OperationKind,
     pub(super) model: ModelInfo,
     pub(super) upstream_model: String,
     pub(super) endpoint_profile: String,
@@ -319,9 +319,14 @@ pub struct UpstreamApi {
 }
 
 impl UpstreamApi {
-    /// Returns the Upstream API's native protocol.
-    pub fn protocol(&self) -> ApiProtocol {
-        self.protocol
+    /// Returns the Upstream API's native operation.
+    pub fn operation(&self) -> OperationKind {
+        self.operation
+    }
+
+    /// Returns the generation protocol when this API can participate in the Protocol Bridge.
+    pub fn api_protocol(&self) -> Option<ApiProtocol> {
+        self.operation.api_protocol()
     }
 
     /// Returns model metadata after applying rules.
@@ -372,7 +377,7 @@ impl UpstreamApi {
 pub struct Route {
     pub(super) upstream_target: String,
     pub(super) upstream_api: String,
-    pub(super) downstream_protocol: ApiProtocol,
+    pub(super) downstream_operation: OperationKind,
     pub(super) mode: RouteMode,
 }
 
@@ -387,9 +392,14 @@ impl Route {
         &self.upstream_api
     }
 
-    /// Returns the downstream protocol accepted by the Route.
-    pub fn downstream_protocol(&self) -> ApiProtocol {
-        self.downstream_protocol
+    /// Returns the downstream operation accepted by the Route.
+    pub fn downstream_operation(&self) -> OperationKind {
+        self.downstream_operation
+    }
+
+    /// Returns the generation protocol when the Route can participate in the Protocol Bridge.
+    pub fn downstream_protocol(&self) -> Option<ApiProtocol> {
+        self.downstream_operation.api_protocol()
     }
 
     /// Returns the Route handling mode.

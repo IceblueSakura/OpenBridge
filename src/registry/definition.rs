@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use crate::{
     core::{
-        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, GenerationCapabilities,
-        ResponsesCapabilities,
+        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingsCapabilities,
+        GenerationCapabilities, OperationKind, ResponsesCapabilities,
     },
     provider::{CredentialKind, ProviderKind},
 };
@@ -138,6 +138,8 @@ impl ModelContextLength {
 pub enum ModelMode {
     /// Conversational text or multimodal generation model.
     Chat,
+    /// Model that maps supported inputs to embedding vectors.
+    Embedding,
 }
 
 /// Input modalities accepted by a canonical Model.
@@ -168,6 +170,8 @@ pub enum OutputModality {
     Image,
     /// Audio output。
     Audio,
+    /// Numeric embedding-vector output.
+    Embedding,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -230,22 +234,39 @@ pub enum UpstreamApiCapabilities {
     ChatCompletions(ChatCompletionsCapabilities),
     /// Responses endpoint capabilities.
     Responses(ResponsesCapabilities),
+    /// Embeddings Create operation capabilities.
+    Embeddings(EmbeddingsCapabilities),
 }
 
 impl UpstreamApiCapabilities {
-    /// Returns the native protocol represented by this capability configuration.
-    pub const fn protocol(self) -> ApiProtocol {
+    /// Returns the native operation represented by this capability configuration.
+    pub const fn operation(self) -> OperationKind {
         match self {
-            Self::ChatCompletions(_) => ApiProtocol::ChatCompletions,
-            Self::Responses(_) => ApiProtocol::Responses,
+            Self::ChatCompletions(_) => OperationKind::ChatCompletions,
+            Self::Responses(_) => OperationKind::Responses,
+            Self::Embeddings(_) => OperationKind::EmbeddingsCreate,
         }
     }
 
+    /// Returns the generation protocol when this capability can participate in the Protocol Bridge.
+    pub const fn api_protocol(self) -> Option<ApiProtocol> {
+        self.operation().api_protocol()
+    }
+
     /// Returns common protocol capabilities without Responses-specific state.
-    pub(crate) const fn generation_capabilities(self) -> GenerationCapabilities {
+    pub(crate) const fn generation_capabilities(self) -> Option<GenerationCapabilities> {
         match self {
-            Self::ChatCompletions(capabilities) => capabilities.generation_capabilities(),
-            Self::Responses(capabilities) => capabilities.generation_capabilities(),
+            Self::ChatCompletions(capabilities) => Some(capabilities.generation_capabilities()),
+            Self::Responses(capabilities) => Some(capabilities.generation_capabilities()),
+            Self::Embeddings(_) => None,
+        }
+    }
+
+    /// Returns the complete capability set when this is an Embeddings configuration.
+    pub const fn embeddings(self) -> Option<EmbeddingsCapabilities> {
+        match self {
+            Self::Embeddings(capabilities) => Some(capabilities),
+            Self::ChatCompletions(_) | Self::Responses(_) => None,
         }
     }
 
@@ -254,6 +275,7 @@ impl UpstreamApiCapabilities {
         match self {
             Self::ChatCompletions(_) => None,
             Self::Responses(capabilities) => Some(capabilities),
+            Self::Embeddings(_) => None,
         }
     }
 
@@ -262,6 +284,7 @@ impl UpstreamApiCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities.reasoning_output,
             Self::Responses(capabilities) => capabilities.reasoning_output,
+            Self::Embeddings(_) => crate::core::ReasoningOutput::Unsupported,
         }
     }
 
@@ -271,6 +294,16 @@ impl UpstreamApiCapabilities {
                 capabilities.is_subset_of(upper.chat_completions)
             }
             Self::Responses(capabilities) => capabilities.is_subset_of(upper.responses),
+            Self::Embeddings(capabilities) => capabilities.is_subset_of(upper.embeddings),
+        }
+    }
+
+    /// Returns whether this capability profile is statically enabled.
+    pub(crate) const fn enabled(self) -> bool {
+        match self {
+            Self::ChatCompletions(capabilities) => capabilities.enabled,
+            Self::Responses(capabilities) => capabilities.enabled,
+            Self::Embeddings(capabilities) => capabilities.enabled,
         }
     }
 }
@@ -280,6 +313,8 @@ impl UpstreamApiCapabilities {
 pub enum TransportKind {
     /// HTTP JSON requests and SSE response bodies.
     HttpJsonSse,
+    /// HTTP JSON requests and bounded JSON response bodies.
+    HttpJson,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -296,8 +331,8 @@ pub enum StateAffinity {
 pub struct UpstreamApiConfig {
     /// Stable Upstream API ID within the target.
     pub id: String,
-    /// Protocol natively provided by the Upstream API.
-    pub protocol: ApiProtocol,
+    /// Operation natively provided by the Upstream API.
+    pub operation: OperationKind,
     /// Actual model ID sent upstream.
     pub upstream_model: String,
     /// Endpoint profile permitted by the Provider.
@@ -355,8 +390,8 @@ pub struct RouteConfig {
     pub upstream_target: String,
     /// Upstream API ID referenced by the Route.
     pub upstream_api: String,
-    /// Downstream native protocol accepted by the Route.
-    pub downstream_protocol: ApiProtocol,
+    /// Downstream operation accepted by the Route.
+    pub downstream_operation: OperationKind,
     /// Route handling mode.
     pub mode: RouteMode,
 }

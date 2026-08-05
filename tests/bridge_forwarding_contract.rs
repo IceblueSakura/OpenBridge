@@ -168,7 +168,7 @@ fn app_with_reasoning_output(
         } else {
             "chat".to_owned()
         },
-        downstream_protocol: downstream,
+        downstream_operation: downstream.operation(),
         mode: RouteMode::Bridged,
     }];
     definition.public_models[0].routes = vec!["bridge-route".to_owned()];
@@ -507,7 +507,7 @@ fn registry_requires_bridged_routes_to_target_the_opposite_protocol() {
         .expect_err("same-protocol Bridged Route must fail at startup");
     assert!(matches!(
         error,
-        RegistryError::BridgedRouteProtocolMatch { route } if route == "public-chat"
+        RegistryError::InvalidBridgedRouteOperations { route } if route == "public-chat"
     ));
 }
 

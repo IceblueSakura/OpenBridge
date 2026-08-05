@@ -319,7 +319,7 @@ pub(crate) fn native_upstream_apis(
     vec![
         UpstreamApiConfig {
             id: "chat".to_owned(),
-            protocol: ApiProtocol::ChatCompletions,
+            operation: ApiProtocol::ChatCompletions.operation(),
             upstream_model: upstream_model.to_owned(),
             endpoint_profile: endpoint_profile.to_owned(),
             transport: TransportKind::HttpJsonSse,
@@ -329,7 +329,7 @@ pub(crate) fn native_upstream_apis(
         },
         UpstreamApiConfig {
             id: "responses".to_owned(),
-            protocol: ApiProtocol::Responses,
+            operation: ApiProtocol::Responses.operation(),
             upstream_model: upstream_model.to_owned(),
             endpoint_profile: endpoint_profile.to_owned(),
             transport: TransportKind::HttpJsonSse,

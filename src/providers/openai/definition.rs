@@ -3,13 +3,30 @@
 use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{
+        ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
+        EmbeddingInputForm, EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
+    },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
+
+const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] = &[
+    EmbeddingInputForm::String,
+    EmbeddingInputForm::StringArray,
+    EmbeddingInputForm::TokenArray,
+    EmbeddingInputForm::TokenArrayArray,
+];
+const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] =
+    &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
+const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
+    EmbeddingInputForm::TokenArray,
+    EmbeddingInputForm::TokenArrayArray,
+];
+const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
 
 /// Static OpenAI adapter capabilities and permitted endpoint/credential scope.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -56,6 +73,22 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             include: &[],
             moderation: false,
             logprobs: false,
+        },
+        embeddings: EmbeddingsCapabilities {
+            enabled: true,
+            input_forms: EMBEDDING_INPUT_FORMS,
+            default_encoding: EmbeddingEncoding::Float,
+            allowed_encodings: Some(EMBEDDING_ENCODINGS),
+            default_dimensions: 1,
+            allowed_dimensions: Some(EmbeddingDimensionDomain::Range {
+                minimum: 1,
+                maximum: u32::MAX,
+            }),
+            max_inputs: u32::MAX,
+            max_tokens_per_input: None,
+            max_total_tokens: None,
+            locally_counted_input_forms: LOCALLY_COUNTED_EMBEDDING_FORMS,
+            supported_parameters: EMBEDDING_PARAMETERS,
         },
     },
     &["public-api"],

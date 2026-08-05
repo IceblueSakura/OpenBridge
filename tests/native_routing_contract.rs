@@ -38,14 +38,14 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         id: "unmapped-chat".to_owned(),
         upstream_target: "openai-unmapped".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "unmapped-responses".to_owned(),
         upstream_target: "openai-unmapped".to_owned(),
         upstream_api: "responses".to_owned(),
-        downstream_protocol: ApiProtocol::Responses,
+        downstream_operation: ApiProtocol::Responses.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.public_models[0].routes = vec![
@@ -213,7 +213,7 @@ fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
             id: "responses-via-chat".to_owned(),
             upstream_target: "openai-main".to_owned(),
             upstream_api: "chat".to_owned(),
-            downstream_protocol: ApiProtocol::Responses,
+            downstream_operation: ApiProtocol::Responses.operation(),
             mode: RouteMode::Bridged,
         }];
         definition.public_models[0].routes = vec!["responses-via-chat".to_owned()];
@@ -318,7 +318,7 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
         id: "stronger-chat".to_owned(),
         upstream_target: "openai-stronger".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: RouteMode::Native,
     });
     definition.public_models[0].routes = vec!["public-chat".to_owned(), "stronger-chat".to_owned()];
@@ -415,7 +415,7 @@ fn public_model_output_limit_uses_the_most_restrictive_route() {
         id: "limited-chat".to_owned(),
         upstream_target: "openai-limited".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.public_models[0].routes = vec!["limited-chat".to_owned(), "public-chat".to_owned()];
@@ -518,7 +518,7 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
         id: "tools-chat".to_owned(),
         upstream_target: "openai-tools".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
     definition.public_models[0]
@@ -568,7 +568,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
         id: "enabled-chat".to_owned(),
         upstream_target: "openai-enabled".to_owned(),
         upstream_api: "chat".to_owned(),
-        downstream_protocol: ApiProtocol::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: RouteMode::Native,
     });
     definition.public_models[0].routes = vec![

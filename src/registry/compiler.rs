@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::BootstrapConfig;
 
 use super::{
-    CredentialPoolBinding, ModelInfo, RegistryConfig, RegistryError, RegistryVersion, Route,
-    RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
+    CredentialPoolBinding, ModelInfo, ModelMode, RegistryConfig, RegistryError, RegistryVersion,
+    Route, RouteMode, RuntimeRegistry, TransportKind, UpstreamApi, UpstreamTarget,
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
@@ -156,9 +156,38 @@ pub fn build_registry(
         })?;
         let mut upstream_apis = BTreeMap::new();
         for upstream_api in target.upstream_apis {
-            // Confirm that the protocol tag matches the capability variant, preventing upstream capabilities from being interpreted under the wrong protocol.
-            if upstream_api.protocol != upstream_api.capabilities.protocol() {
-                return Err(RegistryError::UpstreamApiProtocolMismatch {
+            // Confirm that the operation tag matches the capability variant before interpreting its contract.
+            if upstream_api.operation != upstream_api.capabilities.operation() {
+                return Err(RegistryError::UpstreamApiOperationMismatch {
+                    upstream_target: target.id,
+                    upstream_api: upstream_api.id,
+                });
+            }
+
+            // Validate the complete Embeddings profile before capability comparison or public projection.
+            if let Some(capabilities) = upstream_api.capabilities.embeddings() {
+                capabilities.validate().map_err(|detail| {
+                    RegistryError::InvalidEmbeddingsCapabilities {
+                        upstream_target: target.id.clone(),
+                        upstream_api: upstream_api.id.clone(),
+                        detail,
+                    }
+                })?;
+                if model.mode() != Some(ModelMode::Embedding) {
+                    return Err(RegistryError::EmbeddingsModelTaskMismatch {
+                        upstream_target: target.id,
+                        upstream_api: upstream_api.id,
+                    });
+                }
+            }
+
+            // Keep generation on JSON/SSE and Embeddings on its independent bounded-JSON transport.
+            let transport_matches = match upstream_api.operation.api_protocol() {
+                Some(_) => upstream_api.transport == TransportKind::HttpJsonSse,
+                None => upstream_api.transport == TransportKind::HttpJson,
+            };
+            if !transport_matches {
+                return Err(RegistryError::UpstreamApiTransportMismatch {
                     upstream_target: target.id,
                     upstream_api: upstream_api.id,
                 });
@@ -205,13 +234,33 @@ pub fn build_registry(
             let effective_model =
                 apply_model_rules(model.clone(), &api_key, upstream_api.model_rules)?;
 
+            // Keep the Embeddings endpoint parameter contract within the narrowed canonical model ceiling.
+            if upstream_api
+                .capabilities
+                .embeddings()
+                .is_some_and(|capabilities| {
+                    capabilities.supported_parameters.iter().any(|parameter| {
+                        !effective_model
+                            .supported_parameters()
+                            .iter()
+                            .any(|model_parameter| model_parameter == parameter)
+                    })
+                })
+            {
+                return Err(RegistryError::InvalidEmbeddingsCapabilities {
+                    upstream_target: target.id,
+                    upstream_api: upstream_api.id,
+                    detail: "supported parameters must be declared by the effective model",
+                });
+            }
+
             // Confirm that reasoning-level mappings still match the narrowed model and satisfy target-protocol wire-value constraints.
             let reasoning_level_mappings =
                 validate_reasoning_level_mappings(&api_key, &effective_model, mapping_config)?;
 
             // Assemble the validated model, protocol, transport, capability, and state-affinity facts into the runtime API.
             let resolved = UpstreamApi {
-                protocol: upstream_api.protocol,
+                operation: upstream_api.operation,
                 model: effective_model,
                 upstream_model: upstream_api.upstream_model,
                 endpoint_profile: upstream_api.endpoint_profile,
@@ -259,7 +308,7 @@ pub fn build_registry(
         }
     }
 
-    // Resolve Route references and validate the relationship between Native/Bridged modes and the two protocols.
+    // Resolve Route references and validate Native operation identity and generation-only Bridge directions.
     let mut routes = BTreeMap::new();
     for route in definition.routes {
         // Resolve the target first, then resolve the Upstream API from that target's local index.
@@ -280,22 +329,26 @@ pub fn build_registry(
             }
         })?;
 
-        // A Native Route must keep the downstream and upstream protocols identical; an identical pair should not pass through the converter.
-        if route.mode == RouteMode::Native && route.downstream_protocol != upstream_api.protocol() {
-            return Err(RegistryError::NativeRouteProtocolMismatch { route: route.id });
-        }
-
-        // A Bridged Route must connect different protocols; an identical pair must use Native mode to avoid hidden conversion.
-        if route.mode == RouteMode::Bridged && route.downstream_protocol == upstream_api.protocol()
+        // A Native Route must keep the downstream and upstream operations identical.
+        if route.mode == RouteMode::Native && route.downstream_operation != upstream_api.operation()
         {
-            return Err(RegistryError::BridgedRouteProtocolMatch { route: route.id });
+            return Err(RegistryError::NativeRouteOperationMismatch { route: route.id });
         }
 
-        // Store only stable references, the downstream protocol, and the handling mode in the Route; the runtime indexes retain target/API ownership.
+        // A Bridged Route must connect the two distinct generation protocols; Embeddings has no Bridge.
+        if route.mode == RouteMode::Bridged
+            && (route.downstream_operation.api_protocol().is_none()
+                || upstream_api.api_protocol().is_none()
+                || route.downstream_operation == upstream_api.operation())
+        {
+            return Err(RegistryError::InvalidBridgedRouteOperations { route: route.id });
+        }
+
+        // Store only stable references, the downstream operation, and the handling mode.
         let resolved = Route {
             upstream_target: route.upstream_target,
             upstream_api: route.upstream_api,
-            downstream_protocol: route.downstream_protocol,
+            downstream_operation: route.downstream_operation,
             mode: route.mode,
         };
 
@@ -324,6 +377,7 @@ pub fn build_registry(
         // Use a local set to reject duplicate candidates while a Vec preserves the configured Route priority.
         let mut seen = BTreeSet::new();
         let mut bindings = Vec::with_capacity(public_model.routes.len());
+        let mut embedding_candidates = 0_usize;
         for route_id in &public_model.routes {
             // Reject a repeated Route while preserving the configured order.
             if !seen.insert(route_id) {
@@ -362,6 +416,19 @@ pub fn build_registry(
                     reference: format!("{}/{}", route.upstream_target(), route.upstream_api()),
                 }
             })?;
+
+            // Keep the initial Embeddings execution interface to one statically executable Native candidate.
+            if target.enabled()
+                && upstream_api.capabilities().enabled()
+                && route.downstream_operation() == crate::core::OperationKind::EmbeddingsCreate
+            {
+                embedding_candidates += 1;
+                if embedding_candidates > 1 {
+                    return Err(RegistryError::MultipleEmbeddingsCandidates {
+                        public_model: public_model.id,
+                    });
+                }
+            }
 
             // Collect the Route, Upstream API, and target-enabled snapshot while preserving the Public Model candidate order.
             bindings.push(PublicRouteBinding {
@@ -428,7 +495,7 @@ mod tests {
         let interface = registry
             .public_model("code-primary")
             .expect("the Public Model must remain visible through its bridge")
-            .execution_interface(ApiProtocol::ChatCompletions)
+            .execution_interface(ApiProtocol::ChatCompletions.operation())
             .expect("the Chat execution interface must be compiled");
 
         // Keep the candidate order and static eligibility next to the fixed protocol contract.
