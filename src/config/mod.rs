@@ -45,6 +45,14 @@ pub enum BootstrapConfigError {
         /// Name of the invalid limit.
         name: &'static str,
     },
+    /// The replay eligibility limit exceeds the downstream request hard limit.
+    #[error("replay body limit {replay} must not exceed downstream request body limit {request}")]
+    ReplayLimitExceedsRequest {
+        /// Configured replay eligibility limit in bytes.
+        replay: usize,
+        /// Configured downstream request hard limit in bytes.
+        request: usize,
+    },
 }
 
 /// Immutable process configuration parsed during startup.
@@ -73,7 +81,7 @@ impl BootstrapConfig {
         &self.upstream_credentials_file
     }
 
-    /// Returns independent runtime limits for request bodies, JSON responses, and SSE events.
+    /// Returns independent runtime limits for request, replay, JSON-response, and SSE bodies.
     pub fn limits(&self) -> &RuntimeLimits {
         &self.limits
     }
@@ -84,11 +92,12 @@ impl BootstrapConfig {
     }
 }
 
-/// Independent memory boundaries for downstream requests, JSON responses, and SSE events.
+/// Independent boundaries for downstream requests, replay eligibility, JSON responses, and SSE events.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RuntimeLimits {
     max_request_body_bytes: usize,
     max_json_response_body_bytes: usize,
+    max_replay_body_bytes: usize,
     max_sse_event_bytes: usize,
 }
 
@@ -101,6 +110,11 @@ impl RuntimeLimits {
     /// Returns the maximum successful non-streaming JSON response size buffered before commit.
     pub fn max_json_response_body_bytes(&self) -> usize {
         self.max_json_response_body_bytes
+    }
+
+    /// Returns the largest downstream request body eligible for another upstream attempt.
+    pub fn max_replay_body_bytes(&self) -> usize {
+        self.max_replay_body_bytes
     }
 
     /// Returns the maximum size allowed for one SSE event.

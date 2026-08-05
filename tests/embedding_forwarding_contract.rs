@@ -1,10 +1,15 @@
-//! Verifies Embeddings analysis, fixed preflight, trusted egress, and bounded success validation.
+//! Verifies Embeddings analysis, trusted egress, bounded response validation, replay, and cancellation.
 
 mod support;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -13,7 +18,7 @@ use axum::{
     http::{Request, StatusCode, header::CONTENT_TYPE},
 };
 use bytes::Bytes;
-use futures_util::future::BoxFuture;
+use futures_util::{Stream, future::BoxFuture};
 use http::{HeaderMap, HeaderValue, Method};
 use openbridge::{
     config::parse_bootstrap_config,
@@ -36,7 +41,7 @@ use openbridge::{
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use support::{BOOTSTRAP, users_and_credentials};
+use support::{BOOTSTRAP, users_and_credential_pool, users_and_credentials};
 
 const INPUT_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::String,
@@ -69,6 +74,51 @@ struct RecordingEmbeddingTransport {
     responses: Mutex<VecDeque<SyntheticEmbeddingResponse>>,
 }
 
+struct TimeoutThenSuccessEmbeddingTransport {
+    attempts: AtomicUsize,
+}
+
+struct PendingEmbeddingRequestTransport {
+    attempts: AtomicUsize,
+    started: Arc<tokio::sync::Notify>,
+    dropped: Arc<AtomicBool>,
+}
+
+struct PendingEmbeddingResponseTransport {
+    attempts: AtomicUsize,
+    body_started: Arc<tokio::sync::Notify>,
+    body_dropped: Arc<AtomicBool>,
+}
+
+struct BackoffEmbeddingTransport {
+    attempts: AtomicUsize,
+    first_attempt: Arc<tokio::sync::Notify>,
+    second_attempt: Arc<tokio::sync::Notify>,
+}
+
+struct DropSignal(Arc<AtomicBool>);
+
+impl Drop for DropSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+struct PendingEmbeddingBody {
+    started: Arc<tokio::sync::Notify>,
+    _drop_signal: DropSignal,
+}
+
+impl Stream for PendingEmbeddingBody {
+    type Item = Result<Bytes, std::io::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Signal that response validation is actively awaiting upstream body bytes.
+        self.started.notify_one();
+        Poll::Pending
+    }
+}
+
 struct SyntheticEmbeddingResponse {
     status: StatusCode,
     content_type: Option<HeaderValue>,
@@ -94,6 +144,15 @@ impl SyntheticEmbeddingResponse {
         }
     }
 
+    /// Builds one retryable synthetic HTTP response.
+    fn status(status: StatusCode) -> Self {
+        Self {
+            status,
+            content_type: Some(HeaderValue::from_static("application/json")),
+            body: br#"{"error":{"message":"synthetic upstream failure"}}"#.to_vec(),
+        }
+    }
+
     /// Converts the owned synthetic response into the transport contract.
     fn into_upstream(self) -> UpstreamResponse {
         let mut headers = HeaderMap::new();
@@ -101,6 +160,89 @@ impl SyntheticEmbeddingResponse {
             headers.insert(CONTENT_TYPE, content_type);
         }
         UpstreamResponse::new(self.status, headers, Body::from(self.body))
+    }
+}
+
+impl UpstreamTransport for TimeoutThenSuccessEmbeddingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Count the attempt and retain only the synthetic request shape needed for a valid response.
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+
+        // Fail the first send with a timeout and complete the replay with a valid response.
+        Box::pin(async move {
+            if attempt == 1 {
+                Err(TransportError::Timeout)
+            } else {
+                Ok(valid_embedding_response(&body).into_upstream())
+            }
+        })
+    }
+}
+
+impl UpstreamTransport for PendingEmbeddingRequestTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Mark the current send as started and keep a drop signal inside its pending future.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        self.started.notify_one();
+        let signal = DropSignal(self.dropped.clone());
+
+        // Remain pending until downstream cancellation drops the complete upstream send future.
+        Box::pin(async move {
+            let _signal = signal;
+            std::future::pending::<Result<UpstreamResponse, TransportError>>().await
+        })
+    }
+}
+
+impl UpstreamTransport for PendingEmbeddingResponseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Return response headers immediately and keep the success body pending before commit.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let body = Body::from_stream(PendingEmbeddingBody {
+            started: self.body_started.clone(),
+            _drop_signal: DropSignal(self.body_dropped.clone()),
+        });
+        Box::pin(async move { Ok(UpstreamResponse::new(StatusCode::OK, headers, body)) })
+    }
+}
+
+impl UpstreamTransport for BackoffEmbeddingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Distinguish the first retryable response from any forbidden post-cancellation attempt.
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        if attempt == 1 {
+            self.first_attempt.notify_one();
+        } else {
+            self.second_attempt.notify_one();
+        }
+
+        // Return a retryable status so a replayable request enters the cancellable backoff.
+        Box::pin(async {
+            Ok(SyntheticEmbeddingResponse::status(StatusCode::SERVICE_UNAVAILABLE).into_upstream())
+        })
     }
 }
 
@@ -281,6 +423,20 @@ fn app_with_responses(
     app_with_bootstrap_and_responses(BOOTSTRAP, responses)
 }
 
+fn app_with_credentials_and_responses(
+    upstream_secrets: &[&str],
+    responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
+) -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
+    // Compile the synthetic registry and inject the requested ordered credential members.
+    let bootstrap = parse_bootstrap_config(BOOTSTRAP).unwrap();
+    let registry = Arc::new(build_registry(bootstrap, embedding_registry_definition()).unwrap());
+    let (users, credentials) =
+        users_and_credential_pool(DOWNSTREAM_KEY, &registry, upstream_secrets);
+    let transport = Arc::new(RecordingEmbeddingTransport::new(responses));
+    let state = GatewayState::new(registry, transport.clone(), users, credentials);
+    (build_router(state), transport)
+}
+
 fn app_with_bootstrap_and_responses(
     bootstrap_document: &str,
     responses: impl IntoIterator<Item = SyntheticEmbeddingResponse>,
@@ -293,6 +449,21 @@ fn app_with_bootstrap_and_responses(
     let transport = Arc::new(RecordingEmbeddingTransport::new(responses));
     let state = GatewayState::new(registry, transport.clone(), users, credentials);
     (build_router(state), transport)
+}
+
+fn app_with_transport_and_credentials(
+    bootstrap_document: &str,
+    transport: Arc<dyn UpstreamTransport>,
+    upstream_secrets: &[&str],
+) -> axum::Router {
+    // Compile one isolated registry and bind the requested synthetic credential pool.
+    let bootstrap = parse_bootstrap_config(bootstrap_document).unwrap();
+    let registry = Arc::new(build_registry(bootstrap, embedding_registry_definition()).unwrap());
+    let (users, credentials) =
+        users_and_credential_pool(DOWNSTREAM_KEY, &registry, upstream_secrets);
+
+    // Build the production router with only the injected transport varying by cancellation case.
+    build_router(GatewayState::new(registry, transport, users, credentials))
 }
 
 fn embedding_request(body: Value) -> Request<Body> {
@@ -595,6 +766,210 @@ async fn compiler_derived_response_batch_limit_is_enforced_before_egress() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn replayable_rate_limit_rotates_credentials_within_the_single_route() {
+    // Arrange one 429 followed by the transport's request-derived valid response.
+    let (app, transport) = app_with_credentials_and_responses(
+        &["upstream-test-key-a", "upstream-test-key-b"],
+        [SyntheticEmbeddingResponse::status(
+            StatusCode::TOO_MANY_REQUESTS,
+        )],
+    );
+    let request = embedding_request(json!({
+        "model": "embedding-test",
+        "input": "replayable input"
+    }));
+
+    // Execute the replayable request through the production attempt path.
+    let response = app.oneshot(request).await.unwrap();
+
+    // Verify one credential rotation without changing the fixed target or upstream model.
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].target_id, "embedding-target");
+    assert_eq!(requests[1].target_id, "embedding-target");
+    assert_eq!(requests[0].body["model"], "embedding-upstream");
+    assert_eq!(requests[1].body["model"], "embedding-upstream");
+    assert_eq!(requests[0].authorization, "Bearer upstream-test-key-a");
+    assert_eq!(requests[1].authorization, "Bearer upstream-test-key-b");
+}
+
+#[tokio::test]
+async fn replayable_server_failure_retries_once_with_the_same_credential() {
+    // Arrange one retryable server response followed by a valid response.
+    let (app, transport) = app_with_responses([SyntheticEmbeddingResponse::status(
+        StatusCode::SERVICE_UNAVAILABLE,
+    )]);
+    let request = embedding_request(json!({
+        "model": "embedding-test",
+        "input": "replayable input"
+    }));
+
+    // Execute one candidate-local replay before response commit.
+    let response = app.oneshot(request).await.unwrap();
+
+    // Verify the existing finite retry policy retained the same credential and Route.
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].authorization, requests[1].authorization);
+    assert_eq!(requests[0].target_id, requests[1].target_id);
+}
+
+#[tokio::test]
+async fn replayable_transport_timeout_retries_once_before_success() {
+    // Inject a transport that times out once and succeeds only if replay is allowed.
+    let transport = Arc::new(TimeoutThenSuccessEmbeddingTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let app =
+        app_with_transport_and_credentials(BOOTSTRAP, transport.clone(), &["upstream-test-key"]);
+    let request = embedding_request(json!({
+        "model": "embedding-test",
+        "input": "replayable input"
+    }));
+
+    // Execute the request and require the second transport outcome to complete it.
+    let response = app.oneshot(request).await.unwrap();
+
+    // Verify transport failure uses the same two-attempt candidate budget.
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn retryable_failures_stop_at_the_existing_candidate_attempt_limit() {
+    // Queue more retryable responses than one candidate may consume.
+    let (app, transport) = app_with_responses([
+        SyntheticEmbeddingResponse::status(StatusCode::SERVICE_UNAVAILABLE),
+        SyntheticEmbeddingResponse::status(StatusCode::SERVICE_UNAVAILABLE),
+        SyntheticEmbeddingResponse::status(StatusCode::SERVICE_UNAVAILABLE),
+    ]);
+    let request = embedding_request(json!({
+        "model": "embedding-test",
+        "input": "replayable input"
+    }));
+
+    // Execute until the shared candidate-local budget returns the current failure.
+    let response = app.oneshot(request).await.unwrap();
+
+    // Verify no third attempt or cross-Route fallback occurs.
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(transport.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn valid_body_over_replay_budget_executes_exactly_one_attempt() {
+    // Build a valid request above replay eligibility but below the downstream request hard limit.
+    let large_input = "r".repeat(262_200);
+    let (app, transport) = app_with_responses([SyntheticEmbeddingResponse::status(
+        StatusCode::SERVICE_UNAVAILABLE,
+    )]);
+    let request = embedding_request(json!({
+        "model": "embedding-test",
+        "input": large_input
+    }));
+
+    // Execute the large request without turning replay optimization into a local rejection.
+    let response = app.oneshot(request).await.unwrap();
+
+    // Verify the first retryable response is returned and no second egress occurs.
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn downstream_cancellation_drops_a_pending_embedding_send() {
+    // Build an upstream send that remains pending before response headers.
+    let started = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let transport = Arc::new(PendingEmbeddingRequestTransport {
+        attempts: AtomicUsize::new(0),
+        started: started.clone(),
+        dropped: dropped.clone(),
+    });
+    let app =
+        app_with_transport_and_credentials(BOOTSTRAP, transport.clone(), &["upstream-test-key"]);
+    let task = tokio::spawn(app.oneshot(embedding_request(json!({
+        "model": "embedding-test",
+        "input": "cancel pending send"
+    }))));
+    tokio::time::timeout(Duration::from_secs(1), started.notified())
+        .await
+        .expect("the first upstream send must start");
+
+    // Abort the downstream task and wait until its upstream future is destroyed.
+    task.abort();
+    let error = task.await.unwrap_err();
+
+    // Verify cancellation drops the current send and cannot start another attempt.
+    assert!(error.is_cancelled());
+    assert!(dropped.load(Ordering::SeqCst));
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn downstream_cancellation_drops_a_pending_embedding_success_body() {
+    // Build a successful upstream response whose body never produces bytes before validation.
+    let body_started = Arc::new(tokio::sync::Notify::new());
+    let body_dropped = Arc::new(AtomicBool::new(false));
+    let transport = Arc::new(PendingEmbeddingResponseTransport {
+        attempts: AtomicUsize::new(0),
+        body_started: body_started.clone(),
+        body_dropped: body_dropped.clone(),
+    });
+    let app =
+        app_with_transport_and_credentials(BOOTSTRAP, transport.clone(), &["upstream-test-key"]);
+    let task = tokio::spawn(app.oneshot(embedding_request(json!({
+        "model": "embedding-test",
+        "input": "cancel pending receive"
+    }))));
+    tokio::time::timeout(Duration::from_secs(1), body_started.notified())
+        .await
+        .expect("the upstream success body must be polled");
+
+    // Abort before the bounded success validator can commit a downstream response.
+    task.abort();
+    let error = task.await.unwrap_err();
+
+    // Verify the pending response source is dropped and no replay begins after cancellation.
+    assert!(error.is_cancelled());
+    assert!(body_dropped.load(Ordering::SeqCst));
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn downstream_cancellation_during_backoff_prevents_embedding_replay() {
+    // Build a retryable first response with explicit attempt notifications.
+    let first_attempt = Arc::new(tokio::sync::Notify::new());
+    let second_attempt = Arc::new(tokio::sync::Notify::new());
+    let transport = Arc::new(BackoffEmbeddingTransport {
+        attempts: AtomicUsize::new(0),
+        first_attempt: first_attempt.clone(),
+        second_attempt: second_attempt.clone(),
+    });
+    let app =
+        app_with_transport_and_credentials(BOOTSTRAP, transport.clone(), &["upstream-test-key"]);
+    let task = tokio::spawn(app.oneshot(embedding_request(json!({
+        "model": "embedding-test",
+        "input": "cancel backoff"
+    }))));
+    tokio::time::timeout(Duration::from_secs(1), first_attempt.notified())
+        .await
+        .expect("the first upstream attempt must start");
+
+    // Abort while the handler is waiting on its cancellable retry timer.
+    task.abort();
+    let error = task.await.unwrap_err();
+    let second = tokio::time::timeout(Duration::from_millis(100), second_attempt.notified()).await;
+
+    // Verify cancellation owns the timer and no detached replay survives the request.
+    assert!(error.is_cancelled());
+    assert!(second.is_err());
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

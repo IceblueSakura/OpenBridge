@@ -25,6 +25,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         "max_json_response_body_bytes",
         raw.max_json_response_body_bytes,
     )?;
+    validate_nonzero("max_replay_body_bytes", raw.max_replay_body_bytes)?;
     validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
     validate_nonzero(
         "upstream_connect_timeout_ms",
@@ -38,6 +39,15 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         "upstream_pool_max_idle_per_host",
         raw.upstream_pool_max_idle_per_host,
     )?;
+
+    // Keep replay eligibility within the already-enforced downstream request allocation boundary.
+    if raw.max_replay_body_bytes > raw.max_request_body_bytes {
+        return Err(BootstrapConfigError::ReplayLimitExceedsRequest {
+            replay: raw.max_replay_body_bytes,
+            request: raw.max_request_body_bytes,
+        });
+    }
+
     // Parse and restrict the listen address to loopback so bootstrap cannot expose the service directly.
     let listen = raw
         .listen
@@ -56,6 +66,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
             max_json_response_body_bytes: raw.max_json_response_body_bytes,
+            max_replay_body_bytes: raw.max_replay_body_bytes,
             max_sse_event_bytes: raw.max_sse_event_bytes,
         },
         http_client: HttpClientConfig {

@@ -42,6 +42,7 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
     );
     assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
     assert_eq!(registry.limits().max_json_response_body_bytes(), 16_777_216);
+    assert_eq!(registry.limits().max_replay_body_bytes(), 262_144);
     assert_eq!(
         registry.http_client().connect_timeout(),
         Duration::from_secs(5)
@@ -127,6 +128,34 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
         parse_bootstrap_config(&zero_response_limit),
         Err(BootstrapConfigError::InvalidLimit {
             name: "max_json_response_body_bytes"
+        })
+    ));
+
+    // Require a separate non-zero replay budget bounded by the request hard limit.
+    let missing_replay_limit = BOOTSTRAP.replace("max_replay_body_bytes = 262144\n", "");
+    assert!(matches!(
+        parse_bootstrap_config(&missing_replay_limit),
+        Err(BootstrapConfigError::Parse)
+    ));
+    let zero_replay_limit = BOOTSTRAP.replace(
+        "max_replay_body_bytes = 262144",
+        "max_replay_body_bytes = 0",
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&zero_replay_limit),
+        Err(BootstrapConfigError::InvalidLimit {
+            name: "max_replay_body_bytes"
+        })
+    ));
+    let replay_over_request = BOOTSTRAP.replace(
+        "max_replay_body_bytes = 262144",
+        "max_replay_body_bytes = 1048577",
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&replay_over_request),
+        Err(BootstrapConfigError::ReplayLimitExceedsRequest {
+            replay: 1_048_577,
+            request: 1_048_576
         })
     ));
 }

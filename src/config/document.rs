@@ -15,6 +15,7 @@ pub(super) struct RawBootstrap {
     pub(super) upstream_credentials_file: PathBuf,
     pub(super) max_request_body_bytes: usize,
     pub(super) max_json_response_body_bytes: usize,
+    pub(super) max_replay_body_bytes: usize,
     pub(super) max_sse_event_bytes: usize,
     pub(super) upstream_connect_timeout_ms: u64,
     pub(super) upstream_pool_idle_timeout_ms: u64,

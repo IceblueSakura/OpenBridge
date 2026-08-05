@@ -101,10 +101,15 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
 
 #[tokio::test]
 async fn requests_over_the_bootstrap_body_limit_are_rejected() {
-    let bootstrap_document = support::BOOTSTRAP.replace(
-        "max_request_body_bytes = 1048576",
-        "max_request_body_bytes = 8",
-    );
+    let bootstrap_document = support::BOOTSTRAP
+        .replace(
+            "max_request_body_bytes = 1048576",
+            "max_request_body_bytes = 8",
+        )
+        .replace(
+            "max_replay_body_bytes = 262144",
+            "max_replay_body_bytes = 8",
+        );
     let registry = build_registry(
         support::bootstrap(&bootstrap_document),
         support::definition("health-test", "code-primary", "test-model"),
