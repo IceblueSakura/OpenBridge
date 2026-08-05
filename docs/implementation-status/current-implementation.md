@@ -61,6 +61,34 @@ PKCE `S256` exchange 和事务性文件写入取得完整 token bundle；普通�
 refresh 已配置 bundle。ChatGPT adapter 已声明固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA/`originator`，但当前仍没有
 ChatGPT 数据面接入、通用热更新或 401 refresh/retry 行为。
 
+### 2026-08-05 ChatGPT subscription model profile
+
+- 新增 `src/models/chatgpt.rs` 与 `src/models/chatgpt/gpt_5_3_codex_spark.rs`，把 ChatGPT subscription 侧的 Codex Spark
+  注册为独立 canonical profile `chatgpt/gpt-5.3-codex-spark`；`src/models/openai.rs` 不再拥有该 leaf。
+- 迁移保留原有 128,000 总上下文、未知输入上限、128,000 最大输出和四档 reasoning level；catalog 内容与原有稳定顺序保持不变，
+  仅 canonical namespace 从 OpenAI API profile 改为 ChatGPT profile。
+- 该模型目前没有 ChatGPT Upstream Target、Route 或 Public Model；本次目录迁移不启用 OAuth 数据面，也不证明 subscription edge 或
+  实际请求上下文接受边界。
+- TDD 先运行 `models::tests::chatgpt_module_owns_codex_spark_profile`，旧实现因缺少 `chatgpt` module 编译失败；迁移后该测试、
+  OpenAI/ChatGPT model-module test 和 `compiled_model_catalog_includes_litellm_text_models` 均通过。
+- 本轮 `cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 通过；全量测试包含 2 个明确依赖外部 SDK/独立 Python
+  loopback 的 ignored 测试。改动 Rust 文件的 `rustfmt --check --edition 2024` 与 `git diff --check` 通过；仓库级
+  `cargo fmt -- --check` 仍仅因未改动的 `src/transport/mod.rs` 既有 module 声明顺序失败。
+
+### 2026-08-06 ChatGPT GPT-5.5/5.6 model profiles
+
+- `src/models/chatgpt/` 新增 GPT-5.5、GPT-5.6 Sol、GPT-5.6 Terra 和 GPT-5.6 Luna 四个独立 canonical profiles；原有
+  `openai/` profiles 保持不变，ChatGPT profiles 使用对应的 `chatgpt/` canonical IDs。
+- 四个 ChatGPT profiles 复制原 OpenAI model facts，但将 `max_context_tokens` 与 `max_input_tokens` 设置为 272,000，
+  `max_output_tokens` 保持 128,000；Spark profile 仍保持其独立的 128,000 context facts。
+- ChatGPT model group 目前只进入 canonical catalog，未新增 ChatGPT Upstream Target、Route 或 Public Model；本次不证明真实
+  subscription edge 的模型可用性或实际上下文接受边界。
+- TDD 先运行 `models::tests::chatgpt_module_contains_gpt_5_5_and_gpt_5_6_profiles`，旧实现因 ChatGPT group 只有 Spark 而以
+  `left: 1, right: 5` 失败；完成复制后该测试、全部 model-module tests 和 compiled catalog limit assertions 均通过。
+- 本轮 `cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 通过；全量测试包含 2 个明确依赖外部 SDK/独立 Python
+  loopback 的 ignored 测试。改动 Rust 文件的定向 `rustfmt --check --edition 2024` 与 `git diff --check` 通过；仓库级
+  `cargo fmt -- --check` 仍仅因未改动的 `src/transport/mod.rs` 既有 module 声明顺序失败。
+
 ### 2026-08-05 编译期 Provider 固定请求 UA/header
 
 - `src/provider/contracts.rs` 增加 crate-private、const-friendly 的 `ProviderRequestHeaders` 与 `StaticRequestHeader`。每个 Provider
@@ -275,9 +303,9 @@ gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，�
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。 descriptor 不注册
 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
 
-canonical 模型目录当前包含 16 个定义：15 个 generation 模型和独立的
+canonical 模型目录当前包含 20 个定义：19 个 generation 模型和独立的
 `openai/text-embedding-3-small` Embedding 模型。其中 generation 模型覆盖 GPT-5.6/5.5/5.3 Codex Spark、 DeepSeek V4、MiMo
-V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。GPT-5.6
+V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3，以及 ChatGPT subscription 的 GPT-5.5/5.6 profiles；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。GPT-5.6
 Sol、LongCat 2.0、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与 Public Model 引用；`deepseek-v4-flash` 由
 DeepSeek 与 OpenRouter 两个 target 共享同一个 canonical model，
 `text-embedding-3-small` 由独立 OpenAI target 引用。其余目录项尚未新增 Provider target 或 Public Model route， 不构成真实可调用声明。

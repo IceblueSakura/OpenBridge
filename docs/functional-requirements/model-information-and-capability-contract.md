@@ -19,7 +19,7 @@
 
 | 层次                    | 拥有的事实                                                                          | 是否向下游公开                                     |
 |-------------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|
-| Canonical Model         | 与部署无关的模型名称、上下文、模态、参数和 reasoning 事实                           | 模型事实经 Public Model 聚合；参数只经接口契约公开 |
+| Canonical Model         | 与 endpoint/credential 无关的模型名称、上下文、模态、参数和 reasoning 事实；已核实的 ChatGPT subscription profile 与一般 API 事实不同时，可使用独立 canonical profile identity | 模型事实经 Public Model 聚合；参数只经接口契约公开 |
 | Provider / Upstream API | Provider 能力上界、served limits、协议、upstream model、state affinity 和 wire 映射 | 否                                                 |
 | Route                   | 下游协议、Target、Upstream API、`Native`/`Bridged` 模式及配置顺序                   | 否                                                 |
 | Public Model            | 稳定身份、生命周期、模型事实和每协议唯一固定能力契约                                | 是                                                 |
@@ -28,6 +28,9 @@
 公共对象不得包含 Provider、Target、Route、upstream/canonical model id、endpoint、credential、header 或 wire
 mapping，也不得包含健康、延迟、配额、价格、成本、指标、排行或 benchmark。上游 `/models` 与 probe 结果不能 自动注册或扩大 Public
 Model。
+
+Canonical profile identity 只用于区分不同的已核实模型事实，不代表 endpoint、credential 或请求方可选择的 Provider；其具体可调用性
+仍必须由显式 Target、Upstream API、Route 和 Public Model 注册形成。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)目前是待定方案，不属于本契约或当前实施任务。
 在它重新获得明确批准前，Canonical Model、Target/API、Route source 与 Public Model 继续由代码目录显式注册。

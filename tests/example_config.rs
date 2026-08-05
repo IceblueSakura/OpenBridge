@@ -93,7 +93,11 @@ fn compiled_model_catalog_includes_litellm_text_models() {
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-luna",
         "openai/gpt-5.5",
-        "openai/gpt-5.3-codex-spark",
+        "chatgpt/gpt-5.6-sol",
+        "chatgpt/gpt-5.6-terra",
+        "chatgpt/gpt-5.6-luna",
+        "chatgpt/gpt-5.5",
+        "chatgpt/gpt-5.3-codex-spark",
         "openai/text-embedding-3-small",
         "deepseek/deepseek-v4-pro",
         "deepseek/deepseek-v4-flash",
@@ -120,10 +124,10 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             .all(|model| model.id != "openai/configured-model")
     );
 
-    // Every model has an official catalog description except Codex Spark, which OpenRouter does not list precisely.
+    // Every model has an official catalog description except the ChatGPT Codex Spark profile, which OpenRouter does not list precisely.
     assert!(
         definition.models.iter().all(|model| {
-            model.id == "openai/gpt-5.3-codex-spark" || model.description.is_some()
+            model.id == "chatgpt/gpt-5.3-codex-spark" || model.description.is_some()
         })
     );
 
@@ -188,11 +192,31 @@ fn compiled_model_catalog_includes_litellm_text_models() {
             ReasoningLevel::None,
         ]
     );
+    assert_eq!(gpt_5_5.context_length.context_tokens(), Some(1_050_000));
+    assert_eq!(gpt_5_5.context_length.input_tokens(), Some(1_050_000));
+    assert_eq!(gpt_5_5.context_length.output_tokens(), Some(128_000));
+
+    // ChatGPT subscription profiles retain the copied model facts with a 272K context window.
+    for model_id in [
+        "chatgpt/gpt-5.6-sol",
+        "chatgpt/gpt-5.6-terra",
+        "chatgpt/gpt-5.6-luna",
+        "chatgpt/gpt-5.5",
+    ] {
+        let model = definition
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+            .expect("ChatGPT subscription GPT profile should be in the catalog");
+        assert_eq!(model.context_length.context_tokens(), Some(272_000));
+        assert_eq!(model.context_length.input_tokens(), Some(272_000));
+        assert_eq!(model.context_length.output_tokens(), Some(128_000));
+    }
 
     let codex_spark = definition
         .models
         .iter()
-        .find(|model| model.id == "openai/gpt-5.3-codex-spark")
+        .find(|model| model.id == "chatgpt/gpt-5.3-codex-spark")
         .unwrap();
     assert_eq!(codex_spark.context_length.context_tokens(), Some(128_000));
     assert_eq!(codex_spark.context_length.input_tokens(), None);

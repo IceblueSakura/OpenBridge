@@ -1,14 +1,16 @@
-//! Aggregates provider-independent canonical model facts.
+//! Aggregates explicitly registered canonical model profiles.
 
 use crate::registry::ModelConfig;
 
-use super::{deepseek, meituan, minimax, moonshotai, openai, qwen, xiaomi, z_ai};
+use super::{chatgpt, deepseek, meituan, minimax, moonshotai, openai, qwen, xiaomi, z_ai};
 
-/// Returns every provider-independent model fact compiled into the binary.
+/// Returns every explicitly registered canonical model profile compiled into the binary.
 pub(crate) fn compiled_configs() -> Vec<ModelConfig> {
     [
         meituan::configs(),
-        openai::configs(),
+        openai::generation_configs(),
+        chatgpt::configs(),
+        openai::embedding_configs(),
         deepseek::configs(),
         xiaomi::configs(),
         qwen::configs(),

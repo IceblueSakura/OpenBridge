@@ -150,7 +150,7 @@ RegistryConfig
 |------------------------|----------------------------------------------------------------------------------------------------------------------|
 | `ProviderContract`     | Provider adapter 代码拥有的 credential kind 与能力上界                                                               |
 | `ProviderInstanceConfig` | 一个稳定实例 ID、一个 `ProviderKind` 与唯一受信 BaseURL；不同 URL/区域使用不同实例                                  |
-| `ModelConfig`          | 与供应商无关的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据                              |
+| `ModelConfig`          | 显式 canonical profile 的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据；不同 profile 的已核实事实可分开注册 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind                                                                          |
 | `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
 | `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、state affinity 与可选 reasoning level 映射            |
@@ -158,18 +158,21 @@ RegistryConfig
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
-当前编译目录包含 18 个 `ModelConfig`：17 个既有 generation 模型，以及独立的
-`openai/text-embedding-3-small` Embedding 模型。同一研发者命名空间由 `src/models/<developer>.rs` 聚合，目录下每个扁平叶模块只定义一个
-具体模型。版本、checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、
-`deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。研发者根模块直接维持
-目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
+当前编译目录包含 20 个 `ModelConfig`：19 个 generation 模型，以及独立的
+`openai/text-embedding-3-small` Embedding 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
+侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark 与 GPT-5.5/5.6 四个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
+checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、`chatgpt/gpt_5_3_codex_spark.rs`、
+`deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。各根模块直接维持
+目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 或 `chatgpt::gpt_5_3_codex_spark::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
 `z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、context、 参数、reasoning 状态和
 level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于 可调用；只有被 Upstream Target
 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
 `ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被 伪装成可调用
-Embedding/rerank 模型。其中 16 个 generation 模型已按 2026-08-02 OpenRouter 官方目录精确匹配并补齐现有字段；
-`openai/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
+Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有字段；
+`chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
 `:free` 变体边界见 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
+ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical context/input limits 独立收窄为 272,000，最大输出保持
+128,000；这组 profile 目前没有 target、Route 或 Public Model。
 
 同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
 限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
