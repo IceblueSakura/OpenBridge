@@ -1,7 +1,7 @@
 //! Performance, usage, and cache telemetry for Provider attempts.
 //!
 //! This module binds each actual upstream call to compile-time Route, target, Upstream API,
-//! Provider, and protocol dimensions. It records timing and explicit usage at raw upstream
+//! Provider, and operation dimensions. It records timing and explicit usage at raw upstream
 //! body/SSE boundaries, then writes a process snapshot at attempt termination. Metrics store no
 //! business bodies, credentials, endpoint URLs, or downstream identities.
 
@@ -17,7 +17,7 @@ use http_body::{Body as HttpBody, Frame, SizeHint};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{core::ApiProtocol, provider::ProviderKind};
+use crate::{core::OperationKind, provider::ProviderKind};
 
 use super::{request::RequestObservation, usage::TokenUsage};
 
@@ -34,8 +34,8 @@ pub struct ProviderMetricKey {
     pub upstream_api: String,
     /// Public Model name used downstream.
     pub public_model: String,
-    /// Downstream request protocol.
-    pub protocol: String,
+    /// Stable downstream operation name.
+    pub operation: String,
     /// Native or Bridged execution mode.
     pub route_mode: String,
     /// Whether the request requires a streaming response.
@@ -50,7 +50,7 @@ impl ProviderMetricKey {
         upstream_target: &str,
         upstream_api: &str,
         public_model: &str,
-        protocol: Option<ApiProtocol>,
+        operation: Option<OperationKind>,
         execution: ProviderMetricExecution,
     ) -> Self {
         Self {
@@ -59,7 +59,10 @@ impl ProviderMetricKey {
             upstream_target: upstream_target.to_owned(),
             upstream_api: upstream_api.to_owned(),
             public_model: public_model.to_owned(),
-            protocol: protocol.map(protocol_name).unwrap_or("unknown").to_owned(),
+            operation: operation
+                .map(OperationKind::as_str)
+                .unwrap_or("unknown")
+                .to_owned(),
             route_mode: if execution.bridged {
                 "bridged"
             } else {
@@ -481,7 +484,7 @@ impl ProviderAttemptObservation {
             upstream_target = %self.key.upstream_target,
             upstream_api = %self.key.upstream_api,
             public_model = %self.key.public_model,
-            protocol = %self.key.protocol,
+            operation = %self.key.operation,
             route_mode = %self.key.route_mode,
             streaming = self.key.streaming,
             outcome = summary.outcome.as_str(),
@@ -623,13 +626,6 @@ fn provider_name(provider: ProviderKind) -> &'static str {
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::MiMo => "mimo",
         ProviderKind::OpenRouter => "openrouter",
-    }
-}
-
-fn protocol_name(protocol: ApiProtocol) -> &'static str {
-    match protocol {
-        ApiProtocol::ChatCompletions => "chat_completions",
-        ApiProtocol::Responses => "responses",
     }
 }
 

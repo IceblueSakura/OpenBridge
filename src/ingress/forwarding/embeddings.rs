@@ -3,7 +3,7 @@
 //! Request analysis, fixed-interface preflight, trusted egress, and pre-commit validation are
 //! complete here. A single compiled Route may reuse its finite attempt budget only for request
 //! bodies within the independent replay limit. Errors are gateway-owned and discard upstream
-//! bodies; operation-aware metrics remain owned by a later current-focus stage.
+//! bodies; request and attempt metrics use the independent Embeddings operation identity.
 
 use std::collections::HashSet;
 
@@ -12,6 +12,7 @@ use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 
 use crate::{
+    core::OperationKind,
     observability::RequestObservation,
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
@@ -42,6 +43,11 @@ pub(in crate::ingress) async fn forward_embeddings_request(
         Ok(requirements) => requirements,
         Err(error) => return embedding_route_error(error),
     };
+    observation.record_request(
+        OperationKind::EmbeddingsCreate,
+        requirements.public_model(),
+        false,
+    );
     let replayable = body.len() <= registry.limits().max_replay_body_bytes();
     let plan = match plan_embedding_request(&registry, &requirements, body) {
         Ok(plan) => plan,

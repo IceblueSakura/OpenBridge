@@ -2,9 +2,13 @@
 
 mod support;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    io::{self, Write},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use axum::{
@@ -13,13 +17,25 @@ use axum::{
 };
 use futures_util::{StreamExt, future::BoxFuture, stream};
 use openbridge::{
+    config::parse_bootstrap_config,
+    core::{
+        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
+        OperationKind,
+    },
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, GatewayMetricsSnapshot},
-    provider::PreparedUpstreamRequest,
-    registry::UpstreamTarget,
+    provider::{PreparedUpstreamRequest, ProviderKind},
+    registry::{
+        InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
+        PublicModelConfig, ReasoningSupport, RouteConfig, RouteMode, StateAffinity, TransportKind,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget,
+        UpstreamTargetConfig, build_registry,
+    },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
+use serde_json::{Value, json};
 use tower::ServiceExt;
+use tracing_subscriber::fmt::MakeWriter;
 
 struct RetryThenUsageTransport {
     attempts: AtomicUsize,
@@ -71,6 +87,45 @@ struct ProviderMetricsJsonTransport;
 struct ProviderMetricsStreamingTransport;
 
 struct JsonResponseAboveRequestLimitTransport;
+
+struct EmbeddingMetricsTransport {
+    attempts: AtomicUsize,
+}
+
+struct ReplayLimitEmbeddingTransport {
+    attempts: AtomicUsize,
+}
+
+const OBSERVED_EMBEDDING_FORMS: &[EmbeddingInputForm] =
+    &[EmbeddingInputForm::String, EmbeddingInputForm::TokenArray];
+const OBSERVED_EMBEDDING_ENCODINGS: &[EmbeddingEncoding] =
+    &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
+const OBSERVED_EMBEDDING_DIMENSIONS: &[u32] = &[2];
+const OBSERVED_EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
+
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+struct BufferWriter(LogBuffer);
+
+impl Write for BufferWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for LogBuffer {
+    type Writer = BufferWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        BufferWriter(self.clone())
+    }
+}
 
 impl UpstreamTransport for PendingStreamTransport {
     fn send<'a>(
@@ -239,8 +294,162 @@ impl UpstreamTransport for JsonResponseAboveRequestLimitTransport {
     }
 }
 
+impl UpstreamTransport for EmbeddingMetricsTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Select a deterministic valid response from only the requested public encoding.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        let request: Value = serde_json::from_slice(request.body()).unwrap();
+        let base64 = request["encoding_format"] == "base64";
+        let response = if base64 {
+            json!({
+                "object":"list",
+                "data":[{"object":"embedding","embedding":"U0VDUkVUUyE=","index":0}],
+                "model":"embedding-observed-upstream",
+                "usage":{"prompt_tokens":3,"total_tokens":3}
+            })
+        } else {
+            json!({
+                "object":"list",
+                "data":[{"object":"embedding","embedding":[12345.678,-98765.432],"index":0}],
+                "model":"embedding-observed-upstream",
+                "usage":{"prompt_tokens":5,"total_tokens":5}
+            })
+        };
+
+        // Return the complete body without logging request or vector values.
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(serde_json::to_vec(&response).unwrap()),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for ReplayLimitEmbeddingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Count every actual egress and always return a status that would retry a smaller body.
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                headers,
+                Body::from(r#"{"error":{"message":"retryable synthetic failure"}}"#),
+            ))
+        })
+    }
+}
+
 fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, GatewayMetrics) {
     let registry = support::registry("observability-test", "code-primary", "test-model");
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-test-token-00000000000",
+        &registry,
+        "upstream-test-token",
+    );
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
+    let metrics = state.metrics();
+    (build_router(state), metrics)
+}
+
+fn embedding_observability_app(
+    transport: Arc<dyn UpstreamTransport>,
+) -> (axum::Router, GatewayMetrics) {
+    // Extend the ordinary synthetic registry with one independent Embeddings model and target.
+    let mut definition = support::definition(
+        "embedding-observability",
+        "generation-observed",
+        "generation-observed-upstream",
+    );
+    definition.models.push(ModelConfig {
+        id: "openai/embedding-observed".to_owned(),
+        name: "Observed embedding model".to_owned(),
+        description: Some("Synthetic observability contract model.".to_owned()),
+        context_length: ModelContextLength::new(None, Some(8_192), None),
+        mode: Some(ModelMode::Embedding),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Embedding]),
+        tokenizer: Some("synthetic-tokenizer".to_owned()),
+        knowledge_cutoff: None,
+        supported_parameters: OBSERVED_EMBEDDING_PARAMETERS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        reasoning: ReasoningSupport::Unsupported,
+        reasoning_levels: Vec::new(),
+    });
+    definition.upstream_targets.push(UpstreamTargetConfig {
+        id: "embedding-observed-target".to_owned(),
+        provider: ProviderKind::OpenAi,
+        model: "openai/embedding-observed".to_owned(),
+        base_url: "https://api.openai.com".to_owned(),
+        credential_pool: "openai-primary".to_owned(),
+        quota_scope: None,
+        fault_domain: None,
+        request_timeout: Duration::from_secs(30),
+        enabled: true,
+        upstream_apis: vec![UpstreamApiConfig {
+            id: "embeddings".to_owned(),
+            operation: OperationKind::EmbeddingsCreate,
+            upstream_model: "embedding-observed-upstream".to_owned(),
+            endpoint_profile: "public-api".to_owned(),
+            transport: TransportKind::HttpJson,
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::Embeddings(EmbeddingsCapabilities {
+                enabled: true,
+                input_forms: OBSERVED_EMBEDDING_FORMS,
+                default_encoding: EmbeddingEncoding::Float,
+                allowed_encodings: Some(OBSERVED_EMBEDDING_ENCODINGS),
+                default_dimensions: 2,
+                allowed_dimensions: Some(EmbeddingDimensionDomain::Values {
+                    values: OBSERVED_EMBEDDING_DIMENSIONS,
+                }),
+                max_inputs: 1,
+                max_tokens_per_input: Some(8),
+                max_total_tokens: Some(8),
+                locally_counted_input_forms: &[EmbeddingInputForm::TokenArray],
+                supported_parameters: OBSERVED_EMBEDDING_PARAMETERS,
+            }),
+            state_affinity: StateAffinity::Unbound,
+        }],
+    });
+    definition.routes.push(RouteConfig {
+        id: "embedding-observed-route".to_owned(),
+        upstream_target: "embedding-observed-target".to_owned(),
+        upstream_api: "embeddings".to_owned(),
+        downstream_operation: OperationKind::EmbeddingsCreate,
+        mode: RouteMode::Native,
+    });
+    definition.public_models.push(PublicModelConfig {
+        id: "embedding-observed".to_owned(),
+        created: 1_785_715_200,
+        display_name: "Observed embeddings".to_owned(),
+        description: Some("Synthetic Embeddings observability model.".to_owned()),
+        lifecycle: ModelLifecycle::active(),
+        routes: vec!["embedding-observed-route".to_owned()],
+    });
+
+    // Compile the mixed registry and bind only synthetic user/upstream credentials.
+    let registry = build_registry(
+        parse_bootstrap_config(support::BOOTSTRAP).unwrap(),
+        definition,
+    )
+    .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -299,6 +508,16 @@ fn responses_request(body: &'static str) -> Request<Body> {
         .header("authorization", "Bearer downstream-test-token-00000000000")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(body))
+        .unwrap()
+}
+
+fn embedding_request(body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/v1/embeddings")
+        .header("authorization", "Bearer downstream-test-token-00000000000")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap()
 }
 
@@ -434,7 +653,7 @@ async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
     let snapshot = &snapshots[0];
     assert_eq!(snapshot.key.provider, "openai");
     assert_eq!(snapshot.key.public_model, "code-primary");
-    assert_eq!(snapshot.key.protocol, "chat_completions");
+    assert_eq!(snapshot.key.operation, "chat_completions");
     assert_eq!(snapshot.key.route_mode, "native");
     assert!(!snapshot.key.streaming);
     assert_eq!(snapshot.attempts_started, 1);
@@ -454,6 +673,137 @@ async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
     assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
     assert_eq!(snapshot.upstream_ttft_ms.count, 0);
     assert_eq!(snapshot.duration_ms.count, 1);
+}
+
+#[tokio::test]
+async fn embeddings_use_operation_usage_without_output_or_sensitive_telemetry() {
+    let logs = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(logs.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let transport = Arc::new(EmbeddingMetricsTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let (app, metrics) = embedding_observability_app(transport.clone());
+
+    // Complete one text/base64 request carrying text and user sentinels.
+    let response = app
+        .clone()
+        .oneshot(embedding_request(json!({
+            "model":"embedding-observed",
+            "input":"TEXT_INPUT_SENTINEL_6F3C",
+            "encoding_format":"base64",
+            "dimensions":2,
+            "user":"USER_SENTINEL_91A7"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
+
+    // Complete one token/float request carrying token and vector-number sentinels.
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-observed",
+            "input":[42424242,31313131],
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
+
+    // Verify gateway usage counts input/total only for two completed Embeddings requests.
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.requests_started, 2);
+    assert_eq!(gateway.requests_completed, 2);
+    assert_eq!(gateway.upstream_attempts, 2);
+    assert_eq!(gateway.usage_observations, 2);
+    assert_eq!(gateway.input_tokens, 8);
+    assert_eq!(gateway.output_tokens, 0);
+    assert_eq!(gateway.total_tokens, 8);
+
+    // Require one operation-keyed Provider snapshot with no generation-only samples.
+    let snapshots = metrics.provider_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    let snapshot = &snapshots[0];
+    assert_eq!(snapshot.key.operation, "embeddings_create");
+    assert_eq!(snapshot.key.route_mode, "native");
+    assert!(!snapshot.key.streaming);
+    assert_eq!(snapshot.attempts_started, 2);
+    assert_eq!(snapshot.attempts_completed, 2);
+    assert_eq!(snapshot.usage_observations, 2);
+    assert_eq!(snapshot.input_token_observations, 2);
+    assert_eq!(snapshot.output_token_observations, 0);
+    assert_eq!(snapshot.total_token_observations, 2);
+    assert_eq!(snapshot.input_tokens, 8);
+    assert_eq!(snapshot.output_tokens, 0);
+    assert_eq!(snapshot.total_tokens, 8);
+    assert_eq!(snapshot.upstream_ttft_ms.count, 0);
+    assert_eq!(snapshot.gateway_ttft_ms.count, 0);
+    assert_eq!(snapshot.generation_duration_ms.count, 0);
+    assert_eq!(snapshot.output_speed.count, 0);
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 2);
+
+    // Prove the exported schema has one operation field and no body/vector sentinels.
+    let exported = serde_json::to_value(&snapshots).unwrap();
+    assert_eq!(exported[0]["key"]["operation"], "embeddings_create");
+    assert!(exported[0]["key"].get("protocol").is_none());
+    let diagnostics = format!(
+        "{}\n{}\n{:?}",
+        exported,
+        String::from_utf8(logs.0.lock().unwrap().clone()).unwrap(),
+        gateway
+    );
+    assert!(diagnostics.contains("embeddings_create"));
+    for sentinel in [
+        "TEXT_INPUT_SENTINEL_6F3C",
+        "USER_SENTINEL_91A7",
+        "42424242",
+        "31313131",
+        "U0VDUkVUUyE=",
+        "12345.678",
+        "-98765.432",
+    ] {
+        assert!(!diagnostics.contains(sentinel));
+    }
+}
+
+#[tokio::test]
+async fn embedding_body_over_replay_limit_records_exactly_one_attempt() {
+    // Build a retryable transport and a valid request between replay and request hard limits.
+    let transport = Arc::new(ReplayLimitEmbeddingTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let (app, metrics) = embedding_observability_app(transport.clone());
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-observed",
+            "input":"r".repeat(262_200),
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
+
+    // Verify replay ineligibility is visible only as one attempt, never a new client rejection.
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.requests_http_failed, 1);
+    assert_eq!(gateway.upstream_attempts, 1);
+    assert_eq!(gateway.upstream_http_failures, 1);
+    assert_eq!(gateway.upstream_retries, 0);
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+    let snapshots = metrics.provider_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].key.operation, "embeddings_create");
+    assert_eq!(snapshots[0].attempts_started, 1);
+    assert_eq!(snapshots[0].attempts_http_failed, 1);
 }
 
 #[tokio::test]

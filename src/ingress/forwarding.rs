@@ -55,7 +55,7 @@ pub(super) async fn forward_request(
         Err(error) => return route_error(error),
     };
     observation.record_request(
-        protocol,
+        protocol.operation(),
         requirements.public_model(),
         requirements.is_streaming(),
     );

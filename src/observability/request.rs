@@ -16,7 +16,7 @@ use std::{
 use http::StatusCode;
 use tracing::Span;
 
-use crate::{core::ApiProtocol, provider::ProviderKind};
+use crate::{core::OperationKind, provider::ProviderKind};
 
 use super::{
     metrics::GatewayMetrics,
@@ -42,7 +42,7 @@ struct RequestObservationInner {
 
 #[derive(Default)]
 struct RequestState {
-    protocol: Option<ApiProtocol>,
+    operation: Option<OperationKind>,
     public_model: Option<String>,
     streaming: bool,
     status: Option<u16>,
@@ -77,21 +77,19 @@ impl RequestObservation {
         }
     }
 
-    /// Records the downstream protocol and Public Model in the request span.
+    /// Records the downstream operation and Public Model in the request span.
     pub(crate) fn record_request(
         &self,
-        protocol: ApiProtocol,
+        operation: OperationKind,
         public_model: &str,
         streaming: bool,
     ) {
         self.with_state(|state| {
-            state.protocol = Some(protocol);
+            state.operation = Some(operation);
             state.public_model = Some(public_model.to_owned());
             state.streaming = streaming;
         });
-        self.inner
-            .span
-            .record("protocol", tracing::field::debug(protocol));
+        self.inner.span.record("operation", operation.as_str());
         self.inner.span.record("public_model", public_model);
     }
 
@@ -106,9 +104,9 @@ impl RequestObservation {
         bridged: bool,
     ) {
         // Create a Provider-dimension attempt handle and keep Route details within the current trace.
-        let (protocol, public_model, streaming) = {
+        let (operation, public_model, streaming) = {
             let state = self.lock_state();
-            (state.protocol, state.public_model.clone(), state.streaming)
+            (state.operation, state.public_model.clone(), state.streaming)
         };
         let key = ProviderMetricKey::new(
             provider,
@@ -116,7 +114,7 @@ impl RequestObservation {
             upstream_target,
             upstream_api,
             public_model.as_deref().unwrap_or("unknown"),
-            protocol,
+            operation,
             ProviderMetricExecution { streaming, bridged },
         );
         let previous = self.with_state_return(|state| state.active_attempt.take());

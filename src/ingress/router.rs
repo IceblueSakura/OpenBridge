@@ -151,7 +151,7 @@ async fn require_user(
         user_id = %user.id(),
         %method,
         %path,
-        protocol = tracing::field::Empty,
+        operation = tracing::field::Empty,
         public_model = tracing::field::Empty,
         status = tracing::field::Empty,
     );
