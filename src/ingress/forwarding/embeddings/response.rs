@@ -129,8 +129,8 @@ fn valid_embedding_value(value: &Value, encoding: EmbeddingEncoding, dimensions:
         EmbeddingEncoding::Float => value.as_array().is_some_and(|values| {
             values.len() == dimensions
                 && values
-                .iter()
-                .all(|value| value.as_f64().is_some_and(f64::is_finite))
+                    .iter()
+                    .all(|value| value.as_f64().is_some_and(f64::is_finite))
         }),
         EmbeddingEncoding::Base64 => {
             let Some(value) = value.as_str() else {

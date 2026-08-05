@@ -24,10 +24,10 @@ backend 的模型目录和一个 Responses 文本调用，并只输出脱敏结�
 
 第一阶段必须满足：
 
-1. ChatGPT 是独立 `Provider`，不能复用 `OpenAI` API-key Provider 身份、endpoint profile 或 credential pool。
-2. endpoint、路径和必要普通 header 来自编译期 ChatGPT/Codex profile；业务请求、credential 文件和 probe 参数都不能覆盖上游 URL、
+1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
+2. BaseURL 来自编译期 ChatGPT Provider instance，operation path 和必要普通 header 来自 ChatGPT/Codex adapter；业务请求、credential 文件和 probe 参数都不能覆盖上游 URL、
    model path、`originator`、`version` 或任意 header。
-3. 当前 Codex profile 只注册固定的 Codex backend base、`GET models` 与 `POST responses`；不声称 Chat Completions、Embeddings、
+3. 当前 ChatGPT Provider instance 只注册固定 Codex backend BaseURL，adapter 只开放 `GET models` 与 `POST responses`；不声称 Chat Completions、Embeddings、
    WebSocket 或其他 ChatGPT resource API。
 4. ChatGPT target 默认禁用且不加入 Route/Public Model，只允许显式管理员 probe 选择。常驻服务启动不读取 Codex credential，也不因该
    target 要求新的运行时 secret。
@@ -182,7 +182,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| OAUTH-01 | ChatGPT 使用独立 Provider、OAuth bearer credential kind、固定 Codex backend endpoint profile 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
+| OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定 Codex backend BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
 | OAUTH-02 | 第一阶段 target 默认禁用、没有 Route/Public Model，只能由显式管理员 probe 选择，常驻服务不要求或读取 Codex credential。                                   |
 | OAUTH-03 | Codex auth loader 只读最小字段，过期、错型、缺失账户或损坏文件在 egress 前失败；文件内容、token、账户和路径不进入报告、日志或测试 fixture。                 |
 | OAUTH-04 | 模型目录与 Responses probe 使用当前 Codex 源码定义的路径、query、认证和普通 header；OpenBridge 通过固定 profile 构造并逐字节验证 `User-Agent`，不调用或依赖 Codex CLI。 |

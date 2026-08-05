@@ -1,7 +1,7 @@
 //! Tracing, terminal-state, and low-cardinality counter submission for one authenticated request.
 //!
 //! Request, user, credential, and endpoint facts enter only the current span. Validated Route,
-//! target, Upstream API, Provider, and Public Model dimensions are used separately by Provider
+//! target, upstream operation, Provider, and Public Model dimensions are used separately by Provider
 //! attempt snapshots. Shared state stores only terminal diagnostics, usage, and bounded counters,
 //! and guarantees that finish/cancel is submitted at most once.
 
@@ -99,7 +99,7 @@ impl RequestObservation {
         attempt: u64,
         route_id: &str,
         upstream_target: &str,
-        upstream_api: &str,
+        upstream_operation: OperationKind,
         provider: ProviderKind,
         bridged: bool,
     ) {
@@ -112,7 +112,7 @@ impl RequestObservation {
             provider,
             route_id,
             upstream_target,
-            upstream_api,
+            upstream_operation,
             public_model.as_deref().unwrap_or("unknown"),
             operation,
             ProviderMetricExecution { streaming, bridged },
@@ -134,6 +134,7 @@ impl RequestObservation {
                 attempt,
                 route_id,
                 upstream_target,
+                upstream_operation = upstream_operation.as_str(),
                 ?provider,
                 route_mode = if bridged { "bridged" } else { "native" },
                 "upstream_attempt"

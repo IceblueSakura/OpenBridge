@@ -9,8 +9,8 @@ use openbridge::{
     },
     provider::ProviderKind,
     registry::{
-        ModelMode, OutputModality, RegistryError, RouteConfig, RouteMode, TransportKind,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, build_registry,
+        ModelMode, OutputModality, RegistryError, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, build_registry,
     },
 };
 use serde_json::json;
@@ -57,11 +57,7 @@ fn embedding_definition() -> openbridge::registry::RegistryConfig {
 
     // Bind one JSON-only Native Embeddings API and Route to the synthetic Public Model.
     definition.upstream_targets[0].upstream_apis = vec![UpstreamApiConfig {
-        id: "embeddings".to_owned(),
-        operation: OperationKind::EmbeddingsCreate,
         upstream_model: "embedding-upstream".to_owned(),
-        endpoint_profile: "public-api".to_owned(),
-        transport: TransportKind::HttpJson,
         model_rules: UpstreamApiModelRules::default(),
         capabilities: UpstreamApiCapabilities::Embeddings(embedding_capabilities()),
         state_affinity: openbridge::registry::StateAffinity::Unbound,
@@ -69,7 +65,7 @@ fn embedding_definition() -> openbridge::registry::RegistryConfig {
     definition.routes = vec![RouteConfig {
         id: "public-embeddings".to_owned(),
         upstream_target: "openai-main".to_owned(),
-        upstream_api: "embeddings".to_owned(),
+        upstream_operation: OperationKind::EmbeddingsCreate,
         downstream_operation: OperationKind::EmbeddingsCreate,
         mode: RouteMode::Native,
     }];
@@ -127,7 +123,10 @@ fn embedding_definition_compiles_into_the_typed_models_interface() {
     // Keep runtime operation identity independent from the generation-only protocol enum.
     let target = registry.upstream_target("openai-main").unwrap();
     assert_eq!(
-        target.upstream_api("embeddings").unwrap().operation(),
+        target
+            .upstream_api(OperationKind::EmbeddingsCreate)
+            .unwrap()
+            .operation(),
         OperationKind::EmbeddingsCreate
     );
     assert_eq!(
@@ -219,23 +218,7 @@ fn embedding_compiler_rejects_invalid_closed_contracts() {
 }
 
 #[test]
-fn embedding_compiler_enforces_operation_transport_and_model_task_identity() {
-    // Reject a capability variant interpreted as a generation operation.
-    let mut operation = embedding_definition();
-    operation.upstream_targets[0].upstream_apis[0].operation = OperationKind::ChatCompletions;
-    assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), operation),
-        Err(RegistryError::UpstreamApiOperationMismatch { .. })
-    ));
-
-    // Reject an SSE transport because Embeddings success is one bounded JSON object.
-    let mut transport = embedding_definition();
-    transport.upstream_targets[0].upstream_apis[0].transport = TransportKind::HttpJsonSse;
-    assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), transport),
-        Err(RegistryError::UpstreamApiTransportMismatch { .. })
-    ));
-
+fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
     // Reject a generation canonical model and a Native Route whose operations differ.
     let mut model = embedding_definition();
     model.models[0].mode = Some(ModelMode::Chat);

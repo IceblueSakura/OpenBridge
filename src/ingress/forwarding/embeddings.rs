@@ -59,7 +59,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
         return configuration_error("Configured upstream target is unavailable");
     };
-    let Some(upstream_api) = target.upstream_api(candidate.upstream_api_id()) else {
+    let Some(upstream_api) = target.upstream_api(candidate.upstream_operation()) else {
         return configuration_error("Configured native upstream API is unavailable");
     };
     let Some(credential_pool) = registry.credential_pool(target.credential_pool_id()) else {
@@ -137,7 +137,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
             attempts.attempts_started() as u64,
             candidate.route_id(),
             candidate.upstream_target_id(),
-            candidate.upstream_api_id(),
+            candidate.upstream_operation(),
             target.kind(),
             false,
         );
@@ -167,11 +167,11 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 // Permit one shared-policy retry only when the body is independently replayable.
                 let has_retry_credential = !rate_limited
                     || state.credential_health.has_available_member(
-                    credential_pool.id(),
-                    &credentials,
-                    &rejected_members,
-                    std::time::Instant::now(),
-                );
+                        credential_pool.id(),
+                        &credentials,
+                        &rejected_members,
+                        std::time::Instant::now(),
+                    );
                 if replayable
                     && has_retry_credential
                     && attempts.next_step(0) == AttemptStep::RetryCandidate
@@ -202,7 +202,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     plan.dimensions(),
                     registry.limits().max_json_response_body_bytes(),
                 )
-                    .await
+                .await
                 {
                     Ok(response) => response,
                     Err(_) => {

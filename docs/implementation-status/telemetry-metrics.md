@@ -19,16 +19,16 @@ exporter、负载能力或动态选路已经验收。
 
 每个已收口的实际 upstream attempt 绑定以下非敏感、编译期维度：
 
-| 字段              | 含义                                                    |
-|-------------------|---------------------------------------------------------|
-| `provider`        | `openai`、`longcat`、`deepseek`、`mimo` 或 `openrouter` |
-| `route_id`        | 编译期 Route 标识                                       |
-| `upstream_target` | 编译期 Upstream Target 标识                             |
-| `upstream_api`    | 编译期 Upstream API 标识                                |
-| `public_model`    | 下游请求使用的 Public Model                             |
-| `operation`       | `chat_completions`、`responses` 或 `embeddings_create`  |
-| `route_mode`      | `native` 或 `bridged`                                   |
-| `streaming`       | 是否为 streaming 请求                                   |
+| 字段                 | 含义                                                                  |
+|----------------------|-----------------------------------------------------------------------|
+| `provider`           | `openai`、`longcat`、`deepseek`、`mimo`、`openrouter` 或 `chatgpt`    |
+| `route_id`           | 编译期 Route 标识                                                     |
+| `upstream_target`    | 编译期 Upstream Target 标识                                           |
+| `upstream_operation` | `chat_completions`、`responses` 或 `embeddings_create` 的上游 operation |
+| `public_model`       | 下游请求使用的 Public Model                                           |
+| `operation`          | 下游 `chat_completions`、`responses` 或 `embeddings_create` operation |
+| `route_mode`         | `native` 或 `bridged`                                                 |
+| `streaming`          | 是否为 streaming 请求                                                 |
 
 指标 key 不包含 request id、user id、credential member、endpoint URL、Authorization、请求正文或响应正文。
 这些维度来自已校验的静态注册表，不允许业务请求动态创建。

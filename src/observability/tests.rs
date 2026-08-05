@@ -9,8 +9,11 @@ use http::StatusCode;
 use serde_json::json;
 use tracing_subscriber::fmt::MakeWriter;
 
+use crate::{core::OperationKind, provider::ProviderKind};
+
 use super::{
     GatewayMetrics, RequestObservation,
+    provider::{ProviderMetricExecution, ProviderMetricKey},
     usage::{TokenUsage, extract_usage},
 };
 
@@ -36,6 +39,25 @@ impl<'a> MakeWriter<'a> for LogBuffer {
     fn make_writer(&'a self) -> Self::Writer {
         BufferWriter(self.clone())
     }
+}
+
+#[test]
+fn provider_metric_key_keeps_upstream_and_downstream_operations_distinct() {
+    let key = ProviderMetricKey::new(
+        ProviderKind::OpenAi,
+        "chat-via-responses",
+        "openai-main",
+        OperationKind::Responses,
+        "public-model",
+        Some(OperationKind::ChatCompletions),
+        ProviderMetricExecution {
+            streaming: false,
+            bridged: true,
+        },
+    );
+
+    assert_eq!(key.upstream_operation, "responses");
+    assert_eq!(key.operation, "chat_completions");
 }
 
 #[test]
@@ -75,8 +97,8 @@ fn extracts_chat_and_responses_usage_without_business_content() {
         extract_usage(&json!({
             "usage": {"input_tokens": u64::MAX, "output_tokens": 1}
         }))
-            .unwrap()
-            .total_tokens,
+        .unwrap()
+        .total_tokens,
         Some(u64::MAX)
     );
 }

@@ -77,14 +77,14 @@ native_dimensions = 1024
 
 [[provider_models]]
 id = "openai-example-chat-v1"
-provider = "openai"
+provider_instance = "openai"
 integration_profile = "default"
 model = "example-chat-v1"
 upstream_model = "example-chat-v1"
 
 [[provider_models]]
 id = "openrouter-example-chat-v1"
-provider = "openrouter"
+provider_instance = "openrouter"
 integration_profile = "default"
 model = "example-chat-v1"
 upstream_model = "vendor/example-chat-v1"
@@ -150,17 +150,16 @@ Chat 记录出现 `embedding` 子表、Embedding 记录出现 `chat` 子表，�
 | 字段                  | 要求                                                                                           |
 |-----------------------|------------------------------------------------------------------------------------------------|
 | `id`                  | 必填、全局唯一且稳定的 binding ID；用于 Public Model source 引用和确定性派生内部 ID。          |
-| `provider`            | 必填的闭合 Provider ID，必须已经由 Rust 代码注册。                                             |
-| `integration_profile` | 必填的 Provider 内闭合接入 profile ID，必须属于所选 Provider。                                 |
+| `provider_instance`   | 必填的闭合 Provider instance ID，必须已经由 Rust 代码注册并唯一拥有受信 BaseURL。               |
+| `integration_profile` | 必填的 Provider family 内闭合接入 profile ID，必须属于实例绑定的 `ProviderKind`。               |
 | `model`               | 必填的 Canonical Model ID 引用。                                                               |
 | `upstream_model`      | 必填、非空且有长度上限的真实上游模型名；只写入受信 integration profile 生成的请求 model 字段。 |
 | `model_rules`         | 可选的 Provider 接入收窄规则；只允许更小的 token 上限、禁用已知参数或收窄 reasoning 状态。     |
 
-代码内 integration profile 必须冻结 Provider kind、endpoint origin 和相对路径、credential pool/kind、timeout、 quota/fault
-边界、Native API 集合、transport、endpoint profile、受 Provider contract 约束的保守能力基线、 state affinity，以及可生成的
-Native/Bridge Route surface。它不是现有单条 Upstream API 的
-`endpoint_profile`。配置只能选择 integration profile，不能覆盖其中任一项，也不能扩大 integration profile 或 Canonical Model
-能力。
+Provider instance 必须冻结 `ProviderKind` 与唯一 endpoint origin；代码内 integration profile 必须冻结 operation 相对路径、
+credential pool/kind、timeout、quota/fault 边界、每个 `OperationKind` 至多一份的 Native API 集合、受 Provider contract 约束的保守
+能力基线、state affinity，以及可生成的 Native/Bridge Route surface。配置只能引用已注册实例并选择其 family 的 integration
+profile，不能覆盖上述任一项，也不能扩大 integration profile 或 Canonical Model 能力。
 
 同一个 `upstream_model` 适用于该 integration profile 生成的全部 Native API。可选 `model_rules` 也统一作用于 这些 API，并与
 profile 自身的每协议规则继续保守相交；它只允许 `max_context_tokens`、`max_input_tokens`、
@@ -171,7 +170,7 @@ capability。
 
 首版不提供 `enabled`、weight、priority、capability enablement、timeout、endpoint、credential pool 或自定义 route 字段。binding
 出现在文件中即表示启动时启用；停用通过删除记录并重启完成。需要不同协议 surface、endpoint 或 credential binding
-时，必须先在代码中增加并验证新的闭合 integration profile。
+时，必须先在代码中增加并验证新的 Provider instance 或闭合 integration profile。
 
 ### 3.5 Public Model
 

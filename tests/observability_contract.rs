@@ -24,10 +24,10 @@ use openbridge::{
     },
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, GatewayMetricsSnapshot},
-    provider::{PreparedUpstreamRequest, ProviderKind},
+    provider::PreparedUpstreamRequest,
     registry::{
         InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
-        PublicModelConfig, ReasoningSupport, RouteConfig, RouteMode, StateAffinity, TransportKind,
+        PublicModelConfig, ReasoningSupport, RouteConfig, RouteMode, StateAffinity,
         UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget,
         UpstreamTargetConfig, build_registry,
     },
@@ -395,20 +395,15 @@ fn embedding_observability_app(
     });
     definition.upstream_targets.push(UpstreamTargetConfig {
         id: "embedding-observed-target".to_owned(),
-        provider: ProviderKind::OpenAi,
+        provider_instance: "openai".to_owned(),
         model: "openai/embedding-observed".to_owned(),
-        base_url: "https://api.openai.com".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(30),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
-            id: "embeddings".to_owned(),
-            operation: OperationKind::EmbeddingsCreate,
             upstream_model: "embedding-observed-upstream".to_owned(),
-            endpoint_profile: "public-api".to_owned(),
-            transport: TransportKind::HttpJson,
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(EmbeddingsCapabilities {
                 enabled: true,
@@ -431,7 +426,7 @@ fn embedding_observability_app(
     definition.routes.push(RouteConfig {
         id: "embedding-observed-route".to_owned(),
         upstream_target: "embedding-observed-target".to_owned(),
-        upstream_api: "embeddings".to_owned(),
+        upstream_operation: OperationKind::EmbeddingsCreate,
         downstream_operation: OperationKind::EmbeddingsCreate,
         mode: RouteMode::Native,
     });
@@ -449,7 +444,7 @@ fn embedding_observability_app(
         parse_bootstrap_config(support::BOOTSTRAP).unwrap(),
         definition,
     )
-        .unwrap();
+    .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -487,8 +482,8 @@ async fn wait_for_request_terminal(metrics: &GatewayMetrics) -> GatewayMetricsSn
             tokio::task::yield_now().await;
         }
     })
-        .await
-        .expect("request observation should reach a terminal state")
+    .await
+    .expect("request observation should reach a terminal state")
 }
 
 fn request(body: &'static str) -> Request<Body> {
@@ -653,6 +648,7 @@ async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
     let snapshot = &snapshots[0];
     assert_eq!(snapshot.key.provider, "openai");
     assert_eq!(snapshot.key.public_model, "code-primary");
+    assert_eq!(snapshot.key.upstream_operation, "chat_completions");
     assert_eq!(snapshot.key.operation, "chat_completions");
     assert_eq!(snapshot.key.route_mode, "native");
     assert!(!snapshot.key.streaming);
@@ -731,6 +727,7 @@ async fn embeddings_use_operation_usage_without_output_or_sensitive_telemetry() 
     let snapshots = metrics.provider_snapshots();
     assert_eq!(snapshots.len(), 1);
     let snapshot = &snapshots[0];
+    assert_eq!(snapshot.key.upstream_operation, "embeddings_create");
     assert_eq!(snapshot.key.operation, "embeddings_create");
     assert_eq!(snapshot.key.route_mode, "native");
     assert!(!snapshot.key.streaming);

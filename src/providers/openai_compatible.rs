@@ -20,8 +20,8 @@ use crate::{
         UpstreamErrorKind,
     },
     registry::{
-        ReasoningLevel, ReasoningLevelMapping, StateAffinity, TransportKind, UpstreamApi,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        ReasoningLevel, ReasoningLevelMapping, StateAffinity, UpstreamApi, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules,
     },
     transport::sse::SseEvent,
 };
@@ -213,7 +213,7 @@ impl OpenAiCompatibleAdapter {
             ApiProtocol::ChatCompletions => self.chat_path,
             ApiProtocol::Responses => self.responses_path,
         }
-            .ok_or(AdapterError::UnsupportedProtocol)?;
+        .ok_or(AdapterError::UnsupportedProtocol)?;
         let relative_uri = Uri::from_static(path);
 
         // Parse and replace the upstream model field controlled only by the adapter.
@@ -424,27 +424,18 @@ fn classify_data_json_openai_terminal(event: &SseEvent) -> Option<StreamEventSta
 /// Builds an explicit pair of Chat/Responses HTTP JSON/SSE Upstream APIs.
 pub(crate) fn native_upstream_apis(
     upstream_model: &str,
-    endpoint_profile: &str,
     capabilities: ApiCapabilities,
 ) -> Vec<UpstreamApiConfig> {
-    // Build Chat and Responses Native supplies sharing the same target, model, and profile.
+    // Build Chat and Responses Native supplies sharing the same target and model.
     vec![
         UpstreamApiConfig {
-            id: "chat".to_owned(),
-            operation: ApiProtocol::ChatCompletions.operation(),
             upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
             state_affinity: StateAffinity::Unbound,
         },
         UpstreamApiConfig {
-            id: "responses".to_owned(),
-            operation: ApiProtocol::Responses.operation(),
             upstream_model: upstream_model.to_owned(),
-            endpoint_profile: endpoint_profile.to_owned(),
-            transport: TransportKind::HttpJsonSse,
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
             state_affinity: StateAffinity::TargetBound,

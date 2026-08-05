@@ -18,7 +18,7 @@ use futures_util::future::BoxFuture;
 use http::{HeaderMap, Request, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState},
-    core::{ApiProtocol, ReasoningOutput},
+    core::{ApiProtocol, OperationKind, ReasoningOutput},
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
     registry::{
@@ -112,7 +112,7 @@ fn fixture(path: &str) -> Bytes {
                 .join("testdata/cases/bridge")
                 .join(path),
         )
-            .expect("bridge fixture"),
+        .expect("bridge fixture"),
     )
 }
 
@@ -140,12 +140,16 @@ fn app_with_reasoning_output(
     if use_deepseek_chat {
         definition.credential_pools[0].id = "deepseek-primary".to_owned();
         definition.credential_pools[0].provider = openbridge::provider::ProviderKind::DeepSeek;
+        let instance = &mut definition.provider_instances[0];
+        instance.id = "deepseek-test".to_owned();
+        instance.kind = openbridge::provider::ProviderKind::DeepSeek;
+        instance.base_url = "https://api.deepseek.com".to_owned();
         let target = &mut definition.upstream_targets[0];
-        target.provider = openbridge::provider::ProviderKind::DeepSeek;
-        target.base_url = "https://api.deepseek.com".to_owned();
+        target.provider_instance = "deepseek-test".to_owned();
         target.credential_pool = "deepseek-primary".to_owned();
-        target.upstream_apis.retain(|api| api.id == "chat");
-        target.upstream_apis[0].endpoint_profile = "deepseek-openai".to_owned();
+        target
+            .upstream_apis
+            .retain(|api| api.capabilities.operation() == OperationKind::ChatCompletions);
     }
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -155,7 +159,7 @@ fn app_with_reasoning_output(
     }
     if !use_deepseek_chat
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+            &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
         capabilities.parallel_tool_calls = true;
         capabilities.reasoning_output = reasoning_output;
@@ -163,11 +167,7 @@ fn app_with_reasoning_output(
     definition.routes = vec![RouteConfig {
         id: "bridge-route".to_owned(),
         upstream_target: "openai-main".to_owned(),
-        upstream_api: if upstream == ApiProtocol::Responses {
-            "responses".to_owned()
-        } else {
-            "chat".to_owned()
-        },
+        upstream_operation: upstream.operation(),
         downstream_operation: downstream.operation(),
         mode: RouteMode::Bridged,
     }];
@@ -278,7 +278,7 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         let expected: Value = serde_json::from_slice(&fixture(&format!(
             "{directory}/expected-client-response.json"
         )))
-            .unwrap();
+        .unwrap();
         assert_eq!(actual, expected);
 
         let requests = transport.requests.lock().unwrap();
@@ -287,7 +287,7 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         let expected_upstream: Value = serde_json::from_slice(&fixture(&format!(
             "{directory}/expected-upstream-request.json"
         )))
-            .unwrap();
+        .unwrap();
         assert_eq!(requests[0].1, expected_upstream);
     }
 }
@@ -436,17 +436,17 @@ async fn production_router_rejects_reasoning_when_upstream_output_is_unknown() {
         ApiProtocol::ChatCompletions,
         transport.clone(),
     )
-        .oneshot(
-            Request::post("/v1/responses")
-                .header(CONTENT_TYPE, "application/json")
-                .header("authorization", "Bearer downstream-token-0000000000000000")
-                .body(Body::from(
-                    r#"{"model":"public-model","input":"hello","reasoning":{"effort":"high"}}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","reasoning":{"effort":"high"}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(transport.requests.lock().unwrap().is_empty());
@@ -525,17 +525,17 @@ async fn invalid_bridged_stream_closes_without_fabricating_a_terminal() {
         ApiProtocol::ChatCompletions,
         transport.clone(),
     )
-        .oneshot(
-            Request::post("/v1/responses")
-                .header(CONTENT_TYPE, "application/json")
-                .header("authorization", "Bearer downstream-token-0000000000000000")
-                .body(Body::from(fixture(&format!(
-                    "{directory}/client-request.json"
-                ))))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(fixture(&format!(
+                "{directory}/client-request.json"
+            ))))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     // After HTTP commitment, the body may end with an error but cannot fabricate response.completed or fallback.
     assert_eq!(response.status(), StatusCode::OK);
@@ -557,17 +557,17 @@ async fn bridged_stream_requires_an_upstream_sse_response() {
         ApiProtocol::ChatCompletions,
         transport,
     )
-        .oneshot(
-            Request::post("/v1/responses")
-                .header(CONTENT_TYPE, "application/json")
-                .header("authorization", "Bearer downstream-token-0000000000000000")
-                .body(Body::from(fixture(&format!(
-                    "{directory}/client-request.json"
-                ))))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(fixture(&format!(
+                "{directory}/client-request.json"
+            ))))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
 }

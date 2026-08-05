@@ -6,7 +6,7 @@
 Upstream API 选择协议；probe report 是一次真实环境观察，不是动态配置或能力自动发现。
 
 - 下游 `GET /v1/models` 只返回代码注册的 Public Model，与 probe 结果无关；
-- probe 复用 target 的固定 endpoint、upstream model、Provider adapter、transport 与 credential pool；普通 target 从 API-key
+- probe 复用 target 引用的固定 Provider instance endpoint、upstream model、Provider adapter、transport 与 credential pool；普通 target 从 API-key
   TOML 加载首个 member，ChatGPT target 只从管理员显式指定的 Codex auth file 构造一个临时 OAuth member；
 - 每次 probe 的 credential snapshot 都只属于本次进程，不参与生产 round-robin，也不修改生产 cursor、cooldown 或源 credential；
 - CLI 不接受 URL、model、header 或 credential 覆盖，不加载下游用户 API Key；

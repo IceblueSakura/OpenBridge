@@ -4,7 +4,7 @@ use crate::{
     bridge::BridgePlan,
     core::{
         ApiProtocol, ApiRequest, EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest,
-        GenerationCapabilities,
+        GenerationCapabilities, OperationKind,
     },
     registry::ReasoningLevel,
 };
@@ -45,7 +45,7 @@ pub struct EmbeddingRoutePlan {
 pub struct EmbeddingRouteCandidate {
     pub(super) route_id: String,
     pub(super) upstream_target_id: String,
-    pub(super) upstream_api_id: String,
+    pub(super) upstream_operation: OperationKind,
     pub(super) request: EmbeddingRequest,
 }
 
@@ -65,7 +65,7 @@ pub struct RoutePlan {
 pub struct RouteCandidate {
     pub(super) route_id: String,
     pub(super) upstream_target_id: String,
-    pub(super) upstream_api_id: String,
+    pub(super) upstream_operation: OperationKind,
     pub(super) request: ApiRequest,
     pub(super) bridge: Option<BridgePlan>,
 }
@@ -158,9 +158,9 @@ impl EmbeddingRouteCandidate {
         &self.upstream_target_id
     }
 
-    /// Returns the trusted Upstream API ID.
-    pub fn upstream_api_id(&self) -> &str {
-        &self.upstream_api_id
+    /// Returns the trusted typed Upstream API operation.
+    pub fn upstream_operation(&self) -> OperationKind {
+        self.upstream_operation
     }
 
     /// Returns the preserved Native Embeddings request.
@@ -223,9 +223,9 @@ impl RouteCandidate {
         &self.upstream_target_id
     }
 
-    /// Returns the Upstream API ID bound to the candidate.
-    pub fn upstream_api_id(&self) -> &str {
-        &self.upstream_api_id
+    /// Returns the typed Upstream API operation bound to the candidate.
+    pub fn upstream_operation(&self) -> OperationKind {
+        self.upstream_operation
     }
 
     /// Returns the Native request for the candidate.

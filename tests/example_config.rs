@@ -2,7 +2,7 @@
 
 use openbridge::{
     config::parse_bootstrap_config,
-    core::{ApiProtocol, ReasoningOutput},
+    core::{ApiProtocol, OperationKind, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
@@ -31,13 +31,25 @@ fn chatgpt_probe_target_is_compiled_but_not_publicly_routable() {
         .iter()
         .find(|target| target.id == "chatgpt-gpt-5-6-sol")
         .expect("ChatGPT probe target should be compiled");
-    assert_eq!(target.provider, ProviderKind::ChatGpt);
+    assert_eq!(target.provider_instance, "chatgpt");
     assert_eq!(target.model, "openai/gpt-5.6-sol");
-    assert_eq!(target.base_url, "https://chatgpt.com/backend-api/codex");
+    let provider_instance = definition
+        .provider_instances
+        .iter()
+        .find(|instance| instance.id == target.provider_instance)
+        .expect("ChatGPT Provider instance should be compiled");
+    assert_eq!(provider_instance.kind, ProviderKind::ChatGpt);
+    assert_eq!(
+        provider_instance.base_url,
+        "https://chatgpt.com/backend-api/codex"
+    );
     assert_eq!(target.credential_pool, "chatgpt-codex");
     assert!(!target.enabled);
     assert_eq!(target.upstream_apis.len(), 1);
-    assert_eq!(target.upstream_apis[0].id, "responses");
+    assert_eq!(
+        target.upstream_apis[0].capabilities.operation(),
+        OperationKind::Responses
+    );
     assert!(
         definition
             .routes
@@ -269,7 +281,7 @@ fn requested_public_model_and_provider_matrix_is_compiled() {
     assert_eq!(openrouter_flash.model_id(), "deepseek/deepseek-v4-flash");
     assert_eq!(
         openrouter_flash
-            .upstream_api("responses")
+            .upstream_api(OperationKind::Responses)
             .unwrap()
             .upstream_model(),
         "deepseek/deepseek-v4-flash"
@@ -347,12 +359,15 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let target = registry
         .upstream_target("longcat-2")
         .expect("LongCat target is compiled");
-    let chat = target.upstream_api("chat").unwrap();
+    let chat = target.upstream_api(OperationKind::ChatCompletions).unwrap();
     assert_eq!(target.kind(), ProviderKind::LongCat);
     assert_eq!(chat.upstream_model(), "LongCat-2.0");
     assert_eq!(chat.reasoning_output(), ReasoningOutput::Unknown);
     assert_eq!(
-        target.upstream_api("responses").unwrap().reasoning_output(),
+        target
+            .upstream_api(OperationKind::Responses)
+            .unwrap()
+            .reasoning_output(),
         ReasoningOutput::Unknown
     );
     assert_eq!(target.endpoint_base().as_str(), "https://api.longcat.chat/");
@@ -383,11 +398,18 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         .upstream_target("openai-main")
         .expect("OpenAI target is compiled");
     assert_eq!(
-        openai.upstream_api("chat").unwrap().model().id(),
+        openai
+            .upstream_api(OperationKind::ChatCompletions)
+            .unwrap()
+            .model()
+            .id(),
         "openai/gpt-5.6-sol"
     );
     assert_eq!(
-        openai.upstream_api("chat").unwrap().upstream_model(),
+        openai
+            .upstream_api(OperationKind::ChatCompletions)
+            .unwrap()
+            .upstream_model(),
         "gpt-5.6-sol"
     );
 
@@ -413,12 +435,14 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         openrouter.endpoint_base().as_str(),
         "https://openrouter.ai/api/v1/"
     );
-    let openrouter_chat = openrouter.upstream_api("chat").unwrap();
+    let openrouter_chat = openrouter
+        .upstream_api(OperationKind::ChatCompletions)
+        .unwrap();
     assert_eq!(
         openrouter_chat.upstream_model(),
         "deepseek/deepseek-v4-flash"
     );
-    let openrouter_responses = openrouter.upstream_api("responses").unwrap();
+    let openrouter_responses = openrouter.upstream_api(OperationKind::Responses).unwrap();
     assert_eq!(
         openrouter_responses.upstream_model(),
         "deepseek/deepseek-v4-flash"
@@ -541,14 +565,20 @@ fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
                 .is_some()
         );
         assert_eq!(
-            target.upstream_api("chat").unwrap().upstream_model(),
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .unwrap()
+                .upstream_model(),
             public_name
         );
         assert_eq!(
-            target.upstream_api("chat").unwrap().reasoning_output(),
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .unwrap()
+                .reasoning_output(),
             ReasoningOutput::PlainText
         );
-        assert!(target.upstream_api("responses").is_none());
+        assert!(target.upstream_api(OperationKind::Responses).is_none());
 
         // Verify that downstream Chat retains the direct DeepSeek Native candidate.
         let public_model = registry
@@ -601,10 +631,13 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
         .upstream_target("deepseek-v4-flash")
         .expect("DeepSeek V4 Flash target should be compiled");
     assert_eq!(
-        deepseek.upstream_api("chat").unwrap().reasoning_output(),
+        deepseek
+            .upstream_api(OperationKind::ChatCompletions)
+            .unwrap()
+            .reasoning_output(),
         ReasoningOutput::PlainText
     );
-    assert!(deepseek.upstream_api("responses").is_none());
+    assert!(deepseek.upstream_api(OperationKind::Responses).is_none());
 
     // DeepSeek's direct target remains Chat-only; Flash Responses is served by OpenRouter Native.
     let deepseek_body =
@@ -615,18 +648,25 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
         deepseek_plan.candidates()[0].route_id(),
         "deepseek-v4-flash-openrouter-responses"
     );
-    assert_eq!(deepseek_plan.candidates()[0].upstream_api_id(), "responses");
+    assert_eq!(
+        deepseek_plan.candidates()[0].upstream_operation(),
+        OperationKind::Responses
+    );
     assert!(deepseek_plan.candidates()[0].bridge().is_none());
 
     let mimo = registry
         .upstream_target("mimo-v2-5")
         .expect("MiMo V2.5 target should be compiled");
     assert_eq!(
-        mimo.upstream_api("chat").unwrap().reasoning_output(),
+        mimo.upstream_api(OperationKind::ChatCompletions)
+            .unwrap()
+            .reasoning_output(),
         ReasoningOutput::Unknown
     );
     assert_eq!(
-        mimo.upstream_api("responses").unwrap().reasoning_output(),
+        mimo.upstream_api(OperationKind::Responses)
+            .unwrap()
+            .reasoning_output(),
         ReasoningOutput::Unknown
     );
 
@@ -678,24 +718,40 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
                 .is_some()
         );
         assert_eq!(
-            target.upstream_api("chat").unwrap().upstream_model(),
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .unwrap()
+                .upstream_model(),
             public_name
         );
         assert_eq!(
-            target.upstream_api("responses").unwrap().upstream_model(),
+            target
+                .upstream_api(OperationKind::Responses)
+                .unwrap()
+                .upstream_model(),
             public_name
         );
         assert_eq!(
-            target.upstream_api("chat").unwrap().reasoning_output(),
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .unwrap()
+                .reasoning_output(),
             ReasoningOutput::Unknown
         );
         assert_eq!(
-            target.upstream_api("responses").unwrap().reasoning_output(),
+            target
+                .upstream_api(OperationKind::Responses)
+                .unwrap()
+                .reasoning_output(),
             ReasoningOutput::Unknown
         );
 
         // Verify that both compiled Native APIs share the MiMo Provider contract's capability boundary.
-        let chat_capabilities = match target.upstream_api("chat").unwrap().capabilities() {
+        let chat_capabilities = match target
+            .upstream_api(OperationKind::ChatCompletions)
+            .unwrap()
+            .capabilities()
+        {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities,
             UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
@@ -704,7 +760,10 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
         assert!(chat_capabilities.image_input);
         assert!(chat_capabilities.structured_outputs);
         assert!(!chat_capabilities.store);
-        let responses_capabilities = match target.upstream_api("responses").unwrap().capabilities()
+        let responses_capabilities = match target
+            .upstream_api(OperationKind::Responses)
+            .unwrap()
+            .capabilities()
         {
             UpstreamApiCapabilities::Responses(capabilities) => capabilities,
             UpstreamApiCapabilities::ChatCompletions(_) => {
@@ -846,10 +905,10 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
     let credentials = UpstreamCredentialConfiguration::from_toml(include_str!(
         "../config/upstream-credentials.example.toml"
     ))
-        .unwrap()
-        .into_builder_for(&registry, pool_ids.iter().map(String::as_str))
-        .unwrap()
-        .build();
+    .unwrap()
+    .into_builder_for(&registry, pool_ids.iter().map(String::as_str))
+    .unwrap()
+    .build();
 
     // Verify that each API-key target retrieves the template credential by Provider and pool.
     for target_id in registry.upstream_target_ids() {
@@ -862,11 +921,7 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
         }
         assert!(
             credentials
-                .upstream_pool(
-                    target.kind(),
-                    target.credential_pool_id(),
-                    pool.kind(),
-                )
+                .upstream_pool(target.kind(), target.credential_pool_id(), pool.kind(),)
                 .is_ok()
         );
     }
@@ -954,11 +1009,10 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         .expect("LongCat target is compiled")
         .clone();
     alternate.id = "openai-longcat-test".to_owned();
-    alternate.provider = ProviderKind::OpenAi;
+    alternate.provider_instance = "openai".to_owned();
     alternate.credential_pool = "openai-primary".to_owned();
     for upstream_api in &mut alternate.upstream_apis {
         upstream_api.upstream_model = "longcat/longcat-2.0".to_owned();
-        upstream_api.endpoint_profile = "public-api".to_owned();
         match &mut upstream_api.capabilities {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => {
                 capabilities.function_calling = false;
@@ -971,7 +1025,6 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
             }
         }
     }
-    alternate.base_url = "https://api.openai.com".to_owned();
     definition.upstream_targets.push(alternate);
 
     // Add the alternate Provider's complete surface and aggregate both targets Native-first per protocol.
@@ -979,28 +1032,28 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         RouteConfig {
             id: "longcat-openai-chat".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
-            upstream_api: "chat".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
             downstream_operation: ApiProtocol::ChatCompletions.operation(),
             mode: RouteMode::Native,
         },
         RouteConfig {
             id: "longcat-openai-chat-via-responses".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
-            upstream_api: "responses".to_owned(),
+            upstream_operation: OperationKind::Responses,
             downstream_operation: ApiProtocol::ChatCompletions.operation(),
             mode: RouteMode::Bridged,
         },
         RouteConfig {
             id: "longcat-openai-responses".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
-            upstream_api: "responses".to_owned(),
+            upstream_operation: OperationKind::Responses,
             downstream_operation: ApiProtocol::Responses.operation(),
             mode: RouteMode::Native,
         },
         RouteConfig {
             id: "longcat-openai-responses-via-chat".to_owned(),
             upstream_target: "openai-longcat-test".to_owned(),
-            upstream_api: "chat".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
             downstream_operation: ApiProtocol::Responses.operation(),
             mode: RouteMode::Bridged,
         },
@@ -1027,12 +1080,12 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
     let direct = registry
         .upstream_target("longcat-2")
         .expect("direct LongCat target exists")
-        .upstream_api("chat")
+        .upstream_api(OperationKind::ChatCompletions)
         .unwrap();
     let alternate = registry
         .upstream_target("openai-longcat-test")
         .expect("alternate provider target exists")
-        .upstream_api("chat")
+        .upstream_api(OperationKind::ChatCompletions)
         .unwrap();
 
     assert_eq!(direct.model().id(), "meituan/longcat-2.0");
@@ -1082,7 +1135,7 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
             .expect("aggregated Public Model exists")
             .info(),
     )
-        .unwrap();
+    .unwrap();
     assert_eq!(
         info["interfaces"]["chat_completions"]["tools"]["support"],
         "unsupported"

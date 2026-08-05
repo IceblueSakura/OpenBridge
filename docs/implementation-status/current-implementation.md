@@ -18,8 +18,9 @@ cargo run --bin openbridge --locked
 ```
 
 schema v2 的 `bootstrap.toml` 包含 loopback listener、两份私有 credential 文件位置、彼此独立的 request/JSON
-response/replay/SSE 上限和共享 HTTP client 参数。Provider、Model、 Upstream Target、Upstream API、Route、Public Model、endpoint
-和 credential pool binding 均由 Rust 代码注册； 修改后需要重新编译或重启。
+response/replay/SSE 上限和共享 HTTP client 参数。Provider family、Provider instance、Model、Upstream Target、Upstream API、
+Route、Public Model 和 credential pool binding 均由 Rust 代码注册；Provider instance 唯一拥有 endpoint BaseURL。修改后需要重新编译
+或重启。
 
 运行配置与模板一一对应：`config/bootstrap.toml` 使用 `config/bootstrap.example.toml`，
 `config/users.toml` 使用 `config/users.example.toml`，`config/upstream-credentials.toml` 使用
@@ -86,6 +87,44 @@ git diff --check
 文件通过单文件 `rustfmt --check`；仓库级 `cargo fmt -- --check` 在当前 rustfmt 1.9.0 下仍因大量本轮未修改源码的既有格式差异失败，
 本轮没有机械改写这些无关文件。未使用真实 auth 文件或真实 Provider；未运行外部 SDK、PKCE/device login、refresh、负载或长期运行验收。
 
+### 2026-08-05 Upstream API 协议事实去重
+
+- `UpstreamApiConfig` 不再保存可与 capabilities variant 冲突的 `operation`，Runtime `UpstreamApi::operation()` 直接从
+  `UpstreamApiCapabilities` 派生；
+- 当前 operation 已唯一固定 JSON/SSE generation 或有界 JSON Embeddings transport，因此 Config/runtime 删除独立 transport 与
+  mismatch error；
+- 无执行消费者的 endpoint profile 字符串体系已从 Upstream API、Provider contract、compiler 和 runtime 删除。Provider adapter
+  继续静态拥有 operation path，Provider instance BaseURL 与 credential/header 受信边界保持不变；
+- TDD 先让 Embeddings definition 因省略旧字段而编译失败；实现后聚焦 definition/Provider tests、完整 `cargo test --locked`、
+  `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行
+  真实 Provider、负载或长期运行验收。
+
+### 2026-08-05 typed Upstream API 身份
+
+- `UpstreamApiConfig` 不再声明字符串 `id`；Target 以 `BTreeMap<OperationKind, UpstreamApi>` 保存 API，并在启动编译阶段拒绝同一
+  Target 重复 operation；
+- Route、Public Model 预编译 candidate、request plan、forwarding、probe 与 continuation issuer 统一使用 typed upstream
+  operation。Native/Bridge 校验、候选顺序、state affinity 与 trusted-egress 行为未改变；
+- Provider attempt telemetry 将旧 `upstream_api` 维度替换为稳定低基数的 `upstream_operation`，并继续单独保留下游
+  `operation`；
+- TDD 先证明旧 ID 索引把 duplicate operation 延迟成无关的 Native Route mismatch；实现后聚焦 registry/routing/probe/
+  forwarding/observability/Embeddings tests、完整 `cargo test --locked`、`cargo fmt -- --check`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行真实 Provider、负载或
+  长期运行验收。
+
+### 2026-08-05 独立 Provider 实例注册
+
+- 新增 `ProviderInstanceConfig { id, kind, base_url }` 与 runtime `ProviderInstance`；compiler 在 Target 之前建立唯一实例索引，统一校验
+  空 ID、重复 ID 与受信 HTTPS BaseURL；
+- `UpstreamTargetConfig` 删除重复的 Provider kind 和 BaseURL，只引用 `provider_instance`。Runtime Target 持有已解析实例并从它取得
+  adapter kind 与 endpoint；credential pool Provider ownership、capability ceiling 和 trusted-egress 校验仍 fail closed；
+- 六个 built-in Provider family 各自显式注册当前部署实例。Registry 允许同一 `ProviderKind` 注册多个不同实例；测试用两个 OpenAI
+  实例证明不同 URL/区域无需在一个实例或 Target 内引入 URL 列表；
+- TDD 先让 synthetic registry 因不存在 `ProviderInstanceConfig`、`RegistryConfig.provider_instances` 和 Target 引用字段而编译失败；
+  实现后聚焦 config/catalog/routing/probe/forwarding/credential tests、完整 `cargo test --locked`、`cargo fmt -- --check`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行真实 Provider、外部 SDK、
+  负载或长期运行验收。
+
 ## Provider 与请求行为
 
 闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 与 ChatGPT，六者都进入 compiled
@@ -107,12 +146,13 @@ registry。ChatGPT 只形成默认禁用的 probe target；当前可路由目录
 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册 或加入候选。上表中
 `deepseek-v4-flash` 显式拥有两个 Provider source；其他 checked-in generation Public Model 目前各只有一个 source。 跨
 Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。 聚合 Responses Route 的 `previous_response_id` 还要求全部可执行
-Route 唯一绑定同一个 Target/API；多个潜在 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无
+Route 唯一绑定同一个 Target/operation；多个潜在 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无
 issuer ledger 时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
 
-OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个可路由 Provider 分别拥有独立
-静态 definition、endpoint profile、upstream model 与能力，并采用 OpenAI-compatible wire。ChatGPT definition 只开放 OAuth2 Bearer、
-固定 Codex backend 的模型目录 profile 与 streaming Responses probe；它不是 Public Model 数据面，也不构成通用异构 wire Provider。
+OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个可路由 Provider family 分别拥有
+独立静态 definition、Provider instance、upstream model 与能力，并采用 OpenAI-compatible wire。ChatGPT definition 只开放 OAuth2
+Bearer、固定 Codex backend Provider instance、模型目录 path 与 streaming Responses probe；它不是 Public Model 数据面，也不构成
+通用异构 wire Provider。
 
 MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均声明支持
 `parallel_tool_calls`、image input 和 structured output；两种协议的 `store` 均关闭，Responses 的
@@ -393,7 +433,7 @@ Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态�
 
 2026-08-03 完成 Provider attempt 遥测扩展：
 
-- 每个已收口的实际上游 attempt 现在按编译期 Provider、Route、Target、Upstream API、Public Model、operation、 streaming 和
+- 每个已收口的实际上游 attempt 现在按编译期 Provider、Route、Target、upstream operation、Public Model、downstream operation、streaming 和
   Native/Bridge 模式聚合独立快照，记录 response-ready、首个上游 body byte、上下游 TTFT、body 生命周期、明确 usage、token
   observation、output speed 和 cache read/write 观测；request/user/credential/ endpoint URL 与正文不进入指标 key。
 - `GatewayMetrics::provider_snapshots` 提供进程内只读快照；当前未接入 `/metrics`、Prometheus/OpenTelemetry
@@ -517,7 +557,7 @@ Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态�
 
 - registry compiler 在完成引用、operation 和 Native/Bridged 方向校验后，按 Public Model/下游 operation 一次性编译
   `ModelExecutionInterface`。每个接口把保守的 `ModelInterfaceCapabilities` 与同一组静态启用候选绑定；候选冻结
-  Route/Target/Upstream API ID、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models DTO
+  Route/Target/typed upstream operation、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models DTO
   仍只投影安全能力，不暴露上述拓扑。
 - `preflight` 和 `planning` 现在读取同一个执行接口：前者完成一次能力校验，后者仅按预编译顺序构造 Native 请求或
   `BridgePlan`。请求路径不再扫描 `PublicModel.routes()`、查询全局 Route 表或重复判断 Target/API 静态启停；forwarding 仍独占

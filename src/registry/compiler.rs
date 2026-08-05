@@ -6,13 +6,16 @@
 //! or capabilities through this path. Each stage validates references and boundaries before writing to a
 //! runtime index; a failure at any stage returns no partial snapshot.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use crate::config::BootstrapConfig;
 
 use super::{
-    CredentialPoolBinding, ModelInfo, ModelMode, RegistryConfig, RegistryError, RegistryVersion,
-    Route, RouteMode, RuntimeRegistry, TransportKind, UpstreamApi, UpstreamTarget,
+    CredentialPoolBinding, ModelInfo, ModelMode, ProviderInstance, RegistryConfig, RegistryError,
+    RegistryVersion, Route, RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
@@ -70,6 +73,36 @@ pub fn build_registry(
         }
     }
 
+    // Validate and index trusted Provider deployments before any target can reference an endpoint.
+    let mut provider_instances = BTreeMap::new();
+    for instance in definition.provider_instances {
+        // Require a stable instance identity because targets may share one deployment explicitly.
+        if instance.id.trim().is_empty() {
+            return Err(RegistryError::BlankProviderInstanceId);
+        }
+
+        // Normalize the sole trusted endpoint before storing it in the immutable runtime instance.
+        let endpoint_base = normalize_endpoint_base(&instance.base_url).ok_or_else(|| {
+            RegistryError::InvalidProviderBaseUrl {
+                provider_instance: instance.id.clone(),
+            }
+        })?;
+        let id = instance.id.clone();
+        let resolved = Arc::new(ProviderInstance {
+            id: id.clone(),
+            kind: instance.kind,
+            endpoint_base,
+        });
+
+        // Build a unique instance index so one target reference resolves to exactly one deployment.
+        if provider_instances.insert(id.clone(), resolved).is_some() {
+            return Err(RegistryError::DuplicateId {
+                entity: "provider instance",
+                id,
+            });
+        }
+    }
+
     // Validate credential-pool Provider ownership and credential types, compiling only non-sensitive binding data.
     let mut credential_pools = BTreeMap::new();
     for pool in definition.credential_pools {
@@ -101,9 +134,20 @@ pub fn build_registry(
         }
     }
 
-    // Resolve target pool/model dependencies, validate the endpoint and timeout, and compile all Upstream APIs.
+    // Resolve each target's Provider instance, pool, and model dependencies, then compile all Upstream APIs.
     let mut upstream_targets = BTreeMap::new();
     for target in definition.upstream_targets {
+        // Resolve the Provider instance so both adapter kind and endpoint come from one trusted deployment.
+        let provider_instance = provider_instances
+            .get(&target.provider_instance)
+            .cloned()
+            .ok_or_else(|| RegistryError::UnknownReference {
+                entity: "upstream target",
+                id: target.id.clone(),
+                target: "provider instance",
+                reference: target.provider_instance.clone(),
+            })?;
+
         // Resolve the credential-pool reference so the target can consume only a declared pool.
         let credential_pool = credential_pools
             .get(&target.credential_pool)
@@ -115,7 +159,7 @@ pub fn build_registry(
             })?;
 
         // Confirm that the target and credential pool belong to the same Provider, preventing one adapter from receiving another adapter's credential.
-        if credential_pool.provider() != target.provider {
+        if credential_pool.provider() != provider_instance.kind() {
             return Err(RegistryError::CredentialPoolProviderMismatch {
                 upstream_target: target.id,
                 credential_pool: target.credential_pool,
@@ -148,84 +192,48 @@ pub fn build_registry(
             });
         }
 
-        // Normalize and validate the endpoint base at startup so the request path receives only a safe HTTPS base and path prefix.
-        let endpoint_base = normalize_endpoint_base(&target.base_url).ok_or_else(|| {
-            RegistryError::InvalidBaseUrl {
-                upstream_target: target.id.clone(),
-            }
-        })?;
         let mut upstream_apis = BTreeMap::new();
         for upstream_api in target.upstream_apis {
-            // Confirm that the operation tag matches the capability variant before interpreting its contract.
-            if upstream_api.operation != upstream_api.capabilities.operation() {
-                return Err(RegistryError::UpstreamApiOperationMismatch {
-                    upstream_target: target.id,
-                    upstream_api: upstream_api.id,
-                });
-            }
+            let upstream_operation = upstream_api.capabilities.operation();
 
             // Validate the complete Embeddings profile before capability comparison or public projection.
             if let Some(capabilities) = upstream_api.capabilities.embeddings() {
                 capabilities.validate().map_err(|detail| {
                     RegistryError::InvalidEmbeddingsCapabilities {
                         upstream_target: target.id.clone(),
-                        upstream_api: upstream_api.id.clone(),
+                        upstream_operation,
                         detail,
                     }
                 })?;
                 if model.mode() != Some(ModelMode::Embedding) {
                     return Err(RegistryError::EmbeddingsModelTaskMismatch {
                         upstream_target: target.id,
-                        upstream_api: upstream_api.id,
+                        upstream_operation,
                     });
                 }
-            }
-
-            // Keep generation on JSON/SSE and Embeddings on its independent bounded-JSON transport.
-            let transport_matches = match upstream_api.operation.api_protocol() {
-                Some(_) => upstream_api.transport == TransportKind::HttpJsonSse,
-                None => upstream_api.transport == TransportKind::HttpJson,
-            };
-            if !transport_matches {
-                return Err(RegistryError::UpstreamApiTransportMismatch {
-                    upstream_target: target.id,
-                    upstream_api: upstream_api.id,
-                });
             }
 
             // Require a non-blank model ID for the upstream request; the Provider adapter writes this value into the egress request.
             if upstream_api.upstream_model.trim().is_empty() {
                 return Err(RegistryError::BlankUpstreamModel {
                     upstream_target: target.id,
-                    upstream_api: upstream_api.id,
-                });
-            }
-
-            // Allow only endpoint profiles declared by the Provider at compile time; configuration cannot expand the egress target shape.
-            if !target
-                .provider
-                .accepts_endpoint_profile(&upstream_api.endpoint_profile)
-            {
-                return Err(RegistryError::UnsupportedEndpointProfile {
-                    upstream_target: target.id,
-                    upstream_api: upstream_api.id,
-                    profile: upstream_api.endpoint_profile,
+                    upstream_operation,
                 });
             }
 
             // Restrict Upstream API capabilities to the Provider capability ceiling; the registry cannot self-grant unimplemented capabilities.
             if !upstream_api
                 .capabilities
-                .is_subset_of(target.provider.capabilities())
+                .is_subset_of(provider_instance.kind().capabilities())
             {
                 return Err(RegistryError::CapabilityElevation {
                     upstream_target: target.id,
-                    upstream_api: upstream_api.id,
+                    upstream_operation,
                 });
             }
 
-            // Build the model-rule validation context from the target/API identity; this string is not a credential key.
-            let api_key = format!("{}/{}", target.id, upstream_api.id);
+            // Build the model-rule validation context from the target/operation identity; this string is not a credential key.
+            let api_key = format!("{}/{upstream_operation}", target.id);
 
             // Preserve the original reasoning mappings; model-rule application consumes the configuration, then the mappings are checked against the narrowed model.
             let mapping_config = upstream_api.model_rules.reasoning_level_mappings.clone();
@@ -249,7 +257,7 @@ pub fn build_registry(
             {
                 return Err(RegistryError::InvalidEmbeddingsCapabilities {
                     upstream_target: target.id,
-                    upstream_api: upstream_api.id,
+                    upstream_operation,
                     detail: "supported parameters must be declared by the effective model",
                 });
             }
@@ -258,37 +266,30 @@ pub fn build_registry(
             let reasoning_level_mappings =
                 validate_reasoning_level_mappings(&api_key, &effective_model, mapping_config)?;
 
-            // Assemble the validated model, protocol, transport, capability, and state-affinity facts into the runtime API.
+            // Assemble the validated model, capability, and state-affinity facts into the runtime API.
             let resolved = UpstreamApi {
-                operation: upstream_api.operation,
                 model: effective_model,
                 upstream_model: upstream_api.upstream_model,
-                endpoint_profile: upstream_api.endpoint_profile,
-                transport: upstream_api.transport,
                 capabilities: upstream_api.capabilities,
                 state_affinity: upstream_api.state_affinity,
                 reasoning_level_mappings,
             };
 
-            // Build a unique Upstream API index within the target so API IDs remain unambiguous.
-            if upstream_apis
-                .insert(upstream_api.id.clone(), resolved)
-                .is_some()
-            {
-                return Err(RegistryError::DuplicateUpstreamApi {
+            // Build a unique typed operation index within the target.
+            if upstream_apis.insert(upstream_operation, resolved).is_some() {
+                return Err(RegistryError::DuplicateUpstreamOperation {
                     upstream_target: target.id,
-                    upstream_api: upstream_api.id,
+                    upstream_operation,
                 });
             }
         }
 
-        // Assemble the normalized endpoint, credential-pool binding, resource policy, and Upstream API index into the runtime target.
+        // Assemble the resolved Provider instance, credential binding, resource policy, and operation index into the runtime target.
         let resolved = UpstreamTarget {
             id: target.id.clone(),
-            kind: target.provider,
+            provider_instance,
             credential_pool: target.credential_pool,
             model_id: target.model,
-            endpoint_base,
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
             request_timeout: target.request_timeout,
@@ -320,14 +321,14 @@ pub fn build_registry(
                 target: "upstream target",
                 reference: route.upstream_target.clone(),
             })?;
-        let upstream_api = target.upstream_api(&route.upstream_api).ok_or_else(|| {
-            RegistryError::UnknownReference {
+        let upstream_api = target
+            .upstream_api(route.upstream_operation)
+            .ok_or_else(|| RegistryError::UnknownReference {
                 entity: "route",
                 id: route.id.clone(),
-                target: "upstream API",
-                reference: format!("{}/{}", route.upstream_target, route.upstream_api),
-            }
-        })?;
+                target: "upstream operation",
+                reference: format!("{}/{}", route.upstream_target, route.upstream_operation),
+            })?;
 
         // A Native Route must keep the downstream and upstream operations identical.
         if route.mode == RouteMode::Native && route.downstream_operation != upstream_api.operation()
@@ -338,8 +339,8 @@ pub fn build_registry(
         // A Bridged Route must connect the two distinct generation protocols; Embeddings has no Bridge.
         if route.mode == RouteMode::Bridged
             && (route.downstream_operation.api_protocol().is_none()
-            || upstream_api.api_protocol().is_none()
-            || route.downstream_operation == upstream_api.operation())
+                || upstream_api.api_protocol().is_none()
+                || route.downstream_operation == upstream_api.operation())
         {
             return Err(RegistryError::InvalidBridgedRouteOperations { route: route.id });
         }
@@ -347,7 +348,7 @@ pub fn build_registry(
         // Store only stable references, the downstream operation, and the handling mode.
         let resolved = Route {
             upstream_target: route.upstream_target,
-            upstream_api: route.upstream_api,
+            upstream_operation: route.upstream_operation,
             downstream_operation: route.downstream_operation,
             mode: route.mode,
         };
@@ -408,14 +409,19 @@ pub fn build_registry(
                 })?;
 
             // Resolve the Upstream API within that target to provide complete upstream facts for the Public Model capability intersection.
-            let upstream_api = target.upstream_api(route.upstream_api()).ok_or_else(|| {
-                RegistryError::UnknownReference {
-                    entity: "public model",
-                    id: public_model.id.clone(),
-                    target: "upstream API",
-                    reference: format!("{}/{}", route.upstream_target(), route.upstream_api()),
-                }
-            })?;
+            let upstream_api =
+                target
+                    .upstream_api(route.upstream_operation())
+                    .ok_or_else(|| RegistryError::UnknownReference {
+                        entity: "public model",
+                        id: public_model.id.clone(),
+                        target: "upstream operation",
+                        reference: format!(
+                            "{}/{}",
+                            route.upstream_target(),
+                            route.upstream_operation()
+                        ),
+                    })?;
 
             // Keep the initial Embeddings execution interface to one statically executable Native candidate.
             if target.enabled()
@@ -461,6 +467,7 @@ pub fn build_registry(
         version: RegistryVersion(definition.version),
         bootstrap,
         models,
+        provider_instances,
         credential_pools,
         upstream_targets,
         routes,

@@ -247,7 +247,7 @@ impl ProbeSession<'_> {
     /// Executes the target protocol's minimal non-streaming text request.
     async fn probe_text(&self, protocol: ApiProtocol) -> ProbeResult {
         // Resolve the target API for the protocol and build the minimal text request.
-        let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
+        let Some(upstream_api) = self.target.upstream_api(protocol.operation()) else {
             return ProbeResult {
                 state: SupportStatus::Unsupported,
                 http_status: None,
@@ -302,7 +302,7 @@ impl ProbeSession<'_> {
     /// Executes the two-request function-call and tool-result replay probe.
     async fn probe_function_calling(&self, protocol: ApiProtocol) -> ToolCallProbeResult {
         // Send the function-call request and extract a replayable tool call.
-        let Some(upstream_api) = self.target.upstream_api_for_protocol(protocol) else {
+        let Some(upstream_api) = self.target.upstream_api(protocol.operation()) else {
             return ToolCallProbeResult {
                 initial_call: ProbeResult {
                     state: SupportStatus::Unsupported,
@@ -362,7 +362,7 @@ impl ProbeSession<'_> {
         let request = ApiRequest::new(protocol, Bytes::from(body));
         let upstream_api = self
             .target
-            .upstream_api_for_protocol(protocol)
+            .upstream_api(protocol.operation())
             .expect("probe protocol has a configured upstream API");
 
         // Let the compile-time adapter bind the model, wire mappings, and relative path.

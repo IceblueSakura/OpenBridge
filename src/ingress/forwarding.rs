@@ -88,16 +88,16 @@ pub(super) async fn forward_request(
         // New stateless requests skip scopes still cooling down; target-bound continuations always try the original target.
         if observe_cross_request_health
             && !state.health.is_available(
-            candidate.upstream_target_id(),
-            target,
-            std::time::Instant::now(),
-        )
+                candidate.upstream_target_id(),
+                target,
+                std::time::Instant::now(),
+            )
         {
             cooldown_skipped = true;
             observation.record_cooldown_skip(candidate.upstream_target_id());
             continue;
         }
-        let Some(upstream_api) = target.upstream_api(candidate.upstream_api_id()) else {
+        let Some(upstream_api) = target.upstream_api(candidate.upstream_operation()) else {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",
@@ -200,7 +200,7 @@ pub(super) async fn forward_request(
                 attempts.attempts_started() as u64,
                 candidate.route_id(),
                 candidate.upstream_target_id(),
-                candidate.upstream_api_id(),
+                candidate.upstream_operation(),
                 target.kind(),
                 candidate.bridge().is_some(),
             );
@@ -247,12 +247,12 @@ pub(super) async fn forward_request(
                     let mut step = attempts.next_step(untried_candidates);
                     if rate_limited
                         && (!plan.allows_fallback()
-                        || !state.credential_health.has_available_member(
-                        credential_pool.id(),
-                        &credentials,
-                        &rejected_members,
-                        std::time::Instant::now(),
-                    ))
+                            || !state.credential_health.has_available_member(
+                                credential_pool.id(),
+                                &credentials,
+                                &rejected_members,
+                                std::time::Instant::now(),
+                            ))
                     {
                         step = match step {
                             AttemptStep::RetryCandidate if untried_candidates > 0 => {
@@ -293,7 +293,7 @@ pub(super) async fn forward_request(
                                     observation: observation.clone(),
                                 },
                             )
-                                .await;
+                            .await;
                         }
                     }
                 }
@@ -323,7 +323,7 @@ pub(super) async fn forward_request(
                             observation: observation.clone(),
                         },
                     )
-                        .await;
+                    .await;
                 }
                 Err(error) if should_retry_error(&error) => {
                     // Timeout/transport failure isolates only the fault domain and does not affect the quota scope.
@@ -375,7 +375,7 @@ pub(super) async fn forward_request(
                 observation,
             },
         )
-            .await
+        .await
     } else if cooldown_skipped {
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,

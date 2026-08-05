@@ -60,7 +60,6 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
         },
         embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     },
-    &["longcat-openai"],
     &[CredentialKind::ApiKey],
 );
 
@@ -74,7 +73,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/v1/models",
     transform_request_headers,
 )
-    .with_openai_data_type_responses_terminal();
+.with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the LongCat contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =

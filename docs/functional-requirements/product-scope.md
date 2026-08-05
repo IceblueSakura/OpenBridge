@@ -107,10 +107,11 @@ ChatGPT 两阶段边界以[ChatGPT subscription OAuth credential lifecycle](upst
 ## 术语
 
 - **Provider**：代码中实现的一类协议、认证和错误处理行为。
+- **Provider Instance**：一个 Provider family 的受信部署实例，唯一拥有一个 BaseURL；不同 URL 或区域使用不同实例。
 - **Model**：与具体调用 endpoint 分离的模型事实。
 - **Credential Pool**：绑定同一 Provider/credential kind 的有序 API-key 集合，可被多个 Target 共享。
-- **Upstream Target**：绑定 Provider、Model、endpoint、credential pool、timeout 和故障边界的上游调用边界。
-- **Upstream API**：Target 下的一条原生协议供应及其模型名、限制和能力。
-- **Route**：固定下游协议、Upstream Target、Upstream API 和执行模式的路径。
+- **Upstream Target**：引用 Provider Instance，并绑定 Model、credential pool、timeout 和故障边界的上游调用边界。
+- **Upstream API**：Target 下由 `OperationKind` 唯一标识的一条原生供应及其模型名、限制和能力。
+- **Route**：固定下游 operation、Upstream Target、typed upstream operation 和执行模式的路径。
 - **Public Model**：下游使用的稳定模型身份、每协议固定能力契约及私有有序 Routes。
 - **Native Path**：上下游协议一致时的最小改写转发路径。

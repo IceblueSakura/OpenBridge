@@ -1,6 +1,6 @@
 //! Immutable runtime entities produced by registry compilation.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use url::Url;
 
@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     InputModality, ModelContextLength, ModelMode, OutputModality, PublicModel, ReasoningLevel,
-    ReasoningSupport, RouteMode, StateAffinity, TransportKind, UpstreamApiCapabilities,
+    ReasoningSupport, RouteMode, StateAffinity, UpstreamApiCapabilities,
 };
 
 /// Model metadata read by the request path after startup.
@@ -100,6 +100,7 @@ pub struct RuntimeRegistry {
     pub(super) version: RegistryVersion,
     pub(super) bootstrap: BootstrapConfig,
     pub(super) models: BTreeMap<String, ModelInfo>,
+    pub(super) provider_instances: BTreeMap<String, Arc<ProviderInstance>>,
     pub(super) credential_pools: BTreeMap<String, CredentialPoolBinding>,
     pub(super) upstream_targets: BTreeMap<String, UpstreamTarget>,
     pub(super) routes: BTreeMap<String, Route>,
@@ -132,13 +133,23 @@ impl RuntimeRegistry {
         self.models.get(id)
     }
 
+    /// Looks up a trusted Provider instance by its registry ID.
+    pub fn provider_instance(&self, id: &str) -> Option<&ProviderInstance> {
+        self.provider_instances.get(id).map(Arc::as_ref)
+    }
+
+    /// Enumerates all trusted Provider instance IDs.
+    pub fn provider_instance_ids(&self) -> impl Iterator<Item = &str> {
+        self.provider_instances.keys().map(String::as_str)
+    }
+
     /// Looks up a validated credential pool by pool ID.
     pub fn credential_pool(&self, id: &str) -> Option<&CredentialPoolBinding> {
         self.credential_pools.get(id)
     }
 
     /// Enumerates all credential-pool IDs.
-    pub fn credential_pool_ids(&self) -> impl Iterator<Item=&str> {
+    pub fn credential_pool_ids(&self) -> impl Iterator<Item = &str> {
         self.credential_pools.keys().map(String::as_str)
     }
 
@@ -148,13 +159,13 @@ impl RuntimeRegistry {
             target.enabled()
                 && target.credential_pool_id() == pool_id
                 && target.upstream_apis.values().any(|upstream_api| {
-                upstream_api.state_affinity() == StateAffinity::TargetBound
-                    && matches!(
+                    upstream_api.state_affinity() == StateAffinity::TargetBound
+                        && matches!(
                             upstream_api.capabilities(),
                             UpstreamApiCapabilities::Responses(capabilities)
                                 if capabilities.previous_response_id
                         )
-            })
+                })
         })
     }
 
@@ -164,7 +175,7 @@ impl RuntimeRegistry {
     }
 
     /// Enumerates all internal target IDs.
-    pub fn upstream_target_ids(&self) -> impl Iterator<Item=&str> {
+    pub fn upstream_target_ids(&self) -> impl Iterator<Item = &str> {
         self.upstream_targets.keys().map(String::as_str)
     }
 
@@ -181,7 +192,7 @@ impl RuntimeRegistry {
     }
 
     /// Enumerates Public Models exposed by the downstream `/v1/models` endpoint.
-    pub fn public_models(&self) -> impl Iterator<Item=&PublicModel> {
+    pub fn public_models(&self) -> impl Iterator<Item = &PublicModel> {
         self.public_models
             .values()
             .filter(|model| model.is_available())
@@ -224,19 +235,43 @@ impl CredentialPoolBinding {
     }
 }
 
+/// Validated trusted deployment of one compile-time Provider family.
+#[derive(Debug)]
+pub struct ProviderInstance {
+    pub(super) id: String,
+    pub(super) kind: ProviderKind,
+    pub(super) endpoint_base: Url,
+}
+
+impl ProviderInstance {
+    /// Returns the stable Provider instance ID.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Returns the compile-time Provider family implemented by this instance.
+    pub fn kind(&self) -> ProviderKind {
+        self.kind
+    }
+
+    /// Returns this instance's sole validated HTTPS base URL.
+    pub fn endpoint_base(&self) -> &Url {
+        &self.endpoint_base
+    }
+}
+
 /// Upstream target that passed endpoint, credential, and model-reference validation.
 #[derive(Debug)]
 pub struct UpstreamTarget {
     pub(super) id: String,
-    pub(super) kind: ProviderKind,
+    pub(super) provider_instance: Arc<ProviderInstance>,
     pub(super) credential_pool: String,
     pub(super) model_id: String,
-    pub(super) endpoint_base: Url,
     pub(super) quota_scope: Option<String>,
     pub(super) fault_domain: Option<String>,
     pub(super) request_timeout: Duration,
     pub(super) enabled: bool,
-    pub(super) upstream_apis: BTreeMap<String, UpstreamApi>,
+    pub(super) upstream_apis: BTreeMap<OperationKind, UpstreamApi>,
 }
 
 impl UpstreamTarget {
@@ -247,7 +282,17 @@ impl UpstreamTarget {
 
     /// Returns the Provider kind used by the target.
     pub fn kind(&self) -> ProviderKind {
-        self.kind
+        self.provider_instance.kind()
+    }
+
+    /// Returns the referenced Provider instance ID.
+    pub fn provider_instance_id(&self) -> &str {
+        self.provider_instance.id()
+    }
+
+    /// Returns the resolved trusted Provider instance.
+    pub fn provider_instance(&self) -> &ProviderInstance {
+        &self.provider_instance
     }
 
     /// Returns the credential-pool ID referenced by the target.
@@ -262,7 +307,7 @@ impl UpstreamTarget {
 
     /// Returns the validated endpoint base URL.
     pub fn endpoint_base(&self) -> &Url {
-        &self.endpoint_base
+        self.provider_instance.endpoint_base()
     }
 
     /// Returns the optional shared quota scope.
@@ -285,34 +330,24 @@ impl UpstreamTarget {
         self.enabled
     }
 
-    /// Looks up a resolved API by Upstream API ID.
-    pub fn upstream_api(&self, id: &str) -> Option<&UpstreamApi> {
-        self.upstream_apis.get(id)
+    /// Looks up a resolved API by its typed operation.
+    pub fn upstream_api(&self, operation: OperationKind) -> Option<&UpstreamApi> {
+        self.upstream_apis.get(&operation)
     }
 
-    /// Finds an Upstream API by native protocol.
-    pub fn upstream_api_for_protocol(&self, protocol: ApiProtocol) -> Option<&UpstreamApi> {
-        self.upstream_apis
-            .values()
-            .find(|upstream_api| upstream_api.operation() == protocol.operation())
-    }
-
-    /// Enumerates all Upstream APIs and IDs under the target.
-    pub fn upstream_apis(&self) -> impl Iterator<Item=(&str, &UpstreamApi)> {
+    /// Enumerates all typed Upstream API operations under the target.
+    pub fn upstream_apis(&self) -> impl Iterator<Item = (OperationKind, &UpstreamApi)> {
         self.upstream_apis
             .iter()
-            .map(|(id, upstream_api)| (id.as_str(), upstream_api))
+            .map(|(operation, upstream_api)| (*operation, upstream_api))
     }
 }
 
 /// Upstream API with model rules resolved and applied.
 #[derive(Debug)]
 pub struct UpstreamApi {
-    pub(super) operation: OperationKind,
     pub(super) model: ModelInfo,
     pub(super) upstream_model: String,
-    pub(super) endpoint_profile: String,
-    pub(super) transport: TransportKind,
     pub(super) capabilities: UpstreamApiCapabilities,
     pub(super) state_affinity: StateAffinity,
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
@@ -321,12 +356,12 @@ pub struct UpstreamApi {
 impl UpstreamApi {
     /// Returns the Upstream API's native operation.
     pub fn operation(&self) -> OperationKind {
-        self.operation
+        self.capabilities.operation()
     }
 
     /// Returns the generation protocol when this API can participate in the Protocol Bridge.
     pub fn api_protocol(&self) -> Option<ApiProtocol> {
-        self.operation.api_protocol()
+        self.capabilities.api_protocol()
     }
 
     /// Returns model metadata after applying rules.
@@ -337,16 +372,6 @@ impl UpstreamApi {
     /// Returns the actual model ID sent upstream.
     pub fn upstream_model(&self) -> &str {
         &self.upstream_model
-    }
-
-    /// Returns the endpoint profile used for Provider identification.
-    pub fn endpoint_profile(&self) -> &str {
-        &self.endpoint_profile
-    }
-
-    /// Returns the transport profile in use.
-    pub fn transport(&self) -> TransportKind {
-        self.transport
     }
 
     /// Returns the API's protocol capabilities.
@@ -376,7 +401,7 @@ impl UpstreamApi {
 #[derive(Debug)]
 pub struct Route {
     pub(super) upstream_target: String,
-    pub(super) upstream_api: String,
+    pub(super) upstream_operation: OperationKind,
     pub(super) downstream_operation: OperationKind,
     pub(super) mode: RouteMode,
 }
@@ -387,9 +412,9 @@ impl Route {
         &self.upstream_target
     }
 
-    /// Returns the Upstream API ID bound to the Route.
-    pub fn upstream_api(&self) -> &str {
-        &self.upstream_api
+    /// Returns the typed Upstream API operation bound to the Route.
+    pub fn upstream_operation(&self) -> OperationKind {
+        self.upstream_operation
     }
 
     /// Returns the downstream operation accepted by the Route.

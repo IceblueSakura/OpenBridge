@@ -66,7 +66,7 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
         ]);
         command
     })
-        .await;
+    .await;
     assert_success("OpenAI Python SDK", &python);
 
     let node_root =
@@ -83,7 +83,7 @@ async fn openai_python_and_node_sdks_consume_native_chat_responses_and_tools() {
             .args(["tests/sdk/openai_node_compat.cjs", &base_url]);
         command
     })
-        .await;
+    .await;
     let _ = fs::remove_dir_all(&node_root);
     assert_success("OpenAI Node SDK", &node);
 
@@ -217,7 +217,7 @@ fn fixture_rate_limit_response() -> UpstreamResponse {
                     "code": "sdk_fixture_rate_limited"
                 }
             })
-                .to_string(),
+            .to_string(),
         ),
     )
 }

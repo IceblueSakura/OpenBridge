@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use crate::core::OperationKind;
+
 /// Error returned when a compile-time registry definition is incomplete, inconsistent, or attempts to exceed its authority.
 #[derive(Debug, Error)]
 pub enum RegistryError {
@@ -11,6 +13,9 @@ pub enum RegistryError {
     /// The credential-pool ID is blank.
     #[error("credential pool id must not be blank")]
     BlankCredentialPoolId,
+    /// The Provider instance ID is blank.
+    #[error("provider instance id must not be blank")]
+    BlankProviderInstanceId,
     /// An entity collection contains a duplicate ID.
     #[error("duplicate {entity} id '{id}'")]
     DuplicateId {
@@ -47,11 +52,11 @@ pub enum RegistryError {
         /// Incorrectly referenced pool ID.
         credential_pool: String,
     },
-    /// The target endpoint is not an allowed HTTPS base URL.
-    #[error("upstream target '{upstream_target}' uses an invalid base URL")]
-    InvalidBaseUrl {
-        /// Target ID with the invalid URL.
-        upstream_target: String,
+    /// The Provider instance endpoint is not an allowed HTTPS base URL.
+    #[error("provider instance '{provider_instance}' uses an invalid base URL")]
+    InvalidProviderBaseUrl {
+        /// Provider instance ID with the invalid URL.
+        provider_instance: String,
     },
     /// The target request timeout is zero.
     #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
@@ -65,77 +70,47 @@ pub enum RegistryError {
         /// Target ID with no Upstream API.
         upstream_target: String,
     },
-    /// The target contains a duplicate Upstream API ID.
-    #[error("upstream target '{upstream_target}' contains duplicate upstream API '{upstream_api}'")]
-    DuplicateUpstreamApi {
+    /// The target contains more than one Upstream API for the same operation.
+    #[error(
+        "upstream target '{upstream_target}' contains duplicate upstream operation '{upstream_operation}'"
+    )]
+    DuplicateUpstreamOperation {
         /// Target ID containing the conflict.
         upstream_target: String,
-        /// Duplicated Upstream API ID.
-        upstream_api: String,
-    },
-    /// The Upstream API uses an endpoint profile not registered by the Provider.
-    #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses unsupported endpoint profile '{profile}'"
-    )]
-    UnsupportedEndpointProfile {
-        /// Owning target ID.
-        upstream_target: String,
-        /// Incompatible Upstream API ID.
-        upstream_api: String,
-        /// Unregistered endpoint profile.
-        profile: String,
+        /// Duplicated typed operation.
+        upstream_operation: OperationKind,
     },
     /// The Upstream API upstream model ID is blank.
     #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' upstream model must not be blank"
+        "upstream operation '{upstream_operation}' on upstream target '{upstream_target}' upstream model must not be blank"
     )]
     BlankUpstreamModel {
         /// Owning target ID.
         upstream_target: String,
-        /// Upstream API ID with the blank model ID.
-        upstream_api: String,
-    },
-    /// The Upstream API capability variant does not match its operation.
-    #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' capability type does not match operation"
-    )]
-    UpstreamApiOperationMismatch {
-        /// Owning target ID.
-        upstream_target: String,
-        /// Upstream API ID with the inconsistent configuration.
-        upstream_api: String,
+        /// Typed operation with the blank model ID.
+        upstream_operation: OperationKind,
     },
     /// An enabled Embeddings capability profile contains an invalid closed set, default, domain, or limit.
     #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' has invalid Embeddings capabilities: {detail}"
+        "upstream operation '{upstream_operation}' on upstream target '{upstream_target}' has invalid Embeddings capabilities: {detail}"
     )]
     InvalidEmbeddingsCapabilities {
         /// Owning target ID.
         upstream_target: String,
-        /// Upstream API ID with the invalid profile.
-        upstream_api: String,
+        /// Typed operation with the invalid profile.
+        upstream_operation: OperationKind,
         /// Stable validation detail without request or topology data.
         detail: &'static str,
     },
-    /// The Upstream API operation uses an incompatible transport profile.
-    #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' uses a transport incompatible with its operation"
-    )]
-    UpstreamApiTransportMismatch {
-        /// Owning target ID.
-        upstream_target: String,
-        /// Upstream API ID with the invalid transport.
-        upstream_api: String,
-    },
     /// An Embeddings API references a canonical model without the Embedding task.
     #[error(
-        "upstream Embeddings API '{upstream_api}' on target '{upstream_target}' requires an embedding model"
+        "upstream Embeddings operation '{upstream_operation}' on target '{upstream_target}' requires an embedding model"
     )]
     EmbeddingsModelTaskMismatch {
         /// Owning target ID.
         upstream_target: String,
-        /// Upstream API ID with the incompatible model.
-        upstream_api: String,
+        /// Typed operation with the incompatible model.
+        upstream_operation: OperationKind,
     },
     /// A required canonical-model string is blank.
     #[error("model '{model}' field '{field}' must not be blank")]
@@ -233,13 +208,13 @@ pub enum RegistryError {
     },
     /// The Upstream API declares capabilities beyond the Provider contract.
     #[error(
-        "upstream API '{upstream_api}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
+        "upstream operation '{upstream_operation}' on upstream target '{upstream_target}' enables capabilities unsupported by its adapter"
     )]
     CapabilityElevation {
         /// Owning target ID.
         upstream_target: String,
-        /// Upstream API ID declaring excessive capabilities.
-        upstream_api: String,
+        /// Typed operation declaring excessive capabilities.
+        upstream_operation: OperationKind,
     },
     /// A Native Route downstream operation differs from its Upstream API operation.
     #[error("native route '{route}' operation does not match its upstream API")]

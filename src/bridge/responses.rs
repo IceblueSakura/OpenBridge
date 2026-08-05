@@ -214,10 +214,10 @@ impl ResponsesStreamState {
         let delta = required_str(value, "delta")?;
         match self.items.get_mut(&output_index) {
             Some(ResponsesItem::Message {
-                     item_id: known,
-                     text,
-                     completed: false,
-                 }) if known == item_id => {
+                item_id: known,
+                text,
+                completed: false,
+            }) if known == item_id => {
                 text.push_str(delta);
                 Ok(())
             }
@@ -235,10 +235,10 @@ impl ResponsesStreamState {
         let delta = required_str(value, "delta")?;
         match self.items.get_mut(&output_index) {
             Some(ResponsesItem::Reasoning {
-                     item_id: known,
-                     text,
-                     completed: false,
-                 }) if known == item_id => {
+                item_id: known,
+                text,
+                completed: false,
+            }) if known == item_id => {
                 text.push_str(delta);
                 Ok(())
             }
@@ -266,10 +266,10 @@ impl ResponsesStreamState {
             .ok_or(BridgeStreamError::InvalidJson)?;
         match self.items.get_mut(&output_index) {
             Some(ResponsesItem::Reasoning {
-                     item_id: known,
-                     text: accumulated,
-                     completed: false,
-                 }) if known == item_id => {
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id => {
                 accumulated.push_str(text);
                 Ok(())
             }
@@ -287,10 +287,10 @@ impl ResponsesStreamState {
         let text = required_str(value, "text")?;
         match self.items.get(&output_index) {
             Some(ResponsesItem::Reasoning {
-                     item_id: known,
-                     text: accumulated,
-                     completed: false,
-                 }) if known == item_id && accumulated == text => Ok(()),
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id && accumulated == text => Ok(()),
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -305,11 +305,11 @@ impl ResponsesStreamState {
         let delta = required_str(value, "delta")?;
         match self.items.get_mut(&output_index) {
             Some(ResponsesItem::Tool(tool))
-            if tool.item_id.as_deref() == Some(item_id) && !tool.completed =>
-                {
-                    tool.arguments.push_str(delta);
-                    Ok(())
-                }
+                if tool.item_id.as_deref() == Some(item_id) && !tool.completed =>
+            {
+                tool.arguments.push_str(delta);
+                Ok(())
+            }
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -324,10 +324,10 @@ impl ResponsesStreamState {
         let arguments = required_str(value, "arguments")?;
         match self.items.get(&output_index) {
             Some(ResponsesItem::Tool(tool))
-            if tool.item_id.as_deref() == Some(item_id) && tool.arguments == arguments =>
-                {
-                    validate_arguments(arguments)
-                }
+                if tool.item_id.as_deref() == Some(item_id) && tool.arguments == arguments =>
+            {
+                validate_arguments(arguments)
+            }
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -341,10 +341,10 @@ impl ResponsesStreamState {
         let snapshot = value.get("item").ok_or(BridgeStreamError::InvalidJson)?;
         match self.items.get_mut(&output_index) {
             Some(ResponsesItem::Message {
-                     item_id,
-                     text,
-                     completed,
-                 }) => {
+                item_id,
+                text,
+                completed,
+            }) => {
                 if *completed || required_str(snapshot, "id")? != item_id {
                     return Err(BridgeStreamError::IdentityConflict);
                 }
@@ -361,10 +361,10 @@ impl ResponsesStreamState {
                 Ok(())
             }
             Some(ResponsesItem::Reasoning {
-                     item_id,
-                     text,
-                     completed,
-                 }) => {
+                item_id,
+                text,
+                completed,
+            }) => {
                 if *completed || required_str(snapshot, "id")? != item_id {
                     return Err(BridgeStreamError::IdentityConflict);
                 }
@@ -412,10 +412,10 @@ impl ResponsesStreamState {
         // A successful terminal must wait for every output item to complete; failure states never masquerade as completion.
         if terminal == StreamTerminal::Completed
             && self.items.values().any(|item| match item {
-            ResponsesItem::Message { completed, .. } => !completed,
-            ResponsesItem::Reasoning { completed, .. } => !completed,
-            ResponsesItem::Tool(tool) => !tool.completed,
-        })
+                ResponsesItem::Message { completed, .. } => !completed,
+                ResponsesItem::Reasoning { completed, .. } => !completed,
+                ResponsesItem::Tool(tool) => !tool.completed,
+            })
         {
             return Err(BridgeStreamError::IncompleteOutputItem);
         }

@@ -72,8 +72,8 @@ pub fn analyze_request(
         reasoning: requested_reasoning(protocol, object),
         previous_response_id: protocol == ApiProtocol::Responses
             && object
-            .get("previous_response_id")
-            .is_some_and(|value| !value.is_null()),
+                .get("previous_response_id")
+                .is_some_and(|value| !value.is_null()),
         background: protocol == ApiProtocol::Responses
             && object.get("background").and_then(Value::as_bool) == Some(true),
     };
@@ -221,8 +221,8 @@ fn analyze_embedding_input(value: &Value) -> Result<EmbeddingInputAnalysis, Embe
                     .ok_or_else(|| EmbeddingRequestError::invalid(Some("input")))?;
                 if tokens.is_empty()
                     || tokens
-                    .iter()
-                    .any(|token| parse_embedding_token(token).is_none())
+                        .iter()
+                        .any(|token| parse_embedding_token(token).is_none())
                 {
                     return Err(EmbeddingRequestError::invalid(Some("input")));
                 }
@@ -397,8 +397,8 @@ fn requests_prompt_caching(object: &serde_json::Map<String, Value>) -> bool {
         "prompt_cache_options",
         "prompt_cache_retention",
     ]
-        .iter()
-        .any(|field| has_non_null_field(object, field))
+    .iter()
+    .any(|field| has_non_null_field(object, field))
         || object.values().any(contains_prompt_cache_breakpoint)
 }
 
@@ -545,14 +545,14 @@ fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool 
         .get("response_format")
         .is_some_and(is_non_text_format)
         || object
-        .get("text")
-        .and_then(Value::as_object)
-        .and_then(|text| text.get("format"))
-        .is_some_and(is_non_text_format)
+            .get("text")
+            .and_then(Value::as_object)
+            .and_then(|text| text.get("format"))
+            .is_some_and(is_non_text_format)
         || object
-        .get("tools")
-        .and_then(Value::as_array)
-        .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode))
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode))
 }
 
 /// Chat Completions places strict inside `function`, while Responses places it directly on the
@@ -560,11 +560,11 @@ fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool 
 fn tool_requests_strict_mode(tool: &Value) -> bool {
     tool.get("strict").and_then(Value::as_bool) == Some(true)
         || tool
-        .get("function")
-        .and_then(Value::as_object)
-        .and_then(|function| function.get("strict"))
-        .and_then(Value::as_bool)
-        == Some(true)
+            .get("function")
+            .and_then(Value::as_object)
+            .and_then(|function| function.get("strict"))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 /// Returns whether a format object explicitly requires non-plain-text output.

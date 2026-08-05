@@ -12,8 +12,8 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 核心方向：
 
 1. 原生转发 `POST /v1/responses`、`POST /v1/chat/completions` 的 HTTP JSON/SSE，以及独立的 `POST /v1/embeddings` JSON；
-2. 聚合多个 Provider、Upstream Target 与稳定 Public Model；
-3. 以每 Provider 独立 Rust 模块承载协议行为，以显式注册表管理 Model、Upstream Target、Upstream API 和 Route；
+2. 聚合多个 Provider instance、Upstream Target 与稳定 Public Model；
+3. 以每 Provider family 独立 Rust 模块承载协议行为，以显式注册表管理 Provider instance、Model、Upstream Target、Upstream API 和 Route；
 4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
 6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
@@ -55,7 +55,7 @@ Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每�
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
 仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)
-，Provider adapter 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model
+，Provider adapter、Provider instance 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model
 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
 
 | 运行配置                           | 模板                                       |
@@ -75,7 +75,7 @@ cargo run --bin openbridge --locked
 `openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、配置的 OpenBridge-owned OAuth2 auth 文件、
 Provider、Model 和 Route均只在启动时加载；OAuth2 bundle 进入独立的不可变 manager，本阶段不 reload 或 refresh，任何变更都需要
 重启进程。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
-与 trace 只使用已校验的 Provider、route、target、Upstream API 和 Public Model 身份作为低基数维度。
+与 trace 只使用已校验的 Provider family、route、target、typed upstream operation 和 Public Model 身份作为低基数维度。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -155,7 +155,8 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 `OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/过期 OAuth2 bundle 都会阻止
 启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取 TOML 或 auth 文件，本阶段也不 refresh，修改凭据必须重启。
 
-认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、 Provider 与脱敏
+认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、Provider family、
+typed upstream operation 与脱敏
 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool
 增量、总耗时、retry/fallback/credential rotation/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
 保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照， 可通过
@@ -238,11 +239,12 @@ observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具�
 ## 关键术语
 
 - **Provider Family**：代码中实现的一类协议和认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
+- **Provider Instance**：Provider Family 的一个受信部署，唯一拥有一个 BaseURL；不同 URL 或区域注册为不同实例。
 - **Credential Pool**：同一 Provider/credential kind 下可被多个 Target 共享的有序 API-key 集合。
-- **Upstream Target**：共享 endpoint、credential pool、Model、timeout 与故障边界的上游调用目标。
-- **Upstream API**：Upstream Target 中一条原生协议供应，独立拥有 upstream model、限制、能力证据和 state affinity。
+- **Upstream Target**：引用一个 Provider Instance，并绑定 credential pool、Model、timeout 与故障边界的上游调用目标。
+- **Upstream API**：Upstream Target 中由 `OperationKind` 唯一标识的原生供应，拥有 upstream model、限制、能力证据和 state affinity。
 - **Public Model**：客户端使用的稳定模型身份、每协议唯一固定能力契约及私有有序 Route ID，例如 `gpt-5.6-sol`。
-- **RoutePlan**：请求通过 Public Model 预检后固定的 Upstream Target/Upstream API、协议模式、credential pool binding、转换约束与
+- **RoutePlan**：请求通过 Public Model 预检后固定的 Upstream Target/typed upstream operation、协议模式、credential pool binding、转换约束与
   fallback 边界；实际 member 由 attempt 选择。
 - **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
 - **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。

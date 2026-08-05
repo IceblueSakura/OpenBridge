@@ -306,12 +306,12 @@ fn error_adapter_returns_safe_coarse_retry_guidance() {
 
 #[test]
 fn provider_definition_is_the_single_contract_and_adapter_source() {
-    for (kind, endpoint_profile) in [
-        (ProviderKind::OpenAi, "public-api"),
-        (ProviderKind::LongCat, "longcat-openai"),
-        (ProviderKind::DeepSeek, "deepseek-openai"),
-        (ProviderKind::MiMo, "mimo-openai"),
-        (ProviderKind::OpenRouter, "openrouter-chat"),
+    for kind in [
+        ProviderKind::OpenAi,
+        ProviderKind::LongCat,
+        ProviderKind::DeepSeek,
+        ProviderKind::MiMo,
+        ProviderKind::OpenRouter,
     ] {
         let definition = kind.definition();
         let contract = definition.contract();
@@ -320,7 +320,6 @@ fn provider_definition_is_the_single_contract_and_adapter_source() {
         assert_eq!(definition.kind(), kind);
         assert_eq!(contract.kind(), kind);
         assert!(std::ptr::eq(adapter.contract(), contract));
-        assert!(contract.endpoint_profiles().contains(&endpoint_profile));
     }
 }
 
@@ -342,7 +341,6 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
     assert!(!contract.capabilities().responses.image_input);
     assert!(!contract.capabilities().chat_completions.structured_outputs);
     assert!(!contract.capabilities().responses.structured_outputs);
-    assert!(contract.endpoint_profiles().contains(&"longcat-openai"));
 }
 
 #[test]
@@ -418,12 +416,6 @@ fn openrouter_contract_exposes_stateless_chat_and_responses_surfaces() {
     assert!(!contract.capabilities().responses.store);
     assert!(!contract.capabilities().responses.previous_response_id);
     assert!(!contract.capabilities().responses.background);
-    assert!(contract.endpoint_profiles().contains(&"openrouter-chat"));
-    assert!(
-        contract
-            .endpoint_profiles()
-            .contains(&"openrouter-responses")
-    );
 }
 
 #[test]

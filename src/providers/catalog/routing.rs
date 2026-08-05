@@ -4,7 +4,7 @@
 //! Route IDs and candidate order cannot drift apart.
 
 use crate::{
-    core::ApiProtocol,
+    core::{ApiProtocol, OperationKind},
     registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
 };
 
@@ -100,8 +100,8 @@ fn embedding_registration() -> CompiledPublicModel {
     let route = RouteConfig {
         id: "text-embedding-3-small-openai-embeddings".to_owned(),
         upstream_target: "openai-text-embedding-3-small".to_owned(),
-        upstream_api: "embeddings".to_owned(),
-        downstream_operation: crate::core::OperationKind::EmbeddingsCreate,
+        upstream_operation: OperationKind::EmbeddingsCreate,
+        downstream_operation: OperationKind::EmbeddingsCreate,
         mode: RouteMode::Native,
     };
 
@@ -196,47 +196,47 @@ impl ProviderRouteRegistration {
     /// Builds this Provider's Route for one global phase when its surface supports that phase.
     fn route_for(self, phase: RoutePhase) -> Option<RouteConfig> {
         // Select the fixed protocol direction and handling mode for this surface and phase.
-        let (suffix, upstream_api, downstream_protocol, mode) = match phase {
+        let (suffix, upstream_operation, downstream_protocol, mode) = match phase {
             RoutePhase::ChatNative => (
                 "chat",
-                "chat",
+                OperationKind::ChatCompletions,
                 ApiProtocol::ChatCompletions,
                 RouteMode::Native,
             ),
             RoutePhase::ChatBridge
-            if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
-                {
-                    (
-                        "chat-via-responses",
-                        "responses",
-                        ApiProtocol::ChatCompletions,
-                        RouteMode::Bridged,
-                    )
-                }
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+            {
+                (
+                    "chat-via-responses",
+                    OperationKind::Responses,
+                    ApiProtocol::ChatCompletions,
+                    RouteMode::Bridged,
+                )
+            }
             RoutePhase::ResponsesNative
-            if matches!(
+                if matches!(
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
                         | PublicModelSurface::DualProtocolNativeOnly
                 ) =>
-                {
-                    (
-                        "responses",
-                        "responses",
-                        ApiProtocol::Responses,
-                        RouteMode::Native,
-                    )
-                }
+            {
+                (
+                    "responses",
+                    OperationKind::Responses,
+                    ApiProtocol::Responses,
+                    RouteMode::Native,
+                )
+            }
             RoutePhase::ResponsesBridge
-            if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
-                {
-                    (
-                        "responses-via-chat",
-                        "chat",
-                        ApiProtocol::Responses,
-                        RouteMode::Bridged,
-                    )
-                }
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+            {
+                (
+                    "responses-via-chat",
+                    OperationKind::ChatCompletions,
+                    ApiProtocol::Responses,
+                    RouteMode::Bridged,
+                )
+            }
             _ => return None,
         };
 
@@ -245,7 +245,7 @@ impl ProviderRouteRegistration {
         Some(route(
             &id,
             self.upstream_target,
-            upstream_api,
+            upstream_operation,
             downstream_protocol,
             mode,
         ))
@@ -257,11 +257,11 @@ struct CompiledPublicModel {
     public_model: PublicModelConfig,
 }
 
-/// Builds a Route definition bound to a target, Upstream API, downstream protocol, and handling mode.
+/// Builds a Route definition bound to a target, upstream operation, downstream protocol, and handling mode.
 fn route(
     id: &str,
     upstream_target: &str,
-    upstream_api: &str,
+    upstream_operation: OperationKind,
     downstream_protocol: ApiProtocol,
     mode: RouteMode,
 ) -> RouteConfig {
@@ -269,7 +269,7 @@ fn route(
     RouteConfig {
         id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),
-        upstream_api: upstream_api.to_owned(),
+        upstream_operation,
         downstream_operation: downstream_protocol.operation(),
         mode,
     }

@@ -51,7 +51,7 @@ impl SupportState {
     }
 
     /// Computes the conservative intersection of complete Route contracts.
-    fn intersection(values: impl Iterator<Item=Self>) -> Self {
+    fn intersection(values: impl Iterator<Item = Self>) -> Self {
         let mut saw_value = false;
         let mut saw_unknown = false;
         for value in values {
@@ -116,7 +116,7 @@ impl ContextWindow {
     }
 
     /// Takes the minimum known limit across all Routes; any unknown value remains unknown.
-    fn intersection<'a>(values: impl Iterator<Item=&'a Self> + Clone) -> Self {
+    fn intersection<'a>(values: impl Iterator<Item = &'a Self> + Clone) -> Self {
         Self {
             max_context_tokens: intersect_optional_limit(
                 values.clone().map(|value| value.max_context_tokens),
@@ -140,7 +140,7 @@ pub struct ModelModalities {
 
 impl ModelModalities {
     /// Computes the stable set intersection of multiple Route contracts.
-    fn intersection<'a>(values: impl Iterator<Item=&'a Self> + Clone) -> Self {
+    fn intersection<'a>(values: impl Iterator<Item = &'a Self> + Clone) -> Self {
         Self {
             input: intersect_sets(values.clone().map(|value| value.input.as_slice())),
             output: intersect_sets(values.map(|value| value.output.as_slice())),
@@ -348,14 +348,14 @@ impl EmbeddingInterfaceCapabilities {
         match requested {
             None => Some(self.encoding.default),
             Some(requested)
-            if self
-                .encoding
-                .allowed
-                .as_ref()
-                .is_some_and(|allowed| allowed.contains(&requested)) =>
-                {
-                    Some(requested)
-                }
+                if self
+                    .encoding
+                    .allowed
+                    .as_ref()
+                    .is_some_and(|allowed| allowed.contains(&requested)) =>
+            {
+                Some(requested)
+            }
             Some(_) => None,
         }
     }
@@ -365,13 +365,13 @@ impl EmbeddingInterfaceCapabilities {
         match requested {
             None => Some(self.dimensions.default),
             Some(requested)
-            if self
-                .dimensions
-                .allowed
-                .is_some_and(|allowed| allowed.contains(requested)) =>
-                {
-                    Some(requested)
-                }
+                if self
+                    .dimensions
+                    .allowed
+                    .is_some_and(|allowed| allowed.contains(requested)) =>
+            {
+                Some(requested)
+            }
             Some(_) => None,
         }
     }
@@ -516,7 +516,6 @@ impl PublicModelInfo {
 pub(crate) struct RouteExecutionCandidate {
     route_id: String,
     upstream_target_id: String,
-    upstream_api_id: String,
     downstream_operation: OperationKind,
     upstream_operation: OperationKind,
     mode: RouteMode,
@@ -533,11 +532,6 @@ impl RouteExecutionCandidate {
     /// Returns the prevalidated Upstream Target ID used by forwarding.
     pub(crate) fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
-    }
-
-    /// Returns the prevalidated Upstream API ID used by forwarding.
-    pub(crate) fn upstream_api_id(&self) -> &str {
-        &self.upstream_api_id
     }
 
     /// Returns the downstream operation represented by this interface candidate.
@@ -920,7 +914,7 @@ fn compile_execution_interfaces(
 /// Pairs one operation's conservative capability contract with its fixed static candidates.
 fn compile_execution_interface<'a>(
     operation: OperationKind,
-    candidates: impl Iterator<Item=&'a PrecompiledRouteCandidate>,
+    candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
 ) -> Option<ModelExecutionInterface> {
     // Materialize one operation's static candidates without changing their configuration order.
     let candidates = candidates.collect::<Vec<_>>();
@@ -970,9 +964,8 @@ impl PrecompiledRouteCandidate {
             execution: RouteExecutionCandidate {
                 route_id: binding.route_id.clone(),
                 upstream_target_id: binding.route.upstream_target().to_owned(),
-                upstream_api_id: binding.route.upstream_api().to_owned(),
                 downstream_operation: binding.route.downstream_operation(),
-                upstream_operation: binding.upstream_api.operation(),
+                upstream_operation: binding.route.upstream_operation(),
                 mode: binding.route.mode(),
                 upstream_model: binding.upstream_api.upstream_model().to_owned(),
                 reasoning_output: binding.upstream_api.reasoning_output(),
@@ -1010,11 +1003,11 @@ struct RouteContractContribution {
     background: SupportState,
 }
 
-/// Internal target/API identity used only to prove continuation issuer uniqueness.
+/// Internal target/operation identity used only to prove continuation issuer uniqueness.
 #[derive(Clone, Eq, PartialEq)]
 struct ContinuationIssuer {
     upstream_target: String,
-    upstream_api: String,
+    upstream_operation: OperationKind,
 }
 
 impl RouteContractContribution {
@@ -1108,7 +1101,7 @@ impl RouteContractContribution {
             embedding_capabilities: None,
             continuation_issuer: ContinuationIssuer {
                 upstream_target: route.upstream_target().to_owned(),
-                upstream_api: route.upstream_api().to_owned(),
+                upstream_operation: route.upstream_operation(),
             },
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
@@ -1167,7 +1160,7 @@ impl RouteContractContribution {
             embedding_capabilities: Some(capabilities),
             continuation_issuer: ContinuationIssuer {
                 upstream_target: route.upstream_target().to_owned(),
-                upstream_api: route.upstream_api().to_owned(),
+                upstream_operation: route.upstream_operation(),
             },
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
@@ -1376,7 +1369,7 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
 
 /// Projects the single validated Native Embeddings candidate into its typed public contract.
 fn aggregate_embedding_interface<'a>(
-    contributions: impl Iterator<Item=&'a RouteContractContribution>,
+    contributions: impl Iterator<Item = &'a RouteContractContribution>,
 ) -> Option<EmbeddingInterfaceCapabilities> {
     // Select only the Embeddings profile; the registry compiler rejects more than one executable candidate.
     let capabilities = contributions
@@ -1391,7 +1384,7 @@ fn aggregate_embedding_interface<'a>(
 
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.
 fn aggregate_interface<'a>(
-    contributions: impl Iterator<Item=&'a RouteContractContribution> + Clone,
+    contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
 ) -> Option<ModelInterfaceCapabilities> {
     let contributions = contributions.collect::<Vec<_>>();
     if contributions.is_empty() {
@@ -1587,7 +1580,7 @@ fn aggregate_model_capabilities(contributions: &[RouteContractContribution]) -> 
 }
 
 /// Returns a safe minimum only when every Route provides a value.
-fn intersect_optional_limit(values: impl Iterator<Item=Option<u32>>) -> Option<u32> {
+fn intersect_optional_limit(values: impl Iterator<Item = Option<u32>>) -> Option<u32> {
     let values = values.collect::<Vec<_>>();
     if values.is_empty() || values.iter().any(Option::is_none) {
         None
@@ -1597,7 +1590,7 @@ fn intersect_optional_limit(values: impl Iterator<Item=Option<u32>>) -> Option<u
 }
 
 /// Returns one optional catalog string only when every Route confirms the same value.
-fn intersect_optional_string<'a>(values: impl Iterator<Item=Option<&'a str>>) -> Option<String> {
+fn intersect_optional_string<'a>(values: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
     let mut values = values;
     let first = values.next().flatten()?;
     values
@@ -1606,7 +1599,7 @@ fn intersect_optional_string<'a>(values: impl Iterator<Item=Option<&'a str>>) ->
 }
 
 /// Computes a stable intersection for ordered comparable sets.
-fn intersect_sets<'a, T>(values: impl Iterator<Item=&'a [T]>) -> Vec<T>
+fn intersect_sets<'a, T>(values: impl Iterator<Item = &'a [T]>) -> Vec<T>
 where
     T: Clone + Ord + 'a,
 {
@@ -1621,7 +1614,7 @@ where
 }
 
 /// Deduplicates a parameter iterator and sorts it by wire name.
-fn sorted_unique(values: impl Iterator<Item=String>) -> Vec<String> {
+fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
     values.collect::<BTreeSet<_>>().into_iter().collect()
 }
 
@@ -1637,7 +1630,7 @@ fn sorted_values<T: Clone + Ord>(values: &[T]) -> Vec<T> {
 
 /// Publishes a reasoning output form only when every Route returns the same form.
 fn intersect_reasoning_output(
-    mut values: impl Iterator<Item=ReasoningOutputMode>,
+    mut values: impl Iterator<Item = ReasoningOutputMode>,
 ) -> ReasoningOutputMode {
     let Some(first) = values.next() else {
         return ReasoningOutputMode::Unknown;

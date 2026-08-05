@@ -48,7 +48,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 - 下游客户端看到的是 Public Model，还是上游真实模型？
 - 当前是否已经实现 Chat ↔ Responses Protocol Bridge？
-- Provider、Upstream Target、Upstream API、Route 和 Public Model 分别拥有哪类事实？
+- Provider family、Provider instance、Upstream Target、Upstream API、Route 和 Public Model 分别拥有哪类事实？
 - 哪些结论只由 mock/fixture 证明，哪些仍需要 SDK、独立 Python/curl、目标 Agent 客户端或真实 Provider 验证？
 
 ## 4. 第二阶段：看懂启动与装配
@@ -61,7 +61,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 |    2 | [`src/config/mod.rs`](../src/config/mod.rs)、[`parser.rs`](../src/config/parser.rs)                         | Bootstrap 基础定义、TOML 解析和边界校验                             |
 |    3 | [`src/config/source.rs`](../src/config/source.rs)                                                           | bootstrap 文件定位与读取错误边界                                    |
 |    4 | [`src/identity.rs`](../src/identity.rs)                                                                     | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry`              |
-|    5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs)、[`catalog/`](../src/providers/catalog)           | 编译期 Provider、模型、target、Route 与 Public Model 装配           |
+|    5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs)、[`catalog/`](../src/providers/catalog)           | 编译期 Provider instance、模型、target、Route 与 Public Model 装配  |
 |    6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry`                |
 
 把启动链记成一条线即可：
@@ -107,7 +107,7 @@ HTTP request
 → analyze RequestRequirements
 → preflight the selected Public Model interface once
 → plan ordered RouteCandidates
-→ select Target + Upstream API + ProviderAdapter
+→ select Target + typed upstream operation + ProviderAdapter
 → prepare relative request and sensitive auth
 → UpstreamClient.send
 → preserve JSON/SSE response within safe header and terminal rules

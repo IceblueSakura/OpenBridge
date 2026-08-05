@@ -59,7 +59,6 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         },
         embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     },
-    &["deepseek-openai"],
     &[CredentialKind::ApiKey],
 );
 

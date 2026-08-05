@@ -5,16 +5,18 @@ use std::time::Duration;
 use crate::{
     core::{
         ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, OperationKind, ReasoningOutput, ResponsesCapabilities,
+        EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
     },
     models::openai,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
     registry::{
-        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
+        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
         UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
+
+const PROVIDER_INSTANCE_ID: &str = "openai";
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::String,
@@ -30,6 +32,15 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["encoding_format", "user"];
 
+/// Builds the trusted OpenAI API deployment used by the checked-in targets.
+pub fn provider_instance() -> ProviderInstanceConfig {
+    ProviderInstanceConfig {
+        id: PROVIDER_INSTANCE_ID.to_owned(),
+        kind: ProviderKind::OpenAi,
+        base_url: "https://api.openai.com".to_owned(),
+    }
+}
+
 /// Builds the OpenAI upstream targets built into this compiled version.
 pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![generation_target(), embedding_target()]
@@ -39,19 +50,14 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
 fn generation_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-main".to_owned(),
-        provider: ProviderKind::OpenAi,
+        provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
         model: openai::gpt_5_6_sol::ID.to_owned(),
-        base_url: "https://api.openai.com".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: native_upstream_apis(
-            "gpt-5.6-sol",
-            "public-api",
-            conservative_openai_capabilities(),
-        ),
+        upstream_apis: native_upstream_apis("gpt-5.6-sol", conservative_openai_capabilities()),
     }
 }
 
@@ -59,20 +65,15 @@ fn generation_target() -> UpstreamTargetConfig {
 fn embedding_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-text-embedding-3-small".to_owned(),
-        provider: ProviderKind::OpenAi,
+        provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
         model: openai::text_embedding_3_small::ID.to_owned(),
-        base_url: "https://api.openai.com".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
-            id: "embeddings".to_owned(),
-            operation: OperationKind::EmbeddingsCreate,
             upstream_model: "text-embedding-3-small".to_owned(),
-            endpoint_profile: "public-api".to_owned(),
-            transport: TransportKind::HttpJson,
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),
             state_affinity: StateAffinity::Unbound,

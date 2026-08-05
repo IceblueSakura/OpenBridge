@@ -81,8 +81,8 @@ fn chat_messages_to_responses(
         let message = messages[0].as_object().ok_or(BridgeError::InvalidShape)?;
         if message.get("role").and_then(Value::as_str) == Some("user")
             && !message
-            .get("reasoning_content")
-            .is_some_and(|value| !value.is_null() && value != &Value::String(String::new()))
+                .get("reasoning_content")
+                .is_some_and(|value| !value.is_null() && value != &Value::String(String::new()))
             && let Some(text) = message.get("content").and_then(Value::as_str)
         {
             return Ok(Value::String(text.to_owned()));

@@ -91,7 +91,6 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             supported_parameters: EMBEDDING_PARAMETERS,
         },
     },
-    &["public-api"],
     &[CredentialKind::ApiKey],
 );
 

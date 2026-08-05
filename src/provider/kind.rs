@@ -43,13 +43,12 @@ pub enum CredentialKind {
 /// Static Provider capabilities and configuration scope.
 ///
 /// Upstream API capabilities may only narrow this contract and cannot declare adapter features that
-/// do not exist. Endpoint profiles and credential kinds are restricted here as well, preventing
-/// Route TOML from becoming a dynamic Provider DSL.
+/// do not exist. Credential kinds are restricted here as well, preventing Route configuration from
+/// becoming a dynamic Provider DSL.
 #[derive(Debug)]
 pub struct ProviderContract {
     kind: ProviderKind,
     capabilities: ApiCapabilities,
-    endpoint_profiles: &'static [&'static str],
     credential_kinds: &'static [CredentialKind],
 }
 
@@ -58,13 +57,11 @@ impl ProviderContract {
     pub const fn new(
         kind: ProviderKind,
         capabilities: ApiCapabilities,
-        endpoint_profiles: &'static [&'static str],
         credential_kinds: &'static [CredentialKind],
     ) -> Self {
         Self {
             kind,
             capabilities,
-            endpoint_profiles,
             credential_kinds,
         }
     }
@@ -77,11 +74,6 @@ impl ProviderContract {
     /// Returns the capability ceiling supported by the adapter.
     pub fn capabilities(&self) -> &ApiCapabilities {
         &self.capabilities
-    }
-
-    /// Returns permitted endpoint-profile names.
-    pub fn endpoint_profiles(&self) -> &'static [&'static str] {
-        self.endpoint_profiles
     }
 
     /// Returns permitted credential types.
@@ -111,11 +103,6 @@ impl ProviderKind {
     /// Returns a copy of the Provider contract's capability ceiling.
     pub(crate) fn capabilities(self) -> ApiCapabilities {
         *self.contract().capabilities()
-    }
-
-    /// Returns whether the static Provider registers the endpoint profile.
-    pub(crate) fn accepts_endpoint_profile(self, profile: &str) -> bool {
-        self.contract().endpoint_profiles().contains(&profile)
     }
 
     /// Returns whether the static Provider permits the credential kind.

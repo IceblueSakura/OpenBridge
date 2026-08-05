@@ -24,7 +24,7 @@ use http::{HeaderMap, HeaderValue};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
-    core::ApiProtocol,
+    core::{ApiProtocol, OperationKind},
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::build_compiled_registry,
@@ -734,7 +734,7 @@ fn app_with_transport_and_pool(
         support::bootstrap(support::BOOTSTRAP),
         support::definition("forward-test", "public-model", "upstream-model"),
     )
-        .unwrap();
+    .unwrap();
     let (users, credentials) = support::users_and_credential_pool(
         "downstream-token-0000000000000000",
         &registry,
@@ -750,13 +750,25 @@ fn add_responses_fallback(
     target_id: &str,
     provider: ProviderKind,
 ) {
-    // Copy model facts from the primary target and switch to the selected Provider's trusted endpoint profile.
-    let mut fallback = definition.upstream_targets[0].clone();
-    fallback.id = target_id.to_owned();
-    fallback.provider = provider;
-    fallback.base_url = match provider {
-        ProviderKind::OpenAi => "https://api.openai.com".to_owned(),
-        ProviderKind::LongCat => "https://api.longcat.chat".to_owned(),
+    // Resolve or register one trusted Provider instance, then bind the copied target to it.
+    let provider_instance = match provider {
+        ProviderKind::OpenAi => "openai",
+        ProviderKind::LongCat => {
+            if !definition
+                .provider_instances
+                .iter()
+                .any(|instance| instance.id == "longcat-test")
+            {
+                definition
+                    .provider_instances
+                    .push(openbridge::registry::ProviderInstanceConfig {
+                        id: "longcat-test".to_owned(),
+                        kind: ProviderKind::LongCat,
+                        base_url: "https://api.longcat.chat".to_owned(),
+                    });
+            }
+            "longcat-test"
+        }
         ProviderKind::ChatGpt
         | ProviderKind::DeepSeek
         | ProviderKind::MiMo
@@ -764,6 +776,9 @@ fn add_responses_fallback(
             panic!("test fallback helper only accepts connected providers")
         }
     };
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = target_id.to_owned();
+    fallback.provider_instance = provider_instance.to_owned();
     if provider != definition.credential_pools[0].provider {
         let pool_id = format!("{target_id}-pool");
         definition
@@ -775,18 +790,6 @@ fn add_responses_fallback(
             });
         fallback.credential_pool = pool_id;
     }
-    for upstream_api in &mut fallback.upstream_apis {
-        upstream_api.endpoint_profile = match provider {
-            ProviderKind::OpenAi => "public-api".to_owned(),
-            ProviderKind::LongCat => "longcat-openai".to_owned(),
-            ProviderKind::ChatGpt
-            | ProviderKind::DeepSeek
-            | ProviderKind::MiMo
-            | ProviderKind::OpenRouter => {
-                panic!("test fallback helper only accepts connected providers")
-            }
-        };
-    }
     definition.upstream_targets.push(fallback);
 
     // Register the new target as a complete Responses Route for the same Public Model.
@@ -794,7 +797,7 @@ fn add_responses_fallback(
     definition.routes.push(RouteConfig {
         id: route_id.clone(),
         upstream_target: target_id.to_owned(),
-        upstream_api: "responses".to_owned(),
+        upstream_operation: OperationKind::Responses,
         downstream_operation: ApiProtocol::Responses.operation(),
         mode: RouteMode::Native,
     });
@@ -1067,7 +1070,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
     definition.routes.push(RouteConfig {
         id: "stronger-chat".to_owned(),
         upstream_target: "openai-stronger".to_owned(),
-        upstream_api: "chat".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
         downstream_operation: ApiProtocol::ChatCompletions.operation(),
         mode: RouteMode::Native,
     });
@@ -1113,7 +1116,7 @@ async fn streaming_requests_fail_over_to_the_next_configured_target_before_outpu
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "fallback-responses".to_owned(),
         upstream_target: "openai-fallback".to_owned(),
-        upstream_api: "responses".to_owned(),
+        upstream_operation: OperationKind::Responses,
         downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });
@@ -1210,7 +1213,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
     // All targets share one pool, allowing only the first live attempt during cooldown.
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        ["openai-main", ]
+        ["openai-main",]
     );
 }
 
@@ -1300,7 +1303,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         transport.attempts.lock().unwrap().as_slice(),
-        ["openai-main", "openai-main", ]
+        ["openai-main", "openai-main",]
     );
 }
 
@@ -1429,7 +1432,7 @@ async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() 
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "fallback-responses".to_owned(),
         upstream_target: "openai-main".to_owned(),
-        upstream_api: "responses".to_owned(),
+        upstream_operation: OperationKind::Responses,
         downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
         mode: openbridge::registry::RouteMode::Native,
     });

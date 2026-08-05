@@ -110,7 +110,7 @@ async fn chatgpt_probe_matches_codex_identity_models_and_responses_sse() {
     let target = registry.upstream_target("chatgpt-gpt-5-6-sol").unwrap();
     assert_eq!(
         target
-            .upstream_api_for_protocol(crate::core::ApiProtocol::Responses)
+            .upstream_api(crate::core::OperationKind::Responses)
             .unwrap()
             .upstream_model(),
         "gpt-5.6-sol"

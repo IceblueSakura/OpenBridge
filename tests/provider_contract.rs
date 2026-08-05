@@ -11,7 +11,6 @@ use openbridge::{
 fn chatgpt_provider_uses_codex_backend_profiles_and_oauth_credential() {
     // Verify the independent Provider contract exposes only the Codex Responses surface.
     let contract = ProviderKind::ChatGpt.contract();
-    assert_eq!(contract.endpoint_profiles(), ["chatgpt-codex"]);
     assert_eq!(
         contract.credential_kinds(),
         [CredentialKind::OAuth2BearerAccessToken]

@@ -13,9 +13,9 @@ mod validation;
 pub use compiler::build_registry;
 pub use definition::{
     CredentialPoolConfig, InputModality, ModelConfig, ModelContextLength, ModelLifecycle,
-    ModelLifecycleStatus, ModelMode, OutputModality, PublicModelConfig, ReasoningLevel,
-    ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
-    TransportKind, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+    ModelLifecycleStatus, ModelMode, OutputModality, ProviderInstanceConfig, PublicModelConfig,
+    ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
+    RouteMode, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
     UpstreamTargetConfig,
 };
 pub use error::RegistryError;
@@ -29,6 +29,6 @@ pub use public_model::{
     SupportState, ToolCapabilities, ToolChoiceMode, ToolType,
 };
 pub use runtime::{
-    CredentialPoolBinding, ModelInfo, RegistryVersion, Route, RuntimeRegistry, UpstreamApi,
-    UpstreamTarget,
+    CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,
+    UpstreamApi, UpstreamTarget,
 };

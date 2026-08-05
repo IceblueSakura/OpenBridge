@@ -62,7 +62,6 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         },
         embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     },
-    &["chatgpt-codex"],
     &[CredentialKind::OAuth2BearerAccessToken],
 );
 

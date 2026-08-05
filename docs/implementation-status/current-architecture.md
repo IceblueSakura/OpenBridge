@@ -3,7 +3,7 @@
 ## 状态与边界
 
 **已实现事实。** 当前生产注册表使用
-`ModelConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
+`ModelConfig`、`ProviderInstanceConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。 Embeddings 使用独立的
 `EmbeddingRequestRequirements + EmbeddingRoutePlan`，不进入 generation-only
 `ApiProtocol` 或 `BridgePlan`。 本页不复制易漂移的测试数量；最近实际运行的命令、结果和未执行验收层统一见
@@ -27,7 +27,7 @@ HTTP Models projection / request ingress
           ↓
 operation-specific requirements → Public Model interface preflight → RoutePlan / optional BridgePlan
           ↓
-ProviderAdapter + UpstreamTarget + UpstreamApi
+ProviderAdapter + ProviderInstance + UpstreamTarget + UpstreamApi
           ↓
 shared UpstreamTransport / SSE observation or bridge rendering
           ↓
@@ -50,8 +50,8 @@ Route；transport 不解释模型和协议能力。
 | 下游身份      | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User`                                                                                                                                                          | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份                                       |
 | 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 binding id 分别装载有序 API key 或单一 OAuth2 auth 文件                    |
 | API 语义      | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`GenerationCapabilities`                        | 独立 operation、generation 协议/请求、Embeddings 请求、分域能力和仅供内部判定使用的公共生成能力投影 |
-| 注册配置      | `ModelConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig`                                                                                                                         | 编译期写入并等待校验的配置                                                                          |
-| 运行注册表    | `RuntimeRegistry`、`ModelInfo`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据                                                    |
+| 注册配置      | `ModelConfig`、`ProviderInstanceConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig`                                                                                             | 编译期写入并等待校验的配置                                                                          |
+| 运行注册表    | `RuntimeRegistry`、`ModelInfo`、`ProviderInstance`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据                                                    |
 | 请求规划      | `RequestRequirements`、`RoutePlan`、`RouteCandidate`、`EmbeddingRequestRequirements`、`EmbeddingRoutePlan`                                                                                                             | 请求需要什么、可走哪些固定 route、每条 route 绑定到哪里                                             |
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
 | Provider      | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest`                                                                                                                                                       | Provider 能力上界、闭合实现分派和待发送请求                                                         |
@@ -87,7 +87,7 @@ BootstrapConfigPath::load
 
 `bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 大小和 HTTP client
 参数。四个 limit 都是必填非零值，replay limit 不得超过 request limit。用户文件、 上游 credential
-文件、Provider、模型、target、upstream API、route 和 endpoint 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
+文件、Provider family、Provider instance、模型、target、upstream API 和 route 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
 `UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
 `CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为互斥的 `api_keys` 或
 `auth_json_file`。启用 target 引用的 API-key pool 进入不可变 `CredentialStore`；所有显式配置的 OAuth2 文件在监听前完成完整 bundle
@@ -105,6 +105,7 @@ BootstrapConfigPath::load
 ```text
 RegistryConfig
   models: ModelConfig[]
+  provider_instances: ProviderInstanceConfig[]
   credential_pools: CredentialPoolConfig[]
   upstream_targets: UpstreamTargetConfig[]
     upstream_apis: UpstreamApiConfig[]
@@ -116,12 +117,13 @@ RegistryConfig
 
 | 实体                   | 所有内容                                                                                                             |
 |------------------------|----------------------------------------------------------------------------------------------------------------------|
-| `ProviderContract`     | Provider 代码拥有的 endpoint profile、credential kind 与能力上界                                                     |
+| `ProviderContract`     | Provider adapter 代码拥有的 credential kind 与能力上界                                                               |
+| `ProviderInstanceConfig` | 一个稳定实例 ID、一个 `ProviderKind` 与唯一受信 BaseURL；不同 URL/区域使用不同实例                                  |
 | `ModelConfig`          | 与供应商无关的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据                              |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind                                                                          |
-| `UpstreamTargetConfig` | Provider Family、Model、endpoint、credential pool 引用、timeout、启停及 quota/fault 边界                             |
-| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、transport、state affinity 与可选 reasoning level 映射 |
-| `RouteConfig`          | target、upstream API、下游 operation 和 `Native`/`Bridged` 执行模式                                                  |
+| `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
+| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、state affinity 与可选 reasoning level 映射            |
+| `RouteConfig`          | target、typed upstream operation、下游 operation 和 `Native`/`Bridged` 执行模式                                      |
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
@@ -139,10 +141,12 @@ Embedding/rerank 模型。其中 16 个 generation 模型已按 2026-08-02 OpenR
 `:free` 变体边界见 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 
 同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
-限制、能力证据和 state affinity。Embeddings checked-in 注册使用独立 target，只包含一个
-`HttpJson` API。共享 endpoint、credential、Model 与故障边界属于 target。
+限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
+Route 和执行候选以 typed operation 引用 API。Embeddings checked-in 注册使用独立 target，只包含一个 Embeddings API。
+BaseURL 只属于 Provider instance；credential、Model、timeout 与故障边界仍属于 target。
 
-`build_registry` 验证引用、唯一性、credential、HTTPS endpoint、timeout、Provider 上界、Upstream API operation/能力一致性、model
+`build_registry` 先验证 Provider instance ID 与唯一 HTTPS BaseURL，再验证 Target 引用、credential、timeout、Provider 上界、
+Upstream API operation 唯一性与能力、model
 rules 只收窄、三段 context 关系、Native/Bridged route 方向、Embeddings 单 Native candidate 与闭合 capability、Public Model
 身份/生命周期及 route 顺序。公共对象与请求预检必须保持的需求见
 [Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按 operation
@@ -151,6 +155,7 @@ rules 只收窄、三段 context 关系、Native/Bridged route 方向、Embeddin
 ```text
 RuntimeRegistry
   models
+  provider_instances
   credential_pools
   upstream_targets → upstream_apis
   routes

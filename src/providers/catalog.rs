@@ -1,4 +1,4 @@
-//! Assembles the built-in Model, Upstream Target, Route, and Public Model catalog.
+//! Assembles the built-in Model, Provider instance, Upstream Target, Route, and Public Model catalog.
 
 mod routing;
 
@@ -16,13 +16,21 @@ use super::{chatgpt, deepseek, longcat, mimo, openai, openrouter};
 /// Version identifier for the built-in provider and model registry.
 pub const REGISTRY_VERSION: &str = "dev-1";
 
-/// Returns all Model, Upstream Target, Route, and Public Model entries compiled into the binary.
+/// Returns all Model, Provider instance, Upstream Target, Route, and Public Model entries compiled into the binary.
 pub fn compiled_config() -> RegistryConfig {
     // Aggregate provider targets and independent Public Model route registrations.
     let routing = routing::compiled_routing();
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
         models: models::compiled_configs(),
+        provider_instances: vec![
+            openai::provider_instance(),
+            longcat::provider_instance(),
+            openrouter::provider_instance(),
+            deepseek::provider_instance(),
+            mimo::provider_instance(),
+            chatgpt::provider_instance(),
+        ],
         credential_pools: vec![
             credential_pool("openai-primary", ProviderKind::OpenAi),
             credential_pool("longcat-primary", ProviderKind::LongCat),
@@ -43,7 +51,7 @@ pub fn compiled_config() -> RegistryConfig {
             mimo::upstream_targets(),
             chatgpt::upstream_targets(),
         ]
-            .concat(),
+        .concat(),
         routes: routing.routes,
         public_models: routing.public_models,
     }

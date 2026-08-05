@@ -6,4 +6,4 @@ mod definition;
 mod registration;
 
 pub(crate) use definition::{CONTRACT, DEFINITION};
-pub(crate) use registration::upstream_targets;
+pub(crate) use registration::{provider_instance, upstream_targets};

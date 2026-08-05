@@ -86,7 +86,7 @@ impl UpstreamClient {
             request.body().clone(),
             target.request_timeout(),
         ))
-            .await
+        .await
     }
 
     /// Sends a request with a bound URL through the shared client and preserves the response stream body.
@@ -316,8 +316,8 @@ mod tests {
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
             )
-                .await
-                .unwrap();
+            .await
+            .unwrap();
         });
         let client =
             UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();

@@ -25,7 +25,7 @@ fn test_app(registry: RuntimeRegistry) -> axum::Router {
         registry.http_client().pool_idle_timeout(),
         registry.http_client().pool_max_idle_per_host(),
     )
-        .unwrap();
+    .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -119,7 +119,7 @@ async fn requests_over_the_bootstrap_body_limit_are_rejected() {
         support::bootstrap(&bootstrap_document),
         support::definition("health-test", "code-primary", "test-model"),
     )
-        .unwrap();
+    .unwrap();
     let app = test_app(registry);
     let request = Request::builder()
         .uri("/healthz")

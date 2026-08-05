@@ -9,7 +9,7 @@ use openbridge::{
     providers::{build_compiled_registry, compiled_config},
     registry::{
         InputModality, ModelMode, OutputModality, ReasoningSupport, RouteMode, StateAffinity,
-        TransportKind, UpstreamApiCapabilities,
+        UpstreamApiCapabilities,
     },
 };
 use serde_json::json;
@@ -45,19 +45,24 @@ fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
         .find(|target| target.id == TARGET)
         .expect("the dedicated embedding target must be compiled");
     assert_ne!(target.id, "openai-main");
-    assert_eq!(target.provider, ProviderKind::OpenAi);
+    let instance = definition
+        .provider_instances
+        .iter()
+        .find(|instance| instance.id == target.provider_instance)
+        .expect("the target's Provider instance must be compiled");
+    assert_eq!(instance.kind, ProviderKind::OpenAi);
     assert_eq!(target.model, CANONICAL_MODEL);
-    assert_eq!(target.base_url, "https://api.openai.com");
+    assert_eq!(instance.base_url, "https://api.openai.com");
     assert_eq!(target.credential_pool, "openai-primary");
     assert!(target.enabled);
     let [api] = target.upstream_apis.as_slice() else {
         panic!("the embedding target must contain exactly one Upstream API");
     };
-    assert_eq!(api.id, "embeddings");
-    assert_eq!(api.operation, OperationKind::EmbeddingsCreate);
+    assert_eq!(
+        api.capabilities.operation(),
+        OperationKind::EmbeddingsCreate
+    );
     assert_eq!(api.upstream_model, "text-embedding-3-small");
-    assert_eq!(api.endpoint_profile, "public-api");
-    assert_eq!(api.transport, TransportKind::HttpJson);
     assert_eq!(api.state_affinity, StateAffinity::Unbound);
     let UpstreamApiCapabilities::Embeddings(capabilities) = api.capabilities else {
         panic!("the dedicated API must expose only Embeddings capabilities");
@@ -101,7 +106,7 @@ fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
         .find(|route| route.id == ROUTE)
         .expect("the embedding Route must be compiled");
     assert_eq!(route.upstream_target, TARGET);
-    assert_eq!(route.upstream_api, "embeddings");
+    assert_eq!(route.upstream_operation, OperationKind::EmbeddingsCreate);
     assert_eq!(route.downstream_operation, OperationKind::EmbeddingsCreate);
     assert_eq!(route.mode, RouteMode::Native);
     let public_model = definition
@@ -166,7 +171,10 @@ fn checked_in_embedding_interface_is_discoverable_and_directly_plannable() {
     let plan = plan_embedding_request(&registry, &requirements, body).unwrap();
     assert_eq!(plan.candidate().route_id(), ROUTE);
     assert_eq!(plan.candidate().upstream_target_id(), TARGET);
-    assert_eq!(plan.candidate().upstream_api_id(), "embeddings");
+    assert_eq!(
+        plan.candidate().upstream_operation(),
+        OperationKind::EmbeddingsCreate
+    );
     assert_eq!(plan.input_count(), 2);
     assert_eq!(plan.encoding(), EmbeddingEncoding::Base64);
     assert_eq!(plan.dimensions(), 1_536);

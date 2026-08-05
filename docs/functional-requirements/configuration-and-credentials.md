@@ -16,7 +16,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator                                        | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
-| `src/providers/*`                           | Provider 定义、共享协议机制、request-header hook、target/upstream API、endpoint、credential pool/binding、route 与 Public Model | 否                                 |
+| `src/providers/*`                           | Provider Family 定义、Provider 实例、共享协议机制、request-header hook、target/upstream API、credential pool/binding、route 与 Public Model | 否                                 |
 | 下游业务请求                                | Public Model 和模型调用参数                                                                                                     | 否；也不能选择 endpoint/credential |
 
 每个运行配置都有同名 `.example` 模板：`config/bootstrap.example.toml`、`config/users.example.toml` 和
@@ -37,13 +37,17 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   Model，并以研发者与模型 slug 组成 snake_case 模块名；每个具体 Model 仍完整声明自身事实；
 - `src/providers/catalog.rs::compiled_config()` 是唯一显式注册入口；
 - 不使用运行时插件、链接器自动注册、JSON/TOML 转换模板或脚本；
-- Provider contract 定义 adapter 能力上界、endpoint profile 和 credential kind；
+- Provider contract 定义 adapter 能力上界和 credential kind；
+- Provider 实例绑定一个 `ProviderKind` 与一个受信 BaseURL；同一 Family 的不同区域或其他多 URL 部署必须注册为不同实例，不能由
+  Upstream API、Route 或业务请求选择 URL；
 - Model 定义模型事实、token 限制、支持参数、reasoning 状态与 reasoning level；
 - Credential Pool 绑定 Provider、credential kind 和一个有序 API-key member 集合；多个同 Provider Target 可引用同一个
   pool，但不能跨 Provider 或 credential kind 复用；
-- Upstream Target 绑定 Provider、Model、endpoint、credential pool、timeout 和共享故障边界；
-- Upstream API 独立声明一个协议的 upstream model、served limit、能力、state affinity，以及可选的 canonical reasoning level
-  到安全上游 wire 值的显式映射；
+- Upstream Target 引用一个 Provider 实例，并绑定 Model、credential pool、timeout 和共享故障边界；
+- 每个 Upstream Target 对每个 `OperationKind` 最多注册一个 Upstream API；API 的 capabilities variant 是 operation 的唯一事实源，
+  transport 由 operation 固定，API 不再拥有字符串 ID 或 endpoint profile；
+- Upstream API 独立声明一个 operation 的 upstream model、served limit、能力、state affinity，以及可选的 canonical reasoning
+  level 到安全上游 wire 值的显式映射；Route 以 Target + typed upstream operation 引用它；
 - 同一 Public Model 可以显式列出多个 Provider route source；相同 canonical Model ID 本身不得触发自动发现、 隐式 Route 注册或
   Provider 聚合；
 - Public Model 保存由这些 source 生成的有序完整 Route；对每个下游协议，代码目录先按 source 声明顺序排列 Native
@@ -134,7 +138,8 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 
 ## 4. Endpoint 与出站边界
 
-Endpoint 只来自代码注册项。Registry builder 必须拒绝：
+Endpoint 只来自代码注册的 Provider 实例。每个实例只有一个 BaseURL；Provider adapter 对每个受支持 operation 只提供一条静态相对
+path，因此一个实例对每个 operation 至多形成一份上游 URL。Registry builder 必须拒绝：
 
 - 非 HTTPS endpoint；
 - 缺少 host；
@@ -183,6 +188,9 @@ read bootstrap.toml
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；启动拒绝空 pool、重复 member、Provider/kind 不匹配或缺失 secret。                                               |
 | CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。                                                                            |
 | CFG-13 | ChatGPT probe-only target 不进入常驻 Route；其 Codex auth loader 只读最小字段、保持账户绑定和 token 脱敏，并且不把 OAuth credential 混入 API-key TOML。         |
+| CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
+| CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
+| CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |
 
 ## 关联文档
 

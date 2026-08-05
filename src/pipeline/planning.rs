@@ -53,7 +53,7 @@ pub fn plan_request(
         prepared_candidates.push(RouteCandidate {
             route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
-            upstream_api_id: candidate.upstream_api_id().to_owned(),
+            upstream_operation: candidate.upstream_operation(),
             request,
             bridge,
         });
@@ -96,7 +96,7 @@ pub fn plan_embedding_request(
         candidate: EmbeddingRouteCandidate {
             route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
-            upstream_api_id: candidate.upstream_api_id().to_owned(),
+            upstream_operation: candidate.upstream_operation(),
             request: EmbeddingRequest::new(body),
         },
         input_count: requirements.input_count,

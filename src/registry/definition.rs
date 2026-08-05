@@ -227,6 +227,17 @@ pub struct CredentialPoolConfig {
     pub kind: CredentialKind,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// One trusted deployment of a compile-time Provider family.
+pub struct ProviderInstanceConfig {
+    /// Stable Provider instance ID in the registry.
+    pub id: String,
+    /// Compile-time Provider family implemented by this instance.
+    pub kind: ProviderKind,
+    /// Sole trusted HTTPS base URL for this deployment.
+    pub base_url: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Upstream API capability configuration bound to a concrete protocol.
 pub enum UpstreamApiCapabilities {
@@ -309,15 +320,6 @@ impl UpstreamApiCapabilities {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Supported upstream transport profile.
-pub enum TransportKind {
-    /// HTTP JSON requests and SSE response bodies.
-    HttpJsonSse,
-    /// HTTP JSON requests and bounded JSON response bodies.
-    HttpJson,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Ownership scope for Provider-issued continuation state.
 pub enum StateAffinity {
     /// The request carries no state that requires a fixed target.
@@ -329,16 +331,8 @@ pub enum StateAffinity {
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Native Upstream API exposed by a target.
 pub struct UpstreamApiConfig {
-    /// Stable Upstream API ID within the target.
-    pub id: String,
-    /// Operation natively provided by the Upstream API.
-    pub operation: OperationKind,
     /// Actual model ID sent upstream.
     pub upstream_model: String,
-    /// Endpoint profile permitted by the Provider.
-    pub endpoint_profile: String,
-    /// Current Native transport profile.
-    pub transport: TransportKind,
     /// Upstream API-level narrowing rules for Model facts.
     pub model_rules: UpstreamApiModelRules,
     /// Single-protocol capability evidence.
@@ -352,12 +346,10 @@ pub struct UpstreamApiConfig {
 pub struct UpstreamTargetConfig {
     /// Target ID in the registry.
     pub id: String,
-    /// Compile-time Provider family.
-    pub provider: ProviderKind,
+    /// Referenced Provider instance ID.
+    pub provider_instance: String,
     /// Referenced Model ID.
     pub model: String,
-    /// Validated HTTPS endpoint base.
-    pub base_url: String,
     /// Shared credential-pool ID referenced by the target.
     pub credential_pool: String,
     /// Optional explicit shared quota scope.
@@ -388,8 +380,8 @@ pub struct RouteConfig {
     pub id: String,
     /// Upstream Target ID referenced by the Route.
     pub upstream_target: String,
-    /// Upstream API ID referenced by the Route.
-    pub upstream_api: String,
+    /// Typed Upstream API operation referenced by the Route.
+    pub upstream_operation: OperationKind,
     /// Downstream operation accepted by the Route.
     pub downstream_operation: OperationKind,
     /// Route handling mode.
@@ -454,6 +446,8 @@ pub struct RegistryConfig {
     pub version: String,
     /// Complete model definitions.
     pub models: Vec<ModelConfig>,
+    /// Complete trusted Provider instance definitions.
+    pub provider_instances: Vec<ProviderInstanceConfig>,
     /// Complete credential-pool definitions.
     pub credential_pools: Vec<CredentialPoolConfig>,
     /// Complete Upstream Target definitions.

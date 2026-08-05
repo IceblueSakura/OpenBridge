@@ -437,14 +437,14 @@ impl CredentialStore {
     }
 
     /// Enumerates non-sensitive credential IDs for configuration contracts and diagnostic counts.
-    pub fn credential_ids(&self) -> impl Iterator<Item=&CredentialId> {
+    pub fn credential_ids(&self) -> impl Iterator<Item = &CredentialId> {
         self.entries.iter().map(|entry| &entry.id)
     }
 
     /// Enumerates credential IDs and non-sensitive metadata for controlled diagnostics and policy snapshots.
     pub fn credential_metadata(
         &self,
-    ) -> impl Iterator<Item=(&CredentialId, &CredentialMetadata)> {
+    ) -> impl Iterator<Item = (&CredentialId, &CredentialMetadata)> {
         self.entries
             .iter()
             .map(|entry| (&entry.id, &entry.metadata))
@@ -673,7 +673,7 @@ mod tests {
                         CredentialKind::ApiKey,
                         CredentialSource::Programmatic,
                     )
-                        .with_generation(0),
+                    .with_generation(0),
                 )
                 .unwrap_err(),
             CredentialStoreError::InvalidMetadata

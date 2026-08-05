@@ -5,6 +5,8 @@
 //! `BridgePlan`. The Provider adapter then supplies the real model, applies target wire mappings,
 //! and binds the upstream relative request.
 
+use std::fmt;
+
 use bytes::Bytes;
 
 /// Stable identity for one client-visible API operation.
@@ -39,6 +41,12 @@ impl OperationKind {
             Self::Responses => "responses",
             Self::EmbeddingsCreate => "embeddings_create",
         }
+    }
+}
+
+impl fmt::Display for OperationKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 

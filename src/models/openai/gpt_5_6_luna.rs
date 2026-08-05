@@ -39,9 +39,9 @@ pub(crate) fn config() -> ModelConfig {
             "tool_choice",
             "tools",
         ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![
             ReasoningLevel::Max,

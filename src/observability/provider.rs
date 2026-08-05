@@ -1,6 +1,6 @@
 //! Performance, usage, and cache telemetry for Provider attempts.
 //!
-//! This module binds each actual upstream call to compile-time Route, target, Upstream API,
+//! This module binds each actual upstream call to compile-time Route, target, upstream operation,
 //! Provider, and operation dimensions. It records timing and explicit usage at raw upstream
 //! body/SSE boundaries, then writes a process snapshot at attempt termination. Metrics store no
 //! business bodies, credentials, endpoint URLs, or downstream identities.
@@ -30,8 +30,8 @@ pub struct ProviderMetricKey {
     pub route_id: String,
     /// Compile-time Upstream Target identifier.
     pub upstream_target: String,
-    /// Compile-time Upstream API identifier.
-    pub upstream_api: String,
+    /// Compile-time typed upstream operation name.
+    pub upstream_operation: String,
     /// Public Model name used downstream.
     pub public_model: String,
     /// Stable downstream operation name.
@@ -48,7 +48,7 @@ impl ProviderMetricKey {
         provider: ProviderKind,
         route_id: &str,
         upstream_target: &str,
-        upstream_api: &str,
+        upstream_operation: OperationKind,
         public_model: &str,
         operation: Option<OperationKind>,
         execution: ProviderMetricExecution,
@@ -57,7 +57,7 @@ impl ProviderMetricKey {
             provider: provider_name(provider).to_owned(),
             route_id: route_id.to_owned(),
             upstream_target: upstream_target.to_owned(),
-            upstream_api: upstream_api.to_owned(),
+            upstream_operation: upstream_operation.as_str().to_owned(),
             public_model: public_model.to_owned(),
             operation: operation
                 .map(OperationKind::as_str)
@@ -68,7 +68,7 @@ impl ProviderMetricKey {
             } else {
                 "native"
             }
-                .to_owned(),
+            .to_owned(),
             streaming: execution.streaming,
         }
     }
@@ -482,7 +482,7 @@ impl ProviderAttemptObservation {
             provider = %self.key.provider,
             route_id = %self.key.route_id,
             upstream_target = %self.key.upstream_target,
-            upstream_api = %self.key.upstream_api,
+            upstream_operation = %self.key.upstream_operation,
             public_model = %self.key.public_model,
             operation = %self.key.operation,
             route_mode = %self.key.route_mode,

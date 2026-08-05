@@ -6,35 +6,40 @@
 use std::time::Duration;
 
 use crate::{
-    core::ApiProtocol,
     models::openai,
     provider::ProviderKind,
     registry::{
-        StateAffinity, TransportKind, UpstreamApiCapabilities, UpstreamApiConfig,
+        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
         UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
 use super::CONTRACT;
 
+const PROVIDER_INSTANCE_ID: &str = "chatgpt";
+
+/// Builds the trusted ChatGPT Codex backend deployment used by the probe target.
+pub(crate) fn provider_instance() -> ProviderInstanceConfig {
+    ProviderInstanceConfig {
+        id: PROVIDER_INSTANCE_ID.to_owned(),
+        kind: ProviderKind::ChatGpt,
+        base_url: "https://chatgpt.com/backend-api/codex".to_owned(),
+    }
+}
+
 /// Builds the fixed ChatGPT target available only to explicit administrative probes.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "chatgpt-gpt-5-6-sol".to_owned(),
-        provider: ProviderKind::ChatGpt,
+        provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
         model: openai::gpt_5_6_sol::ID.to_owned(),
-        base_url: "https://chatgpt.com/backend-api/codex".to_owned(),
         credential_pool: "chatgpt-codex".to_owned(),
         quota_scope: Some("chatgpt-codex".to_owned()),
         fault_domain: Some("chatgpt-codex-backend".to_owned()),
         request_timeout: Duration::from_secs(120),
         enabled: false,
         upstream_apis: vec![UpstreamApiConfig {
-            id: "responses".to_owned(),
-            operation: ApiProtocol::Responses.operation(),
             upstream_model: "gpt-5.6-sol".to_owned(),
-            endpoint_profile: "chatgpt-codex".to_owned(),
-            transport: TransportKind::HttpJsonSse,
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
             state_affinity: StateAffinity::TargetBound,

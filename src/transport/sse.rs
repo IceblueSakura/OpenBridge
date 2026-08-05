@@ -204,6 +204,6 @@ impl EventBuilder {
             id: self.id.take(),
             retry_ms: self.retry_ms.take(),
         })
-            .inspect(|_| self.has_fields = false)
+        .inspect(|_| self.has_fields = false)
     }
 }

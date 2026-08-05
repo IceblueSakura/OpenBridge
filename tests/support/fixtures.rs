@@ -13,10 +13,10 @@ use openbridge::{
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CredentialPoolConfig, ModelConfig, ModelContextLength, ModelLifecycle, PublicModelConfig,
-        ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, StateAffinity,
-        TransportKind, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig, build_registry,
+        CredentialPoolConfig, ModelConfig, ModelContextLength, ModelLifecycle,
+        ProviderInstanceConfig, PublicModelConfig, ReasoningSupport, RegistryConfig, RouteConfig,
+        RouteMode, RuntimeRegistry, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiModelRules, UpstreamTargetConfig, build_registry,
     },
 };
 
@@ -65,7 +65,7 @@ api_key = "{api_key}"
 enabled = true
 "#
     ))
-        .expect("test user registry must be valid");
+    .expect("test user registry must be valid");
     let (users, mut credentials) = configuration.into_parts();
 
     // Inject synthetic API keys only into pools required by enabled data-plane targets.
@@ -158,6 +158,11 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             reasoning: ReasoningSupport::Unknown,
             reasoning_levels: Vec::new(),
         }],
+        provider_instances: vec![ProviderInstanceConfig {
+            id: "openai".to_owned(),
+            kind: ProviderKind::OpenAi,
+            base_url: "https://api.openai.com".to_owned(),
+        }],
         credential_pools: vec![CredentialPoolConfig {
             id: "openai-primary".to_owned(),
             provider: ProviderKind::OpenAi,
@@ -165,9 +170,8 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
         }],
         upstream_targets: vec![UpstreamTargetConfig {
             id: "openai-main".to_owned(),
-            provider: ProviderKind::OpenAi,
+            provider_instance: "openai".to_owned(),
             model: "openai/test-model".to_owned(),
-            base_url: "https://api.openai.com".to_owned(),
             credential_pool: "openai-primary".to_owned(),
             quota_scope: None,
             fault_domain: None,
@@ -175,11 +179,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             enabled: true,
             upstream_apis: vec![
                 UpstreamApiConfig {
-                    id: "chat".to_owned(),
-                    operation: ApiProtocol::ChatCompletions.operation(),
                     upstream_model: upstream_model.to_owned(),
-                    endpoint_profile: "public-api".to_owned(),
-                    transport: TransportKind::HttpJsonSse,
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::ChatCompletions(
                         capabilities().chat_completions,
@@ -187,11 +187,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     state_affinity: StateAffinity::Unbound,
                 },
                 UpstreamApiConfig {
-                    id: "responses".to_owned(),
-                    operation: ApiProtocol::Responses.operation(),
                     upstream_model: upstream_model.to_owned(),
-                    endpoint_profile: "public-api".to_owned(),
-                    transport: TransportKind::HttpJsonSse,
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::Responses(capabilities().responses),
                     state_affinity: StateAffinity::TargetBound,
@@ -202,14 +198,14 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             RouteConfig {
                 id: "public-chat".to_owned(),
                 upstream_target: "openai-main".to_owned(),
-                upstream_api: "chat".to_owned(),
+                upstream_operation: ApiProtocol::ChatCompletions.operation(),
                 downstream_operation: ApiProtocol::ChatCompletions.operation(),
                 mode: RouteMode::Native,
             },
             RouteConfig {
                 id: "public-responses".to_owned(),
                 upstream_target: "openai-main".to_owned(),
-                upstream_api: "responses".to_owned(),
+                upstream_operation: ApiProtocol::Responses.operation(),
                 downstream_operation: ApiProtocol::Responses.operation(),
                 mode: RouteMode::Native,
             },
@@ -239,5 +235,5 @@ pub fn registry(version: &str, alias: &str, upstream_model: &str) -> RuntimeRegi
         bootstrap(BOOTSTRAP),
         definition(version, alias, upstream_model),
     )
-        .expect("test registry must be valid")
+    .expect("test registry must be valid")
 }

@@ -8,6 +8,7 @@ use openbridge::{
     config::{
         BootstrapConfigError, BootstrapConfigFileError, BootstrapConfigPath, parse_bootstrap_config,
     },
+    core::OperationKind,
     provider::{CredentialKind, ProviderKind},
     registry::{
         ModelContextLength, ModelLifecycle, ModelLifecycleStatus, PublicModelConfig,
@@ -53,12 +54,29 @@ fn bootstrap_and_code_registry_build_a_runtime_registry() {
             .credential_pool(target.credential_pool_id())
             .is_some()
     );
-    let upstream_api = target.upstream_api("chat").unwrap();
+    let upstream_api = target.upstream_api(OperationKind::ChatCompletions).unwrap();
     assert_eq!(upstream_api.upstream_model(), "test-model");
+    assert_eq!(target.provider_instance_id(), "openai");
     assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
     assert_eq!(
         registry.public_model("code-primary").unwrap().routes(),
         &["public-chat", "public-responses"]
+    );
+}
+
+#[test]
+fn registry_rejects_duplicate_upstream_operations() {
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate.upstream_targets[0].upstream_apis[1].capabilities = duplicate.upstream_targets[0]
+        .upstream_apis[0]
+        .capabilities
+        .clone();
+
+    let error = build_registry(bootstrap(BOOTSTRAP), duplicate).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "upstream target 'openai-main' contains duplicate upstream operation 'chat_completions'"
     );
 }
 
@@ -229,7 +247,7 @@ fn upstream_api_rules_only_reduce_model_info() {
     let effective = registry
         .upstream_target("openai-main")
         .unwrap()
-        .upstream_api("chat")
+        .upstream_api(OperationKind::ChatCompletions)
         .unwrap()
         .model();
 
@@ -355,13 +373,13 @@ fn reasoning_level_mappings_are_validated_at_registry_build_time() {
 }
 
 #[test]
-fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
+fn provider_instance_registration_owns_and_validates_endpoint_bases() {
     for base_url in [
         "https://api.openai.com/openai",
         "https://api.openai.com/openai/",
     ] {
         let mut definition = definition("test", "code-primary", "test-model");
-        definition.upstream_targets[0].base_url = base_url.to_owned();
+        definition.provider_instances[0].base_url = base_url.to_owned();
         let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
         assert_eq!(
             registry
@@ -380,12 +398,68 @@ fn endpoint_registration_accepts_safe_prefixes_and_rejects_unsafe_urls() {
         "https://api.openai.com/openai/%2Fadmin",
     ] {
         let mut definition = definition("test", "code-primary", "test-model");
-        definition.upstream_targets[0].base_url = base_url.to_owned();
+        definition.provider_instances[0].base_url = base_url.to_owned();
         assert!(matches!(
             build_registry(bootstrap(BOOTSTRAP), definition),
-            Err(RegistryError::InvalidBaseUrl { .. })
+            Err(RegistryError::InvalidProviderBaseUrl { .. })
         ));
     }
+}
+
+#[test]
+fn provider_instances_require_unique_known_ids_and_allow_multiple_deployments_per_kind() {
+    let mut blank = definition("test", "code-primary", "test-model");
+    blank.provider_instances[0].id = "   ".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), blank),
+        Err(RegistryError::BlankProviderInstanceId)
+    ));
+
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate
+        .provider_instances
+        .push(duplicate.provider_instances[0].clone());
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::DuplicateId {
+            entity: "provider instance",
+            ..
+        })
+    ));
+
+    let mut unknown = definition("test", "code-primary", "test-model");
+    unknown.upstream_targets[0].provider_instance = "missing".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unknown),
+        Err(RegistryError::UnknownReference {
+            target: "provider instance",
+            ..
+        })
+    ));
+
+    let mut regional = definition("test", "code-primary", "test-model");
+    let mut regional_instance = regional.provider_instances[0].clone();
+    regional_instance.id = "openai-eu".to_owned();
+    regional_instance.base_url = "https://eu.api.openai.com".to_owned();
+    regional.provider_instances.push(regional_instance);
+    let mut regional_target = regional.upstream_targets[0].clone();
+    regional_target.id = "openai-eu-target".to_owned();
+    regional_target.provider_instance = "openai-eu".to_owned();
+    regional.upstream_targets.push(regional_target);
+
+    let registry = build_registry(bootstrap(BOOTSTRAP), regional).unwrap();
+    assert_eq!(
+        registry
+            .upstream_target("openai-eu-target")
+            .unwrap()
+            .endpoint_base()
+            .as_str(),
+        "https://eu.api.openai.com/"
+    );
+    assert_eq!(
+        registry.provider_instance("openai-eu").unwrap().kind(),
+        ProviderKind::OpenAi
+    );
 }
 
 #[test]

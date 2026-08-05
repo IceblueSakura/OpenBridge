@@ -137,7 +137,7 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
             "upstream-model",
             client_request,
         )
-            .expect("accepted request must be bridgeable");
+        .expect("accepted request must be bridgeable");
         assert_json_eq(
             upstream_request.body(),
             &fixture(case.directory, "expected-upstream-request.json"),
@@ -192,7 +192,7 @@ fn canonical_text_and_parallel_tool_streams_render_in_both_directions() {
             "upstream-model",
             fixture(directory, "client-request.json"),
         )
-            .expect("accepted stream request must be bridgeable");
+        .expect("accepted stream request must be bridgeable");
         assert_json_eq(
             upstream_request.body(),
             &fixture(directory, "expected-upstream-request.json"),
@@ -289,7 +289,7 @@ fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
         "upstream-model",
         Bytes::from_static(br#"{"model":"public-model","input":"hello","stream":true}"#),
     )
-        .expect("Responses request should be bridgeable");
+    .expect("Responses request should be bridgeable");
 
     // A Chat finish reason other than stop or tool_calls must not be fabricated as response.completed.
     let mut renderer = plan.stream_renderer();
@@ -336,7 +336,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
         Bytes::from(serde_json::to_vec(&responses_request).unwrap()),
         ReasoningOutput::PlainText,
     )
-        .expect("Responses reasoning request should convert to Chat");
+    .expect("Responses reasoning request should convert to Chat");
     let chat_request: Value = serde_json::from_slice(chat_request.body()).unwrap();
     assert_eq!(chat_request["reasoning_effort"], "high");
     assert_eq!(
@@ -392,7 +392,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
         Bytes::from(serde_json::to_vec(&chat_request).unwrap()),
         ReasoningOutput::PlainText,
     )
-        .expect("Chat reasoning request should convert to Responses");
+    .expect("Chat reasoning request should convert to Responses");
     let responses_request: Value = serde_json::from_slice(responses_request.body()).unwrap();
     assert_eq!(responses_request["reasoning"]["effort"], "high");
     assert_eq!(responses_request["input"][1]["type"], "reasoning");
@@ -417,7 +417,7 @@ fn chat_reasoning_stream_offsets_visible_message_output_index() {
         Bytes::from_static(br#"{"model":"public-model","input":"hello","stream":true}"#),
         ReasoningOutput::PlainText,
     )
-        .expect("Responses request should be bridgeable");
+    .expect("Responses request should be bridgeable");
     let upstream = Bytes::from_static(
         br#"data: {"id":"chatcmpl_reasoning_text","choices":[{"delta":{"role":"assistant","reasoning_content":"decide"},"finish_reason":null,"index":0}]}
 
@@ -565,7 +565,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
             ),
             ReasoningOutput::PlainText,
         )
-            .is_err()
+        .is_err()
     );
 
     // Chat accepts only standard reasoning_effort, not the Responses reasoning object.
@@ -633,7 +633,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
             opaque_request,
             ReasoningOutput::PlainText,
         )
-            .is_err()
+        .is_err()
     );
 
     // Non-streaming responses must not downgrade opaque reasoning to Chat reasoning_content.
@@ -647,7 +647,7 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
         ),
         ReasoningOutput::Summary,
     )
-        .unwrap();
+    .unwrap();
     assert!(plan
         .render_non_stream(Bytes::from_static(
             br#"{"id":"resp_opaque","model":"upstream-model","object":"response","output":[{"encrypted_content":"opaque","id":"rs_opaque","status":"completed","summary":[],"type":"reasoning"}],"status":"completed"}"#,
@@ -687,7 +687,7 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
                 "upstream-model",
                 request,
             )
-                .is_err(),
+            .is_err(),
             "{directory} must fail before egress"
         );
     }
@@ -699,9 +699,9 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
             ApiProtocol::ChatCompletions,
             "public-model",
             "upstream-model",
-            Bytes::from_static(br#"{"model":"public-model","input":"hello","seed":7}"#, ),
+            Bytes::from_static(br#"{"model":"public-model","input":"hello","seed":7}"#,),
         )
-            .is_err()
+        .is_err()
     );
 }
 
@@ -715,7 +715,7 @@ fn incomplete_stream_arguments_fail_without_a_fabricated_terminal() {
         "upstream-model",
         fixture(directory, "client-request.json"),
     )
-        .expect("request shape itself is bridgeable");
+    .expect("request shape itself is bridgeable");
     let mut renderer = plan.stream_renderer();
     let mut failed = false;
     for event in decode(&fixture(directory, "upstream-stream.sse")) {
