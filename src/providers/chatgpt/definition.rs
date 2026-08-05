@@ -9,10 +9,18 @@ use crate::{
     core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        ProviderKind, ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
     },
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
+
+const CHATGPT_IDENTITY_HEADERS: &[StaticRequestHeader] =
+    &[StaticRequestHeader::new("originator", "codex_cli_rs")];
+/// Fixed headless Linux profile derived from the Codex CLI `rust-v0.146.0` User-Agent format.
+const CODEX_CLI_LINUX_USER_AGENT: &str = "codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown";
+const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
+    .with_user_agent(CODEX_CLI_LINUX_USER_AGENT)
+    .with_headers(CHATGPT_IDENTITY_HEADERS);
 
 /// Static ChatGPT Codex adapter capabilities and permitted endpoint/credential scope.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -75,13 +83,14 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
+.with_request_headers(CHATGPT_REQUEST_HEADERS)
 .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the ChatGPT contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
     ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
 
-/// Preserves the dedicated hook boundary for future ChatGPT ordinary-header transforms.
+/// Keeps downstream headers out of the fixed ChatGPT request identity.
 fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,

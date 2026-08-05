@@ -24,11 +24,11 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 
 - 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
-- ChatGPT subscription OAuth：保留默认禁用的独立 Provider 与 OpenBridge-owned OAuth2 启动快照，后续另立焦点实现 PKCE 登录、
-  token 续约和数据面接入；不导入本机 Codex 状态。
+- ChatGPT subscription OAuth：保留默认禁用的独立 Provider，使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录与到期驱动
+  token 续约；不导入本机 Codex 状态，数据面接入仍须另立焦点。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings 与 OAuth2 启动快照已完成；ChatGPT 登录、refresh、数据面接入和 Native
-多模态不能并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh 已完成；ChatGPT 数据面接入和
+Native 多模态不能并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
 与 Realtime 只保留协议参考，不在现阶段实施范围。
 
 核心稳定后再考虑：
@@ -73,10 +73,19 @@ cargo run --bin openbridge --locked
 ```
 
 `config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。 服务与
-`openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、配置的 OpenBridge-owned OAuth2 auth 文件、
-Provider、Model 和 Route均只在启动时加载；OAuth2 bundle 进入独立的不可变 manager，本阶段不 reload 或 refresh，任何变更都需要
-重启进程。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
+`openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、OAuth2 locator、Provider、Model 和 Route 只在启动时
+加载；OpenBridge-owned OAuth2 bundle 进入独立 lifecycle manager，并按 access expiry 在文件锁内 guarded reload、refresh 和原子写回。
+TOML、用户与 API-key Store 不热重载。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
 与 trace 只使用已校验的 Provider family、route、target、typed upstream operation 和 Public Model 身份作为低基数维度。
+
+配置 ChatGPT `auth_json_file` 后，可在启动服务前显式登录：
+
+```bash
+cargo run --locked --bin openbridge-auth -- login chatgpt
+```
+
+该命令显示固定 verification URI 和一次性 device code，完成 authorization-code + PKCE exchange 后才事务性写入完整 bundle；它不接受
+issuer、client、endpoint、header、auth-file 或其他应用 cache override。常驻服务只做 expiry-driven 自动 refresh，不会隐式启动交互式登录。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -126,11 +135,14 @@ JSON/SSE body 原生转发。 没有映射的已支持 level 保持原值，未�
 Public Model 契约或导致跳过前序 Route。
 `Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。 聚合 Responses Route
 只有在全部候选支持 continuation 且唯一 Upstream Target/API 可确定时才公开
-`previous_response_id`；多个潜在签发者没有 issuer ledger，必须在任何上游调用前拒绝，不能盲投首选 Provider。 Provider 的受信
-request-header hook 可按编译期规则增添、替换、转换或删除普通 header；OpenAI 与 LongCat 转发 `User-Agent`，OpenRouter 不转发可选
-attribution/routing header，共享层不维护普通 header allowlist。客户端不能指定上游 URL、credential、认证 header 或 header
-转换规则。Transient upstream failure 在提交下游 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一
-Public Model 已配置的完整 Route fallback，下游断开会取消当前 send、退避和后续 attempt。
+`previous_response_id`；多个潜在签发者没有 issuer ledger，必须在任何上游调用前拒绝，不能盲投首选 Provider。Provider definition 可声明
+固定的非敏感 `User-Agent`/普通 header，受信 request-header hook 也可按编译期规则增添、替换、转换或删除普通 header；请求组装顺序为
+hook、固定 header、purpose-bound authentication。OpenAI 与 LongCat 转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing
+header；ChatGPT 使用固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA 与 `originator`，但其 target 仍默认禁用且没有数据面
+Route。共享层不维护
+普通 header allowlist，客户端不能指定上游 URL、credential、认证 header、固定 header 或转换规则。Transient upstream failure 在提交下游
+response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一 Public Model 已配置的完整 Route fallback，下游断开会
+取消当前 send、退避和后续 attempt。
 
 OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`，使用 `openrouter-primary` credential pool，把 Public Model
 `deepseek-v4-flash` 原生转发到基础模型 `deepseek/deepseek-v4-flash`。该注册项支持 Chat Completions 和无状态 Responses；
@@ -153,8 +165,9 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 在有序 `api_keys` 与单一
 `auth_json_file` 中二选一。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前
 把已启用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
-`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/过期 OAuth2 bundle 都会阻止
-启动。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取 TOML 或 auth 文件，本阶段也不 refresh，修改凭据必须重启。
+`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/不完整 OAuth2 bundle 都会阻止
+启动；完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
+TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 auth 文件，成功 rotation 后原子写回并发布新 generation。
 
 认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、Provider family、
 typed upstream operation 与脱敏

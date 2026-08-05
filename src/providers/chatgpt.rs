@@ -1,9 +1,10 @@
 //! Compile-time entry point for ChatGPT subscription access through the Codex backend.
 //!
-//! The Provider remains independent from the OpenAI API-key Provider and registers only a disabled
-//! target while OAuth login, refresh, and data-plane integration remain unimplemented.
+//! The Provider remains independent from the OpenAI API-key Provider. Its OAuth registration and
+//! disabled data-plane target are fixed in code rather than selected by configuration or requests.
 
 mod definition;
+pub(crate) mod oauth;
 mod registration;
 
 pub use definition::CONTRACT;

@@ -110,7 +110,7 @@ impl ProviderAdapter {
         self.openai_compatible().contract()
     }
 
-    /// Merges the ordinary-header hook with the final Provider-sensitive authentication header.
+    /// Assembles hook output, fixed Provider headers, and sensitive authentication headers.
     pub(crate) fn build_outbound_headers(
         &self,
         credential: &UpstreamCredential<'_>,
@@ -119,6 +119,9 @@ impl ProviderAdapter {
         // Build Provider base headers and run the request hook, which may write only SafeHeaders.
         let mut safe_headers = self.prepare_headers()?;
         self.apply_request_header_hook(downstream_headers, &mut safe_headers)?;
+
+        // Apply fixed Provider identity after the hook so downstream values cannot override it.
+        self.apply_configured_request_headers(&mut safe_headers)?;
         let mut headers = safe_headers.into_inner();
 
         // Append the credential adapter's sensitive header last so a downstream hook cannot overwrite authentication material.
@@ -138,6 +141,15 @@ impl ProviderAdapter {
     ) -> Result<(), AdapterError> {
         self.openai_compatible()
             .apply_request_header_hook(downstream_headers, headers)
+    }
+
+    /// Applies fixed non-sensitive headers compiled into the Provider definition.
+    fn apply_configured_request_headers(
+        &self,
+        headers: &mut SafeHeaders,
+    ) -> Result<(), AdapterError> {
+        self.openai_compatible()
+            .apply_configured_request_headers(headers)
     }
 
     /// Upstream model-discovery request fixed by the compile-time adapter.
@@ -217,7 +229,10 @@ impl ProviderAdapter {
 mod tests {
     use std::time::{Duration, SystemTime};
 
-    use http::{HeaderName, HeaderValue, header::AUTHORIZATION};
+    use http::{
+        HeaderName, HeaderValue,
+        header::{AUTHORIZATION, USER_AGENT},
+    };
     use secrecy::SecretString;
 
     use super::*;
@@ -326,5 +341,34 @@ mod tests {
         let debug = format!("{headers:?} {credential:?}");
         assert!(!debug.contains("access-token-sensitive"));
         assert!(!debug.contains("account-sensitive"));
+
+        // Assemble the complete request with conflicting downstream identity headers.
+        let originator = HeaderName::from_static("originator");
+        let mut downstream_headers = HeaderMap::new();
+        downstream_headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("untrusted-downstream-client/1.0"),
+        );
+        downstream_headers.insert(
+            originator.clone(),
+            HeaderValue::from_static("untrusted-downstream-originator"),
+        );
+        let outbound = adapter
+            .build_outbound_headers(&credential, &downstream_headers)
+            .unwrap();
+
+        // Require the compile-time ChatGPT identity to override downstream values.
+        assert_eq!(
+            outbound
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok()),
+            Some("codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown")
+        );
+        assert_eq!(
+            outbound
+                .get(originator)
+                .and_then(|value| value.to_str().ok()),
+            Some("codex_cli_rs")
+        );
     }
 }

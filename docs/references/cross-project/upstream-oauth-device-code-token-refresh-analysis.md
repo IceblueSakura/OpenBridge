@@ -66,7 +66,33 @@ private device user-code request
 
 因此不能把 Codex 私有 endpoint、status 和字段当作标准 device authorization adapter 的通用语义。
 
-## 4. refresh 实现对比
+## 4. ChatGPT 数据面 request identity 快照
+
+request identity 不是 OAuth grant 的标准字段，但三个 ChatGPT/Codex 数据面实现会把 token/account context 与非 secret client header 一起
+组装。以下只描述固定源码快照：
+
+| 项目 | 快照中的数据面 header 行为 |
+|------|----------------------------|
+| Codex stable `rust-v0.146.0` / `e363b08c9175ac1cbe5893615dd2cb9ddf95043b` | workspace version 为 `0.146.0`；default client 使用 `originator: codex_cli_rs`，并按 `originator/version (OS type OS version; architecture) terminal` 构造运行时 UA；Responses HTTP request 另设置 `Accept: text/event-stream`。 |
+| LiteLLM `23de7a15d9d40006ee596e617475ba101d60c5e9` | ChatGPT adapter 默认 `originator: codex_cli_rs`，以 originator、LiteLLM version、OS/architecture 与 terminal 信息构造 UA，并与 bearer、content type、SSE accept、可选 session/account header 合并。 |
+| Hermes `470cf66b039c73bdd2c21d43094ce41a4db74eae` | Codex auxiliary helper 固定 `originator: codex_cli_rs` 与 `codex_cli_rs/0.0.0 (Hermes Agent)` UA，并在 token claim 可读时增加 account header。 |
+
+一手源码：[Codex 0.146.0 release](https://github.com/openai/codex/releases/tag/rust-v0.146.0)、
+[Codex workspace version](https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/Cargo.toml)、
+[Codex default client](https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/login/src/auth/default_client.rs)、
+[Codex terminal detection](https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/terminal-detection/src/lib.rs)、
+[Codex Responses endpoint](https://github.com/openai/codex/blob/rust-v0.146.0/codex-rs/codex-api/src/endpoint/responses.rs)、
+[LiteLLM ChatGPT common utils](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/common_utils.py)、
+[Hermes auxiliary client](https://github.com/NousResearch/hermes-agent/blob/470cf66b039c73bdd2c21d43094ce41a4db74eae/agent/auxiliary_client.py)。
+
+这些 header 只证明各项目快照的客户端行为，不是 OAuth 标准，也不证明第三方 client identity、subscription 用途或 edge policy 获得长期授权。
+account header 属于 credential context，不能降级成普通静态 header 或由下游覆盖。
+
+Codex 的 Linux UA 会随实际发行版、kernel/OS version、architecture 与 terminal 环境变化，因此不存在唯一的 Linux 字符串。OpenBridge
+选择 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` 作为固定 headless Linux x86_64 source-compatible profile；它只复用
+`rust-v0.146.0` 的格式和版本，不宣称复现任一具体 Linux 主机，也不动态读取部署环境。
+
+## 5. refresh 实现对比
 
 | 方面                       | Codex                  | CLIProxyAPI                    | Hermes                  | LiteLLM                    |
 |----------------------------|------------------------|--------------------------------|-------------------------|----------------------------|
@@ -81,7 +107,7 @@ private device user-code request
 CLIProxyAPI 是唯一持续运行后台调度器的样本；其他三个项目主要在 access token 被需要时检查 expiry。不同 safety window
 是项目常量，不是 OAuth 标准推荐值。
 
-## 5. refresh token rotation 的共同风险
+## 6. refresh token rotation 的共同风险
 
 RFC 6749 允许 authorization server 在 refresh 成功时返回新 refresh token；客户端必须丢弃旧值。RFC 9700 进一步要求 public
 client 使用 sender-constrained refresh token 或 rotation 检测重放。
@@ -95,7 +121,7 @@ client 使用 sender-constrained refresh token 或 rotation 检测重放。
 Codex 的进程内 semaphore、CLIProxyAPI 的 mutex/singleflight、Hermes 的文件锁分别缓解局部并发；LiteLLM 的简单 JSON
 覆盖写清楚展示了缺少协调时的竞态。四个样本都不能单独证明跨主机共享 credential 的一致性。
 
-## 6. 失败分类综合
+## 7. 失败分类综合
 
 | 失败                   | 跨项目可确认的含义                                                         |
 |------------------------|----------------------------------------------------------------------------|
@@ -109,7 +135,7 @@ Codex 的进程内 semaphore、CLIProxyAPI 的 mutex/singleflight、Hermes 的�
 
 结果不确定且 authority 使用 single-use rotation 时，是否允许重试旧 refresh token 只能由该 authority 的正式 contract 决定。
 
-## 7. 共同适用边界
+## 8. 共同适用边界
 
 - Codex 官方文档证明的是 Codex CLI 的产品能力，不公开保证第三方客户端可复用相同 registration。
 - 其他项目复现私有 flow 不会扩大该 flow 的授权范围。

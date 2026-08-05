@@ -53,7 +53,7 @@ pub enum CredentialSource {
     UserConfiguration,
     /// From private upstream credential configuration.
     UpstreamConfiguration,
-    /// Read once from an OpenBridge-owned OAuth2 auth file during startup.
+    /// Loaded from an OpenBridge-owned OAuth2 auth file and maintained by its guarded manager.
     OAuth2AuthJsonFile,
     /// Injected directly by the trusted composition root or a test.
     Programmatic,

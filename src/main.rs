@@ -1,7 +1,7 @@
 //! Process startup, configuration loading, and graceful shutdown.
 //!
-//! Startup loads bootstrap, user, registry, and upstream credential snapshots once, then builds
-//! the HTTP router and shared upstream client. Business requests do not reread configuration files.
+//! Startup loads bootstrap, user, registry, and upstream bindings once, then builds the HTTP router,
+//! shared upstream client, and expiry-driven OAuth2 worker. Business requests do not reread files.
 
 use std::sync::Arc;
 
@@ -76,12 +76,13 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
+    let oauth2_credentials = Arc::new(oauth2_credentials);
     let app_state = GatewayState::new_with_oauth2_credentials(
         Arc::new(registry),
         Arc::new(upstream),
         Arc::new(users),
         credentials,
-        Arc::new(oauth2_credentials),
+        Arc::clone(&oauth2_credentials),
     );
     // Bind the loopback listener and start the HTTP service with graceful shutdown.
     let listener = TcpListener::bind(listen)
@@ -89,10 +90,18 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to bind OpenBridge to {listen}"))?;
 
     info!(%listen, %registry_version, "OpenBridge listening");
-    axum::serve(listener, build_router(app_state))
+    let refresh_worker = (oauth2_credentials.configured_provider_count() > 0)
+        .then(|| tokio::spawn(Arc::clone(&oauth2_credentials).run_refresh_scheduler()));
+    let server_result = axum::serve(listener, build_router(app_state))
         .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("OpenBridge server stopped unexpectedly")
+        .await;
+
+    // Cancel the credential worker after the HTTP service reaches its terminal state.
+    if let Some(refresh_worker) = refresh_worker {
+        refresh_worker.abort();
+        let _ = refresh_worker.await;
+    }
+    server_result.context("OpenBridge server stopped unexpectedly")
 }
 
 /// Reads the log filter from the environment and installs the process-wide tracing subscriber.

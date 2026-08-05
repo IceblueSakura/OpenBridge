@@ -70,7 +70,7 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 - 未由代码注册的 pool、重复 pool、服务所需或 probe 选中但缺失的 pool、空数组、空白成员或 pool 内重复 secret 必须在 listener
   绑定或网络 probe 前失败；
 - 服务在监听前把已启用用户 Key 与所有已启用 API-key Target 引用的 pool 一次性装入不可变 `CredentialStore`，并把所有显式配置的
-  OAuth2 auth 文件一次性装入不可变 `OAuth2CredentialManager`；
+  OAuth2 auth 文件装入内部可变、对外 snapshot 化的 `OAuth2CredentialManager`；完整过期 bundle 作为立即 refresh 输入而不是损坏文档；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
 - 每个 credential 条目必须冻结受控的 type、source、从 1 开始的 generation 与可选过期时间；source 只保存
   `UserConfiguration`、`UpstreamConfiguration`、`OAuth2AuthJsonFile` 或 `Programmatic` 类别，不能把文件路径、
@@ -81,11 +81,13 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
 - 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 Key
   缺失或为空时在监听前失败；
-- 运行时不得重新读取 `users.toml`、`upstream-credentials.toml` 或已装入 manager 的 OAuth2 auth 文件；改变任何 Key、locator 或
-  token bundle 必须重启。本焦点不支持热更新、refresh 或 401 recovery；
-- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码 hook
-  可按编译期规则增添、替换、转换或删除普通 header，共享层不维护普通 header allowlist。具体 Provider 的 header policy
-  属于实现事实，不应在本需求文档中固化。
+- 运行时不得重新读取 `users.toml` 或 `upstream-credentials.toml`；改变用户、API Key 或 locator 必须重启。OAuth2 manager 只可在
+  expiry-driven refresh transaction 中通过同主机 advisory lock guarded reload 自有 auth 文件，并将完整 rotation 原子写回后发布新
+  generation；普通请求仍不得读文件或触发交互式登录。当前不支持通用热更新或数据面 401 recovery；
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码可声明固定的非敏感
+  `User-Agent` 与普通 header，也可通过 hook 按编译期规则增添、替换、转换或删除普通 header。固定 header 在 hook 后应用，业务请求
+  不能覆盖；authentication header 最后从 purpose-bound credential 生成。共享层不维护普通 header allowlist，具体 Provider 的 header
+  值属于实现事实，不应在本需求文档中固化。
 
 ### 3.1 上游 API-key pool
 
@@ -114,8 +116,8 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   CLI 或 app-server；
 - ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；该启动快照不因 target 默认禁用而变成隐式 probe
   credential；
-- 后续登录、可刷新 bundle、持久化和 guarded reload/refresh 以
-  [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准，必须另立焦点。
+- 显式登录、可刷新 bundle、持久化和 guarded reload/refresh 以
+  [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准；数据面借用与 401 recovery 必须另立焦点。
 
 ### 3.3 OpenBridge-owned OAuth2 auth 文件
 
@@ -127,9 +129,10 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   cooldown 或负载均衡；
 - ChatGPT 文件使用当前兼容的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索、导入或回退到
   `$CODEX_HOME/auth.json`；
-- 文件在 listener 绑定前一次性读取；错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
-- `OAuth2CredentialManager` 在本焦点中只持有启动快照和后续 lifecycle 所需 locator，不提供修改、reload、refresh、后台调度或
-  401 recovery API。
+- 文件在 listener 绑定前完成首次读取；之后只允许显式登录事务或 expiry-driven refresh transaction 在 advisory lock 内 guarded
+  reload 与原子替换。错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
+- `OAuth2CredentialManager` 对外只发布脱敏 snapshot，对内维护 guarded reload、single-flight、refresh、generation 与后台调度；
+  当前不向数据面提供 credential 借用或 401 recovery API。
 
 ## 4. Endpoint 与出站边界
 
@@ -172,7 +175,7 @@ read bootstrap.toml
 |--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | CFG-01 | 仓库不存在 Provider/Model route 配置文件或动态 Provider schema。                                                                                               |
 | CFG-02 | 代码注册表中的重复 ID、未知引用、能力扩大、无效 reasoning/level 映射和不安全 URL 在监听前失败。                                                                |
-| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 仅能经受信 Provider 代码 hook 转换，不能由业务请求选择转换规则。 |
+| CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 只能由受信 Provider 代码声明或转换，固定 UA/header 在 hook 后应用，业务请求不能选择规则或覆盖固定值。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。                                                                                        |
 | CFG-05 | 每个 Provider family 由独立、闭合的 definition owner 管理，并经单一显式 composition root 注册；不存在自动注册。                                             |
 | CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。                                                                                                        |

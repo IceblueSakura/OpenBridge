@@ -47,14 +47,97 @@ credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保
 现在只能在有序 `api_keys` 与单一 `auth_json_file` 中二选一；Provider 与 credential kind 仍只从代码注册表解析。服务与普通
 API-key probe 不读取上游 key 环境变量或 `.env`，普通 probe 也不会打开未选中的 OAuth locator。服务在 listener 绑定前把已启用用户
 Key 与全部启用 target 引用的 API-key pool 合并为不可变 `CredentialStore`，并把所有显式配置的 ChatGPT OAuth2 文件校验为完整
-token bundle 后装入独立的不可变 `OAuth2CredentialManager`。未知或重复 binding、source/kind 错配、同 Provider 多 auth 文件、
-损坏 TOML、无效 API-key pool 或损坏/过期 OAuth2 bundle 会阻止启动。运行时不重新读取 TOML 或 auth 文件；两份快照均不提供热更新。
-Store 和 manager 条目只公开非敏感 identity/metadata；文件路径不进入诊断元数据或 `Debug`。
+token bundle 后装入独立 lifecycle manager。未知或重复 binding、source/kind 错配、同 Provider 多 auth 文件、损坏 TOML、无效
+API-key pool 或损坏/不完整 OAuth2 bundle 会阻止启动；完整但已过期的 bundle 进入立即 refresh 状态。运行时不重新读取两份 TOML，
+OAuth manager 只在到期 transaction 中锁定并 reload 自有 auth 文件。Store 和 manager snapshot 只公开非敏感 identity/metadata/status；
+文件路径不进入诊断元数据或 `Debug`。
 
 第六个 ChatGPT Provider 注册一个默认禁用且没有 Route/Public Model 的 OAuth pool/target。ChatGPT credential 只从 private upstream
 TOML 显式配置的 OpenBridge-owned `auth_json_file` 进入独立启动快照；当前没有本机 Codex auth loader、OS/environment/terminal
-identity 探测或专用 ChatGPT probe。当前仍没有 token 获取、PKCE/device login、refresh、数据面接入、热更新或 401
-refresh/retry 行为。
+identity 探测或专用 ChatGPT probe。管理员可显式运行 `openbridge-auth login chatgpt`，通过固定 ChatGPT private device interaction、
+PKCE `S256` exchange 和事务性文件写入取得完整 token bundle；普通服务启动和业务请求不会隐式开始登录。服务会按 access expiry 自动
+refresh 已配置 bundle。ChatGPT adapter 已声明固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA/`originator`，但当前仍没有
+ChatGPT 数据面接入、通用热更新或 401 refresh/retry 行为。
+
+### 2026-08-05 编译期 Provider 固定请求 UA/header
+
+- `src/provider/contracts.rs` 增加 crate-private、const-friendly 的 `ProviderRequestHeaders` 与 `StaticRequestHeader`。每个 Provider
+  definition 可声明一个固定非敏感 UA 和静态普通 header slice；name/value 在 egress 组装时解析，无效 HTTP metadata 返回脱敏的
+  `InvalidCompiledRequestHeader`；
+- 完整请求组装顺序固定为 Provider downstream-header hook、编译期固定 header、purpose-bound authentication header。固定值因此覆盖同名
+  下游 header；`SafeHeaders` 对 hook 与静态 profile 统一拒绝 Authorization、cookie、Host 和 proxy authorization，Bearer、ChatGPT account
+  ID 与条件性 FedRAMP 仍只从敏感 credential 通道最后追加；
+- ChatGPT definition 固定 `originator: codex_cli_rs` 与
+  `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA。该 profile 按 2026-08-05 核对的 Codex CLI stable
+  `rust-v0.146.0`/`e363b08c9175ac1cbe5893615dd2cb9ddf95043b` UA 格式选择固定 headless Linux x86_64 值；OpenBridge 不读取
+  部署主机 OS、architecture、terminal、environment 或本机 Codex state，也不接受 TOML/CLI/downstream override。OpenAI/LongCat 的
+  UA 转发及其他 Provider 的既有 hook 行为不变；
+- TDD 先向完整 ChatGPT outbound assembly 注入冲突下游值；旧实现实际失败为 UA `left: None`。实现后该测试、通用 profile 的
+  UA/custom-header/敏感名称/无效 metadata 测试，以及 hook-before-fixed 顺序测试均通过；
+- 后续 Linux UA 对齐先把同一完整 assembly 测试的期望值改为 `0.146.0` profile；旧值实际失败为
+  `left: Some("codex_cli_rs/0.1.0 (OpenBridge)")`，最小 definition 修改后通过，`originator` 与敏感 credential header 断言保持不变；
+- 本轮实际通过聚焦 Provider 测试、既有 forwarding contract、`cargo clippy --locked -- -D warnings`、`git diff --check` 与完整
+  `cargo test --locked`；完整测试包含 50 个 library test 和全部默认 integration/bin/doc test，2 个明确依赖独立 Python loopback 或
+  外部 OpenAI SDK 的测试保持 ignored。改动 Rust 文件的独立 `rustfmt --check --edition 2024` 通过；仓库级
+  `cargo fmt -- --check` 仅因未改动的 `src/transport/mod.rs` 既有 module ordering 不通过；
+- ChatGPT target 仍默认禁用且没有 Route/Public Model，OAuth manager 尚未向数据面借用 credential。本轮静态测试不证明当前 ChatGPT edge、
+  subscription、模型 request wire 或真实 Provider 接受该 profile。
+
+### 2026-08-05 ChatGPT device login 与 PKCE 持久化
+
+- 新增独立 `openbridge-auth login chatgpt` 管理命令；CLI 从 bootstrap、编译期 registry 和 private upstream credential TOML 解析唯一
+  ChatGPT OAuth binding，不接受 issuer、client ID、endpoint、header、auth-file 或其他应用 cache override；help 与未知参数在读取
+  private 配置和网络访问前结束；
+- `src/providers/chatgpt/oauth.rs` 固定当前参考客户端共同使用的 authority、private device request/poll endpoint、public client
+  registration、verification/redirect URI 和 15 分钟上限。该 adapter 的 poll 成功结果是 authorization code、challenge 和 verifier，
+  随后才执行 authorization-code + PKCE exchange；它不是原样 RFC 8628 token polling；
+- device auth ID、user code、authorization code、PKCE material 和 token 进入 purpose-bound secret/zeroizing 内存；终端只显示固定
+  verification URI、一次性 user code、TTL 与防钓鱼提示。Ctrl+C、timeout、terminal status、PKCE mismatch 或 token 校验失败均不会写入
+  半成品 credential；
+- exchange 后要求非空 id/access/refresh token、未来 access-token expiry 和一致 account binding。当前通过固定 HTTPS exchange 与
+  JWT claim/account 检查建立边界，没有引入第三方 JWT signature trust store，因此不能把该检查描述为离线 signature verification；
+- auth 文件写入使用同目录 create-new temporary（Unix `0600`；Windows 继承 private directory ACL）、flush/sync、advisory file lock、源版本
+  digest CAS 和 atomic replace；完整 token、account 与 `last_refresh` 一次发布，并拒绝覆盖并发胜出版本。错误与 `Debug` 不包含
+  locator、session、PKCE、token 或 account 值；
+- TDD 先确认旧配置 API 无法解析不存在的登录目标；fake transport/sleeper 覆盖 pending-to-success、PKCE mismatch、无效 token、旧文件
+  保留、并发写者 CAS 和 CLI override 拒绝。确定性验证通过聚焦测试、完整 `cargo test --locked`、
+  `cargo clippy --locked -- -D warnings` 与 `git diff --check`；
+- 未运行真实 ChatGPT device login、真实 token exchange、外部 SDK、ChatGPT 数据面、负载或长期运行。确定性 fake transport 只证明状态机、
+  PKCE/account 校验、事务文件与脱敏边界，不证明当前 subscription 资格、public client registration 或外部 authority 可用性。
+
+### 2026-08-05 ChatGPT expiry-driven 自动 refresh
+
+- `OAuth2CredentialManager` 对外返回 owned、脱敏的 credential snapshot，对内保存 validated bundle、source version、generation、lifecycle
+  status 和 per-credential async gate；启动 loader 接受完整的过期 access token，使 refresh token 可在 worker 启动后立即恢复 credential；
+- worker 按 `expires_at - 120s - deterministic early jitter(0..30s)` 重建 due time，只刷新进入窗口的 credential。main 在 listener 成功绑定后
+  启动 worker，并在 HTTP 服务终止时 abort/回收；空 manager 不创建 worker；
+- refresh 在网络请求前取得进程内 single-flight gate，并通过 `spawn_blocking` 取得 auth-file advisory lock；锁内 guarded reload 完整文档。
+  若同主机另一进程已经写入安全窗口外的新版本，当前 worker 不再发送 refresh，只发布胜出版本；
+- 固定 refresh adapter 禁止 redirect，只访问编译期 token endpoint/client，发送 refresh grant 并限制 request timeout/response body。
+  response 必须含非空 access token，present token type 必须为 Bearer；省略 id/refresh token 时保留旧值，present rotation 使用新值；最终
+  access expiry 必须在未来，account/FedRAMP identity 必须与锁内 reload 的 bundle 一致；
+- 成功 response 的完整 access/id/refresh/account/`last_refresh` 先通过持锁 same-directory atomic replace 落盘，再发布递增 generation；
+  429/5xx 和确认未建立响应的连接错误进入 30 秒起、最长 5 分钟的 bounded backoff；精确 terminal OAuth code 进入
+  `reauth_required`；可能已发送但无可判定 response、成功 rotation 后校验/写入失败进入 `ambiguous`，停止自动复用旧 refresh token；
+- fake transport、explicit `Notify` 和 process-unique 文件测试覆盖进程内并发 callers 只发送一次、持久化版本 reload skip、optional
+  rotation、account change、三类失败状态、due-time 计算、过期 startup bundle，以及超限 auth 文件在解析前被拒绝；同主机跨进程协调由
+  OS advisory lock 与持锁写回结构提供，本轮没有启动第二个进程做竞争验收。
+
+本轮实际执行并通过：
+
+```text
+cargo test --locked oauth2_credentials::
+cargo test --locked --test upstream_credential_config --test oauth2_login_cli --test startup_contract
+cargo test --locked
+cargo clippy --locked -- -D warnings
+rustfmt --check --edition 2024 <本轮修改或新增的 Rust 文件>
+git diff --check
+```
+
+完整 Rust 测试的 49 项 library test 与全部默认 integration/doc test 通过；两个显式外部客户端测试保持 ignored。仓库级
+`cargo fmt -- --check` 实际运行后只报告本轮未修改的 `src/transport/mod.rs` 既有 module 顺序差异；本轮所有修改或新增 Rust 文件单独通过
+`rustfmt --check`，未机械改写该无关文件。没有修改 `testdata/`/`tools/corpus/`，因此未运行 Python corpus baseline。未执行真实 ChatGPT
+device login/token exchange/refresh、外部 SDK、ChatGPT 数据面、401 recovery、跨主机 lease、负载或长期运行验收。
 
 ### 2026-08-05 `src` 模块职责收敛
 
@@ -91,12 +174,12 @@ Provider、Agent runtime、负载或长期验收；本次结构 refactor 不把�
 - upstream credential schema v1 的每个 `credential_pools` 项现在是互斥 union：API-key binding 使用有序 `api_keys`，OAuth2 binding
   使用单一 `auth_json_file`；registry 仍决定 Provider 与 credential kind，同一个 OAuth2 Provider 不能绑定多个文件；
 - `OAuth2CredentialManager` 在启动时读取 OpenBridge-owned Codex-compatible ChatGPT JSON，要求显式 ChatGPT auth mode、完整且非空的
-  id/access/refresh token、未过期 access-token expiry、一致的 account binding 与非空的可选 `last_refresh`，然后保留不可变且
-  `Debug` 脱敏的单 Provider 快照；
+  id/access/refresh token、可解析 access-token expiry、一致的 account binding 与非空的可选 `last_refresh`；过期 bundle 由当前
+  lifecycle worker 立即 refresh；
 - 相对 locator 以 upstream TOML 的目录为基准。真实进程 composition test 已证明 OAuth2 文件在 listener 绑定前加载；启动后修改源文件
   不会改变 manager。普通 API-key probe 只打开选中的 API-key source，不读取同一 TOML 中未选中的 OAuth2 locator；
-- manager 已进入 `GatewayState`，但 ChatGPT target 仍默认禁用且没有 Route/Public Model。当前 manager 没有 refresh、reload、持久化、
-  后台任务或 401 recovery API；这些仍属于下一焦点；
+- manager 已进入 `GatewayState`，但 ChatGPT target 仍默认禁用且没有 Route/Public Model；当前 refresh lifecycle 不构成数据面 credential
+  借用或 401 recovery；
 - `tests/example_config.rs` 的 DeepSeek V4 Pro reasoning level 断言已与当前模型定义同步为 `Max, High`，没有修改模型配置。
 
 本轮实际执行并通过：
@@ -111,9 +194,8 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-完整 Rust 测试通过，两个显式外部客户端测试保持 ignored。聚焦修改的 OAuth2 manager、upstream credential、startup 与 state/main Rust
-文件通过单文件 `rustfmt --check`；仓库级 `cargo fmt -- --check` 在当前 rustfmt 1.9.0 下仍因大量本轮未修改源码的既有格式差异失败，
-本轮没有机械改写这些无关文件。未使用真实 auth 文件或真实 Provider；未运行外部 SDK、PKCE/device login、refresh、负载或长期运行验收。
+该早期启动快照轮次的完整 Rust 测试通过，两个显式外部客户端测试保持 ignored；其外部 OAuth 验收当时尚未执行。当前 login/refresh
+实现及本轮证据以本文前述两个 ChatGPT lifecycle 小节为准。
 
 ### 2026-08-05 Upstream API 协议事实去重
 
@@ -415,8 +497,7 @@ array、token array 与 token-array array 一次性判别为闭合 union。analy
 
 - OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- ChatGPT PKCE/device login、refresh token 读取/轮换、续约调度、401 recovery、持久化、多账号 pool，以及 ChatGPT
-  Route/Public Model 数据面；
+- ChatGPT 自动 refresh token 轮换、续约调度、401 recovery、多账号 pool，以及 ChatGPT Route/Public Model 数据面；
 - keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；

@@ -1,4 +1,5 @@
 /target/
+/.codex/
 .env
 .env.*
 # Planned private configuration; it may contain local upstream/downstream credentials.

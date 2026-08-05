@@ -8,13 +8,85 @@ use std::{collections::HashMap, fmt};
 
 use http::{
     HeaderMap, HeaderName, HeaderValue,
-    header::{AUTHORIZATION, COOKIE, HOST, PROXY_AUTHORIZATION},
+    header::{AUTHORIZATION, COOKIE, HOST, PROXY_AUTHORIZATION, USER_AGENT},
 };
 use zeroize::Zeroizing;
 
 use crate::transport::sse::SseEvent;
 
 use super::AdapterError;
+
+/// One fixed non-sensitive request header declared by trusted Provider code.
+///
+/// Names and values are parsed before egress. Provider definitions must not place secrets in this
+/// type; authentication and account-routing material belongs in `SensitiveHeaders`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StaticRequestHeader {
+    name: &'static str,
+    value: &'static str,
+}
+
+impl StaticRequestHeader {
+    /// Creates a fixed ordinary header from code-owned static strings.
+    pub(crate) const fn new(name: &'static str, value: &'static str) -> Self {
+        Self { name, value }
+    }
+}
+
+/// Compile-time fixed `User-Agent` and ordinary request headers for one Provider adapter.
+///
+/// The profile is applied after the Provider's downstream-header hook so a business request cannot
+/// override fixed identity. `SafeHeaders` still rejects credential-bearing header names.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProviderRequestHeaders {
+    user_agent: Option<&'static str>,
+    headers: &'static [StaticRequestHeader],
+}
+
+impl ProviderRequestHeaders {
+    /// Creates an empty fixed-header profile.
+    pub(crate) const fn new() -> Self {
+        Self {
+            user_agent: None,
+            headers: &[],
+        }
+    }
+
+    /// Sets the fixed Provider `User-Agent` value.
+    pub(crate) const fn with_user_agent(mut self, user_agent: &'static str) -> Self {
+        self.user_agent = Some(user_agent);
+        self
+    }
+
+    /// Sets the fixed ordinary headers declared by the Provider.
+    pub(crate) const fn with_headers(mut self, headers: &'static [StaticRequestHeader]) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    /// Parses and applies the fixed profile without exposing header values in errors.
+    pub(crate) fn apply_to(self, target: &mut SafeHeaders) -> Result<(), AdapterError> {
+        // Parse and apply each code-owned ordinary header through the sensitive-name guard.
+        for header in self.headers {
+            let name = HeaderName::from_bytes(header.name.as_bytes())
+                .map_err(|_| AdapterError::InvalidCompiledRequestHeader)?;
+            let value = HeaderValue::from_str(header.value)
+                .map_err(|_| AdapterError::InvalidCompiledRequestHeader)?;
+            target.insert(name, value)?;
+        }
+
+        // Apply the dedicated User-Agent last so the explicit field wins over duplicate entries.
+        if let Some(user_agent) = self.user_agent {
+            if user_agent.is_empty() {
+                return Err(AdapterError::InvalidCompiledRequestHeader);
+            }
+            let value = HeaderValue::from_str(user_agent)
+                .map_err(|_| AdapterError::InvalidCompiledRequestHeader)?;
+            target.insert(USER_AGENT, value)?;
+        }
+        Ok(())
+    }
+}
 
 /// Non-sensitive request headers that trusted Provider hooks may add, change, or remove.
 ///
@@ -63,7 +135,7 @@ impl fmt::Debug for SafeHeaders {
 
 #[cfg(test)]
 mod tests {
-    use http::{HeaderName, HeaderValue};
+    use http::{HeaderName, HeaderValue, header::USER_AGENT};
 
     use super::*;
 
@@ -86,6 +158,43 @@ mod tests {
 
         assert!(headers.get(source).is_none());
         assert_eq!(headers.get(target).unwrap(), "transformed-value");
+    }
+
+    #[test]
+    fn compiled_request_headers_apply_custom_values_and_fail_closed() {
+        const ORDINARY_HEADERS: &[StaticRequestHeader] =
+            &[StaticRequestHeader::new("x-provider-identity", "compiled")];
+        const REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
+            .with_user_agent("provider-client/1.0")
+            .with_headers(ORDINARY_HEADERS);
+        const FORBIDDEN_HEADERS: &[StaticRequestHeader] =
+            &[StaticRequestHeader::new("authorization", "must-not-escape")];
+        const INVALID_HEADERS: &[StaticRequestHeader] =
+            &[StaticRequestHeader::new("invalid header name", "value")];
+
+        // Apply a valid fixed User-Agent and ordinary header profile.
+        let mut headers = SafeHeaders::default();
+        REQUEST_HEADERS.apply_to(&mut headers).unwrap();
+
+        assert_eq!(headers.get(USER_AGENT).unwrap(), "provider-client/1.0");
+        assert_eq!(
+            headers
+                .get(HeaderName::from_static("x-provider-identity"))
+                .unwrap(),
+            "compiled"
+        );
+
+        // Reject both sensitive names and invalid HTTP metadata without exposing values.
+        let error = ProviderRequestHeaders::new()
+            .with_headers(FORBIDDEN_HEADERS)
+            .apply_to(&mut SafeHeaders::default())
+            .unwrap_err();
+        assert!(matches!(error, AdapterError::SensitiveHeaderInSafeSet));
+        let error = ProviderRequestHeaders::new()
+            .with_headers(INVALID_HEADERS)
+            .apply_to(&mut SafeHeaders::default())
+            .unwrap_err();
+        assert!(matches!(error, AdapterError::InvalidCompiledRequestHeader));
     }
 }
 

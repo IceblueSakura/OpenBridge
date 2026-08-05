@@ -2,7 +2,8 @@
 //!
 //! Each compile-time credential binding selects either ordered API keys or one OAuth2 auth-file
 //! locator. The file cannot configure Providers, credential kinds, endpoints, or routes. It is
-//! read once before network listening or probes, and produces immutable credential snapshots.
+//! read once before network listening or probes. API keys become immutable snapshots; an OAuth2
+//! locator becomes a guarded lifecycle target whose document may be refreshed transactionally.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -16,7 +17,9 @@ use subtle::ConstantTimeEq;
 
 use crate::{
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
-    oauth2_credentials::{OAuth2CredentialManager, OAuth2CredentialManagerBuilder},
+    oauth2_credentials::{
+        OAuth2CredentialManager, OAuth2CredentialManagerBuilder, OAuth2LoginTarget,
+    },
     provider::CredentialKind,
     provider::ProviderKind,
     registry::RuntimeRegistry,
@@ -83,6 +86,33 @@ impl UpstreamCredentialConfiguration {
             }
         }
         Ok(Self { pools })
+    }
+
+    /// Resolves one configured OAuth2 destination without reading or exposing its auth file.
+    pub fn oauth2_login_target_for(
+        &self,
+        registry: &RuntimeRegistry,
+        provider: ProviderKind,
+    ) -> Result<OAuth2LoginTarget, UpstreamCredentialConfigError> {
+        // Validate every configured binding before selecting the requested Provider destination.
+        self.validate_for(registry, std::iter::empty())?;
+
+        // Bind the fixed Provider to its sole registered OAuth2 pool and private file locator.
+        for (pool_id, source) in &self.pools {
+            let pool = registry.credential_pool(pool_id).ok_or_else(|| {
+                UpstreamCredentialConfigError::UnknownPool {
+                    id: pool_id.clone(),
+                }
+            })?;
+            if pool.provider() != provider {
+                continue;
+            }
+            let ConfiguredCredentialSource::OAuth2AuthJsonFile(path) = source else {
+                continue;
+            };
+            return Ok(OAuth2LoginTarget::new(provider, pool.id(), path.clone()));
+        }
+        Err(UpstreamCredentialConfigError::MissingOAuth2Provider { provider })
     }
 
     /// Adds only the caller-requested API-key pools to a new credential builder.
@@ -163,7 +193,7 @@ impl UpstreamCredentialConfiguration {
                 }
                 ConfiguredCredentialSource::ApiKeys(_) => {}
                 ConfiguredCredentialSource::OAuth2AuthJsonFile(path) => {
-                    // Load one complete provider-owned OAuth2 bundle into the separate immutable manager.
+                    // Load one complete Provider-owned OAuth2 bundle into the guarded lifecycle manager.
                     oauth2_builder
                         .load_auth_json_file(pool.provider(), pool.id(), path)
                         .map_err(UpstreamCredentialConfigError::OAuth2Credential)?;

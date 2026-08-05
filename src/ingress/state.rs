@@ -44,7 +44,7 @@ impl GatewayState {
         )
     }
 
-    /// Creates service state with an immutable startup-loaded OAuth2 credential manager.
+    /// Creates service state with the shared, internally guarded OAuth2 credential manager.
     pub fn new_with_oauth2_credentials(
         registry: Arc<RuntimeRegistry>,
         upstream: Arc<dyn UpstreamTransport>,
@@ -64,7 +64,7 @@ impl GatewayState {
         }
     }
 
-    /// Returns the immutable OAuth2 startup snapshot for trusted runtime composition.
+    /// Returns the shared OAuth2 lifecycle manager for trusted runtime composition.
     pub fn oauth2_credentials(&self) -> &OAuth2CredentialManager {
         &self.oauth2_credentials
     }

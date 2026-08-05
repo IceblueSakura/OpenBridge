@@ -20,6 +20,9 @@ pub enum AdapterError {
     /// A sensitive header was incorrectly placed in the ordinary-header set.
     #[error("sensitive header cannot be emitted as a regular provider header")]
     SensitiveHeaderInSafeSet,
+    /// A header compiled into a Provider definition is not valid HTTP metadata.
+    #[error("compiled provider request header is invalid")]
+    InvalidCompiledRequestHeader,
     /// The request body cannot be parsed or rewritten as a valid JSON object.
     #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,

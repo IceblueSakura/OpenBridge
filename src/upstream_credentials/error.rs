@@ -95,6 +95,12 @@ pub enum UpstreamCredentialConfigError {
         /// Provider that received multiple auth-file bindings.
         provider: ProviderKind,
     },
+    /// The requested Provider has no configured OAuth2 auth-file binding.
+    #[error("upstream credential configuration has no OAuth2 binding for Provider {provider:?}")]
+    MissingOAuth2Provider {
+        /// Provider selected by the explicit administrative operation.
+        provider: ProviderKind,
+    },
     /// A compile-time pool required by the caller has no configured API key.
     #[error("upstream credential configuration is missing required pool '{id}'")]
     MissingPool {

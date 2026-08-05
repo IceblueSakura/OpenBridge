@@ -14,5 +14,6 @@ pub use contracts::{
     ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
     StreamEventStatus, UpstreamErrorKind,
 };
+pub(crate) use contracts::{ProviderRequestHeaders, StaticRequestHeader};
 pub use definition::ProviderDefinition;
 pub use kind::{CredentialKind, ProviderContract, ProviderKind};

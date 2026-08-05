@@ -92,6 +92,27 @@ auth_json_file = "missing-unselected-sensitive-auth.json"
 }
 
 #[test]
+fn oauth2_login_target_resolves_without_opening_or_requiring_the_auth_file() {
+    // Configure a missing OpenBridge-owned auth file under a process-unique directory.
+    let fixture = TestAuthFile::new("unused");
+    let missing_auth_file = fixture.directory.join("missing-login-auth.json");
+    let configuration = UpstreamCredentialConfiguration::from_toml(&format!(
+        "schema_version = 1\n[[credential_pools]]\nid = \"chatgpt-codex\"\nauth_json_file = '{}'\n",
+        toml_path(&missing_auth_file)
+    ))
+    .unwrap();
+
+    // Resolve a purpose-bound login target without reading or exposing the missing locator.
+    let target = configuration
+        .oauth2_login_target_for(&registry(), ProviderKind::ChatGpt)
+        .unwrap();
+    assert_eq!(target.provider(), ProviderKind::ChatGpt);
+    assert_eq!(target.pool_id(), "chatgpt-codex");
+    assert!(!missing_auth_file.exists());
+    assert!(!format!("{target:?}").contains("missing-login-auth"));
+}
+
+#[test]
 fn upstream_toml_rejects_invalid_pool_documents_without_exposing_secrets() {
     // Cover empty pools, blank keys, duplicate keys, and duplicate pool IDs.
     let cases = [
@@ -188,7 +209,7 @@ fn upstream_toml_rejects_api_keys_for_the_registered_chatgpt_oauth_binding() {
 }
 
 #[test]
-fn upstream_toml_loads_one_chatgpt_auth_file_into_an_immutable_oauth2_manager() {
+fn upstream_toml_loads_one_chatgpt_auth_file_into_a_guarded_oauth2_manager() {
     // Write one complete synthetic ChatGPT OAuth auth document.
     let expires_at = unix_now().saturating_add(3_600);
     let access_token = jwt(json!({"exp": expires_at}));
@@ -258,6 +279,76 @@ fn upstream_toml_loads_one_chatgpt_auth_file_into_an_immutable_oauth2_manager() 
 }
 
 #[test]
+fn expired_startup_bundle_is_loaded_for_immediate_refresh() {
+    // Persist a complete expired bundle whose refresh token can recover the credential.
+    let access_token = jwt(json!({"exp": 1}));
+    let id_token = jwt(json!({
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "synthetic-expired-account"
+        }
+    }));
+    let fixture = TestAuthFile::new(
+        &json!({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": null,
+            "tokens": {
+                "id_token": id_token,
+                "access_token": access_token,
+                "refresh_token": "synthetic-expired-refresh",
+                "account_id": "synthetic-expired-account"
+            },
+            "last_refresh": "2026-08-05T00:00:00Z"
+        })
+        .to_string(),
+    );
+    let configuration = UpstreamCredentialConfiguration::from_toml(&format!(
+        "schema_version = 1\n[[credential_pools]]\nid = \"chatgpt-codex\"\nauth_json_file = '{}'\n",
+        toml_path(fixture.path())
+    ))
+    .unwrap();
+
+    // Keep the complete credential so the runtime refresh worker can run immediately.
+    let manager = configuration
+        .load_into_for(
+            &mut CredentialStoreBuilder::new(),
+            &registry(),
+            ["chatgpt-codex"],
+        )
+        .unwrap();
+    let credential = manager
+        .credential_for_provider(ProviderKind::ChatGpt)
+        .expect("expired credential should remain refreshable");
+    assert_eq!(
+        credential.metadata().expires_at(),
+        Some(UNIX_EPOCH + Duration::from_secs(1))
+    );
+}
+
+#[test]
+fn oversized_oauth2_auth_file_is_rejected_before_document_parsing() {
+    // Persist one source just beyond the managed OAuth document limit.
+    let fixture = TestAuthFile::new(&"x".repeat(64 * 1024 + 1));
+    let configuration = UpstreamCredentialConfiguration::from_toml(&format!(
+        "schema_version = 1\n[[credential_pools]]\nid = \"chatgpt-codex\"\nauth_json_file = '{}'\n",
+        toml_path(fixture.path())
+    ))
+    .unwrap();
+
+    // Reject the file at the storage boundary without attempting JSON/token parsing.
+    let error = configuration
+        .load_into_for(
+            &mut CredentialStoreBuilder::new(),
+            &registry(),
+            ["chatgpt-codex"],
+        )
+        .unwrap_err();
+    assert_eq!(
+        error,
+        UpstreamCredentialConfigError::OAuth2Credential(OAuth2CredentialManagerError::Read)
+    );
+}
+
+#[test]
 fn upstream_toml_rejects_ambiguous_or_mismatched_credential_sources() {
     let registry = registry();
     let cases = [
@@ -308,7 +399,6 @@ fn upstream_toml_rejects_ambiguous_or_mismatched_credential_sources() {
 fn upstream_toml_rejects_invalid_chatgpt_auth_bundles_without_exposing_values() {
     let registry = registry();
     let access_token = jwt(json!({"exp": unix_now().saturating_add(3_600)}));
-    let expired_access_token = jwt(json!({"exp": 1}));
     let id_token = jwt(json!({
         "https://api.openai.com/auth": {
             "chatgpt_account_id": "synthetic-valid-account",
@@ -351,19 +441,6 @@ fn upstream_toml_rejects_invalid_chatgpt_auth_bundles_without_exposing_values() 
             })
             .to_string(),
             OAuth2CredentialManagerError::InvalidRefreshToken,
-        ),
-        (
-            json!({
-                "auth_mode": "chatgpt",
-                "tokens": {
-                    "id_token": id_token.clone(),
-                    "access_token": expired_access_token.clone(),
-                    "refresh_token": "synthetic-valid-refresh",
-                    "account_id": "synthetic-valid-account"
-                }
-            })
-            .to_string(),
-            OAuth2CredentialManagerError::ExpiredAccessToken,
         ),
         (
             json!({
@@ -419,7 +496,6 @@ fn upstream_toml_rejects_invalid_chatgpt_auth_bundles_without_exposing_values() 
             "synthetic-valid-account",
             "synthetic-other-account",
             access_token.as_str(),
-            expired_access_token.as_str(),
             id_token.as_str(),
             mismatched_id_token.as_str(),
             fixture.path().to_string_lossy().as_ref(),

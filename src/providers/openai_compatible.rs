@@ -16,8 +16,8 @@ use crate::{
     credential::CredentialType,
     provider::{
         AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderContract, ProviderKind,
-        RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification, StreamEventStatus,
-        UpstreamErrorKind,
+        ProviderRequestHeaders, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
+        StreamEventStatus, UpstreamErrorKind,
     },
     registry::{
         ReasoningLevel, ReasoningLevelMapping, StateAffinity, UpstreamApi, UpstreamApiCapabilities,
@@ -48,6 +48,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     embeddings_path: Option<&'static str>,
     model_list_path: &'static str,
     request_header_hook: RequestHeaderHook,
+    request_headers: ProviderRequestHeaders,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
 }
 
@@ -70,8 +71,18 @@ impl OpenAiCompatibleAdapter {
             embeddings_path,
             model_list_path,
             request_header_hook,
+            request_headers: ProviderRequestHeaders::new(),
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
         }
+    }
+
+    /// Attaches fixed non-sensitive request headers owned by the concrete Provider definition.
+    pub(crate) const fn with_request_headers(
+        mut self,
+        request_headers: ProviderRequestHeaders,
+    ) -> Self {
+        self.request_headers = request_headers;
+        self
     }
 
     /// Reads the OpenAI Responses terminal name from the top-level `type` field in data JSON.
@@ -225,6 +236,14 @@ impl OpenAiCompatibleAdapter {
         headers: &mut SafeHeaders,
     ) -> Result<(), AdapterError> {
         (self.request_header_hook)(downstream_headers, headers)
+    }
+
+    /// Applies fixed Provider request headers after the downstream-header hook.
+    pub(crate) fn apply_configured_request_headers(
+        self,
+        headers: &mut SafeHeaders,
+    ) -> Result<(), AdapterError> {
+        self.request_headers.apply_to(headers)
     }
 
     /// Builds a Bearer authentication header bound to the Provider identity.
@@ -410,7 +429,7 @@ pub(crate) fn native_upstream_apis(
 
 #[cfg(test)]
 mod tests {
-    use http::{HeaderName, HeaderValue};
+    use http::{HeaderName, HeaderValue, header::USER_AGENT};
 
     use super::*;
 
@@ -418,17 +437,33 @@ mod tests {
         downstream: &HeaderMap,
         upstream: &mut SafeHeaders,
     ) -> Result<(), AdapterError> {
+        // Forward the selected downstream metadata for the synthetic Provider policy.
         let source = HeaderName::from_static("x-source-name");
         let target = HeaderName::from_static("x-target-name");
         if let Some(value) = downstream.get(source) {
             upstream.insert(target, value.clone())?;
         }
+        if let Some(value) = downstream.get(USER_AGENT) {
+            upstream.insert(USER_AGENT, value.clone())?;
+        }
+
+        // Remove the shared JSON header to exercise hook deletion independently.
         upstream.remove(CONTENT_TYPE);
         Ok(())
     }
 
     #[test]
-    fn provider_hook_can_transform_and_drop_regular_headers() {
+    fn provider_hook_and_fixed_headers_apply_in_deterministic_order() {
+        const FIXED_HEADERS: &[crate::provider::StaticRequestHeader] =
+            &[crate::provider::StaticRequestHeader::new(
+                "x-provider-fixed",
+                "fixed-value",
+            )];
+        const REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
+            .with_user_agent("fixed-provider-client/1.0")
+            .with_headers(FIXED_HEADERS);
+
+        // Configure one synthetic adapter and conflicting downstream identity.
         let adapter = OpenAiCompatibleAdapter::new(
             ProviderKind::OpenAi,
             &crate::providers::openai::CONTRACT,
@@ -437,19 +472,39 @@ mod tests {
             None,
             "/models",
             transform_headers,
-        );
+        )
+        .with_request_headers(REQUEST_HEADERS);
         let mut downstream = HeaderMap::new();
         downstream.insert(
             HeaderName::from_static("x-source-name"),
             HeaderValue::from_static("transformed-value"),
         );
-        let mut upstream = adapter.prepare_headers().unwrap();
+        downstream.insert(
+            USER_AGENT,
+            HeaderValue::from_static("downstream-client/1.0"),
+        );
 
+        // Run the hook before the fixed profile, matching production request assembly.
+        let mut upstream = adapter.prepare_headers().unwrap();
         adapter
             .apply_request_header_hook(&downstream, &mut upstream)
             .unwrap();
+        adapter
+            .apply_configured_request_headers(&mut upstream)
+            .unwrap();
 
+        // Verify deletion, fixed-header precedence, and downstream transformation together.
         assert!(upstream.get(CONTENT_TYPE).is_none());
+        assert_eq!(
+            upstream.get(USER_AGENT).unwrap(),
+            "fixed-provider-client/1.0"
+        );
+        assert_eq!(
+            upstream
+                .get(HeaderName::from_static("x-provider-fixed"))
+                .unwrap(),
+            "fixed-value"
+        );
         assert_eq!(
             upstream
                 .get(HeaderName::from_static("x-target-name"))
