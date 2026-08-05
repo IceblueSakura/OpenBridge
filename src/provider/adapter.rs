@@ -38,6 +38,12 @@ pub enum AdapterError {
     /// The credential cannot be encoded as a valid HTTP header.
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,
+    /// The credential omits Provider-specific account or routing context.
+    #[error("provider authentication context is incomplete")]
+    IncompleteAuthenticationContext,
+    /// The required trusted client identity is absent or cannot form the fixed request profile.
+    #[error("provider client identity is invalid")]
+    InvalidClientIdentity,
 }
 
 /// Upstream request with a selected protocol but no Upstream Target origin bound yet.
@@ -164,8 +170,17 @@ impl ProviderAdapter {
     ///
     /// This request is for explicit administrative probes only; it does not implement downstream
     /// `/v1/models`, which always exposes OpenBridge Public Models.
-    pub(crate) fn prepare_model_list_request(&self) -> PreparedUpstreamRequest {
-        self.openai_compatible().prepare_model_list_request()
+    pub(crate) fn prepare_model_list_request(
+        &self,
+        client_version: Option<&str>,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_model_list_request(client_version)
+    }
+
+    /// Extracts model identifiers from the Provider-specific model-list envelope.
+    pub(crate) fn model_list_ids(&self, response: &serde_json::Value) -> Option<Vec<String>> {
+        self.openai_compatible().model_list_ids(response)
     }
 
     /// Builds a relative upstream request for a raw upstream model without Route-specific mappings.
@@ -228,7 +243,9 @@ impl ProviderAdapter {
 
 #[cfg(test)]
 mod tests {
-    use http::{HeaderValue, header::AUTHORIZATION};
+    use std::time::{Duration, SystemTime};
+
+    use http::{HeaderName, HeaderValue, header::AUTHORIZATION};
     use secrecy::SecretString;
 
     use super::*;
@@ -289,5 +306,53 @@ mod tests {
             headers.expose(AUTHORIZATION),
             Some("Bearer credential-test-value")
         );
+    }
+
+    #[test]
+    fn chatgpt_auth_adapter_builds_account_bound_sensitive_headers() {
+        // Build one complete synthetic ChatGPT OAuth credential with conditional FedRAMP routing.
+        let adapter = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+        let mut credentials = crate::credential::CredentialStoreBuilder::new();
+        credentials
+            .insert_chatgpt_oauth_member(
+                "chatgpt-codex",
+                "chatgpt-codex#1",
+                SecretString::from("access-token-sensitive".to_owned()),
+                SecretString::from("account-sensitive".to_owned()),
+                true,
+                crate::credential::CredentialMetadata::upstream(
+                    crate::provider::CredentialKind::OAuth2BearerAccessToken,
+                    crate::credential::CredentialSource::Programmatic,
+                )
+                .with_expires_at(SystemTime::now() + Duration::from_secs(3_600)),
+            )
+            .unwrap();
+        let credentials = credentials.build();
+        let credential = credentials
+            .upstream_pool(
+                ProviderKind::ChatGpt,
+                "chatgpt-codex",
+                crate::provider::CredentialKind::OAuth2BearerAccessToken,
+            )
+            .unwrap()
+            .remove(0);
+
+        // Verify every authentication and account-routing value stays in the sensitive set.
+        let headers = adapter.prepare_auth_headers(&credential).unwrap();
+        assert_eq!(
+            headers.expose(AUTHORIZATION),
+            Some("Bearer access-token-sensitive")
+        );
+        assert_eq!(
+            headers.expose(HeaderName::from_static("chatgpt-account-id")),
+            Some("account-sensitive")
+        );
+        assert_eq!(
+            headers.expose(HeaderName::from_static("x-openai-fedramp")),
+            Some("true")
+        );
+        let debug = format!("{headers:?} {credential:?}");
+        assert!(!debug.contains("access-token-sensitive"));
+        assert!(!debug.contains("account-sensitive"));
     }
 }

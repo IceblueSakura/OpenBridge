@@ -11,6 +11,7 @@ use std::{
 use openbridge::{
     config::{BootstrapConfigFileError, BootstrapConfigPath},
     identity::{UserConfigFileError, UserConfigPath},
+    provider::CredentialKind,
     providers,
     upstream_credentials::{UpstreamCredentialConfigFileError, UpstreamCredentialConfigPath},
 };
@@ -113,7 +114,7 @@ fn process_loads_all_startup_snapshots_before_reporting_a_bound_listener_failure
     let occupied_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let listen = occupied_listener.local_addr().unwrap();
 
-    // Write valid synthetic downstream and upstream credential snapshots for every compiled pool.
+    // Write valid synthetic downstream and API-key snapshots for every data-plane pool.
     let users = workspace.write(
         "users.toml",
         r#"schema_version = 1
@@ -129,6 +130,7 @@ enabled = true
     for (index, pool) in providers::compiled_config()
         .credential_pools
         .iter()
+        .filter(|pool| pool.kind == CredentialKind::ApiKey)
         .enumerate()
     {
         upstream.push_str(&format!(

@@ -4,8 +4,42 @@ use bytes::Bytes;
 use http::Method;
 use openbridge::{
     core::{ApiProtocol, ApiRequest},
-    provider::{AdapterError, ProviderAdapter, ProviderKind},
+    provider::{AdapterError, CredentialKind, ProviderAdapter, ProviderKind},
 };
+
+#[test]
+fn chatgpt_provider_uses_codex_backend_profiles_and_oauth_credential() {
+    // Verify the independent Provider contract exposes only the Codex Responses surface.
+    let contract = ProviderKind::ChatGpt.contract();
+    assert_eq!(contract.endpoint_profiles(), ["chatgpt-codex"]);
+    assert_eq!(
+        contract.credential_kinds(),
+        [CredentialKind::OAuth2BearerAccessToken]
+    );
+    assert!(!contract.capabilities().chat_completions.enabled);
+    assert!(contract.capabilities().responses.enabled);
+    assert!(contract.capabilities().responses.streaming);
+    assert!(!contract.capabilities().embeddings.enabled);
+
+    // Verify the adapter binds Responses to the Codex backend path and rejects Chat Completions.
+    let adapter = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+    let responses = ApiRequest::new(
+        ApiProtocol::Responses,
+        Bytes::from_static(br#"{"model":"public","input":"hello","stream":true}"#),
+    );
+    let upstream = adapter.prepare_request(&responses, "gpt-5.6-sol").unwrap();
+    assert_eq!(upstream.method(), Method::POST);
+    assert_eq!(upstream.relative_uri().to_string(), "/responses");
+
+    let chat = ApiRequest::new(
+        ApiProtocol::ChatCompletions,
+        Bytes::from_static(br#"{"model":"public","messages":[]}"#),
+    );
+    assert!(matches!(
+        adapter.prepare_request(&chat, "gpt-5.6-sol"),
+        Err(AdapterError::UnsupportedProtocol)
+    ));
+}
 
 #[test]
 fn native_chat_adapter_builds_only_relative_upstream_request_parts() {

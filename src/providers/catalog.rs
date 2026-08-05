@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use super::{deepseek, longcat, mimo, openai, openrouter};
+use super::{chatgpt, deepseek, longcat, mimo, openai, openrouter};
 
 /// Version identifier for the built-in provider and model registry.
 pub const REGISTRY_VERSION: &str = "dev-1";
@@ -29,6 +29,11 @@ pub fn compiled_config() -> RegistryConfig {
             credential_pool("openrouter-primary", ProviderKind::OpenRouter),
             credential_pool("deepseek-primary", ProviderKind::DeepSeek),
             credential_pool("mimo-primary", ProviderKind::MiMo),
+            credential_pool_with_kind(
+                "chatgpt-codex",
+                ProviderKind::ChatGpt,
+                CredentialKind::OAuth2BearerAccessToken,
+            ),
         ],
         upstream_targets: [
             openai::upstream_targets(),
@@ -36,6 +41,7 @@ pub fn compiled_config() -> RegistryConfig {
             openrouter::upstream_targets(),
             deepseek::upstream_targets(),
             mimo::upstream_targets(),
+            chatgpt::upstream_targets(),
         ]
             .concat(),
         routes: routing.routes,
@@ -45,10 +51,19 @@ pub fn compiled_config() -> RegistryConfig {
 
 /// Builds the Provider credential pool populated from the private upstream credential TOML.
 fn credential_pool(id: &str, provider: ProviderKind) -> CredentialPoolConfig {
+    credential_pool_with_kind(id, provider, CredentialKind::ApiKey)
+}
+
+/// Builds one Provider credential pool with an explicitly bounded credential kind.
+fn credential_pool_with_kind(
+    id: &str,
+    provider: ProviderKind,
+    kind: CredentialKind,
+) -> CredentialPoolConfig {
     CredentialPoolConfig {
         id: id.to_owned(),
         provider,
-        kind: CredentialKind::ApiKey,
+        kind,
     }
 }
 

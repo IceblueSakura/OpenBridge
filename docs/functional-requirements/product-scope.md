@@ -36,16 +36,16 @@ Route。
   `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
 - 已批准但尚未进入实施：在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input
   audio，且无资源归属时拒绝 `file_id`。
-- 已批准并进入当前焦点：定义独立、默认禁用且不加入 Public Model 的 ChatGPT Provider，使用本机 Codex file credential store
-  对固定模型目录和 Responses endpoint 执行一次脱敏真实 probe。
-- 已批准为串行后续：第一阶段完成后另立焦点，实现 OAuth2 PKCE 登录、可刷新 credential 持久化和有界 token 续约。
+- 已批准的第一阶段边界：独立、默认禁用且不加入 Public Model 的 ChatGPT Provider，只能使用管理员显式指定的 Codex file
+  credential store 对固定模型目录和 Responses endpoint 执行一次脱敏真实 probe；实施事实见当前实现说明。
+- 已批准为串行后续、但尚未进入当前焦点：另立焦点后实现 OAuth2 PKCE 登录、可刷新 credential 持久化和有界 token 续约。
 
 Embeddings 与 Native 多模态的具体行为和非目标以
 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
 “每次只实施一个可观察行为”的约束；当前 checkout 只提供已在 implementation status 明确记录的能力。
 
 ChatGPT 两阶段边界以[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；第二阶段获得方向
-批准不等于可以与当前焦点并行实施。
+批准不等于当前已获实施授权。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
 在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。

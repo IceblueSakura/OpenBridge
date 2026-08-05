@@ -53,6 +53,8 @@ pub enum CredentialSource {
     UserConfiguration,
     /// From private upstream credential configuration.
     UpstreamConfiguration,
+    /// Read once from an administrator-selected Codex auth file for an explicit probe.
+    CodexAuthFile,
     /// Injected directly by the trusted composition root or a test.
     Programmatic,
 }
@@ -122,9 +124,43 @@ impl CredentialMetadata {
 
 struct CredentialEntry {
     id: CredentialId,
-    secret: SecretString,
+    material: CredentialMaterial,
     metadata: CredentialMetadata,
     enabled: bool,
+}
+
+/// Secret material variants that keep Provider-specific OAuth context inseparable from its token.
+enum CredentialMaterial {
+    /// A single API key used by downstream users or API-key Providers.
+    Single(SecretString),
+    /// ChatGPT access token with the routing context required by the Codex backend.
+    ChatGptOAuth {
+        access_token: SecretString,
+        account_id: SecretString,
+        is_fedramp_account: bool,
+    },
+}
+
+impl CredentialMaterial {
+    /// Returns the primary secret used for equality checks and Provider authentication.
+    fn primary_secret(&self) -> &SecretString {
+        match self {
+            Self::Single(secret) => secret,
+            Self::ChatGptOAuth { access_token, .. } => access_token,
+        }
+    }
+
+    /// Returns whether this material contains the complete context required by the credential kind.
+    fn matches_kind(&self, kind: CredentialKind) -> bool {
+        matches!(
+            (self, kind),
+            (Self::Single(_), CredentialKind::ApiKey)
+                | (
+                    Self::ChatGptOAuth { .. },
+                    CredentialKind::OAuth2BearerAccessToken
+                )
+        )
+    }
 }
 
 /// Startup builder that collects and validates credentials.
@@ -161,7 +197,7 @@ impl CredentialStoreBuilder {
         let candidate = secret.expose_secret().as_bytes();
         if self.entries.iter().any(|entry| {
             matches!(entry.id, CredentialId::DownstreamUser { .. })
-                && entry.secret.expose_secret().as_bytes() == candidate
+                && entry.material.primary_secret().expose_secret().as_bytes() == candidate
         }) {
             return Err(CredentialStoreError::DuplicateDownstreamSecret);
         }
@@ -169,7 +205,7 @@ impl CredentialStoreBuilder {
         // Retain enabled state temporarily; the final Store keeps enabled users only.
         self.entries.push(CredentialEntry {
             id,
-            secret,
+            material: CredentialMaterial::Single(secret),
             metadata: CredentialMetadata::downstream_user(),
             enabled,
         });
@@ -185,19 +221,65 @@ impl CredentialStoreBuilder {
         secret: SecretString,
         metadata: CredentialMetadata,
     ) -> Result<(), CredentialStoreError> {
-        // Validate that the secret and metadata describe a usable upstream credential.
-        if secret.expose_secret().is_empty() {
+        self.insert_upstream_material(
+            provider,
+            pool_id.into(),
+            member_id.into(),
+            CredentialMaterial::Single(secret),
+            metadata,
+        )
+    }
+
+    /// Adds one ChatGPT OAuth pool member with its account-routing context.
+    pub fn insert_chatgpt_oauth_member(
+        &mut self,
+        pool_id: impl Into<String>,
+        member_id: impl Into<String>,
+        access_token: SecretString,
+        account_id: SecretString,
+        is_fedramp_account: bool,
+        metadata: CredentialMetadata,
+    ) -> Result<(), CredentialStoreError> {
+        // Require the complete account-bound OAuth bundle before adding it to the shared store.
+        if account_id.expose_secret().trim().is_empty() || metadata.expires_at.is_none() {
+            return Err(CredentialStoreError::InvalidOAuthContext);
+        }
+
+        // Bind the complete bundle to the sole Provider allowed to consume ChatGPT OAuth material.
+        self.insert_upstream_material(
+            ProviderKind::ChatGpt,
+            pool_id.into(),
+            member_id.into(),
+            CredentialMaterial::ChatGptOAuth {
+                access_token,
+                account_id,
+                is_fedramp_account,
+            },
+            metadata,
+        )
+    }
+
+    /// Validates and stores one purpose-bound upstream credential material variant.
+    fn insert_upstream_material(
+        &mut self,
+        provider: ProviderKind,
+        pool_id: String,
+        member_id: String,
+        material: CredentialMaterial,
+        metadata: CredentialMetadata,
+    ) -> Result<(), CredentialStoreError> {
+        // Validate primary secret availability and exact metadata/material kind agreement.
+        if material.primary_secret().expose_secret().is_empty() {
             return Err(CredentialStoreError::Unavailable);
         }
-        if metadata.generation == 0
-            || !matches!(metadata.credential_type, CredentialType::Upstream(_))
-        {
+        let CredentialType::Upstream(kind) = metadata.credential_type else {
+            return Err(CredentialStoreError::InvalidMetadata);
+        };
+        if metadata.generation == 0 || !material.matches_kind(kind) {
             return Err(CredentialStoreError::InvalidMetadata);
         }
 
-        // Build the Provider- and pool-bound member ID and reject duplicate members or secrets.
-        let pool_id = pool_id.into();
-        let member_id = member_id.into();
+        // Build the Provider- and pool-bound member ID and reject duplicate identities.
         if pool_id.trim().is_empty() || member_id.trim().is_empty() {
             return Err(CredentialStoreError::InvalidPoolIdentity);
         }
@@ -209,7 +291,9 @@ impl CredentialStoreBuilder {
         if self.entries.iter().any(|entry| entry.id == id) {
             return Err(CredentialStoreError::DuplicateId);
         }
-        let candidate = secret.expose_secret().as_bytes();
+
+        // Compare primary secrets within the same Provider-bound pool using constant time.
+        let candidate = material.primary_secret().expose_secret().as_bytes();
         if self.entries.iter().any(|entry| {
             matches!(
                 &entry.id,
@@ -219,15 +303,17 @@ impl CredentialStoreBuilder {
                     ..
                 } if configured_pool == &pool_id && *configured_provider == provider
             ) && {
-                let expected = entry.secret.expose_secret().as_bytes();
+                let expected = entry.material.primary_secret().expose_secret().as_bytes();
                 candidate.len() == expected.len() && bool::from(candidate.ct_eq(expected))
             }
         }) {
             return Err(CredentialStoreError::DuplicateUpstreamSecret);
         }
+
+        // Retain the validated material only inside the immutable store entry.
         self.entries.push(CredentialEntry {
             id,
-            secret,
+            material,
             metadata,
             enabled: true,
         });
@@ -299,7 +385,7 @@ impl CredentialStore {
             let CredentialId::DownstreamUser { user_id } = &entry.id else {
                 continue;
             };
-            let expected = entry.secret.expose_secret().as_bytes();
+            let expected = entry.material.primary_secret().expose_secret().as_bytes();
             if candidate.len() == expected.len() && bool::from(candidate.ct_eq(expected)) {
                 matched = Some(user_id.as_str());
             }
@@ -337,7 +423,7 @@ impl CredentialStore {
                     provider,
                     pool_id: configured_pool,
                     member_id,
-                    secret: &entry.secret,
+                    material: &entry.material,
                     metadata: &entry.metadata,
                 })
             })
@@ -384,7 +470,7 @@ pub struct UpstreamCredential<'a> {
     provider: ProviderKind,
     pool_id: &'a str,
     member_id: &'a str,
-    secret: &'a SecretString,
+    material: &'a CredentialMaterial,
     metadata: &'a CredentialMetadata,
 }
 
@@ -412,7 +498,25 @@ impl UpstreamCredential<'_> {
     /// Exposes the secret only at a Provider egress boundary that completed purpose validation.
     pub(crate) fn expose_secret(&self) -> &str {
         // Expose the secret only after Provider, pool, and kind validation at the egress boundary.
-        self.secret.expose_secret()
+        self.material.primary_secret().expose_secret()
+    }
+
+    /// Exposes the ChatGPT account binding only at the Provider authentication boundary.
+    pub(crate) fn expose_chatgpt_account_id(&self) -> Option<&str> {
+        match self.material {
+            CredentialMaterial::ChatGptOAuth { account_id, .. } => Some(account_id.expose_secret()),
+            CredentialMaterial::Single(_) => None,
+        }
+    }
+
+    /// Returns the account routing flag only for complete ChatGPT OAuth material.
+    pub(crate) fn is_fedramp_account(&self) -> Option<bool> {
+        match self.material {
+            CredentialMaterial::ChatGptOAuth {
+                is_fedramp_account, ..
+            } => Some(*is_fedramp_account),
+            CredentialMaterial::Single(_) => None,
+        }
     }
 }
 
@@ -450,6 +554,9 @@ pub enum CredentialStoreError {
     /// Credential metadata does not match its purpose or has an invalid generation.
     #[error("credential metadata is invalid")]
     InvalidMetadata,
+    /// OAuth material is missing its account binding or known expiration.
+    #[error("OAuth credential context is invalid")]
+    InvalidOAuthContext,
     /// The secret is missing, empty, or does not match the requested purpose/binding.
     #[error("credential is unavailable")]
     Unavailable,

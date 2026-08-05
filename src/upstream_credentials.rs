@@ -19,6 +19,7 @@ use crate::{
     credential::{
         CredentialMetadata, CredentialSource, CredentialStoreBuilder, CredentialStoreError,
     },
+    provider::CredentialKind,
     registry::RuntimeRegistry,
 };
 
@@ -84,8 +85,13 @@ impl UpstreamCredentialConfiguration {
     ) -> Result<(), UpstreamCredentialConfigError> {
         // Reject pools not registered in code so misspelled or stale secrets are not silently ignored.
         for configured_pool_id in self.pools.keys() {
-            if registry.credential_pool(configured_pool_id).is_none() {
-                return Err(UpstreamCredentialConfigError::UnknownPool {
+            let pool = registry
+                .credential_pool(configured_pool_id)
+                .ok_or_else(|| UpstreamCredentialConfigError::UnknownPool {
+                    id: configured_pool_id.clone(),
+                })?;
+            if pool.kind() != CredentialKind::ApiKey {
+                return Err(UpstreamCredentialConfigError::UnsupportedCredentialKind {
                     id: configured_pool_id.clone(),
                 });
             }
@@ -97,8 +103,13 @@ impl UpstreamCredentialConfiguration {
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         for pool_id in &required {
-            if registry.credential_pool(pool_id).is_none() {
-                return Err(UpstreamCredentialConfigError::UnknownPool {
+            let pool = registry.credential_pool(pool_id).ok_or_else(|| {
+                UpstreamCredentialConfigError::UnknownPool {
+                    id: pool_id.clone(),
+                }
+            })?;
+            if pool.kind() != CredentialKind::ApiKey {
+                return Err(UpstreamCredentialConfigError::UnsupportedCredentialKind {
                     id: pool_id.clone(),
                 });
             }
@@ -218,6 +229,12 @@ pub enum UpstreamCredentialConfigError {
     #[error("upstream credential configuration contains unknown pool '{id}'")]
     UnknownPool {
         /// Unregistered pool ID.
+        id: String,
+    },
+    /// The API-key TOML was asked to populate a registered non-API-key pool.
+    #[error("upstream credential pool '{id}' does not accept API-key configuration")]
+    UnsupportedCredentialKind {
+        /// Registered non-API-key pool ID.
         id: String,
     },
     /// A compile-time pool required by the caller has no configured API key.

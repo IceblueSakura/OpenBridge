@@ -68,9 +68,16 @@ enabled = true
         .expect("test user registry must be valid");
     let (users, mut credentials) = configuration.into_parts();
 
-    // Inject one synthetic secret into every pool in the test registry.
+    // Inject synthetic API keys only into pools required by enabled data-plane targets.
     for pool_id in registry.credential_pool_ids() {
         let pool = registry.credential_pool(pool_id).unwrap();
+        let required = registry.upstream_target_ids().any(|target_id| {
+            let target = registry.upstream_target(target_id).unwrap();
+            target.enabled() && target.credential_pool_id() == pool.id()
+        });
+        if !required {
+            continue;
+        }
         for (index, upstream_secret) in upstream_secrets.iter().enumerate() {
             credentials
                 .insert_upstream_member(

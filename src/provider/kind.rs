@@ -2,7 +2,7 @@
 
 use crate::{
     core::ApiCapabilities,
-    providers::{deepseek, longcat, mimo, openai, openrouter},
+    providers::{chatgpt, deepseek, longcat, mimo, openai, openrouter},
 };
 
 use super::ProviderDefinition;
@@ -14,6 +14,8 @@ use super::ProviderDefinition;
 /// and protocol behavior within auditable, compile-time boundaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
+    /// ChatGPT subscription access through the fixed Codex backend profile.
+    ChatGpt,
     /// OpenAI-compatible provider。
     OpenAi,
     /// LongCat OpenAI-compatible provider。
@@ -92,6 +94,7 @@ impl ProviderKind {
     /// Returns the unique compile-time descriptor for the Provider.
     pub fn definition(self) -> &'static ProviderDefinition {
         match self {
+            Self::ChatGpt => &chatgpt::DEFINITION,
             Self::OpenAi => &openai::DEFINITION,
             Self::LongCat => &longcat::DEFINITION,
             Self::DeepSeek => &deepseek::DEFINITION,

@@ -6,22 +6,26 @@
 
 use axum::body::to_bytes;
 use bytes::Bytes;
-use http::{HeaderMap, StatusCode};
+use futures_util::StreamExt;
+use http::{HeaderMap, HeaderValue, StatusCode, header::ACCEPT};
 use serde_json::Value;
 
 use crate::{
+    codex_identity::CodexRequestIdentity,
     core::{ApiProtocol, ApiRequest},
     credential::CredentialStore,
-    provider::ProviderAdapter,
+    provider::{ProviderAdapter, ProviderKind, StreamEventStatus},
     registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
+    transport::sse::{SseDecoder, SseEvent},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
 
 use super::{
-    ModelListProbeResult, ProbeError, ProbeOptions, ProbeResult, SupportStatus, TargetProbeReport,
-    ToolCallProbeResult,
+    CodexCompatibilityReport, ModelListProbeResult, ProbeError, ProbeOptions, ProbeResult,
+    SupportStatus, TargetProbeReport, ToolCallProbeResult,
     payload::{
-        is_protocol_response, probe_text_request, probe_tool_request, tool_result_replay_request,
+        codex_responses_text_request, is_protocol_response, probe_text_request, probe_tool_request,
+        tool_result_replay_request,
     },
 };
 
@@ -38,12 +42,78 @@ pub async fn probe_upstream_target(
     credentials: &CredentialStore,
     selection: ProbeOptions,
 ) -> Result<TargetProbeReport, ProbeError> {
-    // Resolve the target from the immutable registry and select the first pool member deterministically.
+    // Resolve the target and keep the disabled ChatGPT path behind its identity-bound entry point.
     let target = registry
         .upstream_target(upstream_target_id)
         .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
             upstream_target: upstream_target_id.to_owned(),
         })?;
+    if target.kind() == ProviderKind::ChatGpt {
+        return Err(ProbeError::CodexIdentityRequired);
+    }
+
+    // Run the ordinary API-key probe without any Codex-specific identity context.
+    run_probe_session(
+        registry,
+        target,
+        transport,
+        credentials,
+        selection,
+        HeaderMap::new(),
+        None,
+    )
+    .await
+}
+
+/// Runs the disabled ChatGPT probe with the source-pinned Codex-compatible request identity.
+///
+/// This entry point accepts only the compiled ChatGPT target and first-stage model/Responses
+/// selections. The identity provides no URL, model, credential, or arbitrary header input.
+pub async fn probe_chatgpt_upstream_target(
+    registry: &RuntimeRegistry,
+    upstream_target_id: &str,
+    transport: &dyn UpstreamTransport,
+    credentials: &CredentialStore,
+    selection: ProbeOptions,
+    identity: &CodexRequestIdentity,
+) -> Result<TargetProbeReport, ProbeError> {
+    // Resolve the exact disabled ChatGPT target and reject unsupported first-stage operations.
+    let target = registry
+        .upstream_target(upstream_target_id)
+        .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
+            upstream_target: upstream_target_id.to_owned(),
+        })?;
+    if target.kind() != ProviderKind::ChatGpt {
+        return Err(ProbeError::CodexIdentityUnexpected);
+    }
+    if selection.is_empty() || selection.chat || selection.function_calling {
+        return Err(ProbeError::InvalidChatGptSelection);
+    }
+
+    // Copy the private identity into the trusted Provider hook and retain only redacted report facts.
+    run_probe_session(
+        registry,
+        target,
+        transport,
+        credentials,
+        selection,
+        identity.request_headers(),
+        Some(identity),
+    )
+    .await
+}
+
+/// Resolves one credential and runs the common probe sequence against an already trusted target.
+async fn run_probe_session(
+    registry: &RuntimeRegistry,
+    target: &UpstreamTarget,
+    transport: &dyn UpstreamTransport,
+    credentials: &CredentialStore,
+    selection: ProbeOptions,
+    identity_headers: HeaderMap,
+    codex_identity: Option<&CodexRequestIdentity>,
+) -> Result<TargetProbeReport, ProbeError> {
+    // Select the first member of the target's compile-time credential pool deterministically.
     let pool = registry
         .credential_pool(target.credential_pool_id())
         .ok_or(ProbeError::CredentialUnavailable)?;
@@ -58,7 +128,7 @@ pub async fn probe_upstream_target(
     // Select the compile-time adapter and prepare the sensitive outbound headers required by probes.
     let adapter = ProviderAdapter::for_kind(target.kind());
     let headers = adapter
-        .build_outbound_headers(&credential, &HeaderMap::new())
+        .build_outbound_headers(&credential, &identity_headers)
         .map_err(|_| ProbeError::AuthenticationPreparation)?;
     let session = ProbeSession {
         target,
@@ -66,6 +136,8 @@ pub async fn probe_upstream_target(
         adapter,
         headers,
         max_response_bytes: registry.limits().max_json_response_body_bytes(),
+        max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
+        client_version: codex_identity.map(|identity| identity.version().to_owned()),
     };
 
     // Run each probe independently so one failure affects only its outcome.
@@ -101,7 +173,13 @@ pub async fn probe_upstream_target(
 
     // Assemble a structured report without credentials, request bodies, or response bodies.
     Ok(TargetProbeReport {
-        upstream_target_id: upstream_target_id.to_owned(),
+        upstream_target_id: target.id().to_owned(),
+        codex_compatibility: codex_identity.map(|identity| CodexCompatibilityReport {
+            profile_version: identity.version().to_owned(),
+            platform_family: identity.platform_family().to_owned(),
+            platform_os: identity.platform_os().to_owned(),
+            user_agent_matches_reference_profile: true,
+        }),
         list_models,
         chat,
         responses,
@@ -116,29 +194,36 @@ struct ProbeSession<'a> {
     adapter: ProviderAdapter,
     headers: HeaderMap,
     max_response_bytes: usize,
+    max_sse_event_bytes: usize,
+    client_version: Option<String>,
 }
 
 impl ProbeSession<'_> {
     /// Queries the fixed model-list endpoint and extracts visible model IDs.
     async fn probe_list_models(&self) -> ModelListProbeResult {
         // Send the fixed model-list request and extract model IDs.
-        match self
-            .send_json(self.adapter.prepare_model_list_request())
-            .await
+        let request = match self
+            .adapter
+            .prepare_model_list_request(self.client_version.as_deref())
         {
+            Ok(request) => request,
+            Err(_) => {
+                return ModelListProbeResult {
+                    outcome: ProbeResult::unknown(None),
+                    configured_model_listed: None,
+                    model_ids: Vec::new(),
+                };
+            }
+        };
+        match self.send_json(request).await {
             Ok(response) => {
-                let Some(entries) = response.body.get("data").and_then(Value::as_array) else {
+                let Some(model_ids) = self.adapter.model_list_ids(&response.body) else {
                     return ModelListProbeResult {
                         outcome: ProbeResult::unknown(Some(response.status)),
                         configured_model_listed: None,
                         model_ids: Vec::new(),
                     };
                 };
-                let model_ids = entries
-                    .iter()
-                    .filter_map(|entry| entry.get("id").and_then(Value::as_str))
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>();
                 let configured_model_listed =
                     Some(self.target.upstream_apis().any(|(_, upstream_api)| {
                         model_ids
@@ -168,6 +253,9 @@ impl ProbeSession<'_> {
                 http_status: None,
             };
         };
+        if self.target.kind() == ProviderKind::ChatGpt && protocol == ApiProtocol::Responses {
+            return self.probe_codex_responses_sse(upstream_api).await;
+        }
         let request = probe_text_request(
             protocol,
             upstream_api.upstream_model(),
@@ -182,6 +270,33 @@ impl ProbeSession<'_> {
             Ok(response) => ProbeResult::unknown(Some(response.status)),
             Err(outcome) => outcome,
         }
+    }
+
+    /// Executes the fixed ChatGPT Codex Responses request and requires one valid SSE completion.
+    async fn probe_codex_responses_sse(&self, upstream_api: &UpstreamApi) -> ProbeResult {
+        // Build the current Codex streaming request and bind only the compiled Responses endpoint.
+        let body = serde_json::to_vec(&codex_responses_text_request(upstream_api.upstream_model()))
+            .expect("Codex probe request JSON is serializable");
+        let request = ApiRequest::new(ApiProtocol::Responses, Bytes::from(body));
+        let request = match self.adapter.prepare_routed_request(&request, upstream_api) {
+            Ok(request) => request,
+            Err(_) => return ProbeResult::unknown(None),
+        };
+
+        // Stream and classify the response without retaining or returning Provider body content.
+        let mut headers = self.headers.clone();
+        headers.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
+        let response = match self.transport.send(self.target, request, headers).await {
+            Ok(response) => response,
+            Err(_) => return ProbeResult::unknown(None),
+        };
+        decode_responses_sse(
+            response,
+            self.adapter,
+            self.max_response_bytes,
+            self.max_sse_event_bytes,
+        )
+        .await
     }
 
     /// Executes the two-request function-call and tool-result replay probe.
@@ -285,6 +400,80 @@ impl ProbeSession<'_> {
             .unwrap_or(PROBE_MAX_OUTPUT_TOKENS)
             .min(PROBE_MAX_OUTPUT_TOKENS)
     }
+}
+
+/// Streams one Responses SSE body under total and per-event limits and requires one terminal.
+async fn decode_responses_sse(
+    response: UpstreamResponse,
+    adapter: ProviderAdapter,
+    max_response_bytes: usize,
+    max_sse_event_bytes: usize,
+) -> ProbeResult {
+    // Reject HTTP errors before reading any body content.
+    let status = response.status();
+    if !status.is_success() {
+        return ProbeResult::from_http_status(status);
+    }
+
+    // Decode fragmented events regardless of response metadata, matching Codex's framing behavior.
+    let mut source = response.into_body().into_data_stream();
+    let mut decoder = SseDecoder::new(max_sse_event_bytes);
+    let mut total_bytes = 0usize;
+    let mut completed = 0usize;
+    while let Some(chunk) = source.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(_) => return ProbeResult::unknown(Some(status)),
+        };
+        total_bytes = match total_bytes.checked_add(chunk.len()) {
+            Some(total) if total <= max_response_bytes => total,
+            _ => return ProbeResult::unknown(Some(status)),
+        };
+        let events = match decoder.push(&chunk) {
+            Ok(events) => events,
+            Err(_) => return ProbeResult::unknown(Some(status)),
+        };
+        if observe_responses_events(adapter, events, &mut completed).is_err() {
+            return ProbeResult::unknown(Some(status));
+        }
+    }
+
+    // Finalize the decoder and accept only one non-failing `response.completed` terminal.
+    let events = match decoder.finish() {
+        Ok(events) => events,
+        Err(_) => return ProbeResult::unknown(Some(status)),
+    };
+    if observe_responses_events(adapter, events, &mut completed).is_err() || completed != 1 {
+        ProbeResult::unknown(Some(status))
+    } else {
+        ProbeResult::supported(status)
+    }
+}
+
+/// Applies Provider terminal classification and rejects failures or duplicate completions.
+fn observe_responses_events(
+    adapter: ProviderAdapter,
+    events: Vec<SseEvent>,
+    completed: &mut usize,
+) -> Result<(), ()> {
+    // Inspect lifecycle metadata only and discard each event immediately after classification.
+    for event in events {
+        match adapter
+            .classify_sse_event(ApiProtocol::Responses, event)
+            .map_err(|_| ())?
+            .status()
+        {
+            StreamEventStatus::Continue => {}
+            StreamEventStatus::Completed => {
+                *completed = completed.checked_add(1).ok_or(())?;
+                if *completed > 1 {
+                    return Err(());
+                }
+            }
+            StreamEventStatus::Failed => return Err(()),
+        }
+    }
+    Ok(())
 }
 
 struct JsonResponse {

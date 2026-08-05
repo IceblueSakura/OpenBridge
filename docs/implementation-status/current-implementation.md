@@ -3,8 +3,8 @@
 ## 状态与范围
 
 本文只记录当前可运行入口、外部行为、Provider 注册和验证状态。模块分层、类型职责与内部数据流统一见
-[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；最近一次记录已通过全量 Rust 测试与 Clippy，但不代表真实
-Provider、外部 SDK、负载或长期运行验收。
+[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；每次记录分别说明确定性测试、真实 Provider 与未运行的验收层，
+不能把其中一层的结果外推为外部 SDK、负载、长期运行或生产兼容。
 
 ## 当前运行入口
 
@@ -42,20 +42,24 @@ OpenAPI 规范源文件为 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI �
 [`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、 Upstream Target 或
 credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
 
-下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个 Provider 的上游 pool 来自私有
-`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组。服务与 probe 不读取上游 key
-环境变量或 `.env`；上游注册表只保存 pool ID、Provider 和 credential kind。 服务在 listener 绑定前把已启用用户 Key 与全部启用
-target 引用的 pool 合并为不可变 `CredentialStore`； 未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret
-会阻止启动。运行时请求只读取该快照，不重新读取文件； 改变 pool 必须重启。 Store 条目同时冻结 credential type、仅含类别的
-source、generation 与可选过期时间；文件路径不进入 这些运行时诊断元数据。上游借用同时匹配
-`pool_id + member_id + ProviderKind + CredentialKind`。类型系统已能表达
-`OAuth2BearerAccessToken`，但现有 Provider contract 仍只接受 `ApiKey`，当前没有 token 获取、refresh、热更新 或 401
-refresh/retry 行为。
+下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。五个可路由 Provider 的上游 API-key pool 来自私有
+`config/upstream-credentials.toml`，每项只包含编译期 pool id 与有序 `api_keys` TOML 数组；该 TOML 明确拒绝写入注册的 OAuth
+pool。服务与普通 probe 不读取上游 key 环境变量或 `.env`。服务在 listener 绑定前把已启用用户 Key 与全部启用 target 引用的
+API-key pool 合并为不可变 `CredentialStore`；未知、缺失或重复 pool、损坏 TOML、空数组、空白成员或重复 secret 会阻止启动。
+运行时请求只读取该快照，不重新读取文件；改变 pool 必须重启。Store 条目同时冻结 credential type、仅含类别的 source、generation
+与可选过期时间；文件路径不进入运行时诊断元数据。上游借用同时匹配
+`pool_id + member_id + ProviderKind + CredentialKind`。
+
+第六个 ChatGPT Provider 注册一个默认禁用的 OAuth pool/target；常驻服务不读取或要求其 credential。只有管理员显式执行专用 probe
+并传入 `--codex-auth-file` 时，composition root 才一次性只读当前 access token、账户绑定、FedRAMP claim 与 expiry，构造临时
+purpose-bound credential；不保留 refresh token，不写回源文件，也不启动、链接或依赖 Codex CLI。当前仍没有 token 获取、PKCE/device
+login、refresh、热更新或 401 refresh/retry 行为。
 
 ## Provider 与请求行为
 
-闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek 与 Xiaomi MiMo，五者都进入 compiled
-registry。当前可路由目录如下；“Bridge 候选”只表示已注册的协议转换路径，不表示上游原生支持该协议：
+闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 与 ChatGPT，六者都进入 compiled
+registry。ChatGPT 只形成默认禁用的 probe target；当前可路由目录与该隔离注册项如下，“Bridge 候选”只表示已注册的协议转换路径，
+不表示上游原生支持该协议：
 
 | Provider              | Public Model                 | 固定 Upstream Target                                | 下游可用 Route surface                                                | Credential pool                          |
 |-----------------------|------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------|------------------------------------------|
@@ -66,6 +70,7 @@ registry。当前可路由目录如下；“Bridge 候选”只表示已注册�
 | DeepSeek              | `deepseek-v4-pro`            | `deepseek-v4-pro`                                   | Chat Native；无 Responses 接口                                        | `deepseek-primary`                       |
 | DeepSeek + OpenRouter | `deepseek-v4-flash`          | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native                | `deepseek-primary`、`openrouter-primary` |
 | Xiaomi MiMo           | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5`                        | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary`                           |
+| ChatGPT subscription  | 无                           | `chatgpt-gpt-5-6-sol`（默认禁用）                   | 无 Route/Public Model；仅管理员显式 models/Responses probe            | `chatgpt-codex`（OAuth，probe-only）     |
 
 代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按 source
 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册 或加入候选。上表中
@@ -74,16 +79,16 @@ Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。 聚
 Route 唯一绑定同一个 Target/API；多个潜在 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无
 issuer ledger 时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
 
-OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个 Provider 分别拥有独立静态
-definition、endpoint profile、upstream model 与能力；当前所有已注册上游仍采用 OpenAI-compatible wire，尚未接入或实测真实异构
-wire protocol Provider。
+OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个可路由 Provider 分别拥有独立
+静态 definition、endpoint profile、upstream model 与能力，并采用 OpenAI-compatible wire。ChatGPT definition 只开放 OAuth2 Bearer、
+固定 Codex backend 的模型目录 profile 与 streaming Responses probe；它不是 Public Model 数据面，也不构成通用异构 wire Provider。
 
 MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均声明支持
 `parallel_tool_calls`、image input 和 structured output；两种协议的 `store` 均关闭，Responses 的
 `previous_response_id` 与 `background` 均关闭。两种协议的 `reasoning_output` 保持 `Unknown`，因此这组声明只 控制请求能力
 gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，也不扩大反向 Bridge 的转换能力。
 
-五个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
+六个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
 `ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。 descriptor 不注册
 target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
 
@@ -211,6 +216,10 @@ Chat `reasoning_content` 可在 Bridge 中保留为独立 reasoning channel；`e
 `openbridge-probe --target <id>` 复用同一 bootstrap、注册表、credential Store、adapter 与 transport，可以观察模型 列表、最小
 Chat/Responses 请求和 function call/result replay。它不接受 endpoint、model、header 或 credential 覆盖，只加载选中 target 的
 pool 并固定使用首个 member，不遍历或改变生产 cursor/cooldown；它不读取下游用户 Key，不修改注册表，也不自动改变 capability。
+
+ChatGPT target 走独立入口：必须显式给出 `--codex-auth-file`，并从 `--list-models`、`--responses` 中至少选择一项；不接受
+`--chat`、`--function-calling`、`--all` 或任何 Codex executable selector。OpenBridge 按只读 Codex 源码基线自行构造固定
+compatibility profile 的 `User-Agent`/originator、`models?client_version=...` 与 Responses SSE 请求，运行时不调用 Codex CLI。
 
 ## 验证状态
 
@@ -506,15 +515,42 @@ Bridge 的工具参数分片基本可拼接，但真实流在工具调用终态�
   已按上条单独运行通过；Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行外部
   OpenAI SDK、真实 Provider、负载或长期验收。
 
+2026-08-05 完成 ChatGPT subscription OAuth 第一阶段 Provider 与只读 credential probe：
+
+- `ProviderKind::ChatGpt`、独立静态 definition、`chatgpt-codex` OAuth pool 和默认禁用的
+  `chatgpt-gpt-5-6-sol` target 已编译；只注册固定 Codex backend 的 models/Responses profile，不生成 Route/Public Model，也不使
+  常驻服务依赖 ChatGPT credential。
+- `codex_auth` 一次性只读管理员指定的 auth file，只接受 ChatGPT 模式、未过期 access-token JWT 与一致账户绑定；临时
+  `CredentialStore` 把 access token、account ID、FedRAMP routing flag 和 expiry 作为不可拆分 OAuth material。refresh token
+  不反序列化、不复制、不持久化，源文件不写回；API-key TOML 明确拒绝 OAuth pool。
+- `codex_identity` 依据只读 Codex source commit `1fe6be9719ac4a18ad08f8341b89f9a0f386105e`，用编译期 profile
+  `0.145.0`、同系列 `os_info`、当前 OS/architecture 与环境 terminal token 在 OpenBridge 内构造 User-Agent/originator；生产代码
+  没有 Codex executable selector、子进程调用或 app-server 依赖。
+- 专用 probe 只接受显式 `--codex-auth-file` 和 models/Responses selector；模型目录解析 `models[].slug`，Responses 以固定最小文本
+  payload 流式读取有界 SSE，只有唯一 `response.completed` 才报告 `supported`。report、错误与 Debug 不包含 token、账户、auth
+  路径、完整 User-Agent、认证 header 或正文。
+- 真实验收时间为 2026-08-05 15:38+08:00，平台为 Windows，source-profile match 为 `true`：模型目录 HTTP 200 且包含
+  `gpt-5.6-sol`，Responses HTTP 200 且出现唯一成功 terminal；auth file 验收前后内容 hash 相同，hash 本身未保存。
+- 聚焦 ChatGPT probe、auth file、Provider、CLI 和普通启动契约均通过；
+  `cargo test --locked -- --test-threads=1 --skip compiled_model_catalog_includes_litellm_text_models` 通过并保留 2 个 ignored integration
+  tests，`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。默认 `cargo test --locked` 仍停在与本焦点无关且 HEAD
+  已存在的 `compiled_model_catalog_includes_litellm_text_models` 不一致：模型定义为 `[Max, High]`，既有测试期望
+  `[XHigh, High]`。当前 rustfmt 1.9.0 的仓库级 `cargo fmt -- --check` 也会从未修改的 `src/bridge/chat.rs` 等 HEAD 文件开始报告
+  既有格式漂移；本焦点没有扩散为全仓格式改写。
+- 未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行 OpenAI SDK、Hermes、LiteLLM、通用 Codex
+  client、PKCE/device login、refresh/rotation、并发 refresh、401 recovery、负载或长期验收。
+
 ## 当前未实现
 
-当前 checked-in OpenAI/LongCat/OpenRouter/DeepSeek/MiMo 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体
-Upstream API 显式声明后生效。Bridged Route 支持明文 reasoning channel 的受限转换，但不支持 opaque
+当前 checked-in 五个数据面 Provider 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体 Upstream API
+显式声明后生效。Bridged Route 支持明文 reasoning channel 的受限转换，但不支持 opaque
 `encrypted_content` continuation 或把 summary/content 伪造成 user-visible text。
 
 - OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
 - Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- OAuth/subscription 多账号池、keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
+- ChatGPT PKCE/device login、refresh token 读取/轮换、续约调度、401 recovery、持久化、多账号 pool，以及 ChatGPT
+  Route/Public Model 数据面；
+- keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - 多 Embeddings candidate、embedding Bridge、string tokenizer、可变维度域，以及向量转换、缓存、索引或检索；

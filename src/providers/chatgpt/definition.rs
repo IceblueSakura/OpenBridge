@@ -1,0 +1,99 @@
+//! Static ChatGPT Provider contract and Codex Responses wire profile.
+//!
+//! This profile permits only OAuth bearer credentials and fixed Codex backend paths. It does not
+//! expose Chat Completions, Embeddings, WebSocket, or a generic OpenAI-compatible endpoint.
+
+use http::{HeaderMap, HeaderName, header::USER_AGENT};
+
+use crate::{
+    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    provider::{
+        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
+        ProviderKind, SafeHeaders,
+    },
+    providers::openai_compatible::OpenAiCompatibleAdapter,
+};
+
+/// Static ChatGPT Codex adapter capabilities and permitted endpoint/credential scope.
+pub static CONTRACT: ProviderContract = ProviderContract::new(
+    ProviderKind::ChatGpt,
+    ApiCapabilities {
+        chat_completions: ChatCompletionsCapabilities {
+            enabled: false,
+            streaming: false,
+            function_calling: false,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
+            reasoning_output: ReasoningOutput::Unsupported,
+            custom_tool_calling: false,
+            audio_input: false,
+            file_input: false,
+            audio_output: false,
+            predicted_outputs: false,
+            web_search: false,
+            prompt_caching: false,
+            moderation: false,
+            logprobs: false,
+            multiple_choices: false,
+        },
+        responses: ResponsesCapabilities {
+            enabled: true,
+            streaming: true,
+            function_calling: false,
+            parallel_tool_calls: false,
+            image_input: false,
+            structured_outputs: false,
+            store: false,
+            previous_response_id: false,
+            background: false,
+            reasoning_output: ReasoningOutput::Unsupported,
+            custom_tool_calling: false,
+            hosted_tools: &[],
+            file_input: false,
+            conversation: false,
+            prompt_templates: false,
+            prompt_caching: false,
+            context_management: false,
+            include: &[],
+            moderation: false,
+            logprobs: false,
+        },
+        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
+    },
+    &["chatgpt-codex"],
+    &[CredentialKind::OAuth2BearerAccessToken],
+);
+
+/// Responses-only wire profile used by the fixed ChatGPT Codex backend.
+static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+    ProviderKind::ChatGpt,
+    &CONTRACT,
+    None,
+    Some("/responses"),
+    None,
+    "/models",
+    transform_request_headers,
+)
+.with_codex_model_list_profile()
+.with_openai_data_type_responses_terminal();
+
+/// Single static descriptor for the ChatGPT contract and adapter.
+pub(crate) static DEFINITION: ProviderDefinition =
+    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+
+/// Preserves a dedicated trusted-header hook for the Codex-compatible identity added by the probe.
+fn transform_request_headers(
+    downstream: &HeaderMap,
+    upstream: &mut SafeHeaders,
+) -> Result<(), AdapterError> {
+    // Copy only the complete trusted Codex identity assembled by the dedicated probe entry point.
+    for name in [USER_AGENT, HeaderName::from_static("originator")] {
+        let value = downstream
+            .get(name.clone())
+            .ok_or(AdapterError::InvalidClientIdentity)?;
+        upstream.insert(name, value.clone())?;
+    }
+    Ok(())
+}

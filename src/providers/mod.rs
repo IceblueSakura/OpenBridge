@@ -5,6 +5,7 @@
 mod catalog;
 pub(crate) mod openai_compatible;
 
+pub mod chatgpt;
 pub mod deepseek;
 pub mod longcat;
 pub mod mimo;

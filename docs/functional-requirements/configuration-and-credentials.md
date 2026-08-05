@@ -108,7 +108,8 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
   文件复制为 OpenBridge credential 配置；
 - access token、account header 与 FedRAMP routing header 都视为敏感认证上下文；路径、token、账户、JWT payload 和完整 auth record
   不进入 report、日志、metric、Debug 或错误正文；
-- probe 所需 Codex `User-Agent` 来自受信的本机 Codex CLI runtime，并由 ChatGPT profile 使用；业务请求不能注入或覆盖；
+- probe 所需 Codex-compatible `User-Agent` 按记录的 Codex 源码和编译期 profile 在 OpenBridge 内构造；不得调用 Codex executable
+  或 app-server，业务请求也不能注入或覆盖；
 - invalid/expired token、缺失账户、错误 auth mode、并发读取到损坏文件或 401 都 fail closed，第一阶段不 refresh、不重放且保持原文件
   不变；
 - 第二阶段的登录、可刷新 bundle、持久化和 guarded reload/refresh 以

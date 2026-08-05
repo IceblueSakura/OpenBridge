@@ -5,7 +5,7 @@ use openbridge::{
     core::{ApiProtocol, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
-    provider::ProviderKind,
+    provider::{CredentialKind, ProviderKind},
     providers::{build_compiled_registry, compiled_config},
     registry::{
         InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport, RouteConfig,
@@ -13,6 +13,64 @@ use openbridge::{
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
+
+#[test]
+fn chatgpt_probe_target_is_compiled_but_not_publicly_routable() {
+    // Locate the dedicated OAuth pool and disabled ChatGPT target in the compiled definition.
+    let definition = compiled_config();
+    let pool = definition
+        .credential_pools
+        .iter()
+        .find(|pool| pool.id == "chatgpt-codex")
+        .expect("ChatGPT OAuth pool should be compiled");
+    assert_eq!(pool.provider, ProviderKind::ChatGpt);
+    assert_eq!(pool.kind, CredentialKind::OAuth2BearerAccessToken);
+
+    let target = definition
+        .upstream_targets
+        .iter()
+        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
+        .expect("ChatGPT probe target should be compiled");
+    assert_eq!(target.provider, ProviderKind::ChatGpt);
+    assert_eq!(target.model, "openai/gpt-5.6-sol");
+    assert_eq!(target.base_url, "https://chatgpt.com/backend-api/codex");
+    assert_eq!(target.credential_pool, "chatgpt-codex");
+    assert!(!target.enabled);
+    assert_eq!(target.upstream_apis.len(), 1);
+    assert_eq!(target.upstream_apis[0].id, "responses");
+    assert!(
+        definition
+            .routes
+            .iter()
+            .all(|route| route.upstream_target != target.id)
+    );
+
+    // Compile the runtime snapshot and prove service startup does not require the disabled pool.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let target = registry
+        .upstream_target("chatgpt-gpt-5-6-sol")
+        .expect("disabled target remains available to explicit probes");
+    assert!(!target.enabled());
+    assert_eq!(target.kind(), ProviderKind::ChatGpt);
+    assert!(registry.public_models().all(|model| {
+        model.routes().iter().all(|route_id| {
+            registry
+                .route(route_id)
+                .is_none_or(|route| route.upstream_target() != target.id())
+        })
+    }));
+    let required_pool_ids = registry
+        .credential_pool_ids()
+        .filter(|pool_id| {
+            registry.upstream_target_ids().any(|target_id| {
+                let candidate = registry.upstream_target(target_id).unwrap();
+                candidate.enabled() && candidate.credential_pool_id() == *pool_id
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(!required_pool_ids.contains(&"chatgpt-codex"));
+}
 
 #[test]
 fn compiled_model_catalog_includes_litellm_text_models() {
@@ -773,11 +831,16 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
 
 #[test]
 fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example() {
-    // Build the complete registry and load every credential pool from a TOML template with no real values.
+    // Build the registry and load only API-key pools from a TOML template with no real values.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     let pool_ids = registry
         .credential_pool_ids()
+        .filter(|pool_id| {
+            registry
+                .credential_pool(pool_id)
+                .is_some_and(|pool| pool.kind() == CredentialKind::ApiKey)
+        })
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let credentials = UpstreamCredentialConfiguration::from_toml(include_str!(
@@ -788,22 +851,36 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
         .unwrap()
         .build();
 
-    // Verify that each target retrieves the template credential by Provider and pool.
+    // Verify that each API-key target retrieves the template credential by Provider and pool.
     for target_id in registry.upstream_target_ids() {
         let target = registry.upstream_target(target_id).unwrap();
+        let pool = registry
+            .credential_pool(target.credential_pool_id())
+            .unwrap();
+        if pool.kind() != CredentialKind::ApiKey {
+            continue;
+        }
         assert!(
             credentials
                 .upstream_pool(
                     target.kind(),
                     target.credential_pool_id(),
-                    registry
-                        .credential_pool(target.credential_pool_id())
-                        .unwrap()
-                        .kind(),
+                    pool.kind(),
                 )
                 .is_ok()
         );
     }
+
+    // Keep the disabled ChatGPT OAuth pool outside the API-key TOML and startup snapshot.
+    assert!(
+        credentials
+            .upstream_pool(
+                ProviderKind::ChatGpt,
+                "chatgpt-codex",
+                CredentialKind::OAuth2BearerAccessToken,
+            )
+            .is_err()
+    );
 }
 
 #[test]

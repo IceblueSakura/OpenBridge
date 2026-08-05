@@ -757,7 +757,10 @@ fn add_responses_fallback(
     fallback.base_url = match provider {
         ProviderKind::OpenAi => "https://api.openai.com".to_owned(),
         ProviderKind::LongCat => "https://api.longcat.chat".to_owned(),
-        ProviderKind::DeepSeek | ProviderKind::MiMo | ProviderKind::OpenRouter => {
+        ProviderKind::ChatGpt
+        | ProviderKind::DeepSeek
+        | ProviderKind::MiMo
+        | ProviderKind::OpenRouter => {
             panic!("test fallback helper only accepts connected providers")
         }
     };
@@ -776,7 +779,10 @@ fn add_responses_fallback(
         upstream_api.endpoint_profile = match provider {
             ProviderKind::OpenAi => "public-api".to_owned(),
             ProviderKind::LongCat => "longcat-openai".to_owned(),
-            ProviderKind::DeepSeek | ProviderKind::MiMo | ProviderKind::OpenRouter => {
+            ProviderKind::ChatGpt
+            | ProviderKind::DeepSeek
+            | ProviderKind::MiMo
+            | ProviderKind::OpenRouter => {
                 panic!("test fallback helper only accepts connected providers")
             }
         };

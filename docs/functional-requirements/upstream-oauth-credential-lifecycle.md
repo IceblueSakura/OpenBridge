@@ -2,12 +2,12 @@
 
 ## 状态
 
-**本文定义已批准、但必须串行进入当前焦点的两阶段范围。** 第一阶段只完成 ChatGPT Provider 与真实上游 probe；第二阶段再实现
-OAuth2 PKCE 登录和 token 续约。当前实施授权只来自[当前开发焦点](../implementation-plans/current-focus.md)，因此第二阶段在第一阶段
-收口并另立焦点前不得并行实现。
+**本文定义必须串行实施的两阶段范围。** 第一阶段只完成 ChatGPT Provider 与真实上游 probe；第二阶段再实现 OAuth2 PKCE 登录和
+token 续约。第一阶段的已实现事实见[当前实现说明](../implementation-status/current-implementation.md)；第二阶段只有重新写入
+[当前开发焦点](../implementation-plans/current-focus.md)后才获得实施授权。
 
-外部行为以当前 Codex 源码为主要实现基线，产品文档只补充公开登录与凭证存储边界。每次进入焦点必须记录实际源码 commit、Codex CLI
-版本、平台和真实验收日期，不能把历史快照或一次成功调用视为长期稳定协议。
+外部行为以当前 Codex 源码为主要实现基线，产品文档只补充公开登录与凭证存储边界。每次进入焦点必须记录实际源码 commit、编译期
+compatibility profile、平台和真实验收日期，不能把历史快照或一次成功调用视为长期稳定协议。
 
 - [Codex 设备登录与 token 刷新调研](../references/codex/codex-device-auth-token-refresh-analysis.md)
 - [Codex 浏览器 OAuth 调研](../references/codex/codex-oauth-and-tool-call-analysis.md)
@@ -18,8 +18,8 @@ OAuth2 PKCE 登录和 token 续约。当前实施授权只来自[当前开发焦
 ### 1.1 第一阶段：Provider 与只读 credential probe
 
 第一阶段的用户可观察结果是：管理员显式运行 probe 时，OpenBridge 可以从指定的 Codex file credential store 只读加载当前 ChatGPT
-access token 与账户绑定，使用与同机 Codex CLI 完全一致的 `User-Agent` 请求固定 ChatGPT Codex backend 的模型目录和一个 Responses
-文本调用，并只输出脱敏结果。
+access token 与账户绑定，按记录的 Codex 源码基线在 OpenBridge 内构造 source-compatible `User-Agent`，请求固定 ChatGPT Codex
+backend 的模型目录和一个 Responses 文本调用，并只输出脱敏结果。
 
 第一阶段必须满足：
 
@@ -30,13 +30,14 @@ access token 与账户绑定，使用与同机 Codex CLI 完全一致的 `User-A
    WebSocket 或其他 ChatGPT resource API。
 4. ChatGPT target 默认禁用且不加入 Route/Public Model，只允许显式管理员 probe 选择。常驻服务启动不读取 Codex credential，也不因该
    target 要求新的运行时 secret。
-5. Codex auth 文件路径由管理员显式选择；loader 只读取一次，不写回、不删除、不改变时间戳、不取得或保留 refresh token，也不复制文件到
+5. Codex auth 文件路径由管理员显式选择；loader 只读取一次，不写回、不删除、不反序列化或复制 refresh token，也不复制文件到
    OpenBridge 配置、fixture 或输出目录。
 6. loader 只接受当前 Codex ChatGPT auth 形状，提取本次请求所需的 access token、账户绑定、FedRAMP routing claim 和可验证的
    access-token expiry；API key、personal access token、缺失账户、空 token、无效 JSON/JWT 或已经过期的 token 在网络前失败。
-7. `User-Agent` 必须由同机 Codex CLI 的当前运行时结果提供，并在测试中逐字节比较；只根据版本号猜测或长期硬编码字符串不满足要求。
-   `originator`、版本、account header 和按账户条件启用的 FedRAMP header 同样按该次 Codex 源码/CLI 基线验证，但其值不得出现在
-   probe report。
+7. `User-Agent` 必须由记录的 Codex 源码规则、显式编译期 profile version、同源 OS 信息依赖、当前 OS/architecture 与 terminal
+   detection 在 OpenBridge 内构造，并用确定性 fixture 逐字节验证；不得调用 Codex executable、app-server 或读取其运行时状态。
+   `originator`、models `client_version`、account header 和按账户条件启用的 FedRAMP header 同样按该次源码基线验证，但完整
+   User-Agent、账户和认证 header 值不得出现在 probe report。
 8. 第一阶段不读取 refresh token、不执行 refresh、不在 401 后重放、不启动浏览器或设备码登录。过期、401、403 或账户不匹配只产生脱敏
    失败并保持 auth 文件不变。
 
@@ -54,7 +55,7 @@ access token 与账户绑定，使用与同机 Codex CLI 完全一致的 `User-A
 5. rotated refresh token 与 access token、expiry、identity 和 generation 原子写回，终态错误转为 `reauth_required`；
 6. 第二阶段完成前，第一阶段的 Codex auth 文件仍只是一次性只读验收来源，不能演变为常驻服务的隐式 credential backend。
 
-第二阶段不是当前焦点。其失败测试、持久化 backend、并发模型和真实登录验收必须在第一阶段完成后重新核对当前 Codex 源码再确定。
+第二阶段不是当前焦点。其失败测试、持久化 backend、并发模型和真实登录验收必须另立焦点，并重新核对届时 Codex 源码后再确定。
 
 ## 2. Provider OAuth preflight
 
@@ -174,8 +175,8 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | OAUTH-01 | ChatGPT 使用独立 Provider、OAuth bearer credential kind、固定 Codex backend endpoint profile 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
 | OAUTH-02 | 第一阶段 target 默认禁用、没有 Route/Public Model，只能由显式管理员 probe 选择，常驻服务不要求或读取 Codex credential。                                   |
 | OAUTH-03 | Codex auth loader 只读最小字段，过期、错型、缺失账户或损坏文件在 egress 前失败；文件内容、token、账户和路径不进入报告、日志或测试 fixture。                 |
-| OAUTH-04 | 模型目录与 Responses probe 使用当前 Codex 源码定义的路径、query、认证和普通 header；`User-Agent` 与同机 Codex CLI 运行时值逐字节一致且不可由业务请求覆盖。 |
-| OAUTH-05 | 真实验收记录 Codex source commit、CLI 版本、平台、endpoint、model、HTTP/SSE 终态和脱敏 header parity；未运行层不声称成功。                                 |
+| OAUTH-04 | 模型目录与 Responses probe 使用当前 Codex 源码定义的路径、query、认证和普通 header；OpenBridge 通过固定 profile 构造并逐字节验证 `User-Agent`，不调用或依赖 Codex CLI。 |
+| OAUTH-05 | 真实验收记录 Codex source commit、compatibility profile、平台、endpoint、model、HTTP/SSE 终态和脱敏 header parity；未运行层不声称成功。                         |
 | OAUTH-06 | 第二阶段登录使用 PKCE `S256`、有界 state/device session、严格 callback/token 校验和失败清理，不在普通请求中隐式启动。                                      |
 | OAUTH-07 | 第二阶段 refresh 具有 expiry safety window、single-flight、guarded reload、原子 rotation 写回和有界 401 recovery。                                       |
 | OAUTH-08 | refresh 终态错误、账户变化或 rotation 歧义 fail closed；不会泄露 token、跨账户重放或自动切换到其他 credential。                                           |

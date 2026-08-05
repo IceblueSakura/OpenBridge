@@ -222,18 +222,20 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
-`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的独立静态定义拥有 Provider
+`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo 与 ChatGPT 的独立静态定义拥有 Provider
 契约、endpoint path、request-header hook 与 Responses terminal discriminator；共享 `openai_compatible`
-机制负责模型字段与 reasoning level wire 映射、Bearer 认证、响应/SSE terminal、 错误分类和 Chat/Responses Upstream API pair
+机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API pair
 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
 header；OpenAI 与 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选 attribution/routing header，共享层不维护普通
 header allowlist。credential header 在 hook 之后独立附加。credential pool id、Provider 与 credential kind 来自
 `CredentialPoolBinding`，endpoint/timeout 来自 selected Upstream Target。Ingress 按完整
 `pool_id + member_id + ProviderKind + CredentialKind` 从 `CredentialStore` 借用 `UpstreamCredential`；每个 Store 条目 冻结
-credential type、来源类别、generation 与可选过期时间，来源类别不保存文件路径。Store 不公开通用明文 查询，adapter 仍在 crate
-内的认证 header 边界才访问 secret。`CredentialKind` 已能表达
-`OAuth2BearerAccessToken`，但现有 Provider contract 仍只允许 `ApiKey`，因此尚未形成 OAuth 出站路径。
+credential type、来源类别、generation 与可选过期时间，来源类别不保存文件路径。Store 不公开通用明文查询，adapter 仍在 crate
+内的认证 header 边界才访问 secret。五个数据面 Provider 只允许 `ApiKey`；ChatGPT contract 只允许
+`OAuth2BearerAccessToken`，并要求同一临时 credential 同时携带 access token、account ID、FedRAMP routing flag 与已知 expiry。
+ChatGPT adapter 把 Bearer、account 与条件性 FedRAMP header 全部放入敏感 header 集。API-key TOML 不能填充 OAuth pool；只有专用
+probe composition root 能从显式 Codex auth file 构造该临时 member，常驻服务不读取该文件。
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
@@ -244,6 +246,12 @@ source；每个下游协议先按 source 顺序生成全部 Native route，再�
 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
+
+ChatGPT registration 固定 `chatgpt-gpt-5-6-sol` target、Codex backend base、`models` 与 `responses` path、上游模型
+`gpt-5.6-sol` 和 `chatgpt-codex` OAuth pool。target 默认禁用且没有 Route/Public Model，因此不进入 ingress/planning 数据面。
+其 adapter 使用 Codex 模型目录的 `models[].slug` shape 与 source-pinned `client_version` query；专用 Responses probe 使用有界 SSE
+framing 和 data JSON terminal。`codex_identity` 由编译期 profile version、`os_info`、architecture 与环境 terminal token 构造
+source-compatible User-Agent/originator，不执行 Codex 子进程或 app-server 协议。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
 `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。
@@ -314,6 +322,10 @@ terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowli
 endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不 加载下游用户
 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。
 
+ChatGPT target 是受限例外：尽管 target 默认禁用，专用入口可在管理员同时提供 `--codex-auth-file` 和显式 models/Responses selector
+时执行；它不加载 API-key TOML，不接受 executable 或完整 User-Agent selector，也不改变常驻服务注册表。auth 文件只读一次，报告与错误
+保持 credential、账户、路径、完整 header 和正文脱敏。
+
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部
 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。最新实际执行结果
@@ -325,7 +337,8 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 - 动态 availability/weight、持久化或分布式 cooldown；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式指标聚合；
 - 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
-- Responses WebSocket、OAuth、hosted tool、MCP 和动态 Provider/plugin DSL。
+- Responses WebSocket、ChatGPT PKCE/device login、token refresh/rotation、401 recovery、常驻 ChatGPT Route/Public Model、hosted
+  tool、MCP 和动态 Provider/plugin DSL。
 - 多 Embeddings candidate、embedding Bridge、向量转换/缓存/索引/检索和 string tokenizer。
 
 ## 关联文档

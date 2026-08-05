@@ -113,3 +113,28 @@ fn upstream_toml_rejects_unknown_and_missing_required_pools_before_insertion() {
         }
     );
 }
+
+#[test]
+fn upstream_toml_never_populates_the_registered_chatgpt_oauth_pool() {
+    // Build the registry containing the disabled OAuth pool and present an API-key-shaped entry.
+    let bootstrap =
+        openbridge::config::parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+            .unwrap();
+    let registry = build_compiled_registry(bootstrap).unwrap();
+    let configuration = UpstreamCredentialConfiguration::from_toml(
+        "schema_version = 1\n[[credential_pools]]\nid = \"chatgpt-codex\"\napi_keys = [\"synthetic-value\"]\n",
+    )
+    .unwrap();
+
+    // Reject the registered pool before any OAuth-shaped credential can enter the builder.
+    let error = configuration
+        .into_builder_for(&registry, ["chatgpt-codex"])
+        .unwrap_err();
+    assert_eq!(
+        error,
+        UpstreamCredentialConfigError::UnsupportedCredentialKind {
+            id: "chatgpt-codex".to_owned()
+        }
+    );
+    assert!(!format!("{error:?} {error}").contains("synthetic-value"));
+}

@@ -621,6 +621,7 @@ impl HttpBody for ProviderBodyObserver {
 
 fn provider_name(provider: ProviderKind) -> &'static str {
     match provider {
+        ProviderKind::ChatGpt => "chatgpt",
         ProviderKind::OpenAi => "openai",
         ProviderKind::LongCat => "longcat",
         ProviderKind::DeepSeek => "deepseek",
