@@ -28,6 +28,7 @@ Route。
 - 新无状态请求会在单进程内避开短时 cooldown 的 quota/fault scope；
 - 已认证请求在 response body 的实际完成、流错误或下游取消边界产生一次脱敏终态观测；高基数诊断事实只进入
   trace，进程内统计只累计低基数终态、attempt 结果和 Provider 明确返回的 usage；
+- 持有有效下游 Bearer token 的用户可以读取本次运行期间已记录的进程级和 Provider attempt 指标快照；快照不跨重启保留；
 - 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
 
 现阶段扩展状态分为：
@@ -78,6 +79,7 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 | `GET /healthz`                                                   | 返回最小本地存活状态和注册表版本。                                                                            |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 返回代码注册 Public Model 的 OpenAI 标准四字段 list/retrieve。                                                |
 | `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 按[模型能力契约](model-information-and-capability-contract.md)返回同一目录的模型事实与每 operation 固定能力。 |
+| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 由有效 Bearer 用户读取当前进程的进程级和 Provider attempt 指标快照。                         |
 | `POST /v1/chat/completions`                                      | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                          |
 | `POST /v1/responses`                                             | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                     |
 | `POST /v1/embeddings`                                            | 在独立 Embedding Public Model 的固定契约内按唯一 Native Route 提供有界 JSON 向量结果。                        |
@@ -97,7 +99,7 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 - 除[ChatGPT subscription OAuth 两阶段范围](upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret
   文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
-- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
+- OpenTelemetry/Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 

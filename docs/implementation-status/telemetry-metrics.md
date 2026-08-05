@@ -100,8 +100,9 @@ usage。Embeddings 成功体由 endpoint validator 在同一 JSON response budge
 let snapshots = state.metrics().provider_snapshots();
 ```
 
-`GatewayState::metrics()` 返回共享的 `GatewayMetrics` 句柄，快照按 Provider 维度排序。当前运行二进制 尚未提供 `/metrics`
-HTTP API、Prometheus exporter、OpenTelemetry exporter、持久化或跨进程聚合。 Provider attempt 还会输出脱敏的
+`GatewayState::metrics()` 返回共享的 `GatewayMetrics` 句柄，快照按 Provider 维度排序。当前运行二进制提供受 Bearer
+保护的 `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口；尚未提供 Prometheus exporter、
+OpenTelemetry exporter、持久化或跨进程聚合。Provider attempt 还会输出脱敏的
 `provider_attempt_completed` tracing event，方便在没有 exporter 时收集日志。
 
 ## 与请求生命周期的关系
@@ -132,10 +133,13 @@ affinity、retry/fallback、cooldown 或首个下游输出后的提交边界。
 - 真实 Axum/Hyper loopback 下的已知长度模型列表，以及嵌套 Provider/downstream observer 的 Native JSON 完成终态。
 - Embeddings 的 `operation=embeddings_create`、input/total usage、无 output/throughput，以及正文、token、`user`、
   vector/base64 哨兵不进入导出结果；replay 超限只记录一次 attempt。
+- 受 Bearer 保护的进程级和 Provider 快照 HTTP endpoint 返回现有结构，认证失败在 handler 前结束，响应不包含 downstream token。
 
 测试通过 fake upstream transport 隔离 Provider 网络依赖，并通过真实 Axum/Hyper loopback 覆盖下游 HTTP transport；它们只证明
 OpenBridge 进程内采集和本地传输边界，不证明真实 Provider 的延迟、token 计数、 cache 语义、负载表现或长期运行结果。
 
-最近一次聚焦验证：`cargo test --locked --test observability_contract` 的 13 个观测契约测试通过；完整
-`cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和
-`git diff --check` 均通过。`tests/sdk_compatibility.rs` 仍按仓库约定保持 ignored，未运行外部 SDK、 真实 Provider、负载或长期运行验收。
+最近一次聚焦验证：`cargo test --locked --test observability_contract` 的 14 个观测契约测试通过，新增 endpoint 契约测试同时
+通过；完整 `cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 通过，本次涉及文件的
+`rustfmt --check --edition 2024` 和 `git diff --check` 通过。仓库级 `cargo fmt -- --check` 仍被未改动的
+`src/transport/mod.rs` 既有 module 声明顺序阻塞。`tests/sdk_compatibility.rs` 仍按仓库约定保持 ignored，未运行外部 SDK、
+真实 Provider、负载或长期运行验收。

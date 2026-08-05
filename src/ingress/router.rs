@@ -30,8 +30,8 @@ use crate::{
 use super::{
     auth,
     handlers::{
-        chat_completions, embeddings, extended_model, extended_models, health, model, models,
-        responses,
+        chat_completions, embeddings, extended_model, extended_models, health, metrics, model,
+        models, provider_metrics, responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
@@ -76,6 +76,8 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/models/{model}", get(model))
         .route("/openbridge/v1/models", get(extended_models))
         .route("/openbridge/v1/models/{model}", get(extended_model))
+        .route("/openbridge/v1/metrics", get(metrics))
+        .route("/openbridge/v1/metrics/providers", get(provider_metrics))
         .route_layer(middleware::from_fn_with_state(
             DownstreamAuthState {
                 users: state.users.clone(),

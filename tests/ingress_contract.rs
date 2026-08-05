@@ -81,12 +81,16 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
     assert!(spec.contains("/v1/models/{model}:"));
     assert!(spec.contains("/openbridge/v1/models:"));
     assert!(spec.contains("/openbridge/v1/models/{model}:"));
+    assert!(spec.contains("/openbridge/v1/metrics:"));
+    assert!(spec.contains("/openbridge/v1/metrics/providers:"));
     assert!(spec.contains("/v1/chat/completions:"));
     assert!(spec.contains("/v1/responses:"));
     assert!(spec.contains("/v1/embeddings:"));
     assert!(spec.contains("EmbeddingInterfaceCapabilities:"));
     assert!(spec.contains("EmbeddingRequest:"));
     assert!(spec.contains("EmbeddingResponse:"));
+    assert!(spec.contains("GatewayMetricsSnapshot:"));
+    assert!(spec.contains("ProviderMetricSnapshot:"));
 
     let response = test_app(support::registry("docs-test", "code-primary", "test-model"))
         .oneshot(Request::get("/swagger-ui/").body(Body::empty()).unwrap())
@@ -102,6 +106,81 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
     let page = std::str::from_utf8(&body).unwrap();
     assert!(page.contains("SwaggerUIBundle"));
     assert!(page.contains("/openapi.yaml"));
+}
+
+#[tokio::test]
+async fn metrics_endpoints_require_bearer_and_return_current_snapshots() {
+    let app = test_app(support::registry(
+        "metrics-contract-test",
+        "code-primary",
+        "test-model",
+    ));
+
+    // Require the same valid downstream Bearer credential as the other protected endpoints.
+    for path in ["/openbridge/v1/metrics", "/openbridge/v1/metrics/providers"] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    }
+
+    // Return the process-level counters without exposing the authenticated identity or token.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/openbridge/v1/metrics")
+                .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let snapshot: Value = serde_json::from_slice(&body).unwrap();
+    for field in [
+        "requests_started",
+        "requests_completed",
+        "requests_http_failed",
+        "requests_failed",
+        "requests_cancelled",
+        "upstream_attempts",
+        "upstream_http_failures",
+        "upstream_transport_failures",
+        "upstream_retries",
+        "credential_rotations",
+        "route_fallbacks",
+        "cooldown_skips",
+        "usage_observations",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    ] {
+        assert!(
+            snapshot.get(field).is_some(),
+            "missing metrics field {field}"
+        );
+    }
+    assert!(!snapshot.to_string().contains("downstream-test-token"));
+
+    // Return the Provider-dimension collection in its existing deterministic ordering.
+    let response = app
+        .oneshot(
+            Request::get("/openbridge/v1/metrics/providers")
+                .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let snapshots: Value = serde_json::from_slice(&body).unwrap();
+    assert!(snapshots.is_array());
+    assert!(snapshots.as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

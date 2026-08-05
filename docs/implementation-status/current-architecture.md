@@ -12,7 +12,8 @@
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求 cooldown、`BridgePlan`、双向
 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口 与固定 Public Model 能力预检也已接入。Embeddings
 另有严格 JSON ingress、单条 Native Route 和预提交有界 成功体校验。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期
-Provider attempt 维度 聚合的性能/usage/cache 快照，但尚未接入 OpenTelemetry/Prometheus exporter。
+Provider attempt 维度聚合的性能/usage/cache 快照，并通过受 Bearer 保护的扩展 JSON endpoint 提供当前进程读取；尚未接入
+OpenTelemetry/Prometheus exporter。
 
 ## 1. 分层结构
 
@@ -377,8 +378,8 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 
 - 动态 Converter catalog、route-local 可配置 ConversionPolicy 与异构 Provider 实测；
 - 动态 availability/weight、持久化或分布式 cooldown；
-- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式指标聚合；
-- 可安全投影真实 route/upstream API 信息的内部视图与任何扩展 HTTP API；
+- OpenTelemetry/Prometheus exporter、指标持久化、历史查询、重置或分布式指标聚合；
+- 可安全投影真实 route/upstream API 信息的内部视图与其他未批准的扩展 HTTP API；
 - Responses WebSocket、ChatGPT 数据面 credential 借用与 401 recovery、常驻 ChatGPT Route/Public Model、hosted tool、MCP 和动态
   Provider/plugin DSL。
 - 多 Embeddings candidate、embedding Bridge、向量转换/缓存/索引/检索和 string tokenizer。

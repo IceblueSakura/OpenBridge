@@ -7,6 +7,8 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use serde::Serialize;
+
 use super::provider::{
     ProviderAttemptObservation, ProviderMetricKey, ProviderMetricSnapshot, ProviderMetrics,
 };
@@ -18,7 +20,7 @@ pub struct GatewayMetrics {
 }
 
 /// Read-only snapshot of `GatewayMetrics` at one point in time.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct GatewayMetricsSnapshot {
     /// Total authenticated requests started.
     pub requests_started: u64,

@@ -93,6 +93,16 @@ issuer、client、endpoint、header、auth-file 或其他应用 cache override�
 curl -i http://127.0.0.1:8080/healthz
 ```
 
+当前运行指标（仅内存快照，需有效下游 Bearer token）：
+
+```bash
+curl http://127.0.0.1:8080/openbridge/v1/metrics \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/metrics/providers \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+```
+
 本地接口测试页与机器可读规范：
 
 ```text
@@ -100,9 +110,9 @@ Swagger UI:  http://127.0.0.1:8080/swagger-ui/
 OpenAPI:    http://127.0.0.1:8080/openapi.yaml
 ```
 
-Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后， 即可在页面内测试受保护的标准/扩展
-Models、`/v1/chat/completions`、`/v1/responses` 和 `/v1/embeddings`。 页面依赖固定版本的 jsDelivr Swagger UI 静态资源，OpenAPI
-规范由本地服务提供。
+Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后，即可在页面内测试受保护的标准/扩展
+Models、当前运行指标、`/v1/chat/completions`、`/v1/responses` 和 `/v1/embeddings`。页面依赖固定版本的 jsDelivr Swagger UI 静态资源，
+OpenAPI 规范由本地服务提供。
 
 原生请求示例：
 
@@ -173,8 +183,9 @@ TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 a
 typed upstream operation 与脱敏
 HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool
 增量、总耗时、retry/fallback/credential rotation/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
-保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照， 可通过
-`GatewayMetrics::snapshot` 与 `GatewayMetrics::provider_snapshots` 读取；详细口径见
+保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，可通过
+`GatewayMetrics::snapshot`、`GatewayMetrics::provider_snapshots` 以及受 Bearer 保护的
+`/openbridge/v1/metrics`、`/openbridge/v1/metrics/providers` 读取；详细口径见
 [`遥测指标`](docs/implementation-status/telemetry-metrics.md)。OpenTelemetry/Prometheus exporter、 持久化和分布式聚合尚未实现。
 
 ## 验证基线

@@ -35,6 +35,8 @@ Route、Public Model 和 credential pool binding 均由 Rust 代码注册；Prov
 | `GET /v1/models/{model}`              | 返回一个 OpenAI 标准四字段 Model 对象                                       | 静态 Bearer |
 | `GET /openbridge/v1/models`           | 返回 Public Model 模型事实与固定接口能力列表                                | 静态 Bearer |
 | `GET /openbridge/v1/models/{model}`   | 返回一个完整 Public Model 能力对象                                          | 静态 Bearer |
+| `GET /openbridge/v1/metrics`           | 返回本次进程运行期间累计的进程级指标快照                                      | 静态 Bearer |
+| `GET /openbridge/v1/metrics/providers` | 返回本次进程运行期间按 Provider attempt 维度聚合的指标快照列表                | 静态 Bearer |
 | `POST /v1/chat/completions`           | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE          | 静态 Bearer |
 | `POST /v1/responses`                  | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE     | 静态 Bearer |
 | `POST /v1/embeddings`                 | 按独立固定接口执行单条 Native Route，并在下游 commit 前校验有界 JSON 成功体 | 静态 Bearer |
@@ -322,12 +324,25 @@ Embeddings ingress 只接受 `model`、`input`、`encoding_format`、`dimensions
 array、token array 与 token-array array 一次性判别为闭合 union。analysis、preflight 和 planning 从扩展 Models
 …5196 tokens truncated…、明确 usage、token
   observation、output speed 和 cache read/write 观测；request/user/credential/ endpoint URL 与正文不进入指标 key。
-- `GatewayMetrics::provider_snapshots` 提供进程内只读快照；当前未接入 `/metrics`、Prometheus/OpenTelemetry
+- `GatewayMetrics::provider_snapshots` 提供进程内只读快照；新增受 Bearer 保护的
+  `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口；仍未接入 Prometheus/OpenTelemetry
   exporter、持久化、分布式聚合或按遥测结果动态重排 Route。
 - 新增的 8 个 `observability_contract` 测试覆盖 JSON/streaming usage 与 cache、Provider/route mode 维度、 retry HTTP
   failure、SSE terminal/EOF failure 和下游取消；`cargo test --locked`、`cargo fmt -- --check`、
   `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内 采集边界，不证明真实
   Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
+
+### 2026-08-05 运行期指标 HTTP 读取
+
+- 新增受现有静态 Bearer middleware 保护的 `GET /openbridge/v1/metrics` 和
+  `GET /openbridge/v1/metrics/providers`；前者序列化 `GatewayMetricsSnapshot`，后者序列化按现有排序返回的
+  `ProviderMetricSnapshot` 列表。
+- 两个 endpoint 只读取 `GatewayState` 共享的当前进程内存，不新增聚合字段、label 或持久化；现有 Provider/Route/Target
+  低基数维度保持不变，响应不包含 request/user/credential/endpoint URL 或业务正文。
+- 新增 ingress 与 observability contract 测试，覆盖认证失败、全部进程级字段、Provider 快照字段/排序和 token 脱敏。
+- 聚焦 ingress/observability 测试、`cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 已通过；本次涉及文件的
+  `rustfmt --check --edition 2024` 与 `git diff --check` 已通过。仓库级 `cargo fmt -- --check` 仍被未改动的
+  `src/transport/mod.rs` 既有 module 声明顺序阻塞；未运行真实 Provider、外部 SDK、负载或长期运行验收。
 
 2026-08-03 完成 Chat/Responses definition 命名拆分与标准字段预留：
 
@@ -500,7 +515,7 @@ array、token array 与 token-array array 一次性判别为闭合 union。analy
 - ChatGPT 自动 refresh token 轮换、续约调度、401 recovery、多账号 pool，以及 ChatGPT Route/Public Model 数据面；
 - keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
 - 动态 health/weight、持久化或分布式 cooldown 与后台探测；
-- OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
+- OpenTelemetry/Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
 - 多 Embeddings candidate、embedding Bridge、string tokenizer、可变维度域，以及向量转换、缓存、索引或检索；
 - hosted tool、MCP Tool Bridge 或非 loopback 部署。
 
