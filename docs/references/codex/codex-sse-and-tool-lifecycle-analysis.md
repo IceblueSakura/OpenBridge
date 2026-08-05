@@ -1,115 +1,73 @@
 # Codex Responses SSE 与工具调用生命周期调研
 
-## 状态与范围
-
-**外部实现调研；不代表 OpenBridge 已实现或承诺完整 Codex 兼容。**
+## 状态与证据
 
 | 项目 | 值 |
-|---|---|
-| 调研仓库 | `https://github.com/openai/codex` |
-| 固定证据快照 | `F:/codespace/codex`，`main` @ `4c43465133428898aa84f0bfc02c306ed65fb66a` |
-| 快照日期 | 2026-07-25 |
-| 阅读范围 | `codex-rs/codex-api` 的 Responses HTTP/SSE 入口与 parser，`codex-rs/core` 的事件消费、tool 生命周期与 TTFT 记录 |
-| 矩阵角色 | 本地 Codex 的 Responses 下游契约与 Rust 实现主参考 |
-| 不在范围 | OAuth/client identity、auth cache、订阅 backend、CLI/TUI、审批、sandbox、hook 或 Provider catalog |
+| --- | --- |
+| 调研仓库 | `openai/codex` |
+| 原始逐行快照 | `4c43465133428898aa84f0bfc02c306ed65fb66a`，2026-07-25 |
+| 当前模块级复核 | `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`，2026-08-01 |
+| 阅读范围 | `codex-rs/codex-api` 的 Responses HTTP/SSE parser，`codex-rs/core` 的 event、tool 与 TTFT lifecycle |
+| 排除 | OAuth、订阅 backend、TUI、审批、sandbox、hook 和 Provider catalog |
 
-本文件补充[Codex OAuth 安全边界](codex-oauth-and-tool-call-analysis.md)：后者只说明 OAuth 不可外推；本文只研究 OpenBridge 可用于 HTTP/SSE、事件终态、工具关联与测试的客户端行为。
+当前提交仍可定位 `process_responses_event()`、`ToolCallInputDelta`、`ResponseEvent::Completed`、`x-codex-turn-state` 与 `supports_websockets`。原始细粒度行号不作为当前提交定位。
 
-### 2026-08-01 当前模块级复核
+## 1. HTTP 与 SSE 分层
 
-本地 `main` 已 fast-forward 至 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`。当前 `codex-api/src/sse/responses.rs` 仍定义 `process_responses_event()`、`ToolCallInputDelta` 与 `ResponseEvent::Completed`；`core/src/client.rs` 仍持有 `x-codex-turn-state` 的同 turn sticky-routing 逻辑，`model-provider-info` 仍定义 `supports_websockets`。`core` 的 client/turn 实现已改动，因此下文的细粒度行号继续只绑定固定证据快照，不能当作当前提交的行号引用。
+Codex Responses client 显式请求 `text/event-stream`。HTTP response 到达后，client 先读取模型、rate-limit、etag 和 reasoning metadata，再将 body 交给独立 SSE processor。
 
-## 1. 可复用结论
+SSE processor 不把每个 `data:` 当普通文本，而是按 event `type` 映射为类型化 `ResponseEvent`。这使 transport/framing 与 Responses semantic event 成为不同层次。
 
-| 观察 | 当前源码证据 | 对 OpenBridge 的约束 |
-|---|---|---|
-| HTTP Responses stream 显式请求 `text/event-stream`，再进入独立 SSE 处理 | `codex-api/src/endpoint/responses.rs:128-167` | Native Path 必须把 HTTP/SSE transport 与协议解释分开；支持原生转发时不应重渲染未知合法 event。 |
-| SSE parser 将 wire event 映射为类型化 `ResponseEvent`，而非把所有 `data:` 当文本 | `codex-api/src/common.rs:76-123`，`sse/responses.rs:327-466` | 测试至少区分 text、reasoning、item、tool delta、completed、failed/incomplete，而非只断言连接未断开。 |
-| `response.output_item.done` 是 item 生命周期事件，`response.completed` 才产生 `Completed` | `sse/responses.rs:327-438` | bridge 和统计不能把 item done 当成请求成功终态。 |
-| custom tool input delta 保留 `item_id` 与可选 `call_id` | `sse/responses.rs:344-353` | `item_id`、`call_id`、stream/output index 是不同身份；不可互相替换。 |
-| `x-codex-turn-state` 在同一 turn 被回传以维持 sticky routing，且可来自 HTTP header 或 `response.metadata.headers` | `core/src/client.rs:11-16, 267-283, 1887-1903`；`sse/responses.rs:62-68, 203-211` | 只在受限的 Codex Native Responses profile 中双向透明保留；不能生成、记录、跨 deployment/bridge/fallback 重放。 |
-| Core 在 item 完成和 stream 完成之间继续处理工具与取消 | `core/src/session/turn.rs:2113-2349` | OpenBridge 只维护 wire-level tool call/result，不接管 Codex 的审批、工具执行或 sandbox。 |
+## 2. Event 与 terminal
 
-## 2. HTTP/SSE 处理形状
+固定快照中的 parser 可区分：
 
-`ResponsesClient::stream_encoded()` 固定以 `POST responses` 调用 transport，并写入 `Accept: text/event-stream`。得到 HTTP stream 后，`spawn_response_stream()` 先从 response header 提取模型、rate-limit、etag、reasoning 相关元数据，再创建容量为 1600 的事件 channel，并调用 `process_sse_with_treatment()`（`codex-api/src/sse/responses.rs:33-97`）。
+- text 与 reasoning summary/content delta；
+- output item added/done；
+- function/custom tool input delta；
+- response completed、failed 与 incomplete；
+- error 与未知 event。
 
-这说明两个对 OpenBridge 有用、但不可机械复制的分层：
+`response.output_item.done` 只结束一个 item；`response.completed` 才产生成功 response terminal。parser 对部分未知 event 采用忽略/记录策略，但该策略只说明 Codex 当前 consumer 的兼容选择。
 
-```text
-HTTP response headers + byte stream
-→ SSE framing / event JSON
-→ typed ResponseEvent
-→ Agent session、tool runtime、telemetry
-```
+## 3. 私有 metadata 与 turn state
 
-OpenBridge 目前 Native Path 保留原始 SSE bytes，同时只做 framing 验证；这与 Codex 的“客户端解析为内部事件”不冲突。只有进入 Protocol Bridge、调用统计或明确的 protocol conformance fixture 时，才需要解析并区分 event 语义。
+Codex 可以从 HTTP header 或 `response.metadata.headers` 取得 `x-codex-turn-state`，并在同一 turn 后续请求回传，以维持 sticky routing。
 
-## 3. event、终态与未知输入
+这是 Codex product profile 的私有 state。公开 Responses schema 没有因此获得同名标准字段；该 state 的 issuer、生命周期和可转移性不能从 client cache 行为推导。
 
-当前 `process_responses_event()` 至少处理：
+## 4. Tool identity 与执行时序
 
-- `response.created`；
-- `response.output_item.added`、`response.output_item.done`；
-- `response.output_text.delta`；
-- reasoning summary/content delta；
-- `response.custom_tool_call_input.delta`；
-- `response.completed`、`response.failed`、`response.incomplete`。
+Codex 维护 item id、call id、tool name、arguments 和 output 的独立关联：
 
-`response.completed` 会反序列化 response id、usage 和可选 `end_turn` 为 `ResponseEvent::Completed`。`response.failed` 与 `response.incomplete` 转为错误结果，前者还会把可识别的上下文窗口、quota、策略、invalid request、过载或 retryable 情形细分（`sse/responses.rs:386-438`）。未知 event 仅 trace 记录后忽略。
+- custom tool delta 保留 item identity 与可选 call identity；
+- fragmented arguments 在 item lifecycle 内累计；
+- function/custom call 完成后可在 response terminal 前开始本地工具执行；
+- parallel tool tests 断言多个调用的启动与 output 按 `call_id` 回接；
+- cancel 与 terminal 到达会影响仍在运行的本地 tool task。
 
-对 OpenBridge 的结论不是复制其容错策略：
+本地 tool execution、approval 和 sandbox 属于 Codex Agent runtime，不是 Responses server 的 wire responsibility。
 
-- Native Path 可以保留未知合法 event 的 wire bytes；
-- Bridge Path 必须对每个未映射 event 明确 `mapped`、`rejected` 或带损失说明地处理，不能仅因 Codex 当前忽略就静默丢弃；
-- 已经向下游写出 body 后的 `failed`、`incomplete`、EOF 或 parser 错误属于当前 stream 的终态，不能进入 retry/fallback。
+## 5. Codex 的 TTFT 语义
 
-### 3.1 `response.metadata` 与私有 header
+Codex core 的 TTFT 观察更接近“收到第一个模型业务事件”，而不是 socket 首字节。text、reasoning 与 tool delta 是否计入需要看具体 event handler；`response.created` 或纯 lifecycle event 不等同于首个可消费模型输出。
 
-Codex 还识别 `response.metadata`，从中读取 `headers`、`openai_verification_recommendation` 和 `openai_chatgpt_moderation_metadata`；它也会读取 HTTP response 的 `openai-model`、`x-reasoning-included`、`x-request-id`、rate-limit、models etag 与 `x-codex-turn-state`（`sse/responses.rs:28-68, 203-303, 539-593`）。其中 `x-codex-turn-state` 被 Core 明确注释为同一 turn 的 sticky-routing token，并会在后续请求回传。
+因此引用 Codex TTFT 时必须给出事件条件，不能只写一个未定义的 `TTFT` 名称。
 
-这不是公开 Responses wire contract 的自动扩张。详细分界和 header policy 见[Responses 协议的 Codex 交叉核对](../openai/responses-protocol.md#62-codex-交叉核对标准事件与私有扩展分界)与[私有 header 规则](../openai/responses-protocol.md#63-codex-私有-header-与同一路径续接)。本调研确认的 OpenBridge 要求只有：
+## 6. WebSocket 与兼容边界
 
-- 受显式 allowlist 保护的 Native Path 同向透明保留 `x-codex-turn-state`，不解析 token 内容；
-- `response.metadata`、审核/验证信息和其他私有 header 不能塞入 Bridge IR、普通 Responses `metadata`、下游 Chat SSE 或用户可见 transcript；
-- 其他 `x-codex-*` 名称尚未在本次 HTTP Responses 流核对中证明必须透传，不能据此放宽为通配 header forwarding。
+`ModelProviderInfo` 存在 `supports_websockets` 且默认 false。这说明 Codex custom Provider profile 可声明 transport 能力，但字段存在本身不证明任意 endpoint 兼容 Responses WebSocket。
 
-## 4. 工具关联与执行边界
+本调研也不证明：
 
-`ResponseEvent` 的 `ToolCallInputDelta` 同时携带 `item_id`、可选 `call_id` 和增量文本。Core 在 `OutputItemAdded(CustomToolCall)` 时用 `call_id` 创建 argument diff consumer；在 `OutputItemDone` 时结束 consumer，随后把完成 item 交给自身的 tool runtime（`core/src/session/turn.rs:2113-2239`）。
+- Codex 当前 event 集合等于完整或长期稳定的 OpenAI Responses API；
+- private header、模型 metadata、rate-limit 或 telemetry 应由其他服务公开；
+- 一个 Codex stream fixture 同时证明其他 Agent/SDK 兼容；
+- Codex OAuth/client identity 与 Responses wire contract 是同一证据。
 
-由此可确认：
+## 一手源码
 
-1. `call_id` 是 tool call/output 的关联键，不能拿 item id、输出序号或函数名代替；
-2. fragmented argument 需要按 call/item 状态累积，空或晚到 fragment 不应覆盖先前身份；
-3. Codex 的本地 tool 执行发生在客户端 runtime。OpenBridge 不应因为观察到这个流程而执行 Agent 返回的 function/custom tool；它只需可靠地转发或在 bridge 中重建 wire-level call/result。
-
-建议的 OpenBridge fixture：并行 call、late/empty id or name、fragmented arguments、item done 早于 completed、`response.failed`、`response.incomplete`、EOF-before-terminal、下游取消，以及 `response.metadata.headers` / HTTP header 携带 turn state 时的 native preserve 与跨 deployment 拒绝。
-
-## 5. Codex 的 TTFT 不是 OpenBridge 的通用口径
-
-Codex 存在至少两层内部计时：
-
-- `core/src/client.rs:1962-2045` 在 stream wrapper 首次收到 `OutputItemAdded` 时记录 `ttft_ms`，并在 `Completed` 时把 usage 与该值交给 session telemetry；
-- `core/src/turn_timing.rs:360-394` 将非空 message/reasoning item 或其 delta 视为 turn TTFT，但排除 `Created`、tool input delta、`Completed`、rate-limit 等事件。
-
-这证明“TTFT”必须写明事件语义，而不是只有一个名字。它**不**改变 OpenBridge 已定义的网关口径：流式 `gateway_ttft_ms` 计到网关成功写出的首个 response body byte；非流式单列 `gateway_ttfb_ms`。Codex 的语义可作为额外的、协议感知的观测样本，不能替代网关端到端计时，也不能用 `response.created` 或 tool delta 冒充首个模型输出。
-
-## 6. 目标客户端验证与非结论
-
-Codex 的 `ModelProviderInfo` 仍有 `supports_websockets` 字段且默认 false（`model-provider-info/src/lib.rs:140-160`）；这只说明 custom Provider 配置有该能力开关。OpenBridge 初期保持显式 `supports_websockets = false`、验证 HTTP/SSE custom Provider profile；字段存在不构成 Responses WebSocket 的兼容承诺。
-
-本调研不证明：
-
-- 当前 Codex 解析的事件集合等于完整或长期稳定的 OpenAI Responses API；
-- 当前 client 内部的 header、模型 metadata、rate-limit 或 telemetry 结构应被 OpenBridge 对外暴露；
-- Codex OAuth、`auth.json`、客户端身份或 subscription route 可供 OpenBridge 使用；
-- Codex 通过的 stream 就能证明 Hermes 或其他 Agent 已兼容。
-
-## 相关资源
-
-- [项目比较矩阵](../project-comparison.md)
-- [Codex OAuth 安全边界](codex-oauth-and-tool-call-analysis.md)
-- [OpenAI Responses 协议](../openai/responses-protocol.md)
-- [当前实现说明](../../implementation-status/current-implementation.md)
-- [网关 API 与客户端兼容需求](../../functional-requirements/gateway-api-compatibility.md)
+- [`codex-api/src/sse/responses.rs`](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/codex-api/src/sse/responses.rs)
+- [`core/tests/common/responses.rs`](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/core/tests/common/responses.rs)
+- [Codex protocol test assets](codex-protocol-test-assets-analysis.md)
+- [Codex device auth and refresh](codex-device-auth-token-refresh-analysis.md)

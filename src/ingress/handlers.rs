@@ -175,3 +175,45 @@ pub(super) async fn health(State(state): State<GatewayState>) -> Json<HealthResp
         registry_version: state.registry.version().as_str().to_owned(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    //! Verifies the private JSON media-type admission boundary.
+
+    use http::{HeaderMap, HeaderValue, header::CONTENT_TYPE};
+
+    use super::has_json_content_type;
+
+    #[test]
+    fn json_content_type_accepts_case_and_parameters_but_rejects_ambiguous_values() {
+        // Accept the exact JSON media type case-insensitively with optional parameters.
+        for value in [
+            "application/json",
+            "Application/JSON",
+            "application/json; charset=utf-8",
+            "application/json ; charset=utf-8",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
+            assert!(has_json_content_type(&headers), "rejected {value}");
+        }
+
+        // Reject other media types even when their names contain a JSON suffix or prefix.
+        for value in [
+            "text/plain",
+            "application/problem+json",
+            "application/jsonx",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
+            assert!(!has_json_content_type(&headers), "accepted {value}");
+        }
+
+        // Reject duplicate and missing Content-Type boundaries.
+        let mut duplicate = HeaderMap::new();
+        duplicate.append(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        duplicate.append(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        assert!(!has_json_content_type(&duplicate));
+        assert!(!has_json_content_type(&HeaderMap::new()));
+    }
+}

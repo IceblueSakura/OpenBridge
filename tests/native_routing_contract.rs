@@ -7,7 +7,8 @@ use openbridge::{
     pipeline::RequestPlanningError,
     registry::{
         ModelContextLength, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
-        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, build_registry,
+        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, UpstreamApiCapabilities,
+        build_registry,
     },
 };
 use serde_json::{Value, json};
@@ -272,6 +273,62 @@ fn public_model_preflight_rejects_unknown_models() {
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
         RequestPlanningError::UnknownModel
+    ));
+}
+
+#[test]
+fn request_analysis_rejects_invalid_json_and_non_object_documents() {
+    let registry = build_test_registry(base_definition());
+
+    // Reject malformed JSON and valid JSON values that are not request objects.
+    for body in [b"{".as_slice(), b"[]".as_slice(), b"null".as_slice()] {
+        assert!(matches!(
+            support::prepare(
+                &registry,
+                ApiProtocol::ChatCompletions,
+                body.to_vec().into()
+            )
+            .unwrap_err(),
+            RequestPlanningError::InvalidJson
+        ));
+    }
+}
+
+#[test]
+fn request_analysis_rejects_missing_or_empty_model_values() {
+    let registry = build_test_registry(base_definition());
+
+    // Require a non-empty string model before Public Model lookup begins.
+    for request in [json!({}), json!({"model": ""}), json!({"model": null})] {
+        let body = serde_json::to_vec(&request).unwrap();
+        assert!(matches!(
+            support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+            RequestPlanningError::MissingModel
+        ));
+    }
+}
+
+#[test]
+fn public_model_preflight_rejects_streaming_when_the_fixed_interface_disables_it() {
+    // Compile a Chat interface whose only executable candidate disables streaming.
+    let mut definition = base_definition();
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.streaming = false;
+    }
+    let registry = build_test_registry(definition);
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "stream": true
+    }))
+    .unwrap();
+
+    // Reject the request at fixed-interface preflight before selecting egress.
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+        RequestPlanningError::StreamingUnsupported
     ));
 }
 

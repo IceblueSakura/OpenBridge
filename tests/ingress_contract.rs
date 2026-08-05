@@ -13,9 +13,10 @@ use axum::{
 };
 use openbridge::{
     ingress::{GatewayState, build_router},
-    registry::{RuntimeRegistry, build_registry},
+    registry::{RuntimeRegistry, UpstreamApiCapabilities, build_registry},
     transport::upstream::UpstreamClient,
 };
+use serde_json::Value;
 use tower::ServiceExt;
 
 fn test_app(registry: RuntimeRegistry) -> axum::Router {
@@ -129,4 +130,85 @@ async fn requests_over_the_bootstrap_body_limit_are_rejected() {
     let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn protected_endpoints_reject_malformed_bearer_schemes() {
+    let app = test_app(support::registry(
+        "auth-boundary-test",
+        "code-primary",
+        "test-model",
+    ));
+
+    for authorization in [
+        "Bearer ",
+        "bearer downstream-test-token-00000000000",
+        "Basic value",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/v1/models")
+                    .header(AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    }
+}
+
+#[tokio::test]
+async fn chat_admission_maps_invalid_documents_and_fixed_streaming_rejections() {
+    // Map malformed JSON and missing models to the stable downstream request error.
+    let app = test_app(support::registry(
+        "admission-test",
+        "code-primary",
+        "test-model",
+    ));
+    for body in ["{".to_owned(), r#"{"messages":[]}"#.to_owned()] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                    .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_request_error");
+    }
+
+    // Map a fixed interface streaming rejection before any real upstream request can occur.
+    let mut definition = support::definition("streaming-test", "code-primary", "test-model");
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.streaming = false;
+    }
+    let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+    let response = test_app(registry)
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "Application/JSON")
+                .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                .body(Body::from(
+                    r#"{"model":"code-primary","messages":[],"stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
 }

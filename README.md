@@ -205,7 +205,7 @@ cargo test --locked --test embedding_client_contract -- --ignored
 | [遥测指标](docs/implementation-status/telemetry-metrics.md) | Provider attempt 性能、usage、cache 指标口径和读取边界 | 实施现状 |
 | [当前代码架构](docs/implementation-status/current-architecture.md) | 按层次描述当前源码模块、请求路径、依赖和结构限制 | 实施现状 |
 | [当前开发焦点](docs/implementation-plans/current-focus.md) | 一个短周期行为的测试先行记录 | 实施计划 |
-| [参考项目比较矩阵](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 的研究职责 | 参考文档 |
+| [参考项目调研总览](docs/references/project-comparison.md) | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 等项目的证据范围 | 参考文档 |
 
 文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
 

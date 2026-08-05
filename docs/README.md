@@ -179,8 +179,9 @@ public model name
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 MiMo
-注册双协议和 Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek 只提供 Chat Native，Responses
-下游请求使用显式 Responses→Chat Bridge。这些路径仍不证明异构 wire protocol Provider 已经实现。
+注册双协议和 Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；
+`deepseek-v4-flash` 的 Responses 下游请求使用显式 OpenRouter Native route，`deepseek-v4-pro` 没有 Responses 接口。
+这些路径仍不证明异构 wire protocol Provider 已经实现。
 
 ## 9. 第七阶段：用测试理解“已经证明什么”
 
@@ -211,14 +212,14 @@ public model name
 | 比较 Provider 性能、usage 或 cache | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/provider.rs` → `observability_contract.rs` |
 | credential/header 泄露风险 | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests |
 | 新增 Provider | Provider contract → canonical model → compiled registry → adapter → probe → contract tests |
-| 实现 Embeddings 或 Native 多模态 | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [逐协议实现细节](references/openai/implementation-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
+| 实现 Embeddings 或 Native 多模态 | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试 | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：
 
 - [Chat Completions 协议](references/openai/chat-completions-protocol.md)
 - [Responses 协议](references/openai/responses-protocol.md)
-- [扩展协议实现细节](references/openai/implementation-details/README.md)
+- [扩展协议调研](references/openai/protocol-details/README.md)
 - [参考项目比较矩阵](references/project-comparison.md)
 - [Chat/Responses、SSE 与工具测试集调研](references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
 

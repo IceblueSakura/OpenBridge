@@ -1,94 +1,110 @@
 # 参考文档
 
-本目录保存外部协议与参考项目的快照、观察事实和适用边界。它们为需求或实施计划提供依据，但不自动构成 OpenBridge 的功能承诺。OpenBridge 是 headless 网关，因此 GUI、企业控制面和客户端管理只作为明确排除项，不是调研或复用目标。
+本目录只保存外部协议、SDK、目标客户端、Provider 和参考项目的调研结果。每份文档应记录来源、快照日期或 commit、观察事实、推论与证据边界。
 
-参考项目的开源协议以其仓库根目录的 `LICENSE` 为准；下表仅记录 2026-08-02 对默认分支的复核结果，不构成依赖引入、代码复用或法律意见。LiteLLM 的 `enterprise/` 目录适用其单独的 `enterprise/LICENSE`，其余仓库内容适用 MIT License。
+本目录不记录本仓库的当前实现状态、源码结构、已执行测试、目标数据类型或实施方案；这些内容按[文档分类规则](../README.md)写入其他目录。
 
-## 目录规则
+## 1. 目录规则
 
 | 位置 | 内容 |
-|---|---|
-| 当前目录 | [总索引](README.md)与[项目比较矩阵](project-comparison.md)；只放跨项目导航与分工，不放单一项目的深度调研。 |
-| `openai/` | 官方 OpenAI 协议与规范材料。 |
-| `openrouter/` | OpenRouter 官方模型目录、统一参数与 reasoning 元数据快照。 |
-| `providers/` | 具体上游 Provider 的官方协议、认证与 endpoint 事实。 |
-| `codex/`、`hermes/`、`litellm/`、`cc-switch/`、`cliproxyapi/` | 对应单一参考项目的源码、issue、测试与适用边界调研。 |
-| `cross-project/` | 确实需要同时比较多个项目、且不能合理归属单一项目的材料，例如 OAuth 风险对比。 |
+| --- | --- |
+| `openai/` | OpenAI 官方 API/SDK 与 gpt-oss 测试资产调研 |
+| `openrouter/` | OpenRouter Models/Provider API 与固定目录快照 |
+| `providers/` | 其他上游 Provider 的独立官方协议快照，以及已满足项目级前置条件的 Provider 对照 |
+| `codex/` | Codex 源码、认证、SSE、tool lifecycle 和 tests |
+| `hermes/` | Hermes Agent 的协议与 credential lifecycle |
+| `litellm/` | LiteLLM Proxy、adapter、model、observability、performance 和 tests |
+| `cc-switch/` | cc-switch protocol bridge 与 retry/failover |
+| `cliproxyapi/` | CLIProxyAPI state、credential 与 OAuth scheduler |
+| `open-responses/` | Open Responses 规范与 compliance tests |
+| `responses-proxy/` | CallOrRet/responses-proxy 转换与 tests |
+| `openai-compatibility-tester/` | beranekio compatibility tester |
+| `cross-project/` | 已经存在各项目独立调研后的综合比较 |
+| 当前目录 | 总索引与[参考项目调研总览](project-comparison.md) |
 
-新增或移动参考文档时先由比较矩阵确定项目角色；能归属单一项目的文档不得留在根目录。每份文档仍需记录来源、快照时间/commit、观察事实、推论、适用边界与复核条件。
+单项目事实只能写入对应项目目录。一个功能同时参考多个项目时，顺序必须是：
 
-## OpenAI 协议
+```text
+project A research
++ project B research
++ ...
+→ cross-project synthesis linking every prerequisite document
+```
+
+综合文档不得替代项目级来源，不得把比较结论写回任一项目的“实现事实”。
+
+## 2. OpenAI 官方协议
 
 - [API 规范目录](openai/api-specification-catalog.md)
 - [Chat Completions 协议](openai/chat-completions-protocol.md)
 - [Responses 协议](openai/responses-protocol.md)
-- [Embedding 与多模态 API 转发参考](openai/embedding-and-multimodal-forwarding.md)
-- [扩展协议实现细节索引](openai/implementation-details/README.md)：Embeddings、Chat/Responses 多模态、Audio、Images、Files、检索资源、Videos 与 Realtime 各自的 wire、状态、路由和测试边界。
+- [Embeddings 与多模态 API 关系](openai/embedding-and-multimodal-forwarding.md)
+- [扩展协议调研索引](openai/protocol-details/README.md)
 
-## OpenRouter 模型目录
+测试资产：
 
-- [2026-08-02 模型目录快照](openrouter/model-catalog-2026-08-02.md)：当前 canonical 模型的精确匹配、
-  context、最大输出、参数和 reasoning effort 证据。
-- [2026-08-02 Provider API 快照](openrouter/provider-api-2026-08-02.md)：Chat endpoint、Bearer 认证、
-  Models API、无状态 Responses 和 Nemotron `:free` 变体边界。
+- [gpt-oss compatibility-test](openai/gpt-oss-compatibility-test-analysis.md)
+- [OpenAI SDK streaming consumers](openai/openai-sdk-stream-test-assets-analysis.md)
 
-## Provider 官方协议
+## 3. Provider 官方资料
 
-- [DeepSeek 与 Xiaomi MiMo 协议入口](providers/deepseek-mimo-protocols-2026-08-02.md)：Chat/Responses、
-  endpoint 与认证方式的官方资料边界。
+### OpenRouter
 
-## 参考项目
+- [Models API 与能力字段](openrouter/model-information-api-analysis.md)
+- [模型目录快照（2026-08-02）](openrouter/model-catalog-2026-08-02.md)
+- [Provider API 快照（2026-08-02）](openrouter/provider-api-2026-08-02.md)
 
-先查[项目比较矩阵](project-comparison.md)，确认某项目在当前问题中是主参考、互证还是负面案例；不要因项目功能更广而扩大 OpenBridge 范围。
+### DeepSeek 与 Xiaomi MiMo
 
-| 参考项目 | 开源协议 | 许可证来源 |
-|---|---|---|
-| Codex | Apache License 2.0 | [`LICENSE`](https://github.com/openai/codex/blob/main/LICENSE) |
-| Hermes Agent | MIT License | [`LICENSE`](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) |
-| LiteLLM | MIT License（`enterprise/` 目录除外） | [`LICENSE`](https://github.com/BerriAI/litellm/blob/main/LICENSE) |
-| cc-switch | MIT License | [`LICENSE`](https://github.com/farion1231/cc-switch/blob/main/LICENSE) |
-| CLIProxyAPI | MIT License | [`LICENSE`](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) |
+- [DeepSeek 协议入口快照](providers/deepseek-protocol-2026-08-02.md)
+- [Xiaomi MiMo 协议入口快照](providers/xiaomi-mimo-protocol-2026-08-02.md)
+- [DeepSeek/MiMo 综合对照](providers/deepseek-mimo-protocols-2026-08-02.md)
 
-### 跨项目韧性对照
+## 4. 参考项目
 
-- [Credential Pool、冷却与有限重试对照](cross-project/credential-pool-retry-analysis.md)：固定
-  CLIProxyAPI、LiteLLM 与 cc-switch 快照，只提取 API-key pool、最小健康隔离、错误分类与硬 attempt
-  预算；不引入其账号/OAuth 聚合或控制面。
+参考项目的许可证以各仓库根 `LICENSE` 为准；此处不是依赖引入或法律意见。
 
-### 本地 Agent 契约
+| 项目 | 许可证入口 | 项目级调研 |
+| --- | --- | --- |
+| Codex | [Apache-2.0](https://github.com/openai/codex/blob/main/LICENSE) | [SSE/tool lifecycle](codex/codex-sse-and-tool-lifecycle-analysis.md)、[browser OAuth/tool](codex/codex-oauth-and-tool-call-analysis.md)、[device auth/refresh](codex/codex-device-auth-token-refresh-analysis.md)、[tests](codex/codex-protocol-test-assets-analysis.md) |
+| Hermes Agent | [MIT](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) | [Chat/Responses](hermes/hermes-chat-responses-analysis.md)、[Codex OAuth lifecycle](hermes/hermes-codex-oauth-refresh-analysis.md) |
+| LiteLLM | [MIT; enterprise subtree另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE) | [Chat/Responses](litellm/litellm-chat-responses-analysis.md)、[call chain](litellm/litellm-proxy-call-chain-analysis.md)、[performance](litellm/litellm-proxy-performance-bottlenecks.md)、[observability](litellm/litellm-observability-analysis.md)、[model info](litellm/litellm-model-information-analysis.md)、[credential retry](litellm/litellm-credential-pool-retry-analysis.md)、[OAuth](litellm/litellm-chatgpt-oauth-refresh-analysis.md)、[tests](litellm/litellm-protocol-test-assets-analysis.md) |
+| cc-switch | [MIT](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | [Chat/Responses tool conversion](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[retry/failover](cc-switch/cc-switch-retry-failover-analysis.md) |
+| CLIProxyAPI | [MIT](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[Codex OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) |
 
-- [Codex Responses SSE 与工具生命周期](codex/codex-sse-and-tool-lifecycle-analysis.md)：Rust SSE 解析、终态、`call_id` 与客户端 TTFT 语义。
-- [Hermes Chat/Responses](hermes/hermes-chat-responses-analysis.md)：`api_mode`、Chat/Responses agent loop 与 tool result 归一。
+其他测试项目：
 
-### Provider 与 Protocol Bridge
+- [Open Responses Compliance](open-responses/open-responses-compliance-analysis.md)
+- [CallOrRet/responses-proxy](responses-proxy/responses-proxy-test-assets-analysis.md)
+- [beranekio/openai-compatibility-tester](openai-compatibility-tester/openai-compatibility-tester-analysis.md)
 
-- [LiteLLM Chat/Responses](litellm/litellm-chat-responses-analysis.md)
-- [LiteLLM Proxy 调用链](litellm/litellm-proxy-call-chain-analysis.md)
-- [LiteLLM 调用统计与 Prometheus](litellm/litellm-observability-analysis.md)：TTFT/延迟/失败指标的边界，不复用其多租户标签和计费。
-- [cc-switch Chat/Responses 与 Agent Tool](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)：Code Agent bridge 状态机。
-- [CLIProxyAPI 状态与 Bridge 负面案例](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)：`previous_response_id`、ID 映射与 stream terminal 的风险材料。
-- [Chat/Responses、SSE 与工具调用测试集调研](cross-project/chat-responses-sse-tool-test-suite-survey.md)：公开测试资产的覆盖比较、适用边界与 OpenBridge 自有 TDD corpus 建议。
+## 5. 综合调研
 
-### OAuth 安全边界（非当前接入目标）
+| 功能 | 综合文档 | 项目级前置 |
+| --- | --- | --- |
+| Protocol tests | [Chat/Responses、SSE 与工具测试资产](cross-project/chat-responses-sse-tool-test-suite-survey.md) | OpenAI gpt-oss/SDK、Open Responses、Codex、LiteLLM、responses-proxy、compatibility-tester |
+| Credential retry | [Pool、cooldown 与有限重试](cross-project/credential-pool-retry-analysis.md) | CLIProxyAPI、LiteLLM、cc-switch |
+| Model information | [LiteLLM/OpenRouter 模型信息](cross-project/model-information-comparison.md) | LiteLLM、OpenRouter |
+| OAuth device/refresh | [设备登录与 token refresh](cross-project/upstream-oauth-device-code-token-refresh-analysis.md) | Codex、CLIProxyAPI、Hermes、LiteLLM |
 
-- [上游 OAuth 2.0 设备码登录与 token 刷新](cross-project/upstream-oauth-device-code-token-refresh-analysis.md)：以 RFC 为基线，比较 Codex、CLIProxyAPI、Hermes 与 LiteLLM 的设备登录、到期调度、refresh rotation、并发和 401 恢复；区分 Codex 私有 flow 与标准 RFC 8628。
-- [Codex OAuth 与工具调用](codex/codex-oauth-and-tool-call-analysis.md)
-- [Hermes 与 LiteLLM OAuth](cross-project/hermes-litellm-oauth-analysis.md)
+## 6. 固定快照索引
 
-这些材料只说明规范基线、既有本地客户端的行为和不可外推风险；OAuth 是否可作为 OpenBridge 上游 credential，仍必须对每个 Provider 另依官方资料、独立 client registration 与明确授权判断。
+下面只记录外部项目本地 checkout 的 2026-08-01/05 复核位置，不覆盖各文档中的原始逐行 commit：
 
-新增参考需记录来源、快照时间或提交、检查范围、观察事实、推论与适用边界；升级实现前仍需复核官方资料和本地验证。
+| 项目 | 分支与提交 | 已复核主题 |
+| --- | --- | --- |
+| Codex | `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | device/browser auth、refresh、Responses SSE/tool tests |
+| Hermes | `main` @ `470cf66b039c73bdd2c21d43094ce41a4db74eae` | Chat/Responses mode、Codex credential lifecycle |
+| LiteLLM | `litellm_internal_staging` @ `23de7a15d9d40006ee596e617475ba101d60c5e9` | Responses routes、ChatGPT authenticator、model/metrics modules |
+| cc-switch | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | bridge state、history、retry/failover |
+| CLIProxyAPI | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | stateful translator、credential retry、OAuth scheduler |
 
-## 2026-08-01 本地参考目标更新与复核
+## 7. 新增文档检查表
 
-以下本地 worktree 均已对其跟踪的 `origin` 分支执行 fast-forward 更新；更新后工作区干净，且 `HEAD...@{u}` 的 ahead/behind 均为 `0/0`。这张表记录的是当前 checkout，不会改写各深度调研中用于逐行证据的固定历史提交。
-
-| 参考项目 | 当前分支与提交 | 本次静态复核 |
-|---|---|---|
-| Codex | `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | `process_responses_event`、`ResponseEvent::Completed`、`ToolCallInputDelta`、`x-codex-turn-state`、`supports_websockets`，以及 OAuth/`call_id` 相关模块仍在职责路径中。 |
-| Hermes Agent | `main` @ `470cf66b039c73bdd2c21d43094ce41a4db74eae` | `agent/agent_init.py` 仍由显式 `api_mode` 优先选择 `codex_responses`，升级后仍使 transport cache 失效；`ResponsesApiTransport` 仍登记该 mode。 |
-| LiteLLM | `litellm_internal_staging` @ `23de7a15d9d40006ee596e617475ba101d60c5e9` | `/responses` 路径、`base_process_llm_request()`、`route_request()`、Responses resource route types、Prometheus 和 ChatGPT `Authenticator` 仍存在，但调用链文件与行号已演进。 |
-| cc-switch | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | `CodexToolContext`、`CodexChatHistoryStore`、`ChatToResponsesState` 与 `create_responses_sse_stream_from_chat_with_context` 仍位于 Codex Chat/Responses bridge 路径。 |
-| CLIProxyAPI | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | `previous_response_not_found` 的保留错误测试、`previous_response_id`、`output_item.done` 与 `response.completed` 的 translator/executor 测试仍可定位；executor 已拆分，旧行号不应视为当前定位。 |
-
-各深度调研中的固定 commit 和行号仍是其原始观察证据；当本表显示模块或行号已经演进时，文档会明确区分“固定证据快照”和“当前模块级复核”。任何新的实现决策仍须在当前提交上重新固定文件/行号并建立 OpenBridge 自有 fixture。
+- 对应单一项目或官方来源目录；
+- 记录 source URL、snapshot date/commit 和阅读范围；
+- 区分观察事实、推论、未验证项与适用边界；
+- 不包含本仓库源码路径、当前实现状态、目标类型或实施步骤；
+- 多项目综合先链接每个项目的独立调研；
+- 不记录 credential、私有配置、敏感请求或未脱敏 production transcript；
+- 动态官方事实使用固定日期理解，升级结论前重新复核。

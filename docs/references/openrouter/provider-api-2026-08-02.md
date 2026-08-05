@@ -2,45 +2,43 @@
 
 ## 来源与检查范围
 
-本快照只记录 OpenBridge 当前 OpenRouter Native 注册所需的官方事实，不把 OpenRouter 的全部统一 API
-能力外推为具体模型能力。检查来源：
-
 - [Chat Completions API](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request?explorer=true)
 - [Models API](https://openrouter.ai/docs/api/api-reference/models/get-models)
 - [Responses API Beta](https://openrouter.ai/docs/api/reference/responses/overview)
-- [Nemotron 3 Ultra Free 模型页](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b%3Afree/api)
+- [Nemotron 3 Ultra Free model page](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b%3Afree/api)
 
-## 已采用事实
+本文区分官方页面描述与一次固定日期的 live wire 观察；二者都只适用于 OpenRouter。
 
-- OpenRouter API base 是 `https://openrouter.ai/api/v1`，Chat Completions 相对 path 是
-  `/chat/completions`，Responses 相对 path 是 `/responses`，Models 相对 path 是 `/models`。
-- API key 通过 `Authorization: Bearer <OPENROUTER_API_KEY>` 提交。
-- Responses API 支持 JSON 与 SSE、reasoning 和 function tool，但只提供无状态调用；`store: true` 和非空
-  `previous_response_id` 会返回 400。OpenBridge 还保守关闭未在当前承诺内的 `background`。
-- 官方 streaming 示例把终态写为 data JSON 的 `type: "response.done"`，并在嵌套 `response.status` 标记
-  `completed`，其后还有 `[DONE]`；这项文档示例与下述真实 Nemotron-3 wire 不一致，OpenBridge 不再把它
-  作为当前终态配置依据。
-- 当前注册使用基础 model id `nvidia/nemotron-3-ultra-550b-a55b`，不使用 `:free` 变体。
-- `HTTP-Referer`、`X-Title` 等可选 attribution/routing header 不属于当前所需认证事实，OpenBridge 不从下游
-  转发这些字段。
+## 1. 官方 API 事实
 
-## 未采用与适用边界
+- API base 为 `https://openrouter.ai/api/v1`。
+- Chat Completions、Responses 和 Models 相对 path 分别为 `/chat/completions`、`/responses`、`/models`。
+- API key 使用 `Authorization: Bearer <OPENROUTER_API_KEY>`。
+- Responses 页面描述 JSON/SSE、reasoning 和 function tool；该 surface 是无状态的，`store: true` 和非空 `previous_response_id` 返回 400。
+- `HTTP-Referer`、`X-Title` 是可选 attribution/routing header，不是 Bearer 认证本身。
 
-- 2026-08-02 使用基础模型 `nvidia/nemotron-3-ultra-550b-a55b` 先后执行修复前复现与修复后验收的真实
-  Responses streaming 成功请求：上游均返回 HTTP 200 和 data-only SSE，所有 frame 均没有 `event:`；终态 data JSON 顶层
-  `type=response.completed`、嵌套 `response.status=completed`，随后另发 `[DONE]`，未出现
-  `response.done`。因此 OpenRouter 当前 adapter 与 LongCat 一样，从 data JSON 顶层 `type` 读取 OpenAI
-  terminal 词汇；`[DONE]` 仍不是 Responses 语义终态。修复前网关在 EOF 将请求误记为失败，修复后相同
-  Native route 的终态观测为 `outcome=completed`。
-- OpenRouter 文档描述的是平台统一 Responses surface，不自动证明 Nemotron 3 Ultra 的每个模型级参数组合。
-  当前注册只开放 canonical 模型已声明的 reasoning level 与 function tool，并保守关闭 parallel tools、image 和
-  structured output；真实 wire 兼容性仍需单独验收。
-- `:free` 模型页声明其免费 endpoint 会记录会话，且不应发送机密或个人信息。本次采用基础 model id，避免把
-  该额外数据政策隐式带入默认路由；这不证明基础模型的商业、隐私或保留条款。
-- 本次真实请求只证明该模型、该账号在该时刻的成功流；不证明失败 terminal、其他模型、所有参数组合、
-  当前账号长期权限/配额、真实 tool/reasoning wire 行为、服务质量或未来 wire 稳定性。
+## 2. 官方示例与 live wire 差异
 
-## 复核条件
+官方 streaming 示例曾显示顶层 `type: "response.done"`、嵌套 `response.status: "completed"`，随后发送 `[DONE]`。
 
-OpenRouter endpoint、认证方式、模型 id、具体模型能力或数据政策发生变化，或计划启用有状态 Responses、
-`:free` 变体、Provider routing、attribution header 时，必须重新检查官方文档与模型页，并更新注册表契约和测试。
+2026-08-02 对基础模型 `nvidia/nemotron-3-ultra-550b-a55b` 的两次成功 Responses streaming 观察均得到：
+
+- HTTP 200；
+- data-only SSE，没有 `event:` line；
+- terminal data JSON 顶层 `type: "response.completed"`；
+- 嵌套 `response.status: "completed"`；
+- terminal 后另有 `[DONE]`；
+- 没有出现 `response.done`。
+
+该观察只记录原始 upstream wire 差异。它不证明错误 terminal、其他模型、全部参数或未来版本使用同一事件。
+
+## 3. 模型与数据政策边界
+
+- 平台统一 Responses surface 不自动证明每个模型支持所有参数组合。
+- 基础模型与 `:free` 变体有不同目录元数据和供应条件。
+- `:free` 模型页声明免费 endpoint 会记录会话，不应发送机密或个人信息；该政策不能自动外推到基础模型或其他 endpoint。
+- 一次成功请求只证明该模型、账户和时间点的成功流，不证明长期权限、配额、SLA、tool/reasoning 细节或所有错误行为。
+
+## 4. 复核条件
+
+endpoint、认证、模型 id、Responses beta 行为、数据政策、attribution header 或具体模型页面变化时，需要重新采集官方资料和 wire transcript，并分别记录模型变体。

@@ -11,7 +11,7 @@
 
 扩展 schema 在本次实现前尚未发布，因此采用首版最佳实践迁移：保持 `schema_version: "1"` 并直接修正 DTO、parser、registry、OpenAPI、配置与测试，不提供旧字段镜像、兼容 alias、双读写、默认回退或弃用窗口。已完成的 Embeddings 实现没有顺带改动多模态 reserved bool；多模态进入后续独立焦点时再原子替换其 bool/保留位设计。
 
-协议字段、媒体形状和实现接缝分别见 [Embeddings 实现细节](../references/openai/implementation-details/01-embeddings.md) 与 [Chat/Responses 多模态实现细节](../references/openai/implementation-details/02-chat-responses-multimodal.md)。
+外部协议字段与媒体形状分别见 [Embeddings 协议调研](../references/openai/protocol-details/01-embeddings.md) 与 [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)。
 
 ## 1. 能力事实的分层
 

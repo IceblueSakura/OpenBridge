@@ -1,75 +1,50 @@
-# Credential Pool、冷却与有限重试对照
+# Credential Pool、冷却与有限重试综合调研
 
-## 状态与范围
+## 状态与前置文档
 
-**外部实现调研；只为 OpenBridge 的 API-key pool、HTTP 429 冷却和请求级 attempt 边界提供反例与对照，
-不是实现模板。** 本文不采用参考项目的 OAuth/订阅账号聚合、GUI、数据库、预算、动态 Provider 配置或
-跨进程控制面。
+本文只比较三个项目已经分别记录的行为：
 
-| 项目 | 固定快照 | 阅读范围 | 本文角色 |
-|---|---|---|---|
-| CLIProxyAPI | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`，2026-08-02 | `config.example.yaml`、credential cooldown 文档 | credential 尝试上限、round-robin 与 cooldown 的直接对照 |
-| LiteLLM | `main` @ `de706a35a6f1e9cb8c3cb527271df0b76a69f410`，2026-08-02 | Router retries、deployment cooldown、fallback 文档 | 将失败隔离到单个 deployment，而不是整个 model group |
-| cc-switch | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890`，2026-08-02 | `src-tauri/src/proxy/forwarder.rs`、failover 文档 | 请求级最大尝试数、错误分类和 circuit breaker 反例 |
+- [CLIProxyAPI credential retry 与 cooldown](../cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)
+- [LiteLLM deployment retry 与 cooldown](../litellm/litellm-credential-pool-retry-analysis.md)
+- [cc-switch request retry 与 failover](../cc-switch/cc-switch-retry-failover-analysis.md)
 
-## 观察事实
+固定快照和一手来源由各项目文档维护。本文不重复项目源码定位，也不记录任何具体网关的实现状态。
 
-### CLIProxyAPI
+## 1. 共同问题，不同资源单位
 
-- `config.example.yaml` 将 `request-retry`、`max-retry-credentials`、`max-retry-interval` 与 cooldown 开关分开；
-  说明单请求 attempt、不同 credential 数量和跨请求健康不是同一个预算。
-- 认证文档描述 quota failure 后冷却当前 credential、改用下一个 credential，并在 cooldown 到期后重新加入
-  rotation；默认 routing 策略是 round-robin。
-- 当前示例把 `403/408/500/502/503/504` 也放入 request retry，并支持持久化 cooldown。该范围依赖它的
-  多账号/OAuth 产品，不适合直接成为 OpenBridge 的 API-key 规则。
+三个项目都处理“当前候选失败后是否换另一个候选”，但隔离单位并不相同：
 
-### LiteLLM
+| 项目 | 选择/隔离单位 | 请求内边界 | 跨请求状态 |
+| --- | --- | --- | --- |
+| CLIProxyAPI | credential/account | request retry 与最大 credential 数分别限制 | credential cooldown，可持久化 |
+| LiteLLM | deployment | retry/fallback 有独立配置 | deployment cooldown，可结合 Redis |
+| cc-switch | Provider | `max_retries + 1` 且受 Provider 数量限制 | 持久化 circuit breaker |
 
-- Router 对多个 deployment 做负载选择；cooldown 作用于单个 deployment，其他同 model group deployment
-  仍可使用。
-- 429 会立即触发 deployment cooldown；retry 与 cooldown 分开配置，并允许按错误类型设置重试次数。
-- LiteLLM 还包含 Redis、预算、团队/virtual key 和动态配置。OpenBridge 只采用“健康隔离到最小可替换
-  资源”和“所有路径仍有硬 attempt 上限”两条原则。
+因此，`credential`、`deployment` 和 `Provider` 不能仅因都能“切换”而视为同一故障域。
 
-### cc-switch
+## 2. 可重复观察
 
-- `RequestForwarder` 将 `max_retries` 转换为 `max_attempts = max_retries + 1`，循环同时受 provider 数量限制；
-  这避免配置规模无限放大单请求调用次数。
-- forwarder 区分 Provider/transport failure 与经整流后仍无效的客户端请求；后者不会继续 failover。
-- cc-switch 的 failover 单位是 Provider，并带 UI、持久化 circuit breaker 和客户端配置接管。它不能证明
-  OpenBridge 应把 credential 当作 Provider 或 Route，也不能证明所有 4xx 都应轮转。
+1. **attempt 必须有硬上限。** CLIProxyAPI 把可尝试 credential 数与 request retry 分开；cc-switch 同时受显式最大次数和候选数量限制。
+2. **cooldown 是跨请求状态。** 它描述某个资源在一段时间内不应再次被选择，不等于当前请求必须等待其恢复。
+3. **健康应隔离到项目定义的最小可替换资源。** LiteLLM 冷却单个 deployment，而不是整个 model group。
+4. **错误分类决定是否切换。** cc-switch 不对已归类为客户端输入无效的错误继续 failover；CLIProxyAPI 与 LiteLLM 的 status 集合则受各自产品策略影响。
+5. **候选扩大不能隐式扩大调用预算。** pool/group/provider 列表增长不能自动增加单请求的无限尝试。
 
-## 适用于 OpenBridge 的最小规则
+## 3. 差异与不可合并项
 
-1. 一个共享 `CredentialPool` 是 Provider-scoped、可被多个 Upstream Target 引用的受信资源；单个 key 的
-   cooldown 不得直接污染整个 target、quota scope 或 Public Model。
-2. 仅 HTTP 429 在首输出前触发 API-key 轮转。429 冷却当前 credential；5xx、timeout 与 transport failure
-   继续作用于 target/fault domain；其他 4xx 不轮转。
-3. key 轮转、同 candidate retry 与 Route fallback 共享现有请求级硬预算和同一 capped exponential backoff；
-   pool 大小不得扩大 attempt 上限。
-4. 每个请求不得因 429 回到已在该请求中拒绝过的 credential；跨请求则按 cooldown deadline 自动恢复。
-5. `Retry-After` 只决定失败 credential 的跨请求 cooldown，不要求当前请求等待该 key 恢复；存在其他可用
-   key 时仅等待正常 attempt backoff。
-6. 所有 credential 都不可用时优先进入下一条完整 Route；没有 Route 时保留最后一个安全 429，纯粹因既有
-   cooldown 无法开始任何 attempt 时返回稳定的 cooldown 错误。
-7. pool/member ID 可以进入脱敏 trace，但 secret、locator 与 Authorization 不得进入错误、日志、metrics、
-   fixture 或 probe report；低基数 metrics 只累计轮转次数与终态。
+| 维度 | CLIProxyAPI | LiteLLM | cc-switch |
+| --- | --- | --- | --- |
+| 429 | credential quota/cooldown 语义较强 | deployment cooldown | 由 Provider failover 分类处理 |
+| 5xx/transport | 可进入 request retry | deployment retry/fallback | Provider/transport failover |
+| 4xx | 示例包含部分 4xx | 可按错误类型配置 | 客户端无效错误不继续 |
+| 分布式协调 | 项目可持久化部分 cooldown | 可使用 Redis | 桌面应用持久化 circuit breaker |
+| 管理面 | 账号/OAuth 聚合 | team、budget、virtual key | UI 与客户端配置接管 |
 
-## 不适用与待真实验证边界
+这些差异说明不存在可从三个项目直接抽取的统一 status 表。真正的 retry contract 仍需先确定资源身份、失败作用域、请求是否已产生副作用，以及流式输出是否已经开始。
 
-- HTTP 429 不能证明配额是 key 级、账号级还是 Provider 级；第一版只采用可预测的 key-local 假设，并在
-  pool 全部不可用时收敛，不解析 Provider 错误正文。
-- 不引入余额查询、HTTP 402 特判、401/403 credential spraying、动态权重、failure-rate 阈值、后台 probe、
-  cooldown 持久化或跨进程协调。
-- `previous_response_id` 等 target-bound state 可能同时绑定 credential/account。没有 credential affinity
-  证据或 ledger 时，多成员 pool 不得用于这类 Upstream API。
-- 外部项目的 deterministic tests 不证明 DeepSeek、MiMo 或其他真实 Provider 的 quota 作用域；真实 Key
-  验证必须单独执行并记录，不进入默认测试基线。
+## 4. 证据边界
 
-## 一手入口
-
-- [CLIProxyAPI `config.example.yaml`](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/config.example.yaml)
-- [CLIProxyAPI authentication 与 cooldown](https://router-for-me-cliproxyapi.mintlify.app/concepts/authentication)
-- [LiteLLM Router](https://docs.litellm.ai/docs/routing)
-- [LiteLLM reliability](https://docs.litellm.ai/docs/proxy/reliability)
-- [cc-switch `forwarder.rs`](https://github.com/farion1231/cc-switch/blob/ebbf141fc71547a99f669df1be8e345130d1d890/src-tauri/src/proxy/forwarder.rs)
+- 静态配置和源码观察不证明真实 Provider 的 quota 究竟绑定 API key、账户、组织还是 endpoint。
+- account pool、动态权重、预算与 GUI 是各项目产品能力，不是 retry 协议基线。
+- stateful continuation 可能额外绑定 account/credential；上述无状态切换观察不能证明 state 可迁移。
+- 外部 deterministic tests 只能证明各自实现，不能替代真实 Provider 的 quota 与恢复验证。

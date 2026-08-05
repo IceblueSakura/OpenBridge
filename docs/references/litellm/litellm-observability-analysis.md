@@ -1,75 +1,56 @@
-# LiteLLM 调用统计与 Prometheus 边界调研
+# LiteLLM 调用统计与 Prometheus 调研
 
 ## 状态与范围
 
-**外部实现调研；用于统计口径和 Prometheus 反例，不导入 LiteLLM Proxy 控制面。**
-
 | 项目 | 值 |
-|---|---|
-| 调研仓库 | `https://github.com/BerriAI/litellm` |
-| 固定证据快照 | `F:/codespace/litellm`，`litellm_internal_staging` @ `b9b27c2beb601433c39dabff3ffcf0248333d49e` |
-| 快照日期 | 2026-07-25 |
-| 阅读范围 | `litellm/integrations/prometheus.py`、`types/integrations/prometheus.py`、Responses Chat bridge handler |
-| 矩阵角色 | usage/error 字段与观测实现的互证参考；OpenBridge 的指标边界仍由自身需求定义 |
-| 不在范围 | virtual key、用户/团队/组织/预算、spend、数据库/Redis、UI、callback/control-plane 链路 |
+| --- | --- |
+| 固定源码快照 | `BerriAI/litellm` commit `f955c5e5885e2f6a9ad5ce0304399280794ef1be`，2026-07-25 |
+| 当前模块级复核 | commit `23de7a15d9d40006ee596e617475ba101d60c5e9`，2026-08-01 |
+| 阅读范围 | Prometheus integration、logging payload、stream TTFT、failure handler 与 Responses bridge |
+| 排除 | 计费正确性、enterprise audit、真实负载开销与多租户部署验证 |
 
-**2026-08-01 当前模块级复核。** 本地 `litellm_internal_staging` 已 fast-forward 至 `23de7a15d9d40006ee596e617475ba101d60c5e9`；`PrometheusLogger`、streaming TTFT、proxy metrics 与 Responses route types 仍可定位。观测实现和行号会随上游演进，故下文逐行证据仍只属于固定快照。
+原始行号只对应固定快照。
 
-## 1. 已观察到的统计分层
+## 1. 统计分层
 
-`PrometheusLogger` 在初始化时分别创建 proxy 请求/失败 counter、总请求延迟 histogram、LLM API 延迟 histogram、流式 TTFT histogram 和 token/spend 指标（`integrations/prometheus.py:130-197`）。这说明“请求是否完成”“网关总时延”“上游 API 时延”“首输出时间”“usage”不是同一个指标，也不应依赖单一 duration 推导。
+LiteLLM 的 observability 同时包含：
 
-OpenBridge 可采用这种分层思想，但指标名、标签和导出端点不与 LiteLLM 绑定。OpenBridge 只需要稳定的本地 user id，不需要 LiteLLM 的 team/key/organization/spend 管理维度。
+- 请求成功/失败与 token/latency 指标；
+- Provider/model/deployment 维度；
+- virtual key、team、organization、end-user 与 budget/spend 管理维度；
+- callback 和 logging payload 驱动的 Prometheus labels。
 
-## 2. TTFT 的具体口径
+这些层次服务于 LiteLLM Proxy 的多租户管理面。模型调用指标、账户归属和计费标签不能视为同一种协议字段。
 
-LiteLLM 在 `_set_latency_metrics()` 中只对 `stream=True` 记录其 TTFT histogram，起止点为 `api_call_start_time → completion_start_time`（`integrations/prometheus.py:1899-1918`）；非流式请求不会写入该 histogram。它还独立记录 API 调用总时延与总请求时延（`:1920-1968`）。
+## 2. TTFT 口径
 
-这提供两个反例：
+stream wrapper 在收到第一个可迭代 chunk 时记录 `completion_start_time`，随后形成 TTFT。该时间点受 SDK iterator、Provider adapter、空 chunk/usage chunk 和 bridge conversion 影响。
 
-1. 名为 TTFT 的指标不天然表示“网关向下游写出首字节”；它取决于计时点到底是上游请求、首个 SDK chunk 还是下游 write；
-2. 把流式和非流式都塞进同一 TTFT bucket 会丢失语义。
+因此 LiteLLM TTFT 是具体实现口径；它不自动等于 TCP/HTTP 首字节、首个 SSE frame、首个 text delta 或首个用户可见字符。
 
-因此 OpenBridge 保持自己的定义：流式记录 `gateway_ttft_ms`（路由开始至首个成功下游 body byte），非流式记录 `gateway_ttfb_ms`；完整终态记录 `gateway_latency_ms`。若日后增加协议感知的“首个文本/reasoning event”，必须单列名称和事件条件。
+## 3. 标签与基数
 
-## 3. 标签稳定性与基数控制
+Prometheus integration 对部分 label series 做限制或清理，但可选维度仍包括 user、team、key、organization、model、Provider 与 deployment。开启哪些 labels 会直接影响基数、隐私和指标可聚合性。
 
-LiteLLM 在 logger 初始化时快照每个 metric 的 label 集合，理由是 Prometheus metric 创建后不能变更 labelnames，运行时开关变化会导致 `.labels()` 不匹配（`integrations/prometheus.py:110-129`）。其实现还存在 `BoundedPrometheusSeriesTracker`，并在默认路径中避免将 end-user 用作 Prometheus 成本追踪维度（`utils.py:9016-9040`）。
+任何采用 LiteLLM 指标的人都需要同时核对：label 来源是否受调用方控制、是否含稳定内部 ID、是否可能包含 credential/user data，以及 series limiter 的实际配置。
 
-OpenBridge 可借鉴的只是安全性质：
+## 4. Failure counter 与终态
 
-- metric label schema 在启动/reload 时验证和固定；
-- 无界 request id、原始错误文本、客户端身份、完整模型 URL 或 prompt 不进入 label；
-- 若任何可选维度会增大 series，先设上限并单独记录 dropped/overflow。
+Prometheus logger 为 failed request 建立 counter，并从 logging payload 构建上下文。普通 HTTP failure、stream 中的失败 event、EOF、client cancellation、bridge transform error 和一次请求内的多个 Provider attempt 可能落入不同 callback 路径。
 
-OpenBridge 不采用 LiteLLM 的 team/API-key、budget、spend 或任意 end-user 标签，即使它们已经过 series 限制；未来统计只能使用用户表中的稳定 user id，不能把调用统计扩展为在线客户端管理。
-
-## 4. 失败计数不等于终态错误率
-
-LiteLLM 的 Prometheus logger 为 failed requests 建 counter，并按 logging payload 构建上下文（`integrations/prometheus.py:1978-2028`）。该机制适合作为“记录失败路径”的工程样本，但不能直接成为 OpenBridge 错误率口径：已开始 SSE 后发生 `response.failed`、`response.incomplete`、EOF 或 client cancellation 可能不等同普通 HTTP failure。
-
-这项调研只保留外部实现观察；OpenBridge 当前尚未实现调用统计，已实现边界见[当前实现说明](../../implementation-status/current-implementation.md)。
+所以一个 `failed_requests` counter 的名称不能单独说明其分母、终态唯一性或 streaming failure 分类。
 
 ## 5. Responses bridge 的观测边界
 
-最新 `LiteLLMCompletionTransformationHandler` 会将 Responses request 转成 Chat request，并把非流式响应或 stream wrapper 再转换回 Responses（`responses/litellm_completion_transformation/handler.py:23-119`）。异步路径在 `previous_response_id` 存在时先进入 session handler（`:80-88`）。
+Responses 请求可能经过 request transform、Chat upstream、stream transform 和 response aggregation。中间阶段的异常与最终下游请求状态需要分别观察；否则一次用户请求可能被重复计数，或 transform failure 被成功 upstream call 掩盖。
 
-这对 OpenBridge 的含义是：一次“下游请求”可能包含多个内部阶段，但调用统计仍只能有一个下游终态 record；attempt、route mode 和内部 transform 可以作为低基数属性，不能把中间 transform 当成额外的用户调用或把其异常吞进成功样本。
+## 6. 适用边界
 
-## 6. 需要转化为 OpenBridge 测试的点
+- LiteLLM metrics 证明其 callback/payload 如何形成指标，不证明同名指标适用于其他系统。
+- team/key/budget/spend 是 Proxy 产品管理维度，不是 OpenAI wire 字段。
+- TTFT、latency 与 failure rate 在跨系统比较前必须先对齐事件起止点与分母。
+- 静态源码阅读不证明高基数、callback overhead 或真实负载下的指标准确性。
 
-| ID | 证据应保护的结果 |
-|---|---|
-| LOBS-01 | stream 与 non-stream 分别写入 TTFT 与 TTFB，且不混用。 |
-| LOBS-02 | 统计标签 schema 在启用前固定；request id/错误文本不产生 Prometheus series。 |
-| LOBS-03 | 终态 SSE failure/incomplete 与 HTTP failure 都计入相应 outcome；client cancellation 单列。 |
-| LOBS-04 | bridge 的内部 request/response/stream 只形成一个下游 `CallRecord`，其中 route mode 与 attempt 可观测。 |
-| LOBS-05 | telemetry 写入失败只增加有界 dropped 指标，不影响下游 stream。 |
+## 一手入口
 
-## 相关资源
-
-- [项目比较矩阵](../project-comparison.md)
-- [LiteLLM Chat/Responses 分析](litellm-chat-responses-analysis.md)
-- [LiteLLM Proxy 性能观察](litellm-proxy-performance-bottlenecks.md)
-- [当前实现说明](../../implementation-status/current-implementation.md)
-- [当前代码架构](../../implementation-status/current-architecture.md)
+- [LiteLLM repository](https://github.com/BerriAI/litellm/tree/23de7a15d9d40006ee596e617475ba101d60c5e9)

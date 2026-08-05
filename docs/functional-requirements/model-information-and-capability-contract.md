@@ -193,5 +193,5 @@ SDK、负载、长期运行或 LiteLLM/OpenRouter 目录新鲜度。
 - [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
-- [模型信息模型调研](../references/cross-project/litellm-openrouter-model-information-plan.md)
+- [LiteLLM/OpenRouter 模型信息综合调研](../references/cross-project/model-information-comparison.md)
 - [当前实现说明](../implementation-status/current-implementation.md)

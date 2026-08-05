@@ -220,23 +220,59 @@ impl UpstreamResponse {
 mod tests {
     use std::{
         collections::HashSet,
+        future::pending,
         net::SocketAddr,
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
 
     use axum::{
         Router,
-        body::to_bytes,
-        extract::{ConnectInfo, State},
-        routing::get,
+        body::{Body, to_bytes},
+        extract::{ConnectInfo, Request, State},
+        response::Response,
+        routing::{any, get},
     };
     use bytes::Bytes;
-    use http::{HeaderMap, Method, StatusCode, Uri};
+    use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header::LOCATION};
     use tokio::net::TcpListener;
     use url::Url;
 
-    use super::{UpstreamClient, UpstreamRequest, resolve_upstream_url};
+    use super::{TransportError, UpstreamClient, UpstreamRequest, resolve_upstream_url};
+
+    type ObservedRequest = Arc<Mutex<Option<(Method, String, Bytes)>>>;
+
+    async fn capture_request(
+        State(observed): State<ObservedRequest>,
+        request: Request,
+    ) -> Response {
+        // Capture method and one synthetic header before consuming the request body.
+        let method = request.method().clone();
+        let marker = request
+            .headers()
+            .get("x-openbridge-test")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = to_bytes(request.into_body(), 1024).await.unwrap();
+        *observed.lock().unwrap() = Some((method, marker, body));
+
+        // Return non-default status, metadata, and body for transport preservation checks.
+        Response::builder()
+            .status(StatusCode::CREATED)
+            .header("x-upstream-test", "preserved")
+            .body(Body::from("response-body"))
+            .unwrap()
+    }
+
+    async fn never_respond() -> &'static str {
+        pending::<()>().await;
+        "unreachable"
+    }
 
     #[test]
     fn endpoint_base_prefix_is_preserved_when_building_adapter_target() {
@@ -305,5 +341,141 @@ mod tests {
 
         assert_eq!(peers.lock().unwrap().len(), 1);
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn send_request_preserves_method_headers_body_and_response_metadata() {
+        // Start a loopback endpoint that records the complete request boundary.
+        let observed = Arc::new(Mutex::new(None));
+        let app = Router::new()
+            .route("/capture", any(capture_request))
+            .with_state(observed.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        // Send through the real pooled client with explicit method, header, body, and timeout.
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-openbridge-test",
+            HeaderValue::from_static("request-marker"),
+        );
+        let request = UpstreamRequest::new(
+            Url::parse(&format!("http://{address}/capture")).unwrap(),
+            Method::POST,
+            headers,
+            Bytes::from_static(b"request-body"),
+            Duration::from_secs(2),
+        );
+        let response = client.send_request(request).await.unwrap();
+
+        // Verify both directions without exposing or buffering any production credential.
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.headers()["x-upstream-test"], "preserved");
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            Bytes::from_static(b"response-body")
+        );
+        let observed = observed.lock().unwrap().take().unwrap();
+        assert_eq!(observed.0, Method::POST);
+        assert_eq!(observed.1, "request-marker");
+        assert_eq!(observed.2, Bytes::from_static(b"request-body"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn send_request_does_not_follow_redirects() {
+        // Count destination requests so a followed redirect cannot pass unnoticed.
+        let destinations = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route(
+                "/redirect",
+                get(|| async {
+                    Response::builder()
+                        .status(StatusCode::FOUND)
+                        .header(LOCATION, "/destination")
+                        .body(Body::empty())
+                        .unwrap()
+                }),
+            )
+            .route(
+                "/destination",
+                get(|State(destinations): State<Arc<AtomicUsize>>| async move {
+                    destinations.fetch_add(1, Ordering::Relaxed);
+                    "followed"
+                }),
+            )
+            .with_state(destinations.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        // Preserve the redirect response instead of expanding trusted egress with a second request.
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let request = UpstreamRequest::new(
+            Url::parse(&format!("http://{address}/redirect")).unwrap(),
+            Method::GET,
+            HeaderMap::new(),
+            Bytes::new(),
+            Duration::from_secs(2),
+        );
+        let response = client.send_request(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[LOCATION], "/destination");
+        assert_eq!(destinations.load(Ordering::Relaxed), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn send_request_classifies_the_target_timeout() {
+        // Keep the loopback handler pending so only the request timeout can complete the call.
+        let app = Router::new().route("/hang", get(never_respond));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let request = UpstreamRequest::new(
+            Url::parse(&format!("http://{address}/hang")).unwrap(),
+            Method::GET,
+            HeaderMap::new(),
+            Bytes::new(),
+            Duration::from_millis(50),
+        );
+
+        let error = client
+            .send_request(request)
+            .await
+            .err()
+            .expect("the pending endpoint must reach the target timeout");
+
+        assert!(matches!(error, TransportError::Timeout));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn send_request_classifies_non_timeout_client_failures() {
+        // Build a request whose unsupported scheme fails inside the HTTP client without network I/O.
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let request = UpstreamRequest::new(
+            Url::parse("ftp://127.0.0.1/resource").unwrap(),
+            Method::GET,
+            HeaderMap::new(),
+            Bytes::new(),
+            Duration::from_secs(2),
+        );
+
+        // Keep non-timeout client failures distinct from the target timeout classification.
+        let error = client
+            .send_request(request)
+            .await
+            .err()
+            .expect("reqwest must reject a non-HTTP URL scheme");
+
+        assert!(matches!(error, TransportError::Request(_)));
     }
 }

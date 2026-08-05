@@ -84,7 +84,7 @@ credential、endpoint 和内部 Route。
 - image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
-- OAuth、keyring、加密 secret 文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
+- OAuth、keyring、加密 secret 文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；未来若重新获准，仍须先满足[上游 OAuth credential lifecycle 条件性安全边界](upstream-oauth-credential-lifecycle.md)，该文档不改变当前非目标；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenTelemetry/Prometheus exporter、指标 HTTP API、持久化或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；

@@ -149,6 +149,7 @@ read bootstrap.toml
 
 - [Public Model 与模型能力契约](model-information-and-capability-contract.md)
 - [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
+- [上游 OAuth credential lifecycle 条件性安全边界](upstream-oauth-credential-lifecycle.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现说明](../implementation-status/current-implementation.md)
 - [能力探测](../implementation-status/capability-probing.md)

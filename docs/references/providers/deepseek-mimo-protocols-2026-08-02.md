@@ -1,48 +1,25 @@
-# DeepSeek 与 Xiaomi MiMo 协议入口
+# DeepSeek 与 Xiaomi MiMo 协议入口综合对照（2026-08-02）
 
-## 证据范围
+## 项目级前置文档
 
-检查日期：2026-08-02。本文只记录两家官方文档公开的协议入口与认证方式，不证明 OpenBridge 已接入 target、
-Route、真实 credential 或真实 Provider。
+- [DeepSeek 协议入口快照](deepseek-protocol-2026-08-02.md)
+- [Xiaomi MiMo 协议入口快照](xiaomi-mimo-protocol-2026-08-02.md)
 
-## DeepSeek
+本文只比较两个 Provider 的官方协议入口，不记录任何本地 Provider 注册、Route、capability 或验证状态。
 
-官方 [首次调用说明](https://api-docs.deepseek.com/guides/function_calling/) 将 OpenAI 格式 base URL 记为
-`https://api.deepseek.com`，示例通过 Bearer API key 调用 Chat Completions。官方
-[Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion) 的相对入口为
-`/chat/completions`。
+## 协议对照
 
-官方[更新记录](https://api-docs.deepseek.com/updates/)与
-[模型价格页](https://api-docs.deepseek.com/quick_start/pricing/)声明 V4 的当前模型名为
-`deepseek-v4-pro` 与 `deepseek-v4-flash`；旧 `deepseek-chat`/`deepseek-reasoner` 名称已进入停用边界，
-当前注册不使用旧别名。
+| 维度 | DeepSeek | Xiaomi MiMo |
+| --- | --- | --- |
+| 官方基础地址 | `https://api.deepseek.com` | `https://api.xiaomimimo.com/v1` |
+| Chat | `/chat/completions` | `/chat/completions` |
+| Responses | 本次资料未确认 | `/responses` |
+| 认证 | Bearer API key | `api-key` 或 Bearer |
+| 文档明确限制 | 本次未建立 Responses 契约 | Responses 不支持 `background`、`previous_response_id` |
+| 文本模型快照 | `deepseek-v4-pro`、`deepseek-v4-flash` | `mimo-v2.5-pro`、`mimo-v2.5` |
 
-本轮只据此声明 OpenAI-compatible Chat Completions；不声明 Responses。能力上界只保留 streaming 与
-function calling，其他能力在没有本轮接入证据时保持关闭。
+## 综合结论
 
-## Xiaomi MiMo
+两家都提供 OpenAI-compatible Chat 入口，但不能仅凭 path 相同推断全部字段、错误、SSE、tool 或 reasoning 语义相同。MiMo 额外公开 Responses endpoint，并明确排除两项 state/background 字段；DeepSeek 在本次证据中只建立 Chat 入口。
 
-官方 [Chat Completions API](https://mimo.mi.com/docs/zh-CN/api/chat/openai-api) 的请求地址为
-`https://api.xiaomimimo.com/v1/chat/completions`。官方
-[Responses API](https://mimo.mi.com/docs/zh-CN/api/chat/responses) 的请求地址为
-`https://api.xiaomimimo.com/v1/responses`，并明确不支持 `background` 与 `previous_response_id`。
-两份文档都允许 `api-key` 或 `Authorization: Bearer`；本轮静态 Provider 定义复用 OpenBridge 现有 Bearer
-credential 机制，不新增第二种认证 adapter。
-
-官方[模型列表](https://mimo.mi.com/docs/zh-CN/api/model/list-models)列出 `mimo-v2.5-pro` 与 `mimo-v2.5`；
-当前文本 Provider 注册只使用这两个模型，不纳入 ASR/TTS 变体。
-
-当前 OpenBridge 对 MiMo 两种 Native 协议声明支持 streaming、function calling、`parallel_tool_calls`、image input
-和 structured output；`store` 保持关闭，Responses 的 `background` 与 `previous_response_id` 保持关闭，reasoning
-output 保持 `Unknown`。这次能力修订只扩大 Native capability gate，不扩大反向 Protocol Bridge，也不替代真实 Provider
-tool/image/structured-output/reasoning wire 验收。
-
-## OpenBridge 适用边界
-
-- `ProviderKind`、静态 contract、相对 path、固定 endpoint、credential locator 与上述四个文本模型可以据此加入代码。
-- DeepSeek 只注册 Chat Upstream API；下游 Responses 能力来自 OpenBridge 的显式 Protocol Bridge，不属于
-  DeepSeek 原生能力声明。
-- MiMo 注册 Chat/Responses Native Upstream API，并按上述能力边界声明 Native 的并行工具、图像输入和 structured output；
-  `background`、`previous_response_id`、`store` 与可读 reasoning output 仍保持关闭或未知。
-- 静态单元测试只证明 adapter 选择与请求改写，不证明真实 Provider 接受请求或完整 SSE/tool lifecycle 兼容。
-- 实际兼容结论仍需执行独立协议测试和真实 Provider 验证。
+认证 header 选择、模型可见性和完整 capability 仍需以各 Provider 的当前官方文档与实际账户验证分别确认。

@@ -585,4 +585,89 @@ mod tests {
             CredentialStoreError::InvalidPoolIdentity
         );
     }
+
+    #[test]
+    fn builder_rejects_duplicate_bindings_and_invalid_upstream_metadata() {
+        // Reject duplicate downstream identities and secrets even when the original user is disabled.
+        let mut downstream = CredentialStoreBuilder::new();
+        downstream
+            .insert_downstream("user-a", SecretString::from("downstream-a"), false)
+            .unwrap();
+        assert_eq!(
+            downstream
+                .insert_downstream("user-a", SecretString::from("downstream-b"), true)
+                .unwrap_err(),
+            CredentialStoreError::DuplicateId
+        );
+        assert_eq!(
+            downstream
+                .insert_downstream("user-b", SecretString::from("downstream-a"), true)
+                .unwrap_err(),
+            CredentialStoreError::DuplicateDownstreamSecret
+        );
+
+        // Reject duplicate member identities and secrets within the same Provider-bound pool.
+        let metadata =
+            CredentialMetadata::upstream(CredentialKind::ApiKey, CredentialSource::Programmatic);
+        let mut upstream = CredentialStoreBuilder::new();
+        upstream
+            .insert_upstream_member(
+                ProviderKind::OpenAi,
+                "pool-a",
+                "pool-a#1",
+                SecretString::from("upstream-a"),
+                metadata,
+            )
+            .unwrap();
+        assert_eq!(
+            upstream
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    "pool-a",
+                    "pool-a#1",
+                    SecretString::from("upstream-b"),
+                    metadata,
+                )
+                .unwrap_err(),
+            CredentialStoreError::DuplicateId
+        );
+        assert_eq!(
+            upstream
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    "pool-a",
+                    "pool-a#2",
+                    SecretString::from("upstream-a"),
+                    metadata,
+                )
+                .unwrap_err(),
+            CredentialStoreError::DuplicateUpstreamSecret
+        );
+
+        // Reject blank member IDs and metadata for the downstream credential purpose.
+        assert_eq!(
+            upstream
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    "pool-b",
+                    " ",
+                    SecretString::from("upstream-b"),
+                    metadata,
+                )
+                .unwrap_err(),
+            CredentialStoreError::InvalidPoolIdentity
+        );
+        assert_eq!(
+            upstream
+                .insert_upstream_member(
+                    ProviderKind::OpenAi,
+                    "pool-b",
+                    "pool-b#1",
+                    SecretString::from("upstream-b"),
+                    CredentialMetadata::downstream_user(),
+                )
+                .unwrap_err(),
+            CredentialStoreError::InvalidMetadata
+        );
+    }
 }

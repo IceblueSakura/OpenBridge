@@ -15,6 +15,8 @@
 例外保留一份不属于当前产品承诺的[待定 Model/Provider 配置方案](model-catalog-configuration.md)。该方案暂不实施，
 其中的候选字段和验收项不得作为当前功能需求或开发入口。
 
+同样保留一份不属于当前产品承诺的[上游 OAuth credential lifecycle 条件性安全边界](upstream-oauth-credential-lifecycle.md)。OAuth 仍是当前非目标；该文档只约束未来在获得 Provider 正式授权并重新获准实施后的最低安全行为。
+
 功能需求中的“必须”“不得”“只允许”是验收约束，不代表当前实现已经满足；代码、测试、probe 或真实运行已经证明的内容只写入 `../implementation-status/`。
 
 需求变更先在本目录明确用户可观察的结果、失败语义、资源/安全边界与非目标；具体实现方案再写入 `../implementation-plans/`。当目标或证据冲突时，以产品范围、对应功能需求和实施现状为准，而非历史设计假设。
