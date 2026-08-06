@@ -1,9 +1,10 @@
 //! Private upstream credential-pool configuration loaded at startup.
 //!
-//! Each compile-time credential binding selects either ordered API keys or one OAuth2 auth-file
-//! locator. The file cannot configure Providers, credential kinds, endpoints, or routes. It is
-//! read once before network listening or probes. API keys become immutable snapshots; an OAuth2
-//! locator becomes a guarded lifecycle target whose document may be refreshed transactionally.
+//! Each compile-time credential binding selects ordered API keys, one OAuth2 auth-file locator, or
+//! an inactive startup binding. The file can activate only registered credential pools; it cannot
+//! configure Providers, credential kinds, endpoints, or routes. It is read once before network
+//! listening or probes. API keys become immutable snapshots; an OAuth2 locator becomes a guarded
+//! lifecycle target whose document may be refreshed transactionally.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -48,7 +49,7 @@ impl UpstreamCredentialConfiguration {
             });
         }
 
-        // Validate binding IDs and the mutually exclusive credential source for each entry.
+        // Validate binding IDs and the mutually exclusive credential source selection for each entry.
         let mut pools = BTreeMap::new();
         for raw_pool in raw.credential_pools {
             let id = raw_pool.id.trim();
@@ -63,11 +64,7 @@ impl UpstreamCredentialConfiguration {
                         },
                     );
                 }
-                (None, None) => {
-                    return Err(UpstreamCredentialConfigError::MissingCredentialSource {
-                        id: id.to_owned(),
-                    });
-                }
+                (None, None) => ConfiguredCredentialSource::Inactive,
                 (Some(api_keys), None) => {
                     validate_api_keys(id, &api_keys)?;
                     ConfiguredCredentialSource::ApiKeys(api_keys)
@@ -86,6 +83,22 @@ impl UpstreamCredentialConfiguration {
             }
         }
         Ok(Self { pools })
+    }
+
+    /// Enumerates configured credential pools with a usable startup source.
+    ///
+    /// API-key pools are active only when at least one key is present. OAuth2 pools are active
+    /// when their non-empty auth-file locator is configured; the locator may still resolve to a
+    /// missing or empty OpenBridge-owned file and remain pending login.
+    pub fn active_pool_ids(&self) -> impl Iterator<Item = &str> {
+        self.pools.iter().filter_map(|(pool_id, source)| {
+            let active = match source {
+                ConfiguredCredentialSource::ApiKeys(api_keys) => !api_keys.is_empty(),
+                ConfiguredCredentialSource::OAuth2AuthJsonFile(_) => true,
+                ConfiguredCredentialSource::Inactive => false,
+            };
+            active.then_some(pool_id.as_str())
+        })
     }
 
     /// Resolves one configured OAuth2 destination without reading or exposing its auth file.
@@ -191,7 +204,7 @@ impl UpstreamCredentialConfiguration {
                         api_keys,
                     )?;
                 }
-                ConfiguredCredentialSource::ApiKeys(_) => {}
+                ConfiguredCredentialSource::ApiKeys(_) | ConfiguredCredentialSource::Inactive => {}
                 ConfiguredCredentialSource::OAuth2AuthJsonFile(path) => {
                     // Load one complete Provider-owned OAuth2 bundle into the guarded lifecycle manager.
                     oauth2_builder
@@ -219,13 +232,15 @@ impl UpstreamCredentialConfiguration {
                 })?;
             let source_matches_kind = matches!(
                 (source, pool.kind()),
-                (
-                    ConfiguredCredentialSource::ApiKeys(_),
-                    CredentialKind::ApiKey
-                ) | (
-                    ConfiguredCredentialSource::OAuth2AuthJsonFile(_),
-                    CredentialKind::OAuth2BearerAccessToken
-                )
+                (ConfiguredCredentialSource::Inactive, _)
+                    | (
+                        ConfiguredCredentialSource::ApiKeys(_),
+                        CredentialKind::ApiKey
+                    )
+                    | (
+                        ConfiguredCredentialSource::OAuth2AuthJsonFile(_),
+                        CredentialKind::OAuth2BearerAccessToken
+                    )
             );
             if !source_matches_kind {
                 return Err(
@@ -285,12 +300,22 @@ impl fmt::Debug for UpstreamCredentialConfiguration {
             .values()
             .filter(|source| matches!(source, ConfiguredCredentialSource::ApiKeys(_)))
             .count();
-        let oauth2_providers = self.pools.len() - api_key_pools;
+        let oauth2_providers = self
+            .pools
+            .values()
+            .filter(|source| matches!(source, ConfiguredCredentialSource::OAuth2AuthJsonFile(_)))
+            .count();
+        let inactive_pools = self
+            .pools
+            .values()
+            .filter(|source| matches!(source, ConfiguredCredentialSource::Inactive))
+            .count();
         formatter
             .debug_struct("UpstreamCredentialConfiguration")
             .field("credential_pools", &self.pools.len())
             .field("api_key_pools", &api_key_pools)
             .field("oauth2_providers", &oauth2_providers)
+            .field("inactive_pools", &inactive_pools)
             .finish()
     }
 }
@@ -298,6 +323,7 @@ impl fmt::Debug for UpstreamCredentialConfiguration {
 enum ConfiguredCredentialSource {
     ApiKeys(Vec<String>),
     OAuth2AuthJsonFile(PathBuf),
+    Inactive,
 }
 
 /// Moves one validated ordered API-key source into the immutable store builder.
@@ -323,12 +349,9 @@ fn insert_api_key_members(
     Ok(())
 }
 
-/// Validates a non-empty, duplicate-free API-key source without exposing any value.
+/// Validates an API-key source for blank or duplicate secrets without exposing their values.
 fn validate_api_keys(id: &str, api_keys: &[String]) -> Result<(), UpstreamCredentialConfigError> {
-    // Validate member availability before comparing secrets for duplicates.
-    if api_keys.is_empty() {
-        return Err(UpstreamCredentialConfigError::EmptyPool { id: id.to_owned() });
-    }
+    // Reject blank members before comparing secrets for duplicates; an empty array intentionally disables the pool.
     if api_keys.iter().any(|key| key.trim().is_empty()) {
         return Err(UpstreamCredentialConfigError::BlankApiKey { id: id.to_owned() });
     }
@@ -352,6 +375,7 @@ fn contains_duplicate_secret(secrets: &[String]) -> bool {
 #[serde(deny_unknown_fields)]
 struct RawUpstreamCredentials {
     schema_version: u32,
+    #[serde(default)]
     credential_pools: Vec<RawCredentialPool>,
 }
 

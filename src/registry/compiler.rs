@@ -36,6 +36,29 @@ pub fn build_registry(
     bootstrap: BootstrapConfig,
     definition: RegistryConfig,
 ) -> Result<RuntimeRegistry, RegistryError> {
+    build_registry_internal(bootstrap, definition, None)
+}
+
+/// Builds a registry while applying startup credential-pool activation to Target eligibility.
+///
+/// The active pool set is a redacted deployment snapshot derived from private startup
+/// configuration. It can disable statically registered Targets, but it cannot add Providers,
+/// credential pools, Routes, endpoints, or capabilities. Direct callers that do not provide this
+/// deployment snapshot retain the static registry behavior through [`build_registry`].
+pub fn build_registry_with_active_pools(
+    bootstrap: BootstrapConfig,
+    definition: RegistryConfig,
+    active_pool_ids: &BTreeSet<String>,
+) -> Result<RuntimeRegistry, RegistryError> {
+    build_registry_internal(bootstrap, definition, Some(active_pool_ids))
+}
+
+/// Compiles a registry with an optional startup credential-pool activation snapshot.
+fn build_registry_internal(
+    bootstrap: BootstrapConfig,
+    definition: RegistryConfig,
+    active_pool_ids: Option<&BTreeSet<String>>,
+) -> Result<RuntimeRegistry, RegistryError> {
     // Validate the registry version so the resulting snapshot has a reportable, auditable identity.
     if definition.version.trim().is_empty() {
         return Err(RegistryError::BlankVersion);
@@ -166,6 +189,10 @@ pub fn build_registry(
             });
         }
 
+        // Combine static code eligibility with the redacted startup credential activation state.
+        let target_enabled = target.enabled
+            && active_pool_ids.is_none_or(|active| active.contains(&target.credential_pool));
+
         // Resolve the canonical Model as the model-fact baseline for every Upstream API under this target.
         let model =
             models
@@ -293,7 +320,7 @@ pub fn build_registry(
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
             request_timeout: target.request_timeout,
-            enabled: target.enabled,
+            enabled: target_enabled,
             upstream_apis,
         };
 

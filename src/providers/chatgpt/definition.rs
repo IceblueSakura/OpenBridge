@@ -82,12 +82,13 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     None,
     Some("/responses"),
     None,
-    "/models",
+    "/models?client_version=0.146.0",
     transform_request_headers,
 )
 .with_request_body_hook(transform_request_body)
 .with_request_headers(CHATGPT_REQUEST_HEADERS)
-.with_openai_data_type_responses_terminal();
+.with_openai_data_type_responses_terminal()
+.with_model_list_parser(parse_model_list_ids);
 
 /// Single static descriptor for the ChatGPT contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
@@ -99,6 +100,19 @@ fn transform_request_headers(
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
     Ok(())
+}
+
+/// Extracts ChatGPT Codex model slugs from its manifest response envelope.
+fn parse_model_list_ids(response: &serde_json::Value) -> Option<Vec<String>> {
+    Some(
+        response
+            .get("models")?
+            .as_array()?
+            .iter()
+            .filter_map(|entry| entry.get("slug").and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+            .collect(),
+    )
 }
 
 /// Narrows standard Responses input to the current Codex backend's streaming request envelope.

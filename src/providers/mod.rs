@@ -12,4 +12,7 @@ pub mod mimo;
 pub mod openai;
 pub mod openrouter;
 
-pub use catalog::{REGISTRY_VERSION, build_compiled_registry, compiled_config};
+pub use catalog::{
+    REGISTRY_VERSION, build_compiled_registry, build_compiled_registry_with_active_pools,
+    compiled_config,
+};

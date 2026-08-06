@@ -10,7 +10,7 @@ mod public_model;
 mod runtime;
 mod validation;
 
-pub use compiler::build_registry;
+pub use compiler::{build_registry, build_registry_with_active_pools};
 pub use definition::{
     CredentialPoolConfig, InputModality, ModelConfig, ModelContextLength, ModelLifecycle,
     ModelLifecycleStatus, ModelMode, OutputModality, ProviderInstanceConfig, PublicModelConfig,

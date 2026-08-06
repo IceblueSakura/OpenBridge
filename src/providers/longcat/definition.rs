@@ -70,7 +70,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     Some("/openai/v1/chat/completions"),
     Some("/openai/v1/responses"),
     None,
-    "/v1/models",
+    "/openai/v1/models",
     transform_request_headers,
 )
 .with_openai_data_type_responses_terminal();

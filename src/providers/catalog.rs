@@ -2,12 +2,15 @@
 
 mod routing;
 
+use std::collections::BTreeSet;
+
 use crate::{
     config::BootstrapConfig,
     models,
     provider::{CredentialKind, ProviderKind},
     registry::{
         CredentialPoolConfig, RegistryConfig, RegistryError, RuntimeRegistry, build_registry,
+        build_registry_with_active_pools,
     },
 };
 
@@ -80,4 +83,12 @@ pub fn build_compiled_registry(
     bootstrap: BootstrapConfig,
 ) -> Result<RuntimeRegistry, RegistryError> {
     build_registry(bootstrap, compiled_config())
+}
+
+/// Builds the compiled registry while applying startup credential-pool activation to Targets.
+pub fn build_compiled_registry_with_active_pools(
+    bootstrap: BootstrapConfig,
+    active_pool_ids: &BTreeSet<String>,
+) -> Result<RuntimeRegistry, RegistryError> {
+    build_registry_with_active_pools(bootstrap, compiled_config(), active_pool_ids)
 }

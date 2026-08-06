@@ -39,22 +39,10 @@ pub enum UpstreamCredentialConfigError {
         /// ID of the ambiguous binding.
         id: String,
     },
-    /// A binding selects neither supported credential source field.
-    #[error("upstream credential pool '{id}' has no credential source")]
-    MissingCredentialSource {
-        /// ID of the source-less binding.
-        id: String,
-    },
     /// An OAuth2 auth-file locator is blank.
     #[error("upstream credential pool '{id}' has a blank OAuth2 auth-file locator")]
     BlankAuthJsonFile {
         /// ID of the binding containing the blank locator.
-        id: String,
-    },
-    /// The pool contains no API keys.
-    #[error("upstream credential pool '{id}' must contain at least one API key")]
-    EmptyPool {
-        /// ID of the empty pool.
         id: String,
     },
     /// The pool contains a blank API key.

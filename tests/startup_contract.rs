@@ -123,14 +123,14 @@ fn startup_paths_distinguish_missing_files_from_invalid_documents() {
 }
 
 #[test]
-fn process_loads_all_startup_snapshots_before_reporting_a_bound_listener_failure() {
+fn process_allows_an_unconfigured_provider_before_reporting_a_bound_listener_failure() {
     let workspace = TempWorkspace::new("process-startup");
 
     // Reserve a loopback address so the child reaches the final bind step and fails deterministically.
     let occupied_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let listen = occupied_listener.local_addr().unwrap();
 
-    // Write valid synthetic downstream, API-key, and OpenBridge-owned OAuth2 startup inputs.
+    // Write valid synthetic downstream, non-OpenAI API-key, and OpenBridge-owned OAuth2 startup inputs.
     let users = workspace.write(
         "users.toml",
         r#"schema_version = 1
@@ -147,6 +147,7 @@ enabled = true
         .credential_pools
         .iter()
         .filter(|pool| pool.kind == CredentialKind::ApiKey)
+        .filter(|pool| pool.id != "openai-primary")
         .enumerate()
     {
         upstream.push_str(&format!(

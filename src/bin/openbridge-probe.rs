@@ -3,13 +3,13 @@
 //! The tool prints only a JSON report, does not start the downstream HTTP service, and does not
 //! modify the code registry.
 
-use std::env;
+use std::{collections::BTreeSet, env};
 
 use anyhow::{Context, Result};
 use openbridge::{
     config::BootstrapConfigPath,
     probe::{ProbeOptions, probe_upstream_target},
-    providers::build_compiled_registry,
+    providers::build_compiled_registry_with_active_pools,
     transport::upstream::UpstreamClient,
     upstream_credentials::UpstreamCredentialConfigPath,
 };
@@ -20,13 +20,24 @@ async fn main() -> Result<()> {
     // Parse CLI selections.
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
 
-    // Load bootstrap and compile the trusted registry before selecting a credential source.
+    // Load bootstrap and private credential configuration before compiling active Target eligibility.
     let bootstrap = BootstrapConfigPath::from_environment()
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
     let upstream_credentials_file = bootstrap.upstream_credentials_file().to_owned();
-    let registry =
-        build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
+    let upstream_configuration = UpstreamCredentialConfigPath::new(&upstream_credentials_file)
+        .load()
+        .context("failed to load upstream credentials")?;
+
+    // Derive the redacted pool activation set without retaining credential material in the registry.
+    let active_pool_ids = upstream_configuration
+        .active_pool_ids()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+
+    // Compile only the statically registered Targets selected by the startup pool set.
+    let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids)
+        .context("failed to build OpenBridge code registry")?;
     let target = registry
         .upstream_target(&arguments.upstream_target_id)
         .context("selected upstream target is not registered")?;
@@ -45,9 +56,6 @@ async fn main() -> Result<()> {
     )
     .context("failed to initialize upstream HTTP client")?;
     // Load only the selected API-key credential source and run the common probe entry point.
-    let upstream_configuration = UpstreamCredentialConfigPath::new(upstream_credentials_file)
-        .load()
-        .context("failed to load upstream credentials")?;
     let credentials = upstream_configuration
         .into_builder_for(&registry, [target.credential_pool_id()])
         .context("failed to bind the selected upstream credential pool")?

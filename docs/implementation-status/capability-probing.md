@@ -47,11 +47,20 @@ cargo run --bin openbridge-probe -- --target openai-main --chat --responses --fu
 
 | 探测项                     | 固定上游请求                             | `supported` 条件                                           |
 |----------------------------|------------------------------------------|------------------------------------------------------------|
-| `list_models`              | `GET /v1/models`                         | 返回 JSON `data[]`，并报告注册的 upstream model 是否存在。 |
+| `list_models`              | Provider 注册的固定模型列表 GET 路径     | 返回 Provider-specific 模型信封，并报告注册的 upstream model 是否存在。 |
 | `chat`                     | 最小 Chat Completions 请求               | 返回非空 `choices[]`。                                     |
 | `responses`                | 最小 Responses 请求                      | 返回 `object: "response"`。                                |
 | Chat function calling      | 固定无副作用 function call/result replay | call identity、arguments 与 replay 形状有效。              |
 | Responses function calling | 固定 function call/output replay         | call ID、名称、arguments 与 replay 形状有效。              |
+
+当前模型列表路径和响应信封由 Provider adapter 固定：OpenAI、OpenRouter、DeepSeek、MiMo 及 LongCat 使用
+OpenAI-compatible `data[].id`，其中 LongCat 的路径为 `/openai/v1/models`；ChatGPT 使用
+`/models?client_version=0.146.0`，并从 Codex manifest 的 `models[].slug` 提取模型 ID。模型列表 probe 仍然只通过
+固定 Provider origin 发起，不能由 CLI 覆盖 URL、query 或响应解析规则。
+
+本次模型列表修订的确定性验证已执行：`cargo test --locked --lib
+provider_model_list_profiles_bind_paths_and_response_envelopes`、针对变更 Rust 文件的
+`rustfmt --check --edition 2024` 与 `git diff --check` 均通过；未执行真实 Provider 网络请求。
 
 明确的 404、405、501 可记为 `unsupported`。认证失败、限流、网络错误、响应超限、无效 JSON 或 400/422 只能记为 `unknown`
 ；一次成功也只证明本次 target、账号、时间点和固定 payload 的观察结果。

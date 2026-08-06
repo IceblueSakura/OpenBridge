@@ -117,11 +117,11 @@ exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http
 策略，不接受 URL credential、自定义 path/query/fragment、header、环境 OTLP policy 或请求级覆盖。用户文件、 上游 credential
 文件、Provider family、Provider instance、模型、target、upstream API 和 route 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
 `UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
-`CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为互斥的 `api_keys` 或
-`auth_json_file`。启用 target 引用的 API-key pool 进入不可变 `CredentialStore`；显式配置的 OAuth2 文件在监听前完成首次读取：缺失文件在
+`CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为 `api_keys`、`auth_json_file` 或未激活 source。
+解析出的 active pool 集合先参与 Target/Public Model 编译，只有激活 target 引用的 API-key pool 才进入不可变 `CredentialStore`；显式配置的 OAuth2 文件在监听前完成首次读取：缺失文件在
 advisory lock 内创建为空并保持待登录，存在且非空的文件完成完整 bundle 校验后进入独立 lifecycle manager，相对 locator 以 upstream TOML 目录为基准。
-未知、缺失或重复 binding、source/kind 错配、同 Provider 多 auth 文件、损坏 TOML、无效 API-key pool 或非空损坏/不完整 OAuth2 bundle 会在
-listener 绑定前失败；完整但过期的 bundle 保留为立即 refresh 输入。manager 对外只发布脱敏 snapshot，对内以 per-credential async gate、同主机 advisory file lock、guarded reload、atomic
+未知或重复 binding、source/kind 错配、同 Provider 多 auth 文件、损坏 TOML、空白/重复 API key 或非空损坏/不完整 OAuth2 bundle 会在
+listener 绑定前失败；缺失 pool、source-less pool 或空 API-key 数组只禁用其引用 Target；完整但过期的 bundle 保留为立即 refresh 输入。manager 对外只发布脱敏 snapshot，对内以 per-credential async gate、同主机 advisory file lock、guarded reload、atomic
 replace 和 generation 维护 rotation；worker 按 expiry safety window 调度，并随 HTTP 服务结束而取消。两份 TOML、用户与 API-key Store
 仍不热重载，OAuth auth 文件只在明确 login 或 guarded refresh transaction 中写入/读取。
 

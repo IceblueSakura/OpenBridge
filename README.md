@@ -77,6 +77,7 @@ Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每�
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
 # 编辑两份私有 TOML；填写用户/API key，并为已启用的 ChatGPT Public Models 配置 auth_json_file。
+# 不使用某个已注册 Provider 时，可省略其 credential_pools 项，或将 API-key pool 的 api_keys 设为空数组；Provider 代码仍会保留。
 # 首次启动服务前先运行下方 openbridge-auth login chatgpt。
 cargo run --bin openbridge --locked
 ```
@@ -198,11 +199,11 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 `previous_response_id`。image 与 structured output 只是 Native API 事实；反向 Bridge 不支持时，它们不会进入 Public Model
 的固定接口契约。`parallel_tool_calls` 只有在全部对应 Route 都支持时才对下游公开。
 
-下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 在有序 `api_keys` 与单一
-`auth_json_file` 中二选一。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前
-把已启用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
-`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/不完整的非空 OAuth2 bundle 都会阻止
-启动；不存在或为空的 auth 文件会保持待登录状态且不发布 credential snapshot，完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
+下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 可以配置有序
+`api_keys`、单一 `auth_json_file`，或不提供 source。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。
+服务在监听前把已激活 Target 引用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
+`OAuth2CredentialManager`。未知、重复 binding、source/kind 错配、空白/重复 key 或损坏/不完整的非空 OAuth2 bundle 都会阻止启动；
+缺失 pool、source-less pool 或空 API-key 数组只会禁用引用它的 Target，不移除 Provider；不存在或为空的 auth 文件会保持待登录状态且不发布 credential snapshot，完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
 TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 auth 文件，成功 rotation 后原子写回并发布新 generation。
 ChatGPT 请求只借用短生命周期的当前 generation；首个预提交 `401` 在同一账户边界内先 guarded reload、必要时 refresh 后只重放一次，
 第二个 `401` 转为 `reauth_required`，不会轮换账户或 fallback 到其他 Provider。

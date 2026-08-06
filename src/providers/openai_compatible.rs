@@ -31,6 +31,8 @@ pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(
 /// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
 pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
+/// Compile-time Provider hook for extracting model identifiers from a model-list response.
+pub(crate) type ModelListParser = fn(&serde_json::Value) -> Option<Vec<String>>;
 
 #[derive(Clone, Copy)]
 /// Source used to identify OpenAI terminal event names in SSE events.
@@ -50,6 +52,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     responses_path: Option<&'static str>,
     embeddings_path: Option<&'static str>,
     model_list_path: &'static str,
+    model_list_parser: ModelListParser,
     request_header_hook: RequestHeaderHook,
     request_body_hook: RequestBodyHook,
     request_headers: ProviderRequestHeaders,
@@ -74,6 +77,7 @@ impl OpenAiCompatibleAdapter {
             responses_path,
             embeddings_path,
             model_list_path,
+            model_list_parser: parse_openai_model_list_ids,
             request_header_hook,
             request_body_hook: preserve_request_body,
             request_headers: ProviderRequestHeaders::new(),
@@ -87,6 +91,12 @@ impl OpenAiCompatibleAdapter {
         request_body_hook: RequestBodyHook,
     ) -> Self {
         self.request_body_hook = request_body_hook;
+        self
+    }
+
+    /// Attaches the concrete Provider's bounded model-list response parser.
+    pub(crate) const fn with_model_list_parser(mut self, parser: ModelListParser) -> Self {
+        self.model_list_parser = parser;
         self
     }
 
@@ -125,16 +135,7 @@ impl OpenAiCompatibleAdapter {
 
     /// Extracts model identifiers through the selected static response-envelope profile.
     pub(crate) fn model_list_ids(self, response: &serde_json::Value) -> Option<Vec<String>> {
-        // Read the common OpenAI-compatible envelope without retaining other metadata.
-        Some(
-            response
-                .get("data")?
-                .as_array()?
-                .iter()
-                .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
-                .map(str::to_owned)
-                .collect(),
-        )
+        (self.model_list_parser)(response)
     }
 
     /// Replaces the upstream model and binds the profile's declared relative endpoint.
@@ -356,6 +357,19 @@ impl OpenAiCompatibleAdapter {
     }
 }
 
+/// Extracts model identifiers from the common OpenAI-compatible `data[].id` envelope.
+fn parse_openai_model_list_ids(response: &serde_json::Value) -> Option<Vec<String>> {
+    Some(
+        response
+            .get("data")?
+            .as_array()?
+            .iter()
+            .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 /// Keeps ordinary OpenAI-compatible request bodies unchanged after model replacement.
 fn preserve_request_body(
     _protocol: ApiProtocol,
@@ -460,6 +474,7 @@ pub(crate) fn native_upstream_apis(
 #[cfg(test)]
 mod tests {
     use http::{HeaderName, HeaderValue, header::USER_AGENT};
+    use serde_json::json;
 
     use super::*;
 
@@ -540,6 +555,60 @@ mod tests {
                 .get(HeaderName::from_static("x-target-name"))
                 .unwrap(),
             "transformed-value"
+        );
+    }
+
+    #[test]
+    fn provider_model_list_profiles_bind_paths_and_response_envelopes() {
+        // Keep the generic OpenAI-compatible path and data envelope as the default profile.
+        let openai = crate::provider::ProviderAdapter::for_kind(ProviderKind::OpenAi);
+        assert_eq!(
+            openai
+                .prepare_model_list_request()
+                .unwrap()
+                .relative_uri()
+                .to_string(),
+            "/v1/models"
+        );
+        assert_eq!(
+            openai.model_list_ids(&json!({"data": [{"id": "gpt-5.6-sol"}]})),
+            Some(vec!["gpt-5.6-sol".to_owned()])
+        );
+
+        // Bind LongCat's OpenAI-compatible model-list endpoint under its /openai/v1 prefix.
+        let longcat = crate::provider::ProviderAdapter::for_kind(ProviderKind::LongCat);
+        assert_eq!(
+            longcat
+                .prepare_model_list_request()
+                .unwrap()
+                .relative_uri()
+                .to_string(),
+            "/openai/v1/models"
+        );
+
+        // Bind ChatGPT's client-version query and parse its Codex manifest envelope.
+        let chatgpt = crate::provider::ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+        assert_eq!(
+            chatgpt
+                .prepare_model_list_request()
+                .unwrap()
+                .relative_uri()
+                .to_string(),
+            "/models?client_version=0.146.0"
+        );
+        assert_eq!(
+            chatgpt.model_list_ids(&json!({
+                "models": [
+                    {"slug": "gpt-5.6-sol"},
+                    {"slug": "gpt-5.6-luna"}
+                ]
+            })),
+            Some(vec!["gpt-5.6-sol".to_owned(), "gpt-5.6-luna".to_owned()])
+        );
+        assert!(
+            chatgpt
+                .model_list_ids(&json!({"data": [{"id": "gpt-5.6-sol"}]}))
+                .is_none()
         );
     }
 }

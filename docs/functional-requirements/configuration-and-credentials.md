@@ -14,7 +14,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
 | `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、默认禁用的 OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
-| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator                                        | API key 是；locator 本身不是 secret |
+| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；来源是否存在决定已注册 pool 的启动激活状态 | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
 | `src/providers/*`                           | Provider Family 定义、Provider 实例、共享协议机制、request-header hook、target/upstream API、credential pool/binding、route 与 Public Model | 否                                 |
 | 下游业务请求                                | Public Model 和模型调用参数                                                                                                     | 否；也不能选择 endpoint/credential |
@@ -69,11 +69,11 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
 - 代码注册表只保存非敏感 pool/member id、Provider 和 credential kind，不保存 secret 或 secret locator；
 - 服务与常规 API-key probe 只从 bootstrap 指定的私有 upstream credential TOML 读取上游 API key，不读取 `*_API_KEYS`、旧单值
   环境变量或 `.env`；任何 probe 都不得发现或导入本机 Codex credential、环境或 terminal 状态；
-- TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且只能在有序 `api_keys` 数组与单一
-  `auth_json_file` locator 中二选一，不能配置 Provider、credential kind、endpoint、route 或 member id；
-- 未由代码注册的 pool、重复 pool、服务所需或 probe 选中但缺失的 pool、空数组、空白成员或 pool 内重复 secret 必须在 listener
-  绑定或网络 probe 前失败；
-- 服务在监听前把已启用用户 Key 与所有已启用 API-key Target 引用的 pool 一次性装入不可变 `CredentialStore`，并把所有显式配置的
+- TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且可以选择有序 `api_keys` 数组、单一
+  `auth_json_file` locator 或不提供 source（未激活），不能配置 Provider、credential kind、endpoint、route 或 member id；
+- 未由代码注册的 pool、重复 pool、空白成员或 pool 内重复 secret 必须在 listener 绑定或网络 probe 前失败；缺少已注册 pool、无 source
+  的已知 pool 或空 API-key 数组表示该 pool 本次启动未激活，不构成动态 Provider 注册；
+- 服务在监听前把已启用用户 Key 与所有已激活 API-key Target 引用的 pool 一次性装入不可变 `CredentialStore`，并把所有显式配置的
   OAuth2 auth 文件装入内部可变、对外 snapshot 化的 `OAuth2CredentialManager`；完整过期 bundle 作为立即 refresh 输入而不是损坏文档；
 - `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
 - 每个 credential 条目必须冻结受控的 type、source、从 1 开始的 generation 与可选过期时间；source 只保存
@@ -83,8 +83,9 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
   Debug/输出都不得包含 secret；
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整
   `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
-- 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 API-key pool
-  缺失或为空时在监听前失败；显式配置但不存在的 OAuth2 `auth_json_file` 在启动时创建为空文件并保持待登录，不构造 credential snapshot；
+- 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；已注册但未激活的 pool 只会让其
+  引用的 Target 在本次启动中不可执行；显式配置但不存在的 OAuth2 `auth_json_file` 在启动时创建为空文件并保持待登录，不构造
+  credential snapshot；
 - 运行时不得重新读取 `users.toml` 或 `upstream-credentials.toml`；改变用户、API Key 或 locator 必须重启。OAuth2 manager 只可在
   expiry-driven refresh 或首个预提交 `401` recovery transaction 中通过同主机 advisory lock guarded reload 自有 auth 文件，并将完整
   rotation 原子写回后发布新 generation；普通成功路径不读文件，任何请求都不得触发交互式登录。当前不支持通用热更新；
@@ -97,12 +98,12 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
 
 - pool 与 member 都使用稳定、非敏感 ID；member secret 只来自私有 upstream credential TOML，业务请求 不能提供
   pool/member、改变顺序或扩大候选集合；member ID 只能由 pool id 与数组顺序派生，不能 由 secret 内容派生；
-- 一个 pool 至少包含一个 member；member ID 必须唯一，所有 member 必须属于同一 Provider 和 credential kind，重复 secret
-  必须拒绝；单 member pool 与现有单 key 行为等价；
+- 一个激活的 API-key pool 至少包含一个 member；member ID 必须唯一，所有 member 必须属于同一 Provider 和 credential kind，重复
+  secret 必须拒绝；单 member pool 与现有单 key 行为等价；未激活 pool 可以没有 member；
 - 同一个 pool 可由同 Provider 的多个 Target 引用，使 key cooldown 与 round-robin cursor 跨模型共享；不得 为每个模型复制同一组
   key 后形成互不知晓的健康状态；
-- 每个 pool 只有一个 TOML `api_keys` 数组；未知、缺失或重复 pool、空 pool、空白或重复 member 必须在 listener 绑定前 fail
-  closed。本阶段不提供环境变量 fallback、member 级 enabled 或热增删；
+- 每个 API-key pool 只有一个 TOML `api_keys` 数组；未知或重复 pool、空白或重复 member 必须在 listener 绑定前 fail closed；缺少
+  pool、source-less pool 或空数组只表示该 pool 未激活。本阶段不提供环境变量 fallback、member 级 enabled 或热增删；
 - `CredentialStore` 继续不可变地持有 secret。运行时可变状态只保存 pool cursor、member binding ID、 generation 与 cooldown
   deadline，不保存、复制或重新读取 secret；
 - pool 选择只返回短时 credential 借用视图；每次 attempt 必须重新构造敏感认证 header，不能缓存或复用 上一次 member 的
@@ -165,9 +166,10 @@ read bootstrap.toml
 → validate UserConfiguration and collect downstream credentials
 → read upstream-credentials.toml
 → validate UpstreamCredentialConfiguration
+→ derive redacted active credential-pool set
 → compiled_config()
-→ validate and build RuntimeRegistry
-→ bind required API-key pools and configured OAuth2 auth files by compiled binding id
+→ validate and build RuntimeRegistry with active Target eligibility
+→ bind active API-key pools and configured OAuth2 auth files by compiled binding id
 → build immutable CredentialStore + OAuth2CredentialManager
 → create shared HTTP client
 → Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore> + Arc<OAuth2CredentialManager>
@@ -190,8 +192,8 @@ read bootstrap.toml
 | CFG-07 | listener 只允许 loopback；非 loopback 地址必须在监听前拒绝。                                                                                                   |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。                                                                                          |
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。                                                                 |
-| CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool，或任一已启用 Upstream Target 引用的 API-key pool 缺失、为空或不能解析时，会在 listener 绑定前阻止服务启动。 |
-| CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；启动拒绝空 pool、重复 member、Provider/kind 不匹配或缺失 secret。                                               |
+| CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool、空白/重复 secret 或不能解析时，会在 listener 绑定前阻止服务启动；缺失或为空的已注册 pool 会让其引用 Target 在本次启动中不可执行。 |
+| CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；激活 pool 必须满足 Provider/kind 与 member 约束，未激活 pool 不要求 secret。                                               |
 | CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。                                                                            |
 | CFG-13 | 四个 ChatGPT target 只进入固定 Responses-native Route/Public Model；请求和 probe 都不接受本机 Codex auth、environment、terminal 或 executable selector，OAuth credential 只从 OpenBridge-owned 配置加载并由 manager 受控借用。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |

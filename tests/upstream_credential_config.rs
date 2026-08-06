@@ -1,6 +1,7 @@
 //! Verifies private upstream credential TOML parsing, pool binding, and environment-variable isolation.
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -13,7 +14,9 @@ use openbridge::{
     credential::{CredentialSource, CredentialStoreBuilder},
     oauth2_credentials::OAuth2CredentialManagerError,
     provider::{CredentialKind, ProviderKind},
-    providers::{build_compiled_registry, compiled_config},
+    providers::{
+        build_compiled_registry, build_compiled_registry_with_active_pools, compiled_config,
+    },
     registry::{CredentialPoolConfig, build_registry},
     upstream_credentials::{UpstreamCredentialConfigError, UpstreamCredentialConfiguration},
 };
@@ -28,6 +31,70 @@ schema_version = 1
 id = "openai-primary"
 api_keys = ["synthetic-openai-key-a", "synthetic-openai-key-b"]
 "#;
+
+#[test]
+fn missing_or_empty_api_key_pools_are_inactive_without_exposing_provider_registration() {
+    // Treat an omitted credential pool list and source-less or empty API-key bindings as inactive deployment inputs.
+    let empty = UpstreamCredentialConfiguration::from_toml("schema_version = 1\n").unwrap();
+    assert_eq!(
+        empty.active_pool_ids().collect::<Vec<_>>(),
+        Vec::<&str>::new()
+    );
+
+    let inactive = UpstreamCredentialConfiguration::from_toml(
+        "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = []\n[[credential_pools]]\nid = \"mimo-primary\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        inactive.active_pool_ids().collect::<Vec<_>>(),
+        Vec::<&str>::new()
+    );
+
+    // Apply the inactive deployment input before Public Model compilation and retain OpenAI's static Provider registration.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let active_pool_ids = BTreeSet::from(["mimo-primary".to_owned()]);
+    let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids).unwrap();
+    assert!(registry.provider_instance("openai").is_some());
+    assert!(registry.credential_pool("openai-primary").is_some());
+    assert!(!registry.upstream_target("openai-main").unwrap().enabled());
+    assert!(
+        !registry
+            .upstream_target("openai-text-embedding-3-small")
+            .unwrap()
+            .enabled()
+    );
+    assert!(registry.public_model("gpt-5.6-sol").is_none());
+    assert!(registry.public_model("mimo-v2.5").is_some());
+}
+
+#[test]
+fn inactive_pools_are_not_required_by_the_service_credential_snapshot() {
+    // Parse one active non-OpenAI pool without adding an OpenAI credential source.
+    let configuration = UpstreamCredentialConfiguration::from_toml(
+        "schema_version = 1\n[[credential_pools]]\nid = \"mimo-primary\"\napi_keys = [\"synthetic-mimo-key\"]\n",
+    )
+    .unwrap();
+    let active_pool_ids = configuration
+        .active_pool_ids()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+
+    // Compile only the Target set selected by the active pool snapshot.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids).unwrap();
+
+    // Load the remaining service credentials without requiring the disabled OpenAI pool.
+    let mut builder = CredentialStoreBuilder::new();
+    let _oauth2 = configuration
+        .load_into_for(&mut builder, &registry, ["mimo-primary"])
+        .unwrap();
+    let credentials = builder.build();
+    assert!(
+        credentials
+            .upstream_pool(ProviderKind::MiMo, "mimo-primary", CredentialKind::ApiKey,)
+            .is_ok()
+    );
+}
 
 #[test]
 fn upstream_toml_loads_a_required_pool_without_environment_locators() {
@@ -114,14 +181,8 @@ fn oauth2_login_target_resolves_without_opening_or_requiring_the_auth_file() {
 
 #[test]
 fn upstream_toml_rejects_invalid_pool_documents_without_exposing_secrets() {
-    // Cover empty pools, blank keys, duplicate keys, and duplicate pool IDs.
+    // Cover blank keys, duplicate keys, and duplicate pool IDs while allowing an intentionally empty pool to disable a target.
     let cases = [
-        (
-            "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = []\n",
-            UpstreamCredentialConfigError::EmptyPool {
-                id: "openai-primary".to_owned(),
-            },
-        ),
         (
             "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = [\"  \"]\n",
             UpstreamCredentialConfigError::BlankApiKey {
@@ -351,22 +412,14 @@ fn oversized_oauth2_auth_file_is_rejected_before_document_parsing() {
 #[test]
 fn upstream_toml_rejects_ambiguous_or_mismatched_credential_sources() {
     let registry = registry();
-    let cases = [
-        (
-            "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = [\"synthetic-key\"]\nauth_json_file = \"auth.json\"\n",
-            UpstreamCredentialConfigError::ConflictingCredentialSources {
-                id: "openai-primary".to_owned(),
-            },
-        ),
-        (
-            "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\n",
-            UpstreamCredentialConfigError::MissingCredentialSource {
-                id: "openai-primary".to_owned(),
-            },
-        ),
-    ];
+    let cases = [(
+        "schema_version = 1\n[[credential_pools]]\nid = \"openai-primary\"\napi_keys = [\"synthetic-key\"]\nauth_json_file = \"auth.json\"\n",
+        UpstreamCredentialConfigError::ConflictingCredentialSources {
+            id: "openai-primary".to_owned(),
+        },
+    )];
 
-    // Reject tables that select both source variants or neither variant during document parsing.
+    // Reject tables that select both source variants during document parsing.
     for (document, expected) in cases {
         assert_eq!(
             UpstreamCredentialConfiguration::from_toml(document).unwrap_err(),

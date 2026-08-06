@@ -4,7 +4,7 @@
 //! optional trace exporter, shared upstream client, and expiry-driven OAuth2 worker. Business
 //! requests do not reread files.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Context, Result};
 use openbridge::{
@@ -12,7 +12,7 @@ use openbridge::{
     identity::UserConfigPath,
     ingress::{GatewayState, build_router},
     observability::{TraceExportRuntime, otlp_trace_layer},
-    providers::build_compiled_registry,
+    providers::build_compiled_registry_with_active_pools,
     transport::upstream::UpstreamClient,
     upstream_credentials::UpstreamCredentialConfigPath,
 };
@@ -52,9 +52,29 @@ async fn run_service(bootstrap: BootstrapConfig) -> Result<()> {
             .load()
             .context("failed to load upstream credentials")?;
 
-    // Build the compile-time registry and determine the credential pools required by enabled targets.
-    let registry =
-        build_compiled_registry(bootstrap).context("failed to build OpenBridge code registry")?;
+    // Derive a redacted active-pool set without copying any credential material into the registry.
+    let active_pool_ids = upstream_configuration
+        .active_pool_ids()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+
+    // Build the compile-time registry while excluding Targets whose startup pools are inactive.
+    let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids)
+        .context("failed to build OpenBridge code registry")?;
+    for target_id in registry.upstream_target_ids() {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("registry target id must resolve");
+        if !target.enabled() && !active_pool_ids.contains(target.credential_pool_id()) {
+            tracing::warn!(
+                upstream_target = %target_id,
+                credential_pool = %target.credential_pool_id(),
+                "upstream target disabled because its startup credential pool is inactive"
+            );
+        }
+    }
+
+    // Determine the credential pools required by the remaining enabled Targets.
     let required_pool_ids = registry
         .credential_pool_ids()
         .filter(|pool_id| {
