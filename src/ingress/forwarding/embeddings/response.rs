@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::{
     core::EmbeddingEncoding, ingress::response::filtered_upstream_headers,
-    transport::upstream::UpstreamResponse,
+    observability::RequestObservation, transport::upstream::UpstreamResponse,
 };
 
 /// Fail-closed marker for any bounded Embeddings response contract violation.
@@ -46,6 +46,7 @@ struct EmbeddingUsage {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn validated_embedding_response(
     upstream: UpstreamResponse,
+    observation: &RequestObservation,
     public_model: &str,
     upstream_model: &str,
     input_count: u32,
@@ -64,6 +65,7 @@ pub(super) async fn validated_embedding_response(
     let body = to_bytes(upstream.into_body(), max_body_bytes)
         .await
         .map_err(|_| EmbeddingResponseError)?;
+    observation.record_upstream_complete();
     let mut body: EmbeddingResponseBody =
         serde_json::from_slice(&body).map_err(|_| EmbeddingResponseError)?;
 
@@ -86,11 +88,16 @@ pub(super) async fn validated_embedding_response(
     }
 
     // Replace only the trusted upstream model identity and preserve data/usage value semantics.
+    let input_tokens = body.usage.prompt_tokens;
+    let total_tokens = body.usage.total_tokens;
     body.model = public_model.to_owned();
     let body = serde_json::to_vec(&body).map_err(|_| EmbeddingResponseError)?;
     if body.len() > max_body_bytes {
         return Err(EmbeddingResponseError);
     }
+
+    // Submit only usage from the fully validated success body; never retain input or vector values.
+    observation.record_embedding_usage(input_tokens, total_tokens);
 
     // Commit the fully validated, bounded JSON response with only allowlisted upstream headers.
     let mut response = Response::builder()

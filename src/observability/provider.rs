@@ -156,9 +156,9 @@ pub struct ProviderMetricSnapshot {
     pub response_ready_ms: TimingSnapshot,
     /// Timing aggregate until the first non-empty upstream body chunk.
     pub upstream_first_byte_ms: TimingSnapshot,
-    /// Timing aggregate until the first upstream text/tool business output.
+    /// Timing aggregate until the first upstream token-bearing text/tool/reasoning output.
     pub upstream_ttft_ms: TimingSnapshot,
-    /// Timing aggregate until downstream observes the first text/tool business output.
+    /// Timing aggregate until downstream observes the first token-bearing output.
     pub gateway_ttft_ms: TimingSnapshot,
     /// Timing aggregate for the upstream body lifetime.
     pub duration_ms: TimingSnapshot,
@@ -389,7 +389,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// Records the first text/tool business output in raw upstream SSE.
+    /// Records the first token-bearing text/tool/reasoning output in raw upstream SSE.
     pub(super) fn record_upstream_ttft(&self) {
         self.with_state(|state| {
             state

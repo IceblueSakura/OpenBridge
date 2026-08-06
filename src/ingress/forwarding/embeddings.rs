@@ -195,6 +195,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 // Validate the complete bounded success before any downstream response bytes are committed.
                 let response = match response::validated_embedding_response(
                     upstream,
+                    &observation,
                     requirements.public_model(),
                     upstream_api.upstream_model(),
                     plan.input_count(),

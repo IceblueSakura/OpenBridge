@@ -57,7 +57,7 @@ Route；transport 不解释模型和协议能力。
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
 | Provider      | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest`                                                                                                                                                       | Provider 能力上界、闭合实现分派和待发送请求                                                         |
 | Transport     | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse`                                                                                                                                                              | 可替换的发送边界、生产 HTTP client 和上游响应                                                       |
-| Observability | `RequestObservation`、`UsageCapture`、`ProviderAttemptObservation`、`GatewayMetrics`、`ProviderMetricSnapshot`                                                                                                         | 请求终态 tracing、原始 upstream body/SSE 观测、Provider attempt 性能和 usage/cache 快照             |
+| Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`GatewayMetrics`、`ProviderMetricSnapshot`                                                                                                   | 请求终态 tracing、原始 upstream body/SSE 观测、Provider attempt 性能和 usage/cache 快照             |
 | Probe         | `ProbeOptions`、`ProbeResult`、`TargetProbeReport`                                                                                                                                                                     | 探测输入、单项观察和 target 汇总报告                                                                |
 
 命名规则保持简单：`*Config` 表示构建前配置，去掉 `Config` 表示校验后的运行实体，`*Info` 表示只读事实，
@@ -345,9 +345,10 @@ RoutePlan 允许时可进入同一 Public Model 的下一完整候选；Embeddin
 
 Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff 取消，建立后把责任移交给外层
 `RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，仅在自身提交真实 EOF 或 body error 后报告 end-stream，并在真实
-EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool 增量分别计时，避免把
-headers ready 误当成 TTFT。JSON usage 只在配置上限内临时解析，SSE usage 按完整 event 解析；业务正文不会写入 tracing 或
-进程内累计值。Provider attempt 的 operation/route/target/Provider 等受信编译期维度进入独立快照，request/user/
+EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool/reasoning 增量分别计时，避免把
+headers ready 误当成 TTFT。text/tool/reasoning 首输出使用一次性原子门控，下游 SSE 只解析到首个生成 delta；JSON 与 SSE usage
+由原始 upstream observer 解析，Embeddings usage 只在成功体通过 endpoint validator 后提交，不再为下游 JSON 重复分配 usage
+cache。业务正文不会写入 tracing 或进程内累计值。Provider attempt 的 operation/route/target/Provider 等受信编译期维度进入独立快照，request/user/
 credential/endpoint URL 仍不进入指标 key；`GatewayMetrics` 继续只维护进程级低基数单调计数。
 
 `ingress::credential_health::CredentialHealth` 与 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。

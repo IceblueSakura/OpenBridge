@@ -26,7 +26,7 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 | `GET /healthz`                                                   | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。                                     | Provider 健康探测、控制面或客户端管理。                                                      |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 按[模型能力契约](model-information-and-capability-contract.md)返回严格的 OpenAI 标准四字段 list/retrieve。            | 扩展能力、上游模型或部署信息。                                                               |
 | `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses/Embeddings 固定能力契约。                                       | Provider/target/route、credential、健康、价格或动态发现。                                    |
-| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 允许有效下游 Bearer 用户读取本次进程运行期间已记录的进程级和 Provider attempt 指标快照。                         | 指标持久化、历史查询、重置、Prometheus/OpenTelemetry exporter 或动态路由控制。                 |
+| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 允许有效下游 Bearer 用户读取本次进程运行期间已记录的进程级和 Provider attempt 指标快照；读取本身不得改变该快照。 | 指标持久化、历史查询、重置、Prometheus/OpenTelemetry exporter 或动态路由控制。                 |
 | `POST /v1/chat/completions`                                      | 支持已声明能力范围内的 Chat JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。      | 多模态 Bridge、audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。               |
 | `POST /v1/responses`                                             | 支持已声明能力范围内的 Responses JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。 | 多模态 Bridge、Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 | `POST /v1/embeddings`                                            | 支持独立 Embedding Public Model 的 OpenAI-compatible JSON 请求/响应。                                                 | streaming、向量转换/存储/检索，或无等价证明的跨模型 fallback。                               |
@@ -87,6 +87,11 @@ hosted/custom tool、image、structured output、background/store 和 Provider �
   retry、fallback 或将其他 Upstream Target 的内容拼入当前 stream。
 - 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法但无 terminal 的 EOF 不得伪造成 completed。
 - response headers 和 SSE bytes 的处理必须受大小、UTF-8、event 数量/长度与慢消费者资源上限保护。
+
+运行期 TTFT 与输出速度必须以实际 token-bearing SSE delta 为边界：除 text 和 function arguments 外，Native wire 中明确出现的
+reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只记录第一次命中；后续 chunk/delta 不得重复执行同一聚合热路径。
+输出速度的时间窗口从首个上述生成 delta 到原始 upstream body 完成，使 reasoning token 不会进入分子却把其生成时间排除在分母。
+该遥测识别不扩大 Public Model reasoning capability，也不授权 Bridge 转换未知 reasoning wire。
 
 ## 5. tools、continuation 与扩展
 
@@ -157,7 +162,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
-| API-13 | 有效下游 Bearer 用户可读取当前进程内的进程级指标和 Provider attempt 指标；响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
+| API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
 
 ## 8. 非目标
 

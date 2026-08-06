@@ -254,7 +254,7 @@ impl UpstreamTransport for ProviderMetricsStreamingTransport {
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             let chunks = stream::iter(vec![
                 Ok::<_, std::io::Error>(bytes::Bytes::from_static(
-                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"delta\":{\"reasoning_content\":\"reasoning\"}}]}\n\n",
                 )),
                 Ok(bytes::Bytes::from_static(
                     b"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2}}}\n\n",
@@ -685,6 +685,7 @@ async fn metrics_http_endpoint_exposes_existing_provider_snapshot_shape() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+    let before_metrics_reads = metrics.snapshot();
 
     // Read the process snapshot after the completed request and verify the current-run counters.
     let response = app
@@ -700,7 +701,8 @@ async fn metrics_http_endpoint_exposes_existing_provider_snapshot_shape() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let gateway: Value = serde_json::from_slice(&body).unwrap();
-    assert!(gateway["requests_completed"].as_u64().unwrap() >= 1);
+    assert_eq!(gateway, serde_json::to_value(before_metrics_reads).unwrap());
+    assert_eq!(metrics.snapshot(), before_metrics_reads);
     assert_eq!(gateway["usage_observations"], 1);
     assert_eq!(gateway["input_tokens"], 10);
     assert_eq!(gateway["output_tokens"], 6);
@@ -766,6 +768,7 @@ async fn metrics_http_endpoint_exposes_existing_provider_snapshot_shape() {
             .windows("downstream-test-token-00000000000".len())
             .any(|window| window == b"downstream-test-token-00000000000")
     );
+    assert_eq!(metrics.snapshot(), before_metrics_reads);
 }
 
 #[tokio::test]
@@ -901,7 +904,7 @@ async fn embedding_body_over_replay_limit_records_exactly_one_attempt() {
 }
 
 #[tokio::test]
-async fn provider_snapshot_separates_upstream_and_gateway_ttft_for_streaming() {
+async fn provider_snapshot_starts_ttft_on_reasoning_stream_output() {
     let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsStreamingTransport));
 
     let response = app

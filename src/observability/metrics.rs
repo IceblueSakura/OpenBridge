@@ -22,7 +22,7 @@ pub struct GatewayMetrics {
 /// Read-only snapshot of `GatewayMetrics` at one point in time.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct GatewayMetricsSnapshot {
-    /// Total authenticated requests started.
+    /// Total observed authenticated requests started; metrics reads are excluded.
     pub requests_started: u64,
     /// Total 2xx response bodies completed normally.
     pub requests_completed: u64,

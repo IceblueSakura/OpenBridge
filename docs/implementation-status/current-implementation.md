@@ -360,6 +360,25 @@ array、token array 与 token-array array 一次性判别为闭合 union。analy
   `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内 采集边界，不证明真实
   Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
 
+### 2026-08-06 reasoning stream 性能指标与无副作用读取
+
+- 修复前真实 `mimo-v2.5` Chat streaming 成功返回 64 output tokens，但 `reasoning_content` 没有产生 TTFT/output speed；
+  Responses 把包含 reasoning 的 510 output tokens 除以首个可见文本后的 605 ms，得到约 842.975 tokens/s。
+- 遥测现在把 Chat `delta.reasoning_content` 与 Responses `response.reasoning_text.delta` 的首个非空 delta 作为生成窗口起点；
+  不改变 MiMo 的 `Unknown` reasoning capability、Native bytes 或 Bridge 边界。首 body byte 与首输出使用一次性原子门控，
+  下游 SSE 命中首输出后停止解析；generation JSON usage 只由原始 upstream observer 解析，Embeddings usage 由成功体 validator
+  提交，不再缓存并重复解析下游 JSON。
+- metrics endpoint 保留静态 Bearer 认证，但不创建 `RequestObservation`；连续读取前后的 gateway/provider 快照相同。现有
+  Provider/target/route/upstream operation/Public Model/downstream operation/route mode/streaming 维度全部保留，因为它们分别
+  归属 Provider family、实例、fallback、协议转换、客户端契约和流式性能，不新增重复的平均值或 error-rate 字段。
+- 最终代码的真实 MiMo Chat/Responses streaming 均返回 HTTP 200 并正常 terminal，gateway 为 2 started/2 completed/0 error；
+  Chat 的 upstream/gateway TTFT、generation 与 output speed 为 1,618 ms、2,509 ms、约 25.508 tokens/s，Responses 为
+  747/748 ms、6,250 ms、约 27.680 tokens/s。连续读取 gateway/provider 快照前后相同；该单次真实调用不构成负载、长期
+  分位数或 Provider SLA 证据。
+- 聚焦的 14 个 observability、6 个 ingress 和 20 个 Embeddings forwarding 测试通过；完整 `cargo test --locked` 共
+  260 个测试通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings`、涉及文件 rustfmt 和
+  `git diff --check` 通过。仓库级 fmt check 仍只被未改动的 `src/transport/mod.rs` 排序噪声阻塞；未运行外部 SDK、负载或长期运行验收。
+
 ### 2026-08-05 运行期指标 HTTP 读取
 
 - 新增受现有静态 Bearer middleware 保护的 `GET /openbridge/v1/metrics` 和

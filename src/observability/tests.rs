@@ -14,7 +14,7 @@ use crate::{core::OperationKind, provider::ProviderKind};
 use super::{
     GatewayMetrics, RequestObservation,
     provider::{ProviderMetricExecution, ProviderMetricKey},
-    usage::{TokenUsage, extract_usage},
+    usage::{TokenUsage, extract_usage, is_generation_output},
 };
 
 #[derive(Clone, Default)]
@@ -101,6 +101,27 @@ fn extracts_chat_and_responses_usage_without_business_content() {
         .total_tokens,
         Some(u64::MAX)
     );
+}
+
+#[test]
+fn reasoning_text_deltas_are_token_bearing_generation_output() {
+    // Recognize the two reasoning delta shapes observed from MiMo without retaining their text.
+    assert!(is_generation_output(&json!({
+        "choices": [{"delta": {"reasoning_content": "reasoning"}}]
+    })));
+    assert!(is_generation_output(&json!({
+        "type": "response.reasoning_text.delta",
+        "delta": "reasoning"
+    })));
+
+    // Keep lifecycle-only and empty reasoning events outside the generation window.
+    assert!(!is_generation_output(&json!({
+        "choices": [{"delta": {"reasoning_content": ""}}]
+    })));
+    assert!(!is_generation_output(&json!({
+        "type": "response.reasoning_text.done",
+        "text": "reasoning"
+    })));
 }
 
 #[test]

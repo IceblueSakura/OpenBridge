@@ -103,6 +103,8 @@ curl http://127.0.0.1:8080/openbridge/v1/metrics/providers \
   -H 'Authorization: Bearer replace-with-a-local-client-token'
 ```
 
+两个读取请求只做认证和快照序列化，不计入快照自身，因此连续抓取不会稀释请求错误率分母。
+
 本地接口测试页与机器可读规范：
 
 ```text
@@ -181,7 +183,7 @@ TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 a
 
 认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、Provider family、
 typed upstream operation 与脱敏
-HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool
+HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool/reasoning token delta
 增量、总耗时、retry/fallback/credential rotation/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
 保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，可通过
 `GatewayMetrics::snapshot`、`GatewayMetrics::provider_snapshots` 以及受 Bearer 保护的

@@ -201,6 +201,7 @@ paths:
       description: |
         Returns the process-level counters accumulated since startup. The snapshot is read from
         in-process memory and does not provide persistence, history, reset, or exporter semantics.
+        Reading this endpoint does not change the counters in the snapshot.
         It contains no request body, response body, Authorization value, credential, or user dimension.
       security:
         - BearerAuth: [ ]
@@ -225,6 +226,7 @@ paths:
       description: |
         Returns Provider-attempt snapshots accumulated since startup, ordered by their trusted
         Provider, Route, Target, operation, Public Model, mode, and streaming dimensions. The
+        read itself does not create an observed request or change Provider snapshots. The
         response contains no request body, response body, Authorization value, credential, or user dimension.
       security:
         - BearerAuth: [ ]

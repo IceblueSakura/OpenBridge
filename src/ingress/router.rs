@@ -44,7 +44,6 @@ struct DownstreamAuthState {
     users: Arc<UserRegistry>,
     credentials: Arc<CredentialStore>,
     metrics: GatewayMetrics,
-    max_json_body_bytes: usize,
     max_sse_event_bytes: usize,
 }
 
@@ -83,7 +82,6 @@ pub fn build_router(state: GatewayState) -> Router {
                 users: state.users.clone(),
                 credentials: state.credentials.clone(),
                 metrics: state.metrics.clone(),
-                max_json_body_bytes: state.registry.limits().max_json_response_body_bytes(),
                 max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
             },
             require_user,
@@ -146,7 +144,28 @@ async fn require_user(
         return response;
     };
 
-    // Bind the authenticated user to the request span before invoking the protected handler.
+    // Bind the authenticated user before invoking any protected handler.
+    request.extensions_mut().insert(user.clone());
+
+    // Serve read-only metrics under authentication without letting observation mutate its own snapshot.
+    if matches!(
+        path.as_str(),
+        "/openbridge/v1/metrics" | "/openbridge/v1/metrics/providers"
+    ) {
+        let span = tracing::info_span!(
+            "metrics_request",
+            %request_id,
+            user_id = %user.id(),
+            %method,
+            %path,
+            status = tracing::field::Empty,
+        );
+        let response = tracing::Instrument::instrument(next.run(request), span.clone()).await;
+        span.record("status", response.status().as_u16());
+        return response;
+    }
+
+    // Bind the observed request to a span and finish it only at the downstream body boundary.
     let span = tracing::info_span!(
         "downstream_request",
         %request_id,
@@ -159,16 +178,10 @@ async fn require_user(
     );
     let observation = RequestObservation::new(auth.metrics.clone(), span.clone());
     let mut lifecycle = RequestLifecycleGuard::new(observation.clone());
-    request.extensions_mut().insert(user);
     request.extensions_mut().insert(observation.clone());
     let mut response = tracing::Instrument::instrument(next.run(request), span).await;
     observation.record_response_ready(response.status());
-    observe_response_body(
-        &mut response,
-        observation,
-        auth.max_json_body_bytes,
-        auth.max_sse_event_bytes,
-    );
+    observe_response_body(&mut response, observation, auth.max_sse_event_bytes);
     lifecycle.handoff_to_body();
     response
 }

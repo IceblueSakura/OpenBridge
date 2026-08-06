@@ -8,7 +8,7 @@
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Instant,
 };
@@ -24,7 +24,7 @@ use super::{
         AttemptOutcome, ProviderAttemptObservation, ProviderMetricExecution, ProviderMetricKey,
         observe_json_body,
     },
-    usage::{TokenUsage, is_business_output, is_failed_terminal},
+    usage::{TokenUsage, is_failed_terminal, is_generation_output},
 };
 
 /// Shared span, terminal-state, and usage observation handle for one authenticated request.
@@ -37,6 +37,10 @@ struct RequestObservationInner {
     metrics: GatewayMetrics,
     span: Span,
     started: Instant,
+    first_body_byte_recorded: AtomicBool,
+    first_output_recorded: AtomicBool,
+    upstream_first_byte_pending: AtomicBool,
+    upstream_first_output_pending: AtomicBool,
     state: Mutex<RequestState>,
 }
 
@@ -72,6 +76,10 @@ impl RequestObservation {
                 metrics,
                 span,
                 started: Instant::now(),
+                first_body_byte_recorded: AtomicBool::new(false),
+                first_output_recorded: AtomicBool::new(false),
+                upstream_first_byte_pending: AtomicBool::new(false),
+                upstream_first_output_pending: AtomicBool::new(false),
                 state: Mutex::new(RequestState::default()),
             }),
         }
@@ -123,6 +131,12 @@ impl RequestObservation {
         }
         let provider_attempt = self.inner.metrics.start_provider_attempt(key);
         self.with_state(|state| state.active_attempt = Some(provider_attempt));
+        self.inner
+            .upstream_first_byte_pending
+            .store(true, Ordering::Relaxed);
+        self.inner
+            .upstream_first_output_pending
+            .store(true, Ordering::Relaxed);
         self.inner
             .metrics
             .inner
@@ -253,21 +267,38 @@ impl RequestObservation {
 
     /// Marks the first non-empty downstream body chunk.
     pub(crate) fn record_first_body_byte(&self) {
+        // Claim the one-time downstream first-byte update before taking the request-state lock.
+        if self
+            .inner
+            .first_body_byte_recorded
+            .swap(true, Ordering::Relaxed)
+        {
+            return;
+        }
         let elapsed = self.elapsed_ms();
-        self.with_state(|state| {
-            state.first_body_byte_ms.get_or_insert(elapsed);
-        });
+        self.with_state(|state| state.first_body_byte_ms = Some(elapsed));
     }
 
-    /// Marks the first text/tool increment in SSE without treating metadata events as TTFT.
+    /// Marks the first token-bearing text/tool/reasoning increment without treating metadata as TTFT.
     pub(super) fn record_first_output(&self) {
+        // Claim the one-time downstream TTFT update before taking request and Provider locks.
+        if self
+            .inner
+            .first_output_recorded
+            .swap(true, Ordering::Relaxed)
+        {
+            return;
+        }
         let elapsed = self.elapsed_ms();
-        self.with_state(|state| {
-            state.first_output_ms.get_or_insert(elapsed);
-        });
+        self.with_state(|state| state.first_output_ms = Some(elapsed));
         if let Some(provider_attempt) = self.active_attempt() {
             provider_attempt.record_gateway_ttft(elapsed);
         }
+    }
+
+    /// Returns whether downstream still needs its first token-bearing output observation.
+    pub(super) fn needs_first_output(&self) -> bool {
+        !self.inner.first_output_recorded.load(Ordering::Relaxed)
     }
 
     /// Records a body/SSE failure; one request retains only its first failure category.
@@ -294,18 +325,43 @@ impl RequestObservation {
         }
     }
 
+    /// Records usage from a fully validated Embeddings success body without retaining its input or vectors.
+    pub(crate) fn record_embedding_usage(&self, input_tokens: u64, total_tokens: u64) {
+        self.record_usage(TokenUsage {
+            input_tokens: Some(input_tokens),
+            output_tokens: None,
+            total_tokens: Some(total_tokens),
+            cached_input_tokens: None,
+            cache_write_input_tokens: None,
+        });
+    }
+
     /// Records the first non-empty chunk of the raw upstream body.
     pub(crate) fn record_upstream_chunk(&self, chunk: &bytes::Bytes) {
+        // Claim the first byte once per Provider attempt and skip request locking for later chunks.
         if !chunk.is_empty()
+            && self
+                .inner
+                .upstream_first_byte_pending
+                .swap(false, Ordering::Relaxed)
             && let Some(provider_attempt) = self.active_attempt()
         {
             provider_attempt.record_first_byte();
         }
     }
 
-    /// Records business output, terminal, and usage from raw upstream JSON/SSE data.
+    /// Records generated output, terminal, and usage from raw upstream JSON/SSE data.
     pub(crate) fn record_upstream_value(&self, value: &serde_json::Value) {
-        if is_business_output(value)
+        // Claim TTFT once per Provider attempt while continuing to inspect terminal usage events.
+        if self
+            .inner
+            .upstream_first_output_pending
+            .load(Ordering::Relaxed)
+            && is_generation_output(value)
+            && self
+                .inner
+                .upstream_first_output_pending
+                .swap(false, Ordering::Relaxed)
             && let Some(provider_attempt) = self.active_attempt()
         {
             provider_attempt.record_upstream_ttft();

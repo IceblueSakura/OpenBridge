@@ -1,4 +1,4 @@
-//! Cancellation, terminal-state, and usage-observation lifecycle for downstream response bodies.
+//! Cancellation, terminal-state, and first-output lifecycle for downstream response bodies.
 
 use std::{
     pin::Pin,
@@ -10,7 +10,7 @@ use bytes::Bytes;
 use http::header::CONTENT_TYPE;
 use http_body::{Body as HttpBody, Frame, SizeHint};
 
-use crate::observability::{RequestObservation, UsageCapture};
+use crate::observability::{FirstOutputCapture, RequestObservation};
 
 /// Captures a request whose middleware future is cancelled before a response body exists.
 pub(super) struct RequestLifecycleGuard {
@@ -44,50 +44,53 @@ impl Drop for RequestLifecycleGuard {
 pub(super) fn observe_response_body(
     response: &mut Response,
     observation: RequestObservation,
-    max_json_body_bytes: usize,
     max_sse_event_bytes: usize,
 ) {
-    // Create a bounded usage parser only for successful JSON/SSE responses.
+    // Create a bounded first-output parser only for successful SSE responses.
     let content_type = response
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok());
-    let usage = if response.status().is_success() {
-        UsageCapture::for_response(content_type, max_json_body_bytes, max_sse_event_bytes)
+    let first_output = if response.status().is_success() {
+        FirstOutputCapture::for_response(content_type, max_sse_event_bytes)
     } else {
-        UsageCapture::None
+        FirstOutputCapture::None
     };
     let body = std::mem::replace(response.body_mut(), axum::body::Body::empty());
     *response.body_mut() =
-        axum::body::Body::new(RequestBodyObserver::new(body, observation, usage));
+        axum::body::Body::new(RequestBodyObserver::new(body, observation, first_output));
 }
 
 /// Preserves raw HTTP frames and submits the request terminal at the actual body-consumption boundary.
 struct RequestBodyObserver {
     body: axum::body::Body,
     observation: RequestObservation,
-    usage: UsageCapture,
+    first_output: FirstOutputCapture,
     finished: bool,
 }
 
 impl RequestBodyObserver {
     /// Creates a transparent body wrapper with no first byte or terminal state yet.
-    fn new(body: axum::body::Body, observation: RequestObservation, usage: UsageCapture) -> Self {
+    fn new(
+        body: axum::body::Body,
+        observation: RequestObservation,
+        first_output: FirstOutputCapture,
+    ) -> Self {
         Self {
             body,
             observation,
-            usage,
+            first_output,
             finished: false,
         }
     }
 
-    /// Flushes usage and submits one successful terminal at the real EOF boundary.
+    /// Flushes a pending first-output event and submits one successful terminal at real EOF.
     fn complete(&mut self) {
-        // At normal EOF, submit the final usage event before the request terminal.
+        // At normal EOF, flush the final output event before the request terminal.
         if self.finished {
             return;
         }
-        self.usage.finish(&self.observation);
+        self.first_output.finish(&self.observation);
         self.observation.finish();
         self.finished = true;
     }
@@ -114,14 +117,16 @@ impl HttpBody for RequestBodyObserver {
         context: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let observer = self.get_mut();
-        // Preserve every data/trailer frame; observe first byte and usage only on data frames.
+        // Preserve every data/trailer frame; observe first byte and first generated output on data frames.
         match Pin::new(&mut observer.body).poll_frame(context) {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(chunk) = frame.data_ref() {
                     if !chunk.is_empty() {
                         observer.observation.record_first_body_byte();
                     }
-                    observer.usage.observe_chunk(&observer.observation, chunk);
+                    observer
+                        .first_output
+                        .observe_chunk(&observer.observation, chunk);
                 }
                 // The underlying stream may end after the last data/trailer frame without another transport EOF poll.
                 if observer.body.is_end_stream() {
@@ -171,7 +176,7 @@ mod tests {
     use http_body::Body as HttpBody;
 
     use super::RequestBodyObserver;
-    use crate::observability::{GatewayMetrics, RequestObservation, UsageCapture};
+    use crate::observability::{FirstOutputCapture, GatewayMetrics, RequestObservation};
 
     #[test]
     fn complete_single_frame_body_finishes_without_a_separate_eof_poll() {
@@ -183,7 +188,7 @@ mod tests {
             let mut observer = pin!(RequestBodyObserver::new(
                 Body::from("complete"),
                 observation,
-                UsageCapture::None,
+                FirstOutputCapture::None,
             ));
             let mut context = Context::from_waker(noop_waker_ref());
 

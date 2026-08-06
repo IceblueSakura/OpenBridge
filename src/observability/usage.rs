@@ -1,4 +1,4 @@
-//! Bounded parsing of explicit usage and first business output in downstream JSON and SSE.
+//! Bounded parsing of explicit upstream usage and first token-bearing downstream SSE output.
 //!
 //! Parse failures indicate missing observation only; they do not change proxy bytes or response
 //! status. Caches and SSE events remain subject to existing limits.
@@ -32,34 +32,19 @@ impl TokenUsage {
     }
 }
 
-/// Usage parsing state for a response body; parse failure indicates missing observation only.
-pub(crate) enum UsageCapture {
-    /// The current response carries no parseable usage.
+/// First-output parsing state for a downstream response body.
+pub(crate) enum FirstOutputCapture {
+    /// The current response carries no stream requiring downstream TTFT observation.
     None,
-    /// Bounded JSON-body cache; abandon usage parsing after the limit while continuing passthrough.
-    Json {
-        bytes: Vec<u8>,
-        limit: usize,
-        truncated: bool,
-    },
-    /// Incrementally parses downstream events using the existing SSE event limit.
+    /// Incrementally parses downstream events only until the first generated delta.
     Sse { decoder: SseDecoder, invalid: bool },
 }
 
-impl UsageCapture {
-    /// Creates a bounded usage parser from a successful response media type.
-    pub(crate) fn for_response(
-        content_type: Option<&str>,
-        max_json_body_bytes: usize,
-        max_sse_event_bytes: usize,
-    ) -> Self {
-        // Select bounded JSON, SSE, or no-observation behavior from the response media type.
+impl FirstOutputCapture {
+    /// Creates a bounded first-output parser from a successful response media type.
+    pub(crate) fn for_response(content_type: Option<&str>, max_sse_event_bytes: usize) -> Self {
+        // Select bounded SSE or no-observation behavior from the response media type.
         match content_type {
-            Some(value) if value.starts_with("application/json") => Self::Json {
-                bytes: Vec::new(),
-                limit: max_json_body_bytes,
-                truncated: false,
-            },
             Some(value) if value.starts_with("text/event-stream") => Self::Sse {
                 decoder: SseDecoder::new(max_sse_event_bytes),
                 invalid: false,
@@ -68,51 +53,28 @@ impl UsageCapture {
         }
     }
 
-    /// Observes a passthrough chunk; parse problems never change downstream bytes or status.
+    /// Observes a passthrough chunk until TTFT; parse problems never change downstream bytes or status.
     pub(crate) fn observe_chunk(&mut self, observation: &RequestObservation, chunk: &Bytes) {
-        // Update observation state only; never modify or block current downstream bytes.
+        // Decode only while TTFT is unknown and never modify or block current downstream bytes.
         match self {
             Self::None => {}
-            Self::Json {
-                bytes,
-                limit,
-                truncated,
-            } => {
-                if !*truncated && bytes.len().saturating_add(chunk.len()) <= *limit {
-                    bytes.extend_from_slice(chunk);
-                } else {
-                    bytes.clear();
-                    *truncated = true;
-                }
-            }
+            Self::Sse { .. } if !observation.needs_first_output() => {}
             Self::Sse { decoder, invalid } => match decoder.push(chunk) {
-                Ok(events) => observe_usage_events(observation, events),
+                Ok(events) => observe_first_output_events(observation, events),
                 Err(_) => *invalid = true,
             },
         }
     }
 
-    /// Completes usage parsing at normal EOF and writes structured counters only.
+    /// Flushes a final partial SSE event at normal EOF when TTFT is still unknown.
     pub(crate) fn finish(&mut self, observation: &RequestObservation) {
-        // Flush the final JSON/SSE event at real EOF and record parseable usage.
+        // Flush only the final SSE event needed for a still-missing first-output observation.
         match self {
             Self::None => {}
-            Self::Json {
-                bytes, truncated, ..
-            } if !*truncated => {
-                if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
-                    if is_failed_terminal(&value) {
-                        observation.record_stream_failure("provider_terminal_failed");
-                    }
-                    if let Some(usage) = extract_usage(&value) {
-                        observation.record_usage(usage);
-                    }
-                }
-            }
-            Self::Json { .. } => {}
+            Self::Sse { .. } if !observation.needs_first_output() => {}
             Self::Sse { decoder, invalid } if !*invalid => {
                 if let Ok(events) = decoder.finish() {
-                    observe_usage_events(observation, events);
+                    observe_first_output_events(observation, events);
                 }
             }
             Self::Sse { .. } => {}
@@ -120,41 +82,45 @@ impl UsageCapture {
     }
 }
 
-/// Observes the first business output and explicit usage in complete SSE events.
-fn observe_usage_events(observation: &RequestObservation, events: Vec<SseEvent>) {
-    // Parse only complete event data JSON; retain neither the event nor business output.
+/// Observes the first generated output in complete downstream SSE events.
+fn observe_first_output_events(observation: &RequestObservation, events: Vec<SseEvent>) {
+    // Stop after the first token-bearing event and retain neither the event nor generated output.
     for event in events {
         if event.data() == "[DONE]" {
             continue;
         }
-        if let Ok(value) = serde_json::from_str::<Value>(event.data()) {
-            if is_business_output(&value) {
-                observation.record_first_output();
-            }
-            if let Some(usage) = extract_usage(&value) {
-                observation.record_usage(usage);
-            }
+        if let Ok(value) = serde_json::from_str::<Value>(event.data())
+            && observation.needs_first_output()
+            && is_generation_output(&value)
+        {
+            observation.record_first_output();
+            break;
         }
     }
 }
 
-/// Returns whether an event carries the first text or function-argument increment.
-pub(super) fn is_business_output(value: &Value) -> bool {
-    // For Responses, only text/function-argument deltas are business output; lifecycle metadata is excluded.
+/// Returns whether an event carries a non-empty text, reasoning, or function increment.
+pub(super) fn is_generation_output(value: &Value) -> bool {
+    // Recognize only token-bearing Responses deltas and exclude lifecycle metadata or empty deltas.
     if value
         .get("type")
         .and_then(Value::as_str)
         .is_some_and(|kind| {
             matches!(
                 kind,
-                "response.output_text.delta" | "response.function_call_arguments.delta"
+                "response.output_text.delta"
+                    | "response.reasoning_text.delta"
+                    | "response.function_call_arguments.delta"
             )
         })
     {
-        return true;
+        return value
+            .get("delta")
+            .and_then(Value::as_str)
+            .is_some_and(|delta| !delta.is_empty());
     }
 
-    // For Chat, only non-empty content or tool-call deltas count as business output.
+    // Recognize non-empty Chat content, reasoning, or tool-call deltas.
     value
         .get("choices")
         .and_then(Value::as_array)
@@ -165,6 +131,10 @@ pub(super) fn is_business_output(value: &Value) -> bool {
                         .get("content")
                         .and_then(Value::as_str)
                         .is_some_and(|content| !content.is_empty())
+                        || delta
+                            .get("reasoning_content")
+                            .and_then(Value::as_str)
+                            .is_some_and(|content| !content.is_empty())
                         || delta
                             .get("tool_calls")
                             .and_then(Value::as_array)

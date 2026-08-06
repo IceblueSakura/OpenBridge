@@ -13,7 +13,7 @@ mod usage;
 pub use metrics::{GatewayMetrics, GatewayMetricsSnapshot};
 pub use provider::{ProviderMetricKey, ProviderMetricSnapshot, RateSnapshot, TimingSnapshot};
 pub(crate) use request::RequestObservation;
-pub(crate) use usage::UsageCapture;
+pub(crate) use usage::FirstOutputCapture;
 
 #[cfg(test)]
 mod tests;
