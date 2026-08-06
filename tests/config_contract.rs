@@ -179,6 +179,68 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
 }
 
 #[test]
+fn bootstrap_accepts_explicit_otlp_trace_export_and_rejects_unsafe_url_shapes() {
+    // Keep trace export fully disabled when the optional telemetry table is absent.
+    assert!(
+        parse_bootstrap_config(BOOTSTRAP)
+            .unwrap()
+            .otlp_http_trace_export()
+            .is_none()
+    );
+
+    // Accept startup-owned loopback, non-loopback IP, and DNS collector bases.
+    for (endpoint, normalized) in [
+        ("http://127.0.0.1:4318", "http://127.0.0.1:4318/"),
+        ("http://[::1]:4318", "http://[::1]:4318/"),
+        ("http://192.0.2.1:4318", "http://192.0.2.1:4318/"),
+        (
+            "http://collector.example:4318",
+            "http://collector.example:4318/",
+        ),
+        ("http://localhost:4318", "http://localhost:4318/"),
+    ] {
+        let enabled =
+            format!("{BOOTSTRAP}\n[telemetry.traces]\notlp_http_endpoint = \"{endpoint}\"\n");
+        assert_eq!(
+            parse_bootstrap_config(&enabled)
+                .unwrap()
+                .otlp_http_trace_export()
+                .unwrap()
+                .endpoint()
+                .as_str(),
+            normalized
+        );
+    }
+
+    // Reject URL shapes that could smuggle credentials, routing data, or a different protocol.
+    for endpoint in [
+        "https://127.0.0.1:4318",
+        "file:///tmp/collector",
+        "http://",
+        "http://user:synthetic-secret@127.0.0.1:4318",
+        "http://127.0.0.1:4318/custom",
+        "http://127.0.0.1:4318?tenant=synthetic",
+        "http://127.0.0.1:4318#synthetic",
+    ] {
+        let invalid =
+            format!("{BOOTSTRAP}\n[telemetry.traces]\notlp_http_endpoint = \"{endpoint}\"\n");
+        assert!(matches!(
+            parse_bootstrap_config(&invalid),
+            Err(BootstrapConfigError::InvalidOtlpHttpTraceEndpoint)
+        ));
+    }
+
+    // Deny exporter headers and all other unowned telemetry policy at the document boundary.
+    let custom_header = format!(
+        "{BOOTSTRAP}\n[telemetry.traces]\notlp_http_endpoint = \"http://127.0.0.1:4318\"\nheaders = {{ authorization = \"synthetic-secret\" }}\n"
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&custom_header),
+        Err(BootstrapConfigError::Parse)
+    ));
+}
+
+#[test]
 fn model_config_and_typed_rules_are_validated() {
     let mut invalid = definition("test", "code-primary", "test-model");
     invalid.models[0].context_length = ModelContextLength::new(None, None, Some(0));

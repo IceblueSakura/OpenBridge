@@ -170,8 +170,9 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 
 ### 7.2 配置、安全与运行时边界
 
-- exporter 默认禁用，只能由 bootstrap 显式启用并指向 loopback OTLP/HTTP collector；业务请求不能选择 endpoint、protocol、
-  header、resource attribute 或采样策略。无效或非 loopback 配置必须在 listener 与 exporter egress 前失败。
+- exporter 默认禁用，只能由 bootstrap 显式启用并提供受限 URL shape 的 OTLP/HTTP collector；配置所有者可以选择 loopback、非
+  loopback IP 或 DNS host，业务请求不能选择 endpoint、protocol、header、resource attribute 或采样策略。无效 scheme、缺失 host、
+  URL credential、path、query、fragment 或不支持字段必须在 listener 与 exporter egress 前失败。
 - 所有 signals 使用固定 `service.name = "openbridge"` 和本次进程资源身份。traces 可携带 request id 以供关联；任何 signal 都不得包含
   Authorization、credential、用户身份、请求/响应正文、tool arguments/result、reasoning 正文、原始上游错误正文、query 或真实
   endpoint URL。
@@ -198,13 +199,13 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
 | API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 `gateway_ttft_ms`，不得据此伪造 `upstream_ttft_ms`、生成时长或输出速度；响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
-| OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only loopback OTLP/HTTP 配置能启用相应 signal，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。                 |
+| OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
 | OBS-03 | OTLP metrics 只提交直接观测的原始 counter/histogram 和有界维度；TTFT 分位数、tokens/s、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |
 | OBS-04 | OTLP logs 只导出安全、限频且可通过 trace/span id 关联的运行诊断；不记录逐 chunk/delta，也不复制完整 request/attempt terminal 形成冗余高频日志。                              |
 | OBS-05 | export 使用有界异步队列和有界关闭；collector 故障、超时或背压不阻塞请求、不改变 HTTP/SSE/Provider 行为，只允许丢弃 telemetry 并产生限频本地诊断。                          |
 | OBS-06 | 所有 signals 都不包含 credential、Authorization、用户身份、业务正文、tool/reasoning 内容、原始错误正文、query 或真实 endpoint URL；metric attributes 不含高基数身份。       |
-| OBS-07 | metrics HTTP 快照在当前 trace 焦点中保持现有结构和语义；后续 OTLP metrics 焦点证明事实覆盖后，可直接缩减自有累计或改变/移除 endpoint，无需为未发布原型保留弃用窗口或兼容垫片。 |
+| OBS-07 | metrics HTTP 快照在已完成的 trace 闭环中保持现有结构和语义；后续 OTLP metrics 焦点证明事实覆盖后，可直接缩减自有累计或改变/移除 endpoint，无需为未发布原型保留弃用窗口或兼容垫片。 |
 
 ## 9. 非目标
 

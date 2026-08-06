@@ -15,6 +15,7 @@ use std::{
 
 use http::StatusCode;
 use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{core::OperationKind, provider::ProviderKind};
 
@@ -97,8 +98,13 @@ impl RequestObservation {
             state.public_model = Some(public_model.to_owned());
             state.streaming = streaming;
         });
-        self.inner.span.record("operation", operation.as_str());
-        self.inner.span.record("public_model", public_model);
+        self.inner
+            .span
+            .set_attribute("operation", operation.as_str());
+        self.inner
+            .span
+            .set_attribute("public_model", public_model.to_owned());
+        self.inner.span.set_attribute("streaming", streaming);
     }
 
     /// Records one actual upstream attempt and its compiled Route facts.
@@ -129,7 +135,21 @@ impl RequestObservation {
         if let Some(previous) = previous {
             previous.finish(AttemptOutcome::Cancelled);
         }
-        let provider_attempt = self.inner.metrics.start_provider_attempt(key);
+        let attempt_index = attempt.min(i64::MAX as u64) as i64;
+        let attempt_span = tracing::info_span!(
+            parent: &self.inner.span,
+            "provider_attempt",
+            attempt = attempt_index,
+            provider = %key.provider,
+            route_id = %key.route_id,
+            upstream_target = %key.upstream_target,
+            upstream_operation = %key.upstream_operation,
+            public_model = %key.public_model,
+            operation = %key.operation,
+            route_mode = %key.route_mode,
+            streaming = key.streaming,
+        );
+        let provider_attempt = self.inner.metrics.start_provider_attempt(key, attempt_span);
         self.with_state(|state| state.active_attempt = Some(provider_attempt));
         self.inner
             .upstream_first_byte_pending
@@ -262,7 +282,6 @@ impl RequestObservation {
             state.status = Some(status.as_u16());
             state.response_ready_ms = Some(elapsed);
         });
-        self.inner.span.record("status", status.as_u16());
     }
 
     /// Marks the first non-empty downstream body chunk.
@@ -530,6 +549,31 @@ impl RequestObservation {
         };
         // Emit only timing, attempt counts, terminal category, and structured usage counters.
         let usage = summary.usage.unwrap_or_default();
+        self.inner.span.set_attribute("outcome", outcome);
+        record_optional_u64(
+            &self.inner.span,
+            "response_ready_ms",
+            summary.response_ready_ms,
+        );
+        record_optional_u64(
+            &self.inner.span,
+            "first_body_byte_ms",
+            summary.first_body_byte_ms,
+        );
+        record_optional_u64(&self.inner.span, "first_output_ms", summary.first_output_ms);
+        set_u64_attribute(&self.inner.span, "duration_ms", summary.duration_ms);
+        set_u64_attribute(&self.inner.span, "upstream_attempts", summary.attempts);
+        set_u64_attribute(&self.inner.span, "upstream_retries", summary.retries);
+        set_u64_attribute(
+            &self.inner.span,
+            "credential_rotations",
+            summary.credential_rotations,
+        );
+        set_u64_attribute(&self.inner.span, "route_fallbacks", summary.fallbacks);
+        set_u64_attribute(&self.inner.span, "cooldown_skips", summary.cooldown_skips);
+        record_optional_u64(&self.inner.span, "input_tokens", usage.input_tokens);
+        record_optional_u64(&self.inner.span, "output_tokens", usage.output_tokens);
+        record_optional_u64(&self.inner.span, "total_tokens", usage.total_tokens);
         self.inner.span.in_scope(|| {
             tracing::info!(
                 outcome,
@@ -595,6 +639,18 @@ fn saturating_add(counter: &AtomicU64, value: u64) {
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         Some(current.saturating_add(value))
     });
+}
+
+/// Records a directly observed unsigned value only when it exists.
+fn record_optional_u64(span: &Span, field: &'static str, value: Option<u64>) {
+    if let Some(value) = value {
+        set_u64_attribute(span, field, value);
+    }
+}
+
+/// Records an unsigned observation using OTLP's signed integer domain without wrapping.
+fn set_u64_attribute(span: &Span, field: &'static str, value: u64) {
+    span.set_attribute(field, value.min(i64::MAX as u64) as i64);
 }
 
 impl RequestObservation {

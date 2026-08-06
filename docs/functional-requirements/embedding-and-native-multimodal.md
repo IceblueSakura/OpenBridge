@@ -7,7 +7,7 @@
 1. OpenAI-compatible `POST /v1/embeddings`；
 2. 现有 Chat Completions/Responses 的 Native JSON 多模态输入。
 
-当前活动焦点是独立的 OpenTelemetry trace 导出闭环；Native 多模态仍是已批准但未获得实施授权的独立目标。扩展 Models
+当前没有活动开发焦点；Native 多模态仍是已批准但未获得实施授权的独立目标。扩展 Models
 接口公开的类型化输入能力必须能被同一份不可变执行接口直接预检；只有该固定契约明确允许的输入形状、来源和选项才能进入 Native
 egress。它不是对所有 OpenAI 媒体 API 的并行实现授权；Embeddings
 的完成事实与实际证据只记录在[当前实现说明](../implementation-status/current-implementation.md)。

@@ -16,6 +16,8 @@ use bytes::Bytes;
 use http_body::{Body as HttpBody, Frame, SizeHint};
 use serde::Serialize;
 use serde_json::Value;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{core::OperationKind, provider::ProviderKind};
 
@@ -228,10 +230,11 @@ pub(super) struct ProviderMetrics {
 
 impl ProviderMetrics {
     /// Creates an open Provider-attempt observation handle.
-    pub(super) fn start(&self, key: ProviderMetricKey) -> ProviderAttemptObservation {
+    pub(super) fn start(&self, key: ProviderMetricKey, span: Span) -> ProviderAttemptObservation {
         ProviderAttemptObservation {
             metrics: self.clone(),
             key,
+            span,
             started: Instant::now(),
             state: Arc::new(Mutex::new(ProviderAttemptState::default())),
         }
@@ -341,6 +344,7 @@ impl ProviderMetrics {
 pub(super) struct ProviderAttemptObservation {
     metrics: ProviderMetrics,
     key: ProviderMetricKey,
+    span: Span,
     started: Instant,
     state: Arc<Mutex<ProviderAttemptState>>,
 }
@@ -477,30 +481,61 @@ impl ProviderAttemptObservation {
                 usage: state.usage,
             }
         };
-        self.metrics.record(&self.key, summary);
-        tracing::info!(
-            provider = %self.key.provider,
-            route_id = %self.key.route_id,
-            upstream_target = %self.key.upstream_target,
-            upstream_operation = %self.key.upstream_operation,
-            public_model = %self.key.public_model,
-            operation = %self.key.operation,
-            route_mode = %self.key.route_mode,
-            streaming = self.key.streaming,
-            outcome = summary.outcome.as_str(),
-            response_ready_ms = summary.response_ready_ms,
-            upstream_first_byte_ms = summary.upstream_first_byte_ms,
-            upstream_ttft_ms = summary.upstream_ttft_ms,
-            gateway_ttft_ms = summary.gateway_ttft_ms,
-            duration_ms = summary.duration_ms,
-            input_tokens = summary.usage.and_then(|usage| usage.input_tokens),
-            output_tokens = summary.usage.and_then(|usage| usage.output_tokens),
-            total_tokens = summary.usage.and_then(|usage| usage.total_tokens),
-            cached_input_tokens = summary
-                .usage
-                .and_then(|usage| usage.cached_input_tokens),
-            "provider_attempt_completed"
+
+        // Record only the reviewed terminal, timing, and explicit usage fields on the attempt span.
+        self.span.set_attribute("outcome", summary.outcome.as_str());
+        record_optional_u64(&self.span, "response_ready_ms", summary.response_ready_ms);
+        record_optional_u64(
+            &self.span,
+            "upstream_first_byte_ms",
+            summary.upstream_first_byte_ms,
         );
+        record_optional_u64(&self.span, "upstream_ttft_ms", summary.upstream_ttft_ms);
+        record_optional_u64(&self.span, "gateway_ttft_ms", summary.gateway_ttft_ms);
+        set_u64_attribute(&self.span, "duration_ms", summary.duration_ms);
+        record_optional_u64(
+            &self.span,
+            "generation_duration_ms",
+            summary.generation_duration_ms,
+        );
+        let usage = summary.usage.unwrap_or_default();
+        record_optional_u64(&self.span, "input_tokens", usage.input_tokens);
+        record_optional_u64(&self.span, "output_tokens", usage.output_tokens);
+        record_optional_u64(&self.span, "total_tokens", usage.total_tokens);
+        record_optional_u64(&self.span, "cached_input_tokens", usage.cached_input_tokens);
+        record_optional_u64(
+            &self.span,
+            "cache_write_input_tokens",
+            usage.cache_write_input_tokens,
+        );
+
+        // Preserve the in-process snapshot and existing content-free local completion event.
+        self.metrics.record(&self.key, summary);
+        self.span.in_scope(|| {
+            tracing::info!(
+                provider = %self.key.provider,
+                route_id = %self.key.route_id,
+                upstream_target = %self.key.upstream_target,
+                upstream_operation = %self.key.upstream_operation,
+                public_model = %self.key.public_model,
+                operation = %self.key.operation,
+                route_mode = %self.key.route_mode,
+                streaming = self.key.streaming,
+                outcome = summary.outcome.as_str(),
+                response_ready_ms = summary.response_ready_ms,
+                upstream_first_byte_ms = summary.upstream_first_byte_ms,
+                upstream_ttft_ms = summary.upstream_ttft_ms,
+                gateway_ttft_ms = summary.gateway_ttft_ms,
+                duration_ms = summary.duration_ms,
+                input_tokens = summary.usage.and_then(|usage| usage.input_tokens),
+                output_tokens = summary.usage.and_then(|usage| usage.output_tokens),
+                total_tokens = summary.usage.and_then(|usage| usage.total_tokens),
+                cached_input_tokens = summary
+                    .usage
+                    .and_then(|usage| usage.cached_input_tokens),
+                "provider_attempt_completed"
+            );
+        });
     }
 
     /// Performs a small update while holding the state lock.
@@ -514,6 +549,18 @@ impl ProviderAttemptObservation {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// Records a directly observed unsigned value only when it exists.
+fn record_optional_u64(span: &Span, field: &'static str, value: Option<u64>) {
+    if let Some(value) = value {
+        set_u64_attribute(span, field, value);
+    }
+}
+
+/// Records an unsigned observation using OTLP's signed integer domain without wrapping.
+fn set_u64_attribute(span: &Span, field: &'static str, value: u64) {
+    span.set_attribute(field, value.min(i64::MAX as u64) as i64);
 }
 
 /// Transparently observes a non-SSE upstream body and parses bounded JSON usage.

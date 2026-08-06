@@ -20,4 +20,17 @@ pub(super) struct RawBootstrap {
     pub(super) upstream_connect_timeout_ms: u64,
     pub(super) upstream_pool_idle_timeout_ms: u64,
     pub(super) upstream_pool_max_idle_per_host: usize,
+    pub(super) telemetry: Option<RawTelemetry>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawTelemetry {
+    pub(super) traces: Option<RawOtlpHttpTraceExport>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawOtlpHttpTraceExport {
+    pub(super) otlp_http_endpoint: String,
 }

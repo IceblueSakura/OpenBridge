@@ -33,7 +33,7 @@ Route。
 - 已认证请求在 response body 的实际完成、流错误或下游取消边界产生一次脱敏终态观测；高基数诊断事实只进入
   trace，进程内统计只累计低基数终态、attempt 结果和 Provider 明确返回的 usage；
 - 持有有效下游 Bearer token 的用户可以读取本次运行期间已记录的进程级和 Provider attempt 指标快照；快照不跨重启保留；
-- 显式启用时，OpenBridge 通过只在启动时配置的 loopback OTLP/HTTP 通道导出脱敏 traces、低基数原始 metrics 与安全运行
+- 显式启用时，OpenBridge 通过只在启动时配置的 OTLP/HTTP 通道导出脱敏 traces、低基数原始 metrics 与安全运行
   logs；持久化、时间窗口、比例、排名和可视化由外部 collector/backend 负责；
 - 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
 
@@ -48,7 +48,7 @@ Route。
   Codex auth、environment、terminal 或 executable probe。
 - 尚未进入实施：manager 到 ChatGPT Provider header 的数据面借用、401 recovery，以及 Route/Public Model 启用。
 - 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，逐步把历史分析与派生计算移到外部系统；
-  [当前开发焦点](../implementation-plans/current-focus.md)只建立 trace 导出闭环，metrics、logs 与现有进程内累计的缩减均须另立焦点。
+  trace 导出闭环已完成，metrics、logs 与现有进程内累计的缩减均须另立[当前开发焦点](../implementation-plans/current-focus.md)。
 
 Embeddings 与 Native 多模态的具体行为和非目标以
 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
@@ -73,7 +73,8 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 
 - 默认模型是单配置所有者、单进程和少量受信下游用户；不提供在线用户管理；
 - 当前 listener 只允许 loopback；
-- OTLP collector 地址只能来自 bootstrap，当前承诺同样只允许 loopback；业务请求不能提供 exporter 地址、认证或 header；
+- OTLP collector 地址只能来自 bootstrap，配置所有者可以选择 loopback、非 loopback IP 或 DNS host；业务请求不能提供 exporter
+  地址、认证或 header；
 - 业务请求不能覆盖上游 URL、真实模型、credential、敏感 header 或 Route，也不能选择 header 转换规则；普通 header 只能由
   Provider 的受信代码 hook 按编译期规则处理；
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；唯一的 `CredentialStore` 在内存中持有上下游认证所需 Key，Debug
@@ -99,7 +100,7 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 |------------------------------|------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现说明](../implementation-status/current-implementation.md)。       |
 | 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。           | 需求见[扩展需求](embedding-and-native-multimodal.md)，当前实现边界仍见 implementation status。 |
-| loopback OTLP/HTTP 出站      | 向外部 collector 导出脱敏 traces、原始 metrics 与安全 logs。           | 需求见[网关 API 与客户端兼容](gateway-api-compatibility.md)；当前只批准 trace 短周期焦点。      |
+| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、原始 metrics 与安全 logs。 | trace 已实现；metrics/logs 仍未实施，证据见[当前实现说明](../implementation-status/current-implementation.md)。 |
 
 ## 暂不纳入当前产品承诺
 
@@ -109,7 +110,7 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 - 除[ChatGPT subscription OAuth 两阶段范围](upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret
   文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
-- OpenBridge 内置 Prometheus exporter、非 loopback collector、指标持久化、历史查询、重置或分布式聚合；
+- OpenBridge 内置 Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
 - hosted tool、MCP Tool Bridge 或由网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 

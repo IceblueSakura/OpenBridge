@@ -21,7 +21,7 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
 6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
 7. 以 bootstrap-only 配置管理进程资源策略，以私有 TOML 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB
-   和终态错误率统计；显式启用时通过 loopback OTLP/HTTP 把 traces、原始 metrics 和安全 logs 交给外部系统分析。
+   和终态错误率统计；显式启用时通过启动期配置的 OTLP/HTTP collector 把 traces、原始 metrics 和安全 logs 交给外部系统分析。
 
 现阶段已批准的扩展目标只包括：
 
@@ -29,11 +29,11 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
 - ChatGPT subscription OAuth：保留默认禁用的独立 Provider，使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录与到期驱动
   token 续约；不导入本机 Codex 状态，数据面接入仍须另立焦点。
-- 默认禁用的 loopback OTLP/HTTP observability exporter；当前焦点只建立 trace 导出闭环，metrics、logs 和现有自有累计的缩减
-  继续串行实施。
+- 默认禁用、由 bootstrap 独占配置的 OTLP/HTTP observability exporter；trace 导出闭环已完成，metrics、logs 和现有自有累计的缩减
+  仍须分别进入后续焦点。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh 已完成；当前只实施 OTLP
-trace 闭环，ChatGPT 数据面接入和 Native 多模态不能并行展开。当前代码事实以
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh、OTLP trace 闭环已完成；
+当前没有活动开发焦点，ChatGPT 数据面接入、Native 多模态、OTLP metrics 或 logs 均须另行获准。当前代码事实以
 [实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
 不在现阶段实施范围。
 
@@ -61,7 +61,7 @@ tool、image、structured output 和后台状态会在 egress 前拒绝。Native
 Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每个已认证请求在 response body 正常 EOF、流错误或
 下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
 
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听和资源限制；Model 位于 [`src/models`](src/models)
+仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听、资源限制和可选的 OTLP/HTTP trace 导出；Model 位于 [`src/models`](src/models)
 ，Provider adapter、Provider instance 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model
 由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
 
@@ -77,6 +77,16 @@ cp config/upstream-credentials.example.toml config/upstream-credentials.toml
 # 编辑两份私有 TOML；填写用户/API key，并按需启用注释中的 ChatGPT auth_json_file。
 cargo run --bin openbridge --locked
 ```
+
+Trace export 默认完全禁用。确认配置所有者选择的 collector 已可用后，才在 bootstrap 中显式启用：
+
+```toml
+[telemetry.traces]
+otlp_http_endpoint = "http://127.0.0.1:4318"
+```
+
+该字段接受带有效 host、无 URL credential、无自定义 path/query/fragment 的绝对 HTTP base；host 可以是 loopback、非 loopback IP
+或 DNS 名称。OpenBridge 固定发送到 `/v1/traces`，不接受 exporter header 或请求级覆盖。
 
 `config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。 服务与
 `openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、OAuth2 locator、Provider、Model 和 Route 只在启动时
@@ -187,15 +197,15 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 启动；完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
 TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 auth 文件，成功 rotation 后原子写回并发布新 generation。
 
-认证成功后的请求 span 记录 request id、user id、operation 和 Public Model；每次上游 attempt 记录 route、target、Provider family、
-typed upstream operation 与脱敏
-HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 body 字节、SSE 首个 text/tool/reasoning token delta
-增量、总耗时、retry/fallback/credential rotation/cooldown、取消/流失败和 Provider 明确返回的 usage。进程内累计值只
+认证成功后的 `downstream_request` span 只记录 request id、operation、Public Model、streaming、低基数终态、直接观测 timing、
+attempt 计数和明确 usage；每次实际上游 attempt 建立一个 `provider_attempt` child span，记录编译期 route、target、Provider family、
+typed upstream operation、route mode、脱敏结果、timing 和明确 usage。两类 span 都不包含 user、raw path/query、credential、正文、
+真实 endpoint 或原始错误正文。原有终态 tracing event 与进程内累计值继续
 保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，可通过
 `GatewayMetrics::snapshot`、`GatewayMetrics::provider_snapshots` 以及受 Bearer 保护的
 `/openbridge/v1/metrics`、`/openbridge/v1/metrics/providers` 读取；详细口径见
-[`遥测指标`](docs/implementation-status/telemetry-metrics.md)。OpenTelemetry exporter 已进入当前 trace 实施焦点但尚未实现；
-Prometheus exporter、持久化和分布式聚合仍不属于当前实现。
+[`遥测指标`](docs/implementation-status/telemetry-metrics.md)。可选 OTLP/HTTP trace exporter 使用有界 batch/timeout/shutdown，并在
+collector 失败时只丢弃 telemetry；OTLP metrics、OTLP logs、Prometheus exporter、持久化和分布式聚合仍不属于当前实现。
 
 ## 验证基线
 

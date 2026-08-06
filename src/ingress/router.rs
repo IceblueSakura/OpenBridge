@@ -166,16 +166,7 @@ async fn require_user(
     }
 
     // Bind the observed request to a span and finish it only at the downstream body boundary.
-    let span = tracing::info_span!(
-        "downstream_request",
-        %request_id,
-        user_id = %user.id(),
-        %method,
-        %path,
-        operation = tracing::field::Empty,
-        public_model = tracing::field::Empty,
-        status = tracing::field::Empty,
-    );
+    let span = tracing::info_span!("downstream_request", %request_id);
     let observation = RequestObservation::new(auth.metrics.clone(), span.clone());
     let mut lifecycle = RequestLifecycleGuard::new(observation.clone());
     request.extensions_mut().insert(observation.clone());

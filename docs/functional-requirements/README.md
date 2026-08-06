@@ -16,9 +16,9 @@
 例外保留一份不属于当前产品承诺的[待定 Model/Provider 配置方案](model-catalog-configuration.md)。该方案暂不实施，
 其中的候选字段和验收项不得作为当前功能需求或开发入口。
 
-[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)已经按两个串行阶段获准：当前焦点只实现独立
-ChatGPT Provider 与 OpenBridge-owned OAuth2 启动快照；本机 Codex state 导入已排除，PKCE 登录、token 续约和数据面接入必须另立焦点。多账号池、动态 credential
-控制面和其他应用的 auth cache 仍不属于产品承诺。
+[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)已经实现独立 ChatGPT Provider、
+OpenBridge-owned OAuth2 启动快照、显式 PKCE 登录与到期驱动 refresh；本机 Codex state 导入已排除，数据面接入仍须另立焦点。
+多账号池、动态 credential 控制面和其他应用的 auth cache 仍不属于产品承诺。
 
 功能需求中的“必须”“不得”“只允许”是验收约束，不代表当前实现已经满足；代码、测试、probe 或真实运行已经证明的内容只写入
 `../implementation-status/`。

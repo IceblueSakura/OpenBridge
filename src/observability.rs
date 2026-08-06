@@ -6,11 +6,13 @@
 //! request or response bodies.
 
 mod metrics;
+mod otlp;
 mod provider;
 mod request;
 mod usage;
 
 pub use metrics::{GatewayMetrics, GatewayMetricsSnapshot};
+pub use otlp::{TraceExportError, TraceExportRuntime, otlp_trace_layer};
 pub use provider::{ProviderMetricKey, ProviderMetricSnapshot, RateSnapshot, TimingSnapshot};
 pub(crate) use request::RequestObservation;
 pub(crate) use usage::FirstOutputCapture;

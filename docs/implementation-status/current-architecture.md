@@ -12,8 +12,8 @@
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求 cooldown、`BridgePlan`、双向
 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口 与固定 Public Model 能力预检也已接入。Embeddings
 另有严格 JSON ingress、单条 Native Route 和预提交有界 成功体校验。请求生命周期观测已接入 tracing、无高基数的进程内累计值和按编译期
-Provider attempt 维度聚合的性能/usage/cache 快照，并通过受 Bearer 保护的扩展 JSON endpoint 提供当前进程读取；尚未接入
-OpenTelemetry/Prometheus exporter。
+Provider attempt 维度聚合的性能/usage/cache 快照，并通过受 Bearer 保护的扩展 JSON endpoint 提供当前进程读取；显式配置时还会通过
+bootstrap-owned OTLP/HTTP collector 导出脱敏 request/attempt traces。OTLP metrics、OTLP logs 与 Prometheus exporter 尚未接入。
 
 ## 1. 分层结构
 
@@ -57,7 +57,7 @@ Route；transport 不解释模型和协议能力。
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
 | Provider      | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest`                                                                                                                                                       | Provider 能力上界、闭合实现分派和待发送请求                                                         |
 | Transport     | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse`                                                                                                                                                              | 可替换的发送边界、生产 HTTP client 和上游响应                                                       |
-| Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`GatewayMetrics`、`ProviderMetricSnapshot`                                                                                                   | 请求终态 tracing、原始 upstream body/SSE 观测、Provider attempt 性能和 usage/cache 快照             |
+| Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`TraceExportRuntime`、`GatewayMetrics`、`ProviderMetricSnapshot`                                                                                    | 请求/attempt trace 生命周期、原始 upstream body/SSE 观测、Provider attempt 性能和 usage/cache 快照 |
 | Probe         | `ProbeOptions`、`ProbeResult`、`TargetProbeReport`                                                                                                                                                                     | 探测输入、单项观察和 target 汇总报告                                                                |
 
 命名规则保持简单：`*Config` 表示构建前配置，去掉 `Config` 表示校验后的运行实体，`*Info` 表示只读事实，
@@ -96,6 +96,7 @@ Embeddings response budget 编译分开。原有 `openbridge::core::*`、`openbr
 
 ```text
 BootstrapConfigPath::load
+→ TraceExportRuntime::from_bootstrap + init_tracing
 → UserConfigPath::load
 → UpstreamCredentialConfigPath::load
 → providers::build_compiled_registry
@@ -107,10 +108,13 @@ BootstrapConfigPath::load
 → OAuth2CredentialManager::run_refresh_scheduler
 → ingress::build_router
 → axum::serve
+→ TraceExportRuntime::shutdown
 ```
 
 `bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 大小和 HTTP client
-参数。四个 limit 都是必填非零值，replay limit 不得超过 request limit。用户文件、 上游 credential
+参数，以及默认禁用的 `[telemetry.traces]` OTLP/HTTP base URL。四个 limit 都是必填非零值，replay limit 不得超过 request limit；
+exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http` URL，固定 `/v1/traces` 和代码内 batch/timeout/shutdown
+策略，不接受 URL credential、自定义 path/query/fragment、header、环境 OTLP policy 或请求级覆盖。用户文件、 上游 credential
 文件、Provider family、Provider instance、模型、target、upstream API 和 route 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
 `UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
 `CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为互斥的 `api_keys` 或
@@ -364,8 +368,10 @@ response id、item id、call id 和 output index；Chat 侧只用 tool index 关
 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowlist 内的共同 text/function 与明文 reasoning channel
 语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
 
-`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider metrics 与 usage 拆到
-同名目录，后者将固定 payload 和受信 probe session 拆到同名目录；各自测试也位于私有 `tests.rs`。
+`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider metrics、usage 与 startup-owned
+OTLP trace exporter 拆到同名目录。`downstream_request` root 和每个实际 `provider_attempt` child 使用显式 attribute allowlist；
+export layer 排除其他 span/event，进程持有 tracer provider 到 Axum 停止并执行有界 shutdown。后者将固定 payload 和受信 probe
+session 拆到同名目录；原有进程内 metrics 与本地 completion event 保持独立。
 
 ## 8. Probe 与验证层
 
@@ -383,7 +389,7 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 
 - 动态 Converter catalog、route-local 可配置 ConversionPolicy 与异构 Provider 实测；
 - 动态 availability/weight、持久化或分布式 cooldown；
-- OpenTelemetry/Prometheus exporter、指标持久化、历史查询、重置或分布式指标聚合；
+- OTLP metrics、OTLP logs、Prometheus exporter、指标持久化、历史查询、重置或分布式指标聚合；
 - 可安全投影真实 route/upstream API 信息的内部视图与其他未批准的扩展 HTTP API；
 - Responses WebSocket、ChatGPT 数据面 credential 借用与 401 recovery、常驻 ChatGPT Route/Public Model、hosted tool、MCP 和动态
   Provider/plugin DSL。

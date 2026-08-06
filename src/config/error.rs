@@ -23,6 +23,11 @@ pub enum BootstrapConfigError {
         /// Raw address that failed loopback validation.
         listen: String,
     },
+    /// The OTLP/HTTP trace endpoint is not a credential-free absolute HTTP base URL.
+    #[error(
+        "OTLP/HTTP trace endpoint must be an absolute HTTP base URL without credentials, path, query, or fragment"
+    )]
+    InvalidOtlpHttpTraceEndpoint,
     /// A runtime limit is zero and cannot provide a valid boundary.
     #[error("runtime limit '{name}' must be greater than zero")]
     InvalidLimit {

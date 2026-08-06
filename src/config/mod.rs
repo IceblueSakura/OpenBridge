@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use url::Url;
 
 mod document;
 mod error;
@@ -29,6 +30,7 @@ pub struct BootstrapConfig {
     upstream_credentials_file: PathBuf,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
+    otlp_http_trace_export: Option<OtlpHttpTraceConfig>,
 }
 
 impl BootstrapConfig {
@@ -55,6 +57,24 @@ impl BootstrapConfig {
     /// Returns the shared upstream HTTP client policy.
     pub fn http_client(&self) -> &HttpClientConfig {
         &self.http_client
+    }
+
+    /// Returns the optional startup-only OTLP/HTTP trace exporter policy.
+    pub fn otlp_http_trace_export(&self) -> Option<&OtlpHttpTraceConfig> {
+        self.otlp_http_trace_export.as_ref()
+    }
+}
+
+/// Validated process policy for one startup-owned OTLP/HTTP trace exporter.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OtlpHttpTraceConfig {
+    endpoint: Url,
+}
+
+impl OtlpHttpTraceConfig {
+    /// Returns the collector base URL to which the exporter appends `/v1/traces`.
+    pub fn endpoint(&self) -> &Url {
+        &self.endpoint
     }
 }
 

@@ -7,7 +7,7 @@ checkout → 对应确定性测试 → 本目录最近一次实际验证记录�
 |------------------|-------------------------------------------------|------------------------------------------------------------------------------|
 | 全局运行行为     | [当前实现说明](current-implementation.md)       | 已实现路径、已证明范围、限制与验证命令                                       |
 | 当前代码架构     | [当前代码架构](current-architecture.md)         | 按运行、注册表、接入、路由、Provider、Transport/SSE 和验证层描述 live source |
-| 遥测指标         | [遥测指标](telemetry-metrics.md)                | Provider attempt 性能、usage、cache 口径及进程内读取边界                     |
+| 遥测与指标       | [遥测指标](telemetry-metrics.md)                | Provider attempt 指标口径、进程内读取边界及可选 OTLP traces                  |
 | 上游能力发现     | [上游模型发现与能力探测](capability-probing.md) | 探测 CLI 的行为、边界和输出处理                                              |
 | 独立协议测试资产 | [协议测试语料与工具](protocol-test-corpus.md)   | corpus、Python 管理工具、Mock Server/Client、验证结果与尚未集成边界          |
 

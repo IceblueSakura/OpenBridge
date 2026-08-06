@@ -1,592 +1,179 @@
 # 当前实现说明
 
-## 状态与范围
+本文是当前 checkout 的实现状态快照，只记录已经存在于代码、确定性测试或明确本地验证中的最终内容。
+本文不保留按日期排列的变更历史、修复前后对比或后续设计过程；新的实现完成后直接更新对应主题。
+模块职责和内部数据流见[当前代码架构](current-architecture.md)，详细遥测口径见[遥测指标](telemetry-metrics.md)。
 
-本文只记录当前可运行入口、外部行为、Provider 注册和验证状态。模块分层、类型职责与内部数据流统一见
-[当前代码架构](current-architecture.md)。OpenBridge 仍是实验性原型；每次记录分别说明确定性测试、真实 Provider 与未运行的验收层，
-不能把其中一层的结果外推为外部 SDK、负载、长期运行或生产兼容。
+OpenBridge 仍是未发布的实验性原型。确定性测试、loopback/独立客户端验证、真实 Provider、外部 SDK、负载和长期运行分别代表不同证据层，
+任何一层都不能替代其他层。
 
-## 当前运行入口
+## 运行入口与配置
 
-默认启动：
+使用不含真实凭证的模板创建私有配置后启动服务：
 
 ```bash
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
-# 编辑两份私有 TOML；填写用户/API key，并按需启用注释中的 ChatGPT auth_json_file。
+# 编辑两份私有 TOML；填写用户/API key，并按需配置 ChatGPT auth_json_file。
 cargo run --bin openbridge --locked
 ```
 
-schema v2 的 `bootstrap.toml` 包含 loopback listener、两份私有 credential 文件位置、彼此独立的 request/JSON
-response/replay/SSE 上限和共享 HTTP client 参数。Provider family、Provider instance、Model、Upstream Target、Upstream API、
-Route、Public Model 和 credential pool binding 均由 Rust 代码注册；Provider instance 唯一拥有 endpoint BaseURL。修改后需要重新编译
-或重启。
-
-运行配置与模板一一对应：`config/bootstrap.toml` 使用 `config/bootstrap.example.toml`，
-`config/users.toml` 使用 `config/users.example.toml`，`config/upstream-credentials.toml` 使用
-`config/upstream-credentials.example.toml`。
-
-| Endpoint                              | 当前行为                                                                    | 认证        |
-|---------------------------------------|-----------------------------------------------------------------------------|-------------|
-| `GET /healthz`                        | 返回 `status` 与 `registry_version`                                         | 无          |
-| `GET /openapi.yaml`                   | 返回当前构建内置的 OpenAPI 3.0.3 YAML                                       | 无          |
-| `GET /swagger-ui`、`GET /swagger-ui/` | 返回用于本地接口测试的 Swagger UI 页面                                      | 无          |
-| `GET /v1/models`                      | 返回代码注册 Public Model 的 OpenAI 标准四字段列表                          | 静态 Bearer |
-| `GET /v1/models/{model}`              | 返回一个 OpenAI 标准四字段 Model 对象                                       | 静态 Bearer |
-| `GET /openbridge/v1/models`           | 返回 Public Model 模型事实与固定接口能力列表                                | 静态 Bearer |
-| `GET /openbridge/v1/models/{model}`   | 返回一个完整 Public Model 能力对象                                          | 静态 Bearer |
-| `GET /openbridge/v1/metrics`           | 返回本次进程运行期间累计的进程级指标快照                                      | 静态 Bearer |
-| `GET /openbridge/v1/metrics/providers` | 返回本次进程运行期间按 Provider attempt 维度聚合的指标快照列表                | 静态 Bearer |
-| `POST /v1/chat/completions`           | 按完整 Route 执行 Chat Native 或 Chat→Responses Bridge 的 JSON/SSE          | 静态 Bearer |
-| `POST /v1/responses`                  | 按完整 Route 执行 Responses Native 或 Responses→Chat Bridge 的 JSON/SSE     | 静态 Bearer |
-| `POST /v1/embeddings`                 | 按独立固定接口执行单条 Native Route，并在下游 commit 前校验有界 JSON 成功体 | 静态 Bearer |
-
-OpenAPI 规范源文件为 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI 页面源文件为
-[`docs/swagger-ui.html`](../swagger-ui.html)。两项文档 endpoint 都是静态资源，不读取 Provider、 Upstream Target 或
-credential；Swagger UI 的业务请求仍由既有 Bearer 认证 middleware 保护。
-
-下游用户和 API Key 来自启动时读取的私有 `config/users.toml`。私有 `config/upstream-credentials.toml` 的每个编译期 binding
-现在只能在有序 `api_keys` 与单一 `auth_json_file` 中二选一；Provider 与 credential kind 仍只从代码注册表解析。服务与普通
-API-key probe 不读取上游 key 环境变量或 `.env`，普通 probe 也不会打开未选中的 OAuth locator。服务在 listener 绑定前把已启用用户
-Key 与全部启用 target 引用的 API-key pool 合并为不可变 `CredentialStore`，并把所有显式配置的 ChatGPT OAuth2 文件校验为完整
-token bundle 后装入独立 lifecycle manager。未知或重复 binding、source/kind 错配、同 Provider 多 auth 文件、损坏 TOML、无效
-API-key pool 或损坏/不完整 OAuth2 bundle 会阻止启动；完整但已过期的 bundle 进入立即 refresh 状态。运行时不重新读取两份 TOML，
-OAuth manager 只在到期 transaction 中锁定并 reload 自有 auth 文件。Store 和 manager snapshot 只公开非敏感 identity/metadata/status；
-文件路径不进入诊断元数据或 `Debug`。
-
-第六个 ChatGPT Provider 注册一个默认禁用且没有 Route/Public Model 的 OAuth pool/target。ChatGPT credential 只从 private upstream
-TOML 显式配置的 OpenBridge-owned `auth_json_file` 进入独立启动快照；当前没有本机 Codex auth loader、OS/environment/terminal
-identity 探测或专用 ChatGPT probe。管理员可显式运行 `openbridge-auth login chatgpt`，通过固定 ChatGPT private device interaction、
-PKCE `S256` exchange 和事务性文件写入取得完整 token bundle；普通服务启动和业务请求不会隐式开始登录。服务会按 access expiry 自动
-refresh 已配置 bundle。ChatGPT adapter 已声明固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA/`originator`，但当前仍没有
-ChatGPT 数据面接入、通用热更新或 401 refresh/retry 行为。
-
-### 2026-08-05 ChatGPT subscription model profile
-
-- 新增 `src/models/chatgpt.rs` 与 `src/models/chatgpt/gpt_5_3_codex_spark.rs`，把 ChatGPT subscription 侧的 Codex Spark
-  注册为独立 canonical profile `chatgpt/gpt-5.3-codex-spark`；`src/models/openai.rs` 不再拥有该 leaf。
-- 迁移保留原有 128,000 总上下文、未知输入上限、128,000 最大输出和四档 reasoning level；catalog 内容与原有稳定顺序保持不变，
-  仅 canonical namespace 从 OpenAI API profile 改为 ChatGPT profile。
-- 该模型目前没有 ChatGPT Upstream Target、Route 或 Public Model；本次目录迁移不启用 OAuth 数据面，也不证明 subscription edge 或
-  实际请求上下文接受边界。
-- TDD 先运行 `models::tests::chatgpt_module_owns_codex_spark_profile`，旧实现因缺少 `chatgpt` module 编译失败；迁移后该测试、
-  OpenAI/ChatGPT model-module test 和 `compiled_model_catalog_includes_litellm_text_models` 均通过。
-- 本轮 `cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 通过；全量测试包含 2 个明确依赖外部 SDK/独立 Python
-  loopback 的 ignored 测试。改动 Rust 文件的 `rustfmt --check --edition 2024` 与 `git diff --check` 通过；仓库级
-  `cargo fmt -- --check` 仍仅因未改动的 `src/transport/mod.rs` 既有 module 声明顺序失败。
-
-### 2026-08-06 ChatGPT GPT-5.5/5.6 model profiles
-
-- `src/models/chatgpt/` 新增 GPT-5.5、GPT-5.6 Sol、GPT-5.6 Terra 和 GPT-5.6 Luna 四个独立 canonical profiles；原有
-  `openai/` profiles 保持不变，ChatGPT profiles 使用对应的 `chatgpt/` canonical IDs。
-- 四个 ChatGPT profiles 复制原 OpenAI model facts，但将 `max_context_tokens` 与 `max_input_tokens` 设置为 272,000，
-  `max_output_tokens` 保持 128,000；Spark profile 仍保持其独立的 128,000 context facts。
-- ChatGPT model group 目前只进入 canonical catalog，未新增 ChatGPT Upstream Target、Route 或 Public Model；本次不证明真实
-  subscription edge 的模型可用性或实际上下文接受边界。
-- TDD 先运行 `models::tests::chatgpt_module_contains_gpt_5_5_and_gpt_5_6_profiles`，旧实现因 ChatGPT group 只有 Spark 而以
-  `left: 1, right: 5` 失败；完成复制后该测试、全部 model-module tests 和 compiled catalog limit assertions 均通过。
-- 本轮 `cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 通过；全量测试包含 2 个明确依赖外部 SDK/独立 Python
-  loopback 的 ignored 测试。改动 Rust 文件的定向 `rustfmt --check --edition 2024` 与 `git diff --check` 通过；仓库级
-  `cargo fmt -- --check` 仍仅因未改动的 `src/transport/mod.rs` 既有 module 声明顺序失败。
-
-### 2026-08-05 编译期 Provider 固定请求 UA/header
-
-- `src/provider/contracts.rs` 增加 crate-private、const-friendly 的 `ProviderRequestHeaders` 与 `StaticRequestHeader`。每个 Provider
-  definition 可声明一个固定非敏感 UA 和静态普通 header slice；name/value 在 egress 组装时解析，无效 HTTP metadata 返回脱敏的
-  `InvalidCompiledRequestHeader`；
-- 完整请求组装顺序固定为 Provider downstream-header hook、编译期固定 header、purpose-bound authentication header。固定值因此覆盖同名
-  下游 header；`SafeHeaders` 对 hook 与静态 profile 统一拒绝 Authorization、cookie、Host 和 proxy authorization，Bearer、ChatGPT account
-  ID 与条件性 FedRAMP 仍只从敏感 credential 通道最后追加；
-- ChatGPT definition 固定 `originator: codex_cli_rs` 与
-  `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA。该 profile 按 2026-08-05 核对的 Codex CLI stable
-  `rust-v0.146.0`/`e363b08c9175ac1cbe5893615dd2cb9ddf95043b` UA 格式选择固定 headless Linux x86_64 值；OpenBridge 不读取
-  部署主机 OS、architecture、terminal、environment 或本机 Codex state，也不接受 TOML/CLI/downstream override。OpenAI/LongCat 的
-  UA 转发及其他 Provider 的既有 hook 行为不变；
-- TDD 先向完整 ChatGPT outbound assembly 注入冲突下游值；旧实现实际失败为 UA `left: None`。实现后该测试、通用 profile 的
-  UA/custom-header/敏感名称/无效 metadata 测试，以及 hook-before-fixed 顺序测试均通过；
-- 后续 Linux UA 对齐先把同一完整 assembly 测试的期望值改为 `0.146.0` profile；旧值实际失败为
-  `left: Some("codex_cli_rs/0.1.0 (OpenBridge)")`，最小 definition 修改后通过，`originator` 与敏感 credential header 断言保持不变；
-- 本轮实际通过聚焦 Provider 测试、既有 forwarding contract、`cargo clippy --locked -- -D warnings`、`git diff --check` 与完整
-  `cargo test --locked`；完整测试包含 50 个 library test 和全部默认 integration/bin/doc test，2 个明确依赖独立 Python loopback 或
-  外部 OpenAI SDK 的测试保持 ignored。改动 Rust 文件的独立 `rustfmt --check --edition 2024` 通过；仓库级
-  `cargo fmt -- --check` 仅因未改动的 `src/transport/mod.rs` 既有 module ordering 不通过；
-- ChatGPT target 仍默认禁用且没有 Route/Public Model，OAuth manager 尚未向数据面借用 credential。本轮静态测试不证明当前 ChatGPT edge、
-  subscription、模型 request wire 或真实 Provider 接受该 profile。
-
-### 2026-08-05 ChatGPT device login 与 PKCE 持久化
-
-- 新增独立 `openbridge-auth login chatgpt` 管理命令；CLI 从 bootstrap、编译期 registry 和 private upstream credential TOML 解析唯一
-  ChatGPT OAuth binding，不接受 issuer、client ID、endpoint、header、auth-file 或其他应用 cache override；help 与未知参数在读取
-  private 配置和网络访问前结束；
-- `src/providers/chatgpt/oauth.rs` 固定当前参考客户端共同使用的 authority、private device request/poll endpoint、public client
-  registration、verification/redirect URI 和 15 分钟上限。该 adapter 的 poll 成功结果是 authorization code、challenge 和 verifier，
-  随后才执行 authorization-code + PKCE exchange；它不是原样 RFC 8628 token polling；
-- device auth ID、user code、authorization code、PKCE material 和 token 进入 purpose-bound secret/zeroizing 内存；终端只显示固定
-  verification URI、一次性 user code、TTL 与防钓鱼提示。Ctrl+C、timeout、terminal status、PKCE mismatch 或 token 校验失败均不会写入
-  半成品 credential；
-- exchange 后要求非空 id/access/refresh token、未来 access-token expiry 和一致 account binding。当前通过固定 HTTPS exchange 与
-  JWT claim/account 检查建立边界，没有引入第三方 JWT signature trust store，因此不能把该检查描述为离线 signature verification；
-- auth 文件写入使用同目录 create-new temporary（Unix `0600`；Windows 继承 private directory ACL）、flush/sync、advisory file lock、源版本
-  digest CAS 和 atomic replace；完整 token、account 与 `last_refresh` 一次发布，并拒绝覆盖并发胜出版本。错误与 `Debug` 不包含
-  locator、session、PKCE、token 或 account 值；
-- TDD 先确认旧配置 API 无法解析不存在的登录目标；fake transport/sleeper 覆盖 pending-to-success、PKCE mismatch、无效 token、旧文件
-  保留、并发写者 CAS 和 CLI override 拒绝。确定性验证通过聚焦测试、完整 `cargo test --locked`、
-  `cargo clippy --locked -- -D warnings` 与 `git diff --check`；
-- 未运行真实 ChatGPT device login、真实 token exchange、外部 SDK、ChatGPT 数据面、负载或长期运行。确定性 fake transport 只证明状态机、
-  PKCE/account 校验、事务文件与脱敏边界，不证明当前 subscription 资格、public client registration 或外部 authority 可用性。
-
-### 2026-08-05 ChatGPT expiry-driven 自动 refresh
-
-- `OAuth2CredentialManager` 对外返回 owned、脱敏的 credential snapshot，对内保存 validated bundle、source version、generation、lifecycle
-  status 和 per-credential async gate；启动 loader 接受完整的过期 access token，使 refresh token 可在 worker 启动后立即恢复 credential；
-- worker 按 `expires_at - 120s - deterministic early jitter(0..30s)` 重建 due time，只刷新进入窗口的 credential。main 在 listener 成功绑定后
-  启动 worker，并在 HTTP 服务终止时 abort/回收；空 manager 不创建 worker；
-- refresh 在网络请求前取得进程内 single-flight gate，并通过 `spawn_blocking` 取得 auth-file advisory lock；锁内 guarded reload 完整文档。
-  若同主机另一进程已经写入安全窗口外的新版本，当前 worker 不再发送 refresh，只发布胜出版本；
-- 固定 refresh adapter 禁止 redirect，只访问编译期 token endpoint/client，发送 refresh grant 并限制 request timeout/response body。
-  response 必须含非空 access token，present token type 必须为 Bearer；省略 id/refresh token 时保留旧值，present rotation 使用新值；最终
-  access expiry 必须在未来，account/FedRAMP identity 必须与锁内 reload 的 bundle 一致；
-- 成功 response 的完整 access/id/refresh/account/`last_refresh` 先通过持锁 same-directory atomic replace 落盘，再发布递增 generation；
-  429/5xx 和确认未建立响应的连接错误进入 30 秒起、最长 5 分钟的 bounded backoff；精确 terminal OAuth code 进入
-  `reauth_required`；可能已发送但无可判定 response、成功 rotation 后校验/写入失败进入 `ambiguous`，停止自动复用旧 refresh token；
-- fake transport、explicit `Notify` 和 process-unique 文件测试覆盖进程内并发 callers 只发送一次、持久化版本 reload skip、optional
-  rotation、account change、三类失败状态、due-time 计算、过期 startup bundle，以及超限 auth 文件在解析前被拒绝；同主机跨进程协调由
-  OS advisory lock 与持锁写回结构提供，本轮没有启动第二个进程做竞争验收。
-
-本轮实际执行并通过：
-
-```text
-cargo test --locked oauth2_credentials::
-cargo test --locked --test upstream_credential_config --test oauth2_login_cli --test startup_contract
-cargo test --locked
-cargo clippy --locked -- -D warnings
-rustfmt --check --edition 2024 <本轮修改或新增的 Rust 文件>
-git diff --check
-```
-
-完整 Rust 测试的 49 项 library test 与全部默认 integration/doc test 通过；两个显式外部客户端测试保持 ignored。仓库级
-`cargo fmt -- --check` 实际运行后只报告本轮未修改的 `src/transport/mod.rs` 既有 module 顺序差异；本轮所有修改或新增 Rust 文件单独通过
-`rustfmt --check`，未机械改写该无关文件。没有修改 `testdata/`/`tools/corpus/`，因此未运行 Python corpus baseline。未执行真实 ChatGPT
-device login/token exchange/refresh、外部 SDK、ChatGPT 数据面、401 recovery、跨主机 lease、负载或长期运行验收。
-
-### 2026-08-05 `src` 模块职责收敛
-
-- 对 `src` 全量模块树、根模块重导出、主要类型/函数、文件体量和跨层数据流完成结构审计；按“独立变化原因”而不是行数识别出三个混合职责根文件，
-  其余较大的 Bridge/SSE 状态机、Credential Store、Observability、Provider adapter 与 registry validation/compiler 文件仍保持单一责任，
-  未做机械拆分；
-- `core/capability.rs` 现在只作为 capability facade 并组合 `ApiCapabilities`；Chat/Responses generation 与 Embeddings 的字段、校验和
-  subset 规则分别位于 `core/capability/generation.rs`、`embeddings.rs`；
-- `pipeline/analysis.rs` 现在只重导出 operation-specific analyzer；Chat/Responses 请求事实与严格 Embeddings request union 分别位于
-  `pipeline/analysis/generation.rs`、`embeddings.rs`，二者仍不查询 registry、不选择 Route、不改写 body；
-- `registry/public_model.rs` 只保留下游安全 DTO 与 preflight accessor；私有 execution interface/candidate、编译编排、Route 契约贡献/保守
-  交集和 Embeddings response budget 分别进入 `public_model/execution.rs`、`compiler.rs`、`compiler/contract.rs` 与
-  `compiler/embedding_budget.rs`。Registry 总编译器仍经原 facade 调用，公共 Models serialization 不包含执行拓扑；
-- `openbridge::core::*`、`openbridge::pipeline::*`、`openbridge::registry::*` 的既有重导出和全部运行行为保持不变。功能需求将物理文件布局从
-  产品契约中移除，当前模块树与维护约束分别同步到当前代码架构和 `AGENTS.md`。
-
-改动前后实际执行并通过：
-
-```text
-cargo test --locked
-cargo check --locked
-cargo fmt -- --check
-cargo test --locked --test capability_definition_contract --test embedding_definition_contract --test embedding_registry_contract --test native_routing_contract
-cargo test --locked
-cargo clippy --locked -- -D warnings
-git diff --check
-```
-
-本轮没有修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；两个外部客户端测试保持 ignored。未运行外部 SDK、真实
-Provider、Agent runtime、负载或长期验收；本次结构 refactor 不把确定性回归提升为这些外部兼容证据。
-
-### 2026-08-05 OpenBridge-owned OAuth2 启动快照
-
-- upstream credential schema v1 的每个 `credential_pools` 项现在是互斥 union：API-key binding 使用有序 `api_keys`，OAuth2 binding
-  使用单一 `auth_json_file`；registry 仍决定 Provider 与 credential kind，同一个 OAuth2 Provider 不能绑定多个文件；
-- `OAuth2CredentialManager` 在启动时读取 OpenBridge-owned Codex-compatible ChatGPT JSON，要求显式 ChatGPT auth mode、完整且非空的
-  id/access/refresh token、可解析 access-token expiry、一致的 account binding 与非空的可选 `last_refresh`；过期 bundle 由当前
-  lifecycle worker 立即 refresh；
-- 相对 locator 以 upstream TOML 的目录为基准。真实进程 composition test 已证明 OAuth2 文件在 listener 绑定前加载；启动后修改源文件
-  不会改变 manager。普通 API-key probe 只打开选中的 API-key source，不读取同一 TOML 中未选中的 OAuth2 locator；
-- manager 已进入 `GatewayState`，但 ChatGPT target 仍默认禁用且没有 Route/Public Model；当前 refresh lifecycle 不构成数据面 credential
-  借用或 401 recovery；
-- `tests/example_config.rs` 的 DeepSeek V4 Pro reasoning level 断言已与当前模型定义同步为 `Max, High`，没有修改模型配置。
-
-本轮实际执行并通过：
-
-```text
-cargo test --locked --lib oauth2_credentials
-cargo test --locked --test upstream_credential_config
-cargo test --locked --test startup_contract
-cargo test --locked --test example_config compiled_model_catalog_includes_litellm_text_models
-cargo test --locked
-cargo clippy --locked -- -D warnings
-git diff --check
-```
-
-该早期启动快照轮次的完整 Rust 测试通过，两个显式外部客户端测试保持 ignored；其外部 OAuth 验收当时尚未执行。当前 login/refresh
-实现及本轮证据以本文前述两个 ChatGPT lifecycle 小节为准。
-
-### 2026-08-05 Upstream API 协议事实去重
-
-- `UpstreamApiConfig` 不再保存可与 capabilities variant 冲突的 `operation`，Runtime `UpstreamApi::operation()` 直接从
-  `UpstreamApiCapabilities` 派生；
-- 当前 operation 已唯一固定 JSON/SSE generation 或有界 JSON Embeddings transport，因此 Config/runtime 删除独立 transport 与
-  mismatch error；
-- 无执行消费者的 endpoint profile 字符串体系已从 Upstream API、Provider contract、compiler 和 runtime 删除。Provider adapter
-  继续静态拥有 operation path，Provider instance BaseURL 与 credential/header 受信边界保持不变；
-- TDD 先让 Embeddings definition 因省略旧字段而编译失败；实现后聚焦 definition/Provider tests、完整 `cargo test --locked`、
-  `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行
-  真实 Provider、负载或长期运行验收。
-
-### 2026-08-05 typed Upstream API 身份
-
-- `UpstreamApiConfig` 不再声明字符串 `id`；Target 以 `BTreeMap<OperationKind, UpstreamApi>` 保存 API，并在启动编译阶段拒绝同一
-  Target 重复 operation；
-- Route、Public Model 预编译 candidate、request plan、forwarding、probe 与 continuation issuer 统一使用 typed upstream
-  operation。Native/Bridge 校验、候选顺序、state affinity 与 trusted-egress 行为未改变；
-- Provider attempt telemetry 将旧 `upstream_api` 维度替换为稳定低基数的 `upstream_operation`，并继续单独保留下游
-  `operation`；
-- TDD 先证明旧 ID 索引把 duplicate operation 延迟成无关的 Native Route mismatch；实现后聚焦 registry/routing/probe/
-  forwarding/observability/Embeddings tests、完整 `cargo test --locked`、`cargo fmt -- --check`、
-  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行真实 Provider、负载或
-  长期运行验收。
-
-### 2026-08-05 独立 Provider 实例注册
-
-- 新增 `ProviderInstanceConfig { id, kind, base_url }` 与 runtime `ProviderInstance`；compiler 在 Target 之前建立唯一实例索引，统一校验
-  空 ID、重复 ID 与受信 HTTPS BaseURL；
-- `UpstreamTargetConfig` 删除重复的 Provider kind 和 BaseURL，只引用 `provider_instance`。Runtime Target 持有已解析实例并从它取得
-  adapter kind 与 endpoint；credential pool Provider ownership、capability ceiling 和 trusted-egress 校验仍 fail closed；
-- 六个 built-in Provider family 各自显式注册当前部署实例。Registry 允许同一 `ProviderKind` 注册多个不同实例；测试用两个 OpenAI
-  实例证明不同 URL/区域无需在一个实例或 Target 内引入 URL 列表；
-- TDD 先让 synthetic registry 因不存在 `ProviderInstanceConfig`、`RegistryConfig.provider_instances` 和 Target 引用字段而编译失败；
-  实现后聚焦 config/catalog/routing/probe/forwarding/credential tests、完整 `cargo test --locked`、`cargo fmt -- --check`、
-  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。两个外部客户端测试保持 ignored；未运行真实 Provider、外部 SDK、
-  负载或长期运行验收。
-
-## Provider 与请求行为
-
-闭合 `ProviderKind` 当前包含 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 与 ChatGPT，六者都进入 compiled
-registry。ChatGPT 只形成默认禁用的隔离 target；当前可路由目录与该隔离注册项如下，“Bridge 候选”只表示已注册的协议转换路径，
-不表示上游原生支持该协议：
-
-| Provider              | Public Model                 | 固定 Upstream Target                                | 下游可用 Route surface                                                | Credential pool                          |
-|-----------------------|------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------|------------------------------------------|
-| OpenAI                | `gpt-5.6-sol`                | `openai-main`                                       | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `openai-primary`                         |
-| OpenAI                | `text-embedding-3-small`     | `openai-text-embedding-3-small`                     | `embeddings` Upstream API 的唯一 Native Route；无 Bridge/fallback     | `openai-primary`                         |
-| LongCat               | `LongCat-2.0`                | `longcat-2`                                         | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `longcat-primary`                        |
-| OpenRouter            | `deepseek-v4-flash`          | `openrouter-deepseek-v4-flash`                      | Chat 与无状态 Responses 各一条 Native Route；无 Bridge                | `openrouter-primary`                     |
-| DeepSeek              | `deepseek-v4-pro`            | `deepseek-v4-pro`                                   | Chat Native；无 Responses 接口                                        | `deepseek-primary`                       |
-| DeepSeek + OpenRouter | `deepseek-v4-flash`          | `deepseek-v4-flash`、`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native                | `deepseek-primary`、`openrouter-primary` |
-| Xiaomi MiMo           | `mimo-v2.5-pro`、`mimo-v2.5` | `mimo-v2-5-pro`、`mimo-v2-5`                        | Chat/Responses Native-first，各有指向相反 Upstream API 的 Bridge 候选 | `mimo-primary`                           |
-| ChatGPT subscription  | 无                           | `chatgpt-gpt-5-6-sol`（默认禁用）                   | 无 Route/Public Model；通用 probe 拒绝禁用 target                     | `chatgpt-codex`（OAuth；可选启动快照）   |
-
-代码目录的 generation Public Model registration 现在持有有序 Provider route source 列表；对每个下游协议，编译器先按 source
-声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route。相同 canonical Model ID 不会自动注册 或加入候选。上表中
-`deepseek-v4-flash` 显式拥有两个 Provider source；其他 checked-in generation Public Model 目前各只有一个 source。 跨
-Provider fallback 仍严格遵循该 Public Model 的固定 source 顺序。 聚合 Responses Route 的 `previous_response_id` 还要求全部可执行
-Route 唯一绑定同一个 Target/operation；多个潜在 签发者即使各自声明支持，也会在固定公共契约中收窄为 `unsupported` 并移出接口参数列表，避免无
-issuer ledger 时把 continuation ID 盲投首选 Provider。唯一 issuer 的多个 Route 仍可形成契约，但请求执行只使用第一候选。
-
-OpenRouter 的 `store`、`previous_response_id` 与 `background` 能力关闭，也未注册 `:free` 变体。五个可路由 Provider family 分别拥有
-独立静态 definition、Provider instance、upstream model 与能力，并采用 OpenAI-compatible wire。ChatGPT definition 只开放 OAuth2
-Bearer、固定 Codex backend Provider instance 与 Responses wire profile；它不是 Public Model 数据面，没有当前可执行 probe，也不构成
-通用异构 wire Provider。
-
-MiMo 的 `mimo-v2.5-pro` 与 `mimo-v2.5` Chat/Responses Native Upstream API 均声明支持
-`parallel_tool_calls`、image input 和 structured output；两种协议的 `store` 均关闭，Responses 的
-`previous_response_id` 与 `background` 均关闭。两种协议的 `reasoning_output` 保持 `Unknown`，因此这组声明只 控制请求能力
-gate 和 Native 原样转发，不证明 Provider 会输出可读 reasoning，也不扩大反向 Bridge 的转换能力。
-
-六个具体 Provider 均以静态 `ProviderDefinition` 聚合自身 contract 与 adapter；
-`ProviderKind::definition` 是唯一穷举分派，现有 contract 与 adapter 查询接口都委托给该描述符。 descriptor 不注册
-target、Route 或 Public Model，也不读取 endpoint origin 或 credential。
-
-canonical 模型目录当前包含 20 个定义：19 个 generation 模型和独立的
-`openai/text-embedding-3-small` Embedding 模型。其中 generation 模型覆盖 GPT-5.6/5.5/5.3 Codex Spark、 DeepSeek V4、MiMo
-V2.5、Qwen3.7、GLM-5.2、Kimi K3 和 MiniMax M3，以及 ChatGPT subscription 的 GPT-5.5/5.6 profiles；已确认的 context、输出上限、参数、reasoning 状态和 level 保存在各自模型模块。GPT-5.6
-Sol、LongCat 2.0、两个 DeepSeek V4 和两个 MiMo V2.5 模型已被固定 target 与 Public Model 引用；`deepseek-v4-flash` 由
-DeepSeek 与 OpenRouter 两个 target 共享同一个 canonical model，
-`text-embedding-3-small` 由独立 OpenAI target 引用。其余目录项尚未新增 Provider target 或 Public Model route， 不构成真实可调用声明。
-`ModelConfig` 已能表达 Embedding，但仍没有 rerank task。
-
-2026-08-05 调整 checked-in 模型与 Provider 路由矩阵：
-
-- Public Model `code-primary` 和 `embedding-primary` 分别改为实际模型名 `gpt-5.6-sol` 与
-  `text-embedding-3-small`；对应的 OpenAPI、README、Embeddings contract 和 Models/forwarding 测试已同步。
-- OpenRouter 移除 Nemotron target/public route，改为 `openrouter-deepseek-v4-flash`，以
-  `deepseek/deepseek-v4-flash` 提供 Chat/Responses Native；`deepseek-v4-flash` Public Model 显式聚合 DeepSeek Chat 与
-  OpenRouter Chat/Responses，保留固定 source 顺序。
-- DeepSeek 两个直连 target 均保持 Chat-only；`deepseek-v4-pro` 不再生成 Responses Bridge，`deepseek-v4-flash`
-  的 Responses 只通过 OpenRouter Native route 可用。canonical catalog 同时移除 `tencent/hy3` 与不再绑定的
-  `nvidia/nemotron-3-ultra-550b-a55b` 模型定义及模块。
-- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`
-  均通过；全量 Rust 结果为 199 个测试通过、2 个显式外部 SDK/独立客户端集成测试 ignored。
-
-本轮证据仅覆盖本地 compiled registry、Models projection、preflight/planning、mock forwarding 和 Provider contract； 未运行真实
-OpenRouter/DeepSeek 请求、外部 SDK、Codex/Hermes、负载或长期运行验收。
-
-2026-08-03 在 2026-08-02 快照基础上按 OpenRouter 官方目录精确匹配其中 16 个模型，并修订现有 `ModelConfig` 可表达的描述、
-context/input projection、最大输出、输入/输出模态、tokenizer、knowledge cutoff、参数和 reasoning efforts。
-`openai/gpt-5.3-codex-spark` 没有精确匹配，未使用相近的
-`openai/gpt-5.3-codex` 代替；其 128,000 context、128,000 最大输出和四档 level 为人工修订值。Nemotron canonical
-配置采用基础模型上界，不采用 `:free` endpoint 的收窄值；完整采集边界见
-[OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
-
-Public Model 现在拥有稳定 `id`、`created`、展示元数据和生命周期。registry 为每个下游 operation 把全部静态可执行 Route
-编译为一个内部 `ModelExecutionInterface`；generation 接口同时持有固定 `ModelInterfaceCapabilities` 与有序候选， Embeddings
-接口持有分型 `EmbeddingInterfaceCapabilities` 与唯一 Native candidate。generation 布尔能力仅在 全部候选支持时为
-`supported`，token 上限只在全部已知时取最小值，模态、参数和 reasoning level 取集合交集；未知保持
-`unknown`/`null`。`PublicModelInfo` 只投影该契约的安全副本，用于标准 Models 投影和扩展 Models 响应，不包含 Provider、
-Target、Route、upstream model、endpoint、credential、健康或价格信息。preflight 读取同一执行接口；retired 或没有可执行 接口的
-Public Model 不进入可见目录。
-
-`text-embedding-3-small` 的固定接口公开四种非空 input form、默认 `float` 和显式 `float`/`base64`、默认维度 1536、单输入
-8192 token 与单请求总计 300,000 token；`max_inputs` 由上游 2048 上界和 bootstrap JSON response budget 的 checked
-worst-case 序列化边界共同收窄。只有 token-array 两种输入在本地精确计数，字符串 不做 tokenizer 估算。当前没有证据支持精确可变维度域，因此
-`dimensions.allowed = null`，显式
-`dimensions` 在 egress 前拒绝，接口参数仅包含 `encoding_format` 与 `user`。
-
-Embeddings ingress 只接受 `model`、`input`、`encoding_format`、`dimensions`、`user` 的严格 JSON object， 把 string、string
-array、token array 与 token-array array 一次性判别为闭合 union。analysis、preflight 和 planning 从扩展 Models
-…5196 tokens truncated…、明确 usage、token
-  observation、output speed 和 cache read/write 观测；request/user/credential/ endpoint URL 与正文不进入指标 key。
-- `GatewayMetrics::provider_snapshots` 提供进程内只读快照；新增受 Bearer 保护的
-  `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口；仍未接入 Prometheus/OpenTelemetry
-  exporter、持久化、分布式聚合或按遥测结果动态重排 Route。
-- 新增的 8 个 `observability_contract` 测试覆盖 JSON/streaming usage 与 cache、Provider/route mode 维度、 retry HTTP
-  failure、SSE terminal/EOF failure 和下游取消；`cargo test --locked`、`cargo fmt -- --check`、
-  `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内 采集边界，不证明真实
-  Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
-
-### 2026-08-06 非流式 generation 的可观测下游首输出
-
-- 修复前真实 `mimo-v2.5` 非流式 Chat/Responses 都返回 HTTP 200、完整 JSON usage 与正常终态，Provider snapshot 也记录
-  response-ready、首 body byte 和 duration，但两个 `gateway_ttft_ms.count` 都为 0。
-- 成功的非流式 Chat/Responses 现在只在第一个非空下游 JSON body chunk 命中一次 gateway TTFT 原子门控；Models、Embeddings、
-  HTTP 非成功、已明确 `failed`/`incomplete` 的 JSON terminal 与空 body 不产生该样本。SSE 仍以首个 token-bearing
-  text/tool/reasoning delta 为边界。
-- 非流式 upstream wire 不暴露实际首 token 时刻，因此 `upstream_ttft_ms`、`generation_duration_ms` 与 `output_speed` 继续保持
-  0 样本；没有用 response-ready、总时长或 token 总量估算这些指标。
-- 最终代码的真实 MiMo 非流式 Chat/Responses 分别在客户端 2,147 ms 与 967 ms 完成，Provider `gateway_ttft_ms` 分别记录
-  2,098 ms 与 962 ms；两者均为 1 completed、1 usage observation，upstream TTFT、generation duration 与 output speed 均为
-  0 样本。gateway 汇总为 2 started、2 completed、0 error，连续读取 metrics 前后相同，响应不含下游 token。
-- 聚焦失败测试先证明旧代码的 gateway TTFT count 为 0，最小实现后通过；完整 `cargo test --locked` 为 260 passed、2 ignored，
-  `cargo clippy --locked -- -D warnings`、变更文件 rustfmt 与 `git diff --check` 通过。仓库级 fmt check 仍只被未修改的
-  `src/transport/mod.rs` 排序噪声阻塞；未运行外部 SDK、负载或长期运行验收。
-
-### 2026-08-06 reasoning stream 性能指标与无副作用读取
-
-- 修复前真实 `mimo-v2.5` Chat streaming 成功返回 64 output tokens，但 `reasoning_content` 没有产生 TTFT/output speed；
-  Responses 把包含 reasoning 的 510 output tokens 除以首个可见文本后的 605 ms，得到约 842.975 tokens/s。
-- 遥测现在把 Chat `delta.reasoning_content` 与 Responses `response.reasoning_text.delta` 的首个非空 delta 作为生成窗口起点；
-  不改变 MiMo 的 `Unknown` reasoning capability、Native bytes 或 Bridge 边界。首 body byte 与首输出使用一次性原子门控，
-  下游 SSE 命中首输出后停止解析；generation JSON usage 只由原始 upstream observer 解析，Embeddings usage 由成功体 validator
-  提交，不再缓存并重复解析下游 JSON。
-- metrics endpoint 保留静态 Bearer 认证，但不创建 `RequestObservation`；连续读取前后的 gateway/provider 快照相同。现有
-  Provider/target/route/upstream operation/Public Model/downstream operation/route mode/streaming 维度全部保留，因为它们分别
-  归属 Provider family、实例、fallback、协议转换、客户端契约和流式性能，不新增重复的平均值或 error-rate 字段。
-- 最终代码的真实 MiMo Chat/Responses streaming 均返回 HTTP 200 并正常 terminal，gateway 为 2 started/2 completed/0 error；
-  Chat 的 upstream/gateway TTFT、generation 与 output speed 为 1,618 ms、2,509 ms、约 25.508 tokens/s，Responses 为
-  747/748 ms、6,250 ms、约 27.680 tokens/s。连续读取 gateway/provider 快照前后相同；该单次真实调用不构成负载、长期
-  分位数或 Provider SLA 证据。
-- 聚焦的 14 个 observability、6 个 ingress 和 20 个 Embeddings forwarding 测试通过；完整 `cargo test --locked` 共
-  260 个测试通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings`、涉及文件 rustfmt 和
-  `git diff --check` 通过。仓库级 fmt check 仍只被未改动的 `src/transport/mod.rs` 排序噪声阻塞；未运行外部 SDK、负载或长期运行验收。
-
-### 2026-08-05 运行期指标 HTTP 读取
-
-- 新增受现有静态 Bearer middleware 保护的 `GET /openbridge/v1/metrics` 和
-  `GET /openbridge/v1/metrics/providers`；前者序列化 `GatewayMetricsSnapshot`，后者序列化按现有排序返回的
-  `ProviderMetricSnapshot` 列表。
-- 两个 endpoint 只读取 `GatewayState` 共享的当前进程内存，不新增聚合字段、label 或持久化；现有 Provider/Route/Target
-  低基数维度保持不变，响应不包含 request/user/credential/endpoint URL 或业务正文。
-- 新增 ingress 与 observability contract 测试，覆盖认证失败、全部进程级字段、Provider 快照字段/排序和 token 脱敏。
-- 聚焦 ingress/observability 测试、`cargo test --locked` 与 `cargo clippy --locked -- -D warnings` 已通过；本次涉及文件的
-  `rustfmt --check --edition 2024` 与 `git diff --check` 已通过。仓库级 `cargo fmt -- --check` 仍被未改动的
-  `src/transport/mod.rs` 既有 module 声明顺序阻塞；未运行真实 Provider、外部 SDK、负载或长期运行验收。
-
-2026-08-03 完成 Chat/Responses definition 命名拆分与标准字段预留：
-
-- 原通用 `EndpointCapabilities` 已拆为可注册的 `ChatCompletionsCapabilities`、`ResponsesCapabilities`，以及只供请求
-  分析和公共子集判断使用的 crate-private `GenerationCapabilities`；请求事实字段也使用 `generation` 命名，不再保留 模糊的
-  `protocol` capability 公共表面。
-- canonical `ModelConfig`/`ModelInfo` 增加可选 `ModelMode`、`InputModality` 和 `OutputModality`；输入枚举覆盖
-  text/image/audio/file，输出枚举覆盖 text/image/audio。所有 checked-in Model 均保留 `None`，未知不被解释成空集合。
-- Chat 预留 custom tool、audio/file input、audio output、predicted outputs、web search、prompt caching、moderation、 logprobs 与
-  multiple choices；Responses 预留 custom/hosted tools、file input、conversation、prompt template、prompt caching、context
-  management、标准 `include` 枚举、moderation 与 logprobs。所有 Provider contract 和 Upstream API definition 均保持新增字段为
-  `false` 或空集合。
-- 没有增加对应 Bridge、adapter 或 Provider 请求实现。Model 的 mode 与输入/输出模态已进入 registry 和扩展模型信息； Upstream
-  API definition 若启用任一尚未实现的协议能力，仍触发带稳定说明的 `unimplemented!`。请求分析会逐协议识别 custom/hosted
-  tool、audio/file、predicted output、web search、prompt cache、conversation、prompt template、context
-  management、include、moderation、logprobs 与 multiple choices 等已预留 wire 语义，并在 route/egress 前返回
-  `UnimplementedCapabilities`。Ingress 将其映射为 HTTP 400、code `unimplemented_request`；真正未知的 tool type 继续返回既有
-  `UnsupportedCapabilities`。
-- `capability_definition_contract` 覆盖 Model mode/模态编译，以及 10 个 Chat definition、10 个 Responses definition、 10 个
-  Chat 请求和 10 个 Responses 请求预留触发点；`native_routing_contract` 11 个、`bridge_forwarding_contract` 9 个 和
-  `provider_boundary_contract` 16 个测试通过。随后 `cargo fmt -- --check`、`cargo test --locked`、
-  `cargo clippy --locked --all-targets -- -D warnings` 与 `git diff --check` 均通过。全量 Rust 结果为 158 个测试通过、 1
-  个需要外部 OpenAI Python/Node SDK 的集成测试 ignored；没有修改 protocol corpus，也没有运行外部 SDK、真实
-  Provider、负载或长期验证。
-
-2026-08-03 完成固定 Public Model 能力契约与模型信息接口：
-
-- `PublicModelInfo` 现在包含稳定标准身份、生命周期、模型事实，以及 Chat Completions/Responses 各自唯一的
-  `ModelInterfaceCapabilities`；同一个 registry 编译对象同时驱动标准四字段投影、扩展 list/detail 和请求预检。
-- 固定接口能力由对应协议的全部静态可执行 Route 保守相交。请求只校验客户端明确选择的 Public Model；能力不足或 未知时在
-  egress 前返回 HTTP 400 `unsupported_model_capability`，不会改选模型、跳过 Route 或重排 fallback。
-- 已接入 `GET /v1/models`、`GET /v1/models/{model}`、`GET /openbridge/v1/models` 和
-  `GET /openbridge/v1/models/{model}`。四个接口共享 Bearer 认证和不可变可见目录；未知或 retired 模型统一隐藏， 扩展响应不包含
-  Provider、Target、Route、upstream model、endpoint、credential、健康、价格或指标。
-- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过； 全量
-  Rust 结果为 164 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored。未修改 `testdata/`
-  或 `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
-
-2026-08-03 完成能力路由遗留审计与需求归并：
-
-- registry compiler 先把每协议的静态可执行候选与 `ModelInterfaceCapabilities` 编译进同一个执行接口；`plan_request`
-  在预检后只读取该接口，不再在请求期扫描 Route、解析 Target/API 或判断静态启停。`BridgePlan` 失败会拒绝整个请求， 不会跳过该
-  Route；reasoning wire 映射不改变候选资格或顺序。
-- `forward_request` 只因 cooldown、credential 可用性、可重试 HTTP/transport failure 和 state affinity 执行
-  retry/fallback，不读取或比较模型能力。已删除没有生产调用方的 `ProviderAdapter::validate_capabilities` 及其重复
-  `ApiCapabilities` 子集入口；Provider 能力上界仍只在 registry 构建时校验。
-- 内部 Public Model 聚合输入已改称 Route contract contribution；请求事实、错误说明和测试名称统一为 Public Model
-  固定契约预检，不再把能力描述成候选级运行时检查，也不再使用“兼容候选”术语。
-- 新增[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)，集中维护
-  身份、生命周期、固定交集、Models API、错误、禁止能力路由、验收与非目标；API、配置、产品范围和 Provider 韧性文档只保留各自所有权并链接该页。
-- `cargo fmt -- --check`、`cargo test --locked --target-dir target\model-contract-audit`、
-  `cargo clippy --locked --target-dir target\model-contract-audit -- -D warnings` 与 `git diff --check` 均通过；全量 Rust
-  结果为 163 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改 `testdata/` 或
-  `tools/corpus/`，因此未运行 Python corpus baseline；也未运行外部 SDK、真实 Provider、负载或长期验证。
-
-2026-08-03 完成基于 OpenRouter 精确目录的 Public Model 事实补全：
-
-- `src/models/` 下 16 个可精确匹配模型补全或校验现有描述、模型级 context、输入/输出模态、tokenizer 和 knowledge cutoff，并把
-  `top_provider.max_completion_tokens` 映射为最大输出上限。OpenRouter 没有独立的 max-input 字段，因此 `max_input_tokens`
-  使用已确认的模型级 `context_length`；不从总上下文减最大输出， 也不为没有精确记录的 `gpt-5.3-codex-spark` 猜测事实。
-- registry 会传递并保守相交 tokenizer、knowledge cutoff 和模型描述；不同 Route 的事实不一致或缺失时继续 返回 `null`
-  。模型本体模态与实际 Chat/Responses 接口能力分开聚合，目录中的 video 不会扩大当前接口契约。
-- `tests/example_config.rs` 覆盖编译目录和加载后的 Public Model 元数据；`tests/forwarding_contract.rs` 覆盖
-  `/openbridge/v1/models` 与 detail 的一致性及客户端可见非空字段。`gpt-5.3-codex-spark` 和现有未知字段的
-  `null` 语义仍由测试保护。
-- 本轮执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和
-  `git diff --check`，均通过；未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。 未运行外部 SDK、真实
-  Provider、负载或长期验证。
-
-2026-08-03 完成扩展 Models 首版 schema 的 reasoning wire 与参数所有权修正：
-
-- `ReasoningLevel::XHigh` 在扩展 Models list/detail 中统一序列化为请求解析器和 OpenAPI 使用的标准 `xhigh`， 不再返回无法直接回填请求的
-  `x_high`。
-- canonical `ModelInfo.supported_parameters` 继续参与 Upstream API 收窄和每协议固定接口交集，但
-  `ModelCapabilities` 不再重复公开这份模型目录上界；客户端可调用参数只由目标
-  `interfaces.*.supported_parameters` 公开。项目尚未发布，因此 schema version 保持首版字符串 `"1"`。
-- 聚焦 Models 契约测试先确认旧实现分别因重复参数字段和 `x_high` 失败，最小实现后通过。随后
-  `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`
-  均通过；全量 Rust 结果为 164 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。
-- 本地服务使用私有下游用户 Key 只读验证 7 个扩展模型：schema version 均为 `"1"`，模型事实层均无
-  `supported_parameters`，两个接口参数列表均保留，reasoning levels 包含 `xhigh` 且不含 `x_high`，标准/扩展 ID 与所有 detail
-  对象一致。该验证未调用真实 Provider；也未运行外部 SDK、负载或长期验收。
-
-2026-08-04 完成同一 Public Model 的多 Provider 聚合装配与 continuation 安全边界：
-
-- `src/providers/catalog/routing.rs` 的单 target registration 已改为有序 Provider route source 列表；对每个 下游协议按
-  source 声明顺序生成全部 Native Route，再按同序生成 Bridge Route。已有 checked-in Public Model 的 source 列表仍各只有一个元素，Route
-  ID 与默认行为未改变，也未新增未经真实证据确认的 Provider 绑定。
-- `src/registry/public_model.rs` 在保守接口交集之外记录仅供内部判断的 Target/API continuation issuer；只有全部 Responses
-  Route 支持且 issuer 唯一时才公开 `previous_response_id`。多个潜在签发者会把 typed state 收窄为
-  `unsupported`、移出 `supported_parameters`，请求在 transport 前以能力错误拒绝；同一 issuer 的多 Route 仍 保持第一候选执行和禁止
-  fallback。
-- TDD 首先确认目录测试因 registration 无法表达 source 列表而编译失败，并确认歧义 continuation 旧实现实际 调用首选
-  Target、返回 429 而不是预期的本地 400。修复后，目录顺序、跨 Provider 同 canonical Model 规划、 能力交集、真实 attempt 顺序、唯一
-  issuer continuation 与歧义 preflight 聚焦测试均通过。
-- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-  `git diff --check`，全量 Rust 结果为 166 个测试通过、1 个需要外部 OpenAI Python/Node SDK 的集成测试 ignored，Clippy
-  零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行 外部 SDK、真实 Provider、负载或长期验收。
-
-2026-08-04 完成 Route planning 职责拆分与 reasoning wire 映射下沉：
-
-- `src/pipeline/preflight.rs` 独立负责 Public Model/协议解析、固定接口能力与限制预检；`planning.rs` 在预检后 消费已编译的候选，构造
-  Native/Bridged candidate 并设置 fallback 边界。
-- `RouteCandidate` 不再保存已应用的 reasoning mapping，Native 与 Bridged `ApiRequest` 在 RoutePlan 中均保留目标 协议的
-  canonical level。OpenAI-compatible Provider adapter 在 egress JSON 准备阶段与真实 model 一次性完成 target-specific
-  reasoning wire 改写；`PreparedUpstreamRequest` 只携带实际已应用映射用于 attempt tracing。
-- TDD 首先让规划测试因旧实现提前把 `xhigh` 改成 `max` 而失败；重构后该测试确认所有规划候选保留 `xhigh`， forwarding
-  contract 继续确认发送到显式映射 Upstream API 的 wire 值为 `max`。`cargo fmt -- --check` 与
-  `cargo test --locked` 均通过；全量 Rust 结果为 166 个测试通过、1 个外部 OpenAI Python/Node SDK 集成测试 ignored。未修改
-  `testdata/` 或 `tools/corpus/`，未运行 Python corpus、外部 SDK、真实 Provider、负载或长期验收。
-
-2026-08-04 完成 Public Model 协议执行接口预编译：
-
-- registry compiler 在完成引用、operation 和 Native/Bridged 方向校验后，按 Public Model/下游 operation 一次性编译
-  `ModelExecutionInterface`。每个接口把保守的 `ModelInterfaceCapabilities` 与同一组静态启用候选绑定；候选冻结
-  Route/Target/typed upstream operation、上下游协议、模式、Bridge 所需的 upstream model 与 reasoning output。扩展 Models DTO
-  仍只投影安全能力，不暴露上述拓扑。
-- `preflight` 和 `planning` 现在读取同一个执行接口：前者完成一次能力校验，后者仅按预编译顺序构造 Native 请求或
-  `BridgePlan`。请求路径不再扫描 `PublicModel.routes()`、查询全局 Route 表或重复判断 Target/API 静态启停；forwarding 仍独占
-  credential member、retry/fallback、cooldown、取消和 state-affinity 行为。
-- TDD 先加入 compiler 单元测试，旧代码因缺少 `execution_interface` 编译失败；实现后该测试验证禁用 Chat Native API 时只保留
-  Chat→Responses Bridge。`native_routing_contract` 进一步验证禁用的弱 Route 既不收窄公开能力，也不进入 RoutePlan；既有多
-  Provider Native-first、continuation issuer 和 forwarding 回归保持通过。
-- 已通过 `cargo test --locked --test example_config`、`cargo test --locked --test native_routing_contract`、
-  `cargo test --locked --test forwarding_contract`、`cargo fmt -- --check`、`cargo test --locked`、
-  `cargo clippy --locked -- -D warnings` 和 `git diff --check`。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python
-  corpus baseline；未运行外部 SDK、真实 Provider、负载或长期验收，SDK 兼容测试仍为 ignored。
-
-2026-08-05 完成 Native Embeddings 垂直链路：
-
-- `OperationKind::EmbeddingsCreate`、分型 Embedding capability/execution interface、严格 request union、固定 Native
-  planning/adapter、预提交有界成功体 validator、有限 replay/取消、稳定错误 envelope 和 `operation` 级脱敏观测已接入 生产
-  Router；Models projection 与 preflight 使用同一个预编译接口。
-- checked-in registry 新增 `openai/text-embedding-3-small`、专用 `openai-text-embedding-3-small` target、`embeddings`
-  Upstream API、`embedding-primary-openai-embeddings` Route 与 Public Model `embedding-primary`。OpenAPI、配置说明、功能
-  需求、实现细节和 README 已同步到该首版固定契约。
-- 12 个聚焦 Rust target 共 137 个测试通过；独立的 Python 3.12.9 标准库客户端在 Windows loopback 上先读取
-  `/openbridge/v1/models`，再调用 `/v1/embeddings`，1 个显式 ignored integration case 通过。该闭环使用实际 Router、
-  checked-in registry 和 deterministic in-memory upstream，不安装第三方包、不读取私有配置，也不调用真实 Provider。
-- 最终执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-  `git diff --check`，均通过；全量 Rust 结果为 198 个测试通过、2 个显式 integration test ignored，其中独立 Python loopback
-  已按上条单独运行通过；Clippy 零告警。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline；未运行外部
-  OpenAI SDK、真实 Provider、负载或长期验收。
-
-### 2026-08-05 移除本机 Codex probe 链
-
-- 删除 `src/codex_auth.rs`、`src/codex_identity.rs` 和独立 auth-file contract；生产代码不再读取本机 Codex auth state、
-  terminal 环境或 OS/architecture identity，也不构造 Codex CLI-compatible User-Agent；
-- `openbridge-probe` 删除 ChatGPT 专用 credential、selector、report、model-list query、streaming Responses payload/SSE session
-  和对应 fixture，只保留已启用 target + 配置绑定 API-key pool 的通用 probe；
-- probe 现在对所有禁用 target 使用同一错误，并在 credential 读取和 egress 前失败；默认禁用的 ChatGPT target 因此没有可执行
-  probe 或数据面入口；
-- ChatGPT Provider/Provider instance/target、OAuth2 contract 与 OpenBridge-owned `OAuth2CredentialManager` 保留；PKCE、refresh、
-  manager 到 Provider adapter 的受控借用和真实 Provider 验收仍需独立焦点；
-- 移除仅由本机 identity 构造使用的 `os_info` 直接依赖及对应 lockfile 依赖树；
-- TDD 先证明 CLI 仍接受旧 auth-file selector、禁用 target 仍返回 Codex identity 专用错误；实现后 CLI 2 项、probe 9 项、Provider 6 项、
-  OAuth config 9 项和 startup 3 项聚焦测试均通过；
-- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过；全量 Rust
-  结果为 239 个测试通过、2 个显式外部客户端 integration test ignored。未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python
-  corpus baseline；未运行真实 Provider、外部 SDK、Agent runtime、负载或长期验收。
-
-## 当前未实现
-
-当前 checked-in 五个数据面 Provider 注册项没有在缺少真实能力证据时预设 reasoning level 映射；功能只在具体 Upstream API
-显式声明后生效。Bridged Route 支持明文 reasoning channel 的受限转换，但不支持 opaque
-`encrypted_content` continuation 或把 summary/content 伪造成 user-visible text。
-
-- OpenRouter 有状态 Responses、真实异构协议 Provider、可配置 ConversionPolicy 和 Bridge continuation ledger；
-- Responses WebSocket、Realtime、Files、Conversations 等资源 API；
-- ChatGPT 自动 refresh token 轮换、续约调度、401 recovery、多账号 pool，以及 ChatGPT Route/Public Model 数据面；
-- keyring、加密 secret 文件、远程 secret manager 和动态 credential 控制面；
-- 动态 health/weight、持久化或分布式 cooldown 与后台探测；
-- OpenTelemetry/Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
-- 多 Embeddings candidate、embedding Bridge、string tokenizer、可变维度域，以及向量转换、缓存、索引或检索；
-- hosted tool、MCP Tool Bridge 或非 loopback 部署。
+`config/bootstrap.toml` 使用 schema v2，当前只接受 loopback listener，并配置用户文件、上游 credential 文件、请求/响应/replay/SSE
+资源上限和共享 HTTP client 限制。Provider family、Provider instance、Model、Upstream Target、Upstream API、Route、Public Model
+和 credential pool binding 全部由 Rust 代码注册；Provider instance 唯一拥有受信 BaseURL。上述配置变更需要重启或重新编译。
+
+Trace export 默认禁用。显式配置 `[telemetry.traces].otlp_http_endpoint` 后，配置所有者可以选择 loopback、非 loopback IP 或 DNS
+host，但 URL 必须是无 userinfo、无自定义 path、query 或 fragment 的绝对 HTTP base；OpenBridge 固定发送到 `/v1/traces`，不接受
+exporter header、认证信息或请求级 endpoint 覆盖。collector 的真实远程网络、TLS 和长期运行能力不在当前验证范围内。
+
+| 私有运行配置 | 模板 |
+|---|---|
+| `config/users.toml` | `config/users.example.toml` |
+| `config/upstream-credentials.toml` | `config/upstream-credentials.example.toml` |
+| `config/bootstrap.toml` | `config/bootstrap.example.toml` |
+
+下游用户来自私有 `users.toml`，上游 credential binding 在有序 `api_keys` 与单一 `auth_json_file` 中二选一。服务在监听前校验配置，
+建立不可变 `UserRegistry`、API-key `CredentialStore` 和 OAuth2 credential snapshot；未知、重复、类型不匹配、损坏或不完整的 binding
+会阻止启动。用户配置、API-key Store 和普通 TOML 不热重载；OAuth2 manager 只在显式登录或到期 refresh transaction 中 guarded reload、
+原子写回并发布新 generation。
+
+ChatGPT Provider 仅作为默认禁用的独立 OAuth2 target 注册，不加入 Route 或 Public Model。`openbridge-auth login chatgpt` 使用固定的
+device interaction 与 PKCE 流程事务性写入 OpenBridge-owned auth 文件；服务不读取本机 Codex auth state、环境变量、terminal identity
+或 Codex probe。已配置的 OAuth2 bundle 支持 expiry-driven refresh，但当前没有 ChatGPT 数据面 credential 借用或 401 recovery。
+
+## 当前 HTTP 接口
+
+除 `/healthz`、OpenAPI 和 Swagger UI 外，表中接口均使用启动时用户表中的静态 Bearer API key：
+
+| Endpoint | 当前行为 |
+|---|---|
+| `GET /healthz` | 返回最小存活状态和 `registry_version`，不访问上游。 |
+| `GET /openapi.yaml` | 返回当前构建内置的 OpenAPI 3.0.3 YAML。 |
+| `GET /swagger-ui`、`GET /swagger-ui/` | 返回本地接口验证页面。 |
+| `GET /v1/models`、`GET /v1/models/{model}` | 返回 Public Model 的 OpenAI 标准四字段 list/retrieve。 |
+| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回模型事实和每个 operation 的固定能力契约。 |
+| `GET /openbridge/v1/metrics` | 返回本次进程运行期间的进程级指标快照。 |
+| `GET /openbridge/v1/metrics/providers` | 返回按 Provider attempt 低基数维度聚合的指标快照。 |
+| `POST /v1/chat/completions` | 执行 Chat Native 或显式 Chat→Responses Bridge 的 JSON/SSE。 |
+| `POST /v1/responses` | 执行 Responses Native 或显式 Responses→Chat Bridge 的 JSON/SSE。 |
+| `POST /v1/embeddings` | 执行独立 Embeddings Native Route，并在下游提交前校验有界 JSON 成功体。 |
+
+OpenAPI 源文件是 [`docs/openapi.yaml`](../openapi.yaml)，Swagger UI 源文件是 [`docs/swagger-ui.html`](../swagger-ui.html)。标准和扩展
+Models 接口共享同一不可变可见目录；响应不暴露 Provider、Target、Route、upstream model、endpoint、credential、健康或价格信息。
+
+## Provider、Model 与 Route
+
+当前注册六个 Provider family：OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 和 ChatGPT。可调用 Public Model 与固定
+Upstream Target 如下：
+
+| Provider / credential pool | Public Model | Upstream Target | 当前 Route surface |
+|---|---|---|---|
+| OpenAI / `openai-primary` | `gpt-5.6-sol` | `openai-main` | Chat/Responses Native-first，并有反向 Bridge 候选 |
+| OpenAI / `openai-primary` | `text-embedding-3-small` | `openai-text-embedding-3-small` | 唯一 Embeddings Native Route；无 Bridge 和 fallback |
+| LongCat / `longcat-primary` | `LongCat-2.0` | `longcat-2` | Chat/Responses Native-first，并有反向 Bridge 候选 |
+| DeepSeek / `deepseek-primary` | `deepseek-v4-pro` | `deepseek-v4-pro` | Chat Native |
+| DeepSeek / `deepseek-primary`；OpenRouter / `openrouter-primary` | `deepseek-v4-flash` | `deepseek-v4-flash`；`openrouter-deepseek-v4-flash` | DeepSeek Chat Native；OpenRouter Chat/Responses Native |
+| Xiaomi MiMo / `mimo-primary` | `mimo-v2.5-pro`、`mimo-v2.5` | 对应 MiMo target | Chat/Responses Native-first，并有反向 Bridge 候选 |
+| ChatGPT / `chatgpt-codex` | 无 | 默认禁用的 ChatGPT target | 无 Route/Public Model；通用 probe 拒绝禁用 target |
+
+Canonical Model 事实与 Public Model 身份分离。目录中存在未绑定 Target 或 Route 的模型 profile 时，不代表它可被客户端调用。
+同一 Public Model 的 Provider source 由代码显式列出；编译顺序为每个协议先生成全部 Native 候选，再生成同顺序的 Bridge 候选。
+当前 `deepseek-v4-flash` 是已注册的多 Provider 聚合，先尝试 DeepSeek，再按配置顺序使用 OpenRouter；不会按 canonical model ID
+自动发现或隐式聚合其他 Provider。
+
+每个 Public Model 的 operation 接口由 registry 在启动时预编译。固定能力是所有可执行候选的保守交集：未知事实保持 `unknown`/`null`，
+能力不足在 egress 前以稳定的本地错误拒绝；请求不会因能力不足改选模型、跳过前序 Route 或重排候选。Models projection 和 request
+preflight 读取同一执行接口，执行拓扑不向下游公开。
+
+## 已实现的请求行为
+
+### Generation
+
+- `POST /v1/chat/completions` 和 `POST /v1/responses` 支持已声明范围内的 JSON 与 SSE；客户端只选择 Public Model，不选择 Provider、真实模型、
+  URL、credential 或 Route。
+- Native Route 保留目标协议的 canonical request，由 Provider adapter 在 egress 阶段写入实际 upstream model，并按已声明规则执行 reasoning
+  level wire mapping；未声明或未知 level 在 egress 前拒绝。
+- `Bridged` Route 只转换明确 allowlist 内的 text、function tool、tool result、明文 reasoning channel、非流式 JSON 和流式 SSE。
+  tool-call identity、fragmented arguments、响应/项目索引和终态由两种协议各自的 stream state machine 维护。
+- Bridge 不猜测或伪造 opaque continuation、encrypted reasoning、image/file/audio、structured output、hosted/custom tool、后台状态或其他
+  Provider 私有扩展；无法表达的语义在上游调用前拒绝。当前没有通用异构 Provider 或可配置 ConversionPolicy。
+- Responses 的 `previous_response_id` 只有在可执行 Responses Route 全部绑定同一且唯一的 issuing Target/API 时才公开；存在多个潜在签发者时，
+  请求在 transport 前拒绝，不能盲投首选 Provider。无状态请求不保存或迁移上游 response state。
+
+### Embeddings
+
+`text-embedding-3-small` 使用独立 Public Model、OpenAI target 和唯一 Native Route。请求只接受严格 JSON union：string、string array、token
+array 或 token-array array；公开 `encoding_format`、`user` 以及默认 1536 维度。当前没有经证实的可变 dimensions 域，显式 `dimensions` 会在
+egress 前拒绝。单输入、单请求和 JSON response 都受启动配置及上游限制共同约束；字符串不做 tokenizer 估算，token array 只做本地精确计数。
+
+成功体在下游 response commit 前一次性完成有界 JSON 校验；usage 只记录明确返回的字段，非法成功体不进入 retry。当前 Embeddings 没有
+Bridge、多候选、向量转换、缓存、索引、检索或独立 tokenizer。
+
+### Retry、fallback、取消与安全出站
+
+- 请求级和 candidate 级 retry 有固定硬预算与 capped backoff；可重试的 HTTP/transport failure 只沿同一 Public Model 的已注册 Route 顺序
+  fallback，首个下游业务输出提交后不再切换上游。
+- 429 支持按 credential pool 的有序 member 轮换；单进程共享 member cooldown 和 target fault cooldown，不持久化、不跨进程、不动态探测。
+- 下游取消会传播到当前 send、backoff、response body 和后续 attempt；SSE framing、terminal、EOF-before-terminal 和 body error 均在对应边界
+  收口一次。
+- 上游 endpoint、credential、Authorization、proxy header 和 transformation rule 只能来自受信代码注册与 purpose-bound credential boundary；
+  业务请求不能覆盖这些值。普通固定 header 和 Provider hook 仍拒绝敏感 header 名称。
+
+## 观测、Probe 与隐私边界
+
+每个已认证请求在 response body 正常 EOF、流错误或下游取消时结束一次 `downstream_request` 生命周期；每次实际上游 attempt 有独立的
+`provider_attempt` 生命周期。进程内提供无持久化、低基数的 gateway 和 Provider attempt 快照，并通过上述两个 Bearer endpoint 读取；读取
+接口本身不创建 observation，也不稀释计数分母。
+
+显式启用 OTLP/HTTP trace 后，只导出 reviewed 的 `downstream_request` root 和 `provider_attempt` child，使用固定 protobuf、空 exporter
+headers、有界 queue/batch/export/shutdown timeout。collector failure、timeout 或 backpressure 只丢弃 telemetry，不影响业务响应、retry、
+fallback 或 Provider 结果。OTLP metrics、OTLP logs、Prometheus exporter、持久化、历史查询、重置和分布式聚合尚未实现。
+
+trace、日志、指标和错误不包含 Authorization、credential、用户身份、真实 endpoint URL、raw path/query、请求/响应正文、tool/reasoning
+内容或原始错误正文；指标 key 只使用已校验的 Provider、route、target、typed upstream operation、Public Model、downstream operation、
+route mode 和 streaming 等低基数维度。详细字段口径见[遥测指标](telemetry-metrics.md)。
+
+`openbridge-probe --target <id>` 只探测管理员显式选择的、已启用的固定 Target，复用该 Target 的 adapter 与 transport；它不接受 URL、model、
+header 或 credential 覆盖，不修改 registry，不加载下游用户 key，也不读取本机 Codex 状态。
+
+## 当前未实现与明确边界
+
+- ChatGPT credential manager 到数据面的借用、Route/Public Model、真实请求、401 recovery、多账号 pool 和账号级负载均衡；
+- OpenRouter 有状态 Responses、Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等资源或实时协议；
+- 真实异构协议 Provider、通用动态 Provider/plugin DSL、动态 Converter catalog、可配置 Bridge policy 和 continuation ledger；
+- Native 多模态扩展的完整已验证交付，以及 image/file/audio、hosted tool、MCP Tool Bridge 的跨协议转换；
+- keyring、加密 secret 文件、远程 secret manager、动态 credential 控制面；
+- 动态 health/weight、持久化或分布式 cooldown、后台探测、多进程协调和非 loopback 服务部署；
+- OTLP metrics、OTLP logs、Prometheus exporter、指标持久化、历史查询、重置、外部分析协议和分布式聚合；
+- 多 Embeddings candidate、embedding Bridge、string tokenizer、可变维度域、向量转换/缓存/索引/检索；
+- 由网关执行 function tool、GUI、Web 控制台、在线用户管理、配额、计费、审计或独立控制面。
+
+## 验证状态
+
+当前实现已有以下确定性证据：
+
+- Rust contract/integration tests 覆盖配置与 credential 边界、compiled registry、Models projection、Native/Bridge planning、HTTP/SSE、retry/fallback、
+  cooldown、取消、Embeddings 有界 JSON、OAuth2 lifecycle、metrics 和 OTLP trace filtering；
+- 本次状态整理实际运行并通过 `cargo test --locked -j 1 --test config_contract`（15 项）和
+  `cargo test --locked -j 1 --test otlp_trace_contract`（2 项）；
+- 已记录的 Rust 基线中，`cargo test --locked -j 1` 和 `cargo clippy --locked -- -D warnings` 通过；变更 Rust 文件的
+  `rustfmt --check --edition 2024` 与 `git diff --check` 通过；
+- 当前仓库级 `cargo fmt -- --check` 仍受未修改的 `src/transport/mod.rs` module 声明顺序差异影响，不能把该命令描述为通过；
+- OTLP contract 使用 loopback fake collector 验证 protobuf、父子 span、脱敏、禁用态零 egress、collector failure isolation 和有界 shutdown；非 loopback
+  IP/DNS 当前只验证启动配置解析；
+- 本次目标仅为文档整理，未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus baseline。
+
+以下验收层仍未运行或不由上述结果覆盖：真实 Provider 请求、官方 OpenTelemetry Collector smoke、外部 OpenAI SDK、Codex/Hermes 等 Agent runtime、负载、
+吞吐、分位数、SLA 和长期运行。确定性测试和单次本地调用不构成这些验收结论。
 
 ## 相关资源
 
 - [当前代码架构](current-architecture.md)
+- [遥测指标](telemetry-metrics.md)
 - [Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)
-- [能力探测](capability-probing.md)
-- [协议测试语料与工具](protocol-test-corpus.md)
+- [Embeddings 与 Native 多模态扩展需求](../functional-requirements/embedding-and-native-multimodal.md)
 - [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
 - [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)
+- [能力探测](capability-probing.md)
+- [协议测试语料与工具](protocol-test-corpus.md)
+- [当前开发焦点](../implementation-plans/current-focus.md)

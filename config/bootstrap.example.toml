@@ -9,3 +9,7 @@ max_sse_event_bytes = 262144
 upstream_connect_timeout_ms = 5000
 upstream_pool_idle_timeout_ms = 90000
 upstream_pool_max_idle_per_host = 16
+
+# Trace export is disabled unless this startup-owned collector table is uncommented.
+# [telemetry.traces]
+# otlp_http_endpoint = "http://127.0.0.1:4318"

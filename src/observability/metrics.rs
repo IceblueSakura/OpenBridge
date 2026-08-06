@@ -8,6 +8,7 @@ use std::sync::{
 };
 
 use serde::Serialize;
+use tracing::Span;
 
 use super::provider::{
     ProviderAttemptObservation, ProviderMetricKey, ProviderMetricSnapshot, ProviderMetrics,
@@ -87,8 +88,9 @@ impl GatewayMetrics {
     pub(super) fn start_provider_attempt(
         &self,
         key: ProviderMetricKey,
+        span: Span,
     ) -> ProviderAttemptObservation {
-        self.inner.provider.start(key)
+        self.inner.provider.start(key, span)
     }
 
     /// Returns a counter snapshot without high-cardinality labels.

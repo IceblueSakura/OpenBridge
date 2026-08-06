@@ -14,6 +14,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4"
 http-body = "1.0"
 httpdate = "1.0"
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream", "http2"] }
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +30,11 @@ toml = "1.1"
 tower = { version = "0.5", features = ["util"], default-features = false }
 tower-http = { version = "0.7", features = ["limit", "request-id", "sensitive-headers", "trace"], default-features = false }
 tracing = "0.1"
+tracing-opentelemetry = { version = "0.33", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], default-features = false }
 url = "2.5"
 zeroize = "1.9"
+
+[dev-dependencies]
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["gen-tonic-messages", "trace"] }
+prost = "0.14"

@@ -2,18 +2,21 @@
 
 ## 状态与范围
 
-本文记录当前 checkout 已实现的进程内遥测口径、采集边界和验证证据。它描述观测事实，不表示真实 Provider 性能、外部
-exporter、负载能力或动态选路已经验收。
+本文记录当前 checkout 已实现的进程内指标口径、可选 OTLP trace 边界和验证证据。它描述观测事实，不表示真实 Provider 性能、
+外部 backend、负载能力或动态选路已经验收。
 
-当前遥测分为两层：
+当前遥测分为三层：
 
 - `GatewayMetricsSnapshot`：不带维度的进程级请求、attempt、韧性和 token 累计值；
-- `ProviderMetricSnapshot`：按编译期 Provider attempt 维度聚合的性能、usage 和 cache 快照。
+- `ProviderMetricSnapshot`：按编译期 Provider attempt 维度聚合的性能、usage 和 cache 快照；
+- 可选 OTLP traces：一个 `downstream_request` root 与每个实际出站的 `provider_attempt` child，只通过 startup-only
+  OTLP/HTTP exporter 发送；collector host 由 bootstrap 配置所有者选择。
 
 实现门面是 [`src/observability.rs`](../../src/observability.rs)，具体代码位于
 [`src/observability/provider.rs`](../../src/observability/provider.rs)、
 [`src/observability/request.rs`](../../src/observability/request.rs) 和
-[`src/observability/usage.rs`](../../src/observability/usage.rs)。
+[`src/observability/usage.rs`](../../src/observability/usage.rs)；exporter 生命周期位于
+[`src/observability/otlp.rs`](../../src/observability/otlp.rs)。
 
 ## Provider 维度
 
@@ -122,15 +125,17 @@ let snapshots = state.metrics().provider_snapshots();
 ```
 
 `GatewayState::metrics()` 返回共享的 `GatewayMetrics` 句柄，快照按 Provider 维度排序。当前运行二进制提供受 Bearer
-保护的 `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口；尚未提供 Prometheus exporter、
-OpenTelemetry exporter、持久化或跨进程聚合。Provider attempt 还会输出脱敏的
-`provider_attempt_completed` tracing event，方便在没有 exporter 时收集日志。
+保护的 `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口。默认不产生 OTLP egress；显式配置
+`[telemetry.traces].otlp_http_endpoint` 后，运行二进制使用固定 protobuf `/v1/traces`、空 exporter headers、有界 batch queue、
+500 ms export timeout 与有界 shutdown。尚未提供 OTLP metrics、OTLP logs、Prometheus exporter、持久化或跨进程聚合。
+Provider attempt 仍输出脱敏的 `provider_attempt_completed` 本地 tracing event；OTLP layer 不导出 tracing events。
 
 两个 metrics endpoint 仍执行静态 Bearer 认证，但不创建 `RequestObservation`，因此读取前后 gateway/provider 快照保持不变。
 
 ## 与请求生命周期的关系
 
-请求仍由 `downstream_request_completed` 负责提交唯一的下游终态。Provider 快照与下游终态是不同口径：
+请求仍由 `downstream_request_completed` 负责提交唯一的下游终态。启用 trace 时，同一生命周期结束一个
+`downstream_request` root，并让每个实际 Provider attempt 在原有唯一 terminal 边界结束对应 child span。Provider 快照与下游终态是不同口径：
 
 - Provider 可以成功返回 body，但网关桥接/下游消费随后失败；
 - Provider HTTP failure 可能触发 retry/fallback，最终请求仍可能成功；
@@ -163,6 +168,12 @@ capability gate、state affinity、retry/fallback、cooldown 或首个下游输�
   vector/base64 哨兵不进入导出结果；replay 超限只记录一次 attempt。
 - 受 Bearer 保护的进程级和 Provider 快照 HTTP endpoint 返回现有结构，认证失败在 handler 前结束，响应不包含 downstream token。
 - metrics endpoint 连续读取不改变 gateway/provider 快照，reasoning-only Chat stream 也产生 upstream/gateway TTFT。
+- bootstrap 配置 contract 接受 loopback、非 loopback IP 与 DNS collector host，并继续拒绝 HTTPS、缺失 host、URL credential、
+  自定义 path/query/fragment 和 exporter header；该测试不产生真实远程 egress。
+- loopback fake collector 解码 OTLP protobuf 后只看到一个 request root 与一个 attempt child；parent/child、稳定字段、resource
+  identity、精确 attribute allowlist、无 exporter Authorization header 及敏感字节缺失均由 contract test 断言。
+- exporter 未配置时 fake collector 收到零请求；collector 阻塞超过 export timeout 时，业务 status/body/metrics 保持一致，请求与
+  exporter shutdown 都在独立的有界 timeout 内结束。
 
 测试通过 fake upstream transport 隔离 Provider 网络依赖，并通过真实 Axum/Hyper loopback 覆盖下游 HTTP transport；它们只证明
 OpenBridge 进程内采集和本地传输边界，不证明真实 Provider 的延迟、token 计数、 cache 语义、负载表现或长期运行结果。
@@ -182,7 +193,6 @@ TTFT 1,618 ms、64 output tokens、2,509 ms generation duration 和约 25.508 to
 和 output speed 都保持 0 样本，usage 与 token 正常累计；gateway 为 2 started、2 completed、0 error，连续读取无副作用。
 这些 gateway TTFT 只证明客户端首次获得完整 JSON 的时间，不证明 Provider 实际首 token 或解码速度。
 
-最近一次验证：包含非流式 gateway TTFT 与 Embeddings 空生成指标断言的 14 个 observability、6 个 ingress 测试通过；独立 target 目录中的
-`cargo test --locked` 共 260 个测试通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings` 通过，涉及文件的
-`rustfmt --check --edition 2024` 与 `git diff --check` 通过。仓库级 `cargo fmt -- --check` 仍只被未改动的
-`src/transport/mod.rs` module 声明顺序阻塞。未运行外部 SDK、负载或长期运行验收。
+最近一次验证：更新的 1 个 bootstrap 配置 contract 与 2 个 OTLP trace contract 均通过；`cargo test --locked` 共 263 个测试
+通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings` 通过。仓库级 fmt、差异检查与 collector 安装检查见
+[当前实现说明](current-implementation.md)。未运行真实 Provider、外部 SDK、负载或长期运行验收。

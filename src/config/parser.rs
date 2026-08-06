@@ -1,10 +1,11 @@
 //! Parses bootstrap TOML and validates runtime boundaries.
 
 use std::{net::SocketAddr, time::Duration};
+use url::Url;
 
 use super::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapConfig, BootstrapConfigError, HttpClientConfig,
-    RuntimeLimits, document::RawBootstrap,
+    OtlpHttpTraceConfig, RuntimeLimits, document::RawBootstrap,
 };
 
 /// Parses and validates bootstrap TOML.
@@ -58,6 +59,13 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             listen: raw.listen.clone(),
         })?;
 
+    // Validate the optional exporter before any listener or telemetry worker can create network egress.
+    let otlp_http_trace_export = raw
+        .telemetry
+        .and_then(|telemetry| telemetry.traces)
+        .map(|traces| parse_otlp_http_trace_endpoint(&traces.otlp_http_endpoint))
+        .transpose()?;
+
     // Convert raw fields into runtime value objects.
     Ok(BootstrapConfig {
         listen,
@@ -74,7 +82,30 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
         },
+        otlp_http_trace_export,
     })
+}
+
+/// Parses the startup-owned OTLP/HTTP collector base without accepting embedded routing policy.
+fn parse_otlp_http_trace_endpoint(
+    endpoint: &str,
+) -> Result<OtlpHttpTraceConfig, BootstrapConfigError> {
+    // Parse one absolute, plaintext HTTP URL without accepting URL-carried credentials or routing data.
+    let endpoint = Url::parse(endpoint)
+        .ok()
+        .filter(|endpoint| endpoint.scheme() == "http")
+        .filter(|endpoint| endpoint.username().is_empty() && endpoint.password().is_none())
+        .filter(|endpoint| endpoint.path() == "/")
+        .filter(|endpoint| endpoint.query().is_none() && endpoint.fragment().is_none())
+        .ok_or(BootstrapConfigError::InvalidOtlpHttpTraceEndpoint)?;
+
+    // Require a concrete host while allowing the bootstrap owner to select local or remote collectors.
+    if !endpoint.has_host() {
+        return Err(BootstrapConfigError::InvalidOtlpHttpTraceEndpoint);
+    }
+
+    // Preserve only the normalized collector base used by the fixed trace exporter.
+    Ok(OtlpHttpTraceConfig { endpoint })
 }
 
 /// Rejects zero-valued configuration to protect memory, time, and connection-pool boundaries.
