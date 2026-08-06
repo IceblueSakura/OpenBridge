@@ -377,8 +377,9 @@ session 拆到同名目录；原有进程内 metrics 与本地 completion event 
 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用 target
 endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不 加载下游用户
-Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。probe 只允许已启用 target，并只加载所选 target 的
-API-key pool；OAuth target 不通过该通用 probe 借用 manager credential。CLI 没有本机 Agent auth、client identity 或 executable selector。
+Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。probe 只允许已启用 target；API-key target 加载所选 pool，ChatGPT
+target 通过 `OAuth2CredentialManager` 借用所选 auth file 的账户绑定 lease。CLI 没有本机 Agent auth、client identity 或 executable selector，
+也不打开未选中的 OAuth2 文件。
 
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部

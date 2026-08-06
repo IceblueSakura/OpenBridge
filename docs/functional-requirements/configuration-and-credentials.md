@@ -116,12 +116,12 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
 ### 3.2 ChatGPT 本地状态隔离
 
 - 四个 ChatGPT target 使用同一个独立 `OAuth2BearerAccessToken` pool，并各自只加入一个 Responses-native Route/Public Model；
-  通用 probe 只允许选择已启用 target，但当前 API-key probe 不承担 OAuth manager 借用；
+  通用 probe 只允许选择已启用 target，ChatGPT Models probe 可显式借用该 pool 的 OAuth manager lease；
 - OpenBridge 不搜索 `$CODEX_HOME`、Codex auth cache 或其他本机 Agent 状态，不接受 probe 专用 Codex auth file 或 executable selector；
 - OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS、architecture 或 terminal 构造 Codex-compatible 请求身份，也不启动 Codex
   CLI 或 app-server；
-- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；数据面只可通过 manager 的短生命周期 lease 借用当前
-  generation，不能把它变成隐式 probe credential；
+- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；服务数据面和显式 ChatGPT Models probe 只可通过 manager 的短生命周期
+  lease 借用当前 generation，不能通过 CLI 参数或本机 Agent 状态隐式获取 credential；
 - 显式登录、可刷新 bundle、持久化、数据面借用和 guarded reload/refresh/401 recovery 以
   [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准。
 

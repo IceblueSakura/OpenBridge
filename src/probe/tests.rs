@@ -2,23 +2,31 @@
 
 use std::{
     collections::VecDeque,
+    fs,
+    path::PathBuf,
     sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use axum::body::Body;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::future::BoxFuture;
 use http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
-use super::{ProbeError, ProbeOptions, SupportStatus, probe_upstream_target};
+use super::{
+    ProbeError, ProbeOptions, SupportStatus, probe_upstream_target,
+    probe_upstream_target_with_oauth2,
+};
 use crate::{
     config::parse_bootstrap_config,
     credential::{CredentialMetadata, CredentialSource, CredentialStore, CredentialStoreBuilder},
-    provider::PreparedUpstreamRequest,
+    oauth2_credentials::OAuth2CredentialManagerBuilder,
+    provider::{PreparedUpstreamRequest, ProviderKind},
     providers,
     registry::{RuntimeRegistry, UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -165,6 +173,117 @@ impl UpstreamTransport for FixtureTransport {
                 StatusCode::OK,
                 HeaderMap::new(),
                 Body::from(response.to_string()),
+            ))
+        })
+    }
+}
+
+static NEXT_SYNTHETIC_AUTH_FILE: AtomicUsize = AtomicUsize::new(1);
+
+struct SyntheticAuthFile {
+    path: PathBuf,
+}
+
+impl Drop for SyntheticAuthFile {
+    fn drop(&mut self) {
+        // Remove only the process-unique synthetic file created by this test.
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn synthetic_jwt(payload: Value) -> String {
+    format!(
+        "{}.{}.{}",
+        URL_SAFE_NO_PAD.encode(b"{}"),
+        URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes()),
+        URL_SAFE_NO_PAD.encode(b"synthetic-signature")
+    )
+}
+
+fn synthetic_chatgpt_auth_file() -> SyntheticAuthFile {
+    // Create a non-expired account-bound bundle with no real credential material.
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    let access_token = synthetic_jwt(json!({"exp": expires_at}));
+    let id_token = synthetic_jwt(json!({
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "synthetic-account",
+            "chatgpt_account_is_fedramp": false
+        }
+    }));
+    let path = std::env::temp_dir().join(format!(
+        "openbridge-probe-oauth-{}-{}.json",
+        std::process::id(),
+        NEXT_SYNTHETIC_AUTH_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let document = json!({
+        "auth_mode": "chatgpt",
+        "OPENAI_API_KEY": null,
+        "tokens": {
+            "id_token": id_token,
+            "access_token": access_token,
+            "refresh_token": "synthetic-refresh-token",
+            "account_id": "synthetic-account"
+        },
+        "last_refresh": "2026-08-07T00:00:00Z"
+    });
+    fs::write(&path, document.to_string()).unwrap();
+    SyntheticAuthFile { path }
+}
+
+#[derive(Default)]
+struct ChatGptModelListTransport {
+    requests: Mutex<Vec<String>>,
+    authorizations: Mutex<Vec<String>>,
+    accounts: Mutex<Vec<String>>,
+}
+
+impl UpstreamTransport for ChatGptModelListTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            // Record only the fixed request shape and redacted test-only header observations.
+            let relative_uri = request.relative_uri().to_string();
+            self.requests.lock().unwrap().push(relative_uri.clone());
+            self.authorizations.lock().unwrap().push(
+                headers
+                    .get(AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
+            self.accounts.lock().unwrap().push(
+                headers
+                    .get(http::header::HeaderName::from_static("chatgpt-account-id"))
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
+
+            // Return the ChatGPT manifest envelope only for the registered fixed endpoint.
+            if request.method() != Method::GET || relative_uri != "/models?client_version=0.146.0" {
+                return Ok(UpstreamResponse::new(
+                    StatusCode::NOT_FOUND,
+                    HeaderMap::new(),
+                    Body::empty(),
+                ));
+            }
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                HeaderMap::new(),
+                Body::from(
+                    json!({
+                        "models": [{"slug": "gpt-5.6-sol"}]
+                    })
+                    .to_string(),
+                ),
             ))
         })
     }
@@ -340,6 +459,54 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
             .unwrap()
             .iter()
             .all(|authorization| authorization == "Bearer test-key")
+    );
+}
+
+#[tokio::test]
+async fn chatgpt_probe_uses_oauth2_lease_for_model_manifest() {
+    let registry = registry();
+    let auth_file = synthetic_chatgpt_auth_file();
+    let mut builder = OAuth2CredentialManagerBuilder::new();
+    builder
+        .load_auth_json_file(
+            ProviderKind::ChatGpt,
+            "chatgpt-codex",
+            auth_file.path.clone(),
+        )
+        .unwrap();
+    let oauth2_credentials = builder.build();
+    let transport = ChatGptModelListTransport::default();
+
+    // Run only the fixed model-list observation through the ChatGPT OAuth2 probe boundary.
+    let report = probe_upstream_target_with_oauth2(
+        &registry,
+        "chatgpt-gpt-5-6-sol",
+        &transport,
+        &oauth2_credentials,
+        ProbeOptions {
+            list_models: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Confirm the ChatGPT-specific manifest parser and configured model correlation.
+    let list_models = report.list_models.unwrap();
+    assert_eq!(list_models.outcome.state, SupportStatus::Supported);
+    assert_eq!(list_models.configured_model_listed, Some(true));
+    assert_eq!(list_models.model_ids, ["gpt-5.6-sol"]);
+    assert_eq!(
+        transport.requests.lock().unwrap().as_slice(),
+        ["/models?client_version=0.146.0"]
+    );
+    let authorizations = transport.authorizations.lock().unwrap();
+    assert_eq!(authorizations.len(), 1);
+    assert!(authorizations[0].starts_with("Bearer "));
+    assert_ne!(authorizations[0], "Bearer ");
+    assert_eq!(
+        transport.accounts.lock().unwrap().as_slice(),
+        ["synthetic-account"]
     );
 }
 

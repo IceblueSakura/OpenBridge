@@ -12,7 +12,8 @@ use serde_json::Value;
 use crate::{
     core::{ApiProtocol, ApiRequest},
     credential::CredentialStore,
-    provider::ProviderAdapter,
+    oauth2_credentials::OAuth2CredentialManager,
+    provider::{ProviderAdapter, ProviderKind},
     registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
     transport::upstream::{UpstreamResponse, UpstreamTransport},
 };
@@ -54,6 +55,54 @@ pub async fn probe_upstream_target(
     run_probe_session(registry, target, transport, credentials, selection).await
 }
 
+/// Probes a ChatGPT target by borrowing one guarded OAuth2 access-token lease.
+///
+/// The manager owns refresh and account binding. This entry point accepts no endpoint or
+/// credential override, and it deliberately supports only the ChatGPT Provider boundary.
+pub async fn probe_upstream_target_with_oauth2(
+    registry: &RuntimeRegistry,
+    upstream_target_id: &str,
+    transport: &dyn UpstreamTransport,
+    oauth2_credentials: &OAuth2CredentialManager,
+    selection: ProbeOptions,
+) -> Result<TargetProbeReport, ProbeError> {
+    // Resolve the target and reject disabled registrations before OAuth2 manager access or egress.
+    let target = registry
+        .upstream_target(upstream_target_id)
+        .ok_or_else(|| ProbeError::UnknownUpstreamTarget {
+            upstream_target: upstream_target_id.to_owned(),
+        })?;
+    if !target.enabled() {
+        return Err(ProbeError::DisabledUpstreamTarget {
+            upstream_target: upstream_target_id.to_owned(),
+        });
+    }
+    if target.kind() != ProviderKind::ChatGpt {
+        return Err(ProbeError::OAuth2UnsupportedTarget {
+            upstream_target: upstream_target_id.to_owned(),
+        });
+    }
+
+    // Borrow the current account-bound generation and enforce compile-time pool affinity.
+    let lease = oauth2_credentials
+        .lease_for_request(target.kind())
+        .await
+        .map_err(|_| ProbeError::CredentialUnavailable)?;
+    if lease.pool_id() != target.credential_pool_id() {
+        return Err(ProbeError::CredentialUnavailable);
+    }
+    let credential = lease
+        .credential()
+        .map_err(|_| ProbeError::CredentialUnavailable)?;
+
+    // Prepare the fixed ChatGPT authentication headers before entering the common probe session.
+    let adapter = ProviderAdapter::for_kind(target.kind());
+    let headers = adapter
+        .build_outbound_headers(&credential, &HeaderMap::new())
+        .map_err(|_| ProbeError::AuthenticationPreparation)?;
+    run_probe_session_with_headers(registry, target, transport, headers, selection).await
+}
+
 /// Resolves one credential and runs the common probe sequence against an already trusted target.
 async fn run_probe_session(
     registry: &RuntimeRegistry,
@@ -79,10 +128,21 @@ async fn run_probe_session(
     let headers = adapter
         .build_outbound_headers(&credential, &HeaderMap::new())
         .map_err(|_| ProbeError::AuthenticationPreparation)?;
+    run_probe_session_with_headers(registry, target, transport, headers, selection).await
+}
+
+/// Runs the fixed probe sequence with already prepared, purpose-bound outbound headers.
+async fn run_probe_session_with_headers(
+    registry: &RuntimeRegistry,
+    target: &UpstreamTarget,
+    transport: &dyn UpstreamTransport,
+    headers: HeaderMap,
+    selection: ProbeOptions,
+) -> Result<TargetProbeReport, ProbeError> {
     let session = ProbeSession {
         target,
         transport,
-        adapter,
+        adapter: ProviderAdapter::for_kind(target.kind()),
         headers,
         max_response_bytes: registry.limits().max_json_response_body_bytes(),
     };
@@ -275,7 +335,7 @@ impl ProbeSession<'_> {
         let request = self
             .adapter
             .prepare_routed_request(&request, upstream_api)
-            .expect("compiled provider adapter accepts both probe protocols");
+            .map_err(|_| ProbeResult::unknown(None))?;
 
         // Send through trusted transport and decode the response under the shared body limit.
         self.send_json(request).await

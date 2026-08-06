@@ -13,7 +13,7 @@ mod payload;
 mod session;
 
 pub use error::ProbeError;
-pub use session::probe_upstream_target;
+pub use session::{probe_upstream_target, probe_upstream_target_with_oauth2};
 
 /// Explicit probe selection. The CLI uses `all()` when no selection is supplied;
 /// library callers may run only the free `list_models` probe or validate one protocol.

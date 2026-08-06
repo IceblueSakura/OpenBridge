@@ -8,7 +8,8 @@ use std::{collections::BTreeSet, env};
 use anyhow::{Context, Result};
 use openbridge::{
     config::BootstrapConfigPath,
-    probe::{ProbeOptions, probe_upstream_target},
+    probe::{ProbeOptions, probe_upstream_target, probe_upstream_target_with_oauth2},
+    provider::ProviderKind,
     providers::build_compiled_registry_with_active_pools,
     transport::upstream::UpstreamClient,
     upstream_credentials::UpstreamCredentialConfigPath,
@@ -55,22 +56,36 @@ async fn main() -> Result<()> {
         registry.http_client().pool_max_idle_per_host(),
     )
     .context("failed to initialize upstream HTTP client")?;
-    // Load only the selected API-key credential source and run the common probe entry point.
-    let credentials = upstream_configuration
-        .into_builder_for(&registry, [target.credential_pool_id()])
-        .context("failed to bind the selected upstream credential pool")?
-        .build();
-    credentials
-        .validate_registry(&registry)
-        .context("selected credential pool violates registry state-affinity constraints")?;
-    let report = probe_upstream_target(
-        &registry,
-        &arguments.upstream_target_id,
-        &upstream,
-        &credentials,
-        arguments.selection,
-    )
-    .await
+    // Select the credential lifecycle that matches the fixed target kind without opening unrelated sources.
+    let report = if target.kind() == ProviderKind::ChatGpt {
+        let oauth2_credentials = upstream_configuration
+            .load_oauth2_for(&registry, [target.credential_pool_id()])
+            .context("failed to bind the selected ChatGPT OAuth2 credential")?;
+        probe_upstream_target_with_oauth2(
+            &registry,
+            &arguments.upstream_target_id,
+            &upstream,
+            &oauth2_credentials,
+            arguments.selection,
+        )
+        .await
+    } else {
+        let credentials = upstream_configuration
+            .into_builder_for(&registry, [target.credential_pool_id()])
+            .context("failed to bind the selected upstream credential pool")?
+            .build();
+        credentials
+            .validate_registry(&registry)
+            .context("selected credential pool violates registry state-affinity constraints")?;
+        probe_upstream_target(
+            &registry,
+            &arguments.upstream_target_id,
+            &upstream,
+            &credentials,
+            arguments.selection,
+        )
+        .await
+    }
     .context("probe could not be prepared")?;
 
     println!(
@@ -142,7 +157,7 @@ fn print_usage() {
     println!(
         "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
          \n\
-         No probe selector runs --all. Only enabled targets with configured API-key credentials can be probed. The command prints a redacted report and never modifies the code registry or credential files."
+         No probe selector runs --all. Enabled targets use configured API-key credentials; ChatGPT targets use the selected OAuth2 auth bundle. The command prints a redacted report and never modifies the code registry."
     );
 }
 

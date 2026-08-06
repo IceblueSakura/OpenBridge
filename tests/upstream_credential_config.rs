@@ -302,10 +302,9 @@ fn upstream_toml_loads_one_chatgpt_auth_file_into_a_guarded_oauth2_manager() {
     ))
     .unwrap();
 
-    // Bind the OAuth source into its dedicated manager without populating the API-key store.
-    let mut builder = CredentialStoreBuilder::new();
+    // Bind only the selected OAuth source into its dedicated manager without populating the API-key store.
     let manager = configuration
-        .load_into_for(&mut builder, &registry, ["chatgpt-codex"])
+        .load_oauth2_for(&registry, ["chatgpt-codex"])
         .unwrap();
     let credential = manager
         .credential_for_provider(ProviderKind::ChatGpt)

@@ -28,7 +28,8 @@ refresh，以及 Spark 和 GPT-5.6 Luna/Terra/Sol 四个固定 Responses-native 
   [`src/ingress/forwarding.rs`](../../../src/ingress/forwarding.rs)。
 - 当前只公开 streaming Responses 最小文本面；Chat Completions、WebSocket、Batch、Embeddings、function/hosted tool、MCP、多模态、
   structured output、background、stateful response 和完整 Agent loop 都未开放。
-- 当前只有一个账户绑定 OAuth pool，不进行账户轮换、跨 Provider fallback 或通用 probe 借用；`429` 只进入 target cooldown。
+- 当前只有一个账户绑定 OAuth pool，不进行账户轮换或跨 Provider fallback；服务请求和显式 ChatGPT Models probe 都只借用该账户的短生命周期
+  lease，`429` 只进入 target cooldown。
 - 当前不提供运行中换账户。换账户需要停止服务，手动删除 private upstream binding 指向的 OpenBridge-owned `auth_json_file` 及同一登录
   流程明确创建的其他 OpenBridge-owned 授权文件（如有），再显式登录并重启；本机 Codex auth cache 始终不在操作范围内。
 - 真实调用只证明当前账户、当前网络、当前 backend 与本次 payload；不构成其他账户、entitlement、SDK、工具、负载、长稳或生产兼容承诺。

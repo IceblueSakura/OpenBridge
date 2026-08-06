@@ -20,6 +20,12 @@ pub enum ProbeError {
         /// Disabled internal target ID.
         upstream_target: String,
     },
+    /// The OAuth2 probe entry point was used with a non-ChatGPT target.
+    #[error("OAuth2 probe is not supported for configured upstream target '{upstream_target}'")]
+    OAuth2UnsupportedTarget {
+        /// Target ID that is outside the ChatGPT OAuth2 probe boundary.
+        upstream_target: String,
+    },
     /// The trusted credential source cannot provide the required secret.
     #[error("upstream credentials are unavailable for probe")]
     CredentialUnavailable,

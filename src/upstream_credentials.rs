@@ -176,6 +176,45 @@ impl UpstreamCredentialConfiguration {
         Ok(builder)
     }
 
+    /// Loads only the caller-requested OAuth2 pools into a guarded credential manager.
+    ///
+    /// The complete TOML binding set is validated first, but unselected OAuth2 auth files are not
+    /// opened. This keeps an explicit probe scoped to the selected Provider and preserves the
+    /// API-key loader's no-OAuth-file boundary.
+    pub fn load_oauth2_for<'a>(
+        mut self,
+        registry: &RuntimeRegistry,
+        required_pool_ids: impl IntoIterator<Item = &'a str>,
+    ) -> Result<OAuth2CredentialManager, UpstreamCredentialConfigError> {
+        // Validate every configured binding before opening the selected OAuth2 auth file.
+        let required = self.validate_for(registry, required_pool_ids)?;
+
+        // Load only explicitly selected OAuth2 sources through the guarded lifecycle builder.
+        let mut builder = OAuth2CredentialManagerBuilder::new();
+        for pool_id in required {
+            let pool = registry.credential_pool(&pool_id).ok_or_else(|| {
+                UpstreamCredentialConfigError::UnknownPool {
+                    id: pool_id.clone(),
+                }
+            })?;
+            if pool.kind() != CredentialKind::OAuth2BearerAccessToken {
+                return Err(UpstreamCredentialConfigError::ApiKeyStoreRequired { id: pool_id });
+            }
+            let source = self.pools.remove(&pool_id).ok_or_else(|| {
+                UpstreamCredentialConfigError::MissingPool {
+                    id: pool_id.clone(),
+                }
+            })?;
+            let ConfiguredCredentialSource::OAuth2AuthJsonFile(path) = source else {
+                return Err(UpstreamCredentialConfigError::ApiKeyStoreRequired { id: pool_id });
+            };
+            builder
+                .load_auth_json_file(pool.provider(), pool.id(), path)
+                .map_err(UpstreamCredentialConfigError::OAuth2Credential)?;
+        }
+        Ok(builder.build())
+    }
+
     /// Validates and freezes API-key and OAuth2 sources against the compile-time registry.
     pub fn load_into_for<'a>(
         self,

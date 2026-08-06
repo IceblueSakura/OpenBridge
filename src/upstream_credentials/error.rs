@@ -77,6 +77,12 @@ pub enum UpstreamCredentialConfigError {
         /// OAuth2 binding ID that cannot enter the API-key-only builder.
         id: String,
     },
+    /// An OAuth2-only loader was asked to load an API-key binding.
+    #[error("upstream credential pool '{id}' requires API-key store loading")]
+    ApiKeyStoreRequired {
+        /// API-key binding ID that cannot enter the OAuth2 manager.
+        id: String,
+    },
     /// More than one auth file is bound to the same OAuth2 Provider.
     #[error("OAuth2 Provider {provider:?} is configured more than once")]
     DuplicateOAuth2Provider {
