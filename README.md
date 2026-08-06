@@ -8,6 +8,9 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 
 当前处于 **设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback
 等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
+项目尚未发布任何版本，也没有需要维持的外部兼容基线；当前焦点内可以直接替换原型 API、配置、模块和 fixture，以符合 Rust、Axum、
+OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试性最佳实践，不为未发布形态保留 alias、双读写、兼容垫片或无意义版本迁移。
+破坏性修改仍必须受当前功能需求、单一焦点、先失败测试和完整契约同步约束。
 
 核心方向：
 
@@ -18,7 +21,7 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
 6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
 7. 以 bootstrap-only 配置管理进程资源策略，以私有 TOML 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB
-   和终态错误率统计。
+   和终态错误率统计；显式启用时通过 loopback OTLP/HTTP 把 traces、原始 metrics 和安全 logs 交给外部系统分析。
 
 现阶段已批准的扩展目标只包括：
 
@@ -26,17 +29,20 @@ OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
 - ChatGPT subscription OAuth：保留默认禁用的独立 Provider，使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录与到期驱动
   token 续约；不导入本机 Codex 状态，数据面接入仍须另立焦点。
+- 默认禁用的 loopback OTLP/HTTP observability exporter；当前焦点只建立 trace 导出闭环，metrics、logs 和现有自有累计的缩减
+  继续串行实施。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh 已完成；ChatGPT 数据面接入和
-Native 多模态不能并行展开。当前代码事实以[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos
-与 Realtime 只保留协议参考，不在现阶段实施范围。
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh 已完成；当前只实施 OTLP
+trace 闭环，ChatGPT 数据面接入和 Native 多模态不能并行展开。当前代码事实以
+[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
+不在现阶段实施范围。
 
 核心稳定后再考虑：
 
 - Provider-hosted tool facade；
 - Anthropic Messages 协议兼容与异构 Provider 验证（与 Provider-hosted tool facade 同级）；
 - 本地/MCP Tool Bridge；
-- headless 的健康、日志与诊断；
+- 更完整的 headless 健康与诊断控制面；
 - 更多路由策略。
 
 ## 当前可运行基线
@@ -188,7 +194,8 @@ HTTP/transport 结果，终态 event 记录 HTTP status、response-ready、首 b
 保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，可通过
 `GatewayMetrics::snapshot`、`GatewayMetrics::provider_snapshots` 以及受 Bearer 保护的
 `/openbridge/v1/metrics`、`/openbridge/v1/metrics/providers` 读取；详细口径见
-[`遥测指标`](docs/implementation-status/telemetry-metrics.md)。OpenTelemetry/Prometheus exporter、 持久化和分布式聚合尚未实现。
+[`遥测指标`](docs/implementation-status/telemetry-metrics.md)。OpenTelemetry exporter 已进入当前 trace 实施焦点但尚未实现；
+Prometheus exporter、持久化和分布式聚合仍不属于当前实现。
 
 ## 验证基线
 

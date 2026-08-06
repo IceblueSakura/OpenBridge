@@ -26,7 +26,7 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 | `GET /healthz`                                                   | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。                                     | Provider 健康探测、控制面或客户端管理。                                                      |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 按[模型能力契约](model-information-and-capability-contract.md)返回严格的 OpenAI 标准四字段 list/retrieve。            | 扩展能力、上游模型或部署信息。                                                               |
 | `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses/Embeddings 固定能力契约。                                       | Provider/target/route、credential、健康、价格或动态发现。                                    |
-| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 允许有效下游 Bearer 用户读取本次进程运行期间已记录的进程级和 Provider attempt 指标快照；读取本身不得改变该快照。 | 指标持久化、历史查询、重置、Prometheus/OpenTelemetry exporter 或动态路由控制。                 |
+| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 允许有效下游 Bearer 用户读取本次进程运行期间已记录的进程级和 Provider attempt 指标快照；读取本身不得改变该快照。 | 指标持久化、历史查询、重置或动态路由控制；OTLP 是独立出站通道，不由本响应承载。                |
 | `POST /v1/chat/completions`                                      | 支持已声明能力范围内的 Chat JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。      | 多模态 Bridge、audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。               |
 | `POST /v1/responses`                                             | 支持已声明能力范围内的 Responses JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。 | 多模态 Bridge、Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 | `POST /v1/embeddings`                                            | 支持独立 Embedding Public Model 的 OpenAI-compatible JSON 请求/响应。                                                 | streaming、向量转换/存储/检索，或无等价证明的跨模型 fallback。                               |
@@ -146,7 +146,42 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 
 所有错误类别必须稳定、低基数且可用于调用统计；原始上游错误正文只能在受保护诊断中按脱敏规则处理，不能成为对外契约。
 
-## 7. 功能验收要求
+## 7. 运行期观测与 OpenTelemetry 导出
+
+OpenTelemetry 是可选的 headless 出站观测通道，不是新的下游管理 API。OpenBridge 只负责在协议生命周期边界产生无法从外部重建的
+原始事实；collector/backend 负责持久化、窗口查询、分位数、错误率、输出速度、缓存 token 比例、Provider + Public Model 比较和
+可视化。缺失的 Provider usage、cache 或非流式 upstream TTFT 必须保持“未观测”，不得补零或由 gateway body 到达时间伪造。
+
+### 7.1 Signal 所有权
+
+- **Traces**：每个已认证业务请求形成一个 `downstream_request` root span；每个实际出站的 Provider attempt 形成一个有序 child
+  span。span 只记录稳定 operation、Public Model、编译期 Provider/Target/Route、Native/Bridged、streaming、低基数 outcome、
+  已直接观测的 timing 与 Provider 明确返回的 usage。retry、fallback、取消和 terminal 必须保持实际因果关系且每个 span 只结束一次。
+- **Metrics**：只提交用于外部计算的原始 counter/histogram，包括 request/attempt outcome、TTFT、response-ready、duration、
+  generation duration、input/output/cache token。metric attributes 只允许有界的 Provider、Public Model、typed operation、Route mode、
+  streaming 和 outcome；request id、trace id、user、HTTP status 原值、错误文本或 endpoint URL 不得成为 metric attribute。OpenBridge
+  不再为 OTLP 另算平均值、tokens/s、cache ratio、error rate 或 Provider 排名。
+- **Logs**：导出启动、关闭、exporter 状态和需要人工诊断的安全结构化事件，并通过 trace/span id 关联业务 trace。不得为每个 SSE
+  chunk/delta 产生日志，也不得把已经由 attempt/request span terminal 完整表达的事实再复制为一组高频业务日志。
+
+OpenBridge 不执行下游 Agent 的工具，不能从 tool arguments、tool result 文本或下一轮 prompt 猜测工具是否执行成功；实际 tool error
+rate 只有在未来存在显式、低基数且不携带业务内容的客户端 outcome 契约时才可统计。本次迁移只保留已有的协议级 tool 生命周期事实，
+不为获取工具错误率增加正文解析或日志采集。
+
+### 7.2 配置、安全与运行时边界
+
+- exporter 默认禁用，只能由 bootstrap 显式启用并指向 loopback OTLP/HTTP collector；业务请求不能选择 endpoint、protocol、
+  header、resource attribute 或采样策略。无效或非 loopback 配置必须在 listener 与 exporter egress 前失败。
+- 所有 signals 使用固定 `service.name = "openbridge"` 和本次进程资源身份。traces 可携带 request id 以供关联；任何 signal 都不得包含
+  Authorization、credential、用户身份、请求/响应正文、tool arguments/result、reasoning 正文、原始上游错误正文、query 或真实
+  endpoint URL。
+- request hot path 只写入内存中的有界 signal primitive；网络 export 必须批处理并与请求异步隔离。队列满、collector 不可达或 export
+  timeout 只能丢弃观测并产生有界、限频的本地诊断，不能改变下游状态、重试、fallback、取消或 Provider 结果。关闭时 flush 也必须有界。
+- 当前受 Bearer 保护的 metrics HTTP 快照在迁移期间保持响应结构和无副作用语义。只有在外部 OTLP metrics 已证明覆盖现有可直接
+  获取的事实、并另立兼容性焦点后，才能缩减进程内累计或改变/移除 endpoint。
+- OpenBridge 不内置 collector、SQLite、历史数据库、dashboard、Prometheus endpoint 或分布式聚合；这些属于外部部署和分析程序。
+
+## 8. 功能验收要求
 
 | ID     | 应被保护的用户可观察行为                                                                                                                                                           |
 |--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -163,8 +198,15 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
 | API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 `gateway_ttft_ms`，不得据此伪造 `upstream_ttft_ms`、生成时长或输出速度；响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
+| OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only loopback OTLP/HTTP 配置能启用相应 signal，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。                 |
+| OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
+| OBS-03 | OTLP metrics 只提交直接观测的原始 counter/histogram 和有界维度；TTFT 分位数、tokens/s、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |
+| OBS-04 | OTLP logs 只导出安全、限频且可通过 trace/span id 关联的运行诊断；不记录逐 chunk/delta，也不复制完整 request/attempt terminal 形成冗余高频日志。                              |
+| OBS-05 | export 使用有界异步队列和有界关闭；collector 故障、超时或背压不阻塞请求、不改变 HTTP/SSE/Provider 行为，只允许丢弃 telemetry 并产生限频本地诊断。                          |
+| OBS-06 | 所有 signals 都不包含 credential、Authorization、用户身份、业务正文、tool/reasoning 内容、原始错误正文、query 或真实 endpoint URL；metric attributes 不含高基数身份。       |
+| OBS-07 | metrics HTTP 快照在当前 trace 焦点中保持现有结构和语义；后续 OTLP metrics 焦点证明事实覆盖后，可直接缩减自有累计或改变/移除 endpoint，无需为未发布原型保留弃用窗口或兼容垫片。 |
 
-## 8. 非目标
+## 9. 非目标
 
 - GUI、Web 控制台、客户端安装/注册/配置管理；
 - Realtime、Responses WebSocket、Files、Images、Videos、Conversations、管理 API 或“实现全部 OpenAI API”；

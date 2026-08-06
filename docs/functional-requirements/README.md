@@ -5,13 +5,13 @@
 | 功能域                      | 当前需要回答的问题                                                          | 文档                                                                        |
 |-----------------------------|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------|
 | 产品范围                    | 服务为谁解决什么问题，哪些能力不做                                          | [产品范围](product-scope.md)                                                |
-| 网关 API 与兼容             | 客户端可调用什么、JSON/SSE/tool/continuation 如何表现                       | [网关 API 与客户端兼容](gateway-api-compatibility.md)                       |
+| 网关 API、兼容与观测        | 客户端可调用什么、JSON/SSE/tool/continuation 如何表现、运行观测如何安全导出 | [网关 API 与客户端兼容](gateway-api-compatibility.md)                       |
 | Embeddings 与 Native 多模态 | 现阶段两个扩展目标的输入、能力、资源与失败边界                              | [Embeddings 与 Native 多模态扩展](embedding-and-native-multimodal.md)       |
 | 模型与能力契约              | Public Model 如何公开、聚合能力、预检请求且不参与 Route 选择                | [Public Model 与模型能力契约](model-information-and-capability-contract.md) |
 | 配置与凭证                  | 配置文件、private secret、API-key pool、header、网络和 reload 如何受信管理  | [配置、凭证与受信运行边界](configuration-and-credentials.md)                |
 | ChatGPT subscription OAuth  | 独立 Provider、owned credential、PKCE、refresh 与数据面安全边界             | [ChatGPT subscription OAuth](upstream-oauth-credential-lifecycle.md)         |
 | 路由与可用性                | 已接受请求如何按固定 Route 顺序执行有限 retry/fallback、cooldown 和状态亲和 | [路由与 Provider 韧性](provider-resilience.md)                              |
-| 交付与证据                  | 如何以 TDD、fixture、SDK/独立客户端和真实环境证据约束兼容声明               | [交付与证据要求](delivery-and-evidence.md)                                  |
+| 交付与证据                  | 如何以 TDD 和分层证据约束声明，并管理预发布破坏性变更                       | [交付与证据要求](delivery-and-evidence.md)                                  |
 
 例外保留一份不属于当前产品承诺的[待定 Model/Provider 配置方案](model-catalog-configuration.md)。该方案暂不实施，
 其中的候选字段和验收项不得作为当前功能需求或开发入口。

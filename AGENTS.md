@@ -61,6 +61,16 @@ the maintenance rules in `docs/README.md`.
 
 ## Development Workflow
 
+- OpenBridge has no published release or supported external compatibility baseline. Within the one approved current
+  focus, prototype modules, public crate APIs, bootstrap fields, downstream extension contracts, fixtures, and tests may
+  be deleted, replaced, or reorganized when that produces a more coherent, idiomatic, and testable design. Do not keep
+  legacy aliases, dual read/write paths, compatibility shims, deprecation windows, or meaningless schema-version bumps
+  solely to preserve an unpublished prototype.
+- Pre-release freedom does not broaden the active focus or weaken security and evidence boundaries. A breaking change
+  must still begin with the intended observable contract and failing test, update every affected source of truth
+  (implementation, parser/serialization, OpenAPI, examples, fixtures, docs, and tests) atomically, and leave private
+  configuration or user data untouched. Prefer established Rust/framework lifecycle, ownership, error, cancellation,
+  bounded-resource, and dependency practices over preserving the current module shape.
 - Treat read-only review, diagnosis, and planning requests as read-only. Do not turn them into implementation,
   documentation mutation, or commits without explicit authorization.
 - Before an approved behavior change, follow `docs/implementation-plans/README.md`: define one observable behavior, its

@@ -12,7 +12,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 
 | 来源                                        | 内容                                                                                                                            | 能否包含 secret                    |
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
-| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数                   | 否                                 |
+| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、默认禁用的 loopback OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator                                        | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
@@ -27,6 +27,10 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
+
+OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地址必须是 bootstrap 中的 loopback OTLP/HTTP 地址，不接受 secret、
+自定义认证 header 或业务请求覆盖。无效 scheme、非 loopback 地址或不支持的字段必须在 listener 与 exporter egress 前阻止启动；
+exporter 不得成为 Provider、Route、credential 或动态控制配置入口。
 
 ## 2. 代码注册表要求
 
@@ -178,7 +182,7 @@ read bootstrap.toml
 | CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 只能由受信 Provider 代码声明或转换，固定 UA/header 在 hook 后应用，业务请求不能选择规则或覆盖固定值。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。                                                                                        |
 | CFG-05 | 每个 Provider family 由独立、闭合的 definition owner 管理，并经单一显式 composition root 注册；不存在自动注册。                                             |
-| CFG-06 | bootstrap 只控制进程资源策略，不能注册或修改 Provider。                                                                                                        |
+| CFG-06 | bootstrap 只控制 listener、文件位置、资源上限、HTTP client 与默认禁用的 loopback telemetry 导出等进程资源策略，不能注册或修改 Provider。                         |
 | CFG-07 | listener 只允许 loopback；非 loopback 地址必须在监听前拒绝。                                                                                                   |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。                                                                                          |
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。                                                                 |
