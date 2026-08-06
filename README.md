@@ -45,6 +45,156 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 - 更完整的 headless 健康与诊断控制面；
 - 更多路由策略。
 
+## 简明使用手册
+
+下面的流程适用于当前 checkout 的本地单所有者部署。OpenBridge 默认只监听 loopback，Provider、模型、Route 和 credential pool
+都由代码注册；运行时 TOML 只能绑定已注册的 pool，不能新增 Provider 或上游 URL。
+
+### 1. 构建并准备私有配置
+
+需要 Rust 2024 edition 工具链。先在仓库根目录执行：
+
+```bash
+cargo build --locked
+cp config/users.example.toml config/users.toml
+cp config/upstream-credentials.example.toml config/upstream-credentials.toml
+```
+
+PowerShell 等价命令：
+
+```powershell
+cargo build --locked
+Copy-Item config/users.example.toml config/users.toml
+Copy-Item config/upstream-credentials.example.toml config/upstream-credentials.toml
+```
+
+然后编辑两个私有文件：
+
+- `config/users.toml`：为本地下游客户端设置至少 32 个随机字节的 Bearer API key；
+- `config/upstream-credentials.toml`：在对应的 `api_keys` 中填写 OpenAI、LongCat、OpenRouter、DeepSeek 或 MiMo key；
+- ChatGPT 使用 `chatgpt-codex` pool 的 `auth_json_file`，不要把 OAuth access token 直接写入 `api_keys`；
+- 省略某个 pool、没有 source，或使用空的 `api_keys = []`，都会使引用该 pool 的 target 在本次启动中禁用。
+
+私有配置已被 Git 忽略，不要提交真实 key、token 或 auth 文件。默认使用 `config/bootstrap.toml`；如需指定其他 bootstrap，先设置
+`OPENBRIDGE_CONFIG`，例如：
+
+```powershell
+$env:OPENBRIDGE_CONFIG = "config/bootstrap.toml"
+```
+
+OpenBridge 不从环境变量或 `.env` 读取上游 API key，也不会搜索或导入本机 Codex auth cache。
+
+### 2. 配置并登录 ChatGPT（可选）
+
+如果启用 ChatGPT target，先确认 `upstream-credentials.toml` 中已配置 `chatgpt-codex.auth_json_file`，再运行固定的登录命令：
+
+```bash
+cargo run --locked --bin openbridge-auth -- login chatgpt
+```
+
+按终端提示打开 verification URI 并输入一次性 device code。登录完成后，OpenBridge 会把完整 bundle 写入配置指定的
+OpenBridge-owned auth 文件；不要复制本机 Codex 的 auth 文件。该命令不接受自定义 issuer、endpoint、header 或 auth-file 参数。
+
+### 3. 启动服务并检查状态
+
+```bash
+cargo run --locked --bin openbridge
+```
+
+默认地址为 `http://127.0.0.1:8080`。另一个终端执行健康检查：
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+```
+
+服务启动时一次性读取 bootstrap、用户和上游 credential 配置；修改这些文件后需要重启服务。按 `Ctrl+C` 可优雅停止服务。
+
+### 4. 查看模型并发送请求
+
+下游请求必须携带 `users.toml` 中配置的本地 Bearer API key。标准模型列表和扩展模型信息分别为：
+
+```bash
+curl http://127.0.0.1:8080/v1/models \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/models \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+```
+
+Chat Completions 示例：
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}'
+```
+
+ChatGPT Public Model 是 Responses-only，并使用 SSE：
+
+```bash
+curl -N http://127.0.0.1:8080/v1/responses \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}'
+```
+
+Embeddings 使用固定 Public Model 和公开参数：
+
+```bash
+curl http://127.0.0.1:8080/v1/embeddings \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"text-embedding-3-small","input":["alpha","beta"],"encoding_format":"float"}'
+```
+
+### 5. 直接探测上游 Models 端点
+
+`openbridge-probe` 不经过本地网关，而是使用代码注册的固定 target、endpoint、adapter 和 credential pool 直接请求上游：
+
+```bash
+cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
+cargo run --locked --bin openbridge-probe -- --target longcat-2 --list-models
+cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list-models
+```
+
+当前已注册的模型 target 包括：
+
+```text
+openai-main
+openai-text-embedding-3-small
+longcat-2
+openrouter-deepseek-v4-flash
+deepseek-v4-pro
+deepseek-v4-flash
+mimo-v2-5-pro
+mimo-v2-5
+chatgpt-gpt-5-3-codex-spark
+chatgpt-gpt-5-6-luna
+chatgpt-gpt-5-6-terra
+chatgpt-gpt-5-6-sol
+```
+
+ChatGPT Models probe 会从选定的 `auth_json_file` 借用 OAuth2 manager lease；其他 target 使用选定 API-key pool 的首个 member。
+`--all` 表示对**一个 target**运行所有已实现的 probe 类型，并不表示遍历所有模型。要探测所有模型列表，应逐个执行上面的
+`--list-models` 命令；ChatGPT 当前建议只使用 `--list-models`，其 Responses-native streaming 不是通用非流式 probe 的验证范围。
+
+认证失败、限流、网络错误或无效响应会以保守的 `unknown` 记录；一次成功只证明当前账号、网络、上游状态和固定请求的观察结果。
+
+### 6. 开发者验证
+
+修改 Rust 代码后运行默认检查：
+
+```bash
+cargo fmt -- --check
+cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
+```
+
+只有修改 `testdata/` 或 `tools/corpus/` 时，才需要额外运行 Python corpus 基线。真实 Provider、SDK、负载和长期运行测试不属于默认
+验证范围，应单独记录执行环境和结果。
+
 ## 当前可运行基线
 
 当前 checkout 已实现 OpenAI `gpt-5.6-sol`、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发， OpenRouter 的
