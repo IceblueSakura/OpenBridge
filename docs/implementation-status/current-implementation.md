@@ -360,6 +360,22 @@ array、token array 与 token-array array 一次性判别为闭合 union。analy
   `cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。该证据仍只覆盖 fake transport 的进程内 采集边界，不证明真实
   Provider 性能、cache 语义、外部 SDK、负载或长期运行结果。
 
+### 2026-08-06 非流式 generation 的可观测下游首输出
+
+- 修复前真实 `mimo-v2.5` 非流式 Chat/Responses 都返回 HTTP 200、完整 JSON usage 与正常终态，Provider snapshot 也记录
+  response-ready、首 body byte 和 duration，但两个 `gateway_ttft_ms.count` 都为 0。
+- 成功的非流式 Chat/Responses 现在只在第一个非空下游 JSON body chunk 命中一次 gateway TTFT 原子门控；Models、Embeddings、
+  HTTP 非成功、已明确 `failed`/`incomplete` 的 JSON terminal 与空 body 不产生该样本。SSE 仍以首个 token-bearing
+  text/tool/reasoning delta 为边界。
+- 非流式 upstream wire 不暴露实际首 token 时刻，因此 `upstream_ttft_ms`、`generation_duration_ms` 与 `output_speed` 继续保持
+  0 样本；没有用 response-ready、总时长或 token 总量估算这些指标。
+- 最终代码的真实 MiMo 非流式 Chat/Responses 分别在客户端 2,147 ms 与 967 ms 完成，Provider `gateway_ttft_ms` 分别记录
+  2,098 ms 与 962 ms；两者均为 1 completed、1 usage observation，upstream TTFT、generation duration 与 output speed 均为
+  0 样本。gateway 汇总为 2 started、2 completed、0 error，连续读取 metrics 前后相同，响应不含下游 token。
+- 聚焦失败测试先证明旧代码的 gateway TTFT count 为 0，最小实现后通过；完整 `cargo test --locked` 为 260 passed、2 ignored，
+  `cargo clippy --locked -- -D warnings`、变更文件 rustfmt 与 `git diff --check` 通过。仓库级 fmt check 仍只被未修改的
+  `src/transport/mod.rs` 排序噪声阻塞；未运行外部 SDK、负载或长期运行验收。
+
 ### 2026-08-06 reasoning stream 性能指标与无副作用读取
 
 - 修复前真实 `mimo-v2.5` Chat streaming 成功返回 64 output tokens，但 `reasoning_content` 没有产生 TTFT/output speed；

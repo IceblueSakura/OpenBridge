@@ -346,8 +346,9 @@ RoutePlan 允许时可进入同一 Public Model 的下一完整候选；Embeddin
 Ingress 在 response 建立前用 lifecycle guard 捕获 pending send/backoff 取消，建立后把责任移交给外层
 `RequestBodyObserver`；后者直接保留 HTTP data/trailer frame，仅在自身提交真实 EOF 或 body error 后报告 end-stream，并在真实
 EOF、body error 或 drop 时提交唯一请求终态。response headers ready、首 body 字节与 SSE 首个 text/tool/reasoning 增量分别计时，避免把
-headers ready 误当成 TTFT。text/tool/reasoning 首输出使用一次性原子门控，下游 SSE 只解析到首个生成 delta；JSON 与 SSE usage
-由原始 upstream observer 解析，Embeddings usage 只在成功体通过 endpoint validator 后提交，不再为下游 JSON 重复分配 usage
+headers ready 误当成 streaming TTFT。成功的非流式 Chat/Responses 以第一个非空下游 JSON body chunk 作为可直接观测的 gateway
+响应时刻，但不据此生成 upstream TTFT、generation duration 或 output speed。首输出使用一次性原子门控，下游 SSE 只解析到首个生成
+delta；JSON 与 SSE usage 由原始 upstream observer 解析，Embeddings usage 只在成功体通过 endpoint validator 后提交，不再为下游 JSON 重复分配 usage
 cache。业务正文不会写入 tracing 或进程内累计值。Provider attempt 的 operation/route/target/Provider 等受信编译期维度进入独立快照，request/user/
 credential/endpoint URL 仍不进入指标 key；`GatewayMetrics` 继续只维护进程级低基数单调计数。
 

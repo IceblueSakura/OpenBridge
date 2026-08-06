@@ -693,7 +693,12 @@ components:
         upstream_ttft_ms:
           $ref: '#/components/schemas/TimingSnapshot'
         gateway_ttft_ms:
-          $ref: '#/components/schemas/TimingSnapshot'
+          description: |
+            Time until the first downstream token-bearing SSE delta, or for a successful
+            non-streaming Chat/Responses request, the first non-empty JSON body chunk. A
+            non-streaming sample is response availability, not upstream token-generation TTFT.
+          allOf:
+            - $ref: '#/components/schemas/TimingSnapshot'
         duration_ms:
           $ref: '#/components/schemas/TimingSnapshot'
         generation_duration_ms:

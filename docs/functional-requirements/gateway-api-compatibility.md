@@ -162,7 +162,7 @@ Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
 | API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
-| API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
+| API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 `gateway_ttft_ms`，不得据此伪造 `upstream_ttft_ms`、生成时长或输出速度；响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
 
 ## 8. 非目标
 

@@ -1,4 +1,4 @@
-//! Bounded parsing of explicit upstream usage and first token-bearing downstream SSE output.
+//! Bounded parsing of explicit upstream usage and first observable downstream generation output.
 //!
 //! Parse failures indicate missing observation only; they do not change proxy bytes or response
 //! status. Caches and SSE events remain subject to existing limits.
@@ -34,21 +34,30 @@ impl TokenUsage {
 
 /// First-output parsing state for a downstream response body.
 pub(crate) enum FirstOutputCapture {
-    /// The current response carries no stream requiring downstream TTFT observation.
+    /// The current response does not expose a generation-output timing boundary.
     None,
+    /// Records the first non-empty successful JSON chunk for non-streaming generation responses.
+    Json,
     /// Incrementally parses downstream events only until the first generated delta.
     Sse { decoder: SseDecoder, invalid: bool },
 }
 
 impl FirstOutputCapture {
     /// Creates a bounded first-output parser from a successful response media type.
-    pub(crate) fn for_response(content_type: Option<&str>, max_sse_event_bytes: usize) -> Self {
-        // Select bounded SSE or no-observation behavior from the response media type.
+    pub(crate) fn for_response(
+        content_type: Option<&str>,
+        max_sse_event_bytes: usize,
+        observe_non_streaming_json: bool,
+    ) -> Self {
+        // Select bounded SSE, non-streaming JSON, or no-observation behavior from the response contract.
         match content_type {
             Some(value) if value.starts_with("text/event-stream") => Self::Sse {
                 decoder: SseDecoder::new(max_sse_event_bytes),
                 invalid: false,
             },
+            Some(value) if observe_non_streaming_json && value.starts_with("application/json") => {
+                Self::Json
+            }
             _ => Self::None,
         }
     }
@@ -58,6 +67,8 @@ impl FirstOutputCapture {
         // Decode only while TTFT is unknown and never modify or block current downstream bytes.
         match self {
             Self::None => {}
+            Self::Json if chunk.is_empty() || !observation.needs_first_output() => {}
+            Self::Json => observation.record_non_streaming_first_output(),
             Self::Sse { .. } if !observation.needs_first_output() => {}
             Self::Sse { decoder, invalid } => match decoder.push(chunk) {
                 Ok(events) => observe_first_output_events(observation, events),
@@ -70,7 +81,7 @@ impl FirstOutputCapture {
     pub(crate) fn finish(&mut self, observation: &RequestObservation) {
         // Flush only the final SSE event needed for a still-missing first-output observation.
         match self {
-            Self::None => {}
+            Self::None | Self::Json => {}
             Self::Sse { .. } if !observation.needs_first_output() => {}
             Self::Sse { decoder, invalid } if !*invalid => {
                 if let Ok(events) = decoder.finish() {

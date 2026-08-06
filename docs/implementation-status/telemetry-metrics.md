@@ -71,12 +71,14 @@ attempt 数，但不会把两个 Provider attempt 合并成一次请求。
 - `response_ready_ms`：从该 Provider attempt 开始到收到上游 response headers；
 - `upstream_first_byte_ms`：从 attempt 开始到第一个非空原始上游 body chunk；
 - `upstream_ttft_ms`：从 attempt 开始到原始 SSE 中第一个非空 text/tool/reasoning token delta；
-- `gateway_ttft_ms`：从下游请求开始到网关观察到第一个下游 text/tool/reasoning token delta；
+- `gateway_ttft_ms`：流式 Chat/Responses 从下游请求开始到第一个下游 text/tool/reasoning token delta；成功的非流式
+  Chat/Responses 则到第一个非空下游 JSON body chunk，即客户端首次得到完整响应 JSON 的可观测时刻；
 - `duration_ms`：原始 upstream body 生命周期；如果尚未观察到 EOF，则在 error/cancel 边界收口；
 - `generation_duration_ms`：`upstream_ttft_ms` 到原始 upstream body 完成之间的时间。
 
-非流式请求没有 `upstream_ttft_ms`。Embeddings 不产生上下游 TTFT 或 generation duration 样本。没有明确 output
-token，或生成时长为零时，不产生速度观测。
+非流式请求没有 `upstream_ttft_ms`、`generation_duration_ms` 或 `output_speed`：单个完整 JSON response 不暴露 Provider
+实际生成首 token 的时刻，不能用总响应时间伪造解码窗口。Embeddings 不产生上下游 TTFT 或 generation duration 样本。没有明确
+output token，或生成时长为零时，不产生速度观测。
 
 `output_speed` 使用定点整数表示：`milli_tokens_per_second = tokens_per_second × 1000`，避免在原子累计中使用浮点数。速度由
 Provider 明确返回的 output token 和 generation duration 计算，不能由 SSE chunk 数或字节数推算。reasoning delta 是生成窗口
@@ -107,8 +109,8 @@ body 不进入 tracing event、metrics label 或 snapshot。
 miss。`cache_hit_requests` 只在明确的 cache read token 大于零时增加。
 
 generation JSON usage capture 与 SSE event 分别使用 JSON response/event 上限；超限、缺失或无法解析时不估算 token 或 cache
-usage。Chat/Responses usage 只从原始 upstream observer 提交；下游 JSON 不再重复缓存和解析。下游 SSE 只在 TTFT 尚未知时解析
-完整 event，命中首个 token-bearing delta 后停止该观测热路径。Embeddings 成功体由 endpoint validator 在同一 JSON response
+usage。Chat/Responses usage 只从原始 upstream observer 提交；下游 JSON 不再重复缓存和解析。成功的非流式 Chat/Responses 只在首个
+非空 JSON chunk 触发一次 gateway TTFT 原子门控，原始 upstream observer 已明确分类为 `failed`/`incomplete` 的 terminal 不产生该样本；下游 SSE 只在 TTFT 尚未知时解析完整 event，命中首个 token-bearing delta 后停止该观测热路径。Embeddings 成功体由 endpoint validator 在同一 JSON response
 budget 内先完整验证，再记录明确 usage；非法成功体不提交下游。
 
 ## 读取方式
@@ -133,7 +135,8 @@ OpenTelemetry exporter、持久化或跨进程聚合。Provider attempt 还会�
 - Provider 可以成功返回 body，但网关桥接/下游消费随后失败；
 - Provider HTTP failure 可能触发 retry/fallback，最终请求仍可能成功；
 - 下游取消只有在原始 upstream body 尚未完成时才计入 Provider `attempts_cancelled`；
-- `gateway_ttft_ms` 包含路由、transport、bridge 和网关输出路径，不能直接当作 Provider 内部生成 TTFT。
+- `gateway_ttft_ms` 包含路由、transport、bridge 和网关输出路径；非流式样本还表示完整 JSON 首次可见，不能直接当作
+  Provider 内部生成 TTFT。
 
 首个 downstream body byte、每个 attempt 的 upstream body byte，以及 upstream/gateway TTFT 都使用一次性原子门控；后续
 chunk/delta 不再重复获取请求或 Provider 状态锁。原始 upstream SSE 仍须完整解析 terminal/usage，下游 SSE 在 TTFT 前须单独解析，
@@ -151,7 +154,7 @@ capability gate、state affinity、retry/fallback、cooldown 或首个下游输�
 
 当前确定性测试覆盖：
 
-- JSON usage、cached input token 与 Provider 维度快照；
+- JSON usage、cached input token、非流式 generation gateway TTFT 与 Provider 维度快照；
 - streaming upstream TTFT 与 gateway TTFT 的分离；
 - retry 后的 HTTP failure/完成 attempt 归类；
 - response body 取消、pending send 取消、SSE EOF-before-terminal 和 failed terminal。
@@ -174,7 +177,12 @@ TTFT 1,618 ms、64 output tokens、2,509 ms generation duration 和约 25.508 to
 747/748 ms、173 output tokens、6,250 ms generation duration 和约 27.680 tokens/s。该单次真实请求只证明本次 wire 与计算边界，
 不代表负载、长期分位数或 Provider SLA。
 
-最近一次验证：聚焦的 14 个 observability、6 个 ingress 和 20 个 Embeddings forwarding 测试通过；独立 target 目录中的
+同日的非流式修复复测使用 `stream:false` 调用同一 `mimo-v2.5`：Chat/Responses 均返回 HTTP 200 JSON，客户端总耗时分别为
+2,147 ms 与 967 ms，Provider gateway TTFT 分别为 2,098 ms 与 962 ms。两个 snapshot 的 upstream TTFT、generation duration
+和 output speed 都保持 0 样本，usage 与 token 正常累计；gateway 为 2 started、2 completed、0 error，连续读取无副作用。
+这些 gateway TTFT 只证明客户端首次获得完整 JSON 的时间，不证明 Provider 实际首 token 或解码速度。
+
+最近一次验证：包含非流式 gateway TTFT 与 Embeddings 空生成指标断言的 14 个 observability、6 个 ingress 测试通过；独立 target 目录中的
 `cargo test --locked` 共 260 个测试通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings` 通过，涉及文件的
 `rustfmt --check --edition 2024` 与 `git diff --check` 通过。仓库级 `cargo fmt -- --check` 仍只被未改动的
 `src/transport/mod.rs` module 声明顺序阻塞。未运行外部 SDK、负载或长期运行验收。

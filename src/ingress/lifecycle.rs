@@ -46,13 +46,17 @@ pub(super) fn observe_response_body(
     observation: RequestObservation,
     max_sse_event_bytes: usize,
 ) {
-    // Create a bounded first-output parser only for successful SSE responses.
+    // Select the directly observable first-output boundary for successful generation responses.
     let content_type = response
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok());
     let first_output = if response.status().is_success() {
-        FirstOutputCapture::for_response(content_type, max_sse_event_bytes)
+        FirstOutputCapture::for_response(
+            content_type,
+            max_sse_event_bytes,
+            observation.observes_non_streaming_generation_output(),
+        )
     } else {
         FirstOutputCapture::None
     };

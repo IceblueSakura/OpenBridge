@@ -279,7 +279,7 @@ impl RequestObservation {
         self.with_state(|state| state.first_body_byte_ms = Some(elapsed));
     }
 
-    /// Marks the first token-bearing text/tool/reasoning increment without treating metadata as TTFT.
+    /// Marks the first observable generation output without treating streaming metadata as TTFT.
     pub(super) fn record_first_output(&self) {
         // Claim the one-time downstream TTFT update before taking request and Provider locks.
         if self
@@ -296,9 +296,30 @@ impl RequestObservation {
         }
     }
 
-    /// Returns whether downstream still needs its first token-bearing output observation.
+    /// Marks a non-streaming JSON body unless its terminal was already classified as failed.
+    pub(super) fn record_non_streaming_first_output(&self) {
+        // Exclude an explicit failed or incomplete JSON terminal before claiming the one-shot sample.
+        if self.lock_state().failure_kind.is_some() {
+            return;
+        }
+
+        // Reuse the same downstream/provider one-shot boundary as token-bearing streams.
+        self.record_first_output();
+    }
+
+    /// Returns whether downstream still needs its first observable generation-output sample.
     pub(super) fn needs_first_output(&self) -> bool {
         !self.inner.first_output_recorded.load(Ordering::Relaxed)
+    }
+
+    /// Returns whether a successful non-streaming JSON body exposes the first downstream output boundary.
+    pub(crate) fn observes_non_streaming_generation_output(&self) -> bool {
+        let state = self.lock_state();
+        !state.streaming
+            && matches!(
+                state.operation,
+                Some(OperationKind::ChatCompletions | OperationKind::Responses)
+            )
     }
 
     /// Records a body/SSE failure; one request retains only its first failure category.

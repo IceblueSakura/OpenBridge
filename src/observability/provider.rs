@@ -158,7 +158,7 @@ pub struct ProviderMetricSnapshot {
     pub upstream_first_byte_ms: TimingSnapshot,
     /// Timing aggregate until the first upstream token-bearing text/tool/reasoning output.
     pub upstream_ttft_ms: TimingSnapshot,
-    /// Timing aggregate until downstream observes the first token-bearing output.
+    /// Timing aggregate until downstream observes the first streaming delta or non-streaming JSON body.
     pub gateway_ttft_ms: TimingSnapshot,
     /// Timing aggregate for the upstream body lifetime.
     pub duration_ms: TimingSnapshot,
@@ -398,7 +398,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// Records when downstream observes the first business output.
+    /// Records when downstream observes the first streaming delta or non-streaming JSON body.
     pub(super) fn record_gateway_ttft(&self, elapsed_ms: u64) {
         self.with_state(|state| {
             state.gateway_ttft_ms.get_or_insert(elapsed_ms);

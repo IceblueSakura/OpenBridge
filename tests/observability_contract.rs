@@ -631,7 +631,7 @@ async fn json_observation_uses_response_budget_not_downstream_request_limit() {
 }
 
 #[tokio::test]
-async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
+async fn non_streaming_provider_snapshot_records_only_observable_generation_latency() {
     let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
 
     let response = app
@@ -668,7 +668,10 @@ async fn provider_snapshot_records_dimensions_usage_and_cache_observation() {
     assert_eq!(snapshot.cache_hit_requests, 1);
     assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
     assert_eq!(snapshot.upstream_ttft_ms.count, 0);
+    assert_eq!(snapshot.gateway_ttft_ms.count, 1);
     assert_eq!(snapshot.duration_ms.count, 1);
+    assert_eq!(snapshot.generation_duration_ms.count, 0);
+    assert_eq!(snapshot.output_speed.count, 0);
 }
 
 #[tokio::test]
@@ -1011,6 +1014,9 @@ async fn failed_sse_terminal_is_not_counted_as_a_successful_request() {
     let snapshot = metrics.snapshot();
     assert_eq!(snapshot.requests_completed, 0);
     assert_eq!(snapshot.requests_failed, 1);
+    let provider = &metrics.provider_snapshots()[0];
+    assert_eq!(provider.attempts_stream_failed, 1);
+    assert_eq!(provider.gateway_ttft_ms.count, 0);
 }
 
 #[tokio::test]
@@ -1027,4 +1033,7 @@ async fn failed_json_terminal_is_not_counted_as_a_successful_request() {
     let snapshot = metrics.snapshot();
     assert_eq!(snapshot.requests_completed, 0);
     assert_eq!(snapshot.requests_failed, 1);
+    let provider = &metrics.provider_snapshots()[0];
+    assert_eq!(provider.attempts_stream_failed, 1);
+    assert_eq!(provider.gateway_ttft_ms.count, 0);
 }
