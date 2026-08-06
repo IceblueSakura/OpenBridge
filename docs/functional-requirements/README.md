@@ -17,8 +17,8 @@
 其中的候选字段和验收项不得作为当前功能需求或开发入口。
 
 [ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)已经实现独立 ChatGPT Provider、
-OpenBridge-owned OAuth2 启动快照、显式 PKCE 登录与到期驱动 refresh；本机 Codex state 导入已排除，数据面接入仍须另立焦点。
-多账号池、动态 credential 控制面和其他应用的 auth cache 仍不属于产品承诺。
+OpenBridge-owned OAuth2 bundle、显式 PKCE 登录、到期驱动 refresh，以及四个固定 Responses-native Public Model 的受控借用和有界
+`401` recovery；本机 Codex state 导入已排除。多账号池、动态 credential 控制面和其他应用的 auth cache 仍不属于产品承诺。
 
 功能需求中的“必须”“不得”“只允许”是验收约束，不代表当前实现已经满足；代码、测试、probe 或真实运行已经证明的内容只写入
 `../implementation-status/`。

@@ -28,6 +28,9 @@ use crate::{
 
 /// Compile-time Provider hook for transforming ordinary headers according to Provider rules.
 pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(), AdapterError>;
+/// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
+pub(crate) type RequestBodyHook =
+    fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
 
 #[derive(Clone, Copy)]
 /// Source used to identify OpenAI terminal event names in SSE events.
@@ -48,6 +51,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     embeddings_path: Option<&'static str>,
     model_list_path: &'static str,
     request_header_hook: RequestHeaderHook,
+    request_body_hook: RequestBodyHook,
     request_headers: ProviderRequestHeaders,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
 }
@@ -71,9 +75,19 @@ impl OpenAiCompatibleAdapter {
             embeddings_path,
             model_list_path,
             request_header_hook,
+            request_body_hook: preserve_request_body,
             request_headers: ProviderRequestHeaders::new(),
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
         }
+    }
+
+    /// Attaches the concrete Provider's bounded request-body transformation.
+    pub(crate) const fn with_request_body_hook(
+        mut self,
+        request_body_hook: RequestBodyHook,
+    ) -> Self {
+        self.request_body_hook = request_body_hook;
+        self
     }
 
     /// Attaches fixed non-sensitive request headers owned by the concrete Provider definition.
@@ -202,6 +216,14 @@ impl OpenAiCompatibleAdapter {
                 "model".to_owned(),
                 serde_json::Value::String(upstream_model.to_owned()),
             );
+
+        // Apply only the concrete Provider's compile-time request-shape narrowing.
+        (self.request_body_hook)(
+            request.protocol(),
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+        )?;
 
         // Apply only the selected Upstream API's explicit reasoning wire mapping.
         let reasoning_level_mapping = upstream_api.and_then(|upstream_api| {
@@ -332,6 +354,14 @@ impl OpenAiCompatibleAdapter {
         };
         StatusClassification::new(kind, retry_hint)
     }
+}
+
+/// Keeps ordinary OpenAI-compatible request bodies unchanged after model replacement.
+fn preserve_request_body(
+    _protocol: ApiProtocol,
+    _document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    Ok(())
 }
 
 /// Applies one canonical reasoning level mapping at the protocol-defined wire location.

@@ -83,11 +83,11 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
   Debug/输出都不得包含 secret；
 - 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整
   `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
-- 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 Key
-  缺失或为空时在监听前失败；
+- 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；服务所需的上游 API-key pool
+  缺失或为空时在监听前失败；显式配置但不存在的 OAuth2 `auth_json_file` 在启动时创建为空文件并保持待登录，不构造 credential snapshot；
 - 运行时不得重新读取 `users.toml` 或 `upstream-credentials.toml`；改变用户、API Key 或 locator 必须重启。OAuth2 manager 只可在
-  expiry-driven refresh transaction 中通过同主机 advisory lock guarded reload 自有 auth 文件，并将完整 rotation 原子写回后发布新
-  generation；普通请求仍不得读文件或触发交互式登录。当前不支持通用热更新或数据面 401 recovery；
+  expiry-driven refresh 或首个预提交 `401` recovery transaction 中通过同主机 advisory lock guarded reload 自有 auth 文件，并将完整
+  rotation 原子写回后发布新 generation；普通成功路径不读文件，任何请求都不得触发交互式登录。当前不支持通用热更新；
 - 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码可声明固定的非敏感
   `User-Agent` 与普通 header，也可通过 hook 按编译期规则增添、替换、转换或删除普通 header。固定 header 在 hook 后应用，业务请求
   不能覆盖；authentication header 最后从 purpose-bound credential 生成。共享层不维护普通 header allowlist，具体 Provider 的 header
@@ -114,14 +114,15 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
 
 ### 3.2 ChatGPT 本地状态隔离
 
-- ChatGPT target 使用独立 `OAuth2BearerAccessToken` pool，默认禁用且不加入 Route/Public Model；通用 probe 只允许选择已启用的 target；
+- 四个 ChatGPT target 使用同一个独立 `OAuth2BearerAccessToken` pool，并各自只加入一个 Responses-native Route/Public Model；
+  通用 probe 只允许选择已启用 target，但当前 API-key probe 不承担 OAuth manager 借用；
 - OpenBridge 不搜索 `$CODEX_HOME`、Codex auth cache 或其他本机 Agent 状态，不接受 probe 专用 Codex auth file 或 executable selector；
 - OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS、architecture 或 terminal 构造 Codex-compatible 请求身份，也不启动 Codex
   CLI 或 app-server；
-- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；该启动快照不因 target 默认禁用而变成隐式 probe
-  credential；
-- 显式登录、可刷新 bundle、持久化和 guarded reload/refresh 以
-  [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准；数据面借用与 401 recovery 必须另立焦点。
+- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；数据面只可通过 manager 的短生命周期 lease 借用当前
+  generation，不能把它变成隐式 probe credential；
+- 显式登录、可刷新 bundle、持久化、数据面借用和 guarded reload/refresh/401 recovery 以
+  [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准。
 
 ### 3.3 OpenBridge-owned OAuth2 auth 文件
 
@@ -133,10 +134,13 @@ OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地�
   cooldown 或负载均衡；
 - ChatGPT 文件使用当前兼容的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索、导入或回退到
   `$CODEX_HOME/auth.json`；
-- 文件在 listener 绑定前完成首次读取；之后只允许显式登录事务或 expiry-driven refresh transaction 在 advisory lock 内 guarded
-  reload 与原子替换。错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
+- 文件在 listener 绑定前完成首次读取；不存在时在 advisory lock 内以排他方式创建空的 OpenBridge-owned 文件并保持待登录，非空文件仍须通过
+  完整校验；之后只允许显式登录事务、expiry-driven refresh 或首个预提交 `401` recovery transaction 在 advisory lock 内 guarded reload，
+  rotation 只能原子替换。错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
 - `OAuth2CredentialManager` 对外只发布脱敏 snapshot，对内维护 guarded reload、single-flight、refresh、generation 与后台调度；
-  当前不向数据面提供 credential 借用或 401 recovery API。
+  数据面只能取得不暴露 locator/完整 bundle 的短生命周期 credential lease，并按同一账户/Provider 边界执行一次有界 `401` recovery。
+- 当前不提供运行中换账户 API 或热重载。换账户必须先停止服务，手动删除该 binding 的 OpenBridge-owned `auth_json_file` 及同一登录流程明确
+  创建的其他 OpenBridge-owned 授权文件（如有），再显式登录并重启；不得借此搜索、导入或删除本机 Codex auth cache。
 
 ## 4. Endpoint 与出站边界
 
@@ -189,7 +193,7 @@ read bootstrap.toml
 | CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool，或任一已启用 Upstream Target 引用的 API-key pool 缺失、为空或不能解析时，会在 listener 绑定前阻止服务启动。 |
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；启动拒绝空 pool、重复 member、Provider/kind 不匹配或缺失 secret。                                               |
 | CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。                                                                            |
-| CFG-13 | ChatGPT target 默认禁用且不进入 Route/Public Model；probe 不接受本机 Codex auth、environment、terminal 或 executable selector，OAuth credential 只从 OpenBridge-owned 配置加载。 |
+| CFG-13 | 四个 ChatGPT target 只进入固定 Responses-native Route/Public Model；请求和 probe 都不接受本机 Codex auth、environment、terminal 或 executable selector，OAuth credential 只从 OpenBridge-owned 配置加载并由 manager 受控借用。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |

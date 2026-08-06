@@ -1,33 +1,69 @@
-# 功能：ChatGPT OAuth2 启动凭证生命周期
+# 功能：ChatGPT OAuth2 生命周期与 Responses 数据面
 
 ## 状态
 
-**已完成（启动凭证范围）。** OpenBridge 已具备独立、默认禁用的 ChatGPT Provider OAuth2 bundle 加载、显式 device/PKCE 登录和到期驱动
-refresh；这不等于 ChatGPT 数据面已经接入。
+**已完成（当前受限范围）。** OpenBridge 已具备独立 ChatGPT Provider 的 OAuth2 bundle 加载、显式 device/PKCE 登录、到期驱动
+refresh，以及 Spark 和 GPT-5.6 Luna/Terra/Sol 四个固定 Responses-native Public Model 的真实数据面。
 
 ## 已完成内容
 
 - `openbridge-auth login chatgpt` 使用固定注册的 device interaction、authorization-code + PKCE 流程，完成 token bundle 校验后事务性写入
   OpenBridge-owned auth 文件。
-- 启动时校验 auth 文件的完整性、Provider/context 绑定、token 类型和过期信息，并将可用 bundle 放入独立
-  `OAuth2CredentialManager`。
+- 启动时为不存在的 OpenBridge-owned auth 文件创建空的待登录文件；对存在且非空文件校验完整性、Provider/context 绑定、token 类型和过期信息，
+  并将可用 bundle 放入独立 `OAuth2CredentialManager`。
 - 到期前 refresh 在进程内 gate 和文件锁内重新加载持久化文档；成功后校验新 bundle、原子写回并发布新的 credential generation。
-- ChatGPT Provider target 默认禁用，不加入任何 Route 或 Public Model；服务不会读取本机 Codex auth/cache、terminal identity 或隐式登录。
-- 登录、refresh、存储和诊断只输出无 secret 的阶段/状态信息；失败不把 token、authorization code 或完整响应正文写入日志。
+- `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.6-luna`、`chatgpt-gpt-5.6-terra` 与
+  `chatgpt-gpt-5.6-sol` 各自只编译一个 Responses Native Route，固定到同一受信 Codex backend 和共享 OAuth pool。
+- ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream: true`，把字符串 `input` 转为 user
+  message 数组、强制 `store: false`，并在 egress 前拒绝且不公开当前 backend 不接受的输出 token limit 参数。
+- 请求只从 manager 借用短生命周期、账户绑定的当前 generation。首个预提交 `401` 先 guarded reload，persisted generation 未变化时才
+  refresh，然后只重放一次；第二个 `401` 把仍被拒绝的 generation 标记为 `reauth_required`。
+- 服务不会读取本机 Codex auth/cache、terminal identity 或隐式登录；登录、refresh、存储、请求诊断和验收记录都不输出 token、账户、
+  locator 或业务响应正文。
 
 ## 实现边界
 
-- 登录与 manager 位于 [`src/oauth2_credentials/`](../../../src/oauth2_credentials/)，ChatGPT 注册位于
-  [`src/providers/chatgpt/`](../../../src/providers/chatgpt/)。
-- 当前范围不包括 ChatGPT 数据面 credential 借用、Route/Public Model、真实请求、401 recovery、多账号 pool 或账号级负载均衡。
-- 确定性测试替换 OAuth transport 和 sleep；它们不证明真实 ChatGPT authority、浏览器交互或长期 refresh 成功率。
+- 登录与 manager 位于 [`src/oauth2_credentials/`](../../../src/oauth2_credentials/)，ChatGPT 注册与 wire 规则位于
+  [`src/providers/chatgpt/`](../../../src/providers/chatgpt/)，请求级恢复位于
+  [`src/ingress/forwarding.rs`](../../../src/ingress/forwarding.rs)。
+- 当前只公开 streaming Responses 最小文本面；Chat Completions、WebSocket、Batch、Embeddings、function/hosted tool、MCP、多模态、
+  structured output、background、stateful response 和完整 Agent loop 都未开放。
+- 当前只有一个账户绑定 OAuth pool，不进行账户轮换、跨 Provider fallback 或通用 probe 借用；`429` 只进入 target cooldown。
+- 当前不提供运行中换账户。换账户需要停止服务，手动删除 private upstream binding 指向的 OpenBridge-owned `auth_json_file` 及同一登录
+  流程明确创建的其他 OpenBridge-owned 授权文件（如有），再显式登录并重启；本机 Codex auth cache 始终不在操作范围内。
+- 真实调用只证明当前账户、当前网络、当前 backend 与本次 payload；不构成其他账户、entitlement、SDK、工具、负载、长稳或生产兼容承诺。
 
 ## 验证证据
 
-- [`tests/oauth2_login_cli.rs`](../../../tests/oauth2_login_cli.rs) 覆盖显式登录 CLI 的阶段、PKCE、响应校验和事务写入。
-- [`tests/startup_contract.rs`](../../../tests/startup_contract.rs) 覆盖 startup bundle 加载、校验和拒绝条件。
-- [`tests/config_contract.rs`](../../../tests/config_contract.rs) 与 [`tests/credential_store_contract.rs`](../../../tests/credential_store_contract.rs)
-  覆盖 credential binding 与存储边界。
+- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖四个 target/Public Model/Route 的编译和固定规划。
+- [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖四个模型的模型改写、streaming 请求 envelope、账户绑定
+  header、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的 pre-egress 拒绝。
+- [`src/oauth2_credentials/manager.rs`](../../../src/oauth2_credentials/manager.rs) 的单元测试覆盖 rejected generation 的强制 refresh、
+  single-flight 与 stale caller 复用胜出 generation。
+- [`tests/oauth2_login_cli.rs`](../../../tests/oauth2_login_cli.rs)、[`tests/startup_contract.rs`](../../../tests/startup_contract.rs)、
+  [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 继续覆盖登录、启动和 auth 文件生命周期。
+
+2026-08-06 使用当前 private 配置和已有 OpenBridge-owned `auth.json`，通过本地 OpenBridge 的 `/v1/responses` 发出同一最小 streaming
+文本请求；验收只记录 HTTP 状态、SSE terminal 类别和耗时，没有记录 credential、账户或响应正文：
+
+| Public Model                    | HTTP | SSE 终态             | 本次耗时 |
+|---------------------------------|------|----------------------|----------|
+| `chatgpt-gpt-5.3-codex-spark`  | 200  | `response.completed` | 1848 ms  |
+| `chatgpt-gpt-5.6-luna`         | 200  | `response.completed` | 1393 ms  |
+| `chatgpt-gpt-5.6-terra`        | 200  | `response.completed` | 1133 ms  |
+| `chatgpt-gpt-5.6-sol`          | 200  | `response.completed` | 1601 ms  |
+
+同日最终脱敏 preflight 再次确认该 bundle 完整、access token 未过期且未进入 120 秒 safety window。最终验证结果：
+
+- `cargo fmt -- --check`：通过；
+- 变更 Rust 文件的 `rustfmt --edition 2024 --check`：通过；
+- `cargo test --locked`：通过；两个需要独立 Python loopback/下载 OpenAI SDK 的测试保持 ignored；
+- `cargo clippy --locked -- -D warnings`：通过；
+- `git diff --check -- README.md config/upstream-credentials.example.toml docs src tests`：通过；仓库级 `git diff --check` 只报告本轮未修改的
+  `.gitignore:30` 末尾新增空行。
+
+真实登录/refresh authority、ignored SDK compatibility、工具、多模态、负载和长稳测试未执行；本轮没有修改 `testdata/` 或
+`tools/corpus/`，因此未运行 Python corpus 基线。
 
 ## 相关文档
 

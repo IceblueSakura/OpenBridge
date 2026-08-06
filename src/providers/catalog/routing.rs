@@ -26,6 +26,38 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             }],
         },
         PublicModelRegistration {
+            public_name: "chatgpt-gpt-5.3-codex-spark",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chatgpt-gpt-5-3-codex-spark",
+                upstream_target: "chatgpt-gpt-5-3-codex-spark",
+                surface: PublicModelSurface::ResponsesNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "chatgpt-gpt-5.6-luna",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chatgpt-gpt-5-6-luna",
+                upstream_target: "chatgpt-gpt-5-6-luna",
+                surface: PublicModelSurface::ResponsesNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "chatgpt-gpt-5.6-terra",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chatgpt-gpt-5-6-terra",
+                upstream_target: "chatgpt-gpt-5-6-terra",
+                surface: PublicModelSurface::ResponsesNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "chatgpt-gpt-5.6-sol",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chatgpt-gpt-5-6-sol",
+                upstream_target: "chatgpt-gpt-5-6-sol",
+                surface: PublicModelSurface::ResponsesNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "LongCat-2.0",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "longcat-2",
@@ -145,6 +177,8 @@ enum PublicModelSurface {
     DualProtocolNativeOnly,
     /// Provides only a Chat Completions Native path.
     ChatNativeOnly,
+    /// Provides only a Responses Native path.
+    ResponsesNativeOnly,
 }
 
 /// Global Route phase used to keep every Provider's Native candidate ahead of Bridge candidates.
@@ -197,12 +231,16 @@ impl ProviderRouteRegistration {
     fn route_for(self, phase: RoutePhase) -> Option<RouteConfig> {
         // Select the fixed protocol direction and handling mode for this surface and phase.
         let (suffix, upstream_operation, downstream_protocol, mode) = match phase {
-            RoutePhase::ChatNative => (
-                "chat",
-                OperationKind::ChatCompletions,
-                ApiProtocol::ChatCompletions,
-                RouteMode::Native,
-            ),
+            RoutePhase::ChatNative
+                if !matches!(self.surface, PublicModelSurface::ResponsesNativeOnly) =>
+            {
+                (
+                    "chat",
+                    OperationKind::ChatCompletions,
+                    ApiProtocol::ChatCompletions,
+                    RouteMode::Native,
+                )
+            }
             RoutePhase::ChatBridge
                 if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
             {
@@ -218,6 +256,7 @@ impl ProviderRouteRegistration {
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
                         | PublicModelSurface::DualProtocolNativeOnly
+                        | PublicModelSurface::ResponsesNativeOnly
                 ) =>
             {
                 (

@@ -9,9 +9,10 @@ use http::{HeaderMap, StatusCode};
 use crate::{
     bridge::BridgePlan,
     core::ApiProtocol,
+    oauth2_credentials::{OAuth2CredentialLease, OAuth2RefreshOutcome},
     observability::RequestObservation,
     pipeline::{analyze_request, plan_request},
-    provider::ProviderAdapter,
+    provider::{CredentialKind, ProviderAdapter},
     transport::upstream::{TransportError, UpstreamResponse},
 };
 
@@ -111,18 +112,35 @@ pub(super) async fn forward_request(
                 "Configured credential pool is unavailable",
             );
         };
-        let credentials = match state.credentials.upstream_pool(
-            target.kind(),
-            credential_pool.id(),
-            credential_pool.kind(),
-        ) {
-            Ok(credentials) => credentials,
-            Err(_) => {
-                return api_error(
-                    StatusCode::BAD_GATEWAY,
-                    "upstream_authentication_error",
-                    "Upstream credentials are unavailable",
-                );
+        let uses_oauth2 = credential_pool.kind() == CredentialKind::OAuth2BearerAccessToken;
+        let mut oauth2_lease: Option<OAuth2CredentialLease> = None;
+        let static_credentials = if uses_oauth2 {
+            // Borrow one current guarded generation without exposing its token or file locator.
+            let lease = match state
+                .oauth2_credentials()
+                .lease_for_request(target.kind())
+                .await
+            {
+                Ok(lease) if lease.pool_id() == credential_pool.id() => lease,
+                Ok(_) | Err(_) => return oauth2_authentication_error(),
+            };
+            oauth2_lease = Some(lease);
+            None
+        } else {
+            // Borrow immutable API-key members from the startup credential snapshot.
+            match state.credentials.upstream_pool(
+                target.kind(),
+                credential_pool.id(),
+                credential_pool.kind(),
+            ) {
+                Ok(credentials) => Some(credentials),
+                Err(_) => {
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "upstream_authentication_error",
+                        "Upstream credentials are unavailable",
+                    );
+                }
             }
         };
         let adapter = ProviderAdapter::for_kind(target.kind());
@@ -139,55 +157,76 @@ pub(super) async fn forward_request(
 
         let mut rejected_members = HashSet::new();
         let mut current_member = None;
+        let mut oauth2_replayed = false;
 
         // Select members and execute bounded request-level attempts before committing a downstream response.
         loop {
             // After 429, select the next member from the shared cursor; 5xx and transport retries keep the current member.
-            let member_index = match current_member {
-                Some(index) => index,
-                None => {
-                    if !plan.allows_fallback() {
-                        if credentials.len() != 1 {
-                            return api_error(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "configuration_error",
-                                "State-bound routes require exactly one credential member",
-                            );
-                        }
-                        0
-                    } else {
-                        match state.credential_health.select_member(
-                            credential_pool.id(),
-                            &credentials,
-                            &rejected_members,
-                            std::time::Instant::now(),
-                        ) {
-                            Some(index) => {
-                                if !rejected_members.is_empty() {
-                                    observation.record_credential_rotation();
-                                }
-                                index
+            let member_index = if uses_oauth2 {
+                0
+            } else {
+                let credentials = static_credentials
+                    .as_ref()
+                    .expect("API-key target must retain static credentials");
+                match current_member {
+                    Some(index) => index,
+                    None => {
+                        if !plan.allows_fallback() {
+                            if credentials.len() != 1 {
+                                return api_error(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "configuration_error",
+                                    "State-bound routes require exactly one credential member",
+                                );
                             }
-                            None => {
-                                cooldown_skipped = true;
-                                observation.record_cooldown_skip(candidate.upstream_target_id());
-                                continue 'candidates;
+                            0
+                        } else {
+                            match state.credential_health.select_member(
+                                credential_pool.id(),
+                                credentials,
+                                &rejected_members,
+                                std::time::Instant::now(),
+                            ) {
+                                Some(index) => {
+                                    if !rejected_members.is_empty() {
+                                        observation.record_credential_rotation();
+                                    }
+                                    index
+                                }
+                                None => {
+                                    cooldown_skipped = true;
+                                    observation
+                                        .record_cooldown_skip(candidate.upstream_target_id());
+                                    continue 'candidates;
+                                }
                             }
                         }
                     }
                 }
             };
             current_member = Some(member_index);
-            let credential = &credentials[member_index];
-            let headers = match adapter.build_outbound_headers(credential, &downstream_headers) {
-                Ok(headers) => headers,
-                Err(_) => {
-                    return api_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "configuration_error",
-                        "Provider authentication could not be prepared",
-                    );
-                }
+            let (credential_member_id, headers) = {
+                let credential = match oauth2_lease.as_ref() {
+                    Some(lease) => match lease.credential() {
+                        Ok(credential) => credential,
+                        Err(_) => return oauth2_authentication_error(),
+                    },
+                    None => static_credentials
+                        .as_ref()
+                        .expect("API-key target must retain static credentials")[member_index],
+                };
+                let headers = match adapter.build_outbound_headers(&credential, &downstream_headers)
+                {
+                    Ok(headers) => headers,
+                    Err(_) => {
+                        return api_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "configuration_error",
+                            "Provider authentication could not be prepared",
+                        );
+                    }
+                };
+                (credential.member_id().to_owned(), headers)
             };
             if !attempts.start_attempt() {
                 return api_error(
@@ -216,6 +255,56 @@ pub(super) async fn forward_request(
                 .send(target, request.clone(), headers.clone())
                 .await
             {
+                Ok(upstream) if uses_oauth2 && upstream.status() == StatusCode::UNAUTHORIZED => {
+                    // Recover only before response takeover and never replay one rejected generation twice.
+                    observation.record_attempt_http_result(
+                        attempts.attempts_started() as u64,
+                        upstream.status(),
+                    );
+                    let rejected_generation = oauth2_lease
+                        .as_ref()
+                        .expect("OAuth2 target must retain a request lease")
+                        .generation();
+                    if oauth2_replayed {
+                        state
+                            .oauth2_credentials()
+                            .reject_replayed_generation(target.kind(), rejected_generation);
+                        return oauth2_authentication_error();
+                    }
+
+                    // Reload an externally rotated bundle or refresh the rejected generation once.
+                    match state
+                        .oauth2_credentials()
+                        .recover_after_unauthorized(target.kind(), rejected_generation)
+                        .await
+                    {
+                        OAuth2RefreshOutcome::Current { .. }
+                        | OAuth2RefreshOutcome::Refreshed { .. } => {}
+                        OAuth2RefreshOutcome::NotConfigured
+                        | OAuth2RefreshOutcome::Backoff { .. }
+                        | OAuth2RefreshOutcome::ReauthRequired { .. }
+                        | OAuth2RefreshOutcome::Ambiguous { .. } => {
+                            return oauth2_authentication_error();
+                        }
+                    }
+                    let next_lease = match state
+                        .oauth2_credentials()
+                        .lease_for_request(target.kind())
+                        .await
+                    {
+                        Ok(lease)
+                            if lease.pool_id() == credential_pool.id()
+                                && lease.generation() != rejected_generation =>
+                        {
+                            lease
+                        }
+                        Ok(_) | Err(_) => return oauth2_authentication_error(),
+                    };
+                    oauth2_lease = Some(next_lease);
+                    oauth2_replayed = true;
+                    observation.record_retry();
+                    continue;
+                }
                 Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
                     // Record member-level 429 or target-level temporary unavailability by HTTP category.
                     observation.record_attempt_http_result(
@@ -226,14 +315,25 @@ pub(super) async fn forward_request(
                     let rate_limited =
                         classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
                     if rate_limited {
-                        state.credential_health.record_rate_limited(
-                            credential_pool.id(),
-                            credential,
-                            upstream.headers(),
-                            std::time::Instant::now(),
-                        );
-                        rejected_members.insert(credential.member_id().to_owned());
-                        current_member = None;
+                        if let Some(credentials) = static_credentials.as_ref() {
+                            state.credential_health.record_rate_limited(
+                                credential_pool.id(),
+                                &credentials[member_index],
+                                upstream.headers(),
+                                std::time::Instant::now(),
+                            );
+                            rejected_members.insert(credential_member_id);
+                            current_member = None;
+                        } else {
+                            // A single account-bound OAuth2 credential cannot rotate after 429.
+                            state.health.record_http_failure(
+                                candidate.upstream_target_id(),
+                                target,
+                                classification.kind(),
+                                upstream.headers(),
+                                std::time::Instant::now(),
+                            );
+                        }
                     } else {
                         state.health.record_http_failure(
                             candidate.upstream_target_id(),
@@ -246,10 +346,13 @@ pub(super) async fn forward_request(
                     let untried_candidates = candidate_count - candidate_index - 1;
                     let mut step = attempts.next_step(untried_candidates);
                     if rate_limited
-                        && (!plan.allows_fallback()
+                        && (uses_oauth2
+                            || !plan.allows_fallback()
                             || !state.credential_health.has_available_member(
                                 credential_pool.id(),
-                                &credentials,
+                                static_credentials
+                                    .as_ref()
+                                    .expect("API-key target must retain static credentials"),
                                 &rejected_members,
                                 std::time::Instant::now(),
                             ))
@@ -304,9 +407,11 @@ pub(super) async fn forward_request(
                         upstream.status(),
                     );
                     if upstream.status().is_success() {
-                        state
-                            .credential_health
-                            .record_success(credential_pool.id(), credential);
+                        if let Some(credentials) = static_credentials.as_ref() {
+                            state
+                                .credential_health
+                                .record_success(credential_pool.id(), &credentials[member_index]);
+                        }
                         state
                             .health
                             .record_success(candidate.upstream_target_id(), target);
@@ -389,6 +494,15 @@ pub(super) async fn forward_request(
             "The upstream request failed",
         )
     }
+}
+
+/// Returns one value-free failure for unavailable or rejected OAuth2 request credentials.
+fn oauth2_authentication_error() -> Response {
+    api_error(
+        StatusCode::BAD_GATEWAY,
+        "upstream_authentication_error",
+        "Upstream OAuth2 credentials require explicit authentication",
+    )
 }
 
 /// Returns whether a status permits continuing the current attempt before the first downstream event.

@@ -4,20 +4,23 @@ mod support;
 
 use std::{
     convert::Infallible,
+    fs,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     body::{Body, to_bytes},
     http::{
         Request, StatusCode,
-        header::{AUTHORIZATION, CONTENT_TYPE, SET_COOKIE, USER_AGENT},
+        header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, SET_COOKIE, USER_AGENT},
     },
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
 use futures_util::{future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
@@ -181,6 +184,36 @@ struct ScopedFaultTransport {
     attempts: Mutex<Vec<String>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SyntheticTokenGeneration {
+    First,
+    Second,
+    Unknown,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ChatGptRecordedRequest {
+    path: String,
+    model: String,
+    input_is_array: bool,
+    store_is_false: bool,
+    output_limit_present: bool,
+    token_generation: SyntheticTokenGeneration,
+    account_matches: bool,
+    originator_matches: bool,
+    user_agent_matches: bool,
+    accepts_sse: bool,
+    fedramp_header_present: bool,
+}
+
+struct ChatGptOAuthTransport {
+    first_authorization: String,
+    second_authorization: String,
+    replacement: Mutex<Option<(PathBuf, Vec<u8>)>>,
+    reject_after_replacement: bool,
+    requests: Mutex<Vec<ChatGptRecordedRequest>>,
+}
+
 impl UpstreamTransport for TimeoutTransport {
     fn send<'a>(
         &'a self,
@@ -321,6 +354,87 @@ impl UpstreamTransport for ScopedFaultTransport {
                     Body::from(r#"{"id":"healthy-response"}"#),
                 ))
             }
+        })
+    }
+}
+
+impl UpstreamTransport for ChatGptOAuthTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Classify only synthetic authentication values and retain no general-purpose token output.
+        let authorization = headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        let token_generation = if authorization == self.first_authorization {
+            SyntheticTokenGeneration::First
+        } else if authorization == self.second_authorization {
+            SyntheticTokenGeneration::Second
+        } else {
+            SyntheticTokenGeneration::Unknown
+        };
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+        self.requests.lock().unwrap().push(ChatGptRecordedRequest {
+            path: request.relative_uri().path().to_owned(),
+            model: body["model"].as_str().unwrap().to_owned(),
+            input_is_array: body["input"].is_array(),
+            store_is_false: body["store"] == false,
+            output_limit_present: ["max_output_tokens", "max_completion_tokens", "max_tokens"]
+                .iter()
+                .any(|field| body.get(*field).is_some()),
+            token_generation,
+            account_matches: headers
+                .get("chatgpt-account-id")
+                .is_some_and(|value| value == "synthetic-account"),
+            originator_matches: headers
+                .get("originator")
+                .is_some_and(|value| value == "codex_cli_rs"),
+            user_agent_matches: headers.get(USER_AGENT).is_some_and(|value| {
+                value == "codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown"
+            }),
+            accepts_sse: headers
+                .get(ACCEPT)
+                .is_some_and(|value| value == "text/event-stream"),
+            fedramp_header_present: headers.contains_key("x-openai-fedramp"),
+        });
+
+        // Replace the synthetic persisted bundle before returning the first unauthorized response.
+        let replacement = self.replacement.lock().unwrap().take();
+        if let Some((path, document)) = replacement {
+            fs::write(path, document).unwrap();
+            return Box::pin(async {
+                Ok(UpstreamResponse::new(
+                    StatusCode::UNAUTHORIZED,
+                    HeaderMap::new(),
+                    Body::from(r#"{"error":{"message":"synthetic rejection"}}"#),
+                ))
+            });
+        }
+        if self.reject_after_replacement {
+            return Box::pin(async {
+                Ok(UpstreamResponse::new(
+                    StatusCode::UNAUTHORIZED,
+                    HeaderMap::new(),
+                    Body::from(r#"{"error":{"message":"synthetic rejection"}}"#),
+                ))
+            });
+        }
+
+        // Return one complete synthetic ChatGPT Responses stream for every accepted attempt.
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from(
+                    "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\"}}\n\n",
+                ),
+            ))
         })
     }
 }
@@ -712,6 +826,34 @@ fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Ro
     build_router(state)
 }
 
+fn app_with_chatgpt_oauth(
+    transport: Arc<dyn UpstreamTransport>,
+    auth_json_file: &std::path::Path,
+) -> (
+    axum::Router,
+    Arc<openbridge::oauth2_credentials::OAuth2CredentialManager>,
+) {
+    // Compile the production ChatGPT targets and load only the synthetic OAuth2 source needed by this test.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+        .expect("checked-in bootstrap must be valid");
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
+    let (users, credentials, oauth2_credentials) = support::users_and_oauth_credentials(
+        "downstream-token-00000000000000000000000000000000",
+        &registry,
+        auth_json_file,
+    );
+
+    // Inject the guarded manager beside the immutable downstream/static credential snapshot.
+    let state = GatewayState::new_with_oauth2_credentials(
+        Arc::new(registry),
+        transport,
+        users,
+        credentials,
+        Arc::clone(&oauth2_credentials),
+    );
+    (build_router(state), oauth2_credentials)
+}
+
 fn app_with_transport_and_definition(
     transport: Arc<dyn UpstreamTransport>,
     definition: RegistryConfig,
@@ -804,6 +946,81 @@ fn add_responses_fallback(
     definition.public_models[0].routes.push(route_id);
 }
 
+static NEXT_CHATGPT_AUTH_TEST: AtomicUsize = AtomicUsize::new(1);
+
+struct SyntheticAuthDirectory {
+    path: PathBuf,
+}
+
+impl SyntheticAuthDirectory {
+    fn new() -> Self {
+        let id = NEXT_CHATGPT_AUTH_TEST.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "openbridge-chatgpt-forwarding-test-{}-{id}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        Self { path }
+    }
+
+    fn auth_file(&self) -> PathBuf {
+        self.path.join("synthetic-auth.json")
+    }
+}
+
+impl Drop for SyntheticAuthDirectory {
+    fn drop(&mut self) {
+        // Remove only artifacts created under this process-unique synthetic test directory.
+        if let Ok(entries) = fs::read_dir(&self.path) {
+            for entry in entries.flatten() {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+        let _ = fs::remove_dir(&self.path);
+    }
+}
+
+fn synthetic_chatgpt_document(generation: u64) -> (Vec<u8>, String) {
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600
+        + generation;
+    let access_token = synthetic_jwt(serde_json::json!({
+        "exp": expiry,
+        "synthetic_generation": generation,
+    }));
+    let id_token = synthetic_jwt(serde_json::json!({
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "synthetic-account",
+            "chatgpt_account_is_fedramp": false,
+        }
+    }));
+    let document = serde_json::to_vec(&serde_json::json!({
+        "auth_mode": "chatgpt",
+        "OPENAI_API_KEY": null,
+        "tokens": {
+            "id_token": id_token,
+            "access_token": access_token,
+            "refresh_token": format!("synthetic-refresh-{generation}"),
+            "account_id": "synthetic-account",
+        },
+        "last_refresh": "2026-08-06T00:00:00Z",
+    }))
+    .unwrap();
+    (document, access_token)
+}
+
+fn synthetic_jwt(payload: Value) -> String {
+    format!(
+        "{}.{}.{}",
+        URL_SAFE_NO_PAD.encode(b"{}"),
+        URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes()),
+        URL_SAFE_NO_PAD.encode(b"synthetic-signature")
+    )
+}
+
 #[tokio::test]
 async fn business_endpoints_reject_unauthenticated_requests_before_upstream() {
     let transport = Arc::new(RecordingTransport::default());
@@ -820,6 +1037,257 @@ async fn business_endpoints_reject_unauthenticated_requests_before_upstream() {
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     let error: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(error["error"]["code"], "invalid_api_key");
+}
+
+#[tokio::test]
+async fn chatgpt_oauth_routes_forward_four_models_with_account_bound_headers() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Send one minimal streaming Responses request through each fixed ChatGPT Public Model.
+    for public_model in [
+        "chatgpt-gpt-5.3-codex-spark",
+        "chatgpt-gpt-5.6-luna",
+        "chatgpt-gpt-5.6-terra",
+        "chatgpt-gpt-5.6-sol",
+    ] {
+        let request = Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                AUTHORIZATION,
+                "Bearer downstream-token-00000000000000000000000000000000",
+            )
+            .body(Body::from(
+                serde_json::json!({
+                    "model": public_model,
+                    "input": "hello",
+                    "stream": true,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert!(
+            body.windows(b"response.completed".len())
+                .any(|window| { window == b"response.completed" })
+        );
+    }
+
+    // Verify fixed endpoint/model rewriting and the complete non-FedRAMP OAuth request identity.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for (request, upstream_model) in requests.iter().zip([
+        "gpt-5.3-codex-spark",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol",
+    ]) {
+        assert_eq!(request.path, "/responses");
+        assert_eq!(request.model, upstream_model);
+        assert!(request.input_is_array);
+        assert!(request.store_is_false);
+        assert!(!request.output_limit_present);
+        assert_eq!(request.token_generation, SyntheticTokenGeneration::First);
+        assert!(request.account_matches);
+        assert!(request.originator_matches);
+        assert!(request.user_agent_matches);
+        assert!(request.accepts_sse);
+        assert!(!request.fedramp_header_present);
+    }
+}
+
+#[tokio::test]
+async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Reject the standard output-limit field that the current private backend does not accept.
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true,"max_output_tokens":16}"#,
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_request");
+    assert!(transport.requests.lock().unwrap().is_empty());
+
+    // Keep the same unsupported field out of the compiled downstream interface advertisement.
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/chatgpt-gpt-5.6-sol").await;
+    let parameters = model["interfaces"]["responses"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    assert!(!parameters.iter().any(|value| {
+        value == "max_output_tokens" || value == "max_completion_tokens" || value == "max_tokens"
+    }));
+}
+
+#[tokio::test]
+async fn chatgpt_rejects_non_streaming_requests_before_egress() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Reject the non-streaming default before an SSE-only upstream exchange can begin.
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello"}"#,
+        ))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_request");
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_first_401_reloads_changed_bundle_and_replays_once() {
+    let directory = SyntheticAuthDirectory::new();
+    let (first_document, first_access_token) = synthetic_chatgpt_document(1);
+    let (second_document, second_access_token) = synthetic_chatgpt_document(2);
+    fs::write(directory.auth_file(), first_document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {first_access_token}"),
+        second_authorization: format!("Bearer {second_access_token}"),
+        replacement: Mutex::new(Some((directory.auth_file(), second_document))),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, manager) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Trigger one pre-output 401, guarded file reload, and one replay on the same fixed Route.
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert!(
+        body.windows(b"response.completed".len())
+            .any(|window| { window == b"response.completed" })
+    );
+
+    // Confirm exactly two attempts and publication of the externally rotated generation.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].token_generation,
+        SyntheticTokenGeneration::First
+    );
+    assert_eq!(
+        requests[1].token_generation,
+        SyntheticTokenGeneration::Second
+    );
+    let snapshot = manager
+        .credential_for_provider(ProviderKind::ChatGpt)
+        .expect("ChatGPT OAuth2 credential should remain configured");
+    assert_eq!(snapshot.metadata().generation(), 2);
+    assert_eq!(
+        snapshot.status(),
+        openbridge::oauth2_credentials::OAuth2CredentialStatus::Active
+    );
+}
+
+#[tokio::test]
+async fn chatgpt_second_401_stops_replay_and_requires_explicit_login() {
+    let directory = SyntheticAuthDirectory::new();
+    let (first_document, first_access_token) = synthetic_chatgpt_document(1);
+    let (second_document, second_access_token) = synthetic_chatgpt_document(2);
+    fs::write(directory.auth_file(), first_document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {first_access_token}"),
+        second_authorization: format!("Bearer {second_access_token}"),
+        replacement: Mutex::new(Some((directory.auth_file(), second_document))),
+        reject_after_replacement: true,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, manager) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Reject both the original and reloaded generations through one downstream request.
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "upstream_authentication_error");
+
+    // Prove the request stopped after one replay and terminalized only the replayed generation.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].token_generation,
+        SyntheticTokenGeneration::First
+    );
+    assert_eq!(
+        requests[1].token_generation,
+        SyntheticTokenGeneration::Second
+    );
+    let snapshot = manager
+        .credential_for_provider(ProviderKind::ChatGpt)
+        .expect("ChatGPT OAuth2 credential should remain configured");
+    assert_eq!(snapshot.metadata().generation(), 2);
+    assert_eq!(
+        snapshot.status(),
+        openbridge::oauth2_credentials::OAuth2CredentialStatus::ReauthRequired
+    );
 }
 
 #[tokio::test]

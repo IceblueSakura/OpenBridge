@@ -14,8 +14,10 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-const CHATGPT_IDENTITY_HEADERS: &[StaticRequestHeader] =
-    &[StaticRequestHeader::new("originator", "codex_cli_rs")];
+const CHATGPT_IDENTITY_HEADERS: &[StaticRequestHeader] = &[
+    StaticRequestHeader::new("accept", "text/event-stream"),
+    StaticRequestHeader::new("originator", "codex_cli_rs"),
+];
 /// Fixed headless Linux profile derived from the Codex CLI `rust-v0.146.0` User-Agent format.
 const CODEX_CLI_LINUX_USER_AGENT: &str = "codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown";
 const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
@@ -83,6 +85,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
+.with_request_body_hook(transform_request_body)
 .with_request_headers(CHATGPT_REQUEST_HEADERS)
 .with_openai_data_type_responses_terminal();
 
@@ -95,5 +98,51 @@ fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Narrows standard Responses input to the current Codex backend's streaming request envelope.
+fn transform_request_body(
+    protocol: crate::core::ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Require the SSE-only Responses shape and reject fields the private backend does not accept.
+    if protocol != crate::core::ApiProtocol::Responses
+        || document.get("stream").and_then(serde_json::Value::as_bool) != Some(true)
+        || ["max_output_tokens", "max_completion_tokens", "max_tokens"]
+            .iter()
+            .any(|field| document.contains_key(*field))
+    {
+        return Err(AdapterError::InvalidRequestBody);
+    }
+
+    // Convert the standard Responses string shorthand into an equivalent user input message.
+    if let Some(text) = document
+        .get("input")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+    {
+        document.insert(
+            "input".to_owned(),
+            serde_json::json!([{
+                "role": "user",
+                "content": [{"type": "input_text", "text": text}],
+            }]),
+        );
+    }
+    if !document
+        .get("input")
+        .is_some_and(serde_json::Value::is_array)
+    {
+        return Err(AdapterError::InvalidRequestBody);
+    }
+
+    // The ChatGPT Codex backend requires stateless storage semantics on every request.
+    match document.get("store") {
+        None | Some(serde_json::Value::Bool(false)) => {
+            document.insert("store".to_owned(), serde_json::Value::Bool(false));
+        }
+        Some(_) => return Err(AdapterError::InvalidRequestBody),
+    }
     Ok(())
 }

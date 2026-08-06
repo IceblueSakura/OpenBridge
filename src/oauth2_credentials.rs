@@ -17,4 +17,5 @@ pub use manager::{
 };
 pub use storage::OAuth2LoginTarget;
 
+pub(crate) use manager::OAuth2CredentialLease;
 pub(crate) use manager::OAuth2CredentialManagerBuilder;

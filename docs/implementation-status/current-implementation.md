@@ -15,7 +15,7 @@
 | Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) |
 | Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) |
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) |
-| ChatGPT OAuth2 启动凭证生命周期 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) |
+| ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) |
 
 ## 横向状态文档
 
@@ -29,8 +29,9 @@
 确定性 Rust test、canonical fixture replay、loopback/独立客户端验证、外部 SDK、目标 Agent、真实 Provider、负载和长期运行分别属于
 不同证据层。某一层通过不能替代其他层；专题页必须明确写出实际运行的检查和未覆盖的验收层。
 
-当前未完成或不在本轮实现范围的内容包括 ChatGPT 数据面、完整 Native multimodal、异构协议 Provider、OTLP metrics/logs、Prometheus、
-持久化/分布式 observability、动态 health/weight、向量检索以及 GUI/Web 控制面。它们只应在对应功能需求和当前焦点获准后进入实现。
+当前未完成或不在本轮实现范围的内容包括完整 Native multimodal、ChatGPT 的其他协议/工具/Agent loop、异构协议 Provider、OTLP
+metrics/logs、Prometheus、持久化/分布式 observability、动态 health/weight、向量检索以及 GUI/Web 控制面。它们只应在对应功能需求和
+当前焦点获准后进入实现。
 
 ## 维护规则
 

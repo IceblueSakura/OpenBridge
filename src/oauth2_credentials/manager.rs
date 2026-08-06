@@ -10,11 +10,14 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{
-    credential::{CredentialMetadata, CredentialSource},
+    credential::{
+        CredentialMetadata, CredentialSource, CredentialStore, CredentialStoreBuilder,
+        CredentialStoreError, UpstreamCredential,
+    },
     provider::{CredentialKind, ProviderKind},
     providers::chatgpt::oauth::REGISTRATION,
 };
@@ -82,6 +85,71 @@ impl OAuth2CredentialManager {
             .await
     }
 
+    /// Borrows one current account-bound access-token generation for a single Provider request.
+    pub(crate) async fn lease_for_request(
+        &self,
+        provider: ProviderKind,
+    ) -> Result<OAuth2CredentialLease, OAuth2CredentialLeaseError> {
+        // Resolve the sole Provider-owned credential and refresh it when its safety window is due.
+        let credential = self
+            .find_credential(provider)
+            .ok_or(OAuth2CredentialLeaseError::NotConfigured)?;
+        let now = SystemTime::now();
+        if credential.requires_request_refresh(now) {
+            match self.refresh_provider(provider).await {
+                OAuth2RefreshOutcome::Current { .. } | OAuth2RefreshOutcome::Refreshed { .. } => {}
+                OAuth2RefreshOutcome::NotConfigured
+                | OAuth2RefreshOutcome::Backoff { .. }
+                | OAuth2RefreshOutcome::ReauthRequired { .. }
+                | OAuth2RefreshOutcome::Ambiguous { .. } => {
+                    return Err(OAuth2CredentialLeaseError::Unavailable);
+                }
+            }
+        }
+
+        // Copy only the egress access token and account context into a short-lived owned lease.
+        credential.lease(SystemTime::now())
+    }
+
+    /// Reloads or rotates the rejected generation once before a guarded request replay.
+    pub(crate) async fn recover_after_unauthorized(
+        &self,
+        provider: ProviderKind,
+        rejected_generation: u64,
+    ) -> OAuth2RefreshOutcome {
+        // Resolve the fixed Provider transport without accepting runtime endpoint overrides.
+        let Some(credential) = self.find_credential(provider) else {
+            return OAuth2RefreshOutcome::NotConfigured;
+        };
+        let transport = match ReqwestChatGptRefreshTransport::new(&REGISTRATION) {
+            Ok(transport) => transport,
+            Err(error) => {
+                return credential.record_transport_failure(error, SystemTime::now());
+            }
+        };
+
+        // Force one reload/refresh transaction for only the generation observed by the request.
+        self.recover_after_unauthorized_with(
+            credential,
+            &transport,
+            SystemTime::now(),
+            rejected_generation,
+        )
+        .await
+    }
+
+    /// Marks a replayed generation terminal only when no newer rotation has already won.
+    pub(crate) fn reject_replayed_generation(
+        &self,
+        provider: ProviderKind,
+        rejected_generation: u64,
+    ) -> OAuth2RefreshOutcome {
+        self.find_credential(provider)
+            .map_or(OAuth2RefreshOutcome::NotConfigured, |credential| {
+                credential.record_reauth_required_if_current(rejected_generation)
+            })
+    }
+
     /// Runs the expiry-driven refresh scheduler until its task is cancelled by the composition root.
     pub async fn run_refresh_scheduler(self: Arc<Self>) {
         // Recompute the earliest due time after every wake or completed refresh.
@@ -138,10 +206,56 @@ impl OAuth2CredentialManager {
     where
         T: ChatGptRefreshTransport,
     {
+        self.refresh_provider_with_trigger(credential, transport, now, RefreshTrigger::Scheduled)
+            .await
+    }
+
+    /// Runs guarded 401 recovery with a replaceable transport for deterministic contract tests.
+    async fn recover_after_unauthorized_with<T>(
+        &self,
+        credential: &Arc<ManagedOAuth2Credential>,
+        transport: &T,
+        now: SystemTime,
+        rejected_generation: u64,
+    ) -> OAuth2RefreshOutcome
+    where
+        T: ChatGptRefreshTransport,
+    {
+        self.refresh_provider_with_trigger(
+            credential,
+            transport,
+            now,
+            RefreshTrigger::Unauthorized {
+                rejected_generation,
+            },
+        )
+        .await
+    }
+
+    /// Runs one guarded reload/refresh transaction for the selected lifecycle trigger.
+    async fn refresh_provider_with_trigger<T>(
+        &self,
+        credential: &Arc<ManagedOAuth2Credential>,
+        transport: &T,
+        now: SystemTime,
+        trigger: RefreshTrigger,
+    ) -> OAuth2RefreshOutcome
+    where
+        T: ChatGptRefreshTransport,
+    {
         // Merge concurrent callers for the same credential before acquiring the file lock.
         let _refresh_gate = credential.refresh_gate.lock().await;
         if let Some(outcome) = credential.current_terminal_or_backoff(now) {
             return outcome;
+        }
+        if let RefreshTrigger::Unauthorized {
+            rejected_generation,
+        } = trigger
+            && credential.current_generation() != rejected_generation
+        {
+            return OAuth2RefreshOutcome::Current {
+                generation: credential.current_generation(),
+            };
         }
 
         // Acquire the cross-process lock and reload the complete persisted source under it.
@@ -162,8 +276,22 @@ impl OAuth2CredentialManager {
             Err(_) => return credential.record_reauth_required(),
         };
 
-        // Skip the network when another worker already published a token outside the safety window.
-        if refresh_due_at(&credential.pool_id, persisted.expires_at) > now {
+        // Reuse an externally or concurrently published generation before considering a grant.
+        if let RefreshTrigger::Unauthorized {
+            rejected_generation,
+        } = trigger
+        {
+            let (current_generation, current_version) = credential.current_generation_and_version();
+            if current_generation != rejected_generation {
+                return OAuth2RefreshOutcome::Current {
+                    generation: current_generation,
+                };
+            }
+            if current_version != version {
+                return credential.publish_current_if_changed(persisted, version);
+            }
+        } else if refresh_due_at(&credential.pool_id, persisted.expires_at) > now {
+            // Skip the scheduled network refresh while the persisted token remains outside the safety window.
             return credential.publish_current_if_changed(persisted, version);
         }
 
@@ -229,6 +357,12 @@ impl OAuth2CredentialManager {
             .unwrap_or(IDLE_SCHEDULER_WAKE)
             .min(IDLE_SCHEDULER_WAKE)
     }
+}
+
+#[derive(Clone, Copy)]
+enum RefreshTrigger {
+    Scheduled,
+    Unauthorized { rejected_generation: u64 },
 }
 
 impl Default for OAuth2CredentialManager {
@@ -328,6 +462,60 @@ pub enum OAuth2RefreshOutcome {
     },
 }
 
+/// Value-free failure returned when a request cannot borrow a usable OAuth2 generation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OAuth2CredentialLeaseError {
+    /// No managed credential exists for the selected Provider.
+    NotConfigured,
+    /// The credential is expired, rotating, backing off, or in a terminal lifecycle state.
+    Unavailable,
+}
+
+/// Short-lived owned access-token and account-context snapshot for one Provider request.
+pub(crate) struct OAuth2CredentialLease {
+    store: CredentialStore,
+    provider: ProviderKind,
+    pool_id: String,
+    generation: u64,
+}
+
+impl OAuth2CredentialLease {
+    /// Returns the compile-time credential binding captured by this lease.
+    pub(crate) fn pool_id(&self) -> &str {
+        &self.pool_id
+    }
+
+    /// Returns the non-sensitive lifecycle generation captured by this lease.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Borrows the sole account-bound credential through the standard Provider egress view.
+    pub(crate) fn credential(&self) -> Result<UpstreamCredential<'_>, CredentialStoreError> {
+        self.store
+            .upstream_pool(
+                self.provider,
+                &self.pool_id,
+                CredentialKind::OAuth2BearerAccessToken,
+            )?
+            .into_iter()
+            .next()
+            .ok_or(CredentialStoreError::Unavailable)
+    }
+}
+
+impl fmt::Debug for OAuth2CredentialLease {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OAuth2CredentialLease")
+            .field("provider", &self.provider)
+            .field("pool_id", &self.pool_id)
+            .field("generation", &self.generation)
+            .field("secret", &"[REDACTED]")
+            .finish()
+    }
+}
+
 struct ManagedOAuth2Credential {
     provider: ProviderKind,
     pool_id: String,
@@ -348,6 +536,59 @@ impl ManagedOAuth2Credential {
             metadata: oauth2_metadata(state.generation, state.bundle.expires_at),
             status: state.status,
         }
+    }
+
+    /// Returns the current generation without borrowing credential material.
+    fn current_generation(&self) -> u64 {
+        self.lock_state().generation
+    }
+
+    /// Returns the generation and persisted version atomically for guarded recovery decisions.
+    fn current_generation_and_version(&self) -> (u64, OAuth2AuthFileVersion) {
+        let state = self.lock_state();
+        (state.generation, state.version.clone())
+    }
+
+    /// Reports whether a request must join scheduled refresh before borrowing a token.
+    fn requires_request_refresh(&self, now: SystemTime) -> bool {
+        let state = self.lock_state();
+        match state.status {
+            OAuth2CredentialStatus::Active => {
+                refresh_due_at(&self.pool_id, state.bundle.expires_at) <= now
+            }
+            OAuth2CredentialStatus::RefreshBackoff => {
+                state.next_attempt.is_some_and(|attempt| attempt <= now)
+            }
+            OAuth2CredentialStatus::ReauthRequired | OAuth2CredentialStatus::Ambiguous => false,
+        }
+    }
+
+    /// Copies only current egress material into an owned one-member request lease.
+    fn lease(&self, now: SystemTime) -> Result<OAuth2CredentialLease, OAuth2CredentialLeaseError> {
+        // Reject terminal, backoff, and expired state before copying any secret material.
+        let state = self.lock_state();
+        if state.status != OAuth2CredentialStatus::Active || state.bundle.expires_at <= now {
+            return Err(OAuth2CredentialLeaseError::Unavailable);
+        }
+
+        // Build the same purpose-bound credential shape consumed by the Provider adapter.
+        let mut builder = CredentialStoreBuilder::new();
+        builder
+            .insert_chatgpt_oauth_member(
+                self.pool_id.clone(),
+                self.member_id.clone(),
+                SecretString::from(state.bundle.access_token.expose_secret().to_owned()),
+                SecretString::from(state.bundle.account_id.expose_secret().to_owned()),
+                state.bundle.is_fedramp_account,
+                oauth2_metadata(state.generation, state.bundle.expires_at),
+            )
+            .map_err(|_| OAuth2CredentialLeaseError::Unavailable)?;
+        Ok(OAuth2CredentialLease {
+            store: builder.build(),
+            provider: self.provider,
+            pool_id: self.pool_id.clone(),
+            generation: state.generation,
+        })
     }
 
     /// Returns terminal/backoff state before any file or network operation.
@@ -456,6 +697,21 @@ impl ManagedOAuth2Credential {
     /// Stops automatic refresh after a terminal authority rejection or invalid local source.
     fn record_reauth_required(&self) -> OAuth2RefreshOutcome {
         let mut state = self.lock_state();
+        state.status = OAuth2CredentialStatus::ReauthRequired;
+        state.next_attempt = None;
+        OAuth2RefreshOutcome::ReauthRequired {
+            generation: state.generation,
+        }
+    }
+
+    /// Marks only the currently rejected replay generation as requiring explicit login.
+    fn record_reauth_required_if_current(&self, rejected_generation: u64) -> OAuth2RefreshOutcome {
+        let mut state = self.lock_state();
+        if state.generation != rejected_generation {
+            return OAuth2RefreshOutcome::Current {
+                generation: state.generation,
+            };
+        }
         state.status = OAuth2CredentialStatus::ReauthRequired;
         state.next_attempt = None;
         OAuth2RefreshOutcome::ReauthRequired {
@@ -755,6 +1011,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unauthorized_current_generation_forces_one_refresh_and_stale_callers_reuse_it() {
+        let fixture = TestDirectory::new();
+        let manager = fixture.manager(expiring_document(
+            "synthetic-account",
+            unix_now() + 3_600,
+            "synthetic-refresh",
+        ));
+        let transport = ImmediateTransport::success(RefreshTokenResponse {
+            access_token: SecretString::from(jwt(json!({"exp": unix_now() + 7_200}))),
+            id_token: None,
+            refresh_token: None,
+            token_type: Some("Bearer".to_owned()),
+        });
+        let credential = manager.find_credential(ProviderKind::ChatGpt).unwrap();
+
+        // Force rotation even though the rejected generation is outside the expiry safety window.
+        let first = manager
+            .recover_after_unauthorized_with(credential, &transport, SystemTime::now(), 1)
+            .await;
+        assert_eq!(first, OAuth2RefreshOutcome::Refreshed { generation: 2 });
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+
+        // Merge a stale concurrent 401 into the already published generation without a second grant.
+        let second = manager
+            .recover_after_unauthorized_with(credential, &transport, SystemTime::now(), 1)
+            .await;
+        assert_eq!(second, OAuth2RefreshOutcome::Current { generation: 2 });
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn terminal_ambiguous_and_transient_refresh_failures_are_fail_closed() {
         let cases = [
             (
@@ -845,18 +1132,21 @@ mod tests {
 
     struct ImmediateTransport {
         result: Mutex<Option<Result<RefreshTokenResponse, RefreshTransportError>>>,
+        calls: AtomicUsize,
     }
 
     impl ImmediateTransport {
         fn success(response: RefreshTokenResponse) -> Self {
             Self {
                 result: Mutex::new(Some(Ok(response))),
+                calls: AtomicUsize::new(0),
             }
         }
 
         fn failure(error: RefreshTransportError) -> Self {
             Self {
                 result: Mutex::new(Some(Err(error))),
+                calls: AtomicUsize::new(0),
             }
         }
     }
@@ -866,6 +1156,7 @@ mod tests {
             &self,
             _refresh_token: &SecretString,
         ) -> Result<RefreshTokenResponse, RefreshTransportError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
             self.result.lock().unwrap().take().unwrap()
         }
     }

@@ -15,8 +15,8 @@ use openbridge::{
 };
 
 #[test]
-fn chatgpt_target_is_compiled_disabled_and_not_publicly_routable() {
-    // Locate the dedicated OAuth pool and disabled ChatGPT target in the compiled definition.
+fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
+    // Locate the dedicated OAuth pool and fixed ChatGPT Provider instance.
     let definition = compiled_config();
     let pool = definition
         .credential_pools
@@ -25,63 +25,103 @@ fn chatgpt_target_is_compiled_disabled_and_not_publicly_routable() {
         .expect("ChatGPT OAuth pool should be compiled");
     assert_eq!(pool.provider, ProviderKind::ChatGpt);
     assert_eq!(pool.kind, CredentialKind::OAuth2BearerAccessToken);
-
-    let target = definition
-        .upstream_targets
-        .iter()
-        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
-        .expect("disabled ChatGPT target should be compiled");
-    assert_eq!(target.provider_instance, "chatgpt");
-    assert_eq!(target.model, "openai/gpt-5.6-sol");
     let provider_instance = definition
         .provider_instances
         .iter()
-        .find(|instance| instance.id == target.provider_instance)
+        .find(|instance| instance.id == "chatgpt")
         .expect("ChatGPT Provider instance should be compiled");
     assert_eq!(provider_instance.kind, ProviderKind::ChatGpt);
     assert_eq!(
         provider_instance.base_url,
         "https://chatgpt.com/backend-api/codex"
     );
-    assert_eq!(target.credential_pool, "chatgpt-codex");
-    assert!(!target.enabled);
-    assert_eq!(target.upstream_apis.len(), 1);
-    assert_eq!(
-        target.upstream_apis[0].capabilities.operation(),
-        OperationKind::Responses
-    );
-    assert!(
-        definition
+
+    // Verify all four fixed models expose exactly one enabled Responses-native target and Route.
+    for (public_name, target_id, canonical_model, upstream_model) in [
+        (
+            "chatgpt-gpt-5.3-codex-spark",
+            "chatgpt-gpt-5-3-codex-spark",
+            "chatgpt/gpt-5.3-codex-spark",
+            "gpt-5.3-codex-spark",
+        ),
+        (
+            "chatgpt-gpt-5.6-luna",
+            "chatgpt-gpt-5-6-luna",
+            "chatgpt/gpt-5.6-luna",
+            "gpt-5.6-luna",
+        ),
+        (
+            "chatgpt-gpt-5.6-terra",
+            "chatgpt-gpt-5-6-terra",
+            "chatgpt/gpt-5.6-terra",
+            "gpt-5.6-terra",
+        ),
+        (
+            "chatgpt-gpt-5.6-sol",
+            "chatgpt-gpt-5-6-sol",
+            "chatgpt/gpt-5.6-sol",
+            "gpt-5.6-sol",
+        ),
+    ] {
+        let target = definition
+            .upstream_targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .expect("ChatGPT target should be compiled");
+        assert_eq!(target.provider_instance, "chatgpt");
+        assert_eq!(target.model, canonical_model);
+        assert_eq!(target.credential_pool, "chatgpt-codex");
+        assert!(target.enabled);
+        assert_eq!(target.upstream_apis.len(), 1);
+        assert_eq!(
+            target.upstream_apis[0].capabilities.operation(),
+            OperationKind::Responses
+        );
+        assert_eq!(target.upstream_apis[0].upstream_model, upstream_model);
+
+        let public_model = definition
+            .public_models
+            .iter()
+            .find(|model| model.id == public_name)
+            .expect("ChatGPT Public Model should be compiled");
+        assert_eq!(public_model.routes, [format!("{target_id}-responses")]);
+        let route = definition
             .routes
             .iter()
-            .all(|route| route.upstream_target != target.id)
-    );
+            .find(|route| route.id == public_model.routes[0])
+            .expect("ChatGPT Route should be compiled");
+        assert_eq!(route.upstream_target, target_id);
+        assert_eq!(route.upstream_operation, OperationKind::Responses);
+        assert_eq!(route.downstream_operation, OperationKind::Responses);
+        assert_eq!(route.mode, RouteMode::Native);
+    }
 
-    // Compile the runtime snapshot and prove service startup does not require the disabled pool.
+    // Compile the runtime snapshot and prove each downstream model plans only its fixed Route.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    let target = registry
-        .upstream_target("chatgpt-gpt-5-6-sol")
-        .expect("disabled target remains available to explicit probes");
-    assert!(!target.enabled());
-    assert_eq!(target.kind(), ProviderKind::ChatGpt);
-    assert!(registry.public_models().all(|model| {
-        model.routes().iter().all(|route_id| {
-            registry
-                .route(route_id)
-                .is_none_or(|route| route.upstream_target() != target.id())
-        })
-    }));
-    let required_pool_ids = registry
-        .credential_pool_ids()
-        .filter(|pool_id| {
-            registry.upstream_target_ids().any(|target_id| {
-                let candidate = registry.upstream_target(target_id).unwrap();
-                candidate.enabled() && candidate.credential_pool_id() == *pool_id
-            })
-        })
-        .collect::<Vec<_>>();
-    assert!(!required_pool_ids.contains(&"chatgpt-codex"));
+    for (public_name, target_id) in [
+        ("chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5-3-codex-spark"),
+        ("chatgpt-gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
+        ("chatgpt-gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
+        ("chatgpt-gpt-5.6-sol", "chatgpt-gpt-5-6-sol"),
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("enabled ChatGPT target should compile");
+        assert!(target.enabled());
+        assert_eq!(target.kind(), ProviderKind::ChatGpt);
+
+        let body = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","input":"hello","stream":true}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        assert_eq!(plan.candidates().len(), 1);
+        assert_eq!(
+            plan.candidates()[0].route_id(),
+            format!("{target_id}-responses")
+        );
+    }
 }
 
 #[test]
@@ -950,7 +990,7 @@ fn compiled_provider_credential_pools_are_shared_and_match_the_private_toml_exam
         );
     }
 
-    // Keep the disabled ChatGPT OAuth pool outside the API-key TOML and startup snapshot.
+    // Keep the ChatGPT OAuth pool outside the immutable API-key credential snapshot.
     assert!(
         credentials
             .upstream_pool(

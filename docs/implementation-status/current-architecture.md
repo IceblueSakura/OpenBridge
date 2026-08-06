@@ -118,10 +118,10 @@ exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http
 文件、Provider family、Provider instance、模型、target、upstream API 和 route 都只在启动阶段加载；没有 route TOML、 动态 Provider DSL 或热重载。
 `UserConfiguration` 把用户元数据交给 `UserRegistry`、把 Key 交给
 `CredentialStoreBuilder`；`UpstreamCredentialConfiguration` 把每个编译期 binding 校验为互斥的 `api_keys` 或
-`auth_json_file`。启用 target 引用的 API-key pool 进入不可变 `CredentialStore`；所有显式配置的 OAuth2 文件在监听前完成完整 bundle
-校验并进入独立 lifecycle manager，相对 locator 以 upstream TOML 目录为基准。未知、缺失或重复 binding、source/kind 错配、同 Provider
-多 auth 文件、损坏 TOML、无效 API-key pool 或损坏/不完整 OAuth2 bundle 会在 listener 绑定前失败；完整但过期的 bundle 保留为立即
-refresh 输入。manager 对外只发布脱敏 snapshot，对内以 per-credential async gate、同主机 advisory file lock、guarded reload、atomic
+`auth_json_file`。启用 target 引用的 API-key pool 进入不可变 `CredentialStore`；显式配置的 OAuth2 文件在监听前完成首次读取：缺失文件在
+advisory lock 内创建为空并保持待登录，存在且非空的文件完成完整 bundle 校验后进入独立 lifecycle manager，相对 locator 以 upstream TOML 目录为基准。
+未知、缺失或重复 binding、source/kind 错配、同 Provider 多 auth 文件、损坏 TOML、无效 API-key pool 或非空损坏/不完整 OAuth2 bundle 会在
+listener 绑定前失败；完整但过期的 bundle 保留为立即 refresh 输入。manager 对外只发布脱敏 snapshot，对内以 per-credential async gate、同主机 advisory file lock、guarded reload、atomic
 replace 和 generation 维护 rotation；worker 按 expiry safety window 调度，并随 HTTP 服务结束而取消。两份 TOML、用户与 API-key Store
 仍不热重载，OAuth auth 文件只在明确 login 或 guarded refresh transaction 中写入/读取。
 
@@ -176,7 +176,7 @@ Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
 `:free` 变体边界见 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
 ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical context/input limits 独立收窄为 272,000，最大输出保持
-128,000；这组 profile 目前没有 target、Route 或 Public Model。
+128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；GPT-5.5 仍只有目录 profile。
 
 同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
 限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
@@ -273,7 +273,7 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo 与 ChatGPT 的独立静态定义拥有 Provider
-契约、endpoint path、`ProviderRequestHeaders`、request-header hook 与 Responses terminal discriminator；共享 `openai_compatible`
+契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享 `openai_compatible`
 机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API pair
 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek 的 Responses path 缺失时在 adapter 内返回
 `UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
@@ -287,7 +287,8 @@ credential type、来源类别、generation 与可选过期时间，来源类别
 内的认证 header 边界才访问 secret。五个数据面 Provider 只允许 `ApiKey`；ChatGPT contract 只允许
 `OAuth2BearerAccessToken`，其 Provider authentication adapter 要求 access token、account ID、FedRAMP routing flag 与已知 expiry
 保持为不可拆分的 credential material，并把 Bearer、account 与条件性 FedRAMP header 全部放入敏感 header 集。API-key TOML 不能填充
-OAuth pool；当前 OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有，尚未接入 `CredentialStore` 或数据面 adapter 借用路径。
+OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有。ChatGPT ingress 从 manager 取得短生命周期、账户绑定 lease，
+在 adapter 认证边界消费；首个预提交 `401` 触发 guarded reload、必要时 refresh 和一次重放，第二个 `401` 只终态化仍被拒绝的 generation。
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
@@ -299,12 +300,11 @@ source；每个下游协议先按 source 顺序生成全部 Native route，再�
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
-ChatGPT registration 固定 `chatgpt-gpt-5-6-sol` target、Codex backend base、`responses` path、上游模型 `gpt-5.6-sol` 和
-`chatgpt-codex` OAuth pool。target 默认禁用且没有 Route/Public Model，因此不进入 ingress/planning 数据面，也不能由通用 probe
-执行。ChatGPT definition 固定 `originator: codex_cli_rs` 与
-`codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA；该值按已记录 Codex CLI stable release 的 runtime UA 格式选择一个
-headless Linux x86_64 profile，不读取本机 Codex auth、client-version model-list profile、部署主机 OS/environment/terminal identity，
-也不调用 Codex executable/app-server。
+ChatGPT registration 为 Spark 与 GPT-5.6 Luna/Terra/Sol 固定四个 target、同一个 Codex backend、`responses` path、各自的 upstream
+model 和共享 `chatgpt-codex` OAuth pool；四个 Public Model 各有且仅有一个 Responses Native Route。ChatGPT definition 固定
+`Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
+`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。该 profile 不读取本机 Codex auth、
+client-version model-list profile、部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
 `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。
@@ -378,7 +378,7 @@ session 拆到同名目录；原有进程内 metrics 与本地 completion event 
 `openbridge-probe --target <id>` 针对固定 Upstream Target 工作，并按协议选择对应 Upstream API。它复用 target
 endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不 加载下游用户
 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。probe 只允许已启用 target，并只加载所选 target 的
-API-key pool；禁用 target 在 credential 读取与 egress 前被拒绝。CLI 没有本机 Agent auth、client identity 或 executable selector。
+API-key pool；OAuth target 不通过该通用 probe 借用 manager credential。CLI 没有本机 Agent auth、client identity 或 executable selector。
 
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部
@@ -391,8 +391,7 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 - 动态 availability/weight、持久化或分布式 cooldown；
 - OTLP metrics、OTLP logs、Prometheus exporter、指标持久化、历史查询、重置或分布式指标聚合；
 - 可安全投影真实 route/upstream API 信息的内部视图与其他未批准的扩展 HTTP API；
-- Responses WebSocket、ChatGPT 数据面 credential 借用与 401 recovery、常驻 ChatGPT Route/Public Model、hosted tool、MCP 和动态
-  Provider/plugin DSL。
+- Responses WebSocket、其他 ChatGPT model/API、function/hosted tool、MCP、完整 Agent loop 和动态 Provider/plugin DSL。
 - 多 Embeddings candidate、embedding Bridge、向量转换/缓存/索引/检索和 string tokenizer。
 
 ## 关联文档

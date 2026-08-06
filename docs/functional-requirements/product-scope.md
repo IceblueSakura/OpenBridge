@@ -43,10 +43,9 @@ Route。
   `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
 - 已批准但尚未进入实施：在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input
   audio，且无资源归属时拒绝 `file_id`。
-- 已实现控制面与 credential lifecycle：独立、默认禁用且不加入 Public Model 的 ChatGPT Provider；只使用 OpenBridge-owned 配置；
-  显式 private device interaction + PKCE 登录；guarded reload、single-flight、原子 rotation 和 expiry-driven 自动 refresh；不提供本机
-  Codex auth、environment、terminal 或 executable probe。
-- 尚未进入实施：manager 到 ChatGPT Provider header 的数据面借用、401 recovery，以及 Route/Public Model 启用。
+- 已实现 ChatGPT subscription OAuth 与受限数据面：独立 Provider、OpenBridge-owned 配置、显式 private device interaction + PKCE
+  登录、guarded reload、single-flight、原子 rotation、expiry-driven 自动 refresh，以及四个固定 Responses-native Public Model 的
+  manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable probe。
 - 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，逐步把历史分析与派生计算移到外部系统；
   trace 导出闭环已完成，metrics、logs 与现有进程内累计的缩减均须另立[当前开发焦点](../implementation-plans/current-focus.md)。
 
@@ -54,8 +53,8 @@ Embeddings 与 Native 多模态的具体行为和非目标以
 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
 “每次只实施一个可观察行为”的约束；当前 checkout 只提供已在 implementation status 明确记录的能力。
 
-ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；后续方向
-获得批准不等于当前已获实施授权。
+ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
+[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；扩展模型、协议、工具或账户策略仍须另行批准。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
 在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。

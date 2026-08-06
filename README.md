@@ -27,13 +27,13 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 
 - 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
 - Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
-- ChatGPT subscription OAuth：保留默认禁用的独立 Provider，使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录与到期驱动
-  token 续约；不导入本机 Codex 状态，数据面接入仍须另立焦点。
+- ChatGPT subscription OAuth：使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录、到期驱动 token 续约，以及四个固定
+  Responses-native Public Model 的受控数据面借用和有界 `401` 恢复；不导入本机 Codex 状态。
 - 默认禁用、由 bootstrap 独占配置的 OTLP/HTTP observability exporter；trace 导出闭环已完成，metrics、logs 和现有自有累计的缩减
   仍须分别进入后续焦点。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh、OTLP trace 闭环已完成；
-当前没有活动开发焦点，ChatGPT 数据面接入、Native 多模态、OTLP metrics 或 logs 均须另行获准。当前代码事实以
+所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、ChatGPT OAuth2 登录/refresh/Responses 数据面和 OTLP trace 闭环已完成；
+当前没有活动开发焦点，Native 多模态、OTLP metrics 或 logs 均须另行获准。当前代码事实以
 [实施现状目录](docs/implementation-status/README.md)及其功能专题为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
 不在现阶段实施范围。
 
@@ -52,6 +52,8 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 `text-embedding-3-small` 把 Embeddings JSON 请求固定转发到专用 OpenAI target
 `openai-text-embedding-3-small`，其 upstream model 为 `text-embedding-3-small`。该 Embeddings 链路使用严格请求
 union、预提交有界成功体校验、单 Route 有限 retry 与 operation 级脱敏观测；显式 `dimensions` 暂不公开，默认维度为 1536。
+ChatGPT OAuth2 数据面另外公开 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.6-luna`、
+`chatgpt-gpt-5.6-terra` 与 `chatgpt-gpt-5.6-sol` 四个 Responses-only Public Model，固定转发到 ChatGPT Codex backend。
 同时实现有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
 retry/fallback、HTTP 429 credential rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream
 取消传播。显式 `Bridged` Route 还可在两协议间转换 已声明可转换的 text、明文 reasoning channel、function tool、tool
@@ -74,7 +76,8 @@ Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每�
 ```bash
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
-# 编辑两份私有 TOML；填写用户/API key，并按需启用注释中的 ChatGPT auth_json_file。
+# 编辑两份私有 TOML；填写用户/API key，并为已启用的 ChatGPT Public Models 配置 auth_json_file。
+# 首次启动服务前先运行下方 openbridge-auth login chatgpt。
 cargo run --bin openbridge --locked
 ```
 
@@ -94,14 +97,18 @@ otlp_http_endpoint = "http://127.0.0.1:4318"
 TOML、用户与 API-key Store 不热重载。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
 与 trace 只使用已校验的 Provider family、route、target、typed upstream operation 和 Public Model 身份作为低基数维度。
 
-配置 ChatGPT `auth_json_file` 后，可在启动服务前显式登录：
+配置 ChatGPT `auth_json_file` 后，先显式登录并创建完整 bundle：
 
 ```bash
 cargo run --locked --bin openbridge-auth -- login chatgpt
 ```
 
 该命令显示固定 verification URI 和一次性 device code，完成 authorization-code + PKCE exchange 后才事务性写入完整 bundle；它不接受
-issuer、client、endpoint、header、auth-file 或其他应用 cache override。常驻服务只做 expiry-driven 自动 refresh，不会隐式启动交互式登录。
+issuer、client、endpoint、header、auth-file 或其他应用 cache override。常驻服务只做 expiry-driven 自动 refresh 和一次有界
+`401` recovery，不会隐式启动交互式登录。
+
+当前不提供运行时换账户。需要换账户时，先停止服务，手动删除 private upstream 配置所指向的 OpenBridge-owned `auth_json_file`（以及同一
+登录流程明确创建的其他 OpenBridge-owned 授权文件，如有），再运行上述显式登录命令并重新启动服务；不要导入或删除本机 Codex auth cache。
 
 默认监听 `127.0.0.1:8080`。健康检查：
 
@@ -166,8 +173,9 @@ Public Model 契约或导致跳过前序 Route。
 `previous_response_id`；多个潜在签发者没有 issuer ledger，必须在任何上游调用前拒绝，不能盲投首选 Provider。Provider definition 可声明
 固定的非敏感 `User-Agent`/普通 header，受信 request-header hook 也可按编译期规则增添、替换、转换或删除普通 header；请求组装顺序为
 hook、固定 header、purpose-bound authentication。OpenAI 与 LongCat 转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing
-header；ChatGPT 使用固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA 与 `originator`，但其 target 仍默认禁用且没有数据面
-Route。共享层不维护
+header；ChatGPT 使用固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA、`originator` 与 SSE `Accept`，四个 target
+各自只提供一个 Responses Native Route。其 adapter 要求 `stream: true`，把标准字符串 `input` 收窄为等价消息数组、固定
+`store: false`，并在 egress 前拒绝当前 private backend 不接受的输出 token limit 字段。共享层不维护
 普通 header allowlist，客户端不能指定上游 URL、credential、认证 header、固定 header 或转换规则。Transient upstream failure 在提交下游
 response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一 Public Model 已配置的完整 Route fallback，下游断开会
 取消当前 send、退避和后续 attempt。
@@ -193,9 +201,11 @@ API 声明支持 image input、structured output 和 `parallel_tool_calls`，但
 下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 在有序 `api_keys` 与单一
 `auth_json_file` 中二选一。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。服务在监听前
 把已启用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
-`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/不完整 OAuth2 bundle 都会阻止
-启动；完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
+`OAuth2CredentialManager`。未知、缺失或重复 binding、source/kind 错配、无效 API-key pool 或损坏/不完整的非空 OAuth2 bundle 都会阻止
+启动；不存在或为空的 auth 文件会保持待登录状态且不发布 credential snapshot，完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
 TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 auth 文件，成功 rotation 后原子写回并发布新 generation。
+ChatGPT 请求只借用短生命周期的当前 generation；首个预提交 `401` 在同一账户边界内先 guarded reload、必要时 refresh 后只重放一次，
+第二个 `401` 转为 `reauth_required`，不会轮换账户或 fallback 到其他 Provider。
 
 认证成功后的 `downstream_request` span 只记录 request id、operation、Public Model、streaming、低基数终态、直接观测 timing、
 attempt 计数和明确 usage；每次实际上游 attempt 建立一个 `provider_attempt` child span，记录编译期 route、target、Provider family、

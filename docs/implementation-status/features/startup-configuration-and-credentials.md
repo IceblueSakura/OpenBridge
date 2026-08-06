@@ -11,9 +11,10 @@
   bootstrap 字段。
 - 私有 `config/users.toml` 提供下游用户和 API key，私有 `config/upstream-credentials.toml` 提供按编译期 binding 关联的有序 API-key
   pool 或单一 OAuth2 auth 文件。
-- 启动前严格校验缺失、未知、重复、类型不匹配和不可用的 credential binding，并构建不可变 `UserRegistry`、`CredentialStore` 和
-  OAuth2 credential snapshot。
-- 普通 TOML、用户表和 API-key Store 不热重载；OAuth2 manager 只在自己的登录/到期 refresh 流程中加锁读取、校验并原子写回。
+- 启动前严格校验未知、重复、类型不匹配和不可用的 credential binding，并构建不可变 `UserRegistry`、`CredentialStore` 和可用的 OAuth2
+  credential snapshot；缺失的 `auth_json_file` 会创建为空文件并保持待登录，不发布 snapshot，非空损坏文件仍阻止启动。
+- 普通 TOML、用户表和 API-key Store 不热重载；OAuth2 manager 只在自己的登录、到期 refresh 或首个预提交 `401` recovery 流程中
+  加锁读取、校验并在 rotation 时原子写回。
 - 上游 endpoint、认证信息、purpose-bound secret 和普通安全 header 由受信代码注册与 Provider adapter 生成；客户端输入不能覆盖。
 - 不从进程环境变量、`.env` 或本机 Codex 状态读取上游 API key、OAuth2 bundle、terminal identity 或 probe 配置。
 
@@ -28,7 +29,7 @@
 ## 验证证据
 
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖 bootstrap 与注册引用边界。
-- [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖私有上游 credential TOML 的严格解析。
+- [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖私有上游 credential TOML 的严格解析，以及缺失 auth 文件的启动创建和待登录边界。
 - [`tests/credential_store_contract.rs`](../../../tests/credential_store_contract.rs) 覆盖 credential kind、purpose 和 secret 隔离。
 - [`tests/startup_contract.rs`](../../../tests/startup_contract.rs) 覆盖启动时 bundle、绑定和拒绝条件。
 
@@ -37,5 +38,5 @@
 ## 相关文档
 
 - [功能需求：Bootstrap、代码注册表、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
-- [ChatGPT OAuth 启动凭证](chatgpt-oauth-startup.md)
+- [ChatGPT OAuth2 生命周期与 Responses 数据面](chatgpt-oauth-startup.md)
 - [当前代码架构](../current-architecture.md)

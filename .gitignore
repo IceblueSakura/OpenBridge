@@ -11,6 +11,7 @@ config/local.*.toml
 /config/upstream-credentials.toml
 /config/upstream-credentials.*.toml
 !/config/upstream-credentials.example.toml
+config/chatgpt/*
 
 # Standalone protocol corpus derived artifacts and Python tool environments.
 /testdata/generated/
@@ -26,3 +27,4 @@ config/local.*.toml
 !/.idea/dictionaries/
 /.idea/dictionaries/*
 !/.idea/dictionaries/project.xml
+

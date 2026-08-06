@@ -10,7 +10,8 @@ Upstream API 选择协议；probe report 是一次真实环境观察，不是动
   TOML 加载所选 pool 的首个 member；
 - 每次 probe 的 credential snapshot 都只属于本次进程，不参与生产 round-robin，也不修改生产 cursor、cooldown 或源 credential；
 - CLI 不接受 URL、model、header 或 credential 覆盖，不加载下游用户 API Key；
-- probe 只接受已启用 target；默认禁用的 ChatGPT target 在读取 credential 或 egress 前被拒绝；
+- probe 只接受已启用 target，但当前只装载 API-key pool；ChatGPT OAuth target 必须通过常驻服务的 manager 数据面验收，通用 probe 不借用
+  OAuth credential；
 - CLI 不提供本机 Agent auth file、client identity 或 executable selector，也不读取 OS/terminal 状态；
 - report 不修改 `RuntimeRegistry`、`ModelConfig`、capability 或 Route；
 - 真实 Provider probe 会产生网络请求，可能消耗额度、触发限流或受账号状态影响，因此不属于默认验证基线。
@@ -69,6 +70,10 @@ cargo run --bin openbridge-probe -- --target mimo-v2-5 --all
 DeepSeek target 只注册 Chat Upstream API，因此 probe 不能直接验证原生 Responses；下游 Responses→Chat Bridge 由确定性 Rust
 测试覆盖。MiMo target 注册 Chat 与 Responses Upstream API，`--all` 会观察模型列表、两个协议的 最小文本请求与 function
 call/result replay。上述命令在本次文档更新中没有执行，不能据此宣称真实 Provider 已经验收。
+
+四个 ChatGPT OAuth target 虽已启用，但不通过本 CLI 的 API-key snapshot 路径执行。2026-08-06 的真实 ChatGPT 最小 Responses 验收通过
+受保护的下游 `/v1/responses` 和 `OAuth2CredentialManager` 完成，证据见
+[ChatGPT OAuth2 生命周期与 Responses 数据面](features/chatgpt-oauth-startup.md)。
 
 ## 不做的推断
 

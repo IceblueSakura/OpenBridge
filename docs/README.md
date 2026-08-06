@@ -175,15 +175,15 @@ public model name
 3. [`src/providers/openai.rs`](../src/providers/openai.rs)、[`longcat.rs`](../src/providers/longcat.rs)、
    [`openrouter.rs`](../src/providers/openrouter.rs)、[`deepseek.rs`](../src/providers/deepseek.rs)、
    [`mimo.rs`](../src/providers/mimo.rs) 与 [`chatgpt.rs`](../src/providers/chatgpt.rs)：六个已注册 Provider 如何聚合各自目录中的
-   contract、endpoint path、request-header hook 与注册事实；其中 ChatGPT 仅有默认禁用的隔离 target，没有 Route/Public Model。
+   contract、endpoint path、request hook 与注册事实；其中 ChatGPT 通过独立 OAuth manager 服务四个固定 Responses-native Public Model。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
 5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 MiMo 注册双协议和
-Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 保留默认禁用且没有
-Route/Public Model 的独立 Provider 与 OAuth2 启动快照，不提供本机 Codex credential、identity 或 executable probe；
+Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 的四个固定 target 只提供
+Responses Native Route，通过独立 OAuth2 manager 借用 credential，不提供本机 Codex credential、identity 或 executable probe；
 `deepseek-v4-flash` 的 Responses 下游请求使用显式 OpenRouter Native route，`deepseek-v4-pro` 没有 Responses 接口。
 这些路径仍不证明异构 wire protocol Provider 已经实现。
 

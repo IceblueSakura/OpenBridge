@@ -1,6 +1,6 @@
 //! Shared configuration, credential, and RoutePlan fixtures for integration tests.
 
-use std::time::Duration;
+use std::{path::Path, sync::Arc, time::Duration};
 
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
@@ -10,6 +10,7 @@ use openbridge::{
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
+    oauth2_credentials::OAuth2CredentialManager,
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
@@ -18,9 +19,8 @@ use openbridge::{
         RouteMode, RuntimeRegistry, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
         UpstreamApiModelRules, UpstreamTargetConfig, build_registry,
     },
+    upstream_credentials::UpstreamCredentialConfiguration,
 };
-
-use std::sync::Arc;
 
 pub const BOOTSTRAP: &str = r#"
 schema_version = 2
@@ -71,6 +71,9 @@ enabled = true
     // Inject synthetic API keys only into pools required by enabled data-plane targets.
     for pool_id in registry.credential_pool_ids() {
         let pool = registry.credential_pool(pool_id).unwrap();
+        if pool.kind() != CredentialKind::ApiKey {
+            continue;
+        }
         let required = registry.upstream_target_ids().any(|target_id| {
             let target = registry.upstream_target(target_id).unwrap();
             target.enabled() && target.credential_pool_id() == pool.id()
@@ -91,6 +94,54 @@ enabled = true
         }
     }
     (Arc::new(users), Arc::new(credentials.build()))
+}
+
+pub fn users_and_oauth_credentials(
+    api_key: &str,
+    registry: &RuntimeRegistry,
+    auth_json_file: &Path,
+) -> (
+    Arc<UserRegistry>,
+    Arc<CredentialStore>,
+    Arc<OAuth2CredentialManager>,
+) {
+    // Parse one downstream user and retain its shared credential builder.
+    let configuration = UserConfiguration::from_toml(&format!(
+        r#"
+schema_version = 1
+
+[[users]]
+id = "test-user"
+name = "Test User"
+api_key = "{api_key}"
+enabled = true
+"#
+    ))
+    .expect("test user registry must be valid");
+    let (users, mut credentials) = configuration.into_parts();
+
+    // Load one synthetic OpenBridge-owned auth file through the production configuration boundary.
+    let locator = auth_json_file.to_string_lossy().replace('\\', "/");
+    let configuration = UpstreamCredentialConfiguration::from_toml(&format!(
+        r#"
+schema_version = 1
+
+[[credential_pools]]
+id = "chatgpt-codex"
+auth_json_file = "{locator}"
+"#
+    ))
+    .expect("test upstream OAuth2 configuration must be valid");
+    let oauth2_credentials = configuration
+        .load_into_for(&mut credentials, registry, ["chatgpt-codex"])
+        .expect("synthetic ChatGPT OAuth2 bundle must load");
+
+    // Freeze downstream credentials while retaining OAuth2 rotation in its guarded manager.
+    (
+        Arc::new(users),
+        Arc::new(credentials.build()),
+        Arc::new(oauth2_credentials),
+    )
 }
 
 pub fn capabilities() -> ApiCapabilities {

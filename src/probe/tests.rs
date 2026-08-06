@@ -370,8 +370,21 @@ async fn probe_rejects_unknown_target_before_any_egress() {
 
 #[tokio::test]
 async fn probe_rejects_disabled_target_before_credentials_or_egress() {
-    // Select the registered but disabled ChatGPT target without any local credential source.
-    let registry = registry();
+    // Disable one compiled ChatGPT target and remove only its production data-plane publication.
+    let mut definition = providers::compiled_config();
+    let target = definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
+        .unwrap();
+    target.enabled = false;
+    definition
+        .routes
+        .retain(|route| route.upstream_target != "chatgpt-gpt-5-6-sol");
+    definition
+        .public_models
+        .retain(|model| model.id != "chatgpt-gpt-5.6-sol");
+    let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
     let transport = StaticTransport::response(StatusCode::OK, b"{}".to_vec());
     let credentials = CredentialStoreBuilder::new().build();
 

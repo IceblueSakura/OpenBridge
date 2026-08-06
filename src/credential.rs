@@ -466,6 +466,7 @@ impl fmt::Debug for CredentialStore {
 }
 
 /// Short-lived upstream credential view with verified Provider ownership.
+#[derive(Clone, Copy)]
 pub struct UpstreamCredential<'a> {
     provider: ProviderKind,
     pool_id: &'a str,

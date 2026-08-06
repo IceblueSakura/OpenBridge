@@ -17,7 +17,7 @@
 | Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
 | Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |
-| ChatGPT OAuth2 启动凭证生命周期 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs` |
+| ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
 
 ## 横向状态文档
 
