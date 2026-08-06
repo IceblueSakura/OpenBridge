@@ -136,7 +136,7 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 - 两个 synthetic credential 的 target 在首个 member 返回 429 后只等待统一 backoff，并以第二个 member 成功； 后续请求在
   cooldown 到期前跳过首个 member，且任何路径都不突破请求/candidate attempt 上限。
 
-已覆盖的测试源码与最近实际运行的验证范围见[当前实现说明](../implementation-status/current-implementation.md)。
+已覆盖的测试源码与最近实际运行的验证范围见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。
 
 ## 关联文档
 
@@ -144,4 +144,4 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 - [Public Model 与模型能力契约](model-information-and-capability-contract.md)
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
-- [当前实现说明](../implementation-status/current-implementation.md)
+- [当前实现总览](../implementation-status/current-implementation.md)

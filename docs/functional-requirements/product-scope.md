@@ -2,7 +2,7 @@
 
 ## 状态
 
-本文定义当前产品范围。已实现行为和最近验证结果以[当前实现说明](../implementation-status/current-implementation.md)
+本文定义当前产品范围。已实现行为和最近验证结果以[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题
 为准；尚未实现的方向只列为边界，不在这里展开设计。
 
 OpenBridge 尚未发布任何版本，也没有受支持的外部兼容基线。当前功能需求描述准备形成的首个一致契约；在单一当前焦点内，可以直接
@@ -98,9 +98,9 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 
 | 接口                         | 目标用途                                                               | 当前证据入口                                                                                   |
 |------------------------------|------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现说明](../implementation-status/current-implementation.md)。       |
+| `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。       |
 | 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。           | 需求见[扩展需求](embedding-and-native-multimodal.md)，当前实现边界仍见 implementation status。 |
-| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、原始 metrics 与安全 logs。 | trace 已实现；metrics/logs 仍未实施，证据见[当前实现说明](../implementation-status/current-implementation.md)。 |
+| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、原始 metrics 与安全 logs。 | trace 已实现；metrics/logs 仍未实施，证据见[当前实现总览](../implementation-status/current-implementation.md)和遥测专题。 |
 
 ## 暂不纳入当前产品承诺
 
@@ -115,7 +115,7 @@ ChatGPT credential 边界以[ChatGPT subscription OAuth credential lifecycle](up
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 
 本节只限定产品范围，不声明代码缺口。当前实现是否已经覆盖某项核心结果，以
-[当前实现说明](../implementation-status/current-implementation.md)为准；新增承诺只有在功能需求先明确、再进入
+[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题为准；新增承诺只有在功能需求先明确、再进入
 [当前开发焦点](../implementation-plans/current-focus.md)后才形成实施任务。
 
 ## 术语

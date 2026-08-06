@@ -6,8 +6,8 @@
 `ModelConfig`、`ProviderInstanceConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、
 `PublicModelConfig` 与 `RouteConfig`，请求路径使用 `RequestRequirements + RoutePlan`。 Embeddings 使用独立的
 `EmbeddingRequestRequirements + EmbeddingRoutePlan`，不进入 generation-only
-`ApiProtocol` 或 `BridgePlan`。 本页不复制易漂移的测试数量；最近实际运行的命令、结果和未执行验收层统一见
-[当前实现说明](current-implementation.md#验证状态)。
+`ApiProtocol` 或 `BridgePlan`。 本页不复制易漂移的测试数量；各功能页的实际运行命令、结果和未执行验收层统一见
+[实施现状目录](README.md)及其专题页。
 
 当前生产请求同时支持 Native Path 与显式 `Bridged` Route。请求级 `AttemptManager`、单进程跨请求 cooldown、`BridgePlan`、双向
 JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息扩展接口 与固定 Public Model 能力预检也已接入。Embeddings
@@ -383,7 +383,7 @@ API-key pool；禁用 target 在 credential 读取与 egress 前被拒绝。CLI 
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部
 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。最新实际执行结果
-只在[当前实现说明](current-implementation.md#验证状态)维护。
+只在[实施现状目录](README.md)及对应专题页维护。
 
 ## 9. 尚未实现
 
@@ -397,7 +397,7 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 
 ## 关联文档
 
-- [当前实现说明](current-implementation.md)
+- [当前实现总览](current-implementation.md)
 - [遥测指标](telemetry-metrics.md)
 - [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
 - [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)

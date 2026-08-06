@@ -7,7 +7,7 @@
 [当前开发焦点](current-focus.md)，完成测试与最小实现后再更新实施现状并清空当前焦点。
 
 本计划只补强现有产品行为的确定性证据，不改变产品范围、Provider 能力声明、Protocol Bridge 语义或
-默认验收层。当前实现事实仍以[当前实现说明](../implementation-status/current-implementation.md)和
+默认验收层。当前实现事实仍以[当前实现总览](../implementation-status/current-implementation.md)和
 [协议测试语料与工具现状](../implementation-status/protocol-test-corpus.md)为准。
 
 ## 2. 当前测试基线

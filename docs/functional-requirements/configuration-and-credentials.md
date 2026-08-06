@@ -200,5 +200,5 @@ read bootstrap.toml
 - [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
 - [ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
-- [当前实现说明](../implementation-status/current-implementation.md)
+- [当前实现总览](../implementation-status/current-implementation.md)
 - [能力探测](../implementation-status/capability-probing.md)

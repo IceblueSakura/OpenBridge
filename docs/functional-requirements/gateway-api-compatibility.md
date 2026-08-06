@@ -3,7 +3,7 @@
 ## 状态
 
 **当前目标。** 本文定义 OpenBridge 对下游客户端可见的 API、认证、原生 HTTP/SSE 语义和兼容边界；不规定内部模块、converter
-形态或实现顺序。当前已经由代码和测试证明的范围以[当前实现说明](../implementation-status/current-implementation.md)为准。
+形态或实现顺序。当前已经由代码和测试证明的范围以[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题为准。
 
 ## 1. 用户结果
 
@@ -223,4 +223,4 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 - [配置与凭证](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
 - [交付与证据要求](delivery-and-evidence.md)
-- [当前实现说明](../implementation-status/current-implementation.md)
+- [当前实现总览](../implementation-status/current-implementation.md)

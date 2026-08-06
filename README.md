@@ -34,7 +34,7 @@ OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试
 
 所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、OAuth2 启动快照、ChatGPT 登录与 refresh、OTLP trace 闭环已完成；
 当前没有活动开发焦点，ChatGPT 数据面接入、Native 多模态、OTLP metrics 或 logs 均须另行获准。当前代码事实以
-[实施现状](docs/implementation-status/current-implementation.md)为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
+[实施现状目录](docs/implementation-status/README.md)及其功能专题为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
 不在现阶段实施范围。
 
 核心稳定后再考虑：
@@ -261,7 +261,8 @@ observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具�
 | [Public Model 与模型能力契约](docs/functional-requirements/model-information-and-capability-contract.md)   | 模型信息、固定能力预检、Models API 与禁止能力路由边界              | 功能需求   |
 | [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界               | 功能需求   |
 | [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md)                                | 固定 Route 顺序、状态亲和、限流、冷却、重试与错误传播              | 功能需求   |
-| [当前实现说明](docs/implementation-status/current-implementation.md)                                       | 当前代码真正验证的行为和未证明事项                                 | 实施现状   |
+| [实施现状目录](docs/implementation-status/README.md)                                                        | 按功能点组织的当前实现事实、证据和未验证边界                       | 实施现状   |
+| [当前实现总览](docs/implementation-status/current-implementation.md)                                       | 功能专题导航、证据层级和未完成范围                                 | 实施现状   |
 | [遥测指标](docs/implementation-status/telemetry-metrics.md)                                                | Provider attempt 性能、usage、cache 指标口径和读取边界             | 实施现状   |
 | [当前代码架构](docs/implementation-status/current-architecture.md)                                         | 按层次描述当前源码模块、请求路径、依赖和结构限制                   | 实施现状   |
 | [当前开发焦点](docs/implementation-plans/current-focus.md)                                                 | 一个短周期行为的测试先行记录                                       | 实施计划   |

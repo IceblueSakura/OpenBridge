@@ -5,7 +5,7 @@
 **当前目标。** 本文集中定义 Public Model 的公共身份、模型信息、固定接口能力、请求预检和 Models API
 边界。它是“模型支持什么”的唯一功能需求入口；Route 执行、retry、fallback 与 cooldown 见
 [路由与 Provider 韧性](provider-resilience.md)，当前实现事实见
-[当前实现说明](../implementation-status/current-implementation.md)。
+[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。
 
 ## 1. 用户结果
 
@@ -203,4 +203,4 @@ LiteLLM/OpenRouter 目录新鲜度。
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
 - [LiteLLM/OpenRouter 模型信息综合调研](../references/cross-project/model-information-comparison.md)
-- [当前实现说明](../implementation-status/current-implementation.md)
+- [当前实现总览](../implementation-status/current-implementation.md)

@@ -8,7 +8,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 | 目标                |  建议用时 | 阅读范围                                                        | 完成标志                                                 |
 |---------------------|----------:|-----------------------------------------------------------------|----------------------------------------------------------|
-| 快速了解项目        |   30 分钟 | 根 README → 产品范围 → 当前实现说明 → 当前代码架构              | 能解释项目解决什么问题、当前只支持什么路径、明确不做什么 |
+| 快速了解项目        |   30 分钟 | 根 README → 产品范围 → 实施现状目录 → 当前代码架构              | 能解释项目解决什么问题、当前只支持什么路径、明确不做什么 |
 | 看懂一次请求        | 2～3 小时 | 快速路线 + 启动装配 + Ingress → Pipeline → Provider → Transport | 能从 endpoint 追到上游请求，再追到下游响应               |
 | 准备修改代码        |  半天以上 | 请求调用链 + 对应功能需求 + 契约测试 + 当前开发焦点             | 能指出行为需求、失败测试、最小改动面和验证边界           |
 | 深挖协议或 Provider |    按专题 | 对应实现模块 + OpenAI 协议参考 + corpus/testkit                 | 能区分项目事实、外部协议事实和仍待真实验证的结论         |
@@ -40,9 +40,10 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
    1/2，其他媒体/资源协议仍是参考。
 4. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)
    ：确认模型信息、固定能力预检和禁止能力路由边界。
-5. [当前实现说明](implementation-status/current-implementation.md)：把“目标”与“当前代码事实”分开。
-6. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 指标、进程内读取边界及可选 OTLP traces。
-7. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
+5. [实施现状目录](implementation-status/README.md)：按功能点阅读已经完成的实现事实和验证边界。
+6. [当前实现总览](implementation-status/current-implementation.md)：查看功能专题导航、证据层级和未完成范围。
+7. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 指标、进程内读取边界及可选 OTLP traces。
+8. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
 
 这一阶段暂时不要钻进具体函数。读完后应能回答：
 
@@ -200,7 +201,7 @@ Route/Public Model 的独立 Provider 与 OAuth2 启动快照，不提供本机 
 | [`testdata/`](../testdata/README.md)                              | canonical Chat/Responses/SSE/tool/error corpus                          | 任一 case 已经过 OpenBridge runtime                  |
 | [`tools/corpus/`](../tools/corpus/README.md)                      | Python corpus 管理、Mock Client/Server 与单 case observation 判定       | 自动启动 SUT、多 attempt runner、真实 Agent/Provider |
 
-已执行结果、版本和未接入边界以[实施现状](implementation-status/README.md)为准，不要只根据测试文件存在就宣称 某层已经验证。
+已执行结果、版本和未接入边界以[实施现状目录](implementation-status/README.md)及对应功能专题为准，不要只根据测试文件存在就宣称某层已经验证。
 
 ## 10. 按问题选择专题路线
 

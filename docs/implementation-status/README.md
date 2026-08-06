@@ -1,16 +1,39 @@
-# 实施现状
+# 实施现状目录
 
-本目录只记录已由当前代码、测试或明确验证记录支持的事实；未实施的设计和后续设想不在这里作状态声明。 同一事实出现冲突时，按“当前
-checkout → 对应确定性测试 → 本目录最近一次实际验证记录”的顺序处理；历史计数 或外部观察不得覆盖 live source。
+本目录只记录当前 checkout 已经实现，并由代码、测试或明确验证记录支持的事实。每个已完成的功能点使用一个专题文件，专题文件是该功能
+的唯一状态来源；未实施的设计、后续设想和外部协议调研分别放在 `implementation-plans/`、`functional-requirements/` 和 `references/`。
 
-| 功能             | 文档                                            | 内容                                                                         |
-|------------------|-------------------------------------------------|------------------------------------------------------------------------------|
-| 全局运行行为     | [当前实现说明](current-implementation.md)       | 已实现路径、已证明范围、限制与验证命令                                       |
-| 当前代码架构     | [当前代码架构](current-architecture.md)         | 按运行、注册表、接入、路由、Provider、Transport/SSE 和验证层描述 live source |
-| 遥测与指标       | [遥测指标](telemetry-metrics.md)                | Provider attempt 指标口径、进程内读取边界及可选 OTLP traces                  |
-| 上游能力发现     | [上游模型发现与能力探测](capability-probing.md) | 探测 CLI 的行为、边界和输出处理                                              |
-| 独立协议测试资产 | [协议测试语料与工具](protocol-test-corpus.md)   | corpus、Python 管理工具、Mock Server/Client、验证结果与尚未集成边界          |
+## 已完成的功能点
 
-当前可路由 Provider/Public Model 矩阵和最新 Rust 验证统一写在[当前实现说明](current-implementation.md)，避免在
-多个专题页维护易漂移副本。更新实现现状前，先明确证据来自哪项代码、测试或脱敏验证；静态源码、确定性 mock/fixture、外部
-SDK、独立客户端、目标 Agent 与真实 Provider 的结论必须分开表述。
+专题页统一使用“状态 → 已完成内容 → 实现边界 → 验证证据 → 未覆盖范围 → 相关文档”的结构，便于区分实现事实和验收结论。
+
+| 功能点 | 专题文件 | 主要证据入口 |
+|---|---|---|
+| HTTP 网关接口与下游认证 | [gateway-http-api-and-auth.md](features/gateway-http-api-and-auth.md) | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs` |
+| 启动配置、用户与受信凭证边界 | [startup-configuration-and-credentials.md](features/startup-configuration-and-credentials.md) | `tests/config_contract.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
+| Provider/Model/Target/API/Route/Public Model 注册表 | [provider-registry-and-model-catalog.md](features/provider-registry-and-model-catalog.md) | `tests/native_routing_contract.rs`、`tests/provider*_contract.rs` |
+| Models 接口、公共契约与能力预检 | [models-api-and-capability-preflight.md](features/models-api-and-capability-preflight.md) | `tests/native_routing_contract.rs`、`tests/capability_definition_contract.rs` |
+| Chat/Responses Native 转发 | [native-generation-forwarding.md](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
+| Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
+| Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
+| OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |
+| ChatGPT OAuth2 启动凭证生命周期 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs` |
+
+## 横向状态文档
+
+| 文档 | 用途 |
+|---|---|
+| [当前实现总览](current-implementation.md) | 功能页导航、证据层级和未完成范围总览 |
+| [当前代码架构](current-architecture.md) | 模块所有权、装配链和请求数据流；不是功能清单 |
+| [运行时指标与遥测](telemetry-metrics.md) | 进程内 gateway/provider 快照和可选 OTLP trace 的口径与生命周期 |
+| [上游模型发现与能力探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
+| [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
+
+## 证据和维护规则
+
+同一事实出现冲突时，按“当前 checkout → 对应确定性测试 → 本目录最近一次实际验证记录”的顺序处理；历史计数和外部观察不得覆盖 live
+source。静态源码、确定性 mock/fixture、loopback/独立客户端、外部 SDK、目标 Agent、真实 Provider、负载和长期运行分别是不同证据层，
+专题页必须明确写出实际运行和未运行的层次。
+
+新增完成行为时，先为一个可观察功能点建立专题文件，再把目录和相关导航链接同步更新；不要把同一功能重新复制到多个状态页，也不要把
+计划或参考资料写成已完成事实。

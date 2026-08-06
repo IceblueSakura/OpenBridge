@@ -81,6 +81,6 @@ call/result replay。上述命令在本次文档更新中没有执行，不能�
 
 ## 关联文档
 
-- [当前实现说明](current-implementation.md)
+- [当前实现总览](current-implementation.md)
 - [当前代码架构](current-architecture.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)

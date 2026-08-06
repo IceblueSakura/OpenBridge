@@ -193,6 +193,5 @@ TTFT 1,618 ms、64 output tokens、2,509 ms generation duration 和约 25.508 to
 和 output speed 都保持 0 样本，usage 与 token 正常累计；gateway 为 2 started、2 completed、0 error，连续读取无副作用。
 这些 gateway TTFT 只证明客户端首次获得完整 JSON 的时间，不证明 Provider 实际首 token 或解码速度。
 
-最近一次验证：更新的 1 个 bootstrap 配置 contract 与 2 个 OTLP trace contract 均通过；`cargo test --locked` 共 263 个测试
-通过、2 个外部客户端测试 ignored，`cargo clippy --locked -- -D warnings` 通过。仓库级 fmt、差异检查与 collector 安装检查见
-[当前实现说明](current-implementation.md)。未运行真实 Provider、外部 SDK、负载或长期运行验收。
+最近一次记录的验证：bootstrap 配置 contract 与 OTLP trace contract 通过；Rust 测试与 Clippy 的具体命令、版本和未执行验收层以
+[实施现状目录](README.md)及相关专题页为准。未运行真实 Provider、外部 SDK、负载或长期运行验收。
