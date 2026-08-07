@@ -305,25 +305,6 @@ fn error_adapter_returns_safe_coarse_retry_guidance() {
 }
 
 #[test]
-fn provider_definition_is_the_single_contract_and_adapter_source() {
-    for kind in [
-        ProviderKind::OpenAi,
-        ProviderKind::LongCat,
-        ProviderKind::DeepSeek,
-        ProviderKind::MiMo,
-        ProviderKind::OpenRouter,
-    ] {
-        let definition = kind.definition();
-        let contract = definition.contract();
-        let adapter = definition.adapter();
-
-        assert_eq!(definition.kind(), kind);
-        assert_eq!(contract.kind(), kind);
-        assert!(std::ptr::eq(adapter.contract(), contract));
-    }
-}
-
-#[test]
 fn longcat_contract_exposes_only_the_verified_native_surface() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
     let contract = adapter.contract();

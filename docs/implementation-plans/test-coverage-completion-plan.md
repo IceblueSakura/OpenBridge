@@ -12,18 +12,19 @@
 
 ## 2. 当前测试基线
 
-本快照于 2026-08-02 从当前 checkout 的测试收集结果和 canonical catalog 得到：
+本快照于 2026-08-07 在第一阶段低质量测试清理后，从当前 checkout 的测试收集结果和 canonical catalog 得到：
 
 | 测试资产               | 当前数量 | 主要责任                                                                  |
 |------------------------|---------:|---------------------------------------------------------------------------|
-| Rust 源码内单元测试    |       21 | 局部算法、状态、边界类型和安全不变量                                      |
-| Rust 默认集成测试      |      113 | registry、routing、Provider、HTTP/SSE、retry/fallback、取消和 Bridge      |
-| Rust ignored SDK 测试  |        1 | 当前 OpenAI Python/Node SDK 的 opt-in loopback 兼容性                     |
+| Rust 源码内单元测试    |       55 | 局部算法、状态、边界类型和安全不变量                                      |
+| Rust 默认集成测试      |      221 | registry、routing、Provider、HTTP/SSE、retry/fallback、取消和 Bridge      |
+| Rust ignored 客户端测试 |        2 | 独立 Embeddings Python client 与 OpenAI Python/Node SDK opt-in loopback    |
 | Python testkit 测试    |       36 | corpus、SSE parser、Mock Server/Client、observation verifier、生成与打包  |
 | Canonical corpus       | 45 cases | Chat/Responses、Bridge、HTTP error、SSE terminal、transport 与取消 oracle |
 | 默认 SSE wire variants |      306 | Python 所有的确定性 byte fragmentation 覆盖                               |
 
-Rust 共收集到 134 个默认测试和 1 个 ignored SDK 测试。静态 case-id 引用扫描显示，45 个 canonical case 中有 26 个被 Rust
+Rust 共收集到 276 个默认测试和 2 个 ignored 客户端测试。第一阶段删除了 7 个只锁定私有模块位置、指针身份、普通容器操作或
+重复已存在强契约的测试，并把混合的 reasoning-output 测试收窄到唯一未重复的 MiMo Native 行为。静态 case-id 引用扫描显示，45 个 canonical case 中有 26 个被 Rust
 测试源码直接引用，19 个未被直接引用。这个数字只表示 fixture 与 Rust 测试的直接连接， 不等于 19 个行为完全没有 synthetic
 contract test，也不构成行覆盖率或分支覆盖率结论。
 

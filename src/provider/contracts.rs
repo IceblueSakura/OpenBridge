@@ -135,30 +135,9 @@ impl fmt::Debug for SafeHeaders {
 
 #[cfg(test)]
 mod tests {
-    use http::{HeaderName, HeaderValue, header::USER_AGENT};
+    use http::{HeaderName, header::USER_AGENT};
 
     use super::*;
-
-    #[test]
-    fn safe_headers_support_regular_header_rewrite_and_drop() {
-        let source = HeaderName::from_static("x-provider-source");
-        let target = HeaderName::from_static("x-provider-target");
-        let mut headers = SafeHeaders::default();
-
-        headers
-            .insert(source.clone(), HeaderValue::from_static("source-value"))
-            .unwrap();
-        headers
-            .insert(
-                target.clone(),
-                HeaderValue::from_static("transformed-value"),
-            )
-            .unwrap();
-        headers.remove(source.clone());
-
-        assert!(headers.get(source).is_none());
-        assert_eq!(headers.get(target).unwrap(), "transformed-value");
-    }
 
     #[test]
     fn compiled_request_headers_apply_custom_values_and_fail_closed() {
