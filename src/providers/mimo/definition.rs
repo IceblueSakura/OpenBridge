@@ -3,12 +3,37 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{
+        ApiCapabilities, ChatCompletionsCapabilities, ImageInputCapabilities, ImageInputSource,
+        ImageMediaType, ReasoningOutput, ResponsesCapabilities,
+    },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
     providers::openai_compatible::OpenAiCompatibleAdapter,
+};
+
+const IMAGE_SOURCES: &[ImageInputSource] =
+    &[ImageInputSource::RemoteUrl, ImageInputSource::DataUrl];
+const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
+    ImageMediaType::Jpeg,
+    ImageMediaType::Png,
+    ImageMediaType::Gif,
+    ImageMediaType::Webp,
+    ImageMediaType::Bmp,
+];
+const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
+    sources: IMAGE_SOURCES,
+    media_types: IMAGE_MEDIA_TYPES,
+    detail_default: None,
+    allowed_details: &[],
+    max_parts: 64,
+    max_url_length: 8_192,
+    max_inline_encoded_bytes: 50 * 1024 * 1024,
+    max_inline_decoded_bytes: 38 * 1024 * 1024,
+    max_total_inline_encoded_bytes: 50 * 1024 * 1024,
+    max_total_inline_decoded_bytes: 38 * 1024 * 1024,
 };
 
 /// Confirmed MiMo capability ceiling for Chat Completions and Responses; readable reasoning output
@@ -21,7 +46,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             streaming: true,
             function_calling: true,
             parallel_tool_calls: true,
-            image_input: true,
+            image_input: Some(IMAGE_INPUT),
             structured_outputs: true,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
@@ -41,7 +66,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             streaming: true,
             function_calling: true,
             parallel_tool_calls: true,
-            image_input: true,
+            image_input: Some(IMAGE_INPUT),
             structured_outputs: true,
             store: false,
             previous_response_id: false,

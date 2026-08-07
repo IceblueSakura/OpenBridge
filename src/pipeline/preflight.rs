@@ -34,7 +34,7 @@ pub(super) fn preflight_public_model<'a>(
 
     // Validate every modeled request fact against the single fixed interface contract.
     validate_interface_request(
-        requirements.requested_capabilities,
+        &requirements.requested_capabilities,
         requirements.requested_output_tokens,
         interface.capabilities(),
     )?;
@@ -116,7 +116,7 @@ pub(super) fn preflight_embedding_public_model<'a>(
 
 /// Returns the most specific fail-closed error from the fixed interface contract.
 fn validate_interface_request(
-    requested_features: RequestedCapabilities,
+    requested_features: &RequestedCapabilities,
     requested_output_tokens: Option<u64>,
     interface: &ModelInterfaceCapabilities,
 ) -> Result<(), RequestPlanningError> {
@@ -124,20 +124,51 @@ fn validate_interface_request(
     if requested_features.unmodeled_tools {
         return Err(RequestPlanningError::UnsupportedCapabilities);
     }
-    if requested_features.generation.streaming && !interface.supports_streaming() {
+    if requested_features.streaming && !interface.supports_streaming() {
         return Err(RequestPlanningError::StreamingUnsupported);
     }
-    if (requested_features.generation.function_calling && !interface.supports_function_calling())
-        || (requested_features.generation.parallel_tool_calls
-            && !interface.supports_parallel_tool_calls())
-        || (requested_features.generation.image_input && !interface.supports_image_input())
-        || (requested_features.generation.structured_outputs
-            && !interface.supports_structured_outputs())
-        || (requested_features.generation.store && !interface.supports_store())
+    if (requested_features.function_calling && !interface.supports_function_calling())
+        || (requested_features.parallel_tool_calls && !interface.supports_parallel_tool_calls())
+        || (requested_features.structured_outputs && !interface.supports_structured_outputs())
+        || (requested_features.store && !interface.supports_store())
         || (requested_features.previous_response_id && !interface.supports_previous_response_id())
         || (requested_features.background && !interface.supports_background())
     {
         return Err(RequestPlanningError::UnsupportedCapabilities);
+    }
+
+    // Validate every frozen image source, format, detail, and local limit against one fixed profile.
+    if let Some(requested) = requested_features.image_input.as_ref() {
+        let image = interface
+            .image_input()
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        let unsupported = requested.unsupported_media_type
+            || requested
+                .sources
+                .iter()
+                .any(|source| !image.supports_source(*source))
+            || requested
+                .media_types
+                .iter()
+                .any(|media_type| !image.supports_media_type(*media_type))
+            || requested
+                .details
+                .iter()
+                .any(|detail| !image.supports_detail(*detail));
+        if unsupported {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+
+        // Keep locally countable size failures distinct from unsupported source semantics.
+        let exceeds_limit = requested.part_count > image.max_parts()
+            || requested.max_url_length > image.max_url_length()
+            || requested.max_inline_encoded_bytes > image.max_inline_encoded_bytes()
+            || requested.max_inline_decoded_bytes > image.max_inline_decoded_bytes()
+            || requested.total_inline_encoded_bytes > image.max_total_inline_encoded_bytes()
+            || requested.total_inline_decoded_bytes > image.max_total_inline_decoded_bytes();
+        if exceeds_limit {
+            return Err(RequestPlanningError::MultimodalInputLimitExceeded);
+        }
     }
 
     // Enforce the fixed output limit when the request carries an explicit value.

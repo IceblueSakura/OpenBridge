@@ -831,34 +831,79 @@ fn compiled_reasoning_output_types_match_deepseek_flash_and_mimo_v25_routes() {
         ReasoningOutput::Unknown
     );
 
-    // MiMo Bridge cannot safely represent existing reasoning items, so the fixed contract cannot skip its Bridge candidate.
+    // MiMo V2.5 is Native-only, so an existing Responses reasoning item no longer encounters a lossy Bridge candidate.
     let mimo_body = bytes::Bytes::from(
         r#"{"model":"mimo-v2.5","input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"prior"}]}]}"#,
     );
     let mimo_profile = analyze_request(ApiProtocol::Responses, &mimo_body).unwrap();
-    assert!(matches!(
-        plan_request(&registry, &mimo_profile, mimo_body),
-        Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
-    ));
+    let mimo_plan = plan_request(&registry, &mimo_profile, mimo_body).unwrap();
+    assert_eq!(mimo_plan.candidates().len(), 1);
+    assert_eq!(
+        mimo_plan.candidates()[0].route_id(),
+        "mimo-v2-5-mimo-responses"
+    );
+    assert!(mimo_plan.candidates()[0].bridge().is_none());
 }
 
 #[test]
-fn mimo_models_are_compiled_with_dual_native_first_routes() {
+fn mimo_v25_image_requests_use_only_same_protocol_native_routes() {
+    // Compile the production catalog so image eligibility is evaluated from the complete fixed interfaces.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let cases = [
+        (
+            ApiProtocol::ChatCompletions,
+            bytes::Bytes::from_static(
+                br#"{"model":"mimo-v2.5","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}},{"type":"text","text":"describe"}]}]}"#,
+            ),
+            "mimo-v2-5-mimo-chat",
+            OperationKind::ChatCompletions,
+        ),
+        (
+            ApiProtocol::Responses,
+            bytes::Bytes::from_static(
+                br#"{"model":"mimo-v2.5","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="},{"type":"input_text","text":"describe"}]}]}"#,
+            ),
+            "mimo-v2-5-mimo-responses",
+            OperationKind::Responses,
+        ),
+    ];
+
+    // Require each image request to bind exactly one Native endpoint without a reverse-Bridge candidate.
+    for (protocol, body, expected_route, expected_operation) in cases {
+        let profile = analyze_request(protocol, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        assert_eq!(plan.candidates().len(), 1);
+        assert_eq!(plan.candidates()[0].route_id(), expected_route);
+        assert_eq!(
+            plan.candidates()[0].upstream_operation(),
+            expected_operation
+        );
+        assert!(plan.candidates()[0].bridge().is_none());
+    }
+}
+
+#[test]
+fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
     // Build the complete compiled registry and check the fixed trusted boundaries of both MiMo targets.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    for (public_name, target_id, canonical_model, route_prefix) in [
+    for (public_name, target_id, canonical_model, route_prefix, supports_images, has_bridges) in [
         (
             "mimo-v2.5-pro",
             "mimo-v2-5-pro",
             "xiaomi/mimo-v2.5-pro",
             "mimo-v2-5-pro-mimo",
+            false,
+            true,
         ),
         (
             "mimo-v2.5",
             "mimo-v2-5",
             "xiaomi/mimo-v2.5",
             "mimo-v2-5-mimo",
+            true,
+            false,
         ),
     ] {
         let target = registry
@@ -918,7 +963,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
         assert!(chat_capabilities.parallel_tool_calls);
-        assert!(chat_capabilities.image_input);
+        assert_eq!(chat_capabilities.image_input.is_some(), supports_images);
         assert!(chat_capabilities.structured_outputs);
         assert!(!chat_capabilities.store);
         let responses_capabilities = match target
@@ -935,25 +980,33 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             }
         };
         assert!(responses_capabilities.parallel_tool_calls);
-        assert!(responses_capabilities.image_input);
+        assert_eq!(
+            responses_capabilities.image_input.is_some(),
+            supports_images
+        );
         assert!(responses_capabilities.structured_outputs);
         assert!(!responses_capabilities.store);
         assert!(!responses_capabilities.previous_response_id);
         assert!(!responses_capabilities.background);
 
-        // Verify Native-first, reverse-Bridge-second ordering for both downstream protocols.
+        // Verify the model-specific Native and reverse-Bridge route surfaces.
         let public_model = registry
             .public_model(public_name)
             .expect("MiMo Public Model should be compiled");
-        assert_eq!(
-            public_model.routes(),
-            [
+        let expected_routes = if has_bridges {
+            vec![
                 format!("{route_prefix}-chat"),
                 format!("{route_prefix}-chat-via-responses"),
                 format!("{route_prefix}-responses"),
                 format!("{route_prefix}-responses-via-chat"),
             ]
-        );
+        } else {
+            vec![
+                format!("{route_prefix}-chat"),
+                format!("{route_prefix}-responses"),
+            ]
+        };
+        assert_eq!(public_model.routes(), expected_routes);
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -970,9 +1023,10 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
+            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
         }
 
-        // Function tools are shared by both complete Routes, preserving Native-first and Bridge fallback ordering.
+        // Function tools remain available on every compiled candidate.
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -993,10 +1047,10 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
-            assert_eq!(plan.candidates().len(), 2);
+            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
         }
 
-        // Image input remains outside the reverse Bridge and is rejected before egress.
+        // Image input is admitted only for mimo-v2.5 and remains Native-only.
         for (protocol, body) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -1007,16 +1061,23 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             (
                 ApiProtocol::Responses,
                 format!(
-                    r#"{{"model":"{public_name}","input":[{{"type":"input_image","image_url":"https://example.invalid/image.png"}}]}}"#
+                    r#"{{"model":"{public_name}","input":[{{"role":"user","content":[{{"type":"input_image","image_url":"https://example.invalid/image.png"}}]}}]}}"#
                 ),
             ),
         ] {
             let body = bytes::Bytes::from(body);
             let profile = analyze_request(protocol, &body).unwrap();
-            assert!(matches!(
-                plan_request(&registry, &profile, body),
-                Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
-            ));
+            let plan = plan_request(&registry, &profile, body);
+            if supports_images {
+                let plan = plan.expect("mimo-v2.5 image input should use its Native route");
+                assert_eq!(plan.candidates().len(), 1);
+                assert!(plan.candidates()[0].bridge().is_none());
+            } else {
+                assert!(matches!(
+                    plan,
+                    Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+                ));
+            }
         }
 
         // Structured output is now shared by the modeled Native and reverse-Bridge paths.
@@ -1040,7 +1101,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
-            assert_eq!(plan.candidates().len(), 2);
+            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
         }
 
         // Verify that MiMo's stateless boundary still rejects stateful Responses requests.

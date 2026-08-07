@@ -41,7 +41,8 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
         RequestPlanningError::InvalidJson
         | RequestPlanningError::MissingModel
-        | RequestPlanningError::InvalidReasoningConfiguration => api_error(
+        | RequestPlanningError::InvalidReasoningConfiguration
+        | RequestPlanningError::InvalidMultimodalInput => api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
             "Request body is invalid",
@@ -56,6 +57,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
         | RequestPlanningError::StreamingUnsupported
         | RequestPlanningError::UnsupportedCapabilities
         | RequestPlanningError::OutputLimitExceeded
+        | RequestPlanningError::MultimodalInputLimitExceeded
         | RequestPlanningError::ReasoningUnsupported
         | RequestPlanningError::ReasoningLevelUnsupported => api_error(
             StatusCode::BAD_REQUEST,

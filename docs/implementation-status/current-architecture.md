@@ -302,7 +302,8 @@ OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有�
 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
 source；每个下游协议先按 source 顺序生成全部 Native route，再按 相同顺序生成指向相反 Upstream API 的 Bridged route。当前
 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
-的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain。Bridge
+的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；前者保留文本
+Bridge，后者为支持图片契约而只注册两个同协议 Native Route。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
 ChatGPT registration 为 Spark 与 GPT-5.6 Luna/Terra/Sol 固定四个 target、同一个 Codex backend、`responses` path、各自的 upstream
@@ -313,7 +314,9 @@ model 和共享 `chatgpt-codex` OAuth pool；四个 Public Model 各有且仅有
 `/models?client_version=0.146.0` query 是编译期固定的 adapter 事实，不由本机 client profile 提供。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
-`GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。
+`GenerationCapabilities` 只是公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。Chat/Responses
+`image_input` 使用 source、MIME、detail 和本地可计数 limit 组成的 typed profile；request analyzer 将实际图片事实冻结后交给固定
+interface preflight，不以图片能力筛选候选。
 `EmbeddingsCapabilities` 独立拥有 input forms、encoding/dimension domain、request limits 与 可选参数，不参与 generation
 intersection 或 Bridge。canonical
 `ModelConfig` 记录已核实的 `mode`、`input_modalities`、`output_modalities`、tokenizer 和 knowledge cutoff；当前 OpenRouter

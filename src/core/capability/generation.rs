@@ -1,7 +1,9 @@
 //! Chat Completions and Responses capability ceilings.
 //!
-//! This module owns generation-only fields and the common projection used for subset checks and
-//! request analysis. Reserved protocol positions fail closed until their runtime semantics exist.
+//! This module owns generation-only fields and the common projection used for subset checks.
+//! Reserved protocol positions fail closed until their runtime semantics exist.
+
+use serde::Serialize;
 
 /// Observable output type for upstream-generated reasoning.
 ///
@@ -96,10 +98,147 @@ pub enum ResponseInclude {
     ReasoningEncryptedContent,
 }
 
+/// Standard image source kinds accepted by one protocol-native input profile.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageInputSource {
+    /// An absolute HTTPS URL fetched by the upstream Provider.
+    RemoteUrl,
+    /// An inline RFC 2397-style Base64 data URL.
+    DataUrl,
+    /// An opaque Provider-issued file identifier.
+    FileId,
+}
+
+/// Image media types that OpenBridge can validate without inspecting image content.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ImageMediaType {
+    /// JPEG image data.
+    #[serde(rename = "image/jpeg")]
+    Jpeg,
+    /// PNG image data.
+    #[serde(rename = "image/png")]
+    Png,
+    /// GIF image data.
+    #[serde(rename = "image/gif")]
+    Gif,
+    /// WebP image data.
+    #[serde(rename = "image/webp")]
+    Webp,
+    /// BMP image data.
+    #[serde(rename = "image/bmp")]
+    Bmp,
+}
+
+impl ImageMediaType {
+    /// Parses one canonical image media type without accepting aliases or parameters.
+    pub(crate) fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "image/jpeg" => Some(Self::Jpeg),
+            "image/png" => Some(Self::Png),
+            "image/gif" => Some(Self::Gif),
+            "image/webp" => Some(Self::Webp),
+            "image/bmp" => Some(Self::Bmp),
+            _ => None,
+        }
+    }
+}
+
+/// Standard image-detail values carried by Chat or Responses image parts.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageDetail {
+    /// Lets the upstream choose the effective image detail.
+    Auto,
+    /// Requests a low-detail representation.
+    Low,
+    /// Requests a high-detail representation.
+    High,
+    /// Requests the original image resolution when supported.
+    Original,
+}
+
+impl ImageDetail {
+    /// Parses one standard image-detail wire value.
+    pub(crate) fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "low" => Some(Self::Low),
+            "high" => Some(Self::High),
+            "original" => Some(Self::Original),
+            _ => None,
+        }
+    }
+}
+
+/// Provider or Upstream API ceiling for protocol-native image inputs.
+///
+/// Byte limits apply to the Base64 payload after the data-URL prefix. The gateway request-body
+/// limit remains an independent deployment-wide ceiling and may be smaller.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImageInputCapabilities {
+    /// Allowed source kinds.
+    pub sources: &'static [ImageInputSource],
+    /// Allowed inline data-URL media types.
+    pub media_types: &'static [ImageMediaType],
+    /// Effective detail when the part omits `detail`, if the Provider documents one.
+    pub detail_default: Option<ImageDetail>,
+    /// Explicit detail values accepted on the wire.
+    pub allowed_details: &'static [ImageDetail],
+    /// Maximum image parts in one request.
+    pub max_parts: u32,
+    /// Maximum UTF-8 bytes in one remote URL.
+    pub max_url_length: u32,
+    /// Maximum Base64 characters in one inline image.
+    pub max_inline_encoded_bytes: u32,
+    /// Maximum decoded bytes in one inline image.
+    pub max_inline_decoded_bytes: u32,
+    /// Maximum cumulative Base64 characters across inline images.
+    pub max_total_inline_encoded_bytes: u32,
+    /// Maximum cumulative decoded bytes across inline images.
+    pub max_total_inline_decoded_bytes: u32,
+}
+
+impl ImageInputCapabilities {
+    /// Returns whether this profile stays within another Provider or API ceiling.
+    fn is_subset_of(self, upper: Self) -> bool {
+        self.sources
+            .iter()
+            .all(|source| upper.sources.contains(source))
+            && self
+                .media_types
+                .iter()
+                .all(|media_type| upper.media_types.contains(media_type))
+            && self.detail_default == upper.detail_default
+            && self
+                .allowed_details
+                .iter()
+                .all(|detail| upper.allowed_details.contains(detail))
+            && self.max_parts <= upper.max_parts
+            && self.max_url_length <= upper.max_url_length
+            && self.max_inline_encoded_bytes <= upper.max_inline_encoded_bytes
+            && self.max_inline_decoded_bytes <= upper.max_inline_decoded_bytes
+            && self.max_total_inline_encoded_bytes <= upper.max_total_inline_encoded_bytes
+            && self.max_total_inline_decoded_bytes <= upper.max_total_inline_decoded_bytes
+    }
+}
+
+/// Returns whether one optional image profile is conservatively bounded by another.
+fn image_input_is_subset_of(
+    value: Option<ImageInputCapabilities>,
+    upper: Option<ImageInputCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+        (Some(_), None) => false,
+    }
+}
+
 /// Shared generation-capability projection for Chat Completions and Responses.
 ///
-/// This value is used only for request analysis and common-protocol subset checks; static
-/// registrations must use [`ChatCompletionsCapabilities`] or [`ResponsesCapabilities`].
+/// This value is used only for common-protocol subset checks; static registrations must use
+/// [`ChatCompletionsCapabilities`] or [`ResponsesCapabilities`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GenerationCapabilities {
     /// Whether the endpoint is enabled.
@@ -110,8 +249,8 @@ pub(crate) struct GenerationCapabilities {
     pub(crate) function_calling: bool,
     /// Whether the request wire field `parallel_tool_calls: true` is supported.
     pub(crate) parallel_tool_calls: bool,
-    /// Whether image input content parts are supported.
-    pub(crate) image_input: bool,
+    /// Typed image input profile, or `None` when images are unsupported.
+    pub(crate) image_input: Option<ImageInputCapabilities>,
     /// Whether structured-output constraints are supported.
     pub(crate) structured_outputs: bool,
     /// Whether the request wire field `store: true` is supported.
@@ -122,12 +261,12 @@ pub(crate) struct GenerationCapabilities {
 
 impl GenerationCapabilities {
     /// Returns whether the current capabilities stay within the given ceiling.
-    pub(crate) const fn is_subset_of(self, upper: Self) -> bool {
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
             && (!self.streaming || upper.streaming)
             && (!self.function_calling || upper.function_calling)
             && (!self.parallel_tool_calls || upper.parallel_tool_calls)
-            && (!self.image_input || upper.image_input)
+            && image_input_is_subset_of(self.image_input, upper.image_input)
             && (!self.structured_outputs || upper.structured_outputs)
             && (!self.store || upper.store)
             && self.reasoning_output.is_subset_of(upper.reasoning_output)
@@ -149,8 +288,8 @@ pub struct ChatCompletionsCapabilities {
     pub function_calling: bool,
     /// Whether the request wire field `parallel_tool_calls: true` is supported.
     pub parallel_tool_calls: bool,
-    /// Whether `image_url` input content parts are supported.
-    pub image_input: bool,
+    /// Typed `image_url` input profile, or `None` when images are unsupported.
+    pub image_input: Option<ImageInputCapabilities>,
     /// Whether `response_format` or strict-function structured-output constraints are supported.
     pub structured_outputs: bool,
     /// Whether the request wire field `store: true` is supported.
@@ -237,8 +376,8 @@ pub struct ResponsesCapabilities {
     pub function_calling: bool,
     /// Whether parallel tool calls are supported.
     pub parallel_tool_calls: bool,
-    /// Whether image input is supported.
-    pub image_input: bool,
+    /// Typed `input_image` profile, or `None` when images are unsupported.
+    pub image_input: Option<ImageInputCapabilities>,
     /// Whether structured output is supported.
     pub structured_outputs: bool,
     /// Whether persistent responses are supported.

@@ -41,6 +41,12 @@ pub enum RequestPlanningError {
     /// The request provides conflicting reasoning configuration sources or shapes.
     #[error("request contains conflicting reasoning configuration")]
     InvalidReasoningConfiguration,
+    /// A multimodal content part is malformed or appears outside its protocol-defined position.
+    #[error("request contains invalid multimodal input")]
+    InvalidMultimodalInput,
+    /// Locally countable multimodal input exceeds a checked arithmetic or interface limit.
+    #[error("request multimodal input exceeds the configured limit")]
+    MultimodalInputLimitExceeded,
 }
 
 /// Stable classification for Embeddings request analysis and fixed-interface planning failures.

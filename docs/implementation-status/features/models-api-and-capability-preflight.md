@@ -8,7 +8,7 @@
 ## 已完成内容
 
 - `GET /v1/models` 与 `GET /v1/models/{model}` 提供 OpenAI 标准四字段模型对象；扩展 Models 提供 operation、输入/输出 modality、reasoning、
-  state 和 `supported_parameters` 等下游安全事实。
+  state、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
 - 每个 Public Model 的 Chat、Responses、Embeddings interface 在启动期按所有可执行 candidate 的保守交集编译；未知事实保持未知，不被
   猜测为支持。
 - 请求先解析 operation-specific requirements，再对选定 Public Model 做一次能力、限制和 state-affinity preflight；不支持的请求在任何
@@ -40,4 +40,5 @@
 
 - [功能需求：Public Model 与模型能力契约](../../functional-requirements/model-information-and-capability-contract.md)
 - [Provider 注册表与模型目录](provider-registry-and-model-catalog.md)
+- [`mimo-v2.5` Native 图片输入](native-image-input.md)
 - [HTTP 网关接口与下游认证](gateway-http-api-and-auth.md)

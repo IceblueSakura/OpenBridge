@@ -86,6 +86,11 @@ async fn documentation_endpoints_serve_openapi_and_swagger_ui_without_authentica
     assert!(spec.contains("/v1/chat/completions:"));
     assert!(spec.contains("/v1/responses:"));
     assert!(spec.contains("/v1/embeddings:"));
+    assert!(spec.contains("multimodal_input:"));
+    assert!(spec.contains("ImageInputInterfaceCapabilities:"));
+    assert!(spec.contains("ChatImageUrl:"));
+    assert!(spec.contains("ResponsesInputItem:"));
+    assert!(spec.contains("type: input_image"));
     assert!(spec.contains("EmbeddingInterfaceCapabilities:"));
     assert!(spec.contains("EmbeddingRequest:"));
     assert!(spec.contains("EmbeddingResponse:"));

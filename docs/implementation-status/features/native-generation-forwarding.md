@@ -13,6 +13,8 @@
 - 已声明的 reasoning level 可以按 Provider 规则映射到 wire value；未知或未声明 level 在 egress 前拒绝。
 - 当前 Native surface 包括 OpenAI `gpt-5.6-sol`、LongCat `LongCat-2.0`、DeepSeek Chat、OpenRouter 的
   `deepseek-v4-flash` Chat/无状态 Responses，以及 Xiaomi MiMo 的 Chat/Responses。
+- `mimo-v2.5` 的两个同协议 Native surface 还支持固定 typed contract 内的 URL/Base64 图片输入；具体边界和真实 Provider 证据由
+  [Native 图片专题](native-image-input.md)记录。
 - OpenRouter 的 `store: true`、非空 `previous_response_id` 和 `background: true` 等未声明状态语义在 egress 前拒绝；DeepSeek V4 当前只
   注册 Chat Native API。
 - 上游 safe response headers、SSE framing、terminal、EOF-before-terminal 和 body failure 在统一 ingress/transport 边界处理。
@@ -36,5 +38,6 @@
 
 - [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api-compatibility.md)
 - [协议 Bridge](protocol-bridge.md)
+- [`mimo-v2.5` Native 图片输入](native-image-input.md)
 - [重试、fallback、cooldown 与取消](resilience-retry-fallback-and-cancellation.md)
 - [当前代码架构](../current-architecture.md)

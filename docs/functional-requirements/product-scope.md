@@ -44,8 +44,8 @@ Route。
 
 - 已实现并由确定性 contract/独立 Python loopback 证明：通过独立 Embedding Public Model 调用
   `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；
-- 已批准但尚未进入实施：在 Chat/Responses 同协议 Native Route 中支持已声明的 image、inline/URL file 和 Chat input
-  audio，且无资源归属时拒绝 `file_id`。
+- 已实现首个切片：`mimo-v2.5` 在 Chat/Responses 同协议 Native Route 中支持已声明的 URL/Base64 image，并在无资源归属时拒绝
+  `file_id`；inline/URL file 与 Chat input audio 仍已批准但未实施。
 - 已实现 ChatGPT subscription OAuth 与受限数据面：独立 Provider、OpenBridge-owned 配置、显式 private device interaction + PKCE
   登录、guarded reload、single-flight、原子 rotation、expiry-driven 自动 refresh，以及四个固定 Responses-native Public Model 的
   manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable selector。管理员
@@ -102,7 +102,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 | 接口                         | 目标用途                                                               | 当前证据入口                                                                                   |
 |------------------------------|------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。       |
-| 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。           | 需求见[扩展需求](embedding-and-native-multimodal.md)，当前实现边界仍见 implementation status。 |
+| 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。           | `mimo-v2.5` 图片切片已实现；file/audio 仍未实施，证据见 implementation status。 |
 | OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、原始 metrics 与安全 logs。 | trace 已实现；metrics/logs 仍未实施，证据见[当前实现总览](../implementation-status/current-implementation.md)和遥测专题。 |
 
 ## 暂不纳入当前产品承诺

@@ -254,7 +254,8 @@ paths:
         Accepts a Chat Completions JSON request and executes Native forwarding or a restricted
         Chat-to-Responses bridge through the complete route. When stream is true, successful
         responses use text/event-stream. Tool calls are forwarded at the wire level only;
-        OpenBridge does not execute tools.
+        OpenBridge does not execute tools. Image parts require a model whose fixed Chat interface
+        exposes multimodal_input.image and are supported only on a same-protocol Native route.
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -279,6 +280,18 @@ paths:
                     - role: user
                       content: hello
                   stream: true
+              imageUnderstanding:
+                summary: MiMo Native image-understanding request
+                value:
+                  model: mimo-v2.5
+                  messages:
+                    - role: user
+                      content:
+                        - type: image_url
+                          image_url:
+                            url: https://example.com/image.png
+                        - type: text
+                          text: Describe the image.
       responses:
         '200':
           description: Non-streaming JSON or streaming SSE response
@@ -316,7 +329,8 @@ paths:
         surface is stateless Responses; store, previous_response_id, and background are governed
         by the selected Public Model's fixed capability contract. State affinity continues to
         constrain subsequent execution and fallback. When stream is true, successful responses use
-        text/event-stream.
+        text/event-stream. Image parts require a model whose fixed Responses interface exposes
+        multimodal_input.image and are supported only on a same-protocol Native route.
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -337,6 +351,17 @@ paths:
                   model: gpt-5.6-sol
                   input: hello
                   stream: true
+              imageUnderstanding:
+                summary: MiMo Native image-understanding request
+                value:
+                  model: mimo-v2.5
+                  input:
+                    - role: user
+                      content:
+                        - type: input_image
+                          image_url: https://example.com/image.png
+                        - type: input_text
+                          text: Describe the image.
       responses:
         '200':
           description: Non-streaming JSON or streaming SSE response
@@ -1081,12 +1106,14 @@ components:
       type: object
       additionalProperties: false
       required:
-        [ context_window, modalities, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state ]
+        [ context_window, modalities, multimodal_input, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state ]
       properties:
         context_window:
           $ref: '#/components/schemas/ContextWindow'
         modalities:
           $ref: '#/components/schemas/ModelModalities'
+        multimodal_input:
+          $ref: '#/components/schemas/MultimodalInputCapabilities'
         supported_parameters:
           type: array
           uniqueItems: true
@@ -1107,6 +1134,95 @@ components:
           $ref: '#/components/schemas/SupportState'
         state:
           $ref: '#/components/schemas/StateCapabilities'
+
+    MultimodalInputCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ image ]
+      properties:
+        image:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ImageInputInterfaceCapabilities'
+
+    ImageInputInterfaceCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ sources, media_types, detail, limits ]
+      properties:
+        sources:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ remote_url, data_url, file_id ]
+        media_types:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ image/jpeg, image/png, image/gif, image/webp, image/bmp ]
+        detail:
+          $ref: '#/components/schemas/ImageDetailCapabilities'
+        limits:
+          $ref: '#/components/schemas/ImageInputLimits'
+
+    ImageDetailCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ default, allowed ]
+      properties:
+        default:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ImageDetail'
+        allowed:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ImageDetail'
+
+    ImageDetail:
+      type: string
+      enum: [ auto, low, high, original ]
+
+    ImageInputLimits:
+      type: object
+      additionalProperties: false
+      required:
+        [ max_parts, max_url_length, max_inline_encoded_bytes, max_inline_decoded_bytes, max_total_inline_encoded_bytes, max_total_inline_decoded_bytes ]
+      properties:
+        max_parts:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_url_length:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_inline_encoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_inline_decoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_total_inline_encoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_total_inline_decoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
 
     SupportState:
       type: string
@@ -1241,8 +1357,7 @@ components:
             - type: string
             - type: array
               items:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/ResponsesInputItem'
             - type: object
               additionalProperties: true
         stream:
@@ -1354,8 +1469,47 @@ components:
         text:
           type: string
         image_url:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/ChatImageUrl'
+
+    ChatImageUrl:
+      type: object
+      required: [ url ]
+      additionalProperties: true
+      properties:
+        url:
+          type: string
+          minLength: 1
+        detail:
+          $ref: '#/components/schemas/ImageDetail'
+
+    ResponsesInputItem:
+      type: object
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+        role:
+          type: string
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsesContentPart'
+
+    ResponsesContentPart:
+      type: object
+      required: [ type ]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+        text:
+          type: string
+        image_url:
+          type: string
+        file_id:
+          type: string
+        detail:
+          $ref: '#/components/schemas/ImageDetail'
 
     Tool:
       type: object

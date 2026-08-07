@@ -1,10 +1,12 @@
 //! Request facts and Route execution-plan data types.
 
+use std::collections::BTreeSet;
+
 use crate::{
     bridge::BridgePlan,
     core::{
         ApiProtocol, ApiRequest, EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest,
-        GenerationCapabilities, OperationKind,
+        ImageDetail, ImageInputSource, ImageMediaType, OperationKind,
     },
     registry::ReasoningLevel,
 };
@@ -70,16 +72,37 @@ pub struct RouteCandidate {
     pub(super) bridge: Option<BridgePlan>,
 }
 
-/// Capabilities actually used by one request. This is not the Upstream API configuration:
-/// `generation` is shared by both endpoints,
-/// requirement; Responses-specific state remains separate to avoid conflating the fixed contracts.
-#[derive(Clone, Copy, Debug)]
+/// Capabilities actually used by one request, independent of any Upstream API configuration.
+///
+/// Common generation requirements are explicit fields; Responses-only state remains separate so
+/// request analysis cannot conflate the two fixed protocol contracts.
+#[derive(Debug)]
 pub(super) struct RequestedCapabilities {
-    pub(super) generation: GenerationCapabilities,
+    pub(super) streaming: bool,
+    pub(super) function_calling: bool,
+    pub(super) parallel_tool_calls: bool,
+    pub(super) image_input: Option<ImageInputRequirements>,
+    pub(super) structured_outputs: bool,
+    pub(super) store: bool,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
+}
+
+/// Frozen image-input facts extracted without selecting or inspecting any Route.
+#[derive(Debug, Default)]
+pub(super) struct ImageInputRequirements {
+    pub(super) sources: BTreeSet<ImageInputSource>,
+    pub(super) media_types: BTreeSet<ImageMediaType>,
+    pub(super) details: BTreeSet<ImageDetail>,
+    pub(super) unsupported_media_type: bool,
+    pub(super) part_count: u32,
+    pub(super) max_url_length: u32,
+    pub(super) max_inline_encoded_bytes: u32,
+    pub(super) max_inline_decoded_bytes: u32,
+    pub(super) total_inline_encoded_bytes: u32,
+    pub(super) total_inline_decoded_bytes: u32,
 }
 
 #[derive(Clone, Copy, Debug)]

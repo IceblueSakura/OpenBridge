@@ -5,7 +5,8 @@ use http::{HeaderMap, header::USER_AGENT};
 use crate::{
     core::{
         ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
+        EmbeddingInputForm, EmbeddingsCapabilities, ImageDetail, ImageInputCapabilities,
+        ImageInputSource, ImageMediaType, ReasoningOutput, ResponsesCapabilities,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -27,6 +28,41 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
+const CHAT_IMAGE_SOURCES: &[ImageInputSource] =
+    &[ImageInputSource::RemoteUrl, ImageInputSource::DataUrl];
+const RESPONSES_IMAGE_SOURCES: &[ImageInputSource] = &[
+    ImageInputSource::RemoteUrl,
+    ImageInputSource::DataUrl,
+    ImageInputSource::FileId,
+];
+const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
+    ImageMediaType::Jpeg,
+    ImageMediaType::Png,
+    ImageMediaType::Gif,
+    ImageMediaType::Webp,
+];
+const IMAGE_DETAILS: &[ImageDetail] = &[
+    ImageDetail::Auto,
+    ImageDetail::Low,
+    ImageDetail::High,
+    ImageDetail::Original,
+];
+const CHAT_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
+    sources: CHAT_IMAGE_SOURCES,
+    media_types: IMAGE_MEDIA_TYPES,
+    detail_default: Some(ImageDetail::Auto),
+    allowed_details: IMAGE_DETAILS,
+    max_parts: 500,
+    max_url_length: 8_192,
+    max_inline_encoded_bytes: 20 * 1024 * 1024,
+    max_inline_decoded_bytes: 15 * 1024 * 1024,
+    max_total_inline_encoded_bytes: 50 * 1024 * 1024,
+    max_total_inline_decoded_bytes: 38 * 1024 * 1024,
+};
+const RESPONSES_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
+    sources: RESPONSES_IMAGE_SOURCES,
+    ..CHAT_IMAGE_INPUT
+};
 
 /// Static OpenAI adapter capabilities and permitted endpoint/credential scope.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -37,7 +73,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             streaming: true,
             function_calling: true,
             parallel_tool_calls: true,
-            image_input: true,
+            image_input: Some(CHAT_IMAGE_INPUT),
             structured_outputs: true,
             store: true,
             reasoning_output: ReasoningOutput::Unknown,
@@ -57,7 +93,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             streaming: true,
             function_calling: true,
             parallel_tool_calls: true,
-            image_input: true,
+            image_input: Some(RESPONSES_IMAGE_INPUT),
             structured_outputs: true,
             store: true,
             previous_response_id: true,

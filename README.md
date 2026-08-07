@@ -50,8 +50,8 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
 | `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | Chat 可来自 DeepSeek；Responses 使用 OpenRouter Native |
-| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo Native-first，并保留已声明语义的 Bridge 候选 |
-| `mimo-v2.5` | Chat、Responses | `mimo-primary` | Xiaomi MiMo Native-first，并保留已声明语义的 Bridge 候选 |
+| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
+| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
@@ -175,6 +175,34 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 Windows PowerShell 中如果 `curl` 被映射为 `Invoke-WebRequest`，请使用 `curl.exe`，或改用 PowerShell 的 HTTP
 请求命令。
+
+### 4.5 `mimo-v2.5` Native 图片理解
+
+`mimo-v2.5` 的 Chat 与 Responses interface 都公开类型化 `multimodal_input.image`。下面两个请求分别走同协议 Native Route；
+`mimo-v2.5-pro`、Chat ↔ Responses Bridge、`file_id` 和显式 `detail` 不在该能力内。
+
+Chat Completions：
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mimo-v2.5","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/image.png"}},{"type":"text","text":"Describe the image."}]}]}'
+```
+
+Responses：
+
+```bash
+curl http://127.0.0.1:8080/v1/responses \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mimo-v2.5","input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/image.png"},{"type":"input_text","text":"Describe the image."}]}]}'
+```
+
+远程来源必须是有界的绝对 HTTPS URL；inline 来源使用规范的
+`data:image/<format>;base64,<payload>`，当前允许 JPEG、PNG、GIF、WebP 和 BMP。OpenBridge 另施加每请求最多 64 个图片 part、
+单 URL 最多 8192 UTF-8 字节及启动配置中的总请求体上限。默认 `max_request_body_bytes` 仅为 1 MiB，因此它会先于 MiMo 文档中的
+50 MB 单图上游上限限制较大的 Base64 请求。
 
 ## 5. Bootstrap 配置
 

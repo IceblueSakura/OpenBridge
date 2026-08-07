@@ -337,8 +337,14 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
     assert!(contract.capabilities().responses.function_calling);
     assert!(!contract.capabilities().chat_completions.parallel_tool_calls);
     assert!(!contract.capabilities().responses.parallel_tool_calls);
-    assert!(!contract.capabilities().chat_completions.image_input);
-    assert!(!contract.capabilities().responses.image_input);
+    assert!(
+        contract
+            .capabilities()
+            .chat_completions
+            .image_input
+            .is_none()
+    );
+    assert!(contract.capabilities().responses.image_input.is_none());
     assert!(!contract.capabilities().chat_completions.structured_outputs);
     assert!(!contract.capabilities().responses.structured_outputs);
 }
@@ -386,14 +392,14 @@ fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_re
 
     let chat = capabilities.chat_completions;
     assert!(chat.parallel_tool_calls);
-    assert!(chat.image_input);
+    assert!(chat.image_input.is_some());
     assert!(chat.structured_outputs);
     assert!(!chat.store);
     assert_eq!(chat.reasoning_output, ReasoningOutput::Unknown);
 
     let responses = capabilities.responses;
     assert!(responses.parallel_tool_calls);
-    assert!(responses.image_input);
+    assert!(responses.image_input.is_some());
     assert!(responses.structured_outputs);
     assert!(!responses.store);
     assert!(!responses.previous_response_id);

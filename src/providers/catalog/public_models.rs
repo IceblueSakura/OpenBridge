@@ -99,7 +99,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-mimo",
                 upstream_target: "mimo-v2-5",
-                surface: PublicModelSurface::DualProtocolWithBridges,
+                surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
     ]

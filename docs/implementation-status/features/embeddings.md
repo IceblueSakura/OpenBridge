@@ -21,7 +21,7 @@
   [`src/pipeline/analysis/embeddings.rs`](../../../src/pipeline/analysis/embeddings.rs)。
 - Route 注册位于 [`src/providers/catalog/routing.rs`](../../../src/providers/catalog/routing.rs)，转发与成功体校验位于
   [`src/ingress/forwarding/embeddings.rs`](../../../src/ingress/forwarding/embeddings.rs)。
-- 该功能的 JSON compatibility 不代表其他 OpenAI 扩展资源或 Native multimodal 已实现。
+- 该功能的 JSON compatibility 不代表其他 OpenAI 扩展资源、Native file/audio 或图片切片之外的多模态已实现。
 
 ## 验证证据
 

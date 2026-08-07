@@ -3,7 +3,10 @@
 mod support;
 
 use openbridge::{
-    core::{ApiProtocol, OperationKind, ReasoningOutput},
+    core::{
+        ApiProtocol, ImageDetail, ImageInputCapabilities, ImageInputSource, ImageMediaType,
+        OperationKind, ReasoningOutput,
+    },
     pipeline::RequestPlanningError,
     registry::{
         ModelContextLength, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
@@ -12,6 +15,21 @@ use openbridge::{
     },
 };
 use serde_json::{Value, json};
+
+const TINY_IMAGE_SOURCES: &[ImageInputSource] = &[ImageInputSource::DataUrl];
+const TINY_IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[ImageMediaType::Png];
+const TINY_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
+    sources: TINY_IMAGE_SOURCES,
+    media_types: TINY_IMAGE_MEDIA_TYPES,
+    detail_default: Some(ImageDetail::Auto),
+    allowed_details: &[],
+    max_parts: 2,
+    max_url_length: 64,
+    max_inline_encoded_bytes: 4,
+    max_inline_decoded_bytes: 3,
+    max_total_inline_encoded_bytes: 4,
+    max_total_inline_decoded_bytes: 3,
+};
 
 fn base_definition() -> RegistryConfig {
     support::definition("routing-test", "public-model", "upstream-model")
@@ -459,6 +477,57 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
         support::prepare(&registry, ApiProtocol::Responses, invalid_shape.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
     ));
+}
+
+#[test]
+fn native_image_preflight_enforces_per_part_and_cumulative_inline_byte_limits() {
+    // Compile one deliberately small typed image profile for both protocol-native interfaces.
+    let mut definition = base_definition();
+    for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut upstream_api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.image_input = Some(TINY_IMAGE_INPUT);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.image_input = Some(TINY_IMAGE_INPUT);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => unreachable!("generation fixture"),
+        }
+    }
+    let registry = build_test_registry(definition);
+
+    // Accept one four-character payload whose canonical decoded size is exactly three bytes.
+    let accepted = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": [{
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AAAA"}
+        }]}]
+    }))
+    .unwrap();
+    assert!(support::prepare(&registry, ApiProtocol::ChatCompletions, accepted.into()).is_ok());
+
+    // Reject either one oversized part or two individually valid parts exceeding the cumulative ceiling.
+    for content in [
+        json!([{
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AAAAAAAA"}
+        }]),
+        json!([
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        ]),
+    ] {
+        let body = serde_json::to_vec(&json!({
+            "model": "public-model",
+            "messages": [{"role": "user", "content": content}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+            RequestPlanningError::MultimodalInputLimitExceeded
+        ));
+    }
 }
 
 #[test]

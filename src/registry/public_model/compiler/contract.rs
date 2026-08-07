@@ -15,10 +15,11 @@ use crate::{
 
 use super::super::{
     ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
-    EmbeddingInterfaceCapabilities, EmbeddingLimits, InterfaceReasoningCapabilities,
-    ModelCapabilities, ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities,
-    ModelTask, ReasoningOutputMode, StateCapabilities, StructuredOutputCapabilities,
-    StructuredOutputMode, SupportState, ToolCapabilities, ToolChoiceMode, ToolType,
+    EmbeddingInterfaceCapabilities, EmbeddingLimits, ImageInputInterfaceCapabilities,
+    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelModalities,
+    ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities, ReasoningOutputMode,
+    StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode, SupportState,
+    ToolCapabilities, ToolChoiceMode, ToolType,
 };
 use super::PublicRouteBinding;
 
@@ -84,6 +85,7 @@ pub(super) struct RouteContractContribution {
     continuation_issuer: ContinuationIssuer,
     context_window: ContextWindow,
     modalities: ModelModalities,
+    image_input: Option<ImageInputInterfaceCapabilities>,
     model_modalities: Option<ModelModalities>,
     model_description: Option<String>,
     model_tokenizer: Option<String>,
@@ -128,7 +130,10 @@ impl RouteContractContribution {
         // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
         let structured_outputs = generation.structured_outputs;
-        let image_input = generation.image_input && !bridged;
+        let mut image_input = (!bridged)
+            .then_some(generation.image_input)
+            .flatten()
+            .map(ImageInputInterfaceCapabilities::from_capabilities);
         let store = generation.store && !bridged;
         let reasoning = route_reasoning_support(upstream_api, bridged);
         let reasoning_levels = if reasoning == SupportState::Supported {
@@ -164,7 +169,7 @@ impl RouteContractContribution {
             background,
         );
         let mut input = vec![InputModality::Text];
-        if image_input {
+        if image_input.is_some() {
             input.push(InputModality::Image);
         }
         if audio_input {
@@ -179,6 +184,9 @@ impl RouteContractContribution {
         }
         if let Some(model_input) = upstream_api.model().input_modalities() {
             input.retain(|modality| model_input.contains(modality));
+            if !model_input.contains(&InputModality::Image) {
+                image_input = None;
+            }
         }
         if let Some(model_output) = upstream_api.model().output_modalities() {
             output.retain(|modality| model_output.contains(modality));
@@ -207,6 +215,7 @@ impl RouteContractContribution {
             },
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
+            image_input,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -266,6 +275,7 @@ impl RouteContractContribution {
             },
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
+            image_input: None,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -505,6 +515,9 @@ pub(super) fn aggregate_interface<'a>(
         ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
         ModelModalities::intersection(contributions.iter().map(|value| &value.modalities));
+    let image_input = ImageInputInterfaceCapabilities::intersection(
+        contributions.iter().map(|value| value.image_input.as_ref()),
+    );
     let previous_response_id = aggregate_previous_response_id(&contributions);
     let mut supported_parameters = intersect_sets(
         contributions
@@ -538,6 +551,7 @@ pub(super) fn aggregate_interface<'a>(
     Some(ModelInterfaceCapabilities {
         context_window,
         modalities,
+        multimodal_input: MultimodalInputCapabilities { image: image_input },
         supported_parameters,
         streaming,
         system_messages: SupportState::intersection(

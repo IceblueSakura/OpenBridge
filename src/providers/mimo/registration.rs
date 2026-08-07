@@ -30,12 +30,14 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             xiaomi::mimo_v2_5_pro::ID,
             "mimo-v2.5-pro",
             "mimo-primary",
+            false,
         ),
         target(
             "mimo-v2-5",
             xiaomi::mimo_v2_5::ID,
             "mimo-v2.5",
             "mimo-primary",
+            true,
         ),
     ]
 }
@@ -46,7 +48,16 @@ fn target(
     canonical_model: &str,
     upstream_model: &str,
     credential_id: &str,
+    image_input: bool,
 ) -> UpstreamTargetConfig {
+    // Narrow the Provider ceiling because current MiMo evidence limits image understanding to V2.5.
+    let mut capabilities = *CONTRACT.capabilities();
+    if !image_input {
+        capabilities.chat_completions.image_input = None;
+        capabilities.responses.image_input = None;
+    }
+
+    // Build the immutable target with the model-specific API ceiling.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -56,6 +67,6 @@ fn target(
         fault_domain: Some("mimo-api".to_owned()),
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: native_upstream_apis(upstream_model, *CONTRACT.capabilities()),
+        upstream_apis: native_upstream_apis(upstream_model, capabilities),
     }
 }

@@ -2,19 +2,19 @@
 
 ## 状态与范围
 
-**两项目标均已批准；Embeddings 已完成当前实现，Native 多模态尚未进入开发焦点。** 现阶段扩展范围仍只包含：
+**两项目标均已批准；Embeddings 与首个 Native 图片切片已完成当前实现，file/audio 仍未实施。** 现阶段扩展范围仍只包含：
 
 1. OpenAI-compatible `POST /v1/embeddings`；
 2. 现有 Chat Completions/Responses 的 Native JSON 多模态输入。
 
-当前没有活动开发焦点；Native 多模态仍是已批准但未获得实施授权的独立目标。扩展 Models
+当前完成切片仅开放 `mimo-v2.5` Chat/Responses 同协议 Native 图片输入；file、audio 和其他模型仍须独立焦点。扩展 Models
 接口公开的类型化输入能力必须能被同一份不可变执行接口直接预检；只有该固定契约明确允许的输入形状、来源和选项才能进入 Native
 egress。它不是对所有 OpenAI 媒体 API 的并行实现授权；Embeddings
 的完成事实与实际证据只记录在[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题中。
 
 扩展 schema 在本次实现前尚未发布，因此采用首版最佳实践迁移：保持 `schema_version: "1"` 并直接修正
 DTO、parser、registry、OpenAPI、配置与测试，不提供旧字段镜像、兼容 alias、双读写、默认回退或弃用窗口。已完成的 Embeddings
-实现没有顺带改动多模态 reserved bool；多模态进入后续独立焦点时再原子替换其 bool/保留位设计。
+实现没有顺带开放 file/audio reserved fields；图片切片已把粗粒度 bool 原子替换为逐协议 typed image profile。
 
 外部协议字段与媒体形状分别见 [Embeddings 协议调研](../references/openai/protocol-details/01-embeddings.md)
 与 [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)。

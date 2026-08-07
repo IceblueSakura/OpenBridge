@@ -9,7 +9,8 @@ mod request;
 pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
     ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-    EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ReasoningOutput, ResponseInclude,
+    EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ImageDetail,
+    ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
     ResponsesCapabilities,
 };
 pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

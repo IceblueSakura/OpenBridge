@@ -22,11 +22,13 @@ pub use error::RegistryError;
 pub(crate) use public_model::ModelExecutionInterface;
 pub use public_model::{
     ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
-    EmbeddingInterfaceCapabilities, EmbeddingLimits, InterfaceReasoningCapabilities,
+    EmbeddingInterfaceCapabilities, EmbeddingLimits, ImageDetailCapabilities,
+    ImageInputInterfaceCapabilities, ImageInputLimits, InterfaceReasoningCapabilities,
     ModelCapabilities, ModelInterfaceCapabilities, ModelInterfaces, ModelModalities,
-    ModelReasoningCapabilities, ModelTask, PublicModel, PublicModelInfo, ReasoningOutputMode,
-    StandardModel, StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode,
-    SupportState, ToolCapabilities, ToolChoiceMode, ToolType,
+    ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities, PublicModel,
+    PublicModelInfo, ReasoningOutputMode, StandardModel, StateCapabilities,
+    StructuredOutputCapabilities, StructuredOutputMode, SupportState, ToolCapabilities,
+    ToolChoiceMode, ToolType,
 };
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,
