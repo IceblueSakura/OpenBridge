@@ -79,7 +79,8 @@ fn upstream_target(
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: canonical_model.to_owned(),
+        canonical_model: canonical_model.to_owned(),
+        provider_model: ProviderKind::ChatGpt.routing_model_id(canonical_model),
         credential_pool: "chatgpt-codex".to_owned(),
         quota_scope: Some("chatgpt-codex".to_owned()),
         fault_domain: Some("chatgpt-codex-backend".to_owned()),

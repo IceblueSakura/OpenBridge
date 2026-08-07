@@ -30,7 +30,7 @@ use openbridge::{
     core::{ApiProtocol, OperationKind},
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
-    providers::build_compiled_registry,
+    providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
         ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
         RouteMode, UpstreamTarget, build_registry,
@@ -883,7 +883,9 @@ fn app_with_chatgpt_oauth(
     // Compile the production ChatGPT targets and load only the synthetic OAuth2 source needed by this test.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
         .expect("checked-in bootstrap must be valid");
-    let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
+    let active_pools = std::collections::BTreeSet::from(["chatgpt-codex".to_owned()]);
+    let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pools)
+        .expect("compiled registry must be valid");
     let (users, credentials, oauth2_credentials) = support::users_and_oauth_credentials(
         "downstream-token-00000000000000000000000000000000",
         &registry,
@@ -969,6 +971,7 @@ fn add_responses_fallback(
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = target_id.to_owned();
     fallback.provider_instance = provider_instance.to_owned();
+    fallback.provider_model = provider.routing_model_id(&fallback.canonical_model);
     if provider != definition.credential_pools[0].provider {
         let pool_id = format!("{target_id}-pool");
         definition
@@ -1107,7 +1110,7 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
         "chatgpt-gpt-5.5",
         "chatgpt-gpt-5.6-luna",
         "chatgpt-gpt-5.6-terra",
-        "chatgpt-gpt-5.6-sol",
+        "gpt-5.6-sol",
     ] {
         let request = Request::post("/v1/responses")
             .header(CONTENT_TYPE, "application/json")
@@ -1180,7 +1183,7 @@ async fn chatgpt_chat_requests_use_the_responses_to_chat_bridge() {
         )
         .body(Body::from(
             serde_json::json!({
-                "model": "chatgpt-gpt-5.6-sol",
+                "model": "gpt-5.6-sol",
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": true,
             })
@@ -1242,7 +1245,7 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
             "Bearer downstream-token-00000000000000000000000000000000",
         )
         .body(Body::from(
-            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true,"max_output_tokens":16}"#,
+            r#"{"model":"gpt-5.6-sol","input":"hello","stream":true,"max_output_tokens":16}"#,
         ))
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
@@ -1253,7 +1256,7 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
     assert!(transport.requests.lock().unwrap().is_empty());
 
     // Keep the same unsupported field out of the compiled downstream interface advertisement.
-    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/chatgpt-gpt-5.6-sol").await;
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/gpt-5.6-sol").await;
     let parameters = model["interfaces"]["responses"]["supported_parameters"]
         .as_array()
         .unwrap();
@@ -1283,9 +1286,7 @@ async fn chatgpt_rejects_non_streaming_requests_before_egress() {
             AUTHORIZATION,
             "Bearer downstream-token-00000000000000000000000000000000",
         )
-        .body(Body::from(
-            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello"}"#,
-        ))
+        .body(Body::from(r#"{"model":"gpt-5.6-sol","input":"hello"}"#))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -1318,7 +1319,7 @@ async fn chatgpt_first_401_reloads_changed_bundle_and_replays_once() {
             "Bearer downstream-token-00000000000000000000000000000000",
         )
         .body(Body::from(
-            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}"#,
+            r#"{"model":"gpt-5.6-sol","input":"hello","stream":true}"#,
         ))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
@@ -1373,7 +1374,7 @@ async fn chatgpt_second_401_stops_replay_and_requires_explicit_login() {
             "Bearer downstream-token-00000000000000000000000000000000",
         )
         .body(Body::from(
-            r#"{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}"#,
+            r#"{"model":"gpt-5.6-sol","input":"hello","stream":true}"#,
         ))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
@@ -1565,8 +1566,8 @@ async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
     assert_eq!(
         gpt_sol["capabilities"]["context_window"],
         serde_json::json!({
-            "max_context_tokens": 1_050_000,
-            "max_input_tokens": 1_050_000,
+            "max_context_tokens": 272_000,
+            "max_input_tokens": 272_000,
             "max_output_tokens": 128_000
         })
     );
@@ -1582,7 +1583,7 @@ async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
     );
     assert_eq!(
         gpt_sol["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
-        1_050_000
+        272_000
     );
 
     let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/gpt-5.6-sol").await;

@@ -20,6 +20,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
+    validate_namespaced_model_id(&model.id, "id")?;
     if model
         .description
         .as_deref()
@@ -101,6 +102,23 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
     validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
         |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
     )
+}
+
+/// Validates a model identity used by the definition or routing layer.
+pub(super) fn validate_namespaced_model_id(
+    model: &str,
+    field: &'static str,
+) -> Result<(), RegistryError> {
+    let mut segments = model.split('/');
+    let namespace = segments.next().unwrap_or_default();
+    let name = segments.next().unwrap_or_default();
+    if namespace.trim().is_empty() || name.trim().is_empty() || segments.next().is_some() {
+        return Err(RegistryError::InvalidNamespacedModelId {
+            model: model.to_owned(),
+            field,
+        });
+    }
+    Ok(())
 }
 
 /// Validates that an explicit modality set is non-empty and duplicate-free.

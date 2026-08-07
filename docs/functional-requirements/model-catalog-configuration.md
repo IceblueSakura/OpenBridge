@@ -48,7 +48,7 @@ Upstream Target/API、Route 与 Public Model。单独新增 Canonical Model 记�
 schema_version = 1
 
 [[models]]
-id = "example-chat-v1"
+id = "example-designer/example-chat-v1"
 name = "Example Chat V1"
 description = "Synthetic chat model used to illustrate the catalog schema."
 task = "chat"
@@ -66,7 +66,7 @@ reasoning = "unknown"
 reasoning_levels = []
 
 [[models]]
-id = "example-embedding-v1"
+id = "example-designer/example-embedding-v1"
 name = "Example Embedding V1"
 task = "embedding"
 
@@ -79,14 +79,16 @@ native_dimensions = 1024
 id = "openai-example-chat-v1"
 provider_instance = "openai"
 integration_profile = "default"
-model = "example-chat-v1"
+canonical_model = "example-designer/example-chat-v1"
+provider_model = "openai/example-chat-v1"
 upstream_model = "example-chat-v1"
 
 [[provider_models]]
 id = "openrouter-example-chat-v1"
 provider_instance = "openrouter"
 integration_profile = "default"
-model = "example-chat-v1"
+canonical_model = "example-designer/example-chat-v1"
+provider_model = "openrouter/example-chat-v1"
 upstream_model = "vendor/example-chat-v1"
 
 [provider_models.model_rules]
@@ -97,7 +99,7 @@ disabled_parameters = ["tools"]
 
 [[public_models]]
 id = "example-chat"
-model = "example-chat-v1"
+model = "example-designer/example-chat-v1"
 name = "Example Chat"
 description = "Synthetic public model backed by two ordered Provider sources."
 created = 1785715200
@@ -115,7 +117,7 @@ integration profile 目录。
 
 | 字段               | 要求                                                                                |
 |--------------------|-------------------------------------------------------------------------------------|
-| `id`               | 必填、全局唯一、稳定的 Canonical Model ID；不是 Public Model id 或 upstream model。 |
+| `id`               | 必填、全局唯一、稳定的 `designer/model` Canonical Model ID；不是 Public Model id 或 upstream model。 |
 | `name`             | 必填、非空的展示名称。                                                              |
 | `description`      | 可选；缺失表示没有公开描述。                                                        |
 | `task`             | 必填的闭合枚举；首版只允许 `chat` 或 `embedding`。                                  |
@@ -152,7 +154,8 @@ Chat 记录出现 `embedding` 子表、Embedding 记录出现 `chat` 子表，�
 | `id`                  | 必填、全局唯一且稳定的 binding ID；用于 Public Model source 引用和确定性派生内部 ID。          |
 | `provider_instance`   | 必填的闭合 Provider instance ID，必须已经由 Rust 代码注册并唯一拥有受信 BaseURL。               |
 | `integration_profile` | 必填的 Provider family 内闭合接入 profile ID，必须属于实例绑定的 `ProviderKind`。               |
-| `model`               | 必填的 Canonical Model ID 引用。                                                               |
+| `canonical_model`     | 必填的 `designer/model` Canonical Model ID 引用。                                            |
+| `provider_model`      | 必填的 `provider/model` routing identity；Provider 前缀和 model basename 必须由启动校验确认。 |
 | `upstream_model`      | 必填、非空且有长度上限的真实上游模型名；只写入受信 integration profile 生成的请求 model 字段。 |
 | `model_rules`         | 可选的 Provider 接入收窄规则；只允许更小的 token 上限、禁用已知参数或收窄 reasoning 状态。     |
 
@@ -178,8 +181,8 @@ capability。
 
 | 字段                          | 要求                                                                                    |
 |-------------------------------|-----------------------------------------------------------------------------------------|
-| `id`                          | 必填、全局唯一并满足 Public Model ID 契约。                                             |
-| `model`                       | 必填的 Canonical Model ID；所有 source 必须引用同一 ID。                                |
+| `id`                          | 必填、全局唯一并满足不带 namespace 的 Public Model ID 契约；这是下游 Models、请求和响应中的 model。 |
+| `model`                       | 必填的 Canonical Model ID；所有 source 必须引用同一 `designer/model` ID，供内部关联使用。       |
 | `name`                        | 必填、非空的下游展示名称。                                                              |
 | `description`                 | 可选的下游说明。                                                                        |
 | `created`                     | 必填、非零的稳定 Unix 秒；不得使用启动时间。                                            |

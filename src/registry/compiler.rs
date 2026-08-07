@@ -19,7 +19,8 @@ use super::{
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
-        validate_public_model_config, validate_reasoning_level_mappings,
+        validate_namespaced_model_id, validate_public_model_config,
+        validate_reasoning_level_mappings,
     },
 };
 
@@ -189,21 +190,41 @@ fn build_registry_internal(
             });
         }
 
+        // Validate the canonical and routing identities before resolving model facts.
+        validate_namespaced_model_id(&target.canonical_model, "canonical_model")?;
+        validate_namespaced_model_id(&target.provider_model, "provider_model")?;
+        let canonical_model_name = target
+            .canonical_model
+            .rsplit_once('/')
+            .expect("validated canonical model identity has a namespace")
+            .1;
+        let expected_provider_model = format!(
+            "{}/{}",
+            provider_instance.kind().slug(),
+            canonical_model_name
+        );
+        if target.provider_model != expected_provider_model {
+            return Err(RegistryError::ProviderModelMismatch {
+                upstream_target: target.id,
+                provider_model: target.provider_model,
+                expected: expected_provider_model,
+            });
+        }
+
         // Combine static code eligibility with the redacted startup credential activation state.
         let target_enabled = target.enabled
             && active_pool_ids.is_none_or(|active| active.contains(&target.credential_pool));
 
         // Resolve the canonical Model as the model-fact baseline for every Upstream API under this target.
-        let model =
-            models
-                .get(&target.model)
-                .cloned()
-                .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "upstream target",
-                    id: target.id.clone(),
-                    target: "real model",
-                    reference: target.model.clone(),
-                })?;
+        let model = models
+            .get(&target.canonical_model)
+            .cloned()
+            .ok_or_else(|| RegistryError::UnknownReference {
+                entity: "upstream target",
+                id: target.id.clone(),
+                target: "canonical model",
+                reference: target.canonical_model.clone(),
+            })?;
 
         // Require a finite, non-zero timeout for each upstream request on this target.
         if target.request_timeout.is_zero() {
@@ -316,7 +337,8 @@ fn build_registry_internal(
             id: target.id.clone(),
             provider_instance,
             credential_pool: target.credential_pool,
-            model_id: target.model,
+            canonical_model_id: target.canonical_model,
+            provider_model_id: target.provider_model,
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
             request_timeout: target.request_timeout,
@@ -513,7 +535,7 @@ mod tests {
 
     #[test]
     fn compiler_pairs_static_candidates_with_their_protocol_interface() {
-        // Disable the Chat Native API so only the precompiled Responses bridge remains executable.
+        // Disable the OpenAI Chat API and the merged ChatGPT pool member so only the OpenAI bridge remains executable.
         let mut definition = compiled_config();
         let target = definition
             .upstream_targets
@@ -525,6 +547,12 @@ mod tests {
         {
             capabilities.enabled = false;
         }
+        definition
+            .upstream_targets
+            .iter_mut()
+            .find(|target| target.id == "chatgpt-gpt-5-6-sol")
+            .expect("the ChatGPT pool member must exist")
+            .enabled = false;
 
         // Compile the registry and read the candidate set owned by the Chat execution interface.
         let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml"))

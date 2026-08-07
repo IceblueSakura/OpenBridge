@@ -51,7 +51,8 @@ fn generation_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-main".to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: openai::gpt_5_6_sol::ID.to_owned(),
+        canonical_model: openai::gpt_5_6_sol::ID.to_owned(),
+        provider_model: ProviderKind::OpenAi.routing_model_id(openai::gpt_5_6_sol::ID),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
@@ -66,7 +67,8 @@ fn embedding_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: "openai-text-embedding-3-small".to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: openai::text_embedding_3_small::ID.to_owned(),
+        canonical_model: openai::text_embedding_3_small::ID.to_owned(),
+        provider_model: ProviderKind::OpenAi.routing_model_id(openai::text_embedding_3_small::ID),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,

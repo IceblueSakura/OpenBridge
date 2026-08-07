@@ -61,7 +61,8 @@ fn target(
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: canonical_model.to_owned(),
+        canonical_model: canonical_model.to_owned(),
+        provider_model: ProviderKind::MiMo.routing_model_id(canonical_model),
         credential_pool: credential_id.to_owned(),
         quota_scope: Some("mimo-primary".to_owned()),
         fault_domain: Some("mimo-api".to_owned()),

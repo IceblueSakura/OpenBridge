@@ -550,7 +550,7 @@ async fn probe_rejects_disabled_target_before_credentials_or_egress() {
         .retain(|route| route.upstream_target != "chatgpt-gpt-5-6-sol");
     definition
         .public_models
-        .retain(|model| model.id != "chatgpt-gpt-5.6-sol");
+        .retain(|model| model.id != "gpt-5.6-sol");
     let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
     let transport = StaticTransport::response(StatusCode::OK, b"{}".to_vec());
     let credentials = CredentialStoreBuilder::new().build();

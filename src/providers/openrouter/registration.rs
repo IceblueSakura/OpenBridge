@@ -29,7 +29,8 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "openrouter-deepseek-v4-flash".to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: deepseek::deepseek_v4_flash::ID.to_owned(),
+        canonical_model: deepseek::deepseek_v4_flash::ID.to_owned(),
+        provider_model: ProviderKind::OpenRouter.routing_model_id(deepseek::deepseek_v4_flash::ID),
         credential_pool: "openrouter-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,

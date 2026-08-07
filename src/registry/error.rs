@@ -120,6 +120,26 @@ pub enum RegistryError {
         /// Blank field name.
         field: &'static str,
     },
+    /// A canonical or Provider routing model identity does not use one non-empty namespace and model segment.
+    #[error("model '{model}' field '{field}' must use the 'namespace/model' format")]
+    InvalidNamespacedModelId {
+        /// Invalid model identity.
+        model: String,
+        /// Registry field containing the invalid identity.
+        field: &'static str,
+    },
+    /// A target's Provider routing identity does not match its Provider kind and canonical model basename.
+    #[error(
+        "upstream target '{upstream_target}' provider model '{provider_model}' must be '{expected}'"
+    )]
+    ProviderModelMismatch {
+        /// Target containing the invalid routing identity.
+        upstream_target: String,
+        /// Configured Provider routing identity.
+        provider_model: String,
+        /// Expected Provider routing identity.
+        expected: String,
+    },
     /// The canonical model declares a zero context limit.
     #[error("model '{model}' context length '{limit}' must be greater than zero")]
     InvalidModelContextLength {

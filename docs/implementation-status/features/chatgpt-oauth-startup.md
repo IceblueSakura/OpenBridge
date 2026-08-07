@@ -3,7 +3,7 @@
 ## 状态
 
 **已完成（当前受限范围）。** OpenBridge 已具备独立 ChatGPT Provider 的 OAuth2 bundle 加载、显式 device/PKCE 登录、到期驱动
-refresh，以及 Spark、GPT-5.5 和 GPT-5.6 Luna/Terra/Sol 五个固定 Responses-native Public Model 的注册与数据面。此前的真实
+refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` pool source 的 Sol 五个固定 target profile 的注册与数据面。此前的真实
 Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 
 ## 已完成内容
@@ -13,9 +13,8 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 - 启动时为不存在的 OpenBridge-owned auth 文件创建空的待登录文件；对存在且非空文件校验完整性、Provider/context 绑定、token 类型和过期信息，
   并将可用 bundle 放入独立 `OAuth2CredentialManager`。
 - 到期前 refresh 在进程内 gate 和文件锁内重新加载持久化文档；成功后校验新 bundle、原子写回并发布新的 credential generation。
-- `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna`、`chatgpt-gpt-5.6-terra` 与
-  `chatgpt-gpt-5.6-sol` 各自编译一个 Responses Native Route 和一个 Chat→Responses Bridge Route，固定到同一受信 Codex backend
-  和共享 OAuth pool。
+- ChatGPT 的五个 target profile（包括 `chatgpt-gpt-5-6-sol`）各自编译一个 Responses Native Route 和一个 Chat→Responses Bridge Route，
+  固定到同一受信 Codex backend 和共享 OAuth pool；Sol 的两个 Route 作为 source 归入下游 `gpt-5.6-sol` Provider 池。
 - GPT-5.5 与 GPT-5.6 的 Responses upstream contract 声明 function tools、parallel tool calls 和 structured outputs；ChatGPT 的
   Chat→Responses Bridge 对应转换 function tools、parallel tool calls 以及 `response_format`/`text.format` 的 text、JSON object 和
   JSON Schema 形状。Spark 仍保持文本-only capability。
@@ -63,9 +62,11 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 | `chatgpt-gpt-5.3-codex-spark`  | 200  | `response.completed` | 1848 ms  |
 | `chatgpt-gpt-5.6-luna`         | 200  | `response.completed` | 1393 ms  |
 | `chatgpt-gpt-5.6-terra`        | 200  | `response.completed` | 1133 ms  |
-| `chatgpt-gpt-5.6-sol`          | 200  | `response.completed` | 1601 ms  |
+| `gpt-5.6-sol` (ChatGPT source) | 200  | `response.completed` | 1601 ms  |
 
 同日最终脱敏 preflight 再次确认该 bundle 完整、access token 未过期且未进入 120 秒 safety window。最终验证结果：
+
+上表中 Sol 的历史调用使用的是同一 ChatGPT target source；本次公共名称合并和 Provider 池改动未重新执行真实 Provider 验收。
 
 - `cargo fmt -- --check`：通过；
 - 变更 Rust 文件的 `rustfmt --edition 2024 --check`：通过；

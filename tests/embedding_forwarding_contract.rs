@@ -448,7 +448,8 @@ fn embedding_registry_definition() -> RegistryConfig {
     definition.upstream_targets.push(UpstreamTargetConfig {
         id: "embedding-target".to_owned(),
         provider_instance: "openai".to_owned(),
-        model: "openai/embedding-test".to_owned(),
+        canonical_model: "openai/embedding-test".to_owned(),
+        provider_model: "openai/embedding-test".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,

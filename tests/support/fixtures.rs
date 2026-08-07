@@ -222,7 +222,8 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
         upstream_targets: vec![UpstreamTargetConfig {
             id: "openai-main".to_owned(),
             provider_instance: "openai".to_owned(),
-            model: "openai/test-model".to_owned(),
+            canonical_model: "openai/test-model".to_owned(),
+            provider_model: "openai/test-model".to_owned(),
             credential_pool: "openai-primary".to_owned(),
             quota_scope: None,
             fault_domain: None,

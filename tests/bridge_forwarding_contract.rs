@@ -146,6 +146,7 @@ fn app_with_reasoning_output(
         instance.base_url = "https://api.deepseek.com".to_owned();
         let target = &mut definition.upstream_targets[0];
         target.provider_instance = "deepseek-test".to_owned();
+        target.provider_model = "deepseek/test-model".to_owned();
         target.credential_pool = "deepseek-primary".to_owned();
         target
             .upstream_apis

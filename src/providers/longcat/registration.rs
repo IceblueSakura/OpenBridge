@@ -26,7 +26,8 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![UpstreamTargetConfig {
         id: "longcat-2".to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        model: "meituan/longcat-2.0".to_owned(),
+        canonical_model: "meituan/longcat-2.0".to_owned(),
+        provider_model: ProviderKind::LongCat.routing_model_id("meituan/longcat-2.0"),
         credential_pool: "longcat-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,

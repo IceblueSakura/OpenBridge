@@ -397,7 +397,8 @@ fn embedding_observability_app(
     definition.upstream_targets.push(UpstreamTargetConfig {
         id: "embedding-observed-target".to_owned(),
         provider_instance: "openai".to_owned(),
-        model: "openai/embedding-observed".to_owned(),
+        canonical_model: "openai/embedding-observed".to_owned(),
+        provider_model: "openai/embedding-observed".to_owned(),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,

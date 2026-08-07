@@ -266,7 +266,8 @@ pub struct UpstreamTarget {
     pub(super) id: String,
     pub(super) provider_instance: Arc<ProviderInstance>,
     pub(super) credential_pool: String,
-    pub(super) model_id: String,
+    pub(super) canonical_model_id: String,
+    pub(super) provider_model_id: String,
     pub(super) quota_scope: Option<String>,
     pub(super) fault_domain: Option<String>,
     pub(super) request_timeout: Duration,
@@ -300,9 +301,14 @@ impl UpstreamTarget {
         &self.credential_pool
     }
 
-    /// Returns the canonical model ID referenced by the target.
-    pub fn model_id(&self) -> &str {
-        &self.model_id
+    /// Returns the canonical designer/model identity referenced by the target.
+    pub fn canonical_model_id(&self) -> &str {
+        &self.canonical_model_id
+    }
+
+    /// Returns the trusted provider/model routing identity bound to the target.
+    pub fn provider_model_id(&self) -> &str {
+        &self.provider_model_id
     }
 
     /// Returns the validated endpoint base URL.

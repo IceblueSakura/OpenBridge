@@ -41,11 +41,10 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 
 | Public Model | 可用接口 | 典型 credential pool | 说明 |
 |---|---|---|---|
-| `gpt-5.6-sol` | Chat、Responses | `openai-primary` | OpenAI Native-first，并保留已声明语义的 Bridge 候选 |
+| `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI 优先、ChatGPT fallback；公共能力按两个 source 的最小交集公开 |
 | `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `chatgpt-gpt-5.6-sol` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
 | `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | Chat 可来自 DeepSeek；Responses 使用 OpenRouter Native |
@@ -283,13 +282,13 @@ cargo run --locked --bin openbridge-auth -- login chatgpt
 该命令不接受 issuer、client、endpoint、header、auth-file 或其他 cache override。常驻服务只负责到期驱动的 refresh
 和一次有界的 `401` recovery；不提供运行时切换账户，也不会自动开始交互式登录。
 
-登录后重启服务，并使用下面四个固定 ChatGPT Public Model 之一：
+登录后重启服务，并使用下面四个包含 ChatGPT source 的 Public Model 之一：
 
 ```text
 chatgpt-gpt-5.3-codex-spark
 chatgpt-gpt-5.6-luna
 chatgpt-gpt-5.6-terra
-chatgpt-gpt-5.6-sol
+gpt-5.6-sol
 ```
 
 ChatGPT 上游固定使用 Responses SSE。下游可以使用 `/v1/responses` Native，或使用 `/v1/chat/completions` 进入受限
@@ -350,13 +349,13 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
-ChatGPT Public Model 的 Chat 请求会进入受限 Chat→Responses Bridge：
+使用 ChatGPT source 时，`gpt-5.6-sol` 的 Chat 请求会进入受限 Chat→Responses Bridge：
 
 ```bash
 curl -N http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"chatgpt-gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
+  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
 `Content-Type` 必须是 `application/json`。工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool，也不提供

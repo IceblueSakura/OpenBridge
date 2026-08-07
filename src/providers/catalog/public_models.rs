@@ -9,11 +9,18 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
     &[
         PublicModelRegistration {
             public_name: "gpt-5.6-sol",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "gpt-5.6-sol-openai",
-                upstream_target: "openai-main",
-                surface: PublicModelSurface::DualProtocolWithBridges,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "gpt-5.6-sol-openai",
+                    upstream_target: "openai-main",
+                    surface: PublicModelSurface::DualProtocolWithBridges,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "gpt-5.6-sol-chatgpt",
+                    upstream_target: "chatgpt-gpt-5-6-sol",
+                    surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "chatgpt-gpt-5.3-codex-spark",
@@ -44,14 +51,6 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
-            }],
-        },
-        PublicModelRegistration {
-            public_name: "chatgpt-gpt-5.6-sol",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "chatgpt-gpt-5-6-sol",
-                upstream_target: "chatgpt-gpt-5-6-sol",
                 surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },

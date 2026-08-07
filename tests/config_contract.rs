@@ -351,6 +351,33 @@ fn model_config_and_typed_rules_are_validated() {
 }
 
 #[test]
+fn canonical_and_provider_model_id_layers_are_validated_separately() {
+    let mut invalid_canonical = definition("test", "code-primary", "test-model");
+    invalid_canonical.models[0].id = "test-model".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_canonical),
+        Err(RegistryError::InvalidNamespacedModelId { field: "id", .. })
+    ));
+
+    let mut invalid_provider_model = definition("test", "code-primary", "test-model");
+    invalid_provider_model.upstream_targets[0].provider_model = "openai/test/model".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_provider_model),
+        Err(RegistryError::InvalidNamespacedModelId {
+            field: "provider_model",
+            ..
+        })
+    ));
+
+    let mut mismatched_provider_model = definition("test", "code-primary", "test-model");
+    mismatched_provider_model.upstream_targets[0].provider_model = "chatgpt/test-model".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), mismatched_provider_model),
+        Err(RegistryError::ProviderModelMismatch { .. })
+    ));
+}
+
+#[test]
 fn upstream_api_rules_only_reduce_model_info() {
     let mut definition = definition("test", "code-primary", "test-model");
     definition.models[0].supported_parameters =

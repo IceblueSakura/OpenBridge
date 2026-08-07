@@ -51,7 +51,8 @@ fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
         .find(|instance| instance.id == target.provider_instance)
         .expect("the target's Provider instance must be compiled");
     assert_eq!(instance.kind, ProviderKind::OpenAi);
-    assert_eq!(target.model, CANONICAL_MODEL);
+    assert_eq!(target.canonical_model, CANONICAL_MODEL);
+    assert_eq!(target.provider_model, "openai/text-embedding-3-small");
     assert_eq!(instance.base_url, "https://api.openai.com");
     assert_eq!(target.credential_pool, "openai-primary");
     assert!(target.enabled);

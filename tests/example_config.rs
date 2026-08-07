@@ -36,7 +36,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         "https://chatgpt.com/backend-api/codex"
     );
 
-    // Verify all five fixed models expose one Chat bridge and one Responses-native Route.
+    // Verify the four ChatGPT-only Public Models expose one Chat bridge and one Responses-native Route.
     for (public_name, target_id, canonical_model, upstream_model, advanced_capabilities) in [
         (
             "chatgpt-gpt-5.3-codex-spark",
@@ -66,13 +66,6 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             "gpt-5.6-terra",
             true,
         ),
-        (
-            "chatgpt-gpt-5.6-sol",
-            "chatgpt-gpt-5-6-sol",
-            "chatgpt/gpt-5.6-sol",
-            "gpt-5.6-sol",
-            true,
-        ),
     ] {
         let target = definition
             .upstream_targets
@@ -80,7 +73,11 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             .find(|target| target.id == target_id)
             .expect("ChatGPT target should be compiled");
         assert_eq!(target.provider_instance, "chatgpt");
-        assert_eq!(target.model, canonical_model);
+        assert_eq!(target.canonical_model, canonical_model);
+        assert_eq!(
+            target.provider_model,
+            format!("chatgpt/{}", public_name.strip_prefix("chatgpt-").unwrap())
+        );
         assert_eq!(target.credential_pool, "chatgpt-codex");
         assert!(target.enabled);
         assert_eq!(target.upstream_apis.len(), 1);
@@ -157,7 +154,6 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         ("chatgpt-gpt-5.5", "chatgpt-gpt-5-5"),
         ("chatgpt-gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
         ("chatgpt-gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
-        ("chatgpt-gpt-5.6-sol", "chatgpt-gpt-5-6-sol"),
     ] {
         let target = registry
             .upstream_target(target_id)
@@ -195,7 +191,6 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         "chatgpt-gpt-5.5",
         "chatgpt-gpt-5.6-luna",
         "chatgpt-gpt-5.6-terra",
-        "chatgpt-gpt-5.6-sol",
     ] {
         let info = serde_json::to_value(
             registry
@@ -439,7 +434,14 @@ fn requested_public_model_and_provider_matrix_is_compiled() {
         .upstream_target("openrouter-deepseek-v4-flash")
         .expect("OpenRouter DeepSeek V4 Flash target should be compiled");
     assert_eq!(openrouter_flash.kind(), ProviderKind::OpenRouter);
-    assert_eq!(openrouter_flash.model_id(), "deepseek/deepseek-v4-flash");
+    assert_eq!(
+        openrouter_flash.canonical_model_id(),
+        "deepseek/deepseek-v4-flash"
+    );
+    assert_eq!(
+        openrouter_flash.provider_model_id(),
+        "openrouter/deepseek-v4-flash"
+    );
     assert_eq!(
         openrouter_flash
             .upstream_api(OperationKind::Responses)
@@ -508,9 +510,25 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         [
             "gpt-5.6-sol-openai-chat",
             "gpt-5.6-sol-openai-chat-via-responses",
+            "gpt-5.6-sol-chatgpt-chat-via-responses",
             "gpt-5.6-sol-openai-responses",
+            "gpt-5.6-sol-chatgpt-responses",
             "gpt-5.6-sol-openai-responses-via-chat",
         ]
+    );
+    assert!(registry.public_model("openai/gpt-5.6-sol").is_none());
+    assert!(registry.public_model("chatgpt/gpt-5.6-sol").is_none());
+    let gpt_pool = registry
+        .public_model("gpt-5.6-sol")
+        .expect("the merged GPT-5.6 Sol Public Model is compiled");
+    let gpt_info = serde_json::to_value(gpt_pool.info()).unwrap();
+    assert_eq!(
+        gpt_info["interfaces"]["chat_completions"]["context_window"]["max_context_tokens"],
+        272_000
+    );
+    assert_eq!(
+        gpt_info["interfaces"]["responses"]["context_window"]["max_context_tokens"],
+        272_000
     );
 
     let longcat = registry
@@ -589,7 +607,14 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         .upstream_target("openrouter-deepseek-v4-flash")
         .expect("OpenRouter DeepSeek V4 Flash target is compiled");
     assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
-    assert_eq!(openrouter.model_id(), "deepseek/deepseek-v4-flash");
+    assert_eq!(
+        openrouter.canonical_model_id(),
+        "deepseek/deepseek-v4-flash"
+    );
+    assert_eq!(
+        openrouter.provider_model_id(),
+        "openrouter/deepseek-v4-flash"
+    );
     assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
     assert!(registry.credential_pool("openrouter-primary").is_some());
     assert_eq!(
@@ -715,7 +740,11 @@ fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
             .upstream_target(target_id)
             .expect("DeepSeek target should be compiled");
         assert_eq!(target.kind(), ProviderKind::DeepSeek);
-        assert_eq!(target.model_id(), canonical_model);
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(
+            target.provider_model_id(),
+            format!("deepseek/{}", canonical_model.rsplit_once('/').unwrap().1)
+        );
         assert_eq!(target.endpoint_base().as_str(), "https://api.deepseek.com/");
         assert_eq!(target.quota_scope(), Some("deepseek-primary"));
         assert_eq!(target.fault_domain(), Some("deepseek-api"));
@@ -910,7 +939,11 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             .upstream_target(target_id)
             .expect("MiMo target should be compiled");
         assert_eq!(target.kind(), ProviderKind::MiMo);
-        assert_eq!(target.model_id(), canonical_model);
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(
+            target.provider_model_id(),
+            format!("mimo/{}", canonical_model.rsplit_once('/').unwrap().1)
+        );
         assert_eq!(
             target.endpoint_base().as_str(),
             "https://api.xiaomimimo.com/"
@@ -1188,6 +1221,12 @@ fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unav
     {
         capabilities.enabled = false;
     }
+    definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
+        .expect("the ChatGPT pool member must exist")
+        .enabled = false;
     let registry = build_registry(bootstrap.clone(), definition.clone()).unwrap();
     let body = bytes::Bytes::from_static(
         br#"{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}"#,
@@ -1244,6 +1283,7 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         .clone();
     alternate.id = "openai-longcat-test".to_owned();
     alternate.provider_instance = "openai".to_owned();
+    alternate.provider_model = "openai/longcat-2.0".to_owned();
     alternate.credential_pool = "openai-primary".to_owned();
     for upstream_api in &mut alternate.upstream_apis {
         upstream_api.upstream_model = "longcat/longcat-2.0".to_owned();

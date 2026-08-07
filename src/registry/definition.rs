@@ -348,8 +348,10 @@ pub struct UpstreamTargetConfig {
     pub id: String,
     /// Referenced Provider instance ID.
     pub provider_instance: String,
-    /// Referenced Model ID.
-    pub model: String,
+    /// Canonical designer/model identity whose provider-independent facts are used by this target.
+    pub canonical_model: String,
+    /// Trusted provider/model identity used by the routing layer for this target.
+    pub provider_model: String,
     /// Shared credential-pool ID referenced by the target.
     pub credential_pool: String,
     /// Optional explicit shared quota scope.

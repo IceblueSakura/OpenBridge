@@ -83,6 +83,26 @@ impl ProviderContract {
 }
 
 impl ProviderKind {
+    /// Returns the stable Provider segment used by a provider/model routing identity.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::ChatGpt => "chatgpt",
+            Self::OpenAi => "openai",
+            Self::LongCat => "longcat",
+            Self::DeepSeek => "deepseek",
+            Self::MiMo => "mimo",
+            Self::OpenRouter => "openrouter",
+        }
+    }
+
+    /// Derives a Provider routing identity from a canonical designer/model identity.
+    pub fn routing_model_id(self, canonical_model: &str) -> String {
+        let model = canonical_model
+            .rsplit_once('/')
+            .map_or(canonical_model, |(_, model)| model);
+        format!("{}/{model}", self.slug())
+    }
+
     /// Returns the unique compile-time descriptor for the Provider.
     pub fn definition(self) -> &'static ProviderDefinition {
         match self {
