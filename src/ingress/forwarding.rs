@@ -9,11 +9,10 @@ use http::{HeaderMap, StatusCode};
 use crate::{
     bridge::BridgePlan,
     core::ApiProtocol,
-    oauth2_credentials::{OAuth2CredentialLease, OAuth2RefreshOutcome},
     observability::{ProviderAttemptContext, RequestObservation},
     pipeline::{analyze_request, plan_request},
-    provider::{CredentialKind, ProviderAdapter},
-    transport::upstream::{TransportError, UpstreamResponse},
+    provider::ProviderAdapter,
+    transport::upstream::UpstreamResponse,
 };
 
 use super::{
@@ -24,10 +23,17 @@ use super::{
 
 use self::response::{UpstreamResponseContext, upstream_response};
 
+mod candidate;
 mod embeddings;
+mod oauth;
+mod policy;
 mod response;
 
 pub(super) use embeddings::forward_embeddings_request;
+
+use candidate::prepare_candidate;
+use oauth::{oauth2_authentication_error, recover_after_unauthorized};
+use policy::{should_retry_error, should_retry_status, transport_error_kind};
 
 struct StoredHttpFailure {
     upstream: UpstreamResponse,
@@ -74,7 +80,7 @@ pub(super) async fn forward_request(
     let mut cooldown_skipped = false;
     let mut last_http_failure = None;
 
-    // Prepare each candidate's target, credential, adapter, and Provider wire request by priority.
+    // Resolve the target before health checks so cooling down candidates do not touch credentials.
     'candidates: for (candidate_index, candidate) in
         plan.candidates().iter().take(candidate_count).enumerate()
     {
@@ -98,62 +104,18 @@ pub(super) async fn forward_request(
             observation.record_cooldown_skip(candidate.upstream_target_id());
             continue;
         }
-        let Some(upstream_api) = target.upstream_api(candidate.upstream_operation()) else {
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "configuration_error",
-                "Configured native upstream API is unavailable",
-            );
+        // Prepare the selected target's typed API, credential source, adapter, and wire request.
+        let prepared = match prepare_candidate(&state, &registry, target, candidate).await {
+            Ok(prepared) => prepared,
+            Err(response) => return response,
         };
-        let Some(credential_pool) = registry.credential_pool(target.credential_pool_id()) else {
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "configuration_error",
-                "Configured credential pool is unavailable",
-            );
-        };
-        let uses_oauth2 = credential_pool.kind() == CredentialKind::OAuth2BearerAccessToken;
-        let mut oauth2_lease: Option<OAuth2CredentialLease> = None;
-        let static_credentials = if uses_oauth2 {
-            // Borrow one current guarded generation without exposing its token or file locator.
-            let lease = match state
-                .oauth2_credentials()
-                .lease_for_request(target.kind())
-                .await
-            {
-                Ok(lease) if lease.pool_id() == credential_pool.id() => lease,
-                Ok(_) | Err(_) => return oauth2_authentication_error(),
-            };
-            oauth2_lease = Some(lease);
-            None
-        } else {
-            // Borrow immutable API-key members from the startup credential snapshot.
-            match state.credentials.upstream_pool(
-                target.kind(),
-                credential_pool.id(),
-                credential_pool.kind(),
-            ) {
-                Ok(credentials) => Some(credentials),
-                Err(_) => {
-                    return api_error(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_authentication_error",
-                        "Upstream credentials are unavailable",
-                    );
-                }
-            }
-        };
-        let adapter = ProviderAdapter::for_kind(target.kind());
-        let request = match adapter.prepare_routed_request(candidate.request(), upstream_api) {
-            Ok(request) => request,
-            Err(_) => {
-                return api_error(
-                    StatusCode::BAD_REQUEST,
-                    "unsupported_request",
-                    "Request is not supported by the selected provider",
-                );
-            }
-        };
+        let upstream_api = prepared.upstream_api;
+        let credential_pool = prepared.credential_pool;
+        let uses_oauth2 = prepared.uses_oauth2;
+        let mut oauth2_lease = prepared.oauth2_lease;
+        let static_credentials = prepared.static_credentials;
+        let adapter = prepared.adapter;
+        let request = prepared.request;
 
         let mut rejected_members = HashSet::new();
         let mut current_member = None;
@@ -262,47 +224,22 @@ pub(super) async fn forward_request(
                         attempts.attempts_started() as u64,
                         upstream.status(),
                     );
-                    let rejected_generation = oauth2_lease
+                    let current_lease = oauth2_lease
                         .as_ref()
-                        .expect("OAuth2 target must retain a request lease")
-                        .generation();
-                    if oauth2_replayed {
-                        state
-                            .oauth2_credentials()
-                            .reject_replayed_generation(target.kind(), rejected_generation);
-                        return oauth2_authentication_error();
-                    }
-
-                    // Reload an externally rotated bundle or refresh the rejected generation once.
-                    match state
-                        .oauth2_credentials()
-                        .recover_after_unauthorized(target.kind(), rejected_generation)
-                        .await
+                        .expect("OAuth2 target must retain a request lease");
+                    let next_lease = match recover_after_unauthorized(
+                        &state,
+                        target.kind(),
+                        credential_pool.id(),
+                        current_lease,
+                        &mut oauth2_replayed,
+                    )
+                    .await
                     {
-                        OAuth2RefreshOutcome::Current { .. }
-                        | OAuth2RefreshOutcome::Refreshed { .. } => {}
-                        OAuth2RefreshOutcome::NotConfigured
-                        | OAuth2RefreshOutcome::Backoff { .. }
-                        | OAuth2RefreshOutcome::ReauthRequired { .. }
-                        | OAuth2RefreshOutcome::Ambiguous { .. } => {
-                            return oauth2_authentication_error();
-                        }
-                    }
-                    let next_lease = match state
-                        .oauth2_credentials()
-                        .lease_for_request(target.kind())
-                        .await
-                    {
-                        Ok(lease)
-                            if lease.pool_id() == credential_pool.id()
-                                && lease.generation() != rejected_generation =>
-                        {
-                            lease
-                        }
-                        Ok(_) | Err(_) => return oauth2_authentication_error(),
+                        Ok(lease) => lease,
+                        Err(response) => return response,
                     };
                     oauth2_lease = Some(next_lease);
-                    oauth2_replayed = true;
                     observation.record_retry();
                     continue;
                 }
@@ -494,34 +431,5 @@ pub(super) async fn forward_request(
             "upstream_error",
             "The upstream request failed",
         )
-    }
-}
-
-/// Returns one value-free failure for unavailable or rejected OAuth2 request credentials.
-fn oauth2_authentication_error() -> Response {
-    api_error(
-        StatusCode::BAD_GATEWAY,
-        "upstream_authentication_error",
-        "Upstream OAuth2 credentials require explicit authentication",
-    )
-}
-
-/// Returns whether a status permits continuing the current attempt before the first downstream event.
-fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode) -> bool {
-    adapter.classify_status(status).retry_hint() == crate::provider::RetryHint::BeforeFirstEvent
-}
-
-/// Includes only timeout/request transport failures that can be safely resent in retry.
-fn should_retry_error(error: &TransportError) -> bool {
-    matches!(error, TransportError::Timeout | TransportError::Request(_))
-}
-
-/// Maps transport errors to low-cardinality observation categories without underlying messages.
-fn transport_error_kind(error: &TransportError) -> &'static str {
-    match error {
-        TransportError::ClientBuild(_) => "client_build",
-        TransportError::Request(_) => "request",
-        TransportError::Timeout => "timeout",
-        TransportError::InvalidTarget => "invalid_target",
     }
 }
