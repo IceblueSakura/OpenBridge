@@ -2,19 +2,40 @@
 
 ## 范围
 
-本页定义两类 Chat Native 音频能力：标准 user `input_audio` 输入，以及独立 MiMo ASR/TTS task Public Model。它不实现 OpenAI
-`/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
+本页定义四种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS，以及以文本或参考音频约束音色的设计/克隆。
+它不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
 [媒体扩展共同规则](embedding-and-native-multimodal.md)。当前尚无已完成的 Native audio 功能专题。
 
-## 1. Chat `input_audio`
+## 1. 任务身份与不可替代性
 
-- `input_audio` 只在 user message content union 中有效；developer/system/tool/assistant 或任意递归同名字段必须拒绝。
-- source 固定为 inline Base64；format 必须属于所选 interface 的明确集合，不能从 canonical audio modality 推断。
-- `multimodal_input.audio` 必须公开 source、format、part 数、单项/累计 encoded/decoded byte 上限。
-- Responses audio input 当前没有目标 wire，不能从 Chat 字段或 Provider 的一般音频能力推导。
-- Native 转发保持 content part 顺序、Base64、format 与 Chat JSON/SSE；不得转写、转码、播放、落盘或缓存。
+| 任务                    | MiMo model family                         | 输入到输出                         | 输入音频的业务语义                         |
+|-------------------------|-------------------------------------------|------------------------------------|--------------------------------------------|
+| 通用音频理解            | `mimo-v2.5`                               | audio + instruction → text answer | 需要问答、总结、描述或推理的业务内容       |
+| ASR/STT                 | `mimo-v2.5-asr`                           | speech audio → transcript          | 需要尽量忠实转写的语音                     |
+| 普通 TTS                | `mimo-v2.5-tts`                           | target text + style → audio        | 不接收待理解音频，只生成语音               |
+| 音色设计                | `mimo-v2.5-tts-voicedesign`               | voice description + text → audio  | 不接收参考音频，以文本创建音色             |
+| 音色克隆                | `mimo-v2.5-tts-voiceclone`                | reference audio + text → audio    | 只提取说话人音色，不回答或转写参考音频内容 |
 
-## 2. MiMo ASR/TTS 最小目标契约
+这些任务即使共用 `/v1/chat/completions`、`input_audio` 或 Chat response envelope，也不得合并 canonical task、Public Model、
+Upstream API profile、能力交集、计费语义或 fallback 候选。通用模型被提示“转写”不等于 ASR transcript contract；voice sample
+也不等于可供问答的音频内容。
+
+## 2. `mimo-v2.5` 通用音频理解
+
+- 首个协议目标只开放 Chat user message content 中的 `input_audio`，可与同一 user message 中的 text part 混合；Responses audio
+  仍无目标 wire。
+- 官方能力上界包括公网 URL 与 Base64 data URL、MP3/WAV/FLAC/M4A/OGG 和多个音频；Public Model 只能公开固定 Route 已有独立
+  证据且具有本地有界校验的 source、media type、part 数和 limits，不能一次性照搬 Provider 上界。
+- `multimodal_input.audio` 必须公开业务用途 `content_understanding`、source、inline encoding、可验证 media type、part 数、URL
+  长度及单项/累计 encoded/decoded byte 上限。
+- remote source 服从有界 absolute HTTPS 与本地地址拒绝策略；OpenBridge 不下载音频，因此不能把语法检查冒充 Provider-side
+  DNS、redirect、下载大小、MIME 或内容安全验证。
+- Native 转发保持 audio/text part 顺序、URL/data URL、Chat JSON/SSE 与模型响应字段；不得预先转写、转码、重采样、播放、落盘、
+  缓存或把音频替换成 transcript。
+- 正常结果是依据音频和 instruction 生成的文本回答，而不是逐字 transcript 或音频输出；`asr_options`、顶层 `audio` 与 voice sample
+  字段在该 interface 上必须拒绝。
+
+## 3. MiMo ASR/TTS 最小目标契约
 
 MiMo 音频模型虽然都使用 `/v1/chat/completions`，但属于独立 canonical task、Public Model 与 Upstream API profile；不得继承
 `mimo-v2.5` 文本/图片 Route，也不得通过 Provider 级 `audio_input`/`audio_output` bool 扩大其他模型能力。
@@ -30,7 +51,15 @@ assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文�
 本目标只承诺真实 Provider 已覆盖的组合。官方另声明 ASR MP3/`en`、TTS MP3/其他 preset voice，但须以独立证据扩展固定 profile。
 `mimo-v2.5-tts-voicedesign`、`mimo-v2.5-tts-voiceclone` 与 `mimo-v2.5` 通用音频理解不是这两个 Public Model 的 fallback 或别名。
 
-## 3. `multimodal_output.audio` 与响应预算
+## 4. 音色设计与音色克隆边界
+
+- 音色设计的自然语言描述是生成条件，不得作为普通 TTS 可选 voice 名称或通用模型 instruction 处理。
+- 音色克隆的参考音频是 `voice_conditioning` resource，不得进入 `content_understanding` 或 `speech_recognition` profile；它需要独立
+  source/format/duration/byte limit、授权确认、保留期和日志脱敏契约。
+- 两个变体必须各自经过真实 wire、失败语义、音频输出 framing 与数据保护验证后才能注册；普通 TTS 成功不提升其能力。
+- 首个音频实现焦点不注册这两个 Public Model，不接受 voice sample，也不建立跨模型 voice identity 或资源复用。
+
+## 5. `multimodal_output.audio` 与响应预算
 
 音频输出不能使用粗粒度 `audio_output: true` 表达。Chat interface 必须提供类型化 `multimodal_output.audio`，至少区分：
 
@@ -44,40 +73,45 @@ assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文�
 ASR inline bytes 同时受 typed profile 与 gateway request hard limit 约束；Provider 声明的 10 MB encoded limit 不会覆盖默认 1 MiB
 request body limit，扩展 Models 必须公开实际更小的可保证值。
 
-## 4. 预检、保真与 Bridge
+## 6. 预检、保真与 Bridge
 
-- 请求分析冻结 message role/数量、source、encoding、input/output format、voice、ASR language、stream mode、part 数和 byte facts。
-- ASR、TTS、通用音频理解与文本生成必须独立编译；共用 Provider 或 Chat path 不能聚合为 fallback 候选。
+- 请求分析冻结 task/purpose、message role/数量、source、encoding、input/output format、voice、ASR language、stream mode、part 数和
+  byte facts。
+- ASR、TTS、音色条件和通用音频理解必须独立编译；`mimo-v2.5` 的普通 text/audio 生成仍属于同一固定 Chat interface，但不能与
+  专用模型聚合为 fallback 候选。
 - ASR transcript 是该 task 的正常文本结果；TTS Base64 WAV/PCM delta 是正常音频结果，不能送入纯文本 validator、拼成
   transcript 或转换成 `/audio/speech` binary body。
 - 网关只做有界 framing/shape 校验和 Public Model 投影，不解码后重采样、重编码、播放、落盘或缓存。
 - Bridged Route 对 audio input/output 贡献空集；音频请求不得进入 Chat ↔ Responses Bridge 或按请求能力重排 Route。
 
-## 5. Retry、取消与数据保护
+## 7. Retry、取消与数据保护
 
+- 通用音频理解只在 body 未超过 replay budget、响应尚未提交且仍是同一 target/model 时有限 retry；不得 fallback 到 ASR。
 - ASR 只有在 body 未超过 replay budget、响应尚未提交且仍是同一 target/model 时才能有限 retry。
 - TTS 首个目标不自动 retry，因为再次合成可能重复计费并产生不同音频。
-- 两者禁止跨 task/model fallback；任何 JSON body、text delta 或 audio delta 提交后不得 retry、rotation 重放或拼接响应。
+- 所有音频任务禁止跨 task/model fallback；任何 JSON body、text delta 或 audio delta 提交后不得 retry、rotation 重放或拼接响应。
 - 原始音频、Base64、transcript、TTS 目标/风格文本、voice sample 和 Provider request ID 不得进入普通日志、metrics label、probe
   report 或 fixture。
 - `audio_tokens`、seconds、audio bytes 与文本 token 必须保持语义，不把 PCM bytes 当 token、transcript 长度当时长或 chunk 数当速度。
 
-## 6. 验收
+## 8. 验收
 
-| ID     | 应被保护的可观察行为                                                                                                                        |
-|--------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| AUD-01 | Chat `input_audio` 只接受固定 role/source/format/limit；Responses audio 与未声明模型的 audio output 在 egress 前拒绝。                      |
-| AUD-02 | `mimo-v2.5-asr` 的 WAV source/language/message contract、JSON/SSE transcript、usage、model 投影与单音频边界可确定复现。                    |
-| AUD-03 | `mimo-v2.5-tts` 的 assistant/audio/voice contract、JSON WAV、SSE PCM16 chunk、累计预算、唯一 terminal 与取消可确定复现。                  |
-| AUD-04 | ASR/TTS 是独立 Native-only Public Model，不提升 `mimo-v2.5`、进入 Bridge、跨 task fallback、启用 voice sample 或伪装成 `/audio/*`。       |
-| AUD-05 | 独立客户端与真实 Provider 分别记录 endpoint、model、字段和证据边界；未运行 MP3、语言、音色、SDK、负载或长期层不声称通过。                 |
+| ID     | 应被保护的可观察行为                                                                                                                          |
+|--------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| AUD-01 | Chat 音频能力按 understanding、ASR、TTS 与 voice conditioning 分开公开；Responses audio 和未声明模型的 audio output 在 egress 前拒绝。     |
+| AUD-02 | `mimo-v2.5` 只在固定 Chat Native interface 接受已声明 source/format/limit，保持 mixed audio/text wire，并返回文本回答而非 transcript/audio。 |
+| AUD-03 | `mimo-v2.5-asr` 的 WAV source/language/message contract、JSON/SSE transcript、usage、model 投影与单音频边界可确定复现。                    |
+| AUD-04 | `mimo-v2.5-tts` 的 assistant/audio/voice contract、JSON WAV、SSE PCM16 chunk、累计预算、唯一 terminal 与取消可确定复现。                  |
+| AUD-05 | voice design/clone 在建立独立条件输入、授权、保留期和输出 contract 前保持不可调用；普通 TTS 或理解成功不提升它们。                          |
+| AUD-06 | 音频请求不进入 Bridge、跨 task fallback、请求期候选筛选，或伪装成 `/audio/*`；首输出 commit 后不发生第二次响应。                           |
+| AUD-07 | 独立客户端与真实 Provider 分别记录 task、endpoint、model、字段和证据边界；未运行 source/format/SDK/负载或长期层不声称通过。                |
 
-## 7. 非目标与参考
+## 9. 非目标与参考
 
-非目标包括 `/audio/*`、Responses audio、Realtime、通用音频理解、ASR MP3/`en`/方言承诺、TTS MP3/其他 preset voice、voice design 与
-voice clone。
+非目标包括 `/audio/*`、Responses audio、Realtime、未进入固定 profile 的 remote/multi-audio/格式、ASR MP3/`en`/方言承诺、TTS
+MP3/其他 preset voice，以及未单独获准的 voice design/clone 实现。
 
 - [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)
 - [OpenAI Speech 调研](../references/openai/protocol-details/03-audio-speech.md)
 - [OpenAI Transcription/Translation 调研](../references/openai/protocol-details/04-audio-transcription-translation.md)
-- [Xiaomi MiMo ASR/TTS 协议与真实观察](../references/providers/xiaomi-mimo-audio-protocol-2026-08-08.md)
+- [Xiaomi MiMo 音频理解、ASR/TTS 协议与真实观察](../references/providers/xiaomi-mimo-audio-protocol-2026-08-08.md)

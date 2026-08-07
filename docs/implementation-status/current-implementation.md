@@ -37,7 +37,7 @@
 确定性 Rust test、canonical fixture replay、loopback/独立客户端验证、外部 SDK、目标 Agent、真实 Provider、负载和长期运行分别属于
 不同证据层。某一层通过不能替代其他层；专题页必须明确写出实际运行的检查和未覆盖的验收层。
 
-当前未完成或不在本轮实现范围的内容包括 Native file/audio/video、独立 MiMo ASR/TTS Public Model 与其他模型图片能力、ChatGPT 的其他协议/工具/Agent loop、异构协议 Provider、OTLP
+当前未完成或不在本轮实现范围的内容包括 Native file/audio/video、`mimo-v2.5` Chat 音频理解、独立 MiMo ASR/TTS/音色 Public Model 与其他模型图片能力、ChatGPT 的其他协议/工具/Agent loop、异构协议 Provider、OTLP
 logs、内置 Prometheus、持久化/分布式 observability、动态 health/weight、向量检索以及 GUI/Web 控制面。它们只应在对应功能需求和
 当前焦点获准后进入实现。
 

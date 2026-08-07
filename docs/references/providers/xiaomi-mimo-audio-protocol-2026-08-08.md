@@ -1,17 +1,32 @@
-# Xiaomi MiMo ASR/TTS 协议与真实观察（复核于 2026-08-08）
+# Xiaomi MiMo 音频理解、ASR/TTS 协议与真实观察（复核于 2026-08-08）
 
 ## 来源与范围
 
-本文只记录 MiMo ASR/STT 与 TTS 的官方 Chat-compatible wire 和 2026-08-08 脱敏真实 Provider 观察。它不把这些模型等同于
-OpenAI 的 `/audio/*` API，也不证明 OpenBridge 当前已注册相应 Public Model。
+本文记录 `mimo-v2.5` 通用音频理解及 MiMo ASR/STT、TTS 系列的官方 Chat-compatible wire，并单独记录 2026-08-08 已完成的
+ASR/TTS 脱敏真实 Provider 观察。它不把这些任务等同于 OpenAI 的 `/audio/*` API，也不证明 OpenBridge 当前已开放音频能力。
 
+- [音频理解指南](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/audio-understanding)
 - [语音识别 API](https://mimo.mi.com/docs/zh-CN/api/audio/Speech-Recognition)
 - [语音识别指南](https://mimo.mi.com/docs/zh-CN/usage-guide/Speech-Recognition)
 - [语音合成 API](https://mimo.mi.com/docs/zh-CN/api/audio/tts)
 - [语音合成指南](https://mimo.mi.com/docs/zh-CN/usage-guide/speech-synthesis)
 - [Models list](https://mimo.mi.com/docs/zh-CN/api/model/list-models)
 
-## 官方事实
+## `mimo-v2.5` 通用音频理解官方事实
+
+- 当前只有 `mimo-v2.5` 被官方列为音频理解模型；它在 Chat user content 中混合 `input_audio` 与 text instruction，返回依据音频
+  内容生成的文本结果，不是专用 transcript 或 audio output contract。
+- 音频来源为公网 URL 或 Base64 data URL；官方没有声明 pure Base64 + `format` 是通用理解 wire，也没有声明 Responses audio。
+- 官方列出 MP3、WAV、FLAC、M4A、OGG；remote 单文件不超过 100 MB，Base64 编码字符串不超过 50 MB。
+- 官方允许多个音频，但只以全部音频和文本总 token 小于模型上下文约束数量；音频 token 估算约为每秒 6.25，实际 usage 以响应为准。
+- OpenBridge 不下载 remote audio，因此无法在本地证明 Provider fetch 后的文件大小、MIME、redirect 或内容安全；这些服务端上限不能直接
+  变成已实现的入站保证。
+- 官方响应示例当前显示空 `message.content` 和非空 `reasoning_content`。单个文档示例不足以确定稳定输出分类，接入前必须分别复测
+  JSON/SSE 的可见文本、reasoning 字段和 terminal。
+
+上述内容只来自当前官方文档；本次尚未使用本地密钥调用 `mimo-v2.5` 音频理解。
+
+## ASR/TTS 官方事实
 
 - Models list 包含 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 与
   `mimo-v2.5-tts-voiceclone`。
@@ -26,7 +41,7 @@ OpenAI 的 `/audio/*` API，也不证明 OpenBridge 当前已注册相应 Public
   `message.audio.data` 返回 Base64 音频，流式响应在 `delta.audio.data` 返回 Base64 PCM16LE chunk；指南按 24 kHz、mono 拼接。
 - voice design 与 voice clone 具有不同输入和数据保护边界；普通 TTS 成功不能证明这些模型或 voice sample wire 可用。
 
-## 脱敏真实 wire 观察
+## ASR/TTS 脱敏真实 wire 观察
 
 先使用当前私有配置运行固定 MiMo Models probe；HTTP 200 的列表包含 ASR、TTS 与两个 TTS 变体。随后用同一个
 `mimo-primary` pool 直连固定 Chat endpoint，执行完全在内存中的短中文 TTS→ASR 往返：
@@ -50,5 +65,8 @@ header，但不代表 Route 已注册。
 
 ## 证据边界
 
-观察只覆盖一个账号、一个短中文样本、`mimo_default`、WAV/PCM16 与 JSON/SSE。未探测范围包括 MP3、英文/方言、其他预置音色、
-voice design/clone、上限/非法输入、OpenAI SDK、当前 OpenBridge 路径、负载、长期运行和未来 Provider 状态。
+ASR/TTS 观察只覆盖一个账号、一个短中文样本、`mimo_default`、WAV/PCM16 与 JSON/SSE。未探测范围包括 MP3、英文/方言、其他
+预置音色、voice design/clone、上限/非法输入、OpenAI SDK、当前 OpenBridge 路径、负载、长期运行和未来 Provider 状态。
+
+通用音频理解目前只有官方文档证据；remote/data source、WAV 以外格式、多音频、JSON/SSE 输出字段、直接 Provider 和 OpenBridge
+路径均尚未实测。不得用 ASR 或 TTS 成功替代该任务的真实验收。

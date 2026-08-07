@@ -13,7 +13,7 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 初期的兼容目标按优先级为：
 
 1. OpenAI SDK 的 Chat Completions 与 Responses HTTP JSON/SSE；
-2. OpenAI-compatible Embeddings、Chat/Responses 同协议 Native 多模态输入，以及固定 Public Model 的 Chat Native ASR/TTS；
+2. OpenAI-compatible Embeddings、Chat/Responses 同协议 Native 多模态输入，以及按任务分离的 Chat Native 音频理解、ASR/TTS；
 3. 独立 Python 脚本或 curl 的最小 HTTP/header/SSE 复现；
 4. 只有在明确声明时，才验证 Codex、Hermes 等具体客户端的 profile、transport 与 tool-loop 行为。
 

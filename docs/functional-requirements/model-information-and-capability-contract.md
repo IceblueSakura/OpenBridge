@@ -104,6 +104,9 @@ format、voice、framing 与累计预算。嵌套 content part 字段不加入�
 对应 interface 顶层公开。共同编译规则见[扩展导航](embedding-and-native-multimodal.md)，闭合集合分别由
 [图片](native-image.md)、[文件](native-file.md)和[音频](native-audio.md)功能页拥有。
 
+音频输入还必须绑定业务用途：`content_understanding`、`speech_recognition` 与 `voice_conditioning` 不能因为都使用 Base64/URL 或
+`input_audio` 而聚合。模型任务、输入用途、输出语义和 typed parameter 任一不同，都必须使用独立 interface/Public Model contract。
+
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
 `previous_response_id` 除了要求全部 Responses Route 明确支持，还要求这些 Route 唯一解析到同一个 Upstream
 Target/API；存在多个潜在签发者时必须公开为 `unsupported`，并从接口 `supported_parameters` 删除。
