@@ -1,5 +1,8 @@
 //! Assembles the built-in Model, Provider instance, Upstream Target, Route, and Public Model catalog.
 
+mod embeddings;
+mod public_models;
+mod route_compiler;
 mod routing;
 
 use std::collections::BTreeSet;
