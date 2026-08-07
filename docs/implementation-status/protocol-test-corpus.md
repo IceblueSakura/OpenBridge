@@ -3,7 +3,9 @@
 ## 状态
 
 **Confirmed。** corpus 与 Python testkit 仍保持 runtime-independent；Rust contract tests 现在只读选定 canonical
-artifact，用于 bridge 状态机回放和一个真实 loopback HTTP 429 SUT 回放。它们未接入外部 SDK、Codex、Hermes 或真实 Provider。
+artifact，用于 bridge 状态机回放、12 个真实 loopback HTTP error SUT 回放，以及 post-output transport-abort、
+downstream-cancellation 和 clean EOF-before-terminal production replay。它们未接入外部 SDK、Codex、Hermes 或真实
+Provider。
 
 日常使用和维护说明见 [Corpus 指南](../../testdata/README.md) 与 [Testkit 指南](../../tools/corpus/README.md)
 ；本文件只记录已执行验证与尚未证明的边界。
@@ -86,6 +88,19 @@ git diff --check
 - `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
+2026-08-08 在当前 Windows checkout 追加运行：
+
+```powershell
+cargo test --locked --test process_replay_contract
+cargo fmt -- --check
+cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
+```
+
+观察结果：focused process replay 为 8 passed；Rust baseline 为 283 个默认测试通过、2 个外部客户端测试保持 ignored；
+format、Clippy 和 diff whitespace 检查通过。本次没有修改 `testdata/` 或 `tools/corpus/`，因此未重复运行 Python baseline。
+
 ## 这证明什么
 
 - schema、45 个 canonical cases 和 7 份 provenance 可被当前工具读取与校验；
@@ -99,15 +114,36 @@ git diff --check
   arguments、event/type 冲突、EOF、terminal 后事件、重复 terminal 与重复 output identity。
 - Rust conversion/forwarding contracts 复用 accepted bridge artifacts，验证双向 request、non-stream response、
   text/function/reasoning SSE renderer、生产 `Bridged` Route 和 canonical preflight rejects。
+- Rust loopback 的 HTTP matrix 现覆盖 Chat/Responses `400/401/403/404/422`、三种 `429`、两个 `500`、`502` 和 `504`：
+  非 429 `4xx` 只产生一次 attempt，单 member `429` 不重复 credential，`5xx` 只产生两次有界 local attempt；每个 replay
+  都匹配 canonical upstream request、status、Content-Type 和 request/Provider 唯一失败终态；OpenAI-compatible JSON
+  error case 还匹配 canonical body。
+- delta-seconds 与 HTTP-date `Retry-After` 都保留；HTTP-date case 同时保留 allowlist
+  `x-ratelimit-remaining-requests`。纯文本 502、损坏 JSON 500 和错误携带 SSE Content-Type 的 500 都先按 HTTP status
+  分类，不进入 SSE decoder 或伪造 terminal。
+- `responses_native.transport_error.after_output` 通过显式 event barrier 等待下游首字节，再让真实 upstream HTTP body
+  abort；production Router 保留已输出 Native bytes、只执行一次 attempt、不 retry/fallback、不补 terminal，并且只记录一次
+  request failed 与 Provider stream_failed。
+- `responses_native.cancel.after_output` 按两个完整 logical event 分帧；下游收齐声明的边界后 drop body，upstream pending
+  stream 的 drop guard 在有界等待内触发，且 gateway/Provider 各只记录一次 cancelled terminal，不 retry/fallback。
+- `responses_native.eof_before_terminal` 经过真实 upstream/downstream socket clean EOF；production Router 保留 partial
+  Native bytes、不补 terminal、不 retry/fallback，并且只记录一次 request failed 与 Provider stream_failed。
+- 静态 case-id 扫描显示 45 个 canonical case 中 40 个已被 Rust 测试源码直接引用；剩余 5 个均已记录既有 owner 或证据冲突，
+  不能把这个数字解释为 runtime、分支或真实 Provider 覆盖率。
 
 ## 这不证明什么
 
-- 不证明全部 45 个 case 已被 OpenBridge 执行或通过；当前 Rust tests 覆盖明确列出的 bridge 与 429 fixture；
+- 不证明全部 45 个 case 已被 OpenBridge 执行或通过；production loopback 明确覆盖 12 个 HTTP error 与 3 个 streaming
+  lifecycle case，其他直接引用还包括局部 parser、Bridge state machine 和 conversion contract；
 - 不证明 continuation、hosted/custom tool、opaque 或未建模 reasoning、image 或 Provider 私有扩展可跨协议转换；
 - 不证明 canonical oracle 等于完整 OpenAI API；
 - 不证明外部项目默认分支在未来保持相同行为；
 - 不证明真实 SDK、Agent 或 Provider 兼容。
 - 不证明 TLS、HTTP/2、并发、背压、负载或真实网络 packet 边界。
+- post-output abort replay 按当前 Native byte-transparent 实现比较 `upstream-stream.sse`；它不证明 canonical
+  `expected-client-stream.sse` 中的 Public Model response projection 已实现。
+- 纯文本 502 与损坏 JSON 500 replay 只证明 status-first classification、Content-Type、attempt 和终态；canonical 自身明确
+  不规定 production Router 必须透传原始 body，因此测试不把当前 raw bytes 固定为对外契约。
 
 ## 已知待处理项
 
@@ -115,8 +151,13 @@ git diff --check
 - 两份 OpenAI protocol 文档来源的许可证状态仍为 `pending`；
 - 25 个涉及 OpenBridge 错误、commit point、identity 与 continuation 策略的 case 保持 `reviewed`；
 - 已有最小 Rust loopback runner 同时启动 OpenBridge Router 与 mock upstream，通过真实 HTTP socket 回放
-  `responses_native.rate_limit.non_stream`，验证单成员 429 不被重复调用、上游 request 和最终安全错误；它尚不是可枚举全部
-  canonical cases 的通用 CLI，也未覆盖全部 streaming cancellation 或 fallback 序列组合。
+  12 个固定 Chat/Responses HTTP error；同一 runner 还以无 sleep 的 event barrier 回放
+  `responses_native.transport_error.after_output`，以 pending-body drop guard 回放 `responses_native.cancel.after_output`，并以
+  clean EOF 回放 `responses_native.eof_before_terminal`。它尚不是可枚举全部 canonical cases 的通用 CLI，也未覆盖完整
+  fallback 序列组合。
+- 仍未直接引用的 Chat/Responses success 与 SSE framing 四个 case 受 Native Public Model response projection 差异阻塞；
+  `responses_native.transport_error.before_output` 的 metadata 实际声明 HTTP 503 `error_response`，不能当作真实 socket transport
+  failure 的直接 oracle。对应 owner 与后续焦点记录在[测试补全计划](../implementation-plans/test-coverage-completion-plan.md)。
 - Python 单 case verifier 仍只消费已经生成的 observations，不启动 OpenBridge。
 
 ## 关联文档

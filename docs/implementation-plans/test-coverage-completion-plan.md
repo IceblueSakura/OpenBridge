@@ -6,27 +6,31 @@
 不表示任一条目已经获准实施。开始具体工作前，必须只选择一个可观察行为，将对应内容写入
 [当前开发焦点](current-focus.md)，完成测试与最小实现后再更新实施现状并清空当前焦点。
 
+阶段 3 已完成首轮缺口确认：原先 19 个未直接引用的 canonical case 中，14 个已接入 production replay，剩余 5 个已记录
+既有测试 owner 与不机械回放的理由。下列 P1/P2 条目仍是后续候选，不属于本轮已实现事实。
+
 本计划只补强现有产品行为的确定性证据，不改变产品范围、Provider 能力声明、Protocol Bridge 语义或
 默认验收层。当前实现事实仍以[当前实现总览](../implementation-status/current-implementation.md)和
 [协议测试语料与工具现状](../implementation-status/protocol-test-corpus.md)为准。
 
 ## 2. 当前测试基线
 
-本快照于 2026-08-07 在第一阶段低质量测试清理后，从当前 checkout 的测试收集结果和 canonical catalog 得到：
+本快照于 2026-08-08 在阶段 3 高风险 canonical replay 补全后，从当前 checkout 的测试收集结果和 canonical catalog
+得到：
 
 | 测试资产               | 当前数量 | 主要责任                                                                  |
 |------------------------|---------:|---------------------------------------------------------------------------|
 | Rust 源码内单元测试    |       55 | 局部算法、状态、边界类型和安全不变量                                      |
-| Rust 默认集成测试      |      221 | registry、routing、Provider、HTTP/SSE、retry/fallback、取消和 Bridge      |
+| Rust 默认集成测试      |      228 | registry、routing、Provider、HTTP/SSE、retry/fallback、取消和 Bridge      |
 | Rust ignored 客户端测试 |        2 | 独立 Embeddings Python client 与 OpenAI Python/Node SDK opt-in loopback    |
 | Python testkit 测试    |       36 | corpus、SSE parser、Mock Server/Client、observation verifier、生成与打包  |
 | Canonical corpus       | 45 cases | Chat/Responses、Bridge、HTTP error、SSE terminal、transport 与取消 oracle |
 | 默认 SSE wire variants |      306 | Python 所有的确定性 byte fragmentation 覆盖                               |
 
-Rust 共收集到 276 个默认测试和 2 个 ignored 客户端测试。第一阶段删除了 7 个只锁定私有模块位置、指针身份、普通容器操作或
-重复已存在强契约的测试，并把混合的 reasoning-output 测试收窄到唯一未重复的 MiMo Native 行为。静态 case-id 引用扫描显示，45 个 canonical case 中有 26 个被 Rust
-测试源码直接引用，19 个未被直接引用。这个数字只表示 fixture 与 Rust 测试的直接连接， 不等于 19 个行为完全没有 synthetic
-contract test，也不构成行覆盖率或分支覆盖率结论。
+Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一阶段删除了 7 个只锁定私有模块位置、指针身份、普通容器操作或
+重复已存在强契约的测试，并把混合的 reasoning-output 测试收窄到唯一未重复的 MiMo Native 行为。静态 case-id 引用扫描显示，
+45 个 canonical case 中有 40 个被 Rust 测试源码直接引用，5 个未被直接引用。这个数字只表示 fixture 与 Rust 测试的直接连接，
+不等于 5 个行为完全没有 synthetic contract test，也不构成行覆盖率或分支覆盖率结论。
 
 当前环境没有安装 `cargo-llvm-cov`。本计划以可观察行为、故障风险和证据断层排序，不设任意覆盖率百分比目标。
 
@@ -58,8 +62,9 @@ contract test，也不构成行覆盖率或分支覆盖率结论。
 
 | 优先级 | 补全方向                            | 当前缺口                                                                                  | 完成标志                                                                                    |
 |--------|-------------------------------------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| P0     | Canonical case 经过生产 Router 回放 | process replay 当前只覆盖一个 Responses 429 case                                          | 高风险 transport/fault case 能比较实际上游请求、下游响应、terminal、attempt 和 commit point |
-| P0     | Streaming 失败与取消                | corpus 的 5 个 transport case 均未被 Rust 测试源码直接引用                                | EOF、abort、cancel 在输出前后边界均不产生非法 retry/fallback 或伪造 terminal                |
+| P0（已补） | Canonical case 经过生产 Router 回放 | 12 个 HTTP error 与 3 个 lifecycle case 已经过 production loopback                         | 高风险 transport/fault case 比较实际上游请求、下游响应、terminal、attempt 和 commit point   |
+| P0（已补） | Streaming 失败与取消                | post-output abort、cancel 与 clean EOF 均有 production replay                              | 已证明三者在输出后不产生非法 retry/fallback 或伪造 terminal                                |
+| P1     | Native response 公共身份            | formal response model 契约与当前 Native byte-transparent 实现/状态存在证据差异             | 独立焦点确定并验证 JSON/SSE 的 Public Model response projection，而不损坏未知合法 wire      |
 | P1     | Provider wire profile               | Provider contract 数量较多，但每个 Provider 的 path、terminal、header 和 error 覆盖不对称 | 每个已编译 Provider 都有与声明能力匹配的表驱动契约                                          |
 | P1     | credential/cooldown 并发            | 现有覆盖以顺序场景为主                                                                    | 并发请求下 cursor、cooldown、generation、attempt budget 和取消仍保持确定性不变量            |
 | P1     | observability 终态矩阵              | 已有成功、失败、EOF、取消测试，但协议和多 attempt 场景不完全对称                          | 每个已支持终态只记录一次，计数正确，诊断不含正文和 credential                               |
@@ -68,35 +73,6 @@ contract test，也不构成行覆盖率或分支覆盖率结论。
 ## 6. 候选短周期行为
 
 以下条目是候选工作，不应在一次改动中全部实施。每次只将一个条目转入 `current-focus.md`。
-
-### TC-01：HTTP error 优先于 SSE Content-Type 分类
-
-- 可观察行为：上游返回 HTTP `>=400` 且错误地携带 `text/event-stream` 时，生产 Router 按 HTTP error 处理，保留允许传递的
-  status、body 和 header，不进入 SSE terminal/EOF 状态机。
-- 第一条测试：在 `tests/process_replay_contract.rs` 回放
-  `responses_native.http_error.sse_content_type`，比较上游 request、下游 error response、零 SSE terminal 和 单次 attempt。
-- 最小边界：只扩展现有 process replay helper 对可配置 status、headers 和 response body 的支持。
-- 不做：不新增通用 CLI，不修改 Python testkit，不解析 Provider 私有 error body。
-- focused validation：`cargo test --locked --test process_replay_contract <test-name>`。
-
-### TC-02：首输出后 transport abort 不触发第二次 attempt
-
-- 可观察行为：上游已经产生下游可见输出后 transport 异常断开，Router 关闭当前流，不 retry、不 fallback， 不伪造成功或失败
-  terminal。
-- 第一条测试：回放 `responses_native.transport_error.after_output`，断言已有输出、无 terminal、attempt 为 1， observability
-  记录一次 stream failure。
-- 最小边界：为 loopback mock response 增加明确的 abort 结束方式和可等待的首输出事件。
-- 不做：不模拟吞吐、背压、TLS、HTTP/2 或真实 TCP packet 边界。
-- 并发要求：使用 readiness/event 和有界 timeout，不添加 sleep。
-
-### TC-03：下游在逻辑事件后取消会停止上游工作
-
-- 可观察行为：下游在声明的 SSE event 后断开，当前上游 body 被取消，退避和后续 attempt 不再启动， observability 只记录一次
-  cancellation。
-- 第一条测试：回放 `responses_native.cancel.after_output`，在确定的 event 边界 drop 下游 body，并观察 mock upstream drop
-  signal、attempt 数和终态计数。
-- 最小边界：复用现有 cancellation transport 与 process replay 生命周期，不引入后台控制平面。
-- 不做：不声明负载、公平性或长期连接稳定性。
 
 ### TC-04：Native Chat/Responses canonical 成功路径经过生产 Router
 
@@ -128,7 +104,7 @@ contract test，也不构成行覆盖率或分支覆盖率结论。
 
 - 可观察行为：已认证请求在 JSON 成功、SSE 成功、最终 HTTP error、timeout、EOF、失败 terminal、 incomplete terminal、error
   terminal、Bridge reject 和 cancellation 下恰好完成一次观测。
-- 第一条测试：先选择 TC-01 或 TC-02 新增路径，同步断言 request/attempt/terminal counters 与脱敏字段。
+- 第一条测试：随下一条新增 runtime replay 同步断言 request/attempt/terminal counters 与脱敏字段。
 - 扩展方式：每完成一种新 runtime replay，就在同一行为改动中补齐对应 observability 断言；不单独制造重复 transport mock。
 - 不做：不引入 exporter、持久化、高基数 label 或业务正文采集。
 
@@ -139,45 +115,37 @@ contract test，也不构成行覆盖率或分支覆盖率结论。
 - 验证边界：显式执行 `cargo test --locked --test sdk_compatibility -- --ignored`，记录 SDK、运行时、平台和 安装来源。
 - 不做：不把网络依赖加入默认 baseline，不长期固定外部 SDK 版本。
 
-## 7. Canonical case 直接引用缺口快照
+### TC-09：Native response 使用 Public Model 身份
 
-下列 19 个 case 当前未被 Rust 测试源码直接引用。它们是 process replay 的候选输入，不表示必须机械地为每个 case
-创建独立测试函数；已有等价 synthetic contract 时，应优先增加生产 Router 的 fixture 连接，而不是复制断言。
+- 可观察行为：Native Chat/Responses 的 JSON 与 SSE response 中，协议定义的 `model` 字段使用下游 Public Model；其他未知合法
+  字段、framing、event 顺序和 payload 仍保持透明。
+- 已确认差异：formal Public Model 契约把 Public Model 定义为下游 response identity，canonical native
+  `expected-client-*` 也执行该投影；当前实现现状则明确记录 Native response bytes 透明，production replay 实际匹配
+  `upstream-stream.sse` 而不是 `expected-client-stream.sse`。
+- 第一条测试：单独以 `responses_native.text.non_stream` 建立失败的 production replay，再决定 bounded JSON/SSE projection；
+  streaming transport/cancellation 测试只断言生命周期，不顺带固定该行为。
+- 不做：不通用解析或重写未知字段，不把 Bridge renderer 用于 Native，不在未进入独立 `current-focus.md` 前修改生产行为。
 
-### Transport（5）
+## 7. Canonical case 直接引用缺口归因
 
-- `chat_native.sse_framing`
-- `responses_native.sse_framing`
-- `responses_native.cancel.after_output`
-- `responses_native.transport_error.after_output`
-- `responses_native.transport_error.before_output`
+阶段 3 开始时有 19 个 case 未被 Rust 源码直接引用。production replay 现已补入 10 个 HTTP fault case，以及
+`responses_native.http_error.sse_content_type`、`responses_native.transport_error.after_output`、
+`responses_native.cancel.after_output` 和 `responses_native.eof_before_terminal`，因此直接引用为 40/45。
 
-### Fault（11）
+剩余 5 个 case 已有下列行为 owner 或证据冲突；在对应产品行为单独获准前，不用重复测试或错误命名的 replay 消除数字缺口：
 
-- `chat_native.bad_gateway.non_stream`
-- `chat_native.invalid_request.non_stream`
-- `chat_native.permission_denied.non_stream`
-- `chat_native.rate_limit.non_stream`
-- `chat_native.unprocessable_entity.non_stream`
-- `responses_native.authentication_error.non_stream`
-- `responses_native.eof_before_terminal`
-- `responses_native.gateway_timeout.non_stream`
-- `responses_native.not_found.non_stream`
-- `responses_native.rate_limit.http_date.non_stream`
-- `responses_native.server_error.malformed_json.non_stream`
-
-### Protocol（2）
-
-- `chat_native.text.non_stream`
-- `responses_native.text.non_stream`
-
-### Regression（1）
-
-- `responses_native.http_error.sse_content_type`
+| Case | 当前 owner | 暂不直接回放的原因 |
+|------|------------|--------------------|
+| `chat_native.text.non_stream` | `forwarding_contract/native.rs` 的 Chat/Responses Native forwarding contract | canonical expected response 会把 upstream model 投影为 Public Model；当前 Native 实现与状态记录为 byte-transparent，需先完成 TC-09 行为决策 |
+| `responses_native.text.non_stream` | 同一 Native forwarding contract | 同上；它是 TC-09 建立失败 production replay 的首选 case |
+| `chat_native.sse_framing` | `sse_contract.rs` 的 incremental framing contract 与 Native forwarding contract | decoder/framing 已有 synthetic owner，但 canonical expected stream 同样包含未实现的 Public Model response projection |
+| `responses_native.sse_framing` | 同一 SSE 与 Native forwarding owner | 同上；不能在 lifecycle test 中顺带固定 response identity |
+| `responses_native.transport_error.before_output` | `forwarding_contract/resilience.rs` 的 before-output retry/fallback contracts 与 Provider error classifier | case 名称/features 写 transport error，但 transport oracle 实际声明 HTTP 503 `error_response`；直接当 socket transport replay 会混淆两种失败类别 |
 
 ## 8. 执行与收敛规则
 
-1. 从 TC-01 开始，或由明确缺陷替换为风险更高的单个行为；未进入 `current-focus.md` 的条目保持候选状态。
+1. 先以 TC-09 解决 response identity 证据差异，再继续 TC-04；也可由明确缺陷替换为风险更高的单个行为。未进入
+   `current-focus.md` 的条目保持候选状态。
 2. 先写或确认失败测试。若新增测试立即通过，只把它作为现有行为的回归证据，不虚构实现变更。
 3. 先复用 canonical artifact 和现有 test support；只有第二个真实使用点出现后才抽取通用 helper。
 4. 每个 runtime replay 至少断言上游 request、下游 status/headers/body 或 SSE semantics、terminal、attempt 数和
@@ -220,10 +188,10 @@ cargo test --locked --test sdk_compatibility -- --ignored
 
 ## 10. 计划完成判据
 
-本计划在满足以下条件后可以删除，其已确认事实转入 implementation-status：
+本计划在满足以下条件后可以删除，其已确认事实转入 implementation-status。前两项已由阶段 3 满足，其余仍是后续候选：
 
-- 19 个直接引用缺口逐项完成归属判定：要么由生产 Router replay 覆盖，要么记录已有 Rust owner 及不重复回放的 明确理由；
-- transport 和 HTTP/SSE classification 的 P0 case 已经过生产 Router，且覆盖输出前后 commit boundary；
+- 已满足：19 个初始直接引用缺口逐项完成归属判定；14 个接入 production replay，5 个记录既有 Rust owner 与不重复回放理由；
+- 已满足：高风险 HTTP/SSE classification、post-output abort、cancel 与 EOF case 已经过 production Router；
 - 每个已编译 Provider 都有与其声明能力相符的 request、header、terminal 和 error profile 契约；
 - credential/cooldown 的共享状态至少有一组无 sleep 的确定性并发覆盖；
 - 新增 runtime replay 同步覆盖 observability 的唯一终态与脱敏不变量；
