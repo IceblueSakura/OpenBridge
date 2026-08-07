@@ -15,6 +15,8 @@
   `chatgpt-gpt-5.6-sol`；`text-embedding-3-small` 是独立 Embeddings Public Model。
 - `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source，按配置顺序保留候选；其他当前 generation Public Model 仍按各自
   注册项使用一个 Provider source。
+- 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和
+  Public Model 在本次运行中不可执行，但不会从代码注册表删除 Provider 或 Model。
 - 同一 downstream operation 内先编译 Native candidates，再编译同顺序的 Bridge candidates；注册表保存固定 Route 顺序，不由请求重排。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
 
@@ -30,6 +32,8 @@
 ## 验证证据
 
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖注册项、引用和启动校验。
+- [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖 active pool 筛选、Target/Public Model 过滤和
+  非激活 pool 不进入服务凭证要求。
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖四个 ChatGPT target/Public Model/Route 的固定编译事实。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖候选顺序、Public Model 与 Route 规划。
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 和 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)

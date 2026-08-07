@@ -19,6 +19,12 @@
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |
 | ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
 
+## 已实现的横向能力
+
+| 功能点 | 状态文档 | 主要证据入口 |
+|---|---|---|
+| 当前进程指标快照读取与可选 OTLP trace 导出 | [telemetry-metrics.md](telemetry-metrics.md) | `tests/observability_contract.rs`、`tests/otlp_trace_contract.rs` |
+
 ## 横向状态文档
 
 | 文档 | 用途 |

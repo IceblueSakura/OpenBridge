@@ -45,7 +45,8 @@ Route。
   audio，且无资源归属时拒绝 `file_id`。
 - 已实现 ChatGPT subscription OAuth 与受限数据面：独立 Provider、OpenBridge-owned 配置、显式 private device interaction + PKCE
   登录、guarded reload、single-flight、原子 rotation、expiry-driven 自动 refresh，以及四个固定 Responses-native Public Model 的
-  manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable probe。
+  manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable selector。管理员
+  可以显式运行固定 ChatGPT Models probe，但它不读取本机状态，也不扩大 Public Model 能力。
 - 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，逐步把历史分析与派生计算移到外部系统；
   trace 导出闭环已完成，metrics、logs 与现有进程内累计的缩减均须另立[当前开发焦点](../implementation-plans/current-focus.md)。
 

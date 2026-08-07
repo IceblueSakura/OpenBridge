@@ -17,6 +17,12 @@
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) |
 | ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) |
 
+## 已实现的横向能力
+
+| 功能点 | 状态文档 |
+|---|---|
+| 当前进程指标快照读取与可选 OTLP trace 导出 | [运行时指标与遥测](telemetry-metrics.md) |
+
 ## 横向状态文档
 
 - [当前代码架构](current-architecture.md)：描述模块所有权、请求数据流和代码边界。

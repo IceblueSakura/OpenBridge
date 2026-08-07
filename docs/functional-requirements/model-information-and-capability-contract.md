@@ -25,9 +25,9 @@
 | Public Model            | 稳定身份、生命周期、模型事实和每协议唯一固定能力契约                                | 是                                                 |
 | RoutePlan / attempt     | 已接受请求的执行顺序、retry、fallback、credential 与 cooldown 状态                  | 否                                                 |
 
-公共对象不得包含 Provider、Target、Route、upstream/canonical model id、endpoint、credential、header 或 wire
-mapping，也不得包含健康、延迟、配额、价格、成本、指标、排行或 benchmark。上游 `/models` 与 probe 结果不能 自动注册或扩大 Public
-Model。
+公共模型对象不得包含 Provider、Target、Route、upstream/canonical model id、endpoint、credential、header 或 wire
+mapping，也不得包含健康、延迟、配额、价格、成本、指标、排行或 benchmark。进程指标由独立的受 Bearer 保护的 metrics endpoint
+提供当前运行快照，不属于 `PublicModelInfo`；上游 `/models` 与 probe 结果不能自动注册或扩大 Public Model。
 
 Canonical profile identity 只用于区分不同的已核实模型事实，不代表 endpoint、credential 或请求方可选择的 Provider；其具体可调用性
 仍必须由显式 Target、Upstream API、Route 和 Public Model 注册形成。
@@ -189,7 +189,8 @@ LiteLLM/OpenRouter 目录新鲜度。
 
 - 根据能力、质量、成本或 benchmark 自动选模；
 - 按请求能力筛选、打分、加权或重排 Route；
-- 暴露 deployment、endpoint、credential、健康、价格、配额或指标接口；
+- 在 Models API 中暴露 deployment、endpoint、credential、健康、价格、配额、指标或 benchmark；当前运行指标快照只能通过独立的受保护
+  metrics endpoint 提供，不属于模型目录或模型能力契约；
 - 从 LiteLLM、OpenRouter、Provider `/models` 或 probe 动态发现和注册模型；
 - 模型推荐、自动迁移、alias resolution、ACL、分页搜索或 capability query API；
 - 在未实现协议语义前，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state、embedding 参数或 opaque reasoning。

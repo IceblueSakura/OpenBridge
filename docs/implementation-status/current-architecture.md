@@ -99,7 +99,8 @@ BootstrapConfigPath::load
 → TraceExportRuntime::from_bootstrap + init_tracing
 → UserConfigPath::load
 → UpstreamCredentialConfigPath::load
-→ providers::build_compiled_registry
+→ derive active pool IDs
+→ providers::build_compiled_registry_with_active_pools
 → UpstreamCredentialConfiguration::load_into_for
 → CredentialStore::validate_registry
 → immutable CredentialStore + OAuth2CredentialManager
@@ -164,13 +165,15 @@ RegistryConfig
 
 当前编译目录包含 20 个 `ModelConfig`：19 个 generation 模型，以及独立的
 `openai/text-embedding-3-small` Embedding 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
-侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark 与 GPT-5.5/5.6 四个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
+侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark、GPT-5.5 以及 GPT-5.6
+Luna/Terra/Sol 共 5 个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
 checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、`chatgpt/gpt_5_3_codex_spark.rs`、
 `deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。各根模块直接维持
 目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 或 `chatgpt::gpt_5_3_codex_spark::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
 `z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、context、 参数、reasoning 状态和
 level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于 可调用；只有被 Upstream Target
-引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。
+引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。服务启动还会根据私有凭证配置派生 active pool 集合；缺失、无 source
+或空 API-key pool 会使引用它的 Target/Public Model 在本次运行中不可执行，但不会删除代码注册的 Provider 或 canonical Model。
 `ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被 伪装成可调用
 Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有字段；
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
@@ -214,6 +217,8 @@ Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`resp
 | `GET /v1/models/{model}`            | 返回一个标准四字段 Model 对象                                       |
 | `GET /openbridge/v1/models`         | 返回完整 Public Model 能力列表                                      |
 | `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象                                  |
+| `GET /openbridge/v1/metrics`        | 返回当前进程的 `GatewayMetricsSnapshot`，读取不创建请求观测           |
+| `GET /openbridge/v1/metrics/providers` | 返回按受信编译维度排序的 `ProviderMetricSnapshot[]`，读取不改变快照 |
 | `POST /v1/chat/completions`         | 进入 Chat Native/Bridged RoutePlan                                  |
 | `POST /v1/responses`                | 进入 Responses Native/Bridged RoutePlan                             |
 | `POST /v1/embeddings`               | 进入严格 JSON Embeddings analysis/preflight 与唯一 Native candidate |
@@ -304,7 +309,8 @@ ChatGPT registration 为 Spark 与 GPT-5.6 Luna/Terra/Sol 固定四个 target、
 model 和共享 `chatgpt-codex` OAuth pool；四个 Public Model 各有且仅有一个 Responses Native Route。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
 `stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。该 profile 不读取本机 Codex auth、
-client-version model-list profile、部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server。
+部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server；Models probe 使用的
+`/models?client_version=0.146.0` query 是编译期固定的 adapter 事实，不由本机 client profile 提供。
 
 静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
 `GenerationCapabilities` 只是请求分析和公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。

@@ -183,7 +183,8 @@ public model name
 
 注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 MiMo 注册双协议和
 Bridge，OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 的四个固定 target 只提供
-Responses Native Route，通过独立 OAuth2 manager 借用 credential，不提供本机 Codex credential、identity 或 executable probe；
+Responses Native Route，通过独立 OAuth2 manager 借用 credential；管理员也可以对已激活 target 显式执行固定 Models probe，但不提供本机
+Codex credential、identity 或 executable probe；
 `deepseek-v4-flash` 的 Responses 下游请求使用显式 OpenRouter Native route，`deepseek-v4-pro` 没有 Responses 接口。
 这些路径仍不证明异构 wire protocol Provider 已经实现。
 
