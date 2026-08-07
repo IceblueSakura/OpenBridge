@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::{
     core::ApiProtocol,
-    observability::{GatewayMetricsSnapshot, ProviderMetricSnapshot, RequestObservation},
+    observability::RequestObservation,
     registry::{PublicModelInfo, StandardModel},
 };
 
@@ -77,20 +77,6 @@ pub(super) async fn extended_model(
         .public_model(&model)
         .map(|model| Json(model.info().clone()).into_response())
         .unwrap_or_else(model_not_found)
-}
-
-/// Returns the current process-level metrics accumulated since startup.
-pub(super) async fn metrics(State(state): State<GatewayState>) -> Json<GatewayMetricsSnapshot> {
-    // Read the shared in-process counters without creating persistence or a second aggregation path.
-    Json(state.metrics().snapshot())
-}
-
-/// Returns Provider-attempt metrics ordered by their existing trusted dimensions.
-pub(super) async fn provider_metrics(
-    State(state): State<GatewayState>,
-) -> Json<Vec<ProviderMetricSnapshot>> {
-    // Read the existing Provider snapshot collection without exposing request or credential identity.
-    Json(state.metrics().provider_snapshots())
 }
 
 #[derive(Serialize)]

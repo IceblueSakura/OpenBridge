@@ -30,8 +30,8 @@ use crate::{
 use super::{
     auth,
     handlers::{
-        chat_completions, embeddings, extended_model, extended_models, health, metrics, model,
-        models, provider_metrics, responses,
+        chat_completions, embeddings, extended_model, extended_models, health, model, models,
+        responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
@@ -75,8 +75,6 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/models/{model}", get(model))
         .route("/openbridge/v1/models", get(extended_models))
         .route("/openbridge/v1/models/{model}", get(extended_model))
-        .route("/openbridge/v1/metrics", get(metrics))
-        .route("/openbridge/v1/metrics/providers", get(provider_metrics))
         .route_layer(middleware::from_fn_with_state(
             DownstreamAuthState {
                 users: state.users.clone(),
@@ -146,24 +144,6 @@ async fn require_user(
 
     // Bind the authenticated user before invoking any protected handler.
     request.extensions_mut().insert(user.clone());
-
-    // Serve read-only metrics under authentication without letting observation mutate its own snapshot.
-    if matches!(
-        path.as_str(),
-        "/openbridge/v1/metrics" | "/openbridge/v1/metrics/providers"
-    ) {
-        let span = tracing::info_span!(
-            "metrics_request",
-            %request_id,
-            user_id = %user.id(),
-            %method,
-            %path,
-            status = tracing::field::Empty,
-        );
-        let response = tracing::Instrument::instrument(next.run(request), span.clone()).await;
-        span.record("status", response.status().as_u16());
-        return response;
-    }
 
     // Bind the observed request to a span and finish it only at the downstream body boundary.
     let span = tracing::info_span!("downstream_request", %request_id);

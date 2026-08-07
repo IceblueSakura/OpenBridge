@@ -1,12 +1,11 @@
-//! Performance, usage, and cache telemetry for Provider attempts.
+//! Provider-attempt lifecycle observation and trusted OpenTelemetry dimensions.
 //!
-//! This module binds each actual upstream call to compile-time Route, target, upstream operation,
-//! Provider, and operation dimensions. It records timing and explicit usage at raw upstream
-//! body/SSE boundaries, then writes a process snapshot at attempt termination. Metrics store no
-//! business bodies, credentials, endpoint URLs, or downstream identities.
+//! This module binds each actual upstream call to compile-time Route, target, upstream model,
+//! operation, Provider, and execution-mode attributes. It records timing and explicit usage at raw
+//! upstream body/SSE boundaries, then submits one terminal to OpenTelemetry instruments. It never
+//! retains business bodies, credentials, endpoint URLs, or downstream identities.
 
 use std::{
-    collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -14,184 +13,106 @@ use std::{
 use axum::body::Body;
 use bytes::Bytes;
 use http_body::{Body as HttpBody, Frame, SizeHint};
-use serde::Serialize;
+use opentelemetry::KeyValue;
 use serde_json::Value;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{core::OperationKind, provider::ProviderKind};
 
-use super::{request::RequestObservation, usage::TokenUsage};
+use super::{metrics::GatewayMetrics, request::RequestObservation, usage::TokenUsage};
 
-/// Bounded, non-sensitive dimensions used by Provider performance snapshots.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct ProviderMetricKey {
-    /// Compile-time Provider name.
-    pub provider: String,
-    /// Compile-time Route identifier.
-    pub route_id: String,
-    /// Compile-time Upstream Target identifier.
-    pub upstream_target: String,
-    /// Compile-time typed upstream operation name.
-    pub upstream_operation: String,
-    /// Public Model name used downstream.
-    pub public_model: String,
-    /// Stable downstream operation name.
-    pub operation: String,
-    /// Native or Bridged execution mode.
-    pub route_mode: String,
-    /// Whether the request requires a streaming response.
-    pub streaming: bool,
+/// Borrowed compile-time facts for one actual Provider attempt.
+pub(crate) struct ProviderAttemptContext<'a> {
+    /// One-based attempt index within the downstream request.
+    pub(crate) attempt: u64,
+    /// Compiled Route identifier.
+    pub(crate) route_id: &'a str,
+    /// Compiled Upstream Target identifier.
+    pub(crate) upstream_target: &'a str,
+    /// Operation selected on the Upstream Target.
+    pub(crate) upstream_operation: OperationKind,
+    /// Provider-visible model selected by the compiled API.
+    pub(crate) upstream_model: &'a str,
+    /// Provider family owning the selected Target.
+    pub(crate) provider: ProviderKind,
+    /// Whether this attempt crosses the protocol bridge.
+    pub(crate) bridged: bool,
 }
 
-impl ProviderMetricKey {
-    /// Builds Provider performance dimensions from trusted compile-time identifiers.
+/// Bounded, non-sensitive dimensions used by Provider OpenTelemetry measurements.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ProviderMetricAttributes {
+    pub(super) provider: String,
+    gen_ai_provider: String,
+    pub(super) route_id: String,
+    pub(super) upstream_target: String,
+    pub(super) upstream_operation: String,
+    pub(super) upstream_model: String,
+    pub(super) public_model: String,
+    pub(super) operation: String,
+    pub(super) gen_ai_operation: String,
+    pub(super) route_mode: String,
+    pub(super) streaming: bool,
+}
+
+impl ProviderMetricAttributes {
+    /// Builds Provider attributes from trusted compile-time identifiers.
     pub(super) fn new(
-        provider: ProviderKind,
-        route_id: &str,
-        upstream_target: &str,
-        upstream_operation: OperationKind,
+        context: &ProviderAttemptContext<'_>,
         public_model: &str,
         operation: Option<OperationKind>,
-        execution: ProviderMetricExecution,
+        streaming: bool,
     ) -> Self {
         Self {
-            provider: provider_name(provider).to_owned(),
-            route_id: route_id.to_owned(),
-            upstream_target: upstream_target.to_owned(),
-            upstream_operation: upstream_operation.as_str().to_owned(),
+            provider: provider_name(context.provider).to_owned(),
+            gen_ai_provider: gen_ai_provider_name(context.provider).to_owned(),
+            route_id: context.route_id.to_owned(),
+            upstream_target: context.upstream_target.to_owned(),
+            upstream_operation: context.upstream_operation.as_str().to_owned(),
+            upstream_model: context.upstream_model.to_owned(),
             public_model: public_model.to_owned(),
             operation: operation
                 .map(OperationKind::as_str)
                 .unwrap_or("unknown")
                 .to_owned(),
-            route_mode: if execution.bridged {
-                "bridged"
-            } else {
-                "native"
-            }
-            .to_owned(),
-            streaming: execution.streaming,
+            gen_ai_operation: operation
+                .map(gen_ai_operation_name)
+                .unwrap_or("unknown")
+                .to_owned(),
+            route_mode: if context.bridged { "bridged" } else { "native" }.to_owned(),
+            streaming,
         }
     }
-}
 
-/// Execution-mode context for a Provider attempt.
-#[derive(Clone, Copy)]
-pub(super) struct ProviderMetricExecution {
-    /// Whether the request requires a streaming response.
-    pub(super) streaming: bool,
-    /// Whether the current Route uses the Protocol Bridge.
-    pub(super) bridged: bool,
-}
-
-/// Count/sum/min/max aggregate for one timing field.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
-pub struct TimingSnapshot {
-    /// Number of valid observations.
-    pub count: u64,
-    /// Sum of all valid observations in milliseconds.
-    pub sum_ms: u64,
-    /// Minimum valid observation in milliseconds.
-    pub min_ms: Option<u64>,
-    /// Maximum valid observation in milliseconds.
-    pub max_ms: Option<u64>,
-}
-
-impl TimingSnapshot {
-    /// Adds a bounded millisecond observation.
-    fn record(&mut self, value: u64) {
-        self.count = self.count.saturating_add(1);
-        self.sum_ms = self.sum_ms.saturating_add(value);
-        self.min_ms = Some(self.min_ms.map_or(value, |current| current.min(value)));
-        self.max_ms = Some(self.max_ms.map_or(value, |current| current.max(value)));
+    /// Returns the full trusted attributes for OpenBridge-specific instruments.
+    pub(super) fn openbridge_attributes(&self) -> Vec<KeyValue> {
+        vec![
+            KeyValue::new("gen_ai.provider.name", self.gen_ai_provider.clone()),
+            KeyValue::new("gen_ai.operation.name", self.gen_ai_operation.clone()),
+            KeyValue::new("gen_ai.request.model", self.upstream_model.clone()),
+            KeyValue::new("gen_ai.request.stream", self.streaming),
+            KeyValue::new("openbridge.provider.name", self.provider.clone()),
+            KeyValue::new("openbridge.route.id", self.route_id.clone()),
+            KeyValue::new("openbridge.upstream.target", self.upstream_target.clone()),
+            KeyValue::new(
+                "openbridge.upstream.operation",
+                self.upstream_operation.clone(),
+            ),
+            KeyValue::new("openbridge.downstream.operation", self.operation.clone()),
+            KeyValue::new("openbridge.public_model", self.public_model.clone()),
+            KeyValue::new("openbridge.route.mode", self.route_mode.clone()),
+        ]
     }
-}
 
-/// Fixed-point aggregate for output tokens/sec; every milli field equals the real value multiplied by 1,000.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
-pub struct RateSnapshot {
-    /// Number of valid speed observations.
-    pub count: u64,
-    /// Sum of milli tokens/sec.
-    pub sum_milli_tokens_per_second: u64,
-    /// Minimum milli tokens/sec.
-    pub min_milli_tokens_per_second: Option<u64>,
-    /// Maximum milli tokens/sec.
-    pub max_milli_tokens_per_second: Option<u64>,
-}
-
-impl RateSnapshot {
-    /// Adds a speed observation expressed in milli tokens/sec.
-    fn record(&mut self, value: u64) {
-        self.count = self.count.saturating_add(1);
-        self.sum_milli_tokens_per_second = self.sum_milli_tokens_per_second.saturating_add(value);
-        self.min_milli_tokens_per_second = Some(
-            self.min_milli_tokens_per_second
-                .map_or(value, |current| current.min(value)),
-        );
-        self.max_milli_tokens_per_second = Some(
-            self.max_milli_tokens_per_second
-                .map_or(value, |current| current.max(value)),
-        );
+    /// Returns the standard GenAI attributes and a bounded error category when applicable.
+    pub(super) fn gen_ai_attributes(&self, outcome: Option<AttemptOutcome>) -> Vec<KeyValue> {
+        let mut attributes = self.openbridge_attributes();
+        if let Some(outcome) = outcome.filter(|outcome| *outcome != AttemptOutcome::Completed) {
+            attributes.push(KeyValue::new("error.type", outcome.as_str()));
+        }
+        attributes
     }
-}
-
-/// Performance and usage snapshot for one Provider/Route dimension.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
-pub struct ProviderMetricSnapshot {
-    /// Trusted dimensions of this snapshot.
-    pub key: ProviderMetricKey,
-    /// Actual upstream attempts fully finalized.
-    pub attempts_started: u64,
-    /// Attempts whose upstream body ended normally.
-    pub attempts_completed: u64,
-    /// Attempts returning a non-2xx status.
-    pub attempts_http_failed: u64,
-    /// Transport failures without an HTTP response.
-    pub attempts_transport_failed: u64,
-    /// Attempts failing at the upstream body, SSE, or protocol boundary.
-    pub attempts_stream_failed: u64,
-    /// Attempts cancelled before the upstream body completed.
-    pub attempts_cancelled: u64,
-    /// Timing aggregate until upstream response headers are ready.
-    pub response_ready_ms: TimingSnapshot,
-    /// Timing aggregate until the first non-empty upstream body chunk.
-    pub upstream_first_byte_ms: TimingSnapshot,
-    /// Timing aggregate until the first upstream token-bearing text/tool/reasoning output.
-    pub upstream_ttft_ms: TimingSnapshot,
-    /// Timing aggregate until downstream observes the first streaming delta or non-streaming JSON body.
-    pub gateway_ttft_ms: TimingSnapshot,
-    /// Timing aggregate for the upstream body lifetime.
-    pub duration_ms: TimingSnapshot,
-    /// Timing aggregate from first upstream business output to upstream body completion.
-    pub generation_duration_ms: TimingSnapshot,
-    /// Speed aggregate calculated from explicit output usage and generation duration.
-    pub output_speed: RateSnapshot,
-    /// Attempts with explicit usage.
-    pub usage_observations: u64,
-    /// Attempts explicitly returning input tokens, used for average input tokens per request.
-    pub input_token_observations: u64,
-    /// Attempts explicitly returning output tokens, used for average output tokens per request.
-    pub output_token_observations: u64,
-    /// Attempts explicitly returning total tokens, used for average total tokens per request.
-    pub total_token_observations: u64,
-    /// Cumulative input tokens from explicit usage.
-    pub input_tokens: u64,
-    /// Cumulative output tokens from explicit usage.
-    pub output_tokens: u64,
-    /// Cumulative total tokens from explicit usage.
-    pub total_tokens: u64,
-    /// Attempts whose usage includes explicit cache fields.
-    pub cache_observations: u64,
-    /// Attempts whose usage explicitly returns cache-read tokens, used as the hit-rate denominator.
-    pub cache_read_observations: u64,
-    /// Attempts explicitly reporting cache-read tokens.
-    pub cache_hit_requests: u64,
-    /// Cumulative explicitly reported cache-read tokens.
-    pub cached_input_tokens: u64,
-    /// Cumulative explicitly reported cache-write tokens.
-    pub cache_write_input_tokens: u64,
 }
 
 /// Final result category for a Provider attempt.
@@ -210,8 +131,8 @@ pub(super) enum AttemptOutcome {
 }
 
 impl AttemptOutcome {
-    /// Returns the stable trace outcome name.
-    fn as_str(self) -> &'static str {
+    /// Returns the stable trace and metric outcome name.
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Completed => "completed",
             Self::HttpFailed => "http_failed",
@@ -222,128 +143,11 @@ impl AttemptOutcome {
     }
 }
 
-/// Shared Provider snapshot storage.
-#[derive(Clone, Default)]
-pub(super) struct ProviderMetrics {
-    inner: Arc<Mutex<BTreeMap<ProviderMetricKey, ProviderMetricSnapshot>>>,
-}
-
-impl ProviderMetrics {
-    /// Creates an open Provider-attempt observation handle.
-    pub(super) fn start(&self, key: ProviderMetricKey, span: Span) -> ProviderAttemptObservation {
-        ProviderAttemptObservation {
-            metrics: self.clone(),
-            key,
-            span,
-            started: Instant::now(),
-            state: Arc::new(Mutex::new(ProviderAttemptState::default())),
-        }
-    }
-
-    /// Returns Provider snapshots ordered by dimension.
-    pub(super) fn snapshots(&self) -> Vec<ProviderMetricSnapshot> {
-        self.inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .cloned()
-            .collect()
-    }
-
-    /// Merges a finalized attempt summary into its corresponding dimension.
-    fn record(&self, key: &ProviderMetricKey, summary: AttemptSummary) {
-        let mut snapshots = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let snapshot = snapshots
-            .entry(key.clone())
-            .or_insert_with(|| ProviderMetricSnapshot {
-                key: key.clone(),
-                ..ProviderMetricSnapshot::default()
-            });
-        snapshot.attempts_started = snapshot.attempts_started.saturating_add(1);
-        match summary.outcome {
-            AttemptOutcome::Completed => {
-                snapshot.attempts_completed = snapshot.attempts_completed.saturating_add(1)
-            }
-            AttemptOutcome::HttpFailed => {
-                snapshot.attempts_http_failed = snapshot.attempts_http_failed.saturating_add(1)
-            }
-            AttemptOutcome::TransportFailed => {
-                snapshot.attempts_transport_failed =
-                    snapshot.attempts_transport_failed.saturating_add(1)
-            }
-            AttemptOutcome::StreamFailed => {
-                snapshot.attempts_stream_failed = snapshot.attempts_stream_failed.saturating_add(1)
-            }
-            AttemptOutcome::Cancelled => {
-                snapshot.attempts_cancelled = snapshot.attempts_cancelled.saturating_add(1)
-            }
-        }
-        if let Some(value) = summary.response_ready_ms {
-            snapshot.response_ready_ms.record(value);
-        }
-        if let Some(value) = summary.upstream_first_byte_ms {
-            snapshot.upstream_first_byte_ms.record(value);
-        }
-        if let Some(value) = summary.upstream_ttft_ms {
-            snapshot.upstream_ttft_ms.record(value);
-        }
-        if let Some(value) = summary.gateway_ttft_ms {
-            snapshot.gateway_ttft_ms.record(value);
-        }
-        snapshot.duration_ms.record(summary.duration_ms);
-        if let Some(value) = summary.generation_duration_ms {
-            snapshot.generation_duration_ms.record(value);
-        }
-        if let Some(value) = summary.output_speed_milli_tokens_per_second {
-            snapshot.output_speed.record(value);
-        }
-        if let Some(usage) = summary.usage {
-            snapshot.usage_observations = snapshot.usage_observations.saturating_add(1);
-            if let Some(input_tokens) = usage.input_tokens {
-                snapshot.input_token_observations =
-                    snapshot.input_token_observations.saturating_add(1);
-                add_saturated(&mut snapshot.input_tokens, input_tokens);
-            }
-            if let Some(output_tokens) = usage.output_tokens {
-                snapshot.output_token_observations =
-                    snapshot.output_token_observations.saturating_add(1);
-                add_saturated(&mut snapshot.output_tokens, output_tokens);
-            }
-            if let Some(total_tokens) = usage.total_tokens {
-                snapshot.total_token_observations =
-                    snapshot.total_token_observations.saturating_add(1);
-                add_saturated(&mut snapshot.total_tokens, total_tokens);
-            }
-            if usage.cached_input_tokens.is_some() || usage.cache_write_input_tokens.is_some() {
-                snapshot.cache_observations = snapshot.cache_observations.saturating_add(1);
-            }
-            if usage.cached_input_tokens.is_some() {
-                snapshot.cache_read_observations =
-                    snapshot.cache_read_observations.saturating_add(1);
-            }
-            if usage.cached_input_tokens.is_some_and(|value| value > 0) {
-                snapshot.cache_hit_requests = snapshot.cache_hit_requests.saturating_add(1);
-            }
-            add_saturated(
-                &mut snapshot.cached_input_tokens,
-                usage.cached_input_tokens.unwrap_or(0),
-            );
-            add_saturated(
-                &mut snapshot.cache_write_input_tokens,
-                usage.cache_write_input_tokens.unwrap_or(0),
-            );
-        }
-    }
-}
-
 /// Lifecycle observation handle for one actual Provider attempt.
 #[derive(Clone)]
 pub(super) struct ProviderAttemptObservation {
-    metrics: ProviderMetrics,
-    key: ProviderMetricKey,
+    metrics: GatewayMetrics,
+    attributes: ProviderMetricAttributes,
     span: Span,
     started: Instant,
     state: Arc<Mutex<ProviderAttemptState>>,
@@ -362,19 +166,34 @@ struct ProviderAttemptState {
 }
 
 #[derive(Clone, Copy)]
-struct AttemptSummary {
-    outcome: AttemptOutcome,
-    response_ready_ms: Option<u64>,
-    upstream_first_byte_ms: Option<u64>,
-    upstream_ttft_ms: Option<u64>,
-    gateway_ttft_ms: Option<u64>,
-    duration_ms: u64,
-    generation_duration_ms: Option<u64>,
-    output_speed_milli_tokens_per_second: Option<u64>,
-    usage: Option<TokenUsage>,
+pub(super) struct AttemptSummary {
+    pub(super) outcome: AttemptOutcome,
+    pub(super) response_ready_ms: Option<u64>,
+    pub(super) upstream_first_byte_ms: Option<u64>,
+    pub(super) upstream_ttft_ms: Option<u64>,
+    pub(super) gateway_ttft_ms: Option<u64>,
+    pub(super) duration_ms: u64,
+    pub(super) generation_duration_ms: Option<u64>,
+    pub(super) output_tokens_per_second: Option<f64>,
+    pub(super) usage: Option<TokenUsage>,
 }
 
 impl ProviderAttemptObservation {
+    /// Creates one lifecycle handle after the attempt-start counter was recorded.
+    pub(super) fn new(
+        metrics: GatewayMetrics,
+        attributes: ProviderMetricAttributes,
+        span: Span,
+    ) -> Self {
+        Self {
+            metrics,
+            attributes,
+            span,
+            started: Instant::now(),
+            state: Arc::new(Mutex::new(ProviderAttemptState::default())),
+        }
+    }
+
     /// Records the attempt-relative time when upstream response headers are ready.
     pub(super) fn record_response_ready(&self) {
         self.with_state(|state| {
@@ -434,7 +253,7 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// Finalizes the attempt with the given result and writes its snapshot at most once.
+    /// Finalizes the attempt and submits its OpenTelemetry measurements at most once.
     pub(super) fn finish(&self, requested_outcome: AttemptOutcome) {
         let summary = {
             let mut state = self.lock_state();
@@ -458,16 +277,13 @@ impl ProviderAttemptObservation {
                 .upstream_ttft_ms
                 .zip(state.upstream_completed_ms)
                 .map(|(first_output, completed)| completed.saturating_sub(first_output));
-            let output_speed_milli_tokens_per_second = state
+            let output_tokens_per_second = state
                 .usage
                 .and_then(|usage| usage.output_tokens)
                 .zip(generation_duration_ms)
                 .and_then(|(output_tokens, generation_ms)| {
-                    (generation_ms > 0).then(|| {
-                        let scaled =
-                            (u128::from(output_tokens) * 1_000_000) / u128::from(generation_ms);
-                        scaled.min(u128::from(u64::MAX)) as u64
-                    })
+                    (generation_ms > 0)
+                        .then(|| output_tokens as f64 * 1_000.0 / generation_ms as f64)
                 });
             AttemptSummary {
                 outcome,
@@ -477,7 +293,7 @@ impl ProviderAttemptObservation {
                 gateway_ttft_ms: state.gateway_ttft_ms,
                 duration_ms,
                 generation_duration_ms,
-                output_speed_milli_tokens_per_second,
+                output_tokens_per_second,
                 usage: state.usage,
             }
         };
@@ -509,18 +325,19 @@ impl ProviderAttemptObservation {
             usage.cache_write_input_tokens,
         );
 
-        // Preserve the in-process snapshot and existing content-free local completion event.
-        self.metrics.record(&self.key, summary);
+        // Submit the terminal directly to OpenTelemetry and preserve the content-free local event.
+        self.metrics
+            .record_provider_attempt(&self.attributes, summary);
         self.span.in_scope(|| {
             tracing::info!(
-                provider = %self.key.provider,
-                route_id = %self.key.route_id,
-                upstream_target = %self.key.upstream_target,
-                upstream_operation = %self.key.upstream_operation,
-                public_model = %self.key.public_model,
-                operation = %self.key.operation,
-                route_mode = %self.key.route_mode,
-                streaming = self.key.streaming,
+                provider = %self.attributes.provider,
+                route_id = %self.attributes.route_id,
+                upstream_target = %self.attributes.upstream_target,
+                upstream_operation = %self.attributes.upstream_operation,
+                public_model = %self.attributes.public_model,
+                operation = %self.attributes.operation,
+                route_mode = %self.attributes.route_mode,
+                streaming = self.attributes.streaming,
                 outcome = summary.outcome.as_str(),
                 response_ready_ms = summary.response_ready_ms,
                 upstream_first_byte_ms = summary.upstream_first_byte_ms,
@@ -677,6 +494,21 @@ fn provider_name(provider: ProviderKind) -> &'static str {
     }
 }
 
-fn add_saturated(destination: &mut u64, value: u64) {
-    *destination = destination.saturating_add(value);
+/// Maps concrete Provider adapters to the closest stable GenAI provider namespace.
+fn gen_ai_provider_name(provider: ProviderKind) -> &'static str {
+    match provider {
+        ProviderKind::ChatGpt | ProviderKind::OpenAi => "openai",
+        ProviderKind::LongCat => "longcat",
+        ProviderKind::DeepSeek => "deepseek",
+        ProviderKind::MiMo => "mimo",
+        ProviderKind::OpenRouter => "openrouter",
+    }
+}
+
+/// Maps concrete downstream protocols to the stable GenAI operation vocabulary.
+fn gen_ai_operation_name(operation: OperationKind) -> &'static str {
+    match operation {
+        OperationKind::ChatCompletions | OperationKind::Responses => "chat",
+        OperationKind::EmbeddingsCreate => "embeddings",
+    }
 }

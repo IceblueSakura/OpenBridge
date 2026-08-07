@@ -22,12 +22,12 @@
 
 | 功能点 | 状态文档 |
 |---|---|
-| 当前进程指标快照读取与可选 OTLP trace 导出 | [运行时指标与遥测](telemetry-metrics.md) |
+| OpenTelemetry traces/metrics 与 OTLP/HTTP 导出 | [运行时指标与遥测](telemetry-metrics.md) |
 
 ## 横向状态文档
 
 - [当前代码架构](current-architecture.md)：描述模块所有权、请求数据流和代码边界。
-- [运行时指标与遥测](telemetry-metrics.md)：描述进程内 gateway/provider 快照和可选 OTLP traces 的字段口径与生命周期。
+- [运行时指标与遥测](telemetry-metrics.md)：描述 OTLP traces/metrics、SDK instruments、属性和生命周期边界。
 - [上游模型发现与能力探测](capability-probing.md)：描述显式 target probe 的输入、输出和安全边界。
 - [协议测试语料与工具](protocol-test-corpus.md)：描述 canonical corpus、Python testkit 和 Rust replay 的验证边界。
 
@@ -37,7 +37,7 @@
 不同证据层。某一层通过不能替代其他层；专题页必须明确写出实际运行的检查和未覆盖的验收层。
 
 当前未完成或不在本轮实现范围的内容包括 Native file/audio/video 与其他模型图片能力、ChatGPT 的其他协议/工具/Agent loop、异构协议 Provider、OTLP
-metrics/logs、Prometheus、持久化/分布式 observability、动态 health/weight、向量检索以及 GUI/Web 控制面。它们只应在对应功能需求和
+logs、内置 Prometheus、持久化/分布式 observability、动态 health/weight、向量检索以及 GUI/Web 控制面。它们只应在对应功能需求和
 当前焦点获准后进入实现。
 
 ## 维护规则

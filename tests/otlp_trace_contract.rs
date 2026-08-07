@@ -25,7 +25,7 @@ use futures_util::future::BoxFuture;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     ingress::{GatewayState, build_router},
-    observability::{GatewayMetrics, GatewayMetricsSnapshot, TraceExportRuntime, otlp_trace_layer},
+    observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     provider::PreparedUpstreamRequest,
     registry::UpstreamTarget,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -150,7 +150,7 @@ fn bootstrap_with_trace_export(endpoint: &str) -> BootstrapConfig {
     .unwrap()
 }
 
-fn app_with_metrics() -> (Router, GatewayMetrics) {
+fn app_with_metrics(metrics: GatewayMetrics) -> Router {
     // Build the ordinary synthetic registry and bind only synthetic credentials.
     let registry = support::registry("otlp-test", "code-primary", "test-model");
     let (users, credentials) =
@@ -160,15 +160,12 @@ fn app_with_metrics() -> (Router, GatewayMetrics) {
         Arc::new(SuccessfulTransport),
         users,
         credentials,
-    );
-    let metrics = state.metrics();
-    (build_router(state), metrics)
+    )
+    .with_metrics(metrics);
+    build_router(state)
 }
 
-async fn execute_business_request(
-    app: Router,
-    metrics: GatewayMetrics,
-) -> (StatusCode, Bytes, GatewayMetricsSnapshot) {
+async fn execute_business_request(app: Router) -> (StatusCode, Bytes) {
     // Execute one authenticated non-streaming Chat Completions request through the real router layers.
     let response = app
         .oneshot(
@@ -186,7 +183,7 @@ async fn execute_business_request(
 
     // Consume the full body so request and attempt observations reach their unique terminal boundaries.
     let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
-    (status, body, metrics.snapshot())
+    (status, body)
 }
 
 fn decode_exports(payloads: &[CapturedPayload]) -> (Vec<Resource>, Vec<OtlpSpan>) {
@@ -272,20 +269,18 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
     // Start a loopback OTLP/HTTP collector and create the fixed batch exporter before serving a request.
     let (endpoint, collector, server) = start_capturing_collector().await;
     let bootstrap = bootstrap_with_trace_export(&endpoint);
-    let runtime = TraceExportRuntime::from_bootstrap(&bootstrap).unwrap();
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
     let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
         runtime.tracer().expect("trace exporter should be enabled"),
     ));
-    let (app, metrics) = app_with_metrics();
+    let app = app_with_metrics(runtime.metrics());
 
     // Keep the test-local subscriber attached through response-body completion.
-    let (status, body, snapshot) = execute_business_request(app, metrics)
+    let (status, body) = execute_business_request(app)
         .with_subscriber(subscriber)
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(contains_bytes(&body, RESPONSE_MARKER.as_bytes()));
-    assert_eq!(snapshot.requests_completed, 1);
-    assert_eq!(snapshot.upstream_attempts, 1);
 
     // Flush and stop the exporter while the fake collector can still accept the final batch.
     runtime.shutdown().await.unwrap();
@@ -475,10 +470,10 @@ async fn disabled_or_unavailable_collector_does_not_change_gateway_response() {
     // Exercise the missing telemetry table against a live collector and prove it receives no egress.
     let (_unused_endpoint, disabled_collector, disabled_server) = start_capturing_collector().await;
     let disabled_bootstrap = parse_bootstrap_config(support::BOOTSTRAP).unwrap();
-    let disabled_runtime = TraceExportRuntime::from_bootstrap(&disabled_bootstrap).unwrap();
+    let disabled_runtime = TelemetryRuntime::from_bootstrap(&disabled_bootstrap).unwrap();
     assert!(disabled_runtime.tracer().is_none());
-    let (disabled_app, disabled_metrics) = app_with_metrics();
-    let disabled = execute_business_request(disabled_app, disabled_metrics).await;
+    let disabled_app = app_with_metrics(disabled_runtime.metrics());
+    let disabled = execute_business_request(disabled_app).await;
     disabled_runtime.shutdown().await.unwrap();
     assert_eq!(disabled_collector.calls.load(Ordering::SeqCst), 0);
     disabled_server.abort();
@@ -487,24 +482,21 @@ async fn disabled_or_unavailable_collector_does_not_change_gateway_response() {
     // Enable an exporter whose collector accepts the request but never returns a response.
     let (endpoint, blocked_collector, blocked_server) = start_blocking_collector().await;
     let bootstrap = bootstrap_with_trace_export(&endpoint);
-    let runtime = TraceExportRuntime::from_bootstrap(&bootstrap).unwrap();
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
     let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
         runtime.tracer().expect("trace exporter should be enabled"),
     ));
-    let (blocked_app, blocked_metrics) = app_with_metrics();
+    let blocked_app = app_with_metrics(runtime.metrics());
 
     // Bound the complete downstream response independently of the exporter timeout and blocked collector.
     let blocked = tokio::time::timeout(
         Duration::from_secs(1),
-        execute_business_request(blocked_app, blocked_metrics).with_subscriber(subscriber),
+        execute_business_request(blocked_app).with_subscriber(subscriber),
     )
     .await
     .expect("collector backpressure must not delay the gateway response");
     assert_eq!(blocked.0, disabled.0);
     assert_eq!(blocked.1, disabled.1);
-    assert_eq!(blocked.2, disabled.2);
-    assert_eq!(blocked.2.upstream_attempts, 1);
-    assert_eq!(blocked.2.requests_cancelled, 0);
 
     // Shutdown must remain bounded even though the exporter reports the blocked collector as failed.
     let _shutdown_result = tokio::time::timeout(Duration::from_secs(2), runtime.shutdown())

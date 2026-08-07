@@ -50,8 +50,8 @@ Route。
   登录、guarded reload、single-flight、原子 rotation、expiry-driven 自动 refresh，以及四个固定 Responses-native Public Model 的
   manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable selector。管理员
   可以显式运行固定 ChatGPT Models probe，但它不读取本机状态，也不扩大 Public Model 能力。
-- 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，逐步把历史分析与派生计算移到外部系统；
-  trace 导出闭环已完成，metrics、logs 与现有进程内累计的缩减均须另立[当前开发焦点](../implementation-plans/current-focus.md)。
+- 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，把历史分析与聚合移到外部系统；
+  traces 与 metrics 导出闭环已完成，logs 仍须另立[当前开发焦点](../implementation-plans/current-focus.md)。
 
 Embeddings 与 Native 多模态的具体行为和非目标以
 [Embeddings 与 Native 多模态扩展需求](embedding-and-native-multimodal.md)为准。这两项目标不改变
@@ -92,7 +92,6 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 | `GET /healthz`                                                   | 返回最小本地存活状态和注册表版本。                                                                            |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 返回代码注册 Public Model 的 OpenAI 标准四字段 list/retrieve。                                                |
 | `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 按[模型能力契约](model-information-and-capability-contract.md)返回同一目录的模型事实与每 operation 固定能力。 |
-| `GET /openbridge/v1/metrics`、`GET /openbridge/v1/metrics/providers` | 由有效 Bearer 用户读取当前进程的进程级和 Provider attempt 指标快照。                         |
 | `POST /v1/chat/completions`                                      | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                          |
 | `POST /v1/responses`                                             | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                     |
 | `POST /v1/embeddings`                                            | 在独立 Embedding Public Model 的固定契约内按唯一 Native Route 提供有界 JSON 向量结果。                        |
@@ -103,7 +102,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 |------------------------------|------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。       |
 | 现有 Chat/Responses endpoint | 扩展同协议 Native 多模态输入，不扩大 Bridge 或专用媒体 API。           | `mimo-v2.5` 图片切片已实现；file/audio 仍未实施，证据见 implementation status。 |
-| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、原始 metrics 与安全 logs。 | trace 已实现；metrics/logs 仍未实施，证据见[当前实现总览](../implementation-status/current-implementation.md)和遥测专题。 |
+| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、SDK 聚合 metrics 与安全 logs。 | traces/metrics 已实现；logs 仍未实施，证据见[当前实现总览](../implementation-status/current-implementation.md)和遥测专题。 |
 
 ## 暂不纳入当前产品承诺
 

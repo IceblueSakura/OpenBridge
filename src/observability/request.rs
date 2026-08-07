@@ -1,14 +1,14 @@
-//! Tracing, terminal-state, and low-cardinality counter submission for one authenticated request.
+//! Tracing, terminal-state, and OpenTelemetry submission for one authenticated request.
 //!
 //! Request, user, credential, and endpoint facts enter only the current span. Validated Route,
 //! target, upstream operation, Provider, and Public Model dimensions are used separately by Provider
-//! attempt snapshots. Shared state stores only terminal diagnostics, usage, and bounded counters,
-//! and guarantees that finish/cancel is submitted at most once.
+//! attempt instruments. Shared state stores only pending lifecycle diagnostics and usage, and
+//! guarantees that finish/cancel is submitted at most once.
 
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::Instant,
 };
@@ -17,13 +17,13 @@ use http::StatusCode;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::{core::OperationKind, provider::ProviderKind};
+use crate::core::OperationKind;
 
 use super::{
     metrics::GatewayMetrics,
     provider::{
-        AttemptOutcome, ProviderAttemptObservation, ProviderMetricExecution, ProviderMetricKey,
-        observe_json_body,
+        AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
+        ProviderMetricAttributes, observe_json_body,
     },
     usage::{TokenUsage, is_failed_terminal, is_generation_output},
 };
@@ -68,10 +68,7 @@ struct RequestState {
 impl RequestObservation {
     /// Creates request observation and immediately increments started requests.
     pub(crate) fn new(metrics: GatewayMetrics, span: Span) -> Self {
-        metrics
-            .inner
-            .requests_started
-            .fetch_add(1, Ordering::Relaxed);
+        metrics.record_request_started();
         Self {
             inner: Arc::new(RequestObservationInner {
                 metrics,
@@ -108,48 +105,40 @@ impl RequestObservation {
     }
 
     /// Records one actual upstream attempt and its compiled Route facts.
-    pub(crate) fn record_attempt(
-        &self,
-        attempt: u64,
-        route_id: &str,
-        upstream_target: &str,
-        upstream_operation: OperationKind,
-        provider: ProviderKind,
-        bridged: bool,
-    ) {
+    pub(crate) fn record_attempt(&self, context: ProviderAttemptContext<'_>) {
         // Create a Provider-dimension attempt handle and keep Route details within the current trace.
         let (operation, public_model, streaming) = {
             let state = self.lock_state();
             (state.operation, state.public_model.clone(), state.streaming)
         };
-        let key = ProviderMetricKey::new(
-            provider,
-            route_id,
-            upstream_target,
-            upstream_operation,
+        let attributes = ProviderMetricAttributes::new(
+            &context,
             public_model.as_deref().unwrap_or("unknown"),
             operation,
-            ProviderMetricExecution { streaming, bridged },
+            streaming,
         );
         let previous = self.with_state_return(|state| state.active_attempt.take());
         if let Some(previous) = previous {
             previous.finish(AttemptOutcome::Cancelled);
         }
-        let attempt_index = attempt.min(i64::MAX as u64) as i64;
+        let attempt_index = context.attempt.min(i64::MAX as u64) as i64;
         let attempt_span = tracing::info_span!(
             parent: &self.inner.span,
             "provider_attempt",
             attempt = attempt_index,
-            provider = %key.provider,
-            route_id = %key.route_id,
-            upstream_target = %key.upstream_target,
-            upstream_operation = %key.upstream_operation,
-            public_model = %key.public_model,
-            operation = %key.operation,
-            route_mode = %key.route_mode,
-            streaming = key.streaming,
+            provider = %attributes.provider,
+            route_id = %attributes.route_id,
+            upstream_target = %attributes.upstream_target,
+            upstream_operation = %attributes.upstream_operation,
+            public_model = %attributes.public_model,
+            operation = %attributes.operation,
+            route_mode = %attributes.route_mode,
+            streaming = attributes.streaming,
         );
-        let provider_attempt = self.inner.metrics.start_provider_attempt(key, attempt_span);
+        let provider_attempt = self
+            .inner
+            .metrics
+            .start_provider_attempt(attributes, attempt_span);
         self.with_state(|state| state.active_attempt = Some(provider_attempt));
         self.inner
             .upstream_first_byte_pending
@@ -157,20 +146,15 @@ impl RequestObservation {
         self.inner
             .upstream_first_output_pending
             .store(true, Ordering::Relaxed);
-        self.inner
-            .metrics
-            .inner
-            .upstream_attempts
-            .fetch_add(1, Ordering::Relaxed);
         self.with_state(|state| state.attempts += 1);
         self.inner.span.in_scope(|| {
             tracing::info!(
-                attempt,
-                route_id,
-                upstream_target,
-                upstream_operation = upstream_operation.as_str(),
-                ?provider,
-                route_mode = if bridged { "bridged" } else { "native" },
+                attempt = context.attempt,
+                route_id = context.route_id,
+                upstream_target = context.upstream_target,
+                upstream_operation = context.upstream_operation.as_str(),
+                provider = ?context.provider,
+                route_mode = if context.bridged { "bridged" } else { "native" },
                 "upstream_attempt"
             );
         });
@@ -187,13 +171,6 @@ impl RequestObservation {
             provider_attempt.record_response_ready();
             provider_attempt.finish(AttemptOutcome::HttpFailed);
         }
-        if !status.is_success() {
-            self.inner
-                .metrics
-                .inner
-                .upstream_http_failures
-                .fetch_add(1, Ordering::Relaxed);
-        }
         self.inner.span.in_scope(|| {
             tracing::info!(
                 attempt,
@@ -209,11 +186,6 @@ impl RequestObservation {
         if let Some(provider_attempt) = self.take_active_attempt() {
             provider_attempt.finish(AttemptOutcome::TransportFailed);
         }
-        self.inner
-            .metrics
-            .inner
-            .upstream_transport_failures
-            .fetch_add(1, Ordering::Relaxed);
         self.inner.span.in_scope(|| {
             tracing::info!(
                 attempt,
@@ -225,11 +197,7 @@ impl RequestObservation {
 
     /// Records one retry within the same candidate.
     pub(crate) fn record_retry(&self) {
-        self.inner
-            .metrics
-            .inner
-            .upstream_retries
-            .fetch_add(1, Ordering::Relaxed);
+        self.inner.metrics.record_routing_event("retry");
         self.with_state(|state| state.retries += 1);
         self.inner
             .span
@@ -240,9 +208,7 @@ impl RequestObservation {
     pub(crate) fn record_credential_rotation(&self) {
         self.inner
             .metrics
-            .inner
-            .credential_rotations
-            .fetch_add(1, Ordering::Relaxed);
+            .record_routing_event("credential_rotation");
         self.with_state(|state| state.credential_rotations += 1);
         self.inner
             .span
@@ -251,11 +217,7 @@ impl RequestObservation {
 
     /// Records one fallback to the next Route candidate.
     pub(crate) fn record_fallback(&self) {
-        self.inner
-            .metrics
-            .inner
-            .route_fallbacks
-            .fetch_add(1, Ordering::Relaxed);
+        self.inner.metrics.record_routing_event("route_fallback");
         self.with_state(|state| state.fallbacks += 1);
         self.inner
             .span
@@ -264,11 +226,7 @@ impl RequestObservation {
 
     /// Records a candidate skipped because of cooldown.
     pub(crate) fn record_cooldown_skip(&self, upstream_target: &str) {
-        self.inner
-            .metrics
-            .inner
-            .cooldown_skips
-            .fetch_add(1, Ordering::Relaxed);
+        self.inner.metrics.record_routing_event("cooldown_skip");
         self.with_state(|state| state.cooldown_skips += 1);
         self.inner.span.in_scope(|| {
             tracing::info!(upstream_target, "cooldown_skip");
@@ -473,6 +431,9 @@ impl RequestObservation {
             }
             state.finished = true;
             CompletionSummary {
+                operation: state.operation,
+                public_model: state.public_model.clone(),
+                streaming: state.streaming,
                 status: state.status,
                 response_ready_ms: state.response_ready_ms,
                 first_body_byte_ms: state.first_body_byte_ms,
@@ -490,8 +451,14 @@ impl RequestObservation {
             }
         };
 
-        // Count the low-cardinality terminal and usage, then emit a summary event exportable by OpenTelemetry tracing.
-        self.record_completion_metrics(&summary);
+        // Submit the terminal directly to OpenTelemetry before closing its active Provider attempt.
+        self.inner.metrics.record_request_completed(
+            request_outcome(&summary),
+            summary.duration_ms,
+            summary.operation,
+            summary.public_model.as_deref(),
+            summary.streaming,
+        );
         if let Some(provider_attempt) = summary.active_attempt.as_ref() {
             let outcome = if summary.cancelled {
                 AttemptOutcome::Cancelled
@@ -505,48 +472,10 @@ impl RequestObservation {
         self.emit_completion(&summary);
     }
 
-    /// Counts one request terminal and its explicit usage.
-    fn record_completion_metrics(&self, summary: &CompletionSummary) {
-        // Classify the request terminal as cancellation, stream failure, successful HTTP, or other HTTP failure.
-        let counters = &self.inner.metrics.inner;
-        if summary.cancelled {
-            counters.requests_cancelled.fetch_add(1, Ordering::Relaxed);
-        } else if summary.failure_kind.is_some() {
-            counters.requests_failed.fetch_add(1, Ordering::Relaxed);
-        } else if summary
-            .status
-            .is_some_and(|status| (200..300).contains(&status))
-        {
-            counters.requests_completed.fetch_add(1, Ordering::Relaxed);
-        } else {
-            counters
-                .requests_http_failed
-                .fetch_add(1, Ordering::Relaxed);
-        }
-        // Add Provider-reported token usage to low-cardinality counters with saturation.
-        if let Some(usage) = summary.usage {
-            counters.usage_observations.fetch_add(1, Ordering::Relaxed);
-            saturating_add(&counters.input_tokens, usage.input_tokens.unwrap_or(0));
-            saturating_add(&counters.output_tokens, usage.output_tokens.unwrap_or(0));
-            saturating_add(&counters.total_tokens, usage.total_tokens.unwrap_or(0));
-        }
-    }
-
     /// Emits a terminal event in the request span without business bodies or credentials.
     fn emit_completion(&self, summary: &CompletionSummary) {
         // Collapse internal state into a stable outcome name without writing underlying error text to the event.
-        let outcome = if summary.cancelled {
-            "cancelled"
-        } else if summary.failure_kind.is_some() {
-            "failed"
-        } else if summary
-            .status
-            .is_some_and(|status| (200..300).contains(&status))
-        {
-            "completed"
-        } else {
-            "http_failed"
-        };
+        let outcome = request_outcome(summary);
         // Emit only timing, attempt counts, terminal category, and structured usage counters.
         let usage = summary.usage.unwrap_or_default();
         self.inner.span.set_attribute("outcome", outcome);
@@ -617,6 +546,9 @@ impl RequestObservation {
 
 #[derive(Clone)]
 struct CompletionSummary {
+    operation: Option<OperationKind>,
+    public_model: Option<String>,
+    streaming: bool,
     status: Option<u16>,
     response_ready_ms: Option<u64>,
     first_body_byte_ms: Option<u64>,
@@ -633,12 +565,20 @@ struct CompletionSummary {
     active_attempt: Option<ProviderAttemptObservation>,
 }
 
-/// Accumulates untrusted external usage values with saturating addition.
-fn saturating_add(counter: &AtomicU64, value: u64) {
-    // Extremely large external usage may saturate the counter but cannot wrap to a smaller value.
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(current.saturating_add(value))
-    });
+/// Classifies one request terminal without exposing an underlying failure message.
+fn request_outcome(summary: &CompletionSummary) -> &'static str {
+    if summary.cancelled {
+        "cancelled"
+    } else if summary.failure_kind.is_some() {
+        "failed"
+    } else if summary
+        .status
+        .is_some_and(|status| (200..300).contains(&status))
+    {
+        "completed"
+    } else {
+        "http_failed"
+    }
 }
 
 /// Records a directly observed unsigned value only when it exists.

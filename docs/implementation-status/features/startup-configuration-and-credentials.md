@@ -7,8 +7,8 @@
 
 ## 已完成内容
 
-- `config/bootstrap.toml` 负责监听地址、请求/响应/replay/SSE 限制、共享 HTTP client 和可选 OTLP trace exporter；当前只接受受校验的
-  bootstrap 字段。
+- `config/bootstrap.toml` 负责监听地址、请求/响应/replay/SSE 限制、共享 HTTP client，以及分别可选的 OTLP traces/metrics
+  exporter；当前只接受受校验的 bootstrap 字段。
 - 私有 `config/users.toml` 提供下游用户和 API key，私有 `config/upstream-credentials.toml` 提供按编译期 binding 关联的有序 API-key
   pool 或单一 OAuth2 auth 文件。
 - 启动前严格校验未知、重复、类型不匹配和畸形的 credential binding；缺少已注册 pool、source-less pool 或空 API-key 数组会让其

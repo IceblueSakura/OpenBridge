@@ -1,7 +1,7 @@
 //! Process startup, configuration loading, and graceful shutdown.
 //!
 //! Startup loads bootstrap, user, registry, and upstream bindings once, then builds the HTTP router,
-//! optional trace exporter, shared upstream client, and expiry-driven OAuth2 worker. Business
+//! optional telemetry exporters, shared upstream client, and expiry-driven OAuth2 worker. Business
 //! requests do not reread files.
 
 use std::{collections::BTreeSet, sync::Arc};
@@ -11,7 +11,7 @@ use openbridge::{
     config::{BootstrapConfig, BootstrapConfigPath},
     identity::UserConfigPath,
     ingress::{GatewayState, build_router},
-    observability::{TraceExportRuntime, otlp_trace_layer},
+    observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     providers::build_compiled_registry_with_active_pools,
     transport::upstream::UpstreamClient,
     upstream_credentials::UpstreamCredentialConfigPath,
@@ -28,21 +28,21 @@ async fn main() -> Result<()> {
         .load()
         .context("failed to load OpenBridge bootstrap configuration")?;
 
-    // Build the optional exporter, then install combined local logging and reviewed trace layers.
-    let trace_export = TraceExportRuntime::from_bootstrap(&bootstrap)
-        .context("failed to initialize OpenBridge trace export")?;
-    init_tracing(&trace_export)?;
+    // Build optional trace/metrics exporters, then install local logging and reviewed trace layers.
+    let telemetry = TelemetryRuntime::from_bootstrap(&bootstrap)
+        .context("failed to initialize OpenBridge telemetry export")?;
+    init_tracing(&telemetry)?;
 
-    // Run the service while retaining the tracer provider, then perform one bounded shutdown flush.
-    let server_result = run_service(bootstrap).await;
-    if let Err(error) = trace_export.shutdown().await {
-        tracing::warn!(%error, "OpenBridge trace exporter shutdown was incomplete");
+    // Inject the runtime meter, retain both providers, and perform one bounded shutdown flush.
+    let server_result = run_service(bootstrap, telemetry.metrics()).await;
+    if let Err(error) = telemetry.shutdown().await {
+        tracing::warn!(%error, "OpenBridge telemetry exporter shutdown was incomplete");
     }
     server_result
 }
 
 /// Loads private snapshots, serves Axum, and stops the OAuth2 worker after graceful shutdown.
-async fn run_service(bootstrap: BootstrapConfig) -> Result<()> {
+async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Result<()> {
     // Load both private credential configurations from bootstrap-owned paths.
     let user_configuration = UserConfigPath::new(bootstrap.users_file())
         .load()
@@ -119,7 +119,8 @@ async fn run_service(bootstrap: BootstrapConfig) -> Result<()> {
         Arc::new(users),
         credentials,
         Arc::clone(&oauth2_credentials),
-    );
+    )
+    .with_metrics(metrics);
     // Bind the loopback listener and start the HTTP service with graceful shutdown.
     let listener = TcpListener::bind(listen)
         .await
@@ -141,14 +142,14 @@ async fn run_service(bootstrap: BootstrapConfig) -> Result<()> {
 }
 
 /// Installs local formatting plus the optional allowlisted OpenTelemetry span layer.
-fn init_tracing(trace_export: &TraceExportRuntime) -> Result<()> {
+fn init_tracing(telemetry: &TelemetryRuntime) -> Result<()> {
     // Read the environment filter and default to the info level.
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Compose the existing local formatter before optionally attaching the filtered OTLP trace layer.
     let local_logs = tracing_subscriber::fmt::layer().with_filter(filter);
     let subscriber = tracing_subscriber::registry().with(local_logs);
-    match trace_export.tracer() {
+    match telemetry.tracer() {
         Some(tracer) => subscriber.with(otlp_trace_layer(tracer)).try_init(),
         None => subscriber.try_init(),
     }

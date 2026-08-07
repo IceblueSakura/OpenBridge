@@ -16,8 +16,7 @@ Provider、上游 Target、Route 和 Public Model 组合成一个固定的下游
 - Responses：`POST /v1/responses`；
 - Embeddings：`POST /v1/embeddings`；
 - 标准和扩展 Models 查询；
-- 受 Bearer 认证保护的当前进程 metrics 快照；
-- 可选的 OTLP/HTTP trace 导出；
+- 可选的 OpenTelemetry traces 与 metrics OTLP/HTTP 导出；
 - 管理员显式执行的上游 Models 和能力探测。
 
 ### 使用优先级：无状态服务优先
@@ -242,20 +241,24 @@ cargo run --locked --bin openbridge
 所有 limit 和 timeout 必须为非零值，`max_replay_body_bytes` 不能超过 `max_request_body_bytes`。监听地址不能改成
 `0.0.0.0` 或其他非 loopback 地址。
 
-### 启用 OTLP trace 导出
+### 启用 OpenTelemetry OTLP/HTTP 导出
 
-默认不导出 trace。确认 collector 是配置所有者明确选择的可信目标后，在 bootstrap 中添加：
+traces 与 metrics 默认都不导出，可以分别启用。确认 collector 是配置所有者明确选择的可信目标后，在 bootstrap 中添加：
 
 ```toml
 [telemetry.traces]
 otlp_http_endpoint = "http://127.0.0.1:4318"
+
+[telemetry.metrics]
+otlp_http_endpoint = "http://127.0.0.1:4318"
 ```
 
 该值必须是没有用户名、密码、path、query 和 fragment 的绝对 `http` base URL。OpenBridge 固定发送到
-`/v1/traces`，不接受请求级 exporter 覆盖或 bootstrap 中的自定义 exporter header。collector 不可用时只丢弃
-telemetry，不应让业务请求获得新的上游选择能力。
+`/v1/traces` 和 `/v1/metrics`，不接受请求级 exporter 覆盖、自定义 exporter header 或环境注入的 header。metrics 使用
+OpenTelemetry SDK 的累计 Counter/Histogram 聚合与固定 60 秒采集间隔，并在进程关闭时执行有界 flush。collector 不可用时
+只丢弃 telemetry，不改变业务响应或上游选择。
 
-当前没有 OTLP metrics、OTLP logs、Prometheus exporter、持久化 metrics 或分布式聚合。
+当前没有 OTLP logs、内置 Prometheus exporter、持久化 metrics 或分布式聚合。
 
 ## 6. ChatGPT OAuth2（可选）
 
@@ -309,8 +312,6 @@ Authorization: Bearer <users.toml 中启用用户的 api_key>
 | `GET` | `/swagger-ui`、`/swagger-ui/` | 否 | 本地 Swagger UI 测试页 |
 | `GET` | `/v1/models`、`/v1/models/{model}` | 是 | 标准四字段 Models 对象 |
 | `GET` | `/openbridge/v1/models`、`/openbridge/v1/models/{model}` | 是 | 扩展能力和参数契约 |
-| `GET` | `/openbridge/v1/metrics` | 是 | 当前进程总快照 |
-| `GET` | `/openbridge/v1/metrics/providers` | 是 | Provider attempt 快照 |
 | `POST` | `/v1/chat/completions` | 是 | Chat Completions JSON/SSE |
 | `POST` | `/v1/responses` | 是 | Responses JSON/SSE |
 | `POST` | `/v1/embeddings` | 是 | Embeddings JSON |
@@ -410,23 +411,18 @@ curl http://127.0.0.1:8080/v1/embeddings \
 Transient upstream failure 只允许在首个下游业务输出提交前执行有限 retry/fallback。首个下游业务 body byte 写出后，
 不会切换上游、重试或拼接另一条响应；下游断开会取消当前上游请求、退避和后续 attempt。
 
-## 8. 运行时指标与 Swagger
+## 8. OpenTelemetry 与 Swagger
 
-### 8.1 当前进程 metrics
+### 8.1 OTLP metrics
 
-指标只保存在当前进程内，从服务启动后累计，重启后清空；没有历史、持久化、reset 或跨进程聚合。读取 metrics 本身
-不会创建新的业务观测，也不会改变快照：
+启用 `[telemetry.metrics]` 后，OpenBridge 向 collector 导出下游请求、Provider attempt、retry/rotation/fallback/cooldown、
+latency、TTFT、token usage、cache usage 和 output speed。标准生成式 AI 指标使用 `gen_ai.client.operation.duration` 与
+`gen_ai.client.token.usage`；OpenBridge 特有生命周期使用 `openbridge.*` 命名空间。
 
-```bash
-curl http://127.0.0.1:8080/openbridge/v1/metrics \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-
-curl http://127.0.0.1:8080/openbridge/v1/metrics/providers \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-```
-
-快照只保留低基数的请求和 Provider attempt 维度，不包含请求正文、响应正文、Authorization、credential、用户或真实
-endpoint。完整字段口径见 [运行时指标与遥测](docs/implementation-status/telemetry-metrics.md)。
+指标属性只保留受信的 operation、Provider、Route、Target、模型、模式、streaming 和 outcome，不包含请求正文、响应正文、
+Authorization、credential、用户、request ID 或 endpoint URL。历史、查询、dashboard、告警、rate/ratio 和跨进程聚合由外部
+OpenTelemetry backend 负责；OpenBridge 不再提供自定义 metrics HTTP endpoint。完整口径见
+[运行时指标与遥测](docs/implementation-status/telemetry-metrics.md)。
 
 ### 8.2 Swagger UI 和 OpenAPI
 
@@ -435,7 +431,7 @@ endpoint。完整字段口径见 [运行时指标与遥测](docs/implementation-
 - [Swagger UI](http://127.0.0.1:8080/swagger-ui/)；
 - [OpenAPI YAML](http://127.0.0.1:8080/openapi.yaml)。
 
-Swagger UI 是本地接口测试页。点击 `Authorize`，填入下游 Bearer API key 后可以测试受保护的 Models、metrics、
+Swagger UI 是本地接口测试页。点击 `Authorize`，填入下游 Bearer API key 后可以测试受保护的 Models、
 Chat、Responses 和 Embeddings。页面依赖固定版本的 jsDelivr 静态资源；规范本身由本地服务提供。
 
 ## 9. 上游 Models 与能力探测
@@ -487,7 +483,7 @@ probe；`--all` 只表示当前一个 target 的全部 probe，不会遍历所�
 | 请求返回 `415` | 为 Chat、Responses、Embeddings 都设置 `Content-Type: application/json` |
 | 请求参数被拒绝 | 先读取 `/openbridge/v1/models`；能力是 Public Model 固定契约，不是所有模型共享的并集 |
 | `/healthz` 正常但业务失败 | 健康检查不访问 Provider；继续检查上游 credential、网络、Provider 状态和返回的 `X-Request-Id` |
-| metrics 重启后为空 | 这是预期行为；当前 metrics 只保存在单个进程内，不提供持久化历史 |
+| collector 没有 metrics | 确认已配置 `[telemetry.metrics]`、collector 接受 OTLP/HTTP protobuf `/v1/metrics`；默认采集间隔是 60 秒，正常关闭会 flush |
 | 端口被占用 | 在 bootstrap 中把 `listen` 改为其他 loopback 地址/端口后重启，不能改为公网监听 |
 
 ## 11. 维护者验证

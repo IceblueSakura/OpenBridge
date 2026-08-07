@@ -5,7 +5,7 @@ use url::Url;
 
 use super::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapConfig, BootstrapConfigError, HttpClientConfig,
-    OtlpHttpTraceConfig, RuntimeLimits, document::RawBootstrap,
+    OtlpHttpExportConfig, RuntimeLimits, document::RawBootstrap,
 };
 
 /// Parses and validates bootstrap TOML.
@@ -60,11 +60,30 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         })?;
 
     // Validate the optional exporter before any listener or telemetry worker can create network egress.
-    let otlp_http_trace_export = raw
-        .telemetry
-        .and_then(|telemetry| telemetry.traces)
-        .map(|traces| parse_otlp_http_trace_endpoint(&traces.otlp_http_endpoint))
-        .transpose()?;
+    let (otlp_http_trace_export, otlp_http_metrics_export) = match raw.telemetry {
+        Some(telemetry) => {
+            let traces = telemetry
+                .traces
+                .map(|traces| {
+                    parse_otlp_http_endpoint(
+                        &traces.otlp_http_endpoint,
+                        BootstrapConfigError::InvalidOtlpHttpTraceEndpoint,
+                    )
+                })
+                .transpose()?;
+            let metrics = telemetry
+                .metrics
+                .map(|metrics| {
+                    parse_otlp_http_endpoint(
+                        &metrics.otlp_http_endpoint,
+                        BootstrapConfigError::InvalidOtlpHttpMetricsEndpoint,
+                    )
+                })
+                .transpose()?;
+            (traces, metrics)
+        }
+        None => (None, None),
+    };
 
     // Convert raw fields into runtime value objects.
     Ok(BootstrapConfig {
@@ -83,29 +102,33 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
         },
         otlp_http_trace_export,
+        otlp_http_metrics_export,
     })
 }
 
-/// Parses the startup-owned OTLP/HTTP collector base without accepting embedded routing policy.
-fn parse_otlp_http_trace_endpoint(
+/// Parses one startup-owned OTLP/HTTP collector base without accepting embedded routing policy.
+fn parse_otlp_http_endpoint(
     endpoint: &str,
-) -> Result<OtlpHttpTraceConfig, BootstrapConfigError> {
+    invalid: BootstrapConfigError,
+) -> Result<OtlpHttpExportConfig, BootstrapConfigError> {
     // Parse one absolute, plaintext HTTP URL without accepting URL-carried credentials or routing data.
     let endpoint = Url::parse(endpoint)
         .ok()
         .filter(|endpoint| endpoint.scheme() == "http")
         .filter(|endpoint| endpoint.username().is_empty() && endpoint.password().is_none())
         .filter(|endpoint| endpoint.path() == "/")
-        .filter(|endpoint| endpoint.query().is_none() && endpoint.fragment().is_none())
-        .ok_or(BootstrapConfigError::InvalidOtlpHttpTraceEndpoint)?;
+        .filter(|endpoint| endpoint.query().is_none() && endpoint.fragment().is_none());
+    let Some(endpoint) = endpoint else {
+        return Err(invalid);
+    };
 
     // Require a concrete host while allowing the bootstrap owner to select local or remote collectors.
     if !endpoint.has_host() {
-        return Err(BootstrapConfigError::InvalidOtlpHttpTraceEndpoint);
+        return Err(invalid);
     }
 
-    // Preserve only the normalized collector base used by the fixed trace exporter.
-    Ok(OtlpHttpTraceConfig { endpoint })
+    // Preserve only the normalized collector base used by a fixed signal exporter.
+    Ok(OtlpHttpExportConfig { endpoint })
 }
 
 /// Rejects zero-valued configuration to protect memory, time, and connection-pool boundaries.

@@ -28,6 +28,11 @@ pub enum BootstrapConfigError {
         "OTLP/HTTP trace endpoint must be an absolute HTTP base URL without credentials, path, query, or fragment"
     )]
     InvalidOtlpHttpTraceEndpoint,
+    /// The OTLP/HTTP metrics endpoint is not a credential-free absolute HTTP base URL.
+    #[error(
+        "OTLP/HTTP metrics endpoint must be an absolute HTTP base URL without credentials, path, query, or fragment"
+    )]
+    InvalidOtlpHttpMetricsEndpoint,
     /// A runtime limit is zero and cannot provide a valid boundary.
     #[error("runtime limit '{name}' must be greater than zero")]
     InvalidLimit {

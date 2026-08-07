@@ -39,6 +39,7 @@ use openbridge::{
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use serde_json::Value;
+use support::metrics::TestMetrics;
 use tower::ServiceExt;
 
 #[derive(Debug)]
@@ -917,7 +918,7 @@ fn app_with_transport_and_definition(
 fn app_with_transport_and_pool(
     transport: Arc<dyn UpstreamTransport>,
     upstream_secrets: &[&str],
-) -> (axum::Router, openbridge::observability::GatewayMetrics) {
+) -> (axum::Router, TestMetrics) {
     let registry = build_registry(
         support::bootstrap(support::BOOTSTRAP),
         support::definition("forward-test", "public-model", "upstream-model"),
@@ -928,8 +929,9 @@ fn app_with_transport_and_pool(
         &registry,
         upstream_secrets,
     );
-    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
-    let metrics = state.metrics();
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
+        .with_metrics(metrics.instruments());
     (build_router(state), metrics)
 }
 

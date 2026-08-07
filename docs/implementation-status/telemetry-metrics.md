@@ -1,197 +1,139 @@
-# 遥测指标
+# OpenTelemetry 遥测
 
 ## 状态与范围
 
-本文记录当前 checkout 已实现的进程内指标口径、可选 OTLP trace 边界和验证证据。它描述观测事实，不表示真实 Provider 性能、
-外部 backend、负载能力或动态选路已经验收。
+当前 checkout 使用 OpenTelemetry Rust 0.32 的 traces 与 metrics signal。两者都默认禁用，只有 bootstrap 中显式配置对应
+collector base 后才创建 exporter：
 
-当前遥测分为三层：
+```toml
+[telemetry.traces]
+otlp_http_endpoint = "http://127.0.0.1:4318"
 
-- `GatewayMetricsSnapshot`：不带维度的进程级请求、attempt、韧性和 token 累计值；
-- `ProviderMetricSnapshot`：按编译期 Provider attempt 维度聚合的性能、usage 和 cache 快照；
-- 可选 OTLP traces：一个 `downstream_request` root 与每个实际出站的 `provider_attempt` child，只通过 startup-only
-  OTLP/HTTP exporter 发送；collector host 由 bootstrap 配置所有者选择。
-
-实现门面是 [`src/observability.rs`](../../src/observability.rs)，具体代码位于
-[`src/observability/provider.rs`](../../src/observability/provider.rs)、
-[`src/observability/request.rs`](../../src/observability/request.rs) 和
-[`src/observability/usage.rs`](../../src/observability/usage.rs)；exporter 生命周期位于
-[`src/observability/otlp.rs`](../../src/observability/otlp.rs)。
-
-## Provider 维度
-
-每个已收口的实际 upstream attempt 绑定以下非敏感、编译期维度：
-
-| 字段                 | 含义                                                                  |
-|----------------------|-----------------------------------------------------------------------|
-| `provider`           | `openai`、`longcat`、`deepseek`、`mimo`、`openrouter` 或 `chatgpt`    |
-| `route_id`           | 编译期 Route 标识                                                     |
-| `upstream_target`    | 编译期 Upstream Target 标识                                           |
-| `upstream_operation` | `chat_completions`、`responses` 或 `embeddings_create` 的上游 operation |
-| `public_model`       | 下游请求使用的 Public Model                                           |
-| `operation`          | 下游 `chat_completions`、`responses` 或 `embeddings_create` operation |
-| `route_mode`         | `native` 或 `bridged`                                                 |
-| `streaming`          | 是否为 streaming 请求                                                 |
-
-指标 key 不包含 request id、user id、credential member、endpoint URL、Authorization、请求正文或响应正文。
-这些维度来自已校验的静态注册表，不允许业务请求动态创建。
-
-现有维度没有合并：Provider family 用于横向比较，target/route 用于定位实例与 fallback，upstream/downstream operation 和
-route mode 用于区分 Native/Bridge，Public Model 保留客户端契约身份，streaming 则隔离 JSON 与 SSE 延迟分布。它们都是编译期
-低基数值；删除任一项都会使上游速度或稳定性问题失去归属。
-
-## Attempt 结果指标
-
-`ProviderMetricSnapshot` 对每个维度累计：
-
-| 指标                        | 口径                                                             |
-|-----------------------------|------------------------------------------------------------------|
-| `attempts_started`          | 已完成收口的实际上游 attempt 数；未结束 attempt 尚未出现在快照中 |
-| `attempts_completed`        | 原始上游 body 正常到达 EOF                                       |
-| `attempts_http_failed`      | 上游返回非 2xx status；在 headers 边界收口                       |
-| `attempts_transport_failed` | 没有取得 HTTP response 的 transport failure                      |
-| `attempts_stream_failed`    | body、SSE framing 或协议 terminal 失败                           |
-| `attempts_cancelled`        | 上游 body 完成前发生取消                                         |
-
-retry 和 fallback 仍由全局 `GatewayMetricsSnapshot` 记录；Provider 快照将每个实际 attempt 单独归类， 因此一次 retry 会增加
-attempt 数，但不会把两个 Provider attempt 合并成一次请求。
-
-无需增加会与计数器重复的 `error_rate` 字段。对一个已完成快照可按以下口径派生：
-
-- 下游错误率：`(requests_http_failed + requests_failed) / (requests_completed + requests_http_failed + requests_failed)`；
-- 下游取消率：`requests_cancelled / (requests_completed + requests_http_failed + requests_failed + requests_cancelled)`；
-- Provider attempt 错误率：`(attempts_http_failed + attempts_transport_failed + attempts_stream_failed) /
-  (attempts_started - attempts_cancelled)`；
-- retry/fallback 压力分别用 `upstream_retries / upstream_attempts` 与 `route_fallbacks / upstream_attempts` 观察。
-
-分母为零时结果未知；取消与 Provider error 分开，避免把客户端主动中断误判为上游不稳定。`requests_started` 包含尚未收口请求，
-需要终态错误率时应使用上面的终态分母。
-
-## 性能指标
-
-所有时间指标都使用 `count`、`sum_ms`、`min_ms` 和 `max_ms` 聚合：
-
-- `response_ready_ms`：从该 Provider attempt 开始到收到上游 response headers；
-- `upstream_first_byte_ms`：从 attempt 开始到第一个非空原始上游 body chunk；
-- `upstream_ttft_ms`：从 attempt 开始到原始 SSE 中第一个非空 text/tool/reasoning token delta；
-- `gateway_ttft_ms`：流式 Chat/Responses 从下游请求开始到第一个下游 text/tool/reasoning token delta；成功的非流式
-  Chat/Responses 则到第一个非空下游 JSON body chunk，即客户端首次得到完整响应 JSON 的可观测时刻；
-- `duration_ms`：原始 upstream body 生命周期；如果尚未观察到 EOF，则在 error/cancel 边界收口；
-- `generation_duration_ms`：`upstream_ttft_ms` 到原始 upstream body 完成之间的时间。
-
-非流式请求没有 `upstream_ttft_ms`、`generation_duration_ms` 或 `output_speed`：单个完整 JSON response 不暴露 Provider
-实际生成首 token 的时刻，不能用总响应时间伪造解码窗口。Embeddings 不产生上下游 TTFT 或 generation duration 样本。没有明确
-output token，或生成时长为零时，不产生速度观测。
-
-`output_speed` 使用定点整数表示：`milli_tokens_per_second = tokens_per_second × 1000`，避免在原子累计中使用浮点数。速度由
-Provider 明确返回的 output token 和 generation duration 计算，不能由 SSE chunk 数或字节数推算。reasoning delta 是生成窗口
-起点，但不改变 Public Model reasoning capability；这避免 total output tokens 包含 reasoning 时只用可见文本阶段作分母。
-平均值按 `sum_milli_tokens_per_second / count / 1000` 计算；时间平均值按 `sum_ms / count` 计算，min/max 用于观察离散度。
-
-## Token 与 cache usage
-
-当前对 Chat/Responses 的明确 usage 做统一归一化：
-
-- 输入 token：`input_tokens` 或 `prompt_tokens`；
-- 输出 token：`output_tokens` 或 `completion_tokens`；
-- 总 token：`total_tokens`，缺失时仅在 input/output 都明确时相加；
-- cache read：`cached_input_tokens`、`cache_read_input_tokens`、`cached_tokens`，以及
-  `prompt_tokens_details.cached_tokens` 或 `input_tokens_details.cached_tokens`；
-- cache write：`cache_write_input_tokens`、`cache_creation_input_tokens`，以及对应 details 字段。
-
-Embeddings 只把 `usage.prompt_tokens` 记录为 input tokens、把 `usage.total_tokens` 记录为 total tokens；不产生
-output-token observation、generation duration 或 output speed。原始文本、token array、`user`、float vector、 base64 和完整
-body 不进入 tracing event、metrics label 或 snapshot。
-
-`usage_observations` 只统计至少解析到一个 usage 字段的 attempt；`input_token_observations`、
-`output_token_observations` 和 `total_token_observations` 分别是对应 token 字段实际出现的次数。每请求 平均 token
-可用对应累计值除以对应 observation 数计算，缺失字段不会被当成零。
-`cache_observations` 只统计明确出现 cache read/write 字段的 attempt；`cache_read_observations` 只统计 明确出现 cache read
-字段的 attempt。缓存命中率的口径是
-`cache_hit_requests / cache_read_observations`；分母为零时命中率未知，没有 Provider cache 字段的请求 不会被误记为 cache
-miss。`cache_hit_requests` 只在明确的 cache read token 大于零时增加。
-
-generation JSON usage capture 与 SSE event 分别使用 JSON response/event 上限；超限、缺失或无法解析时不估算 token 或 cache
-usage。Chat/Responses usage 只从原始 upstream observer 提交；下游 JSON 不再重复缓存和解析。成功的非流式 Chat/Responses 只在首个
-非空 JSON chunk 触发一次 gateway TTFT 原子门控，原始 upstream observer 已明确分类为 `failed`/`incomplete` 的 terminal 不产生该样本；下游 SSE 只在 TTFT 尚未知时解析完整 event，命中首个 token-bearing delta 后停止该观测热路径。Embeddings 成功体由 endpoint validator 在同一 JSON response
-budget 内先完整验证，再记录明确 usage；非法成功体不提交下游。
-
-## 读取方式
-
-嵌入式调用方可通过：
-
-```rust
-let snapshots = state.metrics().provider_snapshots();
+[telemetry.metrics]
+otlp_http_endpoint = "http://127.0.0.1:4318"
 ```
 
-`GatewayState::metrics()` 返回共享的 `GatewayMetrics` 句柄，快照按 Provider 维度排序。当前运行二进制提供受 Bearer
-保护的 `/openbridge/v1/metrics` 与 `/openbridge/v1/metrics/providers` JSON 读取接口。默认不产生 OTLP egress；显式配置
-`[telemetry.traces].otlp_http_endpoint` 后，运行二进制使用固定 protobuf `/v1/traces`、空 exporter headers、有界 batch queue、
-500 ms export timeout 与有界 shutdown。尚未提供 OTLP metrics、OTLP logs、Prometheus exporter、持久化或跨进程聚合。
-Provider attempt 仍输出脱敏的 `provider_attempt_completed` 本地 tracing event；OTLP layer 不导出 tracing events。
+实现门面是 [`src/observability.rs`](../../src/observability.rs)。[`src/observability/otlp.rs`](../../src/observability/otlp.rs)
+拥有 `TelemetryRuntime`、共享 resource、OTLP/HTTP exporter、reader/processor 和 shutdown；
+[`src/observability/metrics.rs`](../../src/observability/metrics.rs) 只定义固定 instruments；
+[`src/observability/provider.rs`](../../src/observability/provider.rs)、
+[`request.rs`](../../src/observability/request.rs) 与 [`usage.rs`](../../src/observability/usage.rs) 保留协议生命周期观测。
 
-两个 metrics endpoint 仍执行静态 Bearer 认证，但不创建 `RequestObservation`，因此读取前后 gateway/provider 快照保持不变。
+OpenBridge 不再维护原子计数快照、Provider `BTreeMap`、自算 sum/min/max 聚合或 JSON metrics handler。
+`GET /openbridge/v1/metrics` 与 `GET /openbridge/v1/metrics/providers` 已删除，OpenAPI 也不再声明这些路径和 snapshot schema。
 
-## 与请求生命周期的关系
+## Exporter 生命周期
 
-请求仍由 `downstream_request_completed` 负责提交唯一的下游终态。启用 trace 时，同一生命周期结束一个
-`downstream_request` root，并让每个实际 Provider attempt 在原有唯一 terminal 边界结束对应 child span。Provider 快照与下游终态是不同口径：
+traces 与 metrics 共享：
 
-- Provider 可以成功返回 body，但网关桥接/下游消费随后失败；
-- Provider HTTP failure 可能触发 retry/fallback，最终请求仍可能成功；
-- 下游取消只有在原始 upstream body 尚未完成时才计入 Provider `attempts_cancelled`；
-- `gateway_ttft_ms` 包含路由、transport、bridge 和网关输出路径；非流式样本还表示完整 JSON 首次可见，不能直接当作
-  Provider 内部生成 TTFT。
+- `service.name = "openbridge"`；
+- 每次进程启动唯一、非敏感的 `service.instance.id`；
+- bootstrap 所有者提供的无 credential `http` collector base；
+- 固定 protobuf signal path：`/v1/traces` 或 `/v1/metrics`；
+- 500 ms 单次 HTTP timeout、禁止 redirect、协议自带 header 白名单；
+- 业务请求不能选择 endpoint、protocol、header、resource 或采集策略。
 
-首个 downstream body byte、每个 attempt 的 upstream body byte，以及 upstream/gateway TTFT 都使用一次性原子门控；后续
-chunk/delta 不再重复获取请求或 Provider 状态锁。原始 upstream SSE 仍须完整解析 terminal/usage，下游 SSE 在 TTFT 前须单独解析，
-因为 Bridge 或输出调度可能使 gateway TTFT 不等于 upstream TTFT；这部分不是可删除的重复观测。
+HTTP client 在发送前只保留 `Content-Type`、可选 `Content-Encoding` 和 SDK `User-Agent`；环境注入的 Authorization 或租户
+header 会被删除。collector 不可用、超时或背压不进入业务请求路径。关闭时 metrics provider 与 tracer provider 在 blocking
+worker 中执行 flush/shutdown，并受外层有界 timeout 约束。
 
-对于已知长度的 JSON body，底层 `HttpBody` 可以在返回最后一个 data/trailer frame 后立即声明 end-stream，Hyper 不保证再 poll
-一次独立 EOF。Provider 与下游两层 observer 都在该最后 frame 上提交完成； 只有底层尚未结束时发生的 Drop 才归类为取消。该语义保留原始
-size hint，同时避免把已经完整发送的
-`/v1/models`、Native JSON 或非流式 Bridge 响应误记为 `cancelled`。
+metrics 使用：
 
-这些观测修复只改变 TTFT/生成窗口、usage 采集所有权和 metrics 读取副作用，不根据指标重排 Route candidate，也不改变
-capability gate、state affinity、retry/fallback、cooldown 或首个下游输出后的提交边界。
+- `PeriodicReader`，固定 60 秒采集间隔；
+- `MetricExporter`，固定 cumulative temporality；
+- SDK 原生 monotonic sum 与 explicit-bucket histogram 聚合；
+- 每个 instrument 最多 1,024 个 attribute set，超出时由 SDK overflow 聚合；
+- shutdown 时最终 collection/flush。
+
+未配置 `[telemetry.metrics]` 时使用 OpenTelemetry no-op meter，不创建 reader、exporter worker 或 metrics egress。
+
+## 指标目录
+
+### 请求与韧性
+
+| Instrument | 类型 / 单位 | 口径与 attributes |
+|---|---|---|
+| `openbridge.downstream.request.started` | Counter / `{request}` | 已认证并进入观察生命周期的请求数，无 attributes。 |
+| `openbridge.downstream.request.completed` | Counter / `{request}` | 唯一请求终态；`openbridge.request.outcome` 为 `completed`、`http_failed`、`failed` 或 `cancelled`。 |
+| `openbridge.downstream.request.duration` | Histogram / `s` | 完整下游 body 生命周期；带 outcome、downstream operation、Public Model 和 streaming。 |
+| `openbridge.routing.events` | Counter / `{event}` | `openbridge.routing.event` 为 `retry`、`credential_rotation`、`route_fallback` 或 `cooldown_skip`。 |
+
+### Provider attempt
+
+| Instrument | 类型 / 单位 | 口径 |
+|---|---|---|
+| `openbridge.provider.attempt.started` | Counter / `{attempt}` | 实际发起的 Provider call。 |
+| `openbridge.provider.attempt.completed` | Counter / `{attempt}` | 唯一 attempt 终态；outcome 为 `completed`、`http_failed`、`transport_failed`、`stream_failed` 或 `cancelled`。 |
+| `gen_ai.client.operation.duration` | Histogram / `s` | attempt 开始到 raw upstream body EOF/error/cancel；失败时带低基数 `error.type`。 |
+| `openbridge.provider.response_ready.duration` | Histogram / `s` | attempt 到 upstream response headers。 |
+| `openbridge.provider.first_byte.duration` | Histogram / `s` | attempt 到首个非空 raw upstream body frame。 |
+| `openbridge.provider.time_to_first_token` | Histogram / `s` | streaming raw upstream 中首个 token-bearing text/tool/reasoning delta。 |
+| `openbridge.gateway.time_to_first_output` | Histogram / `s` | downstream 首个 generation delta；非流式 Chat/Responses 是完整 JSON 首次可见，不冒充 upstream TTFT。 |
+| `openbridge.provider.generation.duration` | Histogram / `s` | upstream TTFT 到 raw upstream EOF；仅在两个边界都明确时记录。 |
+| `openbridge.provider.output.speed` | Histogram / `{token}/s` | 明确 output token 除以明确 generation duration；缺失值或零时长不记录。 |
+
+Provider-scoped point 使用以下受信、低基数 attributes：
+
+- `gen_ai.provider.name`、`gen_ai.operation.name`、`gen_ai.request.model`、`gen_ai.request.stream`；
+- `openbridge.provider.name`、`openbridge.route.id`、`openbridge.upstream.target`；
+- `openbridge.upstream.operation`、`openbridge.downstream.operation`；
+- `openbridge.public_model`、`openbridge.route.mode`；
+- terminal instrument 额外使用 `openbridge.attempt.outcome`，失败 duration 可使用 `error.type`。
+
+其中 `gen_ai.operation.name` 将 Chat Completions 与 Responses 统一为 `chat`，Embeddings 为 `embeddings`；具体上下游协议仍由
+`openbridge.*.operation` 区分。ChatGPT subscription adapter 的 OpenBridge Provider 名为 `chatgpt`，标准 GenAI provider namespace
+使用 `openai`。
+
+### Token 与 cache
+
+| Instrument | 类型 / 单位 | 口径 |
+|---|---|---|
+| `gen_ai.client.token.usage` | Histogram / `{token}` | 只记录 Provider 明确返回的 input/output；`gen_ai.token.type` 为 `input` 或 `output`。 |
+| `openbridge.provider.cache.read.token.usage` | Histogram / `{token}` | 明确 cache-read input tokens，包括零值。 |
+| `openbridge.provider.cache.write.token.usage` | Histogram / `{token}` | 明确 cache-write input tokens，包括零值。 |
+| `openbridge.provider.cache.requests` | Counter / `{request}` | 只有明确 cache-read 字段才记录；`openbridge.cache.result` 为 `hit` 或 `miss`。 |
+
+`gen_ai.client.token.usage` 使用 GenAI semantic conventions 建议的 token buckets：
+`1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864`。
+OpenBridge 不另发 total token：backend 可在相同 attribute 维度合并 input/output，且不会把缺失 usage 当成零。
+
+Chat/Responses usage 支持 `input_tokens`/`prompt_tokens`、`output_tokens`/`completion_tokens` 和明确 cache detail；Embeddings
+只产生 input token point，不产生 output、TTFT、generation duration 或 output speed。JSON/SSE 超限、缺失或无法解析时不估算。
+
+## 安全边界
+
+任何 metric point 都不包含 request/trace ID、用户、credential pool/member、Authorization、collector/upstream endpoint URL、
+HTTP path/query、原始错误文本、request/response body、tool arguments/result、reasoning 正文、embedding input/vector/base64。
+属性值来自已验证的静态 registry、typed operation 或固定 outcome vocabulary；业务正文不能动态创建 attribute key/value。
+
+OTLP trace 继续只导出 `downstream_request` root 与每个实际 `provider_attempt` child 的 allowlist attributes，不导出 tracing
+events。Provider/request 本地 completion event 仍用于本机诊断，但不作为第二套 metrics 聚合。
+
+## 生命周期语义
+
+- 每个请求和 attempt 只提交一个 terminal；retry/fallback 会产生新的 attempt，而不是覆盖前一条。
+- Provider HTTP/transport/body/SSE failure 与 downstream cancel 分开计数。
+- 已知长度 body 可在最后 data frame 同时到达 EOF；两层 observer 在该 frame 收口，只有底层未结束时 Drop 才算取消。
+- streaming TTFT 只由 token-bearing text/tool/reasoning delta 触发一次；metadata、空 delta 和 `[DONE]` 不触发。
+- 非流式完整 JSON 没有 upstream TTFT/generation speed 样本；gateway 首次输出只表示客户端可见响应时间。
+- 指标不参与 Route 选择、retry/fallback、cooldown、capability gate 或 state affinity。
 
 ## 当前验证证据
 
-当前确定性测试覆盖：
+2026-08-07，本轮实际运行的配置、Ingress、转发、Observability、OTLP metrics 与 OTLP traces 聚焦测试均通过；
+`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。
+全量测试保留两个原有 ignored 外部验收：独立 Python Embeddings client 与需要下载 Python/Node SDK 的兼容性测试。
 
-- JSON usage、cached input token、非流式 generation gateway TTFT 与 Provider 维度快照；
-- streaming upstream TTFT 与 gateway TTFT 的分离；
-- retry 后的 HTTP failure/完成 attempt 归类；
-- response body 取消、pending send 取消、SSE EOF-before-terminal 和 failed terminal。
-- 真实 Axum/Hyper loopback 下的已知长度模型列表，以及嵌套 Provider/downstream observer 的 Native JSON 完成终态。
-- Embeddings 的 `operation=embeddings_create`、input/total usage、无 output/throughput，以及正文、token、`user`、
-  vector/base64 哨兵不进入导出结果；replay 超限只记录一次 attempt。
-- 受 Bearer 保护的进程级和 Provider 快照 HTTP endpoint 返回现有结构，认证失败在 handler 前结束，响应不包含 downstream token。
-- metrics endpoint 连续读取不改变 gateway/provider 快照，reasoning-only Chat stream 也产生 upstream/gateway TTFT。
-- bootstrap 配置 contract 接受 loopback、非 loopback IP 与 DNS collector host，并继续拒绝 HTTPS、缺失 host、URL credential、
-  自定义 path/query/fragment 和 exporter header；该测试不产生真实远程 egress。
-- loopback fake collector 解码 OTLP protobuf 后只看到一个 request root 与一个 attempt child；parent/child、稳定字段、resource
-  identity、精确 attribute allowlist、无 exporter Authorization header 及敏感字节缺失均由 contract test 断言。
-- exporter 未配置时 fake collector 收到零请求；collector 阻塞超过 export timeout 时，业务 status/body/metrics 保持一致，请求与
-  exporter shutdown 都在独立的有界 timeout 内结束。
+- `tests/config_contract.rs` 验证 traces/metrics collector base 的允许与拒绝 URL shape，以及未知 exporter 配置拒绝。
+- `tests/otlp_metrics_contract.rs` 通过真实 loopback collector 解码 OTLP protobuf，验证固定 `/v1/metrics`、resource/scope、
+  Counter/Histogram、单位、token buckets、request/attempt/timing/usage/cache attributes、敏感值缺失、disabled 零 egress、
+  blocked collector 的业务隔离与有界 shutdown。
+- `tests/otlp_trace_contract.rs` 验证固定 `/v1/traces`、request/attempt parent-child、attribute allowlist、敏感值缺失和 collector
+  故障隔离。
+- `tests/observability_contract.rs` 使用 OpenTelemetry SDK 官方 in-memory exporter 验证 retry、HTTP/stream failure、取消、
+  JSON/SSE、reasoning TTFT、Embeddings usage 和已知长度 body terminal；测试层不要求生产 snapshot API。
+- `tests/ingress_contract.rs` 验证两个旧 metrics path 返回 `404`，OpenAPI 不含旧 path/schema。
 
-测试通过 fake upstream transport 隔离 Provider 网络依赖，并通过真实 Axum/Hyper loopback 覆盖下游 HTTP transport；它们只证明
-OpenBridge 进程内采集和本地传输边界，不证明真实 Provider 的延迟、token 计数、 cache 语义、负载表现或长期运行结果。
-
-2026-08-06 的修复前真实 MiMo 证据：Chat streaming 返回 64 output tokens，但 reasoning-only wire 没有 TTFT/速度样本；
-Responses 把 510 output tokens 除以首个可见文本后的 605 ms，得到约 842.975 tokens/s。脱敏事件形状分别是 Chat
-`delta.reasoning_content` 与 Responses `response.reasoning_text.delta`，usage 明确返回 reasoning token detail。
-
-最终代码的独立构建使用同一私有配置和 `mimo-v2.5` 复测，Chat/Responses streaming 均返回 HTTP 200 并正常 terminal；gateway
-快照为 2 started、2 completed、0 error/cancel，连续读取 gateway/provider endpoint 前后完全一致。Chat 记录 upstream/gateway
-TTFT 1,618 ms、64 output tokens、2,509 ms generation duration 和约 25.508 tokens/s；Responses 记录 upstream/gateway TTFT
-747/748 ms、173 output tokens、6,250 ms generation duration 和约 27.680 tokens/s。该单次真实请求只证明本次 wire 与计算边界，
-不代表负载、长期分位数或 Provider SLA。
-
-同日的非流式修复复测使用 `stream:false` 调用同一 `mimo-v2.5`：Chat/Responses 均返回 HTTP 200 JSON，客户端总耗时分别为
-2,147 ms 与 967 ms，Provider gateway TTFT 分别为 2,098 ms 与 962 ms。两个 snapshot 的 upstream TTFT、generation duration
-和 output speed 都保持 0 样本，usage 与 token 正常累计；gateway 为 2 started、2 completed、0 error，连续读取无副作用。
-这些 gateway TTFT 只证明客户端首次获得完整 JSON 的时间，不证明 Provider 实际首 token 或解码速度。
-
-最近一次记录的验证：bootstrap 配置 contract 与 OTLP trace contract 通过；Rust 测试与 Clippy 的具体命令、版本和未执行验收层以
-[实施现状目录](README.md)及相关专题页为准。未运行真实 Provider、外部 SDK、负载或长期运行验收。
+这些确定性测试和 loopback collector 只证明当前进程的生命周期、SDK 聚合与 OTLP/HTTP protobuf 边界；不证明真实 Provider
+指标准确性、外部 collector/backend、dashboard/告警、负载、长期运行或多进程聚合。真实 MiMo 的历史单次 timing 证据不能视为
+当前 Provider SLA，本轮未复测真实 Provider。

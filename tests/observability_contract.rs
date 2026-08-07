@@ -23,7 +23,6 @@ use openbridge::{
         OperationKind,
     },
     ingress::{GatewayState, build_router},
-    observability::{GatewayMetrics, GatewayMetricsSnapshot},
     provider::PreparedUpstreamRequest,
     registry::{
         InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
@@ -34,6 +33,7 @@ use openbridge::{
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use serde_json::{Value, json};
+use support::metrics::{GatewayMetricsSnapshot, TestMetrics};
 use tower::ServiceExt;
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -355,21 +355,22 @@ impl UpstreamTransport for ReplayLimitEmbeddingTransport {
     }
 }
 
-fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, GatewayMetrics) {
+fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, TestMetrics) {
     let registry = support::registry("observability-test", "code-primary", "test-model");
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
         "upstream-test-token",
     );
-    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
-    let metrics = state.metrics();
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
+        .with_metrics(metrics.instruments());
     (build_router(state), metrics)
 }
 
 fn embedding_observability_app(
     transport: Arc<dyn UpstreamTransport>,
-) -> (axum::Router, GatewayMetrics) {
+) -> (axum::Router, TestMetrics) {
     // Extend the ordinary synthetic registry with one independent Embeddings model and target.
     let mut definition = support::definition(
         "embedding-observability",
@@ -450,8 +451,9 @@ fn embedding_observability_app(
         &registry,
         "upstream-test-token",
     );
-    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
-    let metrics = state.metrics();
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
+        .with_metrics(metrics.instruments());
     (build_router(state), metrics)
 }
 
@@ -467,7 +469,7 @@ async fn serve_loopback(app: axum::Router) -> (String, tokio::task::JoinHandle<(
     (format!("http://{address}"), server)
 }
 
-async fn wait_for_request_terminal(metrics: &GatewayMetrics) -> GatewayMetricsSnapshot {
+async fn wait_for_request_terminal(metrics: &TestMetrics) -> GatewayMetricsSnapshot {
     // Use bounded polling for the server terminal state without scheduling-dependent sleeps.
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         loop {
@@ -672,106 +674,6 @@ async fn non_streaming_provider_snapshot_records_only_observable_generation_late
     assert_eq!(snapshot.duration_ms.count, 1);
     assert_eq!(snapshot.generation_duration_ms.count, 0);
     assert_eq!(snapshot.output_speed.count, 0);
-}
-
-#[tokio::test]
-async fn metrics_http_endpoint_exposes_existing_provider_snapshot_shape() {
-    let (app, metrics) = app_with_transport(Arc::new(ProviderMetricsJsonTransport));
-
-    // Generate one real in-process Provider snapshot before reading the metrics endpoint.
-    let response = app
-        .clone()
-        .oneshot(request(
-            r#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}]}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
-    let before_metrics_reads = metrics.snapshot();
-
-    // Read the process snapshot after the completed request and verify the current-run counters.
-    let response = app
-        .clone()
-        .oneshot(
-            Request::get("/openbridge/v1/metrics")
-                .header("authorization", "Bearer downstream-test-token-00000000000")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
-    let gateway: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(gateway, serde_json::to_value(before_metrics_reads).unwrap());
-    assert_eq!(metrics.snapshot(), before_metrics_reads);
-    assert_eq!(gateway["usage_observations"], 1);
-    assert_eq!(gateway["input_tokens"], 10);
-    assert_eq!(gateway["output_tokens"], 6);
-    assert_eq!(gateway["total_tokens"], 16);
-
-    // Read the Provider collection and retain the established key and aggregate fields verbatim.
-    let response = app
-        .oneshot(
-            Request::get("/openbridge/v1/metrics/providers")
-                .header("authorization", "Bearer downstream-test-token-00000000000")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-    let snapshots: Vec<Value> = serde_json::from_slice(&body).unwrap();
-    assert_eq!(snapshots.len(), metrics.provider_snapshots().len());
-    let snapshot = &snapshots[0];
-    assert_eq!(snapshot["key"]["provider"], "openai");
-    assert_eq!(snapshot["key"]["route_id"], "public-chat");
-    assert_eq!(snapshot["key"]["upstream_target"], "openai-main");
-    assert_eq!(snapshot["key"]["upstream_operation"], "chat_completions");
-    assert_eq!(snapshot["key"]["public_model"], "code-primary");
-    assert_eq!(snapshot["key"]["operation"], "chat_completions");
-    assert_eq!(snapshot["key"]["route_mode"], "native");
-    assert_eq!(snapshot["key"]["streaming"], false);
-    for field in [
-        "attempts_started",
-        "attempts_completed",
-        "attempts_http_failed",
-        "attempts_transport_failed",
-        "attempts_stream_failed",
-        "attempts_cancelled",
-        "response_ready_ms",
-        "upstream_first_byte_ms",
-        "upstream_ttft_ms",
-        "gateway_ttft_ms",
-        "duration_ms",
-        "generation_duration_ms",
-        "output_speed",
-        "usage_observations",
-        "input_token_observations",
-        "output_token_observations",
-        "total_token_observations",
-        "input_tokens",
-        "output_tokens",
-        "total_tokens",
-        "cache_observations",
-        "cache_read_observations",
-        "cache_hit_requests",
-        "cached_input_tokens",
-        "cache_write_input_tokens",
-    ] {
-        assert!(
-            snapshot.get(field).is_some(),
-            "missing provider field {field}"
-        );
-    }
-    assert!(
-        !body
-            .windows("downstream-test-token-00000000000".len())
-            .any(|window| window == b"downstream-test-token-00000000000")
-    );
-    assert_eq!(metrics.snapshot(), before_metrics_reads);
 }
 
 #[tokio::test]

@@ -42,7 +42,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
    ：确认模型信息、固定能力预检和禁止能力路由边界。
 5. [实施现状目录](implementation-status/README.md)：按功能点阅读已经完成的实现事实和验证边界。
 6. [当前实现总览](implementation-status/current-implementation.md)：查看功能专题导航、证据层级和未完成范围。
-7. [遥测指标](implementation-status/telemetry-metrics.md)：查看 Provider attempt 指标、进程内读取边界及可选 OTLP traces。
+7. [遥测指标](implementation-status/telemetry-metrics.md)：查看 OTLP traces/metrics、Provider attempt 指标与安全属性边界。
 8. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
 
 这一阶段暂时不要钻进具体函数。读完后应能回答：

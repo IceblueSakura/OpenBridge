@@ -30,7 +30,8 @@ pub struct BootstrapConfig {
     upstream_credentials_file: PathBuf,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
-    otlp_http_trace_export: Option<OtlpHttpTraceConfig>,
+    otlp_http_trace_export: Option<OtlpHttpExportConfig>,
+    otlp_http_metrics_export: Option<OtlpHttpExportConfig>,
 }
 
 impl BootstrapConfig {
@@ -60,19 +61,24 @@ impl BootstrapConfig {
     }
 
     /// Returns the optional startup-only OTLP/HTTP trace exporter policy.
-    pub fn otlp_http_trace_export(&self) -> Option<&OtlpHttpTraceConfig> {
+    pub fn otlp_http_trace_export(&self) -> Option<&OtlpHttpExportConfig> {
         self.otlp_http_trace_export.as_ref()
+    }
+
+    /// Returns the optional startup-only OTLP/HTTP metrics exporter policy.
+    pub fn otlp_http_metrics_export(&self) -> Option<&OtlpHttpExportConfig> {
+        self.otlp_http_metrics_export.as_ref()
     }
 }
 
-/// Validated process policy for one startup-owned OTLP/HTTP trace exporter.
+/// Validated process policy for one startup-owned OTLP/HTTP signal exporter.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct OtlpHttpTraceConfig {
+pub struct OtlpHttpExportConfig {
     endpoint: Url,
 }
 
-impl OtlpHttpTraceConfig {
-    /// Returns the collector base URL to which the exporter appends `/v1/traces`.
+impl OtlpHttpExportConfig {
+    /// Returns the collector base URL to which the exporter appends its fixed signal path.
     pub fn endpoint(&self) -> &Url {
         &self.endpoint
     }

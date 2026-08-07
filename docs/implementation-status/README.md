@@ -24,7 +24,7 @@
 
 | 功能点 | 状态文档 | 主要证据入口 |
 |---|---|---|
-| 当前进程指标快照读取与可选 OTLP trace 导出 | [telemetry-metrics.md](telemetry-metrics.md) | `tests/observability_contract.rs`、`tests/otlp_trace_contract.rs` |
+| OpenTelemetry traces/metrics 与 OTLP/HTTP 导出 | [telemetry-metrics.md](telemetry-metrics.md) | `tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`tests/otlp_metrics_contract.rs` |
 
 ## 横向状态文档
 
@@ -32,7 +32,7 @@
 |---|---|
 | [当前实现总览](current-implementation.md) | 功能页导航、证据层级和未完成范围总览 |
 | [当前代码架构](current-architecture.md) | 模块所有权、装配链和请求数据流；不是功能清单 |
-| [运行时指标与遥测](telemetry-metrics.md) | 进程内 gateway/provider 快照和可选 OTLP trace 的口径与生命周期 |
+| [运行时指标与遥测](telemetry-metrics.md) | OTLP traces/metrics、SDK instruments、属性和生命周期边界 |
 | [上游模型发现与能力探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
 | [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
 

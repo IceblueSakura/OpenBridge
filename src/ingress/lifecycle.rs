@@ -185,8 +185,7 @@ mod tests {
     #[test]
     fn complete_single_frame_body_finishes_without_a_separate_eof_poll() {
         // Build a complete in-memory body whose underlying end-stream arrives immediately after the first frame.
-        let metrics = GatewayMetrics::default();
-        let observation = RequestObservation::new(metrics.clone(), tracing::Span::none());
+        let observation = RequestObservation::new(GatewayMetrics::default(), tracing::Span::none());
         observation.record_response_ready(http::StatusCode::OK);
         {
             let mut observer = pin!(RequestBodyObserver::new(
@@ -203,10 +202,5 @@ mod tests {
             ));
             assert!(observer.is_end_stream());
         }
-
-        // Normal EOF may count only as completed; Drop must not misclassify it as cancelled.
-        let snapshot = metrics.snapshot();
-        assert_eq!(snapshot.requests_completed, 1);
-        assert_eq!(snapshot.requests_cancelled, 0);
     }
 }

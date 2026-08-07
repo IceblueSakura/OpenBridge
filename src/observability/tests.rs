@@ -13,7 +13,7 @@ use crate::{core::OperationKind, provider::ProviderKind};
 
 use super::{
     GatewayMetrics, RequestObservation,
-    provider::{ProviderMetricExecution, ProviderMetricKey},
+    provider::{ProviderAttemptContext, ProviderMetricAttributes},
     usage::{TokenUsage, extract_usage, is_generation_output},
 };
 
@@ -42,22 +42,26 @@ impl<'a> MakeWriter<'a> for LogBuffer {
 }
 
 #[test]
-fn provider_metric_key_keeps_upstream_and_downstream_operations_distinct() {
-    let key = ProviderMetricKey::new(
-        ProviderKind::OpenAi,
-        "chat-via-responses",
-        "openai-main",
-        OperationKind::Responses,
+fn provider_metric_attributes_keep_upstream_and_downstream_operations_distinct() {
+    let context = ProviderAttemptContext {
+        attempt: 1,
+        route_id: "chat-via-responses",
+        upstream_target: "openai-main",
+        upstream_operation: OperationKind::Responses,
+        upstream_model: "upstream-model",
+        provider: ProviderKind::OpenAi,
+        bridged: true,
+    };
+    let attributes = ProviderMetricAttributes::new(
+        &context,
         "public-model",
         Some(OperationKind::ChatCompletions),
-        ProviderMetricExecution {
-            streaming: false,
-            bridged: true,
-        },
+        false,
     );
 
-    assert_eq!(key.upstream_operation, "responses");
-    assert_eq!(key.operation, "chat_completions");
+    assert_eq!(attributes.upstream_operation, "responses");
+    assert_eq!(attributes.operation, "chat_completions");
+    assert_eq!(attributes.gen_ai_operation, "chat");
 }
 
 #[test]

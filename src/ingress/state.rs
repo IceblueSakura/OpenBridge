@@ -69,8 +69,9 @@ impl GatewayState {
         &self.oauth2_credentials
     }
 
-    /// Returns the shared in-process low-cardinality counter handle for exporter or test snapshots.
-    pub fn metrics(&self) -> GatewayMetrics {
-        self.metrics.clone()
+    /// Replaces no-op instruments with the startup-owned OpenTelemetry meter instruments.
+    pub fn with_metrics(mut self, metrics: GatewayMetrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 }

@@ -26,11 +26,12 @@ pub(super) struct RawBootstrap {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RawTelemetry {
-    pub(super) traces: Option<RawOtlpHttpTraceExport>,
+    pub(super) traces: Option<RawOtlpHttpExport>,
+    pub(super) metrics: Option<RawOtlpHttpExport>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RawOtlpHttpTraceExport {
+pub(super) struct RawOtlpHttpExport {
     pub(super) otlp_http_endpoint: String,
 }

@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 mod fixtures;
+pub mod metrics;
 pub mod process_replay;
 
 #[allow(unused_imports)]

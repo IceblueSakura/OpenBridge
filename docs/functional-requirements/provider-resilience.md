@@ -110,8 +110,8 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 - 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` API；无状态 Native/Bridge 请求仍 遵守原有首输出前边界；
 - 多次 credential attempt 后只向下游返回最终安全错误，不公开 pool 大小、member 列表、binding ID、配置文件位置 或
   Authorization；
-- tracing 可记录非敏感 pool/member binding ID、generation、rotation 原因和 attempt 序号；进程内 metrics 只增加低基数
-  `credential_rotations` 计数，不以 pool/member 为 label；
+- tracing 可记录非敏感 pool/member binding ID、generation、rotation 原因和 attempt 序号；OTLP metrics 只增加低基数
+  `openbridge.routing.events{openbridge.routing.event="credential_rotation"}` 计数，不以 pool/member 为 attribute；
 - probe 不自动遍历 pool、不修改 cursor/cooldown，也不把一次 probe 描述为全部 key 可用。逐 key 真实验证 属于单独、显式执行的
   Provider acceptance。
 

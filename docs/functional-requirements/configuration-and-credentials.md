@@ -28,9 +28,10 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
 
-OTLP exporter 属于启动时进程资源策略：默认禁用，collector 地址只能来自 bootstrap，并允许配置所有者选择 loopback、非 loopback IP
-或 DNS host；不接受 URL credential、自定义认证 header 或业务请求覆盖。无效 scheme、缺失 host、自定义 path/query/fragment 或不支持
-字段必须在 listener 与 exporter egress 前阻止启动；exporter 不得成为 Provider、Route、credential 或动态控制配置入口。
+OTLP exporter 属于启动时进程资源策略：`[telemetry.traces]` 与 `[telemetry.metrics]` 分别默认禁用，collector 地址只能来自
+bootstrap，并允许配置所有者选择 loopback、非 loopback IP 或 DNS host；不接受 URL credential、自定义认证 header、环境注入 header
+或业务请求覆盖。无效 scheme、缺失 host、自定义 path/query/fragment 或不支持字段必须在 listener 与 exporter egress 前阻止启动；
+signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Provider、Route、credential 或动态控制配置入口。
 
 ## 2. 代码注册表要求
 

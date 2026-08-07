@@ -13,3 +13,7 @@ upstream_pool_max_idle_per_host = 16
 # Trace export is disabled unless this startup-owned collector table is uncommented.
 # [telemetry.traces]
 # otlp_http_endpoint = "http://127.0.0.1:4318"
+
+# Metrics export is disabled unless this startup-owned collector table is uncommented.
+# [telemetry.metrics]
+# otlp_http_endpoint = "http://127.0.0.1:4318"

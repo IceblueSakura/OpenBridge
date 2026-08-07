@@ -13,7 +13,7 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::OperationKind,
-    observability::RequestObservation,
+    observability::{ProviderAttemptContext, RequestObservation},
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
 };
@@ -133,14 +133,15 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 "The upstream attempt budget was exhausted",
             );
         }
-        observation.record_attempt(
-            attempts.attempts_started() as u64,
-            candidate.route_id(),
-            candidate.upstream_target_id(),
-            candidate.upstream_operation(),
-            target.kind(),
-            false,
-        );
+        observation.record_attempt(ProviderAttemptContext {
+            attempt: attempts.attempts_started() as u64,
+            route_id: candidate.route_id(),
+            upstream_target: candidate.upstream_target_id(),
+            upstream_operation: candidate.upstream_operation(),
+            upstream_model: upstream_api.upstream_model(),
+            provider: target.kind(),
+            bridged: false,
+        });
 
         // Send one owned adapter request; dropping this handler cancels the in-flight transport future.
         match state.upstream.send(target, request.clone(), headers).await {
