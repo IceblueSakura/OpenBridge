@@ -706,6 +706,98 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
 }
 
 #[test]
+fn structured_outputs_convert_between_chat_and_responses_request_shapes() {
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": false
+    });
+    let chat_request = serde_json::json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": "return JSON"}],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "answer",
+                "description": "A short answer",
+                "schema": schema,
+                "strict": true
+            }
+        }
+    });
+    let (_, responses_request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&chat_request).unwrap()),
+    )
+    .expect("Chat structured output should convert to Responses");
+    let responses_request: Value = serde_json::from_slice(responses_request.body()).unwrap();
+    assert_eq!(
+        responses_request["text"]["format"],
+        serde_json::json!({
+            "type": "json_schema",
+            "name": "answer",
+            "description": "A short answer",
+            "schema": schema,
+            "strict": true
+        })
+    );
+
+    let responses_request = serde_json::json!({
+        "model": "public-model",
+        "input": "return JSON",
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "answer",
+                "schema": schema,
+                "strict": true
+            }
+        }
+    });
+    let (_, chat_request) = BridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&responses_request).unwrap()),
+    )
+    .expect("Responses structured output should convert to Chat");
+    let chat_request: Value = serde_json::from_slice(chat_request.body()).unwrap();
+    assert_eq!(
+        chat_request["response_format"],
+        serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "answer",
+                "schema": schema,
+                "strict": true
+            }
+        })
+    );
+
+    // Unknown format fields must not be silently discarded during the conversion.
+    let unsupported = serde_json::json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": "return JSON"}],
+        "response_format": {"type": "json_object", "future": true}
+    });
+    assert!(
+        BridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            Bytes::from(serde_json::to_vec(&unsupported).unwrap()),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn incomplete_stream_arguments_fail_without_a_fabricated_terminal() {
     let directory = "responses_to_chat/responses_to_chat.incomplete_arguments.stream";
     let (plan, _) = BridgePlan::prepare(

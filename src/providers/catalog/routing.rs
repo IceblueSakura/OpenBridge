@@ -34,6 +34,14 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             }],
         },
         PublicModelRegistration {
+            public_name: "chatgpt-gpt-5.5",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chatgpt-gpt-5-5",
+                upstream_target: "chatgpt-gpt-5-5",
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "chatgpt-gpt-5.6-luna",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",

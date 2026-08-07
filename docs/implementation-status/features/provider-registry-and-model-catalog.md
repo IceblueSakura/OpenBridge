@@ -9,10 +9,10 @@
 
 - 注册表分离 canonical Model、Provider instance、credential pool、Upstream Target、Upstream API、Route 和 Public Model 的所有权。
 - 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 和 ChatGPT；ChatGPT 使用独立 OAuth manager，
-  四个固定 target 各自只提供一个 Responses Native Route。
+  五个固定 target 各自提供一个 Responses Native Route 和一个受限 Chat Bridge Route。
 - 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro` 和
-  `mimo-v2.5`，以及 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.6-luna`、`chatgpt-gpt-5.6-terra` 和
-  `chatgpt-gpt-5.6-sol`；`text-embedding-3-small` 是独立 Embeddings Public Model。
+  `mimo-v2.5`，以及 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna`、
+  `chatgpt-gpt-5.6-terra` 和 `chatgpt-gpt-5.6-sol`；`text-embedding-3-small` 是独立 Embeddings Public Model。
 - `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source，按配置顺序保留候选；其他当前 generation Public Model 仍按各自
   注册项使用一个 Provider source。
 - 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和
@@ -34,7 +34,7 @@
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖注册项、引用和启动校验。
 - [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖 active pool 筛选、Target/Public Model 过滤和
   非激活 pool 不进入服务凭证要求。
-- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖四个 ChatGPT target/Public Model/Route 的固定编译事实。
+- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖五个 ChatGPT target/Public Model/Route 的固定编译事实和能力收窄。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖候选顺序、Public Model 与 Route 规划。
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 和 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider 请求、认证和受信出站边界。

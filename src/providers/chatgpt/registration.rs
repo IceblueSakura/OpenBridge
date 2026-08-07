@@ -35,11 +35,20 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             chatgpt::gpt_5_3_codex_spark::ID,
             "gpt-5.3-codex-spark",
             false,
+            false,
+        ),
+        upstream_target(
+            "chatgpt-gpt-5-5",
+            chatgpt::gpt_5_5::ID,
+            "gpt-5.5",
+            true,
+            true,
         ),
         upstream_target(
             "chatgpt-gpt-5-6-luna",
             chatgpt::gpt_5_6_luna::ID,
             "gpt-5.6-luna",
+            true,
             true,
         ),
         upstream_target(
@@ -47,11 +56,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             chatgpt::gpt_5_6_terra::ID,
             "gpt-5.6-terra",
             true,
+            true,
         ),
         upstream_target(
             "chatgpt-gpt-5-6-sol",
             chatgpt::gpt_5_6_sol::ID,
             "gpt-5.6-sol",
+            true,
             true,
         ),
     ]
@@ -63,6 +74,7 @@ fn upstream_target(
     canonical_model: &str,
     upstream_model: &str,
     disable_output_limit_parameters: bool,
+    advanced_capabilities: bool,
 ) -> UpstreamTargetConfig {
     UpstreamTargetConfig {
         id: id.to_owned(),
@@ -83,8 +95,19 @@ fn upstream_target(
                 },
                 ..UpstreamApiModelRules::default()
             },
-            capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
+            capabilities: responses_capabilities(advanced_capabilities),
             state_affinity: StateAffinity::TargetBound,
         }],
     }
+}
+
+/// Narrows the family contract to the capabilities guaranteed by one fixed ChatGPT model.
+fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilities {
+    let mut capabilities = CONTRACT.capabilities().responses;
+    if !advanced_capabilities {
+        capabilities.function_calling = false;
+        capabilities.parallel_tool_calls = false;
+        capabilities.structured_outputs = false;
+    }
+    UpstreamApiCapabilities::Responses(capabilities)
 }

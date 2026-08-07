@@ -31,6 +31,7 @@ pub(crate) fn config() -> ModelConfig {
             "include_reasoning",
             "max_completion_tokens",
             "max_tokens",
+            "parallel_tool_calls",
             "reasoning",
             "reasoning_effort",
             "response_format",

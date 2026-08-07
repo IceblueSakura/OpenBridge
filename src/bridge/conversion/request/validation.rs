@@ -20,6 +20,7 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
             "model",
             "parallel_tool_calls",
             "reasoning_effort",
+            "response_format",
             "stream",
             "temperature",
             "tool_choice",
@@ -33,6 +34,7 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
             "parallel_tool_calls",
             "reasoning",
             "stream",
+            "text",
             "temperature",
             "tool_choice",
             "tools",
@@ -55,9 +57,7 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
         "metadata",
         "modalities",
         "previous_response_id",
-        "response_format",
         "store",
-        "text",
         "truncation",
     ];
     if unsupported.iter().any(|field| {

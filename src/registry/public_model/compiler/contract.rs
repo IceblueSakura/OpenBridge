@@ -127,7 +127,7 @@ impl RouteContractContribution {
 
         // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
-        let structured_outputs = generation.structured_outputs && !bridged;
+        let structured_outputs = generation.structured_outputs;
         let image_input = generation.image_input && !bridged;
         let store = generation.store && !bridged;
         let reasoning = route_reasoning_support(upstream_api, bridged);
@@ -454,6 +454,7 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
                 | "max_tokens"
                 | "parallel_tool_calls"
                 | "reasoning_effort"
+                | "response_format"
                 | "stream"
                 | "temperature"
                 | "tool_choice"
@@ -465,6 +466,7 @@ fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
             "max_output_tokens"
                 | "parallel_tool_calls"
                 | "reasoning"
+                | "text"
                 | "stream"
                 | "temperature"
                 | "tool_choice"

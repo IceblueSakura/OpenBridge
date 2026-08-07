@@ -7,12 +7,14 @@
 
 ## 已完成内容
 
-- 支持 allowlist 内的 text、function tool、tool result、明文 reasoning channel、非流式 JSON 和流式 SSE 转换。
+- 支持 allowlist 内的 text、function tool、parallel tool call、tool result、structured output、明文 reasoning channel、非流式 JSON 和流式
+  SSE 转换。
 - `BridgePlan` 在上游调用前检查可表达性；tool-call identity、fragmented arguments、response/project index 和 Responses terminal 由独立 stream
   state machine 维护。
 - Chat→Responses 与 Responses→Chat 均使用显式的 request converter、stream renderer 和 terminal lifecycle，不把两种协议简单当作字段别名。
-- 不可表达的 image/file/audio、structured output、hosted/custom tool、opaque continuation、后台状态、未确认 reasoning 或 Provider 私有扩展
-  在 egress 前拒绝，不伪造等价语义。
+- `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
+- 不可表达的 image/file/audio、hosted/custom tool、opaque continuation、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，
+  不伪造等价语义。
 
 ## 实现边界
 

@@ -5,6 +5,7 @@
 
 mod chat_to_responses;
 mod responses_to_chat;
+mod structured;
 mod validation;
 
 pub(super) use chat_to_responses::chat_request_to_responses;

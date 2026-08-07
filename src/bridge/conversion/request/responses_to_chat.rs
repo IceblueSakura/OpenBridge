@@ -11,6 +11,7 @@ use super::super::{
     BridgeError,
     shared::{copy_fields, required_string, validate_arguments},
 };
+use super::structured::responses_text_to_chat;
 
 /// Converts a Responses request that passed top-level validation into a Chat request.
 pub(in crate::bridge::conversion) fn responses_request_to_chat(
@@ -58,6 +59,9 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
             "tool_choice".to_owned(),
             responses_tool_choice_to_chat(tool_choice)?,
         );
+    }
+    if let Some(text) = source.get("text").filter(|value| !value.is_null()) {
+        result.insert("response_format".to_owned(), responses_text_to_chat(text)?);
     }
     Ok(Value::Object(result))
 }

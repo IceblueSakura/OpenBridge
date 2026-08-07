@@ -36,31 +36,42 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         "https://chatgpt.com/backend-api/codex"
     );
 
-    // Verify all four fixed models expose one Chat bridge and one Responses-native Route.
-    for (public_name, target_id, canonical_model, upstream_model) in [
+    // Verify all five fixed models expose one Chat bridge and one Responses-native Route.
+    for (public_name, target_id, canonical_model, upstream_model, advanced_capabilities) in [
         (
             "chatgpt-gpt-5.3-codex-spark",
             "chatgpt-gpt-5-3-codex-spark",
             "chatgpt/gpt-5.3-codex-spark",
             "gpt-5.3-codex-spark",
+            false,
+        ),
+        (
+            "chatgpt-gpt-5.5",
+            "chatgpt-gpt-5-5",
+            "chatgpt/gpt-5.5",
+            "gpt-5.5",
+            true,
         ),
         (
             "chatgpt-gpt-5.6-luna",
             "chatgpt-gpt-5-6-luna",
             "chatgpt/gpt-5.6-luna",
             "gpt-5.6-luna",
+            true,
         ),
         (
             "chatgpt-gpt-5.6-terra",
             "chatgpt-gpt-5-6-terra",
             "chatgpt/gpt-5.6-terra",
             "gpt-5.6-terra",
+            true,
         ),
         (
             "chatgpt-gpt-5.6-sol",
             "chatgpt-gpt-5-6-sol",
             "chatgpt/gpt-5.6-sol",
             "gpt-5.6-sol",
+            true,
         ),
     ] {
         let target = definition
@@ -78,6 +89,27 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             OperationKind::Responses
         );
         assert_eq!(target.upstream_apis[0].upstream_model, upstream_model);
+        let responses_capabilities = match target.upstream_apis[0].capabilities {
+            UpstreamApiCapabilities::Responses(capabilities) => capabilities,
+            UpstreamApiCapabilities::ChatCompletions(_) => {
+                panic!("expected ChatGPT Responses capabilities")
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {
+                panic!("expected ChatGPT generation capabilities")
+            }
+        };
+        assert_eq!(
+            responses_capabilities.function_calling,
+            advanced_capabilities
+        );
+        assert_eq!(
+            responses_capabilities.parallel_tool_calls,
+            advanced_capabilities
+        );
+        assert_eq!(
+            responses_capabilities.structured_outputs,
+            advanced_capabilities
+        );
 
         let public_model = definition
             .public_models
@@ -122,6 +154,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id) in [
         ("chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5-3-codex-spark"),
+        ("chatgpt-gpt-5.5", "chatgpt-gpt-5-5"),
         ("chatgpt-gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
         ("chatgpt-gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
         ("chatgpt-gpt-5.6-sol", "chatgpt-gpt-5-6-sol"),
@@ -155,6 +188,36 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             format!("{target_id}-responses")
         );
         assert!(plan.candidates()[0].bridge().is_none());
+    }
+
+    // GPT-5.5 and GPT-5.6 expose the complete function-tool contract on both downstream surfaces.
+    for public_name in [
+        "chatgpt-gpt-5.5",
+        "chatgpt-gpt-5.6-luna",
+        "chatgpt-gpt-5.6-terra",
+        "chatgpt-gpt-5.6-sol",
+    ] {
+        let info = serde_json::to_value(
+            registry
+                .public_model(public_name)
+                .expect("ChatGPT advanced Public Model should compile")
+                .info(),
+        )
+        .unwrap();
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                info["interfaces"][protocol]["tools"]["support"],
+                "supported"
+            );
+            assert_eq!(
+                info["interfaces"][protocol]["tools"]["parallel_calls"],
+                "supported"
+            );
+            assert_eq!(
+                info["interfaces"][protocol]["structured_outputs"]["support"],
+                "supported"
+            );
+        }
     }
 }
 
@@ -933,7 +996,7 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
             assert_eq!(plan.candidates().len(), 2);
         }
 
-        // Image and structured output are not fully shared by the reverse Bridge, so the fixed contract rejects both.
+        // Image input remains outside the reverse Bridge and is rejected before egress.
         for (protocol, body) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -942,21 +1005,9 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
                 ),
             ),
             (
-                ApiProtocol::ChatCompletions,
-                format!(
-                    r#"{{"model":"{public_name}","messages":[],"response_format":{{"type":"json_schema","json_schema":{{"name":"answer","schema":{{"type":"object"}}}}}}}}"#
-                ),
-            ),
-            (
                 ApiProtocol::Responses,
                 format!(
                     r#"{{"model":"{public_name}","input":[{{"type":"input_image","image_url":"https://example.invalid/image.png"}}]}}"#
-                ),
-            ),
-            (
-                ApiProtocol::Responses,
-                format!(
-                    r#"{{"model":"{public_name}","input":"return json","text":{{"format":{{"type":"json_schema","name":"answer","schema":{{"type":"object"}}}}}}}}"#
                 ),
             ),
         ] {
@@ -966,6 +1017,30 @@ fn mimo_models_are_compiled_with_dual_native_first_routes() {
                 plan_request(&registry, &profile, body),
                 Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
             ));
+        }
+
+        // Structured output is now shared by the modeled Native and reverse-Bridge paths.
+        for (protocol, body, expected_route) in [
+            (
+                ApiProtocol::ChatCompletions,
+                format!(
+                    r#"{{"model":"{public_name}","messages":[],"response_format":{{"type":"json_schema","json_schema":{{"name":"answer","schema":{{"type":"object"}}}}}}}}"#
+                ),
+                format!("{route_prefix}-chat"),
+            ),
+            (
+                ApiProtocol::Responses,
+                format!(
+                    r#"{{"model":"{public_name}","input":"return json","text":{{"format":{{"type":"json_schema","name":"answer","schema":{{"type":"object"}}}}}}}}"#
+                ),
+                format!("{route_prefix}-responses"),
+            ),
+        ] {
+            let body = bytes::Bytes::from(body);
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            assert_eq!(plan.candidates()[0].route_id(), expected_route);
+            assert_eq!(plan.candidates().len(), 2);
         }
 
         // Verify that MiMo's stateless boundary still rejects stateful Responses requests.

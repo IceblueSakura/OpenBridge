@@ -51,10 +51,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: false,
-            parallel_tool_calls: false,
+            function_calling: true,
+            parallel_tool_calls: true,
             image_input: false,
-            structured_outputs: false,
+            structured_outputs: true,
             store: false,
             previous_response_id: false,
             background: false,
