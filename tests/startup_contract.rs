@@ -123,7 +123,7 @@ fn startup_paths_distinguish_missing_files_from_invalid_documents() {
 }
 
 #[test]
-fn process_allows_an_unconfigured_provider_before_reporting_a_bound_listener_failure() {
+fn process_reports_configuration_availability_before_bound_listener_failure() {
     let workspace = TempWorkspace::new("process-startup");
 
     // Reserve a loopback address so the child reaches the final bind step and fails deterministically.
@@ -204,22 +204,54 @@ upstream_pool_max_idle_per_host = 16
     // Launch the real binary and verify all composition stages completed before the expected bind error.
     let output = Command::new(env!("CARGO_BIN_EXE_openbridge"))
         .env("OPENBRIDGE_CONFIG", &bootstrap)
-        .env("RUST_LOG", "off")
+        .env("RUST_LOG", "info")
         .output()
         .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined_output = format!("{stdout}\n{stderr}");
     assert!(!output.status.success(), "child unexpectedly succeeded");
     assert!(
         stderr.contains("failed to bind OpenBridge"),
         "unexpected startup error: {stderr}"
     );
-    assert!(!stderr.contains("startup-downstream-key"));
-    assert!(!stderr.contains("synthetic-startup-key"));
-    assert!(!stderr.contains("synthetic-startup-refresh"));
-    assert!(!stderr.contains("synthetic-startup-account"));
-    assert!(!stderr.contains(&access_token));
-    assert!(!stderr.contains(&id_token));
-    assert!(!stderr.contains("chatgpt-auth.json"));
+    assert!(stdout.contains("Startup configuration availability (no network probe)"));
+    assert!(stdout.contains("Providers (configuration only)"));
+    assert!(stdout.contains("Public models (configuration only)"));
+    assert_table_column(&stdout, "openai (", false);
+    assert_table_column(&stdout, "gpt-5.6-sol (chat, responses)", true);
+    assert_table_column(
+        &stdout,
+        "text-embedding-3-small (no executable route after configuration)",
+        false,
+    );
+    assert!(!combined_output.contains("startup-downstream-key"));
+    assert!(!combined_output.contains("synthetic-startup-key"));
+    assert!(!combined_output.contains("synthetic-startup-refresh"));
+    assert!(!combined_output.contains("synthetic-startup-account"));
+    assert!(!combined_output.contains(&access_token));
+    assert!(!combined_output.contains(&id_token));
+    assert!(!combined_output.contains("chatgpt-auth.json"));
+}
+
+/// Verifies that one rendered item appears on the expected side of a dual-list table.
+fn assert_table_column(output: &str, item: &str, expected_left: bool) {
+    // Locate the unique rendered row and its column separator.
+    let line = output
+        .lines()
+        .find(|line| line.contains(item))
+        .unwrap_or_else(|| panic!("missing table item '{item}' in output: {output}"));
+    let separator = line
+        .find(" | ")
+        .unwrap_or_else(|| panic!("missing table separator in row: {line}"));
+    let item_offset = line.find(item).expect("located row must contain the item");
+
+    // Compare the item position with the separator without depending on dynamic column widths.
+    assert_eq!(
+        item_offset < separator,
+        expected_left,
+        "item '{item}' appeared in the wrong table column: {line}"
+    );
 }
 
 #[test]

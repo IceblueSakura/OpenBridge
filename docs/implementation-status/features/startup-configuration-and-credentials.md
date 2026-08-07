@@ -15,6 +15,9 @@
   引用的 Target 在本次启动中未激活，不会要求对应 secret，也不会从 Provider 注册表移除它。
 - 服务在 Public Model 编译前应用 active credential pool 集合，再构建不可变 `UserRegistry`、`CredentialStore` 和可用的 OAuth2 credential
   snapshot；缺失的 `auth_json_file` 会创建为空文件并保持待登录，不发布 snapshot，非空损坏文件仍阻止启动。
+- 全部私有配置和 credential binding 校验成功后、listener 绑定前，主服务输出 Provider family 与 Public Model 两张配置态
+  available/unavailable ASCII 双列表格。Provider 按 enabled/total Target 汇总，Public Model 按已编译 Chat、Responses、Embeddings
+  execution interface 分类；标题明确声明没有执行 network probe。
 - 普通 TOML、用户表和 API-key Store 不热重载；OAuth2 manager 只在自己的登录、到期 refresh 或首个预提交 `401` recovery 流程中
   加锁读取、校验并在 rotation 时原子写回。
 - 上游 endpoint、认证信息、purpose-bound secret 和普通安全 header 由受信代码注册与 Provider adapter 生成；客户端输入不能覆盖。
@@ -25,6 +28,8 @@
 - 启动装配入口位于 [`src/main.rs`](../../../src/main.rs)、[`src/config/`](../../../src/config/)、
   [`src/identity.rs`](../../../src/identity.rs)、[`src/upstream_credentials.rs`](../../../src/upstream_credentials.rs) 和
   [`src/credential.rs`](../../../src/credential.rs)。
+- [`src/registry/availability.rs`](../../../src/registry/availability.rs) 只读取不可变注册表和脱敏 active-pool 集合，稳定排序并渲染摘要；
+  输出不包含 pool/Target/Route/endpoint/credential，也不改变 Models API 或请求规划。
 - 代码注册表和私有凭证文件是两类不同所有权：注册表只保存非敏感 pool/binding 身份，secret 只在启动后的受限 Store 中使用。
 - 私有 credential 文件只能激活已经由代码注册的 pool；它不能增加 Provider、Target、Route、endpoint、credential kind 或能力。
 - 当前不包含 keyring、加密 secret 文件、远程 secret manager、动态 credential 控制面、非 loopback 部署或多进程凭证协调。
@@ -36,8 +41,21 @@
 - [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 还覆盖空/缺失 pool 的激活筛选、Provider 注册保留、Target/Public Model 过滤和非激活 pool 不进入服务凭证要求。
 - [`tests/credential_store_contract.rs`](../../../tests/credential_store_contract.rs) 覆盖 credential kind、purpose 和 secret 隔离。
 - [`tests/startup_contract.rs`](../../../tests/startup_contract.rs) 覆盖启动时 bundle、绑定和拒绝条件。
+- `registry::availability::tests::production_report_uses_only_configuration_eligibility_and_redacted_names` 覆盖只激活 MiMo pool 时的
+  Provider/Public Model 分类、排序和脱敏；
+  `process_reports_configuration_availability_before_bound_listener_failure` 覆盖真实进程在 listener 前输出两张表，并确认缺失 OpenAI pool
+  不会错误禁用仍有 ChatGPT source 的 `gpt-5.6-sol`。
 
-这些测试证明本地解析、校验和存储边界，不证明真实凭证可用、远程 Provider 可达或长期 refresh 稳定性。
+这些测试证明本地解析、校验、存储、配置态分类和启动展示边界，不证明真实凭证可借用、远程 Provider/Model 可达、协议能力、配额或长期
+refresh 稳定性。配置了 OAuth2 auth-file locator 仍可能处于待登录状态。
+
+2026-08-08 配置态启动摘要验证：
+
+- `cargo test --locked --lib registry::availability::tests`：2 个分类、脱敏和空列渲染测试通过；
+- `cargo test --locked --test startup_contract process_reports_configuration_availability_before_bound_listener_failure`：真实进程接线测试通过；
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+
+本次没有运行真实 Provider、独立 probe、外部 SDK、目标 Agent、负载或长期运行测试；这些层不由配置态摘要证明。
 
 ## 相关文档
 

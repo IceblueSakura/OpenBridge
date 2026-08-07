@@ -149,6 +149,11 @@ credential rotation；这不等于账号级负载均衡。
 cargo run --locked --bin openbridge
 ```
 
+默认 info 日志会先输出两张 `configuration only` 双列表格，分别列出配置态可用/不可用的 Provider family 和 Public Model。
+Provider 项包含 enabled/total Target 计数，Model 项包含当前可执行的 Chat、Responses 或 Embeddings 接口；不可用项只给出脱敏原因。
+表格不会显示 credential、pool、Target、Route 或 endpoint，也不会访问 Provider。它只说明当前启动配置是否形成执行候选，不代表网络、
+配额、远端模型或协议能力已经通过真实探测；真实检查仍须显式运行 `openbridge-probe`。
+
 默认地址是 `http://127.0.0.1:8080`。启动成功后，另开一个终端检查：
 
 ```bash

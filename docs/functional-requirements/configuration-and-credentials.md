@@ -172,10 +172,19 @@ read bootstrap.toml
 → validate and build RuntimeRegistry with active Target eligibility
 → bind active API-key pools and configured OAuth2 auth files by compiled binding id
 → build immutable CredentialStore + OAuth2CredentialManager
+→ render configuration-only Provider/Public Model availability without Provider egress
 → create shared HTTP client
 → Arc<RuntimeRegistry> + Arc<UserRegistry> + Arc<CredentialStore> + Arc<OAuth2CredentialManager>
 → start listener
 ```
+
+完成全部私有配置和 credential binding 校验后、绑定 listener 前，主服务以默认 info 日志输出两张 ASCII 双列表格。Provider family
+至少有一个经 active pool 收窄后 enabled 的 Target 时进入可用列；Public Model 至少有一个已编译执行接口时进入可用列。另一列只显示
+稳定 Provider/Public Model 名称、Target 计数、接口和脱敏原因，不得显示 pool、Target、Route、endpoint、auth-file locator 或 secret。
+
+表头必须明确标注 `configuration only` 和 `no network probe`。这里的“可用”只表示本次启动配置允许形成执行候选：OAuth2 auth-file
+locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登录状态；该表不证明当前 credential lease、网络、配额、远端模型或协议能力
+实际可用。无效配置继续在表格输出前阻止启动，真实探测只能由管理员显式运行独立 probe。
 
 注册表与 credential manager 启动后不可变。服务没有文件监听、user/route/auth reload、`ArcSwap` 或部分更新语义。运行中的请求和
 后续请求都读取同一组 `RuntimeRegistry`、`UserRegistry`、`CredentialStore` 与 `OAuth2CredentialManager`；改变任一启动输入都必须重启。
@@ -200,6 +209,7 @@ read bootstrap.toml
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |
+| CFG-17 | 主服务在配置验证后、listener 前输出配置态 Provider/Public Model 可用/不可用双表；分类复用 active Target/执行接口且不触发 Provider egress，不输出 credential 或内部拓扑，也不把配置态结果声明为真实健康。 |
 
 ## 关联文档
 

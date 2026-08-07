@@ -3,6 +3,7 @@
 //! Submodules own static definitions, compilation errors, runtime entities, and startup compilation
 //! logic; this file only declares modules and preserves the existing public API paths.
 
+mod availability;
 mod compiler;
 mod definition;
 mod error;
@@ -10,6 +11,7 @@ mod public_model;
 mod runtime;
 mod validation;
 
+pub use availability::ConfigurationAvailabilityReport;
 pub use compiler::{build_registry, build_registry_with_active_pools};
 pub use definition::{
     CredentialPoolConfig, InputModality, ModelConfig, ModelContextLength, ModelLifecycle,

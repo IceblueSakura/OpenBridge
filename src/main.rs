@@ -58,21 +58,10 @@ async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Res
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
 
-    // Build the compile-time registry while excluding Targets whose startup pools are inactive.
+    // Build the compile-time registry and configuration-only availability report from the active pools.
     let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids)
         .context("failed to build OpenBridge code registry")?;
-    for target_id in registry.upstream_target_ids() {
-        let target = registry
-            .upstream_target(target_id)
-            .expect("registry target id must resolve");
-        if !target.enabled() && !active_pool_ids.contains(target.credential_pool_id()) {
-            tracing::warn!(
-                upstream_target = %target_id,
-                credential_pool = %target.credential_pool_id(),
-                "upstream target disabled because its startup credential pool is inactive"
-            );
-        }
-    }
+    let availability_report = registry.configuration_availability(&active_pool_ids);
 
     // Determine the credential pools required by the remaining enabled Targets.
     let required_pool_ids = registry
@@ -102,6 +91,9 @@ async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Res
         .validate_registry(&registry)
         .context("upstream credential pools violate registry state-affinity constraints")?;
     let credentials = Arc::new(credentials);
+
+    // Display the redacted configuration snapshot only after every private source passes validation.
+    tracing::info!("\n{availability_report}");
 
     // Create the shared upstream client and read-only request state.
     let listen = registry.listen();
