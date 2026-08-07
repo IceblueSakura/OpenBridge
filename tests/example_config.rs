@@ -15,7 +15,7 @@ use openbridge::{
 };
 
 #[test]
-fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
+fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     // Locate the dedicated OAuth pool and fixed ChatGPT Provider instance.
     let definition = compiled_config();
     let pool = definition
@@ -36,7 +36,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
         "https://chatgpt.com/backend-api/codex"
     );
 
-    // Verify all four fixed models expose exactly one enabled Responses-native target and Route.
+    // Verify all four fixed models expose one Chat bridge and one Responses-native Route.
     for (public_name, target_id, canonical_model, upstream_model) in [
         (
             "chatgpt-gpt-5.3-codex-spark",
@@ -84,19 +84,40 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
             .iter()
             .find(|model| model.id == public_name)
             .expect("ChatGPT Public Model should be compiled");
-        assert_eq!(public_model.routes, [format!("{target_id}-responses")]);
-        let route = definition
+        assert_eq!(
+            public_model.routes,
+            [
+                format!("{target_id}-chat-via-responses"),
+                format!("{target_id}-responses")
+            ]
+        );
+        let chat_route = definition
             .routes
             .iter()
             .find(|route| route.id == public_model.routes[0])
-            .expect("ChatGPT Route should be compiled");
-        assert_eq!(route.upstream_target, target_id);
-        assert_eq!(route.upstream_operation, OperationKind::Responses);
-        assert_eq!(route.downstream_operation, OperationKind::Responses);
-        assert_eq!(route.mode, RouteMode::Native);
+            .expect("ChatGPT Chat bridge Route should be compiled");
+        assert_eq!(chat_route.upstream_target, target_id);
+        assert_eq!(chat_route.upstream_operation, OperationKind::Responses);
+        assert_eq!(
+            chat_route.downstream_operation,
+            ApiProtocol::ChatCompletions.operation()
+        );
+        assert_eq!(chat_route.mode, RouteMode::Bridged);
+        let responses_route = definition
+            .routes
+            .iter()
+            .find(|route| route.id == public_model.routes[1])
+            .expect("ChatGPT Responses Route should be compiled");
+        assert_eq!(responses_route.upstream_target, target_id);
+        assert_eq!(responses_route.upstream_operation, OperationKind::Responses);
+        assert_eq!(
+            responses_route.downstream_operation,
+            OperationKind::Responses
+        );
+        assert_eq!(responses_route.mode, RouteMode::Native);
     }
 
-    // Compile the runtime snapshot and prove each downstream model plans only its fixed Route.
+    // Compile the runtime snapshot and prove each downstream protocol selects its fixed Route.
     let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id) in [
@@ -111,6 +132,18 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
         assert!(target.enabled());
         assert_eq!(target.kind(), ProviderKind::ChatGpt);
 
+        let chat_body = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"stream":true}}"#
+        ));
+        let chat_profile = analyze_request(ApiProtocol::ChatCompletions, &chat_body).unwrap();
+        let chat_plan = plan_request(&registry, &chat_profile, chat_body).unwrap();
+        assert_eq!(chat_plan.candidates().len(), 1);
+        assert_eq!(
+            chat_plan.candidates()[0].route_id(),
+            format!("{target_id}-chat-via-responses")
+        );
+        assert!(chat_plan.candidates()[0].bridge().is_some());
+
         let body = bytes::Bytes::from(format!(
             r#"{{"model":"{public_name}","input":"hello","stream":true}}"#
         ));
@@ -121,6 +154,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_native_routes() {
             plan.candidates()[0].route_id(),
             format!("{target_id}-responses")
         );
+        assert!(plan.candidates()[0].bridge().is_none());
     }
 }
 

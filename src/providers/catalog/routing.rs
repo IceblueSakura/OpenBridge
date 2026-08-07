@@ -30,7 +30,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
@@ -38,7 +38,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",
                 upstream_target: "chatgpt-gpt-5-6-luna",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
@@ -46,7 +46,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
@@ -54,7 +54,7 @@ pub(super) fn compiled_routing() -> CompiledRouting {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-sol",
                 upstream_target: "chatgpt-gpt-5-6-sol",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
@@ -177,8 +177,8 @@ enum PublicModelSurface {
     DualProtocolNativeOnly,
     /// Provides only a Chat Completions Native path.
     ChatNativeOnly,
-    /// Provides only a Responses Native path.
-    ResponsesNativeOnly,
+    /// Provides a Responses Native path and a Chat Completions path bridged through Responses.
+    ResponsesNativeWithChatBridge,
 }
 
 /// Global Route phase used to keep every Provider's Native candidate ahead of Bridge candidates.
@@ -232,7 +232,10 @@ impl ProviderRouteRegistration {
         // Select the fixed protocol direction and handling mode for this surface and phase.
         let (suffix, upstream_operation, downstream_protocol, mode) = match phase {
             RoutePhase::ChatNative
-                if !matches!(self.surface, PublicModelSurface::ResponsesNativeOnly) =>
+                if !matches!(
+                    self.surface,
+                    PublicModelSurface::ResponsesNativeWithChatBridge
+                ) =>
             {
                 (
                     "chat",
@@ -242,7 +245,11 @@ impl ProviderRouteRegistration {
                 )
             }
             RoutePhase::ChatBridge
-                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+                if matches!(
+                    self.surface,
+                    PublicModelSurface::DualProtocolWithBridges
+                        | PublicModelSurface::ResponsesNativeWithChatBridge
+                ) =>
             {
                 (
                     "chat-via-responses",
@@ -256,7 +263,7 @@ impl ProviderRouteRegistration {
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
                         | PublicModelSurface::DualProtocolNativeOnly
-                        | PublicModelSurface::ResponsesNativeOnly
+                        | PublicModelSurface::ResponsesNativeWithChatBridge
                 ) =>
             {
                 (

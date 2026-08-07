@@ -432,7 +432,7 @@ impl UpstreamTransport for ChatGptOAuthTransport {
                 StatusCode::OK,
                 response_headers,
                 Body::from(
-                    "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\"}}\n\n",
+                    "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"delta\":\"hello\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\"}}\n\n",
                 ),
             ))
         })
@@ -1105,6 +1105,69 @@ async fn chatgpt_oauth_routes_forward_four_models_with_account_bound_headers() {
         assert!(request.accepts_sse);
         assert!(!request.fedramp_header_present);
     }
+}
+
+#[tokio::test]
+async fn chatgpt_chat_requests_use_the_responses_to_chat_bridge() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Send a streaming Chat request through the Responses-native ChatGPT target.
+    let request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            serde_json::json!({
+                "model": "chatgpt-gpt-5.6-sol",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": true,
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert!(
+        body.windows(b"chat.completion.chunk".len())
+            .any(|window| { window == b"chat.completion.chunk" })
+    );
+    assert!(
+        body.windows(b"hello".len())
+            .any(|window| window == b"hello")
+    );
+    assert!(
+        body.windows(b"[DONE]".len())
+            .any(|window| window == b"[DONE]")
+    );
+
+    // Verify the bridge kept the fixed Responses endpoint and ChatGPT request envelope.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.path, "/responses");
+    assert_eq!(request.model, "gpt-5.6-sol");
+    assert!(request.input_is_array);
+    assert!(request.store_is_false);
+    assert!(!request.output_limit_present);
+    assert_eq!(request.token_generation, SyntheticTokenGeneration::First);
+    assert!(request.account_matches);
+    assert!(request.originator_matches);
+    assert!(request.user_agent_matches);
+    assert!(request.accepts_sse);
+    assert!(!request.fedramp_header_present);
 }
 
 #[tokio::test]
