@@ -1,127 +1,159 @@
-# OpenBridge 项目说明
+# OpenBridge 使用手册
 
-## 项目定位
+OpenBridge 是一个面向本地或所有者控制环境的 headless、多 Provider、OpenAI-compatible 网关。它把代码中注册的
+Provider、上游 Target、Route 和 Public Model 组合成一个固定的下游接口，并使用启动时加载的私有用户表认证本地客户端。
 
-OpenBridge 的核心是一个 **单配置所有者、单服务、headless 的多 Provider Agent API 聚合网关**：部署在本地或所有者控制的环境中，通过显式
-Rust 代码注册表管理上游 Provider、模型与路由，通过启动时加载的私有用户表认证下游 API Key，并向本地 Agent 或 SDK 提供稳定的
-OpenAI-compatible 接口。它不提供 GUI、Web 控制台或在线用户管理功能。
+本 README 只说明当前 checkout 的安装、配置、运行和调用方式。实现状态、协议边界、测试证据与源码结构分别见
+[文档总索引](docs/README.md) 和 [实施现状目录](docs/implementation-status/README.md)。
 
-当前处于 **设计探索与原型验证阶段**。仓库中的 Rust 代码用于验证 HTTP/SSE、路由快照、能力检查和 fallback
-等关键假设，不代表最终模块边界、Provider 抽象或协议桥接方案已经收敛。开发采用 TDD：每次只选择一个可观察行为，先写会失败的测试，再以最小实现使其通过。
-项目尚未发布任何版本，也没有需要维持的外部兼容基线；当前焦点内可以直接替换原型 API、配置、模块和 fixture，以符合 Rust、Axum、
-OpenTelemetry 等所用框架的生命周期、错误隔离、安全和可测试性最佳实践，不为未发布形态保留 alias、双读写、兼容垫片或无意义版本迁移。
-破坏性修改仍必须受当前功能需求、单一焦点、先失败测试和完整契约同步约束。
+> 当前项目仍处于实验性原型阶段，没有已发布版本或外部兼容基线。默认只监听 loopback；不要直接把它当作公网多租户服务部署。
 
-核心方向：
+## 1. 你可以用 OpenBridge 做什么
 
-1. 原生转发 `POST /v1/responses`、`POST /v1/chat/completions` 的 HTTP JSON/SSE，以及独立的 `POST /v1/embeddings` JSON；
-2. 聚合多个 Provider instance、Upstream Target 与稳定 Public Model；
-3. 以每 Provider family 独立 Rust 模块承载协议行为，以显式注册表管理 Provider instance、Model、Upstream Target、Upstream API 和 Route；
-4. 在原生协议不可用时，对明确支持的语义执行 Chat ↔ Responses bridge；
-5. 正确处理 SSE、tool-call identity、continuation state、取消、有限 retry、target cooldown、首输出前 fallback 与最终错误传播；
-6. 优先用 OpenAI SDK、独立 Python 脚本或 curl 验证客户端可见 HTTP/SSE；Codex、Hermes 等 Agent runtime 只在明确宣称对应兼容时验证。
-7. 以 bootstrap-only 配置管理进程资源策略，以私有 TOML 管理上下游 credential，并通过 headless 输出提供调用量、usage、TTFT/TTFB
-   和终态错误率统计；显式启用时通过启动期配置的 OTLP/HTTP collector 把 traces、原始 metrics 和安全 logs 交给外部系统分析。
+当前服务提供：
 
-现阶段已批准的扩展目标只包括：
+- Chat Completions：`POST /v1/chat/completions`；
+- Responses：`POST /v1/responses`；
+- Embeddings：`POST /v1/embeddings`；
+- 标准和扩展 Models 查询；
+- 受 Bearer 认证保护的当前进程 metrics 快照；
+- 可选的 OTLP/HTTP trace 导出；
+- 管理员显式执行的上游 Models 和能力探测。
 
-- 已完成当前确定性实现与 loopback 验证的 OpenAI-compatible `POST /v1/embeddings`；
-- Chat/Responses 同协议 Native image、inline/URL file 与 Chat input audio；
-- ChatGPT subscription OAuth：使用 OpenBridge-owned OAuth2 文件完成显式 PKCE 登录、到期驱动 token 续约，以及四个固定
-  Responses-native Public Model 的受控数据面借用和有界 `401` 恢复；不导入本机 Codex 状态。
-- 默认禁用、由 bootstrap 独占配置的 OTLP/HTTP observability exporter；trace 导出闭环已完成，metrics、logs 和现有自有累计的缩减
-  仍须分别进入后续焦点。
+所有下游请求只能选择 Public Model。客户端不能提交上游 URL、Provider、Route、credential、认证 header 或 header
+转换规则；这些信息由可信 Rust 注册表固定决定。请求先经过所选 Public Model 的能力预检，再按已注册 Route 顺序执行
+Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游业务输出前的 fallback。
 
-所有目标必须分别进入独立的当前焦点并串行实施。Embeddings、ChatGPT OAuth2 登录/refresh/Responses 数据面和 OTLP trace 闭环已完成；
-当前没有活动开发焦点，Native 多模态、OTLP metrics 或 logs 均须另行获准。当前代码事实以
-[实施现状目录](docs/implementation-status/README.md)及其功能专题为准。Images、Files、专用 Audio、Videos 与 Realtime 只保留协议参考，
-不在现阶段实施范围。
+## 2. 当前可调用模型
 
-核心稳定后再考虑：
+下面是代码中注册的 Public Model。实际运行时只有拥有可用 credential pool、且至少存在一条可执行 Route 的模型才会出现在
+`/v1/models`；因此始终以运行中的 Models 接口为准。
 
-- Provider-hosted tool facade；
-- Anthropic Messages 协议兼容与异构 Provider 验证（与 Provider-hosted tool facade 同级）；
-- 本地/MCP Tool Bridge；
-- 更完整的 headless 健康与诊断控制面；
-- 更多路由策略。
+| Public Model | 可用接口 | 典型 credential pool | 说明 |
+|---|---|---|---|
+| `gpt-5.6-sol` | Chat、Responses | `openai-primary` | OpenAI Native-first，并保留已声明语义的 Bridge 候选 |
+| `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `chatgpt-gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `chatgpt-gpt-5.6-sol` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
+| `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
+| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | Chat 可来自 DeepSeek；Responses 使用 OpenRouter Native |
+| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo Native-first，并保留已声明语义的 Bridge 候选 |
+| `mimo-v2.5` | Chat、Responses | `mimo-primary` | Xiaomi MiMo Native-first，并保留已声明语义的 Bridge 候选 |
+| `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
 
-## 简明使用手册
+`text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
+代码中存在但未绑定到 Public Model 的 canonical profile 不代表可调用模型，例如 ChatGPT GPT-5.5 不会出现在 `/v1/models`。
 
-下面的流程适用于当前 checkout 的本地单所有者部署。OpenBridge 默认只监听 loopback，Provider、模型、Route 和 credential pool
-都由代码注册；运行时 TOML 只能绑定已注册的 pool，不能新增 Provider 或上游 URL。
+## 3. 前置条件与安全边界
 
-### 1. 构建并准备私有配置
+开始前需要：
 
-需要 Rust 2024 edition 工具链。先在仓库根目录执行：
+- Rust 2024 edition 工具链和 `cargo`；
+- 当前 Provider 可用的上游 API key，或 ChatGPT 的 OpenBridge-owned OAuth2 文件；
+- 一个用于下游客户端的本地 Bearer API key；
+- 从仓库根目录执行命令。
+
+凭证规则：
+
+- `config/users.toml` 和 `config/upstream-credentials.toml` 是私有文件，仓库只提供 `.example.toml` 模板；
+- 不要把真实 key、OAuth token、auth 文件或请求正文写入 README、fixture、日志或 Git；
+- OpenBridge 不从上游 API key 环境变量或 `.env` 读取凭证，也不会导入本机 Codex auth cache；
+- 用户、Provider、Model、Target 和 Route 不能由请求动态创建或选择；
+- 服务和探测工具都使用代码注册的固定 endpoint，业务请求不能改写上游地址；
+- 默认 listener 只能是 loopback 地址，bootstrap 不能直接暴露公网端口。
+
+## 4. 安装与快速启动
+
+### 4.1 构建二进制
+
+在仓库根目录执行：
 
 ```bash
 cargo build --locked
+```
+
+PowerShell 使用相同命令即可。`config/bootstrap.toml` 已随仓库提供，正常情况下不需要复制；它默认引用
+`config/users.toml` 和 `config/upstream-credentials.toml`。
+
+### 4.2 创建私有配置
+
+复制两个模板：
+
+```bash
 cp config/users.example.toml config/users.toml
 cp config/upstream-credentials.example.toml config/upstream-credentials.toml
 ```
 
-PowerShell 等价命令：
+PowerShell：
 
 ```powershell
-cargo build --locked
 Copy-Item config/users.example.toml config/users.toml
 Copy-Item config/upstream-credentials.example.toml config/upstream-credentials.toml
 ```
 
-然后编辑两个私有文件：
+然后编辑私有文件。不要把下面的 placeholder 当作可用凭证。
 
-- `config/users.toml`：为本地下游客户端设置至少 32 个随机字节的 Bearer API key；
-- `config/upstream-credentials.toml`：在对应的 `api_keys` 中填写 OpenAI、LongCat、OpenRouter、DeepSeek 或 MiMo key；
-- ChatGPT 使用 `chatgpt-codex` pool 的 `auth_json_file`，不要把 OAuth access token 直接写入 `api_keys`；
-- 省略某个 pool、没有 source，或使用空的 `api_keys = []`，都会使引用该 pool 的 target 在本次启动中禁用。
+`config/users.toml` 至少需要一个启用用户，用户 API key 长度至少为 32 字节：
 
-私有配置已被 Git 忽略，不要提交真实 key、token 或 auth 文件。默认使用 `config/bootstrap.toml`；如需指定其他 bootstrap，先设置
-`OPENBRIDGE_CONFIG`，例如：
+```toml
+schema_version = 1
 
-```powershell
-$env:OPENBRIDGE_CONFIG = "config/bootstrap.toml"
+[[users]]
+id = "local-user"
+name = "Local User"
+api_key = "replace-with-at-least-32-random-bytes"
+enabled = true
 ```
 
-OpenBridge 不从环境变量或 `.env` 读取上游 API key，也不会搜索或导入本机 Codex auth cache。
+`config/upstream-credentials.toml` 只填写要启用的已注册 pool。API-key pool 的基本形状如下：
 
-### 2. 配置并登录 ChatGPT（可选）
+```toml
+schema_version = 1
 
-如果启用 ChatGPT target，先确认 `upstream-credentials.toml` 中已配置 `chatgpt-codex.auth_json_file`，再运行固定的登录命令：
-
-```bash
-cargo run --locked --bin openbridge-auth -- login chatgpt
+[[credential_pools]]
+id = "openai-primary"
+api_keys = ["replace-with-openai-key"]
 ```
 
-按终端提示打开 verification URI 并输入一次性 device code。登录完成后，OpenBridge 会把完整 bundle 写入配置指定的
-OpenBridge-owned auth 文件；不要复制本机 Codex 的 auth 文件。该命令不接受自定义 issuer、endpoint、header 或 auth-file 参数。
+可用 pool ID 为：
 
-### 3. 启动服务并检查状态
+| Pool ID | Provider | 凭证类型 |
+|---|---|---|
+| `openai-primary` | OpenAI | API key |
+| `longcat-primary` | LongCat | API key |
+| `openrouter-primary` | OpenRouter | API key |
+| `deepseek-primary` | DeepSeek | API key |
+| `mimo-primary` | Xiaomi MiMo | API key |
+| `chatgpt-codex` | ChatGPT | OAuth2 auth file |
+
+多把 API key 可以按顺序放在同一个 `api_keys` 数组中。上游 `429` 等可重试情况可能触发同一 pool 内的
+credential rotation；这不等于账号级负载均衡。
+
+没有填写的 pool、没有 source 的 pool，或 `api_keys = []` 会使引用它的 Target 在本次启动中不可用，但不会从代码
+注册表删除 Provider 或 Model。source 类型与注册表不匹配、重复 binding、空白或重复 key 会直接阻止启动。
+
+### 4.3 启动服务
 
 ```bash
 cargo run --locked --bin openbridge
 ```
 
-默认地址为 `http://127.0.0.1:8080`。另一个终端执行健康检查：
+默认地址是 `http://127.0.0.1:8080`。启动成功后，另开一个终端检查：
 
 ```bash
 curl -i http://127.0.0.1:8080/healthz
 ```
 
-服务启动时一次性读取 bootstrap、用户和上游 credential 配置；修改这些文件后需要重启服务。按 `Ctrl+C` 可优雅停止服务。
+`/healthz` 只检查本地进程和编译注册表，不会请求任何真实 Provider。成功响应包含 `status: "ok"` 和当前
+`registry_version`。
 
-### 4. 查看模型并发送请求
+按 `Ctrl+C` 优雅停止服务。修改 bootstrap、用户文件或上游 credential TOML 后需要重启；这些 TOML 不提供通用热重载。
 
-下游请求必须携带 `users.toml` 中配置的本地 Bearer API key。标准模型列表和扩展模型信息分别为：
+### 4.4 最小调用
 
-```bash
-curl http://127.0.0.1:8080/v1/models \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-
-curl http://127.0.0.1:8080/openbridge/v1/models \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-```
-
-Chat Completions 示例：
+将 `replace-with-a-local-client-token` 替换为 `users.toml` 中启用用户的 `api_key`：
 
 ```bash
 curl http://127.0.0.1:8080/v1/chat/completions \
@@ -130,16 +162,193 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-ChatGPT Public Model 是 Responses-only，并使用 SSE：
+Windows PowerShell 中如果 `curl` 被映射为 `Invoke-WebRequest`，请使用 `curl.exe`，或改用 PowerShell 的 HTTP
+请求命令。
+
+## 5. Bootstrap 配置
+
+默认 bootstrap 文件是 `config/bootstrap.toml`。如需选择其他文件，只通过环境变量指定文件位置，不会借此新增
+Provider 或修改注册表：
+
+PowerShell：
+
+```powershell
+$env:OPENBRIDGE_CONFIG = "config/bootstrap.local.toml"
+cargo run --locked --bin openbridge
+```
+
+Bash：
+
+```bash
+export OPENBRIDGE_CONFIG=config/bootstrap.local.toml
+cargo run --locked --bin openbridge
+```
+
+示例文件见 [config/bootstrap.example.toml](config/bootstrap.example.toml)。当前字段和默认值如下：
+
+| 字段 | 默认值 | 作用 |
+|---|---:|---|
+| `schema_version` | `2` | bootstrap schema 版本 |
+| `listen` | `127.0.0.1:8080` | loopback listener，只接受 loopback 地址 |
+| `users_file` | `config/users.toml` | 下游用户文件 |
+| `upstream_credentials_file` | `config/upstream-credentials.toml` | 上游 credential binding 文件 |
+| `max_request_body_bytes` | `1048576` | 普通请求 body 上限，1 MiB |
+| `max_json_response_body_bytes` | `16777216` | JSON 成功体上限，16 MiB |
+| `max_replay_body_bytes` | `262144` | 可重放请求 body 上限，256 KiB |
+| `max_sse_event_bytes` | `262144` | 单个 SSE event 上限，256 KiB |
+| `upstream_connect_timeout_ms` | `5000` | 上游连接超时 |
+| `upstream_pool_idle_timeout_ms` | `90000` | 上游连接池 idle 超时 |
+| `upstream_pool_max_idle_per_host` | `16` | 每个 host 的最大 idle 连接数 |
+
+所有 limit 和 timeout 必须为非零值，`max_replay_body_bytes` 不能超过 `max_request_body_bytes`。监听地址不能改成
+`0.0.0.0` 或其他非 loopback 地址。
+
+### 启用 OTLP trace 导出
+
+默认不导出 trace。确认 collector 是配置所有者明确选择的可信目标后，在 bootstrap 中添加：
+
+```toml
+[telemetry.traces]
+otlp_http_endpoint = "http://127.0.0.1:4318"
+```
+
+该值必须是没有用户名、密码、path、query 和 fragment 的绝对 `http` base URL。OpenBridge 固定发送到
+`/v1/traces`，不接受请求级 exporter 覆盖或 bootstrap 中的自定义 exporter header。collector 不可用时只丢弃
+telemetry，不应让业务请求获得新的上游选择能力。
+
+当前没有 OTLP metrics、OTLP logs、Prometheus exporter、持久化 metrics 或分布式聚合。
+
+## 6. ChatGPT OAuth2（可选）
+
+ChatGPT Public Model 使用独立的 `chatgpt-codex` OAuth2 credential pool。首次使用前，在
+`config/upstream-credentials.toml` 中配置：
+
+```toml
+[[credential_pools]]
+id = "chatgpt-codex"
+auth_json_file = "replace-with-openbridge-chatgpt-auth.json"
+```
+
+相对路径按该 TOML 文件所在目录解析。然后执行唯一支持的管理员命令：
+
+```bash
+cargo run --locked --bin openbridge-auth -- login chatgpt
+```
+
+命令会显示固定 verification URI 和一次性 device code，完成 device authorization、PKCE exchange 后，把完整 bundle
+事务性写入配置指定的 OpenBridge-owned auth 文件。不要分享 device code，不要复制本机 Codex 的 auth 文件。
+
+该命令不接受 issuer、client、endpoint、header、auth-file 或其他 cache override。常驻服务只负责到期驱动的 refresh
+和一次有界的 `401` recovery；不提供运行时切换账户，也不会自动开始交互式登录。
+
+登录后重启服务，并使用下面四个固定 ChatGPT Public Model 之一：
+
+```text
+chatgpt-gpt-5.3-codex-spark
+chatgpt-gpt-5.6-luna
+chatgpt-gpt-5.6-terra
+chatgpt-gpt-5.6-sol
+```
+
+ChatGPT 上游固定使用 Responses SSE。下游可以使用 `/v1/responses` Native，或使用 `/v1/chat/completions` 进入受限
+Chat→Responses Bridge；两种路径都要求 `stream: true`。它不是本机 Codex credential、identity 或 executable probe。
+
+## 7. 下游 API 使用
+
+### 7.1 认证与公共资源
+
+除下表中的公共资源外，所有下游 API 都要求：
+
+```http
+Authorization: Bearer <users.toml 中启用用户的 api_key>
+```
+
+| 方法 | 路径 | 认证 | 用途 |
+|---|---|---|---|
+| `GET` | `/healthz` | 否 | 本地健康与 registry version |
+| `GET` | `/openapi.yaml` | 否 | 当前 OpenAPI 规范 |
+| `GET` | `/swagger-ui`、`/swagger-ui/` | 否 | 本地 Swagger UI 测试页 |
+| `GET` | `/v1/models`、`/v1/models/{model}` | 是 | 标准四字段 Models 对象 |
+| `GET` | `/openbridge/v1/models`、`/openbridge/v1/models/{model}` | 是 | 扩展能力和参数契约 |
+| `GET` | `/openbridge/v1/metrics` | 是 | 当前进程总快照 |
+| `GET` | `/openbridge/v1/metrics/providers` | 是 | Provider attempt 快照 |
+| `POST` | `/v1/chat/completions` | 是 | Chat Completions JSON/SSE |
+| `POST` | `/v1/responses` | 是 | Responses JSON/SSE |
+| `POST` | `/v1/embeddings` | 是 | Embeddings JSON |
+
+标准 Models 接口只返回客户端可用的 Public Model 身份，不返回 Provider、Target、Route、上游 model、endpoint、
+credential、health 或 pricing。需要确定可用参数时，先读取扩展 Models：
+
+```bash
+curl http://127.0.0.1:8080/v1/models \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/models \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/models/text-embedding-3-small \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+```
+
+### 7.2 Chat Completions
+
+非流式请求：
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Explain fallback in one sentence."}]}'
+```
+
+流式请求：
+
+```bash
+curl -N http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
+```
+
+ChatGPT Public Model 的 Chat 请求会进入受限 Chat→Responses Bridge：
+
+```bash
+curl -N http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"chatgpt-gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
+```
+
+`Content-Type` 必须是 `application/json`。工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool，也不提供
+本地或 MCP 工具控制面。Bridge 只转换当前明确声明为可表达的共同语义；不可表达的字段会在访问上游前拒绝。
+
+### 7.3 Responses
+
+非流式请求：
+
+```bash
+curl http://127.0.0.1:8080/v1/responses \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-sol","input":"Explain fallback in one sentence."}'
+```
+
+流式请求：
 
 ```bash
 curl -N http://127.0.0.1:8080/v1/responses \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"chatgpt-gpt-5.6-sol","input":"hello","stream":true}'
+  -d '{"model":"gpt-5.6-sol","input":"Say hello.","stream":true}'
 ```
 
-Embeddings 使用固定 Public Model 和公开参数：
+`store`、`previous_response_id`、`background` 等状态相关字段是否可用取决于所选 Public Model 的固定 interface；
+不要根据 OpenAPI 的通用 schema 推断每个模型都支持这些参数。当前 ChatGPT 四个 Public Model 的 Responses 路径固定为
+Native，Chat 路径固定为受限 Bridge；两种路径都要求 `stream: true`，并由 adapter 强制 `store: false`。
+
+### 7.4 Embeddings
+
+Embeddings 是独立的 JSON-only 链路，不支持 streaming、Bridge 或向量转换。先读取扩展 Models，再发送其公开参数：
 
 ```bash
 curl http://127.0.0.1:8080/v1/embeddings \
@@ -148,17 +357,52 @@ curl http://127.0.0.1:8080/v1/embeddings \
   -d '{"model":"text-embedding-3-small","input":["alpha","beta"],"encoding_format":"float"}'
 ```
 
-### 5. 直接探测上游 Models 端点
+当前可接受的 input 形状包括 string、string array、token array 和 token-array array；`encoding_format` 默认是
+`float`，默认维度为 1536。显式 `dimensions` 当前不公开，非法或超限的输入会在上游调用前拒绝。请求成功体会在下游
+提交前执行有界 JSON 校验。
 
-`openbridge-probe` 不经过本地网关，而是使用代码注册的固定 target、endpoint、adapter 和 credential pool 直接请求上游：
+### 7.5 响应、错误与重试边界
+
+认证失败通常返回 `401 invalid_api_key`；未知 Public Model 返回 `404`；能力或参数不支持通常返回 `400`；
+非 JSON 请求返回 `415`；上游不可用或超时通常归一为 `502` 或 `504`。响应会带 `X-Request-Id`，排障时请保留它。
+
+Transient upstream failure 只允许在首个下游业务输出提交前执行有限 retry/fallback。首个下游业务 body byte 写出后，
+不会切换上游、重试或拼接另一条响应；下游断开会取消当前上游请求、退避和后续 attempt。
+
+## 8. 运行时指标与 Swagger
+
+### 8.1 当前进程 metrics
+
+指标只保存在当前进程内，从服务启动后累计，重启后清空；没有历史、持久化、reset 或跨进程聚合。读取 metrics 本身
+不会创建新的业务观测，也不会改变快照：
 
 ```bash
-cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
-cargo run --locked --bin openbridge-probe -- --target longcat-2 --list-models
-cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list-models
+curl http://127.0.0.1:8080/openbridge/v1/metrics \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/metrics/providers \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
 ```
 
-当前已注册的模型 target 包括：
+快照只保留低基数的请求和 Provider attempt 维度，不包含请求正文、响应正文、Authorization、credential、用户或真实
+endpoint。完整字段口径见 [运行时指标与遥测](docs/implementation-status/telemetry-metrics.md)。
+
+### 8.2 Swagger UI 和 OpenAPI
+
+服务启动后可在浏览器打开：
+
+- [Swagger UI](http://127.0.0.1:8080/swagger-ui/)；
+- [OpenAPI YAML](http://127.0.0.1:8080/openapi.yaml)。
+
+Swagger UI 是本地接口测试页。点击 `Authorize`，填入下游 Bearer API key 后可以测试受保护的 Models、metrics、
+Chat、Responses 和 Embeddings。页面依赖固定版本的 jsDelivr 静态资源；规范本身由本地服务提供。
+
+## 9. 上游 Models 与能力探测
+
+`openbridge-probe` 不启动下游网关，不修改代码注册表，只对一个已注册且已启用的 Upstream Target 发起显式探测，并输出
+脱敏 JSON 报告。它读取当前 bootstrap 和上游 credential 配置，因此仍需要对应真实 credential。
+
+当前 target ID：
 
 ```text
 openai-main
@@ -175,15 +419,39 @@ chatgpt-gpt-5-6-terra
 chatgpt-gpt-5-6-sol
 ```
 
-ChatGPT Models probe 会从选定的 `auth_json_file` 借用 OAuth2 manager lease；其他 target 使用选定 API-key pool 的首个 member。
-`--all` 表示对**一个 target**运行所有已实现的 probe 类型，并不表示遍历所有模型。要探测所有模型列表，应逐个执行上面的
-`--list-models` 命令；ChatGPT 当前建议只使用 `--list-models`，其 Responses-native streaming 不是通用非流式 probe 的验证范围。
+探测某个上游 Models 端点：
 
-认证失败、限流、网络错误或无效响应会以保守的 `unknown` 记录；一次成功只证明当前账号、网络、上游状态和固定请求的观察结果。
+```bash
+cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
+cargo run --locked --bin openbridge-probe -- --target longcat-2 --list-models
+cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list-models
+```
 
-### 6. 开发者验证
+还可以选择 `--chat`、`--responses`、`--function-calling` 或 `--all`。如果没有选择器，默认就是该 target 的全部已实现
+probe；`--all` 只表示当前一个 target 的全部 probe，不会遍历所有 target。ChatGPT target 当前建议只执行
+`--list-models`，因为其固定 Responses-native streaming 不是通用非流式 capability probe 的验证范围。
 
-修改 Rust 代码后运行默认检查：
+探测成功只说明当前账号、网络、上游状态和固定请求在当时可用；认证失败、限流、网络错误或无效响应可能保守地记录为
+`unknown`，不能据此推断生产配额或长期稳定性。
+
+## 10. 常见问题
+
+| 现象 | 检查方式 |
+|---|---|
+| 服务在监听前退出 | 检查 bootstrap schema、文件路径、loopback listener、非零 limit，以及 `max_replay_body_bytes <= max_request_body_bytes` |
+| 请求返回 `401` | 检查 `Authorization: Bearer ...` 是否使用 `users.toml` 中启用用户的完整 key；用户 key 至少 32 字节 |
+| 模型不在 `/v1/models` | 检查对应 credential pool 是否存在有效 source；缺失/空 pool 会禁用其 Target；ChatGPT 还要先完成显式 login |
+| ChatGPT 返回需要重新认证 | 确认 `auth_json_file` 是 OpenBridge-owned 文件并重新运行 `openbridge-auth login chatgpt`；不要导入 Codex cache |
+| `openbridge-probe` 报 target disabled | 检查该 target 引用的 pool 是否有非空 API key 或有效 OAuth2 auth-file，并确认 target ID 拼写 |
+| 请求返回 `415` | 为 Chat、Responses、Embeddings 都设置 `Content-Type: application/json` |
+| 请求参数被拒绝 | 先读取 `/openbridge/v1/models`；能力是 Public Model 固定契约，不是所有模型共享的并集 |
+| `/healthz` 正常但业务失败 | 健康检查不访问 Provider；继续检查上游 credential、网络、Provider 状态和返回的 `X-Request-Id` |
+| metrics 重启后为空 | 这是预期行为；当前 metrics 只保存在单个进程内，不提供持久化历史 |
+| 端口被占用 | 在 bootstrap 中把 `listen` 改为其他 loopback 地址/端口后重启，不能改为公网监听 |
+
+## 11. 维护者验证
+
+只修改 Rust 源码时，默认检查为：
 
 ```bash
 cargo fmt -- --check
@@ -192,193 +460,7 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-只有修改 `testdata/` 或 `tools/corpus/` 时，才需要额外运行 Python corpus 基线。真实 Provider、SDK、负载和长期运行测试不属于默认
-验证范围，应单独记录执行环境和结果。
-
-## 当前可运行基线
-
-当前 checkout 已实现 OpenAI `gpt-5.6-sol`、LongCat 与 Xiaomi MiMo 的 Chat/Responses HTTP JSON/SSE 原生转发， OpenRouter 的
-`deepseek-v4-flash` Chat 与无状态 Responses Native 路由，以及 DeepSeek V4 的 Chat Native 路由， 并通过独立 Public Model
-`text-embedding-3-small` 把 Embeddings JSON 请求固定转发到专用 OpenAI target
-`openai-text-embedding-3-small`，其 upstream model 为 `text-embedding-3-small`。该 Embeddings 链路使用严格请求
-union、预提交有界成功体校验、单 Route 有限 retry 与 operation 级脱敏观测；显式 `dimensions` 暂不公开，默认维度为 1536。
-ChatGPT OAuth2 数据面另外公开 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.6-luna`、
-`chatgpt-gpt-5.6-terra` 与 `chatgpt-gpt-5.6-sol` 四个 Responses-only Public Model，固定转发到 ChatGPT Codex backend。
-同时实现有序 Route、固定且不参与 Route 选择的 Public Model capability gate、标准/扩展 Models 接口、输出前
-retry/fallback、HTTP 429 credential rotation、单进程 member/fault cooldown、SSE framing 校验和下游断开时的上游 stream
-取消传播。显式 `Bridged` Route 还可在两协议间转换 已声明可转换的 text、明文 reasoning channel、function tool、tool
-result、非流式 JSON 与流式 SSE；Bridge 对未知字段、未确认的 reasoning 输出、opaque continuation、hosted/custom
-tool、image、structured output 和后台状态会在 egress 前拒绝。Native Route 则按选定 Provider/Upstream API
-保留固定公共契约已接受的原生语义和同协议合法字段；单条 Native Route 的额外能力不会 扩大 Public Model。当前编译注册项仍优先使用各
-Provider 自身的 Native API，尚未注册真实异构协议 Provider。 每个已认证请求在 response body 正常 EOF、流错误或
-下游取消时结束一次观测，并提供脱敏 tracing 事件与进程内低基数累计值。
-
-仓库内的 [`config/bootstrap.toml`](config/bootstrap.toml) 只配置监听、资源限制和可选的 OTLP/HTTP trace 导出；Model 位于 [`src/models`](src/models)
-，Provider adapter、Provider instance 与 Upstream Target/Upstream API 位于 [`src/providers`](src/providers)，Route 与 Public Model
-由顶层代码注册表显式组合。每个运行配置都有不含真实凭证的 `.example` 模板：
-
-| 运行配置                           | 模板                                       |
-|------------------------------------|--------------------------------------------|
-| `config/bootstrap.toml`            | `config/bootstrap.example.toml`            |
-| `config/users.toml`                | `config/users.example.toml`                |
-| `config/upstream-credentials.toml` | `config/upstream-credentials.example.toml` |
-
-```bash
-cp config/users.example.toml config/users.toml
-cp config/upstream-credentials.example.toml config/upstream-credentials.toml
-# 编辑两份私有 TOML；填写用户/API key，并为已启用的 ChatGPT Public Models 配置 auth_json_file。
-# 不使用某个已注册 Provider 时，可省略其 credential_pools 项，或将 API-key pool 的 api_keys 设为空数组；Provider 代码仍会保留。
-# 首次启动服务前先运行下方 openbridge-auth login chatgpt。
-cargo run --bin openbridge --locked
-```
-
-Trace export 默认完全禁用。确认配置所有者选择的 collector 已可用后，才在 bootstrap 中显式启用：
-
-```toml
-[telemetry.traces]
-otlp_http_endpoint = "http://127.0.0.1:4318"
-```
-
-该字段接受带有效 host、无 URL credential、无自定义 path/query/fragment 的绝对 HTTP base；host 可以是 loopback、非 loopback IP
-或 DNS 名称。OpenBridge 固定发送到 `/v1/traces`，不接受 exporter header 或请求级覆盖。
-
-`config/users.toml` 与 `config/upstream-credentials.toml` 已被 Git 忽略；仓库只提交不含真实凭证的示例文件。 服务与
-`openbridge-probe` 不从进程环境变量或 `.env` 读取上游 API key。用户、API Key、OAuth2 locator、Provider、Model 和 Route 只在启动时
-加载；OpenBridge-owned OAuth2 bundle 进入独立 lifecycle manager，并按 access expiry 在文件锁内 guarded reload、refresh 和原子写回。
-TOML、用户与 API-key Store 不热重载。请求观测不保存业务正文或 credential；request/user/credential/endpoint URL 不进入指标 key；Provider attempt 遥测
-与 trace 只使用已校验的 Provider family、route、target、typed upstream operation 和 Public Model 身份作为低基数维度。
-
-配置 ChatGPT `auth_json_file` 后，先显式登录并创建完整 bundle：
-
-```bash
-cargo run --locked --bin openbridge-auth -- login chatgpt
-```
-
-该命令显示固定 verification URI 和一次性 device code，完成 authorization-code + PKCE exchange 后才事务性写入完整 bundle；它不接受
-issuer、client、endpoint、header、auth-file 或其他应用 cache override。常驻服务只做 expiry-driven 自动 refresh 和一次有界
-`401` recovery，不会隐式启动交互式登录。
-
-当前不提供运行时换账户。需要换账户时，先停止服务，手动删除 private upstream 配置所指向的 OpenBridge-owned `auth_json_file`（以及同一
-登录流程明确创建的其他 OpenBridge-owned 授权文件，如有），再运行上述显式登录命令并重新启动服务；不要导入或删除本机 Codex auth cache。
-
-默认监听 `127.0.0.1:8080`。健康检查：
-
-```bash
-curl -i http://127.0.0.1:8080/healthz
-```
-
-当前运行指标（仅内存快照，需有效下游 Bearer token）：
-
-```bash
-curl http://127.0.0.1:8080/openbridge/v1/metrics \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-
-curl http://127.0.0.1:8080/openbridge/v1/metrics/providers \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-```
-
-两个读取请求只做认证和快照序列化，不计入快照自身，因此连续抓取不会稀释请求错误率分母。
-
-本地接口测试页与机器可读规范：
-
-```text
-Swagger UI:  http://127.0.0.1:8080/swagger-ui/
-OpenAPI:    http://127.0.0.1:8080/openapi.yaml
-```
-
-Swagger UI 是用于本地接口验证的静态页面；点击 `Authorize` 填入下游 Bearer API key 后，即可在页面内测试受保护的标准/扩展
-Models、当前运行指标、`/v1/chat/completions`、`/v1/responses` 和 `/v1/embeddings`。页面依赖固定版本的 jsDelivr Swagger UI 静态资源，
-OpenAPI 规范由本地服务提供。
-
-原生请求示例：
-
-```bash
-curl http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Authorization: Bearer replace-with-a-local-client-token' \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}'
-```
-
-Embeddings 客户端应先读取扩展 Models 中的固定接口，再只发送该接口公开的参数：
-
-```bash
-curl http://127.0.0.1:8080/openbridge/v1/models/text-embedding-3-small \
-  -H 'Authorization: Bearer replace-with-a-local-client-token'
-
-curl http://127.0.0.1:8080/v1/embeddings \
-  -H 'Authorization: Bearer replace-with-a-local-client-token' \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"text-embedding-3-small","input":["alpha","beta"],"encoding_format":"float"}'
-```
-
-请求先按所选 Public Model 的唯一接口契约完成一次能力预检；通过后保持全部配置 Route 的原顺序。代码目录允许 一个 generation
-Public Model 显式列出多个 Provider route source；对每个 generation 下游协议，先按 Provider 声明顺序生成全部 Native
-候选，再按相同顺序生成 Bridge 候选。相同 canonical Model ID 不会触发自动发现或隐式聚合。当前 checked-in generation Public
-Model 的 source 列表中，`deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 Provider；其余已接入模型目前各自只有一个
-source。Native Route 规划保留 canonical 请求；Provider adapter 在准备选定 Upstream API 的 egress 请求时写入实际上游
-`model`， 并可对 canonical Model 已声明的 reasoning level 应用显式 wire 映射（例如 `xhigh → max`），其余 JSON 与上游
-JSON/SSE body 原生转发。 没有映射的已支持 level 保持原值，未知下游 level 继续在 egress 前拒绝；后续 Route 的额外能力不能扩大
-Public Model 契约或导致跳过前序 Route。
-`Bridged` Route 则先生成受限 `BridgePlan`，只转换显式 allowlist 内的共同语义并渲染目标协议 wire。 聚合 Responses Route
-只有在全部候选支持 continuation 且唯一 Upstream Target/API 可确定时才公开
-`previous_response_id`；多个潜在签发者没有 issuer ledger，必须在任何上游调用前拒绝，不能盲投首选 Provider。Provider definition 可声明
-固定的非敏感 `User-Agent`/普通 header，受信 request-header hook 也可按编译期规则增添、替换、转换或删除普通 header；请求组装顺序为
-hook、固定 header、purpose-bound authentication。OpenAI 与 LongCat 转发 `User-Agent`，OpenRouter 不转发可选 attribution/routing
-header；ChatGPT 使用固定 Codex CLI `0.146.0` headless Linux x86_64 兼容 UA、`originator` 与 SSE `Accept`，四个 target
-各自只提供一个 Responses Native Route。其 adapter 要求 `stream: true`，把标准字符串 `input` 收窄为等价消息数组、固定
-`store: false`，并在 egress 前拒绝当前 private backend 不接受的输出 token limit 字段。共享层不维护
-普通 header allowlist，客户端不能指定上游 URL、credential、认证 header、固定 header 或转换规则。Transient upstream failure 在提交下游
-response 前使用请求级硬预算与 capped exponential backoff；候选局部重试耗尽后只沿同一 Public Model 已配置的完整 Route fallback，下游断开会
-取消当前 send、退避和后续 attempt。
-
-OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`，使用 `openrouter-primary` credential pool，把 Public Model
-`deepseek-v4-flash` 原生转发到基础模型 `deepseek/deepseek-v4-flash`。该注册项支持 Chat Completions 和无状态 Responses；
-`store: true`、非空 `previous_response_id` 与 `background: true` 会在 egress 前拒绝。 它不启用 Protocol Bridge、fallback
-或带额外会话记录政策的 `:free` 变体。
-
-DeepSeek 当前注册 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool 和固定
-`https://api.deepseek.com` endpoint。两个 DeepSeek target 都只注册 Chat Native API；`deepseek-v4-pro` 对下游仅公开 Chat，
-`deepseek-v4-flash` 通过显式 OpenRouter source 增加无状态 Responses Native。Chat 的 reasoning 输出能力明确配置为
-`PlainText`（对应 `reasoning_content`），不把它伪装成 DeepSeek 原生 Responses 能力。LongCat 当前 Chat/Responses 均配置为
-`Unknown` reasoning 输出；现有协议、文本和工具测试没有证明 可读 reasoning，因此只有 Native 路径可保留这类上游语义，Bridge
-不会猜测转换。Xiaomi MiMo 当前注册
-`mimo-v2.5-pro` 与 `mimo-v2.5`，使用
-`mimo-primary` pool 和固定 `https://api.xiaomimimo.com` endpoint；两个模型都提供 Chat/Responses Native-first Route 及同
-target 的反向 Bridge 候选。MiMo 两个协议的 reasoning 输出能力均为 `Unknown`，尚未增加可读 reasoning wire 映射；两个 Native
-API 声明支持 image input、structured output 和 `parallel_tool_calls`，但仍关闭 `store`、`background` 与
-`previous_response_id`。image 与 structured output 只是 Native API 事实；反向 Bridge 不支持时，它们不会进入 Public Model
-的固定接口契约。`parallel_tool_calls` 只有在全部对应 Route 都支持时才对下游公开。
-
-下游用户和 API Key 来自私有 `users.toml`；私有 `upstream-credentials.toml` 的每个编译期 binding 可以配置有序
-`api_keys`、单一 `auth_json_file`，或不提供 source。代码注册表只保存非敏感的 pool id、Provider 和 credential kind，不保存 secret locator。
-服务在监听前把已激活 Target 引用的上下游 Key 合并为不可变 `CredentialStore`，并把显式配置的 ChatGPT OAuth2 bundle 装入独立的
-`OAuth2CredentialManager`。未知、重复 binding、source/kind 错配、空白/重复 key 或损坏/不完整的非空 OAuth2 bundle 都会阻止启动；
-缺失 pool、source-less pool 或空 API-key 数组只会禁用引用它的 Target，不移除 Provider；不存在或为空的 auth 文件会保持待登录状态且不发布 credential snapshot，完整但已过期的 bundle 会保留并在 worker 启动后立即 refresh。进程环境变量和 `.env` 不再是上游 key 来源；运行时不重新读取两份
-TOML，但 OAuth manager 会在每次到期 refresh 前锁定并 reload 自有 auth 文件，成功 rotation 后原子写回并发布新 generation。
-ChatGPT 请求只借用短生命周期的当前 generation；首个预提交 `401` 在同一账户边界内先 guarded reload、必要时 refresh 后只重放一次，
-第二个 `401` 转为 `reauth_required`，不会轮换账户或 fallback 到其他 Provider。
-
-认证成功后的 `downstream_request` span 只记录 request id、operation、Public Model、streaming、低基数终态、直接观测 timing、
-attempt 计数和明确 usage；每次实际上游 attempt 建立一个 `provider_attempt` child span，记录编译期 route、target、Provider family、
-typed upstream operation、route mode、脱敏结果、timing 和明确 usage。两类 span 都不包含 user、raw path/query、credential、正文、
-真实 endpoint 或原始错误正文。原有终态 tracing event 与进程内累计值继续
-保留低基数请求终态、attempt 结果和 token 总量，并按 Provider attempt 记录性能、usage 与 cache 快照，可通过
-`GatewayMetrics::snapshot`、`GatewayMetrics::provider_snapshots` 以及受 Bearer 保护的
-`/openbridge/v1/metrics`、`/openbridge/v1/metrics/providers` 读取；详细口径见
-[`遥测指标`](docs/implementation-status/telemetry-metrics.md)。可选 OTLP/HTTP trace exporter 使用有界 batch/timeout/shutdown，并在
-collector 失败时只丢弃 telemetry；OTLP metrics、OTLP logs、Prometheus exporter、持久化和分布式聚合仍不属于当前实现。
-
-## 验证基线
-
-默认验证：
-
-```bash
-cargo fmt -- --check
-cargo test --locked
-cargo clippy --locked -- -D warnings
-```
-
-修改 `testdata/` 或 `tools/corpus/` 时，同时运行独立 Python corpus/testkit 基线：
+修改 `testdata/` 或 `tools/corpus/` 时，再运行：
 
 ```bash
 uv lock --check --project tools/corpus
@@ -386,87 +468,25 @@ uv run --project tools/corpus pytest tools/corpus/tests
 uv run --project tools/corpus corpus --root testdata lint
 ```
 
-`tests/sdk_compatibility.rs` 使用运行时安装的当前 OpenAI Python 与 Node SDK 消费两个端点的 stream/non-stream、单/并行
-function-tool 往返、流式 arguments 和 fixture 429 error：
+确定性 Rust test、fixture replay 和 loopback/SDK 检查不能替代真实 Provider、外部网络、目标 Agent、负载或长期运行
+验收。执行这些扩展验收时，应记录实际环境、依赖版本和凭证边界。文档维护通常只需要内容/链接检查与
+`git diff --check`，不要求完整运行时测试。
 
-```bash
-cargo test --locked --test sdk_compatibility -- --ignored
-```
+## 12. 进一步阅读
 
-不安装第三方 Python 包的 Embeddings discovery→request loopback：
-
-```bash
-cargo test --locked --test embedding_client_contract -- --ignored
-```
-
-这些 fixture 是确定性 wire regression。日常客户端可见行为优先使用 OpenAI SDK、独立 Python 脚本或 curl；只有当前行为明确以某个
-Agent 为兼容目标时，才使用 Codex、Hermes 等客户端 runtime。SDK/工具不作长期版本固化，每次运行记录实际解析版本、安装来源、平台和无密钥配置。Windows
-上可用 `OPENBRIDGE_NPM`/`OPENBRIDGE_NODE` 覆盖工具路径；也可用 `OPENBRIDGE_PNPM` 作为 Node SDK 的临时安装器。
-
-独立的协议 corpus 维护说明见 [`testdata/`](testdata/README.md)，Mock Server/Client、单 case observation 判定、CLI 和
-observation 说明见 [`tools/corpus/`](tools/corpus/README.md)。测试工具使用 `uv + Python` 维护，不读取 OpenBridge
-配置，也不持有真实上游 credential。
-
-## 推荐阅读顺序
-
-| 文档                                                                                                       | 内容                                                               | 分类       |
-|------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|------------|
-| [文档总索引](docs/README.md)                                                                               | 四类功能文档的统一入口                                             | 项目级入口 |
-| [功能需求](docs/functional-requirements/README.md)                                                         | 产品范围、网关 API、配置凭证、路由韧性与交付证据                   | 功能需求   |
-| [实施现状](docs/implementation-status/README.md)                                                           | 当前代码已证明行为、能力探测与验证记录                             | 实施现状   |
-| [实施计划](docs/implementation-plans/README.md)                                                            | 唯一的短周期当前开发焦点                                           | 实施计划   |
-| [参考文档](docs/references/README.md)                                                                      | OpenAI/OpenRouter 协议和参考项目事实                               | 参考文档   |
-| [产品范围](docs/functional-requirements/product-scope.md)                                                  | 单配置所有者部署、下游用户、边界与非目标                           | 功能需求   |
-| [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md)                         | 下游 endpoint、原生 JSON/SSE、tool、continuation 与 Codex 扩展边界 | 功能需求   |
-| [Embeddings 与 Native 多模态扩展](docs/functional-requirements/embedding-and-native-multimodal.md)         | 现阶段两个扩展目标的 wire、能力、资源与失败边界                    | 功能需求   |
-| [Public Model 与模型能力契约](docs/functional-requirements/model-information-and-capability-contract.md)   | 模型信息、固定能力预检、Models API 与禁止能力路由边界              | 功能需求   |
-| [Bootstrap、代码注册表、凭证与受信运行边界](docs/functional-requirements/configuration-and-credentials.md) | bootstrap、显式 Provider 注册、secret 与网络信任边界               | 功能需求   |
-| [路由与 Provider 韧性](docs/functional-requirements/provider-resilience.md)                                | 固定 Route 顺序、状态亲和、限流、冷却、重试与错误传播              | 功能需求   |
-| [实施现状目录](docs/implementation-status/README.md)                                                        | 按功能点组织的当前实现事实、证据和未验证边界                       | 实施现状   |
-| [当前实现总览](docs/implementation-status/current-implementation.md)                                       | 功能专题导航、证据层级和未完成范围                                 | 实施现状   |
-| [遥测指标](docs/implementation-status/telemetry-metrics.md)                                                | Provider attempt 性能、usage、cache 指标口径和读取边界             | 实施现状   |
-| [当前代码架构](docs/implementation-status/current-architecture.md)                                         | 按层次描述当前源码模块、请求路径、依赖和结构限制                   | 实施现状   |
-| [当前开发焦点](docs/implementation-plans/current-focus.md)                                                 | 一个短周期行为的测试先行记录                                       | 实施计划   |
-| [参考项目调研总览](docs/references/project-comparison.md)                                                  | Codex、Hermes、LiteLLM、cc-switch、CLIProxyAPI 等项目的证据范围    | 参考文档   |
-
-文档分类与维护规则见 [`docs/README.md`](docs/README.md)。
-
-## 当前非目标
-
-- 多租户、团队成员、principal/ACL、面向下游用户/key 的配额、计费、合规审计和独立控制面；
-- subscription/OAuth 多账号池、账号级负载均衡或动态 credential 控制面；
-- OpenAI 全部资源 API、Realtime、Files、Conversations 或管理 API；
-- 首版 Responses WebSocket transport；Codex 基线使用独立 custom Provider，并显式配置 `supports_websockets = false`；
-- 将 Chat ↔ Responses 承诺为无损；不可表达的能力必须拒绝或显式标记；
-- 让业务请求动态提供任意上游 URL、认证 header、credential、header 转换规则或转换脚本；
-- 让 OpenBridge 执行 Agent 返回的通用 function tool；Protocol Bridge 只转换 wire-level tool call/result。
-- GUI、Web 控制台、客户端注册/配置管理或面向用户的管理服务。
-
-## 关键术语
-
-- **Provider Family**：代码中实现的一类协议和认证行为，例如 `openai`、`openai-compatible`、`anthropic`。
-- **Provider Instance**：Provider Family 的一个受信部署，唯一拥有一个 BaseURL；不同 URL 或区域注册为不同实例。
-- **Credential Pool**：同一 Provider/credential kind 下可被多个 Target 共享的有序 API-key 集合。
-- **Upstream Target**：引用一个 Provider Instance，并绑定 credential pool、Model、timeout 与故障边界的上游调用目标。
-- **Upstream API**：Upstream Target 中由 `OperationKind` 唯一标识的原生供应，拥有 upstream model、限制、能力证据和 state affinity。
-- **Public Model**：客户端使用的稳定模型身份、每协议唯一固定能力契约及私有有序 Route ID，例如 `gpt-5.6-sol`。
-- **RoutePlan**：请求通过 Public Model 预检后固定的 Upstream Target/typed upstream operation、协议模式、credential pool binding、转换约束与
-  fallback 边界；实际 member 由 attempt 选择。
-- **Native path**：下游与上游协议一致时的最小改写转发路径，不经过通用 IR。
-- **Protocol Bridge**：仅在协议不一致时使用的受限语义转换路径。
-- **Tool Bridge**：把本地或 MCP 工具补充给 Agent；与 Protocol Bridge 不同。
-- **Hosted Tool Facade**：将 Provider 原生托管工具规范化为独立工具接口；与普通 function tool 不等价。
-
-## 证据和更新原则
-
-- 官方 API、Codex 与 Hermes 当前行为优先以官方文档、源码和记录实际运行环境的 fixture 为准。
-- 外部项目源码调研必须记录 repository、commit、文件范围、观察事实、推论和适用边界。
-- 原型实验必须同时记录“证明什么”和“不证明什么”，避免代码存在本身形成架构结论。
-- LiteLLM、cc-switch、CLIProxyAPI 等项目用于比较和寻找反例，不等同于 OpenBridge 的依赖或实现承诺。
-- 每次目标客户端、SDK、Provider API 或规范升级后，应重新运行对应 corpus 和 Agent tool-loop fixture。
+- [文档总索引](docs/README.md)：功能需求、实施现状、实施计划和参考文档的分类入口；
+- [产品范围](docs/functional-requirements/product-scope.md)：单配置所有者部署、支持边界和非目标；
+- [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md)：下游 endpoint、JSON/SSE、tool 和 state 边界；
+- [配置与凭证边界](docs/functional-requirements/configuration-and-credentials.md)：bootstrap、代码注册表和 secret trust boundary；
+- [当前实现总览](docs/implementation-status/current-implementation.md)：已完成行为、横向能力和证据层级；
+- [Provider 与模型注册表](docs/implementation-status/features/provider-registry-and-model-catalog.md)：Public Model、Target 和 active pool 行为；
+- [ChatGPT OAuth2](docs/implementation-status/features/chatgpt-oauth-startup.md)：登录、refresh、Responses 数据面和固定 Models probe；
+- [能力探测](docs/implementation-status/capability-probing.md)：probe 输入、输出与不证明的范围；
+- [config/bootstrap.example.toml](config/bootstrap.example.toml)、[config/users.example.toml](config/users.example.toml)、
+  [config/upstream-credentials.example.toml](config/upstream-credentials.example.toml)：无真实凭证的配置模板；
+- [docs/openapi.yaml](docs/openapi.yaml)：当前服务实际提供的机器可读接口规范。
 
 ## 开源协议
 
-OpenBridge 的原创源代码与随仓库提供的文档采用 [MIT License](LICENSE)。参考项目（包括 Codex）仅用于协议、
-行为和实现边界的独立调研；本仓库不包含其派生代码。该声明不授予任何第三方材料的使用权：后续若引入外部
-代码、测试或资源，必须在引入时保留其原有许可证、版权声明和适用的通知文件。
+原创源代码与仓库文档采用 [MIT License](LICENSE)。参考项目只用于协议、行为和实现边界调研；后续引入外部代码、
+测试或资源时，必须同时保留其许可证、版权声明和适用通知。
