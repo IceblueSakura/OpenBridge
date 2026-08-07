@@ -54,7 +54,8 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 - OpenAI 标准身份：`id`、`object`、`created`、`owned_by`；
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
 - 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
-- 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，并可带协议内 source-aware `multimodal_input`；
+- 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，并可带协议内 source-aware `multimodal_input`；固定
+  音频生成任务还可带 mode-aware `multimodal_output.audio`；
   `embeddings` 至多一个独立 Embedding 接口能力对象；
 - schema 版本：首版固定为字符串 `"1"`。Embeddings interface 首次加入前该扩展契约尚未发布，因此直接修正 v1 DTO、序列化、OpenAPI
   和测试，不增加无意义的 v2、legacy 字段镜像或双写兼容层。
@@ -86,19 +87,22 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | 布尔能力                                                                            | 全部 Route 明确支持才是 `supported`；任一明确不支持则为 `unsupported`；证据不足保持 `unknown`                         |
 | token 上限                                                                          | 全部 Route 都有已知值时取最小值；任一未知则为 `null`                                                                  |
 | 模态、参数、reasoning level                                                         | 取集合交集并稳定排序                                                                                                  |
-| image/file/audio source、inline encoding、format、detail allowed、可验证 media type | 按目标协议分别取集合交集；detail default 必须一致，任一必需集合为空则对应媒体子契约不可公开                           |
+| image/file/audio source、inline encoding、format、detail allowed、可验证 media type | 按目标协议分别取集合交集；detail default 必须一致，任一必需集合为空则对应媒体输入子契约不可公开                       |
+| audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
 | reasoning 输出形态                                                                  | 全部 Route 形态相同时公开该值，否则为 `unknown`                                                                       |
-| `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 贡献空集，不能借 Native Route 的额外能力扩大契约 |
+| `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
 
 Embedding 接口不使用生成协议的 token-output、tool、reasoning 或 stream 字段。它应独立保守相交 input forms、默认/可显式请求的
 output encoding、默认维度、可请求 dimension domain 和输入/批量限制；encoding 与 dimensions 都不得压缩成布尔值。公开
 `max_inputs` 还必须被 gateway batch/response budget 收窄，不能接受一个必然产生本地超限成功体的请求。不同 vector identity
 未被显式证明等价时，不得编译进同一可 fallback 契约。Embedding Route 只允许 Native，不从 Chat/Responses Bridge 派生。
 
-Chat/Responses 的 `modalities.input` 只是摘要。具体 image/file/audio 请求还必须匹配 `multimodal_input` 中的协议
-part、source、inline encoding、format/detail/media type 与 limits；嵌套 content part 字段不加入顶层 `supported_parameters`
-。详细闭合集合与 wire 映射见[扩展需求](embedding-and-native-multimodal.md)。
+Chat/Responses 的 `modalities.input`/`modalities.output` 只是摘要。具体 image/file/audio 请求还必须匹配 `multimodal_input` 中的协议
+part、source、inline encoding、format/detail/media type 与 limits；音频生成还必须匹配 `multimodal_output.audio` 的 JSON/SSE mode、
+format、voice、framing 与累计预算。嵌套 content part 字段不加入顶层 `supported_parameters`；task-specific `asr_options`/`audio` 只在
+对应 interface 顶层公开。共同编译规则见[扩展导航](embedding-and-native-multimodal.md)，闭合集合分别由
+[图片](native-image.md)、[文件](native-file.md)和[音频](native-audio.md)功能页拥有。
 
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
 `previous_response_id` 除了要求全部 Responses Route 明确支持，还要求这些 Route 唯一解析到同一个 Upstream
@@ -180,7 +184,7 @@ registry 必须在监听前拒绝：
 | MODEL-07 | Chat、Responses 与 Embeddings 能力相互隔离，不能用一个接口的能力扩大另一个接口。                                                                                       |
 | MODEL-08 | 未知模型和 retired 模型统一返回安全 `model_not_found`；能力不足返回 `unsupported_model_capability`。                                                                   |
 | MODEL-09 | registry 在启动时拒绝非法身份、生命周期、上下文、模态、引用和能力扩大。                                                                                                |
-| MODEL-10 | Embeddings dimension domain 与 Chat/Responses source-aware 多模态能力由 Models projection 和 preflight 共享，不能由 bool、Native passthrough 或请求期 Route 过滤扩大。 |
+| MODEL-10 | Embeddings dimension domain、Chat/Responses source-aware 输入与 mode-aware 音频输出由 Models projection 和 preflight 共享，不能由 bool、Native passthrough 或请求期 Route 过滤扩大。 |
 
 确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
 LiteLLM/OpenRouter 目录新鲜度。
@@ -199,7 +203,11 @@ LiteLLM/OpenRouter 目录新鲜度。
 
 - [产品范围](product-scope.md)
 - [网关 API 与客户端兼容](gateway-api-compatibility.md)
-- [Embeddings 与 Native 多模态扩展](embedding-and-native-multimodal.md)
+- [扩展能力导航及共同规则](embedding-and-native-multimodal.md)
+- [Embeddings 能力](embeddings.md)
+- [Native 图片能力](native-image.md)
+- [Native 文件能力](native-file.md)
+- [Native 音频能力](native-audio.md)
 - [待定 Model 目录与 Provider 接入配置](model-catalog-configuration.md)
 - [配置、凭证与受信边界](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)

@@ -34,6 +34,7 @@
 
 ## 相关文档
 
-- [功能需求：Embeddings 与 Native 多模态扩展](../../functional-requirements/embedding-and-native-multimodal.md)
+- [功能需求：Embeddings 能力](../../functional-requirements/embeddings.md)
+- [扩展共同规则](../../functional-requirements/embedding-and-native-multimodal.md)
 - [Models 接口与能力预检](models-api-and-capability-preflight.md)
 - [运行时指标与遥测](../telemetry-metrics.md)

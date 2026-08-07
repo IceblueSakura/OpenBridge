@@ -13,7 +13,7 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 初期的兼容目标按优先级为：
 
 1. OpenAI SDK 的 Chat Completions 与 Responses HTTP JSON/SSE；
-2. OpenAI-compatible Embeddings，以及 Chat/Responses 同协议 Native 多模态输入；
+2. OpenAI-compatible Embeddings、Chat/Responses 同协议 Native 多模态输入，以及固定 Public Model 的 Chat Native ASR/TTS；
 3. 独立 Python 脚本或 curl 的最小 HTTP/header/SSE 复现；
 4. 只有在明确声明时，才验证 Codex、Hermes 等具体客户端的 profile、transport 与 tool-loop 行为。
 
@@ -26,8 +26,8 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 | `GET /healthz`                                                   | 提供不访问上游凭证的最小本地存活信息；不得泄露 route、Upstream Target 或 secret。                                     | Provider 健康探测、控制面或客户端管理。                                                      |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 按[模型能力契约](model-information-and-capability-contract.md)返回严格的 OpenAI 标准四字段 list/retrieve。            | 扩展能力、上游模型或部署信息。                                                               |
 | `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 返回同一 Public Model 目录的模型事实和 Chat/Responses/Embeddings 固定能力契约。                                       | Provider/target/route、credential、健康、价格或动态发现。                                    |
-| `POST /v1/chat/completions`                                      | 支持已声明能力范围内的 Chat JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。      | 多模态 Bridge、audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。               |
-| `POST /v1/responses`                                             | 支持已声明能力范围内的 Responses JSON/SSE，并按[扩展需求](embedding-and-native-multimodal.md)提供 Native 多模态输入。 | 多模态 Bridge、Responses WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
+| `POST /v1/chat/completions`                                      | 支持已声明能力范围内的 Chat JSON/SSE，并按[图片](native-image.md)、[文件](native-file.md)和[音频](native-audio.md)需求提供 Native 媒体能力。 | 多模态 Bridge、未声明模型的 audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。 |
+| `POST /v1/responses`                                             | 支持已声明能力范围内的 Responses JSON/SSE，并按[图片](native-image.md)和[文件](native-file.md)需求提供 Native 媒体输入。 | 多模态 Bridge、Responses audio/WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 | `POST /v1/embeddings`                                            | 支持独立 Embedding Public Model 的 OpenAI-compatible JSON 请求/响应。                                                 | streaming、向量转换/存储/检索，或无等价证明的跨模型 fallback。                               |
 
 业务 endpoint 必须使用用户表分配的静态 Bearer API Key。用户表只在启动时读取，不提供在线 key issuance、scope、即时撤销、配额或
@@ -201,7 +201,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。                                                                      |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
 | API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |
-| API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
+| API-12 | Embeddings、图片、文件与音频分别满足[扩展共同规则](embedding-and-native-multimodal.md)及其功能页的 wire、能力、资源归属、限制和证据边界。                                             |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |

@@ -294,5 +294,5 @@ Provider 证据。
 - [产品范围](product-scope.md)
 - [Public Model 与模型能力契约](model-information-and-capability-contract.md)
 - [配置、凭证与受信运行边界](configuration-and-credentials.md)
-- [Embeddings 与 Native 多模态扩展](embedding-and-native-multimodal.md)
+- [扩展能力导航及共同规则](embedding-and-native-multimodal.md)
 - [当前实现总览](../implementation-status/current-implementation.md)

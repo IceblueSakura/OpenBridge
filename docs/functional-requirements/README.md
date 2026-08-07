@@ -6,7 +6,11 @@
 |-----------------------------|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------|
 | 产品范围                    | 服务为谁解决什么问题，哪些能力不做                                          | [产品范围](product-scope.md)                                                |
 | 网关 API、兼容与观测        | 客户端可调用什么、JSON/SSE/tool/continuation 如何表现、运行观测如何安全导出 | [网关 API 与客户端兼容](gateway-api-compatibility.md)                       |
-| Embeddings 与 Native 多模态 | 现阶段两个扩展目标的输入、能力、资源与失败边界                              | [Embeddings 与 Native 多模态扩展](embedding-and-native-multimodal.md)       |
+| 扩展能力共同规则            | Embeddings 与 Native 媒体如何分层、保守编译、预检、保真和记录证据          | [扩展导航及共同规则](embedding-and-native-multimodal.md)                   |
+| Embeddings                  | 向量输入、编码、维度、响应预算与 vector identity                            | [Embeddings 能力](embeddings.md)                                           |
+| Native 图片                 | Chat/Responses 图片 source、media type、detail、limit 与 URL policy         | [图片能力](native-image.md)                                                |
+| Native 文件                 | Chat/Responses 文件 source、encoding、filename、detail 与 resource identity | [文件能力](native-file.md)                                                 |
+| Native 音频                 | Chat audio input、MiMo ASR/TTS、audio output、stream 与响应预算             | [音频能力](native-audio.md)                                                |
 | 模型与能力契约              | Public Model 如何公开、聚合能力、预检请求且不参与 Route 选择                | [Public Model 与模型能力契约](model-information-and-capability-contract.md) |
 | 配置与凭证                  | 配置文件、private secret、API-key pool、header、网络和 reload 如何受信管理  | [配置、凭证与受信运行边界](configuration-and-credentials.md)                |
 | ChatGPT subscription OAuth  | 独立 Provider、owned credential、PKCE、refresh 与数据面安全边界             | [ChatGPT subscription OAuth](upstream-oauth-credential-lifecycle.md)         |

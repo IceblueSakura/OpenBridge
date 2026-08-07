@@ -36,8 +36,9 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
 2. [产品范围](functional-requirements/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
-3. [Embeddings 与 Native 多模态扩展](functional-requirements/embedding-and-native-multimodal.md)：确认现阶段只新增
-   1/2，其他媒体/资源协议仍是参考。
+3. [扩展导航及共同规则](functional-requirements/embedding-and-native-multimodal.md)：先确认共同的能力分层和 Native/Bridge 边界，再按
+   [Embeddings](functional-requirements/embeddings.md)、[图片](functional-requirements/native-image.md)、
+   [文件](functional-requirements/native-file.md)或[音频](functional-requirements/native-audio.md)进入具体功能。
 4. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)
    ：确认模型信息、固定能力预检和禁止能力路由边界。
 5. [实施现状目录](implementation-status/README.md)：按功能点阅读已经完成的实现事实和验证边界。
@@ -216,7 +217,7 @@ Codex credential、identity 或 executable probe；
 | credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
 | 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
-| 实现 Embeddings 或 Native 多模态            | [扩展需求](functional-requirements/embedding-and-native-multimodal.md) → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
+| 实现 Embeddings、图片、文件或音频            | [扩展共同规则](functional-requirements/embedding-and-native-multimodal.md) → 对应功能需求 → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：

@@ -58,7 +58,9 @@ project A research
 ### DeepSeek 与 Xiaomi MiMo
 
 - [DeepSeek 协议入口快照](providers/deepseek-protocol-2026-08-02.md)
-- [Xiaomi MiMo 协议入口快照](providers/xiaomi-mimo-protocol-2026-08-02.md)
+- [Xiaomi MiMo 协议入口与文本生成快照](providers/xiaomi-mimo-protocol-2026-08-02.md)
+- [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi-mimo-image-protocol-2026-08-07.md)
+- [Xiaomi MiMo ASR/TTS 协议与真实观察](providers/xiaomi-mimo-audio-protocol-2026-08-08.md)
 - [DeepSeek/MiMo 综合对照](providers/deepseek-mimo-protocols-2026-08-02.md)
 
 ## 4. 参考项目
