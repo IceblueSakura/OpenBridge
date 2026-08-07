@@ -105,11 +105,15 @@ reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只�
 
 ### 5.2 无状态核心与有状态 Native pass-through
 
-OpenBridge 以无状态 Responses 作为核心兼容面：客户端必须在每次请求中携带所需完整历史，`store` 应省略或 为 `false`，
-`previous_response_id` 应省略或为 `null`。该路径可以在完整能力约束下使用 Native Route、有限 retry/fallback，以及仅转换显式共同语义的
-Bridge。
+OpenBridge 的核心实现重点是无状态服务；无状态请求是默认使用方式、主要客户端兼容面和当前验收基线。客户端必须在每次请求中
+携带所需完整历史，`store` 应省略或为 `false`，`previous_response_id` 应省略或为 `null`，`background` 应省略或为 `false`。
+该路径可以在完整能力约束下使用 Native Route、有限 retry/fallback，以及仅转换显式共同语义的 Bridge。
 
-有状态 Responses 只作为能力受限的 Native pass-through：
+`previous_response_id`、`background` 与 `store: true` 是次要目标。当前实现只有能力 gate、状态亲和与唯一签发者校验等基础约束，
+尚未形成完整的 response state storage、retrieve/cancel、conversation lifecycle 或 continuation ledger；它们不能作为通用会话、
+后台任务或跨 Provider 状态迁移能力使用。正常接入、示例和验收不得以这些字段为前提。
+
+有状态 Responses 当前只作为能力受限的 Native pass-through：
 
 - `store: true` 只能进入明确声明该能力的 Native Responses Upstream API；不得通过 Bridge 实现或静默改写为
   `false`；
@@ -196,7 +200,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，支持时保持配置 Route 顺序，不按请求能力筛选或重排候选。                                                        |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。                                                                      |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
-| API-11 | 无状态 Responses 是核心兼容面；`store: true` 与非空 `previous_response_id` 只在 issuing Native Target 可唯一确定且能力已声明时透传，不进入 Bridge、跨 Target fallback 或状态迁移。 |
+| API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings 与 Native 多模态满足[扩展需求](embedding-and-native-multimodal.md)的 wire、能力、资源归属、限制和证据边界。                                                             |
 | API-13 | 有效下游 Bearer 用户可无副作用地读取当前进程内的进程级指标和 Provider attempt 指标；token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 `gateway_ttft_ms`，不得据此伪造 `upstream_ttft_ms`、生成时长或输出速度；响应不含请求正文、响应正文、Authorization、credential 或用户维度，且不承诺持久化或历史数据。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |

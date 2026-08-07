@@ -20,6 +20,17 @@ Provider、上游 Target、Route 和 Public Model 组合成一个固定的下游
 - 可选的 OTLP/HTTP trace 导出；
 - 管理员显式执行的上游 Models 和能力探测。
 
+### 使用优先级：无状态服务优先
+
+OpenBridge 的核心实现重点是无状态服务，也是默认使用方式和当前验收基线。客户端应在每次请求中携带所需的完整历史，
+优先省略 `store`、`previous_response_id` 和 `background`，或分别使用 `store: false`、`previous_response_id: null`
+以及 `background: false`。
+
+`previous_response_id`、`background` 和 `store: true` 属于次要目标，当前支持不完整，不能作为通用会话、后台任务或响应资源
+服务使用。当前实现没有完整的 response state storage、retrieve/cancel、conversation lifecycle 或 continuation ledger；涉及
+状态的请求还必须受所选 Public Model、唯一 issuing Target/API 和 Native-only 边界约束。正常接入、客户端示例和验收都应优先
+采用无状态请求。
+
 所有下游请求只能选择 Public Model。客户端不能提交上游 URL、Provider、Route、credential、认证 header 或 header
 转换规则；这些信息由可信 Rust 注册表固定决定。请求先经过所选 Public Model 的能力预检，再按已注册 Route 顺序执行
 Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游业务输出前的 fallback。
@@ -342,9 +353,11 @@ curl -N http://127.0.0.1:8080/v1/responses \
   -d '{"model":"gpt-5.6-sol","input":"Say hello.","stream":true}'
 ```
 
-`store`、`previous_response_id`、`background` 等状态相关字段是否可用取决于所选 Public Model 的固定 interface；
-不要根据 OpenAPI 的通用 schema 推断每个模型都支持这些参数。当前 ChatGPT 四个 Public Model 的 Responses 路径固定为
-Native，Chat 路径固定为受限 Bridge；两种路径都要求 `stream: true`，并由 adapter 强制 `store: false`。
+无状态请求是推荐路径：每次携带完整历史，并省略 `store`、`previous_response_id` 与 `background`。这些状态相关字段是否
+可用取决于所选 Public Model 的固定 interface；不要根据 OpenAPI 的通用 schema 推断每个模型都支持它们。当前
+`store: true`、非空 `previous_response_id` 和 `background: true` 不是通用可用能力，状态支持也不是当前默认验收范围。
+当前 ChatGPT 四个 Public Model 的 Responses 路径固定为 Native，Chat 路径固定为受限 Bridge；两种路径都要求
+`stream: true`，并由 adapter 强制 `store: false`。
 
 ### 7.4 Embeddings
 

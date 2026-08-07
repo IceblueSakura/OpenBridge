@@ -16,6 +16,9 @@
 - 预检通过后仍按注册表的 Route 资格和顺序规划，不会因单条 Route 的额外能力跳过前序 Route、扩大公共契约或自动更换模型。
 - Responses `previous_response_id` 只在所有可执行 Responses candidate 绑定同一且唯一的 issuing Target/API 时公开；潜在签发者不唯一时，
   在上游调用前拒绝，避免把 opaque continuation 盲投到错误 Provider。
+- 当前实现把 `previous_response_id`、`background` 与 `store: true` 作为受限状态能力的安全 gate，而不是完整的有状态服务；
+  当前 Public Model 注册不提供通用 response storage、retrieve/cancel、conversation lifecycle 或 continuation ledger。它们是次要目标，
+  当前支持不完整，默认客户端和验证仍应使用每次携带完整历史的无状态请求。
 
 ## 实现边界
 

@@ -18,8 +18,11 @@ Route。
 当前核心结果：
 
 - 下游通过 Public Model 调用 `POST /v1/responses`、`POST /v1/chat/completions` 或独立的 `POST /v1/embeddings`；
-- Responses 以客户端携带完整历史、`store` 省略或为 `false`、`previous_response_id` 省略或为 `null` 的 无状态调用作为核心兼容面；
-- 有状态 Responses 只作为能力受限的 Native pass-through：签发 Upstream Target/Upstream API 必须可唯一 确定，不参与 Bridge
+- Responses 以客户端携带完整历史、`store` 省略或为 `false`、`previous_response_id` 省略或为 `null`、`background` 省略或为
+  `false` 的无状态调用作为核心兼容面、默认使用方式和当前验收基线；
+- `previous_response_id`、`background` 与 `store: true` 是次要目标，当前支持不完整，不构成通用会话、后台任务或 response
+  resource 服务；正常客户端接入不得依赖这些字段；
+- 有状态 Responses 只作为能力受限的 Native pass-through：签发 Upstream Target/Upstream API 必须可唯一确定，不参与 Bridge
   或跨 Target fallback，OpenBridge 不保存、迁移或恢复上游 response 状态；
 - 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
