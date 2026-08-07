@@ -27,8 +27,8 @@
 
 - [`tests/embedding_definition_contract.rs`](../../../tests/embedding_definition_contract.rs) 覆盖 Embeddings capability 和编译约束。
 - [`tests/embedding_registry_contract.rs`](../../../tests/embedding_registry_contract.rs) 覆盖 Public Model、唯一 candidate 和公开接口。
-- [`tests/embedding_forwarding_contract.rs`](../../../tests/embedding_forwarding_contract.rs) 覆盖受信 egress、成功体边界、retry、cancel 和脱敏。
-- [`tests/embedding_client_contract.rs`](../../../tests/embedding_client_contract.rs) 覆盖客户端可见 JSON contract。
+- [`tests/embedding_forwarding_contract.rs`](../../../tests/embedding_forwarding_contract.rs) 覆盖受信 egress、客户端可见 JSON
+  response、成功体边界、retry、cancel 和脱敏。
 
 这些测试证明本地 JSON/HTTP contract 和 fake upstream 行为，不证明真实 OpenAI embedding 数值、模型配额或生产网络可用性。
 

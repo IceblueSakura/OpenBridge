@@ -46,7 +46,7 @@
 - 同日以独立 Python 客户端经过临时本地 OpenBridge 实例复测：PNG data URL 与官方示例 remote URL 在 Chat/Responses 四个请求中
   都返回 HTTP 200、正确 object/model 和非空图片语义；内存红蓝图的两条结果均识别出红、蓝两色。
 - 最终 checkout 基线通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-  `git diff --check`；全量 Rust 测试没有失败，两个需要独立 Python/Node 客户端或真实 loopback listener 的兼容测试保持 ignored。
+  `git diff --check`；全量 Rust 测试没有失败。
 
 确定性测试不证明真实 Provider；当次真实成功也只证明当次账号、网络、`mimo-v2.5` 和固定 PNG 请求。当前未运行 OpenAI SDK
 compatibility、目标 Agent、负载、长期运行或其他媒体测试。

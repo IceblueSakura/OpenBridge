@@ -29,6 +29,7 @@
 - [当前代码架构](current-architecture.md)：描述模块所有权、请求数据流和代码边界。
 - [运行时指标与遥测](telemetry-metrics.md)：描述 OTLP traces/metrics、SDK instruments、属性和生命周期边界。
 - [上游模型发现与能力探测](capability-probing.md)：描述显式 target probe 的输入、输出和安全边界。
+- [当前测试资产树](test-inventory.md)：按功能模块归类全部 Rust/Python 可执行测试，并单列 canonical oracle。
 - [协议测试语料与工具](protocol-test-corpus.md)：描述 canonical corpus、Python testkit 和 Rust replay 的验证边界。
 
 ## 证据边界

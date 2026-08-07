@@ -84,7 +84,7 @@ git diff --check
 - required core feature 与 required generation kind 均无缺口；
 - pack 生成 ZIP 和 `.sha256` sidecar；
 - 两次 `0.6.0` pack 的 SHA-256 均为 `a0058dfe927398ee078ce31015bbe0aa2ca1c94518fd555fb5d8805e19d0474a`；
-- Rust 回归：`cargo fmt`、91 个默认测试和 Clippy 零告警通过，1 个需要下载外部 SDK 的测试保持 ignored；
+- Rust 回归：`cargo fmt`、91 个默认测试和 Clippy 零告警通过；
 - `git diff --check` 通过；
 - `generated/`、`reports/`、`dist/`、`runtime/`、`.venv/` 和 Python caches 均被 Git 忽略。
 
@@ -98,8 +98,9 @@ cargo clippy --locked -- -D warnings
 git diff --check
 ```
 
-观察结果：focused process replay 为 8 passed；Rust baseline 为 283 个默认测试通过、2 个外部客户端测试保持 ignored；
-format、Clippy 和 diff whitespace 检查通过。本次没有修改 `testdata/` 或 `tools/corpus/`，因此未重复运行 Python baseline。
+观察结果：focused process replay 为 8 passed；Rust baseline 为 283 个默认测试通过，当前没有 ignored test target；format、
+Clippy 和 diff whitespace 检查通过。本次测试精简删除了独立 Python Embeddings client 和运行时下载 OpenAI Python/Node SDK
+的 opt-in loopback 资产；没有修改 `testdata/` 或 `tools/corpus/`，因此未重复运行 Python baseline。
 
 ## 这证明什么
 

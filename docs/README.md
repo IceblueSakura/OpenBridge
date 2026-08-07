@@ -198,7 +198,6 @@ Codex credential、identity 或 executable probe；
 | `tests/native_routing_contract.rs`                                | 请求事实、Public Model 固定能力预检、Route 顺序和 state affinity        | HTTP/SSE 实际发送                                    |
 | `tests/forwarding_contract.rs`                                    | Ingress 到 transport 的 JSON/SSE、fallback、timeout、取消和 header 行为 | 外部 SDK 或真实 Provider 兼容                        |
 | `tests/provider*_contract.rs`                                     | Provider 请求、认证、能力和错误边界                                     | 全部 Provider 私有扩展                               |
-| `tests/sdk_compatibility.rs`                                      | 当前 OpenAI Python/Node SDK 的 loopback 兼容路径                        | 默认测试不会执行；需要显式 ignored run               |
 | [`testdata/`](../testdata/README.md)                              | canonical Chat/Responses/SSE/tool/error corpus                          | 任一 case 已经过 OpenBridge runtime                  |
 | [`tools/corpus/`](../tools/corpus/README.md)                      | Python corpus 管理、Mock Client/Server 与单 case observation 判定       | 自动启动 SUT、多 attempt runner、真实 Agent/Provider |
 

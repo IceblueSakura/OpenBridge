@@ -70,13 +70,13 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 
 - `cargo fmt -- --check`：通过；
 - 变更 Rust 文件的 `rustfmt --edition 2024 --check`：通过；
-- `cargo test --locked`：通过；两个需要独立 Python loopback/下载 OpenAI SDK 的测试保持 ignored；
+- `cargo test --locked`：通过；
 - `cargo clippy --locked -- -D warnings`：通过；
 - `git diff --check -- README.md config/upstream-credentials.example.toml docs src tests`：通过；仓库级 `git diff --check` 只报告本轮未修改的
   `.gitignore:30` 末尾新增空行。
 
-本轮新增 capability 与 Bridge 的验证是确定性 Rust 证据；真实登录/refresh authority、真实 ChatGPT 工具/structured-output 调用、ignored
-SDK compatibility、多模态、负载和长稳测试未执行。本轮没有修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus 基线。
+本轮新增 capability 与 Bridge 的验证是确定性 Rust 证据；真实登录/refresh authority、真实 ChatGPT 工具/structured-output 调用、
+外部 SDK compatibility、多模态、负载和长稳测试未执行。本轮没有修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus 基线。
 
 ## 相关文档
 

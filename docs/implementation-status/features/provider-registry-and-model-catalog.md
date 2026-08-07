@@ -48,7 +48,7 @@
 2026-08-07 Provider 池与模型命名分层变更的确定性验证：
 
 - `cargo fmt --all -- --check`：通过；
-- `cargo test --locked`：通过；两个需要独立 Python loopback/下载 OpenAI SDK 的兼容性测试保持 ignored；
+- `cargo test --locked`：通过；
 - `cargo clippy --locked -- -D warnings`：通过；
 - `git diff --check`：通过。
 

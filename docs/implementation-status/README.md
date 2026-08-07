@@ -34,6 +34,7 @@
 | [当前代码架构](current-architecture.md) | 模块所有权、装配链和请求数据流；不是功能清单 |
 | [运行时指标与遥测](telemetry-metrics.md) | OTLP traces/metrics、SDK instruments、属性和生命周期边界 |
 | [上游模型发现与能力探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
+| [当前测试资产树](test-inventory.md) | 以功能模块归类全部 Rust/Python 可执行测试，并单列 canonical oracle |
 | [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
 
 ## 证据和维护规则

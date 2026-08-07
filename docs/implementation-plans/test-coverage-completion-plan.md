@@ -7,7 +7,7 @@
 [当前开发焦点](current-focus.md)，完成测试与最小实现后再更新实施现状并清空当前焦点。
 
 阶段 3 已完成首轮缺口确认：原先 19 个未直接引用的 canonical case 中，14 个已接入 production replay，剩余 5 个已记录
-既有测试 owner 与不机械回放的理由。下列 P1/P2 条目仍是后续候选，不属于本轮已实现事实。
+既有测试 owner 与不机械回放的理由。下列 P1 条目仍是后续候选，不属于本轮已实现事实。
 
 本计划只补强现有产品行为的确定性证据，不改变产品范围、Provider 能力声明、Protocol Bridge 语义或
 默认验收层。当前实现事实仍以[当前实现总览](../implementation-status/current-implementation.md)和
@@ -22,12 +22,11 @@
 |------------------------|---------:|---------------------------------------------------------------------------|
 | Rust 源码内单元测试    |       55 | 局部算法、状态、边界类型和安全不变量                                      |
 | Rust 默认集成测试      |      228 | registry、routing、Provider、HTTP/SSE、retry/fallback、取消和 Bridge      |
-| Rust ignored 客户端测试 |        2 | 独立 Embeddings Python client 与 OpenAI Python/Node SDK opt-in loopback    |
 | Python testkit 测试    |       36 | corpus、SSE parser、Mock Server/Client、observation verifier、生成与打包  |
 | Canonical corpus       | 45 cases | Chat/Responses、Bridge、HTTP error、SSE terminal、transport 与取消 oracle |
 | 默认 SSE wire variants |      306 | Python 所有的确定性 byte fragmentation 覆盖                               |
 
-Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一阶段删除了 7 个只锁定私有模块位置、指针身份、普通容器操作或
+Rust 共收集到 283 个默认测试，不再保留 ignored 外部客户端测试。第一阶段删除了 7 个只锁定私有模块位置、指针身份、普通容器操作或
 重复已存在强契约的测试，并把混合的 reasoning-output 测试收窄到唯一未重复的 MiMo Native 行为。静态 case-id 引用扫描显示，
 45 个 canonical case 中有 40 个被 Rust 测试源码直接引用，5 个未被直接引用。这个数字只表示 fixture 与 Rust 测试的直接连接，
 不等于 5 个行为完全没有 synthetic contract test，也不构成行覆盖率或分支覆盖率结论。
@@ -52,7 +51,6 @@ Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一�
 | Route、retry/fallback、cooldown、取消、Bridge 和 observability             | Rust tests             | 不在 Python 中复制 OpenBridge 策略                   |
 | Canonical schema、provenance、secret scan、生成、打包和 byte fragmentation | Python tests           | 不隐式启动 OpenBridge 或调用真实 Provider            |
 | Canonical wire 对生产 Router 的回放                                        | Rust integration tests | 只读复用 fixture；逐项扩展现有 process replay helper |
-| 当前外部 SDK 解析行为                                                      | ignored SDK tests      | 显式运行并记录实际版本和安装来源                     |
 | 真实 Provider 差异                                                         | 独立 acceptance        | 不进入默认确定性测试，也不替代 fixture regression    |
 
 不要为了提高数字在 Rust 中复制 306 个 Python fragmentation variants，也不要在 Python testkit 中实现 Route、 retry、fallback
@@ -68,7 +66,6 @@ Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一�
 | P1     | Provider wire profile               | Provider contract 数量较多，但每个 Provider 的 path、terminal、header 和 error 覆盖不对称 | 每个已编译 Provider 都有与声明能力匹配的表驱动契约                                          |
 | P1     | credential/cooldown 并发            | 现有覆盖以顺序场景为主                                                                    | 并发请求下 cursor、cooldown、generation、attempt budget 和取消仍保持确定性不变量            |
 | P1     | observability 终态矩阵              | 已有成功、失败、EOF、取消测试，但协议和多 attempt 场景不完全对称                          | 每个已支持终态只记录一次，计数正确，诊断不含正文和 credential                               |
-| P2     | SDK 测试可诊断性                    | 一个 ignored 测试同时执行 Python、Node、Chat、Responses 和 tool 场景                      | SDK、协议和行为失败可独立定位，仍保持 opt-in                                                |
 
 ## 6. 候选短周期行为
 
@@ -108,14 +105,7 @@ Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一�
 - 扩展方式：每完成一种新 runtime replay，就在同一行为改动中补齐对应 observability 断言；不单独制造重复 transport mock。
 - 不做：不引入 exporter、持久化、高基数 label 或业务正文采集。
 
-### TC-08：拆分 ignored SDK 兼容测试
-
-- 可观察行为：Python 与 Node SDK 的 Chat、Responses、stream、tool loop 和 429 失败可独立报告实际失败点。
-- 第一条测试调整：先按 Python/Node 拆分两个 ignored Rust test；若单个脚本仍难定位，再按协议拆分脚本入口。
-- 验证边界：显式执行 `cargo test --locked --test sdk_compatibility -- --ignored`，记录 SDK、运行时、平台和 安装来源。
-- 不做：不把网络依赖加入默认 baseline，不长期固定外部 SDK 版本。
-
-### TC-09：Native response 使用 Public Model 身份
+### TC-08：Native response 使用 Public Model 身份
 
 - 可观察行为：Native Chat/Responses 的 JSON 与 SSE response 中，协议定义的 `model` 字段使用下游 Public Model；其他未知合法
   字段、framing、event 顺序和 payload 仍保持透明。
@@ -136,15 +126,15 @@ Rust 共收集到 283 个默认测试和 2 个 ignored 客户端测试。第一�
 
 | Case | 当前 owner | 暂不直接回放的原因 |
 |------|------------|--------------------|
-| `chat_native.text.non_stream` | `forwarding_contract/native.rs` 的 Chat/Responses Native forwarding contract | canonical expected response 会把 upstream model 投影为 Public Model；当前 Native 实现与状态记录为 byte-transparent，需先完成 TC-09 行为决策 |
-| `responses_native.text.non_stream` | 同一 Native forwarding contract | 同上；它是 TC-09 建立失败 production replay 的首选 case |
+| `chat_native.text.non_stream` | `forwarding_contract/native.rs` 的 Chat/Responses Native forwarding contract | canonical expected response 会把 upstream model 投影为 Public Model；当前 Native 实现与状态记录为 byte-transparent，需先完成 TC-08 行为决策 |
+| `responses_native.text.non_stream` | 同一 Native forwarding contract | 同上；它是 TC-08 建立失败 production replay 的首选 case |
 | `chat_native.sse_framing` | `sse_contract.rs` 的 incremental framing contract 与 Native forwarding contract | decoder/framing 已有 synthetic owner，但 canonical expected stream 同样包含未实现的 Public Model response projection |
 | `responses_native.sse_framing` | 同一 SSE 与 Native forwarding owner | 同上；不能在 lifecycle test 中顺带固定 response identity |
 | `responses_native.transport_error.before_output` | `forwarding_contract/resilience.rs` 的 before-output retry/fallback contracts 与 Provider error classifier | case 名称/features 写 transport error，但 transport oracle 实际声明 HTTP 503 `error_response`；直接当 socket transport replay 会混淆两种失败类别 |
 
 ## 8. 执行与收敛规则
 
-1. 先以 TC-09 解决 response identity 证据差异，再继续 TC-04；也可由明确缺陷替换为风险更高的单个行为。未进入
+1. 先以 TC-08 解决 response identity 证据差异，再继续 TC-04；也可由明确缺陷替换为风险更高的单个行为。未进入
    `current-focus.md` 的条目保持候选状态。
 2. 先写或确认失败测试。若新增测试立即通过，只把它作为现有行为的回归证据，不虚构实现变更。
 3. 先复用 canonical artifact 和现有 test support；只有第二个真实使用点出现后才抽取通用 helper。
@@ -176,14 +166,6 @@ uv run --project tools/corpus pytest tools/corpus/tests
 uv run --project tools/corpus corpus --root testdata lint
 ```
 
-### 修改 SDK compatibility
-
-默认 baseline 之外显式运行：
-
-```powershell
-cargo test --locked --test sdk_compatibility -- --ignored
-```
-
 真实 Provider、外部 SDK、负载、并发压力和长期运行结果必须与 deterministic test 分开报告。未执行的验收层不得 写成已验证。
 
 ## 10. 计划完成判据
@@ -195,7 +177,6 @@ cargo test --locked --test sdk_compatibility -- --ignored
 - 每个已编译 Provider 都有与其声明能力相符的 request、header、terminal 和 error profile 契约；
 - credential/cooldown 的共享状态至少有一组无 sleep 的确定性并发覆盖；
 - 新增 runtime replay 同步覆盖 observability 的唯一终态与脱敏不变量；
-- SDK 测试失败可以按运行时和协议定位，同时仍保持 opt-in；
 - 实施现状只记录实际运行过的验证，不保留本计划中的候选或未完成表述。
 
 ## 11. 非目标

@@ -122,7 +122,6 @@ events。Provider/request 本地 completion event 仍用于本机诊断，但不
 
 2026-08-07，本轮实际运行的配置、Ingress、转发、Observability、OTLP metrics 与 OTLP traces 聚焦测试均通过；
 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。
-全量测试保留两个原有 ignored 外部验收：独立 Python Embeddings client 与需要下载 Python/Node SDK 的兼容性测试。
 
 - `tests/config_contract.rs` 验证 traces/metrics collector base 的允许与拒绝 URL shape，以及未知 exporter 配置拒绝。
 - `tests/otlp_metrics_contract.rs` 通过真实 loopback collector 解码 OTLP protobuf，验证固定 `/v1/metrics`、resource/scope、
