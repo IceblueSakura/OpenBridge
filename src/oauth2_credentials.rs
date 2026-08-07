@@ -5,10 +5,11 @@
 //! locator accessor through this facade.
 
 mod document;
+mod error;
 pub mod login;
 mod manager;
-mod refresh;
 mod storage;
+mod transport;
 
 pub use login::{ChatGptDevicePrompt, OAuth2LoginError, OAuth2LoginOutcome, login_chatgpt};
 pub use manager::{
