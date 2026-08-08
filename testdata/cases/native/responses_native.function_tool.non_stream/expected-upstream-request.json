@@ -1,0 +1,38 @@
+{
+  "input": "Get the weather in Shanghai in Celsius.",
+  "model": "upstream-model",
+  "parallel_tool_calls": false,
+  "stream": false,
+  "tool_choice": {
+    "name": "get_weather",
+    "type": "function"
+  },
+  "tools": [
+    {
+      "description": "Get current weather for a location.",
+      "name": "get_weather",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "celsius",
+              "fahrenheit"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "location",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "strict": true,
+      "type": "function"
+    }
+  ]
+}

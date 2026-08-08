@@ -1,0 +1,17 @@
+{
+  "created_at": 0,
+  "id": "resp_native_tool",
+  "model": "upstream-model",
+  "object": "response",
+  "output": [
+    {
+      "arguments": "{\"location\":\"Shanghai\",\"unit\":\"celsius\"}",
+      "call_id": "call_native_responses_weather",
+      "id": "fc_native_responses_weather",
+      "name": "get_weather",
+      "status": "completed",
+      "type": "function_call"
+    }
+  ],
+  "status": "completed"
+}

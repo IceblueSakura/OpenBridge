@@ -1,0 +1,60 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_stream": "expected-client-stream.sse",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_stream": "upstream-stream.sse"
+  },
+  "category": "protocol",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不规定实际工具执行的并发调度或完成顺序。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "两个 Chat tool_call index 的 arguments 独立累积",
+      "strict schemas、required tool_choice 与 parallel_tool_calls 保持原协议结构",
+      "finish_reason tool_calls 后恰好一个 DONE terminal"
+    ],
+    "outcome": "completed",
+    "terminal": "chat_done",
+    "terminal_count": 1,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "parallel_tools",
+    "fragmented_arguments",
+    "stream",
+    "terminal",
+    "tool_choice",
+    "strict_schema",
+    "identity",
+    "utf8"
+  ],
+  "id": "chat_native.parallel_tools.stream",
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "提供 Native Chat 并行 function arguments 分片与 terminal 的流式 wire oracle。"
+  ],
+  "recipes": [
+    "recipes/sse-byte-fragmentation.json"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": true,
+  "title": "Native Chat parallel tools stream",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "text/event-stream",
+    "client_end": "terminal",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "text/event-stream",
+    "upstream_end": "terminal",
+    "upstream_http_status": 200
+  }
+}

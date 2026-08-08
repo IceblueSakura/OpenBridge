@@ -1,0 +1,96 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "固定 substring oracle 不等价于开放式事实性或自然语言质量评测。"
+  ],
+  "features": [
+    "tool_result_grounding",
+    "final_response_facts",
+    "strict_schema"
+  ],
+  "id": "function.result_grounding",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": [
+        {
+          "arguments": {
+            "sku": "SKU-42"
+          },
+          "arguments_match": "exact",
+          "name": "lookup_inventory"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "12",
+        "east"
+      ],
+      "contains_none": [
+        "out of stock"
+      ],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": [
+        {
+          "output": {
+            "quantity": 12,
+            "warehouse": "east"
+          },
+          "output_match": "exact",
+          "required_call_index": 0
+        }
+      ]
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义 call_id 关联的结构化工具结果与最终回答固定事实 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "auto"
+      }
+    },
+    "prompt": "How many units of SKU-42 are available, and in which warehouse?",
+    "tools": [
+      {
+        "description": "Look up inventory for one SKU.",
+        "name": "lookup_inventory",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "sku": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sku"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Ground final response in a tool result"
+}

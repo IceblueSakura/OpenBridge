@@ -1,0 +1,79 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不定义业务层在禁用工具时必须采用的完整回答策略。"
+  ],
+  "features": [
+    "tool_choice_none",
+    "no_tool",
+    "final_response_facts"
+  ],
+  "id": "function.tool_choice_none",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_weather"
+      ],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "cannot",
+        "live weather"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义 tool_choice none 时即使任务适合工具也不得产生 function call。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "none"
+      }
+    },
+    "prompt": "Check the live weather in Shanghai.",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Disable tool calling"
+}

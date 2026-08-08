@@ -44,8 +44,26 @@
       "type": "array",
       "uniqueItems": true
     },
+    "required_semantic_features": {
+      "items": {
+        "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
     "schema_version": {
       "const": "0.1"
+    },
+    "semantic_case_ids": {
+      "items": {
+        "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
     },
     "title": {
       "minLength": 1,
@@ -59,7 +77,9 @@
     "default_generation_seed",
     "required_core_features",
     "required_generation_kinds",
-    "case_ids"
+    "required_semantic_features",
+    "case_ids",
+    "semantic_case_ids"
   ],
   "type": "object"
 }

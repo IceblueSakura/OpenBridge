@@ -1,0 +1,45 @@
+{
+  "input": "Get weather and local time for Shanghai.",
+  "model": "upstream-model",
+  "parallel_tool_calls": true,
+  "stream": true,
+  "tool_choice": "required",
+  "tools": [
+    {
+      "description": "Get current weather for a location.",
+      "name": "get_weather",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
+        ],
+        "type": "object"
+      },
+      "strict": true,
+      "type": "function"
+    },
+    {
+      "description": "Get local time for an IANA time zone.",
+      "name": "get_time",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone"
+        ],
+        "type": "object"
+      },
+      "strict": true,
+      "type": "function"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "created_at": 0,
+  "id": "resp_native_result",
+  "model": "upstream-model",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "Shanghai is sunny at 25 C.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_native_result",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "status": "completed"
+}

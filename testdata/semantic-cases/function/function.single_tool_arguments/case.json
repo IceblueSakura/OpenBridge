@@ -1,0 +1,91 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不证明工具执行结果或最终自然语言回答。"
+  ],
+  "features": [
+    "single_tool",
+    "argument_schema",
+    "strict_schema"
+  ],
+  "id": "function.single_tool_arguments",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": [
+        {
+          "arguments": {
+            "location": "Shanghai",
+            "unit": "celsius"
+          },
+          "arguments_match": "exact",
+          "name": "get_weather"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": false
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义单 function 的工具名、严格参数 schema 与精确参数值 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "auto"
+      }
+    },
+    "prompt": "Get the current weather in Shanghai in Celsius.",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Single tool with exact arguments"
+}

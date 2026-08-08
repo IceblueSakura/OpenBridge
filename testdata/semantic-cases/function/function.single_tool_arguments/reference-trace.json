@@ -1,0 +1,16 @@
+{
+  "case_id": "function.single_tool_arguments",
+  "events": [
+    {
+      "arguments": {
+        "location": "Shanghai",
+        "unit": "celsius"
+      },
+      "call_id": "call_weather_shanghai",
+      "name": "get_weather",
+      "turn": 0,
+      "type": "assistant_tool_call"
+    }
+  ],
+  "schema_version": "0.1"
+}

@@ -28,7 +28,7 @@ def test_incremental_parser_handles_every_generated_wire_variant(
     manifest = json.loads(
         (root / "generated" / "manifest.json").read_text(encoding="utf-8")
     )
-    assert len(manifest["files"]) == 306
+    assert len(manifest["files"]) == 342
     for entry in manifest["files"]:
         payload = json.loads(
             (root / "generated" / entry["path"]).read_text(encoding="utf-8")

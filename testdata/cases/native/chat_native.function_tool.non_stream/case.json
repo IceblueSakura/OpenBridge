@@ -1,0 +1,55 @@
+{
+  "artifacts": {
+    "client_request": "client-request.json",
+    "expected_client_response": "expected-client-response.json",
+    "expected_upstream_request": "expected-upstream-request.json",
+    "upstream_response": "upstream-response.json"
+  },
+  "category": "protocol",
+  "direction": "chat_native",
+  "does_not_prove": [
+    "不证明模型会自主选择正确工具或 OpenBridge 已接入该路径。"
+  ],
+  "expectation": {
+    "classification": "native_only",
+    "fallback_allowed": false,
+    "invariants": [
+      "Chat nested function schema、strict 与 forced tool_choice 保持原协议结构",
+      "call id 与 arguments 保持不变",
+      "仅在公开模型名和上游模型名边界投影 model"
+    ],
+    "outcome": "completed",
+    "terminal": "none",
+    "terminal_count": 0,
+    "upstream_attempts": 1
+  },
+  "features": [
+    "function_tool",
+    "single_tool",
+    "non_stream",
+    "tool_choice",
+    "strict_schema",
+    "identity"
+  ],
+  "id": "chat_native.function_tool.non_stream",
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "提供 Native Chat 单 function call 的非流式 wire oracle。"
+  ],
+  "recipes": [],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "stream": false,
+  "title": "Native Chat function tool non-stream",
+  "transport": {
+    "cancellation_after_event": null,
+    "client_content_type": "application/json",
+    "client_end": "response",
+    "client_http_status": 200,
+    "downstream_output_observed": true,
+    "failure_phase": "none",
+    "upstream_content_type": "application/json",
+    "upstream_end": "response",
+    "upstream_http_status": 200
+  }
+}

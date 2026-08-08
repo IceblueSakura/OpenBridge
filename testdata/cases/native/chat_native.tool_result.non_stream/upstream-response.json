@@ -1,0 +1,16 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Shanghai is sunny at 25 C.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 0,
+  "id": "chatcmpl_native_result",
+  "model": "upstream-model",
+  "object": "chat.completion"
+}

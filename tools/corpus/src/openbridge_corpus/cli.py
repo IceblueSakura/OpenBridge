@@ -25,6 +25,7 @@ from .plans import (
     validate_runtime_document,
 )
 from .verifier import verify_case_observations
+from .semantic import verify_semantic_trace
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -114,6 +115,13 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--case", required=True)
     verify.add_argument("--client-observation", type=Path, required=True)
     verify.add_argument("--server-observation", type=Path)
+
+    semantic_verify = subparsers.add_parser(
+        "verify-semantic-trace",
+        help="Compare one normalized function-tool trace with its semantic oracle.",
+    )
+    semantic_verify.add_argument("--case", required=True)
+    semantic_verify.add_argument("--trace", type=Path, required=True)
     return parser
 
 
@@ -302,6 +310,19 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             print(f"{args.case}: observations passed")
+            return 0
+        if args.command == "verify-semantic-trace":
+            trace = load_json(args.trace)
+            errors = verify_semantic_trace(root, args.case, trace)
+            if errors:
+                for error in errors:
+                    print(f"ERROR: {error}", file=sys.stderr)
+                print(
+                    f"{args.case}: semantic trace failed with {len(errors)} error(s)",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"{args.case}: semantic trace passed")
             return 0
     except CorpusError as error:
         print(f"ERROR: {error}", file=sys.stderr)

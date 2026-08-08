@@ -1,0 +1,16 @@
+{
+  "case_id": "function.ambiguous_selection",
+  "events": [
+    {
+      "arguments": {
+        "day": "tomorrow",
+        "location": "Tokyo"
+      },
+      "call_id": "call_forecast_tokyo",
+      "name": "get_weather_forecast",
+      "turn": 0,
+      "type": "assistant_tool_call"
+    }
+  ],
+  "schema_version": "0.1"
+}

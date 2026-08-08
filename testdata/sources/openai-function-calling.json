@@ -1,0 +1,21 @@
+{
+  "adaptation_notes": [
+    "只记录 function calling 的公开控制与生命周期事实，不复制官方示例正文。",
+    "Semantic case、工具定义、参数和 reference trace 均为自主编写的合成数据。"
+  ],
+  "id": "openai.function-calling",
+  "license": null,
+  "license_status": "pending",
+  "observed_facts": [
+    "Function tool 使用 JSON Schema 描述参数，应用负责执行工具并回传结果。",
+    "tool_choice 可允许自动选择、禁止工具、要求至少一个工具或强制指定 function。",
+    "parallel_tool_calls=false 将单次响应限制为至多一个工具调用。",
+    "strict=true 要求对象 schema 关闭额外属性并把所有 properties 列为 required；可空类型用于表达可选值。",
+    "工具结果通过 call_id 与先前 function call 关联，结果可以是文本或结构化 JSON。"
+  ],
+  "project": "OpenAI developer documentation",
+  "ref": null,
+  "retrieved_at": "2026-08-08",
+  "schema_version": "0.1",
+  "url": "https://developers.openai.com/api/docs/guides/function-calling"
+}

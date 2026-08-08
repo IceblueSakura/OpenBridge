@@ -1,0 +1,11 @@
+{
+  "case_id": "function.tool_choice_none",
+  "events": [
+    {
+      "text": "I cannot check live weather while tool use is disabled.",
+      "turn": 0,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}

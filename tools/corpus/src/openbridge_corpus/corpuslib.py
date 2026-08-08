@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError
 
 from . import __version__
 
@@ -58,6 +59,24 @@ class Case:
     @property
     def case_id(self) -> str:
         """Return the stable case ID from the manifest."""
+        return str(self.data["id"])
+
+
+@dataclass(frozen=True)
+class SemanticCase:
+    """Represent a protocol-neutral semantic case described by case.json."""
+
+    path: Path
+    data: dict[str, Any]
+
+    @property
+    def directory(self) -> Path:
+        """Return the directory containing the semantic case."""
+        return self.path.parent
+
+    @property
+    def case_id(self) -> str:
+        """Return the stable semantic case ID from the manifest."""
         return str(self.data["id"])
 
 
@@ -123,6 +142,15 @@ def discover_cases(root: Path) -> list[Case]:
     cases_root = root / "cases"
     return [
         Case(path=path, data=load_json(path))
+        for path in sorted(cases_root.rglob("case.json"))
+    ]
+
+
+def discover_semantic_cases(root: Path) -> list[SemanticCase]:
+    """Discover protocol-neutral semantic cases under root in stable path order."""
+    cases_root = root / "semantic-cases"
+    return [
+        SemanticCase(path=path, data=load_json(path))
         for path in sorted(cases_root.rglob("case.json"))
     ]
 
@@ -497,18 +525,166 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
     return errors
 
 
+def _strict_schema_errors(schema: Any, path: str) -> list[str]:
+    """Return paths where a strict function schema leaves object fields open or optional."""
+    errors: list[str] = []
+    if isinstance(schema, dict):
+        # Enforce strict object closure and require every declared property.
+        properties = schema.get("properties")
+        if schema.get("type") == "object" or isinstance(properties, dict):
+            if schema.get("additionalProperties") is not False:
+                errors.append(f"{path}.additionalProperties must be false")
+            property_names = set(properties or {})
+            required_names = set(schema.get("required", []))
+            if property_names != required_names:
+                errors.append(f"{path}.required must contain every property")
+
+        # Recurse through every schema-valued keyword that can contain nested objects.
+        for keyword in ("properties", "patternProperties", "$defs", "definitions"):
+            children = schema.get(keyword)
+            if isinstance(children, dict):
+                for name, child in children.items():
+                    errors.extend(_strict_schema_errors(child, f"{path}.{keyword}.{name}"))
+        for keyword in ("allOf", "anyOf", "oneOf", "prefixItems"):
+            children = schema.get(keyword)
+            if isinstance(children, list):
+                for index, child in enumerate(children):
+                    errors.extend(
+                        _strict_schema_errors(child, f"{path}.{keyword}[{index}]")
+                    )
+        items = schema.get("items")
+        if isinstance(items, (dict, list)):
+            errors.extend(_strict_schema_errors(items, f"{path}.items"))
+    elif isinstance(schema, list):
+        for index, child in enumerate(schema):
+            errors.extend(_strict_schema_errors(child, f"{path}[{index}]"))
+    return errors
+
+
+def _validate_semantic_case_semantics(
+    case: SemanticCase, root: Path
+) -> list[str]:
+    """Validate semantic artifacts, tools, controls, oracle consistency, and provenance."""
+    errors: list[str] = []
+    data = case.data
+
+    # Validate the case identity, reference trace, and undeclared-file boundary.
+    if case.directory.name != case.case_id:
+        errors.append(
+            f"{case.path}: directory name must equal semantic case id {case.case_id!r}"
+        )
+    reference = data["artifacts"]["reference_trace"]
+    try:
+        trace_path = _resolve_inside(case.directory, reference, case.directory)
+    except CorpusError as error:
+        errors.append(f"{case.path}: {error}")
+        trace_path = None
+    else:
+        if not trace_path.is_file():
+            errors.append(f"{case.path}: missing reference trace {reference}")
+    declared_files = {case.path.resolve()}
+    if trace_path is not None:
+        declared_files.add(trace_path)
+    for path in sorted(case.directory.rglob("*")):
+        if path.is_file() and path.resolve() not in declared_files:
+            relative = path.relative_to(case.directory)
+            errors.append(f"{case.path}: undeclared semantic case file {relative}")
+
+    # Validate each tool schema and collect stable names for oracle cross-checks.
+    tools = data["task"]["tools"]
+    tool_names = [tool["name"] for tool in tools]
+    if len(set(tool_names)) != len(tool_names):
+        errors.append(f"{case.path}: semantic tool names must be unique")
+    tools_by_name = {tool["name"]: tool for tool in tools}
+    for index, tool in enumerate(tools):
+        parameters = tool["parameters"]
+        try:
+            Draft202012Validator.check_schema(parameters)
+        except SchemaError:
+            errors.append(
+                f"{case.path}: task.tools[{index}].parameters is not a valid JSON Schema"
+            )
+            continue
+        if tool["strict"]:
+            for error in _strict_schema_errors(
+                parameters, f"task.tools[{index}].parameters"
+            ):
+                errors.append(f"{case.path}: strict tool schema {error}")
+
+    # Cross-check controls with the required call set and declared tool names.
+    controls = data["task"]["controls"]
+    calls = data["oracle"]["calls"]
+    required_calls = calls["required"]
+    required_results = data["oracle"]["results"]["required"]
+    choice = controls["tool_choice"]
+    if choice["mode"] == "function" and choice.get("name") not in tools_by_name:
+        errors.append(f"{case.path}: forced tool_choice name is not declared")
+    if choice["mode"] == "none" and required_calls:
+        errors.append(f"{case.path}: tool_choice none cannot require tool calls")
+    if choice["mode"] == "required" and not required_calls:
+        errors.append(f"{case.path}: tool_choice required needs a required call")
+    if not controls["parallel_tool_calls"] and len(required_calls) > 1:
+        errors.append(
+            f"{case.path}: parallel_tool_calls false cannot require multiple calls"
+        )
+    result_call_indices = [
+        result["required_call_index"] for result in required_results
+    ]
+    if len(set(result_call_indices)) != len(result_call_indices):
+        errors.append(f"{case.path}: required result call indices must be unique")
+    for index, call_index in enumerate(result_call_indices):
+        if call_index >= len(required_calls):
+            errors.append(
+                f"{case.path}: required_results[{index}].required_call_index "
+                "does not identify a required call"
+            )
+
+    # Validate each expected call against its declared function parameter schema.
+    for index, expected in enumerate(required_calls):
+        tool = tools_by_name.get(expected["name"])
+        if tool is None:
+            errors.append(f"{case.path}: required_calls[{index}].name is not declared")
+            continue
+        validator = Draft202012Validator(
+            tool["parameters"], format_checker=FormatChecker()
+        )
+        if list(validator.iter_errors(expected["arguments"])):
+            errors.append(
+                f"{case.path}: required_calls[{index}].arguments do not satisfy "
+                "the declared parameters"
+            )
+    if choice["mode"] == "function" and any(
+        expected["name"] != choice["name"] for expected in required_calls
+    ):
+        errors.append(f"{case.path}: required calls conflict with forced tool_choice")
+
+    # Resolve provenance within the canonical corpus boundary.
+    provenance = data["provenance_ref"]
+    try:
+        provenance_path = _resolve_inside(root, provenance, root)
+        if not provenance_path.is_file():
+            errors.append(f"{case.path}: missing provenance {provenance}")
+    except CorpusError as error:
+        errors.append(f"{case.path}: {error}")
+    return errors
+
+
 def lint_corpus(root: Path) -> list[str]:
     """Validate corpus schemas, references, semantics, integrity, and suspected secrets."""
+    # Resolve the corpus and first require every canonical directory and schema.
     root = root.resolve()
     errors: list[str] = []
     required = [
         root / "VERSION",
         root / "catalog.json",
         root / "cases",
+        root / "semantic-cases",
         root / "sources",
         root / "recipes",
         root / "schemas" / "catalog.schema.json",
         root / "schemas" / "case.schema.json",
+        root / "schemas" / "semantic-case.schema.json",
+        root / "schemas" / "semantic-trace.schema.json",
         root / "schemas" / "provenance.schema.json",
         root / "schemas" / "recipe.schema.json",
         root / "schemas" / "server-scenario.schema.json",
@@ -523,9 +699,12 @@ def lint_corpus(root: Path) -> list[str]:
     if errors:
         return errors
 
+    # Initialize all schema validators before reading documents that depend on them.
     try:
         catalog_validator = _schema_validator(root, "catalog")
         case_validator = _schema_validator(root, "case")
+        semantic_case_validator = _schema_validator(root, "semantic-case")
+        semantic_trace_validator = _schema_validator(root, "semantic-trace")
         provenance_validator = _schema_validator(root, "provenance")
         recipe_validator = _schema_validator(root, "recipe")
         _schema_validator(root, "server-scenario")
@@ -536,6 +715,7 @@ def lint_corpus(root: Path) -> list[str]:
     except Exception as error:
         return [f"schema initialization failed: {error}"]
 
+    # Validate catalog identity and release version consistency.
     catalog = load_json(root / "catalog.json")
     errors.extend(_schema_errors(catalog_validator, catalog, "catalog.json"))
     version = (root / "VERSION").read_text(encoding="utf-8").strip()
@@ -545,6 +725,7 @@ def lint_corpus(root: Path) -> list[str]:
             f"does not match VERSION {version!r}"
         )
 
+    # Discover wire cases and cross-check their stable catalog membership.
     try:
         cases = discover_cases(root)
     except CorpusError as error:
@@ -555,12 +736,61 @@ def lint_corpus(root: Path) -> list[str]:
         extra = sorted(set(discovered_ids) - set(catalog.get("case_ids", [])))
         errors.append(f"catalog/case mismatch: missing={missing}, extra={extra}")
 
+    # Validate every wire manifest and its declared artifacts and transport semantics.
     for case in cases:
         schema_errors = _schema_errors(case_validator, case.data, str(case.path))
         errors.extend(schema_errors)
         if not schema_errors:
             errors.extend(_validate_case_semantics(case, root))
 
+    # Discover semantic cases and cross-check their independent catalog membership.
+    try:
+        semantic_cases = discover_semantic_cases(root)
+    except CorpusError as error:
+        return errors + [str(error)]
+    discovered_semantic_ids = [case.case_id for case in semantic_cases]
+    if sorted(catalog.get("semantic_case_ids", [])) != sorted(
+        discovered_semantic_ids
+    ):
+        missing = sorted(
+            set(catalog.get("semantic_case_ids", [])) - set(discovered_semantic_ids)
+        )
+        extra = sorted(
+            set(discovered_semantic_ids) - set(catalog.get("semantic_case_ids", []))
+        )
+        errors.append(
+            f"catalog/semantic-case mismatch: missing={missing}, extra={extra}"
+        )
+
+    # Validate semantic manifests, reference traces, and positive oracle verdicts.
+    for case in semantic_cases:
+        schema_errors = _schema_errors(
+            semantic_case_validator, case.data, str(case.path)
+        )
+        errors.extend(schema_errors)
+        if schema_errors:
+            continue
+        semantic_errors = _validate_semantic_case_semantics(case, root)
+        errors.extend(semantic_errors)
+        reference = case.directory / case.data["artifacts"]["reference_trace"]
+        if semantic_errors or not reference.is_file():
+            continue
+        try:
+            trace = load_json(reference)
+        except CorpusError as error:
+            errors.append(str(error))
+            continue
+        trace_schema_errors = _schema_errors(
+            semantic_trace_validator, trace, str(reference)
+        )
+        errors.extend(trace_schema_errors)
+        if not trace_schema_errors:
+            from .semantic import verify_semantic_trace
+
+            for error in verify_semantic_trace(root, case.case_id, trace):
+                errors.append(f"{reference}: reference trace: {error}")
+
+    # Validate provenance and generation recipes as independent canonical documents.
     for path in sorted((root / "sources").glob("*.json")):
         try:
             data = load_json(path)
@@ -577,8 +807,16 @@ def lint_corpus(root: Path) -> list[str]:
         else:
             errors.extend(_schema_errors(recipe_validator, data, str(path)))
 
+    # Scan all canonical manifests and artifacts for common credential patterns.
     scan_paths: set[Path] = set()
     for case in cases:
+        scan_paths.add(case.path)
+        for relative in case.data.get("artifacts", {}).values():
+            try:
+                scan_paths.add(_resolve_inside(case.directory, relative, root))
+            except CorpusError:
+                pass
+    for case in semantic_cases:
         scan_paths.add(case.path)
         for relative in case.data.get("artifacts", {}).values():
             try:
@@ -798,12 +1036,15 @@ def generate_variants(
 
 def build_report(root: Path) -> dict[str, Any]:
     """Summarize case, feature, status, provenance, and generation coverage."""
+    # Validate the corpus before trusting any coverage counters.
     root = root.resolve()
     errors = lint_corpus(root)
     if errors:
         raise CorpusError("corpus lint failed:\n" + "\n".join(errors))
     catalog = load_json(root / "catalog.json")
     cases = discover_cases(root)
+    semantic_cases = discover_semantic_cases(root)
+    # Count wire classifications, directions, statuses, and feature labels.
     status = Counter(case.data["status"] for case in cases)
     classifications = Counter(
         case.data["expectation"]["classification"] for case in cases
@@ -813,7 +1054,16 @@ def build_report(root: Path) -> dict[str, Any]:
     for case in cases:
         directions[case.data["direction"]]["stream" if case.data["stream"] else "non_stream"] += 1
         features.update(case.data["features"])
+    # Count protocol-neutral semantic statuses, targets, and feature labels.
+    semantic_features = Counter()
+    semantic_status = Counter()
+    semantic_targets = Counter()
+    for case in semantic_cases:
+        semantic_features.update(case.data["features"])
+        semantic_status.update([case.data["status"]])
+        semantic_targets.update(case.data["applies_to"])
 
+    # Surface unresolved provenance metadata instead of treating it as validated.
     pending_sources: list[str] = []
     unpinned_sources: list[str] = []
     for path in sorted((root / "sources").glob("*.json")):
@@ -823,11 +1073,14 @@ def build_report(root: Path) -> dict[str, Any]:
         if source["ref"] is None:
             unpinned_sources.append(source["id"])
 
+    # Compare observed wire, semantic, and generation coverage with catalog requirements.
     required = set(catalog["required_core_features"])
+    required_semantic = set(catalog["required_semantic_features"])
     required_generation = set(catalog["required_generation_kinds"])
     observed_generation: set[str] = set()
     for path in sorted((root / "recipes").glob("*.json")):
         observed_generation.update(load_json(path)["kinds"])
+    # Build a stable machine-readable report for CLI and documentation consumers.
     return {
         "case_count": len(cases),
         "classifications": dict(sorted(classifications.items())),
@@ -841,8 +1094,15 @@ def build_report(root: Path) -> dict[str, Any]:
         "missing_required_generation_kinds": sorted(
             required_generation - observed_generation
         ),
+        "missing_required_semantic_features": sorted(
+            required_semantic - set(semantic_features)
+        ),
         "pending_license_sources": pending_sources,
         "schema_version": "0.1",
+        "semantic_case_count": len(semantic_cases),
+        "semantic_feature_counts": dict(sorted(semantic_features.items())),
+        "semantic_statuses": dict(sorted(semantic_status.items())),
+        "semantic_targets": dict(sorted(semantic_targets.items())),
         "statuses": dict(sorted(status.items())),
         "unpinned_sources": unpinned_sources,
     }

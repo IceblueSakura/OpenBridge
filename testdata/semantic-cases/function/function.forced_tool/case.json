@@ -1,0 +1,112 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不验证 Chat 与 Responses wire 层的 tool_choice 投影。"
+  ],
+  "features": [
+    "forced_tool",
+    "single_tool",
+    "strict_schema"
+  ],
+  "id": "function.forced_tool",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_local_time"
+      ],
+      "match_order": "exact",
+      "required": [
+        {
+          "arguments": {
+            "location": "Kyoto",
+            "unit": "celsius"
+          },
+          "arguments_match": "exact",
+          "name": "get_weather"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": false
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义强制指定 function 时不得改选其他已声明工具的语义 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "function",
+        "name": "get_weather"
+      }
+    },
+    "prompt": "Use the selected function for Kyoto in Celsius.",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      },
+      {
+        "description": "Get local time for a location.",
+        "name": "get_local_time",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Force one named function"
+}

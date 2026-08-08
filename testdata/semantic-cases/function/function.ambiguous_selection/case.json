@@ -1,0 +1,111 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不对真实模型的通用工具选择准确率作统计结论。"
+  ],
+  "features": [
+    "ambiguous_selection",
+    "argument_schema",
+    "strict_schema"
+  ],
+  "id": "function.ambiguous_selection",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_current_weather"
+      ],
+      "match_order": "exact",
+      "required": [
+        {
+          "arguments": {
+            "day": "tomorrow",
+            "location": "Tokyo"
+          },
+          "arguments_match": "exact",
+          "name": "get_weather_forecast"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": false
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义当前天气与预报工具并存时应选择预报工具的固定语义 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "auto"
+      }
+    },
+    "prompt": "What is the weather forecast for Tokyo tomorrow?",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_current_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      },
+      {
+        "description": "Get a weather forecast for a location and day.",
+        "name": "get_weather_forecast",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "day": {
+              "enum": [
+                "today",
+                "tomorrow"
+              ],
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "day",
+            "location"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Choose the forecast tool"
+}

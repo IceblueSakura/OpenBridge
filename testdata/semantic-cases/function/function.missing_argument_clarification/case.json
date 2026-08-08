@@ -1,0 +1,86 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不规定面向用户的唯一澄清措辞。"
+  ],
+  "features": [
+    "missing_required_argument",
+    "clarification",
+    "final_response_facts"
+  ],
+  "id": "function.missing_argument_clarification",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_weather"
+      ],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "location"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义缺少必填 location 时先澄清且不构造猜测参数的语义 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "auto"
+      }
+    },
+    "prompt": "What is the weather like?",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Clarify a missing required argument"
+}

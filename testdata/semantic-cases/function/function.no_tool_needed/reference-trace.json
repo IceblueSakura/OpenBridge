@@ -1,0 +1,11 @@
+{
+  "case_id": "function.no_tool_needed",
+  "events": [
+    {
+      "text": "Hello!",
+      "turn": 0,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}

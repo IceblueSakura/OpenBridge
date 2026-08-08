@@ -1,0 +1,36 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_native_parallel","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_native_weather_parallel","type":"function_call","call_id":"call_native_weather_parallel","name":"get_weather","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_native_weather_parallel","output_index":0,"delta":"{\"location\":\""}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_native_time_parallel","type":"function_call","call_id":"call_native_time_parallel","name":"get_time","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_native_time_parallel","output_index":1,"delta":"{\"zone\":\""}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_native_weather_parallel","output_index":0,"delta":"上海\"}"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_native_time_parallel","output_index":1,"delta":"Asia/Shanghai\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_native_weather_parallel","output_index":0,"arguments":"{\"location\":\"上海\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_native_weather_parallel","type":"function_call","call_id":"call_native_weather_parallel","name":"get_weather","arguments":"{\"location\":\"上海\"}","status":"completed"}}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"fc_native_time_parallel","output_index":1,"arguments":"{\"zone\":\"Asia/Shanghai\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"fc_native_time_parallel","type":"function_call","call_id":"call_native_time_parallel","name":"get_time","arguments":"{\"zone\":\"Asia/Shanghai\"}","status":"completed"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_native_parallel","object":"response","model":"upstream-model","status":"completed","output":[{"id":"fc_native_weather_parallel","type":"function_call","call_id":"call_native_weather_parallel","name":"get_weather","arguments":"{\"location\":\"上海\"}","status":"completed"},{"id":"fc_native_time_parallel","type":"function_call","call_id":"call_native_time_parallel","name":"get_time","arguments":"{\"zone\":\"Asia/Shanghai\"}","status":"completed"}]}}
+

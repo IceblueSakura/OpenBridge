@@ -1,0 +1,29 @@
+{
+  "messages": [
+    {
+      "content": "Get the weather in Shanghai.",
+      "role": "user"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"location\":\"Shanghai\"}",
+            "name": "get_weather"
+          },
+          "id": "call_native_chat_result",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "{\"condition\":\"sunny\",\"temperature_c\":25}",
+      "role": "tool",
+      "tool_call_id": "call_native_chat_result"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false
+}

@@ -1,0 +1,28 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Get the weather in Shanghai.",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    {
+      "arguments": "{\"location\":\"Shanghai\"}",
+      "call_id": "call_native_responses_result",
+      "id": "fc_native_responses_result",
+      "name": "get_weather",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_native_responses_result",
+      "output": "{\"condition\":\"sunny\",\"temperature_c\":25}",
+      "type": "function_call_output"
+    }
+  ],
+  "model": "public-model",
+  "stream": false
+}

@@ -1,0 +1,109 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不证明上游服务在所有模型上以相同方式实现 required 控制。"
+  ],
+  "features": [
+    "tool_choice_required",
+    "single_tool",
+    "strict_schema"
+  ],
+  "id": "function.tool_choice_required",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_local_time"
+      ],
+      "match_order": "exact",
+      "required": [
+        {
+          "arguments": {
+            "base": "USD",
+            "quote": "CNY"
+          },
+          "arguments_match": "exact",
+          "name": "lookup_exchange_rate"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": false
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义 tool_choice required 下至少一个且仅一个相关 function call 的 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "required"
+      }
+    },
+    "prompt": "Look up the exchange rate from USD to CNY.",
+    "tools": [
+      {
+        "description": "Look up an exchange rate for a currency pair.",
+        "name": "lookup_exchange_rate",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "base": {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            "quote": {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "base",
+            "quote"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      },
+      {
+        "description": "Get local time for a location.",
+        "name": "get_local_time",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Require a relevant tool call"
+}

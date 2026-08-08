@@ -3,9 +3,10 @@
 `testdata/` 是一个可独立发布、可复现的协议测试语料。它固定 Chat Completions、Responses、SSE、function tool 和 HTTP/transport
 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
-当前 release 为 **0.6.0**：45 个人工审查的 canonical cases（20 `accepted`、25 `reviewed`），以及默认 seed 下 306 个可重建的
-SSE 分片变体。该版本以向后兼容方式为 case schema 的结束分类增加 `response`，统一非流式成功 case 的 observation 词汇，并由
-testkit 的单 case 判定器消费；case `schema_version` 因此仍为 `0.1`。
+当前 release 为 **0.7.0**：51 个人工审查的 canonical wire cases（26 `accepted`、25 `reviewed`）、9 个协议无关 semantic
+cases（6 `accepted`、3 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。该版本以向后兼容方式增加
+`semantic-case`/`semantic-trace` schema、确定性 semantic verifier，并为 Native Chat/Responses 各补齐 function call、tool
+result 与 parallel stream；既有 wire case 和 runtime document 的 `schema_version` 仍为 `0.1`。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)
 。当前已验证状态和集成边界见[协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
@@ -15,6 +16,7 @@ testkit 的单 case 判定器消费；case `schema_version` 因此仍为 `0.1`�
 使用 corpus 来：
 
 - 设计或审查 Chat/Responses、SSE、tool-call identity 的可观察契约；
+- 用协议无关 oracle 判断工具选择、参数、调用集合与固定最终回答事实；
 - 为后续 SUT runner 编译确定的上游 scenario 与下游 client plan；
 - 回归测试 bytes fragmentation、SSE terminal、HTTP error、EOF、abort 和 cancellation 的区分；
 - 向其他项目交付不含凭证、可校验的协议 fixture ZIP。
@@ -37,7 +39,7 @@ uv run --project tools/corpus pytest tools/corpus/tests
 ```powershell
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.7.0.zip
 ```
 
 `lint` 与测试不要求网络、服务端或 credential。`generate`、`report`、`pack` 的输出只能位于对应的派生目录，避免覆盖 canonical
@@ -47,10 +49,11 @@ data。
 
 ```text
 testdata/
-  VERSION                 # corpus release，例如 0.6.0
-  catalog.json            # case id、required feature、默认 seed
+  VERSION                 # corpus release，例如 0.7.0
+  catalog.json            # wire/semantic case id、required feature、默认 seed
   schemas/                # JSON Schema，schema_version 目前为 0.1
   cases/                  # 人工审查的 canonical request/wire/oracle
+  semantic-cases/         # 协议无关 function-tool task/oracle/reference trace
   sources/                # 外部或项目来源的事实与许可证状态
   recipes/                # 仅描述 SSE bytes 分片方式
   generated/              # 生成的 wire 变体，忽略且可重建
@@ -63,12 +66,14 @@ testdata/
 |---------------------------------|-----------------------------------------------|--------------------------------|
 | `sources/`                      | 记录 URL、取得日期、ref、license 与已观察事实 | 可以；不得复制受限外部 payload |
 | `cases/`                        | canonical 输入、wire 和 expected output       | 可以；必须经审查并通过 lint    |
+| `semantic-cases/`               | task、machine-readable oracle 与 reference trace | 可以；必须保持协议无关       |
 | `recipes/`                      | 只定义分片种类和 seeded 变体数                | 可以；不表达协议语义           |
 | `generated/`                    | 从 canonical SSE 生成的 Base64 chunks         | 不应手改                       |
 | `reports/`、`dist/`、`runtime/` | 运行产物                                      | 不应手改                       |
 
-`catalog.json` 是 case 集合的清单。`lint` 会拒绝 catalog 与实际 case 目录不一致、case 内有未声明文件、artifact 路径逃逸目录、重复
-JSON key、疑似 secret 或不自洽的 stream/non-stream artifact 组合。
+`catalog.json` 是 wire 与 semantic case 集合的清单。`lint` 会拒绝 catalog 与实际目录不一致、case 内有未声明文件、artifact
+路径逃逸目录、重复 JSON key、疑似 secret、不自洽的 stream/non-stream artifact 组合、无效 function JSON Schema、违反
+`strict=true` 的对象 schema，或不能通过自身 oracle 的 reference trace。
 
 ## Canonical case 的结构
 
@@ -110,12 +115,39 @@ artifact，且 `expectation.upstream_attempts` 必须为 `0`。
 `fallback_allowed` 只表达 case 所在的输出 commit point 是否允许后续决策；它不要求 Mock Client 或 corpus 选择、执行或验证
 fallback。
 
+## Semantic case 与规范化 trace
+
+`semantic-cases/function/<case-id>/case.json` 不保存 Chat 或 Responses envelope，而是声明一份可被四个方向共同消费的 task：合成
+prompt、扁平 function 定义、`tool_choice`、`parallel_tool_calls` 与 machine-readable oracle。每个目录只再包含一个
+`reference-trace.json`，它必须通过该 case 的 oracle。
+
+规范化 trace 由按时间排列的三类 event 构成：
+
+- `assistant_tool_call`：`turn`、`call_id`、function `name` 与已经解析为 JSON object 的 `arguments`；
+- `tool_result`：`turn`、关联 `call_id` 与任意 JSON `output`；
+- `assistant_message`：`turn` 与最终 `text`。
+
+verifier 会检查 event 顺序、call/result identity、工具参数 JSON Schema、精确或包含式参数匹配、有序或无序调用集合、额外/禁止调用、
+预置 tool result 的精确或包含式匹配，以及最终回答的必含/禁含固定字符串。失败诊断只包含字段路径和错误类别，不回显 prompt、
+arguments、tool output 或回答正文。
+
+```powershell
+uv run --project tools/corpus corpus --root testdata verify-semantic-trace `
+  --case function.result_grounding `
+  --trace testdata/semantic-cases/function/function.result_grounding/reference-trace.json
+```
+
+该层只定义协议无关判定契约；后续 OpenBridge runner 仍需把 Chat/Responses Native 或 Bridge 输出明确规范化为 trace。reference trace
+通过不等价于真实模型、SDK、Provider 或 OpenBridge 已通过该语义 case。
+
 ## 当前覆盖
 
 语料包含：
 
 - Chat ↔ Responses 双向 text 的 stream/non-stream；
 - 双向单/并行 function call、tool result、交错和只带 index 的 arguments fragment；
+- Native Chat 与 Native Responses 对称的 strict/forced 单 function call、结构化 tool result 与 parallel stream；
+- 9 个 semantic cases：无需工具、精确参数、歧义选择、缺参澄清、none/required/forced tool choice、无序并行调用和结果事实；
 - Responses `completed`/`failed`/`incomplete`/`error`、Chat `[DONE]`、EOF、duplicate terminal、terminal 后事件；
 - SSE comment、多行 `data:`、CRLF、UTF-8 跨分片、all-in-one、event-pairs 和 seeded chunking；
 - caller cancellation、首输出前/后 transport error；
@@ -151,11 +183,13 @@ recipe 只改变 bytes 到 chunks 的划分，不改变逻辑事件、payload、
 
 ## 新增或修改 case 的流程
 
-1. 先判断它是新的协议语义、HTTP/transport 边界还是仅仅新的分片；仅分片差异应写 recipe，不应复制 case。
+1. 先判断它是 wire 协议/HTTP/transport 边界、协议无关工具语义还是仅仅新的分片；分别进入 `cases/`、`semantic-cases/` 或
+   `recipes/`，不得为分片差异复制 case。
 2. 在 `sources/` 中记录可复核的来源事实，或使用项目设计来源并明确 `does_not_prove`。不要保存 credential、cookie、私人 prompt
    或未脱敏 request id。
 3. 新建 `cases/<category>/<case-id>/`，写入 `case.json` 和所有声明 artifact；case id 必须与目录名一致。
-4. 将 id 加入 `catalog.json`，为新增核心能力加入 `required_core_features`；只在确认需要时调整默认 seed 或 recipe。
+4. 将 id 加入 `catalog.case_ids` 或 `catalog.semantic_case_ids`，并按所有权更新 `required_core_features` 或
+   `required_semantic_features`；只在确认需要时调整默认 seed 或 recipe。
 5. 更新 `VERSION` 与 `catalog.corpus_version`。只改 case 内容或向后兼容地扩展 schema 可升级 corpus release， 并记录兼容边界；破坏性
    schema 改动必须升级 `schema_version` 并提供兼容说明。
 6. 更新本文与相关设计/现状文档，尤其是覆盖范围和不证明事项。
@@ -188,5 +222,8 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 2. Mock Client 收到的 envelope、raw body、SSE event 与 `expected_client_*` artifact；
 3. identity、顺序、terminal、attempt、commit point 和明确的不变量；
 4. SUT 自身的 retry、fallback、cooldown、转换 notice 与最终错误策略。
+
+工具语义 runner 还需要把任一 Native/Bridge 输出转换为 `semantic-trace.schema.json` 的规范化 event，再调用 semantic verifier；该
+规范化步骤本身属于后续接入测试，不能由 reference trace 自证。
 
 本目录和 `tools/corpus/` 刻意不加载 OpenBridge 配置、不启动二进制，也不声明这些产品行为已经实现。

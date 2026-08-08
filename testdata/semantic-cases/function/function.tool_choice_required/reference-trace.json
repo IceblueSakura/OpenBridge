@@ -1,0 +1,16 @@
+{
+  "case_id": "function.tool_choice_required",
+  "events": [
+    {
+      "arguments": {
+        "base": "USD",
+        "quote": "CNY"
+      },
+      "call_id": "call_exchange_usd_cny",
+      "name": "lookup_exchange_rate",
+      "turn": 0,
+      "type": "assistant_tool_call"
+    }
+  ],
+  "schema_version": "0.1"
+}

@@ -1,7 +1,8 @@
 # OpenBridge Testkit
 
 `tools/corpus/` 是与 OpenBridge runtime 解耦的 Python 工具包。它管理 [../../testdata/](../../testdata/README.md) 的
-canonical corpus，并提供增量 SSE parser、HTTP/1.1 Mock Server、Mock Client、scenario/plan 编译和 observation 输出。
+canonical corpus，并提供增量 SSE parser、HTTP/1.1 Mock Server、Mock Client、scenario/plan 编译、observation 输出与协议无关的
+function-tool semantic trace 判定。
 
 它服务于未来的黑盒链路：
 
@@ -37,6 +38,7 @@ uv run --project tools/corpus corpus --root testdata lint
 | `mock-server`           | scenario 或 suite JSON            | ready/observation JSON        | 启动 HTTP/1.1 upstream fixture                                   |
 | `mock-client`           | client plan JSON                  | observation JSON              | 发送一次请求并记录结果                                           |
 | `verify-observations`   | case + client/server observations | stdout/exit code              | 用 canonical oracle 判定单 case 结果                             |
+| `verify-semantic-trace` | semantic case + normalized trace  | stdout/exit code              | 判定工具选择、参数、调用集合与固定回答事实                       |
 
 默认 corpus root 是 `./testdata`。传递 `--root testdata` 可使脚本和 CI 的工作目录显式。
 
@@ -46,7 +48,7 @@ uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.6.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.7.0.zip
 ```
 
 `generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation
@@ -192,6 +194,24 @@ error、EOF、transport abort 与 client cancellation 是不同层次的结果�
 多 exchange Server 的 observation 用 `mock_server_run` 包装并按 suite 顺序保存。Schema 有意允许单 exchange observation
 附加字段，使工具能增加非破坏性的诊断；runner 应只依赖明确文档化或 schema 定义的稳定字段。
 
+### Function-tool semantic trace 判定
+
+semantic verifier 消费已经规范化的 trace，而不解析 Chat/Responses wire。trace 只包含按时间排列的
+`assistant_tool_call`、`tool_result`、`assistant_message` event；调用参数必须已经是 JSON object。Native Chat、Native Responses、
+Chat → Responses 或 Responses → Chat runner 都可映射到同一份 semantic case：
+
+```powershell
+uv run --project tools/corpus corpus --root testdata verify-semantic-trace `
+  --case function.parallel_independent `
+  --trace testdata/semantic-cases/function/function.parallel_independent/reference-trace.json
+```
+
+命令先校验 trace schema 和 call/result identity，再检查 function 参数 schema、精确/包含参数、有序/无序调用、额外/禁止调用、
+预置 tool result 输出与最终回答必含/禁含事实。成功返回 `0`；不匹配返回 `1`，且诊断不回显正文。schema 不合法、case 不存在或
+JSON 损坏也返回 `1`。
+
+testkit 不负责从任一协议 envelope 自动提取 trace，也不调用模型生成 trace；这两个步骤属于下一阶段显式接入的 runner。
+
 ### 单 case observation 判定
 
 当 SUT 两侧的 observation 已生成后，可按 case oracle 进行一次确定性判定：
@@ -228,6 +248,7 @@ testkit 已能对单 case 的最终 observations 做 canonical comparison，但�
 - runtime JSON、生成 variants、coverage report 和 ZIP 都是派生物，不提交；
 - 新增 response/observation 字段时先评估 schema compatibility；破坏性 schema 改动必须升级 schema version；
 - 为新 HTTP/SSE 分类补 unit/loopback 测试，覆盖 Server 与 Client 两端；
+- 为新工具语义先补 semantic case、reference trace 与 verifier 负例；协议特定字段仍放在 wire case；
 - 不在 corpus、plan、scenario 或 observation 中记录真实 credential；
 - 不把 tool loopback 结果描述为 OpenBridge、SDK 或真实 Provider 兼容证明。
 

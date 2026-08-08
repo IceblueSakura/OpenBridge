@@ -1,0 +1,16 @@
+{
+  "case_id": "function.forced_tool",
+  "events": [
+    {
+      "arguments": {
+        "location": "Kyoto",
+        "unit": "celsius"
+      },
+      "call_id": "call_weather_kyoto",
+      "name": "get_weather",
+      "turn": 0,
+      "type": "assistant_tool_call"
+    }
+  ],
+  "schema_version": "0.1"
+}

@@ -1,0 +1,100 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不验证网络并发、执行调度或返回顺序。"
+  ],
+  "features": [
+    "parallel_tools",
+    "unordered_calls",
+    "argument_schema",
+    "strict_schema"
+  ],
+  "id": "function.parallel_independent",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "any",
+      "required": [
+        {
+          "arguments": {
+            "location": "Shanghai",
+            "unit": "celsius"
+          },
+          "arguments_match": "exact",
+          "name": "get_weather"
+        },
+        {
+          "arguments": {
+            "location": "Osaka",
+            "unit": "celsius"
+          },
+          "arguments_match": "exact",
+          "name": "get_weather"
+        }
+      ]
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": false
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义两个独立调用按集合匹配、但每个参数仍精确匹配的并行语义 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": true,
+      "tool_choice": {
+        "mode": "required"
+      }
+    },
+    "prompt": "Get the current weather in Shanghai and Osaka in Celsius.",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "Parallel independent calls"
+}

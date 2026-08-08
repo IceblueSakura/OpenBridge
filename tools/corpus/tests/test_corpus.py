@@ -11,6 +11,7 @@ from pathlib import Path
 from openbridge_corpus.corpuslib import (
     CorpusError,
     build_report,
+    discover_cases,
     generate_variants,
     lint_corpus,
     pack_corpus,
@@ -150,9 +151,24 @@ def test_generation_is_deterministic_and_reconstructs_sources(tmp_path: Path) ->
 def test_report_confirms_p0_feature_and_generation_coverage() -> None:
     """Verify that the coverage report includes required behavior and every generated fragment type."""
     report = build_report(CORPUS_ROOT)
-    assert report["case_count"] == 45
+    assert report["case_count"] == 51
+    assert report["semantic_case_count"] == 9
     assert report["missing_required_features"] == []
     assert report["missing_required_generation_kinds"] == []
+    assert report["missing_required_semantic_features"] == []
+
+
+def test_native_tool_lifecycle_has_symmetric_chat_and_responses_oracles() -> None:
+    """Verify each Native protocol owns call, result, and parallel streaming tool cases."""
+    case_ids = {case.case_id for case in discover_cases(CORPUS_ROOT)}
+    assert {
+        "chat_native.function_tool.non_stream",
+        "chat_native.parallel_tools.stream",
+        "chat_native.tool_result.non_stream",
+        "responses_native.function_tool.non_stream",
+        "responses_native.parallel_tools.stream",
+        "responses_native.tool_result.non_stream",
+    } <= case_ids
 
 
 def test_lint_rejects_inconsistent_transport_failure_phase(tmp_path: Path) -> None:

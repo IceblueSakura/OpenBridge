@@ -1,0 +1,113 @@
+{
+  "$defs": {
+    "assistant_message": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "turn": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "assistant_message"
+        }
+      },
+      "required": [
+        "type",
+        "turn",
+        "text"
+      ],
+      "type": "object"
+    },
+    "assistant_tool_call": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "type": "object"
+        },
+        "call_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "turn": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "assistant_tool_call"
+        }
+      },
+      "required": [
+        "type",
+        "turn",
+        "call_id",
+        "name",
+        "arguments"
+      ],
+      "type": "object"
+    },
+    "tool_result": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "output": {},
+        "turn": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool_result"
+        }
+      },
+      "required": [
+        "type",
+        "turn",
+        "call_id",
+        "output"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "type": "string"
+    },
+    "events": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/assistant_tool_call"
+          },
+          {
+            "$ref": "#/$defs/tool_result"
+          },
+          {
+            "$ref": "#/$defs/assistant_message"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "events"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,373 @@
+{
+  "$defs": {
+    "expected_call": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "type": "object"
+        },
+        "arguments_match": {
+          "enum": [
+            "exact",
+            "contains"
+          ]
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "arguments",
+        "arguments_match"
+      ],
+      "type": "object"
+    },
+    "expected_result": {
+      "additionalProperties": false,
+      "properties": {
+        "output": {},
+        "output_match": {
+          "enum": [
+            "exact",
+            "contains"
+          ]
+        },
+        "required_call_index": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "required_call_index",
+        "output",
+        "output_match"
+      ],
+      "type": "object"
+    },
+    "function_tool": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "strict": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "function"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "description",
+        "parameters",
+        "strict"
+      ],
+      "type": "object"
+    },
+    "tool_choice": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "function"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "auto",
+                  "none",
+                  "required"
+                ]
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "name"
+              ]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "auto",
+            "none",
+            "required",
+            "function"
+          ]
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applies_to": {
+      "items": {
+        "enum": [
+          "chat_native",
+          "responses_native",
+          "chat_to_responses",
+          "responses_to_chat"
+        ]
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_trace": {
+          "pattern": "^[a-z0-9][a-z0-9._-]*\\.json$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_trace"
+      ],
+      "type": "object"
+    },
+    "does_not_prove": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "features": {
+      "items": {
+        "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "id": {
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "type": "string"
+    },
+    "oracle": {
+      "additionalProperties": false,
+      "properties": {
+        "calls": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_additional": {
+              "type": "boolean"
+            },
+            "forbidden_names": {
+              "items": {
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "match_order": {
+              "enum": [
+                "exact",
+                "any"
+              ]
+            },
+            "required": {
+              "items": {
+                "$ref": "#/$defs/expected_call"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "required",
+            "forbidden_names",
+            "match_order",
+            "allow_additional"
+          ],
+          "type": "object"
+        },
+        "final_response": {
+          "additionalProperties": false,
+          "properties": {
+            "case_sensitive": {
+              "type": "boolean"
+            },
+            "contains_all": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "contains_none": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "required": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "required",
+            "case_sensitive",
+            "contains_all",
+            "contains_none"
+          ],
+          "type": "object"
+        },
+        "results": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_additional": {
+              "type": "boolean"
+            },
+            "required": {
+              "items": {
+                "$ref": "#/$defs/expected_result"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "required",
+            "allow_additional"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "calls",
+        "final_response",
+        "results"
+      ],
+      "type": "object"
+    },
+    "provenance_ref": {
+      "pattern": "^sources/[a-z0-9][a-z0-9._-]*\\.json$",
+      "type": "string"
+    },
+    "proves": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "accepted",
+        "deprecated"
+      ]
+    },
+    "task": {
+      "additionalProperties": false,
+      "properties": {
+        "controls": {
+          "additionalProperties": false,
+          "properties": {
+            "parallel_tool_calls": {
+              "type": "boolean"
+            },
+            "tool_choice": {
+              "$ref": "#/$defs/tool_choice"
+            }
+          },
+          "required": [
+            "tool_choice",
+            "parallel_tool_calls"
+          ],
+          "type": "object"
+        },
+        "prompt": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/function_tool"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "prompt",
+        "tools",
+        "controls"
+      ],
+      "type": "object"
+    },
+    "title": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "status",
+    "applies_to",
+    "features",
+    "task",
+    "oracle",
+    "artifacts",
+    "provenance_ref",
+    "proves",
+    "does_not_prove"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,85 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "不证明真实模型在任意措辞下都能避免多余工具调用。"
+  ],
+  "features": [
+    "no_tool",
+    "final_response_facts"
+  ],
+  "id": "function.no_tool_needed",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [
+        "get_weather"
+      ],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "hello"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": true,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openai-function-calling.json",
+  "proves": [
+    "定义无需外部数据时不得调用工具的确定性语义 oracle。"
+  ],
+  "schema_version": "0.1",
+  "status": "accepted",
+  "task": {
+    "controls": {
+      "parallel_tool_calls": false,
+      "tool_choice": {
+        "mode": "auto"
+      }
+    },
+    "prompt": "Say hello without using external data.",
+    "tools": [
+      {
+        "description": "Get current weather for a location.",
+        "name": "get_weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "title": "No tool needed"
+}

@@ -1,0 +1,29 @@
+{
+  "case_id": "function.result_grounding",
+  "events": [
+    {
+      "arguments": {
+        "sku": "SKU-42"
+      },
+      "call_id": "call_inventory_42",
+      "name": "lookup_inventory",
+      "turn": 0,
+      "type": "assistant_tool_call"
+    },
+    {
+      "call_id": "call_inventory_42",
+      "output": {
+        "quantity": 12,
+        "warehouse": "east"
+      },
+      "turn": 1,
+      "type": "tool_result"
+    },
+    {
+      "text": "SKU-42 has 12 units available in the east warehouse.",
+      "turn": 2,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}
