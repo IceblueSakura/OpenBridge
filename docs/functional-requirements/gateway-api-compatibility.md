@@ -134,7 +134,8 @@ OpenBridge 的核心实现重点是无状态服务；无状态请求是默认使
 - MCP、custom tool、hosted tool、reasoning、annotation、image generation 等不是普通 text 的同义词。所选 Public Model
   固定接口未声明支持时必须在上游调用前拒绝，不得静默丢弃。
 
-Responses 标准 event 与 Codex 私有扩展的细节见[Responses 协议参考](../references/openai/responses-protocol.md)。
+Responses 标准 event 见[Responses typed SSE 调研](../references/openai/responses/streaming.md)；Codex 私有扩展仍由对应 Codex
+项目调研维护。
 
 ## 6. 错误与客户端可见结果
 

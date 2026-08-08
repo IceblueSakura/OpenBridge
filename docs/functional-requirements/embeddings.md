@@ -76,5 +76,4 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
 
 非目标包括 embedding Bridge、向量归一化、降维、缓存、索引、检索和根据向量能力动态选路。
 
-- [Embeddings 协议调研](../references/openai/protocol-details/01-embeddings.md)
-- [OpenAI Embeddings 与多模态 API 关系](../references/openai/embedding-and-multimodal-forwarding.md)
+- [OpenAI Embeddings Create 调研](../references/openai/embeddings/create.md)

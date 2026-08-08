@@ -111,7 +111,5 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 非目标包括 `/audio/*`、Responses audio、Realtime、未进入固定 profile 的 remote/multi-audio/格式、ASR MP3/`en`/方言承诺、TTS
 MP3/其他 preset voice，以及未单独获准的 voice design/clone 实现。
 
-- [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)
-- [OpenAI Speech 调研](../references/openai/protocol-details/03-audio-speech.md)
-- [OpenAI Transcription/Translation 调研](../references/openai/protocol-details/04-audio-transcription-translation.md)
+- [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
 - [Xiaomi MiMo 音频理解、ASR/TTS 协议与真实观察](../references/providers/xiaomi-mimo-audio-protocol-2026-08-08.md)

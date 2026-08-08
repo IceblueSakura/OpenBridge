@@ -4,8 +4,8 @@
 
 - 在线复核日期：2026-07-26
 - 本次只阅读 SDK 默认分支资料，未固定 release/commit。
--
-来源：[openai-node streaming helpers](https://github.com/openai/openai-node/blob/main/helpers.md)、[openai-python Chat streaming implementation](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/chat/_completions.py)
+- 来源：[openai-node streaming helpers](https://github.com/openai/openai-node/blob/main/helpers.md)、
+  [openai-python Chat streaming implementation](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/chat/_completions.py)
 
 ## 观察事实
 
@@ -18,3 +18,4 @@
 SDK 可证明特定版本客户端能否消费一个 wire response，并帮助识别 accumulator 所需字段。它不提供跨协议 golden oracle，也不证明
 Provider、gateway 或其他 SDK 的完整兼容性。使用时必须固定 SDK 版本。
 
+Chat SSE 的协议 owner 见 [Chat Completions SSE](chat-completions/streaming.md)。

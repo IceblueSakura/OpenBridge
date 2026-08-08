@@ -36,11 +36,8 @@ project A research
 
 ## 2. OpenAI 官方协议
 
+- [细粒度协议调研总索引](openai/README.md)
 - [API 规范目录](openai/api-specification-catalog.md)
-- [Chat Completions 协议](openai/chat-completions-protocol.md)
-- [Responses 协议](openai/responses-protocol.md)
-- [Embeddings 与多模态 API 关系](openai/embedding-and-multimodal-forwarding.md)
-- [扩展协议调研索引](openai/protocol-details/README.md)
 
 测试资产：
 
@@ -78,7 +75,7 @@ project A research
 
 其他测试项目：
 
-- [Open Responses Compliance](open-responses/open-responses-compliance-analysis.md)
+- [Open Responses Compliance](openai/open-responses-compliance-analysis.md)
 - [CallOrRet/responses-proxy](responses-proxy/responses-proxy-test-assets-analysis.md)
 - [beranekio/openai-compatibility-tester](openai-compatibility-tester/openai-compatibility-tester-analysis.md)
 

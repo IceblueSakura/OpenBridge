@@ -82,4 +82,4 @@ Chat ↔ Responses Bridge 对本阶段媒体请求保持 fail closed。只有未
 - 媒体下载代理、格式转换、OCR、通用转写、内容托管、向量检索或通用安全扫描服务；
 - Provider-issued resource identity 的跨账户、跨 Target 或跨 Provider 猜测与迁移。
 
-外部协议入口见[OpenAI 扩展协议调研索引](../references/openai/protocol-details/README.md)。
+外部协议入口见[OpenAI 细粒度协议调研索引](../references/openai/README.md)。

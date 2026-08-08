@@ -56,6 +56,5 @@ Search 生命周期；共同规则见[媒体扩展共同规则](embedding-and-na
 
 非目标包括 Files lifecycle、Uploads、Vector Stores、File Search、资源 ledger、跨 Provider migration、媒体托管与通用安全扫描。
 
-- [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)
-- [Files 协议调研](../references/openai/protocol-details/06-files.md)
-- [Uploads、Vector Stores、File Search 调研](../references/openai/protocol-details/07-uploads-vector-stores-file-search.md)
+- [OpenAI Chat 文件输入调研](../references/openai/files/chat-input.md)
+- [OpenAI Responses 文件输入调研](../references/openai/files/responses-input.md)

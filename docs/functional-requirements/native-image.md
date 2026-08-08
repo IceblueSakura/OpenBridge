@@ -60,5 +60,6 @@ Native 转发保持 mixed text/image part 的顺序、类型、URL/data、detail
 
 非目标包括 Images API、图片生成/编辑/variation、file-backed resource、媒体下载代理、OCR、格式转换和多模态 Bridge。
 
-- [Chat/Responses 多模态协议调研](../references/openai/protocol-details/02-chat-responses-multimodal.md)
+- [OpenAI Chat 图片输入调研](../references/openai/images/chat-input.md)
+- [OpenAI Responses 图片输入调研](../references/openai/images/responses-input.md)
 - [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi-mimo-image-protocol-2026-08-07.md)

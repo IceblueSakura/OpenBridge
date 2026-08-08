@@ -220,14 +220,14 @@ credential、identity 或 executable probe；`deepseek-v4-flash` 的两个下游
 | credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
 | 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
-| 实现 Embeddings、图片、文件或音频            | [扩展共同规则](functional-requirements/embedding-and-native-multimodal.md) → 对应功能需求 → [外部协议调研](references/openai/protocol-details/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
+| 实现 Embeddings、图片、文件或音频            | [扩展共同规则](functional-requirements/embedding-and-native-multimodal.md) → 对应功能需求 → [OpenAI 细粒度协议索引](references/openai/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：
 
-- [Chat Completions 协议](references/openai/chat-completions-protocol.md)
-- [Responses 协议](references/openai/responses-protocol.md)
-- [扩展协议调研](references/openai/protocol-details/README.md)
+- [Chat Completions 细粒度协议](references/openai/README.md#1-chat-completions)
+- [Responses 细粒度协议](references/openai/README.md#2-responses)
+- [OpenAI 协议调研总索引](references/openai/README.md)
 - [Codex OAuth 调研](references/codex/codex-device-auth-token-refresh-analysis.md)
 - [参考项目比较矩阵](references/project-comparison.md)
 - [Chat/Responses、SSE 与工具测试集调研](references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
