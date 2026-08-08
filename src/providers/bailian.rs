@@ -1,8 +1,8 @@
 //! Compile-time entry point for the Alibaba Cloud Model Studio Provider.
 //!
-//! The profile fixes the Beijing OpenAI-compatible endpoint, basic Chat wire contract, and
-//! explicitly approved model Targets. Model registration cannot supply a request-selected endpoint
-//! or key.
+//! The profile fixes the Beijing OpenAI-compatible endpoint, bounded Chat and Embeddings wire
+//! contracts, and explicitly approved model Targets. Model registration cannot supply a
+//! request-selected endpoint or key.
 
 mod definition;
 mod registration;

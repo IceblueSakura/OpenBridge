@@ -16,8 +16,10 @@
   将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
   `qwen/qwen3.7-max` 绑定为对应 Public Model；四者的 Public Model 都由一个 Chat Native Route 自动补充一个 Responses Bridge。
   百炼另外将
-  `qwen/qwen3.8-max`、`qwen/qwen-image-2.0-pro`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
-  `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，但暂不加入 Public Model 或 Route。
+  `qwen/qwen3.8-max`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
+  `qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
+  `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，并将 `qwen/qwen3.7-text-embedding` 编译为固定
+  Embeddings Upstream Target；这些条目暂不加入 Public Model 或 Route。
 - Kimi CN 固定到 `https://api.moonshot.cn`，使用独立的 `kimi-primary` API-key pool 和 OpenAI-compatible Chat adapter；
   `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model，提供 `/v1/chat/completions` Chat Native，并自动补充一个
   `Responses-via-Chat` Bridge Route。
@@ -113,7 +115,6 @@ payload。
 - 实现后 `cargo test --locked --test example_config kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge` 通过（1 项），覆盖
   Provider、API-key pool、可信 endpoint、canonical/provider/upstream model identity、Chat Native/自动 Responses Bridge Route、两协议
   本地规划和 `/v1/chat/completions` adapter model 替换；
-- `cargo test --locked --test provider_contract nvidia_bailian_and_kimi_adapters_bind_only_the_confirmed_chat_surface`：通过（1 项）；
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
 本轮未执行真实 Moonshot 请求、Models probe、外部 SDK、负载或长期运行测试；静态 Target、规划和 adapter 测试不证明真实账号权限、模型可用性、
@@ -130,11 +131,13 @@ payload。
   `cargo test --locked --lib`：通过（60 项）；
 - `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
-完整 `cargo test --locked` 已执行，但当前工作区已有的 Qwen canonical model 注册变更尚未同步其现有清单测试，
-`catalog::compiled_model_catalog_preserves_registered_model_facts` 因额外的
-`qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro` 和
-`qwen/qwen3.7-text-embedding` 条目失败；该失败不涉及本轮 Route/Bridge 改动，相关未提交文件保持不变。
-本轮仍未执行真实 Provider、外部 SDK、负载或长期运行测试。
+上述完整测试记录早于本次 Qwen 模型与 Bailian Target 变更；本次按要求未重新执行 Rust 测试、真实 Provider、外部 SDK、负载或长期运行测试。
+
+2026-08-08 Qwen 模型替换与 Bailian Target 扩展：
+
+- 移除 `qwen/qwen-image-2.0-pro` canonical profile 及其 Bailian Chat Target；新增的 Qwen Image 3.0、Qwen Image 3.0 Pro、Qwen Audio 3.0 ASR Flash、Qwen3.8 Max、Qwen3.5 LiveTranslate Flash Realtime 与 Qwen3.6 27B 均绑定固定 Bailian Chat Target。
+- `qwen/qwen3.7-text-embedding` 绑定固定 Bailian Embeddings Target，使用 `/embeddings` 兼容接口，并保留百炼公开的输入、维度、批量和 token 限制；该条目仍未加入 Public Model/Route。
+- 本次只执行 `cargo fmt -- --check` 与 `git diff --check`；按要求未执行 Rust 测试或真实 Bailian 请求。
 
 ## 相关文档
 

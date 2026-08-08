@@ -58,8 +58,8 @@ fn native_chat_adapter_builds_only_relative_upstream_request_parts() {
 }
 
 #[test]
-fn nvidia_bailian_and_kimi_adapters_bind_only_the_confirmed_chat_surface() {
-    // Verify each fixed API-key Provider contract exposes only the confirmed basic Chat surface.
+fn nvidia_bailian_and_kimi_adapters_bind_their_confirmed_api_surfaces() {
+    // Verify each fixed API-key Provider contract exposes only its confirmed API surfaces.
     for provider in [
         ProviderKind::Nvidia,
         ProviderKind::Bailian,
@@ -70,7 +70,10 @@ fn nvidia_bailian_and_kimi_adapters_bind_only_the_confirmed_chat_surface() {
         assert!(contract.capabilities().chat_completions.enabled);
         assert!(contract.capabilities().chat_completions.streaming);
         assert!(!contract.capabilities().responses.enabled);
-        assert!(!contract.capabilities().embeddings.enabled);
+        assert_eq!(
+            contract.capabilities().embeddings.enabled,
+            provider == ProviderKind::Bailian
+        );
 
         // Build a relative OpenAI-compatible request without selecting any endpoint or credential.
         let adapter = ProviderAdapter::for_kind(provider);

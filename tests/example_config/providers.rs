@@ -290,10 +290,22 @@ fn bailian_qwen_models_compile_as_fixed_chat_targets() {
             "qwen3.8-max",
         ),
         (
-            "bailian-qwen-image-2-0-pro",
-            "qwen/qwen-image-2.0-pro",
-            "bailian/qwen-image-2.0-pro",
-            "qwen-image-2.0-pro",
+            "bailian-qwen-image-3-0",
+            "qwen/qwen-image-3.0",
+            "bailian/qwen-image-3.0",
+            "qwen-image-3.0",
+        ),
+        (
+            "bailian-qwen-image-3-0-pro",
+            "qwen/qwen-image-3.0-pro",
+            "bailian/qwen-image-3.0-pro",
+            "qwen-image-3.0-pro",
+        ),
+        (
+            "bailian-qwen-audio-3-0-asr-flash",
+            "qwen/qwen-audio-3.0-asr-flash",
+            "bailian/qwen-audio-3.0-asr-flash",
+            "qwen-audio-3.0-asr-flash",
         ),
         (
             "bailian-qwen3-5-livetranslate-flash-realtime",
@@ -333,6 +345,30 @@ fn bailian_qwen_models_compile_as_fixed_chat_targets() {
         );
         assert!(target.upstream_api(OperationKind::Responses).is_none());
     }
+}
+
+#[test]
+fn bailian_qwen_embedding_model_compiles_as_a_native_embeddings_target() {
+    // Compile the complete registry so the Embeddings target crosses provider and model validation.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let target = registry
+        .upstream_target("bailian-qwen3-7-text-embedding")
+        .expect("Bailian Qwen embedding Target should compile");
+
+    assert_eq!(target.kind(), ProviderKind::Bailian);
+    assert_eq!(target.canonical_model_id(), "qwen/qwen3.7-text-embedding");
+    assert_eq!(target.provider_model_id(), "bailian/qwen3.7-text-embedding");
+    let embeddings = target
+        .upstream_api(OperationKind::EmbeddingsCreate)
+        .expect("Bailian Qwen embedding API should compile");
+    assert_eq!(embeddings.upstream_model(), "qwen3.7-text-embedding");
+    let UpstreamApiCapabilities::Embeddings(capabilities) = embeddings.capabilities() else {
+        panic!("expected Bailian Embeddings capabilities");
+    };
+    assert_eq!(capabilities.default_dimensions, 1_024);
+    assert_eq!(capabilities.max_inputs, 20);
+    assert_eq!(capabilities.max_tokens_per_input, Some(128_000));
 }
 
 #[test]

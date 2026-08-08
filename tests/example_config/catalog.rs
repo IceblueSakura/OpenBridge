@@ -30,7 +30,6 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
         "qwen/qwen3.7-text-embedding",
         "qwen/qwen3.8-max",
         "qwen/qwen-audio-3.0-asr-flash",
-        "qwen/qwen-image-2.0-pro",
         "qwen/qwen-image-3.0",
         "qwen/qwen-image-3.0-pro",
         "qwen/qwen3.5-livetranslate-flash-realtime",
@@ -212,8 +211,8 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
     let qwen_image = definition
         .models
         .iter()
-        .find(|model| model.id == "qwen/qwen-image-2.0-pro")
-        .expect("Qwen Image 2.0 Pro should be in the catalog");
+        .find(|model| model.id == "qwen/qwen-image-3.0-pro")
+        .expect("Qwen Image 3.0 Pro should be in the catalog");
     assert_eq!(qwen_image.context_length, Default::default());
     assert_eq!(
         qwen_image.input_modalities,
