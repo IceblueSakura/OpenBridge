@@ -62,6 +62,6 @@ compatibility、目标 Agent、负载、长期运行或其他媒体测试。
 
 - [功能需求：Native 图片能力](../../functional-requirements/native-image.md)
 - [扩展共同规则](../../functional-requirements/embedding-and-native-multimodal.md)
-- [MiMo 图片协议与真实观察](../../references/providers/xiaomi-mimo-image-protocol-2026-08-07.md)
+- [MiMo 图片协议与真实观察](../../references/providers/xiaomi/xiaomi-mimo-image-protocol-2026-08-07.md)
 - [Chat/Responses Native 转发](native-generation-forwarding.md)
 - [Models 接口与能力预检](models-api-and-capability-preflight.md)

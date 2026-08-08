@@ -112,4 +112,4 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 MP3/其他 preset voice，以及未单独获准的 voice design/clone 实现。
 
 - [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
-- [Xiaomi MiMo 音频理解、ASR/TTS 协议与真实观察](../references/providers/xiaomi-mimo-audio-protocol-2026-08-08.md)
+- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)

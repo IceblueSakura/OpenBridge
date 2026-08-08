@@ -62,4 +62,4 @@ Native 转发保持 mixed text/image part 的顺序、类型、URL/data、detail
 
 - [OpenAI Chat 图片输入调研](../references/openai/images/chat-input.md)
 - [OpenAI Responses 图片输入调研](../references/openai/images/responses-input.md)
-- [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi-mimo-image-protocol-2026-08-07.md)
+- [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi/xiaomi-mimo-image-protocol-2026-08-07.md)

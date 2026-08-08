@@ -179,7 +179,7 @@ level，不从共享默认值拼装模型字段；mode 与模态可作为显式�
 `ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被 伪装成可调用
 Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有字段；
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
-`:free` 变体边界见 [OpenRouter 模型目录快照](../references/openrouter/model-catalog-2026-08-02.md)。
+`:free` 变体边界见 [OpenRouter 模型目录快照](../references/providers/openrouter/model-catalog-2026-08-02.md)。
 ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical context/input limits 独立收窄为 272,000，最大输出保持
 128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；GPT-5.5 仍只有目录 profile。
 
