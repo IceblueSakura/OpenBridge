@@ -3,6 +3,34 @@
 use super::*;
 
 #[test]
+fn gpt_sol_keeps_the_chatgpt_chat_bridge_when_the_openai_target_is_disabled() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let mut definition = compiled_config();
+
+    // Reproduce the subscription-only deployment used by the real end-to-end matrix.
+    definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "openai-main")
+        .expect("the OpenAI source must exist")
+        .enabled = false;
+    let registry = build_registry(bootstrap, definition).unwrap();
+
+    // Require the remaining Responses-only source to provide an explicit streaming Chat Bridge.
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+    );
+    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(plan.candidates().len(), 1);
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "gpt-5.6-sol-chatgpt-chat-via-responses"
+    );
+    assert!(plan.candidates()[0].bridge().is_some());
+}
+
+#[test]
 fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unavailable() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let mut definition = compiled_config();

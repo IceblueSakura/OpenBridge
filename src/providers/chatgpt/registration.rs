@@ -9,8 +9,8 @@ use crate::{
     models::chatgpt,
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        NonStreamingConversion, ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig,
     },
 };
 
@@ -97,6 +97,9 @@ fn upstream_target(
                 ..UpstreamApiModelRules::default()
             },
             capabilities: responses_capabilities(advanced_capabilities),
+            streaming_policy: UpstreamStreamingPolicy::Required {
+                non_streaming: NonStreamingConversion::BufferResponsesSse,
+            },
             state_affinity: StateAffinity::TargetBound,
         }],
     }

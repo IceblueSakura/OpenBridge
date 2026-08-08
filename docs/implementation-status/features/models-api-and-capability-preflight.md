@@ -8,7 +8,7 @@
 ## 已完成内容
 
 - `GET /v1/models` 与 `GET /v1/models/{model}` 提供 OpenAI 标准四字段模型对象；扩展 Models 提供 operation、输入/输出 modality、reasoning、
-  state、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
+  state、独立的 `streaming`/`non_streaming` 支持状态、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
 - 每个 Public Model 的 Chat、Responses、Embeddings interface 在启动期按所有可执行 candidate 的保守交集编译；未知事实保持未知，不被
   猜测为支持。
 - generation interface 使用 typed function-tool 与 structured-output profile：分别公开 `tool_choice` mode 集合、parallel/strict
@@ -22,6 +22,8 @@
 - 请求先解析 operation-specific requirements，再对选定 Public Model 做一次能力、限制和 state-affinity preflight；不支持的请求在任何
   Provider egress 前以稳定本地错误拒绝。
 - 预检通过后仍按注册表的 Route 资格和顺序规划，不会因单条 Route 的额外能力跳过前序 Route、扩大公共契约或自动更换模型。
+- streaming-only Upstream API 的非流式转换开关也参与全部候选的保守交集；首选候选关闭转换时，后续候选即使支持 JSON 也不会使
+  `non_streaming` 升级或触发 capability routing。
 - 细粒度能力只用于一次公共契约预检，不参与候选筛选；同一 Public Model/operation 的全部静态候选以原配置顺序进入 RoutePlan，fallback
   仍只处理既有的首输出前可重试可用性失败。
 - Responses `previous_response_id` 只在所有可执行 Responses candidate 绑定同一且唯一的 issuing Target/API 时公开；潜在签发者不唯一时，

@@ -128,7 +128,15 @@ async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
     );
     assert_eq!(
         gpt_sol["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
-        1_050_000
+        272_000
+    );
+    assert_eq!(
+        gpt_sol["interfaces"]["chat_completions"]["non_streaming"],
+        "supported"
+    );
+    assert_eq!(
+        gpt_sol["interfaces"]["responses"]["non_streaming"],
+        "supported"
     );
 
     let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/gpt-5.6-sol").await;
@@ -174,6 +182,44 @@ async fn compiled_models_endpoints_expose_unprefixed_gpt_5_3_and_5_5_names() {
             assert_eq!(error["error"]["code"], "model_not_found");
         }
     }
+}
+
+#[tokio::test]
+async fn compiled_models_endpoints_expose_qwen_embedding_model() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+
+    // Verify both standard and extended Models lists expose the Qwen Embeddings Public Model.
+    for path in ["/v1/models", "/openbridge/v1/models"] {
+        let list = compiled_authenticated_get(&app, path).await;
+        let ids = list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"qwen3.7-text-embedding"));
+    }
+
+    // Verify standard retrieval remains four-field while the extension exposes Embeddings facts.
+    let standard = compiled_authenticated_get(&app, "/v1/models/qwen3.7-text-embedding").await;
+    assert_eq!(standard["id"], "qwen3.7-text-embedding");
+    assert_eq!(standard["object"], "model");
+    assert_eq!(standard["owned_by"], "openbridge");
+    let extended =
+        compiled_authenticated_get(&app, "/openbridge/v1/models/qwen3.7-text-embedding").await;
+    assert_eq!(
+        extended["capabilities"]["tasks"],
+        serde_json::json!(["embedding"])
+    );
+    assert_eq!(
+        extended["interfaces"]["chat_completions"],
+        serde_json::json!(null)
+    );
+    assert_eq!(extended["interfaces"]["responses"], serde_json::json!(null));
+    assert_eq!(
+        extended["interfaces"]["embeddings"]["dimensions"]["default"],
+        1024
+    );
 }
 
 #[tokio::test]

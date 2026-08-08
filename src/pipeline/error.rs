@@ -23,6 +23,9 @@ pub enum RequestPlanningError {
     /// The Public Model's fixed interface does not support streaming.
     #[error("selected model does not support streaming")]
     StreamingUnsupported,
+    /// The Public Model's fixed interface cannot deliver one complete non-streaming JSON response.
+    #[error("selected model does not support non-streaming responses")]
+    NonStreamingUnsupported,
     /// The Public Model's fixed interface does not support the requested capability.
     #[error("selected model does not support requested capabilities")]
     UnsupportedCapabilities,

@@ -26,6 +26,8 @@ pub enum StreamTerminal {
     Failed,
     /// Responses explicitly reports incomplete completion.
     Incomplete,
+    /// Responses explicitly reports cancellation.
+    Cancelled,
     /// Responses reports failure through a standalone `error` event.
     Error,
 }

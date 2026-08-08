@@ -5,16 +5,17 @@
 //! appends another upstream attempt.
 
 use axum::{body::to_bytes, response::Response};
-use http::{StatusCode, header::CONTENT_TYPE};
+use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 
 use crate::{
     bridge::BridgePlan, core::ApiProtocol, observability::RequestObservation,
-    provider::ProviderAdapter, transport::upstream::UpstreamResponse,
+    pipeline::StreamResponseConversion, provider::ProviderAdapter,
+    transport::upstream::UpstreamResponse,
 };
 
 use super::super::{
     response::{api_error, filtered_upstream_headers},
-    streaming::{bridge_sse_body, validate_sse_body},
+    streaming::{bridge_sse_body, buffer_responses_sse_body, validate_sse_body},
 };
 
 /// Response-conversion, SSE, and observation context for one selected candidate.
@@ -25,6 +26,7 @@ pub(super) struct UpstreamResponseContext {
     pub(super) max_sse_event_bytes: usize,
     pub(super) max_json_body_bytes: usize,
     pub(super) bridge: Option<BridgePlan>,
+    pub(super) stream_response_conversion: Option<StreamResponseConversion>,
     pub(super) observation: RequestObservation,
 }
 
@@ -46,12 +48,13 @@ pub(super) async fn upstream_response(
         max_sse_event_bytes,
         max_json_body_bytes,
         bridge,
+        stream_response_conversion,
         observation,
     } = context;
 
     // Extract status and safe response headers, enabling an observer only for successful SSE responses.
     let status = upstream.status();
-    let response_headers = filtered_upstream_headers(upstream.headers());
+    let mut response_headers = filtered_upstream_headers(upstream.headers());
     let is_sse = upstream
         .headers()
         .get(CONTENT_TYPE)
@@ -69,6 +72,15 @@ pub(super) async fn upstream_response(
             "The upstream response could not be converted",
         );
     }
+    // A planned streaming-to-JSON takeover accepts only a successful Responses SSE body.
+    if stream_response_conversion.is_some() && status.is_success() && !is_sse {
+        observation.record_stream_failure("invalid_upstream_response");
+        return api_error(
+            StatusCode::BAD_GATEWAY,
+            "invalid_upstream_response",
+            "The upstream response could not be converted",
+        );
+    }
 
     // Add transparent Provider usage/first-byte observation to successful non-SSE bodies without changing downstream bytes.
     let upstream_body = upstream.into_body();
@@ -79,7 +91,45 @@ pub(super) async fn upstream_response(
     };
 
     // Select takeover behavior among successful SSE, successful JSON/Native, and error bodies.
-    let body = if validate_sse && status.is_success() && is_sse {
+    let body = if status.is_success()
+        && stream_response_conversion == Some(StreamResponseConversion::BufferResponsesSse)
+    {
+        let upstream_body = match buffer_responses_sse_body(
+            upstream_body,
+            max_sse_event_bytes,
+            max_json_body_bytes,
+            &observation,
+        )
+        .await
+        {
+            Ok(body) => body,
+            Err(()) => {
+                observation.record_stream_failure("invalid_upstream_response");
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "invalid_upstream_response",
+                    "The upstream response could not be converted",
+                );
+            }
+        };
+        let downstream_body = if let Some(bridge) = bridge.as_ref() {
+            match bridge.render_non_stream(upstream_body) {
+                Ok(body) => body,
+                Err(_) => {
+                    observation.record_stream_failure("invalid_upstream_response");
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_response",
+                        "The upstream response could not be converted",
+                    );
+                }
+            }
+        } else {
+            upstream_body
+        };
+        response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        axum::body::Body::from(downstream_body)
+    } else if validate_sse && status.is_success() && is_sse {
         if let Some(bridge) = bridge {
             bridge_sse_body(
                 upstream_body,

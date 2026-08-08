@@ -17,6 +17,10 @@ use serde_json::json;
 const CANONICAL_MODEL: &str = "openai/text-embedding-3-small";
 const TARGET: &str = "openai-text-embedding-3-small";
 const ROUTE: &str = "text-embedding-3-small-openai-embeddings";
+const QWEN_CANONICAL_MODEL: &str = "qwen/qwen3.7-text-embedding";
+const QWEN_TARGET: &str = "bailian-qwen3-7-text-embedding";
+const QWEN_ROUTE: &str = "qwen3-7-text-embedding-bailian-embeddings";
+const QWEN_PUBLIC_MODEL: &str = "qwen3.7-text-embedding";
 
 #[test]
 fn checked_in_catalog_registers_one_dedicated_openai_embedding_route() {
@@ -191,4 +195,143 @@ fn checked_in_embedding_interface_is_discoverable_and_directly_plannable() {
             param: "dimensions"
         })
     ));
+}
+
+#[test]
+fn checked_in_catalog_registers_qwen_embedding_public_model_route() {
+    let definition = compiled_config();
+
+    // Verify the provider-independent Qwen Embeddings model facts and public parameters.
+    let model = definition
+        .models
+        .iter()
+        .find(|model| model.id == QWEN_CANONICAL_MODEL)
+        .expect("the Qwen embedding model must be compiled");
+    assert_eq!(model.mode, Some(ModelMode::Embedding));
+    assert_eq!(model.input_modalities, Some(vec![InputModality::Text]));
+    assert_eq!(
+        model.output_modalities,
+        Some(vec![OutputModality::Embedding])
+    );
+    assert_eq!(model.context_length.input_tokens(), Some(128_000));
+    assert_eq!(
+        model.supported_parameters,
+        ["dimensions", "encoding_format"]
+    );
+    assert_eq!(model.reasoning, ReasoningSupport::Unsupported);
+
+    // Verify the trusted Bailian Target and its single Native Embeddings API.
+    let target = definition
+        .upstream_targets
+        .iter()
+        .find(|target| target.id == QWEN_TARGET)
+        .expect("the Qwen embedding Target must be compiled");
+    let instance = definition
+        .provider_instances
+        .iter()
+        .find(|instance| instance.id == target.provider_instance)
+        .expect("the Qwen Target's Provider instance must be compiled");
+    assert_eq!(instance.kind, ProviderKind::Bailian);
+    assert_eq!(target.canonical_model, QWEN_CANONICAL_MODEL);
+    assert_eq!(target.provider_model, "bailian/qwen3.7-text-embedding");
+    assert_eq!(target.credential_pool, "bailian-primary");
+    assert!(target.enabled);
+    let [api] = target.upstream_apis.as_slice() else {
+        panic!("the Qwen embedding Target must contain exactly one Upstream API");
+    };
+    assert_eq!(
+        api.capabilities.operation(),
+        OperationKind::EmbeddingsCreate
+    );
+    assert_eq!(api.upstream_model, "qwen3.7-text-embedding");
+    let UpstreamApiCapabilities::Embeddings(capabilities) = api.capabilities else {
+        panic!("the Qwen Target must expose only Embeddings capabilities");
+    };
+    assert!(capabilities.enabled);
+    assert_eq!(capabilities.default_dimensions, 1_024);
+    assert_eq!(capabilities.max_inputs, 20);
+    assert_eq!(capabilities.max_tokens_per_input, Some(128_000));
+    assert_eq!(capabilities.max_total_tokens, None);
+
+    // Verify the Public Model owns exactly one direct Native Route to that Target.
+    let route = definition
+        .routes
+        .iter()
+        .find(|route| route.id == QWEN_ROUTE)
+        .expect("the Qwen Embeddings Route must be compiled");
+    assert_eq!(route.upstream_target, QWEN_TARGET);
+    assert_eq!(route.upstream_operation, OperationKind::EmbeddingsCreate);
+    assert_eq!(route.downstream_operation, OperationKind::EmbeddingsCreate);
+    assert_eq!(route.mode, RouteMode::Native);
+    let public_model = definition
+        .public_models
+        .iter()
+        .find(|model| model.id == QWEN_PUBLIC_MODEL)
+        .expect("the Qwen Embeddings Public Model must be compiled");
+    assert_eq!(public_model.routes, [QWEN_ROUTE]);
+}
+
+#[test]
+fn qwen_embedding_interface_is_discoverable_and_directly_plannable() {
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+        .expect("the checked-in bootstrap must remain valid");
+    let registry = build_compiled_registry(bootstrap)
+        .expect("the checked-in Qwen Embeddings registration must compile");
+
+    // Verify the Models projection exposes only the safe Qwen Embeddings contract.
+    let public_model = registry
+        .public_model(QWEN_PUBLIC_MODEL)
+        .expect("the Qwen Embeddings Public Model must be available");
+    assert_eq!(public_model.routes(), [QWEN_ROUTE]);
+    let info = serde_json::to_value(public_model.info()).unwrap();
+    assert_eq!(info["id"], QWEN_PUBLIC_MODEL);
+    assert_eq!(info["capabilities"]["tasks"], json!(["embedding"]));
+    assert_eq!(info["interfaces"]["chat_completions"], json!(null));
+    assert_eq!(info["interfaces"]["responses"], json!(null));
+    assert_eq!(
+        info["interfaces"]["embeddings"]["input_forms"],
+        json!(["string", "string_array"])
+    );
+    assert_eq!(
+        info["interfaces"]["embeddings"]["encoding"],
+        json!({"default": "float", "allowed": ["float"]})
+    );
+    assert_eq!(
+        info["interfaces"]["embeddings"]["dimensions"],
+        json!({
+            "default": 1024,
+            "allowed": {
+                "kind": "values",
+                "values": [64, 128, 256, 512, 768, 1024, 2560]
+            }
+        })
+    );
+    assert_eq!(info["interfaces"]["embeddings"]["limits"]["max_inputs"], 20);
+    assert_eq!(
+        info["interfaces"]["embeddings"]["limits"]["max_tokens_per_input"],
+        128_000
+    );
+    assert_eq!(
+        info["interfaces"]["embeddings"]["supported_parameters"],
+        json!(["dimensions", "encoding_format"])
+    );
+    let serialized = info.to_string();
+    assert!(!serialized.contains(QWEN_TARGET));
+    assert!(!serialized.contains(QWEN_ROUTE));
+
+    // Plan one dimension-constrained request through the same published contract and Route.
+    let body = Bytes::from_static(
+        br#"{"model":"qwen3.7-text-embedding","input":["alpha","beta"],"encoding_format":"float","dimensions":512}"#,
+    );
+    let requirements = analyze_embedding_request(&body).unwrap();
+    let plan = plan_embedding_request(&registry, &requirements, body).unwrap();
+    assert_eq!(plan.candidate().route_id(), QWEN_ROUTE);
+    assert_eq!(plan.candidate().upstream_target_id(), QWEN_TARGET);
+    assert_eq!(
+        plan.candidate().upstream_operation(),
+        OperationKind::EmbeddingsCreate
+    );
+    assert_eq!(plan.input_count(), 2);
+    assert_eq!(plan.encoding(), EmbeddingEncoding::Float);
+    assert_eq!(plan.dimensions(), 512);
 }

@@ -331,6 +331,8 @@ pub(super) async fn forward_request(
                                         .limits()
                                         .max_json_response_body_bytes(),
                                     bridge: candidate.bridge().cloned(),
+                                    stream_response_conversion: candidate
+                                        .stream_response_conversion(),
                                     observation: observation.clone(),
                                 },
                             )
@@ -363,6 +365,7 @@ pub(super) async fn forward_request(
                             max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
                             max_json_body_bytes: registry.limits().max_json_response_body_bytes(),
                             bridge: candidate.bridge().cloned(),
+                            stream_response_conversion: candidate.stream_response_conversion(),
                             observation: observation.clone(),
                         },
                     )
@@ -415,6 +418,7 @@ pub(super) async fn forward_request(
                 max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
                 max_json_body_bytes: registry.limits().max_json_response_body_bytes(),
                 bridge: failure.bridge,
+                stream_response_conversion: None,
                 observation,
             },
         )

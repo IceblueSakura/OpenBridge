@@ -481,12 +481,14 @@ pub(crate) fn native_upstream_apis(
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         },
         UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::TargetBound,
         },
     ]

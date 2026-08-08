@@ -459,6 +459,7 @@ fn embedding_registry_definition() -> RegistryConfig {
             upstream_model: "embedding-upstream".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(embedding_capabilities()),
+            streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         }],
     });

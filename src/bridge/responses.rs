@@ -61,9 +61,14 @@ impl ResponsesStreamState {
         // Advance lifecycle and output-item state from the explicit event type.
         match payload_type {
             "response.created" => self.on_created(&value),
+            "response.in_progress" => self.on_in_progress(&value),
             "response.output_item.added" => self.on_item_added(&value),
+            "response.content_part.added" => self.on_text_content_part(&value, false),
             "response.output_text.delta" => self.on_text_delta(&value),
+            "response.output_text.done" => self.on_text_done(&value),
+            "response.content_part.done" => self.on_text_content_part(&value, true),
             "response.reasoning_summary_part.added" => self.on_reasoning_part_added(&value),
+            "response.reasoning_summary_part.done" => self.on_reasoning_part_done(&value),
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 self.on_reasoning_delta(&value)
             }
@@ -76,6 +81,7 @@ impl ResponsesStreamState {
             "response.completed" => self.on_terminal(&value, StreamTerminal::Completed),
             "response.failed" => self.on_terminal(&value, StreamTerminal::Failed),
             "response.incomplete" => self.on_terminal(&value, StreamTerminal::Incomplete),
+            "response.cancelled" => self.on_terminal(&value, StreamTerminal::Cancelled),
             "error" => self.on_error(),
             _ => Err(BridgeStreamError::UnexpectedEvent),
         }
@@ -146,6 +152,21 @@ impl ResponsesStreamState {
         Ok(())
     }
 
+    /// Validates the optional in-progress response snapshot without replacing its identity.
+    fn on_in_progress(&self, value: &Value) -> Result<(), BridgeStreamError> {
+        // Accept this lifecycle marker only after creation and require the same response identity.
+        self.ensure_streaming()?;
+        let response = value
+            .get("response")
+            .ok_or(BridgeStreamError::InvalidJson)?;
+        if required_str(response, "id")? != self.response_id.as_deref().unwrap_or_default()
+            || required_str(response, "status")? != "in_progress"
+        {
+            return Err(BridgeStreamError::IdentityConflict);
+        }
+        Ok(())
+    }
+
     /// Registers an output item with a unique index, item ID, and call ID.
     fn on_item_added(&mut self, value: &Value) -> Result<(), BridgeStreamError> {
         // Verify that the stream has started and extract the stable output identity.
@@ -171,14 +192,11 @@ impl ResponsesStreamState {
                 text: String::new(),
                 completed: false,
             },
-            "reasoning" => {
-                reject_encrypted_reasoning(item)?;
-                ResponsesItem::Reasoning {
-                    item_id,
-                    text: reasoning_item_text(item)?,
-                    completed: false,
-                }
-            }
+            "reasoning" => ResponsesItem::Reasoning {
+                item_id,
+                text: reasoning_item_text(item)?,
+                completed: false,
+            },
             "function_call" => {
                 let call_id = required_str(item, "call_id")?.to_owned();
                 if self.items.values().any(
@@ -221,6 +239,60 @@ impl ResponsesStreamState {
                 text.push_str(delta);
                 Ok(())
             }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// Validates an output-text content-part snapshot against its registered message item.
+    fn on_text_content_part(
+        &self,
+        value: &Value,
+        completed_snapshot: bool,
+    ) -> Result<(), BridgeStreamError> {
+        // Bind the typed part to the same output and content identities used by text deltas.
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        if required_u64(value, "content_index")? != 0 {
+            return Err(BridgeStreamError::IdentityConflict);
+        }
+        let part = value.get("part").ok_or(BridgeStreamError::InvalidJson)?;
+        if required_str(part, "type")? != "output_text" {
+            return Err(BridgeStreamError::UnexpectedEvent);
+        }
+        let part_text = required_str(part, "text")?;
+        match self.items.get(&output_index) {
+            Some(ResponsesItem::Message {
+                item_id: known,
+                text,
+                completed: false,
+            }) if known == item_id
+                && (part_text == text || (!completed_snapshot && part_text.is_empty())) =>
+            {
+                Ok(())
+            }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// Validates the complete output-text snapshot against accumulated deltas.
+    fn on_text_done(&self, value: &Value) -> Result<(), BridgeStreamError> {
+        // Require the standard content identity and exact accumulated text before item completion.
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        if required_u64(value, "content_index")? != 0 {
+            return Err(BridgeStreamError::IdentityConflict);
+        }
+        let text = required_str(value, "text")?;
+        match self.items.get(&output_index) {
+            Some(ResponsesItem::Message {
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id && accumulated == text => Ok(()),
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -273,6 +345,34 @@ impl ResponsesStreamState {
                 accumulated.push_str(text);
                 Ok(())
             }
+            Some(_) => Err(BridgeStreamError::IdentityConflict),
+            None => Err(BridgeStreamError::UnknownOutputItem),
+        }
+    }
+
+    /// Validates a completed reasoning summary part without appending its text a second time.
+    fn on_reasoning_part_done(&self, value: &Value) -> Result<(), BridgeStreamError> {
+        // Require the final part snapshot to match the reasoning text accumulated for this item.
+        self.ensure_streaming()?;
+        let output_index = required_u64(value, "output_index")?;
+        let item_id = required_str(value, "item_id")?;
+        let part = value
+            .get("part")
+            .and_then(Value::as_object)
+            .ok_or(BridgeStreamError::InvalidJson)?;
+        if part.get("type").and_then(Value::as_str) != Some("summary_text") {
+            return Err(BridgeStreamError::UnexpectedEvent);
+        }
+        let text = part
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or(BridgeStreamError::InvalidJson)?;
+        match self.items.get(&output_index) {
+            Some(ResponsesItem::Reasoning {
+                item_id: known,
+                text: accumulated,
+                completed: false,
+            }) if known == item_id && accumulated == text => Ok(()),
             Some(_) => Err(BridgeStreamError::IdentityConflict),
             None => Err(BridgeStreamError::UnknownOutputItem),
         }
@@ -453,9 +553,9 @@ impl Default for ResponsesStreamState {
     }
 }
 
-/// Extracts plain content and summary from a reasoning item and rejects opaque continuation.
+/// Extracts visible reasoning content or summary while validating opaque continuation shape.
 fn reasoning_item_text(item: &Value) -> Result<String, BridgeStreamError> {
-    reject_encrypted_reasoning(item)?;
+    validate_encrypted_reasoning(item)?;
     let mut text = String::new();
     for (field, expected_type) in [("content", "reasoning_text"), ("summary", "summary_text")] {
         let Some(parts) = item.get(field).and_then(Value::as_array) else {
@@ -472,18 +572,16 @@ fn reasoning_item_text(item: &Value) -> Result<String, BridgeStreamError> {
     Ok(text)
 }
 
-/// Rejects reasoning items whose opaque Responses continuation cannot become plain Chat text.
-fn reject_encrypted_reasoning(item: &Value) -> Result<(), BridgeStreamError> {
+/// Validates opaque continuation without treating it as visible cross-protocol reasoning text.
+fn validate_encrypted_reasoning(item: &Value) -> Result<(), BridgeStreamError> {
     let Some(value) = item
         .get("encrypted_content")
         .filter(|value| !value.is_null())
     else {
         return Ok(());
     };
-    let content = value.as_str().ok_or(BridgeStreamError::InvalidJson)?;
-    if content.is_empty() {
-        Ok(())
-    } else {
-        Err(BridgeStreamError::UnexpectedEvent)
-    }
+    value
+        .as_str()
+        .map(|_| ())
+        .ok_or(BridgeStreamError::InvalidJson)
 }

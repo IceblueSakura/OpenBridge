@@ -543,21 +543,26 @@ data: {"type":"response.completed","response":{"id":"resp_reasoning_text","model
 
 #[test]
 fn responses_reasoning_summary_stream_maps_to_chat_reasoning_channel() {
-    let (plan, _) = BridgePlan::prepare_with_reasoning_output(
+    let (plan, request) = BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
         "public-model",
         "upstream-model",
         Bytes::from_static(
-            br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+            br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high","stream":true}"#,
         ),
         ReasoningOutput::Summary,
     )
         .expect("Chat request should be bridgeable");
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+    assert_eq!(
+        request["reasoning"],
+        serde_json::json!({"effort": "high", "summary": "auto"})
+    );
     let upstream = Bytes::from_static(
         br#"data: {"type":"response.created","response":{"id":"resp_summary","model":"upstream-model","object":"response","output":[],"status":"in_progress"}}
 
-data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"rs_summary","status":"in_progress","summary":[],"type":"reasoning"}}
+data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"encrypted_content":null,"id":"rs_summary","status":"in_progress","summary":[],"type":"reasoning"}}
 
 data: {"type":"response.reasoning_summary_part.added","item_id":"rs_summary","output_index":0,"part":{"text":"","type":"summary_text"},"type":"response.reasoning_summary_part.added"}
 
@@ -567,7 +572,7 @@ data: {"type":"response.reasoning_summary_text.delta","content_index":0,"delta":
 
 data: {"type":"response.reasoning_summary_text.done","content_index":0,"item_id":"rs_summary","output_index":0,"text":"decide tool","type":"response.reasoning_summary_text.done"}
 
-data: {"type":"response.output_item.done","output_index":0,"item":{"content":[],"id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"}}
+data: {"type":"response.output_item.done","output_index":0,"item":{"content":[],"encrypted_content":"opaque-continuation","id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"}}
 
 data: {"type":"response.output_item.added","output_index":1,"item":{"content":[],"id":"msg_summary","role":"assistant","status":"in_progress","type":"message"}}
 
@@ -575,7 +580,7 @@ data: {"type":"response.output_text.delta","content_index":0,"delta":"answer","i
 
 data: {"type":"response.output_item.done","output_index":1,"item":{"content":[{"annotations":[],"text":"answer","type":"output_text"}],"id":"msg_summary","role":"assistant","status":"completed","type":"message"}}
 
-data: {"type":"response.completed","response":{"id":"resp_summary","model":"upstream-model","object":"response","output":[{"content":[],"id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"},{"content":[{"annotations":[],"text":"answer","type":"output_text"}],"id":"msg_summary","role":"assistant","status":"completed","type":"message"}],"status":"completed"}}
+data: {"type":"response.completed","response":{"id":"resp_summary","model":"upstream-model","object":"response","output":[{"content":[],"encrypted_content":"opaque-continuation","id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"},{"content":[{"annotations":[],"text":"answer","type":"output_text"}],"id":"msg_summary","role":"assistant","status":"completed","type":"message"}],"status":"completed"}}
 
 "#,
     );

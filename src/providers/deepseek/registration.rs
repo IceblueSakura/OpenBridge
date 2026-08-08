@@ -59,6 +59,7 @@ fn target(
         capabilities: UpstreamApiCapabilities::ChatCompletions(
             CONTRACT.capabilities().chat_completions,
         ),
+        streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         state_affinity: StateAffinity::Unbound,
     }];
     if responses_enabled {
@@ -66,6 +67,7 @@ fn target(
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         });
     }

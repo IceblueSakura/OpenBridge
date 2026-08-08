@@ -18,6 +18,7 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
     source: &Map<String, Value>,
     upstream_model: &str,
     reasoning_supported: bool,
+    reasoning_summary: bool,
 ) -> Result<Value, BridgeError> {
     // Convert Chat messages and validate the local tool call/result identity ledger.
     let messages = source
@@ -42,7 +43,11 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
         if !reasoning_supported && effort != "none" {
             return Err(BridgeError::UnsupportedSemantics);
         }
-        result.insert("reasoning".to_owned(), json!({"effort": effort}));
+        let mut reasoning = json!({"effort": effort});
+        if reasoning_summary && effort != "none" {
+            reasoning["summary"] = Value::String("auto".to_owned());
+        }
+        result.insert("reasoning".to_owned(), reasoning);
     }
     if let Some(max_tokens) = source
         .get("max_completion_tokens")

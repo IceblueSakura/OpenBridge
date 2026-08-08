@@ -15,9 +15,10 @@ pub use availability::ConfigurationAvailabilityReport;
 pub use compiler::{build_registry, build_registry_with_active_pools};
 pub use definition::{
     CredentialPoolConfig, InputModality, ModelConfig, ModelContextLength, ModelLifecycle,
-    ModelLifecycleStatus, ModelMode, OutputModality, ProviderInstanceConfig, PublicModelConfig,
-    ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
-    RouteMode, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+    ModelLifecycleStatus, ModelMode, NonStreamingConversion, OutputModality,
+    ProviderInstanceConfig, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
+    ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
+    UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy,
     UpstreamTargetConfig,
 };
 pub use error::RegistryError;

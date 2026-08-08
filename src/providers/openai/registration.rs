@@ -97,6 +97,7 @@ fn embedding_target() -> UpstreamTargetConfig {
             upstream_model: "text-embedding-3-small".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         }],
     }

@@ -11,9 +11,9 @@ use openbridge::{
     core::OperationKind,
     provider::{CredentialKind, ProviderKind},
     registry::{
-        ModelContextLength, ModelLifecycle, ModelLifecycleStatus, PublicModelConfig,
-        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError,
-        UpstreamApiCapabilities, build_registry,
+        ModelContextLength, ModelLifecycle, ModelLifecycleStatus, NonStreamingConversion,
+        PublicModelConfig, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError,
+        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
     },
 };
 
@@ -668,6 +668,43 @@ fn registry_rejects_capability_elevation_and_unsupported_credential_kind() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), oauth),
         Err(RegistryError::UnsupportedCredentialPoolKind { .. })
+    ));
+}
+
+#[test]
+fn registry_rejects_responses_sse_buffering_on_non_responses_apis() {
+    // Attach the typed Responses-only conversion to a Chat Completions Upstream API.
+    let mut invalid = definition("test", "code-primary", "test-model");
+    invalid.upstream_targets[0].upstream_apis[0].streaming_policy =
+        UpstreamStreamingPolicy::Required {
+            non_streaming: NonStreamingConversion::BufferResponsesSse,
+        };
+
+    // Fail startup before an incompatible stream decoder can enter request planning.
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid),
+        Err(RegistryError::InvalidUpstreamStreamingPolicy { .. })
+    ));
+}
+
+#[test]
+fn registry_rejects_required_streaming_when_generation_streaming_is_disabled() {
+    // Declare a streaming-only policy on an API whose generation capability rejects streaming.
+    let mut invalid = definition("test", "code-primary", "test-model");
+    let upstream_api = &mut invalid.upstream_targets[0].upstream_apis[0];
+    let UpstreamApiCapabilities::ChatCompletions(capabilities) = &mut upstream_api.capabilities
+    else {
+        panic!("first synthetic API must be Chat Completions");
+    };
+    capabilities.streaming = false;
+    upstream_api.streaming_policy = UpstreamStreamingPolicy::Required {
+        non_streaming: NonStreamingConversion::Disabled,
+    };
+
+    // Fail startup before the planner can force a request mode the API says it cannot serve.
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid),
+        Err(RegistryError::InvalidUpstreamStreamingPolicy { .. })
     ));
 }
 

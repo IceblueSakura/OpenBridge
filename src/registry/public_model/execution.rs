@@ -9,7 +9,7 @@ use super::{
     EmbeddingInterfaceCapabilities, ModelInterfaceCapabilities, ModelInterfaces, PublicModelInfo,
     StandardModel,
 };
-use crate::registry::{ModelLifecycleStatus, RouteMode};
+use crate::registry::{ModelLifecycleStatus, RouteMode, UpstreamStreamingPolicy};
 
 /// Private execution candidate compiled from one statically executable Route.
 ///
@@ -25,6 +25,7 @@ pub(crate) struct RouteExecutionCandidate {
     pub(super) mode: RouteMode,
     pub(super) upstream_model: String,
     pub(super) reasoning_output: ReasoningOutput,
+    pub(super) streaming_policy: UpstreamStreamingPolicy,
 }
 
 impl RouteExecutionCandidate {
@@ -75,6 +76,11 @@ impl RouteExecutionCandidate {
     /// Returns the upstream reasoning-output classification required by bridge preparation.
     pub(crate) const fn reasoning_output(&self) -> ReasoningOutput {
         self.reasoning_output
+    }
+
+    /// Returns the trusted streaming requirement and non-streaming conversion policy.
+    pub(crate) const fn streaming_policy(&self) -> UpstreamStreamingPolicy {
+        self.streaming_policy
     }
 }
 

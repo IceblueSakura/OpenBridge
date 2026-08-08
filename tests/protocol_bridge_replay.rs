@@ -127,11 +127,22 @@ fn responses_failure_terminals_remain_distinct() {
         "../testdata/cases/faults/responses_native.error.terminal/upstream-stream.sse"
     ))
     .expect("Responses error fixture must reach a terminal");
+    let cancelled = replay_responses_fixture(
+        br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_cancelled","status":"in_progress"}}
 
-    // Preserve three failure terminals so the bridge cannot present error or incomplete as completed.
+event: response.cancelled
+data: {"type":"response.cancelled","response":{"id":"resp_cancelled","status":"cancelled"}}
+
+"#,
+    )
+    .expect("Responses cancelled stream must reach a terminal");
+
+    // Preserve every failure terminal so the bridge cannot present them as completed.
     assert_eq!(failed.terminal(), Some(StreamTerminal::Failed));
     assert_eq!(incomplete.terminal(), Some(StreamTerminal::Incomplete));
     assert_eq!(error.terminal(), Some(StreamTerminal::Error));
+    assert_eq!(cancelled.terminal(), Some(StreamTerminal::Cancelled));
 }
 
 #[test]

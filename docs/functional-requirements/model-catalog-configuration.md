@@ -104,6 +104,7 @@ name = "Example Chat"
 description = "Synthetic public model backed by two ordered Provider sources."
 created = 1785715200
 status = "active"
+routing_strategy = "source_first"
 sources = [
     "openai-example-chat-v1",
     "openrouter-example-chat-v1",
@@ -192,11 +193,13 @@ thinking 开关的 Chat API 将 `none` 编码为关闭、其余已声明 level �
 | `created`                     | 必填、非零的稳定 Unix 秒；不得使用启动时间。                                            |
 | `status`                      | 必填的 `active`、`deprecated` 或 `retired`。                                            |
 | `deprecated_at`、`retired_at` | 与状态一致的可选稳定 Unix 秒。                                                          |
+| `routing_strategy`            | 必填的 `native_first` 或 `source_first`；决定每个下游协议如何展开 source 与 Native/Bridge 优先级。 |
 | `sources`                     | 必填、非空、无重复的 `provider_models.id` 数组；数组顺序就是 Provider fallback 优先级。 |
 
-启动编译器按每个 Public Model 的 `sources` 显式顺序生成候选：对每个下游协议先生成所有 source 允许的 Native Route，再按同一
-source 顺序生成代码 integration profile 允许的 Bridge Route；Embedding 只生成 Native Route。配置不得 提供 Route ID、route
-prefix、协议转换方向或另一套 priority。每个 binding 首版必须且只能被一个 Public Model 引用，避免孤立 Target 或隐式 alias。
+启动编译器按 `routing_strategy` 与 `sources` 生成候选：`native_first` 对每个下游协议先生成所有 source 允许的 Native Route，再按
+同一 source 顺序生成 Bridge；`source_first` 对每个下游协议先遍历 source，再在同一 source 内生成 Native、随后生成显式或允许的
+Bridge。Embedding 只生成 Native Route。配置不得提供 Route ID、route prefix、协议转换方向或另一套 priority。每个 binding 首版
+必须且只能被一个 Public Model 引用，避免孤立 Target 或隐式 alias。
 
 ## 4. 缺失值、严格解析与启动校验
 
@@ -277,7 +280,7 @@ Provider DSL、协议转换脚本或原始 Route，也不能把 integration prof
 | MCFG-06 | 不存在代码默认模型注册与文件的 merge/override、文件监听、热重载或请求时配置读取。                                                                                          |
 | MCFG-07 | 模型目录不能发明参数词汇、Provider/integration profile、接口或能力；`model_rules` 只能收窄，也不能绕过代码内 Route 生成规则。                                              |
 | MCFG-08 | 同一有效输入确定性地产生同一模型集合和公开事实；除显式 `sources` 数组外，不依赖 TOML 表声明顺序、网络目录或当前时间。                                                      |
-| MCFG-09 | `public_models.sources` 顺序决定 Provider 优先级；启动按 Native-first/Bridge-second 固定展开，运行时不重新打分或重排。                                                     |
+| MCFG-09 | `public_models.routing_strategy` 只能是 `native_first`/`source_first`，`sources` 决定 Provider 优先级；启动按所选类型化策略固定展开，运行时不重新打分或重排。                  |
 | MCFG-10 | 未知或错配的 Provider/integration profile/Model/source、跨 Canonical Model 聚合、重复或孤立 binding 会在 egress 前阻止启动。                                               |
 
 确定性配置与 registry 测试只能证明解析、校验、装配和不可变性；不能证明目录事实与真实 Provider 当前能力一致。 真实能力扩大仍需独立

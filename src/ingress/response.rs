@@ -55,6 +55,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
         ),
         RequestPlanningError::UnsupportedProtocol
         | RequestPlanningError::StreamingUnsupported
+        | RequestPlanningError::NonStreamingUnsupported
         | RequestPlanningError::UnsupportedCapabilities
         | RequestPlanningError::OutputLimitExceeded
         | RequestPlanningError::MultimodalInputLimitExceeded

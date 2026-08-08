@@ -32,8 +32,9 @@ use openbridge::{
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
-        ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig,
-        RouteMode, UpstreamTarget, build_registry,
+        NonStreamingConversion, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
+        RegistryConfig, RouteConfig, RouteMode, UpstreamStreamingPolicy, UpstreamTarget,
+        build_registry,
     },
     transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -182,6 +183,10 @@ struct InvalidSseTransport;
 
 struct EofWithoutTerminalTransport;
 
+struct SuccessfulJsonTransport;
+
+struct OversizedResponsesSseTransport;
+
 struct PartialStreamFailureTransport {
     attempts: AtomicUsize,
 }
@@ -243,6 +248,7 @@ struct ChatGptRecordedRequest {
     input_is_array: bool,
     store_is_false: bool,
     output_limit_present: bool,
+    stream_is_true: bool,
     token_generation: SyntheticTokenGeneration,
     account_matches: bool,
     originator_matches: bool,
@@ -431,6 +437,7 @@ impl UpstreamTransport for ChatGptOAuthTransport {
             output_limit_present: ["max_output_tokens", "max_completion_tokens", "max_tokens"]
                 .iter()
                 .any(|field| body.get(*field).is_some()),
+            stream_is_true: body.get("stream").and_then(Value::as_bool) == Some(true),
             token_generation,
             account_matches: headers
                 .get("chatgpt-account-id")
@@ -476,9 +483,26 @@ impl UpstreamTransport for ChatGptOAuthTransport {
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 response_headers,
-                Body::from(
-                    "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"delta\":\"hello\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\"}}\n\n",
-                ),
+                Body::from(concat!(
+                    "event: response.created\n",
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\",\"model\":\"gpt-5.6-luna\",\"object\":\"response\",\"output\":[],\"status\":\"in_progress\"}}\n\n",
+                    "event: response.in_progress\n",
+                    "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\"}}\n\n",
+                    "event: response.output_item.added\n",
+                    "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+                    "event: response.content_part.added\n",
+                    "data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+                    "event: response.output_text.delta\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"delta\":\"hello\"}\n\n",
+                    "event: response.output_text.done\n",
+                    "data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"text\":\"hello\"}\n\n",
+                    "event: response.content_part.done\n",
+                    "data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}}\n\n",
+                    "event: response.output_item.done\n",
+                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}]}}\n\n",
+                    "event: response.completed\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n",
+                )),
             ))
         })
     }
@@ -611,8 +635,52 @@ impl UpstreamTransport for EofWithoutTerminalTransport {
                 StatusCode::OK,
                 response_headers,
                 Body::from(Bytes::from_static(
-                    b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hi\",\"logprobs\":[]}\n\n",
+                    b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hi\",\"logprobs\":[]}\n\n",
                 )),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for SuccessfulJsonTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Return JSON success where the selected streaming-only Responses API requires SSE.
+        Box::pin(async {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(r#"{"id":"resp_json","object":"response","status":"completed"}"#),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for OversizedResponsesSseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Return one syntactically valid event whose raw body exceeds the test JSON takeover budget.
+        Box::pin(async {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let padding = "x".repeat(512);
+            let body = format!(
+                "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"id\":\"resp_large\",\"status\":\"in_progress\"}},\"padding\":\"{padding}\"}}\n\n"
+            );
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(body),
             ))
         })
     }
@@ -1040,6 +1108,32 @@ fn app_with_transport_and_definition(
     definition: RegistryConfig,
 ) -> axum::Router {
     let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-token-0000000000000000",
+        &registry,
+        "upstream-token",
+    );
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
+    build_router(state)
+}
+
+fn app_with_streaming_only_responses_transport(
+    transport: Arc<dyn UpstreamTransport>,
+    max_json_response_body_bytes: usize,
+) -> axum::Router {
+    // Enable the trusted Responses SSE takeover on the synthetic Responses Upstream API.
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    definition.upstream_targets[0].upstream_apis[1].streaming_policy =
+        UpstreamStreamingPolicy::Required {
+            non_streaming: NonStreamingConversion::BufferResponsesSse,
+        };
+
+    // Build a registry with an explicit small or production-like response budget for takeover tests.
+    let bootstrap_document = support::BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        &format!("max_json_response_body_bytes = {max_json_response_body_bytes}"),
+    );
+    let registry = build_registry(support::bootstrap(&bootstrap_document), definition).unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-token-0000000000000000",
         &registry,

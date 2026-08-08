@@ -130,6 +130,9 @@ fn validate_interface_request(
     if requested_features.streaming && !interface.supports_streaming() {
         return Err(RequestPlanningError::StreamingUnsupported);
     }
+    if !requested_features.streaming && !interface.supports_non_streaming() {
+        return Err(RequestPlanningError::NonStreamingUnsupported);
+    }
     if requested_features
         .function_tool_choice
         .is_some_and(|mode| !interface.supports_tool_choice(mode))

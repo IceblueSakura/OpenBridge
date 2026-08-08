@@ -63,6 +63,7 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
         assert!(request.input_is_array);
         assert!(request.store_is_false);
         assert!(!request.output_limit_present);
+        assert!(request.stream_is_true);
         assert_eq!(request.token_generation, SyntheticTokenGeneration::First);
         assert!(request.account_matches);
         assert!(request.originator_matches);
@@ -127,6 +128,7 @@ async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
     assert!(request.input_is_array);
     assert!(request.store_is_false);
     assert!(!request.output_limit_present);
+    assert!(request.stream_is_true);
     assert_eq!(request.token_generation, SyntheticTokenGeneration::First);
     assert!(request.account_matches);
     assert!(request.originator_matches);
@@ -178,7 +180,7 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
 }
 
 #[tokio::test]
-async fn chatgpt_rejects_non_streaming_requests_before_egress() {
+async fn chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
     fs::write(directory.auth_file(), document).unwrap();
@@ -191,21 +193,56 @@ async fn chatgpt_rejects_non_streaming_requests_before_egress() {
     });
     let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
 
-    // Reject the non-streaming default before an SSE-only upstream exchange can begin.
-    let request = Request::post("/v1/responses")
+    // Convert the streaming-only upstream response into one Native Responses JSON document.
+    let responses_request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(
             AUTHORIZATION,
             "Bearer downstream-token-00000000000000000000000000000000",
         )
-        .body(Body::from(r#"{"model":"gpt-5.6-sol","input":"hello"}"#))
+        .body(Body::from(r#"{"model":"gpt-5.6-luna","input":"hello"}"#))
         .unwrap();
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-    let error: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(error["error"]["code"], "unsupported_request");
-    assert!(transport.requests.lock().unwrap().is_empty());
+    let responses_response = app.clone().oneshot(responses_request).await.unwrap();
+    assert_eq!(responses_response.status(), StatusCode::OK);
+    assert_eq!(
+        responses_response.headers()[CONTENT_TYPE],
+        "application/json"
+    );
+    let responses_body = to_bytes(responses_response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let responses: Value = serde_json::from_slice(&responses_body).unwrap();
+    assert_eq!(responses["object"], "response");
+    assert_eq!(responses["model"], "gpt-5.6-luna");
+    assert_eq!(responses["status"], "completed");
+    assert_eq!(responses["output"][0]["content"][0]["text"], "hello");
+    assert_eq!(responses["usage"]["total_tokens"], 2);
+
+    // Reuse the same bounded terminal snapshot through the existing non-streaming Chat Bridge.
+    let chat_request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}]}"#,
+        ))
+        .unwrap();
+    let chat_response = app.oneshot(chat_request).await.unwrap();
+    assert_eq!(chat_response.status(), StatusCode::OK);
+    assert_eq!(chat_response.headers()[CONTENT_TYPE], "application/json");
+    let chat_body = to_bytes(chat_response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let chat: Value = serde_json::from_slice(&chat_body).unwrap();
+    assert_eq!(chat["object"], "chat.completion");
+    assert_eq!(chat["choices"][0]["message"]["content"], "hello");
+
+    // Require both downstream non-streaming calls to use the upstream streaming envelope.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests.iter().all(|request| request.stream_is_true));
 }
 
 #[tokio::test]

@@ -10,9 +10,9 @@ use openbridge::{
     },
     pipeline::RequestPlanningError,
     registry::{
-        ModelContextLength, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
-        RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry, UpstreamApiCapabilities,
-        build_registry,
+        ModelContextLength, NonStreamingConversion, ReasoningLevel, ReasoningLevelMapping,
+        ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry,
+        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
     },
 };
 use serde_json::{Value, json};
@@ -365,6 +365,47 @@ fn public_model_preflight_rejects_streaming_when_the_fixed_interface_disables_it
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
         RequestPlanningError::StreamingUnsupported
+    ));
+}
+
+#[test]
+fn public_model_preflight_rejects_non_streaming_when_conversion_is_disabled() {
+    // Compile a streaming-only Chat API whose trusted non-streaming conversion switch is off.
+    let mut definition = base_definition();
+    definition.upstream_targets[0].upstream_apis[0].streaming_policy =
+        UpstreamStreamingPolicy::Required {
+            non_streaming: NonStreamingConversion::Disabled,
+        };
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = "openai-non-streaming-fallback".to_owned();
+    fallback.upstream_apis[0].streaming_policy = UpstreamStreamingPolicy::Optional;
+    definition.upstream_targets.push(fallback);
+    definition.routes.push(RouteConfig {
+        id: "non-streaming-fallback-chat".to_owned(),
+        upstream_target: "openai-non-streaming-fallback".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0]
+        .routes
+        .push("non-streaming-fallback-chat".to_owned());
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["non_streaming"],
+        "unsupported"
+    );
+
+    // Reject before egress instead of skipping the preferred source for a stronger fallback Route.
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": []
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
+        RequestPlanningError::NonStreamingUnsupported
     ));
 }
 

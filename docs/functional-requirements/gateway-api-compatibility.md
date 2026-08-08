@@ -42,9 +42,10 @@ billing identity；变更需要重启。认证失败与未知/不支持 endpoint
 - 请求能力只在所选 Public Model 边界预检一次，不参与选模、Route 候选资格、顺序或 fallback。预检通过后，Route 仍按配置顺序固定
   Upstream Target、Upstream API、下游 operation 和执行模式；generation `Native` 要求协议相同，`Bridged` 要求协议相反且通过完整
   `BridgePlan` preflight，Embeddings 只允许同 operation Native。
-- Route 编译遵循 Native-first 的缺失协议补全规则：先汇总一个 Public Model 的 Chat/Responses Native coverage；某个 downstream
-  protocol 没有 Native candidate 时，才从具备相反 Native protocol 的 source 自动补充对应 Bridge candidates，并保持 source 顺序。
-  已完整覆盖 Native 的 Public Model 不因自动规则增加冗余 Bridge；显式声明的 Bridge surface 仍须通过同一套完整 preflight。
+- 每个 generation Public Model 必须显式声明一种类型化 Route ordering strategy。`NativeFirst` 对每个 downstream protocol 先按
+  source 顺序排列全部 Native，再排列 Bridge；`SourceFirst` 对每个 downstream protocol 先保持 source 顺序，再在同一 source 内将
+  Native 排在 Bridge 前。自动 Bridge 只补全整个 Public Model 缺失的 Native protocol coverage；显式 Bridge surface 可以在其他
+  source 已有 Native coverage 时保留。两种策略都在启动期冻结，运行时不得因请求能力、价格、健康或 Provider 名称重新打分或重排。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游
   URL、模型、credential、provider family、route、转换脚本或 header 转换规则。Provider 的受信代码 hook 可以按编译期规则增添、替换、转换或删除普通
   header，但认证、cookie、Host 与 proxy header 始终隔离。
@@ -89,6 +90,19 @@ hosted/custom tool、image、structured output、background/store 和 Provider �
   retry、fallback 或将其他 Upstream Target 的内容拼入当前 stream。
 - 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法但无 terminal 的 EOF 不得伪造成 completed。
 - response headers 和 SSE bytes 的处理必须受大小、UTF-8、event 数量/长度与慢消费者资源上限保护。
+
+上游 API 可以通过可信类型化策略声明自己强制 `stream: true`。这种 API 面对下游非流式请求时只能选择以下一种固定行为：
+
+- 禁用转换：该 Route 对接口贡献 `non_streaming: unsupported`；固定 Public Model 契约按全部候选相交，并在 egress 前拒绝非流式请求，
+  不得跳过首选 Route 去选择后续更强候选。
+- 启用 Responses SSE buffering：规划器固定写入上游 `stream: true`，在 `max_json_response_body_bytes` 与单 event 上限内完整缓冲，使用
+  类型化 Responses lifecycle 校验 framing、identity 和显式 completed/failed/incomplete/cancelled terminal，并从 response snapshot 与
+  有序 `response.output_item.done` 组装完整 response，之后才一次性返回 JSON；若下游为 Chat，则再执行既有非流式
+  Responses→Chat Bridge。稀疏 terminal 可以补齐已验证的 completed items，但缺失 terminal 不得被补造成成功。
+
+成功响应不是 SSE、非法 UTF-8/framing、body 超限、缺少 terminal、独立 error 或 Bridge 不可表示时必须在下游 body 提交前返回安全的
+`invalid_upstream_response`。该开关属于受信 Upstream API 配置，客户端不得覆盖。当前转换只适用于 Responses SSE，不得把 Chat 的
+data-only SSE chunks 猜测性聚合为 JSON。
 
 运行期 TTFT 与输出速度必须以实际 token-bearing SSE delta 为边界：除 text 和 function arguments 外，Native wire 中明确出现的
 reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只记录第一次命中；后续 chunk/delta 不得重复执行同一聚合热路径。

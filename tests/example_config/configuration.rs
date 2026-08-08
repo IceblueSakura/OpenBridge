@@ -26,10 +26,11 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .expect("public model is compiled")
             .routes(),
         [
+            "gpt-5.6-sol-chatgpt-chat-via-responses",
             "gpt-5.6-sol-openai-chat",
             "gpt-5.6-sol-openai-chat-via-responses",
-            "gpt-5.6-sol-openai-responses",
             "gpt-5.6-sol-chatgpt-responses",
+            "gpt-5.6-sol-openai-responses",
             "gpt-5.6-sol-openai-responses-via-chat",
         ]
     );
@@ -41,11 +42,19 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let gpt_info = serde_json::to_value(gpt_pool.info()).unwrap();
     assert_eq!(
         gpt_info["interfaces"]["chat_completions"]["context_window"]["max_context_tokens"],
-        1_050_000
+        272_000
     );
     assert_eq!(
         gpt_info["interfaces"]["responses"]["context_window"]["max_context_tokens"],
         272_000
+    );
+    assert_eq!(
+        gpt_info["interfaces"]["chat_completions"]["non_streaming"],
+        "supported"
+    );
+    assert_eq!(
+        gpt_info["interfaces"]["responses"]["non_streaming"],
+        "supported"
     );
 
     let longcat = registry

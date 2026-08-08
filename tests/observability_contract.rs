@@ -422,6 +422,7 @@ fn embedding_observability_app(
                 locally_counted_input_forms: &[EmbeddingInputForm::TokenArray],
                 supported_parameters: OBSERVED_EMBEDDING_PARAMETERS,
             }),
+            streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         }],
     });

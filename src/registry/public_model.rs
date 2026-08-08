@@ -599,6 +599,7 @@ pub struct ModelInterfaceCapabilities {
     audio_task: Option<AudioTask>,
     supported_parameters: Vec<String>,
     streaming: SupportState,
+    non_streaming: SupportState,
     system_messages: SupportState,
     tools: ToolCapabilities,
     structured_outputs: StructuredOutputCapabilities,
@@ -716,6 +717,11 @@ impl ModelInterfaceCapabilities {
     /// Returns whether the interface guarantees streaming support.
     pub(crate) const fn supports_streaming(&self) -> bool {
         self.streaming.is_supported()
+    }
+
+    /// Returns whether the interface guarantees one complete non-streaming JSON response.
+    pub(crate) const fn supports_non_streaming(&self) -> bool {
+        self.non_streaming.is_supported()
     }
 
     /// Returns whether the interface guarantees one function-tool choice mode.

@@ -12,6 +12,7 @@ mod types;
 pub use analysis::{analyze_embedding_request, analyze_request};
 pub use error::{EmbeddingRequestError, RequestPlanningError};
 pub use planning::{plan_embedding_request, plan_request};
+pub(crate) use types::StreamResponseConversion;
 pub use types::{
     EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan, RequestRequirements,
     RouteCandidate, RoutePlan,

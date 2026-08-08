@@ -71,6 +71,14 @@ pub struct RouteCandidate {
     pub(super) upstream_operation: OperationKind,
     pub(super) request: ApiRequest,
     pub(super) bridge: Option<BridgePlan>,
+    pub(super) stream_response_conversion: Option<StreamResponseConversion>,
+}
+
+/// Trusted response takeover required when one streaming-only upstream satisfies a non-streaming request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamResponseConversion {
+    /// Buffers a complete typed Responses SSE lifecycle and returns its terminal response as JSON.
+    BufferResponsesSse,
 }
 
 /// Capabilities actually used by one request, independent of any Upstream API configuration.
@@ -292,5 +300,10 @@ impl RouteCandidate {
     /// Returns the response conversion plan for a Bridged Route; a Native candidate returns `None`.
     pub fn bridge(&self) -> Option<&BridgePlan> {
         self.bridge.as_ref()
+    }
+
+    /// Returns the trusted streaming-response conversion selected during planning.
+    pub(crate) const fn stream_response_conversion(&self) -> Option<StreamResponseConversion> {
+        self.stream_response_conversion
     }
 }

@@ -52,6 +52,7 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
             capabilities: UpstreamApiCapabilities::ChatCompletions(
                 CONTRACT.capabilities().chat_completions,
             ),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         }],
     }

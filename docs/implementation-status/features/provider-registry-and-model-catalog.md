@@ -9,8 +9,8 @@
 
 - 注册表分离 canonical Model、Provider instance、credential pool、Upstream Target、Upstream API、Route 和 Public Model 的所有权。
 - 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo、ChatGPT、NVIDIA、阿里云百炼 Model Studio 和 Kimi CN；
-  ChatGPT 使用独立 OAuth manager，固定 target 提供 Responses Native；Responses-only Public Model 的 Chat coverage 由编译器自动补充
-  受限 Chat Bridge，已由其他 source 完整覆盖 Native 的 merged Public Model 不重复生成该自动 Bridge。
+  ChatGPT 使用独立 OAuth manager，固定 target 提供 Responses Native，并以显式/自动受限 Chat Bridge 提供 Chat coverage；其 Upstream
+  API 类型化声明 streaming required，并启用 bounded Responses SSE→JSON 转换。
 - OpenAI 现在编译 `openai-main`、`openai-gpt-5-5`、`openai-gpt-5-6-luna`、`openai-gpt-5-6-terra` 四个 generation Target，
   以及 `openai-text-embedding-3-small` Embeddings Target；它们都使用 `openai-primary` API-key pool。新增的三个 generation
   Target 只绑定 canonical profile，不新增下游 Public Model 或 Route；`openai-primary` 缺失或为空时这些 Target 保留在注册表中但配置态禁用。
@@ -23,7 +23,8 @@
   `qwen/qwen3.8-max`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
   `qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
   `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，并将 `qwen/qwen3.7-text-embedding` 编译为固定
-  Embeddings Upstream Target；这些条目暂不加入 Public Model 或 Route。
+  Embeddings Upstream Target；其中 `qwen3.7-text-embedding` 已加入唯一
+  `qwen3-7-text-embedding-bailian-embeddings` Native Route 和同名 Public Model，其余条目仍暂不加入 Public Model 或 Route。
 - Kimi CN 固定到 `https://api.moonshot.cn`，使用独立的 `kimi-primary` API-key pool 和 OpenAI-compatible Chat adapter；
   `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model，提供 `/v1/chat/completions` Chat Native，并自动补充一个
   `Responses-via-Chat` Bridge Route。
@@ -31,8 +32,9 @@
   `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和 `mimo-v2.5-tts-voiceclone`，以及
   `minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
   `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra`；
-  `text-embedding-3-small` 是独立 Embeddings Public Model。
-- `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
+  `text-embedding-3-small` 与 `qwen3.7-text-embedding` 是独立 Embeddings Public Model。
+- `gpt-5.6-sol` 显式绑定 ChatGPT 与 OpenAI 两个 source，并使用 `SourceFirst` 让两个下游协议都优先 ChatGPT、再回落 OpenAI；
+  固定接口仍按全部可执行候选的最小公共契约公开；
   `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
   `minimax-m3` 显式绑定 OpenRouter 双协议 Native 与 NVIDIA Chat Native 两个 source：Chat 按 OpenRouter、NVIDIA 排序，Responses
   只使用 OpenRouter Native。其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
@@ -40,9 +42,12 @@
   `provider_model` 使用 `provider/model`，而下游只接触不带前缀的 Public Model 名称。
 - 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和
   Public Model 在本次运行中不可执行，但不会从代码注册表删除 Provider 或 Model。
-- Public Model 编译先统计 Chat/Responses Native coverage，再按 source 顺序生成 Native candidates；缺失某一 downstream protocol 时，
-  才从相反 Native surface 自动补充同顺序 Bridge candidates。显式双协议 Bridge surface 仍保留已声明 Bridge；注册表保存固定
-  Route 顺序，不由请求重排。
+- 每个 generation Public Model 显式声明 `NativeFirst` 或 `SourceFirst`。前者按协议排列全部 Native 后再排列 Bridge；后者按协议先
+  保持 source 顺序、再在 source 内优先 Native。缺失某一 downstream protocol 时才自动补充 Bridge；显式 Bridge surface 可在其他
+  source 已有 Native coverage 时保留。注册表保存固定 Route 顺序，请求能力不会筛选或重排候选。
+- `UpstreamStreamingPolicy` 显式区分 optional streaming 与 required streaming；required API 的非流式转换开关只能关闭，或选择
+  Responses SSE buffering。错误 operation/capability 组合在启动时失败，关闭转换的候选会把固定接口 `non_streaming` 收窄为
+  `unsupported`，不会因后续候选更强而被跳过。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
 - MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
   Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。
@@ -194,6 +199,33 @@ payload。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 - 本轮确定性测试不证明 OpenRouter 或 NVIDIA 真实 endpoint 接受 `none/high`、返回可读 reasoning，或在 fallback 时保持相同
   Provider 行为；真实 Provider、Models HTTP probe、外部 SDK、负载和长期运行均未执行。
+
+2026-08-09 Qwen3.7 Text Embedding Public Model/Route：
+
+- 将已有 `bailian-qwen3-7-text-embedding` Embeddings Target 接入下游 `qwen3.7-text-embedding` Public Model，新增唯一
+  `qwen3-7-text-embedding-bailian-embeddings` Native Route；标准 `/v1/models` 与扩展 `/openbridge/v1/models` 均公开该模型，
+  请求规划固定使用百炼 `/embeddings` Native API。
+- `cargo test --locked --test embedding_registry_contract`：通过（4 项）；当前完整 Rust baseline 也已覆盖该 Public Model、Models
+  endpoint 与固定百炼 Route。
+- 未执行真实百炼请求、Models probe、外部 SDK、负载或长期运行验收。
+
+2026-08-09 类型化 Route strategy 与 streaming-only Responses 非流式转换：
+
+- generation registration 新增显式 `NativeFirst`/`SourceFirst`；GPT 使用 `SourceFirst`。`gpt-5.6-sol` source 顺序调整为
+  ChatGPT、OpenAI，因此 ChatGPT Chat Bridge 与 Responses Native 分别排在 OpenAI 候选前；普通模型的既有 Native-first 顺序不变。
+- `UpstreamApiConfig` 新增 `UpstreamStreamingPolicy` 与 `NonStreamingConversion`。ChatGPT Responses 固定为 required streaming +
+  `BufferResponsesSse`；其他当前 API 为 optional。错误 operation/capability 组合在 registry startup 校验失败。
+- 扩展 Models generation interface 新增 `non_streaming`。该值按全部候选保守相交；首选候选关闭转换时，非流式请求会在 egress 前由
+  capability preflight 拒绝，不会跳过到后续 optional candidate。
+- 下游非流式 ChatGPT Chat/Responses 会强制上游 `stream: true`，在 JSON/SSE limit 内完整校验 Responses lifecycle；转换器用
+  response snapshots、有序 `response.output_item.done` 与显式 terminal 组装 Native response，Chat 再使用既有非流式 Bridge。非法
+  SSE、非 SSE success、超限 body 与缺少 terminal 均返回安全 502。
+- RED：Route compiler 聚焦测试先观察到 OpenAI Native 排在 ChatGPT Bridge 前；ChatGPT 非流式 forwarding 测试先观察到 HTTP 400
+  而非预期 200，加入标准 in-progress/content-part/text-done lifecycle 后又先观察到 502。GREEN：稀疏 terminal 由已验证的
+  `output_item.done` 补齐；route compiler 7 项、stream takeover failure 4 项、`example_config` 24 项与 `forwarding_contract` 52 项通过。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+- 本轮未新增 OpenRouter GPT source，也未执行真实 ChatGPT/OpenAI Provider、Models probe、外部 SDK、负载或长期运行验收；实现与测试
+  不依赖 Hermes/Codex runtime。
 
 ## 相关文档
 

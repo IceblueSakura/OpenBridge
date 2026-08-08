@@ -115,6 +115,7 @@ fn embedding_target() -> UpstreamTargetConfig {
             upstream_model: "qwen3.7-text-embedding".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(CONTRACT.capabilities().embeddings),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::Unbound,
         }],
     }
@@ -137,6 +138,7 @@ fn chat_target(
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules::default(),
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
+        streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         state_affinity: StateAffinity::Unbound,
     }];
     if matches!(
@@ -147,6 +149,7 @@ fn chat_target(
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             state_affinity: StateAffinity::TargetBound,
         });
     }

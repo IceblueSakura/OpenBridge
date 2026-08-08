@@ -463,6 +463,80 @@ async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
 }
 
 #[tokio::test]
+async fn buffered_non_streaming_responses_reject_eof_before_terminal() {
+    let app = app_with_streaming_only_responses_transport(
+        Arc::new(EofWithoutTerminalTransport),
+        16_777_216,
+    );
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
+        .unwrap();
+
+    // Refuse to synthesize a non-streaming response from a stream without an explicit terminal.
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
+async fn buffered_non_streaming_responses_reject_invalid_sse() {
+    let app =
+        app_with_streaming_only_responses_transport(Arc::new(InvalidSseTransport), 16_777_216);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
+        .unwrap();
+
+    // Convert framing or UTF-8 failures into one safe JSON gateway error before response takeover.
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
+async fn buffered_non_streaming_responses_require_sse_content_type() {
+    let app =
+        app_with_streaming_only_responses_transport(Arc::new(SuccessfulJsonTransport), 16_777_216);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
+        .unwrap();
+
+    // Do not reinterpret a success body that violates the configured streaming-only API contract.
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
+async fn buffered_non_streaming_responses_enforce_the_json_takeover_budget() {
+    let app =
+        app_with_streaming_only_responses_transport(Arc::new(OversizedResponsesSseTransport), 128);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
+        .unwrap();
+
+    // Reject the raw SSE body before buffering can exceed the configured non-streaming budget.
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
 async fn partial_upstream_stream_failures_close_without_a_retry() {
     let transport = Arc::new(PartialStreamFailureTransport {
         attempts: AtomicUsize::new(0),

@@ -26,9 +26,10 @@ pub(super) fn compiled_routing() -> CompiledRouting {
     let mut routing =
         route_compiler::compile_generation_routing(public_models::generation_registrations());
 
-    // Append the independent Embeddings registration after all generation Public Models.
-    let embedding = embeddings::compiled_registration();
-    routing.routes.extend(embedding.routes);
-    routing.public_models.push(embedding.public_model);
+    // Append each independent Embeddings registration after all generation Public Models.
+    for embedding in embeddings::compiled_registrations() {
+        routing.routes.extend(embedding.routes);
+        routing.public_models.push(embedding.public_model);
+    }
     routing
 }

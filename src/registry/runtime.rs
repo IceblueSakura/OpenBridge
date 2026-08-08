@@ -355,6 +355,7 @@ pub struct UpstreamApi {
     pub(super) model: ModelInfo,
     pub(super) upstream_model: String,
     pub(super) capabilities: UpstreamApiCapabilities,
+    pub(super) streaming_policy: super::UpstreamStreamingPolicy,
     pub(super) state_affinity: StateAffinity,
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
 }
@@ -388,6 +389,11 @@ impl UpstreamApi {
     /// Returns the reasoning output type declared by the API.
     pub fn reasoning_output(&self) -> ReasoningOutput {
         self.capabilities.reasoning_output()
+    }
+
+    /// Returns the trusted upstream streaming and non-streaming conversion policy.
+    pub fn streaming_policy(&self) -> super::UpstreamStreamingPolicy {
+        self.streaming_policy
     }
 
     /// Returns the ownership policy for continuation state.

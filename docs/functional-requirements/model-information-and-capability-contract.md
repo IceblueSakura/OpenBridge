@@ -54,7 +54,7 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 - OpenAI 标准身份：`id`、`object`、`created`、`owned_by`；
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
 - 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
-- 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，并可带协议内 source-aware `multimodal_input`；固定
+- 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，分别公开 `streaming` 与 `non_streaming` 支持状态，并可带协议内 source-aware `multimodal_input`；固定
   音频生成任务还可带 mode-aware `multimodal_output.audio`；
   `embeddings` 至多一个独立 Embedding 接口能力对象；
 - schema 版本：首版固定为字符串 `"1"`。Embeddings interface 首次加入前该扩展契约尚未发布，因此直接修正 v1 DTO、序列化、OpenAPI
@@ -120,15 +120,16 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 
 模型请求必须遵循固定顺序：
 
-1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming、精确 tool choice mode、媒体
+1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming/non-streaming delivery、精确 tool choice mode、媒体
    part/source/format/detail、URL 长度、inline 编码/解码字节、结构化输出、reasoning、state 和输出限制等事实。
 2. 查询所选 Public Model 的目标接口固定契约。
 3. 对所有已建模请求能力执行一次 fail-closed 预检。
 4. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
 5. 预检通过后，严格按 Public Model 的配置顺序构造完整 RoutePlan。
 
-代码目录从多个 Provider source 生成配置顺序时，对每个下游协议先按 source 声明顺序排列全部 Native Route， 再按相同顺序排列
-Bridge Route；生成后这一 Vec 即为固定配置顺序，运行时不得再按 Provider 或模式重排。
+代码目录从多个 Provider source 生成配置顺序时，必须使用 Public Model 显式声明的 `NativeFirst` 或 `SourceFirst` 类型化策略；
+生成后这一 Vec 即为固定配置顺序，运行时不得再按 Provider 或模式重排。无论采用哪种策略，全部静态候选都参与固定能力交集；某条
+streaming-only Route 禁用转换时，不得为了满足非流式请求而跳过它。
 
 以下行为一律禁止：
 

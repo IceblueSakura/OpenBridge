@@ -9,21 +9,23 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
     &[
         PublicModelRegistration {
             public_name: "gpt-5.6-sol",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "gpt-5.6-sol-chatgpt",
+                    upstream_target: "chatgpt-gpt-5-6-sol",
+                    surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                },
                 ProviderRouteRegistration {
                     route_prefix: "gpt-5.6-sol-openai",
                     upstream_target: "openai-main",
                     surface: PublicModelSurface::DualProtocolWithBridges,
                 },
-                ProviderRouteRegistration {
-                    route_prefix: "gpt-5.6-sol-chatgpt",
-                    upstream_target: "chatgpt-gpt-5-6-sol",
-                    surface: PublicModelSurface::ResponsesNativeOnly,
-                },
             ],
         },
         PublicModelRegistration {
             public_name: "gpt-5.3-codex-spark",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
@@ -32,30 +34,34 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "gpt-5.5",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-5",
                 upstream_target: "chatgpt-gpt-5-5",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
             public_name: "gpt-5.6-luna",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",
                 upstream_target: "chatgpt-gpt-5-6-luna",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
             public_name: "gpt-5.6-terra",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
             public_name: "LongCat-2.0",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "longcat-2",
                 upstream_target: "longcat-2",
@@ -64,6 +70,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-pro",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-pro-deepseek",
@@ -79,6 +86,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-flash",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-flash-deepseek",
@@ -99,6 +107,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "minimax-m3",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "minimax-m3-openrouter",
@@ -114,6 +123,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "kimi-k3",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "kimi-k3-kimi-cn",
                 upstream_target: "kimi-cn-kimi-k3",
@@ -122,6 +132,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "glm-5.2",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "glm-5-2-bailian",
                 upstream_target: "bailian-glm-5-2",
@@ -130,6 +141,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "qwen3.7-plus",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-plus-bailian",
                 upstream_target: "bailian-qwen3-7-plus",
@@ -138,6 +150,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "qwen3.7-max",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-max-bailian",
                 upstream_target: "bailian-qwen3-7-max",
@@ -146,6 +159,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-pro-mimo",
                 upstream_target: "mimo-v2-5-pro",
@@ -154,6 +168,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-mimo",
                 upstream_target: "mimo-v2-5",
@@ -162,6 +177,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-asr",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-asr-mimo",
                 upstream_target: "mimo-v2-5-asr",
@@ -170,6 +186,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-mimo",
                 upstream_target: "mimo-v2-5-tts",
@@ -178,6 +195,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts-voicedesign",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voicedesign-mimo",
                 upstream_target: "mimo-v2-5-tts-voicedesign",
@@ -186,6 +204,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts-voiceclone",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voiceclone-mimo",
                 upstream_target: "mimo-v2-5-tts-voiceclone",
@@ -200,8 +219,19 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
 pub(super) struct PublicModelRegistration {
     /// Stable downstream Public Model identity.
     pub(super) public_name: &'static str,
+    /// Typed candidate-ordering policy applied independently to each downstream protocol.
+    pub(super) routing_strategy: PublicModelRoutingStrategy,
     /// Provider Target surfaces in explicit fallback priority.
     pub(super) providers: &'static [ProviderRouteRegistration],
+}
+
+/// Candidate-ordering policy for one Public Model's fixed Provider sources.
+#[derive(Clone, Copy)]
+pub(super) enum PublicModelRoutingStrategy {
+    /// Places every Native candidate before Bridge candidates while preserving source order per phase.
+    NativeFirst,
+    /// Preserves source priority first, then prefers Native over Bridge within each source.
+    SourceFirst,
 }
 
 /// One Provider Target's executable protocol surface within a Public Model.
@@ -228,4 +258,6 @@ pub(super) enum PublicModelSurface {
     ChatNativeOnlyWithoutBridge,
     /// Provides a Responses Native path and allows automatic Chat Bridge supplementation.
     ResponsesNativeOnly,
+    /// Provides a Responses Native path and always contributes its explicit Chat Bridge.
+    ResponsesNativeWithChatBridge,
 }

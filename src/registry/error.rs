@@ -102,6 +102,18 @@ pub enum RegistryError {
         /// Stable validation detail without request or topology data.
         detail: &'static str,
     },
+    /// An Upstream API streaming requirement or conversion mode conflicts with its typed operation.
+    #[error(
+        "upstream operation '{upstream_operation}' on upstream target '{upstream_target}' has invalid streaming policy: {detail}"
+    )]
+    InvalidUpstreamStreamingPolicy {
+        /// Owning target ID.
+        upstream_target: String,
+        /// Typed operation with the invalid policy.
+        upstream_operation: OperationKind,
+        /// Stable validation detail without request or topology data.
+        detail: &'static str,
+    },
     /// An Embeddings API references a canonical model without the Embedding task.
     #[error(
         "upstream Embeddings operation '{upstream_operation}' on target '{upstream_target}' requires an embedding model"

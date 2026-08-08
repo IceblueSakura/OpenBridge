@@ -98,9 +98,12 @@ impl BridgePlan {
         let source = parse_value_object(&body)?;
         reject_unsupported_request(downstream_protocol, &source)?;
         let converted = match (downstream_protocol, upstream_protocol) {
-            (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
-                chat_request_to_responses(&source, upstream_model, reasoning_supported)?
-            }
+            (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => chat_request_to_responses(
+                &source,
+                upstream_model,
+                reasoning_supported,
+                reasoning_output == ReasoningOutput::Summary,
+            )?,
             (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => {
                 responses_request_to_chat(&source, upstream_model, reasoning_supported)?
             }

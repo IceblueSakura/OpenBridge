@@ -66,7 +66,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
-            reasoning_output: ReasoningOutput::Unsupported,
+            reasoning_output: ReasoningOutput::Summary,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,

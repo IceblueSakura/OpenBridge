@@ -27,7 +27,7 @@ immutable RuntimeRegistry + UserRegistry + CredentialStore + OAuth2CredentialMan
           ↓
 HTTP Models projection / request ingress
           ↓
-operation-specific requirements → Public Model interface preflight → RoutePlan / optional BridgePlan
+operation-specific requirements → Public Model interface preflight → RoutePlan / optional BridgePlan / stream response conversion
           ↓
 ProviderAdapter + ProviderInstance + UpstreamTarget + UpstreamApi
           ↓
@@ -52,9 +52,9 @@ Route；transport 不解释模型和协议能力。
 | 下游身份      | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User`                                                                                                                                                          | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份                                       |
 | 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 binding id 分别装载有序 API key 或单一 OAuth2 auth 文件                    |
 | API 语义      | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`GenerationCapabilities`                        | 独立 operation、generation 协议/请求、Embeddings 请求、分域能力和仅供内部判定使用的公共生成能力投影 |
-| 注册配置      | `ModelConfig`、`ProviderInstanceConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`RouteConfig`、`PublicModelConfig`                                                                                             | 编译期写入并等待校验的配置                                                                          |
+| 注册配置      | `ModelConfig`、`ProviderInstanceConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`UpstreamStreamingPolicy`、`RouteConfig`、`PublicModelConfig`                                                                  | 编译期写入并等待校验的配置                                                                          |
 | 运行注册表    | `RuntimeRegistry`、`ModelInfo`、`ProviderInstance`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据                                                    |
-| 请求规划      | `RequestRequirements`、`RoutePlan`、`RouteCandidate`、`EmbeddingRequestRequirements`、`EmbeddingRoutePlan`                                                                                                             | 请求需要什么、可走哪些固定 route、每条 route 绑定到哪里                                             |
+| 请求规划      | `RequestRequirements`、`RoutePlan`、`RouteCandidate`、`StreamResponseConversion`、`EmbeddingRequestRequirements`、`EmbeddingRoutePlan`                                                                                | 请求需要什么、可走哪些固定 route、每条 route 绑定到哪里及是否需要 bounded response takeover          |
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
 | Provider      | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest`                                                                                                                                                       | Provider 能力上界、闭合实现分派和待发送请求                                                         |
 | Transport     | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse`                                                                                                                                                              | 可替换的发送边界、生产 HTTP client 和上游响应                                                       |
@@ -160,13 +160,13 @@ RegistryConfig
 | `ModelConfig`          | 显式 canonical profile 的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据；不同 profile 的已核实事实可分开注册 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind                                                                          |
 | `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
-| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、state affinity 与可选 reasoning level 映射            |
+| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、streaming policy、state affinity 与可选 reasoning level 映射 |
 | `RouteConfig`          | target、typed upstream operation、下游 operation 和 `Native`/`Bridged` 执行模式                                      |
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
-当前编译目录包含 20 个 `ModelConfig`：19 个 generation 模型，以及独立的
-`openai/text-embedding-3-small` Embedding 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
+当前编译目录包含 21 个 `ModelConfig`：19 个 generation 模型，以及独立的
+`openai/text-embedding-3-small` 与 `qwen/qwen3.7-text-embedding` Embedding 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
 侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark、GPT-5.5 以及 GPT-5.6
 Luna/Terra/Sol 共 5 个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
 checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、`chatgpt/gpt_5_3_codex_spark.rs`、
@@ -186,7 +186,7 @@ Luna/Terra 也分别进入固定 OpenAI Target，但仍不单独生成 Public Mo
 
 同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
 限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
-Route 和执行候选以 typed operation 引用 API。Embeddings checked-in 注册使用独立 target，只包含一个 Embeddings API。
+Route 和执行候选以 typed operation 引用 API。每个 Embeddings checked-in 注册使用独立 target，并只包含一个 Embeddings API。
 BaseURL 只属于 Provider instance；credential、Model、timeout 与故障边界仍属于 target。
 
 `build_registry` 先验证 Provider instance ID 与唯一 HTTPS BaseURL，再验证 Target 引用、credential、timeout、Provider 上界、
@@ -257,7 +257,9 @@ Target、Upstream API、上下游协议和 `Native`/`Bridged` 模式。`PublicMo
 `preflight` 从该执行接口读取能力，因此不支持或未知能力在查看候选前失败；通过后 `planning` 只遍历同一接口的 固定候选，不再扫描
 `PublicModel` 的原始 Route ID，也不重复检查 Target/API 静态启停或协议资格，并在需要时生成
 `BridgePlan`。Bridge 构造失败仍拒绝整个请求，不能跳过该候选。 Native candidate 保留 canonical `ApiRequest`，Bridged
-candidate 保存目标协议的 canonical `ApiRequest`；两者都不在 RoutePlan 中应用或记录 reasoning wire 映射。 Embeddings
+candidate 保存目标协议的 canonical `ApiRequest`；两者都不在 RoutePlan 中应用或记录 reasoning wire 映射。候选同时冻结
+`UpstreamStreamingPolicy`：普通 API 保留下游 mode；streaming-only API 对流式请求固定 `stream: true`，对非流式请求按可信开关
+拒绝或生成 `BufferResponsesSse` takeover plan。 Embeddings
 preflight 读取同一执行接口的四种 input form、encoding/dimension domain 和有效 limit；planning 只接受 唯一 Native
 candidate，并把原始 `EmbeddingRequest` 交给 adapter 在 egress 时改写受信 model/path。
 
@@ -312,21 +314,24 @@ OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有�
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；DeepSeek V4 Flash 显式注册同样两个无状态 API，而 V4 Pro 只注册
 Chat。OpenAI 当前有 `openai-main`、GPT-5.5、GPT-5.6 Luna/Terra 三个额外 generation Target，以及
-`openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route， 不复用
-`openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
-source；编译器先统计一个 Public Model 的 Chat/Responses Native coverage，按 source 顺序生成 Native route；只有缺少某一 downstream
-protocol 的 Native coverage 时，才按相同顺序从相反 Upstream API 自动补充 Bridged route。显式双协议 Bridge surface 仍保留已声明
-Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个
-source。其余 checked-in generation 注册项各只有一个 source。MiMo
+`openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route，另有百炼
+`bailian-qwen3-7-text-embedding` target、同一 operation 的 `qwen3-7-text-embedding-bailian-embeddings` Native Route；两者都不复用
+generation target 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
+source 和显式 `NativeFirst`/`SourceFirst` 策略；前者在每个协议内先排列所有 Native，后者先保持 source 顺序并在 source 内优先
+Native。编译器仍先统计 Native coverage，只为全局缺失的 downstream protocol 自动补充 Bridge；显式 Bridge surface 可在其他 source
+已有 Native 时保留。GPT 注册使用 `SourceFirst`；其他当前注册使用 `NativeFirst`。`deepseek-v4-flash` 显式绑定 DeepSeek 与
+OpenRouter 两个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；两者都只注册
 Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
 ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个 target、同一个 Codex backend、`responses` path、各自的 upstream
-model 和共享 `chatgpt-codex` OAuth pool；独立 Responses-only Public Model 各有一个 Responses Native Route，并由编译器自动补充
-一个受限 Chat Bridge。ChatGPT definition 固定
+model 和共享 `chatgpt-codex` OAuth pool；每个 GPT Public Model 都有 ChatGPT Responses Native 与受限 Chat Bridge，`gpt-5.6-sol`
+还以 OpenAI 为后备 source，但两个下游协议都按 `SourceFirst` 优先 ChatGPT。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
-`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。该 profile 不读取本机 Codex auth、
+`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。其
+Upstream API policy 声明 streaming required，并启用 Responses SSE buffering；因此下游非流式 Chat/Responses 会在 planning 后固定
+上游 `stream: true`，完整验证 terminal 再返回 JSON。该 profile 不读取本机 Codex auth、
 部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server；Models probe 使用的
 `/models?client_version=0.146.0` query 是编译期固定的 adapter 事实，不由本机 client profile 提供。
 
@@ -368,7 +373,11 @@ reasoning output 仍为 `Unknown`。MiMo ASR/TTS target 继续收窄为 `Unknown
 
 共享 `UpstreamClient` 只接收已解析 target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。Native streaming
 response 保持业务 bytes 透明并由 `SseDecoder` 观察 framing/terminal；Bridged stream 则按完整 event 增量渲染目标协议
-wire。Embeddings success 在首次下游 commit 前按独立 JSON response budget 完整读取并校验；非法成功体不进入 retry。下游丢弃任一
+wire。选择 `BufferResponsesSse` 时，ingress 在首次下游 commit 前按 JSON response budget 和 SSE event limit 读取完整上游 body，
+通过 `ResponsesStreamState` 校验 framing、identity 与显式 terminal，并将 response snapshots、按 index 排序的
+`response.output_item.done` 与可能稀疏的 terminal response 合并；Native 返回组装后的 response object，Bridged 再调用既有
+non-stream renderer。非 SSE success、非法/超限 body 或缺少 terminal 返回安全 502。Embeddings success 同样在首次下游 commit 前按
+独立 JSON response budget 完整读取并校验；非法成功体不进入 retry。下游丢弃任一
 body 时，上游 stream 随之取消。 OpenAI-compatible adapter 统一使用 OpenAI terminal 词汇，并把 discriminator 来源作为编译期
 Provider 事实：OpenAI/MiMo 从 SSE `event:` 读取，LongCat/OpenRouter 从 data JSON 顶层 `type` 读取。discriminator 不进入
 TOML 或运行时探测；双来源 terminal 冲突时失败关闭，也不把尾随 `[DONE]` 代替 Responses 语义终态。

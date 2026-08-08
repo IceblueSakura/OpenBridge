@@ -1,11 +1,12 @@
 //! Generates ordered Native/Bridged Route candidates from immutable Public Model execution interfaces.
 
 use bytes::Bytes;
+use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
     core::{ApiRequest, EmbeddingRequest, OperationKind},
-    registry::{RouteMode, RuntimeRegistry},
+    registry::{NonStreamingConversion, RouteMode, RuntimeRegistry, UpstreamStreamingPolicy},
 };
 
 use super::{
@@ -13,7 +14,7 @@ use super::{
     preflight::{preflight_embedding_public_model, preflight_public_model},
     types::{
         EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
-        RequestRequirements, RouteCandidate, RoutePlan,
+        RequestRequirements, RouteCandidate, RoutePlan, StreamResponseConversion,
     },
 };
 
@@ -50,12 +51,18 @@ pub fn plan_request(
                 Err(_) => return Err(RequestPlanningError::UnsupportedCapabilities),
             },
         };
+        let (request, stream_response_conversion) = apply_streaming_policy(
+            request,
+            candidate.streaming_policy(),
+            requirements.is_streaming,
+        )?;
         prepared_candidates.push(RouteCandidate {
             route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
             upstream_operation: candidate.upstream_operation(),
             request,
             bridge,
+            stream_response_conversion,
         });
     }
 
@@ -68,6 +75,49 @@ pub fn plan_request(
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
+}
+
+/// Applies one validated Upstream API streaming policy without changing Route order.
+fn apply_streaming_policy(
+    request: ApiRequest,
+    policy: UpstreamStreamingPolicy,
+    downstream_streaming: bool,
+) -> Result<(ApiRequest, Option<StreamResponseConversion>), RequestPlanningError> {
+    // Preserve requests for APIs that natively accept both streaming modes.
+    if policy == UpstreamStreamingPolicy::Optional {
+        return Ok((request, None));
+    }
+
+    // Reject a disabled non-streaming conversion even if a compiler invariant were bypassed.
+    let conversion = match (downstream_streaming, policy) {
+        (true, UpstreamStreamingPolicy::Required { .. }) => None,
+        (
+            false,
+            UpstreamStreamingPolicy::Required {
+                non_streaming: NonStreamingConversion::BufferResponsesSse,
+            },
+        ) => Some(StreamResponseConversion::BufferResponsesSse),
+        (
+            false,
+            UpstreamStreamingPolicy::Required {
+                non_streaming: NonStreamingConversion::Disabled,
+            },
+        ) => return Err(RequestPlanningError::NonStreamingUnsupported),
+        (_, UpstreamStreamingPolicy::Optional) => unreachable!("optional policy returned above"),
+    };
+
+    // Force the trusted upstream envelope to stream after Native or Bridge request preparation.
+    let mut value: Value =
+        serde_json::from_slice(request.body()).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = value
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    object.insert("stream".to_owned(), Value::Bool(true));
+    let body = serde_json::to_vec(&value).map_err(|_| RequestPlanningError::InvalidJson)?;
+    Ok((
+        ApiRequest::new(request.protocol(), Bytes::from(body)),
+        conversion,
+    ))
 }
 
 /// Generates the single Native Embeddings candidate from its precompiled execution interface.

@@ -241,12 +241,14 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     capabilities: UpstreamApiCapabilities::ChatCompletions(
                         capabilities().chat_completions,
                     ),
+                    streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
                     state_affinity: StateAffinity::Unbound,
                 },
                 UpstreamApiConfig {
                     upstream_model: upstream_model.to_owned(),
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::Responses(capabilities().responses),
+                    streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
                     state_affinity: StateAffinity::TargetBound,
                 },
             ],

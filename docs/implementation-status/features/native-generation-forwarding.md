@@ -8,6 +8,9 @@
 ## 已完成内容
 
 - `POST /v1/chat/completions` 和 `POST /v1/responses` 支持当前声明范围内的非流式 JSON 与 streaming SSE。
+- Upstream API 使用类型化 streaming policy：普通 API 保留下游 mode；ChatGPT Responses 声明 `stream: true` required，并启用
+  bounded Responses SSE buffering。下游非流式 Responses 在合法 terminal 后返回完整 response object，非流式 Chat 再经既有
+  Responses→Chat JSON Bridge 返回。
 - Native Route 保留下游 canonical request；Provider adapter 在 egress 阶段绑定固定 upstream model、相对 path、普通固定 header 和
   purpose-bound authentication。
 - Reasoning level 由 Canonical Model 统一定义并在同一模型的 Chat/Responses interface 中保持一致；Native Responses 保留具体
@@ -22,6 +25,9 @@
 - DeepSeek V4 Flash 与 OpenRouter 的 `store: true`、非空 `previous_response_id` 和 `background: true` 等未声明状态语义在 egress
   前拒绝；DeepSeek V4 Pro 仍只注册 Chat Native API。
 - 上游 safe response headers、SSE framing、terminal、EOF-before-terminal 和 body failure 在统一 ingress/transport 边界处理。
+- streaming-to-JSON takeover 只接受 Responses SSE，并同时受 JSON response body 与单 SSE event 上限约束；它校验标准 text lifecycle，
+  从 response snapshots 与有序 `response.output_item.done` 补齐稀疏 terminal；非法 framing/UTF-8、
+  非 SSE success、超限 body 或缺失 terminal 在下游 body commit 前返回安全 502。当前不实现通用 Chat SSE 聚合。
 
 ## 实现边界
 
@@ -37,6 +43,9 @@
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 与 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider wire、认证和安全出站。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖公共契约与候选规划。
+- [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖 streaming policy 与 operation/capability 的启动校验；
+  [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 ChatGPT JSON/SSE、强制上游 `stream: true`、terminal takeover
+  以及非法/超限流的安全失败。
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 与 [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖
   DeepSeek V4 Flash 的 DeepSeek→OpenRouter Responses 候选顺序、固定 `/responses` egress 与 typed SSE terminal。
 - `tests/example_config.rs::minimax_m3_compiles_with_openrouter_first_and_binary_reasoning` 覆盖 MiniMax 的 OpenRouter→NVIDIA Chat

@@ -132,6 +132,8 @@ pub(crate) fn aggregate_interface<'a>(
         supported_parameters.retain(|parameter| parameter != "previous_response_id");
     }
     let streaming = SupportState::intersection(contributions.iter().map(|value| value.streaming));
+    let non_streaming =
+        SupportState::intersection(contributions.iter().map(|value| value.non_streaming));
     let function_tools =
         SupportState::intersection(contributions.iter().map(|value| value.function_tools));
     let function_tool_choice_modes = intersect_sets(
@@ -183,6 +185,7 @@ pub(crate) fn aggregate_interface<'a>(
         audio_task,
         supported_parameters,
         streaming,
+        non_streaming,
         system_messages: SupportState::intersection(
             contributions.iter().map(|value| value.system_messages),
         ),

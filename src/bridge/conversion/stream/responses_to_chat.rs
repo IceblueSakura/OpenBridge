@@ -184,7 +184,7 @@ impl ResponsesToChatStream {
                 output.extend_from_slice(b"data: [DONE]\n\n");
                 self.terminal_emitted = true;
             }
-            "response.failed" | "response.incomplete" | "error" => {
+            "response.failed" | "response.incomplete" | "response.cancelled" | "error" => {
                 return Err(BridgeError::InvalidStream);
             }
             _ => {}

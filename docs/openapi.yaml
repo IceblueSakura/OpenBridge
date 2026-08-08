@@ -939,7 +939,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [ context_window, modalities, multimodal_input, supported_parameters, streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state ]
+        [ context_window, modalities, multimodal_input, supported_parameters, streaming, non_streaming, system_messages, tools, structured_outputs, reasoning, prompt_caching, state ]
       properties:
         context_window:
           $ref: '#/components/schemas/ContextWindow'
@@ -954,6 +954,9 @@ components:
           items:
             type: string
         streaming:
+          $ref: '#/components/schemas/SupportState'
+        non_streaming:
+          description: Whether every fixed candidate can return one complete JSON response, natively or through a trusted bounded conversion.
           $ref: '#/components/schemas/SupportState'
         system_messages:
           $ref: '#/components/schemas/SupportState'

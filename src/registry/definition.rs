@@ -328,6 +328,55 @@ pub enum StateAffinity {
     TargetBound,
 }
 
+/// Conversion policy for a downstream non-streaming request when an Upstream API requires SSE.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NonStreamingConversion {
+    /// Rejects non-streaming use of the streaming-only Upstream API before egress.
+    Disabled,
+    /// Buffers and validates a complete Responses SSE lifecycle before returning JSON downstream.
+    BufferResponsesSse,
+}
+
+/// Declares whether an Upstream API accepts optional streaming or requires `stream: true`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UpstreamStreamingPolicy {
+    /// Preserves the downstream streaming mode because the Upstream API accepts both modes.
+    Optional,
+    /// Forces `stream: true` upstream and controls whether non-streaming delivery can be synthesized.
+    Required {
+        /// Trusted conversion policy for downstream requests that require one complete JSON body.
+        non_streaming: NonStreamingConversion,
+    },
+}
+
+impl UpstreamStreamingPolicy {
+    /// Returns whether the Upstream API can satisfy a downstream non-streaming request.
+    pub const fn supports_non_streaming(self) -> bool {
+        matches!(
+            self,
+            Self::Optional
+                | Self::Required {
+                    non_streaming: NonStreamingConversion::BufferResponsesSse
+                }
+        )
+    }
+
+    /// Returns whether every upstream request must use streaming transport.
+    pub const fn requires_streaming(self) -> bool {
+        matches!(self, Self::Required { .. })
+    }
+
+    /// Returns whether a non-streaming request must buffer a typed Responses SSE lifecycle.
+    pub const fn buffers_responses_sse(self) -> bool {
+        matches!(
+            self,
+            Self::Required {
+                non_streaming: NonStreamingConversion::BufferResponsesSse
+            }
+        )
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Native Upstream API exposed by a target.
 pub struct UpstreamApiConfig {
@@ -337,6 +386,8 @@ pub struct UpstreamApiConfig {
     pub model_rules: UpstreamApiModelRules,
     /// Single-protocol capability evidence.
     pub capabilities: UpstreamApiCapabilities,
+    /// Upstream streaming requirement and optional downstream non-streaming conversion.
+    pub streaming_policy: UpstreamStreamingPolicy,
     /// Continuation/state ownership policy.
     pub state_affinity: StateAffinity,
 }

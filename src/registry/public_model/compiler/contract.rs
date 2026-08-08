@@ -49,6 +49,7 @@ pub(super) struct RouteContractContribution {
     pub(super) model_reasoning_levels: Vec<ReasoningLevel>,
     pub(super) interface_parameters: Vec<String>,
     pub(super) streaming: SupportState,
+    pub(super) non_streaming: SupportState,
     pub(super) system_messages: SupportState,
     pub(super) function_tools: SupportState,
     pub(super) function_tool_choice_modes: Vec<ToolChoiceMode>,
@@ -197,6 +198,9 @@ impl RouteContractContribution {
             model_reasoning_levels,
             interface_parameters,
             streaming: SupportState::from_bool(generation.streaming),
+            non_streaming: SupportState::from_bool(
+                upstream_api.streaming_policy().supports_non_streaming(),
+            ),
             system_messages: SupportState::Unknown,
             function_tools: SupportState::from_bool(function_tools.is_some()),
             function_tool_choice_modes: function_tools
@@ -277,6 +281,7 @@ impl RouteContractContribution {
             },
             interface_parameters: Vec::new(),
             streaming: SupportState::Unsupported,
+            non_streaming: SupportState::Unsupported,
             system_messages: SupportState::Unsupported,
             function_tools: SupportState::Unsupported,
             function_tool_choice_modes: Vec::new(),

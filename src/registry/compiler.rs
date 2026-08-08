@@ -244,6 +244,30 @@ fn build_registry_internal(
         for upstream_api in target.upstream_apis {
             let upstream_operation = upstream_api.capabilities.operation();
 
+            // Validate streaming-only declarations before they can affect public contracts or request planning.
+            let generation_streaming = upstream_api
+                .capabilities
+                .generation_capabilities()
+                .map(|capabilities| capabilities.streaming);
+            if upstream_api.streaming_policy.requires_streaming()
+                && generation_streaming != Some(true)
+            {
+                return Err(RegistryError::InvalidUpstreamStreamingPolicy {
+                    upstream_target: target.id,
+                    upstream_operation,
+                    detail: "required streaming needs an enabled generation streaming capability",
+                });
+            }
+            if upstream_api.streaming_policy.buffers_responses_sse()
+                && upstream_operation != crate::core::OperationKind::Responses
+            {
+                return Err(RegistryError::InvalidUpstreamStreamingPolicy {
+                    upstream_target: target.id,
+                    upstream_operation,
+                    detail: "Responses SSE buffering is valid only for the Responses operation",
+                });
+            }
+
             // Validate the complete Embeddings profile before capability comparison or public projection.
             if let Some(capabilities) = upstream_api.capabilities.embeddings() {
                 capabilities.validate().map_err(|detail| {
@@ -319,6 +343,7 @@ fn build_registry_internal(
                 model: effective_model,
                 upstream_model: upstream_api.upstream_model,
                 capabilities: upstream_api.capabilities,
+                streaming_policy: upstream_api.streaming_policy,
                 state_affinity: upstream_api.state_affinity,
                 reasoning_level_mappings,
             };
