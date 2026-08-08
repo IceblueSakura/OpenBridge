@@ -76,7 +76,8 @@ project A research
 - [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/xiaomi-mimo-image-protocol-2026-08-07.md)
 - [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
 - [NVIDIA MiniMax M3 与百炼 GLM/Qwen Chat 模型入口（2026-08-08）](providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)
-- [阿里云百炼 Models 列表前缀与研发者分类（2026-08-08）](providers/bailian/bailian-model-list-prefix-classification-2026-08-08.md)
+- [NVIDIA API Catalog Models 列表（2026-08-08）](providers/nvidia/nvidia-model-list-2026-08-08.md)
+- [阿里云百炼 Models 列表前缀与研发者分类（2026-08-08）](providers/bailian/bailian-model-list-2026-08-08.md)
 
 ## 6. 参考项目
 

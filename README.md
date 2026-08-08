@@ -110,42 +110,14 @@ Copy-Item config/users.example.toml config/users.toml
 Copy-Item config/upstream-credentials.example.toml config/upstream-credentials.toml
 ```
 
-然后编辑私有文件。不要把下面的 placeholder 当作可用凭证。
+然后根据模板中的注释编辑私有文件，不要把 placeholder 当作可用凭证：
 
-`config/users.toml` 至少需要一个启用用户，用户 API key 长度至少为 32 字节：
+- [config/users.example.toml](config/users.example.toml)：下游用户表结构和 API key 占位符；至少保留一个启用用户，用户 API key
+  长度至少为 32 字节。
+- [config/upstream-credentials.example.toml](config/upstream-credentials.example.toml)：全部已注册 credential pool、API-key
+  与 OAuth2 写法，以及未启用 pool 的处理方式；只填写实际要启用的 pool。
 
-```toml
-schema_version = 1
-
-[[users]]
-id = "local-user"
-name = "Local User"
-api_key = "replace-with-at-least-32-random-bytes"
-enabled = true
-```
-
-`config/upstream-credentials.toml` 只填写要启用的已注册 pool。API-key pool 的基本形状如下：
-
-```toml
-schema_version = 1
-
-[[credential_pools]]
-id = "openai-primary"
-api_keys = ["replace-with-openai-key"]
-```
-
-可用 pool ID 为：
-
-| Pool ID | Provider | 凭证类型 |
-|---|---|---|
-| `openai-primary` | OpenAI | API key |
-| `longcat-primary` | LongCat | API key |
-| `openrouter-primary` | OpenRouter | API key |
-| `deepseek-primary` | DeepSeek | API key |
-| `mimo-primary` | Xiaomi MiMo | API key |
-| `nvidia-primary` | NVIDIA API Catalog | API key |
-| `bailian-primary` | 阿里云百炼 Model Studio | API key |
-| `chatgpt-codex` | ChatGPT | OAuth2 auth file |
+具体字段、pool ID 和示例值以这两个 example 文件为准，私有文件不要提交到 Git。
 
 多把 API key 可以按顺序放在同一个 `api_keys` 数组中。上游 `429` 等可重试情况可能触发同一 pool 内的
 credential rotation；这不等于账号级负载均衡。
@@ -156,7 +128,38 @@ credential rotation；这不等于账号级负载均衡。
 `nvidia-primary` 激活 `minimax-m3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
 `qwen3.7-max`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
-### 4.3 启动服务
+### 4.3 启动参数与环境变量
+
+主服务不提供 `--config`、`--listen` 等命令行覆盖参数；监听地址、文件路径、资源限制和 OTLP 选择都由 Bootstrap 文件控制。
+三个二进制的入口参数如下：
+
+| 程序 | 参数或环境变量 | 说明 |
+|---|---|---|
+| `openbridge`、`openbridge-auth`、`openbridge-probe` | `OPENBRIDGE_CONFIG=<path>` | 选择启动时读取的 Bootstrap 文件；默认 `config/bootstrap.toml`。该变量只选择文件，不会新增 Provider、Model、Target 或 Route。 |
+| `openbridge` | 无命令行参数 | 启动网关服务；使用 `Ctrl+C` 优雅停止。 |
+| `openbridge` | `RUST_LOG=<filter>` | 设置本地日志过滤器；未设置时默认为 `info`，例如 `RUST_LOG=debug`。 |
+| `openbridge-auth` | `login chatgpt` | 执行唯一支持的 ChatGPT device login；不接受 issuer、endpoint、auth-file 等覆盖参数。 |
+| `openbridge-auth` | `--help`、`-h` | 显示固定命令用法。 |
+| `openbridge-probe` | `--target <id>` | 必填，选择一个已注册且已启用的 Upstream Target。 |
+| `openbridge-probe` | `--list-models`、`--chat`、`--responses`、`--embeddings`、`--all` | 选择 probe 类型；未指定时默认执行当前 target 的全部基础 probe，可组合使用。 |
+| `openbridge-probe` | `--help`、`-h` | 显示 probe 用法。 |
+
+Cargo 运行二进制时，传给二进制的参数要放在 `--` 后面，例如：
+
+```bash
+cargo run --locked --bin openbridge-auth -- login chatgpt
+cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
+```
+
+PowerShell 可在启动前设置环境变量：
+
+```powershell
+$env:OPENBRIDGE_CONFIG = "config/bootstrap.local.toml"
+$env:RUST_LOG = "debug"
+cargo run --locked --bin openbridge
+```
+
+### 4.4 启动服务
 
 ```bash
 cargo run --locked --bin openbridge
@@ -178,7 +181,7 @@ curl -i http://127.0.0.1:8080/healthz
 
 按 `Ctrl+C` 优雅停止服务。修改 bootstrap、用户文件或上游 credential TOML 后需要重启；这些 TOML 不提供通用热重载。
 
-### 4.4 最小调用
+### 4.5 最小调用
 
 将 `replace-with-a-local-client-token` 替换为 `users.toml` 中启用用户的 `api_key`：
 
@@ -192,7 +195,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 Windows PowerShell 中如果 `curl` 被映射为 `Invoke-WebRequest`，请使用 `curl.exe`，或改用 PowerShell 的 HTTP
 请求命令。
 
-### 4.5 `mimo-v2.5` Native 图片理解
+### 4.6 `mimo-v2.5` Native 图片理解
 
 `mimo-v2.5` 的 Chat 与 Responses interface 都公开类型化 `multimodal_input.image`。下面两个请求分别走同协议 Native Route；
 `mimo-v2.5-pro`、Chat ↔ Responses Bridge、`file_id` 和显式 `detail` 不在该能力内。
@@ -222,24 +225,9 @@ curl http://127.0.0.1:8080/v1/responses \
 
 ## 5. Bootstrap 配置
 
-默认 bootstrap 文件是 `config/bootstrap.toml`。如需选择其他文件，只通过环境变量指定文件位置，不会借此新增
-Provider 或修改注册表：
-
-PowerShell：
-
-```powershell
-$env:OPENBRIDGE_CONFIG = "config/bootstrap.local.toml"
-cargo run --locked --bin openbridge
-```
-
-Bash：
-
-```bash
-export OPENBRIDGE_CONFIG=config/bootstrap.local.toml
-cargo run --locked --bin openbridge
-```
-
-示例文件见 [config/bootstrap.example.toml](config/bootstrap.example.toml)。当前字段和默认值如下：
+默认 bootstrap 文件是 `config/bootstrap.toml`。如需选择其他文件，使用[启动参数与环境变量](#43-启动参数与环境变量)中的
+`OPENBRIDGE_CONFIG`；它只选择文件位置，不会新增 Provider 或修改注册表。Bootstrap 的完整可复制示例见
+[config/bootstrap.example.toml](config/bootstrap.example.toml)，当前字段和默认值如下：
 
 | 字段 | 默认值 | 作用 |
 |---|---:|---|
@@ -260,15 +248,9 @@ cargo run --locked --bin openbridge
 
 ### 启用 OpenTelemetry OTLP/HTTP 导出
 
-traces 与 metrics 默认都不导出，可以分别启用。确认 collector 是配置所有者明确选择的可信目标后，在 bootstrap 中添加：
-
-```toml
-[telemetry.traces]
-otlp_http_endpoint = "http://127.0.0.1:4318"
-
-[telemetry.metrics]
-otlp_http_endpoint = "http://127.0.0.1:4318"
-```
+traces 与 metrics 默认都不导出，可以分别启用。确认 collector 是配置所有者明确选择的可信目标后，参考
+[config/bootstrap.example.toml](config/bootstrap.example.toml) 中的 `[telemetry.traces]` 和 `[telemetry.metrics]` 段，
+将对应配置复制到实际 bootstrap 文件。
 
 该值必须是没有用户名、密码、path、query 和 fragment 的绝对 `http` base URL。OpenBridge 固定发送到
 `/v1/traces` 和 `/v1/metrics`，不接受请求级 exporter 覆盖、自定义 exporter header 或环境注入的 header。metrics 使用
@@ -280,13 +262,8 @@ OpenTelemetry SDK 的累计 Counter/Histogram 聚合与固定 60 秒采集间隔
 ## 6. ChatGPT OAuth2（可选）
 
 ChatGPT Public Model 使用独立的 `chatgpt-codex` OAuth2 credential pool。首次使用前，在
-`config/upstream-credentials.toml` 中配置：
-
-```toml
-[[credential_pools]]
-id = "chatgpt-codex"
-auth_json_file = "replace-with-openbridge-chatgpt-auth.json"
-```
+`config/upstream-credentials.toml` 中设置 `chatgpt-codex` 的 `auth_json_file`。字段形状和路径占位符见
+[config/upstream-credentials.example.toml](config/upstream-credentials.example.toml)。
 
 相对路径按该 TOML 文件所在目录解析。然后执行唯一支持的管理员命令：
 

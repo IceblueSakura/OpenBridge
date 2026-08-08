@@ -27,6 +27,10 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
         "xiaomi/mimo-v2.5-tts-voiceclone",
         "qwen/qwen3.7-max",
         "qwen/qwen3.7-plus",
+        "qwen/qwen3.8-max",
+        "qwen/qwen-image-2.0-pro",
+        "qwen/qwen3.5-livetranslate-flash-realtime",
+        "qwen/qwen3.6-27b",
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
         "minimax/minimax-m3",
@@ -173,4 +177,83 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
         .find(|model| model.id == "deepseek/deepseek-v4-flash")
         .unwrap();
     assert_eq!(deepseek_flash.context_length.output_tokens(), Some(393_216));
+
+    let qwen3_8_max = definition
+        .models
+        .iter()
+        .find(|model| model.id == "qwen/qwen3.8-max")
+        .expect("Qwen3.8 Max should be in the catalog");
+    assert_eq!(qwen3_8_max.context_length.context_tokens(), Some(1_000_000));
+    assert_eq!(qwen3_8_max.context_length.input_tokens(), Some(1_000_000));
+    assert_eq!(qwen3_8_max.context_length.output_tokens(), Some(131_072));
+    assert_eq!(
+        qwen3_8_max.input_modalities,
+        Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::Video,
+        ])
+    );
+    assert_eq!(
+        qwen3_8_max.reasoning_levels,
+        [
+            ReasoningLevel::XHigh,
+            ReasoningLevel::High,
+            ReasoningLevel::Medium,
+            ReasoningLevel::Low,
+            ReasoningLevel::Minimal,
+        ]
+    );
+
+    let qwen_image = definition
+        .models
+        .iter()
+        .find(|model| model.id == "qwen/qwen-image-2.0-pro")
+        .expect("Qwen Image 2.0 Pro should be in the catalog");
+    assert_eq!(qwen_image.context_length, Default::default());
+    assert_eq!(
+        qwen_image.input_modalities,
+        Some(vec![InputModality::Text, InputModality::Image])
+    );
+    assert_eq!(
+        qwen_image.output_modalities,
+        Some(vec![OutputModality::Image])
+    );
+    assert_eq!(qwen_image.reasoning, ReasoningSupport::Unknown);
+
+    let live_translate = definition
+        .models
+        .iter()
+        .find(|model| model.id == "qwen/qwen3.5-livetranslate-flash-realtime")
+        .expect("Qwen3.5 LiveTranslate Flash Realtime should be in the catalog");
+    assert_eq!(live_translate.context_length.context_tokens(), Some(53_248));
+    assert_eq!(live_translate.context_length.input_tokens(), Some(49_152));
+    assert_eq!(live_translate.context_length.output_tokens(), Some(4_096));
+    assert_eq!(
+        live_translate.input_modalities,
+        Some(vec![InputModality::Audio, InputModality::Image])
+    );
+    assert_eq!(
+        live_translate.output_modalities,
+        Some(vec![OutputModality::Text, OutputModality::Audio])
+    );
+
+    let qwen3_6 = definition
+        .models
+        .iter()
+        .find(|model| model.id == "qwen/qwen3.6-27b")
+        .expect("Qwen3.6 27B should be in the catalog");
+    assert_eq!(qwen3_6.context_length.context_tokens(), Some(262_144));
+    assert_eq!(qwen3_6.context_length.input_tokens(), Some(260_096));
+    assert_eq!(qwen3_6.context_length.output_tokens(), Some(65_536));
+    assert_eq!(
+        qwen3_6.input_modalities,
+        Some(vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::Video,
+        ])
+    );
+    assert_eq!(qwen3_6.output_modalities, Some(vec![OutputModality::Text]));
+    assert_eq!(qwen3_6.reasoning, ReasoningSupport::Supported);
 }
