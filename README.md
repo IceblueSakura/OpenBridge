@@ -48,8 +48,8 @@ surface 仍保持关闭。
 | `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI Native 优先、ChatGPT Responses fallback；公共能力按两个 source 的固定契约公开 |
 | `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.5` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `chatgpt-gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
 | `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 缺少 Native 时自动走 Chat Bridge |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
@@ -68,8 +68,9 @@ surface 仍保持关闭。
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 代码中已绑定 Provider Target 但未加入 Public Model/Route 的 canonical profile 仍不代表可调用模型。当前
-`openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 已分别绑定 OpenAI Target，但没有独立的下游
-Public Model；`chatgpt-gpt-5.5` 则是另一条已公开的 ChatGPT profile。
+`openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 已分别绑定 OpenAI Target，但尚未加入独立 OpenAI source 的
+Public Model/Route；其中 `gpt-5.6-luna` 和 `gpt-5.6-terra` 当前由 ChatGPT source 提供，`chatgpt-gpt-5.5` 则是另一条已公开的
+ChatGPT profile。
 
 ## 3. 前置条件与安全边界
 
@@ -293,8 +294,8 @@ cargo run --locked --bin openbridge-auth -- login chatgpt
 
 ```text
 chatgpt-gpt-5.3-codex-spark
-chatgpt-gpt-5.6-luna
-chatgpt-gpt-5.6-terra
+gpt-5.6-luna
+gpt-5.6-terra
 gpt-5.6-sol
 ```
 
@@ -363,7 +364,7 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
 curl -N http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"chatgpt-gpt-5.6-luna","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
+  -d '{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
 `Content-Type` 必须是 `application/json`。工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool，也不提供

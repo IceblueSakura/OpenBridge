@@ -194,7 +194,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定受信 BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
-| OAUTH-02 | 四个固定 ChatGPT target 各自只进入一个 Responses-native Route/Public Model；通用 API-key probe 不借用 OAuth manager credential。 |
+| OAUTH-02 | 四个固定 ChatGPT target 各自只进入一个 Responses-native Route/Public Model；GPT-5.6 Luna/Terra 的下游 Public Model 使用 `gpt-5.6-luna`/`gpt-5.6-terra` 等不带 Provider 前缀的模型名，Provider-qualified identity 仅保留在内部；通用 API-key probe 不借用 OAuth manager credential。 |
 | OAUTH-03 | ChatGPT OAuth 文件只由 private upstream credential TOML 显式定位并由 OpenBridge 拥有；不得搜索、导入或回退到本机 Codex state。 |
 | OAUTH-04 | 生产代码不从 terminal、部署主机 OS、architecture、environment 或 Codex state 推导 client identity；ChatGPT 只发送编译期固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，不提供运行时 override 或 Codex auth/executable probe selector。 |
 | OAUTH-05 | 启动 loader 为缺失的 `auth_json_file` 创建空的待登录文件；对存在且非空的文件完整校验 OAuth2 bundle，并构建内部 guarded、对外 snapshot 化且脱敏的 `OAuth2CredentialManager`；过期完整 bundle 可立即 refresh。 |

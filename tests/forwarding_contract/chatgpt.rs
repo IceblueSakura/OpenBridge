@@ -20,8 +20,8 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
     for public_model in [
         "chatgpt-gpt-5.3-codex-spark",
         "chatgpt-gpt-5.5",
-        "chatgpt-gpt-5.6-luna",
-        "chatgpt-gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
         "gpt-5.6-sol",
     ] {
         let request = Request::post("/v1/responses")
@@ -95,7 +95,7 @@ async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
         )
         .body(Body::from(
             serde_json::json!({
-                "model": "chatgpt-gpt-5.6-luna",
+                "model": "gpt-5.6-luna",
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": true,
             })

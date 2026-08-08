@@ -39,7 +39,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
-            public_name: "chatgpt-gpt-5.6-luna",
+            public_name: "gpt-5.6-luna",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",
                 upstream_target: "chatgpt-gpt-5-6-luna",
@@ -47,7 +47,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
-            public_name: "chatgpt-gpt-5.6-terra",
+            public_name: "gpt-5.6-terra",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",

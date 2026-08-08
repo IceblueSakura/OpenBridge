@@ -29,7 +29,7 @@
 - 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro`、
   `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和 `mimo-v2.5-tts-voiceclone`，以及
   `minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
-  `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和 `chatgpt-gpt-5.6-terra`；
+  `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra`；
   `text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
   `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
@@ -150,6 +150,18 @@ payload。
   实现后通过，并确认不激活 `openai-primary` 时这些 Target 保留但 disabled。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 - 本次未修改私有 credential TOML，未运行真实 OpenAI Provider、probe、外部 SDK、负载或长期运行验收。
+
+2026-08-08 ChatGPT GPT-5.6 下游 Public Model 命名：
+
+- ChatGPT GPT-5.6 Luna/Terra 的下游 Public Model id 改为 `gpt-5.6-luna` 与 `gpt-5.6-terra`；canonical model、Provider-qualified
+  routing identity、固定 target/Route 和上游 model slug 未改变；旧的 `chatgpt-gpt-5.6-*` 名称不再编译为 Public Model。
+- 实现前运行 `cargo test --locked --test example_config chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge`，按预期因
+  新裸名尚未注册而失败；实现后同一测试通过，并确认旧 Public Model 名称不存在。
+- `cargo test --locked --test forwarding_contract chatgpt_oauth_routes_forward_five_models_with_account_bound_headers` 与
+  `cargo test --locked --test forwarding_contract chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge`：通过（各 1 项），
+  证明 Responses 转发和 Chat→Responses Bridge 都接受新下游名称并保持原上游 slug。
+- `cargo fmt -- --check`、`cargo test --locked` 与 `cargo clippy --locked -- -D warnings`：通过。
+- 本轮未执行真实 ChatGPT Provider、Models probe、外部 SDK、负载、长期运行或浏览器验收；历史真实调用表保留当时的旧名称并已明确标注。
 
 ## 相关文档
 

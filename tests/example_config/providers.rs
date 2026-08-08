@@ -605,14 +605,14 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             true,
         ),
         (
-            "chatgpt-gpt-5.6-luna",
+            "gpt-5.6-luna",
             "chatgpt-gpt-5-6-luna",
             "chatgpt/gpt-5.6-luna",
             "gpt-5.6-luna",
             true,
         ),
         (
-            "chatgpt-gpt-5.6-terra",
+            "gpt-5.6-terra",
             "chatgpt-gpt-5-6-terra",
             "chatgpt/gpt-5.6-terra",
             "gpt-5.6-terra",
@@ -626,10 +626,8 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             .expect("ChatGPT target should be compiled");
         assert_eq!(target.provider_instance, "chatgpt");
         assert_eq!(target.canonical_model, canonical_model);
-        assert_eq!(
-            target.provider_model,
-            format!("chatgpt/{}", public_name.strip_prefix("chatgpt-").unwrap())
-        );
+        // Keep Provider routing identity qualified even when the downstream Public Model is bare.
+        assert_eq!(target.provider_model, format!("chatgpt/{upstream_model}"));
         assert_eq!(target.credential_pool, "chatgpt-codex");
         assert!(target.enabled);
         assert_eq!(target.upstream_apis.len(), 1);
@@ -700,14 +698,24 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         assert_eq!(responses_route.mode, RouteMode::Native);
     }
 
+    // Ensure the former Provider-prefixed GPT-5.6 names are no longer downstream identities.
+    for removed_name in ["chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.6-terra"] {
+        assert!(
+            !definition
+                .public_models
+                .iter()
+                .any(|model| model.id == removed_name)
+        );
+    }
+
     // Compile the runtime snapshot and prove each downstream protocol selects its fixed Route.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id) in [
         ("chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5-3-codex-spark"),
         ("chatgpt-gpt-5.5", "chatgpt-gpt-5-5"),
-        ("chatgpt-gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
-        ("chatgpt-gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
+        ("gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
+        ("gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
     ] {
         let target = registry
             .upstream_target(target_id)
@@ -741,11 +749,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     }
 
     // GPT-5.5 and GPT-5.6 expose the complete function-tool contract on both downstream surfaces.
-    for public_name in [
-        "chatgpt-gpt-5.5",
-        "chatgpt-gpt-5.6-luna",
-        "chatgpt-gpt-5.6-terra",
-    ] {
+    for public_name in ["chatgpt-gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra"] {
         let info = serde_json::to_value(
             registry
                 .public_model(public_name)

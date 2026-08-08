@@ -30,16 +30,3 @@ reasoning effort。价格、排行、吞吐、endpoint 数据策略和动态可�
 | `z-ai/glm-5.2`                      |        1,048,576 |  131,072 | `text`                      | `Other`    | 未声明           | `xhigh, high`                         |
 | `moonshotai/kimi-k3`                |        1,048,576 |   未声明 | `text, image`               | `Other`    | 未声明           | `max, high, low`                      |
 | `minimax/minimax-m3`                |        1,048,576 |  512,000 | `text, image, video`        | `Other`    | 未声明           | 未声明离散 effort                     |
-| `tencent/hy3`                       |          262,144 |  128,000 | `text`                      | `Other`    | 未声明           | `high, low, none`                     |
-| `nvidia/nemotron-3-ultra-550b-a55b` |          512,288 |   未声明 | `text`                      | `Other`    | 未声明           | `high, medium`                        |
-
-`gpt-5.3-codex-spark` 在本次目录中没有精确记录。`openai/gpt-5.3-codex` 是另一个 id，不能用它替代 Spark 或补齐 Spark 的字段。
-
-## Nemotron 变体边界
-
-基础模型 `nvidia/nemotron-3-ultra-550b-a55b` 与 `:free` 变体是两条不同目录记录。2026-08-02 快照中：
-
-- 基础模型公布 512,288 context、未公布最大输出，并列出较完整参数集合；
-- `:free` 变体公布 1,000,000 context、65,536 最大输出和较小参数集合。
-
-因此基础模型的目录字段不能覆盖 `:free` endpoint，反向也不能用免费变体限制替代基础模型事实。

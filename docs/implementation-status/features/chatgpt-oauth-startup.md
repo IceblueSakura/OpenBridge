@@ -15,6 +15,8 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 - 到期前 refresh 在进程内 gate 和文件锁内重新加载持久化文档；成功后校验新 bundle、原子写回并发布新的 credential generation。
 - ChatGPT 的五个 target profile（包括 `chatgpt-gpt-5-6-sol`）各自编译一个 Responses Native Route 和一个 Chat→Responses Bridge Route，
   固定到同一受信 Codex backend 和共享 OAuth pool；Sol 的两个 Route 作为 source 归入下游 `gpt-5.6-sol` Provider 池。
+- GPT-5.6 Luna/Terra 的下游 Public Model id 分别为 `gpt-5.6-luna` 和 `gpt-5.6-terra`；`chatgpt/gpt-5.6-*` canonical identity 与
+  `chatgpt-gpt-5-6-*` target/Route identity 仍保持 Provider-qualified。
 - GPT-5.5 与 GPT-5.6 的 Responses upstream contract 声明 function tools、parallel tool calls 和 structured outputs；ChatGPT 的
   Chat→Responses Bridge 对应转换 function tools、parallel tool calls 以及 `response_format`/`text.format` 的 text、JSON object 和
   JSON Schema 形状。Spark 仍保持文本-only capability。
@@ -54,6 +56,9 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
   [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 继续覆盖登录、启动和 auth 文件生命周期。
 - [上游模型发现与基础 API 探测](../capability-probing.md)记录 ChatGPT Models/Responses probe 的固定路径、OAuth lease 边界和观察
   规则；该基础观察不等同于工具、SDK、模型语义或长期 Provider 验收。
+
+以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当时 Luna/Terra 仍使用带 `chatgpt-` 前缀的名称，当前名称已按上面的注册契约改为
+`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。
 
 2026-08-06 使用当前 private 配置和已有 OpenBridge-owned `auth.json`，通过本地 OpenBridge 的 `/v1/responses` 发出同一最小 streaming
 文本请求；验收只记录 HTTP 状态、SSE terminal 类别和耗时，没有记录 credential、账户或响应正文：
