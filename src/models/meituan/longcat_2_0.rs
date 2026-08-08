@@ -49,6 +49,6 @@ pub(crate) fn config() -> ModelConfig {
             .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![ReasoningLevel::High],
+        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::None],
     }
 }

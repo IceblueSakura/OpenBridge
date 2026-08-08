@@ -126,7 +126,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-plus-bailian",
                 upstream_target: "bailian-qwen3-7-plus",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -134,7 +134,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-max-bailian",
                 upstream_target: "bailian-qwen3-7-max",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -142,7 +142,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-pro-mimo",
                 upstream_target: "mimo-v2-5-pro",
-                surface: PublicModelSurface::DualProtocolWithBridges,
+                surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
         PublicModelRegistration {

@@ -69,10 +69,12 @@ Provider 文档按"调研方向"组织：每个 provider 一个目录，目录�
 - [API 与模型能力调研](providers/openrouter/api.md)——接口分层、`Model` 对象字段语义、入口/认证、live wire 观察
 - [模型目录](providers/openrouter/models.md)——精确匹配模型目录数据（采集 2026-08-02）
 
-### DeepSeek、Xiaomi MiMo、NVIDIA 与阿里云百炼
+### DeepSeek、LongCat、Xiaomi MiMo、NVIDIA 与阿里云百炼
 
 - [DeepSeek API 协议入口](providers/deepseek/api.md)（2026-08-08）——endpoint、认证、Responses 约束
 - [DeepSeek 模型目录与定价](providers/deepseek/models.md)（2026-08-08）——官方模型表、特性矩阵、OpenRouter 补充
+- [LongCat API 与 reasoning](providers/longcat/api.md)（2026-08-08）——Chat thinking 开关、Native Responses 与官方 Codex 配置
+- [LongCat 2.0 模型事实](providers/longcat/models.md)（2026-08-08）——官方模型详情与 OpenRouter reasoning 交叉证据
 - [Xiaomi MiMo API 协议入口](providers/xiaomi/api.md)——origin、Chat/Responses 入口、双认证方式
 - [Xiaomi MiMo 模型目录](providers/xiaomi/models.md)——官方 6 模型、V2 下线、OpenRouter 补充
 - [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/image.md)（2026-08-07）

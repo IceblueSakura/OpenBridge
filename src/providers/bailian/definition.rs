@@ -11,7 +11,7 @@ use crate::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
 };
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
@@ -20,7 +20,7 @@ const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[64, 128, 256, 512, 768, 1_024, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 
-/// Bounded Model Studio Chat and Embeddings ceilings confirmed independently of any model-specific target.
+/// Bounded Model Studio Chat, Responses, and Embeddings ceilings confirmed independently of any model-specific target.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::Bailian,
     ApiCapabilities {
@@ -43,15 +43,15 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             multiple_choices: false,
         },
         responses: ResponsesCapabilities {
-            enabled: false,
-            streaming: false,
+            enabled: true,
+            streaming: true,
             function_tools: None,
             image_input: None,
             structured_outputs: None,
             store: false,
             previous_response_id: false,
             background: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::Summary,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,
@@ -82,16 +82,17 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// OpenAI-compatible Chat and Embeddings wire profile used by the Model Studio Beijing endpoint.
+/// OpenAI-compatible generation and Embeddings wire profile used by the Model Studio Beijing endpoint.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::Bailian,
     &CONTRACT,
     Some("/chat/completions"),
-    None,
+    Some("/responses"),
     Some("/embeddings"),
     "/models",
     transform_request_headers,
-);
+)
+.with_request_body_hook(transform_request_body);
 
 /// Single static descriptor for the Model Studio contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
@@ -102,5 +103,29 @@ fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Converts each admitted Qwen3.7 Chat level to Model Studio's official thinking switch.
+fn transform_request_body(
+    protocol: crate::core::ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Preserve model-specific effort semantics for non-Qwen3.7 targets sharing this adapter.
+    let qwen3_7 = matches!(
+        document.get("model").and_then(serde_json::Value::as_str),
+        Some("qwen3.7-max" | "qwen3.7-plus")
+    );
+    if !qwen3_7 {
+        return Ok(());
+    }
+
+    // Replace the downstream Chat level with the official boolean extension.
+    if let Some(enabled) = take_chat_reasoning_switch(protocol, document)? {
+        document.insert(
+            "enable_thinking".to_owned(),
+            serde_json::Value::Bool(enabled),
+        );
+    }
     Ok(())
 }

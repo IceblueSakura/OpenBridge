@@ -41,7 +41,7 @@
 
 ## 验证证据
 
-- `cargo test --locked --test example_config mimo_models_compile_model_specific_native_and_bridge_surfaces`：通过，覆盖四个模型的
+- `cargo test --locked --test example_config mimo_models_compile_model_specific_native_surfaces`：通过，覆盖四个模型的
   canonical facts、target、Public Model 和 Chat-only route surface。
 - `cargo test --locked --test capability_definition_contract`：通过，覆盖 typed audio profile 的能力收窄和保留字段边界。
 - `cargo test --locked --test forwarding_contract mimo_audio`：通过，覆盖四个模型的 JSON/SSE Chat wire 保真、Models typed contract、

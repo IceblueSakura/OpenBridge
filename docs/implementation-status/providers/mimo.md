@@ -13,8 +13,8 @@
 
 | Public Model | 当前接口 | 文本输入 | 图片输入 | 音频输入或条件 | 音频输出 | 视频输入 | 当前实现与实测结论 |
 |---|---|---|---|---|---|---|---|
-| `mimo-v2.5-pro` | Chat、Responses；Native 与受限 Bridge | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 未声明 | 未声明 | 未声明 | 未声明 | OpenBridge 按 text-only 编译并公开 high；未把其他模态外推到 Pro |
-| `mimo-v2.5` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 当前实现 text/image/high；通用音频理解和 video 尚未进入可执行 interface |
+| `mimo-v2.5-pro` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 未声明 | 未声明 | 未声明 | 未声明 | OpenBridge 按 text-only 编译，两接口公开 none/low/medium/high；未把其他模态外推到 Pro |
+| `mimo-v2.5` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 当前实现 text/image 和统一四档；通用音频理解和 video 尚未进入可执行 interface |
 | `mimo-v2.5-asr` | Chat Native | 不接受普通文本输入；输出 transcript | 未声明 | 实测支持；单个 WAV + `asr_options` 返回正确 transcript | 未声明 | 未声明 | OpenBridge 已实现单 WAV ASR task profile；真实请求 HTTP 200 |
 | `mimo-v2.5-tts` | Chat Native | 实测支持目标文本与风格文本 | 未声明 | 不接收业务音频输入 | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 preset voice TTS；本次实测非流式 WAV，streaming PCM16 仍只有确定性证据 |
 | `mimo-v2.5-tts-voicedesign` | Chat Native | 实测支持音色描述与目标文本 | 未声明 | 不接收 reference audio | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 VoiceDesign task profile；真实请求 HTTP 200 |
@@ -24,10 +24,12 @@
 音频理解。当前 MiMo 音频正向请求全部使用 `POST /v1/chat/completions`。同一 origin 的 OpenAI 标准
 `POST /v1/audio/speech` 和 `POST /v1/audio/transcriptions` 对照请求均返回 HTTP 404、`text/html`。
 
-## High reasoning
+## Reasoning levels
 
-- `mimo-v2.5` 与 `mimo-v2.5-pro` 的 canonical levels 公开 `high`，两个 Native API 的 reasoning output 为 `PlainText`；
-  Pro 的 reverse-Bridge 只使用确定性验证过的明文 reasoning 转换。
+- `mimo-v2.5` 与 `mimo-v2.5-pro` 的 canonical levels 都是 `none/low/medium/high`，Chat/Responses interface 公开同一集合；
+  两个 Native API 的 reasoning output 为 `PlainText`，两个 Public Model 都不生成跨协议 Bridge。
+- Chat egress 将 `none` 转为 `thinking.type=disabled`，其余三档转为 `enabled`；Responses 原样传递具体 effort。MiMo 官方当前
+  说明三个开启档位行为相同，OpenBridge 仍保留各值以兼容后续差异化支持。
 - 真实下游 E2E 覆盖两个模型的 Chat/Responses × JSON/SSE × high 共 8 个单元：全部 HTTP 200，JSON/SSE 终态完整且
   reasoning 非空。
 - 四个 ASR/TTS target 继续把 reasoning output 收窄为 `Unknown`，不继承文本 target 的证据或 high level。
@@ -41,7 +43,7 @@ OpenBridge 不执行该工具。
 
 | Public Model | 真实 Provider 结果 | 当前确定性证据 | 结论 |
 |---|---|---|---|
-| `mimo-v2.5-pro` | Chat 返回 `finish_reason: "tool_calls"` 和 1 个有效 function call；Responses 返回 1 个 `function_call` output item | `mimo_models_compile_model_specific_native_and_bridge_surfaces` 覆盖 Chat/Responses Native 与 Bridge candidate 的 function-tool 规划 | Chat、Responses 工具调用实测支持；真实 Bridge 端到端未验证 |
+| `mimo-v2.5-pro` | Chat 返回 `finish_reason: "tool_calls"` 和 1 个有效 function call；Responses 返回 1 个 `function_call` output item | `mimo_models_compile_model_specific_native_surfaces` 覆盖 Chat/Responses Native function-tool 规划 | Chat、Responses 工具调用实测支持 |
 | `mimo-v2.5` | Chat 与 Responses 各返回 1 个有效 function call | 同一编译测试覆盖两协议 Native 规划；`mimo_responses_native_preserves_parallel_tool_stream` 覆盖 Responses streaming 并行调用保真 | Chat、Responses 工具调用实测支持；真实并行调用未验证 |
 | `mimo-v2.5-asr` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 transcript | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 | `mimo-v2.5-tts` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
@@ -90,6 +92,7 @@ request ID 或音频文件。
 - `mimo-v2.5` video、remote audio、多个 audio part、其他图片/音频格式和上限；
 - 真实 parallel tool calls、strict schema、全部 `tool_choice` mode、tool-result round trip；
 - 四个音频模型的 streaming 真实 Provider、OpenAI SDK、目标 Agent、负载和长期运行；
+- 两个文本模型的 `none/low/medium` 真实 Chat/Responses JSON/SSE；
 - ASR 人声/方言质量、TTS 音色质量与播放器验收；
 - 四个专用音频模型经真实下游 key 的 task-specific JSON/SSE 端到端复测。
 

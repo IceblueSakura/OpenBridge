@@ -15,9 +15,9 @@
   以及 `openai-text-embedding-3-small` Embeddings Target；它们都使用 `openai-primary` API-key pool。新增的三个 generation
   Target 只绑定 canonical profile，不新增下游 Public Model 或 Route；`openai-primary` 缺失或为空时这些 Target 保留在注册表中但配置态禁用。
 - NVIDIA 与百炼分别固定到 `https://integrate.api.nvidia.com/v1` 和
-  `https://dashscope.aliyuncs.com/compatible-mode/v1`，各自拥有基础 OpenAI-compatible Chat adapter 与独立 API-key pool。NVIDIA
-  将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
-  `qwen/qwen3.7-max` 绑定为对应 Public Model；四者的 Public Model 都由一个 Chat Native Route 自动补充一个 Responses Bridge。
+  `https://dashscope.aliyuncs.com/compatible-mode/v1`，使用独立 API-key pool。NVIDIA 将 `minimax/minimax-m3` 绑定为 Chat Native
+  `minimax-m3`；百炼将 `z-ai/glm-5.2` 绑定为 Chat Native + Responses Bridge，并将 `qwen/qwen3.7-plus` 与
+  `qwen/qwen3.7-max` 绑定为双协议 Native Public Model。
   百炼另外将
   `qwen/qwen3.8-max`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
   `qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
@@ -163,21 +163,22 @@ payload。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 - 本轮未执行真实 ChatGPT Provider、Models probe、外部 SDK、负载、长期运行或浏览器验收；历史真实调用表保留当时的旧名称并已明确标注。
 
-2026-08-08 非 GPT/NVIDIA high reasoning 固定契约：
+2026-08-08 非 GPT/NVIDIA reasoning level 固定契约：
 
-- `qwen3.7-max`、`qwen3.7-plus`、`LongCat-2.0`、`mimo-v2.5` 与 `mimo-v2.5-pro` 的 canonical levels 新增
-  `high`；`deepseek-v4-pro` 继续保留 `high`、`max`。
-- Bailian `deepseek-v4-pro` target、LongCat 两个 Native API 与 MiMo 两个文本 target 的 Chat/Responses reasoning output
-  为 `PlainText`；MiMo ASR/TTS target 继续显式收窄为 `Unknown`。全部 Public Model 保留原 Route 候选和顺序。
-- 四个聚焦测试在实现前同时失败，分别暴露空 high levels 或 `Unknown` Bridge output；最小声明后同一组测试全部通过。
-- `cargo test --locked --test example_config`：通过（22 项），其中新增音频边界测试确认四个 MiMo 音频 Target 不继承文本 reasoning
-  evidence；`cargo test --locked --test provider_boundary_contract`：通过（14 项）；
-  `cargo test --locked --test provider_contract`：通过（7 项）；`cargo test --locked --test forwarding_contract`：通过（47 项）。
-- 当前 checkout 的标准/扩展 Models 端点均返回 19 项且 ID 集合一致；六个模型的 Chat/Responses 均公开 high。使用真实下游 key
-  执行的 24 个 high JSON/SSE 单元全部 HTTP 200、终态完整且 reasoning 非空；固定 Bailian DeepSeek fallback 的 direct Chat
-  high JSON/SSE 额外 2 项也全部通过。
-- 本轮实现和测试不导入、加载或调用 Hermes，也不发送 Hermes custom 字段；未执行外部 SDK、负载、长期运行或生产验收。
+- Reasoning level 是 Canonical Model 事实，同一模型的 Chat/Responses interface 不再定义不同集合：Qwen3.7 Max/Plus 为
+  `none/minimal/low/medium/high/xhigh/max`，MiMo V2.5/Pro 为 `none/low/medium/high`，LongCat 2.0 为 `none/high`。
+- Qwen3.7 与 MiMo V2.5/Pro 都只编译 Chat/Responses Native Route；Native Responses 原样传递 effort。只有 thinking 开关的
+  Chat API 将 `none` 转为关闭、其余该模型已声明 level 转为开启；这不缩减 Models 元数据。
+- 当前确定性测试覆盖完整 canonical 集合、两个 interface 的一致 Models 投影、全部档位规划、Qwen/MiMo Native Responses 原值以及
+  Bailian/LongCat/MiMo Chat switch；Qwen Chat/Responses output 分别固定为 `PlainText`/`Summary`。MiMo ASR/TTS target 继续显式
+  收窄 reasoning 为 `Unknown`。
+- 真实下游 key 既有证据只覆盖这六个模型的 high JSON/SSE 和 Qwen Chat `none`；没有真实复测本轮新增的 Bailian Qwen Native
+  Responses、Qwen 其余五档、MiMo `none/low/medium` 或 LongCat `none`。实现和测试不依赖 Hermes。
+- 新契约实现前，`cargo test --locked --test example_config` 按预期 18 通过、4 失败，`cargo test --locked --test provider_contract`
+  按预期 6 通过、3 失败；实现后分别 22/22 与 9/9 通过。
+- 官方 Responses output schema 复核后，新增的 `Summary` 聚焦断言先按预期失败，修正 Bailian Responses ceiling 后通过。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+- 本轮未运行真实 Provider、外部 SDK、Models HTTP 端点、负载或长期运行验收，也未修改私有 credential。
 
 ## 相关文档
 

@@ -69,7 +69,20 @@ fn nvidia_bailian_and_kimi_adapters_bind_their_confirmed_api_surfaces() {
         assert_eq!(contract.credential_kinds(), [CredentialKind::ApiKey]);
         assert!(contract.capabilities().chat_completions.enabled);
         assert!(contract.capabilities().chat_completions.streaming);
-        assert!(!contract.capabilities().responses.enabled);
+        assert_eq!(
+            contract.capabilities().responses.enabled,
+            provider == ProviderKind::Bailian
+        );
+        assert_eq!(
+            contract.capabilities().responses.streaming,
+            provider == ProviderKind::Bailian
+        );
+        if provider == ProviderKind::Bailian {
+            assert_eq!(
+                contract.capabilities().responses.reasoning_output,
+                ReasoningOutput::Summary
+            );
+        }
         assert_eq!(
             contract.capabilities().chat_completions.reasoning_output,
             if provider == ProviderKind::Nvidia {
@@ -180,6 +193,101 @@ fn mimo_adapter_encodes_chat_and_responses() {
         let upstream = adapter.prepare_request(&request, "mimo-v2.5-pro").unwrap();
 
         assert_eq!(upstream.relative_uri().to_string(), expected_path);
+    }
+}
+
+#[test]
+fn reasoning_chat_profiles_emit_provider_official_switches() {
+    // Convert every model-level value into the switch shape documented by each Chat API.
+    for (provider, upstream_model, expected_field, levels) in [
+        (
+            ProviderKind::Bailian,
+            "qwen3.7-max",
+            "enable_thinking",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+        ),
+        (
+            ProviderKind::LongCat,
+            "LongCat-2.0",
+            "thinking",
+            &["none", "high"][..],
+        ),
+        (
+            ProviderKind::MiMo,
+            "mimo-v2.5-pro",
+            "thinking",
+            &["none", "low", "medium", "high"][..],
+        ),
+    ] {
+        for level in levels {
+            let enabled = *level != "none";
+            let request = ApiRequest::new(
+                ApiProtocol::ChatCompletions,
+                Bytes::from(format!(
+                    r#"{{"model":"public","messages":[],"reasoning_effort":"{level}"}}"#
+                )),
+            );
+            let upstream = ProviderAdapter::for_kind(provider)
+                .prepare_request(&request, upstream_model)
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+
+            assert!(body.get("reasoning_effort").is_none());
+            if expected_field == "enable_thinking" {
+                assert_eq!(body[expected_field], enabled);
+            } else {
+                assert_eq!(
+                    body[expected_field]["type"],
+                    if enabled { "enabled" } else { "disabled" }
+                );
+            }
+        }
+    }
+
+    // Keep Bailian's model-specific toggle from changing DeepSeek or GLM effort semantics.
+    let request = ApiRequest::new(
+        ApiProtocol::ChatCompletions,
+        Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"high"}"#),
+    );
+    let upstream = ProviderAdapter::for_kind(ProviderKind::Bailian)
+        .prepare_request(&request, "deepseek-v4-pro")
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+    assert_eq!(body["reasoning_effort"], "high");
+    assert!(body.get("enable_thinking").is_none());
+}
+
+#[test]
+fn native_responses_preserve_every_documented_reasoning_level() {
+    // Preserve exact values on the Native Responses protocols where the upstream documents effort levels.
+    for (provider, upstream_model, levels, expected_path) in [
+        (
+            ProviderKind::Bailian,
+            "qwen3.7-plus",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+            "/responses",
+        ),
+        (
+            ProviderKind::MiMo,
+            "mimo-v2.5",
+            &["none", "low", "medium", "high"][..],
+            "/v1/responses",
+        ),
+    ] {
+        for level in levels {
+            let request = ApiRequest::new(
+                ApiProtocol::Responses,
+                Bytes::from(format!(
+                    r#"{{"model":"public","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
+                )),
+            );
+            let upstream = ProviderAdapter::for_kind(provider)
+                .prepare_request(&request, upstream_model)
+                .unwrap();
+            assert_eq!(upstream.relative_uri().to_string(), expected_path);
+            let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+            assert_eq!(body["reasoning"]["effort"], *level);
+        }
     }
 }
 

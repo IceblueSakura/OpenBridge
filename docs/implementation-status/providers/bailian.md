@@ -6,10 +6,13 @@
 - 可信 Base URL：`https://dashscope.aliyuncs.com/compatible-mode/v1`；
 - credential pool：`bailian-primary`，仅允许 API key；
 - 固定注册 12 个 Target，覆盖 GLM、Qwen generation/image/audio/embedding 和 DeepSeek fallback；
-- 上游接口为 OpenAI-compatible Chat Completions 或 Embeddings；没有 Responses Native，缺失的 Responses coverage
-  由 Public Model 编译器在可表达范围内补充 Responses-via-Chat Route；
-- Provider Chat ceiling 允许 `PlainText` reasoning；已真实确认的 `glm-5.2`、`qwen3.7-max`、`qwen3.7-plus` 与
-  `bailian-deepseek-v4-pro` Target 保留该事实，其他 Bailian Chat Target 显式收窄为 `Unknown`。
+- Provider 固定 `/chat/completions`、`/responses` 与 `/embeddings`；只有 `qwen3.7-max`、`qwen3.7-plus` target 注册
+  Chat/Responses 双协议 Native API，其他 generation target 保持 Chat-only；
+- Qwen3.7 两个 Public Model 的 Chat/Responses 都公开 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；
+  Chat output 为 `PlainText`，Responses 按官方 `reasoning.summary[]` schema 为 `Summary`。Chat egress 将 `none` 映射为
+  `enable_thinking=false`、其余六档映射为 `true`；Responses 原样保留 effort；
+- 其他已真实确认的 `glm-5.2` 与 `bailian-deepseek-v4-pro` Chat target 保留 `PlainText`，其余 Bailian generation target
+  显式收窄为 `Unknown`。
 
 ## 真实验证
 
@@ -17,6 +20,7 @@
 
 - `glm-5.2` 的 Chat/Responses × JSON/SSE × reasoning 字段省略/high 共 8 个单元全部成功；
 - `qwen3.7-max` 与 `qwen3.7-plus` 的 Chat/Responses × JSON/SSE × high 共 8 个单元全部成功，终态完整且 reasoning 非空；
+  当次 Responses 请求走 Responses-via-Chat，不能作为当前 Bailian Native Responses 的真实验收；
 - 固定 `bailian-deepseek-v4-pro` fallback 的 direct Chat high JSON/SSE 均为 HTTP 200、终态完整且
   `reasoning_content` 非空；Public Model 的 Responses high 因此可以保留 DeepSeek/Bailian 两个 Bridge candidate；
 - 三个模型省略 reasoning 字段时会返回非空明文 `reasoning_content`，Responses Bridge 可将其保留为 reasoning item；
@@ -29,9 +33,9 @@
 
 ## 证据边界
 
-`tests/example_config.rs` 与 `tests/provider_contract.rs` 验证 Provider ceiling、目标级 reasoning 收窄、固定 endpoint、
-credential kind 和 Route 编译；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
-验证 usage-only SSE lifecycle 和 Responses terminal。
+`tests/example_config.rs` 与 `tests/provider_contract.rs` 验证 Qwen3.7 统一七档、双协议 Native Route、Chat `PlainText`、Responses
+`Summary`、Chat switch 与 Responses effort 原值；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
+验证既有 usage-only SSE lifecycle。
 
-这些证据不把四个已实测 Target 的 reasoning 事实外推到其他 Bailian Target，也不证明其他账号、区域、未来 Provider 行为、外部
-SDK、负载或长期运行兼容性。
+本轮没有真实复测 Qwen3.7 Native Responses 或 `minimal/low/medium/xhigh/max`，也没有把四个已实测 Target 的 reasoning 事实
+外推到其他 Bailian Target。确定性测试不证明其他账号、区域、未来 Provider 行为、外部 SDK、负载或长期运行兼容性。

@@ -14,7 +14,7 @@ use crate::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
 };
 
 const IMAGE_SOURCES: &[ImageInputSource] =
@@ -219,7 +219,8 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     None,
     "/v1/models",
     transform_request_headers,
-);
+)
+.with_request_body_hook(transform_request_body);
 
 /// Single static descriptor for the MiMo contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition =
@@ -230,5 +231,25 @@ fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Converts each admitted Chat level to MiMo's documented `thinking.type` switch.
+fn transform_request_body(
+    protocol: crate::core::ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Preserve requests without an explicit Chat level.
+    let Some(enabled) = take_chat_reasoning_switch(protocol, document)? else {
+        return Ok(());
+    };
+
+    // Write the fixed Provider extension after removing the standard downstream field.
+    document.insert(
+        "thinking".to_owned(),
+        serde_json::json!({
+            "type": if enabled { "enabled" } else { "disabled" }
+        }),
+    );
     Ok(())
 }

@@ -50,21 +50,25 @@ surface 仍保持关闭。
 | `gpt-5.5` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选；公开 high 与明文 reasoning |
+| `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first + Bridge；公开 none/high 与明文 reasoning |
 | `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 high/max 与明文 reasoning |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
 | `minimax-m3` | Chat、Responses | `nvidia-primary` | NVIDIA API Catalog Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
-| `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼 Chat Native + Responses Bridge；公开 high 与明文 reasoning |
-| `qwen3.7-max` | Chat、Responses | `bailian-primary` | 百炼 Chat Native + Responses Bridge；公开 high 与明文 reasoning |
-| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 文本 Native-first + Bridge；公开 high 与明文 reasoning；不公开图片输入 |
-| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；公开 high/明文 reasoning 及受限 URL/Base64 图片理解 |
+| `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
+| `qwen3.7-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
+| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；不公开图片输入 |
+| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；支持受限 URL/Base64 图片 |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
 | `mimo-v2.5-tts` | Chat | `mimo-primary` | MiMo 预置音色 TTS；Chat `audio` 输出，非流式 WAV、流式 PCM16 |
 | `mimo-v2.5-tts-voicedesign` | Chat | `mimo-primary` | MiMo 文本描述音色设计；Chat `audio` 输出，不接收 reference audio |
 | `mimo-v2.5-tts-voiceclone` | Chat | `mimo-primary` | MiMo reference-voice cloning；Chat `audio.voice` conditioning + audio 输出 |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
+
+Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公开同一集合。MiMo 官方当前把 `low`、`medium`、`high`
+都解释为开启 reasoning，但 OpenBridge 仍在 Native Responses 中原样传递每个已声明值；Qwen3.7 同理保留官方七档。
+只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 代码中已绑定 Provider Target 但未加入 Public Model/Route 的 canonical profile 仍不代表可调用模型。当前
@@ -210,7 +214,7 @@ Windows PowerShell 中如果 `curl` 被映射为 `Invoke-WebRequest`，请使用
 ### 4.6 `mimo-v2.5` Native 图片理解
 
 `mimo-v2.5` 的 Chat 与 Responses interface 都公开类型化 `multimodal_input.image`。下面两个请求分别走同协议 Native Route；
-`mimo-v2.5-pro`、Chat ↔ Responses Bridge、`file_id` 和显式 `detail` 不在该能力内。
+`mimo-v2.5-pro`、任何 Chat ↔ Responses Bridge、`file_id` 和显式 `detail` 不在该能力内。
 
 Chat Completions：
 

@@ -238,7 +238,7 @@ fn kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge() {
 }
 
 #[test]
-fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges() {
+fn nvidia_and_bailian_models_compile_with_their_fixed_generation_surfaces() {
     // Compile the complete registry so every model binding crosses the startup validation boundary.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -282,7 +282,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "bailian-api",
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-plus-bailian-chat",
-            "qwen3-7-plus-bailian-responses-via-chat",
+            "qwen3-7-plus-bailian-responses",
             ReasoningOutput::PlainText,
         ),
         (
@@ -296,12 +296,12 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "bailian-api",
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-max-bailian-chat",
-            "qwen3-7-max-bailian-responses-via-chat",
+            "qwen3-7-max-bailian-responses",
             ReasoningOutput::PlainText,
         ),
     ];
 
-    // Verify each fixed Target exposes one Chat Native Route and one automatic Responses Bridge.
+    // Verify each fixed Target exposes the generation APIs required by its Public Model surface.
     for (
         public_name,
         target_id,
@@ -332,7 +332,15 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             .expect("Chat Completions should be enabled");
         assert_eq!(chat.upstream_model(), upstream_model);
         assert_eq!(chat.reasoning_output(), reasoning_output);
-        assert!(target.upstream_api(OperationKind::Responses).is_none());
+        if public_name.starts_with("qwen3.7-") {
+            let responses = target
+                .upstream_api(OperationKind::Responses)
+                .expect("Qwen3.7 Responses should be enabled");
+            assert_eq!(responses.upstream_model(), upstream_model);
+            assert_eq!(responses.reasoning_output(), ReasoningOutput::Summary);
+        } else {
+            assert!(target.upstream_api(OperationKind::Responses).is_none());
+        }
 
         let public_model = registry
             .public_model(public_name)
@@ -899,12 +907,12 @@ fn deepseek_models_preserve_primary_routes_with_bailian_chat_fallbacks() {
 }
 
 #[test]
-fn qwen3_7_models_expose_high_reasoning_on_chat_and_responses() {
-    // Compile the production registry so both downstream interfaces use the fixed Bailian target.
+fn qwen3_7_models_expose_one_seven_level_reasoning_contract() {
+    // Compile the production registry so both downstream interfaces use fixed Bailian Native APIs.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
 
-    // Verify high is public and plans through the Native Chat and Responses-via-Chat routes.
+    // Verify the model-level seven-value contract is identical on both Native interfaces.
     for (public_name, route_prefix) in [
         ("qwen3.7-max", "qwen3-7-max-bailian"),
         ("qwen3.7-plus", "qwen3-7-plus-bailian"),
@@ -918,35 +926,41 @@ fn qwen3_7_models_expose_high_reasoning_on_chat_and_responses() {
             );
             assert_eq!(
                 info["interfaces"][protocol]["reasoning"]["levels"],
-                serde_json::json!(["high"])
+                serde_json::json!(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
             );
             assert_eq!(
                 info["interfaces"][protocol]["reasoning"]["output"],
-                "plain_text"
+                if protocol == "chat_completions" {
+                    "plain_text"
+                } else {
+                    "summary"
+                }
             );
         }
 
-        let chat = bytes::Bytes::from(format!(
-            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"high"}}"#
-        ));
-        let chat_profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
-        let chat_plan = plan_request(&registry, &chat_profile, chat).unwrap();
-        assert_eq!(chat_plan.candidates().len(), 1);
-        assert_eq!(
-            chat_plan.candidates()[0].route_id(),
-            format!("{route_prefix}-chat")
-        );
+        for level in ["none", "minimal", "low", "medium", "high", "xhigh", "max"] {
+            let chat = bytes::Bytes::from(format!(
+                r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
+            ));
+            let chat_profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
+            let chat_plan = plan_request(&registry, &chat_profile, chat).unwrap();
+            assert_eq!(chat_plan.candidates().len(), 1);
+            assert_eq!(
+                chat_plan.candidates()[0].route_id(),
+                format!("{route_prefix}-chat")
+            );
 
-        let responses = bytes::Bytes::from(format!(
-            r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
-        ));
-        let responses_profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
-        let responses_plan = plan_request(&registry, &responses_profile, responses).unwrap();
-        assert_eq!(responses_plan.candidates().len(), 1);
-        assert_eq!(
-            responses_plan.candidates()[0].route_id(),
-            format!("{route_prefix}-responses-via-chat")
-        );
+            let responses = bytes::Bytes::from(format!(
+                r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
+            ));
+            let responses_profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+            let responses_plan = plan_request(&registry, &responses_profile, responses).unwrap();
+            assert_eq!(responses_plan.candidates().len(), 1);
+            assert_eq!(
+                responses_plan.candidates()[0].route_id(),
+                format!("{route_prefix}-responses")
+            );
+        }
     }
 }
 
@@ -991,7 +1005,7 @@ fn deepseek_v4_pro_responses_high_preserves_both_fallbacks() {
 }
 
 #[test]
-fn longcat_high_reasoning_compiles_across_native_and_bridge_routes() {
+fn longcat_binary_reasoning_compiles_across_native_and_bridge_routes() {
     // Compile the production target and require both upstream protocols to expose readable reasoning.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -1003,48 +1017,50 @@ fn longcat_high_reasoning_compiles_across_native_and_bridge_routes() {
         );
     }
 
-    // Verify high remains supported after each Native and reverse-Bridge contribution is intersected.
+    // Verify the binary model contract survives every Native and reverse-Bridge contribution.
     let info = serde_json::to_value(registry.public_model("LongCat-2.0").unwrap().info()).unwrap();
     for protocol in ["chat_completions", "responses"] {
         assert_eq!(
             info["interfaces"][protocol]["reasoning"]["levels"],
-            serde_json::json!(["high"])
+            serde_json::json!(["none", "high"])
         );
         assert_eq!(
             info["interfaces"][protocol]["reasoning"]["output"],
             "plain_text"
         );
     }
-    for (protocol, body, expected_routes) in [
-        (
-            ApiProtocol::ChatCompletions,
-            bytes::Bytes::from_static(
-                br#"{"model":"LongCat-2.0","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}"#,
+    for level in ["none", "high"] {
+        for (protocol, body, expected_routes) in [
+            (
+                ApiProtocol::ChatCompletions,
+                bytes::Bytes::from(format!(
+                    r#"{{"model":"LongCat-2.0","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
+                )),
+                &["longcat-2-chat", "longcat-2-chat-via-responses"][..],
             ),
-            &["longcat-2-chat", "longcat-2-chat-via-responses"][..],
-        ),
-        (
-            ApiProtocol::Responses,
-            bytes::Bytes::from_static(
-                br#"{"model":"LongCat-2.0","input":"hello","reasoning":{"effort":"high"}}"#,
+            (
+                ApiProtocol::Responses,
+                bytes::Bytes::from(format!(
+                    r#"{{"model":"LongCat-2.0","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
+                )),
+                &["longcat-2-responses", "longcat-2-responses-via-chat"][..],
             ),
-            &["longcat-2-responses", "longcat-2-responses-via-chat"][..],
-        ),
-    ] {
-        let profile = analyze_request(protocol, &body).unwrap();
-        let plan = plan_request(&registry, &profile, body).unwrap();
-        assert_eq!(
-            plan.candidates()
-                .iter()
-                .map(|candidate| candidate.route_id())
-                .collect::<Vec<_>>(),
-            expected_routes
-        );
+        ] {
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            assert_eq!(
+                plan.candidates()
+                    .iter()
+                    .map(|candidate| candidate.route_id())
+                    .collect::<Vec<_>>(),
+                expected_routes
+            );
+        }
     }
 }
 
 #[test]
-fn mimo_text_models_expose_high_reasoning_on_current_surfaces() {
+fn mimo_text_models_expose_one_four_level_reasoning_contract() {
     // Compile the two text targets and require readable reasoning on both Native protocols.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -1058,54 +1074,45 @@ fn mimo_text_models_expose_high_reasoning_on_current_surfaces() {
         }
     }
 
-    // Verify high is admitted while each Public Model preserves its configured Native/Bridge surface.
-    for (public_name, route_prefix, has_bridges) in [
-        ("mimo-v2.5", "mimo-v2-5-mimo", false),
-        ("mimo-v2.5-pro", "mimo-v2-5-pro-mimo", true),
+    // Verify each Public Model exposes one model-level contract across both Native protocols.
+    for (public_name, route_prefix) in [
+        ("mimo-v2.5", "mimo-v2-5-mimo"),
+        ("mimo-v2.5-pro", "mimo-v2-5-pro-mimo"),
     ] {
         let info =
             serde_json::to_value(registry.public_model(public_name).unwrap().info()).unwrap();
         for protocol in ["chat_completions", "responses"] {
             assert_eq!(
                 info["interfaces"][protocol]["reasoning"]["levels"],
-                serde_json::json!(["high"])
+                serde_json::json!(["none", "low", "medium", "high"])
             );
             assert_eq!(
                 info["interfaces"][protocol]["reasoning"]["output"],
                 "plain_text"
             );
         }
-        for (protocol, body, native_route, bridge_route) in [
-            (
-                ApiProtocol::ChatCompletions,
-                bytes::Bytes::from(format!(
-                    r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"high"}}"#
-                )),
-                format!("{route_prefix}-chat"),
-                format!("{route_prefix}-chat-via-responses"),
-            ),
-            (
-                ApiProtocol::Responses,
-                bytes::Bytes::from(format!(
-                    r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
-                )),
-                format!("{route_prefix}-responses"),
-                format!("{route_prefix}-responses-via-chat"),
-            ),
-        ] {
-            let profile = analyze_request(protocol, &body).unwrap();
-            let plan = plan_request(&registry, &profile, body).unwrap();
-            let mut expected_routes = vec![native_route];
-            if has_bridges {
-                expected_routes.push(bridge_route);
+        for level in ["none", "low", "medium", "high"] {
+            for (protocol, body, expected_route) in [
+                (
+                    ApiProtocol::ChatCompletions,
+                    bytes::Bytes::from(format!(
+                        r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
+                    )),
+                    format!("{route_prefix}-chat"),
+                ),
+                (
+                    ApiProtocol::Responses,
+                    bytes::Bytes::from(format!(
+                        r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
+                    )),
+                    format!("{route_prefix}-responses"),
+                ),
+            ] {
+                let profile = analyze_request(protocol, &body).unwrap();
+                let plan = plan_request(&registry, &profile, body).unwrap();
+                assert_eq!(plan.candidates().len(), 1);
+                assert_eq!(plan.candidates()[0].route_id(), expected_route);
             }
-            assert_eq!(
-                plan.candidates()
-                    .iter()
-                    .map(|candidate| candidate.route_id())
-                    .collect::<Vec<_>>(),
-                expected_routes
-            );
         }
     }
 }
@@ -1200,18 +1207,17 @@ fn mimo_v25_image_requests_use_only_same_protocol_native_routes() {
 }
 
 #[test]
-fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
+fn mimo_models_compile_model_specific_native_surfaces() {
     // Build the complete compiled registry and check the fixed trusted boundaries of both MiMo targets.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    for (public_name, target_id, canonical_model, route_prefix, supports_images, has_bridges) in [
+    for (public_name, target_id, canonical_model, route_prefix, supports_images) in [
         (
             "mimo-v2.5-pro",
             "mimo-v2-5-pro",
             "xiaomi/mimo-v2.5-pro",
             "mimo-v2-5-pro-mimo",
             false,
-            true,
         ),
         (
             "mimo-v2.5",
@@ -1219,7 +1225,6 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             "xiaomi/mimo-v2.5",
             "mimo-v2-5-mimo",
             true,
-            false,
         ),
     ] {
         let target = registry
@@ -1317,23 +1322,14 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
         assert!(!responses_capabilities.previous_response_id);
         assert!(!responses_capabilities.background);
 
-        // Verify the model-specific Native and reverse-Bridge route surfaces.
+        // Verify both models expose only their model-specific Native routes.
         let public_model = registry
             .public_model(public_name)
             .expect("MiMo Public Model should be compiled");
-        let expected_routes = if has_bridges {
-            vec![
-                format!("{route_prefix}-chat"),
-                format!("{route_prefix}-chat-via-responses"),
-                format!("{route_prefix}-responses"),
-                format!("{route_prefix}-responses-via-chat"),
-            ]
-        } else {
-            vec![
-                format!("{route_prefix}-chat"),
-                format!("{route_prefix}-responses"),
-            ]
-        };
+        let expected_routes = vec![
+            format!("{route_prefix}-chat"),
+            format!("{route_prefix}-responses"),
+        ];
         assert_eq!(public_model.routes(), expected_routes);
         for (protocol, body, expected_route) in [
             (
@@ -1351,10 +1347,10 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
-            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
+            assert_eq!(plan.candidates().len(), 1);
         }
 
-        // Function tools remain available on every compiled candidate.
+        // Function tools remain available on every compiled Native candidate.
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -1375,7 +1371,7 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
-            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
+            assert_eq!(plan.candidates().len(), 1);
         }
 
         // Image input is admitted only for mimo-v2.5 and remains Native-only.
@@ -1408,7 +1404,7 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             }
         }
 
-        // Structured output is now shared by the modeled Native and reverse-Bridge paths.
+        // Structured output remains available on both modeled Native paths.
         for (protocol, body, expected_route) in [
             (
                 ApiProtocol::ChatCompletions,
@@ -1429,7 +1425,7 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             let profile = analyze_request(protocol, &body).unwrap();
             let plan = plan_request(&registry, &profile, body).unwrap();
             assert_eq!(plan.candidates()[0].route_id(), expected_route);
-            assert_eq!(plan.candidates().len(), if has_bridges { 2 } else { 1 });
+            assert_eq!(plan.candidates().len(), 1);
         }
 
         // Verify that MiMo's stateless boundary still rejects stateful Responses requests.

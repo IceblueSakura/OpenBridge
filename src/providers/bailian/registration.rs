@@ -127,11 +127,31 @@ fn chat_target(
     upstream_model: &str,
     reasoning_output: ReasoningOutput,
 ) -> UpstreamTargetConfig {
-    // Narrow the Provider ceiling to the reasoning output confirmed for this specific model.
-    let mut capabilities = CONTRACT.capabilities().chat_completions;
-    capabilities.reasoning_output = reasoning_output;
+    // Narrow the Provider ceilings to the reasoning output confirmed for this specific model.
+    let mut chat_capabilities = CONTRACT.capabilities().chat_completions;
+    chat_capabilities.reasoning_output = reasoning_output;
+    let responses_capabilities = CONTRACT.capabilities().responses;
 
-    // Bind the narrowed Chat contract to the trusted deployment and credential pool.
+    // Bind Chat for every target and Responses only for the documented Qwen3.7 models.
+    let mut upstream_apis = vec![UpstreamApiConfig {
+        upstream_model: upstream_model.to_owned(),
+        model_rules: UpstreamApiModelRules::default(),
+        capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
+        state_affinity: StateAffinity::Unbound,
+    }];
+    if matches!(
+        canonical_model,
+        qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
+    ) {
+        upstream_apis.push(UpstreamApiConfig {
+            upstream_model: upstream_model.to_owned(),
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
+            state_affinity: StateAffinity::TargetBound,
+        });
+    }
+
+    // Bind the narrowed generation contract to the trusted deployment and credential pool.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -142,11 +162,6 @@ fn chat_target(
         fault_domain: Some("bailian-api".to_owned()),
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: vec![UpstreamApiConfig {
-            upstream_model: upstream_model.to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities),
-            state_affinity: StateAffinity::Unbound,
-        }],
+        upstream_apis,
     }
 }

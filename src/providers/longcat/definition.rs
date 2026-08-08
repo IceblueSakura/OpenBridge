@@ -11,7 +11,7 @@ use crate::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
 };
 
 /// LongCat OpenAI-compatible capability ceiling based on direct checks and the OpenRouter catalog.
@@ -80,6 +80,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/openai/v1/models",
     transform_request_headers,
 )
+.with_request_body_hook(transform_request_body)
 .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the LongCat contract and adapter.
@@ -94,5 +95,25 @@ fn transform_request_headers(
     if let Some(value) = downstream.get(USER_AGENT) {
         upstream.insert(USER_AGENT, value.clone())?;
     }
+    Ok(())
+}
+
+/// Converts each LongCat model level to its documented Chat `thinking.type` switch.
+fn transform_request_body(
+    protocol: crate::core::ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Preserve requests without an explicit LongCat Chat level.
+    let Some(enabled) = take_chat_reasoning_switch(protocol, document)? else {
+        return Ok(());
+    };
+
+    // Write the fixed Provider extension after removing the standard downstream field.
+    document.insert(
+        "thinking".to_owned(),
+        serde_json::json!({
+            "type": if enabled { "enabled" } else { "disabled" }
+        }),
+    );
     Ok(())
 }

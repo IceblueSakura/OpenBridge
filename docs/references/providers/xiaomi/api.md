@@ -22,8 +22,13 @@
   - `api-key: $MIMO_API_KEY`
   - `Authorization: Bearer $MIMO_API_KEY`
 - Responses 文档明确不支持 `background` 与 `previous_response_id`。
+- Chat 使用 `thinking.type` 控制 reasoning：`enabled` 开启、`disabled` 关闭；官方关闭示例的
+  `completion_tokens_details.reasoning_tokens` 为 0。
+- Responses 使用标准 `reasoning.effort`，接受 `none`、`low`、`medium`、`high`。`none` 关闭 reasoning；官方明确说明
+  `low`、`medium`、`high` 当前都只是开启 reasoning，行为完全相同，尚不支持细粒度强度差异。
 - 旧 `mimo-v2-pro`、`mimo-v2-omni`、`mimo-v2-flash` 与 `mimo-v2-tts` 已于 2026-06-30 下线；新接入必须使用当前 model ID（见 [models.md](models.md)）。
 
 ## 证据边界
 
-endpoint 与认证只证明入口事实，不能推导图片、音频、tools、reasoning、streaming、Bridge 或服务限制。动态模型目录和 Provider 行为会变化；使用前须按功能页的日期与证据层重新复核。
+endpoint、认证与上述 reasoning 参数只证明官方协议声明，不能替代真实账号、streaming、Bridge、负载或长期运行验证。
+MiMo 接受三个开启值不表示它们当前产生不同推理强度。动态模型目录和 Provider 行为会变化；使用前须按功能页的日期与证据层重新复核。

@@ -10,9 +10,12 @@
 - `POST /v1/chat/completions` 和 `POST /v1/responses` 支持当前声明范围内的非流式 JSON 与 streaming SSE。
 - Native Route 保留下游 canonical request；Provider adapter 在 egress 阶段绑定固定 upstream model、相对 path、普通固定 header 和
   purpose-bound authentication。
-- 已声明的 reasoning level 可以按 Provider 规则映射到 wire value；未知或未声明 level 在 egress 前拒绝。
+- Reasoning level 由 Canonical Model 统一定义并在同一模型的 Chat/Responses interface 中保持一致；Native Responses 保留具体
+  effort，只有 thinking 开关的 Chat Provider 将 `none` 映射为关闭、其余已声明 level 映射为开启。未知 level 在 egress 前拒绝。
 - 当前 Native surface 包括 OpenAI `gpt-5.6-sol`、LongCat `LongCat-2.0`、DeepSeek Chat 与 V4 Flash 无状态 Responses、
-  OpenRouter 的 `deepseek-v4-flash` Chat/无状态 Responses，以及 Xiaomi MiMo 的 Chat/Responses。
+  OpenRouter 的 `deepseek-v4-flash` Chat/无状态 Responses、Bailian Qwen3.7 Max/Plus，以及 Xiaomi MiMo 的 Chat/Responses。
+- Bailian Qwen3.7 Native Responses 的 reasoning output 使用官方 `reasoning.summary[]`，与 Chat 的 `reasoning_content`
+  plain-text wire 分开建模；两协议仍共享同一七档 Model 能力。
 - `mimo-v2.5` 的两个同协议 Native surface 还支持固定 typed contract 内的 URL/Base64 图片输入；具体边界和真实 Provider 证据由
   [Native 图片专题](native-image-input.md)记录。
 - DeepSeek V4 Flash 与 OpenRouter 的 `store: true`、非空 `previous_response_id` 和 `background: true` 等未声明状态语义在 egress

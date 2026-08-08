@@ -69,6 +69,10 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
     assert_eq!(longcat.output_modalities, Some(vec![OutputModality::Text]));
     assert_eq!(longcat.tokenizer.as_deref(), Some("Other"));
     assert_eq!(longcat.knowledge_cutoff, None);
+    assert_eq!(
+        longcat.reasoning_levels,
+        [ReasoningLevel::High, ReasoningLevel::None]
+    );
 
     let sol = definition
         .models
@@ -180,6 +184,45 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
         .find(|model| model.id == "deepseek/deepseek-v4-flash")
         .unwrap();
     assert_eq!(deepseek_flash.context_length.output_tokens(), Some(393_216));
+
+    // Qwen3.7 records the full seven-level Responses model contract independently of its Chat-only Bailian binding.
+    for model_id in ["qwen/qwen3.7-max", "qwen/qwen3.7-plus"] {
+        let model = definition
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+            .expect("Qwen3.7 model should be in the catalog");
+        assert_eq!(
+            model.reasoning_levels,
+            [
+                ReasoningLevel::Max,
+                ReasoningLevel::XHigh,
+                ReasoningLevel::High,
+                ReasoningLevel::Medium,
+                ReasoningLevel::Low,
+                ReasoningLevel::Minimal,
+                ReasoningLevel::None,
+            ]
+        );
+    }
+
+    // MiMo records every accepted Responses effort even though enabled values currently share behavior.
+    for model_id in ["xiaomi/mimo-v2.5", "xiaomi/mimo-v2.5-pro"] {
+        let model = definition
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+            .expect("MiMo text model should be in the catalog");
+        assert_eq!(
+            model.reasoning_levels,
+            [
+                ReasoningLevel::High,
+                ReasoningLevel::Medium,
+                ReasoningLevel::Low,
+                ReasoningLevel::None,
+            ]
+        );
+    }
 
     let qwen3_8_max = definition
         .models

@@ -378,6 +378,27 @@ fn preserve_request_body(
     Ok(())
 }
 
+/// Removes a standard Chat reasoning level and returns its equivalent thinking-switch state.
+pub(crate) fn take_chat_reasoning_switch(
+    protocol: ApiProtocol,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<bool>, AdapterError> {
+    // Leave non-Chat requests and requests without an explicit standard level unchanged.
+    if protocol != ApiProtocol::ChatCompletions {
+        return Ok(None);
+    }
+    let Some(level) = document.remove("reasoning_effort") else {
+        return Ok(None);
+    };
+
+    // Treat `none` as disabled and every other recognized model level as enabled.
+    let level = level
+        .as_str()
+        .and_then(ReasoningLevel::from_wire)
+        .ok_or(AdapterError::InvalidRequestBody)?;
+    Ok(Some(level != ReasoningLevel::None))
+}
+
 /// Applies one canonical reasoning level mapping at the protocol-defined wire location.
 fn apply_reasoning_level_mapping(
     protocol: ApiProtocol,

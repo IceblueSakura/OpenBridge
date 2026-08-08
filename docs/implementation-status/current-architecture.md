@@ -265,6 +265,12 @@ Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，�
 reasoning level 改为安全 wire 值。映射源必须属于有效 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；没有映射的候选保持
 canonical level，未知下游 level 仍在 preflight 失败关闭。
 
+Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Responses API 继承相同集合。当前 Qwen3.7 Max/Plus 两个接口
+都公开七档，MiMo V2.5/Pro 两个接口都公开四档，LongCat 2.0 两个接口都公开 `none/high`。Qwen 与 MiMo 的 Native Responses
+保留具体 effort；只有 thinking 开关的 Chat egress 把 `none` 转为关闭、其余该模型已声明 level 转为开启。这个 wire 投影不创建
+每协议能力，也不压缩 Models 契约。Qwen Chat reasoning output 为 `PlainText`，Bailian Native Responses 按官方
+`reasoning.summary[]` schema 声明为 `Summary`；level 集合相同不表示两种协议必须使用相同输出 wire。
+
 请求携带 `previous_response_id` 时，计划关闭跨 target fallback。registry 还要求全部 Responses Route 的 continuation issuer
 唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前 拒绝请求。不同 Route 或 Upstream API
 的其他能力只在 registry 构建时做保守交集，绝不按字段求并集；请求能力 不用于跳过较弱 Route 选择较强 Route。
@@ -280,10 +286,10 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA、百炼与 Kimi CN 的独立静态定义拥有
 Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
-`openai_compatible` 机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
-pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 与百炼只声明基础 `/chat/completions` adapter 和 API-key
-credential kind；NVIDIA 绑定一个 MiniMax M3 target，百炼绑定 GLM-5.2、两个 Qwen3.7 Public Model target 和四个暂不公开的 Qwen target，
-这些 Target 只声明 Chat Upstream API。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
+`openai_compatible` 机制负责模型字段、reasoning level wire 映射与 Chat thinking switch、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
+pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 只声明基础 `/chat/completions` adapter；百炼声明
+`/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定一个 MiniMax M3 target；百炼的
+Qwen3.7 Max/Plus target 注册双协议 Native API，其他 generation target 保持 Chat-only。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
 `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model；Target 只声明 Chat Native 文本与 streaming 基线，Public Model 编译器在
 Responses Native 缺失时自动补充一个 Responses-via-Chat Bridge。
 DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
@@ -310,8 +316,8 @@ Chat。OpenAI 当前有 `openai-main`、GPT-5.5、GPT-5.6 Luna/Terra 三个额�
 source；编译器先统计一个 Public Model 的 Chat/Responses Native coverage，按 source 顺序生成 Native route；只有缺少某一 downstream
 protocol 的 Native coverage 时，才按相同顺序从相反 Upstream API 自动补充 Bridged route。显式双协议 Bridge surface 仍保留已声明
 Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
-的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；前者保留文本
-Bridge，后者为支持图片契约而只注册两个同协议 Native Route。Bridge
+的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；两者都只注册
+Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
 ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个 target、同一个 Codex backend、`responses` path、各自的 upstream

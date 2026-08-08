@@ -171,6 +171,10 @@ profile 自身的每协议规则继续保守相交；它只允许 `max_context_t
 `unsupported < unknown < supported` 排序时不得高于 Canonical Model。首版不允许在配置中提供 reasoning wire mapping、模态或接口
 capability。
 
+`reasoning_levels` 是 Canonical Model 事实；绑定同一模型的 Chat/Responses Native API 必须继承同一集合，代码内 integration
+profile 不得定义每协议子集。profile 只能降低完整 reasoning 支持状态，或把已声明 level 编码到该协议的固定 wire 形状；只有
+thinking 开关的 Chat API 将 `none` 编码为关闭、其余已声明 level 编码为开启，支持标准 effort 的 Responses API 保留原值。
+
 首版不提供 `enabled`、weight、priority、capability enablement、timeout、endpoint、credential pool 或自定义 route 字段。binding
 出现在文件中即表示启动时启用；停用通过删除记录并重启完成。需要不同协议 surface、endpoint 或 credential binding
 时，必须先在代码中增加并验证新的 Provider instance 或闭合 integration profile。
