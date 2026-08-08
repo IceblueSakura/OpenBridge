@@ -118,6 +118,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         [
             "deepseek-v4-flash-deepseek-chat",
             "deepseek-v4-flash-openrouter-chat",
+            "deepseek-v4-flash-deepseek-responses",
             "deepseek-v4-flash-openrouter-responses"
         ]
     );
@@ -185,8 +186,14 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
     let plan = plan_request(&registry, &profile, responses).unwrap();
     assert_eq!(
-        plan.candidates()[0].route_id(),
-        "deepseek-v4-flash-openrouter-responses"
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        [
+            "deepseek-v4-flash-deepseek-responses",
+            "deepseek-v4-flash-openrouter-responses"
+        ]
     );
 
     for unsupported in [

@@ -128,6 +128,56 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
 }
 
 #[tokio::test]
+async fn deepseek_v4_flash_responses_native_preserves_typed_reasoning_stream() {
+    // Build the production registry and select the first Responses candidate for DeepSeek V4 Flash.
+    let transport = Arc::new(DeepSeekResponsesStreamTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let request_body = r#"{"model":"deepseek-v4-flash","input":"\u8bf7\u56de\u7b54","stream":true,"reasoning":{"effort":"high"}}"#;
+
+    // Submit the downstream Responses request and preserve the typed semantic event stream byte for byte.
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(request_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+    assert_eq!(response.headers()["openai-request-id"], "deepseek-id");
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(body.as_ref(), DEEPSEEK_RESPONSES_REASONING_STREAM);
+
+    // Reconstruct the stream to confirm reasoning, visible text, and the explicit terminal event.
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    let mut state = ResponsesStreamState::new();
+    for event in events {
+        state.ingest(&event).unwrap();
+    }
+    state.finish().unwrap();
+    assert_eq!(state.reasoning_text(), "先分析");
+    assert_eq!(state.text(), "答案");
+    assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
+
+    // Confirm direct DeepSeek egress and preserve the public model plus standard reasoning configuration.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/responses");
+    assert_eq!(requests[0].authorization, "Bearer upstream-token");
+    assert_eq!(requests[0].body["model"], "deepseek-v4-flash");
+    assert_eq!(requests[0].body["reasoning"]["effort"], "high");
+}
+
+#[tokio::test]
 async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];

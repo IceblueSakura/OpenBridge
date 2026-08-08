@@ -76,7 +76,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-flash-deepseek",
                     upstream_target: "deepseek-v4-flash",
-                    surface: PublicModelSurface::ChatNativeOnly,
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-flash-openrouter",

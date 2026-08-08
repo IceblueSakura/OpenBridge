@@ -86,24 +86,31 @@ fn longcat_adapter_directly_encodes_chat_and_responses() {
 }
 
 #[test]
-fn deepseek_adapter_supports_only_chat_completions() {
+fn deepseek_adapter_encodes_chat_and_responses() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::DeepSeek);
-    let chat = ApiRequest::new(
-        ApiProtocol::ChatCompletions,
-        Bytes::from_static(br#"{"model":"deepseek-public","messages":[]}"#),
-    );
-    let responses = ApiRequest::new(
-        ApiProtocol::Responses,
-        Bytes::from_static(br#"{"model":"deepseek-public","input":"hello"}"#),
-    );
 
-    let upstream = adapter.prepare_request(&chat, "deepseek-v4-pro").unwrap();
+    for (protocol, body, expected_path) in [
+        (
+            ApiProtocol::ChatCompletions,
+            Bytes::from_static(br#"{"model":"deepseek-public","messages":[]}"#),
+            "/chat/completions",
+        ),
+        (
+            ApiProtocol::Responses,
+            Bytes::from_static(br#"{"model":"deepseek-public","input":"hello"}"#),
+            "/responses",
+        ),
+    ] {
+        let request = ApiRequest::new(protocol, body);
+        let upstream = adapter
+            .prepare_request(&request, "deepseek-v4-flash")
+            .unwrap();
 
-    assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
-    assert!(matches!(
-        adapter.prepare_request(&responses, "deepseek-v4-pro"),
-        Err(AdapterError::UnsupportedProtocol)
-    ));
+        assert_eq!(upstream.method(), Method::POST);
+        assert_eq!(upstream.relative_uri().to_string(), expected_path);
+        let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+        assert_eq!(body["model"], "deepseek-v4-flash");
+    }
 }
 
 #[test]

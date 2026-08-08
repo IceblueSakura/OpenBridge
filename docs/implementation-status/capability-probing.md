@@ -75,14 +75,14 @@ provider_model_list_profiles_bind_paths_and_response_envelopes`、`cargo test --
 
 ```powershell
 cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --chat --function-calling
-cargo run --bin openbridge-probe -- --target deepseek-v4-flash --list-models --chat --function-calling
+cargo run --bin openbridge-probe -- --target deepseek-v4-flash --list-models --chat --responses --function-calling
 cargo run --bin openbridge-probe -- --target mimo-v2-5-pro --all
 cargo run --bin openbridge-probe -- --target mimo-v2-5 --all
 ```
 
-DeepSeek target 只注册 Chat Upstream API，因此 probe 不能直接验证原生 Responses；下游 Responses→Chat Bridge 由确定性 Rust
-测试覆盖。MiMo target 注册 Chat 与 Responses Upstream API，`--all` 会观察模型列表、两个协议的 最小文本请求与 function
-call/result replay。
+DeepSeek V4 Pro target 只注册 Chat Upstream API；V4 Flash target 还注册 Responses，因此可以显式观察两个协议的最小文本请求与
+function call/result replay。该命令只是可执行入口，本轮没有运行真实 DeepSeek probe。MiMo target 注册 Chat 与 Responses Upstream
+API，`--all` 会观察模型列表、两个协议的最小文本请求与 function call/result replay。
 
 四个 ChatGPT OAuth target 现在可以通过本 CLI 的选定 OAuth2 manager 执行固定 Models probe；ChatGPT 的 Responses-native streaming
 协议仍不由当前通用非流式 probe payload 验证，建议显式使用 `--list-models`。2026-08-06 的真实 ChatGPT 最小 Responses 验收通过受保护的

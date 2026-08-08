@@ -1,4 +1,4 @@
-//! Static DeepSeek Provider contract and Chat-only OpenAI-compatible profile.
+//! Static DeepSeek Provider contract and model-gated OpenAI-compatible generation profile.
 
 use http::HeaderMap;
 
@@ -11,7 +11,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// DeepSeek Chat Completions capability ceiling; Chat reasoning is emitted as `reasoning_content` text.
+/// DeepSeek generation capability ceiling; model registration narrows Responses to V4 Flash.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::DeepSeek,
     ApiCapabilities {
@@ -36,16 +36,16 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             multiple_choices: false,
         },
         responses: ResponsesCapabilities {
-            enabled: false,
-            streaming: false,
-            function_calling: false,
+            enabled: true,
+            streaming: true,
+            function_calling: true,
             parallel_tool_calls: false,
             image_input: None,
             structured_outputs: false,
             store: false,
             previous_response_id: false,
             background: false,
-            reasoning_output: ReasoningOutput::Unsupported,
+            reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,
@@ -62,12 +62,12 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
     &[CredentialKind::ApiKey],
 );
 
-/// Chat-only OpenAI-compatible wire profile used by DeepSeek.
+/// OpenAI-compatible Chat and Responses wire profile used by registered DeepSeek models.
 static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::DeepSeek,
     &CONTRACT,
     Some("/chat/completions"),
-    None,
+    Some("/responses"),
     None,
     "/models",
     transform_request_headers,

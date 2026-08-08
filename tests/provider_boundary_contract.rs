@@ -331,12 +331,12 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
 }
 
 #[test]
-fn deepseek_and_mimo_contracts_expose_only_declared_native_protocols() {
+fn deepseek_and_mimo_contracts_expose_their_declared_native_protocols() {
     let deepseek = ProviderAdapter::for_kind(ProviderKind::DeepSeek);
     let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo);
 
     assert!(deepseek.contract().capabilities().chat_completions.enabled);
-    assert!(!deepseek.contract().capabilities().responses.enabled);
+    assert!(deepseek.contract().capabilities().responses.enabled);
     assert!(mimo.contract().capabilities().chat_completions.enabled);
     assert!(mimo.contract().capabilities().responses.enabled);
 }
@@ -352,7 +352,7 @@ fn deepseek_and_mimo_reasoning_output_types_are_explicit() {
     );
     assert_eq!(
         deepseek.responses.reasoning_output,
-        ReasoningOutput::Unsupported
+        ReasoningOutput::Unknown
     );
 
     let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo)

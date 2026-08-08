@@ -182,12 +182,13 @@ public model name
 5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
-注意：当前 OpenAI、LongCat、OpenRouter 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 `mimo-v2.5-pro` 注册双协议和
-Bridge，`mimo-v2.5` 与 OpenRouter 只注册无状态双协议 Native Route。DeepSeek target 只提供 Chat Native；ChatGPT 的四个固定 target 只提供
-Responses Native Route，通过独立 OAuth2 manager 借用 credential；管理员也可以对已激活 target 显式执行固定 Models probe，但不提供本机
-Codex credential、identity 或 executable probe；
-`deepseek-v4-flash` 的 Responses 下游请求使用显式 OpenRouter Native route，`deepseek-v4-pro` 没有 Responses 接口。
-这些路径仍不证明异构 wire protocol Provider 已经实现。
+注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与 `mimo-v2.5-pro`
+注册双协议和 Bridge，`mimo-v2.5` 与 OpenRouter 只注册无状态双协议 Native Route。DeepSeek V4 Pro target 只提供 Chat Native，V4
+Flash target 额外提供无状态 Responses Native；ChatGPT 的四个固定 target 只提供 Responses Native Route，通过独立 OAuth2 manager
+借用 credential；管理员也可以对已激活 target 显式执行固定 Models probe，但不提供本机 Codex credential、identity 或 executable
+probe；`deepseek-v4-flash` 的两个下游协议均按 DeepSeek、OpenRouter 顺序保留 Native candidates，`deepseek-v4-pro` 没有 Responses
+接口。
+这些路径仍不构成真实异构 Provider、外部 SDK 或客户端 runtime 验收。
 
 ## 9. 第七阶段：用测试理解“已经证明什么”
 

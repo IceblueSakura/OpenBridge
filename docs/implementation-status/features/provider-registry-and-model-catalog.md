@@ -14,8 +14,8 @@
   `mimo-v2.5`，以及 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和
   `chatgpt-gpt-5.6-terra`；`text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
-  `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source。其他当前 generation Public Model 仍按各自注册项使用一个
-  Provider source。
+  `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
+  其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
 - Canonical Model ID 保持 `designer/model`，Upstream Target 同时保存并校验 `canonical_model` 与 `provider_model` 两个分层身份；
   `provider_model` 使用 `provider/model`，而下游只接触不带前缀的 Public Model 名称。
 - 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和

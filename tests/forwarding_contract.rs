@@ -105,6 +105,35 @@ data: [DONE]
 
 "#;
 
+const DEEPSEEK_RESPONSES_REASONING_STREAM: &[u8] = br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_deepseek_reasoning","model":"deepseek-v4-flash","object":"response","output":[],"status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"rs_deepseek_reasoning","status":"in_progress","summary":[],"type":"reasoning"}}
+
+event: response.reasoning_text.delta
+data: {"type":"response.reasoning_text.delta","content_index":0,"delta":"\u5148\u5206\u6790","item_id":"rs_deepseek_reasoning","output_index":0}
+
+event: response.reasoning_text.done
+data: {"type":"response.reasoning_text.done","content_index":0,"item_id":"rs_deepseek_reasoning","output_index":0,"text":"\u5148\u5206\u6790"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"content":[{"text":"\u5148\u5206\u6790","type":"reasoning_text"}],"id":"rs_deepseek_reasoning","status":"completed","summary":[],"type":"reasoning"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"content":[],"id":"msg_deepseek_reasoning","role":"assistant","status":"in_progress","type":"message"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"\u7b54\u6848","item_id":"msg_deepseek_reasoning","output_index":1}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"content":[{"annotations":[],"text":"\u7b54\u6848","type":"output_text"}],"id":"msg_deepseek_reasoning","role":"assistant","status":"completed","type":"message"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_deepseek_reasoning","model":"deepseek-v4-flash","object":"response","output":[],"status":"completed"}}
+
+"#;
+
 #[derive(Default)]
 struct MimoResponsesToolStreamTransport {
     requests: Mutex<Vec<RecordedRequest>>,
@@ -117,6 +146,11 @@ struct MimoImageTransport {
 
 #[derive(Default)]
 struct DeepSeekReasoningStreamTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
+#[derive(Default)]
+struct DeepSeekResponsesStreamTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
@@ -776,6 +810,44 @@ impl UpstreamTransport for DeepSeekReasoningStreamTransport {
             response_headers.insert("openai-request-id", HeaderValue::from_static("deepseek-id"));
             let chunks = DEEPSEEK_CHAT_REASONING_STREAM
                 .chunks(13)
+                .map(Bytes::copy_from_slice)
+                .map(Ok::<_, Infallible>)
+                .collect::<Vec<_>>();
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from_stream(stream::iter(chunks)),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for DeepSeekResponsesStreamTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Record the endpoint, model, and reasoning configuration submitted by DeepSeek Responses Native.
+        let path = request.relative_uri().path().to_owned();
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path,
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body: serde_json::from_slice(request.body()).unwrap(),
+        });
+
+        // Return typed Responses events in irregular chunks to exercise terminal detection and passthrough.
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            response_headers.insert("openai-request-id", HeaderValue::from_static("deepseek-id"));
+            let chunks = DEEPSEEK_RESPONSES_REASONING_STREAM
+                .chunks(11)
                 .map(Bytes::copy_from_slice)
                 .map(Ok::<_, Infallible>)
                 .collect::<Vec<_>>();

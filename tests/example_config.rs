@@ -9,7 +9,7 @@ use openbridge::{
     providers::{build_compiled_registry, compiled_config},
     registry::{
         InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport, RouteConfig,
-        RouteMode, UpstreamApiCapabilities, build_registry,
+        RouteMode, StateAffinity, UpstreamApiCapabilities, build_registry,
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };

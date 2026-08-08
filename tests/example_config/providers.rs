@@ -205,7 +205,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
 }
 
 #[test]
-fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
+fn deepseek_pro_stays_chat_only_while_flash_prefers_deepseek_responses() {
     // Build the complete compiled registry and check the fixed trusted boundaries of both DeepSeek targets.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -253,7 +253,16 @@ fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
                 .reasoning_output(),
             ReasoningOutput::PlainText
         );
-        assert!(target.upstream_api(OperationKind::Responses).is_none());
+        if public_name == "deepseek-v4-pro" {
+            assert!(target.upstream_api(OperationKind::Responses).is_none());
+        } else {
+            let responses = target
+                .upstream_api(OperationKind::Responses)
+                .expect("DeepSeek V4 Flash Responses API should be compiled");
+            assert_eq!(responses.upstream_model(), "deepseek-v4-flash");
+            assert_eq!(responses.state_affinity(), StateAffinity::Unbound);
+            assert_eq!(responses.reasoning_output(), ReasoningOutput::Unknown);
+        }
 
         // Verify that downstream Chat retains the direct DeepSeek Native candidate.
         let public_model = registry
@@ -274,12 +283,13 @@ fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
             assert_eq!(public_model.routes(), ["deepseek-v4-pro-deepseek-chat"]);
             assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
         } else {
-            // Flash aggregates direct DeepSeek Chat with OpenRouter Chat/Responses Native routes.
+            // Flash aggregates direct DeepSeek and OpenRouter Native routes for both protocols.
             assert_eq!(
                 public_model.routes(),
                 [
                     "deepseek-v4-flash-deepseek-chat",
                     "deepseek-v4-flash-openrouter-chat",
+                    "deepseek-v4-flash-deepseek-responses",
                     "deepseek-v4-flash-openrouter-responses",
                 ]
             );
@@ -288,8 +298,14 @@ fn deepseek_models_keep_chat_only_while_flash_uses_openrouter_responses() {
             let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
             let plan = plan_request(&registry, &profile, responses).unwrap();
             assert_eq!(
-                plan.candidates()[0].route_id(),
-                "deepseek-v4-flash-openrouter-responses"
+                plan.candidates()
+                    .iter()
+                    .map(|candidate| candidate.route_id())
+                    .collect::<Vec<_>>(),
+                [
+                    "deepseek-v4-flash-deepseek-responses",
+                    "deepseek-v4-flash-openrouter-responses"
+                ]
             );
             assert!(info["interfaces"]["responses"].is_object());
         }

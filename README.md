@@ -47,7 +47,7 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
 | `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
-| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | Chat 可来自 DeepSeek；Responses 使用 OpenRouter Native |
+| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |

@@ -280,8 +280,8 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo 与 ChatGPT 的独立静态定义拥有 Provider
 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享 `openai_compatible`
 机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API pair
-构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek 的 Responses path 缺失时在 adapter 内返回
-`UnsupportedProtocol`；OpenRouter 与 MiMo 均声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
+构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
+target 注册 Responses Upstream API；OpenRouter 与 MiMo 同样声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
 header；`ProviderRequestHeaders` 通过 `StaticRequestHeader` slice 声明固定的非敏感 UA/header，并在 hook 后覆盖同名值；OpenAI 与
 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选 attribution/routing header，共享层不维护普通 header allowlist。
 `SafeHeaders` 对两条普通 header 路径统一拒绝 Authorization、cookie、Host 与 proxy authorization，credential header 最后独立附加。
@@ -297,7 +297,8 @@ OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有�
 
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
-当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API。OpenAI 另有
+当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；DeepSeek V4 Flash 显式注册同样两个无状态 API，而 V4 Pro 只注册
+Chat。OpenAI 另有
 `openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route， 不复用
 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
 source；每个下游协议先按 source 顺序生成全部 Native route，再按 相同顺序生成指向相反 Upstream API 的 Bridged route。当前
@@ -330,15 +331,17 @@ wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingre
 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。 因此这些类型位置与请求错误边界都不构成已实现能力声明。
 
 OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`、Chat/Responses Upstream API，并作为
-`deepseek-v4-flash` Public Model 的第二个 Provider source；两个协议各有唯一 Native route，使用基础 upstream model
+`deepseek-v4-flash` Public Model 的第二个 Provider source；两个协议各有一个 OpenRouter Native route，使用基础 upstream model
 `deepseek/deepseek-v4-flash`。Responses API 的 state affinity 是 `Unbound`，`store`、
-`previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route、fallback 或 `:free` 变体。
+`previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route 或 `:free` 变体；同协议规划中，这些 route 排在
+DeepSeek Native candidate 之后。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
-fault domain。每个 target 只注册 Chat Upstream API；`deepseek-v4-pro` Public Model 仅保留 Chat Native，
-`deepseek-v4-flash` 则把 DeepSeek Chat Native 与 OpenRouter Chat/Responses Native 聚合。DeepSeek Chat 的 reasoning output
-为 `PlainText`；MiMo 与 LongCat 的 Chat/Responses reasoning output 均为 `Unknown`，因此它们的 Native-first route 不受影响，
-但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。
+fault domain。`deepseek-v4-pro` target 与 Public Model 仅保留 Chat Native；`deepseek-v4-flash` target 额外注册 `Unbound`
+Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、OpenRouter 排序的 Native candidates。DeepSeek Chat 的
+reasoning output 为 `PlainText`，Responses reasoning output 暂记为 `Unknown`；MiMo 与 LongCat 的 Chat/Responses reasoning output
+同样为 `Unknown`，因此 Native-first route 不受影响，但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。DeepSeek Flash
+Responses 的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。
 
 ## 7. Transport、SSE、attempt 与 health
 

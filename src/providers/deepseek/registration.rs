@@ -1,4 +1,4 @@
-//! Registers DeepSeek V4 Upstream Targets and Chat Upstream APIs.
+//! Registers DeepSeek V4 targets with model-specific Native protocol surfaces.
 
 use std::time::Duration;
 
@@ -32,23 +32,45 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
             "deepseek-primary",
+            false,
         ),
         target(
             "deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash",
             "deepseek-primary",
+            true,
         ),
     ]
 }
 
-/// Builds a Chat-only target for a DeepSeek V4 model.
+/// Builds a DeepSeek V4 target and enables Responses only for an explicitly supported model.
 fn target(
     id: &str,
     canonical_model: &str,
     upstream_model: &str,
     credential_id: &str,
+    responses_enabled: bool,
 ) -> UpstreamTargetConfig {
+    // Build the model-specific Native API set without introducing state affinity.
+    let mut upstream_apis = vec![UpstreamApiConfig {
+        upstream_model: upstream_model.to_owned(),
+        model_rules: UpstreamApiModelRules::default(),
+        capabilities: UpstreamApiCapabilities::ChatCompletions(
+            CONTRACT.capabilities().chat_completions,
+        ),
+        state_affinity: StateAffinity::Unbound,
+    }];
+    if responses_enabled {
+        upstream_apis.push(UpstreamApiConfig {
+            upstream_model: upstream_model.to_owned(),
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
+            state_affinity: StateAffinity::Unbound,
+        });
+    }
+
+    // Bind the immutable API set to the fixed trusted DeepSeek deployment.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -59,13 +81,6 @@ fn target(
         fault_domain: Some("deepseek-api".to_owned()),
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: vec![UpstreamApiConfig {
-            upstream_model: upstream_model.to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(
-                CONTRACT.capabilities().chat_completions,
-            ),
-            state_affinity: StateAffinity::Unbound,
-        }],
+        upstream_apis,
     }
 }
