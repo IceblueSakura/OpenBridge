@@ -18,7 +18,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                 ProviderRouteRegistration {
                     route_prefix: "gpt-5.6-sol-chatgpt",
                     upstream_target: "chatgpt-gpt-5-6-sol",
-                    surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                    surface: PublicModelSurface::ResponsesNativeOnly,
                 },
             ],
         },
@@ -27,7 +27,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                surface: PublicModelSurface::ResponsesNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -35,7 +35,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-5",
                 upstream_target: "chatgpt-gpt-5-5",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                surface: PublicModelSurface::ResponsesNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -43,7 +43,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",
                 upstream_target: "chatgpt-gpt-5-6-luna",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                surface: PublicModelSurface::ResponsesNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -51,7 +51,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                surface: PublicModelSurface::ResponsesNativeOnly,
             }],
         },
         PublicModelRegistration {
@@ -106,6 +106,14 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
+            public_name: "kimi-k3",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "kimi-k3-kimi-cn",
+                upstream_target: "kimi-cn-kimi-k3",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "glm-5.2",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "glm-5-2-bailian",
@@ -150,7 +158,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-asr-mimo",
                 upstream_target: "mimo-v2-5-asr",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::ChatNativeOnlyWithoutBridge,
             }],
         },
         PublicModelRegistration {
@@ -158,7 +166,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-mimo",
                 upstream_target: "mimo-v2-5-tts",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::ChatNativeOnlyWithoutBridge,
             }],
         },
         PublicModelRegistration {
@@ -166,7 +174,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voicedesign-mimo",
                 upstream_target: "mimo-v2-5-tts-voicedesign",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::ChatNativeOnlyWithoutBridge,
             }],
         },
         PublicModelRegistration {
@@ -174,7 +182,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voiceclone-mimo",
                 upstream_target: "mimo-v2-5-tts-voiceclone",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::ChatNativeOnlyWithoutBridge,
             }],
         },
     ]
@@ -196,7 +204,7 @@ pub(super) struct ProviderRouteRegistration {
     pub(super) route_prefix: &'static str,
     /// Trusted Upstream Target ID referenced by generated Routes.
     pub(super) upstream_target: &'static str,
-    /// Native and Bridge surface supplied by the Target.
+    /// Native surface and automatic or explicit Bridge policy supplied by the Target.
     pub(super) surface: PublicModelSurface,
 }
 
@@ -207,8 +215,10 @@ pub(super) enum PublicModelSurface {
     DualProtocolWithBridges,
     /// Provides both Native protocols without Bridge paths.
     DualProtocolNativeOnly,
-    /// Provides only a Chat Completions Native path.
+    /// Provides a Chat Native path and allows automatic Responses Bridge supplementation.
     ChatNativeOnly,
-    /// Provides a Responses Native path and a Chat Completions path bridged through Responses.
-    ResponsesNativeWithChatBridge,
+    /// Provides a Chat Native path without automatic Bridge supplementation for task-specific surfaces.
+    ChatNativeOnlyWithoutBridge,
+    /// Provides a Responses Native path and allows automatic Chat Bridge supplementation.
+    ResponsesNativeOnly,
 }

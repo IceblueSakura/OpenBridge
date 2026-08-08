@@ -128,7 +128,7 @@ async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
     );
     assert_eq!(
         gpt_sol["interfaces"]["chat_completions"]["context_window"]["max_input_tokens"],
-        272_000
+        1_050_000
     );
 
     let detail = compiled_authenticated_get(&app, "/openbridge/v1/models/gpt-5.6-sol").await;

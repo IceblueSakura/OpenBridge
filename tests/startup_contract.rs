@@ -219,7 +219,7 @@ upstream_pool_max_idle_per_host = 16
     assert!(stdout.contains("Providers (configuration only)"));
     assert!(stdout.contains("Public models (configuration only)"));
     assert_table_column(&stdout, "openai (", false);
-    assert_table_column(&stdout, "gpt-5.6-sol (chat, responses)", true);
+    assert_table_column(&stdout, "gpt-5.6-sol (responses)", true);
     assert_table_column(
         &stdout,
         "text-embedding-3-small (no executable route after configuration)",

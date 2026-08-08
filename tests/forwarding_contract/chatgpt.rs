@@ -73,7 +73,7 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 }
 
 #[tokio::test]
-async fn chatgpt_chat_requests_use_the_responses_to_chat_bridge() {
+async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
     fs::write(directory.auth_file(), document).unwrap();
@@ -95,7 +95,7 @@ async fn chatgpt_chat_requests_use_the_responses_to_chat_bridge() {
         )
         .body(Body::from(
             serde_json::json!({
-                "model": "gpt-5.6-sol",
+                "model": "chatgpt-gpt-5.6-luna",
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": true,
             })
@@ -123,7 +123,7 @@ async fn chatgpt_chat_requests_use_the_responses_to_chat_bridge() {
     assert_eq!(requests.len(), 1);
     let request = &requests[0];
     assert_eq!(request.path, "/responses");
-    assert_eq!(request.model, "gpt-5.6-sol");
+    assert_eq!(request.model, "gpt-5.6-luna");
     assert!(request.input_is_array);
     assert!(request.store_is_false);
     assert!(!request.output_limit_present);

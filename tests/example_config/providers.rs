@@ -62,7 +62,102 @@ fn nvidia_and_bailian_compile_as_fixed_api_key_provider_profiles() {
 }
 
 #[test]
-fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
+fn kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge() {
+    // Compile the complete registry so the Kimi Provider and model binding cross startup validation.
+    let definition = compiled_config();
+    let instance = definition
+        .provider_instances
+        .iter()
+        .find(|instance| instance.id == "kimi-cn")
+        .expect("Kimi CN Provider instance should be compiled");
+    assert_eq!(instance.kind, ProviderKind::KimiCn);
+    assert_eq!(instance.base_url, "https://api.moonshot.cn");
+
+    let pool = definition
+        .credential_pools
+        .iter()
+        .find(|pool| pool.id == "kimi-primary")
+        .expect("Kimi API-key pool should be compiled");
+    assert_eq!(pool.provider, ProviderKind::KimiCn);
+    assert_eq!(pool.kind, CredentialKind::ApiKey);
+
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let target = registry
+        .upstream_target("kimi-cn-kimi-k3")
+        .expect("Kimi K3 Target should compile");
+    assert_eq!(target.kind(), ProviderKind::KimiCn);
+    assert_eq!(target.canonical_model_id(), "moonshotai/kimi-k3");
+    assert_eq!(target.provider_model_id(), "kimi-cn/kimi-k3");
+    assert_eq!(target.endpoint_base().as_str(), "https://api.moonshot.cn/");
+    assert_eq!(target.credential_pool_id(), "kimi-primary");
+    assert_eq!(target.quota_scope(), Some("kimi-primary"));
+    assert_eq!(target.fault_domain(), Some("kimi-cn-api"));
+    assert_eq!(target.upstream_apis().count(), 1);
+    assert_eq!(
+        target
+            .upstream_api(OperationKind::ChatCompletions)
+            .expect("Kimi K3 Chat API should compile")
+            .upstream_model(),
+        "kimi-k3"
+    );
+    assert!(target.upstream_api(OperationKind::Responses).is_none());
+
+    let public_model = registry
+        .public_model("kimi-k3")
+        .expect("Kimi K3 Public Model should compile");
+    assert_eq!(
+        public_model.routes(),
+        ["kimi-k3-kimi-cn-chat", "kimi-k3-kimi-cn-responses-via-chat"]
+    );
+    let info = serde_json::to_value(public_model.info()).unwrap();
+    assert!(info["interfaces"]["chat_completions"].is_object());
+    assert!(info["interfaces"]["responses"].is_object());
+
+    // Plan a text Chat request to the sole same-protocol Native candidate.
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+    );
+    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(plan.candidates().len(), 1);
+    assert_eq!(plan.candidates()[0].route_id(), "kimi-k3-kimi-cn-chat");
+    assert_eq!(
+        plan.candidates()[0].upstream_operation(),
+        OperationKind::ChatCompletions
+    );
+    assert!(plan.candidates()[0].bridge().is_none());
+
+    // Plan a text Responses request through the automatically supplemented Bridge candidate.
+    let body = bytes::Bytes::from_static(br#"{"model":"kimi-k3","input":"hello","stream":true}"#);
+    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(plan.candidates().len(), 1);
+    assert_eq!(
+        plan.candidates()[0].route_id(),
+        "kimi-k3-kimi-cn-responses-via-chat"
+    );
+    assert_eq!(
+        plan.candidates()[0].upstream_operation(),
+        OperationKind::ChatCompletions
+    );
+    assert!(plan.candidates()[0].bridge().is_some());
+
+    // Verify the closed Provider adapter emits only the trusted relative Chat path and upstream model.
+    let request = ApiRequest::new(
+        ApiProtocol::ChatCompletions,
+        bytes::Bytes::from_static(br#"{"model":"kimi-k3","messages":[]}"#),
+    );
+    let upstream = ProviderAdapter::for_kind(ProviderKind::KimiCn)
+        .prepare_request(&request, "kimi-k3")
+        .unwrap();
+    assert_eq!(upstream.relative_uri().to_string(), "/v1/chat/completions");
+    let upstream_body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+    assert_eq!(upstream_body["model"], "kimi-k3");
+}
+
+#[test]
+fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges() {
     // Compile the complete registry so every model binding crosses the startup validation boundary.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -78,6 +173,7 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
             "nvidia-api",
             "https://integrate.api.nvidia.com/v1/",
             "minimax-m3-nvidia-chat",
+            "minimax-m3-nvidia-responses-via-chat",
         ),
         (
             "glm-5.2",
@@ -90,6 +186,7 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
             "bailian-api",
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "glm-5-2-bailian-chat",
+            "glm-5-2-bailian-responses-via-chat",
         ),
         (
             "qwen3.7-plus",
@@ -102,6 +199,7 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
             "bailian-api",
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-plus-bailian-chat",
+            "qwen3-7-plus-bailian-responses-via-chat",
         ),
         (
             "qwen3.7-max",
@@ -114,10 +212,11 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
             "bailian-api",
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-max-bailian-chat",
+            "qwen3-7-max-bailian-responses-via-chat",
         ),
     ];
 
-    // Verify each fixed Target exposes exactly one Chat API and one downstream Native Route.
+    // Verify each fixed Target exposes one Chat Native Route and one automatic Responses Bridge.
     for (
         public_name,
         target_id,
@@ -129,6 +228,7 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
         fault_domain,
         endpoint_base,
         route_id,
+        responses_route_id,
     ) in cases
     {
         let target = registry
@@ -153,10 +253,13 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
         let public_model = registry
             .public_model(public_name)
             .expect("NVIDIA or Bailian Public Model should compile");
-        assert_eq!(public_model.routes(), [route_id]);
+        assert_eq!(
+            public_model.routes(),
+            [route_id.to_owned(), responses_route_id.to_owned()]
+        );
         let info = serde_json::to_value(public_model.info()).unwrap();
         assert!(info["interfaces"]["chat_completions"].is_object());
-        assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
+        assert!(info["interfaces"]["responses"].is_object());
 
         // Plan a text Chat request to the sole same-protocol Native candidate.
         let body = bytes::Bytes::from(format!(
@@ -171,6 +274,64 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
             OperationKind::ChatCompletions
         );
         assert!(plan.candidates()[0].bridge().is_none());
+    }
+}
+
+#[test]
+fn bailian_qwen_models_compile_as_fixed_chat_targets() {
+    // Compile the complete registry so each new canonical Qwen profile crosses target validation.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let cases = [
+        (
+            "bailian-qwen3-8-max",
+            "qwen/qwen3.8-max",
+            "bailian/qwen3.8-max",
+            "qwen3.8-max",
+        ),
+        (
+            "bailian-qwen-image-2-0-pro",
+            "qwen/qwen-image-2.0-pro",
+            "bailian/qwen-image-2.0-pro",
+            "qwen-image-2.0-pro",
+        ),
+        (
+            "bailian-qwen3-5-livetranslate-flash-realtime",
+            "qwen/qwen3.5-livetranslate-flash-realtime",
+            "bailian/qwen3.5-livetranslate-flash-realtime",
+            "qwen3.5-livetranslate-flash-realtime",
+        ),
+        (
+            "bailian-qwen3-6-27b",
+            "qwen/qwen3.6-27b",
+            "bailian/qwen3.6-27b",
+            "qwen3.6-27b",
+        ),
+    ];
+
+    // Verify every fixed Target preserves the provider identity and single Chat API binding.
+    for (target_id, canonical_model, provider_model, upstream_model) in cases {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("Bailian Qwen Target should compile");
+        assert_eq!(target.kind(), ProviderKind::Bailian);
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(target.provider_model_id(), provider_model);
+        assert_eq!(
+            target.endpoint_base().as_str(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/"
+        );
+        assert_eq!(target.credential_pool_id(), "bailian-primary");
+        assert_eq!(target.quota_scope(), Some("bailian-primary"));
+        assert_eq!(target.fault_domain(), Some("bailian-api"));
+        assert_eq!(
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .expect("Bailian Qwen Chat API should compile")
+                .upstream_model(),
+            upstream_model
+        );
+        assert!(target.upstream_api(OperationKind::Responses).is_none());
     }
 }
 
@@ -192,7 +353,7 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
             "bailian-deepseek-v4-flash",
             "deepseek/deepseek-v4-flash",
             "bailian/deepseek-v4-flash",
-            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
         ),
     ] {
         let target = registry
@@ -228,6 +389,8 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
             vec![
                 "deepseek-v4-pro-deepseek-chat",
                 "deepseek-v4-pro-bailian-chat",
+                "deepseek-v4-pro-deepseek-responses-via-chat",
+                "deepseek-v4-pro-bailian-responses-via-chat",
             ],
             vec![
                 "deepseek-v4-pro-deepseek-chat",
@@ -568,10 +731,12 @@ fn deepseek_models_preserve_primary_routes_with_bailian_chat_fallbacks() {
                 public_model.routes(),
                 [
                     "deepseek-v4-pro-deepseek-chat",
-                    "deepseek-v4-pro-bailian-chat"
+                    "deepseek-v4-pro-bailian-chat",
+                    "deepseek-v4-pro-deepseek-responses-via-chat",
+                    "deepseek-v4-pro-bailian-responses-via-chat"
                 ]
             );
-            assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
+            assert!(info["interfaces"]["responses"].is_object());
         } else {
             // Flash appends Bailian to Chat while retaining the two existing Responses sources.
             assert_eq!(

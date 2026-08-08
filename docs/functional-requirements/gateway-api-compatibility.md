@@ -42,6 +42,9 @@ billing identity；变更需要重启。认证失败与未知/不支持 endpoint
 - 请求能力只在所选 Public Model 边界预检一次，不参与选模、Route 候选资格、顺序或 fallback。预检通过后，Route 仍按配置顺序固定
   Upstream Target、Upstream API、下游 operation 和执行模式；generation `Native` 要求协议相同，`Bridged` 要求协议相反且通过完整
   `BridgePlan` preflight，Embeddings 只允许同 operation Native。
+- Route 编译遵循 Native-first 的缺失协议补全规则：先汇总一个 Public Model 的 Chat/Responses Native coverage；某个 downstream
+  protocol 没有 Native candidate 时，才从具备相反 Native protocol 的 source 自动补充对应 Bridge candidates，并保持 source 顺序。
+  已完整覆盖 Native 的 Public Model 不因自动规则增加冗余 Bridge；显式声明的 Bridge surface 仍须通过同一套完整 preflight。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游
   URL、模型、credential、provider family、route、转换脚本或 header 转换规则。Provider 的受信代码 hook 可以按编译期规则增添、替换、转换或删除普通
   header，但认证、cookie、Host 与 proxy header 始终隔离。

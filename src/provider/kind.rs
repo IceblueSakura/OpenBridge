@@ -2,7 +2,7 @@
 
 use crate::{
     core::ApiCapabilities,
-    providers::{bailian, chatgpt, deepseek, longcat, mimo, nvidia, openai, openrouter},
+    providers::{bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, openrouter},
 };
 
 use super::ProviderDefinition;
@@ -30,6 +30,8 @@ pub enum ProviderKind {
     Nvidia,
     /// Alibaba Cloud Model Studio OpenAI-compatible Provider.
     Bailian,
+    /// Moonshot Kimi China OpenAI-compatible Provider.
+    KimiCn,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,6 +100,7 @@ impl ProviderKind {
             Self::OpenRouter => "openrouter",
             Self::Nvidia => "nvidia",
             Self::Bailian => "bailian",
+            Self::KimiCn => "kimi-cn",
         }
     }
 
@@ -120,6 +123,7 @@ impl ProviderKind {
             Self::OpenRouter => &openrouter::DEFINITION,
             Self::Nvidia => &nvidia::DEFINITION,
             Self::Bailian => &bailian::DEFINITION,
+            Self::KimiCn => &kimi_cn::DEFINITION,
         }
     }
 

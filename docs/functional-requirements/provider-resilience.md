@@ -10,8 +10,9 @@ Provider API-key pool 的目标行为。实现事实仍以实施现状为准；�
 - 下游只选择 Public Model，不得指定 Provider、Upstream Target、Upstream API、endpoint 或 credential；
 - 多 Provider 聚合必须由代码目录在一个 Public Model 下显式列出 route source；canonical Model 相同不会自动 发现、注册或加入
   fallback；
-- 对每个下游协议，目录按 source 声明顺序生成全部 Native Route，再按相同顺序生成 Bridge Route；该结果就是 RoutePlan
-  消费的固定配置顺序，不在运行期重新比较 Native/Bridge 或 Provider；
+- 对每个下游协议，目录按 source 声明顺序生成全部 Native Route；只有当该 Public Model 没有该协议的任何 Native coverage 时，
+  才按相同 source 顺序从相反 Native surface 自动补充 Bridge Route。显式双协议 Bridge surface 仍可保留已声明的 Bridge。
+  该结果就是 RoutePlan 消费的固定配置顺序，不在运行期重新比较 Native/Bridge 或 Provider；
 - Public Model 的固定能力计算与请求预检统一由[模型能力契约](model-information-and-capability-contract.md)
   定义；本页不再为单个候选计算能力；
 - 进入本层的请求已经完成一次能力预检；请求能力不得跳过、筛选、截断或重排 Route，所有静态可执行候选保持配置顺序；

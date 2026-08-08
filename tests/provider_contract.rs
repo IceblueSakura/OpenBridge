@@ -58,9 +58,13 @@ fn native_chat_adapter_builds_only_relative_upstream_request_parts() {
 }
 
 #[test]
-fn nvidia_and_bailian_adapters_bind_only_the_confirmed_chat_surface() {
-    // Verify both unbound Provider contracts expose only the confirmed basic Chat surface.
-    for provider in [ProviderKind::Nvidia, ProviderKind::Bailian] {
+fn nvidia_bailian_and_kimi_adapters_bind_only_the_confirmed_chat_surface() {
+    // Verify each fixed API-key Provider contract exposes only the confirmed basic Chat surface.
+    for provider in [
+        ProviderKind::Nvidia,
+        ProviderKind::Bailian,
+        ProviderKind::KimiCn,
+    ] {
         let contract = provider.contract();
         assert_eq!(contract.credential_kinds(), [CredentialKind::ApiKey]);
         assert!(contract.capabilities().chat_completions.enabled);
@@ -76,7 +80,14 @@ fn nvidia_and_bailian_adapters_bind_only_the_confirmed_chat_surface() {
         );
         let upstream = adapter.prepare_request(&request, "upstream-model").unwrap();
         assert_eq!(upstream.method(), Method::POST);
-        assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
+        assert_eq!(
+            upstream.relative_uri().to_string(),
+            if provider == ProviderKind::KimiCn {
+                "/v1/chat/completions"
+            } else {
+                "/chat/completions"
+            }
+        );
         assert!(upstream.relative_uri().scheme().is_none());
         assert!(upstream.relative_uri().authority().is_none());
     }

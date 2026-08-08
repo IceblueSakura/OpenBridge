@@ -8,15 +8,22 @@
 ## 已完成内容
 
 - 注册表分离 canonical Model、Provider instance、credential pool、Upstream Target、Upstream API、Route 和 Public Model 的所有权。
-- 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo、ChatGPT、NVIDIA 和阿里云百炼 Model Studio；
-  ChatGPT 使用独立 OAuth manager，五个固定 target 各自提供一个 Responses Native Route 和一个受限 Chat Bridge Route。
+- 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo、ChatGPT、NVIDIA、阿里云百炼 Model Studio 和 Kimi CN；
+  ChatGPT 使用独立 OAuth manager，固定 target 提供 Responses Native；Responses-only Public Model 的 Chat coverage 由编译器自动补充
+  受限 Chat Bridge，已由其他 source 完整覆盖 Native 的 merged Public Model 不重复生成该自动 Bridge。
 - NVIDIA 与百炼分别固定到 `https://integrate.api.nvidia.com/v1` 和
   `https://dashscope.aliyuncs.com/compatible-mode/v1`，各自拥有基础 OpenAI-compatible Chat adapter 与独立 API-key pool。NVIDIA
   将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
-  `qwen/qwen3.7-max` 绑定为对应 Public Model；四者都只有一个 Chat Native Route。
+  `qwen/qwen3.7-max` 绑定为对应 Public Model；四者的 Public Model 都由一个 Chat Native Route 自动补充一个 Responses Bridge。
+  百炼另外将
+  `qwen/qwen3.8-max`、`qwen/qwen-image-2.0-pro`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
+  `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，但暂不加入 Public Model 或 Route。
+- Kimi CN 固定到 `https://api.moonshot.cn`，使用独立的 `kimi-primary` API-key pool 和 OpenAI-compatible Chat adapter；
+  `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model，提供 `/v1/chat/completions` Chat Native，并自动补充一个
+  `Responses-via-Chat` Bridge Route。
 - 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro`、
   `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和 `mimo-v2.5-tts-voiceclone`，以及
-  `minimax-m3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
+  `minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
   `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和 `chatgpt-gpt-5.6-terra`；
   `text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
@@ -26,7 +33,9 @@
   `provider_model` 使用 `provider/model`，而下游只接触不带前缀的 Public Model 名称。
 - 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和
   Public Model 在本次运行中不可执行，但不会从代码注册表删除 Provider 或 Model。
-- 同一 downstream operation 内先编译 Native candidates，再编译同顺序的 Bridge candidates；注册表保存固定 Route 顺序，不由请求重排。
+- Public Model 编译先统计 Chat/Responses Native coverage，再按 source 顺序生成 Native candidates；缺失某一 downstream protocol 时，
+  才从相反 Native surface 自动补充同顺序 Bridge candidates。显式双协议 Bridge surface 仍保留已声明 Bridge；注册表保存固定
+  Route 顺序，不由请求重排。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
 - MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
   Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。
@@ -77,8 +86,8 @@ payload。
 
 - 实现前运行 `cargo test --locked --test example_config nvidia_and_bailian_models_compile_as_chat_native_routes`，按预期因缺少首个 NVIDIA
   Target 失败；
-- 实现后同一聚焦测试通过（1 项），覆盖四个 trusted endpoint、Target、upstream model、credential pool、Public Model、唯一 Chat
-  Native Route 和本地请求规划。
+- 实现后同一聚焦测试通过（1 项），覆盖四个 trusted endpoint、Target、upstream model、credential pool、Public Model、Chat Native、
+  自动 Responses Bridge Route 和本地请求规划。
 - `cargo fmt -- --check`：通过；
 - `cargo test --locked`：通过；
 - `cargo clippy --locked -- -D warnings`：通过；
@@ -87,10 +96,51 @@ payload。
 本轮没有执行真实 NVIDIA/百炼请求、Models probe、外部 SDK、负载或长期运行测试；静态 Target 与规划测试不证明远端模型、协议、账号、
 区域、网络或配额可用。
 
+2026-08-08 百炼新增 Qwen Target 绑定的确定性验证：
+
+- 实现前运行 `cargo test --locked --test example_config bailian_qwen_models_compile_as_fixed_chat_targets`，按预期因新增 Target 不存在失败；
+- 实现后同一聚焦测试通过（1 项），覆盖 4 个 canonical/provider model identity、固定 endpoint、credential pool、quota scope、fault domain、
+  Chat Upstream API 和 Bailian upstream model；
+- `cargo test --locked --test example_config bailian_deepseek_models_compile_as_chat_native_fallbacks`：通过（1 项），并保留手动修改的
+  `deepseek-v4-flash-0731` upstream model；
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+
+本轮未将新增 Qwen Target 加入 Public Model/Route，也未执行真实百炼请求、图片生成 API、WebSocket 实时翻译、外部 SDK、负载或长期运行测试。
+
+2026-08-08 Kimi CN Provider 与 Kimi K3 Chat Native 绑定的确定性验证：
+
+- 实现前运行 `cargo test --locked --test example_config kimi_cn_k3_compiles_as_a_chat_native_route`，按预期因缺少 `ProviderKind::KimiCn` 失败；
+- 实现后 `cargo test --locked --test example_config kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge` 通过（1 项），覆盖
+  Provider、API-key pool、可信 endpoint、canonical/provider/upstream model identity、Chat Native/自动 Responses Bridge Route、两协议
+  本地规划和 `/v1/chat/completions` adapter model 替换；
+- `cargo test --locked --test provider_contract nvidia_bailian_and_kimi_adapters_bind_only_the_confirmed_chat_surface`：通过（1 项）；
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+
+本轮未执行真实 Moonshot 请求、Models probe、外部 SDK、负载或长期运行测试；静态 Target、规划和 adapter 测试不证明真实账号权限、模型可用性、
+网络、配额或远端协议行为。
+
+2026-08-08 Native-first 与缺失协议 Bridge 自动补全：
+
+- `cargo test --locked --test example_config kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge`：通过（1 项）；
+- `cargo test --locked route_compiler::tests`：通过（4 项），覆盖 Chat-only、Responses-only 自动补全、完整 Native coverage 抑制冗余
+  自动 Bridge，以及既有显式双协议 Bridge 顺序；
+- `cargo test --locked --test example_config -- --skip compiled_model_catalog_preserves_registered_model_facts`：通过（14 项），覆盖 Kimi、
+  ChatGPT、DeepSeek、NVIDIA、百炼、MiMo 和公共 Route/能力契约；`cargo test --locked --test provider_contract`：通过（7 项）；
+- `cargo test --locked --test forwarding_contract`：通过（46 项）；`cargo test --locked --test native_routing_contract`：通过（18 项）；
+  `cargo test --locked --lib`：通过（60 项）；
+- `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+
+完整 `cargo test --locked` 已执行，但当前工作区已有的 Qwen canonical model 注册变更尚未同步其现有清单测试，
+`catalog::compiled_model_catalog_preserves_registered_model_facts` 因额外的
+`qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro` 和
+`qwen/qwen3.7-text-embedding` 条目失败；该失败不涉及本轮 Route/Bridge 改动，相关未提交文件保持不变。
+本轮仍未执行真实 Provider、外部 SDK、负载或长期运行测试。
+
 ## 相关文档
 
 - [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/model-catalog-configuration.md)
 - [Public Model 与能力预检](models-api-and-capability-preflight.md)
 - [Provider 实施与实测状态](../providers/README.md)
 - [当前代码架构](../current-architecture.md)
+- [Kimi CN Provider 状态](../providers/kimi-cn.md)
 - [NVIDIA MiniMax M3 与百炼 GLM/Qwen 官方入口快照](../../references/providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)

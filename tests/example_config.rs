@@ -2,10 +2,10 @@
 
 use openbridge::{
     config::parse_bootstrap_config,
-    core::{ApiProtocol, OperationKind, ReasoningOutput},
+    core::{ApiProtocol, ApiRequest, OperationKind, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
-    provider::{CredentialKind, ProviderKind},
+    provider::{CredentialKind, ProviderAdapter, ProviderKind},
     providers::{build_compiled_registry, compiled_config},
     registry::{
         InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport, RouteConfig,

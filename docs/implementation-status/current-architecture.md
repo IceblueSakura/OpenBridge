@@ -179,7 +179,7 @@ level，不从共享默认值拼装模型字段；mode 与模态可作为显式�
 `ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被 伪装成可调用
 Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有字段；
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
-`:free` 变体边界见 [OpenRouter 模型目录快照](../references/providers/openrouter/model-catalog-2026-08-02.md)。
+`:free` 变体边界见 [OpenRouter 模型目录](../references/providers/openrouter/models.md)。
 ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical context/input limits 独立收窄为 272,000，最大输出保持
 128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；GPT-5.5 仍只有目录 profile。
 
@@ -277,11 +277,14 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
-`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA 与百炼的独立静态定义拥有
+`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA、百炼与 Kimi CN 的独立静态定义拥有
 Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
 `openai_compatible` 机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
 pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 与百炼只声明基础 `/chat/completions` adapter 和 API-key
-credential kind；NVIDIA 绑定一个 MiniMax M3 target，百炼绑定 GLM-5.2 与两个 Qwen3.7 target，四者只生成 Chat Native Route。
+credential kind；NVIDIA 绑定一个 MiniMax M3 target，百炼绑定 GLM-5.2、两个 Qwen3.7 Public Model target 和四个暂不公开的 Qwen target，
+这些 Target 只声明 Chat Upstream API。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
+`moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model；Target 只声明 Chat Native 文本与 streaming 基线，Public Model 编译器在
+Responses Native 缺失时自动补充一个 Responses-via-Chat Bridge。
 DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
 target 注册 Responses Upstream API；OpenRouter 与 MiMo 同样声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
 header；`ProviderRequestHeaders` 通过 `StaticRequestHeader` slice 声明固定的非敏感 UA/header，并在 hook 后覆盖同名值；OpenAI 与
@@ -303,14 +306,16 @@ OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有�
 Chat。OpenAI 另有
 `openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route， 不复用
 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
-source；每个下游协议先按 source 顺序生成全部 Native route，再按 相同顺序生成指向相反 Upstream API 的 Bridged route。当前
-`deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
+source；编译器先统计一个 Public Model 的 Chat/Responses Native coverage，按 source 顺序生成 Native route；只有缺少某一 downstream
+protocol 的 Native coverage 时，才按相同顺序从相反 Upstream API 自动补充 Bridged route。显式双协议 Bridge surface 仍保留已声明
+Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；前者保留文本
 Bridge，后者为支持图片契约而只注册两个同协议 Native Route。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
 ChatGPT registration 为 Spark 与 GPT-5.6 Luna/Terra/Sol 固定四个 target、同一个 Codex backend、`responses` path、各自的 upstream
-model 和共享 `chatgpt-codex` OAuth pool；四个 Public Model 各有且仅有一个 Responses Native Route。ChatGPT definition 固定
+model 和共享 `chatgpt-codex` OAuth pool；独立 Responses-only Public Model 各有一个 Responses Native Route，并由编译器自动补充
+一个受限 Chat Bridge。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
 `stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。该 profile 不读取本机 Codex auth、
 部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server；Models probe 使用的
@@ -339,8 +344,9 @@ OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`、Chat/Respo
 DeepSeek Native candidate 之后。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
-fault domain。`deepseek-v4-pro` target 与 Public Model 仅保留 Chat Native；`deepseek-v4-flash` target 额外注册 `Unbound`
-Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、OpenRouter 排序的 Native candidates。DeepSeek Chat 的
+fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat
+Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、
+OpenRouter 排序的 Native candidates。DeepSeek Chat 的
 reasoning output 为 `PlainText`，Responses reasoning output 暂记为 `Unknown`；MiMo 与 LongCat 的 Chat/Responses reasoning output
 同样为 `Unknown`，因此 Native-first route 不受影响，但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。DeepSeek Flash
 Responses 的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。

@@ -5,10 +5,13 @@ use crate::registry::{
     ReasoningSupport,
 };
 
+/// Stable OpenBridge catalog ID for Kimi K3.
+pub(crate) const ID: &str = "moonshotai/kimi-k3";
+
 /// Builds the complete model facts for Kimi K3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "moonshotai/kimi-k3".to_owned(),
+        id: ID.to_owned(),
         name: "Kimi K3".to_owned(),
         description: Some(
             "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."

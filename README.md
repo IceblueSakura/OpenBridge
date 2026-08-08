@@ -34,6 +34,10 @@ OpenBridge 的核心实现重点是无状态服务，也是默认使用方式和
 转换规则；这些信息由可信 Rust 注册表固定决定。请求先经过所选 Public Model 的能力预检，再按已注册 Route 顺序执行
 Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游业务输出前的 fallback。
 
+Route 编译遵循 Native-first：先使用已覆盖的同协议 Native；如果一个 Public Model 缺少 Chat 或 Responses 的 Native coverage，
+编译器才从相反 Native protocol 自动补充 Bridge。Native 已完整覆盖时不增加冗余自动 Bridge，task-specific 音频等明确不跨协议的
+surface 仍保持关闭。
+
 ## 2. 当前可调用模型
 
 下面是代码中注册的 Public Model。实际运行时只有拥有可用 credential pool、且至少存在一条可执行 Route 的模型才会出现在
@@ -41,17 +45,18 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 
 | Public Model | 可用接口 | 典型 credential pool | 说明 |
 |---|---|---|---|
-| `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI 优先、ChatGPT fallback；公共能力按两个 source 的最小交集公开 |
+| `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI Native 优先、ChatGPT Responses fallback；公共能力按两个 source 的固定契约公开 |
 | `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
-| `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
+| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 缺少 Native 时自动走 Chat Bridge |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
-| `minimax-m3` | Chat | `nvidia-primary` | NVIDIA API Catalog Chat Native；当前只公开文本与 streaming 基线 |
-| `glm-5.2` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
-| `qwen3.7-plus` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
-| `qwen3.7-max` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
+| `minimax-m3` | Chat、Responses | `nvidia-primary` | NVIDIA API Catalog Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
+| `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
+| `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
+| `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
+| `qwen3.7-max` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
@@ -125,7 +130,7 @@ credential rotation；这不等于账号级负载均衡。
 没有填写的 pool、没有 source 的 pool，或 `api_keys = []` 会使引用它的 Target 在本次启动中不可用，但不会从代码
 注册表删除 Provider 或 Model。source 类型与注册表不匹配、重复 binding、空白或重复 key 会直接阻止启动。
 
-`nvidia-primary` 激活 `minimax-m3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
+`nvidia-primary` 激活 `minimax-m3`，`kimi-primary` 激活 `kimi-k3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
 `qwen3.7-max`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
 ### 4.3 启动参数与环境变量
@@ -286,8 +291,9 @@ chatgpt-gpt-5.6-terra
 gpt-5.6-sol
 ```
 
-ChatGPT 上游固定使用 Responses SSE。下游可以使用 `/v1/responses` Native，或使用 `/v1/chat/completions` 进入受限
-Chat→Responses Bridge；两种路径都要求 `stream: true`。它不是本机 Codex credential、identity 或 executable probe。
+ChatGPT 上游固定使用 Responses SSE。独立 ChatGPT Public Model 下游可以使用 `/v1/responses` Native，或使用
+`/v1/chat/completions` 进入自动补充的受限 Chat→Responses Bridge；两种路径都要求 `stream: true`。它不是本机 Codex credential、
+identity 或 executable probe。
 
 ## 7. 下游 API 使用
 
@@ -344,13 +350,13 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
-使用 ChatGPT source 时，`gpt-5.6-sol` 的 Chat 请求会进入受限 Chat→Responses Bridge：
+使用独立 ChatGPT Public Model 时，Chat 请求会进入受限 Chat→Responses Bridge：
 
 ```bash
 curl -N http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer replace-with-a-local-client-token' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
+  -d '{"model":"chatgpt-gpt-5.6-luna","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
 `Content-Type` 必须是 `application/json`。工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool，也不提供
@@ -379,8 +385,8 @@ curl -N http://127.0.0.1:8080/v1/responses \
 无状态请求是推荐路径：每次携带完整历史，并省略 `store`、`previous_response_id` 与 `background`。这些状态相关字段是否
 可用取决于所选 Public Model 的固定 interface；不要根据 OpenAPI 的通用 schema 推断每个模型都支持它们。当前
 `store: true`、非空 `previous_response_id` 和 `background: true` 不是通用可用能力，状态支持也不是当前默认验收范围。
-当前 ChatGPT 四个 Public Model 的 Responses 路径固定为 Native，Chat 路径固定为受限 Bridge；两种路径都要求
-`stream: true`，并由 adapter 强制 `store: false`。
+当前 ChatGPT 的 Responses-only Public Model 的 Responses 路径固定为 Native，Chat 路径由编译器自动补充为受限 Bridge；两种路径都
+要求 `stream: true`，并由 adapter 强制 `store: false`。
 
 ### 7.4 Embeddings
 

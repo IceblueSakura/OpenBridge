@@ -26,6 +26,9 @@ Route。
   或跨 Target fallback，OpenBridge 不保存、迁移或恢复上游 response 状态；
 - 下游 API Key 匹配启动时加载的不可变用户表，并产生带稳定 user id 的安全请求日志；
 - 同协议请求使用 Native Path，保留合法 JSON、HTTP 和 SSE 语义；
+- Bridge 是核心兼容能力之一，但始终服从 Native-first：Public Model 编译先保留各 downstream protocol 的 Native candidate；
+  若 Chat 或 Responses 没有任何 Native 覆盖，则从相反 Native protocol 自动补充对应 Bridge candidate。Native 覆盖完整时不额外
+  制造自动 Bridge；不能安全表达的状态、媒体或 task-specific surface 仍由显式能力边界拒绝；
 - 异协议请求只有在显式 `Bridged` Route 能完整转换 text/function tool 语义时才出站；
 - Provider、Model、Upstream Target、Upstream API、Route 与 Public Model 由 Rust 代码显式注册；
 - 常驻数据面的上游 API key 来自被忽略的私有 upstream credential TOML，下游静态 Bearer token 来自私有用户文件；二者在启动时

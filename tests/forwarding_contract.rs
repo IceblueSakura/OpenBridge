@@ -1092,7 +1092,8 @@ fn add_responses_fallback(
         | ProviderKind::MiMo
         | ProviderKind::OpenRouter
         | ProviderKind::Nvidia
-        | ProviderKind::Bailian => {
+        | ProviderKind::Bailian
+        | ProviderKind::KimiCn => {
             panic!("test fallback helper only accepts connected providers")
         }
     };

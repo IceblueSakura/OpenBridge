@@ -25,7 +25,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed GLM-5.2, Qwen3.7, and DeepSeek V4 Chat targets for Model Studio.
+/// Builds the fixed GLM-5.2, Qwen, and DeepSeek V4 Chat targets for Model Studio.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target("bailian-glm-5-2", z_ai::glm_5_2::ID, "glm-5.2"),
@@ -35,6 +35,18 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "qwen3.7-plus",
         ),
         chat_target("bailian-qwen3-7-max", qwen::qwen3_7_max::ID, "qwen3.7-max"),
+        chat_target("bailian-qwen3-8-max", qwen::qwen3_8_max::ID, "qwen3.8-max"),
+        chat_target(
+            "bailian-qwen-image-2-0-pro",
+            qwen::qwen_image_2_0_pro::ID,
+            "qwen-image-2.0-pro",
+        ),
+        chat_target(
+            "bailian-qwen3-5-livetranslate-flash-realtime",
+            qwen::qwen3_5_livetranslate_flash_realtime::ID,
+            "qwen3.5-livetranslate-flash-realtime",
+        ),
+        chat_target("bailian-qwen3-6-27b", qwen::qwen3_6_27b::ID, "qwen3.6-27b"),
         chat_target(
             "bailian-deepseek-v4-pro",
             deepseek::deepseek_v4_pro::ID,
@@ -43,7 +55,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         chat_target(
             "bailian-deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
-            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
         ),
     ]
 }

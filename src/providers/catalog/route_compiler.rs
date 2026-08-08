@@ -1,7 +1,8 @@
 //! Compiles declarative generation surfaces into ordered registry Route definitions.
 //!
-//! The compiler owns the fixed Native/Bridge phase order and Route construction. It does not own
-//! checked-in model identities or request-time candidate selection.
+//! The compiler owns the fixed Native/Bridge phase order, Route construction, and missing-protocol
+//! Bridge supplementation. It does not own checked-in model identities or request-time candidate
+//! selection.
 
 use crate::{
     core::{ApiProtocol, OperationKind},
@@ -32,7 +33,7 @@ pub(super) fn compile_generation_routing(
     }
 }
 
-/// Global Route phase used to keep every Provider's Native candidate ahead of Bridge candidates.
+/// Global Route phase used to keep each downstream protocol's Native candidates ahead of its Bridges.
 #[derive(Clone, Copy)]
 enum RoutePhase {
     /// Native Chat Completions candidate.
@@ -55,11 +56,27 @@ const ROUTE_PHASES: [RoutePhase; 4] = [
 impl PublicModelRegistration {
     /// Builds one complete Public Model while preserving Provider priority inside each Route phase.
     fn compile(self) -> CompiledPublicModel {
-        // Generate all Native candidates before Bridge candidates for each downstream protocol.
+        // Detect whether the Public Model already has a Native candidate for each downstream protocol.
+        let has_chat_native = self
+            .providers
+            .iter()
+            .any(|provider| provider.route_for(RoutePhase::ChatNative, false).is_some());
+        let has_responses_native = self.providers.iter().any(|provider| {
+            provider
+                .route_for(RoutePhase::ResponsesNative, false)
+                .is_some()
+        });
+
+        // Generate Native candidates first and supplement only the missing downstream protocol.
         let mut routes = Vec::with_capacity(self.providers.len() * ROUTE_PHASES.len());
         for phase in ROUTE_PHASES {
+            let supplement_missing_protocol = match phase {
+                RoutePhase::ChatBridge => !has_chat_native,
+                RoutePhase::ResponsesBridge => !has_responses_native,
+                RoutePhase::ChatNative | RoutePhase::ResponsesNative => false,
+            };
             for provider in self.providers {
-                if let Some(route) = provider.route_for(phase) {
+                if let Some(route) = provider.route_for(phase, supplement_missing_protocol) {
                     routes.push(route);
                 }
             }
@@ -83,15 +100,16 @@ impl PublicModelRegistration {
 }
 
 impl ProviderRouteRegistration {
-    /// Builds this Provider's Route for one global phase when its surface supports that phase.
-    fn route_for(self, phase: RoutePhase) -> Option<RouteConfig> {
+    /// Builds this Provider's Route for one phase when its surface and compiler policy allow it.
+    fn route_for(
+        self,
+        phase: RoutePhase,
+        supplement_missing_protocol: bool,
+    ) -> Option<RouteConfig> {
         // Select the fixed protocol direction and handling mode for this surface and phase.
         let (suffix, upstream_operation, downstream_protocol, mode) = match phase {
             RoutePhase::ChatNative
-                if !matches!(
-                    self.surface,
-                    PublicModelSurface::ResponsesNativeWithChatBridge
-                ) =>
+                if !matches!(self.surface, PublicModelSurface::ResponsesNativeOnly) =>
             {
                 (
                     "chat",
@@ -101,11 +119,9 @@ impl ProviderRouteRegistration {
                 )
             }
             RoutePhase::ChatBridge
-                if matches!(
-                    self.surface,
-                    PublicModelSurface::DualProtocolWithBridges
-                        | PublicModelSurface::ResponsesNativeWithChatBridge
-                ) =>
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges)
+                    || (matches!(self.surface, PublicModelSurface::ResponsesNativeOnly)
+                        && supplement_missing_protocol) =>
             {
                 (
                     "chat-via-responses",
@@ -119,7 +135,7 @@ impl ProviderRouteRegistration {
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
                         | PublicModelSurface::DualProtocolNativeOnly
-                        | PublicModelSurface::ResponsesNativeWithChatBridge
+                        | PublicModelSurface::ResponsesNativeOnly
                 ) =>
             {
                 (
@@ -130,7 +146,9 @@ impl ProviderRouteRegistration {
                 )
             }
             RoutePhase::ResponsesBridge
-                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges) =>
+                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges)
+                    || (matches!(self.surface, PublicModelSurface::ChatNativeOnly)
+                        && supplement_missing_protocol) =>
             {
                 (
                     "responses-via-chat",
@@ -224,5 +242,80 @@ mod tests {
         assert_eq!(compiled.routes[1].upstream_target, "secondary-target");
         assert_eq!(compiled.routes[0].mode, RouteMode::Native);
         assert_eq!(compiled.routes[2].mode, RouteMode::Bridged);
+    }
+
+    #[test]
+    fn chat_only_surface_auto_supplements_missing_responses_coverage() {
+        // Register a Chat-only source and require the compiler to fill the missing downstream protocol.
+        let registration = PublicModelRegistration {
+            public_name: "chat-only-model",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "chat-only-provider",
+                upstream_target: "chat-only-target",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        };
+
+        // Keep the Native Chat candidate first and append the reverse Bridge for Responses.
+        let compiled = registration.compile();
+        let expected = [
+            "chat-only-provider-chat",
+            "chat-only-provider-responses-via-chat",
+        ];
+        assert_eq!(compiled.public_model.routes, expected);
+        assert_eq!(compiled.routes[0].mode, RouteMode::Native);
+        assert_eq!(compiled.routes[1].mode, RouteMode::Bridged);
+    }
+
+    #[test]
+    fn responses_only_surface_auto_supplements_missing_chat_coverage() {
+        // Register a Responses-only source and require the compiler to fill the missing Chat protocol.
+        let registration = PublicModelRegistration {
+            public_name: "responses-only-model",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "responses-only-provider",
+                upstream_target: "responses-only-target",
+                surface: PublicModelSurface::ResponsesNativeOnly,
+            }],
+        };
+
+        // Keep the reverse Chat Bridge and Responses Native candidates in their protocol phases.
+        let compiled = registration.compile();
+        let expected = [
+            "responses-only-provider-chat-via-responses",
+            "responses-only-provider-responses",
+        ];
+        assert_eq!(compiled.public_model.routes, expected);
+        assert_eq!(compiled.routes[0].mode, RouteMode::Bridged);
+        assert_eq!(compiled.routes[1].mode, RouteMode::Native);
+    }
+
+    #[test]
+    fn complete_native_coverage_does_not_add_redundant_automatic_bridges() {
+        // Combine a complete Native source with a Chat-only fallback source.
+        let registration = PublicModelRegistration {
+            public_name: "complete-native-model",
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "complete-primary",
+                    upstream_target: "complete-primary-target",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "complete-chat-fallback",
+                    upstream_target: "complete-chat-fallback-target",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+            ],
+        };
+
+        // Do not create a Chat-only fallback Bridge when the Public Model already has both Native protocols.
+        let compiled = registration.compile();
+        let expected = [
+            "complete-primary-chat",
+            "complete-chat-fallback-chat",
+            "complete-primary-responses",
+        ];
+        assert_eq!(compiled.public_model.routes, expected);
     }
 }

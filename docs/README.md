@@ -176,8 +176,9 @@ public model name
 3. [`src/providers/openai.rs`](../src/providers/openai.rs)、[`longcat.rs`](../src/providers/longcat.rs)、
    [`openrouter.rs`](../src/providers/openrouter.rs)、[`deepseek.rs`](../src/providers/deepseek.rs)、
    [`mimo.rs`](../src/providers/mimo.rs)、[`chatgpt.rs`](../src/providers/chatgpt.rs)、
-   [`nvidia.rs`](../src/providers/nvidia.rs) 与 [`bailian.rs`](../src/providers/bailian.rs)：八个已注册 Provider 如何聚合各自目录中的
-   contract、endpoint path、request hook 与注册事实；其中 ChatGPT 通过独立 OAuth manager 服务固定 Responses-native Public Model。
+   [`nvidia.rs`](../src/providers/nvidia.rs)、[`bailian.rs`](../src/providers/bailian.rs) 与 [`kimi_cn.rs`](../src/providers/kimi_cn.rs)：九个已注册 Provider 如何聚合各自目录中的
+   contract、endpoint path、request hook 与注册事实；其中 ChatGPT 通过独立 OAuth manager 服务固定 Responses-native Public Model，
+   Chat-only Provider 在缺少 Responses Native 时由 Public Model 编译器自动补充 Bridge。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
 5. [Provider 实施与实测状态](implementation-status/providers/README.md)：按 Provider family 查看当前模型、多模态、工具调用和
@@ -185,14 +186,13 @@ public model name
 6. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
-注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的已绑定 target 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与
-`mimo-v2.5-pro` 注册双协议和 Bridge，`mimo-v2.5` 与 OpenRouter 只注册无状态双协议 Native Route。DeepSeek V4 Pro target 只提供
-Chat Native，V4 Flash target 额外提供无状态 Responses Native；ChatGPT 的固定 target 只提供 Responses Native Route，通过独立 OAuth2
-manager 借用 credential。NVIDIA 的 `minimax-m3` 以及百炼的 `glm-5.2`、`qwen3.7-plus`、`qwen3.7-max` 都只注册
-Chat Native Route，并共享各自 Provider 的文本与 streaming 基线。管理员可以对已激活 target 显式执行受信 probe，但不提供本机 Codex
-credential、identity 或 executable probe；`deepseek-v4-flash` 的两个下游协议均按 DeepSeek、OpenRouter 顺序保留 Native candidates，
-`deepseek-v4-pro` 没有 Responses 接口。
-这些路径仍不构成真实异构 Provider、外部 SDK 或客户端 runtime 验收。
+注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、NVIDIA、百炼与 Kimi 的已绑定 target 都走 OpenAI-compatible Native
+Path；OpenAI、LongCat 与 `mimo-v2.5-pro` 注册双协议和 Bridge，`mimo-v2.5` 与 OpenRouter 只注册无状态双协议 Native Route。
+DeepSeek V4 Pro、NVIDIA MiniMax、百炼 GLM/Qwen 与 Kimi K3 target 只提供 Chat Native，Public Model 编译器在缺少 Responses Native
+时自动补充 Responses-via-Chat Bridge；V4 Flash 已有 Responses Native，因此不为 Bailian Chat fallback 生成冗余自动 Bridge。ChatGPT
+的固定 target 只提供 Responses Native Route，独立 Responses-only Public Model 自动补充受限 Chat Bridge，通过独立 OAuth2 manager 借用
+credential。管理员可以对已激活 target 显式执行受信 probe，但不提供本机 Codex credential、identity 或 executable probe；这些路径仍不构成
+真实异构 Provider、外部 SDK 或客户端 runtime 验收。
 
 ## 9. 第七阶段：用测试理解“已经证明什么”
 
