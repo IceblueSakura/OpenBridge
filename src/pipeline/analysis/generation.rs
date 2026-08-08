@@ -6,7 +6,10 @@
 use bytes::Bytes;
 use serde_json::Value;
 
-use crate::{core::ApiProtocol, registry::ReasoningLevel};
+use crate::{
+    core::{ApiProtocol, StructuredOutputMode, ToolChoiceMode},
+    registry::ReasoningLevel,
+};
 
 use super::super::{
     error::RequestPlanningError,
@@ -62,6 +65,8 @@ pub fn analyze_request(
         .get("tools")
         .and_then(Value::as_array)
         .is_some_and(|tools| tools.iter().any(is_function_tool));
+    let (function_tool_choice, unknown_tool_choice) =
+        requested_tool_choice(object, requests_function_calling);
     let requests_unmodeled_tools =
         object
             .get("tools")
@@ -71,9 +76,17 @@ pub fn analyze_request(
                     .iter()
                     .any(|tool| !is_function_tool(tool) && !is_reserved_tool(protocol, tool))
             });
+    let (structured_output_mode, structured_output_strict_schema, unknown_structured_output) =
+        requested_structured_output(object);
+    let function_tool_strict_schema = object
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode));
     let requested_capabilities = RequestedCapabilities {
         streaming: is_streaming,
-        function_calling: requests_function_calling,
+        function_tool_choice,
+        unknown_tool_choice,
+        function_tool_strict_schema,
         parallel_tool_calls: requests_function_calling
             && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
         image_input: analyze_image_input(protocol, object)?,
@@ -82,7 +95,9 @@ pub fn analyze_request(
         audio_output,
         asr_options_present,
         asr_language,
-        structured_outputs: requests_structured_outputs(object),
+        structured_output_mode,
+        structured_output_strict_schema,
+        unknown_structured_output,
         store: object.get("store").and_then(Value::as_bool) == Some(true),
         unmodeled_tools: requests_unmodeled_tools,
         reasoning: requested_reasoning(protocol, object),
@@ -280,7 +295,7 @@ fn content_contains_part_type(content: Option<&Value>, expected_type: &str) -> b
     })
 }
 
-/// `function_calling` covers only OpenAI JSON Schema function tools. Built-in and custom tools need
+/// Function-tool detection covers only OpenAI JSON Schema function tools. Built-in and custom tools need
 /// their own configuration semantics and probes; until modeled, native `tools[]` passthrough must
 /// not imply support.
 fn is_function_tool(tool: &Value) -> bool {
@@ -368,20 +383,103 @@ fn requested_reasoning(
         .unwrap_or(RequestedReasoning::UnknownLevel)
 }
 
-/// Identifies a structured-output request through response format, text format, or a strict function tool.
-fn requests_structured_outputs(object: &serde_json::Map<String, Value>) -> bool {
-    object
-        .get("response_format")
-        .is_some_and(is_non_text_format)
-        || object
+/// Extracts the exact function-tool choice mode, defaulting to `auto` when function tools exist.
+fn requested_tool_choice(
+    object: &serde_json::Map<String, Value>,
+    has_function_tools: bool,
+) -> (Option<ToolChoiceMode>, bool) {
+    let Some(value) = object.get("tool_choice").filter(|value| !value.is_null()) else {
+        return (has_function_tools.then_some(ToolChoiceMode::Auto), false);
+    };
+    match value {
+        Value::String(value) => match value.as_str() {
+            "none" => (Some(ToolChoiceMode::None), false),
+            "auto" => (Some(ToolChoiceMode::Auto), false),
+            "required" => (Some(ToolChoiceMode::Required), false),
+            _ => (None, true),
+        },
+        Value::Object(choice) if choice.get("type").and_then(Value::as_str) == Some("function") => {
+            let named = choice.get("name").and_then(Value::as_str).or_else(|| {
+                choice
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+            });
+            (named.map(|_| ToolChoiceMode::Named), named.is_none())
+        }
+        _ => (None, true),
+    }
+}
+
+/// Extracts one structured-output mode and strict-schema requirement from standard wire shapes.
+fn requested_structured_output(
+    object: &serde_json::Map<String, Value>,
+) -> (Option<StructuredOutputMode>, bool, bool) {
+    let mut mode = None;
+    let mut unknown = false;
+    // Parse every protocol-specific format location and reject conflicting or unknown modes.
+    for format in [
+        object.get("response_format"),
+        object
             .get("text")
             .and_then(Value::as_object)
-            .and_then(|text| text.get("format"))
-            .is_some_and(is_non_text_format)
-        || object
-            .get("tools")
-            .and_then(Value::as_array)
-            .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode))
+            .and_then(|text| text.get("format")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let (candidate, candidate_unknown) = structured_output_mode(format);
+        unknown |= candidate_unknown;
+        match candidate {
+            Some(candidate) if mode.is_none() => mode = Some(candidate),
+            Some(candidate) if mode == Some(candidate) => {}
+            Some(_) => unknown = true,
+            None => {}
+        }
+    }
+    // Read strict JSON Schema markers without inferring a mode from an unrelated tool profile.
+    let strict = [
+        object.get("response_format"),
+        object
+            .get("text")
+            .and_then(Value::as_object)
+            .and_then(|text| text.get("format")),
+    ]
+    .into_iter()
+    .flatten()
+    .any(format_requests_strict);
+    (mode, strict, unknown)
+}
+
+/// Maps one response-format object to the typed structured-output mode.
+fn structured_output_mode(value: &Value) -> (Option<StructuredOutputMode>, bool) {
+    let Some(format_type) = value
+        .as_object()
+        .and_then(|object| object.get("type"))
+        .and_then(Value::as_str)
+    else {
+        return (None, true);
+    };
+    match format_type {
+        "text" => (None, false),
+        "json_object" => (Some(StructuredOutputMode::JsonObject), false),
+        "json_schema" => (Some(StructuredOutputMode::JsonSchema), false),
+        _ => (None, true),
+    }
+}
+
+/// Returns whether one standard structured-output format requests strict JSON Schema.
+fn format_requests_strict(value: &Value) -> bool {
+    let is_json_schema = value.get("type").and_then(Value::as_str) == Some("json_schema");
+    is_json_schema
+        && (value.get("strict").and_then(Value::as_bool) == Some(true)
+            || value
+                .get("json_schema")
+                .and_then(Value::as_object)
+                .and_then(|schema| schema.get("strict"))
+                .and_then(Value::as_bool)
+                == Some(true))
 }
 
 /// Chat Completions places strict inside `function`, while Responses places it directly on the
@@ -394,13 +492,4 @@ fn tool_requests_strict_mode(tool: &Value) -> bool {
             .and_then(|function| function.get("strict"))
             .and_then(Value::as_bool)
             == Some(true)
-}
-
-/// Returns whether a format object explicitly requires non-plain-text output.
-fn is_non_text_format(format: &Value) -> bool {
-    format
-        .as_object()
-        .and_then(|format| format.get("type"))
-        .and_then(Value::as_str)
-        .is_some_and(|format_type| format_type != "text")
 }

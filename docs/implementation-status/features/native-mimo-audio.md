@@ -21,6 +21,9 @@
 - Models 扩展接口公开 `audio_task`、`multimodal_input.audio`、`multimodal_input.voice_conditioning` 和
   `multimodal_output.audio` 的 source、format、voice 与有界 encoded/decoded limits；请求分析只保留 bounded metadata，不保存或解码
   音频内容。
+- Chat capability 只保存一个 typed `audio` profile；`multimodal.input/output` 的存在由 profile 中的 input、voice-conditioning 和
+  output 子 profile 推导，不再由重复的 `audio_input`/`audio_output` 布尔字段声明。`AudioTask::Any` 仅可作为 Provider ceiling，不能成为
+  可执行 Route 的 task identity。
 
 ## 实现边界
 

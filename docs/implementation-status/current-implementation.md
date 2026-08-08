@@ -19,6 +19,9 @@
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) |
 | ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) |
 
+本轮 Models/能力契约更新已同步到 [Models 接口、Public Model 契约与能力预检](features/models-api-and-capability-preflight.md)：generation
+capability 使用 typed tool/structured-output profile，音频输入/输出模态由 typed audio profile 推导，同模型跨 Provider fallback 候选不做能力筛选。
+
 ## 已实现的横向能力
 
 | 功能点 | 状态文档 |

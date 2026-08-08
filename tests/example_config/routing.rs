@@ -86,10 +86,10 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         upstream_api.upstream_model = "longcat/longcat-2.0".to_owned();
         match &mut upstream_api.capabilities {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => {
-                capabilities.function_calling = false;
+                capabilities.function_tools = None;
             }
             UpstreamApiCapabilities::Responses(capabilities) => {
-                capabilities.function_calling = false;
+                capabilities.function_tools = None;
             }
             UpstreamApiCapabilities::Embeddings(_) => {
                 panic!("generation target must not contain Embeddings capabilities")

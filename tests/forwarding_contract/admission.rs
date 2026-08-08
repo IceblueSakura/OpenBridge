@@ -53,14 +53,18 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_calling = false;
+        capabilities.function_tools = None;
     }
     let mut stronger = definition.upstream_targets[0].clone();
     stronger.id = "openai-stronger".to_owned();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut stronger.upstream_apis[0].capabilities
     {
-        capabilities.function_calling = true;
+        capabilities.function_tools = Some(openbridge::core::FunctionToolCapabilities {
+            choice_modes: openbridge::core::ALL_TOOL_CHOICE_MODES,
+            parallel_calls: false,
+            strict_schema: false,
+        });
     }
     definition.upstream_targets.push(stronger);
     definition.routes.push(RouteConfig {

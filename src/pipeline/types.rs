@@ -7,7 +7,7 @@ use crate::{
     core::{
         ApiProtocol, ApiRequest, AudioFormat, AudioInputSource, EmbeddingEncoding,
         EmbeddingInputForm, EmbeddingRequest, ImageDetail, ImageInputSource, ImageMediaType,
-        OperationKind,
+        OperationKind, StructuredOutputMode, ToolChoiceMode,
     },
     registry::ReasoningLevel,
 };
@@ -80,7 +80,9 @@ pub struct RouteCandidate {
 #[derive(Debug)]
 pub(super) struct RequestedCapabilities {
     pub(super) streaming: bool,
-    pub(super) function_calling: bool,
+    pub(super) function_tool_choice: Option<ToolChoiceMode>,
+    pub(super) unknown_tool_choice: bool,
+    pub(super) function_tool_strict_schema: bool,
     pub(super) parallel_tool_calls: bool,
     pub(super) image_input: Option<ImageInputRequirements>,
     pub(super) audio_input: Option<AudioInputRequirements>,
@@ -88,7 +90,9 @@ pub(super) struct RequestedCapabilities {
     pub(super) audio_output: Option<AudioOutputRequirements>,
     pub(super) asr_options_present: bool,
     pub(super) asr_language: Option<String>,
-    pub(super) structured_outputs: bool,
+    pub(super) structured_output_mode: Option<StructuredOutputMode>,
+    pub(super) structured_output_strict_schema: bool,
+    pub(super) unknown_structured_output: bool,
     pub(super) store: bool,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,

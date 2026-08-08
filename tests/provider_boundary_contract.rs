@@ -314,10 +314,28 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
     assert!(contract.capabilities().responses.enabled);
     assert!(contract.capabilities().chat_completions.streaming);
     assert!(contract.capabilities().responses.streaming);
-    assert!(contract.capabilities().chat_completions.function_calling);
-    assert!(contract.capabilities().responses.function_calling);
-    assert!(!contract.capabilities().chat_completions.parallel_tool_calls);
-    assert!(!contract.capabilities().responses.parallel_tool_calls);
+    assert!(
+        contract
+            .capabilities()
+            .chat_completions
+            .function_tools
+            .is_some()
+    );
+    assert!(contract.capabilities().responses.function_tools.is_some());
+    assert!(
+        !contract
+            .capabilities()
+            .chat_completions
+            .function_tools
+            .is_some_and(|profile| profile.parallel_calls)
+    );
+    assert!(
+        !contract
+            .capabilities()
+            .responses
+            .function_tools
+            .is_some_and(|profile| profile.parallel_calls)
+    );
     assert!(
         contract
             .capabilities()
@@ -326,8 +344,20 @@ fn longcat_contract_exposes_only_the_verified_native_surface() {
             .is_none()
     );
     assert!(contract.capabilities().responses.image_input.is_none());
-    assert!(!contract.capabilities().chat_completions.structured_outputs);
-    assert!(!contract.capabilities().responses.structured_outputs);
+    assert!(
+        contract
+            .capabilities()
+            .chat_completions
+            .structured_outputs
+            .is_none()
+    );
+    assert!(
+        contract
+            .capabilities()
+            .responses
+            .structured_outputs
+            .is_none()
+    );
 }
 
 #[test]
@@ -372,16 +402,23 @@ fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_re
         .capabilities();
 
     let chat = capabilities.chat_completions;
-    assert!(chat.parallel_tool_calls);
+    assert!(
+        chat.function_tools
+            .is_some_and(|profile| profile.parallel_calls)
+    );
     assert!(chat.image_input.is_some());
-    assert!(chat.structured_outputs);
+    assert!(chat.structured_outputs.is_some());
     assert!(!chat.store);
     assert_eq!(chat.reasoning_output, ReasoningOutput::Unknown);
 
     let responses = capabilities.responses;
-    assert!(responses.parallel_tool_calls);
+    assert!(
+        responses
+            .function_tools
+            .is_some_and(|profile| profile.parallel_calls)
+    );
     assert!(responses.image_input.is_some());
-    assert!(responses.structured_outputs);
+    assert!(responses.structured_outputs.is_some());
     assert!(!responses.store);
     assert!(!responses.previous_response_id);
     assert!(!responses.background);
@@ -396,10 +433,16 @@ fn openrouter_contract_exposes_stateless_chat_and_responses_surfaces() {
     assert_eq!(contract.kind(), ProviderKind::OpenRouter);
     assert!(contract.capabilities().chat_completions.enabled);
     assert!(contract.capabilities().chat_completions.streaming);
-    assert!(contract.capabilities().chat_completions.function_calling);
+    assert!(
+        contract
+            .capabilities()
+            .chat_completions
+            .function_tools
+            .is_some()
+    );
     assert!(contract.capabilities().responses.enabled);
     assert!(contract.capabilities().responses.streaming);
-    assert!(contract.capabilities().responses.function_calling);
+    assert!(contract.capabilities().responses.function_tools.is_some());
     assert!(!contract.capabilities().responses.store);
     assert!(!contract.capabilities().responses.previous_response_id);
     assert!(!contract.capabilities().responses.background);

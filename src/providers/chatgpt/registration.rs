@@ -106,9 +106,8 @@ fn upstream_target(
 fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilities {
     let mut capabilities = CONTRACT.capabilities().responses;
     if !advanced_capabilities {
-        capabilities.function_calling = false;
-        capabilities.parallel_tool_calls = false;
-        capabilities.structured_outputs = false;
+        capabilities.function_tools = None;
+        capabilities.structured_outputs = None;
     }
     UpstreamApiCapabilities::Responses(capabilities)
 }

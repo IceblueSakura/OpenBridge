@@ -6,7 +6,10 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    core::{ApiProtocol, AudioTask, EmbeddingsCapabilities, OperationKind, ReasoningOutput},
+    core::{
+        ApiProtocol, AudioTask, EmbeddingsCapabilities, OperationKind, ReasoningOutput,
+        StructuredOutputMode, ToolChoiceMode,
+    },
     registry::{
         InputModality, OutputModality, ReasoningLevel, Route, RouteMode, UpstreamApi,
         UpstreamApiCapabilities,
@@ -47,9 +50,13 @@ pub(super) struct RouteContractContribution {
     pub(super) interface_parameters: Vec<String>,
     pub(super) streaming: SupportState,
     pub(super) system_messages: SupportState,
-    pub(super) function_calling: SupportState,
+    pub(super) function_tools: SupportState,
+    pub(super) function_tool_choice_modes: Vec<ToolChoiceMode>,
+    pub(super) tool_strict_schema: SupportState,
     pub(super) parallel_tool_calls: SupportState,
     pub(super) structured_outputs: SupportState,
+    pub(super) structured_output_modes: Vec<StructuredOutputMode>,
+    pub(super) structured_output_strict_schema: SupportState,
     pub(super) reasoning: SupportState,
     pub(super) reasoning_levels: Vec<ReasoningLevel>,
     pub(super) reasoning_output: ReasoningOutputMode,
@@ -81,6 +88,7 @@ impl RouteContractContribution {
 
         // The Bridge exposes only the public subset fully supported by the current converter.
         let bridged = route.mode() == RouteMode::Bridged;
+        let function_tools = generation.function_tools;
         let structured_outputs = generation.structured_outputs;
         let mut image_input = (!bridged)
             .then_some(generation.image_input)
@@ -103,6 +111,10 @@ impl RouteContractContribution {
             audio_output,
             audio_task,
         ) = protocol_specific_capabilities(route, upstream_api, bridged);
+        // Provider ceilings may use `Any`, but an executable API must publish one concrete task identity.
+        if audio_task == Some(AudioTask::Any) {
+            panic!("audio task ceiling cannot be used as an executable Route identity");
+        }
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
@@ -114,9 +126,9 @@ impl RouteContractContribution {
             route.mode(),
             &model_parameters,
             generation.streaming,
-            generation.function_calling,
-            generation.parallel_tool_calls,
-            structured_outputs,
+            function_tools.is_some(),
+            function_tools.is_some_and(|profile| profile.parallel_calls),
+            structured_outputs.is_some(),
             reasoning,
             store,
             previous_response_id,
@@ -186,9 +198,21 @@ impl RouteContractContribution {
             interface_parameters,
             streaming: SupportState::from_bool(generation.streaming),
             system_messages: SupportState::Unknown,
-            function_calling: SupportState::from_bool(generation.function_calling),
-            parallel_tool_calls: SupportState::from_bool(generation.parallel_tool_calls),
-            structured_outputs: SupportState::from_bool(structured_outputs),
+            function_tools: SupportState::from_bool(function_tools.is_some()),
+            function_tool_choice_modes: function_tools
+                .map_or_else(Vec::new, |profile| profile.choice_modes.to_vec()),
+            tool_strict_schema: SupportState::from_bool(
+                function_tools.is_some_and(|profile| profile.strict_schema),
+            ),
+            parallel_tool_calls: SupportState::from_bool(
+                function_tools.is_some_and(|profile| profile.parallel_calls),
+            ),
+            structured_outputs: SupportState::from_bool(structured_outputs.is_some()),
+            structured_output_modes: structured_outputs
+                .map_or_else(Vec::new, |profile| profile.modes.to_vec()),
+            structured_output_strict_schema: SupportState::from_bool(
+                structured_outputs.is_some_and(|profile| profile.strict_schema),
+            ),
             reasoning,
             reasoning_levels,
             reasoning_output: route_reasoning_output(upstream_api, bridged, reasoning),
@@ -254,9 +278,13 @@ impl RouteContractContribution {
             interface_parameters: Vec::new(),
             streaming: SupportState::Unsupported,
             system_messages: SupportState::Unsupported,
-            function_calling: SupportState::Unsupported,
+            function_tools: SupportState::Unsupported,
+            function_tool_choice_modes: Vec::new(),
+            tool_strict_schema: SupportState::Unsupported,
             parallel_tool_calls: SupportState::Unsupported,
             structured_outputs: SupportState::Unsupported,
+            structured_output_modes: Vec::new(),
+            structured_output_strict_schema: SupportState::Unsupported,
             reasoning: SupportState::Unsupported,
             reasoning_levels: Vec::new(),
             reasoning_output: ReasoningOutputMode::Unsupported,

@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
+        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding,
+        EmbeddingInputForm, EmbeddingsCapabilities, FunctionToolCapabilities, ReasoningOutput,
+        ResponsesCapabilities,
     },
     models::openai,
     provider::ProviderKind,
@@ -106,17 +107,18 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
         chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
             image_input: None,
-            structured_outputs: false,
+            structured_outputs: None,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
-            audio_input: false,
             audio: None,
             file_input: false,
-            audio_output: false,
             predicted_outputs: false,
             web_search: false,
             prompt_caching: false,
@@ -127,10 +129,13 @@ pub const fn conservative_openai_capabilities() -> ApiCapabilities {
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
             image_input: None,
-            structured_outputs: false,
+            structured_outputs: None,
             store: false,
             previous_response_id: false,
             background: false,

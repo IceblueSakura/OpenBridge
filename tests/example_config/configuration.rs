@@ -160,7 +160,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     };
     assert!(responses_capabilities.enabled);
     assert!(responses_capabilities.streaming);
-    assert!(responses_capabilities.function_calling);
+    assert!(responses_capabilities.function_tools.is_some());
     assert!(!responses_capabilities.store);
     assert!(!responses_capabilities.previous_response_id);
     assert!(!responses_capabilities.background);

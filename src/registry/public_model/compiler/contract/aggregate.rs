@@ -18,8 +18,7 @@ use crate::registry::public_model::{
     EmbeddingLimits, ImageInputInterfaceCapabilities, InterfaceReasoningCapabilities,
     ModelCapabilities, ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities,
     MultimodalInputCapabilities, MultimodalOutputCapabilities, ReasoningOutputMode,
-    StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode, SupportState,
-    ToolCapabilities, ToolChoiceMode, ToolType,
+    StateCapabilities, StructuredOutputCapabilities, SupportState, ToolCapabilities, ToolType,
 };
 
 impl ContextWindow {
@@ -133,12 +132,29 @@ pub(crate) fn aggregate_interface<'a>(
         supported_parameters.retain(|parameter| parameter != "previous_response_id");
     }
     let streaming = SupportState::intersection(contributions.iter().map(|value| value.streaming));
-    let function_calling =
-        SupportState::intersection(contributions.iter().map(|value| value.function_calling));
+    let function_tools =
+        SupportState::intersection(contributions.iter().map(|value| value.function_tools));
+    let function_tool_choice_modes = intersect_sets(
+        contributions
+            .iter()
+            .map(|value| value.function_tool_choice_modes.as_slice()),
+    );
+    let tool_strict_schema =
+        SupportState::intersection(contributions.iter().map(|value| value.tool_strict_schema));
     let parallel_tool_calls =
         SupportState::intersection(contributions.iter().map(|value| value.parallel_tool_calls));
     let structured_outputs =
         SupportState::intersection(contributions.iter().map(|value| value.structured_outputs));
+    let structured_output_modes = intersect_sets(
+        contributions
+            .iter()
+            .map(|value| value.structured_output_modes.as_slice()),
+    );
+    let structured_output_strict_schema = SupportState::intersection(
+        contributions
+            .iter()
+            .map(|value| value.structured_output_strict_schema),
+    );
     let reasoning = SupportState::intersection(contributions.iter().map(|value| value.reasoning));
     let reasoning_levels = if reasoning.is_supported() {
         intersect_sets(
@@ -171,44 +187,20 @@ pub(crate) fn aggregate_interface<'a>(
             contributions.iter().map(|value| value.system_messages),
         ),
         tools: ToolCapabilities {
-            support: function_calling,
-            types: function_calling
+            support: function_tools,
+            types: function_tools
                 .is_supported()
                 .then_some(ToolType::Function)
                 .into_iter()
                 .collect(),
-            tool_choice_modes: if function_calling.is_supported() {
-                vec![
-                    ToolChoiceMode::None,
-                    ToolChoiceMode::Auto,
-                    ToolChoiceMode::Required,
-                    ToolChoiceMode::Named,
-                ]
-            } else {
-                Vec::new()
-            },
+            tool_choice_modes: function_tool_choice_modes,
             parallel_calls: parallel_tool_calls,
-            strict_schema: if function_calling.is_supported() && structured_outputs.is_supported() {
-                SupportState::Supported
-            } else {
-                SupportState::Unsupported
-            },
+            strict_schema: tool_strict_schema,
         },
         structured_outputs: StructuredOutputCapabilities {
             support: structured_outputs,
-            modes: if structured_outputs.is_supported() {
-                vec![
-                    StructuredOutputMode::JsonObject,
-                    StructuredOutputMode::JsonSchema,
-                ]
-            } else {
-                Vec::new()
-            },
-            strict_schema: if structured_outputs.is_supported() {
-                SupportState::Supported
-            } else {
-                SupportState::Unsupported
-            },
+            modes: structured_output_modes,
+            strict_schema: structured_output_strict_schema,
         },
         reasoning: InterfaceReasoningCapabilities {
             support: reasoning,

@@ -28,8 +28,8 @@
 | Public Model execution interface | 全部静态可执行 Route 的保守交集，以及与该交集绑定的固定候选顺序                  | Provider/Target 拓扑、credential、运行时健康或能力并集 |
 | Request requirements             | 本次请求实际使用的 form、role、source、format、数量及可直接计算的资源事实        | 重新筛选、跳过或重排 Route 的依据                      |
 
-Canonical modality 只能证明模型可能消费或产生某类数据，不能自动打开 API 能力。`image_input: true`、`file_input: true`、
-`audio_input: true`、`audio_output: true` 或笼统 `multimodal: true` 都不足以成为可执行公共契约。
+Canonical modality 只能证明模型可能消费或产生某类数据，不能自动打开 API 能力。`image_input: true`、`file_input: true`、历史上的
+`audio_input`/`audio_output` bool 或笼统 `multimodal: true` 都不足以成为可执行公共契约；当前音频 presence 必须由 typed profile 推导。
 
 ## 2. 能力编译与请求预检
 

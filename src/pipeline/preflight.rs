@@ -121,15 +121,27 @@ fn validate_interface_request(
     interface: &ModelInterfaceCapabilities,
 ) -> Result<(), RequestPlanningError> {
     // Validate shared generation and state capabilities before any egress preparation.
-    if requested_features.unmodeled_tools {
+    if requested_features.unmodeled_tools
+        || requested_features.unknown_tool_choice
+        || requested_features.unknown_structured_output
+    {
         return Err(RequestPlanningError::UnsupportedCapabilities);
     }
     if requested_features.streaming && !interface.supports_streaming() {
         return Err(RequestPlanningError::StreamingUnsupported);
     }
-    if (requested_features.function_calling && !interface.supports_function_calling())
+    if requested_features
+        .function_tool_choice
+        .is_some_and(|mode| !interface.supports_tool_choice(mode))
         || (requested_features.parallel_tool_calls && !interface.supports_parallel_tool_calls())
-        || (requested_features.structured_outputs && !interface.supports_structured_outputs())
+        || (requested_features
+            .structured_output_mode
+            .is_some_and(|mode| !interface.supports_structured_output_mode(mode)))
+        || (requested_features.function_tool_strict_schema
+            && !interface.supports_strict_tool_schema())
+        || (requested_features.structured_output_mode.is_some()
+            && requested_features.structured_output_strict_schema
+            && !interface.supports_strict_structured_outputs())
         || (requested_features.store && !interface.supports_store())
         || (requested_features.previous_response_id && !interface.supports_previous_response_id())
         || (requested_features.background && !interface.supports_background())
@@ -342,7 +354,9 @@ fn validate_audio_task(
                 return Err(RequestPlanningError::UnsupportedCapabilities);
             }
         }
-        AudioTask::AudioUnderstanding | AudioTask::Any => {}
+        AudioTask::AudioUnderstanding => {}
+        // `Any` is a Provider ceiling marker and is never a concrete executable task identity.
+        AudioTask::Any => return Err(RequestPlanningError::UnsupportedCapabilities),
     }
     Ok(())
 }

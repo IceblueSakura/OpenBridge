@@ -3,7 +3,10 @@
 use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{
+        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
+        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities,
+    },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
@@ -19,17 +22,18 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
         chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
             image_input: None,
-            structured_outputs: false,
+            structured_outputs: None,
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
-            audio_input: false,
             audio: None,
             file_input: false,
-            audio_output: false,
             predicted_outputs: false,
             web_search: false,
             prompt_caching: false,
@@ -40,10 +44,13 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: false,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
             image_input: None,
-            structured_outputs: false,
+            structured_outputs: None,
             store: false,
             previous_response_id: false,
             background: false,

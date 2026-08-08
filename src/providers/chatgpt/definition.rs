@@ -6,7 +6,11 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{
+        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities,
+        ChatCompletionsCapabilities, FunctionToolCapabilities, ReasoningOutput,
+        ResponsesCapabilities, StructuredOutputProfile,
+    },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
@@ -31,17 +35,14 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         chat_completions: ChatCompletionsCapabilities {
             enabled: false,
             streaming: false,
-            function_calling: false,
-            parallel_tool_calls: false,
+            function_tools: None,
             image_input: None,
-            structured_outputs: false,
+            structured_outputs: None,
             store: false,
             reasoning_output: ReasoningOutput::Unsupported,
             custom_tool_calling: false,
-            audio_input: false,
             audio: None,
             file_input: false,
-            audio_output: false,
             predicted_outputs: false,
             web_search: false,
             prompt_caching: false,
@@ -52,10 +53,16 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: true,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: true,
+                strict_schema: true,
+            }),
             image_input: None,
-            structured_outputs: true,
+            structured_outputs: Some(StructuredOutputProfile {
+                modes: ALL_STRUCTURED_OUTPUT_MODES,
+                strict_schema: true,
+            }),
             store: false,
             previous_response_id: false,
             background: false,

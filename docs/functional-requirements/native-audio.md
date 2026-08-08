@@ -40,7 +40,8 @@ Upstream API profile、能力交集、计费语义或 fallback 候选。通用�
 ## 3. MiMo ASR/TTS 最小目标契约
 
 MiMo 音频模型虽然都使用 `/v1/chat/completions`，但属于独立 canonical task、Public Model 与 Upstream API profile；不得继承
-`mimo-v2.5` 文本/图片 Route，也不得通过 Provider 级 `audio_input`/`audio_output` bool 扩大其他模型能力。
+`mimo-v2.5` 文本/图片 Route，也不得通过 Provider 级历史 `audio_input`/`audio_output` bool 扩大其他模型能力；当前 presence 只能从 typed
+audio profile 推导。
 
 | Public Model       | Native 请求契约                                                                                                                                  | Native 成功响应                                                                                                                |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|

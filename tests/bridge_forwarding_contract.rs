@@ -155,14 +155,20 @@ fn app_with_reasoning_output(
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.parallel_tool_calls = !use_deepseek_chat;
+        capabilities.function_tools = capabilities.function_tools.map(|mut profile| {
+            profile.parallel_calls = !use_deepseek_chat;
+            profile
+        });
         capabilities.reasoning_output = reasoning_output;
     }
     if !use_deepseek_chat
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.parallel_tool_calls = true;
+        capabilities.function_tools = capabilities.function_tools.map(|mut profile| {
+            profile.parallel_calls = true;
+            profile
+        });
         capabilities.reasoning_output = reasoning_output;
     }
     definition.routes = vec![RouteConfig {

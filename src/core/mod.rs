@@ -8,10 +8,11 @@ mod request;
 
 pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
-    ApiCapabilities, AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
-    AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, EmbeddingDimensionDomain,
-    EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ImageDetail,
+    ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities, AudioCapabilities,
+    AudioFormat, AudioInputCapabilities, AudioInputSource, AudioOutputCapabilities, AudioTask,
+    ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
+    EmbeddingsCapabilities, FunctionToolCapabilities, HostedToolKind, ImageDetail,
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
-    ResponsesCapabilities,
+    ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
 };
 pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

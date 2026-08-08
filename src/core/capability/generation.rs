@@ -302,12 +302,99 @@ pub struct AudioCapabilities {
 }
 
 impl AudioCapabilities {
+    /// Returns whether this profile accepts business-audio or reference-voice input.
+    pub(crate) const fn has_input(self) -> bool {
+        self.input.is_some() || self.voice_conditioning.is_some()
+    }
+
+    /// Returns whether this profile produces generated audio.
+    pub(crate) const fn has_output(self) -> bool {
+        self.output.is_some()
+    }
+
     /// Returns whether one audio task profile is no broader than this Provider ceiling.
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
         self.task.is_subset_of(upper.task)
             && optional_audio_input_is_subset_of(self.input, upper.input)
             && optional_audio_input_is_subset_of(self.voice_conditioning, upper.voice_conditioning)
             && optional_audio_output_is_subset_of(self.output, upper.output)
+    }
+}
+
+/// Function-tool selection modes accepted by a generation operation.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolChoiceMode {
+    /// Prevents the model from calling tools.
+    None,
+    /// Lets the model decide whether to call a tool.
+    Auto,
+    /// Requires the model to call at least one tool.
+    Required,
+    /// Selects a named function.
+    Named,
+}
+
+/// All function-tool choice modes currently represented by the gateway contract.
+pub const ALL_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[
+    ToolChoiceMode::None,
+    ToolChoiceMode::Auto,
+    ToolChoiceMode::Required,
+    ToolChoiceMode::Named,
+];
+
+/// Structured-output modes accepted by a generation operation.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StructuredOutputMode {
+    /// JSON object output constraint.
+    JsonObject,
+    /// JSON Schema output constraint.
+    JsonSchema,
+}
+
+/// All structured-output modes currently represented by the gateway contract.
+pub const ALL_STRUCTURED_OUTPUT_MODES: &[StructuredOutputMode] = &[
+    StructuredOutputMode::JsonObject,
+    StructuredOutputMode::JsonSchema,
+];
+
+/// Fine-grained function-tool capability profile.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FunctionToolCapabilities {
+    /// Function-tool selection modes accepted by the operation.
+    pub choice_modes: &'static [ToolChoiceMode],
+    /// Whether `parallel_tool_calls: true` is accepted with function tools.
+    pub parallel_calls: bool,
+    /// Whether strict JSON Schema function parameters are accepted.
+    pub strict_schema: bool,
+}
+
+impl FunctionToolCapabilities {
+    /// Returns whether this profile is no broader than another function-tool profile.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        self.choice_modes
+            .iter()
+            .all(|mode| upper.choice_modes.contains(mode))
+            && (!self.parallel_calls || upper.parallel_calls)
+            && (!self.strict_schema || upper.strict_schema)
+    }
+}
+
+/// Fine-grained structured-output capability profile.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StructuredOutputProfile {
+    /// Structured-output formats accepted by the operation.
+    pub modes: &'static [StructuredOutputMode],
+    /// Whether strict JSON Schema constraints are accepted.
+    pub strict_schema: bool,
+}
+
+impl StructuredOutputProfile {
+    /// Returns whether this profile is no broader than another structured-output profile.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        self.modes.iter().all(|mode| upper.modes.contains(mode))
+            && (!self.strict_schema || upper.strict_schema)
     }
 }
 
@@ -434,14 +521,12 @@ pub(crate) struct GenerationCapabilities {
     pub(crate) enabled: bool,
     /// Whether incremental results can be returned over SSE.
     pub(crate) streaming: bool,
-    /// Whether JSON Schema function-tool calls are supported.
-    pub(crate) function_calling: bool,
-    /// Whether the request wire field `parallel_tool_calls: true` is supported.
-    pub(crate) parallel_tool_calls: bool,
+    /// Fine-grained function-tool capability profile.
+    pub(crate) function_tools: Option<FunctionToolCapabilities>,
     /// Typed image input profile, or `None` when images are unsupported.
     pub(crate) image_input: Option<ImageInputCapabilities>,
-    /// Whether structured-output constraints are supported.
-    pub(crate) structured_outputs: bool,
+    /// Fine-grained structured-output capability profile.
+    pub(crate) structured_outputs: Option<StructuredOutputProfile>,
     /// Whether the request wire field `store: true` is supported.
     pub(crate) store: bool,
     /// Observable type of upstream reasoning output.
@@ -453,10 +538,15 @@ impl GenerationCapabilities {
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
         (!self.enabled || upper.enabled)
             && (!self.streaming || upper.streaming)
-            && (!self.function_calling || upper.function_calling)
-            && (!self.parallel_tool_calls || upper.parallel_tool_calls)
+            && optional_function_tool_capabilities_is_subset_of(
+                self.function_tools,
+                upper.function_tools,
+            )
             && image_input_is_subset_of(self.image_input, upper.image_input)
-            && (!self.structured_outputs || upper.structured_outputs)
+            && optional_structured_output_profile_is_subset_of(
+                self.structured_outputs,
+                upper.structured_outputs,
+            )
             && (!self.store || upper.store)
             && self.reasoning_output.is_subset_of(upper.reasoning_output)
     }
@@ -473,28 +563,22 @@ pub struct ChatCompletionsCapabilities {
     pub enabled: bool,
     /// Whether Chat Completions streaming is supported.
     pub streaming: bool,
-    /// Whether JSON Schema function-tool calls are supported.
-    pub function_calling: bool,
-    /// Whether the request wire field `parallel_tool_calls: true` is supported.
-    pub parallel_tool_calls: bool,
+    /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
+    pub function_tools: Option<FunctionToolCapabilities>,
     /// Typed `image_url` input profile, or `None` when images are unsupported.
     pub image_input: Option<ImageInputCapabilities>,
-    /// Whether `response_format` or strict-function structured-output constraints are supported.
-    pub structured_outputs: bool,
+    /// Fine-grained structured-output profile, or `None` when structured output is unsupported.
+    pub structured_outputs: Option<StructuredOutputProfile>,
     /// Whether the request wire field `store: true` is supported.
     pub store: bool,
     /// Observable type of upstream reasoning output.
     pub reasoning_output: ReasoningOutput,
     /// Whether `type: "custom"` tools are supported.
     pub custom_tool_calling: bool,
-    /// Whether `input_audio` input content parts are supported.
-    pub audio_input: bool,
     /// Typed task, source, and limit profile for `input_audio` or voice conditioning.
     pub audio: Option<AudioCapabilities>,
     /// Whether `file` input content parts are supported.
     pub file_input: bool,
-    /// Whether audio output in `modalities` is supported.
-    pub audio_output: bool,
     /// Whether `prediction` predicted outputs are supported.
     pub predicted_outputs: bool,
     /// Whether `web_search_options` is supported.
@@ -515,8 +599,7 @@ impl ChatCompletionsCapabilities {
         GenerationCapabilities {
             enabled: self.enabled,
             streaming: self.streaming,
-            function_calling: self.function_calling,
-            parallel_tool_calls: self.parallel_tool_calls,
+            function_tools: self.function_tools,
             image_input: self.image_input,
             structured_outputs: self.structured_outputs,
             store: self.store,
@@ -549,17 +632,33 @@ impl ChatCompletionsCapabilities {
         {
             unimplemented!("reserved Chat Completions capabilities are not implemented");
         }
-        if (self.audio_input || self.audio_output) && self.audio.is_none() {
-            unimplemented!("reserved Chat Completions capabilities are not implemented");
+        if self
+            .function_tools
+            .is_some_and(|profile| profile.choice_modes.is_empty())
+        {
+            panic!("invalid Chat Completions function-tool capability profile");
         }
-        let (profile_input, profile_output) = self.audio.map_or((false, false), |audio| {
-            (
-                audio.input.is_some() || audio.voice_conditioning.is_some(),
-                audio.output.is_some(),
-            )
-        });
-        if self.audio_input != profile_input || self.audio_output != profile_output {
-            panic!("invalid Chat Completions audio capability profile");
+        if self
+            .structured_outputs
+            .is_some_and(|profile| profile.modes.is_empty() && !profile.strict_schema)
+        {
+            panic!("invalid Chat Completions structured-output capability profile");
+        }
+    }
+
+    /// Returns whether the typed audio profile contains any input capability.
+    pub const fn has_audio_input(self) -> bool {
+        match self.audio {
+            Some(audio) => audio.has_input(),
+            None => false,
+        }
+    }
+
+    /// Returns whether the typed audio profile contains generated-audio output.
+    pub const fn has_audio_output(self) -> bool {
+        match self.audio {
+            Some(audio) => audio.has_output(),
+            None => false,
         }
     }
 }
@@ -567,6 +666,28 @@ impl ChatCompletionsCapabilities {
 fn optional_audio_capabilities_is_subset_of(
     value: Option<AudioCapabilities>,
     upper: Option<AudioCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+    }
+}
+
+fn optional_function_tool_capabilities_is_subset_of(
+    value: Option<FunctionToolCapabilities>,
+    upper: Option<FunctionToolCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+    }
+}
+
+fn optional_structured_output_profile_is_subset_of(
+    value: Option<StructuredOutputProfile>,
+    upper: Option<StructuredOutputProfile>,
 ) -> bool {
     match (value, upper) {
         (None, _) => true,
@@ -585,14 +706,12 @@ pub struct ResponsesCapabilities {
     pub enabled: bool,
     /// Whether Responses streaming is supported.
     pub streaming: bool,
-    /// Whether function-tool calls are supported.
-    pub function_calling: bool,
-    /// Whether parallel tool calls are supported.
-    pub parallel_tool_calls: bool,
+    /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
+    pub function_tools: Option<FunctionToolCapabilities>,
     /// Typed `input_image` profile, or `None` when images are unsupported.
     pub image_input: Option<ImageInputCapabilities>,
-    /// Whether structured output is supported.
-    pub structured_outputs: bool,
+    /// Fine-grained structured-output profile, or `None` when structured output is unsupported.
+    pub structured_outputs: Option<StructuredOutputProfile>,
     /// Whether persistent responses are supported.
     pub store: bool,
     /// Whether conversation state can continue with `previous_response_id`.
@@ -629,8 +748,7 @@ impl ResponsesCapabilities {
         GenerationCapabilities {
             enabled: self.enabled,
             streaming: self.streaming,
-            function_calling: self.function_calling,
-            parallel_tool_calls: self.parallel_tool_calls,
+            function_tools: self.function_tools,
             image_input: self.image_input,
             structured_outputs: self.structured_outputs,
             store: self.store,
@@ -666,5 +784,79 @@ impl ResponsesCapabilities {
         {
             unimplemented!("reserved Responses capabilities are not implemented");
         }
+        if self
+            .function_tools
+            .is_some_and(|profile| profile.choice_modes.is_empty())
+        {
+            panic!("invalid Responses function-tool capability profile");
+        }
+        if self
+            .structured_outputs
+            .is_some_and(|profile| profile.modes.is_empty() && !profile.strict_schema)
+        {
+            panic!("invalid Responses structured-output capability profile");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AudioCapabilities, ChatCompletionsCapabilities, FunctionToolCapabilities,
+        StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    };
+
+    const ALL_TOOL_CHOICES: &[ToolChoiceMode] = super::ALL_TOOL_CHOICE_MODES;
+    const COMMON_TOOL_CHOICES: &[ToolChoiceMode] = &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+    const ALL_STRUCTURED_OUTPUT_MODES: &[StructuredOutputMode] = super::ALL_STRUCTURED_OUTPUT_MODES;
+    const COMMON_STRUCTURED_OUTPUT_MODES: &[StructuredOutputMode] =
+        &[StructuredOutputMode::JsonObject];
+
+    #[test]
+    fn typed_generation_profiles_intersect_without_boolean_union() {
+        let provider_ceiling = ChatCompletionsCapabilities {
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICES,
+                parallel_calls: true,
+                strict_schema: true,
+            }),
+            structured_outputs: Some(StructuredOutputProfile {
+                modes: ALL_STRUCTURED_OUTPUT_MODES,
+                strict_schema: true,
+            }),
+            ..Default::default()
+        };
+        let public_contract = ChatCompletionsCapabilities {
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: COMMON_TOOL_CHOICES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
+            structured_outputs: Some(StructuredOutputProfile {
+                modes: COMMON_STRUCTURED_OUTPUT_MODES,
+                strict_schema: false,
+            }),
+            ..Default::default()
+        };
+
+        assert!(public_contract.is_subset_of(provider_ceiling));
+        assert!(!provider_ceiling.is_subset_of(public_contract));
+    }
+
+    #[test]
+    fn audio_presence_is_derived_from_typed_profiles() {
+        let audio = AudioCapabilities {
+            task: super::AudioTask::Tts,
+            input: None,
+            voice_conditioning: None,
+            output: None,
+        };
+        let capabilities = ChatCompletionsCapabilities {
+            audio: Some(audio),
+            ..Default::default()
+        };
+
+        assert!(!capabilities.has_audio_input());
+        assert!(!capabilities.has_audio_output());
     }
 }

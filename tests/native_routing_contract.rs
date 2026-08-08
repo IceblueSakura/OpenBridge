@@ -4,8 +4,9 @@ mod support;
 
 use openbridge::{
     core::{
-        ApiProtocol, ImageDetail, ImageInputCapabilities, ImageInputSource, ImageMediaType,
-        OperationKind, ReasoningOutput,
+        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiProtocol, FunctionToolCapabilities,
+        ImageDetail, ImageInputCapabilities, ImageInputSource, ImageMediaType, OperationKind,
+        ReasoningOutput, StructuredOutputMode, StructuredOutputProfile,
     },
     pipeline::RequestPlanningError,
     registry::{
@@ -34,6 +35,20 @@ const TINY_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
 fn base_definition() -> RegistryConfig {
     support::definition("routing-test", "public-model", "upstream-model")
 }
+
+fn all_function_tools() -> FunctionToolCapabilities {
+    FunctionToolCapabilities {
+        choice_modes: ALL_TOOL_CHOICE_MODES,
+        parallel_calls: false,
+        strict_schema: false,
+    }
+}
+
+const COMMON_TOOL_CHOICE_MODES: &[openbridge::core::ToolChoiceMode] = &[
+    openbridge::core::ToolChoiceMode::None,
+    openbridge::core::ToolChoiceMode::Auto,
+];
+const COMMON_STRUCTURED_OUTPUT_MODES: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
 
 #[test]
 fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
@@ -359,7 +374,7 @@ fn public_model_preflight_rejects_capabilities_not_guaranteed_by_its_contract() 
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_calling = false;
+        capabilities.function_tools = None;
     }
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
@@ -382,14 +397,14 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_calling = false;
+        capabilities.function_tools = None;
     }
     let mut stronger = definition.upstream_targets[0].clone();
     stronger.id = "openai-stronger".to_owned();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut stronger.upstream_apis[0].capabilities
     {
-        capabilities.function_calling = true;
+        capabilities.function_tools = Some(all_function_tools());
     }
     definition.upstream_targets.push(stronger);
     definition.routes.push(RouteConfig {
@@ -627,12 +642,93 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
 }
 
 #[test]
+fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
+    let mut definition = base_definition();
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.function_tools = Some(FunctionToolCapabilities {
+            choice_modes: ALL_TOOL_CHOICE_MODES,
+            parallel_calls: true,
+            strict_schema: true,
+        });
+        capabilities.structured_outputs = Some(StructuredOutputProfile {
+            modes: ALL_STRUCTURED_OUTPUT_MODES,
+            strict_schema: true,
+        });
+    }
+    let mut weaker = definition.upstream_targets[0].clone();
+    weaker.id = "openai-weaker".to_owned();
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut weaker.upstream_apis[0].capabilities
+    {
+        capabilities.function_tools = Some(FunctionToolCapabilities {
+            choice_modes: COMMON_TOOL_CHOICE_MODES,
+            parallel_calls: false,
+            strict_schema: false,
+        });
+        capabilities.structured_outputs = Some(StructuredOutputProfile {
+            modes: COMMON_STRUCTURED_OUTPUT_MODES,
+            strict_schema: false,
+        });
+    }
+    definition.upstream_targets.push(weaker);
+    definition.routes.push(openbridge::registry::RouteConfig {
+        id: "weaker-chat".to_owned(),
+        upstream_target: "openai-weaker".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: ApiProtocol::ChatCompletions.operation(),
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0]
+        .routes
+        .extend(["weaker-chat".to_owned()]);
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["tools"]["tool_choice_modes"],
+        json!(["none", "auto"])
+    );
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["structured_outputs"]["modes"],
+        json!(["json_object"])
+    );
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["tools"]["parallel_calls"],
+        "unsupported"
+    );
+
+    let unsupported = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "response_format": {"type": "json_schema", "json_schema": {"name": "answer", "schema": {"type": "object"}}}
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, unsupported.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+
+    let supported = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "tools": [{"type": "function", "function": {"name": "probe"}}],
+        "tool_choice": "auto"
+    }))
+    .unwrap();
+    let plan = support::prepare(&registry, ApiProtocol::ChatCompletions, supported.into()).unwrap();
+    assert_eq!(plan.candidates().len(), 2);
+    assert_eq!(plan.candidates()[0].route_id(), "public-chat");
+    assert_eq!(plan.candidates()[1].route_id(), "weaker-chat");
+}
+
+#[test]
 fn route_plan_preserves_configured_order_after_public_model_preflight() {
     let mut definition = base_definition();
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_calling = false;
+        capabilities.function_tools = None;
     }
     let mut tools = definition.upstream_targets[0].clone();
     tools.id = "openai-tools".to_owned();
@@ -640,7 +736,7 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut tools.upstream_apis[0].capabilities
     {
-        capabilities.function_calling = true;
+        capabilities.function_tools = Some(all_function_tools());
     }
     definition.upstream_targets.push(tools);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -681,7 +777,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_calling = false;
+        capabilities.function_tools = None;
     }
     let mut enabled = definition.upstream_targets[0].clone();
     enabled.id = "openai-enabled".to_owned();
@@ -690,7 +786,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut enabled.upstream_apis[0].capabilities
     {
-        capabilities.function_calling = true;
+        capabilities.function_tools = Some(all_function_tools());
     }
     definition.upstream_targets.push(enabled);
     definition.routes.push(RouteConfig {

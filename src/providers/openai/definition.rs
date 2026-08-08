@@ -4,9 +4,11 @@ use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{
-        ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingsCapabilities, ImageDetail, ImageInputCapabilities,
-        ImageInputSource, ImageMediaType, ReasoningOutput, ResponsesCapabilities,
+        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities,
+        ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
+        EmbeddingInputForm, EmbeddingsCapabilities, FunctionToolCapabilities, ImageDetail,
+        ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
+        ResponsesCapabilities, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -71,17 +73,21 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: true,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: true,
+                strict_schema: true,
+            }),
             image_input: Some(CHAT_IMAGE_INPUT),
-            structured_outputs: true,
+            structured_outputs: Some(StructuredOutputProfile {
+                modes: ALL_STRUCTURED_OUTPUT_MODES,
+                strict_schema: true,
+            }),
             store: true,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
-            audio_input: false,
             audio: None,
             file_input: false,
-            audio_output: false,
             predicted_outputs: false,
             web_search: false,
             prompt_caching: false,
@@ -92,10 +98,16 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_calling: true,
-            parallel_tool_calls: true,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: true,
+                strict_schema: true,
+            }),
             image_input: Some(RESPONSES_IMAGE_INPUT),
-            structured_outputs: true,
+            structured_outputs: Some(StructuredOutputProfile {
+                modes: ALL_STRUCTURED_OUTPUT_MODES,
+                strict_schema: true,
+            }),
             store: true,
             previous_response_id: true,
             background: false,

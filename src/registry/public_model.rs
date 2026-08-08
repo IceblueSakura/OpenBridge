@@ -12,6 +12,8 @@ use crate::core::{
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
 };
 
+pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
+
 use super::{
     InputModality, ModelContextLength, ModelLifecycle, OutputModality, ReasoningLevel,
     ReasoningSupport,
@@ -191,36 +193,12 @@ pub enum ToolType {
     Function,
 }
 
-/// Function-tool selection mode.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolChoiceMode {
-    /// Prevents the model from calling tools.
-    None,
-    /// Lets the model decide whether to call a tool.
-    Auto,
-    /// Requires the model to call at least one tool.
-    Required,
-    /// Selects a named function.
-    Named,
-}
-
 /// Structured-output capabilities.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StructuredOutputCapabilities {
     support: SupportState,
     modes: Vec<StructuredOutputMode>,
     strict_schema: SupportState,
-}
-
-/// Structured-output modes currently modeled by OpenBridge.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StructuredOutputMode {
-    /// JSON object output constraint.
-    JsonObject,
-    /// JSON Schema output constraint.
-    JsonSchema,
 }
 
 /// Reasoning capabilities of one downstream interface.
@@ -740,14 +718,19 @@ impl ModelInterfaceCapabilities {
         self.streaming.is_supported()
     }
 
-    /// Returns whether the interface guarantees function-tool support.
-    pub(crate) const fn supports_function_calling(&self) -> bool {
-        self.tools.support.is_supported()
+    /// Returns whether the interface guarantees one function-tool choice mode.
+    pub(crate) fn supports_tool_choice(&self, mode: ToolChoiceMode) -> bool {
+        self.tools.support.is_supported() && self.tools.tool_choice_modes.contains(&mode)
     }
 
     /// Returns whether the interface guarantees parallel function calls.
     pub(crate) const fn supports_parallel_tool_calls(&self) -> bool {
         self.tools.parallel_calls.is_supported()
+    }
+
+    /// Returns whether strict function-tool JSON Schema is guaranteed.
+    pub(crate) const fn supports_strict_tool_schema(&self) -> bool {
+        self.tools.strict_schema.is_supported()
     }
 
     /// Returns the typed image-input profile guaranteed by every interface candidate.
@@ -775,9 +758,15 @@ impl ModelInterfaceCapabilities {
         self.audio_task
     }
 
-    /// Returns whether the interface guarantees structured output.
-    pub(crate) const fn supports_structured_outputs(&self) -> bool {
+    /// Returns whether one structured-output mode is guaranteed.
+    pub(crate) fn supports_structured_output_mode(&self, mode: StructuredOutputMode) -> bool {
         self.structured_outputs.support.is_supported()
+            && self.structured_outputs.modes.contains(&mode)
+    }
+
+    /// Returns whether strict structured-output JSON Schema is guaranteed.
+    pub(crate) const fn supports_strict_structured_outputs(&self) -> bool {
+        self.structured_outputs.strict_schema.is_supported()
     }
 
     /// Returns whether the interface guarantees `store: true`.

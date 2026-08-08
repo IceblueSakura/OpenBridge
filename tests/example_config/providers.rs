@@ -218,7 +218,7 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
             UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
-        assert!(!capabilities.function_calling);
+        assert!(capabilities.function_tools.is_none());
     }
 
     // Preserve existing Provider priority while appending Bailian to Chat planning only.
@@ -366,15 +366,17 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
             }
         };
         assert_eq!(
-            responses_capabilities.function_calling,
+            responses_capabilities.function_tools.is_some(),
             advanced_capabilities
         );
         assert_eq!(
-            responses_capabilities.parallel_tool_calls,
+            responses_capabilities
+                .function_tools
+                .is_some_and(|profile| profile.parallel_calls),
             advanced_capabilities
         );
         assert_eq!(
-            responses_capabilities.structured_outputs,
+            responses_capabilities.structured_outputs.is_some(),
             advanced_capabilities
         );
 
@@ -746,9 +748,13 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
             UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
-        assert!(chat_capabilities.parallel_tool_calls);
+        assert!(
+            chat_capabilities
+                .function_tools
+                .is_some_and(|profile| profile.parallel_calls)
+        );
         assert_eq!(chat_capabilities.image_input.is_some(), supports_images);
-        assert!(chat_capabilities.structured_outputs);
+        assert!(chat_capabilities.structured_outputs.is_some());
         assert!(!chat_capabilities.store);
         let responses_capabilities = match target
             .upstream_api(OperationKind::Responses)
@@ -763,12 +769,16 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
                 panic!("expected Responses capabilities")
             }
         };
-        assert!(responses_capabilities.parallel_tool_calls);
+        assert!(
+            responses_capabilities
+                .function_tools
+                .is_some_and(|profile| profile.parallel_calls)
+        );
         assert_eq!(
             responses_capabilities.image_input.is_some(),
             supports_images
         );
-        assert!(responses_capabilities.structured_outputs);
+        assert!(responses_capabilities.structured_outputs.is_some());
         assert!(!responses_capabilities.store);
         assert!(!responses_capabilities.previous_response_id);
         assert!(!responses_capabilities.background);

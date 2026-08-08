@@ -91,6 +91,8 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
 | reasoning 输出形态                                                                  | 全部 Route 形态相同时公开该值，否则为 `unknown`                                                                       |
+| function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode |
+| structured outputs                                                              | `json_object`、`json_schema` mode 与 strict schema 分字段声明；每个集合取所有 Route 的交集，未知或空集合不得放行 |
 | `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
 
 Embedding 接口不使用生成协议的 token-output、tool、reasoning 或 stream 字段。它应独立保守相交 input forms、默认/可显式请求的
@@ -118,7 +120,7 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 
 模型请求必须遵循固定顺序：
 
-1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming、tool、媒体
+1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming、精确 tool choice mode、媒体
    part/source/format/detail、URL 长度、inline 编码/解码字节、结构化输出、reasoning、state 和输出限制等事实。
 2. 查询所选 Public Model 的目标接口固定契约。
 3. 对所有已建模请求能力执行一次 fail-closed 预检。
@@ -133,6 +135,7 @@ Bridge Route；生成后这一 Vec 即为固定配置顺序，运行时不得再
 - 根据请求能力选择另一个 Public Model；
 - 因某条 Route 能力较弱而跳过它；
 - 因后续 Route 能力较强而提升公共契约；
+- 因某个 function tool choice 或 structured-output mode 只被后续 Route 支持而跳过前序 Route；
 - 根据能力、模型字符串、价格、健康或 benchmark 重排 Route；
 - 把一条 Route 的 tool、image、reasoning 或 token 优势与另一条 Route 的能力做字段并集。
 

@@ -95,10 +95,6 @@ fn target(
 
     // Narrow the Provider audio ceiling to one task-specific Chat Native profile, or disable it for text/image targets.
     capabilities.chat_completions.audio = audio;
-    capabilities.chat_completions.audio_input = audio
-        .is_some_and(|profile| profile.input.is_some() || profile.voice_conditioning.is_some());
-    capabilities.chat_completions.audio_output =
-        audio.is_some_and(|profile| profile.output.is_some());
 
     let mut upstream_apis = native_upstream_apis(upstream_model, capabilities);
     if audio.is_some() {

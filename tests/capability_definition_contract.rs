@@ -61,9 +61,7 @@ fn definitions_expose_protocol_specific_reserved_fields() {
     // Build standard Chat Completions capability positions not yet on the request path.
     let chat = ChatCompletionsCapabilities {
         custom_tool_calling: true,
-        audio_input: true,
         file_input: true,
-        audio_output: true,
         predicted_outputs: true,
         web_search: true,
         prompt_caching: true,
@@ -91,7 +89,7 @@ fn definitions_expose_protocol_specific_reserved_fields() {
     assert_eq!(model.mode, Some(ModelMode::Chat));
     assert_eq!(model.input_modalities.as_deref().unwrap().len(), 4);
     assert_eq!(model.output_modalities.as_deref().unwrap().len(), 3);
-    assert!(chat.custom_tool_calling && chat.audio_output && chat.predicted_outputs);
+    assert!(chat.custom_tool_calling && chat.predicted_outputs);
     assert_eq!(responses.hosted_tools, HOSTED_TOOLS);
     assert_eq!(responses.include, INCLUDES);
     assert!(responses.conversation && responses.context_management);
