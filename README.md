@@ -54,6 +54,10 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `qwen3.7-max` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
+| `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
+| `mimo-v2.5-tts` | Chat | `mimo-primary` | MiMo 预置音色 TTS；Chat `audio` 输出，非流式 WAV、流式 PCM16 |
+| `mimo-v2.5-tts-voicedesign` | Chat | `mimo-primary` | MiMo 文本描述音色设计；Chat `audio` 输出，不接收 reference audio |
+| `mimo-v2.5-tts-voiceclone` | Chat | `mimo-primary` | MiMo reference-voice cloning；Chat `audio.voice` conditioning + audio 输出 |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。

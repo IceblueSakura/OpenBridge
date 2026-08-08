@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    core::{ApiProtocol, EmbeddingsCapabilities, OperationKind, ReasoningOutput},
+    core::{ApiProtocol, AudioTask, EmbeddingsCapabilities, OperationKind, ReasoningOutput},
     registry::{
         InputModality, OutputModality, ReasoningLevel, Route, RouteMode, UpstreamApi,
         UpstreamApiCapabilities,
@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::super::{
-    ContextWindow, ImageInputInterfaceCapabilities, ModelModalities, ModelTask,
-    ReasoningOutputMode, SupportState,
+    AudioInputInterfaceCapabilities, AudioOutputInterfaceCapabilities, ContextWindow,
+    ImageInputInterfaceCapabilities, ModelModalities, ModelTask, ReasoningOutputMode, SupportState,
 };
 use super::PublicRouteBinding;
 
@@ -34,6 +34,10 @@ pub(super) struct RouteContractContribution {
     pub(super) context_window: ContextWindow,
     pub(super) modalities: ModelModalities,
     pub(super) image_input: Option<ImageInputInterfaceCapabilities>,
+    pub(super) audio_input: Option<AudioInputInterfaceCapabilities>,
+    pub(super) voice_conditioning: Option<AudioInputInterfaceCapabilities>,
+    pub(super) audio_output: Option<AudioOutputInterfaceCapabilities>,
+    pub(super) audio_task: Option<AudioTask>,
     pub(super) model_modalities: Option<ModelModalities>,
     pub(super) model_description: Option<String>,
     pub(super) model_tokenizer: Option<String>,
@@ -94,8 +98,10 @@ impl RouteContractContribution {
             background,
             prompt_caching,
             audio_input,
+            voice_conditioning,
             file_input,
             audio_output,
+            audio_task,
         ) = protocol_specific_capabilities(route, upstream_api, bridged);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
@@ -120,14 +126,17 @@ impl RouteContractContribution {
         if image_input.is_some() {
             input.push(InputModality::Image);
         }
-        if audio_input {
+        if audio_input.is_some() {
+            input.push(InputModality::Audio);
+        }
+        if voice_conditioning.is_some() && !input.contains(&InputModality::Audio) {
             input.push(InputModality::Audio);
         }
         if file_input {
             input.push(InputModality::File);
         }
         let mut output = vec![OutputModality::Text];
-        if audio_output {
+        if audio_output.is_some() {
             output.push(OutputModality::Audio);
         }
         if let Some(model_input) = upstream_api.model().input_modalities() {
@@ -164,6 +173,10 @@ impl RouteContractContribution {
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             image_input,
+            audio_input,
+            voice_conditioning,
+            audio_output,
+            audio_task,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -224,6 +237,10 @@ impl RouteContractContribution {
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             image_input: None,
+            audio_input: None,
+            voice_conditioning: None,
+            audio_output: None,
+            audio_task: None,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -272,32 +289,57 @@ fn route_reasoning_output(
     }
 }
 
+/// Protocol-specific capability facts returned to the Public Model contribution builder.
+type ProtocolCapabilities = (
+    bool,
+    bool,
+    bool,
+    Option<AudioInputInterfaceCapabilities>,
+    Option<AudioInputInterfaceCapabilities>,
+    bool,
+    Option<AudioOutputInterfaceCapabilities>,
+    Option<AudioTask>,
+);
+
 /// Reads protocol-specific Native endpoint capabilities; the Bridge always narrows state and extra modalities.
 fn protocol_specific_capabilities(
     route: &Route,
     upstream_api: &UpstreamApi,
     bridged: bool,
-) -> (bool, bool, bool, bool, bool, bool) {
+) -> ProtocolCapabilities {
     if bridged {
-        return (false, false, false, false, false, false);
+        return (false, false, false, None, None, false, None, None);
     }
     match upstream_api.capabilities() {
-        UpstreamApiCapabilities::ChatCompletions(capabilities) => (
-            false,
-            false,
-            capabilities.prompt_caching,
-            capabilities.audio_input,
-            capabilities.file_input,
-            capabilities.audio_output,
-        ),
+        UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+            let audio = capabilities.audio;
+            (
+                false,
+                false,
+                capabilities.prompt_caching,
+                audio
+                    .and_then(|audio| audio.input)
+                    .map(AudioInputInterfaceCapabilities::from_capabilities),
+                audio
+                    .and_then(|audio| audio.voice_conditioning)
+                    .map(AudioInputInterfaceCapabilities::from_capabilities),
+                capabilities.file_input,
+                audio
+                    .and_then(|audio| audio.output)
+                    .map(AudioOutputInterfaceCapabilities::from_capabilities),
+                audio.map(|audio| audio.task),
+            )
+        }
         UpstreamApiCapabilities::Responses(capabilities) => (
             route.downstream_operation() == OperationKind::Responses
                 && capabilities.previous_response_id,
             route.downstream_operation() == OperationKind::Responses && capabilities.background,
             capabilities.prompt_caching,
-            false,
+            None,
+            None,
             capabilities.file_input,
-            false,
+            None,
+            None,
         ),
         UpstreamApiCapabilities::Embeddings(_) => {
             unreachable!("Embeddings does not use generation protocol capabilities")

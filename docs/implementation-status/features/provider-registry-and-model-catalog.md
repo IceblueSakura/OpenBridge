@@ -14,8 +14,9 @@
   `https://dashscope.aliyuncs.com/compatible-mode/v1`，各自拥有基础 OpenAI-compatible Chat adapter 与独立 API-key pool。NVIDIA
   将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
   `qwen/qwen3.7-max` 绑定为对应 Public Model；四者都只有一个 Chat Native Route。
-- 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro` 和
-  `mimo-v2.5`，以及 `minimax-m3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
+- 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro`、
+  `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和 `mimo-v2.5-tts-voiceclone`，以及
+  `minimax-m3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
   `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和 `chatgpt-gpt-5.6-terra`；
   `text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
@@ -27,6 +28,8 @@
   Public Model 在本次运行中不可执行，但不会从代码注册表删除 Provider 或 Model。
 - 同一 downstream operation 内先编译 Native candidates，再编译同顺序的 Bridge candidates；注册表保存固定 Route 顺序，不由请求重排。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
+- MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
+  Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。
 
 ## 实现边界
 
@@ -47,6 +50,7 @@
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 和 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider 请求、认证和受信出站边界。
 - [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖能力定义的合法性和收窄规则。
+- [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 MiMo 专用语音模型的 Chat JSON/SSE 透传与 task-specific zero-egress 拒绝。
 
 这些测试证明当前代码注册表和进程内规划行为，不证明 Provider 目录的外部可用性或动态配置能力。
 

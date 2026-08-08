@@ -133,17 +133,11 @@ fn canonical_model_mode_and_modalities_compile_into_public_model_information() {
 
 #[test]
 fn every_chat_reservation_stops_before_registry_compilation() {
-    let cases: [(&str, ChatReservation); 10] = [
+    let cases: [(&str, ChatReservation); 8] = [
         ("custom_tool_calling", |capabilities| {
             capabilities.custom_tool_calling = true
         }),
-        ("audio_input", |capabilities| {
-            capabilities.audio_input = true
-        }),
         ("file_input", |capabilities| capabilities.file_input = true),
-        ("audio_output", |capabilities| {
-            capabilities.audio_output = true
-        }),
         ("predicted_outputs", |capabilities| {
             capabilities.predicted_outputs = true
         }),
@@ -238,26 +232,10 @@ fn every_reserved_chat_request_field_stops_before_route_planning() {
             }),
         ),
         (
-            "audio_input",
-            json!({
-                "model": "public-model",
-                "messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": "synthetic", "format": "wav"}}]}]
-            }),
-        ),
-        (
             "file_input",
             json!({
                 "model": "public-model",
                 "messages": [{"role": "user", "content": [{"type": "file", "file": {"file_id": "file_test"}}]}]
-            }),
-        ),
-        (
-            "audio_output",
-            json!({
-                "model": "public-model",
-                "messages": [{"role": "user", "content": "hello"}],
-                "modalities": ["text", "audio"],
-                "audio": {"format": "wav", "voice": "alloy"}
             }),
         ),
         (

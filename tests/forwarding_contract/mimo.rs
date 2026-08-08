@@ -111,6 +111,184 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
 }
 
 #[tokio::test]
+async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
+    const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
+    let cases = [
+        (
+            "mimo-v2.5-asr",
+            serde_json::json!({
+                "model": "mimo-v2.5-asr",
+                "messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}}]}],
+                "asr_options": {"language": "zh"}
+            }),
+        ),
+        (
+            "mimo-v2.5-tts",
+            serde_json::json!({
+                "model": "mimo-v2.5-tts",
+                "messages": [{"role": "user", "content": "calm"}, {"role": "assistant", "content": "hello"}],
+                "modalities": ["text", "audio"],
+                "audio": {"format": "wav", "voice": "mimo_default"}
+            }),
+        ),
+        (
+            "mimo-v2.5-tts-voicedesign",
+            serde_json::json!({
+                "model": "mimo-v2.5-tts-voicedesign",
+                "messages": [{"role": "user", "content": "a warm low voice"}, {"role": "assistant", "content": "hello"}],
+                "modalities": ["text", "audio"],
+                "audio": {"format": "wav"}
+            }),
+        ),
+        (
+            "mimo-v2.5-tts-voiceclone",
+            serde_json::json!({
+                "model": "mimo-v2.5-tts-voiceclone",
+                "messages": [{"role": "assistant", "content": "hello"}],
+                "modalities": ["text", "audio"],
+                "audio": {"format": "wav", "voice": WAV_DATA_URL}
+            }),
+        ),
+    ];
+    let transport = Arc::new(MimoAudioTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    for (model, body) in cases.iter() {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{model}");
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), cases.len());
+    for ((model, body), request) in cases.iter().zip(requests.iter()) {
+        assert_eq!(request.path, "/v1/chat/completions");
+        assert_eq!(request.body["model"], *model);
+        assert_eq!(request.body, *body);
+    }
+    drop(requests);
+
+    // Expose only task-specific Chat interfaces; no Responses or Bridge surface is created.
+    for model in [
+        "mimo-v2.5-asr",
+        "mimo-v2.5-tts",
+        "mimo-v2.5-tts-voicedesign",
+        "mimo-v2.5-tts-voiceclone",
+    ] {
+        let info =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
+        assert!(info["interfaces"]["chat_completions"].is_object());
+        assert!(info["interfaces"]["responses"].is_null());
+    }
+    let asr = compiled_authenticated_get(&app, "/openbridge/v1/models/mimo-v2.5-asr").await;
+    assert_eq!(asr["interfaces"]["chat_completions"]["audio_task"], "asr");
+    assert_eq!(
+        asr["interfaces"]["chat_completions"]["multimodal_input"]["audio"]["formats"],
+        serde_json::json!(["wav"])
+    );
+    let tts = compiled_authenticated_get(&app, "/openbridge/v1/models/mimo-v2.5-tts").await;
+    assert_eq!(tts["interfaces"]["chat_completions"]["audio_task"], "tts");
+    assert_eq!(
+        tts["interfaces"]["chat_completions"]["multimodal_output"]["audio"]["streaming_formats"],
+        serde_json::json!(["pcm16"])
+    );
+    let clone =
+        compiled_authenticated_get(&app, "/openbridge/v1/models/mimo-v2.5-tts-voiceclone").await;
+    assert_eq!(
+        clone["interfaces"]["chat_completions"]["audio_task"],
+        "voice_clone"
+    );
+    assert_eq!(
+        clone["interfaces"]["chat_completions"]["multimodal_input"]["voice_conditioning"]["sources"],
+        serde_json::json!(["data_url"])
+    );
+
+    // The streaming profile accepts PCM16 only and preserves Chat SSE framing.
+    let stream_body = serde_json::json!({
+        "model": "mimo-v2.5-tts",
+        "stream": true,
+        "messages": [{"role": "assistant", "content": "hello"}],
+        "modalities": ["text", "audio"],
+        "audio": {"format": "pcm16", "voice": "mimo_default"}
+    });
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(serde_json::to_vec(&stream_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("UklGRg=="));
+}
+
+#[tokio::test]
+async fn mimo_audio_task_mismatches_fail_before_egress() {
+    const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
+    let cases = [
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"mimo-v2.5-asr","input":"audio"}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-asr","messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":WAV_DATA_URL,"format":"wav"}},{"type":"text","text":"also answer"}]}]}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-tts","messages":[{"role":"user","content":"style"}],"modalities":["text","audio"],"audio":{"format":"wav","voice":"mimo_default"}}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-tts-voiceclone","messages":[{"role":"assistant","content":"hello"}],"modalities":["text","audio"],"audio":{"format":"wav"}}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5","messages":[{"role":"user","content":"hello"}],"asr_options":{"language":"zh"}}),
+        ),
+    ];
+    let transport = Arc::new(MimoAudioTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    for (path, body) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path} {body}");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn mimo_invalid_unsupported_and_oversized_images_fail_before_egress() {
     const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgo=";
 

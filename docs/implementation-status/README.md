@@ -15,6 +15,7 @@
 | Models 接口、公共契约与能力预检 | [models-api-and-capability-preflight.md](features/models-api-and-capability-preflight.md) | `tests/native_routing_contract.rs`、`tests/capability_definition_contract.rs` |
 | Chat/Responses Native 转发 | [native-generation-forwarding.md](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
 | `mimo-v2.5` Chat/Responses Native 图片输入 | [native-image-input.md](features/native-image-input.md) | `tests/example_config.rs`、`tests/forwarding_contract.rs` |
+| MiMo 专用 ASR/TTS/VoiceDesign/VoiceClone Chat Native | [native-mimo-audio.md](features/native-mimo-audio.md) | `tests/example_config.rs`、`tests/capability_definition_contract.rs`、`tests/forwarding_contract.rs` |
 | Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
 | Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |

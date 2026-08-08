@@ -145,6 +145,38 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                 surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5-asr",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-asr-mimo",
+                upstream_target: "mimo-v2-5-asr",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5-tts",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-tts-mimo",
+                upstream_target: "mimo-v2-5-tts",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5-tts-voicedesign",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-tts-voicedesign-mimo",
+                upstream_target: "mimo-v2-5-tts-voicedesign",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "mimo-v2.5-tts-voiceclone",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "mimo-v2-5-tts-voiceclone-mimo",
+                upstream_target: "mimo-v2-5-tts-voiceclone",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
     ]
 }
 

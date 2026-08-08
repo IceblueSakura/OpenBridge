@@ -1,0 +1,61 @@
+# 功能：MiMo 专用 ASR/TTS/VoiceDesign/VoiceClone Chat Native 接入
+
+## 状态
+
+**已完成（当前 checkout）。** Xiaomi MiMo 的四个专用语音模型已经进入 canonical Model、Upstream Target、Chat Native Route
+和 Public Model 目录。它们都固定转发到 MiMo `/v1/chat/completions`；本轮没有把 `mimo-v2.5` 通用音频理解、OpenAI
+`/v1/audio/*`、Responses audio 或 Realtime 声明为已实现。
+
+## 已完成内容
+
+- 注册 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和
+  `mimo-v2.5-tts-voiceclone` 四个独立 canonical Model 与 Public Model。
+- 每个模型只有一个固定 Chat Native surface，不生成 Responses Route、Chat/Responses Bridge 或跨任务 fallback candidate；下游
+  `model`、Chat body、顶层 `asr_options`/`modalities`/`audio` 和音频 part 保持原样转发。
+- ASR profile 只接受一个 user `input_audio`，首批 source 为 data URL/pure Base64，format 为 WAV，language 为 `auto`/`zh`/`en`。
+  混入 text、多音频、非 user 角色、Responses audio 或非法 Base64 在 Provider egress 前拒绝。
+- TTS profile 接受一个 assistant 目标文本，可带 user 风格文本；JSON 输出 format 只开放 WAV，streaming Chat audio format 只开放
+  PCM16，并公开 preset voice `mimo_default`。
+- VoiceDesign 使用 user 文本作为 voice description，VoiceClone 使用独立 `audio.voice` data URL 作为
+  `voice_conditioning`；两个 profile 都只开放 WAV JSON output、PCM16 streaming output，且不建立跨请求 voice identity 或资源复用。
+- Models 扩展接口公开 `audio_task`、`multimodal_input.audio`、`multimodal_input.voice_conditioning` 和
+  `multimodal_output.audio` 的 source、format、voice 与有界 encoded/decoded limits；请求分析只保留 bounded metadata，不保存或解码
+  音频内容。
+
+## 实现边界
+
+- canonical facts 位于 [`src/models/xiaomi/`](../../../src/models/xiaomi/)；MiMo Provider contract、任务 profile 和固定 target 位于
+  [`src/providers/mimo/`](../../../src/providers/mimo/)。Public Model registration 位于
+  [`src/providers/catalog/public_models.rs`](../../../src/providers/catalog/public_models.rs)。
+- 音频能力类型和 subset 规则位于 [`src/core/capability/generation.rs`](../../../src/core/capability/generation.rs)；Models DTO 和
+  多候选保守交集位于 [`src/registry/public_model.rs`](../../../src/registry/public_model.rs) 及其 compiler 子模块。
+- Chat 音频 shape、source、format、Base64 与 URL 边界分析位于 [`src/pipeline/analysis/generation/audio.rs`](../../../src/pipeline/analysis/generation/audio.rs)，
+  task-specific preflight 位于 [`src/pipeline/preflight.rs`](../../../src/pipeline/preflight.rs)。实现不下载、解码、转码、重采样、播放、落盘或缓存音频。
+- 10 MB inline profile ceiling 仍受部署级 `max_request_body_bytes` 独立限制；默认 body 限制可能先于模型 profile 拒绝大请求。响应音频
+  的内容语义、采样率、声道与真实媒体可播放性不由本轮 gateway 解析器证明。
+
+## 验证证据
+
+- `cargo test --locked --test example_config mimo_models_compile_model_specific_native_and_bridge_surfaces`：通过，覆盖四个模型的
+  canonical facts、target、Public Model 和 Chat-only route surface。
+- `cargo test --locked --test capability_definition_contract`：通过，覆盖 typed audio profile 的能力收窄和保留字段边界。
+- `cargo test --locked --test forwarding_contract mimo_audio`：通过，覆盖四个模型的 JSON/SSE Chat wire 保真、Models typed contract、
+  task-specific 形状拒绝和 zero-egress 失败边界。
+- 最终 Rust 基线：`cargo fmt -- --check`、`cargo test --locked`（55 个单元测试及全部契约测试通过）、
+  `cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；本专题不把静态/loopback 测试写成真实 Provider 验收。
+
+## 未覆盖范围
+
+- `mimo-v2.5` 通用音频理解；OpenAI `/v1/audio/speech`、`/v1/audio/transcriptions`、`/v1/audio/translations`、Responses audio、Realtime。
+- MiMo 专用模型的真实账号、配额、网络、endpoint、模型版本和 response audio 内容验证；本轮 transport 使用确定性记录 mock。
+- ASR MP3/更广语言和方言、TTS MP3/其他 voice、VoiceDesign/VoiceClone 的扩展格式、duration/sample-rate/channel 校验。
+- voice authorization、保留期、跨请求 voice identity/resource store、媒体下载/解码/转码、播放和持久化。
+- OpenAI SDK、目标 Agent、负载、长期运行以及硬件/播放器验收。
+
+## 相关文档
+
+- [功能需求：Native 音频能力](../../functional-requirements/native-audio.md)
+- [MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [标准 Audio/Speech 协议索引](../../references/openai/README.md#6-音频与语音)
+- [Chat/Responses Native 转发](native-generation-forwarding.md)
+- [Models 接口与能力预检](models-api-and-capability-preflight.md)

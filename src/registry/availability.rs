@@ -206,7 +206,7 @@ mod tests {
 
         // Verify both entity lists use deterministic configuration-only classification.
         let report = registry.configuration_availability(&active_pool_ids);
-        assert_eq!(report.providers.available, ["mimo (2/2 targets)"]);
+        assert_eq!(report.providers.available, ["mimo (6/6 targets)"]);
         assert!(
             report
                 .providers
@@ -218,7 +218,11 @@ mod tests {
             report.public_models.available,
             [
                 "mimo-v2.5 (chat, responses)",
+                "mimo-v2.5-asr (chat)",
                 "mimo-v2.5-pro (chat, responses)",
+                "mimo-v2.5-tts (chat)",
+                "mimo-v2.5-tts-voiceclone (chat)",
+                "mimo-v2.5-tts-voicedesign (chat)",
             ]
         );
         assert!(

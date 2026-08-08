@@ -12,8 +12,10 @@ pub use embeddings::{
 };
 pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
-    ChatCompletionsCapabilities, HostedToolKind, ImageDetail, ImageInputCapabilities,
-    ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude, ResponsesCapabilities,
+    AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
+    AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, HostedToolKind, ImageDetail,
+    ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
+    ResponsesCapabilities,
 };
 
 /// Protocol-specific capability ceilings for a Provider contract.

@@ -144,6 +144,195 @@ impl ImageMediaType {
     }
 }
 
+/// Provider-independent task identity for a Chat Native audio profile.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioTask {
+    /// Provider model can answer questions about supplied audio.
+    AudioUnderstanding,
+    /// Provider model returns a transcript for supplied speech.
+    Asr,
+    /// Provider model synthesizes speech from target text and optional style.
+    Tts,
+    /// Provider model synthesizes speech from a voice description.
+    VoiceDesign,
+    /// Provider model synthesizes speech conditioned on a reference voice recording.
+    VoiceClone,
+    /// Provider ceiling permits any modeled audio task; concrete targets must narrow it.
+    Any,
+}
+
+impl AudioTask {
+    /// Returns whether this task is no broader than the supplied capability ceiling.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        matches!(upper, Self::Any) || self == upper
+    }
+}
+
+/// Source encodings accepted by a typed audio input profile.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioInputSource {
+    /// An absolute HTTPS URL fetched by the upstream Provider.
+    RemoteUrl,
+    /// An RFC 2397-style Base64 data URL.
+    DataUrl,
+    /// A pure Base64 string paired with a separate format field.
+    Base64,
+}
+
+/// Audio container or wire encoding accepted by an audio profile.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioFormat {
+    /// RIFF/WAV audio.
+    Wav,
+    /// MPEG audio.
+    Mp3,
+    /// FLAC audio.
+    Flac,
+    /// MPEG-4 audio.
+    M4a,
+    /// Ogg audio.
+    Ogg,
+    /// Raw signed 16-bit PCM audio.
+    Pcm16,
+}
+
+impl AudioFormat {
+    /// Parses a canonical model/profile audio format string.
+    pub(crate) fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "wav" => Some(Self::Wav),
+            "mp3" => Some(Self::Mp3),
+            "flac" => Some(Self::Flac),
+            "m4a" => Some(Self::M4a),
+            "ogg" => Some(Self::Ogg),
+            "pcm16" => Some(Self::Pcm16),
+            _ => None,
+        }
+    }
+}
+
+/// Typed limits and sources for one inbound audio resource.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AudioInputCapabilities {
+    /// Accepted URL, data-URL, or pure-Base64 source forms.
+    pub sources: &'static [AudioInputSource],
+    /// Accepted audio formats.
+    pub formats: &'static [AudioFormat],
+    /// Maximum number of audio resources in one task request.
+    pub max_parts: u32,
+    /// Maximum UTF-8 byte length of one remote URL.
+    pub max_url_length: u32,
+    /// Maximum encoded size of one inline resource.
+    pub max_inline_encoded_bytes: u32,
+    /// Maximum decoded size of one inline resource.
+    pub max_inline_decoded_bytes: u32,
+    /// Maximum encoded size of all inline resources.
+    pub max_total_inline_encoded_bytes: u32,
+    /// Maximum decoded size of all inline resources.
+    pub max_total_inline_decoded_bytes: u32,
+}
+
+impl AudioInputCapabilities {
+    /// Returns whether one profile is no broader than this profile.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        self.sources
+            .iter()
+            .all(|source| upper.sources.contains(source))
+            && self
+                .formats
+                .iter()
+                .all(|format| upper.formats.contains(format))
+            && self.max_parts <= upper.max_parts
+            && self.max_url_length <= upper.max_url_length
+            && self.max_inline_encoded_bytes <= upper.max_inline_encoded_bytes
+            && self.max_inline_decoded_bytes <= upper.max_inline_decoded_bytes
+            && self.max_total_inline_encoded_bytes <= upper.max_total_inline_encoded_bytes
+            && self.max_total_inline_decoded_bytes <= upper.max_total_inline_decoded_bytes
+    }
+}
+
+/// Typed output format, voice, and response-budget profile for one TTS-like task.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AudioOutputCapabilities {
+    /// Formats allowed for non-streaming JSON output.
+    pub formats: &'static [AudioFormat],
+    /// Formats allowed for streaming Chat audio deltas.
+    pub streaming_formats: &'static [AudioFormat],
+    /// Preset voice names accepted by this profile.
+    pub voices: &'static [&'static str],
+    /// Maximum Base64 encoded audio size in a non-streaming JSON body.
+    pub max_inline_encoded_bytes: u32,
+    /// Maximum decoded audio size in a non-streaming JSON body.
+    pub max_inline_decoded_bytes: u32,
+    /// Maximum decoded audio bytes across one streaming response.
+    pub max_stream_decoded_bytes: u32,
+}
+
+impl AudioOutputCapabilities {
+    /// Returns whether one profile is no broader than this profile.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        self.formats
+            .iter()
+            .all(|format| upper.formats.contains(format))
+            && self
+                .streaming_formats
+                .iter()
+                .all(|format| upper.streaming_formats.contains(format))
+            && self.voices.iter().all(|voice| upper.voices.contains(voice))
+            && self.max_inline_encoded_bytes <= upper.max_inline_encoded_bytes
+            && self.max_inline_decoded_bytes <= upper.max_inline_decoded_bytes
+            && self.max_stream_decoded_bytes <= upper.max_stream_decoded_bytes
+    }
+}
+
+/// Complete typed audio task contract carried by one Chat Completions capability profile.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AudioCapabilities {
+    /// Task semantics that must not be used as a cross-model fallback identity.
+    pub task: AudioTask,
+    /// Optional business-audio input profile.
+    pub input: Option<AudioInputCapabilities>,
+    /// Optional reference-voice conditioning profile.
+    pub voice_conditioning: Option<AudioInputCapabilities>,
+    /// Optional generated-audio output profile.
+    pub output: Option<AudioOutputCapabilities>,
+}
+
+impl AudioCapabilities {
+    /// Returns whether one audio task profile is no broader than this Provider ceiling.
+    pub(crate) fn is_subset_of(self, upper: Self) -> bool {
+        self.task.is_subset_of(upper.task)
+            && optional_audio_input_is_subset_of(self.input, upper.input)
+            && optional_audio_input_is_subset_of(self.voice_conditioning, upper.voice_conditioning)
+            && optional_audio_output_is_subset_of(self.output, upper.output)
+    }
+}
+
+fn optional_audio_input_is_subset_of(
+    value: Option<AudioInputCapabilities>,
+    upper: Option<AudioInputCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+    }
+}
+
+fn optional_audio_output_is_subset_of(
+    value: Option<AudioOutputCapabilities>,
+    upper: Option<AudioOutputCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+    }
+}
+
 /// Standard image-detail values carried by Chat or Responses image parts.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -275,9 +464,9 @@ impl GenerationCapabilities {
 
 /// Capability ceiling for the Chat Completions Create endpoint.
 ///
-/// Implemented fields retain current routing semantics. New fields such as audio, file, custom
-/// tools, and predicted outputs only reserve definition positions and trigger `unimplemented!`
-/// during registry compilation if enabled.
+/// Implemented fields retain current routing semantics. Audio fields use a typed task profile;
+/// other fields such as file, custom tools, and predicted outputs still reserve definition
+/// positions and trigger `unimplemented!` during registry compilation if enabled.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ChatCompletionsCapabilities {
     /// Whether the Chat Completions endpoint is enabled.
@@ -300,6 +489,8 @@ pub struct ChatCompletionsCapabilities {
     pub custom_tool_calling: bool,
     /// Whether `input_audio` input content parts are supported.
     pub audio_input: bool,
+    /// Typed task, source, and limit profile for `input_audio` or voice conditioning.
+    pub audio: Option<AudioCapabilities>,
     /// Whether `file` input content parts are supported.
     pub file_input: bool,
     /// Whether audio output in `modalities` is supported.
@@ -339,17 +530,16 @@ impl ChatCompletionsCapabilities {
         self.assert_reserved_unimplemented();
         upper.assert_reserved_unimplemented();
 
-        // Compare currently implemented common-protocol capabilities.
+        // Compare currently implemented common-protocol capabilities and the typed audio profile.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
+            && optional_audio_capabilities_is_subset_of(self.audio, upper.audio)
     }
 
     /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
-            || self.audio_input
             || self.file_input
-            || self.audio_output
             || self.predicted_outputs
             || self.web_search
             || self.prompt_caching
@@ -359,6 +549,29 @@ impl ChatCompletionsCapabilities {
         {
             unimplemented!("reserved Chat Completions capabilities are not implemented");
         }
+        if (self.audio_input || self.audio_output) && self.audio.is_none() {
+            unimplemented!("reserved Chat Completions capabilities are not implemented");
+        }
+        let (profile_input, profile_output) = self.audio.map_or((false, false), |audio| {
+            (
+                audio.input.is_some() || audio.voice_conditioning.is_some(),
+                audio.output.is_some(),
+            )
+        });
+        if self.audio_input != profile_input || self.audio_output != profile_output {
+            panic!("invalid Chat Completions audio capability profile");
+        }
+    }
+}
+
+fn optional_audio_capabilities_is_subset_of(
+    value: Option<AudioCapabilities>,
+    upper: Option<AudioCapabilities>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
     }
 }
 

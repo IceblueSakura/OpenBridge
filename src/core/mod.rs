@@ -8,8 +8,9 @@ mod request;
 
 pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
-    ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-    EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ImageDetail,
+    ApiCapabilities, AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
+    AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, EmbeddingDimensionDomain,
+    EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities, HostedToolKind, ImageDetail,
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
     ResponsesCapabilities,
 };

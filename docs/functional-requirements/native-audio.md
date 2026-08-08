@@ -3,8 +3,10 @@
 ## 范围
 
 本页定义四种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS，以及以文本或参考音频约束音色的设计/克隆。
-它不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
-[媒体扩展共同规则](embedding-and-native-multimodal.md)。当前尚无已完成的 Native audio 功能专题。
+当前 checkout 已接入 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 与
+`mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface；`mimo-v2.5` 通用音频理解仍未开放。
+本页不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
+[媒体扩展共同规则](embedding-and-native-multimodal.md)。已实现事实与验证证据见 [Native MiMo 音频专题](../implementation-status/features/native-mimo-audio.md)。
 
 ## 1. 任务身份与不可替代性
 
@@ -42,7 +44,7 @@ MiMo 音频模型虽然都使用 `/v1/chat/completions`，但属于独立 canoni
 
 | Public Model       | Native 请求契约                                                                                                                                  | Native 成功响应                                                                                                                |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `mimo-v2.5-asr`    | 恰好一个 user `input_audio`；首个目标只接受 WAV，来源为 data URL 或 pure Base64 + `format: "wav"`；`asr_options.language` 只开放 `auto`/`zh`；JSON/SSE | JSON assistant `message.content` 或有序 Chat text delta；保留 `audio_tokens`、seconds、finish reason 与标准 Chat terminal     |
+| `mimo-v2.5-asr`    | 恰好一个 user `input_audio`；首个目标只接受 WAV，来源为 data URL 或 pure Base64 + `format: "wav"`；`asr_options.language` 只开放 `auto`/`zh`/`en`；JSON/SSE | JSON assistant `message.content` 或有序 Chat text delta；保留 `audio_tokens`、seconds、finish reason 与标准 Chat terminal     |
 | `mimo-v2.5-tts`    | 可选 user 风格文本 + 恰好一个 assistant 目标文本；必需顶层 `audio`；JSON 只开放 `wav`，SSE 只开放 `pcm16`，voice 首个目标只开放 `mimo_default`             | JSON `message.audio.data` 保持 Base64 WAV；SSE `delta.audio.data` 保持有序 Base64 PCM16LE chunk，并以唯一 stop/`[DONE]` 结束 |
 
 `asr_options` 与 `audio` 是对应 Chat interface 的顶层 typed parameter，只能由相应 Public Model 在 `supported_parameters` 中公开。TTS
@@ -54,10 +56,11 @@ assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文�
 ## 4. 音色设计与音色克隆边界
 
 - 音色设计的自然语言描述是生成条件，不得作为普通 TTS 可选 voice 名称或通用模型 instruction 处理。
-- 音色克隆的参考音频是 `voice_conditioning` resource，不得进入 `content_understanding` 或 `speech_recognition` profile；它需要独立
-  source/format/duration/byte limit、授权确认、保留期和日志脱敏契约。
-- 两个变体必须各自经过真实 wire、失败语义、音频输出 framing 与数据保护验证后才能注册；普通 TTS 成功不提升其能力。
-- 首个音频实现焦点不注册这两个 Public Model，不接受 voice sample，也不建立跨模型 voice identity 或资源复用。
+- 音色克隆的参考音频是 `voice_conditioning` resource，不得进入 `content_understanding` 或 `speech_recognition` profile；首批接入只
+  暴露独立 source/format/byte limit，授权确认、保留期和日志脱敏策略仍是后续媒体治理边界。
+- 两个变体各自使用独立 canonical task、Chat Native profile 与失败边界；普通 TTS 成功不提升其他模型能力。
+- VoiceDesign 只接受自然语言 voice description；VoiceClone 只接受独立 `audio.voice` reference resource，不建立跨模型
+  voice identity 或资源复用。首批实现只做 shape/source/format/size 预检，不宣称授权、保留期或媒体内容验证。
 
 ## 5. `multimodal_output.audio` 与响应预算
 
@@ -92,7 +95,8 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 - 所有音频任务禁止跨 task/model fallback；任何 JSON body、text delta 或 audio delta 提交后不得 retry、rotation 重放或拼接响应。
 - 原始音频、Base64、transcript、TTS 目标/风格文本、voice sample 和 Provider request ID 不得进入普通日志、metrics label、probe
   report 或 fixture。
-- `audio_tokens`、seconds、audio bytes 与文本 token 必须保持语义，不把 PCM bytes 当 token、transcript 长度当时长或 chunk 数当速度。
+- `audio_tokens`、seconds、audio bytes 与文本 token 必须保持语义，不把 PCM bytes 当 token、transcript 长度当时长或 chunk 数当速度；
+  首批 gateway 只保留并透传上游 JSON/SSE，不自行计算或重解释这些字段。
 
 ## 8. 验收
 
@@ -102,14 +106,14 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 | AUD-02 | `mimo-v2.5` 只在固定 Chat Native interface 接受已声明 source/format/limit，保持 mixed audio/text wire，并返回文本回答而非 transcript/audio。 |
 | AUD-03 | `mimo-v2.5-asr` 的 WAV source/language/message contract、JSON/SSE transcript、usage、model 投影与单音频边界可确定复现。                    |
 | AUD-04 | `mimo-v2.5-tts` 的 assistant/audio/voice contract、JSON WAV、SSE PCM16 chunk、累计预算、唯一 terminal 与取消可确定复现。                  |
-| AUD-05 | voice design/clone 在建立独立条件输入、授权、保留期和输出 contract 前保持不可调用；普通 TTS 或理解成功不提升它们。                          |
+| AUD-05 | voice design/clone 使用独立条件输入、输出 contract 和失败边界；首批只开放有界 Chat profile，不建立授权存储、voice identity 或资源复用。 |
 | AUD-06 | 音频请求不进入 Bridge、跨 task fallback、请求期候选筛选，或伪装成 `/audio/*`；首输出 commit 后不发生第二次响应。                           |
 | AUD-07 | 独立客户端与真实 Provider 分别记录 task、endpoint、model、字段和证据边界；未运行 source/format/SDK/负载或长期层不声称通过。                |
 
 ## 9. 非目标与参考
 
-非目标包括 `/audio/*`、Responses audio、Realtime、未进入固定 profile 的 remote/multi-audio/格式、ASR MP3/`en`/方言承诺、TTS
-MP3/其他 preset voice，以及未单独获准的 voice design/clone 实现。
+非目标包括 `/audio/*`、Responses audio、Realtime、`mimo-v2.5` 通用音频理解、未进入固定 profile 的 remote/multi-audio/格式、
+ASR 方言承诺、未单独验证的 VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
 
 - [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
 - [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)

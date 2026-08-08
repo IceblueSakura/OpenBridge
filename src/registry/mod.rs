@@ -23,14 +23,15 @@ pub use definition::{
 pub use error::RegistryError;
 pub(crate) use public_model::ModelExecutionInterface;
 pub use public_model::{
+    AudioInputInterfaceCapabilities, AudioInputLimits, AudioOutputInterfaceCapabilities,
     ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
     EmbeddingInterfaceCapabilities, EmbeddingLimits, ImageDetailCapabilities,
     ImageInputInterfaceCapabilities, ImageInputLimits, InterfaceReasoningCapabilities,
     ModelCapabilities, ModelInterfaceCapabilities, ModelInterfaces, ModelModalities,
-    ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities, PublicModel,
-    PublicModelInfo, ReasoningOutputMode, StandardModel, StateCapabilities,
-    StructuredOutputCapabilities, StructuredOutputMode, SupportState, ToolCapabilities,
-    ToolChoiceMode, ToolType,
+    ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities,
+    MultimodalOutputCapabilities, PublicModel, PublicModelInfo, ReasoningOutputMode, StandardModel,
+    StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode, SupportState,
+    ToolCapabilities, ToolChoiceMode, ToolType,
 };
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,

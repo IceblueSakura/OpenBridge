@@ -39,6 +39,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             reasoning_output: ReasoningOutput::Unsupported,
             custom_tool_calling: false,
             audio_input: false,
+            audio: None,
             file_input: false,
             audio_output: false,
             predicted_outputs: false,

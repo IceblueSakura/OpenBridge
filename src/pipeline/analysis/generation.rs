@@ -13,8 +13,10 @@ use super::super::{
     types::{RequestRequirements, RequestedCapabilities, RequestedReasoning},
 };
 
+mod audio;
 mod image_input;
 
+use audio::analyze_audio;
 use image_input::analyze_image_input;
 
 /// Parses a downstream request and extracts registry-independent request facts.
@@ -42,6 +44,20 @@ pub fn analyze_request(
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     // Derive the capabilities actually requested from protocol fields.
     let requested_output_tokens = requested_output_tokens(object);
+    let (audio_input, voice_conditioning, audio_output) = analyze_audio(protocol, object)?;
+    let asr_options = object.get("asr_options").filter(|value| !value.is_null());
+    let asr_options_present = asr_options.is_some();
+    let asr_language = match asr_options {
+        None => None,
+        Some(Value::Object(options)) => {
+            match options.get("language").filter(|value| !value.is_null()) {
+                None => None,
+                Some(Value::String(language)) => Some(language.to_owned()),
+                Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
+            }
+        }
+        Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
+    };
     let requests_function_calling = object
         .get("tools")
         .and_then(Value::as_array)
@@ -61,6 +77,11 @@ pub fn analyze_request(
         parallel_tool_calls: requests_function_calling
             && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
         image_input: analyze_image_input(protocol, object)?,
+        audio_input,
+        voice_conditioning,
+        audio_output,
+        asr_options_present,
+        asr_language,
         structured_outputs: requests_structured_outputs(object),
         store: object.get("store").and_then(Value::as_bool) == Some(true),
         unmodeled_tools: requests_unmodeled_tools,
@@ -102,10 +123,7 @@ fn reject_reserved_request_fields(
 /// Returns whether a Chat Completions request uses a capability reserved only in the definition.
 fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) -> bool {
     requests_reserved_tool(ApiProtocol::ChatCompletions, object)
-        || chat_messages_contain_part_type(object, "input_audio")
         || chat_messages_contain_part_type(object, "file")
-        || array_field_contains(object, "modalities", "audio")
-        || has_non_null_field(object, "audio")
         || has_non_null_field(object, "prediction")
         || has_non_null_field(object, "web_search_options")
         || requests_prompt_caching(object)
@@ -118,7 +136,10 @@ fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) ->
 /// Returns whether a Responses request uses a capability reserved only in the definition.
 fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value>) -> bool {
     requests_reserved_tool(ApiProtocol::Responses, object)
+        || responses_input_contains_part_type(object, "input_audio")
         || responses_input_contains_part_type(object, "input_file")
+        || array_field_contains(object, "modalities", "audio")
+        || has_non_null_field(object, "audio")
         || has_non_null_field(object, "conversation")
         || has_non_null_field(object, "prompt")
         || requests_prompt_caching(object)

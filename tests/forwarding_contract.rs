@@ -145,6 +145,11 @@ struct MimoImageTransport {
 }
 
 #[derive(Default)]
+struct MimoAudioTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
+#[derive(Default)]
 struct DeepSeekReasoningStreamTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
@@ -737,6 +742,55 @@ impl UpstreamTransport for MimoImageTransport {
             } else {
                 Body::from(
                     r#"{"id":"chat_image","object":"chat.completion","model":"mimo-v2.5","choices":[{"index":0,"message":{"role":"assistant","content":"red and blue"},"finish_reason":"stop"}]}"#,
+                )
+            };
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                body,
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for MimoAudioTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Capture the exact task-specific Chat Native body without retaining any provider secret.
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+        let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path: request.relative_uri().path().to_owned(),
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body,
+        });
+
+        // Return a minimal Chat JSON envelope; audio bytes remain an upstream response concern.
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static(if streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }),
+            );
+            let body = if streaming {
+                Body::from(
+                    "data: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"UklGRg==\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+                )
+            } else {
+                Body::from(
+                    r#"{"id":"chat_audio","object":"chat.completion","model":"audio-model","choices":[{"index":0,"message":{"role":"assistant","content":"transcript"},"finish_reason":"stop"}]}"#,
                 )
             };
             Ok(UpstreamResponse::new(

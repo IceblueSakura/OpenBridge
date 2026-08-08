@@ -7,6 +7,7 @@
 use serde::Serialize;
 
 use crate::core::{
+    AudioFormat, AudioInputCapabilities, AudioInputSource, AudioOutputCapabilities, AudioTask,
     EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, ImageDetail,
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
 };
@@ -265,6 +266,208 @@ pub struct ImageInputInterfaceCapabilities {
     limits: ImageInputLimits,
 }
 
+/// Public source and size limits for one typed audio input profile.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct AudioInputLimits {
+    max_parts: u32,
+    max_url_length: u32,
+    max_inline_encoded_bytes: u32,
+    max_inline_decoded_bytes: u32,
+    max_total_inline_encoded_bytes: u32,
+    max_total_inline_decoded_bytes: u32,
+}
+
+/// Typed audio source and format contract for one Native Chat interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct AudioInputInterfaceCapabilities {
+    sources: Vec<AudioInputSource>,
+    formats: Vec<AudioFormat>,
+    limits: AudioInputLimits,
+}
+
+impl AudioInputInterfaceCapabilities {
+    /// Converts one static audio input profile into a downstream-safe owned contract.
+    fn from_capabilities(value: AudioInputCapabilities) -> Self {
+        Self {
+            sources: value.sources.to_vec(),
+            formats: value.formats.to_vec(),
+            limits: AudioInputLimits {
+                max_parts: value.max_parts,
+                max_url_length: value.max_url_length,
+                max_inline_encoded_bytes: value.max_inline_encoded_bytes,
+                max_inline_decoded_bytes: value.max_inline_decoded_bytes,
+                max_total_inline_encoded_bytes: value.max_total_inline_encoded_bytes,
+                max_total_inline_decoded_bytes: value.max_total_inline_decoded_bytes,
+            },
+        }
+    }
+
+    /// Intersects all candidate profiles without exposing Route or Provider identity.
+    fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
+        let values = values.collect::<Option<Vec<_>>>()?;
+        let first = values.first()?.to_owned().clone();
+        let mut result = first;
+        result
+            .sources
+            .retain(|source| values.iter().all(|value| value.sources.contains(source)));
+        result
+            .formats
+            .retain(|format| values.iter().all(|value| value.formats.contains(format)));
+        result.limits.max_parts = values.iter().map(|value| value.limits.max_parts).min()?;
+        result.limits.max_url_length = values
+            .iter()
+            .map(|value| value.limits.max_url_length)
+            .min()?;
+        result.limits.max_inline_encoded_bytes = values
+            .iter()
+            .map(|value| value.limits.max_inline_encoded_bytes)
+            .min()?;
+        result.limits.max_inline_decoded_bytes = values
+            .iter()
+            .map(|value| value.limits.max_inline_decoded_bytes)
+            .min()?;
+        result.limits.max_total_inline_encoded_bytes = values
+            .iter()
+            .map(|value| value.limits.max_total_inline_encoded_bytes)
+            .min()?;
+        result.limits.max_total_inline_decoded_bytes = values
+            .iter()
+            .map(|value| value.limits.max_total_inline_decoded_bytes)
+            .min()?;
+        (!result.sources.is_empty() && !result.formats.is_empty()).then_some(result)
+    }
+
+    /// Returns whether this interface accepts one audio source.
+    pub(crate) fn supports_source(&self, source: AudioInputSource) -> bool {
+        self.sources.contains(&source)
+    }
+
+    /// Returns whether this interface accepts one audio format.
+    pub(crate) fn supports_format(&self, format: AudioFormat) -> bool {
+        self.formats.contains(&format)
+    }
+
+    /// Returns the maximum number of audio parts accepted by one request.
+    pub(crate) const fn max_parts(&self) -> u32 {
+        self.limits.max_parts
+    }
+
+    /// Returns the maximum URL length accepted by this interface.
+    pub(crate) const fn max_url_length(&self) -> u32 {
+        self.limits.max_url_length
+    }
+
+    /// Returns the maximum encoded inline input size.
+    pub(crate) const fn max_inline_encoded_bytes(&self) -> u32 {
+        self.limits.max_inline_encoded_bytes
+    }
+
+    /// Returns the maximum decoded inline input size.
+    pub(crate) const fn max_inline_decoded_bytes(&self) -> u32 {
+        self.limits.max_inline_decoded_bytes
+    }
+
+    /// Returns the cumulative encoded inline input limit.
+    pub(crate) const fn max_total_inline_encoded_bytes(&self) -> u32 {
+        self.limits.max_total_inline_encoded_bytes
+    }
+
+    /// Returns the cumulative decoded inline input limit.
+    pub(crate) const fn max_total_inline_decoded_bytes(&self) -> u32 {
+        self.limits.max_total_inline_decoded_bytes
+    }
+}
+
+/// Public output formats, voices, and response budgets for one TTS-like interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct AudioOutputInterfaceCapabilities {
+    formats: Vec<AudioFormat>,
+    streaming_formats: Vec<AudioFormat>,
+    voices: Vec<String>,
+    max_inline_encoded_bytes: u32,
+    max_inline_decoded_bytes: u32,
+    max_stream_decoded_bytes: u32,
+}
+
+impl AudioOutputInterfaceCapabilities {
+    /// Converts one static audio output profile into a downstream-safe owned contract.
+    fn from_capabilities(value: AudioOutputCapabilities) -> Self {
+        Self {
+            formats: value.formats.to_vec(),
+            streaming_formats: value.streaming_formats.to_vec(),
+            voices: value
+                .voices
+                .iter()
+                .map(|voice| (*voice).to_owned())
+                .collect(),
+            max_inline_encoded_bytes: value.max_inline_encoded_bytes,
+            max_inline_decoded_bytes: value.max_inline_decoded_bytes,
+            max_stream_decoded_bytes: value.max_stream_decoded_bytes,
+        }
+    }
+
+    /// Intersects all candidate profiles without exposing Route or Provider identity.
+    fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
+        let values = values.collect::<Option<Vec<_>>>()?;
+        let first = values.first()?.to_owned().clone();
+        let mut result = first;
+        result
+            .formats
+            .retain(|format| values.iter().all(|value| value.formats.contains(format)));
+        result.streaming_formats.retain(|format| {
+            values
+                .iter()
+                .all(|value| value.streaming_formats.contains(format))
+        });
+        result
+            .voices
+            .retain(|voice| values.iter().all(|value| value.voices.contains(voice)));
+        result.max_inline_encoded_bytes = values
+            .iter()
+            .map(|value| value.max_inline_encoded_bytes)
+            .min()?;
+        result.max_inline_decoded_bytes = values
+            .iter()
+            .map(|value| value.max_inline_decoded_bytes)
+            .min()?;
+        result.max_stream_decoded_bytes = values
+            .iter()
+            .map(|value| value.max_stream_decoded_bytes)
+            .min()?;
+        (!result.formats.is_empty() && !result.streaming_formats.is_empty()).then_some(result)
+    }
+
+    /// Returns whether this interface accepts one output format for the selected streaming mode.
+    pub(crate) fn supports_format(&self, format: AudioFormat, streaming: bool) -> bool {
+        let formats = if streaming {
+            &self.streaming_formats
+        } else {
+            &self.formats
+        };
+        formats.contains(&format)
+    }
+
+    /// Returns whether this interface accepts one preset voice name.
+    pub(crate) fn supports_voice(&self, voice: &str) -> bool {
+        self.voices.iter().any(|candidate| candidate == voice)
+    }
+
+    /// Returns the non-streaming encoded audio response limit.
+    pub(crate) const fn max_inline_encoded_bytes(&self) -> u32 {
+        self.max_inline_encoded_bytes
+    }
+
+    /// Returns the non-streaming decoded audio response limit.
+    pub(crate) const fn max_inline_decoded_bytes(&self) -> u32 {
+        self.max_inline_decoded_bytes
+    }
+
+    /// Returns the cumulative decoded audio streaming limit.
+    pub(crate) const fn max_stream_decoded_bytes(&self) -> u32 {
+        self.max_stream_decoded_bytes
+    }
+}
+
 impl ImageInputInterfaceCapabilities {
     /// Converts one static Upstream API image profile into a downstream-safe owned contract.
     fn from_capabilities(value: ImageInputCapabilities) -> Self {
@@ -398,6 +601,14 @@ impl ImageInputInterfaceCapabilities {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MultimodalInputCapabilities {
     image: Option<ImageInputInterfaceCapabilities>,
+    audio: Option<AudioInputInterfaceCapabilities>,
+    voice_conditioning: Option<AudioInputInterfaceCapabilities>,
+}
+
+/// Typed multimodal output profiles guaranteed by one protocol interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct MultimodalOutputCapabilities {
+    audio: Option<AudioOutputInterfaceCapabilities>,
 }
 
 /// Unique, fixed capability contract for one protocol interface, used directly by request preflight.
@@ -406,6 +617,8 @@ pub struct ModelInterfaceCapabilities {
     context_window: ContextWindow,
     modalities: ModelModalities,
     multimodal_input: MultimodalInputCapabilities,
+    multimodal_output: MultimodalOutputCapabilities,
+    audio_task: Option<AudioTask>,
     supported_parameters: Vec<String>,
     streaming: SupportState,
     system_messages: SupportState,
@@ -540,6 +753,26 @@ impl ModelInterfaceCapabilities {
     /// Returns the typed image-input profile guaranteed by every interface candidate.
     pub(crate) fn image_input(&self) -> Option<&ImageInputInterfaceCapabilities> {
         self.multimodal_input.image.as_ref()
+    }
+
+    /// Returns the typed business-audio input profile guaranteed by every candidate.
+    pub(crate) fn audio_input(&self) -> Option<&AudioInputInterfaceCapabilities> {
+        self.multimodal_input.audio.as_ref()
+    }
+
+    /// Returns the typed reference-voice conditioning profile guaranteed by every candidate.
+    pub(crate) fn voice_conditioning(&self) -> Option<&AudioInputInterfaceCapabilities> {
+        self.multimodal_input.voice_conditioning.as_ref()
+    }
+
+    /// Returns the typed generated-audio output profile guaranteed by every candidate.
+    pub(crate) fn audio_output(&self) -> Option<&AudioOutputInterfaceCapabilities> {
+        self.multimodal_output.audio.as_ref()
+    }
+
+    /// Returns the task identity fixed by this Chat Native audio interface.
+    pub(crate) const fn audio_task(&self) -> Option<AudioTask> {
+        self.audio_task
     }
 
     /// Returns whether the interface guarantees structured output.

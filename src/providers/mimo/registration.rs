@@ -3,13 +3,14 @@
 use std::time::Duration;
 
 use crate::{
+    core::AudioCapabilities,
     models::xiaomi,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
     registry::{ProviderInstanceConfig, UpstreamTargetConfig},
 };
 
-use super::CONTRACT;
+use super::definition::{ASR_AUDIO, CONTRACT, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO};
 
 const PROVIDER_INSTANCE_ID: &str = "mimo";
 
@@ -22,7 +23,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed upstream targets for MiMo V2.5 Pro and V2.5.
+/// Builds the fixed upstream targets for MiMo text, multimodal, ASR, and TTS-family models.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
@@ -31,6 +32,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "mimo-v2.5-pro",
             "mimo-primary",
             false,
+            None,
         ),
         target(
             "mimo-v2-5",
@@ -38,6 +40,39 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "mimo-v2.5",
             "mimo-primary",
             true,
+            None,
+        ),
+        target(
+            "mimo-v2-5-asr",
+            xiaomi::mimo_v2_5_asr::ID,
+            "mimo-v2.5-asr",
+            "mimo-primary",
+            false,
+            Some(ASR_AUDIO),
+        ),
+        target(
+            "mimo-v2-5-tts",
+            xiaomi::mimo_v2_5_tts::ID,
+            "mimo-v2.5-tts",
+            "mimo-primary",
+            false,
+            Some(TTS_AUDIO),
+        ),
+        target(
+            "mimo-v2-5-tts-voicedesign",
+            xiaomi::mimo_v2_5_tts_voicedesign::ID,
+            "mimo-v2.5-tts-voicedesign",
+            "mimo-primary",
+            false,
+            Some(VOICE_DESIGN_AUDIO),
+        ),
+        target(
+            "mimo-v2-5-tts-voiceclone",
+            xiaomi::mimo_v2_5_tts_voiceclone::ID,
+            "mimo-v2.5-tts-voiceclone",
+            "mimo-primary",
+            false,
+            Some(VOICE_CLONE_AUDIO),
         ),
     ]
 }
@@ -49,12 +84,26 @@ fn target(
     upstream_model: &str,
     credential_id: &str,
     image_input: bool,
+    audio: Option<AudioCapabilities>,
 ) -> UpstreamTargetConfig {
     // Narrow the Provider ceiling because current MiMo evidence limits image understanding to V2.5.
     let mut capabilities = *CONTRACT.capabilities();
     if !image_input {
         capabilities.chat_completions.image_input = None;
         capabilities.responses.image_input = None;
+    }
+
+    // Narrow the Provider audio ceiling to one task-specific Chat Native profile, or disable it for text/image targets.
+    capabilities.chat_completions.audio = audio;
+    capabilities.chat_completions.audio_input = audio
+        .is_some_and(|profile| profile.input.is_some() || profile.voice_conditioning.is_some());
+    capabilities.chat_completions.audio_output =
+        audio.is_some_and(|profile| profile.output.is_some());
+
+    let mut upstream_apis = native_upstream_apis(upstream_model, capabilities);
+    if audio.is_some() {
+        // MiMo audio models expose only Chat Native; do not create a Responses or Bridge candidate.
+        upstream_apis.truncate(1);
     }
 
     // Build the immutable target with the model-specific API ceiling.
@@ -68,6 +117,6 @@ fn target(
         fault_domain: Some("mimo-api".to_owned()),
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: native_upstream_apis(upstream_model, capabilities),
+        upstream_apis,
     }
 }

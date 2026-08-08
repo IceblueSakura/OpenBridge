@@ -4,7 +4,7 @@
 //! capabilities, apply Provider wire mappings, or influence configured Route order.
 
 use crate::{
-    core::{EmbeddingEncoding, OperationKind},
+    core::{AudioTask, EmbeddingEncoding, OperationKind},
     registry::{
         ModelExecutionInterface, ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry,
         SupportState,
@@ -171,6 +171,43 @@ fn validate_interface_request(
         }
     }
 
+    // Validate task-specific audio inputs, conditioning resources, and bounded inline sizes.
+    if let Some(requested) = requested_features.audio_input.as_ref() {
+        let audio = interface
+            .audio_input()
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        validate_audio_input(requested, audio)?;
+    }
+    if let Some(requested) = requested_features.voice_conditioning.as_ref() {
+        let voice = interface
+            .voice_conditioning()
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        validate_audio_input(requested, voice)?;
+    }
+    if let Some(requested) = requested_features.audio_output.as_ref() {
+        let audio = interface
+            .audio_output()
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        if !audio.supports_format(requested.format, requested_features.streaming) {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+        if let Some(voice) = requested.voice.as_deref()
+            && !audio.supports_voice(voice)
+        {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+        if requested_features.streaming {
+            if audio.max_stream_decoded_bytes() == 0 {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+        } else if audio.max_inline_encoded_bytes() == 0 || audio.max_inline_decoded_bytes() == 0 {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+    }
+
+    // Enforce the fixed task identity and message shape after generic audio facts are validated.
+    validate_audio_task(requested_features, interface.audio_task())?;
+
     // Enforce the fixed output limit when the request carries an explicit value.
     if interface.max_output_tokens().is_some_and(|limit| {
         requested_output_tokens.is_some_and(|requested| requested > u64::from(limit))
@@ -199,6 +236,113 @@ fn validate_interface_request(
             return Err(RequestPlanningError::InvalidReasoningConfiguration);
         }
         RequestedReasoning::Unspecified | RequestedReasoning::Level(_) => {}
+    }
+    Ok(())
+}
+
+/// Validates one analyzed audio input against a fixed public source, format, and size profile.
+fn validate_audio_input(
+    requested: &super::types::AudioInputRequirements,
+    profile: &crate::registry::AudioInputInterfaceCapabilities,
+) -> Result<(), RequestPlanningError> {
+    if requested.part_count > profile.max_parts()
+        || requested.max_url_length > profile.max_url_length()
+        || requested.max_inline_encoded_bytes > profile.max_inline_encoded_bytes()
+        || requested.max_inline_decoded_bytes > profile.max_inline_decoded_bytes()
+        || requested.total_inline_encoded_bytes > profile.max_total_inline_encoded_bytes()
+        || requested.total_inline_decoded_bytes > profile.max_total_inline_decoded_bytes()
+    {
+        return Err(RequestPlanningError::MultimodalInputLimitExceeded);
+    }
+    if requested
+        .sources
+        .iter()
+        .any(|source| !profile.supports_source(*source))
+        || requested
+            .formats
+            .iter()
+            .any(|format| !profile.supports_format(*format))
+    {
+        return Err(RequestPlanningError::UnsupportedCapabilities);
+    }
+    Ok(())
+}
+
+/// Enforces task-specific required inputs and target-text semantics without selecting a Route.
+fn validate_audio_task(
+    requested: &RequestedCapabilities,
+    task: Option<AudioTask>,
+) -> Result<(), RequestPlanningError> {
+    let Some(task) = task else {
+        if requested.audio_input.is_some()
+            || requested.voice_conditioning.is_some()
+            || requested.audio_output.is_some()
+            || requested.asr_options_present
+        {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+        return Ok(());
+    };
+    match task {
+        AudioTask::Asr => {
+            let Some(input) = requested.audio_input.as_ref() else {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            };
+            if input.part_count != 1
+                || input.text_part_count != 0
+                || requested.audio_output.is_some()
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            if requested
+                .asr_language
+                .as_deref()
+                .is_some_and(|language| !matches!(language, "auto" | "zh" | "en"))
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            if !requested.asr_options_present && requested.asr_language.is_some() {
+                return Err(RequestPlanningError::InvalidMultimodalInput);
+            }
+        }
+        AudioTask::Tts => {
+            let Some(output) = requested.audio_output.as_ref() else {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            };
+            if output.assistant_text_count != 1
+                || requested.audio_input.is_some()
+                || requested.voice_conditioning.is_some()
+                || requested.asr_options_present
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+        }
+        AudioTask::VoiceDesign => {
+            let Some(output) = requested.audio_output.as_ref() else {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            };
+            if output.assistant_text_count != 1
+                || !output.voice_description
+                || requested.audio_input.is_some()
+                || requested.voice_conditioning.is_some()
+                || requested.asr_options_present
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+        }
+        AudioTask::VoiceClone => {
+            let Some(output) = requested.audio_output.as_ref() else {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            };
+            if output.assistant_text_count != 1
+                || requested.voice_conditioning.is_none()
+                || requested.audio_input.is_some()
+                || requested.asr_options_present
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+        }
+        AudioTask::AudioUnderstanding | AudioTask::Any => {}
     }
     Ok(())
 }

@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use crate::{
     bridge::BridgePlan,
     core::{
-        ApiProtocol, ApiRequest, EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest,
-        ImageDetail, ImageInputSource, ImageMediaType, OperationKind,
+        ApiProtocol, ApiRequest, AudioFormat, AudioInputSource, EmbeddingEncoding,
+        EmbeddingInputForm, EmbeddingRequest, ImageDetail, ImageInputSource, ImageMediaType,
+        OperationKind,
     },
     registry::ReasoningLevel,
 };
@@ -82,12 +83,40 @@ pub(super) struct RequestedCapabilities {
     pub(super) function_calling: bool,
     pub(super) parallel_tool_calls: bool,
     pub(super) image_input: Option<ImageInputRequirements>,
+    pub(super) audio_input: Option<AudioInputRequirements>,
+    pub(super) voice_conditioning: Option<AudioInputRequirements>,
+    pub(super) audio_output: Option<AudioOutputRequirements>,
+    pub(super) asr_options_present: bool,
+    pub(super) asr_language: Option<String>,
     pub(super) structured_outputs: bool,
     pub(super) store: bool,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
+}
+
+/// Frozen source, format, and size facts for one audio resource set.
+#[derive(Debug, Default)]
+pub(super) struct AudioInputRequirements {
+    pub(super) sources: BTreeSet<AudioInputSource>,
+    pub(super) formats: BTreeSet<AudioFormat>,
+    pub(super) part_count: u32,
+    pub(super) max_url_length: u32,
+    pub(super) max_inline_encoded_bytes: u32,
+    pub(super) max_inline_decoded_bytes: u32,
+    pub(super) total_inline_encoded_bytes: u32,
+    pub(super) total_inline_decoded_bytes: u32,
+    pub(super) text_part_count: u32,
+}
+
+/// Frozen output format, voice, and style facts for one TTS-like request.
+#[derive(Debug)]
+pub(super) struct AudioOutputRequirements {
+    pub(super) format: AudioFormat,
+    pub(super) voice: Option<String>,
+    pub(super) voice_description: bool,
+    pub(super) assistant_text_count: u32,
 }
 
 /// Frozen image-input facts extracted without selecting or inspecting any Route.

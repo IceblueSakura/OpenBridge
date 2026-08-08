@@ -6,14 +6,18 @@
 
 use std::collections::BTreeSet;
 
-use crate::{core::EmbeddingsCapabilities, registry::ModelContextLength};
+use crate::{
+    core::{AudioTask, EmbeddingsCapabilities},
+    registry::ModelContextLength,
+};
 
 use super::RouteContractContribution;
 use crate::registry::public_model::{
-    ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
-    EmbeddingInterfaceCapabilities, EmbeddingLimits, ImageInputInterfaceCapabilities,
-    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelModalities,
-    ModelReasoningCapabilities, MultimodalInputCapabilities, ReasoningOutputMode,
+    AudioInputInterfaceCapabilities, AudioOutputInterfaceCapabilities, ContextWindow,
+    EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities,
+    EmbeddingLimits, ImageInputInterfaceCapabilities, InterfaceReasoningCapabilities,
+    ModelCapabilities, ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities,
+    MultimodalInputCapabilities, MultimodalOutputCapabilities, ReasoningOutputMode,
     StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode, SupportState,
     ToolCapabilities, ToolChoiceMode, ToolType,
 };
@@ -105,6 +109,20 @@ pub(crate) fn aggregate_interface<'a>(
     let image_input = ImageInputInterfaceCapabilities::intersection(
         contributions.iter().map(|value| value.image_input.as_ref()),
     );
+    let audio_input = AudioInputInterfaceCapabilities::intersection(
+        contributions.iter().map(|value| value.audio_input.as_ref()),
+    );
+    let voice_conditioning = AudioInputInterfaceCapabilities::intersection(
+        contributions
+            .iter()
+            .map(|value| value.voice_conditioning.as_ref()),
+    );
+    let audio_output = AudioOutputInterfaceCapabilities::intersection(
+        contributions
+            .iter()
+            .map(|value| value.audio_output.as_ref()),
+    );
+    let audio_task = intersect_audio_task(contributions.iter().map(|value| value.audio_task));
     let previous_response_id = aggregate_previous_response_id(&contributions);
     let mut supported_parameters = intersect_sets(
         contributions
@@ -138,7 +156,15 @@ pub(crate) fn aggregate_interface<'a>(
     Some(ModelInterfaceCapabilities {
         context_window,
         modalities,
-        multimodal_input: MultimodalInputCapabilities { image: image_input },
+        multimodal_input: MultimodalInputCapabilities {
+            image: image_input,
+            audio: audio_input,
+            voice_conditioning,
+        },
+        multimodal_output: MultimodalOutputCapabilities {
+            audio: audio_output,
+        },
+        audio_task,
         supported_parameters,
         streaming,
         system_messages: SupportState::intersection(
@@ -200,6 +226,16 @@ pub(crate) fn aggregate_interface<'a>(
             ),
         },
     })
+}
+
+/// Publishes one audio task only when every executable Route exposes the same task identity.
+fn intersect_audio_task(values: impl Iterator<Item = Option<AudioTask>>) -> Option<AudioTask> {
+    let mut values = values;
+    let first = values.next()?;
+    values
+        .all(|value| value == first)
+        .then_some(first)
+        .flatten()
 }
 
 /// Exposes continuation only when every Route supports it and one target/API is the unique issuer.

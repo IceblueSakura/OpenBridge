@@ -4,8 +4,9 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ApiCapabilities, ChatCompletionsCapabilities, ImageInputCapabilities, ImageInputSource,
-        ImageMediaType, ReasoningOutput, ResponsesCapabilities,
+        ApiCapabilities, AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
+        AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, ImageInputCapabilities,
+        ImageInputSource, ImageMediaType, ReasoningOutput, ResponsesCapabilities,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -36,6 +37,115 @@ const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
     max_total_inline_decoded_bytes: 38 * 1024 * 1024,
 };
 
+const AUDIO_INPUT_SOURCES: &[AudioInputSource] = &[
+    AudioInputSource::RemoteUrl,
+    AudioInputSource::DataUrl,
+    AudioInputSource::Base64,
+];
+const AUDIO_INPUT_FORMATS: &[AudioFormat] = &[
+    AudioFormat::Wav,
+    AudioFormat::Mp3,
+    AudioFormat::Flac,
+    AudioFormat::M4a,
+    AudioFormat::Ogg,
+];
+const AUDIO_OUTPUT_FORMATS: &[AudioFormat] = &[AudioFormat::Wav, AudioFormat::Mp3];
+const AUDIO_STREAMING_FORMATS: &[AudioFormat] = &[AudioFormat::Pcm16];
+const AUDIO_VOICES: &[&str] = &["mimo_default"];
+
+const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities {
+    sources: AUDIO_INPUT_SOURCES,
+    formats: AUDIO_INPUT_FORMATS,
+    max_parts: 64,
+    max_url_length: 8_192,
+    max_inline_encoded_bytes: 10 * 1024 * 1024,
+    max_inline_decoded_bytes: 8 * 1024 * 1024,
+    max_total_inline_encoded_bytes: 10 * 1024 * 1024,
+    max_total_inline_decoded_bytes: 8 * 1024 * 1024,
+};
+
+const VOICE_CONDITIONING: AudioInputCapabilities = AudioInputCapabilities {
+    sources: &[AudioInputSource::DataUrl],
+    formats: &[AudioFormat::Wav, AudioFormat::Mp3],
+    max_parts: 1,
+    max_url_length: 0,
+    max_inline_encoded_bytes: 10 * 1024 * 1024,
+    max_inline_decoded_bytes: 8 * 1024 * 1024,
+    max_total_inline_encoded_bytes: 10 * 1024 * 1024,
+    max_total_inline_decoded_bytes: 8 * 1024 * 1024,
+};
+
+const AUDIO_OUTPUT: AudioOutputCapabilities = AudioOutputCapabilities {
+    formats: AUDIO_OUTPUT_FORMATS,
+    streaming_formats: AUDIO_STREAMING_FORMATS,
+    voices: AUDIO_VOICES,
+    max_inline_encoded_bytes: 16 * 1024 * 1024,
+    max_inline_decoded_bytes: 12 * 1024 * 1024,
+    max_stream_decoded_bytes: 64 * 1024 * 1024,
+};
+
+/// MiMo Provider-wide audio ceiling; each concrete target narrows this to one task profile.
+pub(crate) const AUDIO_CEILING: AudioCapabilities = AudioCapabilities {
+    task: AudioTask::Any,
+    input: Some(AUDIO_INPUT),
+    voice_conditioning: Some(VOICE_CONDITIONING),
+    output: Some(AUDIO_OUTPUT),
+};
+
+/// Fixed ASR task profile accepted by the MiMo Chat endpoint.
+pub(crate) const ASR_AUDIO: AudioCapabilities = AudioCapabilities {
+    task: AudioTask::Asr,
+    input: Some(AudioInputCapabilities {
+        sources: &[AudioInputSource::DataUrl, AudioInputSource::Base64],
+        formats: &[AudioFormat::Wav],
+        max_parts: 1,
+        max_url_length: 0,
+        max_inline_encoded_bytes: 10 * 1024 * 1024,
+        max_inline_decoded_bytes: 8 * 1024 * 1024,
+        max_total_inline_encoded_bytes: 10 * 1024 * 1024,
+        max_total_inline_decoded_bytes: 8 * 1024 * 1024,
+    }),
+    voice_conditioning: None,
+    output: None,
+};
+
+/// Fixed ordinary TTS task profile accepted by the MiMo Chat endpoint.
+pub(crate) const TTS_AUDIO: AudioCapabilities = AudioCapabilities {
+    task: AudioTask::Tts,
+    input: None,
+    voice_conditioning: None,
+    output: Some(AudioOutputCapabilities {
+        formats: &[AudioFormat::Wav],
+        streaming_formats: AUDIO_STREAMING_FORMATS,
+        voices: AUDIO_VOICES,
+        ..AUDIO_OUTPUT
+    }),
+};
+
+/// Fixed voice-design task profile; a natural-language voice description is carried in Chat text.
+pub(crate) const VOICE_DESIGN_AUDIO: AudioCapabilities = AudioCapabilities {
+    task: AudioTask::VoiceDesign,
+    input: None,
+    voice_conditioning: None,
+    output: Some(AudioOutputCapabilities {
+        formats: &[AudioFormat::Wav],
+        voices: &[],
+        ..AUDIO_OUTPUT
+    }),
+};
+
+/// Fixed voice-clone task profile; reference audio is a separate conditioning resource.
+pub(crate) const VOICE_CLONE_AUDIO: AudioCapabilities = AudioCapabilities {
+    task: AudioTask::VoiceClone,
+    input: None,
+    voice_conditioning: Some(VOICE_CONDITIONING),
+    output: Some(AudioOutputCapabilities {
+        formats: &[AudioFormat::Wav],
+        voices: &[],
+        ..AUDIO_OUTPUT
+    }),
+};
+
 /// Confirmed MiMo capability ceiling for Chat Completions and Responses; readable reasoning output
 /// is not yet confirmed on the wire.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -51,9 +161,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
-            audio_input: false,
+            audio_input: true,
+            audio: Some(AUDIO_CEILING),
             file_input: false,
-            audio_output: false,
+            audio_output: true,
             predicted_outputs: false,
             web_search: false,
             prompt_caching: false,
