@@ -187,9 +187,10 @@ public model name
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、NVIDIA、百炼与 Kimi 的已绑定 target 都走 OpenAI-compatible Native
-Path；OpenAI 与 LongCat 注册双协议和 Bridge，Qwen3.7、MiMo V2.5/Pro 与 OpenRouter 只注册双协议 Native Route。
-DeepSeek V4 Pro、NVIDIA MiniMax、百炼 GLM/Qwen 与 Kimi K3 target 只提供 Chat Native，Public Model 编译器在缺少 Responses Native
-时自动补充 Responses-via-Chat Bridge；V4 Flash 已有 Responses Native，因此不为 Bailian Chat fallback 生成冗余自动 Bridge。ChatGPT
+Path；OpenAI 与 LongCat 注册双协议和 Bridge，Qwen3.7、MiMo V2.5/Pro，以及 OpenRouter 的 DeepSeek V4 Flash/MiniMax M3 target
+只注册双协议 Native Route。DeepSeek V4 Pro、NVIDIA MiniMax、百炼 GLM/Qwen 与 Kimi K3 target 只提供 Chat Native；Public Model
+编译器仅在整个模型缺少 Responses Native 时自动补充 Responses-via-Chat Bridge。MiniMax 已有 OpenRouter Responses Native，因而
+NVIDIA Chat 后备不生成冗余 Bridge；V4 Flash 同理不为 Bailian Chat fallback 生成冗余 Bridge。ChatGPT
 的固定 target 只提供 Responses Native Route，独立 Responses-only Public Model 自动补充受限 Chat Bridge，通过独立 OAuth2 manager 借用
 credential。管理员可以对已激活 target 显式执行受信 probe，但不提供本机 Codex credential、identity 或 executable probe；这些路径仍不构成
 真实异构 Provider、外部 SDK 或客户端 runtime 验收。

@@ -99,11 +99,18 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "minimax-m3",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "minimax-m3-nvidia",
-                upstream_target: "nvidia-minimax-m3",
-                surface: PublicModelSurface::ChatNativeOnly,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "minimax-m3-openrouter",
+                    upstream_target: "openrouter-minimax-m3",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "minimax-m3-nvidia",
+                    upstream_target: "nvidia-minimax-m3",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "kimi-k3",

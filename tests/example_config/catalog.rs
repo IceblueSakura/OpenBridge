@@ -74,6 +74,16 @@ fn compiled_model_catalog_preserves_registered_model_facts() {
         [ReasoningLevel::High, ReasoningLevel::None]
     );
 
+    let minimax = definition
+        .models
+        .iter()
+        .find(|model| model.id == "minimax/minimax-m3")
+        .expect("MiniMax M3 should retain its canonical reasoning contract");
+    assert_eq!(
+        minimax.reasoning_levels,
+        [ReasoningLevel::High, ReasoningLevel::None]
+    );
+
     let sol = definition
         .models
         .iter()

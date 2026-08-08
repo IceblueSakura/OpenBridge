@@ -296,26 +296,30 @@ fn openrouter_adapter_supports_chat_and_responses() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
     let chat = ApiRequest::new(
         ApiProtocol::ChatCompletions,
-        Bytes::from_static(br#"{"model":"deepseek-v4-flash","messages":[]}"#),
+        Bytes::from_static(br#"{"model":"minimax-m3","messages":[],"reasoning_effort":"high"}"#),
     );
 
     let upstream = adapter
-        .prepare_request(&chat, "deepseek/deepseek-v4-flash")
+        .prepare_request(&chat, "minimax/minimax-m3")
         .unwrap();
     assert_eq!(upstream.method(), Method::POST);
     assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "deepseek/deepseek-v4-flash");
+    assert_eq!(body["model"], "minimax/minimax-m3");
+    assert_eq!(body["reasoning_effort"], "high");
 
     let responses = ApiRequest::new(
         ApiProtocol::Responses,
-        Bytes::from_static(br#"{"model":"deepseek-v4-flash","input":"hello"}"#),
+        Bytes::from_static(
+            br#"{"model":"minimax-m3","input":"hello","reasoning":{"effort":"none"}}"#,
+        ),
     );
     let upstream = adapter
-        .prepare_request(&responses, "deepseek/deepseek-v4-flash")
+        .prepare_request(&responses, "minimax/minimax-m3")
         .unwrap();
     assert_eq!(upstream.method(), Method::POST);
     assert_eq!(upstream.relative_uri().to_string(), "/responses");
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "deepseek/deepseek-v4-flash");
+    assert_eq!(body["model"], "minimax/minimax-m3");
+    assert_eq!(body["reasoning"]["effort"], "none");
 }

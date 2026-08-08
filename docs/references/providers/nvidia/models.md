@@ -7,6 +7,9 @@
 - 观察结果：HTTP 200，返回 100 个模型 ID。
 - 观察方式：使用当前项目已配置的 NVIDIA API key 通过受信的 Models probe 获取；本文不记录 key、请求头或响应正文。
 - `minimaxai/minimax-m3` 出现在本次返回列表中。
+- [NVIDIA MiniMax M3 模型页](https://build.nvidia.com/minimaxai/minimax-m3)将其标为 reasoning 模型并给出 Chat Completions
+  调用示例，但示例没有声明 reasoning 开关或离散 effort 参数。
+- [MiniMax M3 官方发布说明](https://www.minimax.io/blog/minimax-m3)声明模型 thinking 可开/关，没有发布离散强度档位。
 - 下方按模型 ID 中第一个 `/` 之前的 namespace 分组，仅用于阅读；namespace 不是 Models API 明示的供应商、授权或能力字段。
 
 模型列表、账号权限、地域、配额和模型生命周期可能变化。本快照不代表每个模型均已通过 Chat、Responses、Embeddings、工具调用、多模态或其它能力请求。
@@ -231,3 +234,5 @@
 - NVIDIA API Catalog Models endpoint: https://integrate.api.nvidia.com/v1/models
 - [NVIDIA NIM LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis)
 - [MiniMax M3 model reference](https://docs.api.nvidia.com/nim/reference/minimaxai-minimax-m3)
+- [NVIDIA MiniMax M3 model page](https://build.nvidia.com/minimaxai/minimax-m3)
+- [MiniMax M3 official release](https://www.minimax.io/blog/minimax-m3)

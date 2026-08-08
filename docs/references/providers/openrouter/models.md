@@ -6,9 +6,12 @@
 - 模型事实：[OpenRouter `GET /api/v1/models`](https://openrouter.ai/api/v1/models)
   与[字段说明](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties)。
 - reasoning 解释：[OpenRouter Reasoning Tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
+- Chat shorthand：[OpenRouter Chat API](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request) 将
+  `reasoning_effort` 定义为 `reasoning.effort` 的等价简写。
+- MiniMax 模型行为：[MiniMax M3 官方发布说明](https://www.minimax.io/blog/minimax-m3)：只声明 thinking 可开/关。
 - 匹配规则：只接受完整 model id 精确匹配，不以相近名称或同系列模型补齐缺失记录。
 - 2026-08-03 补充采集 `architecture`、tokenizer 与 knowledge cutoff；未改变精确匹配规则。
-- 2026-08-08 再次精确查询本页涉及的 Qwen3.7、LongCat 2.0 与 MiMo V2.5 记录，复核 `supported_parameters`
+- 2026-08-08 再次精确查询本页涉及的 Qwen3.7、LongCat 2.0、MiMo V2.5 与 MiniMax M3 记录，复核 `supported_parameters`
   与 `reasoning` 子对象；OpenRouter 仍未给这些记录声明 `supported_efforts`。
 
 本快照只转录目录公开的 description、context、输入/输出模态、tokenizer、knowledge cutoff、最大输出、supported parameters 和
@@ -40,6 +43,8 @@ reasoning effort。价格、排行、吞吐、endpoint 数据策略和动态可�
 | `qwen/qwen3.7-max`、`qwen/qwen3.7-plus` | 有 `reasoning`，无 `reasoning_effort` | `mandatory=false`、`default_enabled=true`，无 `supported_efforts` | 支持可选 reasoning；不能从 OpenRouter 推导离散 effort |
 | `meituan/longcat-2.0` | 有 `reasoning`，无 `reasoning_effort` | `mandatory=false`、`default_enabled=true`、`supports_max_tokens=true`，无 `supported_efforts` | 支持开关与 token budget；不能把 budget 推导成离散 effort |
 | `xiaomi/mimo-v2.5`、`xiaomi/mimo-v2.5-pro` | 有 `reasoning`，无 `reasoning_effort` | `mandatory=false`，无 `supported_efforts` | 支持可选 reasoning；离散取值必须以 Xiaomi 官方 API 为准 |
+| `minimax/minimax-m3` | 有 `reasoning`，无模型级 `reasoning_effort` 声明 | 无 `supported_efforts` | OpenRouter 不提供离散档位；MiniMax 官方只证明 thinking 可开/关 |
 
 `mandatory=false` 只说明 reasoning 不是强制模式；它不提供 `low`、`medium`、`high` 等强度语义。本文因此只把
 OpenRouter 作为 reasoning 支持/可关闭性的交叉证据，不用它扩张任何 Provider 官方未声明的 level 集合。
+MiniMax M3 因而只能形成 `none/high` 二态模型契约：`none` 表示关闭，`high` 表示开启；该归一化不是对中间强度的推断。

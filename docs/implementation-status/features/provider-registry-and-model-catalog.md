@@ -14,9 +14,10 @@
 - OpenAI 现在编译 `openai-main`、`openai-gpt-5-5`、`openai-gpt-5-6-luna`、`openai-gpt-5-6-terra` 四个 generation Target，
   以及 `openai-text-embedding-3-small` Embeddings Target；它们都使用 `openai-primary` API-key pool。新增的三个 generation
   Target 只绑定 canonical profile，不新增下游 Public Model 或 Route；`openai-primary` 缺失或为空时这些 Target 保留在注册表中但配置态禁用。
-- NVIDIA 与百炼分别固定到 `https://integrate.api.nvidia.com/v1` 和
-  `https://dashscope.aliyuncs.com/compatible-mode/v1`，使用独立 API-key pool。NVIDIA 将 `minimax/minimax-m3` 绑定为 Chat Native
-  `minimax-m3`；百炼将 `z-ai/glm-5.2` 绑定为 Chat Native + Responses Bridge，并将 `qwen/qwen3.7-plus` 与
+- OpenRouter、NVIDIA 与百炼分别固定到 `https://openrouter.ai/api/v1`、`https://integrate.api.nvidia.com/v1` 和
+  `https://dashscope.aliyuncs.com/compatible-mode/v1`，使用独立 API-key pool。OpenRouter 将 `minimax/minimax-m3` 绑定为
+  Chat/Responses Native，NVIDIA 保留同一 Public Model 的 Chat Native 后备；百炼将 `z-ai/glm-5.2` 绑定为 Chat Native +
+  Responses Bridge，并将 `qwen/qwen3.7-plus` 与
   `qwen/qwen3.7-max` 绑定为双协议 Native Public Model。
   百炼另外将
   `qwen/qwen3.8-max`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
@@ -33,7 +34,8 @@
   `text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
   `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
-  其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
+  `minimax-m3` 显式绑定 OpenRouter 双协议 Native 与 NVIDIA Chat Native 两个 source：Chat 按 OpenRouter、NVIDIA 排序，Responses
+  只使用 OpenRouter Native。其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
 - Canonical Model ID 保持 `designer/model`，Upstream Target 同时保存并校验 `canonical_model` 与 `provider_model` 两个分层身份；
   `provider_model` 使用 `provider/model`，而下游只接触不带前缀的 Public Model 名称。
 - 启动时从私有凭证配置派生的 active pool 集合只会收窄已注册 Target；缺失、无 source 或空 API-key pool 会让引用它的 Target 和
@@ -180,6 +182,19 @@ payload。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 - 本轮未运行真实 Provider、外部 SDK、Models HTTP 端点、负载或长期运行验收，也未修改私有 credential。
 
+2026-08-08 MiniMax M3 reasoning 与 OpenRouter-first source：
+
+- MiniMax 官方只声明 M3 thinking 可开/关，OpenRouter M3 元数据没有发布 `supported_efforts`；canonical model 因此固定为
+  `none/high`，不外推 `low/medium`。
+- 新增 `openrouter-minimax-m3` Chat/Responses Native Target，固定 `openrouter-primary` 与 upstream model
+  `minimax/minimax-m3`；`minimax-m3` 的 Chat Route 顺序为 OpenRouter、NVIDIA，Responses 只保留 OpenRouter Native。
+- 实现前，canonical 聚焦测试按预期以 `[] != [High, None]` 失败，Provider 聚焦测试按预期因缺少
+  `openrouter-minimax-m3` 失败；实现后两项与 OpenRouter Chat/Responses 标准 reasoning wire 测试均通过。
+- `cargo test --locked --test example_config`：23 项通过；`cargo test --locked --test provider_contract`：9 项通过。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+- 本轮确定性测试不证明 OpenRouter 或 NVIDIA 真实 endpoint 接受 `none/high`、返回可读 reasoning，或在 fallback 时保持相同
+  Provider 行为；真实 Provider、Models HTTP probe、外部 SDK、负载和长期运行均未执行。
+
 ## 相关文档
 
 - [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/model-catalog-configuration.md)
@@ -187,4 +202,5 @@ payload。
 - [Provider 实施与实测状态](../providers/README.md)
 - [当前代码架构](../current-architecture.md)
 - [Kimi CN Provider 状态](../providers/kimi-cn.md)
+- [OpenRouter 模型目录与 reasoning 复核](../../references/providers/openrouter/models.md)
 - [NVIDIA MiniMax M3 与百炼 GLM/Qwen 官方入口快照](../../references/providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)

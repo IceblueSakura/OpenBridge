@@ -1,7 +1,8 @@
 //! Complete canonical model facts for MiniMax M3 (`minimax/minimax-m3`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
 };
 
 /// Stable OpenBridge catalog ID for MiniMax M3.
@@ -51,6 +52,6 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::None],
     }
 }

@@ -238,25 +238,111 @@ fn kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge() {
 }
 
 #[test]
-fn nvidia_and_bailian_models_compile_with_their_fixed_generation_surfaces() {
-    // Compile the complete registry so every model binding crosses the startup validation boundary.
+fn minimax_m3_compiles_with_openrouter_first_and_binary_reasoning() {
+    // Compile the complete registry so both fixed MiniMax Provider sources cross startup validation.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Verify the OpenRouter target owns both Native protocols and the NVIDIA fallback remains Chat-only.
+    let openrouter = registry
+        .upstream_target("openrouter-minimax-m3")
+        .expect("OpenRouter MiniMax M3 Target should compile");
+    assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
+    assert_eq!(openrouter.canonical_model_id(), "minimax/minimax-m3");
+    assert_eq!(openrouter.provider_model_id(), "openrouter/minimax-m3");
+    assert_eq!(
+        openrouter.endpoint_base().as_str(),
+        "https://openrouter.ai/api/v1/"
+    );
+    assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
+    assert_eq!(openrouter.quota_scope(), None);
+    assert_eq!(openrouter.fault_domain(), None);
+    for operation in [OperationKind::ChatCompletions, OperationKind::Responses] {
+        let api = openrouter
+            .upstream_api(operation)
+            .expect("OpenRouter MiniMax M3 should expose both Native APIs");
+        assert_eq!(api.upstream_model(), "minimax/minimax-m3");
+        assert_eq!(api.reasoning_output(), ReasoningOutput::Unknown);
+    }
+
+    let nvidia = registry
+        .upstream_target("nvidia-minimax-m3")
+        .expect("NVIDIA MiniMax M3 fallback Target should remain compiled");
+    assert_eq!(nvidia.kind(), ProviderKind::Nvidia);
+    assert_eq!(nvidia.canonical_model_id(), "minimax/minimax-m3");
+    assert_eq!(nvidia.provider_model_id(), "nvidia/minimax-m3");
+    assert_eq!(nvidia.credential_pool_id(), "nvidia-primary");
+    assert!(
+        nvidia
+            .upstream_api(OperationKind::ChatCompletions)
+            .is_some()
+    );
+    assert!(nvidia.upstream_api(OperationKind::Responses).is_none());
+
+    // Preserve OpenRouter-first order in each Native phase and avoid a redundant NVIDIA Responses Bridge.
+    let public_model = registry
+        .public_model("minimax-m3")
+        .expect("MiniMax M3 Public Model should compile");
+    assert_eq!(
+        public_model.routes(),
+        [
+            "minimax-m3-openrouter-chat",
+            "minimax-m3-nvidia-chat",
+            "minimax-m3-openrouter-responses",
+        ]
+    );
+    let info = serde_json::to_value(public_model.info()).unwrap();
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(
+            info["interfaces"][protocol]["reasoning"]["levels"],
+            serde_json::json!(["none", "high"])
+        );
+        assert_eq!(
+            info["interfaces"][protocol]["reasoning"]["output"],
+            "unknown"
+        );
+    }
+
+    // Keep both standard levels admissible while selecting only same-protocol Native candidates.
+    for level in ["none", "high"] {
+        let chat = bytes::Bytes::from(format!(
+            r#"{{"model":"minimax-m3","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
+        let plan = plan_request(&registry, &profile, chat).unwrap();
+        assert_eq!(
+            plan.candidates()
+                .iter()
+                .map(|candidate| candidate.route_id())
+                .collect::<Vec<_>>(),
+            ["minimax-m3-openrouter-chat", "minimax-m3-nvidia-chat"]
+        );
+        assert!(
+            plan.candidates()
+                .iter()
+                .all(|candidate| candidate.bridge().is_none())
+        );
+
+        let responses = bytes::Bytes::from(format!(
+            r#"{{"model":"minimax-m3","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+        let plan = plan_request(&registry, &profile, responses).unwrap();
+        assert_eq!(plan.candidates().len(), 1);
+        assert_eq!(
+            plan.candidates()[0].route_id(),
+            "minimax-m3-openrouter-responses"
+        );
+        assert!(plan.candidates()[0].bridge().is_none());
+    }
+}
+
+#[test]
+fn bailian_models_compile_with_their_fixed_generation_surfaces() {
+    // Compile the complete registry so every Bailian model binding crosses startup validation.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     let cases = [
-        (
-            "minimax-m3",
-            "nvidia-minimax-m3",
-            ProviderKind::Nvidia,
-            "minimax/minimax-m3",
-            "nvidia/minimax-m3",
-            "minimaxai/minimax-m3",
-            "nvidia-primary",
-            "nvidia-api",
-            "https://integrate.api.nvidia.com/v1/",
-            "minimax-m3-nvidia-chat",
-            "minimax-m3-nvidia-responses-via-chat",
-            ReasoningOutput::Unknown,
-        ),
         (
             "glm-5.2",
             "bailian-glm-5-2",
@@ -319,7 +405,7 @@ fn nvidia_and_bailian_models_compile_with_their_fixed_generation_surfaces() {
     {
         let target = registry
             .upstream_target(target_id)
-            .expect("NVIDIA or Bailian model Target should compile");
+            .expect("Bailian model Target should compile");
         assert_eq!(target.kind(), provider);
         assert_eq!(target.canonical_model_id(), canonical_model);
         assert_eq!(target.provider_model_id(), provider_model);
@@ -344,7 +430,7 @@ fn nvidia_and_bailian_models_compile_with_their_fixed_generation_surfaces() {
 
         let public_model = registry
             .public_model(public_name)
-            .expect("NVIDIA or Bailian Public Model should compile");
+            .expect("Bailian Public Model should compile");
         assert_eq!(
             public_model.routes(),
             [route_id.to_owned(), responses_route_id.to_owned()]

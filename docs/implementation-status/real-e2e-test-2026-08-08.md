@@ -75,8 +75,8 @@ GPT/ChatGPT 前提：当前 ChatGPT source 只接受 streaming Responses 上游�
 当次扩展 Models 对 `glm-5.2`、`kimi-k3`、`qwen3.7-max`、`qwen3.7-plus`、`deepseek-v4-pro`、`LongCat-2.0`、
 `mimo-v2.5` 与 `mimo-v2.5-pro` 的 Chat/Responses reasoning 输出均声明为 `plain_text`，两个接口都公开 `high`；
 `deepseek-v4-pro` 还保留 `max`。当前代码进一步统一模型级档位：Qwen3.7 两接口为七档，MiMo V2.5/Pro 两接口为四档，
-LongCat 两接口为 `none/high`；当前 Qwen Native Responses output 另按官方 schema 声明为 `summary`。这些新增契约未包含在本报告的
-真实矩阵中。
+LongCat 与 MiniMax M3 两接口为 `none/high`；当前 Qwen Native Responses output 另按官方 schema 声明为 `summary`，MiniMax M3
+当前改为 OpenRouter 双协议 Native 优先、NVIDIA Chat 后备。这些新增契约和 Route 未包含在本报告的真实矩阵中。
 
 ## 4. Chat/Responses 最终矩阵
 
@@ -171,6 +171,6 @@ OpenBridge 实现和测试不导入、加载或调用 Hermes。
 - Hermes 只提供非绑定行为参考；本轮 high 实现与复测没有加载 Hermes source、依赖或 runtime，也没有发送 Hermes custom 字段。
 - 当次 Public Model 名称、标准/扩展 Models 的 19 项 ID 一致性，以及六个模型的公开 high levels 均由真实 HTTP 端点复测。
 - Qwen3.7 的当次 Responses 结果走 Responses-via-Chat；本报告不验证当前新增的 Bailian Native Responses，也不验证 Qwen/MiMo
-  新增公开档位的真实 Provider 行为。
+  新增公开档位、MiniMax `none/high` 或 OpenRouter-first Route 的真实 Provider 行为。
 - 未执行外部 OpenAI SDK、负载测试、长期运行、并发稳定性或生产环境验收。
 - 没有保存生成文本、完整上游响应、Provider request ID、credential 或其他敏感数据。

@@ -288,8 +288,9 @@ Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Respo
 Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
 `openai_compatible` 机制负责模型字段、reasoning level wire 映射与 Chat thinking switch、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
 pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 只声明基础 `/chat/completions` adapter；百炼声明
-`/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定一个 MiniMax M3 target；百炼的
-Qwen3.7 Max/Plus target 注册双协议 Native API，其他 generation target 保持 Chat-only。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
+`/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定一个 MiniMax M3 Chat target；
+OpenRouter 为 MiniMax M3 与 DeepSeek V4 Flash 各绑定一个双协议 Native target。百炼的 Qwen3.7 Max/Plus target 注册双协议 Native API，
+其他 generation target 保持 Chat-only。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
 `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model；Target 只声明 Chat Native 文本与 streaming 基线，Public Model 编译器在
 Responses Native 缺失时自动补充一个 Responses-via-Chat Bridge。
 DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
@@ -315,7 +316,8 @@ Chat。OpenAI 当前有 `openai-main`、GPT-5.5、GPT-5.6 Luna/Terra 三个额�
 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
 source；编译器先统计一个 Public Model 的 Chat/Responses Native coverage，按 source 顺序生成 Native route；只有缺少某一 downstream
 protocol 的 Native coverage 时，才按相同顺序从相反 Upstream API 自动补充 Bridged route。显式双协议 Bridge surface 仍保留已声明
-Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source， 其余 checked-in generation 注册项各只有一个 source。MiMo
+Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个
+source。其余 checked-in generation 注册项各只有一个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；两者都只注册
 Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
@@ -344,11 +346,11 @@ management。Provider/API definition 仍保持这些未实现的 endpoint 字段
 wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingress 映射为稳定的 `unimplemented_request` HTTP
 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。 因此这些类型位置与请求错误边界都不构成已实现能力声明。
 
-OpenRouter 当前注册固定 target `openrouter-deepseek-v4-flash`、Chat/Responses Upstream API，并作为
-`deepseek-v4-flash` Public Model 的第二个 Provider source；两个协议各有一个 OpenRouter Native route，使用基础 upstream model
-`deepseek/deepseek-v4-flash`。Responses API 的 state affinity 是 `Unbound`，`store`、
-`previous_response_id` 与 `background` 在 capability gate 关闭。未注册 Bridged route 或 `:free` 变体；同协议规划中，这些 route 排在
-DeepSeek Native candidate 之后。
+OpenRouter 当前注册 `openrouter-deepseek-v4-flash` 与 `openrouter-minimax-m3` 两个固定 target；每个 target 都提供 Chat/Responses
+Upstream API、`Unbound` state affinity 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与
+`minimax/minimax-m3`。DeepSeek Public Model 中 OpenRouter 是第二 source；MiniMax Public Model 中 OpenRouter 是第一 source，Chat
+按 OpenRouter、NVIDIA 排序，Responses 只保留 OpenRouter Native，不为 NVIDIA Chat source 生成冗余 Bridge。两个 target 的 `store`、
+`previous_response_id` 与 `background` 都在 capability gate 关闭，也不注册显式 Bridged route 或 `:free` 变体。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
 fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat
@@ -356,7 +358,8 @@ Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并�
 OpenRouter 排序的 Native candidates。DeepSeek Chat reasoning output 为 `PlainText`；Bailian `deepseek-v4-pro` fallback 也按 target
 收窄为 `PlainText`，因此 V4 Pro 的 Chat/Responses 固定契约都公开 `high`、`max`。DeepSeek Flash Responses reasoning output 仍为
 `Unknown`。LongCat 两个 Native API 与 MiMo 两个文本 target 的 Chat/Responses reasoning output 为 `PlainText`，对应 Public Model
-公开 `high` 并保留原 Native/Bridge 候选；MiMo ASR/TTS target 继续收窄为 `Unknown`，不继承文本模型证据。DeepSeek Flash Responses
+公开各自固定档位并保留原 Native/Bridge 候选；MiniMax M3 以官方 thinking 开关建模为 `none/high`，OpenRouter 与 NVIDIA 当前
+reasoning output 仍为 `Unknown`。MiMo ASR/TTS target 继续收窄为 `Unknown`，不继承文本模型证据。DeepSeek Flash Responses
 的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。
 
 ## 7. Transport、SSE、attempt 与 health

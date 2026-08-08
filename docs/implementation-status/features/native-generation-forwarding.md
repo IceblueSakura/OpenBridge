@@ -13,7 +13,8 @@
 - Reasoning level 由 Canonical Model 统一定义并在同一模型的 Chat/Responses interface 中保持一致；Native Responses 保留具体
   effort，只有 thinking 开关的 Chat Provider 将 `none` 映射为关闭、其余已声明 level 映射为开启。未知 level 在 egress 前拒绝。
 - 当前 Native surface 包括 OpenAI `gpt-5.6-sol`、LongCat `LongCat-2.0`、DeepSeek Chat 与 V4 Flash 无状态 Responses、
-  OpenRouter 的 `deepseek-v4-flash` Chat/无状态 Responses、Bailian Qwen3.7 Max/Plus，以及 Xiaomi MiMo 的 Chat/Responses。
+  OpenRouter 的 `deepseek-v4-flash` 与 `minimax-m3` Chat/无状态 Responses、Bailian Qwen3.7 Max/Plus，以及 Xiaomi MiMo 的
+  Chat/Responses。
 - Bailian Qwen3.7 Native Responses 的 reasoning output 使用官方 `reasoning.summary[]`，与 Chat 的 `reasoning_content`
   plain-text wire 分开建模；两协议仍共享同一七档 Model 能力。
 - `mimo-v2.5` 的两个同协议 Native surface 还支持固定 typed contract 内的 URL/Base64 图片输入；具体边界和真实 Provider 证据由
@@ -38,6 +39,8 @@
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖公共契约与候选规划。
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 与 [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖
   DeepSeek V4 Flash 的 DeepSeek→OpenRouter Responses 候选顺序、固定 `/responses` egress 与 typed SSE terminal。
+- `tests/example_config.rs::minimax_m3_compiles_with_openrouter_first_and_binary_reasoning` 覆盖 MiniMax 的 OpenRouter→NVIDIA Chat
+  顺序、OpenRouter Responses Native 和 `none/high` 两接口契约。
 
 2026-08-08 DeepSeek V4 Flash Responses Native 变更的实际验证：
 
