@@ -136,6 +136,47 @@ async fn compiled_models_endpoint_exposes_gpt_sol_model_facts() {
 }
 
 #[tokio::test]
+async fn compiled_models_endpoints_expose_unprefixed_gpt_5_3_and_5_5_names() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+
+    // Verify both Models lists expose the same new downstream identities and omit the retired names.
+    for path in ["/v1/models", "/openbridge/v1/models"] {
+        let list = compiled_authenticated_get(&app, path).await;
+        let ids = list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        for public_name in ["gpt-5.3-codex-spark", "gpt-5.5"] {
+            assert!(ids.contains(&public_name));
+        }
+        for removed_name in ["chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5.5"] {
+            assert!(!ids.contains(&removed_name));
+        }
+    }
+
+    // Verify both retrieve surfaces resolve new names and hide the removed downstream identities.
+    for public_name in ["gpt-5.3-codex-spark", "gpt-5.5"] {
+        let standard = compiled_authenticated_get(&app, &format!("/v1/models/{public_name}")).await;
+        let extended =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_name}")).await;
+        assert_eq!(standard["id"], public_name);
+        assert_eq!(extended["id"], public_name);
+    }
+    for removed_name in ["chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5.5"] {
+        for prefix in ["/v1/models/", "/openbridge/v1/models/"] {
+            let response =
+                compiled_authenticated_response(&app, &format!("{prefix}{removed_name}")).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            let error: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(error["error"]["code"], "model_not_found");
+        }
+    }
+}
+
+#[tokio::test]
 async fn retired_public_models_are_hidden_and_cannot_be_requested() {
     // Mark a valid Public Model as disabled while preserving valid lifecycle timestamps.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");

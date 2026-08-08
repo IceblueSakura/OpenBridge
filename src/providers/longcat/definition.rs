@@ -14,8 +14,7 @@ use crate::{
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
 
-/// LongCat OpenAI-compatible capability ceiling based on direct checks and the OpenRouter catalog;
-/// readable reasoning output is not currently confirmed.
+/// LongCat OpenAI-compatible capability ceiling based on direct checks and the OpenRouter catalog.
 pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::LongCat,
     ApiCapabilities {
@@ -30,7 +29,7 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: None,
             structured_outputs: None,
             store: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             audio: None,
             file_input: false,
@@ -54,7 +53,7 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,

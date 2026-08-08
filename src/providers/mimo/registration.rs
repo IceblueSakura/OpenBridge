@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    core::AudioCapabilities,
+    core::{AudioCapabilities, ReasoningOutput},
     models::xiaomi,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
@@ -91,6 +91,12 @@ fn target(
     if !image_input {
         capabilities.chat_completions.image_input = None;
         capabilities.responses.image_input = None;
+    }
+
+    // Keep readable reasoning limited to the two text targets covered by current Provider evidence.
+    if audio.is_some() {
+        capabilities.chat_completions.reasoning_output = ReasoningOutput::Unknown;
+        capabilities.responses.reasoning_output = ReasoningOutput::Unknown;
     }
 
     // Narrow the Provider audio ceiling and unrelated generation features to the model-specific Chat task.

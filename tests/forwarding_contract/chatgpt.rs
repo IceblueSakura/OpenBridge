@@ -18,8 +18,8 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 
     // Send one minimal streaming Responses request through each fixed ChatGPT Public Model.
     for public_model in [
-        "chatgpt-gpt-5.3-codex-spark",
-        "chatgpt-gpt-5.5",
+        "gpt-5.3-codex-spark",
+        "gpt-5.5",
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-sol",

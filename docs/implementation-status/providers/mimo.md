@@ -2,9 +2,9 @@
 
 ## 状态
 
-**当前已注册，且完成一次真实 Provider 能力探测。** 当前 checkout 为 `mimo-primary` 注册六个 Public Model。2026-08-08 使用
+**当前已注册，且完成真实 Provider 与文本 high 端到端验收。** 当前 checkout 为 `mimo-primary` 注册六个 Public Model。2026-08-08 使用
 本地私有 credential 直连 `https://api.xiaomimimo.com`，`GET /v1/models` 返回 HTTP 200，并列出下表六个 model ID。
-真实请求仅用于确认 Provider 行为；除已有图片验收外，本页不把直连结果写成 OpenBridge 下游到上游端到端验收。
+另通过当前 OpenBridge 和真实下游用户 key 验证两个文本模型的 high reasoning；直连结果与端到端结果分别记录。
 
 ## 多模态支持矩阵
 
@@ -13,8 +13,8 @@
 
 | Public Model | 当前接口 | 文本输入 | 图片输入 | 音频输入或条件 | 音频输出 | 视频输入 | 当前实现与实测结论 |
 |---|---|---|---|---|---|---|---|
-| `mimo-v2.5-pro` | Chat、Responses；Native 与受限 Bridge | 实测支持；Chat 返回文本，Chat/Responses 工具请求均完成 | 未声明 | 未声明 | 未声明 | 未声明 | OpenBridge 当前按 text-only 编译；本次没有把未声明模态当作真实负向探测 |
-| `mimo-v2.5` | Chat、Responses Native | 实测支持；两协议均返回可见文本 | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 当前只实现 text/image；通用音频理解和 video 尚未进入可执行 interface |
+| `mimo-v2.5-pro` | Chat、Responses；Native 与受限 Bridge | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 未声明 | 未声明 | 未声明 | 未声明 | OpenBridge 按 text-only 编译并公开 high；未把其他模态外推到 Pro |
+| `mimo-v2.5` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 当前实现 text/image/high；通用音频理解和 video 尚未进入可执行 interface |
 | `mimo-v2.5-asr` | Chat Native | 不接受普通文本输入；输出 transcript | 未声明 | 实测支持；单个 WAV + `asr_options` 返回正确 transcript | 未声明 | 未声明 | OpenBridge 已实现单 WAV ASR task profile；真实请求 HTTP 200 |
 | `mimo-v2.5-tts` | Chat Native | 实测支持目标文本与风格文本 | 未声明 | 不接收业务音频输入 | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 preset voice TTS；本次实测非流式 WAV，streaming PCM16 仍只有确定性证据 |
 | `mimo-v2.5-tts-voicedesign` | Chat Native | 实测支持音色描述与目标文本 | 未声明 | 不接收 reference audio | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 VoiceDesign task profile；真实请求 HTTP 200 |
@@ -23,6 +23,16 @@
 `mimo-v2.5` 的通用音频理解与 `mimo-v2.5-asr` 的专用转写不是同一能力；VoiceClone 的 reference audio 也只是音色条件，不能视为
 音频理解。当前 MiMo 音频正向请求全部使用 `POST /v1/chat/completions`。同一 origin 的 OpenAI 标准
 `POST /v1/audio/speech` 和 `POST /v1/audio/transcriptions` 对照请求均返回 HTTP 404、`text/html`。
+
+## High reasoning
+
+- `mimo-v2.5` 与 `mimo-v2.5-pro` 的 canonical levels 公开 `high`，两个 Native API 的 reasoning output 为 `PlainText`；
+  Pro 的 reverse-Bridge 只使用确定性验证过的明文 reasoning 转换。
+- 真实下游 E2E 覆盖两个模型的 Chat/Responses × JSON/SSE × high 共 8 个单元：全部 HTTP 200，JSON/SSE 终态完整且
+  reasoning 非空。
+- 四个 ASR/TTS target 继续把 reasoning output 收窄为 `Unknown`，不继承文本 target 的证据或 high level。
+- 本轮请求只使用标准 Chat `reasoning_effort: "high"` 和 Responses `reasoning.effort: "high"`，不加载 Hermes、
+  不调用 Hermes runtime，也不发送 Hermes custom 字段。
 
 ## 工具调用支持矩阵
 
@@ -55,6 +65,7 @@ MiMo model-specific audio target 已将 Chat `function_tools` 从 Provider ceili
 - `GET /v1/models`：HTTP 200，返回六个当前 model ID；
 - `mimo-v2.5`：Chat/Responses 文本与图片均 HTTP 200；Chat 通用音频理解 HTTP 200；
 - `mimo-v2.5-pro`：Chat 文本以及 Chat/Responses function tool 均 HTTP 200；
+- 两个文本模型的 Chat/Responses high JSON/SSE 共 8 个端到端单元全部 HTTP 200、终态完整且 reasoning 非空；
 - ASR：短合成 WAV 返回非空且语义正确的 transcript；
 - TTS、VoiceDesign、VoiceClone：均返回 Base64，可在内存中解码为 RIFF/WAV；
 - 六模型工具探测：两个通用模型产生有效 function call，四个音频专用模型返回 `tool_calls: null` 并继续原任务；
@@ -80,7 +91,7 @@ request ID 或音频文件。
 - 真实 parallel tool calls、strict schema、全部 `tool_choice` mode、tool-result round trip；
 - 四个音频模型的 streaming 真实 Provider、OpenAI SDK、目标 Agent、负载和长期运行；
 - ASR 人声/方言质量、TTS 音色质量与播放器验收；
-- 除已有图片路径外，经临时 OpenBridge 实例完成的六模型下游到上游端到端复测。
+- 四个专用音频模型经真实下游 key 的 task-specific JSON/SSE 端到端复测。
 
 ## 相关文档
 

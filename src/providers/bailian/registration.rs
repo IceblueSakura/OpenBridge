@@ -88,7 +88,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "bailian-deepseek-v4-pro",
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
-            ReasoningOutput::Unknown,
+            ReasoningOutput::PlainText,
         ),
         chat_target(
             "bailian-deepseek-v4-flash",

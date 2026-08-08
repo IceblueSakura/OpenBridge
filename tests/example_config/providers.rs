@@ -460,18 +460,20 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
 
     // Verify both Bailian Targets retain their canonical identity and fixed Chat-only deployment.
-    for (target_id, canonical_model, provider_model, upstream_model) in [
+    for (target_id, canonical_model, provider_model, upstream_model, reasoning_output) in [
         (
             "bailian-deepseek-v4-pro",
             "deepseek/deepseek-v4-pro",
             "bailian/deepseek-v4-pro",
             "deepseek-v4-pro",
+            ReasoningOutput::PlainText,
         ),
         (
             "bailian-deepseek-v4-flash",
             "deepseek/deepseek-v4-flash",
             "bailian/deepseek-v4-flash",
             "deepseek-v4-flash-0731",
+            ReasoningOutput::Unknown,
         ),
     ] {
         let target = registry
@@ -498,7 +500,7 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
         assert!(capabilities.function_tools.is_none());
-        assert_eq!(capabilities.reasoning_output, ReasoningOutput::Unknown);
+        assert_eq!(capabilities.reasoning_output, reasoning_output);
     }
 
     // Preserve existing Provider priority while appending Bailian to Chat planning only.
@@ -591,14 +593,14 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     // Verify the four ChatGPT-only Public Models expose one Chat bridge and one Responses-native Route.
     for (public_name, target_id, canonical_model, upstream_model, advanced_capabilities) in [
         (
-            "chatgpt-gpt-5.3-codex-spark",
+            "gpt-5.3-codex-spark",
             "chatgpt-gpt-5-3-codex-spark",
             "chatgpt/gpt-5.3-codex-spark",
             "gpt-5.3-codex-spark",
             false,
         ),
         (
-            "chatgpt-gpt-5.5",
+            "gpt-5.5",
             "chatgpt-gpt-5-5",
             "chatgpt/gpt-5.5",
             "gpt-5.5",
@@ -698,8 +700,13 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
         assert_eq!(responses_route.mode, RouteMode::Native);
     }
 
-    // Ensure the former Provider-prefixed GPT-5.6 names are no longer downstream identities.
-    for removed_name in ["chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.6-terra"] {
+    // Ensure the former Provider-prefixed GPT names are no longer downstream identities.
+    for removed_name in [
+        "chatgpt-gpt-5.3-codex-spark",
+        "chatgpt-gpt-5.5",
+        "chatgpt-gpt-5.6-luna",
+        "chatgpt-gpt-5.6-terra",
+    ] {
         assert!(
             !definition
                 .public_models
@@ -712,8 +719,8 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
     for (public_name, target_id) in [
-        ("chatgpt-gpt-5.3-codex-spark", "chatgpt-gpt-5-3-codex-spark"),
-        ("chatgpt-gpt-5.5", "chatgpt-gpt-5-5"),
+        ("gpt-5.3-codex-spark", "chatgpt-gpt-5-3-codex-spark"),
+        ("gpt-5.5", "chatgpt-gpt-5-5"),
         ("gpt-5.6-luna", "chatgpt-gpt-5-6-luna"),
         ("gpt-5.6-terra", "chatgpt-gpt-5-6-terra"),
     ] {
@@ -749,7 +756,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     }
 
     // GPT-5.5 and GPT-5.6 expose the complete function-tool contract on both downstream surfaces.
-    for public_name in ["chatgpt-gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra"] {
+    for public_name in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra"] {
         let info = serde_json::to_value(
             registry
                 .public_model(public_name)
@@ -892,6 +899,245 @@ fn deepseek_models_preserve_primary_routes_with_bailian_chat_fallbacks() {
 }
 
 #[test]
+fn qwen3_7_models_expose_high_reasoning_on_chat_and_responses() {
+    // Compile the production registry so both downstream interfaces use the fixed Bailian target.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Verify high is public and plans through the Native Chat and Responses-via-Chat routes.
+    for (public_name, route_prefix) in [
+        ("qwen3.7-max", "qwen3-7-max-bailian"),
+        ("qwen3.7-plus", "qwen3-7-plus-bailian"),
+    ] {
+        let info =
+            serde_json::to_value(registry.public_model(public_name).unwrap().info()).unwrap();
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                info["interfaces"][protocol]["reasoning"]["support"],
+                "supported"
+            );
+            assert_eq!(
+                info["interfaces"][protocol]["reasoning"]["levels"],
+                serde_json::json!(["high"])
+            );
+            assert_eq!(
+                info["interfaces"][protocol]["reasoning"]["output"],
+                "plain_text"
+            );
+        }
+
+        let chat = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"high"}}"#
+        ));
+        let chat_profile = analyze_request(ApiProtocol::ChatCompletions, &chat).unwrap();
+        let chat_plan = plan_request(&registry, &chat_profile, chat).unwrap();
+        assert_eq!(chat_plan.candidates().len(), 1);
+        assert_eq!(
+            chat_plan.candidates()[0].route_id(),
+            format!("{route_prefix}-chat")
+        );
+
+        let responses = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
+        ));
+        let responses_profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
+        let responses_plan = plan_request(&registry, &responses_profile, responses).unwrap();
+        assert_eq!(responses_plan.candidates().len(), 1);
+        assert_eq!(
+            responses_plan.candidates()[0].route_id(),
+            format!("{route_prefix}-responses-via-chat")
+        );
+    }
+}
+
+#[test]
+fn deepseek_v4_pro_responses_high_preserves_both_fallbacks() {
+    // Compile the production registry and require the weaker Bailian target to expose readable reasoning.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let bailian = registry
+        .upstream_target("bailian-deepseek-v4-pro")
+        .unwrap()
+        .upstream_api(OperationKind::ChatCompletions)
+        .unwrap();
+    assert_eq!(bailian.reasoning_output(), ReasoningOutput::PlainText);
+
+    // Verify the fixed Responses contract accepts high without dropping either Chat fallback.
+    let info =
+        serde_json::to_value(registry.public_model("deepseek-v4-pro").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["responses"]["reasoning"]["levels"],
+        serde_json::json!(["high", "max"])
+    );
+    assert_eq!(
+        info["interfaces"]["responses"]["reasoning"]["output"],
+        "plain_text"
+    );
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"deepseek-v4-pro","input":"hello","reasoning":{"effort":"high"}}"#,
+    );
+    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        [
+            "deepseek-v4-pro-deepseek-responses-via-chat",
+            "deepseek-v4-pro-bailian-responses-via-chat"
+        ]
+    );
+}
+
+#[test]
+fn longcat_high_reasoning_compiles_across_native_and_bridge_routes() {
+    // Compile the production target and require both upstream protocols to expose readable reasoning.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let target = registry.upstream_target("longcat-2").unwrap();
+    for operation in [OperationKind::ChatCompletions, OperationKind::Responses] {
+        assert_eq!(
+            target.upstream_api(operation).unwrap().reasoning_output(),
+            ReasoningOutput::PlainText
+        );
+    }
+
+    // Verify high remains supported after each Native and reverse-Bridge contribution is intersected.
+    let info = serde_json::to_value(registry.public_model("LongCat-2.0").unwrap().info()).unwrap();
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(
+            info["interfaces"][protocol]["reasoning"]["levels"],
+            serde_json::json!(["high"])
+        );
+        assert_eq!(
+            info["interfaces"][protocol]["reasoning"]["output"],
+            "plain_text"
+        );
+    }
+    for (protocol, body, expected_routes) in [
+        (
+            ApiProtocol::ChatCompletions,
+            bytes::Bytes::from_static(
+                br#"{"model":"LongCat-2.0","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}"#,
+            ),
+            &["longcat-2-chat", "longcat-2-chat-via-responses"][..],
+        ),
+        (
+            ApiProtocol::Responses,
+            bytes::Bytes::from_static(
+                br#"{"model":"LongCat-2.0","input":"hello","reasoning":{"effort":"high"}}"#,
+            ),
+            &["longcat-2-responses", "longcat-2-responses-via-chat"][..],
+        ),
+    ] {
+        let profile = analyze_request(protocol, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        assert_eq!(
+            plan.candidates()
+                .iter()
+                .map(|candidate| candidate.route_id())
+                .collect::<Vec<_>>(),
+            expected_routes
+        );
+    }
+}
+
+#[test]
+fn mimo_text_models_expose_high_reasoning_on_current_surfaces() {
+    // Compile the two text targets and require readable reasoning on both Native protocols.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    for target_id in ["mimo-v2-5", "mimo-v2-5-pro"] {
+        let target = registry.upstream_target(target_id).unwrap();
+        for operation in [OperationKind::ChatCompletions, OperationKind::Responses] {
+            assert_eq!(
+                target.upstream_api(operation).unwrap().reasoning_output(),
+                ReasoningOutput::PlainText
+            );
+        }
+    }
+
+    // Verify high is admitted while each Public Model preserves its configured Native/Bridge surface.
+    for (public_name, route_prefix, has_bridges) in [
+        ("mimo-v2.5", "mimo-v2-5-mimo", false),
+        ("mimo-v2.5-pro", "mimo-v2-5-pro-mimo", true),
+    ] {
+        let info =
+            serde_json::to_value(registry.public_model(public_name).unwrap().info()).unwrap();
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                info["interfaces"][protocol]["reasoning"]["levels"],
+                serde_json::json!(["high"])
+            );
+            assert_eq!(
+                info["interfaces"][protocol]["reasoning"]["output"],
+                "plain_text"
+            );
+        }
+        for (protocol, body, native_route, bridge_route) in [
+            (
+                ApiProtocol::ChatCompletions,
+                bytes::Bytes::from(format!(
+                    r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"high"}}"#
+                )),
+                format!("{route_prefix}-chat"),
+                format!("{route_prefix}-chat-via-responses"),
+            ),
+            (
+                ApiProtocol::Responses,
+                bytes::Bytes::from(format!(
+                    r#"{{"model":"{public_name}","input":"hello","reasoning":{{"effort":"high"}}}}"#
+                )),
+                format!("{route_prefix}-responses"),
+                format!("{route_prefix}-responses-via-chat"),
+            ),
+        ] {
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body).unwrap();
+            let mut expected_routes = vec![native_route];
+            if has_bridges {
+                expected_routes.push(bridge_route);
+            }
+            assert_eq!(
+                plan.candidates()
+                    .iter()
+                    .map(|candidate| candidate.route_id())
+                    .collect::<Vec<_>>(),
+                expected_routes
+            );
+        }
+    }
+}
+
+#[test]
+fn mimo_audio_targets_do_not_inherit_text_reasoning_evidence() {
+    // Compile the registry and inspect every dedicated MiMo audio target.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Keep audio reasoning fail-closed and preserve the Chat-only protocol surface.
+    for target_id in [
+        "mimo-v2-5-asr",
+        "mimo-v2-5-tts",
+        "mimo-v2-5-tts-voicedesign",
+        "mimo-v2-5-tts-voiceclone",
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("MiMo audio target should compile");
+        assert_eq!(
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .expect("MiMo audio target should expose Chat")
+                .reasoning_output(),
+            ReasoningOutput::Unknown
+        );
+        assert!(target.upstream_api(OperationKind::Responses).is_none());
+    }
+}
+
+#[test]
 fn mimo_v25_native_responses_accepts_prior_reasoning_items() {
     // Build the complete compiled registry and exercise the Native-only MiMo Responses route.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
@@ -1016,14 +1262,14 @@ fn mimo_models_compile_model_specific_native_and_bridge_surfaces() {
                 .upstream_api(OperationKind::ChatCompletions)
                 .unwrap()
                 .reasoning_output(),
-            ReasoningOutput::Unknown
+            ReasoningOutput::PlainText
         );
         assert_eq!(
             target
                 .upstream_api(OperationKind::Responses)
                 .unwrap()
                 .reasoning_output(),
-            ReasoningOutput::Unknown
+            ReasoningOutput::PlainText
         );
 
         // Verify that both compiled Native APIs share the MiMo Provider contract's capability boundary.

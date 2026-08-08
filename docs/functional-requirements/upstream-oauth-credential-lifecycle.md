@@ -30,7 +30,7 @@ OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable
 1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
 2. BaseURL、operation path 与 credential kind 来自受信 Rust 注册；业务请求和 credential 文件不能覆盖上游 URL、model path 或
    任意 header。
-3. `gpt-5.3-codex-spark`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个启用的固定 target，并且只加入一个
+3. `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个启用的固定 target，并且只加入一个
    Responses-native Route/Public Model；通用 API-key probe 不借用 OAuth manager credential。
 4. private upstream credential TOML 可为 ChatGPT OAuth2 binding 显式配置一个 OpenBridge-owned `auth_json_file`；不得默认、
    搜索、导入或回退到 `$CODEX_HOME/auth.json`。

@@ -390,13 +390,13 @@ fn deepseek_and_mimo_reasoning_output_types_are_explicit() {
         .capabilities();
     assert_eq!(
         mimo.chat_completions.reasoning_output,
-        ReasoningOutput::Unknown
+        ReasoningOutput::PlainText
     );
-    assert_eq!(mimo.responses.reasoning_output, ReasoningOutput::Unknown);
+    assert_eq!(mimo.responses.reasoning_output, ReasoningOutput::PlainText);
 }
 
 #[test]
-fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_reasoning() {
+fn mimo_contract_declares_tools_images_and_plain_text_reasoning_without_state() {
     let capabilities = ProviderAdapter::for_kind(ProviderKind::MiMo)
         .contract()
         .capabilities();
@@ -409,7 +409,7 @@ fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_re
     assert!(chat.image_input.is_some());
     assert!(chat.structured_outputs.is_some());
     assert!(!chat.store);
-    assert_eq!(chat.reasoning_output, ReasoningOutput::Unknown);
+    assert_eq!(chat.reasoning_output, ReasoningOutput::PlainText);
 
     let responses = capabilities.responses;
     assert!(
@@ -422,7 +422,7 @@ fn mimo_contract_declares_tool_output_and_image_capabilities_without_state_or_re
     assert!(!responses.store);
     assert!(!responses.previous_response_id);
     assert!(!responses.background);
-    assert_eq!(responses.reasoning_output, ReasoningOutput::Unknown);
+    assert_eq!(responses.reasoning_output, ReasoningOutput::PlainText);
 }
 
 #[test]

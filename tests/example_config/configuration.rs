@@ -58,13 +58,13 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     let chat = target.upstream_api(OperationKind::ChatCompletions).unwrap();
     assert_eq!(target.kind(), ProviderKind::LongCat);
     assert_eq!(chat.upstream_model(), "LongCat-2.0");
-    assert_eq!(chat.reasoning_output(), ReasoningOutput::Unknown);
+    assert_eq!(chat.reasoning_output(), ReasoningOutput::PlainText);
     assert_eq!(
         target
             .upstream_api(OperationKind::Responses)
             .unwrap()
             .reasoning_output(),
-        ReasoningOutput::Unknown
+        ReasoningOutput::PlainText
     );
     assert_eq!(target.endpoint_base().as_str(), "https://api.longcat.chat/");
     assert_eq!(
@@ -245,13 +245,19 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         assert_eq!(plan.upstream_target_id(), "longcat-2");
     }
 
-    // Reverse-Bridge reasoning output is unverified, so the fixed Responses contract cannot allow Native alone.
-    let body = bytes::Bytes::from(r#"{"model":"LongCat-2.0","input":"hello","reasoning":{}}"#);
+    // Readable reasoning on both Native APIs lets the fixed Responses contract retain its reverse Bridge.
+    let body = bytes::Bytes::from(
+        r#"{"model":"LongCat-2.0","input":"hello","reasoning":{"effort":"high"}}"#,
+    );
     let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
-    assert!(matches!(
-        plan_request(&registry, &profile, body),
-        Err(openbridge::pipeline::RequestPlanningError::ReasoningUnsupported)
-    ));
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        ["longcat-2-responses", "longcat-2-responses-via-chat"]
+    );
 }
 
 #[test]

@@ -57,8 +57,8 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 - [上游模型发现与基础 API 探测](../capability-probing.md)记录 ChatGPT Models/Responses probe 的固定路径、OAuth lease 边界和观察
   规则；该基础观察不等同于工具、SDK、模型语义或长期 Provider 验收。
 
-以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当时 Luna/Terra 仍使用带 `chatgpt-` 前缀的名称，当前名称已按上面的注册契约改为
-`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。
+以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当前 GPT-5.3 Codex Spark、Luna 和 Terra 名称已按注册契约改为
+`gpt-5.3-codex-spark`、`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。
 
 2026-08-06 使用当前 private 配置和已有 OpenBridge-owned `auth.json`，通过本地 OpenBridge 的 `/v1/responses` 发出同一最小 streaming
 文本请求；验收只记录 HTTP 状态、SSE terminal 类别和耗时，没有记录 credential、账户或响应正文：

@@ -967,8 +967,16 @@ async fn authenticated_get(app: &axum::Router, path: &str) -> Value {
 }
 
 async fn compiled_authenticated_get(app: &axum::Router, path: &str) -> Value {
-    let response = app
-        .clone()
+    let response = compiled_authenticated_response(app, path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap()
+}
+
+async fn compiled_authenticated_response(
+    app: &axum::Router,
+    path: &str,
+) -> axum::response::Response {
+    app.clone()
         .oneshot(
             Request::get(path)
                 .header(
@@ -979,9 +987,7 @@ async fn compiled_authenticated_get(app: &axum::Router, path: &str) -> Value {
                 .unwrap(),
         )
         .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap()).unwrap()
+        .unwrap()
 }
 
 fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Router {

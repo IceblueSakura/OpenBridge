@@ -148,8 +148,7 @@ pub(crate) const VOICE_CLONE_AUDIO: AudioCapabilities = AudioCapabilities {
     }),
 };
 
-/// Confirmed MiMo capability ceiling for Chat Completions and Responses; readable reasoning output
-/// is not yet confirmed on the wire.
+/// Confirmed MiMo capability ceiling for Chat Completions and Responses.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
     ProviderKind::MiMo,
     ApiCapabilities {
@@ -167,7 +166,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: true,
             }),
             store: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             audio: Some(AUDIO_CEILING),
             file_input: false,
@@ -194,7 +193,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             store: false,
             previous_response_id: false,
             background: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,

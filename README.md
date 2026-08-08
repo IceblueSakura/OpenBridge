@@ -46,20 +46,20 @@ surface 仍保持关闭。
 | Public Model | 可用接口 | 典型 credential pool | 说明 |
 |---|---|---|---|
 | `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI Native 优先、ChatGPT Responses fallback；公共能力按两个 source 的固定契约公开 |
-| `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `chatgpt-gpt-5.5` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `gpt-5.5` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
-| `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
-| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 缺少 Native 时自动走 Chat Bridge |
+| `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选；公开 high 与明文 reasoning |
+| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 high/max 与明文 reasoning |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
 | `minimax-m3` | Chat、Responses | `nvidia-primary` | NVIDIA API Catalog Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
-| `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
-| `qwen3.7-max` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
-| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
-| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
+| `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼 Chat Native + Responses Bridge；公开 high 与明文 reasoning |
+| `qwen3.7-max` | Chat、Responses | `bailian-primary` | 百炼 Chat Native + Responses Bridge；公开 high 与明文 reasoning |
+| `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 文本 Native-first + Bridge；公开 high 与明文 reasoning；不公开图片输入 |
+| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；公开 high/明文 reasoning 及受限 URL/Base64 图片理解 |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
 | `mimo-v2.5-tts` | Chat | `mimo-primary` | MiMo 预置音色 TTS；Chat `audio` 输出，非流式 WAV、流式 PCM16 |
 | `mimo-v2.5-tts-voicedesign` | Chat | `mimo-primary` | MiMo 文本描述音色设计；Chat `audio` 输出，不接收 reference audio |
@@ -69,8 +69,7 @@ surface 仍保持关闭。
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 代码中已绑定 Provider Target 但未加入 Public Model/Route 的 canonical profile 仍不代表可调用模型。当前
 `openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 已分别绑定 OpenAI Target，但尚未加入独立 OpenAI source 的
-Public Model/Route；其中 `gpt-5.6-luna` 和 `gpt-5.6-terra` 当前由 ChatGPT source 提供，`chatgpt-gpt-5.5` 则是另一条已公开的
-ChatGPT profile。
+Public Model/Route；其中 `gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra` 当前由 ChatGPT source 提供。
 
 ## 3. 前置条件与安全边界
 
@@ -290,10 +289,11 @@ cargo run --locked --bin openbridge-auth -- login chatgpt
 该命令不接受 issuer、client、endpoint、header、auth-file 或其他 cache override。常驻服务只负责到期驱动的 refresh
 和一次有界的 `401` recovery；不提供运行时切换账户，也不会自动开始交互式登录。
 
-登录后重启服务，并使用下面四个包含 ChatGPT source 的 Public Model 之一：
+登录后重启服务，并使用下面五个包含 ChatGPT source 的 Public Model 之一：
 
 ```text
-chatgpt-gpt-5.3-codex-spark
+gpt-5.3-codex-spark
+gpt-5.5
 gpt-5.6-luna
 gpt-5.6-terra
 gpt-5.6-sol

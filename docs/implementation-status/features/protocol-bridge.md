@@ -31,7 +31,8 @@
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
 - [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
-  Responses-via-Chat JSON/SSE、明文 reasoning 与 trailing usage chunk 的最终验收结果。
+  Responses-via-Chat JSON/SSE、明文 reasoning、high 请求与 trailing usage chunk 的最终验收结果；其中 Qwen3.7 与
+  DeepSeek V4 Pro 的 high Bridge 单元均已通过。
 
 确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
 OpenAI API 或任意 Provider 私有语义可转换。

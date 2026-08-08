@@ -23,7 +23,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
-            public_name: "chatgpt-gpt-5.3-codex-spark",
+            public_name: "gpt-5.3-codex-spark",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
@@ -31,7 +31,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
-            public_name: "chatgpt-gpt-5.5",
+            public_name: "gpt-5.5",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-5",
                 upstream_target: "chatgpt-gpt-5-5",

@@ -314,7 +314,7 @@ Bridge。当前 `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个 
 Bridge，后者为支持图片契约而只注册两个同协议 Native Route。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
-ChatGPT registration 为 Spark 与 GPT-5.6 Luna/Terra/Sol 固定四个 target、同一个 Codex backend、`responses` path、各自的 upstream
+ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个 target、同一个 Codex backend、`responses` path、各自的 upstream
 model 和共享 `chatgpt-codex` OAuth pool；独立 Responses-only Public Model 各有一个 Responses Native Route，并由编译器自动补充
 一个受限 Chat Bridge。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
@@ -347,10 +347,11 @@ DeepSeek Native candidate 之后。
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
 fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat
 Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、
-OpenRouter 排序的 Native candidates。DeepSeek Chat 的
-reasoning output 为 `PlainText`，Responses reasoning output 暂记为 `Unknown`；MiMo 与 LongCat 的 Chat/Responses reasoning output
-同样为 `Unknown`，因此 Native-first route 不受影响，但要求可读 reasoning 的 Bridge candidate 会在 egress 前淘汰。DeepSeek Flash
-Responses 的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。
+OpenRouter 排序的 Native candidates。DeepSeek Chat reasoning output 为 `PlainText`；Bailian `deepseek-v4-pro` fallback 也按 target
+收窄为 `PlainText`，因此 V4 Pro 的 Chat/Responses 固定契约都公开 `high`、`max`。DeepSeek Flash Responses reasoning output 仍为
+`Unknown`。LongCat 两个 Native API 与 MiMo 两个文本 target 的 Chat/Responses reasoning output 为 `PlainText`，对应 Public Model
+公开 `high` 并保留原 Native/Bridge 候选；MiMo ASR/TTS target 继续收窄为 `Unknown`，不继承文本模型证据。DeepSeek Flash Responses
+的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。
 
 ## 7. Transport、SSE、attempt 与 health
 

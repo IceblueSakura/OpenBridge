@@ -11,6 +11,8 @@
 - Models：检查 `GET /v1/models` 和 `GET /openbridge/v1/models`。
 - Generation：对 18 个声明 text input 的 Public Model 执行 Chat/Responses × stream off/on × reasoning 字段省略/high，
   共 144 个组合。
+- 当前 checkout 对 `qwen3.7-max`、`qwen3.7-plus`、`deepseek-v4-pro`、`LongCat-2.0`、`mimo-v2.5` 与
+  `mimo-v2.5-pro` 的 24 个 high 单元均有最终实测结果。
 - `mimo-v2.5-asr` 只有 audio input，不进入文字输入矩阵。
 - 三个 MiMo TTS 模型虽然声明 text input，但需要 task-specific audio output 参数；本报告仍保留通用文字生成矩阵的能力预检结果。
 - 每个矩阵单元只保留一个最终结果；测试客户端不执行自动重试。
@@ -33,20 +35,20 @@ GPT/ChatGPT 前提：当前 ChatGPT source 只接受 streaming Responses 上游�
 | Models 标准端点 | HTTP 200，19 项 |
 | Models 扩展端点 | HTTP 200，19 项 |
 | Generation 矩阵单元 | 144 |
-| 2xx 成功 | 64 |
-| 非流式可解析 JSON | 27 |
-| 流式 SSE 成功 | 37 |
-| HTTP 错误 | 80 |
+| 2xx 成功 | 86 |
+| 非流式可解析 JSON | 38 |
+| 流式 SSE 成功 | 48 |
+| HTTP 错误 | 58 |
 | 传输错误 | 0 |
-| `unsupported_model_capability` | 62 |
+| `unsupported_model_capability` | 40 |
 | `unsupported_request` | 14 |
 | `invalid_upstream_response` | 4 |
 | 429 / 503 | 0 / 0 |
 
-37 个 SSE 成功中，36 个保存了显式 terminal 判定；`minimax-m3 C-N/1` 保存了 HTTP 200、SSE content type
+48 个 SSE 成功中，47 个保存了显式 terminal 判定；`minimax-m3 C-N/1` 保存了 HTTP 200、SSE content type
 和完整响应 body，但没有单独保存 terminal 判定。
 
-测试结束时 `GET /healthz` 为 HTTP 200，服务保持运行正常。
+测试开始时 `GET /healthz` 为 HTTP 200；Models 检查和 24 个 high 单元完成后，测试进程按计划停止。
 
 ## 3. Models 端点最终结果
 
@@ -64,38 +66,38 @@ GPT/ChatGPT 前提：当前 ChatGPT source 只接受 streaming Responses 上游�
 
 最终可见的 19 个 ID：
 
-`LongCat-2.0`、`chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`deepseek-v4-flash`、
+`LongCat-2.0`、`gpt-5.3-codex-spark`、`gpt-5.5`、`deepseek-v4-flash`、
 `deepseek-v4-pro`、`glm-5.2`、`gpt-5.6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra`、`kimi-k3`、
 `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-pro`、`mimo-v2.5-tts`、
 `mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign`、`minimax-m3`、`qwen3.7-max`、
 `qwen3.7-plus`。
 
-扩展 Models 对 `glm-5.2`、`kimi-k3`、`qwen3.7-max`、`qwen3.7-plus` 的 Chat/Responses reasoning
-输出均声明为 `plain_text`。GLM 与 Kimi 的公开 levels 包含 `high`；两个 Qwen3.7 模型的 levels 为空，因此显式
-`high` 不属于公开能力。
+扩展 Models 对 `glm-5.2`、`kimi-k3`、`qwen3.7-max`、`qwen3.7-plus`、`deepseek-v4-pro`、`LongCat-2.0`、
+`mimo-v2.5` 与 `mimo-v2.5-pro` 的 Chat/Responses reasoning 输出均声明为 `plain_text`。这六个模型在两个接口
+都公开 `high`；`deepseek-v4-pro` 还保留 `max`。
 
 ## 4. Chat/Responses 最终矩阵
 
 | Model | C-N/0 | C-N/1 | C-H/0 | C-H/1 | R-N/0 | R-N/1 | R-H/0 | R-H/1 |
 |---|---|---|---|---|---|---|---|---|
-| `chatgpt-gpt-5.3-codex-spark` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
-| `chatgpt-gpt-5.5` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
+| `gpt-5.3-codex-spark` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
+| `gpt-5.5` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
 | `deepseek-v4-flash` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
-| `deepseek-v4-pro` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
+| `deepseek-v4-pro` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
 | `glm-5.2` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
 | `gpt-5.6-luna` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
 | `gpt-5.6-sol` | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
 | `gpt-5.6-terra` | 400/USR | 502/IUR | 400/UMC | 400/UMC | 400/USR | 200/SSE | 400/USR | 200/SSE |
 | `kimi-k3` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
-| `LongCat-2.0` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
-| `mimo-v2.5` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
-| `mimo-v2.5-pro` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
+| `LongCat-2.0` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
+| `mimo-v2.5` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
+| `mimo-v2.5-pro` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
 | `mimo-v2.5-tts` | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC |
 | `mimo-v2.5-tts-voiceclone` | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC |
 | `mimo-v2.5-tts-voicedesign` | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC | 400/UMC |
 | `minimax-m3` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
-| `qwen3.7-max` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
-| `qwen3.7-plus` | 200/JSON | 200/SSE | 400/UMC | 400/UMC | 200/JSON | 200/SSE | 400/UMC | 400/UMC |
+| `qwen3.7-max` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
+| `qwen3.7-plus` | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE | 200/JSON | 200/SSE |
 
 符号：
 
@@ -109,34 +111,35 @@ GPT/ChatGPT 前提：当前 ChatGPT source 只接受 streaming Responses 上游�
 
 | Model | 组合数 | 2xx 成功 | HTTP 错误 | 传输错误 |
 |---|---:|---:|---:|---:|
-| `chatgpt-gpt-5.3-codex-spark` | 8 | 2 | 6 | 0 |
-| `chatgpt-gpt-5.5` | 8 | 2 | 6 | 0 |
+| `gpt-5.3-codex-spark` | 8 | 2 | 6 | 0 |
+| `gpt-5.5` | 8 | 2 | 6 | 0 |
 | `deepseek-v4-flash` | 8 | 8 | 0 | 0 |
-| `deepseek-v4-pro` | 8 | 6 | 2 | 0 |
+| `deepseek-v4-pro` | 8 | 8 | 0 | 0 |
 | `glm-5.2` | 8 | 8 | 0 | 0 |
 | `gpt-5.6-luna` | 8 | 2 | 6 | 0 |
 | `gpt-5.6-sol` | 8 | 2 | 6 | 0 |
 | `gpt-5.6-terra` | 8 | 2 | 6 | 0 |
 | `kimi-k3` | 8 | 8 | 0 | 0 |
-| `LongCat-2.0` | 8 | 4 | 4 | 0 |
-| `mimo-v2.5` | 8 | 4 | 4 | 0 |
-| `mimo-v2.5-pro` | 8 | 4 | 4 | 0 |
+| `LongCat-2.0` | 8 | 8 | 0 | 0 |
+| `mimo-v2.5` | 8 | 8 | 0 | 0 |
+| `mimo-v2.5-pro` | 8 | 8 | 0 | 0 |
 | `mimo-v2.5-tts` | 8 | 0 | 8 | 0 |
 | `mimo-v2.5-tts-voiceclone` | 8 | 0 | 8 | 0 |
 | `mimo-v2.5-tts-voicedesign` | 8 | 0 | 8 | 0 |
 | `minimax-m3` | 8 | 4 | 4 | 0 |
-| `qwen3.7-max` | 8 | 4 | 4 | 0 |
-| `qwen3.7-plus` | 8 | 4 | 4 | 0 |
-| **合计** | **144** | **64** | **80** | **0** |
+| `qwen3.7-max` | 8 | 8 | 0 | 0 |
+| `qwen3.7-plus` | 8 | 8 | 0 | 0 |
+| **合计** | **144** | **86** | **58** | **0** |
 
 ## 6. Reasoning 关闭能力最终结果
 
-Reasoning 关闭能力使用 Native Chat JSON/SSE 直接验证，并以 Hermes 的 off 行为作为 wire-shape 对照。
+Reasoning 关闭能力使用 Native Chat JSON/SSE 直接验证。Hermes 源码行为只作为“字段省略不等于显式关闭”的参考，
+OpenBridge 实现和测试不导入、加载或调用 Hermes。
 
 - Hermes `0.20.0` 将 `reasoning_effort: none`、`false` 或 `disabled` 解析为关闭状态；省略配置表示未设置。
 - Hermes custom OpenAI-compatible profile 的 off 请求同时包含 `reasoning_effort: "none"` 与 `think: false`。
 
-| Provider | Model | 标准 `reasoning_effort: none`（JSON/SSE） | Hermes off wire shape（JSON/SSE） |
+| Provider | Model | 标准 `reasoning_effort: none`（JSON/SSE） | 参考形状（JSON/SSE） |
 |---|---|---|---|
 | Bailian | `glm-5.2` | 200/200，reasoning 内容为空 | 200/200，reasoning 内容为空 |
 | Kimi CN | `kimi-k3` | 200/200，reasoning 内容为空 | 200/200，reasoning 内容为空 |
@@ -150,21 +153,20 @@ Reasoning 关闭能力使用 Native Chat JSON/SSE 直接验证，并以 Hermes �
 
 | 错误 | 单元数 | Provider / 模型 | 最终归类 |
 |---|---:|---|---|
-| `400/USR` | 14 | ChatGPT：`chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra`；当前仅有 ChatGPT source 的 `gpt-5.6-sol` | 当前 source 不支持 `stream:false` |
-| `502/IUR` | 4 | ChatGPT：`chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` | Chat streaming + reasoning 字段省略返回 `invalid_upstream_response` |
+| `400/USR` | 14 | ChatGPT：`gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra`；当前仅有 ChatGPT source 的 `gpt-5.6-sol` | 当前 source 不支持 `stream:false` |
+| `502/IUR` | 4 | ChatGPT：`gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` | Chat streaming + reasoning 字段省略返回 `invalid_upstream_response` |
 | `400/UMC` | 12 | ChatGPT/GPT models | Chat interface 或 reasoning 组合不在公开能力内 |
-| `400/UMC` | 2 | DeepSeek：`deepseek-v4-pro` | Responses high 不在公开能力内 |
-| `400/UMC` | 4 | LongCat：`LongCat-2.0` | Chat/Responses high 不在公开能力内 |
-| `400/UMC` | 32 | Xiaomi MiMo：`mimo-v2.5`、`mimo-v2.5-pro` 和三个 TTS models | high 或通用文字生成形状不在对应公开能力内 |
+| `400/UMC` | 24 | Xiaomi MiMo：三个 TTS models | 通用文字生成形状不在 task-specific audio 公开能力内 |
 | `400/UMC` | 4 | NVIDIA：`minimax-m3` | Chat/Responses high 不在公开能力内 |
-| `400/UMC` | 8 | Bailian：`qwen3.7-max`、`qwen3.7-plus` | 模型未声明 high reasoning level |
 
 `400/UMC` 在公共能力预检阶段产生，不形成对应 Provider egress。最终没有非 GPT Provider HTTP/transport
-运行错误；Bailian Qwen3.7 的 8 个错误均为本地 high capability 拒绝。
+运行错误。这六个模型的 24 个 high 单元全部为 HTTP 200，JSON/SSE 终态完整且 reasoning 非空；固定
+`bailian-deepseek-v4-pro` fallback 的 direct Chat high JSON/SSE 也均为 HTTP 200、终态完整且 `reasoning_content` 非空。
 
 ## 8. 证据边界
 
 - 真实 Provider 结果只证明当前私有配置、账号、endpoint、请求形状和执行时间点。
-- Hermes off 结论来自本机 Hermes source 所定义 wire shape 的直接重放；未执行 Hermes runtime 用户会话。
+- Hermes 只提供非绑定行为参考；本轮 high 实现与复测没有加载 Hermes source、依赖或 runtime，也没有发送 Hermes custom 字段。
+- 当前 Public Model 名称、标准/扩展 Models 的 19 项 ID 一致性，以及六个模型的公开 high levels 均由当前 checkout 的真实 HTTP 端点复测。
 - 未执行外部 OpenAI SDK、负载测试、长期运行、并发稳定性或生产环境验收。
 - 没有保存生成文本、完整上游响应、Provider request ID、credential 或其他敏感数据。

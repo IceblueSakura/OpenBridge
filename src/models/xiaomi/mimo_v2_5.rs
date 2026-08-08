@@ -1,7 +1,8 @@
 //! Complete canonical model facts for MiMo-V2.5 (`xiaomi/mimo-v2.5`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
 };
 
 /// Stable OpenBridge catalog ID for MiMo-V2.5.
@@ -50,8 +51,8 @@ pub(crate) fn config() -> ModelConfig {
         ]
             .into_iter()
             .map(str::to_owned)
-            .collect(),
+        .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![ReasoningLevel::High],
     }
 }

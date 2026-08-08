@@ -87,9 +87,11 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         match &mut upstream_api.capabilities {
             UpstreamApiCapabilities::ChatCompletions(capabilities) => {
                 capabilities.function_tools = None;
+                capabilities.reasoning_output = ReasoningOutput::Unknown;
             }
             UpstreamApiCapabilities::Responses(capabilities) => {
                 capabilities.function_tools = None;
+                capabilities.reasoning_output = ReasoningOutput::Unknown;
             }
             UpstreamApiCapabilities::Embeddings(_) => {
                 panic!("generation target must not contain Embeddings capabilities")
