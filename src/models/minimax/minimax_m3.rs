@@ -4,10 +4,13 @@ use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
 };
 
+/// Stable OpenBridge catalog ID for MiniMax M3.
+pub(crate) const ID: &str = "minimax/minimax-m3";
+
 /// Builds the complete model facts for MiniMax M3.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "minimax/minimax-m3".to_owned(),
+        id: ID.to_owned(),
         name: "MiniMax M3".to_owned(),
         description: Some(
             "Multimodal foundation model for long-horizon agentic work, coding, and visual inputs."

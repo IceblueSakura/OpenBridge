@@ -277,10 +277,12 @@ canonical level，未知下游 level 仍在 preflight 失败关闭。
 
 `ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
-`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo 与 ChatGPT 的独立静态定义拥有 Provider
-契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享 `openai_compatible`
-机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API pair
-构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
+`ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA 与百炼的独立静态定义拥有
+Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
+`openai_compatible` 机制负责模型字段与 reasoning level wire 映射、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
+pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 与百炼只声明基础 `/chat/completions` adapter 和 API-key
+credential kind；NVIDIA 绑定一个 MiniMax M3 target，百炼绑定 GLM-5.2 与两个 Qwen3.7 target，四者只生成 Chat Native Route。
+DeepSeek adapter 声明 `/chat/completions` 与 `/responses`，但只有 V4 Flash
 target 注册 Responses Upstream API；OpenRouter 与 MiMo 同样声明 Chat/Responses 两个 path。Provider hook 可增添、替换、 转换或删除普通
 header；`ProviderRequestHeaders` 通过 `StaticRequestHeader` slice 声明固定的非敏感 UA/header，并在 hook 后覆盖同名值；OpenAI 与
 LongCat hook 转发 `User-Agent`，OpenRouter hook 不转发可选 attribution/routing header，共享层不维护普通 header allowlist。

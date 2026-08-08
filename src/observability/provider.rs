@@ -117,6 +117,8 @@ fn provider_name(provider: ProviderKind) -> &'static str {
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::MiMo => "mimo",
         ProviderKind::OpenRouter => "openrouter",
+        ProviderKind::Nvidia => "nvidia",
+        ProviderKind::Bailian => "bailian",
     }
 }
 
@@ -128,6 +130,8 @@ fn gen_ai_provider_name(provider: ProviderKind) -> &'static str {
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::MiMo => "mimo",
         ProviderKind::OpenRouter => "openrouter",
+        ProviderKind::Nvidia => "nvidia",
+        ProviderKind::Bailian => "bailian",
     }
 }
 

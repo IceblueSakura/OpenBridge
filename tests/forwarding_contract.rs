@@ -1036,7 +1036,9 @@ fn add_responses_fallback(
         ProviderKind::ChatGpt
         | ProviderKind::DeepSeek
         | ProviderKind::MiMo
-        | ProviderKind::OpenRouter => {
+        | ProviderKind::OpenRouter
+        | ProviderKind::Nvidia
+        | ProviderKind::Bailian => {
             panic!("test fallback helper only accepts connected providers")
         }
     };

@@ -11,6 +11,8 @@
   exporter；当前只接受受校验的 bootstrap 字段。
 - 私有 `config/users.toml` 提供下游用户和 API key，私有 `config/upstream-credentials.toml` 提供按编译期 binding 关联的有序 API-key
   pool 或单一 OAuth2 auth 文件。
+- `config/upstream-credentials.example.toml` 为每个内置 API-key binding 提供非真实 placeholder；NVIDIA 与百炼的本地私有 binding
+  可以先使用 `api_keys = []` 保持未激活，稍后填入真实 key 并重启。
 - 启动前严格校验未知、重复、类型不匹配和畸形的 credential binding；缺少已注册 pool、source-less pool 或空 API-key 数组会让其
   引用的 Target 在本次启动中未激活，不会要求对应 secret，也不会从 Provider 注册表移除它。
 - 服务在 Public Model 编译前应用 active credential pool 集合，再构建不可变 `UserRegistry`、`CredentialStore` 和可用的 OAuth2 credential
@@ -56,6 +58,14 @@ refresh 稳定性。配置了 OAuth2 auth-file locator 仍可能处于待登录�
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
 本次没有运行真实 Provider、独立 probe、外部 SDK、目标 Agent、负载或长期运行测试；这些层不由配置态摘要证明。
+
+2026-08-08 NVIDIA 与百炼 credential binding 扩展验证：
+
+- `tests/example_config.rs::nvidia_and_bailian_compile_as_fixed_api_key_provider_profiles`：确认两个 API-key pool、固定 Provider instance 与模板 placeholder；
+- `tests/example_config.rs::compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example`：确认模板仍可按编译期 binding 装载；
+- `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `cargo fmt -- --check`：通过。
+
+本轮只验证无真实值的模板和本地静态绑定；没有读取、打印或测试真实 key，也没有执行 Provider 网络请求。
 
 ## 相关文档
 

@@ -78,11 +78,18 @@ cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --cha
 cargo run --bin openbridge-probe -- --target deepseek-v4-flash --list-models --chat --responses --function-calling
 cargo run --bin openbridge-probe -- --target mimo-v2-5-pro --all
 cargo run --bin openbridge-probe -- --target mimo-v2-5 --all
+cargo run --bin openbridge-probe -- --target nvidia-minimax-m3 --chat
+cargo run --bin openbridge-probe -- --target bailian-glm-5-2 --chat
+cargo run --bin openbridge-probe -- --target bailian-qwen3-7-plus --chat
+cargo run --bin openbridge-probe -- --target bailian-qwen3-7-max --chat
 ```
 
 DeepSeek V4 Pro target 只注册 Chat Upstream API；V4 Flash target 还注册 Responses，因此可以显式观察两个协议的最小文本请求与
 function call/result replay。该命令只是可执行入口，本轮没有运行真实 DeepSeek probe。MiMo target 注册 Chat 与 Responses Upstream
 API，`--all` 会观察模型列表、两个协议的最小文本请求与 function call/result replay。
+
+NVIDIA MiniMax M3 与三个百炼 target 只注册 Chat Upstream API，因此上面的入口只观察最小文本 Chat 请求。其固定模型列表 path
+仍来自 OpenAI-compatible adapter，但本轮没有真实验证 NVIDIA 或百炼的列表响应信封，也没有运行上述 Chat probe。
 
 四个 ChatGPT OAuth target 现在可以通过本 CLI 的选定 OAuth2 manager 执行固定 Models probe；ChatGPT 的 Responses-native streaming
 协议仍不由当前通用非流式 probe payload 验证，建议显式使用 `--list-models`。2026-08-06 的真实 ChatGPT 最小 Responses 验收通过受保护的

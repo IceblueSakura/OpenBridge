@@ -55,13 +55,14 @@ project A research
 - [模型目录快照（2026-08-02）](openrouter/model-catalog-2026-08-02.md)
 - [Provider API 快照（2026-08-02）](openrouter/provider-api-2026-08-02.md)
 
-### DeepSeek 与 Xiaomi MiMo
+### DeepSeek、Xiaomi MiMo、NVIDIA 与阿里云百炼
 
 - [DeepSeek 协议入口快照（2026-08-08）](providers/deepseek-protocol-2026-08-08.md)
 - [Xiaomi MiMo 协议入口与文本生成快照](providers/xiaomi-mimo-protocol-2026-08-02.md)
 - [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi-mimo-image-protocol-2026-08-07.md)
 - [Xiaomi MiMo 音频理解、ASR/TTS 协议与真实观察](providers/xiaomi-mimo-audio-protocol-2026-08-08.md)
 - [DeepSeek/MiMo 综合对照（2026-08-02 历史快照）](providers/deepseek-mimo-protocols-2026-08-02.md)
+- [NVIDIA MiniMax M3 与百炼 GLM/Qwen Chat 模型入口（2026-08-08）](providers/nvidia-bailian-chat-models-2026-08-08.md)
 
 ## 4. 参考项目
 

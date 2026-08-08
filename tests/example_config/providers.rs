@@ -3,6 +3,178 @@
 use super::*;
 
 #[test]
+fn nvidia_and_bailian_compile_as_fixed_api_key_provider_profiles() {
+    // Locate each fixed Provider instance and its separately owned API-key pool.
+    let definition = compiled_config();
+    for (provider_id, provider, base_url, pool_id) in [
+        (
+            "nvidia",
+            ProviderKind::Nvidia,
+            "https://integrate.api.nvidia.com/v1",
+            "nvidia-primary",
+        ),
+        (
+            "bailian",
+            ProviderKind::Bailian,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "bailian-primary",
+        ),
+    ] {
+        let instance = definition
+            .provider_instances
+            .iter()
+            .find(|instance| instance.id == provider_id)
+            .expect("fixed Provider instance should be compiled");
+        assert_eq!(instance.kind, provider);
+        assert_eq!(instance.base_url, base_url);
+
+        let pool = definition
+            .credential_pools
+            .iter()
+            .find(|pool| pool.id == pool_id)
+            .expect("Provider API-key pool should be compiled");
+        assert_eq!(pool.provider, provider);
+        assert_eq!(pool.kind, CredentialKind::ApiKey);
+    }
+
+    // Compile the complete registry and retain both fixed Provider credential boundaries.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    assert_eq!(
+        registry.provider_instance("nvidia").unwrap().kind(),
+        ProviderKind::Nvidia
+    );
+    assert_eq!(
+        registry.provider_instance("bailian").unwrap().kind(),
+        ProviderKind::Bailian
+    );
+    assert!(registry.credential_pool("nvidia-primary").is_some());
+    assert!(registry.credential_pool("bailian-primary").is_some());
+
+    // Keep both placeholder bindings visible in the checked-in credential template.
+    let credentials = UpstreamCredentialConfiguration::from_toml(include_str!(
+        "../../config/upstream-credentials.example.toml"
+    ))
+    .unwrap();
+    let active_pool_ids = credentials.active_pool_ids().collect::<Vec<_>>();
+    assert!(active_pool_ids.contains(&"nvidia-primary"));
+    assert!(active_pool_ids.contains(&"bailian-primary"));
+}
+
+#[test]
+fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
+    // Compile the complete registry so every model binding crosses the startup validation boundary.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let cases = [
+        (
+            "minimax-m3",
+            "nvidia-minimax-m3",
+            ProviderKind::Nvidia,
+            "minimax/minimax-m3",
+            "nvidia/minimax-m3",
+            "minimaxai/minimax-m3",
+            "nvidia-primary",
+            "nvidia-api",
+            "https://integrate.api.nvidia.com/v1/",
+            "minimax-m3-nvidia-chat",
+        ),
+        (
+            "glm-5.2",
+            "bailian-glm-5-2",
+            ProviderKind::Bailian,
+            "z-ai/glm-5.2",
+            "bailian/glm-5.2",
+            "glm-5.2",
+            "bailian-primary",
+            "bailian-api",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+            "glm-5-2-bailian-chat",
+        ),
+        (
+            "qwen3.7-plus",
+            "bailian-qwen3-7-plus",
+            ProviderKind::Bailian,
+            "qwen/qwen3.7-plus",
+            "bailian/qwen3.7-plus",
+            "qwen3.7-plus",
+            "bailian-primary",
+            "bailian-api",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+            "qwen3-7-plus-bailian-chat",
+        ),
+        (
+            "qwen3.7-max",
+            "bailian-qwen3-7-max",
+            ProviderKind::Bailian,
+            "qwen/qwen3.7-max",
+            "bailian/qwen3.7-max",
+            "qwen3.7-max",
+            "bailian-primary",
+            "bailian-api",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+            "qwen3-7-max-bailian-chat",
+        ),
+    ];
+
+    // Verify each fixed Target exposes exactly one Chat API and one downstream Native Route.
+    for (
+        public_name,
+        target_id,
+        provider,
+        canonical_model,
+        provider_model,
+        upstream_model,
+        credential_pool,
+        fault_domain,
+        endpoint_base,
+        route_id,
+    ) in cases
+    {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("NVIDIA or Bailian model Target should compile");
+        assert_eq!(target.kind(), provider);
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(target.provider_model_id(), provider_model);
+        assert_eq!(target.endpoint_base().as_str(), endpoint_base);
+        assert_eq!(target.credential_pool_id(), credential_pool);
+        assert_eq!(target.quota_scope(), Some(credential_pool));
+        assert_eq!(target.fault_domain(), Some(fault_domain));
+        assert_eq!(
+            target
+                .upstream_api(OperationKind::ChatCompletions)
+                .expect("Chat Completions should be enabled")
+                .upstream_model(),
+            upstream_model
+        );
+        assert!(target.upstream_api(OperationKind::Responses).is_none());
+
+        let public_model = registry
+            .public_model(public_name)
+            .expect("NVIDIA or Bailian Public Model should compile");
+        assert_eq!(public_model.routes(), [route_id]);
+        let info = serde_json::to_value(public_model.info()).unwrap();
+        assert!(info["interfaces"]["chat_completions"].is_object());
+        assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
+
+        // Plan a text Chat request to the sole same-protocol Native candidate.
+        let body = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}],"stream":true}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        assert_eq!(plan.candidates().len(), 1);
+        assert_eq!(plan.candidates()[0].route_id(), route_id);
+        assert_eq!(
+            plan.candidates()[0].upstream_operation(),
+            OperationKind::ChatCompletions
+        );
+        assert!(plan.candidates()[0].bridge().is_none());
+    }
+}
+
+#[test]
 fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     // Locate the dedicated OAuth pool and fixed ChatGPT Provider instance.
     let definition = compiled_config();

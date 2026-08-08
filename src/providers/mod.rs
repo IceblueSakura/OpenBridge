@@ -5,10 +5,12 @@
 mod catalog;
 pub(crate) mod openai_compatible;
 
+pub mod bailian;
 pub mod chatgpt;
 pub mod deepseek;
 pub mod longcat;
 pub mod mimo;
+pub mod nvidia;
 pub mod openai;
 pub mod openrouter;
 

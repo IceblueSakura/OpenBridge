@@ -48,6 +48,10 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
 | `deepseek-v4-pro` | Chat | `deepseek-primary` | 仅 DeepSeek Chat Native |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
+| `minimax-m3` | Chat | `nvidia-primary` | NVIDIA API Catalog Chat Native；当前只公开文本与 streaming 基线 |
+| `glm-5.2` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
+| `qwen3.7-plus` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
+| `qwen3.7-max` | Chat | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；当前只公开文本与 streaming 基线 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | Xiaomi MiMo 文本 Native-first，并保留已声明语义的 Bridge 候选；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 两个同协议 Native Route；支持固定契约内的 URL/Base64 图片理解，不提供多模态 Bridge |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
@@ -135,6 +139,8 @@ api_keys = ["replace-with-openai-key"]
 | `openrouter-primary` | OpenRouter | API key |
 | `deepseek-primary` | DeepSeek | API key |
 | `mimo-primary` | Xiaomi MiMo | API key |
+| `nvidia-primary` | NVIDIA API Catalog | API key |
+| `bailian-primary` | 阿里云百炼 Model Studio | API key |
 | `chatgpt-codex` | ChatGPT | OAuth2 auth file |
 
 多把 API key 可以按顺序放在同一个 `api_keys` 数组中。上游 `429` 等可重试情况可能触发同一 pool 内的
@@ -142,6 +148,9 @@ credential rotation；这不等于账号级负载均衡。
 
 没有填写的 pool、没有 source 的 pool，或 `api_keys = []` 会使引用它的 Target 在本次启动中不可用，但不会从代码
 注册表删除 Provider 或 Model。source 类型与注册表不匹配、重复 binding、空白或重复 key 会直接阻止启动。
+
+`nvidia-primary` 激活 `minimax-m3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
+`qwen3.7-max`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
 ### 4.3 启动服务
 

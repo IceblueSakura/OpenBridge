@@ -8,11 +8,16 @@
 ## 已完成内容
 
 - 注册表分离 canonical Model、Provider instance、credential pool、Upstream Target、Upstream API、Route 和 Public Model 的所有权。
-- 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo 和 ChatGPT；ChatGPT 使用独立 OAuth manager，
-  五个固定 target 各自提供一个 Responses Native Route 和一个受限 Chat Bridge Route。
+- 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo、ChatGPT、NVIDIA 和阿里云百炼 Model Studio；
+  ChatGPT 使用独立 OAuth manager，五个固定 target 各自提供一个 Responses Native Route 和一个受限 Chat Bridge Route。
+- NVIDIA 与百炼分别固定到 `https://integrate.api.nvidia.com/v1` 和
+  `https://dashscope.aliyuncs.com/compatible-mode/v1`，各自拥有基础 OpenAI-compatible Chat adapter 与独立 API-key pool。NVIDIA
+  将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
+  `qwen/qwen3.7-max` 绑定为对应 Public Model；四者都只有一个 Chat Native Route。
 - 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro` 和
-  `mimo-v2.5`，以及 `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和
-  `chatgpt-gpt-5.6-terra`；`text-embedding-3-small` 是独立 Embeddings Public Model。
+  `mimo-v2.5`，以及 `minimax-m3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
+  `chatgpt-gpt-5.3-codex-spark`、`chatgpt-gpt-5.5`、`chatgpt-gpt-5.6-luna` 和 `chatgpt-gpt-5.6-terra`；
+  `text-embedding-3-small` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 OpenAI 与 ChatGPT 两个 source，按 OpenAI、ChatGPT 顺序保留候选，并按可执行候选的最小公共契约公开；
   `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
   其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
@@ -55,8 +60,32 @@
 本次未执行真实 Provider、外部 SDK、负载、长期运行或浏览器验收；已有 ChatGPT 真实调用记录仍只代表当时的账号、网络、backend 和
 payload。
 
+2026-08-08 NVIDIA 与百炼 Provider 基础注册的确定性验证：
+
+- 实现前运行 `cargo test --locked --test provider_contract nvidia_and_bailian_adapters_bind_only_the_confirmed_chat_surface`，按预期因缺少
+  `ProviderKind::Nvidia` 与 `ProviderKind::Bailian` 失败；
+- 实现后同一聚焦测试通过（1 项）；
+- 当时的 `nvidia_and_bailian_are_compiled_as_unbound_api_key_provider_profiles` 聚焦测试通过（本轮绑定模型后已重命名并移除“无 Target”断言）；
+- `cargo test --locked --test example_config compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example`：通过（1 项）；
+- `cargo fmt -- --check`、`cargo test --locked` 与 `cargo clippy --locked -- -D warnings`：通过。
+
+2026-08-08 NVIDIA MiniMax M3 与百炼 GLM/Qwen Chat 绑定的确定性验证：
+
+- 实现前运行 `cargo test --locked --test example_config nvidia_and_bailian_models_compile_as_chat_native_routes`，按预期因缺少首个 NVIDIA
+  Target 失败；
+- 实现后同一聚焦测试通过（1 项），覆盖四个 trusted endpoint、Target、upstream model、credential pool、Public Model、唯一 Chat
+  Native Route 和本地请求规划。
+- `cargo fmt -- --check`：通过；
+- `cargo test --locked`：通过；
+- `cargo clippy --locked -- -D warnings`：通过；
+- `git diff --check`：通过。
+
+本轮没有执行真实 NVIDIA/百炼请求、Models probe、外部 SDK、负载或长期运行测试；静态 Target 与规划测试不证明远端模型、协议、账号、
+区域、网络或配额可用。
+
 ## 相关文档
 
 - [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/model-catalog-configuration.md)
 - [Public Model 与能力预检](models-api-and-capability-preflight.md)
 - [当前代码架构](../current-architecture.md)
+- [NVIDIA MiniMax M3 与百炼 GLM/Qwen 官方入口快照](../../references/providers/nvidia-bailian-chat-models-2026-08-08.md)

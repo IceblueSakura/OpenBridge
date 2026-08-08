@@ -10,11 +10,11 @@ mod catalog;
 pub(crate) mod chatgpt;
 pub(crate) mod deepseek;
 pub mod meituan;
-mod minimax;
+pub(crate) mod minimax;
 mod moonshotai;
 pub(crate) mod openai;
-mod qwen;
+pub(crate) mod qwen;
 pub(crate) mod xiaomi;
-mod z_ai;
+pub(crate) mod z_ai;
 
 pub(crate) use catalog::compiled_configs;

@@ -86,6 +86,38 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
+            public_name: "minimax-m3",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "minimax-m3-nvidia",
+                upstream_target: "nvidia-minimax-m3",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "glm-5.2",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "glm-5-2-bailian",
+                upstream_target: "bailian-glm-5-2",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "qwen3.7-plus",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "qwen3-7-plus-bailian",
+                upstream_target: "bailian-qwen3-7-plus",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "qwen3.7-max",
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "qwen3-7-max-bailian",
+                upstream_target: "bailian-qwen3-7-max",
+                surface: PublicModelSurface::ChatNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-pro-mimo",

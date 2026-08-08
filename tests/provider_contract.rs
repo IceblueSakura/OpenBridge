@@ -58,6 +58,31 @@ fn native_chat_adapter_builds_only_relative_upstream_request_parts() {
 }
 
 #[test]
+fn nvidia_and_bailian_adapters_bind_only_the_confirmed_chat_surface() {
+    // Verify both unbound Provider contracts expose only the confirmed basic Chat surface.
+    for provider in [ProviderKind::Nvidia, ProviderKind::Bailian] {
+        let contract = provider.contract();
+        assert_eq!(contract.credential_kinds(), [CredentialKind::ApiKey]);
+        assert!(contract.capabilities().chat_completions.enabled);
+        assert!(contract.capabilities().chat_completions.streaming);
+        assert!(!contract.capabilities().responses.enabled);
+        assert!(!contract.capabilities().embeddings.enabled);
+
+        // Build a relative OpenAI-compatible request without selecting any endpoint or credential.
+        let adapter = ProviderAdapter::for_kind(provider);
+        let request = ApiRequest::new(
+            ApiProtocol::ChatCompletions,
+            Bytes::from_static(br#"{"model":"public","messages":[]}"#),
+        );
+        let upstream = adapter.prepare_request(&request, "upstream-model").unwrap();
+        assert_eq!(upstream.method(), Method::POST);
+        assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
+        assert!(upstream.relative_uri().scheme().is_none());
+        assert!(upstream.relative_uri().authority().is_none());
+    }
+}
+
+#[test]
 fn longcat_adapter_directly_encodes_chat_and_responses() {
     let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
 

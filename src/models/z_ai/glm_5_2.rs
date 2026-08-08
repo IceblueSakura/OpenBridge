@@ -5,10 +5,13 @@ use crate::registry::{
     ReasoningSupport,
 };
 
+/// Stable OpenBridge catalog ID for GLM-5.2.
+pub(crate) const ID: &str = "z-ai/glm-5.2";
+
 /// Builds the complete model facts for GLM-5.2.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "z-ai/glm-5.2".to_owned(),
+        id: ID.to_owned(),
         name: "GLM-5.2".to_owned(),
         description: Some(
             "Large-scale reasoning model for long-horizon agents and project-level software engineering."

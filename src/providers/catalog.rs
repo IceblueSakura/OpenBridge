@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-use super::{chatgpt, deepseek, longcat, mimo, openai, openrouter};
+use super::{bailian, chatgpt, deepseek, longcat, mimo, nvidia, openai, openrouter};
 
 /// Version identifier for the built-in provider and model registry.
 pub const REGISTRY_VERSION: &str = "dev-1";
@@ -36,6 +36,8 @@ pub fn compiled_config() -> RegistryConfig {
             deepseek::provider_instance(),
             mimo::provider_instance(),
             chatgpt::provider_instance(),
+            nvidia::provider_instance(),
+            bailian::provider_instance(),
         ],
         credential_pools: vec![
             credential_pool("openai-primary", ProviderKind::OpenAi),
@@ -43,6 +45,8 @@ pub fn compiled_config() -> RegistryConfig {
             credential_pool("openrouter-primary", ProviderKind::OpenRouter),
             credential_pool("deepseek-primary", ProviderKind::DeepSeek),
             credential_pool("mimo-primary", ProviderKind::MiMo),
+            credential_pool("nvidia-primary", ProviderKind::Nvidia),
+            credential_pool("bailian-primary", ProviderKind::Bailian),
             credential_pool_with_kind(
                 "chatgpt-codex",
                 ProviderKind::ChatGpt,
@@ -56,6 +60,8 @@ pub fn compiled_config() -> RegistryConfig {
             deepseek::upstream_targets(),
             mimo::upstream_targets(),
             chatgpt::upstream_targets(),
+            nvidia::upstream_targets(),
+            bailian::upstream_targets(),
         ]
         .concat(),
         routes: routing.routes,
