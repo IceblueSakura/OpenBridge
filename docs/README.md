@@ -180,7 +180,9 @@ public model name
    contract、endpoint path、request hook 与注册事实；其中 ChatGPT 通过独立 OAuth manager 服务固定 Responses-native Public Model。
 4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
    [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
-5. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
+5. [Provider 实施与实测状态](implementation-status/providers/README.md)：按 Provider family 查看当前模型、多模态、工具调用和
+   真实上游证据。
+6. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
    [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
 
 注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek 与 MiMo 的已绑定 target 都走 OpenAI-compatible Native Path；OpenAI、LongCat 与

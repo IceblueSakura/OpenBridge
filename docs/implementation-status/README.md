@@ -21,6 +21,15 @@
 | OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |
 | ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
 
+## Provider 实施与实测状态
+
+Provider 状态页按 family 汇总当前注册模型的多模态、工具调用和真实上游证据；它们不替代上面的功能专题。维护规则和证据术语见
+[Provider 状态目录](providers/README.md)。
+
+| Provider | 状态页 | 主要内容 |
+|---|---|---|
+| Xiaomi MiMo | [MiMo 多模态与工具调用状态](providers/mimo.md) | 六模型 text/image/audio/video 边界、function tool 实测和当前能力收窄缺口 |
+
 ## 已实现的横向能力
 
 | 功能点 | 状态文档 | 主要证据入口 |

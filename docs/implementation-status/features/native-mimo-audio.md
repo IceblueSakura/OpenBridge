@@ -44,13 +44,16 @@
 - `cargo test --locked --test capability_definition_contract`：通过，覆盖 typed audio profile 的能力收窄和保留字段边界。
 - `cargo test --locked --test forwarding_contract mimo_audio`：通过，覆盖四个模型的 JSON/SSE Chat wire 保真、Models typed contract、
   task-specific 形状拒绝和 zero-egress 失败边界。
+- 2026-08-08 使用本地私有 credential 直连真实 MiMo Provider：ASR 返回语义正确的短 WAV transcript；TTS、VoiceDesign 与
+  VoiceClone 均返回可在内存中解码的 RIFF/WAV。四模型携带 `tool_choice: "required"` 的对照请求均返回 `tool_calls: null` 并继续
+  原音频任务，因此不构成工具调用支持。完整脱敏矩阵见 [MiMo Provider 状态](../providers/mimo.md)。
 - 最终 Rust 基线：`cargo fmt -- --check`、`cargo test --locked`（55 个单元测试及全部契约测试通过）、
   `cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；本专题不把静态/loopback 测试写成真实 Provider 验收。
 
 ## 未覆盖范围
 
 - `mimo-v2.5` 通用音频理解；OpenAI `/v1/audio/speech`、`/v1/audio/transcriptions`、`/v1/audio/translations`、Responses audio、Realtime。
-- MiMo 专用模型的真实账号、配额、网络、endpoint、模型版本和 response audio 内容验证；本轮 transport 使用确定性记录 mock。
+- 经 OpenBridge 下游接口完成的四模型真实端到端复测；本次新增证据是直连 Provider，不能替代网关路径验收。
 - ASR MP3/更广语言和方言、TTS MP3/其他 voice、VoiceDesign/VoiceClone 的扩展格式、duration/sample-rate/channel 校验。
 - voice authorization、保留期、跨请求 voice identity/resource store、媒体下载/解码/转码、播放和持久化。
 - OpenAI SDK、目标 Agent、负载、长期运行以及硬件/播放器验收。
@@ -59,6 +62,7 @@
 
 - [功能需求：Native 音频能力](../../functional-requirements/native-audio.md)
 - [MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [标准 Audio/Speech 协议索引](../../references/openai/README.md#6-音频与语音)
 - [Chat/Responses Native 转发](native-generation-forwarding.md)
 - [Models 接口与能力预检](models-api-and-capability-preflight.md)

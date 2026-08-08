@@ -33,6 +33,8 @@
 - Public Model projection 位于 [`src/registry/public_model.rs`](../../../src/registry/public_model.rs)，编译逻辑位于
   [`src/registry/public_model/compiler.rs`](../../../src/registry/public_model/compiler.rs)。
 - generation 与 Embeddings analyzer 分开；analyzer 只提取请求事实，不解析 registry entity，也不选择 Route。
+- MiMo 四个音频专用 target 当前仍继承过宽的 Provider-wide function-tool profile，导致扩展 Models 可能公开真实上游会忽略的工具能力；
+  该模型级收窄缺口及真实负向证据记录在 [MiMo Provider 状态](../providers/mimo.md)。
 - 当前不包含动态目录、通用 capability negotiation、continuation ledger 或请求级 Route 选择 API。
 
 ## 验证证据
@@ -51,5 +53,6 @@
 
 - [功能需求：Public Model 与模型能力契约](../../functional-requirements/model-information-and-capability-contract.md)
 - [Provider 注册表与模型目录](provider-registry-and-model-catalog.md)
+- [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [`mimo-v2.5` Native 图片输入](native-image-input.md)
 - [HTTP 网关接口与下游认证](gateway-http-api-and-auth.md)

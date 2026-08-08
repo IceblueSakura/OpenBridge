@@ -91,5 +91,6 @@ payload。
 
 - [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/model-catalog-configuration.md)
 - [Public Model 与能力预检](models-api-and-capability-preflight.md)
+- [Provider 实施与实测状态](../providers/README.md)
 - [当前代码架构](../current-architecture.md)
 - [NVIDIA MiniMax M3 与百炼 GLM/Qwen 官方入口快照](../../references/providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)
