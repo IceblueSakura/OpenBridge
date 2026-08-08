@@ -93,8 +93,12 @@ fn target(
         capabilities.responses.image_input = None;
     }
 
-    // Narrow the Provider audio ceiling to one task-specific Chat Native profile, or disable it for text/image targets.
+    // Narrow the Provider audio ceiling and unrelated generation features to the model-specific Chat task.
     capabilities.chat_completions.audio = audio;
+    if audio.is_some() {
+        // Dedicated audio models ignore function tools, so their fixed interface must fail closed before egress.
+        capabilities.chat_completions.function_tools = None;
+    }
 
     let mut upstream_apis = native_upstream_apis(upstream_model, capabilities);
     if audio.is_some() {

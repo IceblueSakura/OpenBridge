@@ -190,6 +190,21 @@ async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
             compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
         assert!(info["interfaces"]["chat_completions"].is_object());
         assert!(info["interfaces"]["responses"].is_null());
+        assert_eq!(
+            info["interfaces"]["chat_completions"]["tools"]["support"],
+            "unsupported"
+        );
+        let supported_parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        for parameter in ["tools", "tool_choice", "parallel_tool_calls"] {
+            assert!(
+                supported_parameters
+                    .iter()
+                    .all(|value| value.as_str() != Some(parameter)),
+                "{model} must not expose {parameter}"
+            );
+        }
     }
     let asr = compiled_authenticated_get(&app, "/openbridge/v1/models/mimo-v2.5-asr").await;
     assert_eq!(asr["interfaces"]["chat_completions"]["audio_task"], "asr");
@@ -244,6 +259,13 @@ async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
 #[tokio::test]
 async fn mimo_audio_task_mismatches_fail_before_egress() {
     const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
+    let function_tool = serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "report_result",
+            "parameters": {"type": "object"}
+        }
+    });
     let cases = [
         (
             "/v1/responses",
@@ -264,6 +286,22 @@ async fn mimo_audio_task_mismatches_fail_before_egress() {
         (
             "/v1/chat/completions",
             serde_json::json!({"model":"mimo-v2.5","messages":[{"role":"user","content":"hello"}],"asr_options":{"language":"zh"}}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-asr","messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":WAV_DATA_URL,"format":"wav"}}]}],"asr_options":{"language":"en"},"tools":[function_tool.clone()],"tool_choice":"required"}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-tts","messages":[{"role":"assistant","content":"hello"}],"modalities":["text","audio"],"audio":{"format":"wav","voice":"mimo_default"},"tools":[function_tool.clone()],"tool_choice":"required"}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-tts-voicedesign","messages":[{"role":"user","content":"a warm voice"},{"role":"assistant","content":"hello"}],"modalities":["text","audio"],"audio":{"format":"wav"},"tools":[function_tool.clone()],"tool_choice":"required"}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"mimo-v2.5-tts-voiceclone","messages":[{"role":"assistant","content":"hello"}],"modalities":["text","audio"],"audio":{"format":"wav","voice":WAV_DATA_URL},"tools":[function_tool.clone()],"tool_choice":"required"}),
         ),
     ];
     let transport = Arc::new(MimoAudioTransport::default());

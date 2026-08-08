@@ -12,6 +12,8 @@
   `mimo-v2.5-tts-voiceclone` 四个独立 canonical Model 与 Public Model。
 - 每个模型只有一个固定 Chat Native surface，不生成 Responses Route、Chat/Responses Bridge 或跨任务 fallback candidate；下游
   `model`、Chat body、顶层 `asr_options`/`modalities`/`audio` 和音频 part 保持原样转发。
+- 四个音频 target 都把 Provider-wide function-tool ceiling 收窄为不支持；扩展 Models 不公开 `tools`、`tool_choice` 或
+  `parallel_tool_calls`，带 function tool 的合法音频 task 在 Provider egress 前拒绝。
 - ASR profile 只接受一个 user `input_audio`，首批 source 为 data URL/pure Base64，format 为 WAV，language 为 `auto`/`zh`/`en`。
   混入 text、多音频、非 user 角色、Responses audio 或非法 Base64 在 Provider egress 前拒绝。
 - TTS profile 接受一个 assistant 目标文本，可带 user 风格文本；JSON 输出 format 只开放 WAV，streaming Chat audio format 只开放
@@ -43,7 +45,7 @@
   canonical facts、target、Public Model 和 Chat-only route surface。
 - `cargo test --locked --test capability_definition_contract`：通过，覆盖 typed audio profile 的能力收窄和保留字段边界。
 - `cargo test --locked --test forwarding_contract mimo_audio`：通过，覆盖四个模型的 JSON/SSE Chat wire 保真、Models typed contract、
-  task-specific 形状拒绝和 zero-egress 失败边界。
+  task-specific 形状拒绝、function-tool contract 和 zero-egress 失败边界。
 - 2026-08-08 使用本地私有 credential 直连真实 MiMo Provider：ASR 返回语义正确的短 WAV transcript；TTS、VoiceDesign 与
   VoiceClone 均返回可在内存中解码的 RIFF/WAV。四模型携带 `tool_choice: "required"` 的对照请求均返回 `tool_calls: null` 并继续
   原音频任务，因此不构成工具调用支持。完整脱敏矩阵见 [MiMo Provider 状态](../providers/mimo.md)。

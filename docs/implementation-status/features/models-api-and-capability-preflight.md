@@ -17,6 +17,8 @@
   直接读取同一 fixed interface contract。function tool 未显式指定 `tool_choice` 时按协议默认的 `auto` 进行预检。
 - Chat capability 不再同时维护 `audio_input`/`audio_output` 布尔值与 typed audio profile；输入/输出模态由具体 audio profile 推导。
   Provider family 可以保留 `AudioTask::Any` 作为 ceiling 标记，但每个可执行 Upstream API 必须绑定确定 task。
+- MiMo 四个音频专用 target 将 Provider-wide function-tool ceiling 收窄为 `None`；扩展 Models 公开 tools `unsupported`，并在 egress
+  前拒绝带 function tool 的合法音频 task。通用 `mimo-v2.5` 与 Pro 的工具契约不受影响。
 - 请求先解析 operation-specific requirements，再对选定 Public Model 做一次能力、限制和 state-affinity preflight；不支持的请求在任何
   Provider egress 前以稳定本地错误拒绝。
 - 预检通过后仍按注册表的 Route 资格和顺序规划，不会因单条 Route 的额外能力跳过前序 Route、扩大公共契约或自动更换模型。
@@ -33,8 +35,6 @@
 - Public Model projection 位于 [`src/registry/public_model.rs`](../../../src/registry/public_model.rs)，编译逻辑位于
   [`src/registry/public_model/compiler.rs`](../../../src/registry/public_model/compiler.rs)。
 - generation 与 Embeddings analyzer 分开；analyzer 只提取请求事实，不解析 registry entity，也不选择 Route。
-- MiMo 四个音频专用 target 当前仍继承过宽的 Provider-wide function-tool profile，导致扩展 Models 可能公开真实上游会忽略的工具能力；
-  该模型级收窄缺口及真实负向证据记录在 [MiMo Provider 状态](../providers/mimo.md)。
 - 当前不包含动态目录、通用 capability negotiation、continuation ledger 或请求级 Route 选择 API。
 
 ## 验证证据

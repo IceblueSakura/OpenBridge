@@ -33,19 +33,19 @@ OpenBridge 不执行该工具。
 |---|---|---|---|
 | `mimo-v2.5-pro` | Chat 返回 `finish_reason: "tool_calls"` 和 1 个有效 function call；Responses 返回 1 个 `function_call` output item | `mimo_models_compile_model_specific_native_and_bridge_surfaces` 覆盖 Chat/Responses Native 与 Bridge candidate 的 function-tool 规划 | Chat、Responses 工具调用实测支持；真实 Bridge 端到端未验证 |
 | `mimo-v2.5` | Chat 与 Responses 各返回 1 个有效 function call | 同一编译测试覆盖两协议 Native 规划；`mimo_responses_native_preserves_parallel_tool_stream` 覆盖 Responses streaming 并行调用保真 | Chat、Responses 工具调用实测支持；真实并行调用未验证 |
-| `mimo-v2.5-asr` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 transcript | canonical `supported_parameters` 不含 `tools`；音频 task wire 有确定性转发测试 | 不支持；Provider 静默忽略工具字段 |
-| `mimo-v2.5-tts` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical `supported_parameters` 不含 `tools`；TTS wire 有确定性转发测试 | 不支持；Provider 静默忽略工具字段 |
-| `mimo-v2.5-tts-voicedesign` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical `supported_parameters` 不含 `tools`；VoiceDesign wire 有确定性转发测试 | 不支持；Provider 静默忽略工具字段 |
-| `mimo-v2.5-tts-voiceclone` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical `supported_parameters` 不含 `tools`；VoiceClone wire 有确定性转发测试 | 不支持；Provider 静默忽略工具字段 |
+| `mimo-v2.5-asr` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 transcript | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
+| `mimo-v2.5-tts` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
+| `mimo-v2.5-tts-voicedesign` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
+| `mimo-v2.5-tts-voiceclone` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 
-## 当前实现偏差
+## 当前实现收窄
 
-四个音频专用模型的 canonical `supported_parameters` 均没有 `tools` 或 `tool_choice`，真实 Provider 也没有产生有效 tool call；但当前
-MiMo audio target 仍继承 Provider-wide `function_tools` 上界，因此扩展 Models interface 可能过宽公开工具能力，并允许带工具字段的合法
-音频 task 到达上游。这是当前 checkout 的能力收窄缺口。客户端在该缺口修复前不应向四个音频专用模型发送工具字段，也不能把 HTTP 200
-和被忽略的 `tool_choice: "required"` 当作支持。
+四个音频专用模型的 canonical `supported_parameters` 均没有 `tools` 或 `tool_choice`，真实 Provider 也没有产生有效 tool call。当前
+MiMo model-specific audio target 已将 Chat `function_tools` 从 Provider ceiling 收窄为 `None`；扩展 Models interface 因此公开
+`tools.support: "unsupported"`，并从 `supported_parameters` 删除 `tools`、`tool_choice` 与 `parallel_tool_calls`。合法音频 task 一旦
+携带 function tool，会在创建 RoutePlan 和 Provider egress 前返回 HTTP 400。
 
-该偏差不应通过按能力选择 Route 或能力 fallback 处理；每个音频 target 应形成与自身模型和任务一致的固定 interface。同一 Public Model
+该收窄不通过按能力选择 Route 或能力 fallback 处理；每个音频 target 形成与自身模型和任务一致的固定 interface。同一 Public Model
 仍只允许在其固定 Provider candidates 之间按现有顺序 fallback。
 
 ## 验证证据
@@ -59,6 +59,10 @@ MiMo audio target 仍继承 Provider-wide `function_tools` 上界，因此扩展
 - TTS、VoiceDesign、VoiceClone：均返回 Base64，可在内存中解码为 RIFF/WAV；
 - 六模型工具探测：两个通用模型产生有效 function call，四个音频专用模型返回 `tool_calls: null` 并继续原任务；
 - `/v1/audio/speech`、`/v1/audio/transcriptions`：均 HTTP 404。
+
+本次工具能力收窄的 TDD 证据：聚焦 forwarding 测试在实现前同时观察到扩展 Models 错误公开 `supported` 和带工具 ASR 请求到达
+transport；收窄 audio target 后，同一测试确认四模型公开 `unsupported`、三个工具参数均不出现，并对四种合法音频 task 保持 HTTP 400
+与 zero egress。
 
 当前 checkout 的确定性证据入口：
 

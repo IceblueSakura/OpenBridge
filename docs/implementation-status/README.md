@@ -28,7 +28,7 @@ Provider 状态页按 family 汇总当前注册模型的多模态、工具调用
 
 | Provider | 状态页 | 主要内容 |
 |---|---|---|
-| Xiaomi MiMo | [MiMo 多模态与工具调用状态](providers/mimo.md) | 六模型 text/image/audio/video 边界、function tool 实测和当前能力收窄缺口 |
+| Xiaomi MiMo | [MiMo 多模态与工具调用状态](providers/mimo.md) | 六模型 text/image/audio/video 边界、function tool 实测和模型级固定能力收窄 |
 
 ## 已实现的横向能力
 
