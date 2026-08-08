@@ -11,8 +11,9 @@
   exporter；当前只接受受校验的 bootstrap 字段。
 - 私有 `config/users.toml` 提供下游用户和 API key，私有 `config/upstream-credentials.toml` 提供按编译期 binding 关联的有序 API-key
   pool 或单一 OAuth2 auth 文件。
-- `config/upstream-credentials.example.toml` 为每个内置 API-key binding 提供非真实 placeholder；NVIDIA 与百炼的本地私有 binding
-  可以先使用 `api_keys = []` 保持未激活，稍后填入真实 key 并重启。
+- `config/upstream-credentials.example.toml` 为每个内置 API-key binding 提供非真实 placeholder；`openai-primary`、NVIDIA 与百炼的
+  本地私有 binding 都可以先使用 `api_keys = []` 或省略来保持未激活，稍后填入真实 key 并重启。OpenAI binding 保留在代码注册表中，
+  不因当前未启用 `openai-primary` 而被删除；ChatGPT 使用独立的 OAuth2 pool。
 - 启动前严格校验未知、重复、类型不匹配和畸形的 credential binding；缺少已注册 pool、source-less pool 或空 API-key 数组会让其
   引用的 Target 在本次启动中未激活，不会要求对应 secret，也不会从 Provider 注册表移除它。
 - 服务在 Public Model 编译前应用 active credential pool 集合，再构建不可变 `UserRegistry`、`CredentialStore` 和可用的 OAuth2 credential

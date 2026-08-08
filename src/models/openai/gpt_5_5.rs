@@ -5,10 +5,13 @@ use crate::registry::{
     ReasoningSupport,
 };
 
+/// Stable OpenBridge catalog ID for OpenAI GPT-5.5.
+pub(crate) const ID: &str = "openai/gpt-5.5";
+
 /// Builds the GPT-5.5 model facts confirmed by the LiteLLM configuration.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
-        id: "openai/gpt-5.5".to_owned(),
+        id: ID.to_owned(),
         name: "GPT-5.5".to_owned(),
         description: Some(
             "OpenAI frontier model for complex professional work with strong reasoning and reliability."

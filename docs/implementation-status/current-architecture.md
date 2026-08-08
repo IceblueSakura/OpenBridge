@@ -181,7 +181,8 @@ Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
 `:free` 变体边界见 [OpenRouter 模型目录](../references/providers/openrouter/models.md)。
 ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical context/input limits 独立收窄为 272,000，最大输出保持
-128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；GPT-5.5 仍只有目录 profile。
+128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；OpenAI GPT-5.5、GPT-5.6
+Luna/Terra 也分别进入固定 OpenAI Target，但仍不单独生成 Public Model 或 Route。
 
 同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
 限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
@@ -303,7 +304,7 @@ OAuth pool；OpenBridge-owned bundle 由独立 `OAuth2CredentialManager` 持有�
 每个 Chat/Responses capability 还声明 `ReasoningOutput`：`Unknown` 不表示可读输出，`PlainText` 和 `Summary`
 才允许进入方向兼容的 Bridge reasoning channel，`Opaque`（包括 `encrypted_content`）不会被转换。OpenAI、LongCat 与 MiMo
 当前都通过共享构造器注册 Chat、Responses 两个独立 Upstream API；DeepSeek V4 Flash 显式注册同样两个无状态 API，而 V4 Pro 只注册
-Chat。OpenAI 另有
+Chat。OpenAI 当前有 `openai-main`、GPT-5.5、GPT-5.6 Luna/Terra 三个额外 generation Target，以及
 `openai-text-embedding-3-small` target、`embeddings` API 和 `text-embedding-3-small-openai-embeddings` Native Route， 不复用
 `openai-main` 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
 source；编译器先统计一个 Public Model 的 Chat/Responses Native coverage，按 source 顺序生成 Native route；只有缺少某一 downstream

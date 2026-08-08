@@ -11,6 +11,9 @@
 - 当前内置 Provider family 为 OpenAI、LongCat、OpenRouter、DeepSeek、Xiaomi MiMo、ChatGPT、NVIDIA、阿里云百炼 Model Studio 和 Kimi CN；
   ChatGPT 使用独立 OAuth manager，固定 target 提供 Responses Native；Responses-only Public Model 的 Chat coverage 由编译器自动补充
   受限 Chat Bridge，已由其他 source 完整覆盖 Native 的 merged Public Model 不重复生成该自动 Bridge。
+- OpenAI 现在编译 `openai-main`、`openai-gpt-5-5`、`openai-gpt-5-6-luna`、`openai-gpt-5-6-terra` 四个 generation Target，
+  以及 `openai-text-embedding-3-small` Embeddings Target；它们都使用 `openai-primary` API-key pool。新增的三个 generation
+  Target 只绑定 canonical profile，不新增下游 Public Model 或 Route；`openai-primary` 缺失或为空时这些 Target 保留在注册表中但配置态禁用。
 - NVIDIA 与百炼分别固定到 `https://integrate.api.nvidia.com/v1` 和
   `https://dashscope.aliyuncs.com/compatible-mode/v1`，各自拥有基础 OpenAI-compatible Chat adapter 与独立 API-key pool。NVIDIA
   将 `minimax/minimax-m3` 绑定为 `minimax-m3`，百炼将 `z-ai/glm-5.2`、`qwen/qwen3.7-plus` 与
@@ -56,7 +59,7 @@
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖注册项、引用和启动校验。
 - [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖 active pool 筛选、Target/Public Model 过滤和
   非激活 pool 不进入服务凭证要求。
-- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖五个 ChatGPT target、显式 Provider 池、Public Model/Route 的固定编译事实和能力收窄。
+- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖 OpenAI/ChatGPT target、显式 Provider 池、Public Model/Route 的固定编译事实和能力收窄。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖候选顺序、Public Model 与 Route 规划。
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 和 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider 请求、认证和受信出站边界。
@@ -138,6 +141,15 @@ payload。
 - 移除 `qwen/qwen-image-2.0-pro` canonical profile 及其 Bailian Chat Target；新增的 Qwen Image 3.0、Qwen Image 3.0 Pro、Qwen Audio 3.0 ASR Flash、Qwen3.8 Max、Qwen3.5 LiveTranslate Flash Realtime 与 Qwen3.6 27B 均绑定固定 Bailian Chat Target。
 - `qwen/qwen3.7-text-embedding` 绑定固定 Bailian Embeddings Target，使用 `/embeddings` 兼容接口，并保留百炼公开的输入、维度、批量和 token 限制；该条目仍未加入 Public Model/Route。
 - 本次只执行 `cargo fmt -- --check` 与 `git diff --check`；按要求未执行 Rust 测试或真实 Bailian 请求。
+
+2026-08-08 OpenAI generation Target binding：
+
+- `openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 新增固定 OpenAI Target；每个 Target 使用对应的
+  `openai/<model>` routing identity、OpenAI upstream model、`openai-primary` API-key pool 和 Chat/Responses Native API。
+- `tests/example_config/providers.rs::openai_generation_profiles_compile_as_fixed_api_key_targets` 在实现前因 Target 不存在失败，
+  实现后通过，并确认不激活 `openai-primary` 时这些 Target 保留但 disabled。
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
+- 本次未修改私有 credential TOML，未运行真实 OpenAI Provider、probe、外部 SDK、负载或长期运行验收。
 
 ## 相关文档
 

@@ -3,6 +3,89 @@
 use super::*;
 
 #[test]
+fn openai_generation_profiles_compile_as_fixed_api_key_targets() {
+    // Locate the existing OpenAI Provider instance and its shared API-key pool.
+    let definition = compiled_config();
+    let provider_instance = definition
+        .provider_instances
+        .iter()
+        .find(|instance| instance.id == "openai")
+        .expect("OpenAI Provider instance should be compiled");
+    assert_eq!(provider_instance.kind, ProviderKind::OpenAi);
+    assert_eq!(provider_instance.base_url, "https://api.openai.com");
+    let pool = definition
+        .credential_pools
+        .iter()
+        .find(|pool| pool.id == "openai-primary")
+        .expect("OpenAI API-key pool should be compiled");
+    assert_eq!(pool.provider, ProviderKind::OpenAi);
+    assert_eq!(pool.kind, CredentialKind::ApiKey);
+
+    // Compile the complete registry so each canonical profile crosses Target and API validation.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    for (target_id, canonical_model, provider_model, upstream_model) in [
+        (
+            "openai-gpt-5-5",
+            "openai/gpt-5.5",
+            "openai/gpt-5.5",
+            "gpt-5.5",
+        ),
+        (
+            "openai-gpt-5-6-luna",
+            "openai/gpt-5.6-luna",
+            "openai/gpt-5.6-luna",
+            "gpt-5.6-luna",
+        ),
+        (
+            "openai-gpt-5-6-terra",
+            "openai/gpt-5.6-terra",
+            "openai/gpt-5.6-terra",
+            "gpt-5.6-terra",
+        ),
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("OpenAI generation Target should compile");
+        assert_eq!(target.kind(), ProviderKind::OpenAi);
+        assert_eq!(target.provider_instance_id(), "openai");
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(target.provider_model_id(), provider_model);
+        assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
+        assert_eq!(target.credential_pool_id(), "openai-primary");
+        assert_eq!(target.upstream_apis().count(), 2);
+        for operation in [OperationKind::ChatCompletions, OperationKind::Responses] {
+            let api = target
+                .upstream_api(operation)
+                .expect("OpenAI generation Native API should compile");
+            assert_eq!(api.upstream_model(), upstream_model);
+        }
+    }
+
+    // Preserve the code bindings while disabling every OpenAI Target when its pool is not active.
+    let active_pool_ids = std::collections::BTreeSet::from(["chatgpt-codex".to_owned()]);
+    let inactive_registry = openbridge::providers::build_compiled_registry_with_active_pools(
+        parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap(),
+        &active_pool_ids,
+    )
+    .expect("registry should compile with OpenAI pool disabled");
+    for target_id in [
+        "openai-main",
+        "openai-gpt-5-5",
+        "openai-gpt-5-6-luna",
+        "openai-gpt-5-6-terra",
+        "openai-text-embedding-3-small",
+    ] {
+        assert!(
+            !inactive_registry
+                .upstream_target(target_id)
+                .expect("OpenAI Target should remain registered")
+                .enabled()
+        );
+    }
+}
+
+#[test]
 fn nvidia_and_bailian_compile_as_fixed_api_key_provider_profiles() {
     // Locate each fixed Provider instance and its separately owned API-key pool.
     let definition = compiled_config();

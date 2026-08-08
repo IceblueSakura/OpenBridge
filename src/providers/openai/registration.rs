@@ -44,22 +44,40 @@ pub fn provider_instance() -> ProviderInstanceConfig {
 
 /// Builds the OpenAI upstream targets built into this compiled version.
 pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
-    vec![generation_target(), embedding_target()]
+    vec![
+        generation_target("openai-main", openai::gpt_5_6_sol::ID, "gpt-5.6-sol"),
+        generation_target(
+            "openai-gpt-5-6-terra",
+            openai::gpt_5_6_terra::ID,
+            "gpt-5.6-terra",
+        ),
+        generation_target(
+            "openai-gpt-5-6-luna",
+            openai::gpt_5_6_luna::ID,
+            "gpt-5.6-luna",
+        ),
+        generation_target("openai-gpt-5-5", openai::gpt_5_5::ID, "gpt-5.5"),
+        embedding_target(),
+    ]
 }
 
-/// Builds the existing OpenAI generation target without adding request-time model selection.
-fn generation_target() -> UpstreamTargetConfig {
+/// Builds one OpenAI generation target without adding request-time model selection.
+fn generation_target(
+    id: &str,
+    canonical_model: &str,
+    upstream_model: &str,
+) -> UpstreamTargetConfig {
     UpstreamTargetConfig {
-        id: "openai-main".to_owned(),
+        id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        canonical_model: openai::gpt_5_6_sol::ID.to_owned(),
-        provider_model: ProviderKind::OpenAi.routing_model_id(openai::gpt_5_6_sol::ID),
+        canonical_model: canonical_model.to_owned(),
+        provider_model: ProviderKind::OpenAi.routing_model_id(canonical_model),
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: native_upstream_apis("gpt-5.6-sol", conservative_openai_capabilities()),
+        upstream_apis: native_upstream_apis(upstream_model, conservative_openai_capabilities()),
     }
 }
 

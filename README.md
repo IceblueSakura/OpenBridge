@@ -47,6 +47,7 @@ surface 仍保持关闭。
 |---|---|---|---|
 | `gpt-5.6-sol` | Chat、Responses | `openai-primary`、`chatgpt-codex` | OpenAI Native 优先、ChatGPT Responses fallback；公共能力按两个 source 的固定契约公开 |
 | `chatgpt-gpt-5.3-codex-spark` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
+| `chatgpt-gpt-5.5` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `chatgpt-gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | Responses Native；Chat 通过受限 Chat→Responses Bridge，必须使用 SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first，并保留已声明语义的 Bridge 候选 |
@@ -66,7 +67,9 @@ surface 仍保持关闭。
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 唯一 Embeddings Native Route；不支持 streaming 或 Bridge |
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
-代码中存在但未绑定到 Public Model 的 canonical profile 不代表可调用模型，例如 ChatGPT GPT-5.5 不会出现在 `/v1/models`。
+代码中已绑定 Provider Target 但未加入 Public Model/Route 的 canonical profile 仍不代表可调用模型。当前
+`openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 已分别绑定 OpenAI Target，但没有独立的下游
+Public Model；`chatgpt-gpt-5.5` 则是另一条已公开的 ChatGPT profile。
 
 ## 3. 前置条件与安全边界
 
@@ -129,6 +132,10 @@ credential rotation；这不等于账号级负载均衡。
 
 没有填写的 pool、没有 source 的 pool，或 `api_keys = []` 会使引用它的 Target 在本次启动中不可用，但不会从代码
 注册表删除 Provider 或 Model。source 类型与注册表不匹配、重复 binding、空白或重复 key 会直接阻止启动。
+
+`openai-primary` 是可选的 API-key pool。省略它或保留 `api_keys = []` 会按预期禁用 `openai-main`、三个新增的
+OpenAI generation Target 以及 `openai-text-embedding-3-small`，但不会删除这些代码绑定；ChatGPT Public Model 使用独立的
+`chatgpt-codex` OAuth2 pool，不受此设置影响。
 
 `nvidia-primary` 激活 `minimax-m3`，`kimi-primary` 激活 `kimi-k3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
 `qwen3.7-max`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
@@ -439,10 +446,13 @@ Chat、Responses 和 Embeddings。页面依赖固定版本的 jsDelivr 静态资
 `openbridge-probe` 不启动下游网关，不修改代码注册表，只对一个已注册且已启用的 Upstream Target 发起显式探测，并输出
 脱敏 JSON 报告。它读取当前 bootstrap 和上游 credential 配置，因此仍需要对应真实 credential。
 
-当前 target ID：
+常用 target ID（示例）：
 
 ```text
 openai-main
+openai-gpt-5-5
+openai-gpt-5-6-luna
+openai-gpt-5-6-terra
 openai-text-embedding-3-small
 longcat-2
 openrouter-deepseek-v4-flash
