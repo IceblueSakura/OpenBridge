@@ -12,7 +12,7 @@
 - [List models filtered by user preferences](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails)
 - [Models guide](https://openrouter.ai/docs/guides/overview/models)
 
-本文只记录 OpenRouter 模型目录、单模型详情、过滤和字段语义，以及入口/认证与一次固定日期的 live wire 观察；二者都只适用于 OpenRouter。模型目录数据快照见 [model-catalog.md](model-catalog.md)。
+本文只记录 OpenRouter 模型目录、单模型详情、过滤和字段语义，以及入口/认证与一次固定日期的 live wire 观察；二者都只适用于 OpenRouter。模型目录数据快照见 [models.md](models.md)。
 
 ## 1. 接口分层
 

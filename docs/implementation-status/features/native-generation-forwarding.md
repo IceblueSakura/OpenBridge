@@ -51,6 +51,6 @@
 - [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api-compatibility.md)
 - [协议 Bridge](protocol-bridge.md)
 - [`mimo-v2.5` Native 图片输入](native-image-input.md)
-- [DeepSeek 协议入口快照](../../references/providers/deepseek/protocol.md)
+- [DeepSeek API 协议入口快照](../../references/providers/deepseek/api.md)
 - [重试、fallback、cooldown 与取消](resilience-retry-fallback-and-cancellation.md)
 - [当前代码架构](../current-architecture.md)
