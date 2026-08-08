@@ -8,6 +8,8 @@
 
 关键结论先行：**截至快照日，Rust 生态中唯一完整实现 2026-07-28 现行规范的库是官方 rust-sdk（crate 名 `rmcp`）**；其余活跃库（rust-mcp-stack、pmcp）仍锚定 2025-11-25。若目标是与最新规范对齐，选型空间实际上是"用官方 `rmcp`"还是"接受旧规范用社区库"。
 
+远程访问模式见[远程访问模式调研](remote-access-modes.md)：互联网访问 MCP 的唯一标准传输是 Streamable HTTP；2026-07-28 无状态化使 server 可被网关/负载均衡/CDN/无服务器直接托管；远程认证为 OAuth 2.1（RFC 8707 资源指示器 + audience 校验 + 禁止 token passthrough）；MCP 网关（单入口联合多 server + 统一策略/审计/限流）是与本仓库形态最相关的部署模式。
+
 ## 1. 生态全景
 
 | 库 | 维护方 | 最新版（快照日） | 下载量 | 协议支持 | 运行时 | 传输 | HTTP 集成 |
@@ -56,3 +58,15 @@
 - rust-mcp-stack：<https://github.com/rust-mcp-stack/rust-mcp-sdk>、<https://crates.io/crates/rust-mcp-sdk>
 - pmcp：<https://github.com/paiml/rust-mcp-sdk>、<https://crates.io/crates/pmcp>
 - fastmcp_rust：<https://github.com/Dicklesworthstone/fastmcp_rust>、<https://crates.io/crates/fastmcp_rust>
+- 远程访问相关：<https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http>、<https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization>、<https://developers.cloudflare.com/agents/model-context-protocol/guides/remote-mcp-server>、<https://www.arcade.dev/blog/mcp-gateway-pattern>、<https://github.com/ArcadeAI/mcp-rust-sdk/blob/main/docs/OAUTH_SUPPORT.md>
+
+## 6. 文档清单
+
+| 文档 | 内容 |
+|---|---|
+| [README.md](README.md) | 本索引：生态全景、协议支持矩阵、选型观察 |
+| [rmcp-official-sdk.md](rmcp-official-sdk.md) | 官方 Rust SDK：2026-07-28 全特性、trait/宏惯用法、传输矩阵 |
+| [rust-mcp-sdk-community.md](rust-mcp-sdk-community.md) | rust-mcp-stack：axum 一站式托管、BYO、OAuth、宏清单 |
+| [pmcp.md](pmcp.md) | paiml 生态：WebSocket/WASM/OIDC、composition |
+| [fastmcp-rust.md](fastmcp-rust.md) | 实验性：asupersync、cancel-correct、不构成生产选型 |
+| [remote-access-modes.md](remote-access-modes.md) | 远程访问：Streamable HTTP 细节、OAuth 2.1、无状态化意义、部署模式、MCP 网关模式、Rust 生态远程能力对照 |
