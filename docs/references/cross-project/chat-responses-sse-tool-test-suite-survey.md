@@ -7,11 +7,9 @@
 本综合文档只比较以下独立调研结果：
 
 - [OpenAI gpt-oss compatibility-test](../openai/gpt-oss-compatibility-test-analysis.md)
-- [Open Responses Compliance](../open-responses/open-responses-compliance-analysis.md)
+- [Open Responses Compliance](../openai/open-responses-compliance-analysis.md)
 - [Codex Responses 与工具生命周期 tests](../codex/codex-protocol-test-assets-analysis.md)
 - [LiteLLM Responses 与转换 tests/issues](../litellm/litellm-protocol-test-assets-analysis.md)
-- [CallOrRet/responses-proxy tests](../responses-proxy/responses-proxy-test-assets-analysis.md)
-- [beranekio/openai-compatibility-tester](../openai-compatibility-tester/openai-compatibility-tester-analysis.md)
 - [OpenAI SDK streaming consumers](../openai/openai-sdk-stream-test-assets-analysis.md)
 
 ## 2. 评估维度
@@ -38,8 +36,6 @@
 | Open Responses Compliance   |   无 |        强 |       无 |     部分 |         弱 |         部分 |     中 |
 | Codex tests                 |   无 |        强 |       无 |       强 |         强 |         部分 |     强 |
 | LiteLLM tests/issues        | 部分 |        强 |     部分 |       强 |         强 |         部分 |     中 |
-| responses-proxy tests       | 部分 |        强 | 单方向强 |     部分 |       部分 |           弱 |     强 |
-| openai-compatibility-tester |   强 |        强 |       无 |     部分 |       部分 |         部分 |     中 |
 | OpenAI SDK consumer tests   |   强 |        强 |       无 |     部分 |       部分 |           弱 |     中 |
 
 “确定性弱”只表示结果受模型采样或远端服务影响，不是项目质量评价。
@@ -59,11 +55,10 @@
 
 不同资产的证据角色也不同：
 
-- gpt-oss compatibility-test 与 compatibility tester 主要是 SDK/API-shape smoke；
+- gpt-oss compatibility-test 与 OpenAI SDK consumer tests 主要是 SDK/API-shape smoke；
 - Open Responses Compliance 主要是 Responses 黑盒 schema、terminal 与 continuation；
 - Codex tests 主要是 Responses client tool lifecycle；
 - LiteLLM tests/issues 主要提供多 Provider 转换差异和负面回归；
-- responses-proxy 主要提供 Rust 单方向 conversion fixture；
 - SDK accumulator 主要说明客户端如何消费增量。
 
 ## 5. 适用边界

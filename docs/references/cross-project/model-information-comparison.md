@@ -5,7 +5,7 @@
 本综合文档建立在两个独立项目调研之上：
 
 - [LiteLLM 模型信息接口与能力字段](../litellm/litellm-model-information-analysis.md)
-- [OpenRouter Models API 与模型能力字段](../openrouter/model-information-api-analysis.md)
+- [OpenRouter Models API 与模型能力字段](../providers/openrouter/model-information-api-analysis.md)
 
 本文只比较外部模型信息形状，不记录任何具体网关的模型注册、API 状态或实现设计。
 

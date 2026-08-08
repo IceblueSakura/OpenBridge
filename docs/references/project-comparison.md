@@ -17,16 +17,14 @@
 | CLIProxyAPI                 | 多协议 subscription/account proxy | state mapping、translator failures、credential cooldown、Codex OAuth scheduler        | account rotation、私有 client identity 或 WebSocket state 可移植               |
 | OpenRouter                  | 聚合 Provider/API 与模型目录      | Model object、filters、Chat/Responses path、fixed model/wire snapshots                | 目录字段等于每个 endpoint 的实际 capability                                    |
 | Open Responses              | 独立 Responses 规范/生态          | HTTP/SSE/WebSocket compliance scenarios                                               | 与 OpenAI 官方 Responses 完全相同或覆盖 Chat bridge                            |
-| responses-proxy             | Rust Responses→Chat proxy         | 单方向 conversion 与 streaming-state tests                                            | 双向完整 bridge 或全部 fault/cancel 行为                                       |
 | gpt-oss compatibility-test  | model/API-shape smoke             | Chat/Responses、streaming、function-call smoke                                        | 确定性 semantic oracle                                                         |
-| openai-compatibility-tester | Go SDK black-box tester           | models、Chat、Responses、stream/tools/errors smoke                                    | 内部 protocol conversion correctness                                           |
 
 ## 3. 功能分工
 
 | 研究问题                                   | 直接项目证据                              | 综合文档                                                                               |
 |--------------------------------------------|-------------------------------------------|----------------------------------------------------------------------------------------|
 | Responses SSE 与 client tool lifecycle     | Codex                                     | [Protocol test assets](cross-project/chat-responses-sse-tool-test-suite-survey.md)     |
-| Chat/Responses request/response conversion | LiteLLM、cc-switch、responses-proxy       | [Protocol test assets](cross-project/chat-responses-sse-tool-test-suite-survey.md)     |
+| Chat/Responses request/response conversion | LiteLLM、cc-switch                   | [Protocol test assets](cross-project/chat-responses-sse-tool-test-suite-survey.md)     |
 | Stateful continuation 与 opaque identity   | CLIProxyAPI、cc-switch、Codex             | 各项目 state/tool 文档；尚无单一通用 state contract                                    |
 | Credential retry/cooldown                  | CLIProxyAPI、LiteLLM、cc-switch           | [Credential retry comparison](cross-project/credential-pool-retry-analysis.md)         |
 | OAuth device login/refresh                 | Codex、CLIProxyAPI、Hermes、LiteLLM       | [OAuth comparison](cross-project/upstream-oauth-device-code-token-refresh-analysis.md) |
@@ -41,8 +39,8 @@
 - OpenAI official docs 定义公开 wire。
 - Codex 说明一个具体 Responses client 如何消费 typed SSE 和 tool lifecycle。
 - Hermes 说明完整 Agent loop 如何在 Chat history 与 Responses items 间归一化。
-- LiteLLM、cc-switch 和 responses-proxy 提供三种不同 converter/state 实现。
-- Open Responses、gpt-oss 和 compatibility-tester 提供不同强度的黑盒测试。
+- LiteLLM 和 cc-switch 提供两种不同 converter/state 实现。
+- Open Responses、gpt-oss 和 OpenAI SDK consumer tests 提供不同强度的协议与客户端测试。
 
 这些证据角色互补，但没有任何一个项目可以同时替代官方 wire、client behavior、converter contract 和真实 Provider 验证。
 
