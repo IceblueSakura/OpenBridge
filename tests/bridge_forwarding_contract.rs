@@ -431,6 +431,63 @@ data: [DONE]
 }
 
 #[tokio::test]
+async fn production_router_accepts_post_finish_chat_usage_chunk() {
+    let upstream = Bytes::from_static(
+        br#"data: {"id":"chatcmpl_mock_usage","choices":[{"delta":{"content":"ok"},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_mock_usage","choices":[{"delta":{},"finish_reason":"stop","index":0}]}
+
+data: {"id":"chatcmpl_mock_usage","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+data: [DONE]
+
+"#,
+    );
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/chat/completions",
+        upstream_body: upstream,
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+
+    // Send a streaming Responses request through the production router and collect the converted body.
+    let response = app_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport,
+        ReasoningOutput::PlainText,
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","stream":true}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+
+    // Verify that the ignored usage chunk does not prevent a valid Responses terminal.
+    let mut state = ResponsesStreamState::new();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    for event in events {
+        state.ingest(&event).unwrap();
+    }
+    state.finish().unwrap();
+    assert_eq!(state.text(), "ok");
+    assert_eq!(
+        state.terminal(),
+        Some(openbridge::bridge::StreamTerminal::Completed)
+    );
+}
+
+#[tokio::test]
 async fn production_router_rejects_reasoning_when_upstream_output_is_unknown() {
     let transport = Arc::new(ExpectedTransport {
         expected_path: "/v1/chat/completions",

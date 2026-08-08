@@ -22,7 +22,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             image_input: None,
             structured_outputs: None,
             store: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             audio: None,
             file_input: false,

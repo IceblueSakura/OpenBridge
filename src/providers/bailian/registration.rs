@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use crate::{
+    core::ReasoningOutput,
     models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
     registry::{
@@ -28,45 +29,72 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 /// Builds the fixed GLM-5.2, Qwen, and DeepSeek V4 targets for Model Studio.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
-        chat_target("bailian-glm-5-2", z_ai::glm_5_2::ID, "glm-5.2"),
+        chat_target(
+            "bailian-glm-5-2",
+            z_ai::glm_5_2::ID,
+            "glm-5.2",
+            ReasoningOutput::PlainText,
+        ),
         chat_target(
             "bailian-qwen3-7-plus",
             qwen::qwen3_7_plus::ID,
             "qwen3.7-plus",
+            ReasoningOutput::PlainText,
         ),
-        chat_target("bailian-qwen3-7-max", qwen::qwen3_7_max::ID, "qwen3.7-max"),
-        chat_target("bailian-qwen3-8-max", qwen::qwen3_8_max::ID, "qwen3.8-max"),
+        chat_target(
+            "bailian-qwen3-7-max",
+            qwen::qwen3_7_max::ID,
+            "qwen3.7-max",
+            ReasoningOutput::PlainText,
+        ),
+        chat_target(
+            "bailian-qwen3-8-max",
+            qwen::qwen3_8_max::ID,
+            "qwen3.8-max",
+            ReasoningOutput::Unknown,
+        ),
         chat_target(
             "bailian-qwen-image-3-0",
             qwen::qwen_image_3_0::ID,
             "qwen-image-3.0",
+            ReasoningOutput::Unknown,
         ),
         chat_target(
             "bailian-qwen-image-3-0-pro",
             qwen::qwen_image_3_0_pro::ID,
             "qwen-image-3.0-pro",
+            ReasoningOutput::Unknown,
         ),
         chat_target(
             "bailian-qwen-audio-3-0-asr-flash",
             qwen::qwen_audio_3_0_asr_flash::ID,
             "qwen-audio-3.0-asr-flash",
+            ReasoningOutput::Unknown,
         ),
         chat_target(
             "bailian-qwen3-5-livetranslate-flash-realtime",
             qwen::qwen3_5_livetranslate_flash_realtime::ID,
             "qwen3.5-livetranslate-flash-realtime",
+            ReasoningOutput::Unknown,
         ),
-        chat_target("bailian-qwen3-6-27b", qwen::qwen3_6_27b::ID, "qwen3.6-27b"),
+        chat_target(
+            "bailian-qwen3-6-27b",
+            qwen::qwen3_6_27b::ID,
+            "qwen3.6-27b",
+            ReasoningOutput::Unknown,
+        ),
         embedding_target(),
         chat_target(
             "bailian-deepseek-v4-pro",
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
+            ReasoningOutput::Unknown,
         ),
         chat_target(
             "bailian-deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash-0731",
+            ReasoningOutput::Unknown,
         ),
     ]
 }
@@ -93,7 +121,17 @@ fn embedding_target() -> UpstreamTargetConfig {
 }
 
 /// Binds one canonical model to Model Studio's trusted Chat endpoint and credential pool.
-fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> UpstreamTargetConfig {
+fn chat_target(
+    id: &str,
+    canonical_model: &str,
+    upstream_model: &str,
+    reasoning_output: ReasoningOutput,
+) -> UpstreamTargetConfig {
+    // Narrow the Provider ceiling to the reasoning output confirmed for this specific model.
+    let mut capabilities = CONTRACT.capabilities().chat_completions;
+    capabilities.reasoning_output = reasoning_output;
+
+    // Bind the narrowed Chat contract to the trusted deployment and credential pool.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -107,9 +145,7 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         upstream_apis: vec![UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(
-                CONTRACT.capabilities().chat_completions,
-            ),
+            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities),
             state_affinity: StateAffinity::Unbound,
         }],
     }

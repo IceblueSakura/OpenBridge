@@ -9,7 +9,10 @@ use std::collections::{BTreeMap, btree_map::Entry};
 use bytes::Bytes;
 use serde_json::{Value, json};
 
-use crate::{bridge::ChatStreamState, transport::sse::SseEvent};
+use crate::{
+    bridge::{ChatStreamEventKind, ChatStreamState},
+    transport::sse::SseEvent,
+};
 
 use super::{
     super::{
@@ -70,10 +73,11 @@ impl ChatToResponsesStream {
         event: SseEvent,
         public_model: &str,
     ) -> Result<Bytes, BridgeError> {
-        // Use the strict Chat state machine to fix index/call identities and the DONE terminal first.
-        self.state.ingest(&event)?;
-        if event.data() == "[DONE]" {
-            return self.render_done(public_model);
+        // Use the strict Chat state machine to classify deltas, trailing usage, and the DONE terminal first.
+        match self.state.ingest_event(&event)? {
+            ChatStreamEventKind::Terminal => return self.render_done(public_model),
+            ChatStreamEventKind::Usage => return Ok(Bytes::new()),
+            ChatStreamEventKind::Chunk => {}
         }
         let value: Value =
             serde_json::from_str(event.data()).map_err(|_| BridgeError::InvalidStream)?;

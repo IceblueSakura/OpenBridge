@@ -281,6 +281,59 @@ data: {"type":"response.completed","response":{"id":"resp_reasoning","model":"pu
 }
 
 #[test]
+fn chat_to_responses_accepts_one_post_finish_usage_chunk_before_done() {
+    let (plan, _) = BridgePlan::prepare_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(br#"{"model":"public-model","input":"hello","stream":true}"#),
+        ReasoningOutput::PlainText,
+    )
+    .expect("Responses request should be bridgeable");
+    let upstream = Bytes::from_static(
+        br#"data: {"id":"chatcmpl_usage","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_usage","choices":[{"delta":{"reasoning_content":"check"},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_usage","choices":[{"delta":{"content":"ok"},"finish_reason":null,"index":0}]}
+
+data: {"id":"chatcmpl_usage","choices":[{"delta":{"content":""},"finish_reason":"stop","index":0}]}
+
+data: {"id":"chatcmpl_usage","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
+
+data: [DONE]
+
+"#,
+    );
+
+    // Render the observed Chat lifecycle, including the post-finish usage-only statistics chunk.
+    let mut renderer = plan.stream_renderer();
+    let mut actual = Vec::new();
+    for event in decode(&upstream) {
+        actual.extend(
+            renderer
+                .render(event)
+                .expect("one post-finish usage chunk must be accepted"),
+        );
+    }
+    actual.extend(renderer.finish().expect("stream must reach terminal"));
+
+    // Validate that ignored statistics do not disturb reasoning, visible text, or the single Responses terminal.
+    let mut state = ResponsesStreamState::new();
+    for event in decode(&actual) {
+        state.ingest(&event).expect("converted Responses stream");
+    }
+    state.finish().expect("converted Responses terminal");
+    assert_eq!(state.reasoning_text(), "check");
+    assert_eq!(state.text(), "ok");
+    assert_eq!(
+        state.terminal(),
+        Some(openbridge::bridge::StreamTerminal::Completed)
+    );
+}
+
+#[test]
 fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
     let (plan, _) = BridgePlan::prepare(
         ApiProtocol::Responses,
@@ -313,6 +366,25 @@ data: {"id":"chatcmpl_late","choices":[{"delta":{"content":"late"},"finish_reaso
         .render(events[0].clone())
         .expect("first Chat finish chunk should render");
     assert!(renderer.render(events[1].clone()).is_err());
+
+    // Only one post-finish usage-only chunk is valid; a duplicate remains an unexpected late event.
+    let mut renderer = plan.stream_renderer();
+    let events = decode(
+        br#"data: {"id":"chatcmpl_duplicate_usage","choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}
+
+data: {"id":"chatcmpl_duplicate_usage","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+data: {"id":"chatcmpl_duplicate_usage","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+"#,
+    );
+    renderer
+        .render(events[0].clone())
+        .expect("finish chunk should render");
+    renderer
+        .render(events[1].clone())
+        .expect("first usage-only chunk should be accepted");
+    assert!(renderer.render(events[2].clone()).is_err());
 }
 
 #[test]

@@ -177,13 +177,11 @@ fn kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge() {
     assert_eq!(target.quota_scope(), Some("kimi-primary"));
     assert_eq!(target.fault_domain(), Some("kimi-cn-api"));
     assert_eq!(target.upstream_apis().count(), 1);
-    assert_eq!(
-        target
-            .upstream_api(OperationKind::ChatCompletions)
-            .expect("Kimi K3 Chat API should compile")
-            .upstream_model(),
-        "kimi-k3"
-    );
+    let chat = target
+        .upstream_api(OperationKind::ChatCompletions)
+        .expect("Kimi K3 Chat API should compile");
+    assert_eq!(chat.upstream_model(), "kimi-k3");
+    assert_eq!(chat.reasoning_output(), ReasoningOutput::PlainText);
     assert!(target.upstream_api(OperationKind::Responses).is_none());
 
     let public_model = registry
@@ -257,6 +255,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "https://integrate.api.nvidia.com/v1/",
             "minimax-m3-nvidia-chat",
             "minimax-m3-nvidia-responses-via-chat",
+            ReasoningOutput::Unknown,
         ),
         (
             "glm-5.2",
@@ -270,6 +269,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "glm-5-2-bailian-chat",
             "glm-5-2-bailian-responses-via-chat",
+            ReasoningOutput::PlainText,
         ),
         (
             "qwen3.7-plus",
@@ -283,6 +283,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-plus-bailian-chat",
             "qwen3-7-plus-bailian-responses-via-chat",
+            ReasoningOutput::PlainText,
         ),
         (
             "qwen3.7-max",
@@ -296,6 +297,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
             "https://dashscope.aliyuncs.com/compatible-mode/v1/",
             "qwen3-7-max-bailian-chat",
             "qwen3-7-max-bailian-responses-via-chat",
+            ReasoningOutput::PlainText,
         ),
     ];
 
@@ -312,6 +314,7 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
         endpoint_base,
         route_id,
         responses_route_id,
+        reasoning_output,
     ) in cases
     {
         let target = registry
@@ -324,13 +327,11 @@ fn nvidia_and_bailian_models_compile_with_native_chat_and_auto_responses_bridges
         assert_eq!(target.credential_pool_id(), credential_pool);
         assert_eq!(target.quota_scope(), Some(credential_pool));
         assert_eq!(target.fault_domain(), Some(fault_domain));
-        assert_eq!(
-            target
-                .upstream_api(OperationKind::ChatCompletions)
-                .expect("Chat Completions should be enabled")
-                .upstream_model(),
-            upstream_model
-        );
+        let chat = target
+            .upstream_api(OperationKind::ChatCompletions)
+            .expect("Chat Completions should be enabled");
+        assert_eq!(chat.upstream_model(), upstream_model);
+        assert_eq!(chat.reasoning_output(), reasoning_output);
         assert!(target.upstream_api(OperationKind::Responses).is_none());
 
         let public_model = registry
@@ -419,13 +420,11 @@ fn bailian_qwen_models_compile_as_fixed_chat_targets() {
         assert_eq!(target.credential_pool_id(), "bailian-primary");
         assert_eq!(target.quota_scope(), Some("bailian-primary"));
         assert_eq!(target.fault_domain(), Some("bailian-api"));
-        assert_eq!(
-            target
-                .upstream_api(OperationKind::ChatCompletions)
-                .expect("Bailian Qwen Chat API should compile")
-                .upstream_model(),
-            upstream_model
-        );
+        let chat = target
+            .upstream_api(OperationKind::ChatCompletions)
+            .expect("Bailian Qwen Chat API should compile");
+        assert_eq!(chat.upstream_model(), upstream_model);
+        assert_eq!(chat.reasoning_output(), ReasoningOutput::Unknown);
         assert!(target.upstream_api(OperationKind::Responses).is_none());
     }
 }
@@ -499,6 +498,7 @@ fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
             UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
         };
         assert!(capabilities.function_tools.is_none());
+        assert_eq!(capabilities.reasoning_output, ReasoningOutput::Unknown);
     }
 
     // Preserve existing Provider priority while appending Bailian to Chat planning only.

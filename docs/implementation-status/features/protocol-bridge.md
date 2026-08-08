@@ -12,6 +12,8 @@
 - `BridgePlan` 在上游调用前检查可表达性；tool-call identity、fragmented arguments、response/project index 和 Responses terminal 由独立 stream
   state machine 维护。
 - Chat→Responses 与 Responses→Chat 均使用显式的 request converter、stream renderer 和 terminal lifecycle，不把两种协议简单当作字段别名。
+- Chat→Responses SSE 在成功 `finish_reason` 与 `[DONE]` 之间允许一个严格的 `choices: []` + `usage` object
+  统计块；该块不产生业务输出，普通 late chunk、重复 usage、finish 前 usage 和 EOF-before-terminal 仍 fail closed。
 - `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
 - 不可表达的 image/file/audio、hosted/custom tool、opaque continuation、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，
   不伪造等价语义。
@@ -28,8 +30,11 @@
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖双向 request、JSON 和 SSE renderer。
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
+- [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
+  Responses-via-Chat JSON/SSE、明文 reasoning 与 trailing usage chunk 的最终验收结果。
 
-这些测试证明已建模语义的转换和进程内 lifecycle，不证明完整 OpenAI API 或任意 Provider 私有语义可转换。
+确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
+OpenAI API 或任意 Provider 私有语义可转换。
 
 ## 相关文档
 

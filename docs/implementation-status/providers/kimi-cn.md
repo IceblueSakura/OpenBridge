@@ -10,8 +10,8 @@
 - 上游接口：只注册 Chat Completions；
 - Route：一个 Chat Native Route，adapter 相对路径为 `/v1/chat/completions`；Public Model 编译器在缺少 Responses Native 时自动
   补充一个 Responses-via-Chat Bridge Route；
-- 当前公开契约：Chat/Responses 的文本与 streaming 基线；没有 Responses Native、Embeddings 或动态 endpoint/credential，Bridge 仍受
-  完整 preflight 的共同语义和能力边界约束。
+- 当前公开契约：Chat/Responses 的文本、streaming 和 `PlainText` reasoning；模型 levels 为 `low`、`high`、`max`。
+  没有 Responses Native、Embeddings 或动态 endpoint/credential，Bridge 仍受完整 preflight 的共同语义和能力边界约束。
 
 ## 证据边界
 
@@ -20,5 +20,11 @@
 `tests/provider_contract.rs` 同时验证 Kimi CN 使用 API-key、仅声明 Chat Native 上游基线，并保持相对 URI 与 credential header 的
 Provider 边界。
 
-这些是确定性注册表和进程内 adapter 证据，不证明真实 Moonshot 账号权限、模型可用性、网络、配额、外部 SDK、负载或长期运行行为。
-本 checkout 尚未执行 Kimi CN 真实 Provider 请求或 Models probe。
+2026-08-08 使用真实下游用户 key 和当前私有 Kimi credential 执行了 Chat/Responses × JSON/SSE × reasoning
+字段省略/high 矩阵，8 个单元最终全部成功。Responses-via-Chat 的 JSON 能保留 reasoning item，两种 SSE reasoning
+组合均包含 `response.completed`。标准 `reasoning_effort: "none"` 与 Hermes custom off wire shape
+（`reasoning_effort: "none"` + `think: false`）的 Chat JSON/SSE 均为 HTTP 200 且 reasoning 内容为空。
+完整边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
+
+确定性证据和本次真实请求不证明其他 Moonshot endpoint、账号权限、未来模型行为、外部 SDK、负载或长期运行兼容性；Kimi K3
+可关闭 reasoning 的结论只限本次部署与时间点。

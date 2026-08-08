@@ -12,6 +12,7 @@ mod conversion;
 mod responses;
 mod shared;
 
+pub(crate) use chat::ChatStreamEventKind;
 pub use chat::ChatStreamState;
 pub use conversion::{BridgeError, BridgePlan, BridgeStreamRenderer};
 pub use responses::ResponsesStreamState;

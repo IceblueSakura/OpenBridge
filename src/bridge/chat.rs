@@ -19,6 +19,7 @@ use super::{
 pub struct ChatStreamState {
     lifecycle: Lifecycle,
     finish_reason_seen: bool,
+    usage_seen: bool,
     text: String,
     reasoning_text: String,
     tools: BTreeMap<u64, BridgeToolCall>,
@@ -30,6 +31,7 @@ impl ChatStreamState {
         Self {
             lifecycle: Lifecycle::AwaitingStart,
             finish_reason_seen: false,
+            usage_seen: false,
             text: String::new(),
             reasoning_text: String::new(),
             tools: BTreeMap::new(),
@@ -38,6 +40,14 @@ impl ChatStreamState {
 
     /// Consumes one fully framed Chat SSE event.
     pub fn ingest(&mut self, event: &SseEvent) -> Result<(), BridgeStreamError> {
+        self.ingest_event(event).map(|_| ())
+    }
+
+    /// Consumes one framed event and classifies chunks needed by protocol conversion.
+    pub(crate) fn ingest_event(
+        &mut self,
+        event: &SseEvent,
+    ) -> Result<ChatStreamEventKind, BridgeStreamError> {
         // Handle the Chat `[DONE]` terminal separately and reject early termination without a finish reason.
         if event.data() == "[DONE]" {
             if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
@@ -48,22 +58,31 @@ impl ChatStreamState {
             }
             self.validate_all_arguments()?;
             self.lifecycle = Lifecycle::Terminal(StreamTerminal::Completed);
-            return Ok(());
+            return Ok(ChatStreamEventKind::Terminal);
         }
         if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
             return Err(BridgeStreamError::UnexpectedEvent);
         }
-        if self.finish_reason_seen {
-            return Err(BridgeStreamError::UnexpectedEvent);
-        }
 
-        // Parse the single-choice chunk and update text and tool accumulators in delta order.
+        // Parse the event before distinguishing a normal choice from the optional trailing usage chunk.
         let value: Value =
             serde_json::from_str(event.data()).map_err(|_| BridgeStreamError::InvalidJson)?;
         let choices = value
             .get("choices")
             .and_then(Value::as_array)
             .ok_or(BridgeStreamError::InvalidJson)?;
+        if self.finish_reason_seen {
+            if choices.is_empty()
+                && value.get("usage").is_some_and(Value::is_object)
+                && !self.usage_seen
+            {
+                self.usage_seen = true;
+                return Ok(ChatStreamEventKind::Usage);
+            }
+            return Err(BridgeStreamError::UnexpectedEvent);
+        }
+
+        // Update text and tool accumulators from the single normal choice in delta order.
         if choices.len() != 1 || required_u64(&choices[0], "index")? != 0 {
             return Err(BridgeStreamError::UnexpectedEvent);
         }
@@ -102,7 +121,7 @@ impl ChatStreamState {
             self.finish_reason_seen = true;
             self.validate_all_arguments()?;
         }
-        Ok(())
+        Ok(ChatStreamEventKind::Chunk)
     }
 
     /// Verifies that `[DONE]` appeared when the upstream reaches EOF.
@@ -195,6 +214,17 @@ impl ChatStreamState {
         }
         Ok(())
     }
+}
+
+/// Chat stream event classes needed by bridge renderers after lifecycle validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ChatStreamEventKind {
+    /// A normal single-choice Chat delta.
+    Chunk,
+    /// The optional usage-only chunk after a successful finish reason.
+    Usage,
+    /// The explicit `[DONE]` terminal.
+    Terminal,
 }
 
 impl Default for ChatStreamState {

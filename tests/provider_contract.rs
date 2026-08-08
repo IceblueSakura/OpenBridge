@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use http::Method;
 use openbridge::{
-    core::{ApiProtocol, ApiRequest},
+    core::{ApiProtocol, ApiRequest, ReasoningOutput},
     provider::{AdapterError, CredentialKind, ProviderAdapter, ProviderKind},
 };
 
@@ -70,6 +70,14 @@ fn nvidia_bailian_and_kimi_adapters_bind_their_confirmed_api_surfaces() {
         assert!(contract.capabilities().chat_completions.enabled);
         assert!(contract.capabilities().chat_completions.streaming);
         assert!(!contract.capabilities().responses.enabled);
+        assert_eq!(
+            contract.capabilities().chat_completions.reasoning_output,
+            if provider == ProviderKind::Nvidia {
+                ReasoningOutput::Unknown
+            } else {
+                ReasoningOutput::PlainText
+            }
+        );
         assert_eq!(
             contract.capabilities().embeddings.enabled,
             provider == ProviderKind::Bailian
