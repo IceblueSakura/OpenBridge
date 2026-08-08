@@ -1,126 +1,94 @@
-# 上游模型发现与能力探测
+# 上游模型发现与基础 API 探测
 
-## 状态与证据边界
+## 状态与定位
 
-当前实现提供管理员显式运行的 `openbridge-probe`。它只对代码注册表中的固定 Upstream Target 发起观察请求， 并按 target 已注册的
-Upstream API 选择协议；probe report 是一次真实环境观察，不是动态配置或能力自动发现。
+**Confirmed。** 当前 `openbridge-probe` 是管理员在服务上线前显式运行的基础观察工具。它针对一个已注册且已启用的
+Upstream Target，观察固定 Models 端点以及该 Target 已注册的 Chat Completions、Responses 和 Embeddings Create API。
 
-- 下游 `GET /v1/models` 只返回代码注册的 Public Model，与 probe 结果无关；
-- probe 复用 target 引用的固定 Provider instance endpoint、upstream model、Provider adapter、transport 与 credential pool；API-key target 从
-  TOML 加载所选 pool 的首个 member，ChatGPT target 从所选 `auth_json_file` 的 `OAuth2CredentialManager` 借用当前账户 lease；
-- API-key probe 的 credential snapshot 只属于本次进程，不参与生产 round-robin，也不修改生产 cursor、cooldown 或源 key；ChatGPT probe 不参与
-  生产调度，但可能按既有 manager 规则触发所选 OpenBridge-owned auth 文件的到期 refresh；
-- CLI 不接受 URL、model、header 或 credential 覆盖，不加载下游用户 API Key；
-- probe 只接受已启用 target；普通 target 装载 API-key pool，ChatGPT target 只装载选定的 OAuth2 pool。未选中的 OAuth2 auth 文件不会被显式
-  ChatGPT probe 打开，也不会启动后台 refresh scheduler 或 401 恢复流程；
-- CLI 不提供本机 Agent auth file、client identity 或 executable selector，也不读取 OS/terminal 状态；
-- report 不修改 `RuntimeRegistry`、`ModelConfig`、capability 或 Route；
-- 真实 Provider probe 会产生网络请求，可能消耗额度、触发限流或受账号状态影响，因此不属于默认验证基线。
+该 binary 不再测试 function calling 或 tool-result replay，也不承担模型语义、SDK/Agent、retry/fallback、负载或长期运行测试。
+后续深入测试 binary 与 Python semantic verifier 的接入方式不属于本阶段实现。
 
-## 代码注册的模型事实
+## 受信输入与副作用边界
 
-`src/models/<developer>/` 下的模型叶模块各自拥有一个完整 `ModelConfig`，研发者模块只负责聚合。当前类型可记录：
+- CLI 只接受代码注册的 `--target <id>` 和闭集 probe selector，不接受 URL、model、header、credential 或任意请求体覆盖；
+- probe 复用 Target 固定的 Provider endpoint、upstream model、adapter、transport 和 credential pool；
+- API-key Target 从私有 upstream credential TOML 绑定的 pool 取得首个 member；ChatGPT Target 只从选定
+  `auth_json_file` 的 `OAuth2CredentialManager` 借用账户绑定的短期 lease；
+- 未选中的 OAuth2 文件不会被打开，CLI 不读取本机 Codex/Agent cache、terminal identity 或 executable；
+- Chat/Responses 请求只包含内置文本输入，不包含 `tools`、`tool_choice`、tool call 或 tool result；Embeddings 使用一个固定文本输入；
+- report 不包含 credential、请求正文或上游响应正文，不修改 `RuntimeRegistry`、Model、capability、Route、cursor 或 cooldown；
+- 真实 probe 会产生 Provider 请求，可能消耗额度、触发限流或按既有 OAuth manager 规则刷新选定的 OpenBridge-owned auth 文件，
+  因此不属于默认测试基线。
 
-- canonical model id 与展示元数据；
-- 已核实的总上下文/输入上限、最大输出上限、输入/输出模态、tokenizer 和 knowledge cutoff；
-- 支持参数集合；
-- reasoning 三态；
-- 支持的 canonical reasoning level 子集。
+## CLI 与观察项
 
-未知事实保持为空或 `Unknown`。OpenRouter 没有独立的输入上限字段，因此其模型级 `context_length` 同时
-投影为总上下文和输入上限；这不是把最大输出从总上下文中扣除后的残差。`context_length.output` 在请求显式携带 输出上限时参与候选筛选；
-`context_length.input` 当前只作为元数据，因为运行时没有 model-specific tokenizer。Upstream API capability、 served
-limit、state affinity 与 reasoning wire 映射由 Provider 注册项中的 typed Rust 值声明，并且只能收窄 Provider contract 和
-canonical model 上界。
-
-## CLI 与固定观察项
-
-Provider probe 与服务共享 `OPENBRIDGE_CONFIG` 选择的 bootstrap，并按代码注册的 pool id 从 bootstrap 指定的私有
-`upstream-credentials.toml` 加载凭证：API-key target 加载 API key，ChatGPT target 加载选定的 OAuth2 `auth_json_file`：
+probe 与服务共享 `OPENBRIDGE_CONFIG` 选择的 bootstrap 和其中指向的 private upstream credential TOML：
 
 ```powershell
-cargo run --bin openbridge-probe -- --target openai-main --list-models
-cargo run --bin openbridge-probe -- --target openai-main --chat --responses --function-calling
-cargo run --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list-models
+cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
+cargo run --locked --bin openbridge-probe -- --target openai-main --chat --responses
+cargo run --locked --bin openbridge-probe -- --target openai-text-embedding-3-small --embeddings
+cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --responses
 ```
 
-可选项为 `--list-models`、`--chat`、`--responses`、`--function-calling` 和 `--all`；没有选择项时等同
-`--all`，并且 target 必须是已启用的代码注册项。若 target 没有对应协议的 Upstream API，相关观察不会被解释为 Provider 支持。
+可选项为 `--list-models`、`--chat`、`--responses`、`--embeddings` 和 `--all`。没有 selector 时等同 `--all`；`--all`
+只运行当前 Target 的四类观察，不遍历其他 Target。Target 未注册某个 operation 时，该项直接报告 `unsupported`，不发起对应请求。
 
-| 探测项                     | 固定上游请求                             | `supported` 条件                                           |
-|----------------------------|------------------------------------------|------------------------------------------------------------|
-| `list_models`              | Provider 注册的固定模型列表 GET 路径     | 返回 Provider-specific 模型信封，并报告注册的 upstream model 是否存在。 |
-| `chat`                     | 最小 Chat Completions 请求               | 返回非空 `choices[]`。                                     |
-| `responses`                | 最小 Responses 请求                      | 返回 `object: "response"`。                                |
-| Chat function calling      | 固定无副作用 function call/result replay | call identity、arguments 与 replay 形状有效。              |
-| Responses function calling | 固定 function call/output replay         | call ID、名称、arguments 与 replay 形状有效。              |
+| 报告字段 | 固定请求 | `supported` 的最低判定 |
+|---|---|---|
+| `list_models` | Provider 注册的 Models GET 路径 | adapter 识别 Provider-specific 模型信封，并提取模型 ID；另报告已注册 upstream model 是否在列表中 |
+| `chat` | 无工具的最小 Chat Completions 文本请求 | 非流式 JSON 含非空 `choices[]` |
+| `responses` | 无工具的最小 Responses 文本请求 | 普通 Target 的非流式 JSON 为 `object: "response"`；ChatGPT 的固定 streaming profile 返回 `text/event-stream`，且 adapter 识别正常完成终态 |
+| `embeddings` | 一个固定字符串的 Embeddings Create 请求 | JSON 是匹配模型、单个可识别 embedding item 和 usage 的 `list` 信封 |
 
-当前模型列表路径和响应信封由 Provider adapter 固定：OpenAI、OpenRouter、DeepSeek、MiMo 及 LongCat 使用
-OpenAI-compatible `data[].id`，其中 LongCat 的路径为 `/openai/v1/models`；ChatGPT 使用
-`/models?client_version=0.146.0`，并从 Codex manifest 的 `models[].slug` 提取模型 ID。模型列表 probe 仍然只通过
-固定 Provider origin 发起，不能由 CLI 覆盖 URL、query 或响应解析规则。
+普通 generation probe 将输出 token 上限固定为最多 16；ChatGPT Responses profile 按其注册 contract 使用 `stream: true`、
+`store: false`，且不发送该 backend 不接受的 output-token-limit 参数。JSON 体受 `max_json_response_body_bytes` 限制；SSE 同时受总读取
+上限和 `max_sse_event_bytes` 单事件上限约束。Models path 与响应信封仍由 Provider adapter 固定：OpenAI-compatible Provider 使用
+`data[].id`；LongCat 的路径是 `/openai/v1/models`；ChatGPT 使用固定 manifest path 并从 `models[].slug` 提取 ID。
 
-本次模型列表修订和 ChatGPT probe 扩展的确定性验证已执行：`cargo test --locked --lib
-provider_model_list_profiles_bind_paths_and_response_envelopes`、`cargo test --locked --lib probe::tests`（10 项）、
-`cargo test --locked --test upstream_credential_config upstream_toml_loads_one_chatgpt_auth_file_into_a_guarded_oauth2_manager`、
-`cargo check --locked --bins`、`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-`git diff --check` 均通过；合成 probe 使用 fake transport 和 synthetic auth bundle。
+## 结果语义
 
-明确的 404、405、501 可记为 `unsupported`。认证失败、限流、网络错误、响应超限、无效 JSON 或 400/422 只能记为 `unknown`
-；一次成功也只证明本次 target、账号、时间点和固定 payload 的观察结果。
+- `supported`：本次固定请求收到满足上述最低形状的响应；
+- `unsupported`：该 Target 未注册此 operation，或上游明确返回 404、405、501；
+- `unknown`：认证失败、限流、其他 HTTP 错误、transport/stream 错误、响应超限、无效 JSON/SSE 或最低形状不匹配。
 
-## 当前 Provider 的可执行入口
+一次 `supported` 只证明当前 Target、账号、网络、Provider 状态和固定 payload 在该时间点完成了基础交互。一次 `unknown` 也不能推断
+模型或端点永久不可用。probe report 与下游 `/v1/models`、Public Model capability 和 Route 编译完全解耦。
 
-填充相应 TOML `api_keys` credential pool 后，可以显式运行：
+## 确定性验证
 
-```powershell
-cargo run --bin openbridge-probe -- --target deepseek-v4-pro --list-models --chat --function-calling
-cargo run --bin openbridge-probe -- --target deepseek-v4-flash --list-models --chat --responses --function-calling
-cargo run --bin openbridge-probe -- --target mimo-v2-5-pro --all
-cargo run --bin openbridge-probe -- --target mimo-v2-5 --all
-cargo run --bin openbridge-probe -- --target nvidia-minimax-m3 --chat
-cargo run --bin openbridge-probe -- --target bailian-glm-5-2 --chat
-cargo run --bin openbridge-probe -- --target bailian-qwen3-7-plus --chat
-cargo run --bin openbridge-probe -- --target bailian-qwen3-7-max --chat
-```
+本次拆分采用先失败测试、后最小实现：最初运行 `cargo test --locked --lib probe::tests` 因新的 `embeddings` selector/report 尚未实现而
+编译失败；实现后同一命令通过 11 项，`cargo test --locked --bin openbridge-probe` 通过 2 项。合成 transport 覆盖 Models、无工具
+Chat/Responses、Embeddings、ChatGPT completed SSE、响应超限以及 transport/HTTP/JSON 的保守分类；OAuth 场景只使用 synthetic bundle。
 
-DeepSeek V4 Pro target 只注册 Chat Upstream API；V4 Flash target 还注册 Responses，因此可以显式观察两个协议的最小文本请求与
-function call/result replay。该命令只是可执行入口，本轮没有运行真实 DeepSeek probe。MiMo target 注册 Chat 与 Responses Upstream
-API，`--all` 会观察模型列表、两个协议的最小文本请求与 function call/result replay。
+随后 `cargo fmt -- --check`、`cargo test --locked`（291 项）、`cargo clippy --locked -- -D warnings` 和 `git diff --check`
+均通过。本阶段未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus/testkit；也未运行真实 Provider、外部 SDK、Agent、
+负载或长期运行验收。
 
-NVIDIA MiniMax M3 与三个百炼 target 只注册 Chat Upstream API，因此上面的入口只观察最小文本 Chat 请求。其固定模型列表 path
-仍来自 OpenAI-compatible adapter，但本轮没有真实验证 NVIDIA 或百炼的列表响应信封，也没有运行上述 Chat probe。
+## 历史真实 Models 观察
 
-四个 ChatGPT OAuth target 现在可以通过本 CLI 的选定 OAuth2 manager 执行固定 Models probe；ChatGPT 的 Responses-native streaming
-协议仍不由当前通用非流式 probe payload 验证，建议显式使用 `--list-models`。2026-08-06 的真实 ChatGPT 最小 Responses 验收通过受保护的
-下游 `/v1/responses` 和 `OAuth2CredentialManager` 完成，证据见
-[ChatGPT OAuth2 生命周期与 Responses 数据面](features/chatgpt-oauth-startup.md)。
+2026-08-07 曾使用当时的私有配置对 12 个已注册 Target 执行 `--list-models`。以下只是历史 Models 端点观察，本次拆分未重跑，
+也不能作为当前 Chat/Responses/Embeddings 或工具能力证据：
 
-2026-08-07 使用当前私有配置执行了 12 个已注册 target 的 `--list-models` 真实探测；结果只记录脱敏状态和模型相关性：
-
-| Target 范围 | HTTP / 状态 | 配置模型是否出现在列表 |
-|-------------|-------------|------------------------|
+| Target 范围 | 当时 HTTP / 状态 | 配置模型是否出现在列表 |
+|---|---|---|
 | `openai-main`、`openai-text-embedding-3-small` | 401 / `unknown` | 未得到列表，认证未通过 |
 | `longcat-2` | 200 / `supported` | 是 |
 | `openrouter-deepseek-v4-flash` | 200 / `supported` | 是 |
 | `deepseek-v4-pro`、`deepseek-v4-flash` | 200 / `supported` | 是 |
 | `mimo-v2-5-pro`、`mimo-v2-5` | 200 / `supported` | 是 |
-| 四个 `chatgpt-*` target | 200 / `supported` | 是 |
-
-OpenRouter 返回了大规模动态模型列表；ChatGPT manifest 返回 9 个 slug，包含四个已配置模型。OpenAI 的 401 按探测规则只说明
-本次账户/凭证观察未通过，不推断模型或端点永久不可用；本次未执行 Chat/Responses/function-calling 全量真实探测。
+| 四个 `chatgpt-*` Target | 200 / `supported` | 是 |
 
 ## 不做的推断
 
-- 不从 `/v1/models` 推断 tools、reasoning、视觉、context、streaming 或 Bridge 能力；
-- 不从一次失败推断永久不支持，也不从一次成功推断其他账号、模型或 payload 可用；
-- 不自动修改 Model、Upstream API capability、Route 或 Public Model；
-- 不在普通服务启动时联网探测；
-- 不自动遍历 credential pool，也不把首个 member 的结果描述成整个 pool 可用；
-- 不把 probe report 当成 SDK、Agent、负载、长期运行或生产验收。
+- 不从 Models 或基础文本/向量成功推断 function/custom/hosted tool、并行调用、structured output、reasoning、媒体或状态能力；
+- 不评判回答语义正确性、模型质量、上下文长度、tokenizer、配额或吞吐；
+- 不把基础 probe 当成 Protocol Bridge、retry/fallback/cooldown、SDK、curl、Agent、Python semantic verifier 或生产验收；
+- 不自动遍历 credential pool，不把首个 member 的结果描述成整个 pool 可用；
+- 不在服务启动时自动联网，也不根据结果修改代码注册事实。
 
 ## 关联文档
 
-- [当前实现总览](current-implementation.md)
+- [产品范围](../functional-requirements/product-scope.md)
 - [当前代码架构](current-architecture.md)
 - [交付与证据要求](../functional-requirements/delivery-and-evidence.md)

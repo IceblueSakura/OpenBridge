@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    models::{qwen, z_ai},
+    models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
     registry::{
         ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
@@ -25,7 +25,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed GLM-5.2 and Qwen3.7 Chat targets for Model Studio.
+/// Builds the fixed GLM-5.2, Qwen3.7, and DeepSeek V4 Chat targets for Model Studio.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target("bailian-glm-5-2", z_ai::glm_5_2::ID, "glm-5.2"),
@@ -35,6 +35,16 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "qwen3.7-plus",
         ),
         chat_target("bailian-qwen3-7-max", qwen::qwen3_7_max::ID, "qwen3.7-max"),
+        chat_target(
+            "bailian-deepseek-v4-pro",
+            deepseek::deepseek_v4_pro::ID,
+            "deepseek-v4-pro",
+        ),
+        chat_target(
+            "bailian-deepseek-v4-flash",
+            deepseek::deepseek_v4_flash::ID,
+            "deepseek-v4-flash",
+        ),
     ]
 }
 

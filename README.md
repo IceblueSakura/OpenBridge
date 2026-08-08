@@ -17,7 +17,7 @@ Provider、上游 Target、Route 和 Public Model 组合成一个固定的下游
 - Embeddings：`POST /v1/embeddings`；
 - 标准和扩展 Models 查询；
 - 可选的 OpenTelemetry traces 与 metrics OTLP/HTTP 导出；
-- 管理员显式执行的上游 Models 和能力探测。
+- 管理员显式执行的上游 Models 发现和基础 API 探测。
 
 ### 使用优先级：无状态服务优先
 
@@ -161,7 +161,7 @@ cargo run --locked --bin openbridge
 默认 info 日志会先输出两张 `configuration only` 双列表格，分别列出配置态可用/不可用的 Provider family 和 Public Model。
 Provider 项包含 enabled/total Target 计数，Model 项包含当前可执行的 Chat、Responses 或 Embeddings 接口；不可用项只给出脱敏原因。
 表格不会显示 credential、pool、Target、Route 或 endpoint，也不会访问 Provider。它只说明当前启动配置是否形成执行候选，不代表网络、
-配额、远端模型或协议能力已经通过真实探测；真实检查仍须显式运行 `openbridge-probe`。
+配额、远端模型或基础 API 已经通过真实探测；上线前检查仍须显式运行 `openbridge-probe`。
 
 默认地址是 `http://127.0.0.1:8080`。启动成功后，另开一个终端检查：
 
@@ -447,7 +447,7 @@ OpenTelemetry backend 负责；OpenBridge 不再提供自定义 metrics HTTP end
 Swagger UI 是本地接口测试页。点击 `Authorize`，填入下游 Bearer API key 后可以测试受保护的 Models、
 Chat、Responses 和 Embeddings。页面依赖固定版本的 jsDelivr 静态资源；规范本身由本地服务提供。
 
-## 9. 上游 Models 与能力探测
+## 9. 上游 Models 与基础 API 探测
 
 `openbridge-probe` 不启动下游网关，不修改代码注册表，只对一个已注册且已启用的 Upstream Target 发起显式探测，并输出
 脱敏 JSON 报告。它读取当前 bootstrap 和上游 credential 配置，因此仍需要对应真实 credential。
@@ -477,12 +477,21 @@ cargo run --locked --bin openbridge-probe -- --target longcat-2 --list-models
 cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list-models
 ```
 
-还可以选择 `--chat`、`--responses`、`--function-calling` 或 `--all`。如果没有选择器，默认就是该 target 的全部已实现
-probe；`--all` 只表示当前一个 target 的全部 probe，不会遍历所有 target。ChatGPT target 当前建议只执行
-`--list-models`，因为其固定 Responses-native streaming 不是通用非流式 capability probe 的验证范围。
+还可以选择 `--chat`、`--responses`、`--embeddings` 或 `--all`。例如：
+
+```bash
+cargo run --locked --bin openbridge-probe -- --target openai-main --chat --responses
+cargo run --locked --bin openbridge-probe -- --target openai-text-embedding-3-small --embeddings
+cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --responses
+```
+
+如果没有选择器，默认就是该 target 的全部基础 probe；`--all` 只表示当前一个 target 的 Models、Chat、Responses 与
+Embeddings probe，不会遍历所有 target。未在该 target 注册的 operation 会报告 `unsupported` 且不发起对应请求。ChatGPT
+Responses probe 使用其固定 streaming-only profile，并以 Provider adapter 识别的正常 SSE 终态作为成功条件。
 
 探测成功只说明当前账号、网络、上游状态和固定请求在当时可用；认证失败、限流、网络错误或无效响应可能保守地记录为
-`unknown`，不能据此推断生产配额或长期稳定性。
+`unknown`，不能据此推断生产配额或长期稳定性。基础 probe 不发送 tool 定义或 tool result，也不评测 function calling、
+reasoning、结构化输出、多模态、模型语义质量、SDK/Agent 兼容性、retry/fallback、负载或长稳能力。
 
 ## 10. 常见问题
 
@@ -531,7 +540,7 @@ uv run --project tools/corpus corpus --root testdata lint
 - [当前实现总览](docs/implementation-status/current-implementation.md)：已完成行为、横向能力和证据层级；
 - [Provider 与模型注册表](docs/implementation-status/features/provider-registry-and-model-catalog.md)：Public Model、Target 和 active pool 行为；
 - [ChatGPT OAuth2](docs/implementation-status/features/chatgpt-oauth-startup.md)：登录、refresh、Responses 数据面和固定 Models probe；
-- [能力探测](docs/implementation-status/capability-probing.md)：probe 输入、输出与不证明的范围；
+- [Models 与基础 API 探测](docs/implementation-status/capability-probing.md)：probe 输入、输出与不证明的范围；
 - [config/bootstrap.example.toml](config/bootstrap.example.toml)、[config/users.example.toml](config/users.example.toml)、
   [config/upstream-credentials.example.toml](config/upstream-credentials.example.toml)：无真实凭证的配置模板；
 - [docs/openapi.yaml](docs/openapi.yaml)：当前服务实际提供的机器可读接口规范。

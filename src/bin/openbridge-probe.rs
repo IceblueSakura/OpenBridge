@@ -1,4 +1,4 @@
-//! Local CLI for explicit upstream model discovery and protocol capability probes.
+//! Local CLI for explicit upstream model discovery and basic registered-API probes.
 //!
 //! The tool prints only a JSON report, does not start the downstream HTTP service, and does not
 //! modify the code registry.
@@ -16,7 +16,7 @@ use openbridge::{
 };
 
 #[tokio::main]
-/// Parses probe arguments, binds the trusted target, and prints a redacted capability report.
+/// Parses probe arguments, binds the trusted target, and prints a redacted observation report.
 async fn main() -> Result<()> {
     // Parse CLI selections.
     let arguments = ProbeArguments::parse(env::args().skip(1))?;
@@ -127,8 +127,8 @@ impl ProbeArguments {
                 "--responses" => {
                     selection.responses = true;
                 }
-                "--function-calling" => {
-                    selection.function_calling = true;
+                "--embeddings" => {
+                    selection.embeddings = true;
                 }
                 "--all" => {
                     selection = ProbeOptions::all();
@@ -155,9 +155,9 @@ impl ProbeArguments {
 /// Prints local probe usage without credentials or runtime state.
 fn print_usage() {
     println!(
-        "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--function-calling] [--all]\n\
+        "Usage: cargo run --bin openbridge-probe -- --target <id> [--list-models] [--chat] [--responses] [--embeddings] [--all]\n\
          \n\
-         No probe selector runs --all. Enabled targets use configured API-key credentials; ChatGPT targets use the selected OAuth2 auth bundle. The command prints a redacted report and never modifies the code registry."
+         No probe selector runs --all. Enabled targets use configured API-key credentials; ChatGPT targets use the selected OAuth2 auth bundle. The command sends only fixed model-discovery and basic API requests, prints a redacted report, and never modifies the code registry."
     );
 }
 
@@ -190,18 +190,13 @@ mod tests {
             }
         );
 
-        let alternate = parse(&[
-            "--target",
-            "openai-main",
-            "--list-models",
-            "--function-calling",
-        ])
-        .unwrap();
+        let alternate =
+            parse(&["--target", "openai-main", "--list-models", "--embeddings"]).unwrap();
         assert_eq!(
             alternate.selection,
             ProbeOptions {
                 list_models: true,
-                function_calling: true,
+                embeddings: true,
                 ..ProbeOptions::default()
             }
         );
@@ -220,10 +215,19 @@ mod tests {
         let missing_value = parse(&["--target"]).err().unwrap();
         assert!(missing_value.to_string().contains("--target requires"));
 
-        // Reject arguments outside the closed CLI selector set.
+        // Reject arguments outside the closed basic-probe selector set.
         let unknown = parse(&["--target", "openai-main", "--unknown"])
             .err()
             .unwrap();
         assert!(unknown.to_string().contains("unknown argument '--unknown'"));
+
+        let removed = parse(&["--target", "openai-main", "--function-calling"])
+            .err()
+            .unwrap();
+        assert!(
+            removed
+                .to_string()
+                .contains("unknown argument '--function-calling'")
+        );
     }
 }

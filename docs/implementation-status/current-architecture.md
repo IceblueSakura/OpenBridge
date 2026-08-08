@@ -393,7 +393,8 @@ provider 到 Axum 停止并执行有界 shutdown。后者将固定 payload 和�
 endpoint、adapter 与 transport，只为管理员选中的 target 构造一个上游 pool 快照并确定性使用首个 member；它不 加载下游用户
 Key、不接受 URL/model/header/credential 覆盖，也不修改 `RuntimeRegistry`。probe 只允许已启用 target；API-key target 加载所选 pool，ChatGPT
 target 通过 `OAuth2CredentialManager` 借用所选 auth file 的账户绑定 lease。CLI 没有本机 Agent auth、client identity 或 executable selector，
-也不打开未选中的 OAuth2 文件。
+也不打开未选中的 OAuth2 文件。固定观察项仅为 Models、Chat、Responses 与 Embeddings；generation 请求不携带 tool，ChatGPT
+Responses 使用 streaming profile 并要求 adapter 识别正常 SSE 终态。probe 不承担工具、模型语义、SDK/Agent、retry/fallback、负载或长稳测试。
 
 测试夹具使用 target/upstream API/route 和 operation-specific requirements/plan API。确定性测试保护注册表、 Provider
 边界、路由、HTTP/SSE、Bridge、Embeddings 有界 JSON、retry/fallback、credential rotation/cooldown、取消与观测行为；它们 不自动升级为外部

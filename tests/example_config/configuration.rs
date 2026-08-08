@@ -110,14 +110,15 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
         "gpt-5.6-sol"
     );
 
-    let openrouter_public = registry
+    let deepseek_public = registry
         .public_model("deepseek-v4-flash")
-        .expect("OpenRouter DeepSeek V4 Flash public model is compiled");
+        .expect("multi-Provider DeepSeek V4 Flash public model is compiled");
     assert_eq!(
-        openrouter_public.routes(),
+        deepseek_public.routes(),
         [
             "deepseek-v4-flash-deepseek-chat",
             "deepseek-v4-flash-openrouter-chat",
+            "deepseek-v4-flash-bailian-chat",
             "deepseek-v4-flash-deepseek-responses",
             "deepseek-v4-flash-openrouter-responses"
         ]
@@ -165,7 +166,7 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
     assert!(!responses_capabilities.background);
 
     let body = bytes::Bytes::from_static(
-        br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+        br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high"}"#,
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
@@ -176,9 +177,19 @@ fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
             .collect::<Vec<_>>(),
         [
             "deepseek-v4-flash-deepseek-chat",
-            "deepseek-v4-flash-openrouter-chat"
+            "deepseek-v4-flash-openrouter-chat",
+            "deepseek-v4-flash-bailian-chat"
         ]
     );
+
+    let tools = bytes::Bytes::from_static(
+        br#"{"model":"deepseek-v4-flash","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+    );
+    let profile = analyze_request(ApiProtocol::ChatCompletions, &tools).unwrap();
+    assert!(matches!(
+        plan_request(&registry, &profile, tools),
+        Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+    ));
 
     let responses = bytes::Bytes::from_static(
         br#"{"model":"deepseek-v4-flash","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,

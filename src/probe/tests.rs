@@ -1,7 +1,6 @@
-//! Unit tests for trusted capability-probe egress, protocol requests, and reports.
+//! Unit tests for trusted basic-probe egress, fixed protocol requests, and reports.
 
 use std::{
-    collections::VecDeque,
     fs,
     path::PathBuf,
     sync::{
@@ -14,7 +13,10 @@ use std::{
 use axum::body::Body;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::future::BoxFuture;
-use http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
+use http::{
+    HeaderMap, HeaderValue, Method, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE},
+};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
@@ -142,25 +144,16 @@ impl UpstreamTransport for FixtureTransport {
                 "/v1/models" => {
                     json!({"object": "list", "data": [{"id": "test-model"}, {"id": "other-model"}]})
                 }
-                "/v1/chat/completions"
-                    if body.get("tools").is_some() && !has_tool_result(&body) =>
-                {
-                    json!({
-                        "object": "chat.completion",
-                        "choices": [{"message": {"role": "assistant", "content": null, "tool_calls": [{
-                            "id": "call_chat", "type": "function", "function": {"name": "openbridge_probe", "arguments": "{}"}
-                        }]}}]
-                    })
-                }
                 "/v1/chat/completions" => {
                     json!({"object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": "OK"}}]})
                 }
-                "/v1/responses" if body.get("tools").is_some() && !has_tool_result(&body) => {
-                    json!({
-                        "object": "response", "output": [{"type": "function_call", "call_id": "call_response", "name": "openbridge_probe", "arguments": "{}"}]
-                    })
-                }
                 "/v1/responses" => json!({"object": "response", "output": []}),
+                "/v1/embeddings" => json!({
+                    "object": "list",
+                    "data": [{"object": "embedding", "embedding": [0.0], "index": 0}],
+                    "model": body.get("model").and_then(Value::as_str).unwrap_or_default(),
+                    "usage": {"prompt_tokens": 1, "total_tokens": 1}
+                }),
                 _ => {
                     return Ok(UpstreamResponse::new(
                         StatusCode::NOT_FOUND,
@@ -289,6 +282,38 @@ impl UpstreamTransport for ChatGptModelListTransport {
     }
 }
 
+#[derive(Default)]
+struct ChatGptResponsesTransport {
+    requests: Mutex<Vec<(String, Value)>>,
+}
+
+impl UpstreamTransport for ChatGptResponsesTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            // Record the fixed streaming request without retaining any credential header.
+            let body: Value = serde_json::from_slice(request.body()).unwrap();
+            self.requests
+                .lock()
+                .unwrap()
+                .push((request.relative_uri().to_string(), body));
+
+            // Return one ChatGPT-style data-discriminated terminal event.
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from("data: {\"type\":\"response.completed\"}\n\n"),
+            ))
+        })
+    }
+}
+
 struct StaticTransport {
     status: StatusCode,
     headers: HeaderMap,
@@ -343,64 +368,8 @@ impl UpstreamTransport for StaticTransport {
     }
 }
 
-struct SequenceTransport {
-    responses: Mutex<VecDeque<(StatusCode, Vec<u8>)>>,
-}
-
-impl SequenceTransport {
-    fn new(responses: impl IntoIterator<Item = (StatusCode, Vec<u8>)>) -> Self {
-        Self {
-            responses: Mutex::new(responses.into_iter().collect()),
-        }
-    }
-}
-
-impl UpstreamTransport for SequenceTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        _request: PreparedUpstreamRequest,
-        _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        Box::pin(async move {
-            // Consume exactly one scripted response for each ordered probe exchange.
-            let (status, body) = self
-                .responses
-                .lock()
-                .unwrap()
-                .pop_front()
-                .expect("the probe must not exceed its scripted exchanges");
-
-            // Return the scripted wire outcome through the production transport contract.
-            Ok(UpstreamResponse::new(
-                status,
-                HeaderMap::new(),
-                Body::from(body),
-            ))
-        })
-    }
-}
-
-fn has_tool_result(body: &Value) -> bool {
-    body.get("messages")
-        .and_then(Value::as_array)
-        .is_some_and(|messages| {
-            messages
-                .iter()
-                .any(|message| message.get("role").and_then(Value::as_str) == Some("tool"))
-        })
-        || body
-            .get("input")
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                items.iter().any(|item| {
-                    item.get("type").and_then(Value::as_str) == Some("function_call_output")
-                })
-            })
-}
-
 #[tokio::test]
-async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_configuration() {
+async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_payloads() {
     let registry = registry();
     let transport = FixtureTransport::default();
     let credentials = credentials(&registry);
@@ -415,29 +384,30 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
     .await
     .unwrap();
 
-    let list_models = report.list_models.unwrap();
+    let serialized_report = serde_json::to_value(&report).unwrap();
+    let list_models = report.list_models.as_ref().unwrap();
     assert_eq!(list_models.outcome.state, SupportStatus::Supported);
     assert_eq!(list_models.configured_model_listed, Some(true));
     assert_eq!(list_models.model_ids, ["test-model", "other-model"]);
-    assert_eq!(report.chat.unwrap().state, SupportStatus::Supported);
-    assert_eq!(report.responses.unwrap().state, SupportStatus::Supported);
     assert_eq!(
-        report
-            .chat_function_calling
-            .unwrap()
-            .result_replay
-            .unwrap()
-            .state,
+        report.chat.as_ref().unwrap().state,
         SupportStatus::Supported
     );
     assert_eq!(
-        report
-            .responses_function_calling
-            .unwrap()
-            .result_replay
-            .unwrap()
-            .state,
+        report.responses.as_ref().unwrap().state,
         SupportStatus::Supported
+    );
+    assert_eq!(
+        report.embeddings.as_ref().unwrap().state,
+        SupportStatus::Unsupported
+    );
+
+    // Keep the serialized report limited to discovery and basic operation observations.
+    assert!(serialized_report.get("chat_function_calling").is_none());
+    assert!(
+        serialized_report
+            .get("responses_function_calling")
+            .is_none()
     );
 
     let requests = transport.requests.lock().unwrap();
@@ -452,6 +422,12 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
             .filter_map(|(_, path, body)| (path != "/v1/models").then_some(body))
             .all(|body| body.get("model").and_then(Value::as_str) == Some("test-model"))
     );
+    assert!(requests.iter().all(|(_, _, body)| {
+        body.get("tools").is_none()
+            && body.get("tool_choice").is_none()
+            && !body.to_string().contains("function_call_output")
+            && !body.to_string().contains("\"role\":\"tool\"")
+    }));
     assert!(
         transport
             .authorizations
@@ -460,6 +436,43 @@ async fn probe_discovers_models_and_verifies_both_tool_loops_without_rewriting_c
             .iter()
             .all(|authorization| authorization == "Bearer test-key")
     );
+}
+
+#[tokio::test]
+async fn probe_smokes_the_registered_embeddings_create_api() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials_for_target(&registry, "openai-text-embedding-3-small");
+
+    // Run one bounded Embeddings request through its dedicated Target and adapter path.
+    let report = probe_upstream_target(
+        &registry,
+        "openai-text-embedding-3-small",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            embeddings: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.embeddings.unwrap().state, SupportStatus::Supported);
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (method, path, body) = &requests[0];
+    assert_eq!(*method, Method::POST);
+    assert_eq!(path, "/v1/embeddings");
+    assert_eq!(
+        body.get("model").and_then(Value::as_str),
+        Some("text-embedding-3-small")
+    );
+    assert_eq!(
+        body.get("input").and_then(Value::as_str),
+        Some("OpenBridge probe")
+    );
+    assert!(body.get("tools").is_none());
 }
 
 #[tokio::test]
@@ -508,6 +521,51 @@ async fn chatgpt_probe_uses_oauth2_lease_for_model_manifest() {
         transport.accounts.lock().unwrap().as_slice(),
         ["synthetic-account"]
     );
+}
+
+#[tokio::test]
+async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
+    let registry = registry();
+    let auth_file = synthetic_chatgpt_auth_file();
+    let mut builder = OAuth2CredentialManagerBuilder::new();
+    builder
+        .load_auth_json_file(
+            ProviderKind::ChatGpt,
+            "chatgpt-codex",
+            auth_file.path.clone(),
+        )
+        .unwrap();
+    let oauth2_credentials = builder.build();
+    let transport = ChatGptResponsesTransport::default();
+
+    // Observe only the registered streaming Responses API through the selected OAuth2 lease.
+    let report = probe_upstream_target_with_oauth2(
+        &registry,
+        "chatgpt-gpt-5-6-sol",
+        &transport,
+        &oauth2_credentials,
+        ProbeOptions {
+            responses: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.responses.unwrap().state, SupportStatus::Supported);
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/responses");
+    assert_eq!(
+        requests[0].1.get("stream").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        requests[0].1.get("store").and_then(Value::as_bool),
+        Some(false)
+    );
+    assert!(requests[0].1.get("max_output_tokens").is_none());
+    assert!(requests[0].1.get("tools").is_none());
 }
 
 #[tokio::test]
@@ -708,7 +766,7 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
 }
 
 #[tokio::test]
-async fn probe_rejects_oversized_bodies_and_unusable_tool_call_shapes() {
+async fn probe_rejects_oversized_response_bodies() {
     // Enforce the configured JSON body limit before parsing model-list evidence.
     let limited_registry = registry_with_response_limit(1_000_000);
     let limited_credentials = credentials(&limited_registry);
@@ -728,33 +786,6 @@ async fn probe_rejects_oversized_bodies_and_unusable_tool_call_shapes() {
     let outcome = report.list_models.unwrap().outcome;
     assert_eq!(outcome.state, SupportStatus::Unknown);
     assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
-
-    // Require a replayable tool call before reporting initial function-calling support.
-    let registry = registry();
-    let credentials = credentials(&registry);
-    let unusable = StaticTransport::response(
-        StatusCode::OK,
-        br#"{"object":"chat.completion","choices":[{"message":{"role":"assistant","content":"plain text"}}]}"#
-            .to_vec(),
-    );
-    let report = probe_upstream_target(
-        &registry,
-        "openai-main",
-        &unusable,
-        &credentials,
-        ProbeOptions {
-            function_calling: true,
-            ..ProbeOptions::default()
-        },
-    )
-    .await
-    .unwrap();
-    let chat = report.chat_function_calling.unwrap();
-    assert_eq!(chat.initial_call.state, SupportStatus::Unknown);
-    assert!(chat.result_replay.is_none());
-    let responses = report.responses_function_calling.unwrap();
-    assert_eq!(responses.initial_call.state, SupportStatus::Unknown);
-    assert!(responses.result_replay.is_none());
 }
 
 #[tokio::test]
@@ -782,51 +813,4 @@ async fn probe_reports_an_unconfigured_protocol_without_egress() {
     assert_eq!(outcome.state, SupportStatus::Unsupported);
     assert_eq!(outcome.http_status, None);
     assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
-}
-
-#[tokio::test]
-async fn probe_keeps_initial_tool_support_when_result_replay_is_invalid() {
-    // Script valid tool calls followed by unusable replay responses for both protocols.
-    let registry = registry();
-    let credentials = credentials(&registry);
-    let transport = SequenceTransport::new([
-        (
-            StatusCode::OK,
-            br#"{"object":"chat.completion","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_chat","type":"function","function":{"name":"openbridge_probe","arguments":"{}"}}]}}]}"#
-                .to_vec(),
-        ),
-        (StatusCode::OK, b"{}".to_vec()),
-        (
-            StatusCode::OK,
-            br#"{"object":"response","output":[{"type":"function_call","call_id":"call_response","name":"openbridge_probe","arguments":"{}"}]}"#
-                .to_vec(),
-        ),
-        (StatusCode::BAD_GATEWAY, b"{}".to_vec()),
-    ]);
-
-    // Run both ordered tool loops through the same trusted probe session.
-    let report = probe_upstream_target(
-        &registry,
-        "openai-main",
-        &transport,
-        &credentials,
-        ProbeOptions {
-            function_calling: true,
-            ..ProbeOptions::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    // Preserve initial support while classifying each failed replay conservatively.
-    let chat = report.chat_function_calling.unwrap();
-    assert_eq!(chat.initial_call.state, SupportStatus::Supported);
-    assert_eq!(chat.result_replay.unwrap().state, SupportStatus::Unknown);
-    let responses = report.responses_function_calling.unwrap();
-    assert_eq!(responses.initial_call.state, SupportStatus::Supported);
-    assert_eq!(
-        responses.result_replay.unwrap().state,
-        SupportStatus::Unknown
-    );
-    assert!(transport.responses.lock().unwrap().is_empty());
 }

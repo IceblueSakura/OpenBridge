@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Confirmed。** 当前 checkout 共有 335 个可执行测试：290 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
+**Confirmed。** 当前 checkout 共有 336 个可执行测试：291 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
 测试当前没有 ignored test；51 个 canonical wire case 与 9 个 semantic case 是测试输入与判定 oracle，不计入可执行测试总数。
 
 本文按功能所有权维护测试树。叶节点覆盖当前每一个可执行测试所在的 target、文件或互斥命名模块；括号内是该叶节点实际收集的
@@ -13,8 +13,8 @@ test case 数量。一个物理 target 跨越多个功能时，使用不重叠�
 ## 可执行测试树
 
 ```text
-OpenBridge 可执行测试（335）
-├─ Rust 默认测试（290；ignored 0）
+OpenBridge 可执行测试（336）
+├─ Rust 默认测试（291；ignored 0）
 │  ├─ HTTP ingress 与下游认证（19）
 │  │  ├─ src/lib.rs :: ingress::*（8）
 │  │  ├─ tests/downstream_auth_contract.rs（2）
@@ -38,8 +38,8 @@ OpenBridge 可执行测试（335）
 │  │  ├─ tests/example_config.rs（13）
 │  │  ├─ tests/forwarding_contract.rs :: models::*（3）
 │  │  └─ tests/native_routing_contract.rs（17）
-│  ├─ Provider adapter、probe 与上游 transport（47）
-│  │  ├─ src/lib.rs :: probe::*（10）
+│  ├─ Provider adapter、probe 与上游 transport（48）
+│  │  ├─ src/lib.rs :: probe::*（11）
 │  │  ├─ src/bin/openbridge-probe.rs（2）
 │  │  ├─ src/lib.rs :: provider::*（5）
 │  │  ├─ src/lib.rs :: providers::openai_compatible::*（2）
@@ -111,19 +111,25 @@ Python SSE parser 的参数空间，不是 342 个独立测试，也不是应提
   Mock Server/Client loopback、observation verifier 和 normalized function-tool semantic verifier。
 - Canonical corpus 是两层共享的只读协议输入。fixture 存在只证明 oracle 已登记；Rust replay 或 Python loopback 也只证明其直接执行的
   边界。
-- 当前默认测试树不包含外部 OpenAI SDK、Codex、Hermes、真实 Provider、负载或长期运行测试；这些验收层不能由 335 个确定性测试
+- 当前默认测试树不包含外部 OpenAI SDK、Codex、Hermes、真实 Provider、负载或长期运行测试；这些验收层不能由 336 个确定性测试
   代替。
 
 ## 盘点与验证证据
 
-2026-08-08 在当前 Windows checkout 执行：
+2026-08-08 本次 probe 拆分在当前 Windows checkout 执行：
 
 ```powershell
 cargo test --locked
+```
+
+结果：Cargo 执行并通过 291 个测试。Python 资产未变化，本次未重跑；同日最近一次 Python 基线命令与结果为：
+
+```powershell
 uv run --project tools/corpus pytest tools/corpus/tests
 ```
 
-结果：Cargo 执行并通过 290 个测试；pytest 收集并通过 45 个测试。只读解析 `testdata/cases/**/case.json` 得到 51 个唯一 wire case manifest，
+pytest 收集并通过 45 个测试。
+只读解析 `testdata/cases/**/case.json` 得到 51 个唯一 wire case manifest，
 目录分布为 19/10/20/2；`testdata/semantic-cases/**/case.json` 得到 9 个唯一 semantic case。Rust baseline 与 Python test body
 的实际执行结果见[协议测试语料与工具](protocol-test-corpus.md)；没有执行真实 Provider、外部 SDK、负载或长期运行验收。
 
@@ -131,7 +137,7 @@ uv run --project tools/corpus pytest tools/corpus/tests
 
 1. 增删、移动或重命名测试时，同步更新对应叶节点和所有祖先计数；Rust 总数必须等于所有 Rust 功能分支之和。
 2. 跨功能 test target 必须按互斥模块前缀拆分，不能把同一测试重复登记到多个功能点。
-3. 函数级名称以 `cargo test --locked -- --list` 和 pytest `--collect-only` 的实时输出为准，不在状态文档复制 335 个易漂移的函数名。
+3. 函数级名称以 `cargo test --locked -- --list` 和 pytest `--collect-only` 的实时输出为准，不在状态文档复制 336 个易漂移的函数名。
 4. `testdata/` 或 `tools/corpus/` 的契约、case 或生成规则变化时，同时更新[协议测试语料与工具](protocol-test-corpus.md)中的版本、
    验证证据和未覆盖范围。
 

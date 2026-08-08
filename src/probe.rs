@@ -1,9 +1,9 @@
-//! Facade for explicit administrative upstream capability probes.
+//! Facade for explicit administrative upstream discovery and basic API probes.
 //!
 //! Probes reuse the Upstream Target's trusted endpoint, credential, and compile-time adapter, but
 //! do not use the downstream HTTP API or modify the code registry. `session` performs
 //! trusted execution, `payload` owns fixed wire requests and response shapes, and
-//! public reports provide evidence for service owners updating capability configuration.
+//! public reports provide redacted, point-in-time observations for service owners.
 
 use http::StatusCode;
 use serde::Serialize;
@@ -15,8 +15,8 @@ mod session;
 pub use error::ProbeError;
 pub use session::{probe_upstream_target, probe_upstream_target_with_oauth2};
 
-/// Explicit probe selection. The CLI uses `all()` when no selection is supplied;
-/// library callers may run only the free `list_models` probe or validate one protocol.
+/// Explicit basic-probe selection. The CLI uses `all()` when no selection is supplied;
+/// library callers may run only model discovery or one registered API observation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProbeOptions {
     /// Whether to run the Provider's fixed model-list probe.
@@ -25,8 +25,8 @@ pub struct ProbeOptions {
     pub chat: bool,
     /// Whether to run the Responses text-request probe.
     pub responses: bool,
-    /// Whether to run the function-call and result-replay probe.
-    pub function_calling: bool,
+    /// Whether to run the Embeddings Create probe.
+    pub embeddings: bool,
 }
 
 impl ProbeOptions {
@@ -36,21 +36,21 @@ impl ProbeOptions {
             list_models: true,
             chat: true,
             responses: true,
-            function_calling: true,
+            embeddings: true,
         }
     }
 
     /// Returns whether no probe is selected.
     pub const fn is_empty(self) -> bool {
-        !self.list_models && !self.chat && !self.responses && !self.function_calling
+        !self.list_models && !self.chat && !self.responses && !self.embeddings
     }
 }
 
-/// Conservative probe conclusion for one capability.
+/// Conservative conclusion for one basic upstream observation.
 ///
-/// `unsupported` is used only when the endpoint explicitly does not exist (404/405/501).
-/// Authentication, rate limits, network failures, and rejected request shapes remain
-/// `unknown` so transient failures are not reported as static lack of support.
+/// `unsupported` is used when the target has no registered operation or the endpoint explicitly
+/// returns 404/405/501. Authentication, rate limits, network failures, and rejected request shapes
+/// remain `unknown` so transient failures are not reported as static lack of support.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SupportStatus {
@@ -120,16 +120,6 @@ pub struct ModelListProbeResult {
     pub model_ids: Vec<String>,
 }
 
-/// Observation from the function-calling probe and its tool-result replay.
-#[derive(Debug, Serialize)]
-pub struct ToolCallProbeResult {
-    /// Conclusion for the initial function-call request.
-    pub initial_call: ProbeResult,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Conclusion for the request after replaying the tool result.
-    pub result_replay: Option<ProbeResult>,
-}
-
 /// Probe report for one Upstream Target. It contains no credential, request body, or upstream response body.
 #[derive(Debug, Serialize)]
 pub struct TargetProbeReport {
@@ -145,11 +135,8 @@ pub struct TargetProbeReport {
     /// Observation from the Responses text probe.
     pub responses: Option<ProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// Observation from the Chat Completions function-calling probe.
-    pub chat_function_calling: Option<ToolCallProbeResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Observation from the Responses function-calling probe.
-    pub responses_function_calling: Option<ToolCallProbeResult>,
+    /// Observation from the Embeddings Create probe.
+    pub embeddings: Option<ProbeResult>,
 }
 
 #[cfg(test)]

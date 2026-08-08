@@ -64,11 +64,18 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-pro",
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "deepseek-v4-pro-deepseek",
-                upstream_target: "deepseek-v4-pro",
-                surface: PublicModelSurface::ChatNativeOnly,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-pro-deepseek",
+                    upstream_target: "deepseek-v4-pro",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-pro-bailian",
+                    upstream_target: "bailian-deepseek-v4-pro",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-flash",
@@ -82,6 +89,11 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                     route_prefix: "deepseek-v4-flash-openrouter",
                     upstream_target: "openrouter-deepseek-v4-flash",
                     surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-flash-bailian",
+                    upstream_target: "bailian-deepseek-v4-flash",
+                    surface: PublicModelSurface::ChatNativeOnly,
                 },
             ],
         },

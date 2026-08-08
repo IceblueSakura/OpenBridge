@@ -175,6 +175,116 @@ fn nvidia_and_bailian_models_compile_as_chat_native_routes() {
 }
 
 #[test]
+fn bailian_deepseek_models_compile_as_chat_native_fallbacks() {
+    // Compile the complete registry so the new Targets and fallback Routes cross startup validation.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Verify both Bailian Targets retain their canonical identity and fixed Chat-only deployment.
+    for (target_id, canonical_model, provider_model, upstream_model) in [
+        (
+            "bailian-deepseek-v4-pro",
+            "deepseek/deepseek-v4-pro",
+            "bailian/deepseek-v4-pro",
+            "deepseek-v4-pro",
+        ),
+        (
+            "bailian-deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash",
+            "bailian/deepseek-v4-flash",
+            "deepseek-v4-flash",
+        ),
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("Bailian DeepSeek Target should compile");
+        assert_eq!(target.kind(), ProviderKind::Bailian);
+        assert_eq!(target.canonical_model_id(), canonical_model);
+        assert_eq!(target.provider_model_id(), provider_model);
+        assert_eq!(
+            target.endpoint_base().as_str(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/"
+        );
+        assert_eq!(target.credential_pool_id(), "bailian-primary");
+        assert_eq!(target.quota_scope(), Some("bailian-primary"));
+        assert_eq!(target.fault_domain(), Some("bailian-api"));
+        let chat = target
+            .upstream_api(OperationKind::ChatCompletions)
+            .expect("Bailian DeepSeek Chat API should compile");
+        assert_eq!(chat.upstream_model(), upstream_model);
+        assert!(target.upstream_api(OperationKind::Responses).is_none());
+        let capabilities = match chat.capabilities() {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities,
+            UpstreamApiCapabilities::Responses(_) => panic!("expected Chat capabilities"),
+            UpstreamApiCapabilities::Embeddings(_) => panic!("expected Chat capabilities"),
+        };
+        assert!(!capabilities.function_calling);
+    }
+
+    // Preserve existing Provider priority while appending Bailian to Chat planning only.
+    for (public_name, expected_routes, expected_chat_routes) in [
+        (
+            "deepseek-v4-pro",
+            vec![
+                "deepseek-v4-pro-deepseek-chat",
+                "deepseek-v4-pro-bailian-chat",
+            ],
+            vec![
+                "deepseek-v4-pro-deepseek-chat",
+                "deepseek-v4-pro-bailian-chat",
+            ],
+        ),
+        (
+            "deepseek-v4-flash",
+            vec![
+                "deepseek-v4-flash-deepseek-chat",
+                "deepseek-v4-flash-openrouter-chat",
+                "deepseek-v4-flash-bailian-chat",
+                "deepseek-v4-flash-deepseek-responses",
+                "deepseek-v4-flash-openrouter-responses",
+            ],
+            vec![
+                "deepseek-v4-flash-deepseek-chat",
+                "deepseek-v4-flash-openrouter-chat",
+                "deepseek-v4-flash-bailian-chat",
+            ],
+        ),
+    ] {
+        let public_model = registry
+            .public_model(public_name)
+            .expect("DeepSeek Public Model should compile");
+        assert_eq!(public_model.routes(), expected_routes);
+        let info = serde_json::to_value(public_model.info()).unwrap();
+        assert_eq!(
+            info["interfaces"]["chat_completions"]["tools"]["support"],
+            "unsupported"
+        );
+
+        let body = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[{{"role":"user","content":"hello"}}]}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        assert_eq!(
+            plan.candidates()
+                .iter()
+                .map(|candidate| candidate.route_id())
+                .collect::<Vec<_>>(),
+            expected_chat_routes
+        );
+
+        let tools = bytes::Bytes::from(format!(
+            r#"{{"model":"{public_name}","messages":[],"tools":[{{"type":"function","function":{{"name":"probe"}}}}]}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &tools).unwrap();
+        assert!(matches!(
+            plan_request(&registry, &profile, tools),
+            Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+        ));
+    }
+}
+
+#[test]
 fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
     // Locate the dedicated OAuth pool and fixed ChatGPT Provider instance.
     let definition = compiled_config();
@@ -377,7 +487,7 @@ fn chatgpt_targets_are_compiled_as_oauth_responses_routes_with_chat_bridge() {
 }
 
 #[test]
-fn deepseek_pro_stays_chat_only_while_flash_prefers_deepseek_responses() {
+fn deepseek_models_preserve_primary_routes_with_bailian_chat_fallbacks() {
     // Build the complete compiled registry and check the fixed trusted boundaries of both DeepSeek targets.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
@@ -452,15 +562,22 @@ fn deepseek_pro_stays_chat_only_while_flash_prefers_deepseek_responses() {
 
         let info = serde_json::to_value(public_model.info()).unwrap();
         if public_name == "deepseek-v4-pro" {
-            assert_eq!(public_model.routes(), ["deepseek-v4-pro-deepseek-chat"]);
+            assert_eq!(
+                public_model.routes(),
+                [
+                    "deepseek-v4-pro-deepseek-chat",
+                    "deepseek-v4-pro-bailian-chat"
+                ]
+            );
             assert_eq!(info["interfaces"]["responses"], serde_json::Value::Null);
         } else {
-            // Flash aggregates direct DeepSeek and OpenRouter Native routes for both protocols.
+            // Flash appends Bailian to Chat while retaining the two existing Responses sources.
             assert_eq!(
                 public_model.routes(),
                 [
                     "deepseek-v4-flash-deepseek-chat",
                     "deepseek-v4-flash-openrouter-chat",
+                    "deepseek-v4-flash-bailian-chat",
                     "deepseek-v4-flash-deepseek-responses",
                     "deepseek-v4-flash-openrouter-responses",
                 ]

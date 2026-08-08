@@ -1,4 +1,4 @@
-//! Errors raised while preparing an explicit upstream capability probe.
+//! Errors raised while preparing an explicit basic upstream probe.
 //!
 //! These errors describe probe admission failures only; probe observations remain in the
 //! report types owned by the parent module.

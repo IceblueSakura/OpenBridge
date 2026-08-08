@@ -38,7 +38,8 @@ Route。
 - 持有有效下游 Bearer token 的用户可以读取本次运行期间已记录的进程级和 Provider attempt 指标快照；快照不跨重启保留；
 - 显式启用时，OpenBridge 通过只在启动时配置的 OTLP/HTTP 通道导出脱敏 traces、低基数原始 metrics 与安全运行
   logs；持久化、时间窗口、比例、排名和可视化由外部 collector/backend 负责；
-- 管理员可以显式运行 probe，但 probe 不修改注册表或自动扩大能力。
+- 管理员可以显式运行固定 Models 发现和已注册 Chat/Responses/Embeddings API 的基础 probe，但 probe 不执行工具或语义能力测试，
+  不修改注册表，也不自动扩大能力。
 
 现阶段扩展状态分为：
 
@@ -51,7 +52,7 @@ Route。
 - 已实现 ChatGPT subscription OAuth 与受限数据面：独立 Provider、OpenBridge-owned 配置、显式 private device interaction + PKCE
   登录、guarded reload、single-flight、原子 rotation、expiry-driven 自动 refresh，以及四个固定 Responses-native Public Model 的
   manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable selector。管理员
-  可以显式运行固定 ChatGPT Models probe，但它不读取本机状态，也不扩大 Public Model 能力。
+  可以显式运行固定 ChatGPT Models 与 streaming Responses 基础 probe，但它不读取本机状态，也不扩大 Public Model 能力。
 - 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，把历史分析与聚合移到外部系统；
   traces 与 metrics 导出闭环已完成，logs 仍须另立[当前开发焦点](../implementation-plans/current-focus.md)。
 

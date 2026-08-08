@@ -8,9 +8,10 @@
 `401` recovery。
 
 本机 Codex auth loader、OS/environment/terminal identity 探测和 Codex executable probe 已移除。管理员显式运行的
-`openbridge-probe` 仍支持四个已激活 ChatGPT target 的固定 Models probe；该 probe 只通过选定的 OAuth2 manager 借用短期 lease，
-不读取本机状态、不改变注册表，也不构成 ChatGPT 数据面或长期 Provider 验收。ChatGPT adapter 可声明固定、按已记录 Codex CLI
-release 源码格式生成的 headless Linux x86_64 兼容 UA 与普通 header，但不从本机状态推导 identity，也不接受运行时覆盖。
+`openbridge-probe` 支持已激活 ChatGPT target 的固定 Models 和 streaming Responses 基础 probe；该 probe 只通过选定的 OAuth2 manager
+借用短期 lease，不携带工具，不读取本机状态、不改变注册表，也不构成工具、模型语义、SDK 或长期 Provider 验收。ChatGPT adapter
+可声明固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA 与普通 header，但不从本机状态推导 identity，
+也不接受运行时覆盖。
 OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable 或 app-server。数据面只使用代码注册的固定 backend、model、
 请求身份和 OpenBridge-owned credential；普通请求不会隐式登录或选择其他账户。
 

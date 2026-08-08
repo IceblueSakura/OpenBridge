@@ -218,4 +218,4 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 - [ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)
 - [当前代码架构](../implementation-status/current-architecture.md)
 - [当前实现总览](../implementation-status/current-implementation.md)
-- [能力探测](../implementation-status/capability-probing.md)
+- [Models 与基础 API 探测](../implementation-status/capability-probing.md)
