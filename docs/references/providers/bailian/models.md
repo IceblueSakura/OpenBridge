@@ -13,7 +13,9 @@
 
 ## 排序与日期证据
 
-每个研发者组内按“发布时间/公开版本日期”从新到旧排列。优先级为：模型 ID 中的完整日期、短日期或月份标签；OpenRouter 模型页/API 的 Released 或 canonical slug 日期；可匹配的同系列日期模型。无法确认的条目统一放在该组末尾并标为“未确认”，不把 OpenRouter 的目录创建时间直接当作发布时间。
+每个研发者组内按当前可用的日期证据从新到旧排列。优先记录模型 ID、公开模型目录或 OpenRouter 给出的发布时间/版本日期；对于本次截图中可唯一对应且原先未确认的条目，记录百炼模型卡片右下角显示的更新时间。无法确认的条目统一放在该组末尾并标为“未确认”，不把 OpenRouter 的目录创建时间直接当作发布时间。
+
+本次补全依据 2026-08-08 用户提供的百炼“全部模型”页面截图；截图日期是模型市场更新时间，不等同于模型 ID 中的版本日期。截至本次截图，已补全截图中能够与本文 ID 或同名模型卡唯一对应的 43 个原“未确认”条目，其中本次新增 9 个；原有已确认的公开版本日期不改写。
 
 OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目录字段；本快照只把公开页面的 release 信息或 canonical slug 版本日期作为辅助参考，不把其目录时间当作官方发布时间。
 
@@ -29,70 +31,95 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 
 ### 阿里云 / Qwen、Tongyi、Wan 与 GUI（183）
 
+- 2026-08-04 — `qwen-image-3.0`
 - 2026-08-03 — `qwen3.8-max`
+- 2026-07-30 — `qwen-audio-3.0-asr-flash`
 - 2026-07-27 — `qwen3.7-flash`
+- 2026-07-20 — `qwen-image-3.0-pro`
 - 2026-07-15 — `qwen3.7-flash-2026-07-15`
+- 2026-07-15 — `qwen3.7-text-embedding`
+- 2026-07-14 — `qwen-audio-3.0-realtime-flash`
+- 2026-07-14 — `qwen-audio-3.0-realtime-plus`
 - 2026-06-22 — `qwen-image-2.0-pro-2026-06-22`
+- 2026-06-16 — `qwen3.5-ocr`
 - 2026-06-08 — `qwen3.7-max-2026-06-08`
 - 2026-06-03 — `qwen3.7-plus`
 - 2026-05-26 — `qwen3.7-plus-2026-05-26`
-- 2026-05-20 — `qwen3.7-max`
 - 2026-05-20 — `qwen3.7-max-2026-05-20`
+- 2026-05-20 — `qwen3.7-max`
 - 2026-05-19 — `qwen3.5-livetranslate-flash-realtime-2026-05-19`
 - 2026-05-17 — `qwen3.7-max-2026-05-17`
 - 2026-04-27 — `qwen3.6-max-preview`
 - 2026-04-22 — `qwen-image-2.0-pro-2026-04-22`
-- 2026-04-20 — `qwen3.5-plus`
 - 2026-04-20 — `qwen3.5-plus-2026-04-20`
-- 2026-04-16 — `qwen3.6-flash`
+- 2026-04-20 — `qwen3.5-plus`
 - 2026-04-16 — `qwen3.6-flash-2026-04-16`
-- 2026-04-02 — `qwen3.6-plus`
+- 2026-04-16 — `qwen3.6-flash`
 - 2026-04-02 — `qwen3.6-plus-2026-04-02`
+- 2026-04-02 — `qwen3.6-plus`
+- 2026-04-01 — `wan2.7-image-pro`
 - 2026-04 — `qwen3.6-27b`
+- 2026-03-30 — `qwen3.5-omni-plus`
+- 2026-03-18 — `gui-plus`
 - 2026-03-15 — `qwen3.5-omni-flash-2026-03-15`
 - 2026-03-15 — `qwen3.5-omni-flash-realtime-2026-03-15`
 - 2026-03-15 — `qwen3.5-omni-plus-2026-03-15`
 - 2026-03-15 — `qwen3.5-omni-plus-realtime-2026-03-15`
 - 2026-03-03 — `qwen-image-2.0-2026-03-03`
 - 2026-03-03 — `qwen-image-2.0-pro-2026-03-03`
+- 2026-02-28 — `qwen-flash-character`
 - 2026-02-26 — `qwen-flash-character-2026-02-26`
-- 2026-02-23 — `qwen3.5-flash`
+- 2026-02-23 — `qwen3.5-27b`
 - 2026-02-23 — `qwen3.5-flash-2026-02-23`
+- 2026-02-23 — `qwen3.5-flash`
+- 2026-02-19 — `qwen3-coder-next`
 - 2026-02-15 — `qwen3.5-plus-2026-02-15`
+- 2026-02-13 — `qwen3-asr-flash-realtime`
 - 2026-02-10 — `qwen3-asr-flash-2026-02-10`
 - 2026-02-10 — `qwen3-asr-flash-realtime-2026-02-10`
+- 2026-02-10 — `qwen3-tts-instruct-flash`
 - 2026-01-26 — `qwen3-tts-instruct-flash-2026-01-26`
 - 2026-01-26 — `qwen3-tts-vd-2026-01-26`
-- 2026-01-23 — `qwen3-max`
 - 2026-01-23 — `qwen3-max-2026-01-23`
+- 2026-01-23 — `qwen3-max`
 - 2026-01-22 — `qwen3-tts-instruct-flash-realtime-2026-01-22`
 - 2026-01-22 — `qwen3-tts-vc-2026-01-22`
 - 2026-01-22 — `qwen3-vl-flash-2026-01-22`
+- 2026-01-21 — `qwen3-tts-instruct-flash-realtime`
 - 2026-01-16 — `qwen-image-edit-max-2026-01-16`
 - 2026-01-15 — `qwen3-tts-vc-realtime-2026-01-15`
 - 2026-01-15 — `qwen3-tts-vd-realtime-2026-01-15`
 - 2026-01-09 — `qwen-image-plus-2026-01-09`
+- 2026-01-09 — `tongyi-xiaomi-analysis-flash`
+- 2026-01-09 — `tongyi-xiaomi-analysis-pro`
 - 2025-12-30 — `qwen-image-max-2025-12-30`
-- 2025-12-19 — `qwen3-vl-plus`
 - 2025-12-19 — `qwen3-vl-plus-2025-12-19`
+- 2025-12-19 — `qwen3-vl-plus`
+- 2025-12-18 — `z-image-turbo`
 - 2025-12-16 — `qwen3-tts-vd-realtime-2025-12-16`
 - 2025-12-15 — `qwen-deep-research-2025-12-15`
 - 2025-12-15 — `qwen-image-edit-plus-2025-12-15`
+- 2025-12-04 — `qwen3-livetranslate-flash`
 - 2025-12-01 — `qwen-plus-2025-12-01`
 - 2025-12-01 — `qwen3-livetranslate-flash-2025-12-01`
-- 2025-12-01 — `qwen3-omni-flash`
 - 2025-12-01 — `qwen3-omni-flash-2025-12-01`
 - 2025-12-01 — `qwen3-omni-flash-realtime-2025-12-01`
+- 2025-12-01 — `qwen3-omni-flash`
 - 2025-11-27 — `qwen3-tts-flash-2025-11-27`
 - 2025-11-27 — `qwen3-tts-flash-realtime-2025-11-27`
+- 2025-11-27 — `qwen3-tts-flash-realtime`
+- 2025-11-27 — `qwen3-tts-flash`
 - 2025-11-27 — `qwen3-tts-vc-realtime-2025-11-27`
 - 2025-11-20 — `qwen-vl-ocr-2025-11-20`
+- 2025-11-19 — `qwen-mt-lite`
+- 2025-11-06 — `qwen-mt-flash`
 - 2025-11-05 — `qwen-plus-2025-11-05`
 - 2025-10-30 — `qwen-image-edit-plus-2025-10-30`
 - 2025-10-27 — `qwen3-asr-flash-realtime-2025-10-27`
 - 2025-10-15 — `qwen3-vl-flash-2025-10-15`
-- 2025-09-23 — `qwen3-coder-plus`
 - 2025-09-23 — `qwen3-coder-plus-2025-09-23`
+- 2025-09-23 — `qwen3-coder-plus`
+- 2025-09-23 — `qwen3-livetranslate-flash-realtime`
 - 2025-09-23 — `qwen3-max-2025-09-23`
 - 2025-09-23 — `qwen3-vl-plus-2025-09-23`
 - 2025-09-22 — `qwen3-livetranslate-flash-realtime-2025-09-22`
@@ -102,63 +129,57 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 - 2025-09-15 — `qwen3-omni-flash-2025-09-15`
 - 2025-09-15 — `qwen3-omni-flash-realtime-2025-09-15`
 - 2025-09-11 — `qwen-plus-2025-09-11`
+- 2025-08-05 — `qwen-flash`
+- 2025-08-05 — `qwen3-coder-flash`
+- 2025-07-22 — `qwen-mt-plus`
+- 2025-07-22 — `qwen-mt-turbo`
+- 2025-07-22 — `qwen3-coder-480b-a35b-instruct`
 - 2025-07-22 — `qwen3-coder-plus-2025-07-22`
 - 2025-07-14 — `qwen-plus-2025-07-14`
 - 2025-07 — `qwen3-235b-a22b-instruct-2507`
 - 2025-07 — `qwen3-235b-a22b-thinking-2507`
 - 2025-07 — `qwen3-30b-a3b-instruct-2507`
 - 2025-07 — `qwen3-30b-a3b-thinking-2507`
+- 2025-06-13 — `qwen-vl-plus`
+- 2025-06-03 — `qvq-plus`
+- 2025-05-26 — `qwen-vl-max`
 - 2025-05-22 — `qwen-tts-2025-05-22`
 - 2025-04-28 — `qwen-plus-2025-04-28`
-- 2025-01-25 — `qwen-plus`
+- 2025-03-26 — `qvq-max`
+- 2025-03-19 — `qwen-long`
+- 2025-03-05 — `qwq-plus`
 - 2025-01-25 — `qwen-plus-2025-01-25`
+- 2025-01-25 — `qwen-plus`
+- 2024-11-12 — `qwen-coder-plus`
 - 2024-11-06 — `qwen-coder-plus-1106`
-- 2024-11-01 — `qwen-turbo`
 - 2024-11-01 — `qwen-turbo-2024-11-01`
+- 2024-11-01 — `qwen-turbo`
+- 2024-09-19 — `qwen-coder-turbo`
 - 2024-09-19 — `qwen-math-plus-0919`
+- 2024-09-19 — `qwen-math-turbo`
 - 2024-09-19 — `qwen-turbo-0919`
-- 2024-01-07 — `qwen-max`
 - 2024-01-07 — `qwen-max-0107`
+- 2024-01-07 — `qwen-max`
 - 未确认 — `codeqwen1.5-7b-chat`
-- 未确认 — `gui-plus`
-- 未确认 — `qvq-max`
-- 未确认 — `qvq-plus`
 - 未确认 — `qwen-1.8b-chat`
 - 未确认 — `qwen-1.8b-longcontext-chat`
 - 未确认 — `qwen-14b-chat`
 - 未确认 — `qwen-72b-chat`
 - 未确认 — `qwen-7b-chat`
-- 未确认 — `qwen-audio-3.0-asr-flash`
-- 未确认 — `qwen-audio-3.0-realtime-flash`
-- 未确认 — `qwen-audio-3.0-realtime-plus`
-- 未确认 — `qwen-coder-plus`
-- 未确认 — `qwen-coder-turbo`
 - 未确认 — `qwen-deep-search-planning`
-- 未确认 — `qwen-flash`
-- 未确认 — `qwen-flash-character`
 - 未确认 — `qwen-image-2.0`
 - 未确认 — `qwen-image-2.0-pro`
-- 未确认 — `qwen-image-3.0`
-- 未确认 — `qwen-image-3.0-pro`
 - 未确认 — `qwen-image-edit-max`
 - 未确认 — `qwen-image-edit-plus`
 - 未确认 — `qwen-image-max`
-- 未确认 — `qwen-long`
 - 未确认 — `qwen-math-plus`
 - 未确认 — `qwen-math-plus-latest`
-- 未确认 — `qwen-math-turbo`
 - 未确认 — `qwen-max-1201`
 - 未确认 — `qwen-max-longcontext`
-- 未确认 — `qwen-mt-flash`
-- 未确认 — `qwen-mt-lite`
-- 未确认 — `qwen-mt-plus`
-- 未确认 — `qwen-mt-turbo`
 - 未确认 — `qwen-omni-turbo`
 - 未确认 — `qwen-plus-latest`
-- 未确认 — `qwen-vl-max`
 - 未确认 — `qwen-vl-ocr`
 - 未确认 — `qwen-vl-ocr-latest`
-- 未确认 — `qwen-vl-plus`
 - 未确认 — `qwen1.5-0.5b-chat`
 - 未确认 — `qwen1.5-1.8b-chat`
 - 未确认 — `qwen1.5-110b-chat`
@@ -178,40 +199,21 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 - 未确认 — `qwen3-30b-a3b`
 - 未确认 — `qwen3-32b`
 - 未确认 — `qwen3-8b`
-- 未确认 — `qwen3-asr-flash-realtime`
-- 未确认 — `qwen3-coder-480b-a35b-instruct`
-- 未确认 — `qwen3-coder-flash`
-- 未确认 — `qwen3-coder-next`
-- 未确认 — `qwen3-livetranslate-flash`
-- 未确认 — `qwen3-livetranslate-flash-realtime`
 - 未确认 — `qwen3-max-preview`
 - 未确认 — `qwen3-next-80b-a3b-instruct`
 - 未确认 — `qwen3-next-80b-a3b-thinking`
 - 未确认 — `qwen3-omni-flash-realtime`
-- 未确认 — `qwen3-tts-flash`
-- 未确认 — `qwen3-tts-flash-realtime`
-- 未确认 — `qwen3-tts-instruct-flash`
-- 未确认 — `qwen3-tts-instruct-flash-realtime`
 - 未确认 — `qwen3-vl-flash`
 - 未确认 — `qwen3.5-122b-a10b`
-- 未确认 — `qwen3.5-27b`
 - 未确认 — `qwen3.5-35b-a3b`
 - 未确认 — `qwen3.5-397b-a17b`
 - 未确认 — `qwen3.5-livetranslate-flash-realtime`
-- 未确认 — `qwen3.5-ocr`
 - 未确认 — `qwen3.5-omni-flash`
 - 未确认 — `qwen3.5-omni-flash-realtime`
-- 未确认 — `qwen3.5-omni-plus`
 - 未确认 — `qwen3.5-omni-plus-realtime`
 - 未确认 — `qwen3.6-35b-a3b`
 - 未确认 — `qwen3.7-max-preview`
-- 未确认 — `qwen3.7-text-embedding`
-- 未确认 — `qwq-plus`
-- 未确认 — `tongyi-xiaomi-analysis-flash`
-- 未确认 — `tongyi-xiaomi-analysis-pro`
 - 未确认 — `wan2.7-image`
-- 未确认 — `wan2.7-image-pro`
-- 未确认 — `z-image-turbo`
 
 ### DeepSeek（13）
 
@@ -231,11 +233,11 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 
 ### 智谱 AI / GLM（5）
 
+- 2026-07-09 — `glm-5.2-fast-preview`
 - 2026-06-16 — `glm-5.2`
 - 2026-04-06 — `glm-5.1`
 - 2026-02-11 — `glm-5`
 - 2025-12-22 — `glm-4.7`
-- 未确认 — `glm-5.2-fast-preview`
 
 ### 月之暗面 / Kimi（4）
 
@@ -262,10 +264,10 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 
 ### DeepSeek（9）
 
+- 2026-01-28 — `siliconflow/deepseek-v3.2`
 - 2025-05-28 — `siliconflow/deepseek-r1-0528`
 - 2025-03-24 — `siliconflow/deepseek-v3-0324`
 - 未确认 — `siliconflow/deepseek-v3.1-terminus`
-- 未确认 — `siliconflow/deepseek-v3.2`
 - 未确认 — `vanchin/deepseek-ocr`
 - 未确认 — `vanchin/deepseek-r1`
 - 未确认 — `vanchin/deepseek-v3`
@@ -274,21 +276,21 @@ OpenRouter 的模型对象可提供 id、name、created、canonical_slug 等目�
 
 ### 月之暗面 / Kimi（5）
 
-- 2026-06-12 — `kimi/kimi-k2.7-code`
+- 2026-07-17 — `kimi/kimi-k3`
 - 2026-06-12 — `kimi/kimi-k2.7-code-highspeed`
+- 2026-06-12 — `kimi/kimi-k2.7-code`
 - 2026-04-20 — `kimi/kimi-k2.6`
 - 2026-01-27 — `kimi/kimi-k2.5`
-- 未确认 — `kimi/kimi-k3`
 
 ### MiniMax（8）
 
 - 2026-05-31 — `MiniMax/MiniMax-M3`
+- 2026-03-19 — `MiniMax/speech-2.8-hd`
 - 2026-02-11 — `MiniMax/MiniMax-M2.5`
 - 未确认 — `MiniMax/MiniMax-M2.1`
 - 未确认 — `MiniMax/MiniMax-M2.7`
 - 未确认 — `MiniMax/speech-02-hd`
 - 未确认 — `MiniMax/speech-02-turbo`
-- 未确认 — `MiniMax/speech-2.8-hd`
 - 未确认 — `MiniMax/speech-2.8-turbo`
 
 ### 小米 / MiMo（1）

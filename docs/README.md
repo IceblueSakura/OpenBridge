@@ -223,7 +223,7 @@ credential、identity 或 executable probe；`deepseek-v4-flash` 的两个下游
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
 | 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
 | 实现 Embeddings、图片或文件                 | [扩展共同规则](functional-requirements/embedding-and-native-multimodal.md) → 对应功能需求 → [OpenAI 细粒度协议索引](references/openai/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
-| 实现音频能力                               | [音频需求](functional-requirements/native-audio.md) → [OpenAI 音频协议索引](references/openai/README.md#6-音频与语音) → [MiMo 六模型能力矩阵](references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md) → 当前焦点 → contract tests |
+| 实现音频能力                               | [音频需求](functional-requirements/native-audio.md) → [OpenAI 音频协议索引](references/openai/README.md#6-音频与语音) → [MiMo 六模型能力矩阵](references/providers/xiaomi/audio.md) → 当前焦点 → contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：
@@ -231,7 +231,7 @@ credential、identity 或 executable probe；`deepseek-v4-flash` 的两个下游
 - [Chat Completions 细粒度协议](references/openai/README.md#1-chat-completions)
 - [Responses 细粒度协议](references/openai/README.md#2-responses)
 - [标准 Audio/Speech 细粒度协议](references/openai/README.md#6-音频与语音)
-- [MiMo 全模型语音能力矩阵](references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [MiMo 全模型语音能力矩阵](references/providers/xiaomi/audio.md)
 - [OpenAI 协议调研总索引](references/openai/README.md)
 - [Codex OAuth 调研](references/codex/codex-device-auth-token-refresh-analysis.md)
 - [参考项目比较矩阵](references/project-comparison.md)

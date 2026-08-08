@@ -38,7 +38,7 @@ project A research
 | 类别                 | 回答的问题                                                                    | 唯一入口                                                                                         |
 |----------------------|-------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | 标准 Audio/Speech 协议 | `/audio/*`、Chat audio、Realtime 的 path、wire、media response 和生命周期是什么 | [OpenAI 音频细粒度索引](openai/README.md#6-音频与语音)与[Realtime 索引](openai/README.md#7-realtime) |
-| MiMo 模型语音能力    | 当前六个 MiMo model 分别支持什么、通过哪个 endpoint/字段调用、证据到哪一层      | [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)    |
+| MiMo 模型语音能力    | 当前六个 MiMo model 分别支持什么、通过哪个 endpoint/字段调用、证据到哪一层      | [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/audio.md)    |
 
 功能需求和实施现状只引用这两个入口，不在同一文档中混写标准协议与 Provider capability。
 
@@ -62,22 +62,21 @@ project A research
 
 ## 5. Provider 官方资料
 
+Provider 文档按"调研方向"组织：每个 provider 一个目录，目录内按入口点/能力面分文件（如 Xiaomi MiMo 的 protocol/image/audio），不保留多份日期快照；快照日期记录在各文档"范围与快照"节内。
+
 ### OpenRouter
 
-- [Models API 与能力字段](providers/openrouter/model-information-api-analysis.md)
-- [模型目录快照（2026-08-02）](providers/openrouter/model-catalog-2026-08-02.md)
-- [Provider API 快照（2026-08-02）](providers/openrouter/provider-api-2026-08-02.md)
+- [API 与模型能力调研](providers/openrouter/api.md)——接口分层、`Model` 对象字段语义、入口/认证、live wire 观察
+- [模型目录快照](providers/openrouter/model-catalog.md)——精确匹配模型目录数据（采集 2026-08-02）
 
 ### DeepSeek、Xiaomi MiMo、NVIDIA 与阿里云百炼
 
-- [DeepSeek 协议入口快照（2026-08-02）](providers/deepseek/deepseek-protocol-2026-08-02.md)
-- [DeepSeek 协议入口快照（2026-08-08）](providers/deepseek/deepseek-protocol-2026-08-08.md)
-- [Xiaomi MiMo 协议入口与文本生成快照](providers/xiaomi/xiaomi-mimo-protocol-2026-08-02.md)
-- [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/xiaomi-mimo-image-protocol-2026-08-07.md)
-- [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
-- [NVIDIA MiniMax M3 与百炼 GLM/Qwen Chat 模型入口（2026-08-08）](providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)
-- [NVIDIA API Catalog Models 列表（2026-08-08）](providers/nvidia/nvidia-model-list-2026-08-08.md)
-- [阿里云百炼 Models 列表前缀与研发者分类（2026-08-08）](providers/bailian/bailian-model-list-2026-08-08.md)
+- [DeepSeek 协议入口快照](providers/deepseek/protocol.md)（2026-08-08）
+- [Xiaomi MiMo 协议入口与文本生成](providers/xiaomi/protocol.md)——endpoint、认证、模型目录与下线说明
+- [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/image.md)（2026-08-07）
+- [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/audio.md)（2026-08-08）
+- [NVIDIA API Catalog Models 列表](providers/nvidia/models.md)（2026-08-08）
+- [阿里云百炼 Models 列表前缀与研发者分类](providers/bailian/models.md)（2026-08-08）
 
 ## 6. 参考项目
 

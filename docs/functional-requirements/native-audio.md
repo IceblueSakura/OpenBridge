@@ -117,4 +117,4 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 ASR 方言承诺、未单独验证的 VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
 
 - [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
-- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/audio.md)

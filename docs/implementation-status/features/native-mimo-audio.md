@@ -63,7 +63,7 @@
 ## 相关文档
 
 - [功能需求：Native 音频能力](../../functional-requirements/native-audio.md)
-- [MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/audio.md)
 - [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [标准 Audio/Speech 协议索引](../../references/openai/README.md#6-音频与语音)
 - [Chat/Responses Native 转发](native-generation-forwarding.md)

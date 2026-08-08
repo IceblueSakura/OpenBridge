@@ -4,8 +4,8 @@
 
 本文只记录 Xiaomi MiMo 的公共 API origin、Chat/Responses 入口、认证和模型目录事实。图片与音频协议按功能拆分：
 
-- [图片理解协议与真实观察](xiaomi-mimo-image-protocol-2026-08-07.md)
-- [全模型语音能力与调用途径](xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [图片理解协议与真实观察](image.md)
+- [全模型语音能力与调用途径](audio.md)
 
 这些页面是外部 Provider 快照，不替代 OpenBridge 当前实现状态或功能需求。
 

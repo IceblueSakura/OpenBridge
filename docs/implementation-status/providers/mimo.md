@@ -88,4 +88,4 @@ request ID 或音频文件。
 - [MiMo 专用音频实现](../features/native-mimo-audio.md)
 - [`mimo-v2.5` Native 图片输入](../features/native-image-input.md)
 - [Models 接口与能力预检](../features/models-api-and-capability-preflight.md)
-- [MiMo 外部音频协议与能力参考](../../references/providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
+- [MiMo 外部音频协议与能力参考](../../references/providers/xiaomi/audio.md)
