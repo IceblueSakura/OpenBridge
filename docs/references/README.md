@@ -16,6 +16,7 @@
 | `litellm/`                     | LiteLLM Proxy、adapter、model、observability、performance 和 tests             |
 | `cc-switch/`                   | cc-switch protocol bridge 与 retry/failover                                    |
 | `cliproxyapi/`                 | CLIProxyAPI state、credential 与 OAuth scheduler                               |
+| `mcp/`                         | MCP 协议规范与 Rust 生态 SDK 调研                                              |
 | `cross-project/`               | 已经存在各项目独立调研后的综合比较                                             |
 | 当前目录                       | 总索引与[参考项目调研总览](project-comparison.md)                              |
 
@@ -51,7 +52,15 @@ project A research
 - [gpt-oss compatibility-test](openai/gpt-oss-compatibility-test-analysis.md)
 - [OpenAI SDK streaming consumers](openai/openai-sdk-stream-test-assets-analysis.md)
 
-## 4. Provider 官方资料
+## 4. MCP 协议与 Rust SDK
+
+- [MCP Rust 生态调研索引](mcp/README.md)（生态全景、协议支持矩阵、选型观察；快照 2026-08-08）
+  - [rmcp 官方 Rust SDK](mcp/rmcp-official-sdk.md)——唯一完整实现 2026-07-28 现行规范
+  - [rust-mcp-sdk（rust-mcp-stack）](mcp/rust-mcp-sdk-community.md)——axum 一站式托管，锚定 2025-11-25
+  - [pmcp（Pragmatic AI Labs）](mcp/pmcp.md)——传输/认证面最广，锚定 2025-11-25
+  - [fastmcp_rust](mcp/fastmcp-rust.md)——实验性，asupersync 运行时，不构成生产选型
+
+## 5. Provider 官方资料
 
 ### OpenRouter
 
@@ -67,8 +76,9 @@ project A research
 - [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/xiaomi-mimo-image-protocol-2026-08-07.md)
 - [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/xiaomi-mimo-audio-capabilities-2026-08-08.md)
 - [NVIDIA MiniMax M3 与百炼 GLM/Qwen Chat 模型入口（2026-08-08）](providers/nvidia/nvidia-bailian-chat-models-2026-08-08.md)
+- [阿里云百炼 Models 列表前缀与研发者分类（2026-08-08）](providers/bailian/bailian-model-list-prefix-classification-2026-08-08.md)
 
-## 5. 参考项目
+## 6. 参考项目
 
 参考项目的许可证以各仓库根 `LICENSE` 为准；此处不是依赖引入或法律意见。
 
@@ -84,7 +94,7 @@ project A research
 
 - [Open Responses Compliance](openai/open-responses-compliance-analysis.md)
 
-## 6. 综合调研
+## 7. 综合调研
 
 | 功能                 | 综合文档                                                                                         | 项目级前置                                                                                |
 |----------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
@@ -93,7 +103,7 @@ project A research
 | Model information    | [LiteLLM/OpenRouter 模型信息](cross-project/model-information-comparison.md)                     | LiteLLM、OpenRouter                                                                       |
 | OAuth device/refresh | [设备登录与 token refresh](cross-project/upstream-oauth-device-code-token-refresh-analysis.md)   | Codex、CLIProxyAPI、Hermes、LiteLLM                                                       |
 
-## 7. 固定快照索引
+## 8. 固定快照索引
 
 下面只记录外部项目本地 checkout 的 2026-08-01/05 复核位置，不覆盖各文档中的原始逐行 commit：
 
@@ -105,7 +115,7 @@ project A research
 | cc-switch   | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890`                     | bridge state、history、retry/failover                          |
 | CLIProxyAPI | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`                     | stateful translator、credential retry、OAuth scheduler         |
 
-## 8. 新增文档检查表
+## 9. 新增文档检查表
 
 - 对应单一项目或官方来源目录；
 - 记录 source URL、snapshot date/commit 和阅读范围；
