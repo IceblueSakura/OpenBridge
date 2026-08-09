@@ -48,9 +48,10 @@
 - `UpstreamStreamingPolicy` 显式区分 optional streaming 与 required streaming；required API 的非流式转换开关只能关闭，或选择
   Responses SSE buffering。错误 operation/capability 组合在启动时失败，关闭转换的候选会把固定接口 `non_streaming` 收窄为
   `unsupported`，不会因后续候选更强而被跳过。
-- `UpstreamApiModelRules` 可以用闭合、类型化集合声明下游接受但当前上游不接收的普通 generation 参数；规则按具体 API 生效，
-  不收窄 Public Model `supported_parameters`，且不能用于 Embeddings、能力字段、输出预算或任意字符串过滤。当前配置只包含官方文档或
-  真实 E2E 已确认的 Kimi K3、MiMo Responses 与 ChatGPT Responses 组合。
+- generation canonical parameter 必须来自 Chat/Responses 代码内类型化目录。`UpstreamApiModelRules.disabled_parameters` 收窄当前
+  API 的有效参数集合；闭合 `ignored_parameters` 只允许五类普通提示，表示 OpenBridge 下游接受但当前 API egress 删除。规则按具体 API
+  和 candidate 生效，不能用于 Embeddings、输出语义字段、能力字段、输出预算或任意字符串过滤。当前 ignore 配置只保留有文档与真实
+  E2E 证据的 Kimi sampling/penalty 提示和 ChatGPT seed；Kimi/MiMo/ChatGPT 的不兼容输出语义字段改为显式 disabled。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
 - MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
   Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。

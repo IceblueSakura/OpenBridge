@@ -6,12 +6,21 @@ use super::*;
 async fn provider_request_header_hook_overrides_user_agent_for_upstream() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_transport(transport.clone());
-    for path in ["/v1/chat/completions", "/v1/responses"] {
+    for (path, body) in [
+        (
+            "/v1/chat/completions",
+            r#"{"model":"public-model","messages":[]}"#,
+        ),
+        (
+            "/v1/responses",
+            r#"{"model":"public-model","input":"hello"}"#,
+        ),
+    ] {
         let request = Request::post(path)
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
             .header(USER_AGENT, "openbridge-contract-client/1.0")
-            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .body(Body::from(body))
             .unwrap();
 
         let response = app.clone().oneshot(request).await.unwrap();
@@ -38,7 +47,7 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
             "/v1/chat/completions",
             r#"{"model":"public-model","messages":[]}"#,
             "application/json",
-            b"{\"id\":\"chat-result\"}".as_slice(),
+            b"{\"id\":\"chatcmpl_result\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}".as_slice(),
         ),
         (
             "/v1/responses",
@@ -234,14 +243,11 @@ async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
             .collect();
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
-        .ignored_parameters = vec![
-        IgnorableGenerationParameter::N,
-        IgnorableGenerationParameter::Temperature,
-    ];
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
 
-    // Submit both ignored fields beside ordinary fields that must remain transparent.
+    // Submit one ignored hint beside output-shaping fields that must remain transparent.
     let request = Request::post("/v1/chat/completions")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -256,9 +262,9 @@ async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
     // Verify only the selected API's configured keys disappear from the final egress body.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
-    assert!(requests[0].body.get("n").is_none());
     assert!(requests[0].body.get("temperature").is_none());
     assert_eq!(requests[0].body["logprobs"], true);
+    assert_eq!(requests[0].body["n"], 2);
     assert_eq!(requests[0].body["seed"], 7);
     assert_eq!(requests[0].body["top_logprobs"], 3);
     drop(requests);
@@ -278,61 +284,141 @@ async fn kimi_k3_drops_documented_fixed_sampling_parameters_before_egress() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());
 
-    // Exercise values that Moonshot rejects instead of requiring every downstream client to specialize Kimi.
-    let request = Request::post("/v1/chat/completions")
-        .header(CONTENT_TYPE, "application/json")
-        .header(
-            AUTHORIZATION,
-            "Bearer downstream-token-00000000000000000000000000000000",
-        )
-        .body(Body::from(
-            r#"{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}],"frequency_penalty":0.5,"logprobs":true,"n":2,"presence_penalty":0.5,"seed":7,"temperature":0.2,"top_logprobs":3,"top_p":0.9}"#,
-        ))
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+    // Exercise the ignored hints through both Chat Native and Responses-to-Chat Bridge.
+    for (path, request) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "kimi-k3",
+                "messages": [{"role": "user", "content": "hello"}],
+                "frequency_penalty": 0.5,
+                "presence_penalty": 0.5,
+                "seed": 7,
+                "temperature": 0.2,
+                "top_p": 0.9,
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "kimi-k3",
+                "input": "hello",
+                "frequency_penalty": 0.5,
+                "presence_penalty": 0.5,
+                "temperature": 0.2,
+                "top_p": 0.9,
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+    }
 
     // Remove all fixed Kimi sampling fields while preserving an independently accepted ordinary field.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    for parameter in [
-        "frequency_penalty",
-        "logprobs",
-        "n",
-        "presence_penalty",
-        "temperature",
-        "top_logprobs",
-        "top_p",
-    ] {
-        assert!(
-            requests[0].body.get(parameter).is_none(),
-            "unexpected egress parameter {parameter}"
-        );
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        for parameter in [
+            "frequency_penalty",
+            "presence_penalty",
+            "temperature",
+            "top_p",
+        ] {
+            assert!(
+                request.body.get(parameter).is_none(),
+                "unexpected egress parameter {parameter}"
+            );
+        }
     }
     assert_eq!(requests[0].body["seed"], 7);
+    assert!(requests[1].body.get("seed").is_none());
     drop(requests);
 
-    // Continue advertising the standard fields that OpenBridge accepts downstream.
+    // Advertise ignored hints but exclude output-shaping parameters rejected by this API.
     let model = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
-    let parameters = model["interfaces"]["chat_completions"]["supported_parameters"]
-        .as_array()
-        .unwrap();
-    for parameter in [
-        "frequency_penalty",
-        "logprobs",
-        "n",
-        "presence_penalty",
-        "temperature",
-        "top_logprobs",
-        "top_p",
-    ] {
-        assert!(parameters.iter().any(|value| value == parameter));
+    for interface in ["chat_completions", "responses"] {
+        let parameters = model["interfaces"][interface]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        for parameter in [
+            "frequency_penalty",
+            "presence_penalty",
+            "temperature",
+            "top_p",
+        ] {
+            assert!(parameters.iter().any(|value| value == parameter));
+        }
+        for parameter in ["logprobs", "n", "top_logprobs"] {
+            assert!(!parameters.iter().any(|value| value == parameter));
+        }
+        assert_eq!(
+            parameters.iter().any(|value| value == "seed"),
+            interface == "chat_completions"
+        );
     }
 }
 
 #[tokio::test]
-async fn mimo_text_responses_drops_only_the_rejected_top_logprobs_parameter() {
+async fn kimi_k3_rejects_output_shaping_parameters_before_egress() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Reject fields whose omission would change the number or shape of visible outputs.
+    for (path, parameter, value) in [
+        ("/v1/chat/completions", "logprobs", serde_json::json!(true)),
+        ("/v1/chat/completions", "n", serde_json::json!(2)),
+        ("/v1/chat/completions", "top_logprobs", serde_json::json!(3)),
+        ("/v1/responses", "logprobs", serde_json::json!(true)),
+        ("/v1/responses", "n", serde_json::json!(2)),
+        ("/v1/responses", "top_logprobs", serde_json::json!(3)),
+        ("/v1/chat/completions", "n", serde_json::Value::Null),
+        ("/v1/responses", "n", serde_json::Value::Null),
+    ] {
+        let mut request = if path.ends_with("responses") {
+            serde_json::json!({"model": "kimi-k3", "input": "hello"})
+        } else {
+            serde_json::json!({"model": "kimi-k3", "messages": []})
+        };
+        request[parameter] = value;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], parameter);
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn mimo_text_responses_rejects_top_logprobs_before_egress() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());
 
@@ -356,14 +442,25 @@ async fn mimo_text_responses_drops_only_the_rejected_top_logprobs_parameter() {
             ))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], "top_logprobs");
     }
 
-    // Keep the independently verified seed while removing only the Responses-specific failure.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    for request in requests.iter() {
-        assert!(request.body.get("top_logprobs").is_none());
-        assert_eq!(request.body["seed"], 7);
+    // Keep Chat support visible while narrowing the Responses interface and avoiding all egress.
+    assert!(transport.requests.lock().unwrap().is_empty());
+    for model in ["mimo-v2.5", "mimo-v2.5-pro"] {
+        let detail =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
+        let chat = detail["interfaces"]["chat_completions"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        let responses = detail["interfaces"]["responses"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(chat.iter().any(|value| value == "top_logprobs"));
+        assert!(!responses.iter().any(|value| value == "top_logprobs"));
     }
 }

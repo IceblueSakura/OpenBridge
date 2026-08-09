@@ -6,8 +6,8 @@ use crate::{
     bridge::BridgePlan,
     core::{
         ApiProtocol, ApiRequest, AudioFormat, AudioInputSource, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingRequest, ImageDetail, ImageInputSource, ImageMediaType,
-        OperationKind, StructuredOutputMode, ToolChoiceMode,
+        EmbeddingInputForm, EmbeddingRequest, GenerationRequestField, ImageDetail,
+        ImageInputSource, ImageMediaType, OperationKind, StructuredOutputMode, ToolChoiceMode,
     },
     registry::ReasoningLevel,
 };
@@ -19,6 +19,7 @@ pub struct RequestRequirements {
     pub(super) protocol: ApiProtocol,
     pub(super) is_streaming: bool,
     pub(super) requested_output_tokens: Option<u64>,
+    pub(super) requested_parameters: BTreeSet<GenerationRequestField>,
     pub(super) requested_capabilities: RequestedCapabilities,
 }
 

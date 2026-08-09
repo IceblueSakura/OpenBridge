@@ -38,6 +38,17 @@ pub(super) fn preflight_public_model<'a>(
         requirements.requested_output_tokens,
         interface.capabilities(),
     )?;
+
+    // Reject known parameters outside the same fixed interface after specialized semantic checks.
+    if let Some(parameter) = requirements.requested_parameters.iter().find(|parameter| {
+        !interface
+            .capabilities()
+            .supports_parameter(parameter.as_wire_name())
+    }) {
+        return Err(RequestPlanningError::UnsupportedParameter(
+            parameter.as_wire_name(),
+        ));
+    }
     Ok(interface)
 }
 

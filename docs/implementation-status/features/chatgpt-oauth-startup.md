@@ -23,8 +23,9 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream: true`，把字符串 `input` 转为 user
   message 数组、强制 `store: false`，并在 egress 前拒绝且不公开当前 backend 不接受的输出 token limit 参数。真实 backend 的成功 SSE
   可以缺失 `Content-Type`；静态 ChatGPT media profile 识别该形状、执行完整 lifecycle 校验并向下游规范化 SSE media type。
-- GPT-5.5 与 GPT-5.6 的 `seed/include_reasoning` 仍作为下游可接受普通参数公开；五个 ChatGPT Responses API 中实际声明这些字段的四个
-  advanced profile 在最终 egress 静默删除它们。输出 token 上限、reasoning level、tools、state 与其他能力字段不进入该普通参数例外。
+- GPT-5.5 与 GPT-5.6 的 `seed` 仍作为下游可接受普通提示公开，并在四个 advanced ChatGPT Responses API 的 candidate egress 删除。
+  `include_reasoning` 会改变 reasoning 可见性，当前 API 将其显式禁用，Chat/Responses 固定 interface 不再公开并在 egress 前拒绝。
+  输出 token 上限、reasoning level、tools、state 与其他能力字段同样不进入普通参数忽略例外。
 - 请求只从 manager 借用短生命周期、账户绑定的当前 generation。首个预提交 `401` 先 guarded reload，persisted generation 未变化时才
   refresh，然后只重放一次；第二个 `401` 把仍被拒绝的 generation 标记为 `reauth_required`。
 - 管理员可通过 `openbridge-probe --target <chatgpt-target> --list-models` 或 `--responses` 对已激活的 ChatGPT target 执行固定 Models
@@ -69,8 +70,10 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - GPT-5.3 Codex Spark 与 GPT-5.5 的完成 output 含不可读 `encrypted_content` reasoning item；非流式 Chat 与既有流式 Chat 一致，只保留
   可表示输出，不泄露或伪造 opaque reasoning。
 
-同日对 GPT-5.5、GPT-5.6 Luna/Sol/Terra 的 Responses `seed/include_reasoning` 共 8 个普通参数单元复测，全部返回合法 HTTP 200 JSON
-终态，0 个 HTTP、协议、传输或最终 429/503 错误；确定性 RecordingTransport 测试同时确认两个字段均未进入 ChatGPT 上游 body。
+同日最新严格参数复测以 GPT-5.6 Luna 为真实代表：Chat/Responses `seed` 2/2 返回合法 HTTP 200 JSON 终态，
+`include_reasoning` 2/2 在 egress 前返回带精确 `param` 的 `unsupported_model_capability`；全部一次完成，没有最终 429/503 或
+传输错误。确定性 RecordingTransport 测试覆盖 GPT-5.5 与三个 GPT-5.6 advanced profile，确认 seed 不进入上游 body 且
+`include_reasoning` 不产生 transport attempt。
 
 以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当前 GPT-5.3 Codex Spark、Luna 和 Terra 名称已按注册契约改为
 `gpt-5.3-codex-spark`、`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。

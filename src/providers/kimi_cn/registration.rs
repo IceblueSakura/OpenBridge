@@ -49,13 +49,15 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         upstream_apis: vec![UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules {
+                disabled_parameters: vec![
+                    "logprobs".to_owned(),
+                    "n".to_owned(),
+                    "top_logprobs".to_owned(),
+                ],
                 ignored_parameters: vec![
                     IgnorableGenerationParameter::FrequencyPenalty,
-                    IgnorableGenerationParameter::Logprobs,
-                    IgnorableGenerationParameter::N,
                     IgnorableGenerationParameter::PresencePenalty,
                     IgnorableGenerationParameter::Temperature,
-                    IgnorableGenerationParameter::TopLogprobs,
                     IgnorableGenerationParameter::TopP,
                 ],
                 ..UpstreamApiModelRules::default()

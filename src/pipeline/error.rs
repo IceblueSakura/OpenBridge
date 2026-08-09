@@ -11,6 +11,9 @@ pub enum RequestPlanningError {
     /// The request lacks a non-empty Public Model.
     #[error("request body must contain a non-empty model")]
     MissingModel,
+    /// The request contains a top-level field outside the selected source protocol catalog.
+    #[error("request contains unknown top-level parameter {0}")]
+    UnknownParameter(String),
     /// The requested Public Model is not registered.
     #[error("requested model is not configured")]
     UnknownModel,
@@ -29,6 +32,9 @@ pub enum RequestPlanningError {
     /// The Public Model's fixed interface does not support the requested capability.
     #[error("selected model does not support requested capabilities")]
     UnsupportedCapabilities,
+    /// The Public Model's fixed interface does not accept one known top-level parameter.
+    #[error("selected model does not support parameter {0}")]
+    UnsupportedParameter(&'static str),
     /// The request uses a named but unimplemented reserved capability.
     #[error("requested capabilities are reserved but not implemented")]
     UnimplementedCapabilities,

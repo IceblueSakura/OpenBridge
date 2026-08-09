@@ -11,9 +11,14 @@
   state、独立的 `streaming`/`non_streaming` 支持状态、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
 - 每个 Public Model 的 Chat、Responses、Embeddings interface 在启动期按所有可执行 candidate 的保守交集编译；未知事实保持未知，不被
   猜测为支持。
-- generation `supported_parameters` 表示 OpenBridge 接受对应字段；每 Upstream API 的闭合普通参数忽略集合不从该接口删除字段，且在
-  启动时校验 canonical 声明、唯一性、与 disabled 参数互斥及 generation-only 边界。能力、状态、媒体、reasoning level/开关、stream
-  和输出预算字段仍按固定契约 fail closed，不进入静默忽略集合。
+- Chat/Responses analyzer 先用同一份协议级类型化顶层字段目录分类请求。目录外字段（包括值为 `null` 的字段）在 Native/Bridge
+  规划前返回 `unknown_parameter` 与精确 `param`；目录内但不属于固定 interface 的字段返回
+  `unsupported_model_capability`，两类拒绝都不会调用 Provider。
+- generation `supported_parameters` 表示 OpenBridge 接受对应字段。每条 Route 只能以“当前 API 转发”或“当前 API 明确忽略”贡献
+  参数；Bridge 还要求该转换方向可完整表示字段。固定 interface 继续按全部候选相交，不按请求参数筛选或重排 Route。
+- 每 Upstream API 的闭合普通参数忽略集合不从该 interface 删除字段，但启动时校验 canonical 声明、唯一性、与 disabled 参数互斥及
+  generation-only 边界。当前只允许 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`、`seed`；输出数量、结构或
+  reasoning 可见性字段仍按固定契约 fail closed。generation canonical parameter 还必须存在于同一类型化目录，防止配置任意字符串。
 - generation interface 使用 typed function-tool 与 structured-output profile：分别公开 `tool_choice` mode 集合、parallel/strict
   约束，以及 `json_object`/`json_schema` mode 与 strict 约束；集合逐候选相交，不再由布尔支持值推导整组 mode。
 - 请求 analyzer 冻结精确的 function `tool_choice` 与 structured-output mode/strict facts；缺失证据或未建模值 fail closed，preflight
@@ -44,10 +49,12 @@
 
 ## 验证证据
 
-- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 typed mode 交集、能力预检、Route 顺序和 continuation issuer 安全。
+- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 typed mode 交集、未知字段分类、能力预检、Route 顺序、
+  candidate 独立请求体和 continuation issuer 安全。
 - [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖 capability subset 与未知值边界。
 - `cargo test --locked --lib core::capability::generation::tests` 验证 typed generation subset 与 audio profile presence 推导；
-  `cargo test --locked --test native_routing_contract` 验证交集外 mode 在 egress 前拒绝且通过预检后候选顺序不变。
+  `cargo test --locked --test native_routing_contract` 验证交集外 mode 和未知参数在 egress 前拒绝、候选顺序不变，以及一个候选的参数删除
+  不污染支持该字段的 fallback candidate。
 - [`tests/embedding_definition_contract.rs`](../../../tests/embedding_definition_contract.rs) 和 [`tests/embedding_registry_contract.rs`](../../../tests/embedding_registry_contract.rs)
   覆盖 Embeddings interface 的独立编译和公开契约。
 

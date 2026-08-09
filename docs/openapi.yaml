@@ -1137,8 +1137,8 @@ components:
     ChatCompletionRequest:
       type: object
       required: [ model, messages ]
-      additionalProperties: true
-      description: Chat Completions JSON accepted by the current route. Unlisted valid fields are preserved unchanged along the Native path.
+      additionalProperties: false
+      description: Chat Completions JSON recognized by OpenBridge. The selected Public Model may reject any listed optional field that its fixed interface does not support.
       properties:
         model:
           type: string
@@ -1151,14 +1151,68 @@ components:
         stream:
           type: boolean
           default: false
+        stream_options:
+          type: object
+          additionalProperties: true
+        temperature:
+          type: number
+          nullable: true
+        top_p:
+          type: number
+          nullable: true
+        frequency_penalty:
+          type: number
+          nullable: true
+        presence_penalty:
+          type: number
+          nullable: true
+        seed:
+          type: integer
+          format: int64
+          nullable: true
+        n:
+          type: integer
+          minimum: 1
+        logprobs:
+          type: boolean
+        top_logprobs:
+          type: integer
+          minimum: 0
+        include_reasoning:
+          type: boolean
+        logit_bias:
+          type: object
+          additionalProperties:
+            type: number
+        min_p:
+          type: number
+        top_k:
+          type: integer
+        top_a:
+          type: number
+        repetition_penalty:
+          type: number
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        structured_outputs:
+          $ref: '#/components/schemas/KnownGenerationParameter'
         tools:
           type: array
           items:
             $ref: '#/components/schemas/Tool'
+        tool_choice:
+          $ref: '#/components/schemas/KnownGenerationParameter'
         parallel_tool_calls:
           type: boolean
         reasoning_effort:
           $ref: '#/components/schemas/ReasoningEffort'
+        reasoning:
+          type: object
+          additionalProperties: true
         max_tokens:
           type: integer
           format: int64
@@ -1167,21 +1221,62 @@ components:
           type: integer
           format: int64
           minimum: 0
-        max_output_tokens:
-          type: integer
-          format: int64
-          minimum: 0
         response_format:
           type: object
           additionalProperties: true
         store:
           type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+        service_tier:
+          type: string
+        user:
+          type: string
+        safety_identifier:
+          type: string
+        prompt_cache_key:
+          type: string
+        prompt_cache_options:
+          type: object
+          additionalProperties: true
+        prompt_cache_retention:
+          type: string
+        moderation:
+          $ref: '#/components/schemas/KnownGenerationParameter'
+        modalities:
+          type: array
+          items:
+            type: string
+        audio:
+          type: object
+          additionalProperties: true
+        asr_options:
+          type: object
+          additionalProperties: true
+        optimize_text_preview:
+          type: boolean
+        prediction:
+          type: object
+          additionalProperties: true
+        web_search_options:
+          type: object
+          additionalProperties: true
+        functions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        function_call:
+          $ref: '#/components/schemas/KnownGenerationParameter'
+        verbosity:
+          type: string
 
     ResponsesRequest:
       type: object
       required: [ model ]
-      additionalProperties: true
-      description: Responses JSON accepted by the current route. Stateless requests are OpenBridge's core compatibility surface.
+      additionalProperties: false
+      description: Responses JSON recognized by OpenBridge. Stateless requests are the core compatibility surface, and the selected Public Model may reject any listed optional field outside its fixed interface.
       properties:
         model:
           type: string
@@ -1199,16 +1294,71 @@ components:
         stream:
           type: boolean
           default: false
+        stream_options:
+          type: object
+          additionalProperties: true
+        temperature:
+          type: number
+          nullable: true
+        top_p:
+          type: number
+          nullable: true
+        frequency_penalty:
+          type: number
+          nullable: true
+        presence_penalty:
+          type: number
+          nullable: true
+        seed:
+          type: integer
+          format: int64
+          nullable: true
+        n:
+          type: integer
+          minimum: 1
+        logprobs:
+          type: boolean
+        top_logprobs:
+          type: integer
+          minimum: 0
+        include_reasoning:
+          type: boolean
+        logit_bias:
+          type: object
+          additionalProperties:
+            type: number
+        min_p:
+          type: number
+        top_k:
+          type: integer
+        top_a:
+          type: number
+        repetition_penalty:
+          type: number
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        structured_outputs:
+          $ref: '#/components/schemas/KnownGenerationParameter'
         tools:
           type: array
           items:
             $ref: '#/components/schemas/Tool'
+        tool_choice:
+          $ref: '#/components/schemas/KnownGenerationParameter'
+        parallel_tool_calls:
+          type: boolean
         reasoning:
           type: object
           additionalProperties: true
           properties:
             effort:
               $ref: '#/components/schemas/ReasoningEffort'
+        reasoning_effort:
+          $ref: '#/components/schemas/ReasoningEffort'
         max_output_tokens:
           type: integer
           format: int64
@@ -1220,6 +1370,57 @@ components:
           nullable: true
         background:
           type: boolean
+        text:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        service_tier:
+          type: string
+        user:
+          type: string
+        safety_identifier:
+          type: string
+        prompt_cache_key:
+          type: string
+        prompt_cache_options:
+          type: object
+          additionalProperties: true
+        prompt_cache_retention:
+          type: string
+        moderation:
+          $ref: '#/components/schemas/KnownGenerationParameter'
+        modalities:
+          type: array
+          items:
+            type: string
+        audio:
+          type: object
+          additionalProperties: true
+        instructions:
+          oneOf:
+            - type: string
+            - type: array
+        conversation:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        prompt:
+          type: object
+          additionalProperties: true
+        context_management:
+          $ref: '#/components/schemas/KnownGenerationParameter'
+        include:
+          type: array
+          items:
+            type: string
+        truncation:
+          type: string
+        max_tool_calls:
+          type: integer
+          minimum: 1
 
     EmbeddingRequest:
       type: object
@@ -1364,6 +1565,9 @@ components:
       type: string
       description: Canonical reasoning level used by both model information and downstream requests.
       enum: [ none, minimal, low, medium, high, xhigh, max ]
+
+    KnownGenerationParameter:
+      description: A recognized top-level generation parameter whose exact accepted shape and support are narrowed by the selected Public Model interface.
 
     ChatCompletionResponse:
       type: object

@@ -714,6 +714,13 @@ impl EmbeddingInterfaceCapabilities {
 }
 
 impl ModelInterfaceCapabilities {
+    /// Returns whether this generation interface accepts one optional top-level request parameter.
+    pub(crate) fn supports_parameter(&self, parameter: &str) -> bool {
+        self.supported_parameters
+            .iter()
+            .any(|supported| supported == parameter)
+    }
+
     /// Returns whether the interface guarantees streaming support.
     pub(crate) const fn supports_streaming(&self) -> bool {
         self.streaming.is_supported()

@@ -6,7 +6,10 @@ use serde_json::Value;
 use crate::{
     bridge::BridgePlan,
     core::{ApiRequest, EmbeddingRequest, OperationKind},
-    registry::{NonStreamingConversion, RouteMode, RuntimeRegistry, UpstreamStreamingPolicy},
+    registry::{
+        IgnorableGenerationParameter, NonStreamingConversion, RouteMode, RuntimeRegistry,
+        UpstreamStreamingPolicy,
+    },
 };
 
 use super::{
@@ -34,9 +37,12 @@ pub fn plan_request(
     // Build requests in compiled priority order; request facts cannot filter or reorder candidates.
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());
     for candidate in interface.candidates() {
+        // Rebuild this candidate from the original body and apply only its typed omission rules.
+        let candidate_body =
+            discard_candidate_ignored_parameters(&body, candidate.ignored_generation_parameters())?;
         let (request, bridge) = match candidate.mode() {
             RouteMode::Native => (
-                ApiRequest::new(candidate.downstream_protocol(), body.clone()),
+                ApiRequest::new(candidate.downstream_protocol(), candidate_body),
                 None,
             ),
             RouteMode::Bridged => match BridgePlan::prepare_with_reasoning_output(
@@ -44,7 +50,7 @@ pub fn plan_request(
                 candidate.upstream_protocol(),
                 requirements.public_model(),
                 candidate.upstream_model(),
-                body.clone(),
+                candidate_body,
                 candidate.reasoning_output(),
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
@@ -75,6 +81,32 @@ pub fn plan_request(
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
+}
+
+/// Removes the selected Upstream API's closed ordinary-parameter set from one candidate body.
+fn discard_candidate_ignored_parameters(
+    body: &Bytes,
+    ignored_parameters: &[IgnorableGenerationParameter],
+) -> Result<Bytes, RequestPlanningError> {
+    // Preserve the original bytes exactly when this candidate has no omission rule.
+    if ignored_parameters.is_empty() {
+        return Ok(body.clone());
+    }
+
+    // Parse the already analyzed object and remove only statically typed parameter names.
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    for parameter in ignored_parameters {
+        object.remove(parameter.as_wire_name());
+    }
+
+    // Serialize an independent body so omission cannot mutate later fallback candidates.
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
 }
 
 /// Applies one validated Upstream API streaming policy without changing Route order.

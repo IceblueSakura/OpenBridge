@@ -4,16 +4,16 @@
 
 本报告只保留当前 checkout 的最终结果，不记录重试历史或修复过程。
 
-- checkout：`main`，commit `7a4e635` 加当前已验证 worktree；服务 registry version：`dev-1`。
+- checkout：`main`，commit `f7618de` 加当前已验证 worktree；服务 registry version：`dev-1`。
 - 服务：由当前源码执行 `cargo build --locked` 后启动的 `target\debug\openbridge.exe`，地址为
   `http://127.0.0.1:8080`。
-- 最终有效证据时间：2026-08-09 01:21:22 至 10:02:19（UTC+08:00）。
+- 最终有效证据时间：2026-08-09 01:21:22 至 13:09:46（UTC+08:00）。
 - 下游认证：使用私有 `config/users.toml` 中启用用户的真实 Bearer key；key 未输出、复制或写入结果。
 - 路由范围：只验收固定顺序下正常可用的首选路径，不制造故障、不强制 fallback。下游响应不公开实际 Target，因此本报告不把
   fallback、NVIDIA 后备或其他第二候选描述为已验收。
 - Models：检查 `GET /v1/models` 与 `GET /openbridge/v1/models` 的状态、集合完整性、重复项和 ID 格式。
 - 文字生成：覆盖 15 个模型的 Chat/Responses、JSON/SSE、reasoning 字段省略以及全部公开 reasoning level。
-- 扩展能力：覆盖 function tools、tool choice、parallel calls、structured outputs、工具结果续接、公开普通标量参数、MiMo 图片、
+- 扩展能力：覆盖 function tools、tool choice、parallel calls、structured outputs、工具结果续接、严格参数处置、MiMo 图片、
   MiMo 专用音频和 Qwen Embeddings。
 - 所有测试只保留状态码、协议终态、语义布尔值、错误分类和媒体字节数；不保存生成文本、reasoning、tool arguments、向量、音频、
   transcript、Provider request ID 或 credential。
@@ -26,14 +26,15 @@
 | 文字 + reasoning | 312 | 312 | 全部返回合法 JSON/SSE 终态 |
 | Function tools + 文字 structured outputs | 184 | 200 | 8 个 HTTP 400，8 个 HTTP 200 语义违约 |
 | Function tool result 续接 | 14 | 16 | LongCat Responses 与 DeepSeek Flash Responses 各失败 1 个 |
-| 公开普通标量参数 | 220 | 220 | 全部返回合法 JSON 终态；按 Upstream API 删除已确认不兼容的普通字段 |
+| 严格参数处置 | 16 | 16 | 接受项成功；未知和不支持项均在 egress 前返回精确参数错误 |
 | MiMo 图片 | 4 | 4 | Chat/Responses × JSON/SSE 全部通过 |
 | Qwen Embeddings | 0 | 10 | 2 个维度被上游拒绝，8 个合法请求被本地响应校验拒绝 |
 | MiMo 音频基础/扩展能力 | 15 | 15 | ASR、TTS、VoiceClone、VoiceDesign 全部通过 |
 | MiMo 音频 + structured outputs | 0 | 16 | ASR 为 HTTP 500；三个 TTS 类模型未产生结构化文本 |
-| **业务请求单元合计（不含 Models 检查）** | **749** | **793** | 无传输错误；最终结果中没有 HTTP 429/503 |
+| **业务请求单元合计（不含 Models 检查）** | **545** | **589** | 无传输错误；最终结果中没有 HTTP 429/503 |
 
-这里的 793 个业务请求单元是不同能力组合，不代表 793 个互不重叠的产品缺陷。多个失败单元可能由同一个能力目录或转换缺陷造成。
+这里的 589 个业务请求单元是不同能力组合，不代表 589 个互不重叠的产品缺陷。多个失败单元可能由同一个能力目录或转换缺陷造成。
+严格参数处置中的预期 HTTP 400 记为契约通过，不计作生成成功或产品缺陷。
 
 ## 3. Models 端点
 
@@ -125,19 +126,22 @@ reasoning level 的请求映射均可完成。reasoning 内容只做存在性检
 - `gpt-5.5`、GPT-5.6 Luna/Sol/Terra 的 Chat/Responses、`mimo-v2.5`、`mimo-v2.5-pro`、LongCat Chat 和
   MiniMax Responses 均完成 call/result/final-text 续接。
 
-## 7. 公开普通标量参数
+## 7. 严格参数处置
 
-对每个文字接口 `supported_parameters` 中可独立发送的普通标量参数使用非流式请求，当前最终矩阵为 220/220：
+当前最终矩阵只保留严格策略生效后的 16 个真实请求单元。这里的“通过”表示实际状态、错误 code、精确 `param` 和 transport 边界均与
+固定契约一致：
 
-- 24 个 logprob 单元全部成功。DeepSeek V4 Flash/Pro、GLM、MiMo Chat、MiniMax 和 Qwen 的 20 个实际可用单元继续原样透传；
-  Kimi Chat 的 `logprobs/top_logprobs` 以及 MiMo V2.5/Pro Responses 的 `top_logprobs` 由选中 Upstream API 在 egress 前删除。
-- `gpt-5.5`、GPT-5.6 Luna/Sol/Terra 的 ChatGPT Responses 在 egress 前删除 `seed/include_reasoning`，8 个单元全部成功；这些参数仍作为
-  下游可接受字段公开。
-- Kimi K3 的 `temperature`、`top_p`、`n`、`presence_penalty`、`frequency_penalty` 按官方 fixed-value 约束从 Chat egress 删除；
-  Responses Bridge 公开的 `temperature/top_p` 也在转换后的同一 Chat API 边界删除。使用非固定值的 7 个单元全部成功。
+| 场景 | 协议与 delivery | 通过/总数 | 最终结果 |
+|---|---|---:|---|
+| Kimi K3 `temperature:0.2` | Chat/Responses × JSON/SSE | 4/4 | HTTP 200，合法 JSON/SSE 终态，每项 1 次 Provider attempt |
+| 未知 `future_parameter` | Chat/Responses JSON | 2/2 | HTTP 400 `unknown_parameter`，精确 `param`，0 次 Provider attempt |
+| Kimi K3 `n/logprobs/top_logprobs` | Chat/Responses JSON | 6/6 | HTTP 400 `unsupported_model_capability`，精确 `param`，0 次 Provider attempt |
+| GPT-5.6 Luna `seed` | Chat/Responses JSON | 2/2 | HTTP 200，合法 JSON 终态，每项 1 次 Provider attempt |
+| GPT-5.6 Luna `include_reasoning` | Chat/Responses JSON | 2/2 | HTTP 400 `unsupported_model_capability`，精确 `param`，0 次 Provider attempt |
 
-受影响参数的最终独立复测为 39/39 HTTP 200 且 JSON 终态合法，0 个 HTTP、协议、传输或最终 429/503 错误。测试只保存模型、协议、参数名、
-状态和终态分类，不保存请求正文、生成正文、reasoning、logprobs、credential 或 Provider request ID。
+Kimi 的四个成功单元确认选中 Chat API 的类型化忽略规则同时适用于 Chat Native 与 Responses-to-Chat Bridge，并覆盖下游
+`stream:true/false`。GPT 对照按约定在非 GPT 验收后执行。16 个单元均一次完成，没有最终 429/503、协议或传输错误。测试只保存模型、
+协议、参数名、状态、终态和 attempt 数，不保存请求正文、生成正文、reasoning、logprobs、credential 或 Provider request ID。
 
 ## 8. 图片、Embeddings 与音频
 

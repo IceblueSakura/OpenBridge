@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::core::ApiProtocol;
+use crate::core::{ApiProtocol, GenerationRequestField};
 
 use super::super::BridgeError;
 
@@ -11,59 +11,11 @@ pub(in crate::bridge::conversion) fn reject_unsupported_request(
     protocol: ApiProtocol,
     source: &Map<String, Value>,
 ) -> Result<(), BridgeError> {
-    // Unlike the Native path, the Bridge must explicitly reject every unmodeled top-level field instead of dropping it during conversion.
-    let allowed: &[&str] = match protocol {
-        ApiProtocol::ChatCompletions => &[
-            "max_completion_tokens",
-            "max_tokens",
-            "messages",
-            "model",
-            "parallel_tool_calls",
-            "reasoning_effort",
-            "response_format",
-            "stream",
-            "temperature",
-            "tool_choice",
-            "tools",
-            "top_p",
-        ],
-        ApiProtocol::Responses => &[
-            "input",
-            "max_output_tokens",
-            "model",
-            "parallel_tool_calls",
-            "reasoning",
-            "stream",
-            "text",
-            "temperature",
-            "tool_choice",
-            "tools",
-            "top_p",
-        ],
-    };
-    if source
-        .keys()
-        .any(|field| !allowed.contains(&field.as_str()))
-    {
-        return Err(BridgeError::UnsupportedSemantics);
-    }
-
-    // Reject top-level fields that require state affinity, heterogeneous semantics, or an unmodeled conversion strategy.
-    let unsupported = [
-        "background",
-        "conversation",
-        "include",
-        "instructions",
-        "metadata",
-        "modalities",
-        "previous_response_id",
-        "store",
-        "truncation",
-    ];
-    if unsupported.iter().any(|field| {
-        source
-            .get(*field)
-            .is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+    // Reject fields outside the typed source catalog or current Bridge representability matrix.
+    if source.iter().any(|(wire_name, value)| {
+        GenerationRequestField::from_wire(protocol, wire_name).is_none_or(|field| {
+            !field.bridge_representable(protocol) && !field.bridge_inactive(value)
+        })
     }) {
         return Err(BridgeError::UnsupportedSemantics);
     }

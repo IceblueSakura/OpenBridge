@@ -47,6 +47,43 @@ async fn business_endpoints_require_json_content_type_before_upstream() {
 }
 
 #[tokio::test]
+async fn unknown_generation_parameters_fail_consistently_before_upstream() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport(transport.clone());
+
+    // Reject the same unknown field for Native Chat and Native Responses with exact attribution.
+    for (path, request) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model": "public-model", "messages": [], "future_parameter": null}),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model": "public-model", "input": "hello", "future_parameter": 1}),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["type"], "invalid_request_error");
+        assert_eq!(error["error"]["code"], "unknown_parameter");
+        assert_eq!(error["error"]["param"], "future_parameter");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn unsupported_public_model_capability_fails_before_any_upstream_attempt() {
     // Build a preferred Route with weaker tool capability and a later Route with stronger capability.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");

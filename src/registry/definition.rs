@@ -84,20 +84,12 @@ impl ReasoningLevel {
 pub enum IgnorableGenerationParameter {
     /// Frequency penalty applied during token sampling.
     FrequencyPenalty,
-    /// Optional request for reasoning content in the response.
-    IncludeReasoning,
-    /// Chat token log-probability output switch.
-    Logprobs,
-    /// Number of Chat completion alternatives.
-    N,
     /// Presence penalty applied during token sampling.
     PresencePenalty,
     /// Deterministic sampling seed hint.
     Seed,
     /// Sampling temperature.
     Temperature,
-    /// Number of token log-probability alternatives.
-    TopLogprobs,
     /// Nucleus-sampling probability threshold.
     TopP,
 }
@@ -107,13 +99,9 @@ impl IgnorableGenerationParameter {
     pub const fn as_wire_name(self) -> &'static str {
         match self {
             Self::FrequencyPenalty => "frequency_penalty",
-            Self::IncludeReasoning => "include_reasoning",
-            Self::Logprobs => "logprobs",
-            Self::N => "n",
             Self::PresencePenalty => "presence_penalty",
             Self::Seed => "seed",
             Self::Temperature => "temperature",
-            Self::TopLogprobs => "top_logprobs",
             Self::TopP => "top_p",
         }
     }

@@ -4,8 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use url::Url;
 
+use crate::core::GenerationRequestField;
+
 use super::{
-    ModelConfig, ModelContextLength, ModelInfo, ModelLifecycleStatus, PublicModelConfig,
+    ModelConfig, ModelContextLength, ModelInfo, ModelLifecycleStatus, ModelMode, PublicModelConfig,
     ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError, UpstreamApiModelRules,
 };
 
@@ -85,7 +87,10 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
     // Validate supported parameter-name format and uniqueness.
     let mut seen = BTreeSet::new();
     for parameter in &model.supported_parameters {
-        if !is_valid_parameter_name(parameter) {
+        if !is_valid_parameter_name(parameter)
+            || model.mode != Some(ModelMode::Embedding)
+                && GenerationRequestField::from_model_parameter(parameter).is_none()
+        {
             return Err(RegistryError::InvalidSupportedParameter {
                 model: model.id.clone(),
                 parameter: parameter.clone(),

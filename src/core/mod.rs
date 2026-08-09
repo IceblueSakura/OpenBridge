@@ -4,6 +4,7 @@
 //! parse HTTP, select Routes, or rewrite request bodies, keeping protocol facts separate from Provider implementations.
 
 mod capability;
+mod generation_parameter;
 mod request;
 
 pub(crate) use capability::GenerationCapabilities;
@@ -15,4 +16,5 @@ pub use capability::{
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
     ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
 };
+pub(crate) use generation_parameter::GenerationRequestField;
 pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

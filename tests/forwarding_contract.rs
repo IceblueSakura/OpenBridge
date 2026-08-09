@@ -792,7 +792,9 @@ impl UpstreamTransport for RecordingTransport {
                     Ok(Bytes::from_static(b"data: {\"delta\":\"hi\"}\n\n")),
                 ]
             } else {
-                vec![Ok(Bytes::from_static(b"{\"id\":\"chat-result\"}"))]
+                vec![Ok(Bytes::from_static(
+                    b"{\"id\":\"chatcmpl_result\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}",
+                ))]
             };
             Ok(UpstreamResponse::new(
                 StatusCode::OK,

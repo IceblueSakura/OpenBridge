@@ -300,6 +300,14 @@ fn model_config_and_typed_rules_are_validated() {
         Err(RegistryError::DuplicateSupportedParameter { .. })
     ));
 
+    let mut unknown_parameter = definition("test", "code-primary", "test-model");
+    unknown_parameter.models[0].supported_parameters = vec!["future_parameter".to_owned()];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unknown_parameter),
+        Err(RegistryError::InvalidSupportedParameter { parameter, .. })
+            if parameter == "future_parameter"
+    ));
+
     let mut inconsistent = definition("test", "code-primary", "test-model");
     inconsistent.models[0].reasoning = ReasoningSupport::Supported;
     assert!(matches!(

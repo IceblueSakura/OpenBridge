@@ -7,7 +7,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, StructuredOutputMode, ToolChoiceMode},
+    core::{ApiProtocol, GenerationRequestField, StructuredOutputMode, ToolChoiceMode},
     registry::ReasoningLevel,
 };
 
@@ -40,6 +40,9 @@ pub fn analyze_request(
         .and_then(Value::as_str)
         .filter(|model| !model.is_empty())
         .ok_or(RequestPlanningError::MissingModel)?;
+
+    // Classify every top-level field before Native preservation or Bridge validation can observe it.
+    let requested_parameters = classify_top_level_parameters(protocol, object)?;
 
     // Block unimplemented protocol-specific fields before Route planning can enter Native or Bridge paths.
     reject_reserved_request_fields(protocol, object)?;
@@ -114,8 +117,34 @@ pub fn analyze_request(
         protocol,
         is_streaming,
         requested_output_tokens,
+        requested_parameters,
         requested_capabilities,
     })
+}
+
+/// Classifies recognized fields and returns the active parameters owned by the fixed interface.
+fn classify_top_level_parameters(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> Result<std::collections::BTreeSet<GenerationRequestField>, RequestPlanningError> {
+    // Reject the lexically first unknown field so error attribution is deterministic across maps.
+    if let Some(unknown) = object
+        .keys()
+        .filter(|field| GenerationRequestField::from_wire(protocol, field).is_none())
+        .min()
+    {
+        return Err(RequestPlanningError::UnknownParameter(unknown.clone()));
+    }
+
+    // Retain only fields whose typed value semantics require interface parameter ownership.
+    Ok(object
+        .iter()
+        .filter_map(|(wire_name, value)| {
+            let field = GenerationRequestField::from_wire(protocol, wire_name)
+                .expect("unknown fields returned above");
+            field.requires_interface_support(value).then_some(field)
+        })
+        .collect())
 }
 
 /// Returns a stable planning error when reserved Chat/Responses fields are used, preventing Native passthrough.

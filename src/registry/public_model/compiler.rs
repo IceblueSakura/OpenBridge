@@ -173,6 +173,10 @@ impl PrecompiledRouteCandidate {
                 upstream_model: binding.upstream_api.upstream_model().to_owned(),
                 reasoning_output: binding.upstream_api.reasoning_output(),
                 streaming_policy: binding.upstream_api.streaming_policy(),
+                ignored_parameters: binding
+                    .upstream_api
+                    .ignored_generation_parameters()
+                    .collect(),
             },
             contribution: RouteContractContribution::from_binding(binding),
         })

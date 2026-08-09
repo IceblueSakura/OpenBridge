@@ -77,6 +77,16 @@ fn upstream_target(
     disable_output_limit_parameters: bool,
     advanced_capabilities: bool,
 ) -> UpstreamTargetConfig {
+    // Narrow parameters that the private Responses backend rejects instead of hiding output changes.
+    let mut disabled_parameters = Vec::new();
+    if disable_output_limit_parameters {
+        disabled_parameters.extend(["max_completion_tokens".to_owned(), "max_tokens".to_owned()]);
+    }
+    if advanced_capabilities {
+        disabled_parameters.push("include_reasoning".to_owned());
+    }
+
+    // Build the static target and retain seed as the only accepted backend sampling hint to omit.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -90,16 +100,9 @@ fn upstream_target(
         upstream_apis: vec![UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules {
-                disabled_parameters: if disable_output_limit_parameters {
-                    vec!["max_completion_tokens".to_owned(), "max_tokens".to_owned()]
-                } else {
-                    Vec::new()
-                },
+                disabled_parameters,
                 ignored_parameters: if advanced_capabilities {
-                    vec![
-                        IgnorableGenerationParameter::IncludeReasoning,
-                        IgnorableGenerationParameter::Seed,
-                    ]
+                    vec![IgnorableGenerationParameter::Seed]
                 } else {
                     Vec::new()
                 },

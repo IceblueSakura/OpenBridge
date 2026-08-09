@@ -167,7 +167,8 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
     let error: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(error["error"]["code"], "unsupported_request");
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(error["error"]["param"], "max_output_tokens");
     assert!(transport.requests.lock().unwrap().is_empty());
 
     // Keep the same unsupported field out of the compiled downstream interface advertisement.
@@ -181,7 +182,7 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
 }
 
 #[tokio::test]
-async fn chatgpt_drops_accepted_ordinary_parameters_rejected_by_its_responses_backend() {
+async fn chatgpt_drops_seed_but_rejects_include_reasoning_before_egress() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
     fs::write(directory.auth_file(), document).unwrap();
@@ -194,7 +195,38 @@ async fn chatgpt_drops_accepted_ordinary_parameters_rejected_by_its_responses_ba
     });
     let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
 
-    // Submit both ordinary fields through every public GPT profile that declares them.
+    // Submit only the sampling hint that the private backend safely permits OpenBridge to omit.
+    for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {
+        let request = Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                AUTHORIZATION,
+                "Bearer downstream-token-00000000000000000000000000000000",
+            )
+            .body(Body::from(
+                serde_json::json!({
+                    "model": public_model,
+                    "input": "hello",
+                    "stream": true,
+                    "seed": 7,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    // Keep seed accepted downstream while ensuring it never reaches the private backend.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for request in requests.iter() {
+        assert!(!request.seed_present);
+    }
+    drop(requests);
+
+    // Reject the output-visibility switch and do not create any additional transport attempts.
     for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {
         let request = Request::post("/v1/responses")
             .header(CONTENT_TYPE, "application/json")
@@ -208,34 +240,28 @@ async fn chatgpt_drops_accepted_ordinary_parameters_rejected_by_its_responses_ba
                     "input": "hello",
                     "stream": true,
                     "include_reasoning": true,
-                    "seed": 7,
                 })
                 .to_string(),
             ))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-    }
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], "include_reasoning");
 
-    // Keep the fields accepted downstream while ensuring none reaches the private backend.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 4);
-    for request in requests.iter() {
-        assert!(!request.include_reasoning_present);
-        assert!(!request.seed_present);
-    }
-    drop(requests);
-    for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {
         let model =
             compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
                 .await;
         let parameters = model["interfaces"]["responses"]["supported_parameters"]
             .as_array()
             .unwrap();
-        assert!(parameters.iter().any(|value| value == "include_reasoning"));
+        assert!(!parameters.iter().any(|value| value == "include_reasoning"));
         assert!(parameters.iter().any(|value| value == "seed"));
     }
+    assert_eq!(transport.requests.lock().unwrap().len(), 4);
 }
 
 #[tokio::test]

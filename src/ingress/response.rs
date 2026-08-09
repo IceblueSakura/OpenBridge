@@ -47,6 +47,13 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             "invalid_request_error",
             "Request body is invalid",
         ),
+        RequestPlanningError::UnknownParameter(parameter) => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "unknown_parameter",
+            "The request contains an unknown top-level parameter",
+            Some(&parameter),
+        ),
         RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => model_not_found(),
         RequestPlanningError::UnimplementedCapabilities => api_error(
             StatusCode::BAD_REQUEST,
@@ -64,6 +71,13 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             StatusCode::BAD_REQUEST,
             "unsupported_model_capability",
             "The selected model does not support the requested capability",
+        ),
+        RequestPlanningError::UnsupportedParameter(parameter) => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "unsupported_model_capability",
+            "The selected model does not support the requested parameter",
+            Some(parameter),
         ),
     }
 }
@@ -205,7 +219,7 @@ struct ErrorEnvelope {
 struct ErrorBody {
     message: &'static str,
     r#type: &'static str,
-    param: Option<&'static str>,
+    param: Option<String>,
     code: &'static str,
 }
 
@@ -229,7 +243,7 @@ fn api_error_with_param(
     status: StatusCode,
     code: &'static str,
     message: &'static str,
-    param: Option<&'static str>,
+    param: Option<&str>,
 ) -> Response {
     typed_api_error(status, "invalid_request_error", code, message, param)
 }
@@ -240,7 +254,7 @@ fn typed_api_error(
     error_type: &'static str,
     code: &'static str,
     message: &'static str,
-    param: Option<&'static str>,
+    param: Option<&str>,
 ) -> Response {
     (
         status,
@@ -248,7 +262,7 @@ fn typed_api_error(
             error: ErrorBody {
                 message,
                 r#type: error_type,
-                param,
+                param: param.map(str::to_owned),
                 code,
             },
         }),

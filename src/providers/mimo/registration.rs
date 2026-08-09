@@ -7,7 +7,7 @@ use crate::{
     models::xiaomi,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{IgnorableGenerationParameter, ProviderInstanceConfig, UpstreamTargetConfig},
+    registry::{ProviderInstanceConfig, UpstreamTargetConfig},
 };
 
 use super::definition::{ASR_AUDIO, CONTRACT, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO};
@@ -112,8 +112,7 @@ fn target(
         upstream_apis.truncate(1);
     } else {
         // Current MiMo Responses rejects top_logprobs even though the Chat API accepts it.
-        upstream_apis[1].model_rules.ignored_parameters =
-            vec![IgnorableGenerationParameter::TopLogprobs];
+        upstream_apis[1].model_rules.disabled_parameters = vec!["top_logprobs".to_owned()];
     }
 
     // Build the immutable target with the model-specific API ceiling.

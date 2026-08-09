@@ -10,9 +10,9 @@ use openbridge::{
     },
     pipeline::RequestPlanningError,
     registry::{
-        ModelContextLength, NonStreamingConversion, ReasoningLevel, ReasoningLevelMapping,
-        ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry,
-        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
+        IgnorableGenerationParameter, ModelContextLength, NonStreamingConversion, ReasoningLevel,
+        ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode,
+        RuntimeRegistry, UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
     },
 };
 use serde_json::{Value, json};
@@ -299,6 +299,159 @@ fn native_routing_preserves_original_request_for_the_provider_adapter() {
 
     assert_eq!(prepared.upstream_target_id(), "openai-main");
     assert_eq!(preserved, original);
+}
+
+#[test]
+fn generation_request_analysis_rejects_unknown_top_level_fields_for_both_paths() {
+    // Keep one Native Chat Route and replace Responses coverage with the reverse Bridge.
+    let mut definition = base_definition();
+    definition.routes.retain(|route| {
+        route.downstream_operation == OperationKind::ChatCompletions
+            && route.upstream_operation == OperationKind::ChatCompletions
+    });
+    definition.routes.push(RouteConfig {
+        id: "responses-via-chat".to_owned(),
+        upstream_target: "openai-main".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Bridged,
+    });
+    definition.public_models[0].routes =
+        vec!["public-chat".to_owned(), "responses-via-chat".to_owned()];
+    let registry = build_test_registry(definition);
+
+    // Unknown fields must be classified before either Native preservation or Bridge validation.
+    for (protocol, request) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "future_parameter": null}),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "future_parameter": 1}),
+        ),
+    ] {
+        let error = support::prepare(
+            &registry,
+            protocol,
+            serde_json::to_vec(&request).unwrap().into(),
+        )
+        .expect_err("unknown top-level field must fail before Route preparation");
+        assert_eq!(
+            error.to_string(),
+            "request contains unknown top-level parameter future_parameter"
+        );
+    }
+}
+
+#[test]
+fn generation_interfaces_exclude_parameters_owned_only_by_another_source_protocol() {
+    // Declare one Chat-only canonical parameter across otherwise symmetric Native APIs.
+    let mut definition = base_definition();
+    definition.models[0].supported_parameters = vec!["max_tokens".to_owned()];
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+
+    // Advertise the parameter only where request analysis recognizes the same source wire field.
+    let chat_parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    let responses_parameters = info["interfaces"]["responses"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    assert!(chat_parameters.iter().any(|value| value == "max_tokens"));
+    assert!(
+        !responses_parameters
+            .iter()
+            .any(|value| value == "max_tokens")
+    );
+    let response_request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "max_tokens": 16
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(
+            &registry,
+            ApiProtocol::Responses,
+            response_request.into()
+        )
+        .unwrap_err(),
+        RequestPlanningError::UnknownParameter(parameter) if parameter == "max_tokens"
+    ));
+}
+
+#[test]
+fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() {
+    // Compile one Responses Bridge whose Chat API accepts temperature only as an ignored hint.
+    let mut bridged = base_definition();
+    bridged.models[0].supported_parameters = vec!["temperature".to_owned()];
+    bridged.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+    bridged.routes = vec![RouteConfig {
+        id: "responses-via-chat".to_owned(),
+        upstream_target: "openai-main".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Bridged,
+    }];
+    bridged.public_models[0].routes = vec!["responses-via-chat".to_owned()];
+    let registry = build_test_registry(bridged);
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "temperature": 0.2
+    }))
+    .unwrap();
+    let plan = support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap();
+    let upstream: Value = serde_json::from_slice(plan.request().body()).unwrap();
+    assert!(
+        upstream.get("temperature").is_none(),
+        "ignored hint must be removed before Responses-to-Chat conversion"
+    );
+
+    // Give the preferred Native API an ignore rule while its fallback supports the same field.
+    let mut fallback = base_definition();
+    fallback.models[0].supported_parameters = vec!["temperature".to_owned()];
+    fallback.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+    let mut supporting_target = fallback.upstream_targets[0].clone();
+    supporting_target.id = "openai-temperature-fallback".to_owned();
+    supporting_target.upstream_apis[0]
+        .model_rules
+        .ignored_parameters
+        .clear();
+    fallback.upstream_targets.push(supporting_target);
+    fallback.routes.retain(|route| {
+        route.downstream_operation == OperationKind::ChatCompletions
+            && route.upstream_operation == OperationKind::ChatCompletions
+    });
+    fallback.routes.push(RouteConfig {
+        id: "temperature-fallback-chat".to_owned(),
+        upstream_target: "openai-temperature-fallback".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    fallback.public_models[0].routes = vec![
+        "public-chat".to_owned(),
+        "temperature-fallback-chat".to_owned(),
+    ];
+    let registry = build_test_registry(fallback);
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "temperature": 0.2
+    }))
+    .unwrap();
+    let plan = support::prepare(&registry, ApiProtocol::ChatCompletions, request.into()).unwrap();
+    let preferred: Value = serde_json::from_slice(plan.candidates()[0].request().body()).unwrap();
+    let fallback: Value = serde_json::from_slice(plan.candidates()[1].request().body()).unwrap();
+    assert!(preferred.get("temperature").is_none());
+    assert_eq!(fallback["temperature"], 0.2);
 }
 
 #[test]

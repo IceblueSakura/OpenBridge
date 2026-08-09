@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Confirmed。** 当前 checkout 共有 350 个可执行测试：305 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
+**Confirmed。** 当前 checkout 共有 355 个可执行测试：310 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
 测试当前没有 ignored test；51 个 canonical wire case 与 9 个 semantic case 是测试输入与判定 oracle，不计入可执行测试总数。
 
 本文按功能所有权维护测试树。叶节点覆盖当前每一个可执行测试所在的 target、文件或互斥命名模块；括号内是该叶节点实际收集的
@@ -13,13 +13,13 @@ test case 数量。一个物理 target 跨越多个功能时，使用不重叠�
 ## 可执行测试树
 
 ```text
-OpenBridge 可执行测试（350）
-├─ Rust 默认测试（305；ignored 0）
-│  ├─ HTTP ingress 与下游认证（18）
+OpenBridge 可执行测试（355）
+├─ Rust 默认测试（310；ignored 0）
+│  ├─ HTTP ingress 与下游认证（19）
 │  │  ├─ src/lib.rs :: ingress::*（8）
 │  │  ├─ tests/downstream_auth_contract.rs（2）
 │  │  ├─ tests/ingress_contract.rs（5）
-│  │  └─ tests/forwarding_contract.rs :: admission::*（3）
+│  │  └─ tests/forwarding_contract.rs :: admission::*（4）
 │  ├─ 启动配置、用户与受信凭证（40）
 │  │  ├─ src/lib.rs :: credential::store::*（3）
 │  │  ├─ tests/config_contract.rs（19）
@@ -31,14 +31,14 @@ OpenBridge 可执行测试（350）
 │  │  ├─ src/bin/openbridge-auth.rs（1）
 │  │  ├─ tests/oauth2_login_cli.rs（2）
 │  │  └─ tests/forwarding_contract.rs :: chatgpt::*（7）
-│  ├─ Registry、Models、能力预检与路由（46）
+│  ├─ Registry、Models、能力预检与路由（49）
 │  │  ├─ src/lib.rs :: core::capability::*（2）
 │  │  ├─ src/lib.rs :: providers::catalog::route_compiler::*（7）
 │  │  ├─ src/lib.rs :: registry::availability::*（2）
 │  │  ├─ tests/capability_definition_contract.rs（4）
 │  │  ├─ tests/example_config.rs（10）
 │  │  ├─ tests/forwarding_contract.rs :: models::*（2）
-│  │  └─ tests/native_routing_contract.rs（19）
+│  │  └─ tests/native_routing_contract.rs（22）
 │  ├─ Provider adapter、probe 与上游 transport（44）
 │  │  ├─ src/lib.rs :: probe::*（11）
 │  │  ├─ src/bin/openbridge-probe.rs（2）
@@ -47,8 +47,8 @@ OpenBridge 可执行测试（350）
 │  │  ├─ src/lib.rs :: transport::upstream::*（7）
 │  │  ├─ tests/provider_boundary_contract.rs（9）
 │  │  └─ tests/provider_contract.rs（7）
-│  ├─ Native generation、图片输入与 SSE 解码（19）
-│  │  ├─ tests/forwarding_contract.rs :: native::*（8）
+│  ├─ Native generation、图片输入与 SSE 解码（20）
+│  │  ├─ tests/forwarding_contract.rs :: native::*（9）
 │  │  ├─ tests/forwarding_contract.rs :: mimo::*（5）
 │  │  └─ tests/sse_contract.rs（6）
 │  ├─ Retry、fallback、credential health 与取消（36）
@@ -123,7 +123,7 @@ Python SSE parser 的参数空间，不是 342 个独立测试，也不是应提
 cargo test --locked
 ```
 
-结果：Cargo 执行并通过 305 个测试。Python 资产未变化，本次未重跑；前一日最近一次 Python 基线命令与结果为：
+结果：Cargo 执行并通过 310 个测试。Python 资产未变化，本次未重跑；前一日最近一次 Python 基线命令与结果为：
 
 ```powershell
 uv run --project tools/corpus pytest tools/corpus/tests

@@ -224,6 +224,7 @@ fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
     // Reject a generation canonical model and a Native Route whose operations differ.
     let mut model = embedding_definition();
     model.models[0].mode = Some(ModelMode::Chat);
+    model.models[0].supported_parameters.clear();
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), model),
         Err(RegistryError::EmbeddingsModelTaskMismatch { .. })

@@ -9,7 +9,9 @@ use super::{
     EmbeddingInterfaceCapabilities, ModelInterfaceCapabilities, ModelInterfaces, PublicModelInfo,
     StandardModel,
 };
-use crate::registry::{ModelLifecycleStatus, RouteMode, UpstreamStreamingPolicy};
+use crate::registry::{
+    IgnorableGenerationParameter, ModelLifecycleStatus, RouteMode, UpstreamStreamingPolicy,
+};
 
 /// Private execution candidate compiled from one statically executable Route.
 ///
@@ -26,6 +28,7 @@ pub(crate) struct RouteExecutionCandidate {
     pub(super) upstream_model: String,
     pub(super) reasoning_output: ReasoningOutput,
     pub(super) streaming_policy: UpstreamStreamingPolicy,
+    pub(super) ignored_parameters: Vec<IgnorableGenerationParameter>,
 }
 
 impl RouteExecutionCandidate {
@@ -81,6 +84,11 @@ impl RouteExecutionCandidate {
     /// Returns the trusted streaming requirement and non-streaming conversion policy.
     pub(crate) const fn streaming_policy(&self) -> UpstreamStreamingPolicy {
         self.streaming_policy
+    }
+
+    /// Returns the ordinary parameters removed only for this candidate before shape conversion.
+    pub(crate) fn ignored_generation_parameters(&self) -> &[IgnorableGenerationParameter] {
+        &self.ignored_parameters
     }
 }
 

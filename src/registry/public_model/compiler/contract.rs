@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     core::{
-        ApiProtocol, AudioTask, EmbeddingsCapabilities, OperationKind, ReasoningOutput,
-        StructuredOutputMode, ToolChoiceMode,
+        ApiProtocol, AudioTask, EmbeddingsCapabilities, GenerationRequestField, OperationKind,
+        ReasoningOutput, StructuredOutputMode, ToolChoiceMode,
     },
     registry::{
         InputModality, OutputModality, ReasoningLevel, Route, RouteMode, UpstreamApi,
@@ -120,12 +120,17 @@ impl RouteContractContribution {
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
             sorted_unique(upstream_api.model().supported_parameters().iter().cloned());
+        let ignored_parameters = upstream_api
+            .ignored_generation_parameters()
+            .map(|parameter| parameter.as_wire_name())
+            .collect::<BTreeSet<_>>();
         let interface_parameters = interface_parameters(
             route
                 .downstream_protocol()
                 .expect("generation Route has a downstream API protocol"),
             route.mode(),
             &model_parameters,
+            &ignored_parameters,
             generation.streaming,
             function_tools.is_some(),
             function_tools.is_some_and(|profile| profile.parallel_calls),
@@ -407,6 +412,7 @@ fn interface_parameters(
     protocol: ApiProtocol,
     mode: RouteMode,
     model_parameters: &[String],
+    ignored_parameters: &BTreeSet<&str>,
     streaming: bool,
     function_calling: bool,
     parallel_tool_calls: bool,
@@ -416,11 +422,14 @@ fn interface_parameters(
     previous_response_id: bool,
     background: bool,
 ) -> Vec<String> {
-    // Native retains confirmed model parameters; Bridge keeps only the converter's explicit allowlist.
+    // Retain only source-protocol parameters; Bridge also accepts hints removed before conversion.
     let mut parameters = model_parameters
         .iter()
         .filter(|parameter| {
-            mode == RouteMode::Native || bridge_parameter_allowed(protocol, parameter)
+            GenerationRequestField::from_wire(protocol, parameter).is_some()
+                && (mode == RouteMode::Native
+                    || bridge_parameter_allowed(protocol, parameter)
+                    || ignored_parameters.contains(parameter.as_str()))
         })
         .cloned()
         .collect::<BTreeSet<_>>();
@@ -480,33 +489,8 @@ fn interface_parameters(
 
 /// Returns whether the current Bridge request converter can represent a parameter completely.
 fn bridge_parameter_allowed(protocol: ApiProtocol, parameter: &str) -> bool {
-    match protocol {
-        ApiProtocol::ChatCompletions => matches!(
-            parameter,
-            "max_completion_tokens"
-                | "max_tokens"
-                | "parallel_tool_calls"
-                | "reasoning_effort"
-                | "response_format"
-                | "stream"
-                | "temperature"
-                | "tool_choice"
-                | "tools"
-                | "top_p"
-        ),
-        ApiProtocol::Responses => matches!(
-            parameter,
-            "max_output_tokens"
-                | "parallel_tool_calls"
-                | "reasoning"
-                | "text"
-                | "stream"
-                | "temperature"
-                | "tool_choice"
-                | "tools"
-                | "top_p"
-        ),
-    }
+    GenerationRequestField::from_wire(protocol, parameter)
+        .is_some_and(|field| field.bridge_representable(protocol))
 }
 
 /// Deduplicates a parameter iterator and sorts it by wire name.
