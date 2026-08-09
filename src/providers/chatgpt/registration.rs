@@ -9,8 +9,9 @@ use crate::{
     models::chatgpt,
     provider::ProviderKind,
     registry::{
-        NonStreamingConversion, ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig,
+        IgnorableGenerationParameter, NonStreamingConversion, ProviderInstanceConfig,
+        StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamStreamingPolicy, UpstreamTargetConfig,
     },
 };
 
@@ -91,6 +92,14 @@ fn upstream_target(
             model_rules: UpstreamApiModelRules {
                 disabled_parameters: if disable_output_limit_parameters {
                     vec!["max_completion_tokens".to_owned(), "max_tokens".to_owned()]
+                } else {
+                    Vec::new()
+                },
+                ignored_parameters: if advanced_capabilities {
+                    vec![
+                        IgnorableGenerationParameter::IncludeReasoning,
+                        IgnorableGenerationParameter::Seed,
+                    ]
                 } else {
                     Vec::new()
                 },

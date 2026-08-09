@@ -125,14 +125,15 @@ fn responses_output_text(item: &Map<String, Value>) -> Result<String, BridgeErro
     Ok(text)
 }
 
-/// Extracts plain content/summary from a Responses reasoning item and rejects opaque continuation.
+/// Extracts readable content/summary while discarding validated output-only opaque continuation.
 fn responses_reasoning_text(item: &Map<String, Value>) -> Result<String, BridgeError> {
-    reject_encrypted_reasoning(item)?;
+    validate_encrypted_reasoning(item)?;
     let mut text = String::new();
     for (field, expected_type) in [("content", "reasoning_text"), ("summary", "summary_text")] {
-        let Some(parts) = item.get(field).and_then(Value::as_array) else {
+        let Some(parts) = item.get(field) else {
             continue;
         };
+        let parts = parts.as_array().ok_or(BridgeError::InvalidShape)?;
         for part in parts {
             let part = part.as_object().ok_or(BridgeError::InvalidShape)?;
             if part.get("type").and_then(Value::as_str) != Some(expected_type) {
@@ -144,19 +145,11 @@ fn responses_reasoning_text(item: &Map<String, Value>) -> Result<String, BridgeE
     Ok(text)
 }
 
-/// Rejects an opaque Responses reasoning continuation that cannot be represented as plain Chat text.
-fn reject_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
-    let Some(value) = item
-        .get("encrypted_content")
-        .filter(|value| !value.is_null())
-    else {
-        return Ok(());
-    };
-    let content = value.as_str().ok_or(BridgeError::InvalidShape)?;
-    if content.is_empty() {
-        Ok(())
-    } else {
-        Err(BridgeError::UnsupportedSemantics)
+/// Validates the Provider-bound continuation shape before omitting it from stateless Chat output.
+fn validate_encrypted_reasoning(item: &Map<String, Value>) -> Result<(), BridgeError> {
+    match item.get("encrypted_content") {
+        None | Some(Value::Null | Value::String(_)) => Ok(()),
+        Some(_) => Err(BridgeError::InvalidShape),
     }
 }
 

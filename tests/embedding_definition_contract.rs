@@ -9,8 +9,9 @@ use openbridge::{
     },
     provider::ProviderKind,
     registry::{
-        ModelMode, OutputModality, RegistryError, RouteConfig, RouteMode, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiModelRules, build_registry,
+        IgnorableGenerationParameter, ModelMode, OutputModality, RegistryError, RouteConfig,
+        RouteMode, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        build_registry,
     },
 };
 use serde_json::json;
@@ -232,6 +233,22 @@ fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), route),
         Err(RegistryError::NativeRouteOperationMismatch { .. })
+    ));
+}
+
+#[test]
+fn embedding_api_rejects_generation_parameter_ignore_rules() {
+    let mut definition = embedding_definition();
+    definition.models[0]
+        .supported_parameters
+        .push("temperature".to_owned());
+    definition.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), definition),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
     ));
 }
 

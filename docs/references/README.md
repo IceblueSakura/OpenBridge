@@ -67,9 +67,9 @@ Provider 文档按"调研方向"组织：每个 provider 一个目录，目录�
 ### OpenRouter
 
 - [API 与模型能力调研](providers/openrouter/api.md)——接口分层、`Model` 对象字段语义、入口/认证、live wire 观察
-- [模型目录](providers/openrouter/models.md)——精确匹配模型目录数据（采集 2026-08-02）
+- [模型目录](providers/openrouter/models.md)——全模态目录、精确匹配与 endpoint 参数差异（复核 2026-08-09）
 
-### DeepSeek、LongCat、Xiaomi MiMo、NVIDIA 与阿里云百炼
+### DeepSeek、LongCat、Xiaomi MiMo、Kimi、NVIDIA 与阿里云百炼
 
 - [DeepSeek API 协议入口](providers/deepseek/api.md)（2026-08-08）——endpoint、认证、Responses 约束
 - [DeepSeek 模型目录与定价](providers/deepseek/models.md)（2026-08-08）——官方模型表、特性矩阵、OpenRouter 补充
@@ -79,6 +79,8 @@ Provider 文档按"调研方向"组织：每个 provider 一个目录，目录�
 - [Xiaomi MiMo 模型目录](providers/xiaomi/models.md)——官方 6 模型、V2 下线、OpenRouter 补充
 - [Xiaomi MiMo 图片理解协议与真实观察](providers/xiaomi/image.md)（2026-08-07）
 - [Xiaomi MiMo 全模型语音能力与调用途径](providers/xiaomi/audio.md)（2026-08-08）
+- [Kimi CN API 协议入口](providers/kimi/api.md)（2026-08-09）
+- [Kimi K3 模型参数](providers/kimi/models.md)（2026-08-09）
 - [NVIDIA API Catalog / NIM API 协议入口](providers/nvidia/api.md)——base URL、`nvapi-` 认证、端点表
 - [NVIDIA API Catalog Models 列表](providers/nvidia/models.md)（2026-08-08）
 - [阿里云百炼 API 协议入口](providers/bailian/api.md)——多地域 base URL、四类协议面、请求能力面

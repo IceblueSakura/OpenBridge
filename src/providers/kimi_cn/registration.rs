@@ -6,8 +6,8 @@ use crate::{
     models::moonshotai,
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        IgnorableGenerationParameter, ProviderInstanceConfig, StateAffinity,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
@@ -48,7 +48,18 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
+            model_rules: UpstreamApiModelRules {
+                ignored_parameters: vec![
+                    IgnorableGenerationParameter::FrequencyPenalty,
+                    IgnorableGenerationParameter::Logprobs,
+                    IgnorableGenerationParameter::N,
+                    IgnorableGenerationParameter::PresencePenalty,
+                    IgnorableGenerationParameter::Temperature,
+                    IgnorableGenerationParameter::TopLogprobs,
+                    IgnorableGenerationParameter::TopP,
+                ],
+                ..UpstreamApiModelRules::default()
+            },
             capabilities: UpstreamApiCapabilities::ChatCompletions(
                 CONTRACT.capabilities().chat_completions,
             ),

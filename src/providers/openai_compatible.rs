@@ -43,6 +43,15 @@ enum OpenAiTerminalDiscriminator {
     DataJsonType,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Static policy for recognizing successful SSE response media types.
+enum StreamingResponseMediaTypePolicy {
+    /// Requires exactly one explicit `text/event-stream` Content-Type value.
+    RequireEventStream,
+    /// Allows a Responses stream to omit Content-Type while rejecting present non-SSE values.
+    AllowMissingForResponses,
+}
+
 /// A static OpenAI-compatible wire profile.
 #[derive(Clone, Copy)]
 pub(crate) struct OpenAiCompatibleAdapter {
@@ -57,6 +66,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     request_body_hook: RequestBodyHook,
     request_headers: ProviderRequestHeaders,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
+    streaming_response_media_type_policy: StreamingResponseMediaTypePolicy,
 }
 
 impl OpenAiCompatibleAdapter {
@@ -82,6 +92,8 @@ impl OpenAiCompatibleAdapter {
             request_body_hook: preserve_request_body,
             request_headers: ProviderRequestHeaders::new(),
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
+            streaming_response_media_type_policy:
+                StreamingResponseMediaTypePolicy::RequireEventStream,
         }
     }
 
@@ -112,6 +124,13 @@ impl OpenAiCompatibleAdapter {
     /// Reads the OpenAI Responses terminal name from the top-level `type` field in data JSON.
     pub(crate) const fn with_openai_data_type_responses_terminal(mut self) -> Self {
         self.responses_terminal_discriminator = OpenAiTerminalDiscriminator::DataJsonType;
+        self
+    }
+
+    /// Allows the concrete Provider's Responses endpoint to omit SSE Content-Type on success.
+    pub(crate) const fn with_missing_responses_content_type_as_sse(mut self) -> Self {
+        self.streaming_response_media_type_policy =
+            StreamingResponseMediaTypePolicy::AllowMissingForResponses;
         self
     }
 
@@ -226,6 +245,16 @@ impl OpenAiCompatibleAdapter {
                 .ok_or(AdapterError::InvalidRequestBody)?,
         )?;
 
+        // Remove ordinary fields that the selected API is configured to accept only downstream.
+        if let Some(upstream_api) = upstream_api {
+            discard_ignored_generation_parameters(
+                document
+                    .as_object_mut()
+                    .ok_or(AdapterError::InvalidRequestBody)?,
+                upstream_api,
+            );
+        }
+
         // Apply only the selected Upstream API's explicit reasoning wire mapping.
         let reasoning_level_mapping = upstream_api.and_then(|upstream_api| {
             apply_reasoning_level_mapping(
@@ -329,6 +358,31 @@ impl OpenAiCompatibleAdapter {
         ClassifiedSseEvent::new(event, status)
     }
 
+    /// Returns whether response headers satisfy this Provider's trusted SSE media profile.
+    pub(crate) fn recognizes_sse_response(
+        self,
+        protocol: ApiProtocol,
+        headers: &HeaderMap,
+    ) -> bool {
+        // Reject duplicate values before interpreting the media type.
+        let mut values = headers.get_all(CONTENT_TYPE).iter();
+        let Some(value) = values.next() else {
+            return protocol == ApiProtocol::Responses
+                && self.streaming_response_media_type_policy
+                    == StreamingResponseMediaTypePolicy::AllowMissingForResponses;
+        };
+        if values.next().is_some() {
+            return false;
+        }
+
+        // Compare only the media type token while allowing case and parameters.
+        value
+            .to_str()
+            .ok()
+            .and_then(|value| value.split(';').next())
+            .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/event-stream"))
+    }
+
     /// Identifies Responses SSE terminal states using the concrete OpenAI-compatible profile.
     fn classify_responses_sse_event(self, event: &SseEvent) -> StreamEventStatus {
         classify_openai_responses_terminal(event, self.responses_terminal_discriminator)
@@ -368,6 +422,16 @@ fn parse_openai_model_list_ids(response: &serde_json::Value) -> Option<Vec<Strin
             .map(str::to_owned)
             .collect(),
     )
+}
+
+/// Removes only the closed ordinary-generation fields configured for the selected Upstream API.
+fn discard_ignored_generation_parameters(
+    document: &mut serde_json::Map<String, serde_json::Value>,
+    upstream_api: &UpstreamApi,
+) {
+    for parameter in upstream_api.ignored_generation_parameters() {
+        document.remove(parameter.as_wire_name());
+    }
 }
 
 /// Keeps ordinary OpenAI-compatible request bodies unchanged after model replacement.

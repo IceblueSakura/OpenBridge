@@ -15,8 +15,9 @@
 - Chat→Responses SSE 在成功 `finish_reason` 与 `[DONE]` 之间允许一个严格的 `choices: []` + `usage` object
   统计块；该块不产生业务输出，普通 late chunk、重复 usage、finish 前 usage 和 EOF-before-terminal 仍 fail closed。
 - `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
-- 不可表达的 image/file/audio、hosted/custom tool、opaque continuation、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，
-  不伪造等价语义。
+- 不可表达的 image/file/audio、hosted/custom tool、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，不伪造等价语义。
+  下游 request/history 中的 opaque continuation 仍拒绝；已完成 Responses 输出转为无状态 Chat response 时，验证后丢弃
+  `encrypted_content`，保留可读 summary/content、text 与 tool call，且绝不把 opaque 值投影为 `reasoning_content`。
 
 ## 实现边界
 
@@ -30,9 +31,12 @@
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖双向 request、JSON 和 SSE renderer。
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
+- `bridge_conversion_contract::responses_to_chat_non_stream_drops_completed_opaque_continuation` 覆盖真实 GPT 形状的 output-only opaque
+  continuation，以及可读 summary 的保留；`forwarding_contract::chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat`
+  覆盖 streaming-only upstream 的完整 buffer 与非流式 Chat JSON 接入。
 - [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
-  Responses-via-Chat JSON/SSE、明文 reasoning、high 请求与 trailing usage chunk 的最终验收结果；其中 Qwen3.7 与
-  DeepSeek V4 Pro 的 high Bridge 单元均已通过。
+  Responses-via-Chat JSON/SSE，以及五个 GPT ChatGPT-source 模型的 Chat/Responses、stream on/off 与 omitted/high 最终验收结果；
+  120 个文字生成单元均达到合法成功终态。
 
 确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
 OpenAI API 或任意 Provider 私有语义可转换。

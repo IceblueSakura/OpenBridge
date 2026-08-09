@@ -30,6 +30,7 @@ pub(crate) fn config() -> ModelConfig {
             "logprobs",
             "max_tokens",
             "min_p",
+            "n",
             "presence_penalty",
             "reasoning",
             "reasoning_effort",

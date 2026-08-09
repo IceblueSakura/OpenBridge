@@ -41,6 +41,7 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         assert!(
             body.windows(b"response.completed".len())
@@ -180,6 +181,64 @@ async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
 }
 
 #[tokio::test]
+async fn chatgpt_drops_accepted_ordinary_parameters_rejected_by_its_responses_backend() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Submit both ordinary fields through every public GPT profile that declares them.
+    for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {
+        let request = Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                AUTHORIZATION,
+                "Bearer downstream-token-00000000000000000000000000000000",
+            )
+            .body(Body::from(
+                serde_json::json!({
+                    "model": public_model,
+                    "input": "hello",
+                    "stream": true,
+                    "include_reasoning": true,
+                    "seed": 7,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    // Keep the fields accepted downstream while ensuring none reaches the private backend.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for request in requests.iter() {
+        assert!(!request.include_reasoning_present);
+        assert!(!request.seed_present);
+    }
+    drop(requests);
+    for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
+                .await;
+        let parameters = model["interfaces"]["responses"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(parameters.iter().any(|value| value == "include_reasoning"));
+        assert!(parameters.iter().any(|value| value == "seed"));
+    }
+}
+
+#[tokio::test]
 async fn chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
@@ -215,7 +274,8 @@ async fn chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_cha
     assert_eq!(responses["object"], "response");
     assert_eq!(responses["model"], "gpt-5.6-luna");
     assert_eq!(responses["status"], "completed");
-    assert_eq!(responses["output"][0]["content"][0]["text"], "hello");
+    assert_eq!(responses["output"][0]["type"], "reasoning");
+    assert_eq!(responses["output"][1]["content"][0]["text"], "hello");
     assert_eq!(responses["usage"]["total_tokens"], 2);
 
     // Reuse the same bounded terminal snapshot through the existing non-streaming Chat Bridge.

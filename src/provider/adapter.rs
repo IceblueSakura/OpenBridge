@@ -219,6 +219,16 @@ impl ProviderAdapter {
         Ok(self.openai_compatible().classify_sse_event(protocol, event))
     }
 
+    /// Returns whether response headers satisfy the Provider's trusted SSE media profile.
+    pub(crate) fn recognizes_sse_response(
+        &self,
+        protocol: ApiProtocol,
+        headers: &HeaderMap,
+    ) -> bool {
+        self.openai_compatible()
+            .recognizes_sse_response(protocol, headers)
+    }
+
     /// Maps an upstream HTTP status to a coarse error and retry boundary.
     pub fn classify_status(&self, status: StatusCode) -> StatusClassification {
         self.openai_compatible().classify_status(status)
@@ -231,7 +241,7 @@ mod tests {
 
     use http::{
         HeaderName, HeaderValue,
-        header::{AUTHORIZATION, USER_AGENT},
+        header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
     };
     use secrecy::SecretString;
 
@@ -259,6 +269,47 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, AdapterError::SensitiveHeaderInSafeSet));
+    }
+
+    #[test]
+    fn provider_sse_media_profiles_are_typed_and_fail_closed() {
+        let standard = ProviderAdapter::for_kind(ProviderKind::OpenAi);
+        let chatgpt = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+
+        // Require an explicit SSE media type for ordinary OpenAI-compatible Providers.
+        assert!(!standard.recognizes_sse_response(ApiProtocol::Responses, &HeaderMap::new()));
+
+        // Accept ChatGPT's observed omission only for its Responses wire protocol.
+        assert!(chatgpt.recognizes_sse_response(ApiProtocol::Responses, &HeaderMap::new()));
+        assert!(!chatgpt.recognizes_sse_response(ApiProtocol::ChatCompletions, &HeaderMap::new()));
+
+        // Apply normal media-type semantics to explicit values for every Provider profile.
+        for value in [
+            "text/event-stream",
+            "Text/Event-Stream",
+            "text/event-stream; charset=utf-8",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
+            assert!(
+                standard.recognizes_sse_response(ApiProtocol::Responses, &headers),
+                "rejected {value}"
+            );
+        }
+
+        // Reject present wrong, prefixed, or duplicate media types even for ChatGPT.
+        for value in ["application/json", "text/event-streaming"] {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
+            assert!(
+                !chatgpt.recognizes_sse_response(ApiProtocol::Responses, &headers),
+                "accepted {value}"
+            );
+        }
+        let mut duplicate = HeaderMap::new();
+        duplicate.append(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+        duplicate.append(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+        assert!(!chatgpt.recognizes_sse_response(ApiProtocol::Responses, &duplicate));
     }
 
     #[test]

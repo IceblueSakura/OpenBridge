@@ -96,6 +96,7 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
 .with_request_body_hook(transform_request_body)
 .with_request_headers(CHATGPT_REQUEST_HEADERS)
 .with_openai_data_type_responses_terminal()
+.with_missing_responses_content_type_as_sse()
 .with_model_list_parser(parse_model_list_ids);
 
 /// Single static descriptor for the ChatGPT contract and adapter.

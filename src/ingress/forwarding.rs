@@ -38,6 +38,7 @@ use policy::{should_retry_error, should_retry_status, transport_error_kind};
 struct StoredHttpFailure {
     upstream: UpstreamResponse,
     adapter: ProviderAdapter,
+    upstream_protocol: ApiProtocol,
     bridge: Option<BridgePlan>,
 }
 
@@ -313,6 +314,7 @@ pub(super) async fn forward_request(
                             last_http_failure = Some(StoredHttpFailure {
                                 upstream,
                                 adapter,
+                                upstream_protocol: candidate.request().protocol(),
                                 bridge: candidate.bridge().cloned(),
                             });
                             attempts.wait_before_next_attempt().await;
@@ -324,7 +326,7 @@ pub(super) async fn forward_request(
                                 upstream,
                                 UpstreamResponseContext {
                                     validate_sse: plan.is_streaming(),
-                                    protocol,
+                                    upstream_protocol: candidate.request().protocol(),
                                     adapter,
                                     max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
                                     max_json_body_bytes: registry
@@ -360,7 +362,7 @@ pub(super) async fn forward_request(
                         upstream,
                         UpstreamResponseContext {
                             validate_sse: plan.is_streaming(),
-                            protocol,
+                            upstream_protocol: candidate.request().protocol(),
                             adapter,
                             max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
                             max_json_body_bytes: registry.limits().max_json_response_body_bytes(),
@@ -413,7 +415,7 @@ pub(super) async fn forward_request(
             failure.upstream,
             UpstreamResponseContext {
                 validate_sse: plan.is_streaming(),
-                protocol,
+                upstream_protocol: failure.upstream_protocol,
                 adapter: failure.adapter,
                 max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
                 max_json_body_bytes: registry.limits().max_json_response_body_bytes(),

@@ -7,9 +7,10 @@ use openbridge::{
     core::OperationKind,
     provider::{CredentialKind, ProviderKind},
     registry::{
-        ModelContextLength, ModelLifecycle, ModelLifecycleStatus, NonStreamingConversion,
-        PublicModelConfig, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError,
-        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
+        IgnorableGenerationParameter, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
+        NonStreamingConversion, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
+        ReasoningSupport, RegistryError, UpstreamApiCapabilities, UpstreamStreamingPolicy,
+        build_registry,
     },
 };
 
@@ -380,6 +381,67 @@ fn upstream_api_rules_only_reduce_model_info() {
     assert_eq!(effective.context_length().output_tokens(), Some(4_096));
     assert_eq!(effective.reasoning(), ReasoningSupport::Unsupported);
     assert_eq!(effective.supported_parameters(), ["max_tokens"]);
+}
+
+#[test]
+fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
+    let mut accepted = definition("test", "code-primary", "test-model");
+    accepted.models[0].supported_parameters = vec!["seed".to_owned(), "temperature".to_owned()];
+    accepted.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+
+    let registry = build_registry(bootstrap(BOOTSTRAP), accepted).unwrap();
+    let api = registry
+        .upstream_target("openai-main")
+        .unwrap()
+        .upstream_api(OperationKind::ChatCompletions)
+        .unwrap();
+    assert_eq!(api.model().supported_parameters(), ["seed", "temperature"]);
+    assert!(api.ignores_generation_parameter(IgnorableGenerationParameter::Temperature));
+    assert!(!api.ignores_generation_parameter(IgnorableGenerationParameter::Seed));
+
+    let info = serde_json::to_value(registry.public_model("code-primary").unwrap().info()).unwrap();
+    let parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    assert!(parameters.iter().any(|value| value == "seed"));
+    assert!(parameters.iter().any(|value| value == "temperature"));
+
+    let mut undeclared = definition("test", "code-primary", "test-model");
+    undeclared.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), undeclared),
+        Err(RegistryError::UpstreamApiModelRuleIgnoresUnknownParameter { .. })
+    ));
+
+    let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate.models[0].supported_parameters = vec!["temperature".to_owned()];
+    duplicate.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![
+        IgnorableGenerationParameter::Temperature,
+        IgnorableGenerationParameter::Temperature,
+    ];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), duplicate),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
+
+    let mut contradictory = definition("test", "code-primary", "test-model");
+    contradictory.models[0].supported_parameters = vec!["temperature".to_owned()];
+    contradictory.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .disabled_parameters = vec!["temperature".to_owned()];
+    contradictory.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), contradictory),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
 }
 
 #[test]

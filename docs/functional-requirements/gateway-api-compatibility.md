@@ -57,15 +57,17 @@ billing identity；变更需要重启。认证失败与未知/不支持 endpoint
 - 仅接受端点契约允许的 content type、JSON body 和受配置约束的大小；无法安全解析的请求在 egress 前返回稳定错误。
 - 请求分类必须先识别 operation，再按 operation 解析 `stream`、input form、function/custom/hosted
   tool、并行工具、结构化输出、multimodal、reasoning、`previous_response_id`、background/store 与相应限制等会影响固定契约或状态边界的特征。
-- 未知 feature 不能因“目标 Provider 也许支持”而默认放行到 bridge；Native Path 可保留同协议的未知合法字段，前提是它们不绕过固定契约、安全或
-  state-affinity 决策。
+- Chat/Responses 下游请求的顶层字段必须先按源协议的代码内类型化目录分类；未知字段即使值为 `null` 也必须在 egress 前以稳定
+  `unknown_parameter` 拒绝，不能因“目标 Provider 也许支持”而进入 Native 或 Bridge。已知字段的 `null`/`false` 是否表示未请求能力，
+  只由该字段的类型化语义决定，不形成通用绕过规则。
 - 服务为每个请求生成或传播安全的 request id，用于响应和受控诊断；该 id 不是 client identity、tool identity 或聚合指标
   label。
 
 ## 4. Native Path 与流式语义
 
-当下游与上游协议一致且请求已通过 Public Model 固定契约预检时，Native Path 是兼容性基线：它只做受信路由、模型、认证和 显式
-reasoning level wire 映射，保留其他 JSON、HTTP status、必要 allowlist header 与未知合法字段，不经过 通用 IR 重渲染。level
+当下游与上游协议一致且请求已通过 Public Model 固定契约预检时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
+reasoning level wire 映射和已验证的普通生成提示忽略，保留其他已知且被接口接受的请求 JSON，并保持上游响应中的未知合法 JSON
+字段/SSE event，不经过通用 IR 重渲染。level
 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model 声明， 目标必须是安全 wire
 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。 canonical reasoning level vocabulary 为
 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`； 每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
@@ -77,9 +79,11 @@ SSE/Bridge，也不在网关转换 vector encoding 或 dimensions。客户端必
 
 显式 `Bridged` Route 必须只转换两协议共同可表达且已由 Upstream API capability 确认可读、方向兼容的 reasoning
 channel、text、function schema、tool call/result identity、非流式 JSON 和流式 SSE lifecycle；
-`Unknown`、`Unsupported`、`Opaque` reasoning 输出在需要跨协议传递时必须拒绝。未知顶层字段、opaque continuation、
-hosted/custom tool、image、structured output、background/store 和 Provider 私有扩展必须在 egress 前拒绝。 Bridge
-不能因字段名相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
+`Unknown`、`Unsupported` reasoning 输出，以及下游请求或 history 中需要继续提交的 opaque continuation，必须拒绝。已完成的上游
+Responses 输出转为无状态 Chat response 时，可以在验证 reasoning item 形状后丢弃 Chat 无字段承载的 `encrypted_content`，但不得把它
+伪装为 `reasoning_content`，不得丢失同一响应中的可读 summary/content、text 或 tool call，且 JSON/SSE 必须采用同一边界。未知顶层字段、
+hosted/custom tool、image、structured output、background/store 和其他 Provider 私有扩展必须在 egress 前拒绝。Bridge 不能因字段名
+相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
 
 流式请求必须满足：
 
@@ -151,6 +155,26 @@ OpenBridge 的核心实现重点是无状态服务；无状态请求是默认使
 - MCP、custom tool、hosted tool、reasoning、annotation、image generation 等不是普通 text 的同义词。所选 Public Model
   固定接口未声明支持时必须在上游调用前拒绝，不得静默丢弃。
 
+### 5.4 普通生成参数的上游兼容
+
+Canonical Model 已声明的普通 Chat/Responses 生成参数可以由下游提交，并继续出现在对应 interface 的
+`supported_parameters`。若某个具体 Upstream API 已由官方文档或真实请求确认不接受其中一个参数，代码注册表可以通过闭合、类型化规则
+将该字段标记为“下游接受、上游忽略”。选中该 API 后，OpenBridge 必须在 candidate 绑定完成后、进入第一个无法表达该字段的
+Bridge/Provider request-shape 转换前静默删除，并保证 transport request 不含该字段；不得因此返回能力错误、改选 Route、改变
+fallback 顺序或把固定值伪造成用户请求值。每个 candidate 必须从原始下游 body 独立构造，fallback 选择另一 API 时只应用该 API
+自己的规则，不能继承前一个 candidate 已删除的字段集合。
+
+忽略规则必须在启动时验证参数由 canonical Model 声明、集合无重复、且不与 `disabled_parameters` 重叠；它只允许用于 generation API。
+首批闭合集合只允许 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p` 和 `seed`。每项规则必须有针对该 Target/API
+的明确外部或真实测试证据和确定性 egress 回归测试。未配置为忽略的 Native 普通字段继续保持 wire 语义，不能因为另一个 Provider
+不支持就全局删除。
+
+以下字段不属于该兼容例外：`n`、`logprobs`、`top_logprobs`、`include_reasoning`、streaming mode、reasoning level/开关、
+tools/tool choice、structured output、state/continuation、媒体输入输出、输出 token 上限、认证与 Provider 私有扩展。它们会改变
+可观察输出、能力、资源或安全边界；不支持或 Bridge 无法完整表达时必须在 egress 前拒绝，不得静默降级。`supported_parameters` 对普通
+忽略字段表示“OpenBridge 接受请求”，不保证每个候选上游都会应用该提示；这一例外不得扩展为任意字符串、用户可配置或请求可选择的过滤器，
+也不得提供任意 `extra_body` 绕过类型化目录和固定能力预检。
+
 Responses 标准 event 见[Responses typed SSE 调研](../references/openai/responses/streaming.md)；Codex 私有扩展仍由对应 Codex
 项目调研维护。
 
@@ -159,7 +183,8 @@ Responses 标准 event 见[Responses typed SSE 调研](../references/openai/resp
 | 时机                                        | 必需行为                                                                                                                                              |
 |---------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
 | ingress、Public Model、能力、认证或配置拒绝 | 上游调用前返回安全、稳定的 OpenAI-compatible JSON error；不暴露 URL、credential、候选列表或内部栈。                                                   |
-| 所选 Public Model 的固定接口契约不支持请求  | 在 egress 前返回稳定 `unsupported_model_capability`；不得改选模型、筛选 Route 或静默丢失字段。                                                        |
+| Chat/Responses 请求含未知顶层字段            | 上游调用前返回稳定 `unknown_parameter`，`param` 指向安全字段名；Native 与 Bridge 行为一致，且不得调用 Provider。                                       |
+| 所选 Public Model 的固定接口契约不支持请求  | 在 egress 前返回稳定 `unsupported_model_capability`；不得改选模型或筛选 Route。只有 5.4 明确定义的普通参数规则可以在选定 API 的 egress 静默删除字段。 |
 | 上游在首输出前返回可重试失败                | 该请求已经通过统一能力预检；是否 retry/fallback 只按静态 Route 顺序、错误分类和状态亲和执行，不重新比较候选能力。                                     |
 | 首个业务输出前的上游失败                    | 依[路由与 Provider 韧性](provider-resilience.md)判断有限 retry/fallback，最终保留安全的 status、error code、request id 与 allowlist rate-limit 信息。 |
 | 已开始 JSON/SSE body 后的失败               | 只使用目标协议已有的 terminal/error 或关闭语义；不重写已发内容、不注入私有 event、不切换 candidate。                                                  |
@@ -210,12 +235,12 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 |--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | API-01 | 有效静态 token 可访问标准/扩展模型与业务 endpoint；认证失败、未知 Public Model、不支持 feature 与非 JSON 请求在 egress 前安全失败。                                                |
 | API-02 | 标准/扩展 Models 接口满足[模型能力契约](model-information-and-capability-contract.md)的身份、逐字段一致性与部署信息隔离要求。                                                      |
-| API-03 | Native Chat/Responses JSON 与 SSE 除受信模型/认证改写外保持 wire 语义；未知合法同协议字段/event 不因网关丢失。                                                                     |
+| API-03 | Native Chat/Responses 已知且被接口接受的请求字段除受信模型/认证改写及已验证的普通参数忽略规则外保持 wire 语义；未知请求顶层字段在 egress 前拒绝，上游响应中的未知合法字段/event 不因网关丢失。 |
 | API-04 | SSE 分片、终态、EOF、上游 error 和下游 cancel 不会产生伪成功、重复 terminal 或跨 Upstream Target 拼接。                                                                            |
 | API-05 | 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；网关不执行工具。                                                                            |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。                                                      |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。                                                                    |
-| API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，支持时保持配置 Route 顺序，不按请求能力筛选或重排候选。                                                        |
+| API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，普通忽略参数按选中 API 删除，其他支持请求保持配置 Route 顺序，不按请求能力筛选或重排候选。                       |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。                                                                      |
 | API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
 | API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |

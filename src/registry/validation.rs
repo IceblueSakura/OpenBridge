@@ -299,6 +299,40 @@ pub(super) fn apply_model_rules(
             );
         }
     }
+    // Validate the closed ordinary-parameter ignore set without narrowing downstream acceptance.
+    let ignored = rules
+        .ignored_parameters
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if ignored.len() != rules.ignored_parameters.len() {
+        return Err(RegistryError::InconsistentUpstreamApiModelRules {
+            upstream_api: upstream_api.to_owned(),
+            detail: "ignored generation parameters must be unique",
+        });
+    }
+    for parameter in ignored {
+        let parameter = parameter.as_wire_name();
+        if !model
+            .supported_parameters
+            .iter()
+            .any(|supported| supported == parameter)
+        {
+            return Err(RegistryError::UpstreamApiModelRuleIgnoresUnknownParameter {
+                upstream_api: upstream_api.to_owned(),
+                parameter: parameter.to_owned(),
+            });
+        }
+        if disabled
+            .iter()
+            .any(|disabled| disabled.as_str() == parameter)
+        {
+            return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
+                detail: "one parameter cannot be both disabled and ignored",
+            });
+        }
+    }
     // Build the effective parameter set and revalidate reasoning semantics.
     let supported_parameters = model
         .supported_parameters

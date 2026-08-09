@@ -1,6 +1,10 @@
 //! Immutable runtime entities produced by registry compilation.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use url::Url;
 
@@ -11,8 +15,9 @@ use crate::{
 };
 
 use super::{
-    InputModality, ModelContextLength, ModelMode, OutputModality, PublicModel, ReasoningLevel,
-    ReasoningSupport, RouteMode, StateAffinity, UpstreamApiCapabilities,
+    IgnorableGenerationParameter, InputModality, ModelContextLength, ModelMode, OutputModality,
+    PublicModel, ReasoningLevel, ReasoningSupport, RouteMode, StateAffinity,
+    UpstreamApiCapabilities,
 };
 
 /// Model metadata read by the request path after startup.
@@ -358,6 +363,7 @@ pub struct UpstreamApi {
     pub(super) streaming_policy: super::UpstreamStreamingPolicy,
     pub(super) state_affinity: StateAffinity,
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
+    pub(super) ignored_parameters: BTreeSet<IgnorableGenerationParameter>,
 }
 
 impl UpstreamApi {
@@ -406,6 +412,18 @@ impl UpstreamApi {
         self.reasoning_level_mappings
             .get(&level)
             .map(String::as_str)
+    }
+
+    /// Returns whether this Upstream API omits one accepted ordinary generation parameter.
+    pub fn ignores_generation_parameter(&self, parameter: IgnorableGenerationParameter) -> bool {
+        self.ignored_parameters.contains(&parameter)
+    }
+
+    /// Enumerates accepted ordinary generation parameters omitted from this API's egress body.
+    pub(crate) fn ignored_generation_parameters(
+        &self,
+    ) -> impl Iterator<Item = IgnorableGenerationParameter> + '_ {
+        self.ignored_parameters.iter().copied()
     }
 }
 

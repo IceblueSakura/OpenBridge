@@ -36,6 +36,15 @@
 - 本轮请求只使用标准 Chat `reasoning_effort: "high"` 和 Responses `reasoning.effort: "high"`，不加载 Hermes、
   不调用 Hermes runtime，也不发送 Hermes custom 字段。
 
+## 普通参数兼容
+
+- 真实首选路径确认两个文本模型的 Chat `logprobs/top_logprobs` 均可直接透传；MiniMax、DeepSeek、GLM、Qwen 的已验证结果不会影响
+  MiMo 自己的 API 规则。
+- MiMo V2.5 与 Pro 的 Responses 对 `top_logprobs` 返回 `responses_feature_not_supported`。当前两个 Responses Upstream API 仅将该字段
+  配置为下游接受、上游忽略；Chat 同名字段继续透传，其他普通字段不受影响。
+- 2026-08-09 使用真实下游 key 对两个模型的 Chat 两项和 Responses 一项共 6 个 logprob 单元复测，最终全部返回合法 HTTP 200 JSON
+  终态；没有 429/503、协议或传输错误。
+
 ## 工具调用支持矩阵
 
 真实正向探测使用一个无副作用的 `report_result` function，设置 `tool_choice: "required"`，只检查是否返回有效函数名和调用结构；

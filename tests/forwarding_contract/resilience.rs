@@ -519,6 +519,25 @@ async fn buffered_non_streaming_responses_require_sse_content_type() {
 }
 
 #[tokio::test]
+async fn native_streaming_responses_require_sse_content_type() {
+    let app = app_with_transport(Arc::new(SuccessfulJsonTransport));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    // Reject a successful non-SSE body before committing a native streaming response.
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
 async fn buffered_non_streaming_responses_enforce_the_json_takeover_budget() {
     let app =
         app_with_streaming_only_responses_transport(Arc::new(OversizedResponsesSseTransport), 128);

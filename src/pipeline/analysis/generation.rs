@@ -143,9 +143,6 @@ fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) ->
         || has_non_null_field(object, "web_search_options")
         || requests_prompt_caching(object)
         || has_non_null_field(object, "moderation")
-        || object.get("logprobs").and_then(Value::as_bool) == Some(true)
-        || integer_field_exceeds(object, "top_logprobs", 0)
-        || integer_field_exceeds(object, "n", 1)
 }
 
 /// Returns whether a Responses request uses a capability reserved only in the definition.
@@ -161,7 +158,6 @@ fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value
         || has_non_null_field(object, "context_management")
         || has_non_null_field(object, "include")
         || has_non_null_field(object, "moderation")
-        || integer_field_exceeds(object, "top_logprobs", 0)
 }
 
 /// Returns whether a request contains a tool named by the current protocol capability but not implemented.
@@ -248,18 +244,6 @@ fn array_field_contains(
 /// Returns whether a field carries a non-`null` value.
 fn has_non_null_field(object: &serde_json::Map<String, Value>, field: &str) -> bool {
     object.get(field).is_some_and(|value| !value.is_null())
-}
-
-/// Returns whether a non-negative integer field exceeds the given capability ceiling.
-fn integer_field_exceeds(
-    object: &serde_json::Map<String, Value>,
-    field: &str,
-    baseline: u64,
-) -> bool {
-    object
-        .get(field)
-        .and_then(Value::as_u64)
-        .is_some_and(|value| value > baseline)
 }
 
 /// Returns whether a request uses prompt-cache key/options/retention or a content breakpoint.

@@ -160,7 +160,7 @@ RegistryConfig
 | `ModelConfig`          | 显式 canonical profile 的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据；不同 profile 的已核实事实可分开注册 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind                                                                          |
 | `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
-| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、streaming policy、state affinity 与可选 reasoning level 映射 |
+| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、streaming policy、state affinity、可选 reasoning level 映射与普通参数忽略规则 |
 | `RouteConfig`          | target、typed upstream operation、下游 operation 和 `Native`/`Bridged` 执行模式                                      |
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
@@ -191,7 +191,7 @@ BaseURL 只属于 Provider instance；credential、Model、timeout 与故障边�
 
 `build_registry` 先验证 Provider instance ID 与唯一 HTTPS BaseURL，再验证 Target 引用、credential、timeout、Provider 上界、
 Upstream API operation 唯一性与能力、model
-rules 只收窄、三段 context 关系、Native/Bridged route 方向、Embeddings 单 Native candidate 与闭合 capability、Public Model
+rules 只收窄、普通参数忽略集合合法性、三段 context 关系、Native/Bridged route 方向、Embeddings 单 Native candidate 与闭合 capability、Public Model
 身份/生命周期及 route 顺序。公共对象与请求预检必须保持的需求见
 [Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按 operation
 对 所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
@@ -263,9 +263,11 @@ candidate 保存目标协议的 canonical `ApiRequest`；两者都不在 RoutePl
 preflight 读取同一执行接口的四种 input form、encoding/dimension domain 和有效 limit；planning 只接受 唯一 Native
 candidate，并把原始 `EmbeddingRequest` 交给 adapter 在 egress 时改写受信 model/path。
 
-Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，写入真实 model，并按该 Upstream API 的显式配置 把 canonical
-reasoning level 改为安全 wire 值。映射源必须属于有效 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；没有映射的候选保持
-canonical level，未知下游 level 仍在 preflight 失败关闭。
+Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，写入真实 model，执行固定 Provider request-body hook，删除该 Upstream API
+显式配置为下游接受但上游忽略的闭合普通参数，再把 canonical reasoning level 改为安全 wire 值。忽略集合只允许 generation 参数，必须由
+canonical Model 声明且不能与 disabled parameter 重叠；它不改变 Public Model 参数交集、Route 资格或 fallback 顺序。映射源必须属于有效
+Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；没有映射的候选保持 canonical level，未知下游 level 仍在
+preflight 失败关闭。
 
 Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Responses API 继承相同集合。当前 Qwen3.7 Max/Plus 两个接口
 都公开七档，MiMo V2.5/Pro 两个接口都公开四档，LongCat 2.0 两个接口都公开 `none/high`。Qwen 与 MiMo 的 Native Responses
@@ -331,7 +333,8 @@ model 和共享 `chatgpt-codex` OAuth pool；每个 GPT Public Model 都有 Chat
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
 `stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。其
 Upstream API policy 声明 streaming required，并启用 Responses SSE buffering；因此下游非流式 Chat/Responses 会在 planning 后固定
-上游 `stream: true`，完整验证 terminal 再返回 JSON。该 profile 不读取本机 Codex auth、
+上游 `stream: true`，完整验证 terminal 再返回 JSON。该静态 media profile 允许真实 ChatGPT 成功 SSE 缺失 `Content-Type`，并向下游
+规范化为 `text/event-stream`；其他 Provider、显式错误媒体类型和重复 header 仍 fail closed。该 profile 不读取本机 Codex auth、
 部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server；Models probe 使用的
 `/models?client_version=0.146.0` query 是编译期固定的 adapter 事实，不由本机 client profile 提供。
 
@@ -406,7 +409,8 @@ target。两类状态都不持久化、不跨进程，也不执行动态权重�
 `bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE 转换。Responses 侧分别固定
 response id、item id、call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧要求唯一
 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowlist 内的共同 text/function 与明文 reasoning channel
-语义；无法表达的字段、opaque continuation 与私有扩展在 egress 前拒绝。
+语义；无法表达的字段与私有扩展在 egress 前拒绝。下游 request/history 中的 opaque continuation 也拒绝；完成 Responses output 中已验证的
+`encrypted_content` 在生成无状态 Chat response 时丢弃，不转换成明文 reasoning，其他可读输出保持不变。
 
 `src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider observation、usage、SDK instruments
 与 startup-owned OTLP lifecycle 拆到同名目录。`downstream_request` root 和每个实际 `provider_attempt` child 使用显式 attribute

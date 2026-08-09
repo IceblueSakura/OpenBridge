@@ -310,6 +310,24 @@ fn build_registry_internal(
             // Preserve the original reasoning mappings; model-rule application consumes the configuration, then the mappings are checked against the narrowed model.
             let mapping_config = upstream_api.model_rules.reasoning_level_mappings.clone();
 
+            // Preserve the validated ordinary-parameter ignore set for final routed egress preparation.
+            let ignored_parameters = upstream_api
+                .model_rules
+                .ignored_parameters
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+
+            // Keep generation-only ignore semantics out of the independently typed Embeddings operation.
+            if upstream_operation == crate::core::OperationKind::EmbeddingsCreate
+                && !ignored_parameters.is_empty()
+            {
+                return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                    upstream_api: api_key,
+                    detail: "ignored generation parameters require a Chat or Responses API",
+                });
+            }
+
             // Apply the Upstream API model rules to the canonical Model, allowing only narrower confirmed model facts.
             let effective_model =
                 apply_model_rules(model.clone(), &api_key, upstream_api.model_rules)?;
@@ -346,6 +364,7 @@ fn build_registry_internal(
                 streaming_policy: upstream_api.streaming_policy,
                 state_affinity: upstream_api.state_affinity,
                 reasoning_level_mappings,
+                ignored_parameters,
             };
 
             // Build a unique typed operation index within the target.

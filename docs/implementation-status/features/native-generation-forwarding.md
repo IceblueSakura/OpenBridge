@@ -13,6 +13,10 @@
   Responses→Chat JSON Bridge 返回。
 - Native Route 保留下游 canonical request；Provider adapter 在 egress 阶段绑定固定 upstream model、相对 path、普通固定 header 和
   purpose-bound authentication。
+- Upstream API 可以用闭合 `IgnorableGenerationParameter` 集合接受但不向上游发送已确认不兼容的普通生成字段；这些字段仍保留在
+  Public Model `supported_parameters`。当前 Kimi K3 Chat 删除固定 sampling 字段和不支持的 logprob 字段，MiMo V2.5/Pro 只在
+  Responses 删除 `top_logprobs`，ChatGPT GPT-5.5/5.6 Responses 删除 `seed/include_reasoning`；其他真实验证通过的 logprob 字段继续透传。
+  stream、reasoning level/开关、tools、structured output、state、媒体和输出 token 上限不在该闭合集合内。
 - Reasoning level 由 Canonical Model 统一定义并在同一模型的 Chat/Responses interface 中保持一致；Native Responses 保留具体
   effort，只有 thinking 开关的 Chat Provider 将 `none` 映射为关闭、其余已声明 level 映射为开启。未知 level 在 egress 前拒绝。
 - 当前 Native surface 包括 OpenAI `gpt-5.6-sol`、LongCat `LongCat-2.0`、DeepSeek Chat 与 V4 Flash 无状态 Responses、
@@ -28,6 +32,9 @@
 - streaming-to-JSON takeover 只接受 Responses SSE，并同时受 JSON response body 与单 SSE event 上限约束；它校验标准 text lifecycle，
   从 response snapshots 与有序 `response.output_item.done` 补齐稀疏 terminal；非法 framing/UTF-8、
   非 SSE success、超限 body 或缺失 terminal 在下游 body commit 前返回安全 502。当前不实现通用 Chat SSE 聚合。
+- 成功 streaming response 通过静态 Provider media profile 分类：普通 Provider 必须显式返回唯一的 `text/event-stream`；当前 ChatGPT
+  Responses backend 的真实成功响应允许缺失 `Content-Type`，网关仍执行完整 SSE 校验并向下游规范化为 `text/event-stream`。已出现但错误、
+  前缀相似或重复的媒体类型不会进入该特例；原生 stream 与 streaming-to-JSON takeover 均在 body commit 前 fail closed。
 
 ## 实现边界
 
@@ -50,6 +57,22 @@
   DeepSeek V4 Flash 的 DeepSeek→OpenRouter Responses 候选顺序、固定 `/responses` egress 与 typed SSE terminal。
 - `tests/example_config.rs::minimax_m3_compiles_with_openrouter_first_and_binary_reasoning` 覆盖 MiniMax 的 OpenRouter→NVIDIA Chat
   顺序、OpenRouter Responses Native 和 `none/high` 两接口契约。
+
+2026-08-09 ChatGPT streaming response media 修复的实际验证：
+
+- 最小脱敏诊断确认上游 HTTP 200 Responses body 有 9 个合法事件及 `response.completed`，但没有 `Content-Type`；诊断不保存正文、ID、
+  request ID 或 credential；
+- 5 个 GPT 模型最终重跑 Chat/Responses × `stream:false/true` × omitted/high 共 40 个真实单元，全部得到合法 200 JSON/SSE 终态；
+  0 个 HTTP、协议或传输错误，0 个单元触发 429/503 重试。
+
+2026-08-09 普通参数忽略规则的最终验证：
+
+- `tests/config_contract.rs` 验证 canonical 声明、下游契约保留、重复/冲突规则；`tests/embedding_definition_contract.rs` 验证
+  Embeddings 拒绝 generation ignore rule；`tests/forwarding_contract.rs` 验证只删除配置字段，并覆盖 Kimi、MiMo 与 ChatGPT production 注册；
+- 使用真实下游 key 对 24 个公开 logprob 单元、8 个 ChatGPT `seed/include_reasoning` 单元以及 Kimi 7 个 fixed-value/Bridge 单元共
+  39 项复测，最终 39/39 均为 HTTP 200 且 JSON 终态合法；0 个 HTTP、协议、传输或最终 429/503 错误；
+- 真实结果确认 20 个 logprob 单元可继续透传，只对 Kimi Chat 的 2 个和 MiMo Responses 的 2 个失败组合应用 API-specific 删除；
+  测试不保存 credential、请求正文、生成正文、reasoning、logprobs 或 Provider request ID。
 
 2026-08-08 DeepSeek V4 Flash Responses Native 变更的实际验证：
 

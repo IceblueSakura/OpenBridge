@@ -3,8 +3,8 @@
 ## 状态
 
 **已完成（当前受限范围）。** OpenBridge 已具备独立 ChatGPT Provider 的 OAuth2 bundle 加载、显式 device/PKCE 登录、到期驱动
-refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` pool source 的 Sol 五个固定 target profile 的注册与数据面。此前的真实
-Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
+refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` pool source 的 Sol 五个固定 target profile 的注册与数据面。
+五个模型当前均有 Chat/Responses、stream on/off 与 omitted/high 的真实最小文本证据。
 
 ## 已完成内容
 
@@ -21,7 +21,10 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
   Chat→Responses Bridge 对应转换 function tools、parallel tool calls 以及 `response_format`/`text.format` 的 text、JSON object 和
   JSON Schema 形状。Spark 仍保持文本-only capability。
 - ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream: true`，把字符串 `input` 转为 user
-  message 数组、强制 `store: false`，并在 egress 前拒绝且不公开当前 backend 不接受的输出 token limit 参数。
+  message 数组、强制 `store: false`，并在 egress 前拒绝且不公开当前 backend 不接受的输出 token limit 参数。真实 backend 的成功 SSE
+  可以缺失 `Content-Type`；静态 ChatGPT media profile 识别该形状、执行完整 lifecycle 校验并向下游规范化 SSE media type。
+- GPT-5.5 与 GPT-5.6 的 `seed/include_reasoning` 仍作为下游可接受普通参数公开；五个 ChatGPT Responses API 中实际声明这些字段的四个
+  advanced profile 在最终 egress 静默删除它们。输出 token 上限、reasoning level、tools、state 与其他能力字段不进入该普通参数例外。
 - 请求只从 manager 借用短生命周期、账户绑定的当前 generation。首个预提交 `401` 先 guarded reload，persisted generation 未变化时才
   refresh，然后只重放一次；第二个 `401` 把仍被拒绝的 generation 标记为 `reauth_required`。
 - 管理员可通过 `openbridge-probe --target <chatgpt-target> --list-models` 或 `--responses` 对已激活的 ChatGPT target 执行固定 Models
@@ -35,8 +38,9 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 - 登录与 manager 位于 [`src/oauth2_credentials/`](../../../src/oauth2_credentials/)，ChatGPT 注册与 wire 规则位于
   [`src/providers/chatgpt/`](../../../src/providers/chatgpt/)，请求级恢复位于
   [`src/ingress/forwarding.rs`](../../../src/ingress/forwarding.rs)。
-- 当前 ChatGPT 只公开 streaming Responses 文本、function tool、parallel tool calls 和 structured output，以及要求 SSE 的受限 Chat
-  Bridge；WebSocket、Batch、Embeddings、hosted/custom tool、MCP、多模态、background、stateful response 和完整 Agent loop 都未开放。
+- 当前 ChatGPT 上游只公开 streaming Responses 文本、function tool、parallel tool calls 和 structured output；下游 Responses/受限 Chat
+  Bridge 均可选择 JSON 或 SSE，非流式模式由有界 SSE takeover 完成。WebSocket、Batch、Embeddings、hosted/custom tool、MCP、多模态、
+  background、stateful response 和完整 Agent loop 都未开放。
 - 当前只有一个账户绑定 OAuth pool，不进行账户轮换或跨 Provider fallback；服务请求和显式 ChatGPT 基础 probe 都只借用该账户的短生命周期
   lease，`429` 只进入 target cooldown。
 - 当前不提供运行中换账户。换账户需要停止服务，手动删除 private upstream binding 指向的 OpenBridge-owned `auth_json_file` 及同一登录
@@ -57,6 +61,17 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 - [上游模型发现与基础 API 探测](../capability-probing.md)记录 ChatGPT Models/Responses probe 的固定路径、OAuth lease 边界和观察
   规则；该基础观察不等同于工具、SDK、模型语义或长期 Provider 验收。
 
+2026-08-09 使用当前 private 配置和同一最小文本，通过修复后本地 OpenBridge 完成五个 GPT 模型的 40 单元矩阵：
+
+- Chat/Responses × `stream:false/true` × reasoning omitted/high 全部为 HTTP 200，并具有合法 JSON/SSE 完成终态；
+- 0 个 HTTP、协议或传输错误，0 个单元触发 429/503 重试；
+- 测试只保存状态、终态、reasoning-present 布尔值和耗时，不保存 credential、账户、opaque continuation、响应正文或 request ID；
+- GPT-5.3 Codex Spark 与 GPT-5.5 的完成 output 含不可读 `encrypted_content` reasoning item；非流式 Chat 与既有流式 Chat 一致，只保留
+  可表示输出，不泄露或伪造 opaque reasoning。
+
+同日对 GPT-5.5、GPT-5.6 Luna/Sol/Terra 的 Responses `seed/include_reasoning` 共 8 个普通参数单元复测，全部返回合法 HTTP 200 JSON
+终态，0 个 HTTP、协议、传输或最终 429/503 错误；确定性 RecordingTransport 测试同时确认两个字段均未进入 ChatGPT 上游 body。
+
 以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当前 GPT-5.3 Codex Spark、Luna 和 Terra 名称已按注册契约改为
 `gpt-5.3-codex-spark`、`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。
 
@@ -72,7 +87,7 @@ Provider 证据仍只覆盖 Spark 和 GPT-5.6 三个模型。
 
 同日最终脱敏 preflight 再次确认该 bundle 完整、access token 未过期且未进入 120 秒 safety window。最终验证结果：
 
-上表中 Sol 的历史调用使用的是同一 ChatGPT target source；本次公共名称合并和 Provider 池改动未重新执行真实 Provider 验收。
+上表中 Sol 的历史调用使用的是同一 ChatGPT target source；当前公共名称和五模型完整最小矩阵以 2026-08-09 最终结果为准。
 
 - `cargo fmt -- --check`：通过；
 - 变更 Rust 文件的 `rustfmt --edition 2024 --check`：通过；

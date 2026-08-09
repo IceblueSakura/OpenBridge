@@ -11,6 +11,9 @@
   state、独立的 `streaming`/`non_streaming` 支持状态、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
 - 每个 Public Model 的 Chat、Responses、Embeddings interface 在启动期按所有可执行 candidate 的保守交集编译；未知事实保持未知，不被
   猜测为支持。
+- generation `supported_parameters` 表示 OpenBridge 接受对应字段；每 Upstream API 的闭合普通参数忽略集合不从该接口删除字段，且在
+  启动时校验 canonical 声明、唯一性、与 disabled 参数互斥及 generation-only 边界。能力、状态、媒体、reasoning level/开关、stream
+  和输出预算字段仍按固定契约 fail closed，不进入静默忽略集合。
 - generation interface 使用 typed function-tool 与 structured-output profile：分别公开 `tool_choice` mode 集合、parallel/strict
   约束，以及 `json_object`/`json_schema` mode 与 strict 约束；集合逐候选相交，不再由布尔支持值推导整组 mode。
 - 请求 analyzer 冻结精确的 function `tool_choice` 与 structured-output mode/strict facts；缺失证据或未建模值 fail closed，preflight

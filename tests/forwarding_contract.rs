@@ -32,9 +32,9 @@ use openbridge::{
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
-        NonStreamingConversion, ReasoningLevel, ReasoningLevelMapping, ReasoningSupport,
-        RegistryConfig, RouteConfig, RouteMode, UpstreamStreamingPolicy, UpstreamTarget,
-        build_registry,
+        IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel,
+        ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode,
+        UpstreamStreamingPolicy, UpstreamTarget, build_registry,
     },
     transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -134,6 +134,11 @@ event: response.completed
 data: {"type":"response.completed","response":{"id":"resp_deepseek_reasoning","model":"deepseek-v4-flash","object":"response","output":[],"status":"completed"}}
 
 "#;
+
+const COMPLETED_RESPONSES_STREAM: &str = concat!(
+    "event: response.completed\n",
+    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"status\":\"completed\"}}\n\n",
+);
 
 #[derive(Default)]
 struct MimoResponsesToolStreamTransport {
@@ -248,6 +253,8 @@ struct ChatGptRecordedRequest {
     input_is_array: bool,
     store_is_false: bool,
     output_limit_present: bool,
+    include_reasoning_present: bool,
+    seed_present: bool,
     stream_is_true: bool,
     token_generation: SyntheticTokenGeneration,
     account_matches: bool,
@@ -437,6 +444,8 @@ impl UpstreamTransport for ChatGptOAuthTransport {
             output_limit_present: ["max_output_tokens", "max_completion_tokens", "max_tokens"]
                 .iter()
                 .any(|field| body.get(*field).is_some()),
+            include_reasoning_present: body.get("include_reasoning").is_some(),
+            seed_present: body.get("seed").is_some(),
             stream_is_true: body.get("stream").and_then(Value::as_bool) == Some(true),
             token_generation,
             account_matches: headers
@@ -476,30 +485,32 @@ impl UpstreamTransport for ChatGptOAuthTransport {
             });
         }
 
-        // Return one complete synthetic ChatGPT Responses stream for every accepted attempt.
+        // Mirror the real ChatGPT backend: return a complete Responses stream without Content-Type.
         Box::pin(async {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
-                response_headers,
+                HeaderMap::new(),
                 Body::from(concat!(
                     "event: response.created\n",
                     "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\",\"model\":\"gpt-5.6-luna\",\"object\":\"response\",\"output\":[],\"status\":\"in_progress\"}}\n\n",
                     "event: response.in_progress\n",
                     "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\"}}\n\n",
                     "event: response.output_item.added\n",
-                    "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n",
-                    "event: response.content_part.added\n",
-                    "data: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
-                    "event: response.output_text.delta\n",
-                    "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"delta\":\"hello\"}\n\n",
-                    "event: response.output_text.done\n",
-                    "data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"text\":\"hello\"}\n\n",
-                    "event: response.content_part.done\n",
-                    "data: {\"type\":\"response.content_part.done\",\"output_index\":0,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}}\n\n",
+                    "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"content\":[],\"encrypted_content\":null,\"id\":\"rs_synthetic\",\"summary\":[],\"type\":\"reasoning\"}}\n\n",
                     "event: response.output_item.done\n",
-                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}]}}\n\n",
+                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"content\":[],\"encrypted_content\":\"synthetic-opaque-continuation\",\"id\":\"rs_synthetic\",\"summary\":[],\"type\":\"reasoning\"}}\n\n",
+                    "event: response.output_item.added\n",
+                    "data: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+                    "event: response.content_part.added\n",
+                    "data: {\"type\":\"response.content_part.added\",\"output_index\":1,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+                    "event: response.output_text.delta\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"output_index\":1,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"delta\":\"hello\"}\n\n",
+                    "event: response.output_text.done\n",
+                    "data: {\"type\":\"response.output_text.done\",\"output_index\":1,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"text\":\"hello\"}\n\n",
+                    "event: response.content_part.done\n",
+                    "data: {\"type\":\"response.content_part.done\",\"output_index\":1,\"item_id\":\"msg_synthetic\",\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}}\n\n",
+                    "event: response.output_item.done\n",
+                    "data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\",\"annotations\":[]}]}}\n\n",
                     "event: response.completed\n",
                     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n",
                 )),
@@ -553,25 +564,37 @@ impl UpstreamTransport for CredentialRotationTransport {
     fn send<'a>(
         &'a self,
         _target: &'a UpstreamTarget,
-        _request: PreparedUpstreamRequest,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Record synthetic Authorization and make the first member trigger a rotatable 429.
         let authorization = headers[AUTHORIZATION].to_str().unwrap().to_owned();
+        let is_streaming = serde_json::from_slice::<Value>(request.body()).unwrap()["stream"]
+            .as_bool()
+            == Some(true);
         self.authorizations
             .lock()
             .unwrap()
             .push(authorization.clone());
         Box::pin(async move {
-            let status = if authorization == "Bearer key-a" {
-                StatusCode::TOO_MANY_REQUESTS
+            // Return protocol-correct media for the successful attempt after credential rotation.
+            let (status, content_type, body) = if authorization == "Bearer key-a" {
+                (StatusCode::TOO_MANY_REQUESTS, "application/json", "{}")
+            } else if is_streaming {
+                (
+                    StatusCode::OK,
+                    "text/event-stream",
+                    COMPLETED_RESPONSES_STREAM,
+                )
             } else {
-                StatusCode::OK
+                (StatusCode::OK, "application/json", "{}")
             };
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
             Ok(UpstreamResponse::new(
                 status,
-                HeaderMap::new(),
-                Body::from("{}"),
+                response_headers,
+                Body::from(body),
             ))
         })
     }
@@ -995,15 +1018,22 @@ impl UpstreamTransport for FailoverTransport {
             .to_owned();
         self.attempted_models.lock().unwrap().push(model.clone());
         Box::pin(async move {
-            let status = if model == "fallback-model" {
-                StatusCode::OK
+            // Return a complete SSE success only for the fallback model selected by this scenario.
+            let (status, content_type, body) = if model == "fallback-model" {
+                (
+                    StatusCode::OK,
+                    "text/event-stream",
+                    COMPLETED_RESPONSES_STREAM,
+                )
             } else {
-                StatusCode::SERVICE_UNAVAILABLE
+                (StatusCode::SERVICE_UNAVAILABLE, "application/json", "{}")
             };
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
             Ok(UpstreamResponse::new(
                 status,
-                HeaderMap::new(),
-                Body::from("{}"),
+                response_headers,
+                Body::from(body),
             ))
         })
     }

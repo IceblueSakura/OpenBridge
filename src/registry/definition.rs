@@ -75,6 +75,50 @@ impl ReasoningLevel {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// Standard non-admission generation parameters that OpenBridge may omit from upstream egress.
+///
+/// This closed set intentionally excludes streaming, reasoning effort or switches, tools,
+/// structured output, state, media, and output-budget fields whose omission would bypass a
+/// capability or resource boundary.
+pub enum IgnorableGenerationParameter {
+    /// Frequency penalty applied during token sampling.
+    FrequencyPenalty,
+    /// Optional request for reasoning content in the response.
+    IncludeReasoning,
+    /// Chat token log-probability output switch.
+    Logprobs,
+    /// Number of Chat completion alternatives.
+    N,
+    /// Presence penalty applied during token sampling.
+    PresencePenalty,
+    /// Deterministic sampling seed hint.
+    Seed,
+    /// Sampling temperature.
+    Temperature,
+    /// Number of token log-probability alternatives.
+    TopLogprobs,
+    /// Nucleus-sampling probability threshold.
+    TopP,
+}
+
+impl IgnorableGenerationParameter {
+    /// Returns the standard top-level JSON field name for this parameter.
+    pub const fn as_wire_name(self) -> &'static str {
+        match self {
+            Self::FrequencyPenalty => "frequency_penalty",
+            Self::IncludeReasoning => "include_reasoning",
+            Self::Logprobs => "logprobs",
+            Self::N => "n",
+            Self::PresencePenalty => "presence_penalty",
+            Self::Seed => "seed",
+            Self::Temperature => "temperature",
+            Self::TopLogprobs => "top_logprobs",
+            Self::TopP => "top_p",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Explicit mapping from a standard downstream reasoning level to an Upstream API wire level.
 pub struct ReasoningLevelMapping {
@@ -204,7 +248,7 @@ pub struct ModelConfig {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-/// Narrowing rules an Upstream API applies to canonical model facts.
+/// Model and ordinary-parameter rules applied by one Upstream API.
 pub struct UpstreamApiModelRules {
     /// Context length the Upstream API may narrow further.
     pub context_length: ModelContextLength,
@@ -212,6 +256,8 @@ pub struct UpstreamApiModelRules {
     pub reasoning: Option<ReasoningSupport>,
     /// Parameter names the Upstream API disables but cannot add.
     pub disabled_parameters: Vec<String>,
+    /// Ordinary downstream parameters accepted by OpenBridge but omitted from upstream egress.
+    pub ignored_parameters: Vec<IgnorableGenerationParameter>,
     /// Explicit mapping from standard downstream reasoning levels to this Upstream API's wire values.
     pub reasoning_level_mappings: Vec<ReasoningLevelMapping>,
 }

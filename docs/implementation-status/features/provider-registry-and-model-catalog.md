@@ -48,6 +48,9 @@
 - `UpstreamStreamingPolicy` 显式区分 optional streaming 与 required streaming；required API 的非流式转换开关只能关闭，或选择
   Responses SSE buffering。错误 operation/capability 组合在启动时失败，关闭转换的候选会把固定接口 `non_streaming` 收窄为
   `unsupported`，不会因后续候选更强而被跳过。
+- `UpstreamApiModelRules` 可以用闭合、类型化集合声明下游接受但当前上游不接收的普通 generation 参数；规则按具体 API 生效，
+  不收窄 Public Model `supported_parameters`，且不能用于 Embeddings、能力字段、输出预算或任意字符串过滤。当前配置只包含官方文档或
+  真实 E2E 已确认的 Kimi K3、MiMo Responses 与 ChatGPT Responses 组合。
 - canonical Model profile 可以存在但未绑定可执行 Route；只有进入 Public Model 且通过启动校验的条目才可被客户端调用。
 - MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
   Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。
@@ -220,12 +223,11 @@ payload。
 - 下游非流式 ChatGPT Chat/Responses 会强制上游 `stream: true`，在 JSON/SSE limit 内完整校验 Responses lifecycle；转换器用
   response snapshots、有序 `response.output_item.done` 与显式 terminal 组装 Native response，Chat 再使用既有非流式 Bridge。非法
   SSE、非 SSE success、超限 body 与缺少 terminal 均返回安全 502。
-- RED：Route compiler 聚焦测试先观察到 OpenAI Native 排在 ChatGPT Bridge 前；ChatGPT 非流式 forwarding 测试先观察到 HTTP 400
-  而非预期 200，加入标准 in-progress/content-part/text-done lifecycle 后又先观察到 502。GREEN：稀疏 terminal 由已验证的
-  `output_item.done` 补齐；route compiler 7 项、stream takeover failure 4 项、`example_config` 24 项与 `forwarding_contract` 52 项通过。
-- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
-- 本轮未新增 OpenRouter GPT source，也未执行真实 ChatGPT/OpenAI Provider、Models probe、外部 SDK、负载或长期运行验收；实现与测试
-  不依赖 Hermes/Codex runtime。
+- 稀疏 terminal 由已验证的 `output_item.done` 补齐；普通 Provider 的 stream success 必须显式携带 SSE media type，ChatGPT 的静态
+  profile 允许真实 backend 缺失该 header 后规范化下游响应。完成 output 中的 opaque reasoning continuation 不进入无状态 Chat response。
+- route compiler、stream takeover、Bridge、`example_config` 与 `forwarding_contract` 的确定性测试通过；五个 GPT 的真实 40 单元
+  Chat/Responses × stream on/off × omitted/high 最终全部通过。实现与测试不依赖 Hermes/Codex runtime。
+- 未执行真实 OpenAI API-key fallback、外部 SDK、负载或长期运行验收。
 
 ## 相关文档
 

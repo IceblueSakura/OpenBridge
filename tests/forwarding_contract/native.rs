@@ -223,3 +223,147 @@ async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
     assert_eq!(requests[0].body["reasoning_effort"], "max");
     assert_eq!(requests[1].body["reasoning"]["effort"], "max");
 }
+
+#[tokio::test]
+async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    definition.models[0].supported_parameters =
+        ["logprobs", "n", "seed", "temperature", "top_logprobs"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+    definition.upstream_targets[0].upstream_apis[0]
+        .model_rules
+        .ignored_parameters = vec![
+        IgnorableGenerationParameter::N,
+        IgnorableGenerationParameter::Temperature,
+    ];
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // Submit both ignored fields beside ordinary fields that must remain transparent.
+    let request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","messages":[],"logprobs":true,"n":2,"seed":7,"temperature":0.2,"top_logprobs":3}"#,
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    // Verify only the selected API's configured keys disappear from the final egress body.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].body.get("n").is_none());
+    assert!(requests[0].body.get("temperature").is_none());
+    assert_eq!(requests[0].body["logprobs"], true);
+    assert_eq!(requests[0].body["seed"], 7);
+    assert_eq!(requests[0].body["top_logprobs"], 3);
+    drop(requests);
+
+    // Keep ignored parameters visible as downstream-accepted interface parameters.
+    let model = authenticated_get(&app, "/openbridge/v1/models/public-model").await;
+    let parameters = model["interfaces"]["chat_completions"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    for parameter in ["logprobs", "n", "seed", "temperature", "top_logprobs"] {
+        assert!(parameters.iter().any(|value| value == parameter));
+    }
+}
+
+#[tokio::test]
+async fn kimi_k3_drops_documented_fixed_sampling_parameters_before_egress() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Exercise values that Moonshot rejects instead of requiring every downstream client to specialize Kimi.
+    let request = Request::post("/v1/chat/completions")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}],"frequency_penalty":0.5,"logprobs":true,"n":2,"presence_penalty":0.5,"seed":7,"temperature":0.2,"top_logprobs":3,"top_p":0.9}"#,
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    // Remove all fixed Kimi sampling fields while preserving an independently accepted ordinary field.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    for parameter in [
+        "frequency_penalty",
+        "logprobs",
+        "n",
+        "presence_penalty",
+        "temperature",
+        "top_logprobs",
+        "top_p",
+    ] {
+        assert!(
+            requests[0].body.get(parameter).is_none(),
+            "unexpected egress parameter {parameter}"
+        );
+    }
+    assert_eq!(requests[0].body["seed"], 7);
+    drop(requests);
+
+    // Continue advertising the standard fields that OpenBridge accepts downstream.
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
+    let parameters = model["interfaces"]["chat_completions"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    for parameter in [
+        "frequency_penalty",
+        "logprobs",
+        "n",
+        "presence_penalty",
+        "temperature",
+        "top_logprobs",
+        "top_p",
+    ] {
+        assert!(parameters.iter().any(|value| value == parameter));
+    }
+}
+
+#[tokio::test]
+async fn mimo_text_responses_drops_only_the_rejected_top_logprobs_parameter() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Exercise both text targets because they share one model-specific registration helper.
+    for model in ["mimo-v2.5", "mimo-v2.5-pro"] {
+        let request = Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                AUTHORIZATION,
+                "Bearer downstream-token-00000000000000000000000000000000",
+            )
+            .body(Body::from(
+                serde_json::json!({
+                    "model": model,
+                    "input": "hello",
+                    "seed": 7,
+                    "stream": true,
+                    "top_logprobs": 2,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // Keep the independently verified seed while removing only the Responses-specific failure.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        assert!(request.body.get("top_logprobs").is_none());
+        assert_eq!(request.body["seed"], 7);
+    }
+}

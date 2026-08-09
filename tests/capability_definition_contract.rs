@@ -202,25 +202,9 @@ fn every_reserved_chat_request_field_stops_before_route_planning() {
                 "moderation": {}
             }),
         ),
-        (
-            "logprobs",
-            json!({
-                "model": "public-model",
-                "messages": [{"role": "user", "content": "hello"}],
-                "logprobs": true
-            }),
-        ),
-        (
-            "multiple_choices",
-            json!({
-                "model": "public-model",
-                "messages": [{"role": "user", "content": "hello"}],
-                "n": 2
-            }),
-        ),
     ];
 
-    // Submit each Chat request and prove that the Native path does not pass reserved fields to the Provider adapter.
+    // Submit each capability-bearing Chat request and prove that it stops before the Provider adapter.
     assert_reserved_requests_unimplemented(&registry, ApiProtocol::ChatCompletions, cases);
 }
 
@@ -275,13 +259,9 @@ fn every_reserved_responses_request_field_stops_before_route_planning() {
             "moderation",
             json!({"model": "public-model", "input": "hello", "moderation": {}}),
         ),
-        (
-            "logprobs",
-            json!({"model": "public-model", "input": "hello", "top_logprobs": 1}),
-        ),
     ];
 
-    // Submit each Responses request and prove that the Native path does not pass reserved fields to the Provider adapter.
+    // Submit each capability-bearing Responses request and prove that it stops before the Provider adapter.
     assert_reserved_requests_unimplemented(&registry, ApiProtocol::Responses, cases);
 }
 

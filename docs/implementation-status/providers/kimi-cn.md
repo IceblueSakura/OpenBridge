@@ -12,6 +12,9 @@
   补充一个 Responses-via-Chat Bridge Route；
 - 当前公开契约：Chat/Responses 的文本、streaming 和 `PlainText` reasoning；模型 levels 为 `low`、`high`、`max`。
   没有 Responses Native、Embeddings 或动态 endpoint/credential，Bridge 仍受完整 preflight 的共同语义和能力边界约束。
+- Kimi Chat Upstream API 通过类型化普通参数规则删除 `temperature`、`top_p`、`n`、`presence_penalty`、
+  `frequency_penalty`、`logprobs` 与 `top_logprobs`；下游仍可提交并在相应 interface 中看到这些参数。Responses Bridge 当前只公开并转换
+  其中可完整表示的 `temperature/top_p`，最终由同一个 Chat API 规则删除。
 
 ## 证据边界
 
@@ -25,6 +28,10 @@ Provider 边界。
 组合均包含 `response.completed`。标准 `reasoning_effort: "none"` 与 Hermes custom off wire shape
 （`reasoning_effort: "none"` + `think: false`）的 Chat JSON/SSE 均为 HTTP 200 且 reasoning 内容为空。
 完整边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
+
+2026-08-09 复核 Kimi 官方[模型参数参考](../../references/providers/kimi/models.md)，确认 K3 的五个 sampling/penalty 字段为固定值且建议
+省略。随后使用真实下游 key 对 Kimi 的 Chat 七个忽略字段及 Responses Bridge 的 `temperature/top_p` 共 9 个单元使用非固定测试值复测，
+全部返回合法 HTTP 200 JSON 终态，且没有 429/503、协议或传输错误；请求和响应正文均未保存。
 
 确定性证据和本次真实请求不证明其他 Moonshot endpoint、账号权限、未来模型行为、外部 SDK、负载或长期运行兼容性；Kimi K3
 可关闭 reasoning 的结论只限本次部署与时间点。

@@ -617,7 +617,7 @@ data: [DONE]
 }
 
 #[test]
-fn bridge_rejects_opaque_or_unsupported_reasoning() {
+fn bridge_rejects_opaque_inputs_or_unsupported_reasoning() {
     // Provider reasoning must not be silently discarded when reasoning capability is undeclared.
     assert!(BridgePlan::prepare(
         ApiProtocol::ChatCompletions,
@@ -712,8 +712,11 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
         )
         .is_err()
     );
+}
 
-    // Non-streaming responses must not downgrade opaque reasoning to Chat reasoning_content.
+#[test]
+fn responses_to_chat_non_stream_drops_completed_opaque_continuation() {
+    // Build one response-side Bridge that declares readable Responses reasoning output.
     let (plan, _) = BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
@@ -725,11 +728,44 @@ fn bridge_rejects_opaque_or_unsupported_reasoning() {
         ReasoningOutput::Summary,
     )
     .unwrap();
-    assert!(plan
+
+    // Drop output-only opaque continuation while preserving the completed text message.
+    let converted = plan
         .render_non_stream(Bytes::from_static(
-            br#"{"id":"resp_opaque","model":"upstream-model","object":"response","output":[{"encrypted_content":"opaque","id":"rs_opaque","status":"completed","summary":[],"type":"reasoning"}],"status":"completed"}"#,
+            br#"{"id":"resp_opaque","model":"upstream-model","object":"response","output":[{"content":[],"encrypted_content":"synthetic-opaque","id":"rs_opaque","summary":[],"type":"reasoning"},{"content":[{"text":"answer","type":"output_text"}],"id":"msg_opaque","role":"assistant","status":"completed","type":"message"}],"status":"completed"}"#,
         ))
-        .is_err());
+        .expect("output-only opaque continuation should not invalidate stateless Chat output");
+    let converted: Value = serde_json::from_slice(&converted).unwrap();
+    assert_eq!(converted["choices"][0]["message"]["content"], "answer");
+    assert!(
+        converted["choices"][0]["message"]
+            .get("reasoning_content")
+            .is_none()
+    );
+    let encoded = serde_json::to_string(&converted).unwrap();
+    assert!(!encoded.contains("encrypted_content"));
+    assert!(!encoded.contains("synthetic-opaque"));
+
+    // Preserve readable summary text while discarding the separate opaque continuation value.
+    let converted = plan
+        .render_non_stream(Bytes::from_static(
+            br#"{"id":"resp_summary","model":"upstream-model","object":"response","output":[{"content":[],"encrypted_content":"synthetic-opaque","id":"rs_summary","summary":[{"text":"decide","type":"summary_text"}],"type":"reasoning"},{"content":[{"text":"answer","type":"output_text"}],"id":"msg_summary","role":"assistant","status":"completed","type":"message"}],"status":"completed"}"#,
+        ))
+        .expect("readable summary should remain bridgeable");
+    let converted: Value = serde_json::from_slice(&converted).unwrap();
+    assert_eq!(
+        converted["choices"][0]["message"]["reasoning_content"],
+        "decide"
+    );
+    assert_eq!(converted["choices"][0]["message"]["content"], "answer");
+
+    // Continue to reject malformed readable fields instead of treating them as absent.
+    assert!(
+        plan.render_non_stream(Bytes::from_static(
+            br#"{"id":"resp_malformed","model":"upstream-model","object":"response","output":[{"content":{},"encrypted_content":"synthetic-opaque","id":"rs_malformed","summary":[],"type":"reasoning"},{"content":[{"text":"answer","type":"output_text"}],"id":"msg_malformed","role":"assistant","status":"completed","type":"message"}],"status":"completed"}"#,
+        ))
+        .is_err()
+    );
 }
 
 #[test]

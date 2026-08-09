@@ -11,6 +11,7 @@
 - [Get total count of available models](https://openrouter.ai/docs/api/api-reference/models/get-total-count-of-available-models)
 - [List models filtered by user preferences](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails)
 - [Models guide](https://openrouter.ai/docs/guides/overview/models)
+- [Provider Routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 
 本文只记录 OpenRouter 模型目录、单模型详情、过滤和字段语义，以及入口/认证与一次固定日期的 live wire 观察；二者都只适用于 OpenRouter。模型目录数据快照见 [models.md](models.md)。
 
@@ -24,7 +25,8 @@
 | `GET /api/v1/models/user`                      | 用户偏好视图      | 叠加 Provider 偏好、隐私、guardrail 或区域约束   |
 | `GET /api/v1/models/{author}/{slug}/endpoints` | Provider endpoint | endpoint 价格、参数和供应详情                    |
 
-列表接口支持文本、category、supported parameters、输入输出模态、context、价格、作者、Provider、区域、模型年龄和若干质量指标过滤。过滤条件不等于每个返回字段都属于稳定协议能力。
+列表接口支持文本、category、supported parameters、输入输出模态、context、价格、作者、Provider、区域、模型年龄和若干质量指标过滤。
+`output_modalities` 默认值是 `text`；需要全目录时必须显式传 `all`。过滤条件不等于每个返回字段都属于稳定协议能力。
 
 ## 2. `Model` 对象
 
@@ -79,6 +81,12 @@ Model
 
 基础 Models API 返回 canonical 模型目录；Provider endpoint 详情通过独立资源访问。用户目录还会叠加账户偏好和政策。因此同一个模型
 id 的目录事实、用户可见性和某个 endpoint 的实时供应状态需要分别解释。
+
+模型级 `supported_parameters` 不是所有 endpoint 的共同保证；具体 endpoint 的字段列表需要从
+`/api/v1/models/{author}/{slug}/endpoints` 单独读取。本次两个 OpenBridge target 的模型级集合都等于 endpoint 并集，具体快照见
+[models.md](models.md#当前-openrouter-target-的-endpoint-差异)。OpenRouter 请求体中的 `provider.require_parameters` 默认为
+`false`：默认路由可把请求发送给不支持全部所传参数的 Provider，并由该 Provider 忽略未知参数；设为 `true` 才要求候选 Provider
+支持请求中的全部参数。
 
 ## 6. 模型与数据政策边界
 

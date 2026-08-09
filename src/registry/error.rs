@@ -230,6 +230,14 @@ pub enum RegistryError {
         /// Undeclared parameter being disabled.
         parameter: String,
     },
+    /// The Upstream API attempts to ignore a parameter not declared by the model.
+    #[error("upstream API '{upstream_api}' model rule ignores undeclared parameter '{parameter}'")]
+    UpstreamApiModelRuleIgnoresUnknownParameter {
+        /// Upstream API identifier owning the rule.
+        upstream_api: String,
+        /// Undeclared parameter being ignored.
+        parameter: String,
+    },
     /// Narrowed Upstream API reasoning configuration is inconsistent.
     #[error("upstream API '{upstream_api}' model rules are inconsistent: {detail}")]
     InconsistentUpstreamApiModelRules {

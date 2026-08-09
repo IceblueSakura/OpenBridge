@@ -21,7 +21,7 @@ use super::super::{
 /// Response-conversion, SSE, and observation context for one selected candidate.
 pub(super) struct UpstreamResponseContext {
     pub(super) validate_sse: bool,
-    pub(super) protocol: ApiProtocol,
+    pub(super) upstream_protocol: ApiProtocol,
     pub(super) adapter: ProviderAdapter,
     pub(super) max_sse_event_bytes: usize,
     pub(super) max_json_body_bytes: usize,
@@ -32,9 +32,9 @@ pub(super) struct UpstreamResponseContext {
 
 /// Sends upstream status, safe response headers, and Native/Bridged body downstream.
 ///
-/// SSE is validated only when the original request requires streaming, the upstream returns a
-/// successful status, and `Content-Type` is exactly `text/event-stream`. An error response may
-/// be JSON or another diagnostic body even for a streaming request; decoding it as SSE would damage
+/// SSE is validated only when the original request requires streaming and the upstream returns a
+/// successful status matching the Provider's trusted SSE media profile. An error response may be
+/// JSON or another diagnostic body even for a streaming request; decoding it as SSE would damage
 /// visible HTTP error semantics.
 pub(super) async fn upstream_response(
     upstream: UpstreamResponse,
@@ -43,7 +43,7 @@ pub(super) async fn upstream_response(
     // Split fixed response facts so call sites cannot omit protocol or observation boundaries.
     let UpstreamResponseContext {
         validate_sse,
-        protocol,
+        upstream_protocol,
         adapter,
         max_sse_event_bytes,
         max_json_body_bytes,
@@ -52,19 +52,14 @@ pub(super) async fn upstream_response(
         observation,
     } = context;
 
-    // Extract status and safe response headers, enabling an observer only for successful SSE responses.
+    // Extract status and classify successful bodies through the static Provider media profile.
     let status = upstream.status();
     let mut response_headers = filtered_upstream_headers(upstream.headers());
-    let is_sse = upstream
-        .headers()
-        .get(CONTENT_TYPE)
-        .is_some_and(|content_type| {
-            content_type
-                .to_str()
-                .is_ok_and(|value| value.starts_with("text/event-stream"))
-        });
-    // Reject a successful streaming response that requires Bridge but is not SSE.
-    if bridge.is_some() && validate_sse && status.is_success() && !is_sse {
+    let is_sse = status.is_success()
+        && adapter.recognizes_sse_response(upstream_protocol, upstream.headers());
+
+    // Reject every successful native or Bridged streaming response that violates its media profile.
+    if validate_sse && status.is_success() && !is_sse {
         observation.record_stream_failure("invalid_upstream_response");
         return api_error(
             StatusCode::BAD_GATEWAY,
@@ -72,6 +67,7 @@ pub(super) async fn upstream_response(
             "The upstream response could not be converted",
         );
     }
+
     // A planned streaming-to-JSON takeover accepts only a successful Responses SSE body.
     if stream_response_conversion.is_some() && status.is_success() && !is_sse {
         observation.record_stream_failure("invalid_upstream_response");
@@ -80,6 +76,11 @@ pub(super) async fn upstream_response(
             "invalid_upstream_response",
             "The upstream response could not be converted",
         );
+    }
+
+    // Normalize a trusted implicit or parameterized SSE media type for downstream clients.
+    if is_sse {
+        response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
     }
 
     // Add transparent Provider usage/first-byte observation to successful non-SSE bodies without changing downstream bytes.
@@ -140,7 +141,7 @@ pub(super) async fn upstream_response(
         } else {
             validate_sse_body(
                 upstream_body,
-                protocol,
+                upstream_protocol,
                 adapter,
                 max_sse_event_bytes,
                 observation,

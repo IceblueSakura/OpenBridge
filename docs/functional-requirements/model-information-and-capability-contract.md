@@ -10,8 +10,9 @@
 ## 1. 用户结果
 
 客户端只需选择一个稳定 Public Model 和 Chat Completions、Responses 或 Embeddings 接口，即可在发起模型请求前读取同一份
-静态能力契约。若所选模型不支持请求能力，OpenBridge 必须在任何上游调用前返回稳定错误；不得自动改选模型、 寻找能力更强的 Route
-或静默删除请求字段。
+静态能力契约。若所选模型不支持请求能力，OpenBridge 必须在任何上游调用前返回稳定错误；不得自动改选模型或寻找能力更强的 Route。
+只有[普通参数上游兼容规则](gateway-api-compatibility.md#54-普通生成参数的上游兼容)中的闭合、已验证字段可以在选中 Upstream API 的
+egress 边界静默删除，其他请求字段不得被隐式降级。
 
 模型信息用于能力展示和正确拒绝，不承担模型推荐、质量排序、成本优化或运行时调度。
 
@@ -62,7 +63,9 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 
 模型事实是模型本体的安全公共上界；模型请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有 可执行 Route 时，其接口值为
 `null`。canonical Model 的参数事实只参与编译各接口的
-`supported_parameters`，模型事实层不得再公开一份不能直接用于请求放行的重复列表。
+`supported_parameters`，模型事实层不得再公开一份不能直接用于请求放行的重复列表。该字段表示 OpenBridge 接受对应顶层参数；对
+[普通参数上游兼容规则](gateway-api-compatibility.md#54-普通生成参数的上游兼容)显式列出的字段，具体候选可以在 egress 前忽略，因而不承诺
+每个 Provider 都会实际应用该提示。
 
 ### 4.2 未知语义
 
@@ -86,7 +89,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 |-------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | 布尔能力                                                                            | 全部 Route 明确支持才是 `supported`；任一明确不支持则为 `unsupported`；证据不足保持 `unknown`                         |
 | token 上限                                                                          | 全部 Route 都有已知值时取最小值；任一未知则为 `null`                                                                  |
-| 模态、参数、reasoning level                                                         | 取集合交集并稳定排序                                                                                                  |
+| 模态、参数、reasoning level                                                         | 取集合交集并稳定排序；某 API 的普通忽略参数仍属于其下游可接受参数                                                     |
 | image/file/audio source、inline encoding、format、detail allowed、可验证 media type | 按目标协议分别取集合交集；detail default 必须一致，任一必需集合为空则对应媒体输入子契约不可公开                       |
 | audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
@@ -173,7 +176,7 @@ registry 必须在监听前拒绝：
 - total/input/output context 为零，或输入/输出上限超过 total context；
 - 显式模态集合为空或重复；
 - 空 Route 列表、重复 Route 或未知引用；
-- Upstream API 规则扩大 canonical Model，或收窄后产生不一致事实；Embedding identity、dimension、encoding 或 input-form 声明矛盾；
+- Upstream API 规则扩大 canonical Model、收窄后产生不一致事实，或普通忽略参数未由 Model 声明、重复、与禁用字段重叠、绑定 Embeddings；Embedding identity、dimension、encoding 或 input-form 声明矛盾；
 - Chat/Responses 媒体 source/format/detail/media type 集合为空、重复、协议错配，或 limits 为零/相互矛盾；
 - reasoning 状态、level、参数声明或 wire mapping 不一致；
 - Upstream API 能力超过 Provider contract 上界。

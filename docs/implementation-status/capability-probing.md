@@ -38,7 +38,7 @@ cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --resp
 |---|---|---|
 | `list_models` | Provider 注册的 Models GET 路径 | adapter 识别 Provider-specific 模型信封，并提取模型 ID；另报告已注册 upstream model 是否在列表中 |
 | `chat` | 无工具的最小 Chat Completions 文本请求 | 非流式 JSON 含非空 `choices[]` |
-| `responses` | 无工具的最小 Responses 文本请求 | 普通 Target 的非流式 JSON 为 `object: "response"`；ChatGPT 的固定 streaming profile 返回 `text/event-stream`，且 adapter 识别正常完成终态 |
+| `responses` | 无工具的最小 Responses 文本请求 | 普通 Target 的非流式 JSON 为 `object: "response"`；ChatGPT 的固定 streaming profile 允许真实成功响应缺失 `Content-Type`，但必须由 adapter 识别合法 SSE framing 与正常完成终态 |
 | `embeddings` | 一个固定字符串的 Embeddings Create 请求 | JSON 是匹配模型、单个可识别 embedding item 和 usage 的 `list` 信封 |
 
 普通 generation probe 将输出 token 上限固定为最多 16；ChatGPT Responses profile 按其注册 contract 使用 `stream: true`、
