@@ -1,4 +1,4 @@
-//! Bounded validation and Public Model projection for Native Embeddings success responses.
+//! Forwarding-level validation and Public Model projection for Native Embeddings success responses.
 //!
 //! The complete upstream body is validated before downstream commit. Business vectors are held
 //! only in the bounded response value, are never logged, and are serialized without conversion.

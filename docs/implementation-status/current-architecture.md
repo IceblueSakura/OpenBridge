@@ -132,13 +132,13 @@ replace 和 generation 维护 rotation；worker 按 expiry safety window 调度�
 
 实现位置：`src/registry/definition.rs`、`src/registry/runtime.rs`、`src/registry/public_model.rs`、
 `src/registry/public_model/execution.rs`、`src/registry/public_model/compiler.rs`、
-`src/registry/public_model/compiler/{contract,embedding_budget}.rs`、`src/registry/compiler.rs`、
+`src/registry/public_model/compiler/{contribution,aggregate,embedding_budget}.rs`、`src/registry/compiler.rs`、
 `src/registry/validation.rs`、`src/models/*`、`src/providers/*`；`src/registry/mod.rs`
 只保留包入口与公共重导出。
 
 `public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；`execution.rs` 保存不序列化的 operation interface/candidate；
-`compiler.rs` 只编排静态候选与投影构建，`contract.rs` 负责每 Route 贡献和保守交集，`embedding_budget.rs` 负责 checked
-worst-case JSON budget。Registry 总编译器仍通过 facade 调用这一边界，不依赖私有子模块路径。
+`compiler.rs` 只编排静态候选与投影构建，`contribution.rs` 负责推导每 Route 的固定契约输入，`aggregate.rs` 负责保守交集，
+`embedding_budget.rs` 负责 checked worst-case JSON budget。Registry 总编译器仍通过 facade 调用这一边界，不依赖私有子模块路径。
 
 ```text
 RegistryConfig
@@ -215,7 +215,7 @@ RuntimeRegistry
 
 实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 endpoint，
 `forwarding.rs` 负责 generation candidate/retry/fallback，`forwarding/embeddings.rs` 负责单 Route Embeddings attempt，
-`forwarding/embeddings/response.rs` 负责有界成功体校验，`forwarding/response.rs` 负责把 已选 generation 上游响应交给
+`forwarding/embedding_response.rs` 负责有界成功体校验，`forwarding/response.rs` 负责把 已选 generation 上游响应交给
 Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和 请求终态观测。
 
 | Endpoint                            | 当前处理                                                            |

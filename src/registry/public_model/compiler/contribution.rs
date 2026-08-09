@@ -1,7 +1,8 @@
-//! Per-Route contract contribution and conservative capability aggregation.
+//! Per-Route Public Model contract contribution derivation.
 //!
 //! Each executable Route contributes only facts its Native or Bridged path can guarantee. Public
-//! model facts and operation interfaces are intersections; deployment identity remains private.
+//! model facts and operation interfaces are intersected by the sibling aggregation module;
+//! deployment identity remains private.
 
 use std::collections::BTreeSet;
 
@@ -21,13 +22,6 @@ use super::super::{
     ReasoningOutputMode, SupportState,
 };
 use super::{super::execution::ContinuationIssuer, PublicRouteBinding};
-
-mod aggregate;
-
-pub(super) use aggregate::{
-    aggregate_embedding_interface, aggregate_interface, aggregate_model_capabilities,
-    intersect_optional_string,
-};
 
 #[derive(Clone)]
 pub(super) struct RouteContractContribution {

@@ -24,6 +24,7 @@ use super::{
 use self::response::{UpstreamResponseContext, upstream_response};
 
 mod candidate;
+mod embedding_response;
 mod embeddings;
 mod oauth;
 mod policy;

@@ -38,9 +38,10 @@ The main repository areas are:
   `pipeline/analysis/embeddings.rs`. Neither analyzer may resolve registry entities or select Routes.
 - `src/registry/public_model.rs` owns only downstream-safe Models DTOs and their preflight accessors.
   `public_model/execution.rs` owns private operation interfaces and candidates;
-  `public_model/compiler.rs` orchestrates startup compilation; its `contract.rs` and `embedding_budget.rs` children own
-  conservative aggregation and checked Embeddings response-budget narrowing. Do not serialize execution topology or
-  move request-time routing into these compiler modules.
+  `public_model/compiler.rs` orchestrates startup compilation; its `contribution.rs`, `aggregate.rs`, and
+  `embedding_budget.rs` children own per-Route contract derivation, conservative aggregation, and checked Embeddings
+  response-budget narrowing. Do not serialize execution topology or move request-time routing into these compiler
+  modules.
 - Keep the existing Provider and canonical Model ownership conventions: Provider family roots aggregate their trusted
   definition/registration modules, and developer roots aggregate explicit per-model leaf definitions.
 

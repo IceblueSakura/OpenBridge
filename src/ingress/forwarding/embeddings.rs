@@ -26,9 +26,9 @@ use super::super::{
     },
     state::GatewayState,
 };
-use super::{should_retry_error, should_retry_status};
-
-mod response;
+use super::{
+    embedding_response::validated_embedding_response, should_retry_error, should_retry_status,
+};
 
 /// Sends one preflighted Native Embeddings request through its single trusted candidate.
 pub(in crate::ingress) async fn forward_embeddings_request(
@@ -194,7 +194,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 }
 
                 // Validate the complete bounded success before any downstream response bytes are committed.
-                let response = match response::validated_embedding_response(
+                let response = match validated_embedding_response(
                     upstream,
                     &observation,
                     requirements.public_model(),

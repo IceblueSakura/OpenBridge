@@ -2,7 +2,7 @@
 //!
 //! This module intersects only capabilities guaranteed by every executable candidate. It owns
 //! public model/interface aggregation and conversion of the single Embeddings profile; Route-level
-//! contribution derivation remains in the parent module.
+//! contribution derivation remains in the sibling contribution module.
 
 use std::collections::BTreeSet;
 
@@ -11,7 +11,7 @@ use crate::{
     registry::{CanonicalTaskKind, ModelContextLength},
 };
 
-use super::RouteContractContribution;
+use super::contribution::RouteContractContribution;
 use crate::registry::public_model::execution::PublicContinuationContract;
 use crate::registry::public_model::{
     AudioInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
@@ -88,7 +88,7 @@ impl EmbeddingInterfaceCapabilities {
 }
 
 /// Projects the single validated Native Embeddings candidate into its typed public contract.
-pub(crate) fn aggregate_embedding_interface<'a>(
+pub(super) fn aggregate_embedding_interface<'a>(
     contributions: impl Iterator<Item = &'a RouteContractContribution>,
 ) -> Option<EmbeddingInterfaceCapabilities> {
     // Select only the Embeddings profile; the registry compiler rejects more than one executable candidate.
@@ -103,7 +103,7 @@ pub(crate) fn aggregate_embedding_interface<'a>(
 }
 
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.
-pub(crate) fn aggregate_interface<'a>(
+pub(super) fn aggregate_interface<'a>(
     contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
 ) -> Result<
     (
@@ -241,7 +241,7 @@ fn aggregate_continuation(
 }
 
 /// Aggregates Public Model model capabilities without mixing in Provider or Route identity.
-pub(crate) fn aggregate_model_capabilities(
+pub(super) fn aggregate_model_capabilities(
     contributions: &[RouteContractContribution],
     canonical_task: Option<CanonicalTaskKind>,
 ) -> ModelCapabilities {
@@ -314,7 +314,7 @@ fn intersect_optional_limit(values: impl Iterator<Item = Option<u32>>) -> Option
 }
 
 /// Returns one optional catalog string only when every Route confirms the same value.
-pub(crate) fn intersect_optional_string<'a>(
+pub(super) fn intersect_optional_string<'a>(
     values: impl Iterator<Item = Option<&'a str>>,
 ) -> Option<String> {
     let mut values = values;

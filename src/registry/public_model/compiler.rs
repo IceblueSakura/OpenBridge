@@ -16,13 +16,15 @@ use super::{
     },
 };
 
-mod contract;
+mod aggregate;
+mod contribution;
 mod embedding_budget;
 
-use contract::{
-    RouteContractContribution, aggregate_embedding_interface, aggregate_interface,
-    aggregate_model_capabilities, intersect_optional_string,
+use aggregate::{
+    aggregate_embedding_interface, aggregate_interface, aggregate_model_capabilities,
+    intersect_optional_string,
 };
+use contribution::RouteContractContribution;
 use embedding_budget::constrain_embedding_response_budget;
 
 /// Validated Route binding used to compile one Public Model's static execution interfaces.
