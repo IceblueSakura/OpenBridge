@@ -165,6 +165,78 @@ fn deepseek_flash_responses_exposes_only_proven_tool_choice_modes() {
 }
 
 #[test]
+fn deepseek_public_interfaces_expose_json_object_across_fixed_candidates() {
+    // Compile the checked-in multi-source DeepSeek interfaces and require their exact shared profile.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let json_object_profile = serde_json::json!({
+        "support": "supported",
+        "modes": ["json_object"],
+        "strict_schema": "unsupported"
+    });
+
+    // Keep both public protocols aligned while preserving each model's complete fixed candidate set.
+    for model_id in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+        let model = registry
+            .public_model(model_id)
+            .expect("DeepSeek Public Model must exist");
+        let info = serde_json::to_value(model.info()).unwrap();
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                info["interfaces"][protocol]["structured_outputs"], json_object_profile,
+                "{model_id} {protocol}"
+            );
+        }
+    }
+
+    let pro_responses = bytes::Bytes::from_static(
+        br#"{"model":"deepseek-v4-pro","input":"Return json like {\"result\":\"ok\"}.","text":{"format":{"type":"json_object"}}}"#,
+    );
+    let profile = analyze_request(ApiProtocol::Responses, &pro_responses).unwrap();
+    let plan = plan_request(&registry, &profile, pro_responses).unwrap();
+    assert_eq!(plan.candidates().len(), 2);
+    assert!(
+        plan.candidates()
+            .iter()
+            .all(|candidate| candidate.bridge().is_some())
+    );
+
+    let flash_responses = bytes::Bytes::from_static(
+        br#"{"model":"deepseek-v4-flash","input":"Return json like {\"result\":\"ok\"}.","text":{"format":{"type":"json_object"}}}"#,
+    );
+    let profile = analyze_request(ApiProtocol::Responses, &flash_responses).unwrap();
+    let plan = plan_request(&registry, &profile, flash_responses).unwrap();
+    assert_eq!(plan.candidates().len(), 2);
+    assert!(
+        plan.candidates()
+            .iter()
+            .all(|candidate| candidate.bridge().is_none())
+    );
+
+    // Prevent Provider ceilings from leaking this model-specific evidence into unrelated targets.
+    for target_id in [
+        "openrouter-minimax-m3",
+        "bailian-glm-5-2",
+        "bailian-qwen3-7-plus",
+        "bailian-qwen3-7-max",
+    ] {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("unrelated target must remain registered");
+        for (_, api) in target.upstream_apis() {
+            let structured_outputs = match api.capabilities() {
+                UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                    capabilities.structured_outputs
+                }
+                UpstreamApiCapabilities::Responses(capabilities) => capabilities.structured_outputs,
+                UpstreamApiCapabilities::Embeddings(_) => None,
+            };
+            assert!(structured_outputs.is_none(), "{target_id}");
+        }
+    }
+}
+
+#[test]
 fn mimo_public_interfaces_expose_only_proven_tool_and_structured_output_profiles() {
     // Compile the checked-in registry and compare each text model's operation-specific profile.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();

@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use crate::{
+    core::{StructuredOutputMode, StructuredOutputProfile},
     models::{deepseek, minimax},
     provider::ProviderKind,
     registry::{
@@ -14,6 +15,11 @@ use crate::{
 use super::CONTRACT;
 
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
+const DEEPSEEK_JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: DEEPSEEK_JSON_OBJECT_MODE,
+    strict_schema: false,
+};
 
 /// Builds the trusted OpenRouter API deployment used by the checked-in target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -46,6 +52,14 @@ fn dual_protocol_target(
     canonical_model: &str,
     upstream_model: &str,
 ) -> UpstreamTargetConfig {
+    // Narrow the generic OpenRouter ceiling to model-specific DeepSeek JSON Output evidence.
+    let mut capabilities = *CONTRACT.capabilities();
+    let structured_outputs =
+        (canonical_model == deepseek::deepseek_v4_flash::ID).then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
+    capabilities.chat_completions.structured_outputs = structured_outputs;
+    capabilities.responses.structured_outputs = structured_outputs;
+
+    // Bind the model-specific capabilities to both stateless Native protocol endpoints.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -61,7 +75,7 @@ fn dual_protocol_target(
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
                 capabilities: UpstreamApiCapabilities::ChatCompletions(
-                    CONTRACT.capabilities().chat_completions,
+                    capabilities.chat_completions,
                 ),
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
                 state_affinity: StateAffinity::Unbound,
@@ -69,7 +83,7 @@ fn dual_protocol_target(
             UpstreamApiConfig {
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
-                capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
+                capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
                 state_affinity: StateAffinity::Unbound,
             },

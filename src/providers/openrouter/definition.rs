@@ -5,13 +5,20 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities,
+        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities, StructuredOutputMode,
+        StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
         ProviderKind, SafeHeaders,
     },
     providers::openai_compatible::OpenAiCompatibleAdapter,
+};
+
+const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: JSON_OBJECT_MODE,
+    strict_schema: false,
 };
 
 /// Conservative capability ceiling for OpenRouter Chat Completions.
@@ -27,7 +34,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
@@ -49,7 +56,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
             previous_response_id: false,
             background: false,

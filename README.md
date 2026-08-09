@@ -52,8 +52,8 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge；下游支持 JSON/SSE |
 | `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge；下游支持 JSON/SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first + Bridge；公开 none/high 与明文 reasoning |
-| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 high/max 与明文 reasoning |
-| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备 |
+| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 high/max、明文 reasoning 与 `json_object` |
+| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备；公开 `json_object` |
 | `minimax-m3` | Chat、Responses | `openrouter-primary`、`nvidia-primary` | OpenRouter Chat/Responses Native 优先、NVIDIA Chat Native 后备；两接口公开 none/high |
 | `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |

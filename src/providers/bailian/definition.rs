@@ -6,6 +6,7 @@ use crate::{
     core::{
         ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
         EmbeddingInputForm, EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
+        StructuredOutputMode, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -19,6 +20,11 @@ const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
 const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
+const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: JSON_OBJECT_MODE,
+    strict_schema: false,
+};
 
 /// Bounded Model Studio Chat, Responses, and Embeddings ceilings confirmed independently of any model-specific target.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -29,7 +35,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             streaming: true,
             function_tools: None,
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,

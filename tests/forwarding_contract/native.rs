@@ -187,6 +187,86 @@ async fn deepseek_v4_flash_responses_native_preserves_typed_reasoning_stream() {
 }
 
 #[tokio::test]
+async fn deepseek_json_object_is_preserved_by_native_and_bridge_egress() {
+    // Exercise both public models across their Native and Responses-via-Chat request shapes.
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let cases = [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-pro",
+                "messages": [{"role": "user", "content": "Return json like {\"result\":\"ok\"}."}],
+                "response_format": {"type": "json_object"}
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-pro",
+                "input": "Return json like {\"result\":\"ok\"}.",
+                "text": {"format": {"type": "json_object"}}
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "Return json like {\"result\":\"ok\"}."}],
+                "response_format": {"type": "json_object"}
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "Return json like {\"result\":\"ok\"}.",
+                "stream": true,
+                "text": {"format": {"type": "json_object"}}
+            }),
+        ),
+    ];
+
+    // Submit each request through the production registry and consume its complete downstream body.
+    for (path, body) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path} {body}");
+        let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    }
+
+    // Verify V4 Pro's Bridge maps Responses text.format to Chat response_format while Flash stays Native.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    assert_eq!(requests[0].path, "/chat/completions");
+    assert_eq!(requests[1].path, "/chat/completions");
+    assert_eq!(requests[2].path, "/chat/completions");
+    assert_eq!(requests[3].path, "/responses");
+    for request in &requests[..3] {
+        assert_eq!(
+            request.body["response_format"],
+            serde_json::json!({"type": "json_object"})
+        );
+    }
+    assert_eq!(
+        requests[3].body["text"]["format"],
+        serde_json::json!({"type": "json_object"})
+    );
+}
+
+#[tokio::test]
 async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
     definition.models[0].supported_parameters = vec!["reasoning".to_owned()];

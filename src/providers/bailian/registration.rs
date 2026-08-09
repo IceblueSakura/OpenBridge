@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    core::ReasoningOutput,
+    core::{ReasoningOutput, StructuredOutputMode, StructuredOutputProfile},
     models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
     registry::{
@@ -16,6 +16,11 @@ use super::CONTRACT;
 
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const CREDENTIAL_POOL_ID: &str = "bailian-primary";
+const DEEPSEEK_JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: DEEPSEEK_JSON_OBJECT_MODE,
+    strict_schema: false,
+};
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -131,6 +136,11 @@ fn chat_target(
     // Narrow the Provider ceilings to the reasoning output confirmed for this specific model.
     let mut chat_capabilities = CONTRACT.capabilities().chat_completions;
     chat_capabilities.reasoning_output = reasoning_output;
+    chat_capabilities.structured_outputs = matches!(
+        canonical_model,
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
+    )
+    .then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
     let responses_capabilities = CONTRACT.capabilities().responses;
 
     // Bind Chat for every target and Responses only for the documented Qwen3.7 models.

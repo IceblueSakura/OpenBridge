@@ -43,6 +43,9 @@
 - `bridge_conversion_contract::responses_message_shorthand_preserves_a_tool_result_round_trip` 与
   `example_config::routing::longcat_responses_tool_continuation_prepares_native_and_bridge_candidates` 覆盖 shorthand 转换和 Native-first
   固定候选计划；2026-08-09 真实 LongCat Responses 非流式 call/result/final-text 续接为 2/2 HTTP 200，最终文本为 `DONE` 且没有重复 tool call。
+- `forwarding_contract::native::deepseek_json_object_is_preserved_by_native_and_bridge_egress` 覆盖 DeepSeek V4 Pro
+  Responses `text.format:json_object` 到 Chat `response_format:json_object` 的生产 Bridge；同日真实 JSON/SSE 聚焦请求 2/2 返回可解析的
+  预期 JSON。
 - [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
   Responses-via-Chat JSON/SSE，以及五个 GPT ChatGPT-source 模型的 Chat/Responses、stream on/off 与 omitted/high 最终验收结果；
   120 个文字生成单元均达到合法成功终态；同日最新聚焦复测另确认 Kimi Responses-via-Chat 在非默认 `temperature` 下的 JSON/SSE

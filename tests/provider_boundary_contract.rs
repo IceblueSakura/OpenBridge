@@ -360,6 +360,17 @@ fn provider_capability_ceilings_preserve_verified_feature_differences() {
     assert!(longcat.chat_completions.structured_outputs.is_none());
     assert!(longcat.responses.structured_outputs.is_none());
 
+    let deepseek = ProviderAdapter::for_kind(ProviderKind::DeepSeek)
+        .contract()
+        .capabilities();
+    for profile in [
+        deepseek.chat_completions.structured_outputs.unwrap(),
+        deepseek.responses.structured_outputs.unwrap(),
+    ] {
+        assert_eq!(profile.modes, &[StructuredOutputMode::JsonObject]);
+        assert!(!profile.strict_schema);
+    }
+
     let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo)
         .contract()
         .capabilities();

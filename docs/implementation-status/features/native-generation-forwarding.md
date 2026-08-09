@@ -27,6 +27,9 @@
   Chat/Responses。
 - Bailian Qwen3.7 Native Responses 的 reasoning output 使用官方 `reasoning.summary[]`，与 Chat 的 `reasoning_content`
   plain-text wire 分开建模；两协议仍共享同一七档 Model 能力。
+- `deepseek-v4-pro` 与 `deepseek-v4-flash` 的 Chat/Responses 固定 interface 公开非 strict 的 `json_object`。Chat 保留
+  `response_format`，V4 Flash Native Responses 保留 `text.format`，V4 Pro Responses-via-Chat 将后者转换为前者；固定候选中的
+  OpenRouter/Bailian 只对相应 DeepSeek target 启用该能力，不扩大 MiniMax、Qwen 或 GLM。
 - `mimo-v2.5` 的两个同协议 Native surface 还支持固定 typed contract 内的 URL/Base64 图片输入；具体边界和真实 Provider 证据由
   [Native 图片专题](native-image-input.md)记录。
 - DeepSeek V4 Flash 与 OpenRouter 的 `store: true`、非空 `previous_response_id` 和 `background: true` 等未声明状态语义在 egress
@@ -97,7 +100,19 @@
 - 真实 DeepSeek 首选路径的 `none/auto/required/named` × JSON/SSE 共 8/8 符合固定契约：前四项 HTTP 200 且终态合法，后四项在
   egress 前返回 HTTP 400 `unsupported_model_capability`。当前通用能力错误不携带 `param`。
 
-真实检查不证明 OpenRouter fallback、外部 OpenAI SDK、Codex/Hermes runtime、负载或长期运行兼容性。
+2026-08-09 DeepSeek JSON object 聚焦验证：
+
+- 新增 Models/规划契约在实现前按预期失败：`deepseek-v4-pro` Chat 的 structured output 仍为 `unsupported`；补充后
+  `example_config::providers::deepseek_public_interfaces_expose_json_object_across_fixed_candidates`、
+  `provider_boundary_contract::provider_capability_ceilings_preserve_verified_feature_differences` 与
+  `forwarding_contract::native::deepseek_json_object_is_preserved_by_native_and_bridge_egress` 均通过；
+- 使用真实下游 key 运行两个 Public Model 的 Chat/Responses × JSON/SSE，8/8 为 HTTP 200、终态完整、输出可解析且字段符合 prompt；
+- 对固定上游候选做脱敏定向验证：DeepSeek 官方 endpoint 6/6、OpenRouter Flash 4/4、Bailian Pro/Flash 4/4，全部为 HTTP 200、
+  终态完整且返回预期 JSON；请求均按官方前提包含 `json` 与字段示例，未保存 credential、正文或 request ID；
+- 本轮只验证 `json_object`，未验证或公开 `json_schema`/strict schema；没有运行完整真实 E2E、外部 Agent、负载或长时间测试，也没有
+  改写既有完整 E2E 报告。
+
+真实检查不证明外部 OpenAI SDK、Codex/Hermes runtime、其他账户、负载或长期运行兼容性。
 
 ## 相关文档
 

@@ -5,7 +5,8 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities, ToolChoiceMode,
+        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities, StructuredOutputMode,
+        StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -16,6 +17,11 @@ use crate::{
 
 const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
     &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: JSON_OBJECT_MODE,
+    strict_schema: false,
+};
 
 /// DeepSeek generation capability ceiling; model registration narrows Responses to V4 Flash.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -30,7 +36,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -52,7 +58,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
             previous_response_id: false,
             background: false,
