@@ -29,9 +29,25 @@ Bearer API Key 与 Public Model 调用服务。主要调用路径不得要求客
 | `POST /v1/chat/completions`                                      | 支持已声明能力范围内的 Chat JSON/SSE，并按[图片](native-image.md)、[文件](native-file.md)和[音频](native-audio.md)需求提供 Native 媒体能力。 | 多模态 Bridge、未声明模型的 audio output、专用媒体/资源 API 或 hosted tool 的默认兼容承诺。 |
 | `POST /v1/responses`                                             | 支持已声明能力范围内的 Responses JSON/SSE，并按[图片](native-image.md)和[文件](native-file.md)需求提供 Native 媒体输入。 | 多模态 Bridge、Responses audio/WebSocket、资源 retrieve/cancel/store/background/conversation API。 |
 | `POST /v1/embeddings`                                            | 支持独立 Embedding Public Model 的 OpenAI-compatible JSON 请求/响应。                                                 | streaming、向量转换/存储/检索，或无等价证明的跨模型 fallback。                               |
+| `POST /mcp`                                                      | 提供 MCP `2026-07-28` Streamable HTTP 占位入口，支持 server discovery 和确定性的空工具列表。                          | 工具执行、Provider Bridge、旧版 session/initialize、资源、prompt 或常驻通知 stream。          |
 
 业务 endpoint 必须使用用户表分配的静态 Bearer API Key。用户表只在启动时读取，不提供在线 key issuance、scope、即时撤销、配额或
 billing identity；变更需要重启。认证失败与未知/不支持 endpoint 必须在进入路由或上游调用前结束，且不泄露配置细节。
+
+### 2.1 MCP 占位入口
+
+- MCP endpoint 与 Chat/Responses 中的 function-tool wire 转发相互独立。它只为后续本地工具扩展提供协议入口，不把 Public Model、
+  Provider、Target、Route 或上游 credential 暴露为 MCP tool。
+- endpoint 只接受带现有下游 Bearer token 的 `POST /mcp`，并使用 MCP 正式协议版本 `2026-07-28`。`server/discover` 必须声明
+  `tools` capability，`tools/list` 必须返回确定性空数组；空列表不授权或暗示任何 `tools/call` 执行能力。
+- 每个请求必须携带 `application/json` body、同时接受 JSON/SSE 的 `Accept`、`MCP-Protocol-Version` 与 `Mcp-Method` header，
+  并与 JSON-RPC body 中的 method、protocol version 和 per-request client capabilities 一致。缺失、畸形或不一致的 metadata
+  必须在任何工具或 Provider side effect 前以稳定 JSON-RPC error 失败。
+- 当前 endpoint 不接受任何 `Origin` header。带 Origin 的请求必须以 `403` 失败；无 Origin 的本地客户端仍受 loopback listener、
+  Bearer 认证、全局请求体上限、请求 ID、敏感 header 与终态观测保护。
+- 当前不提供旧版 `initialize`/`initialized` handshake、`Mcp-Session-Id`、独立 GET SSE stream 或 DELETE session lifecycle；
+  已认证的 `GET /mcp` 与 `DELETE /mcp` 返回 `405`，缺少凭证仍先返回 `401`。未实现的 RPC method 返回 HTTP `404` 与
+  JSON-RPC `-32601`。
 
 ## 3. 请求、Public Model 与安全边界
 
@@ -248,6 +264,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings、图片、文件与音频分别满足[扩展共同规则](embedding-and-native-multimodal.md)及其功能页的 wire、能力、资源归属、限制和证据边界。                                             |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
+| API-14 | 有效静态 token 可通过 `POST /mcp` 完成 MCP `2026-07-28` `server/discover` 并取得确定性空 `tools/list`；Origin、transport metadata、未知 method 与非 POST method 在任何工具或 Provider side effect 前按固定边界失败。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
 | OBS-03 | OTLP metrics 使用 SDK 原生 counter/histogram 和有界维度；单 attempt output speed 只由明确 output usage 与 generation duration 计算，分位数、平均值、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |
@@ -263,6 +280,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 - 保存、查询、删除、翻译或跨 Provider/Target 迁移 response 状态，以及未有真实需求前实现 continuation ledger；
 - 让 Chat ↔ Responses、任何 tool 或 Provider 私有扩展自动无损互转；
 - 代表下游 Agent 执行任意 function tool、shell、computer 或网页操作；
+- 在占位 MCP endpoint 中执行工具、桥接 Provider、兼容旧版 session lifecycle 或提供浏览器 Origin allowlist；
 - 用 API token 建立多用户权限、配额、账单或审计系统。
 
 ## 关联文档
@@ -272,4 +290,5 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 - [配置与凭证](configuration-and-credentials.md)
 - [路由与 Provider 韧性](provider-resilience.md)
 - [交付与证据要求](delivery-and-evidence.md)
+- [MCP 2026-07-28 外部协议与 Rust 生态调研](../references/mcp/README.md)
 - [当前实现总览](../implementation-status/current-implementation.md)

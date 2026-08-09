@@ -15,6 +15,7 @@ Provider、上游 Target、Route 和 Public Model 组合成一个固定的下游
 - Chat Completions：`POST /v1/chat/completions`；
 - Responses：`POST /v1/responses`；
 - Embeddings：`POST /v1/embeddings`；
+- MCP 占位服务：`POST /mcp`，当前只提供 discovery 和空工具列表；
 - 标准和扩展 Models 查询；
 - 可选的 OpenTelemetry traces 与 metrics OTLP/HTTP 导出；
 - 管理员显式执行的上游 Models 发现和基础 API 探测。
@@ -336,6 +337,7 @@ Authorization: Bearer <users.toml 中启用用户的 api_key>
 | `POST` | `/v1/chat/completions` | 是 | Chat Completions JSON/SSE |
 | `POST` | `/v1/responses` | 是 | Responses JSON/SSE |
 | `POST` | `/v1/embeddings` | 是 | Embeddings JSON |
+| `POST` | `/mcp` | 是 | MCP `2026-07-28` discovery 与空工具列表 |
 
 标准 Models 接口只返回客户端可用的 Public Model 身份，不返回 Provider、Target、Route、上游 model、endpoint、
 credential、health 或 pricing。需要确定可用参数时，先读取扩展 Models：
@@ -383,8 +385,8 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"Say hello."}],"stream":true}'
 ```
 
-`Content-Type` 必须是 `application/json`。工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool，也不提供
-本地或 MCP 工具控制面。Bridge 只转换当前明确声明为可表达的共同语义；不可表达的字段会在访问上游前拒绝。
+`Content-Type` 必须是 `application/json`。生成接口中的工具调用只在协议 wire 层转发，OpenBridge 不执行 function tool；
+独立 `/mcp` 当前也只提供空工具目录，不执行工具。Bridge 只转换当前明确声明为可表达的共同语义；不可表达的字段会在访问上游前拒绝。
 
 ### 7.3 Responses
 
@@ -427,7 +429,27 @@ curl http://127.0.0.1:8080/v1/embeddings \
 `float`，默认维度为 1536。显式 `dimensions` 当前不公开，非法或超限的输入会在上游调用前拒绝。请求成功体会在下游
 提交前执行有界 JSON 校验。
 
-### 7.5 响应、错误与重试边界
+### 7.5 MCP 占位服务
+
+`/mcp` 是为后续本地工具扩展预留的 MCP Streamable HTTP endpoint。当前只支持正式协议版本 `2026-07-28`、
+`server/discover` 和返回空数组的 `tools/list`；没有 `tools/call`、Provider Bridge、资源、prompt、session 或独立 SSE stream。
+
+最小 discovery 请求：
+
+```bash
+curl http://127.0.0.1:8080/mcp \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":"discover-1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"local-client","version":"1.0.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+```
+
+当前 endpoint 只接受不带 `Origin` 的本地客户端；任何 `Origin` 都返回 `403`。它不兼容 `2025-11-25` 及更早版本的
+`initialize`/`initialized` 或 session lifecycle。修改工具目录前还需要另立需求、焦点和工具安全边界。
+
+### 7.6 响应、错误与重试边界
 
 认证失败通常返回 `401 invalid_api_key`；未知 Public Model 返回 `404`；能力或参数不支持通常返回 `400`；
 非 JSON 请求返回 `415`；上游不可用或超时通常归一为 `502` 或 `504`。响应会带 `X-Request-Id`，排障时请保留它。

@@ -213,7 +213,8 @@ RuntimeRegistry
 
 ## 4. HTTP 接入层
 
-实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 endpoint，
+实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 OpenAI-compatible endpoint，
+`mcp.rs` 负责无 session 的 MCP `2026-07-28` placeholder transport、JSON-RPC validation、discovery 与空工具目录，
 `forwarding.rs` 负责 generation candidate/retry/fallback，`forwarding/embeddings.rs` 负责单 Route Embeddings attempt，
 `forwarding/embedding_response.rs` 负责有界成功体校验，`forwarding/response.rs` 负责把 已选 generation 上游响应交给
 Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和 请求终态观测。
@@ -228,9 +229,11 @@ Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`resp
 | `POST /v1/chat/completions`         | 进入 Chat Native/Bridged RoutePlan                                  |
 | `POST /v1/responses`                | 进入 Responses Native/Bridged RoutePlan                             |
 | `POST /v1/embeddings`               | 进入严格 JSON Embeddings analysis/preflight 与唯一 Native candidate |
+| `POST /mcp`                         | 返回 MCP server discovery 或确定性的空工具列表                      |
 
 Ingress 执行认证、body/content-type 限制、本地错误归一化和当前的首输出前 attempt 循环。它不接受 客户端提供的上游
-URL、credential 或内部 route ID。
+URL、credential 或内部 route ID。MCP placeholder 复用同一 Bearer、body limit、request ID 和终态观测边界，但在认证前拒绝
+所有 Origin；它不进入 Public Model/RoutePlan 或上游 transport。
 
 ## 5. 请求分析与路由层
 

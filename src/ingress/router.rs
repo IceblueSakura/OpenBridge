@@ -34,6 +34,7 @@ use super::{
         responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
+    mcp,
     openapi::{openapi_spec, swagger_ui},
     response::{api_error, embedding_request_too_large},
     state::GatewayState,
@@ -47,12 +48,13 @@ struct DownstreamAuthState {
     max_sse_event_bytes: usize,
 }
 
-/// Builds the public health endpoint and OpenAI-compatible API protected by static Bearer authentication.
+/// Builds public resources plus OpenAI-compatible and MCP APIs protected by static Bearer authentication.
 ///
 /// Body limits and request IDs are applied before authentication; `Authorization` is marked
 /// sensitive so `TraceLayer` and downstream logs cannot accidentally record the token.
 /// `/v1/models` shares the authentication layer with business endpoints and therefore does not
-/// expose internal Public Model/Route information to anonymous requests.
+/// expose internal Public Model/Route information to anonymous requests. `/mcp` adds an
+/// origin-rejection layer outside the same authentication boundary.
 pub fn build_router(state: GatewayState) -> Router {
     // Prepare global middleware for request IDs, sensitive headers, tracing, and body-size protection.
     let max_request_body_bytes = state.registry.limits().max_request_body_bytes();
@@ -66,6 +68,13 @@ pub fn build_router(state: GatewayState) -> Router {
         .layer(PropagateRequestIdLayer::new(request_id))
         .layer(middleware::from_fn(normalize_embedding_request_limit))
         .layer(RequestBodyLimitLayer::new(max_request_body_bytes));
+    let downstream_auth = DownstreamAuthState {
+        users: state.users.clone(),
+        credentials: state.credentials.clone(),
+        metrics: state.metrics.clone(),
+        max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
+    };
+
     // Assemble business and model-list endpoints with shared Bearer authentication.
     let protected = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
@@ -76,14 +85,18 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/openbridge/v1/models", get(extended_models))
         .route("/openbridge/v1/models/{model}", get(extended_model))
         .route_layer(middleware::from_fn_with_state(
-            DownstreamAuthState {
-                users: state.users.clone(),
-                credentials: state.credentials.clone(),
-                metrics: state.metrics.clone(),
-                max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
-            },
+            downstream_auth.clone(),
             require_user,
         ));
+
+    // Expose the originless MCP placeholder behind the same static downstream identity boundary.
+    let mcp = Router::new()
+        .route("/mcp", post(mcp::endpoint))
+        .route_layer(middleware::from_fn_with_state(
+            downstream_auth,
+            require_user,
+        ))
+        .route_layer(middleware::from_fn(mcp::reject_origin));
 
     // Expose unauthenticated health, OpenAPI, and Swagger UI resources with the shared GatewayState.
     Router::new()
@@ -92,6 +105,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/swagger-ui", get(swagger_ui))
         .route("/swagger-ui/", get(swagger_ui))
         .merge(protected)
+        .merge(mcp)
         .layer(middleware)
         .with_state(state)
 }
