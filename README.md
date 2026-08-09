@@ -59,6 +59,7 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
 | `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
 | `qwen3.7-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
+| `qwen3.8-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；支持受限 URL/Base64 图片 |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
@@ -69,7 +70,7 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `qwen3.7-text-embedding` | Embeddings | `bailian-primary` | 百炼 Embeddings Native；支持固定维度集合；不支持 streaming 或 Bridge |
 
 Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公开同一集合。MiMo 官方当前把 `low`、`medium`、`high`
-都解释为开启 reasoning，但 OpenBridge 仍在 Native Responses 中原样传递每个已声明值；Qwen3.7 同理保留官方七档。
+都解释为开启 reasoning，但 OpenBridge 仍在 Native Responses 中原样传递每个已声明值；Qwen3.7 与 Qwen3.8 同理保留官方七档。
 MiniMax M3 官方只声明 thinking 可开/关，因此统一公开 `none/high`，不外推未声明的中间强度档位。
 只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
@@ -147,8 +148,8 @@ OpenAI generation Target 以及 `openai-text-embedding-3-small`，但不会删�
 `chatgpt-codex` OAuth2 pool，不受此设置影响。
 
 `openrouter-primary` 激活 `deepseek-v4-flash` 的 OpenRouter 后备和 `minimax-m3` 的第一双协议 source；`nvidia-primary` 激活
-`minimax-m3` 的 NVIDIA Chat 后备。`kimi-primary` 激活 `kimi-k3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus` 与
-`qwen3.7-max` 与 `qwen3.7-text-embedding`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
+`minimax-m3` 的 NVIDIA Chat 后备。`kimi-primary` 激活 `kimi-k3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus`、
+`qwen3.7-max`、`qwen3.8-max` 与 `qwen3.7-text-embedding`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
 ### 4.3 启动参数与环境变量
 

@@ -49,16 +49,17 @@ Chat 请求地址：`POST {base_url}/chat/completions`。
 - 文档理解仅 `qwen-long` 支持（`fileid://` system message）；PPT 生成仅 `qwen-doc-turbo` 支持。
 - 支持模型类别：Qwen 系列（LLM、VL、Coder、Omni、Math）、DeepSeek（阿里云直供、硅基流动直供、快手万擎直供）、Kimi（阿里云直供、月之暗面直供）、GLM（阿里云直供）、MiniMax（阿里云直供、稀宇科技直供）。**三方直供模型仅在中国站华北2（北京）地域可用**，调用前需在百炼控制台开通对应服务。
 
-### Qwen3.7 reasoning 控制
+### Qwen3.7/Qwen3.8 reasoning 控制
 
-- Qwen3.7 Max 与 Plus 当前模型属于 hybrid thinking，默认开启；Chat 使用非标准布尔字段 `enable_thinking` 显式开启或关闭。
+- Qwen3.7 Max/Plus 与 Qwen3.8 Max 当前稳定模型属于 hybrid thinking，默认开启；Chat 使用非标准布尔字段
+  `enable_thinking` 显式开启或关闭，思考内容位于 `reasoning_content`。
 - Chat 的 `thinking_budget` 是 reasoning token 上限，不是离散 effort。Chat 参数表中的 `reasoning_effort` 当前明确用于
-  DeepSeek V4 与 GLM 系列，不能据此给 Qwen3.7 推导多档 Chat effort。
-- Qwen Responses API 对包含 Qwen3.7 Max/Plus 的支持模型集合声明七个递增取值：`none`、`minimal`、`low`、`medium`、
+  DeepSeek V4 与 GLM 系列，不能据此给 Qwen 推导多档 Chat effort。
+- Qwen Responses API 的支持模型集合明确包含 Qwen3.7 Max/Plus 与 Qwen3.8 Max，并声明七个递增取值：`none`、`minimal`、`low`、`medium`、
   `high`、`xhigh`、`max`；其中 `xhigh`、`max` 只在华北2（北京）和新加坡支持。
 - Responses reasoning 通过 `type=reasoning` output item 返回；其 `summary` 数组元素为 `type=summary_text` 与 `text`，因此这是
   summary channel，不是 Chat `reasoning_content` 的 plain-text wire。
-- 官方资料对同一 Qwen3.7 模型在 Responses 中列出七档，在 Chat 中只提供开关 wire；资料没有说明这是两个不同 checkpoint，
+- 官方资料对同一稳定 Qwen 模型在 Responses 中列出七档，在 Chat 中只提供开关 wire；资料没有说明这是两个不同 checkpoint，
   也没有证明 Chat 能区分七种强度。`thinking_budget` 仍不能作为额外离散档位的依据。
 
 ## 证据边界

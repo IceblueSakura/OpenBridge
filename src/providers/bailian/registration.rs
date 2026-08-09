@@ -56,7 +56,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "bailian-qwen3-8-max",
             qwen::qwen3_8_max::ID,
             "qwen3.8-max",
-            ReasoningOutput::Unknown,
+            ReasoningOutput::PlainText,
         ),
         chat_target(
             "bailian-qwen-image-3-0",
@@ -143,7 +143,7 @@ fn chat_target(
     .then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
     let responses_capabilities = CONTRACT.capabilities().responses;
 
-    // Bind Chat for every target and Responses only for the documented Qwen3.7 models.
+    // Bind Chat for every target and Responses only for the documented stable Qwen models.
     let mut upstream_apis = vec![UpstreamApiConfig {
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules::default(),
@@ -153,7 +153,7 @@ fn chat_target(
     }];
     if matches!(
         canonical_model,
-        qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
+        qwen::qwen3_8_max::ID | qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
     ) {
         upstream_apis.push(UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),

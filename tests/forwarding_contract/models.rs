@@ -107,6 +107,35 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
             .iter()
             .any(|dimension| dimension.as_u64() == Some(default_dimension))
     );
+
+    // Project Qwen3.8 Max through both HTTP catalogs with two actionable Native interfaces.
+    let qwen38_standard = standard_list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "qwen3.8-max")
+        .expect("compiled Qwen3.8 Max model should be listed");
+    let qwen38_standard_detail =
+        compiled_authenticated_get(&compiled, "/v1/models/qwen3.8-max").await;
+    assert_eq!(&qwen38_standard_detail, qwen38_standard);
+
+    let qwen38_extended = extended_list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "qwen3.8-max")
+        .expect("compiled Qwen3.8 Max capability DTO should be listed");
+    let qwen38_extended_detail =
+        compiled_authenticated_get(&compiled, "/openbridge/v1/models/qwen3.8-max").await;
+    assert_eq!(&qwen38_extended_detail, qwen38_extended);
+    let expected_levels =
+        serde_json::json!(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    for interface in ["chat_completions", "responses"] {
+        assert_eq!(
+            qwen38_extended["interfaces"][interface]["reasoning"]["levels"], expected_levels,
+            "{interface}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -111,6 +111,116 @@ fn checked_in_fallback_chains_follow_provider_priority_and_protocol_boundaries()
 }
 
 #[test]
+fn qwen38_max_compiles_as_bailian_dual_native_with_official_reasoning_levels() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Require the canonical profile and both Bailian APIs to carry the documented reasoning shapes.
+    let model = registry
+        .model("qwen/qwen3.8-max")
+        .expect("Qwen3.8 Max canonical model must compile");
+    assert_eq!(
+        model.reasoning_levels(),
+        &[
+            ReasoningLevel::Max,
+            ReasoningLevel::XHigh,
+            ReasoningLevel::High,
+            ReasoningLevel::Medium,
+            ReasoningLevel::Low,
+            ReasoningLevel::Minimal,
+            ReasoningLevel::None,
+        ]
+    );
+    let target = registry
+        .upstream_target("bailian-qwen3-8-max")
+        .expect("Qwen3.8 Max Bailian target must compile");
+    let chat = target
+        .upstream_api(OperationKind::ChatCompletions)
+        .expect("Qwen3.8 Max must expose Bailian Chat");
+    let responses = target
+        .upstream_api(OperationKind::Responses)
+        .expect("Qwen3.8 Max must expose Bailian Responses");
+    assert_eq!(chat.upstream_model(), "qwen3.8-max");
+    assert_eq!(chat.reasoning_output(), ReasoningOutput::PlainText);
+    assert_eq!(responses.upstream_model(), "qwen3.8-max");
+    assert_eq!(responses.reasoning_output(), ReasoningOutput::Summary);
+
+    // Publish one Native candidate per downstream protocol without a lossy Bridge fallback.
+    let public_model = registry
+        .public_model("qwen3.8-max")
+        .expect("Qwen3.8 Max must be public");
+    assert!(!public_model.routes().is_empty());
+    for (protocol, body) in [
+        (
+            ApiProtocol::ChatCompletions,
+            bytes::Bytes::from_static(
+                br#"{"model":"qwen3.8-max","messages":[],"reasoning_effort":"none"}"#,
+            ),
+        ),
+        (
+            ApiProtocol::Responses,
+            bytes::Bytes::from_static(
+                br#"{"model":"qwen3.8-max","input":"hello","reasoning":{"effort":"max"}}"#,
+            ),
+        ),
+    ] {
+        let profile = analyze_request(protocol, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        let [candidate] = plan.candidates() else {
+            panic!("Qwen3.8 Max {protocol:?} must select one candidate");
+        };
+        assert_eq!(candidate.upstream_operation(), protocol.operation());
+        assert!(candidate.bridge().is_none());
+        assert_eq!(candidate.upstream_target_id(), "bailian-qwen3-8-max");
+    }
+}
+
+#[test]
+fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let model = registry
+        .model("qwen/qwen3.6-27b")
+        .expect("Qwen3.6 27B canonical model must compile");
+
+    // Keep model-level context separate from the Alibaba endpoint's narrower output ceiling.
+    let context = model.context_length();
+    assert_eq!(context.context_tokens(), Some(262_144));
+    assert_eq!(context.input_tokens(), Some(262_144));
+    assert_eq!(context.output_tokens(), Some(65_536));
+
+    // Match the current OpenRouter model-level parameter set without inventing reasoning efforts.
+    assert_eq!(
+        model.supported_parameters(),
+        [
+            "frequency_penalty",
+            "include_reasoning",
+            "logit_bias",
+            "logprobs",
+            "max_tokens",
+            "min_p",
+            "presence_penalty",
+            "reasoning",
+            "repetition_penalty",
+            "response_format",
+            "seed",
+            "stop",
+            "structured_outputs",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_k",
+            "top_logprobs",
+            "top_p",
+        ]
+    );
+    assert_eq!(
+        model.reasoning_levels(),
+        &[ReasoningLevel::High, ReasoningLevel::None]
+    );
+}
+
+#[test]
 fn deepseek_flash_responses_exposes_only_proven_tool_choice_modes() {
     // Compile the checked-in multi-source interface and inspect its downstream contract.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();

@@ -1,7 +1,8 @@
 //! Complete canonical model facts for Qwen3.8 Max (`qwen/qwen3.8-max`).
 //!
-//! The reference metadata is the dated OpenRouter snapshot `qwen/qwen3.8-max-20260803`; the
-//! stable catalog ID remains the mainline alias.
+//! Context, modality, and parameter metadata follow the dated OpenRouter snapshot
+//! `qwen/qwen3.8-max-20260803`. Reasoning levels follow the Bailian stable model's current
+//! Chat/Responses contract.
 
 use crate::registry::{
     InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
@@ -54,11 +55,13 @@ pub(crate) fn config() -> ModelConfig {
         .collect(),
         reasoning: ReasoningSupport::Supported,
         reasoning_levels: vec![
+            ReasoningLevel::Max,
             ReasoningLevel::XHigh,
             ReasoningLevel::High,
             ReasoningLevel::Medium,
             ReasoningLevel::Low,
             ReasoningLevel::Minimal,
+            ReasoningLevel::None,
         ],
     }
 }

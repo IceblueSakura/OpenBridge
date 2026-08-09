@@ -158,6 +158,15 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
+            public_name: "qwen3.8-max",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "qwen3-8-max-bailian",
+                upstream_target: "bailian-qwen3-8-max",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             providers: &[ProviderRouteRegistration {

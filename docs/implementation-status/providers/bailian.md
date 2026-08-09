@@ -6,9 +6,9 @@
 - 可信 Base URL：`https://dashscope.aliyuncs.com/compatible-mode/v1`；
 - credential pool：`bailian-primary`，仅允许 API key；
 - 固定注册 12 个 Target，覆盖 GLM、Qwen generation/image/audio/embedding 和 DeepSeek fallback；
-- Provider 固定 `/chat/completions`、`/responses` 与 `/embeddings`；只有 `qwen3.7-max`、`qwen3.7-plus` target 注册
+- Provider 固定 `/chat/completions`、`/responses` 与 `/embeddings`；`qwen3.8-max`、`qwen3.7-max`、`qwen3.7-plus` target 注册
   Chat/Responses 双协议 Native API，其他 generation target 保持 Chat-only；
-- Qwen3.7 两个 Public Model 的 Chat/Responses 都公开 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；
+- 三个 Qwen Public Model 的 Chat/Responses 都公开 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；
   Chat output 为 `PlainText`，Responses 按官方 `reasoning.summary[]` schema 为 `Summary`。Chat egress 将 `none` 映射为
   `enable_thinking=false`、其余六档映射为 `true`；Responses 原样保留 effort；
 - 其他已真实确认的 `glm-5.2` 与 `bailian-deepseek-v4-pro` Chat target 保留 `PlainText`，其余 Bailian generation target
@@ -34,15 +34,23 @@
   当前 high 实现与复测不加载或调用 Hermes，也不发送 Hermes custom 字段。
 - `qwen3.7-text-embedding` 默认维度与官方七个显式维度共 8 个成功请求均返回结构正确的 HTTP 200；OpenBridge 接受并丢弃
   Bailian 顶层 `id`，保持 Public Model 投影。旧目录中的 `64/128` 已移除并在 egress 前精确拒绝，完整维度矩阵 10/10 通过。
+- 2026-08-09 对 `bailian-qwen3-8-max` 执行 Models/Chat/Responses probe：三项均为 HTTP 200，远端 Models 列表包含
+  `qwen3.8-max`；随后使用真实下游用户 key 运行 Chat/Responses × JSON/SSE × none/high，8/8 HTTP 200、终态完整且文本非空，
+  none 的 reasoning 为空、high 的 reasoning 非空；
+- Qwen3.8 Responses 的 `minimal/low/medium/xhigh/max` 额外非流式请求 5/5 HTTP 200、终态完整且 reasoning 非空；结合上一矩阵的
+  none/high，当前北京 endpoint 的七档均已真实接受；
+- 对尚未公开的 `qwen3.6-27b` 直接执行 `enable_thinking=false/true` 两项 Chat 请求，2/2 HTTP 200 且分别无/有
+  `reasoning_content`，确认模型只有开关证据时可归一化为 `none/high`，不外推中间强度。
 
 最终矩阵和剩余错误边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
 
 ## 证据边界
 
-`tests/example_config.rs` 与 `tests/provider_contract.rs` 验证 Qwen3.7 统一七档、双协议 Native Route、Chat `PlainText`、Responses
-`Summary`、Chat switch 与 Responses effort 原值；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
+`tests/example_config.rs` 与 `tests/provider_contract.rs` 验证 Qwen3.7/Qwen3.8 统一七档、双协议 Native Route、Chat `PlainText`、Responses
+`Summary`、Chat switch 与 Responses effort 原值，并锁定 Qwen3.6 的 context、参数集合和 `none/high`；
+`tests/forwarding_contract.rs` 验证 Qwen3.8 标准/扩展 Models HTTP 投影；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
 验证既有 usage-only SSE lifecycle。
 
-本轮没有真实复测 Qwen3.7 Native Responses 或 `minimal/low/medium/xhigh/max`，也没有把已实测 DeepSeek JSON Output 或四个
-generation Target 的 reasoning 事实外推到其他 Bailian Target。确定性测试不证明其他账号、区域、未来 Provider 行为、外部 SDK、
+本轮没有把 Qwen3.6 接成 Public Model/Route，也没有把已实测 DeepSeek JSON Output、Qwen3.8 多模态/工具/结构化输出或其他
+generation Target 的 reasoning 事实外推到未验证能力。确定性测试和本次单账号请求不证明其他账号、区域、未来 Provider 行为、外部 SDK、
 负载或长期运行兼容性。

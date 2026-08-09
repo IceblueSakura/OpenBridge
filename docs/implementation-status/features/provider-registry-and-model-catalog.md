@@ -17,20 +17,19 @@
 - OpenRouter、NVIDIA 与百炼分别固定到 `https://openrouter.ai/api/v1`、`https://integrate.api.nvidia.com/v1` 和
   `https://dashscope.aliyuncs.com/compatible-mode/v1`，使用独立 API-key pool。OpenRouter 将 `minimax/minimax-m3` 绑定为
   Chat/Responses Native，NVIDIA 保留同一 Public Model 的 Chat Native 后备；百炼将 `z-ai/glm-5.2` 绑定为 Chat Native +
-  Responses Bridge，并将 `qwen/qwen3.7-plus` 与
-  `qwen/qwen3.7-max` 绑定为双协议 Native Public Model。
+  Responses Bridge，并将 `qwen/qwen3.7-plus`、`qwen/qwen3.7-max` 与 `qwen/qwen3.8-max` 绑定为双协议 Native Public Model。
   百炼另外将
-  `qwen/qwen3.8-max`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
+  `qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
   `qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen3.5-livetranslate-flash-realtime` 与
   `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，并将 `qwen/qwen3.7-text-embedding` 编译为固定
   Embeddings Upstream Target；其中 `qwen3.7-text-embedding` 已加入唯一
-  `qwen3-7-text-embedding-bailian-embeddings` Native Route 和同名 Public Model，其余条目仍暂不加入 Public Model 或 Route。
+  `qwen3-7-text-embedding-bailian-embeddings` Native Route 和同名 Public Model，其余 Qwen 专用条目仍暂不加入 Public Model 或 Route。
 - Kimi CN 固定到 `https://api.moonshot.cn`，使用独立的 `kimi-primary` API-key pool 和 OpenAI-compatible Chat adapter；
   `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model，提供 `/v1/chat/completions` Chat Native，并自动补充一个
   `Responses-via-Chat` Bridge Route。
 - 当前可调用的 generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、`mimo-v2.5-pro`、
   `mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 和 `mimo-v2.5-tts-voiceclone`，以及
-  `minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、
+  `minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、`qwen3.8-max`、
   `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra`；
   `text-embedding-3-small` 与 `qwen3.7-text-embedding` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 ChatGPT 与 OpenAI 两个 source，并使用 `SourceFirst` 让两个下游协议都优先 ChatGPT、再回落 OpenAI；
@@ -229,6 +228,22 @@ payload。
 - route compiler、stream takeover、Bridge、`example_config` 与 `forwarding_contract` 的确定性测试通过；五个 GPT 的真实 40 单元
   Chat/Responses × stream on/off × omitted/high 最终全部通过。实现与测试不依赖 Hermes/Codex runtime。
 - 未执行真实 OpenAI API-key fallback、外部 SDK、负载或长期运行验收。
+
+2026-08-09 Bailian Qwen3.8 Max Public Model 与 Qwen3.6 27B canonical facts：
+
+- `qwen3.8-max` 现在通过 `bailian-qwen3-8-max` 提供 Chat/Responses 双协议 Native Route，并进入标准/扩展 Models HTTP 投影；
+  Chat reasoning output 为 `PlainText`，Responses 为 `Summary`，两接口统一公开 `none/minimal/low/medium/high/xhigh/max`；
+- Bailian Chat adapter 将 Qwen3.8 的 `none` 转为 `enable_thinking=false`、其他六档转为 `true`，Native Responses 保留原 effort；
+  未公开图片、视频、工具或结构化输出能力；
+- `qwen/qwen3.6-27b` 的 model-level 参数集合保持不变，input 上限修正为与 262,144 context 相同，Alibaba endpoint 输出上限保持
+  65,536；reasoning 只有开关证据，因此固定为 `none/high`，本轮仍不创建 Public Model/Route；
+- 新增聚焦测试在实现前按预期失败，随后 `cargo test --locked --test example_config qwen3`、两个 Provider reasoning 聚焦测试和
+  Models HTTP 聚焦测试通过；`cargo test --locked` 首次仅有既有 OTLP trace 数量时序断言失败，单项重跑通过，第二次完整命令通过；
+  `cargo clippy --locked -- -D warnings` 通过；
+- 真实 `openbridge-probe` 的 Models/Chat/Responses 三项均为 HTTP 200 且远端列表包含 `qwen3.8-max`。真实下游 Qwen3.8
+  Chat/Responses × JSON/SSE × none/high 为 8/8，通过后追加的 Responses 其余五档为 5/5；直接 Qwen3.6 Chat thinking off/on 为
+  2/2，分别无/有 reasoning；
+- 本次没有运行完整全模型端到端矩阵、外部 SDK、负载或长期运行验收，也没有修改私有 credential。
 
 ## 相关文档
 

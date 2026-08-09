@@ -202,6 +202,12 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
             &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
         ),
         (
+            ProviderKind::Bailian,
+            "qwen3.8-max",
+            "enable_thinking",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+        ),
+        (
             ProviderKind::LongCat,
             "LongCat-2.0",
             "thinking",
@@ -259,6 +265,12 @@ fn native_responses_preserve_every_documented_reasoning_level() {
         (
             ProviderKind::Bailian,
             "qwen3.7-plus",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+            "/responses",
+        ),
+        (
+            ProviderKind::Bailian,
+            "qwen3.8-max",
             &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
             "/responses",
         ),

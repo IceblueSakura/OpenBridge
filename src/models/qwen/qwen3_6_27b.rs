@@ -4,7 +4,8 @@
 //! remains the mainline alias.
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
+    ReasoningSupport,
 };
 
 /// Stable OpenBridge catalog ID for Qwen3.6 27B.
@@ -19,7 +20,7 @@ pub(crate) fn config() -> ModelConfig {
             "Dense 27-billion-parameter Qwen3.6 multimodal model for agentic coding, visual understanding, and reasoning."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(262_144), Some(260_096), Some(65_536)),
+        context_length: ModelContextLength::new(Some(262_144), Some(262_144), Some(65_536)),
         mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![
             InputModality::Text,
@@ -54,6 +55,6 @@ pub(crate) fn config() -> ModelConfig {
         .map(str::to_owned)
         .collect(),
         reasoning: ReasoningSupport::Supported,
-        reasoning_levels: Vec::new(),
+        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::None],
     }
 }

@@ -19,7 +19,7 @@ HTTP 200、接受某个字段或静默忽略参数本身不构成能力支持。
 
 | Provider | 状态页 | 当前注册模型 | 最近真实探测 |
 |---|---|---:|---|
-| Alibaba Cloud Model Studio | [Bailian 状态](bailian.md) | 12 | 2026-08-08 |
+| Alibaba Cloud Model Studio | [Bailian 状态](bailian.md) | 12 | 2026-08-09 |
 | LongCat | [LongCat 2.0 状态](longcat.md) | 1 | 2026-08-08（high）；none 尚未真实复测 |
 | Kimi CN | [Kimi K3 状态](kimi-cn.md) | 1 | 2026-08-09 |
 | Xiaomi MiMo | [MiMo 多模态与工具调用状态](mimo.md) | 6 | 2026-08-09 |

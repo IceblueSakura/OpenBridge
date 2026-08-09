@@ -7,7 +7,7 @@ use openbridge::{
     pipeline::{analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     providers::{build_compiled_registry, compiled_config},
-    registry::{RouteConfig, RouteMode, UpstreamApiCapabilities, build_registry},
+    registry::{ReasoningLevel, RouteConfig, RouteMode, UpstreamApiCapabilities, build_registry},
     upstream_credentials::UpstreamCredentialConfiguration,
 };
 

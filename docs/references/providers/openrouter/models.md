@@ -78,6 +78,7 @@ reasoning effort。价格、排行、吞吐、数据策略和动态可用性属�
 | `deepseek/deepseek-v4-flash` | reasoning levels `max, high, low` | `xhigh, high` | Provider 词汇不一致；OpenRouter fallback 需要独立映射与真实验收，不能直接等同 |
 | `deepseek/deepseek-v4-pro` | reasoning levels `max, high` | `xhigh, high` | 同上；当前 OpenBridge 没有该模型的 OpenRouter target |
 | `qwen/qwen3.6-27b` | 最大输出 65,536 | 最大输出 262,144 | 本地仍保持较保守的已确认上限，不由聚合目录自动放宽 |
+| `qwen/qwen3.8-max` | reasoning levels `none, minimal, low, medium, high, xhigh, max` | `minimal, low, medium, high, xhigh`；mandatory | OpenBridge 当前 target 使用 Bailian 稳定 alias；其官方双协议文档与真实北京请求确认可关闭并接受七档，不能用 OpenRouter 的 dated endpoint 收窄 Bailian source |
 | `z-ai/glm-5.2` | 最大输出 131,072 | 最大输出 128,000 | 两侧数值不一致，需要回到实际 Provider/官方资料决定具体 target 上限 |
 | `openai/text-embedding-3-small` | output modality `embedding`；tokenizer 未知 | output modality `embeddings`；tokenizer `Other` | 前者有单复数词汇差异；`Other` 不是具体 tokenizer 证据 |
 
@@ -109,5 +110,8 @@ OpenBridge 当前只把 `deepseek/deepseek-v4-flash` 与 `minimax/minimax-m3` �
 ## reasoning 解释边界
 
 `mandatory=false` 只说明 reasoning 不是强制模式；它不自动提供 `low`、`medium`、`high` 等强度语义。OpenRouter 可作为
-reasoning 支持/可关闭性的交叉证据，但不能用缺失的 `supported_efforts` 扩张 Provider 官方未声明的 level 集合。MiniMax M3 因而仍按
-`none/high` 二态模型契约解释：`none` 表示关闭，`high` 表示开启；该归一化不是对中间强度的推断。
+reasoning 支持/可关闭性的交叉证据，但不能用缺失的 `supported_efforts` 扩张 Provider 官方未声明的 level 集合。MiniMax M3 与
+Qwen3.6 27B 因而按 `none/high` 二态模型契约解释：`none` 表示关闭，`high` 表示开启；该归一化不是对中间强度的推断。
+Qwen3.6 27B 的当前模型级 `supported_parameters` 与本地集合逐项一致；OpenRouter 的 Alibaba endpoint 仍明确给出 262,144 context
+和 65,536 最大输出。Qwen 官方模型卡同样声明 262,144 原生 context；依据 OpenBridge 对 OpenRouter `context_length` 同时投影为
+context/input 上限的既有契约，本地不再保留没有来源的 260,096 input 值。

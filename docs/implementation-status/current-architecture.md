@@ -269,11 +269,12 @@ canonical Model 声明且不能与 disabled parameter 重叠；它不改变 Publ
 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；没有映射的候选保持 canonical level，未知下游 level 仍在
 preflight 失败关闭。
 
-Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Responses API 继承相同集合。当前 Qwen3.7 Max/Plus 两个接口
+Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Responses API 继承相同集合。当前 Qwen3.7 Max/Plus 与 Qwen3.8 Max 各自的两个接口
 都公开七档，MiMo V2.5/Pro 两个接口都公开四档，LongCat 2.0 两个接口都公开 `none/high`。Qwen 与 MiMo 的 Native Responses
 保留具体 effort；只有 thinking 开关的 Chat egress 把 `none` 转为关闭、其余该模型已声明 level 转为开启。这个 wire 投影不创建
 每协议能力，也不压缩 Models 契约。Qwen Chat reasoning output 为 `PlainText`，Bailian Native Responses 按官方
-`reasoning.summary[]` schema 声明为 `Summary`；level 集合相同不表示两种协议必须使用相同输出 wire。
+`reasoning.summary[]` schema 声明为 `Summary`；level 集合相同不表示两种协议必须使用相同输出 wire。尚未公开的 Qwen3.6 27B
+只有 thinking 开关证据，canonical profile 因而声明 `none/high`，不推导中间强度。
 
 请求携带 `previous_response_id` 时，计划关闭跨 target fallback。registry 还要求全部 Responses Route 的 continuation issuer
 唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前 拒绝请求。不同 Route 或 Upstream API
@@ -293,7 +294,7 @@ Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body
 `openai_compatible` 机制负责模型字段、reasoning level wire 映射与 Chat thinking switch、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
 pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 只声明基础 `/chat/completions` adapter；百炼声明
 `/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定一个 MiniMax M3 Chat target；
-OpenRouter 为 MiniMax M3 与 DeepSeek V4 Flash 各绑定一个双协议 Native target。百炼的 Qwen3.7 Max/Plus target 注册双协议 Native API，
+OpenRouter 为 MiniMax M3 与 DeepSeek V4 Flash 各绑定一个双协议 Native target。百炼的 Qwen3.7 Max/Plus 与 Qwen3.8 Max target 注册双协议 Native API，
 其他 generation target 保持 Chat-only。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
 `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model；Target 只声明 Chat Native 文本与 streaming 基线，Public Model 编译器在
 Responses Native 缺失时自动补充一个 Responses-via-Chat Bridge。

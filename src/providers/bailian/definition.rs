@@ -112,17 +112,17 @@ fn transform_request_headers(
     Ok(())
 }
 
-/// Converts each admitted Qwen3.7 Chat level to Model Studio's official thinking switch.
+/// Converts each admitted hybrid Qwen Chat level to Model Studio's official thinking switch.
 fn transform_request_body(
     protocol: crate::core::ApiProtocol,
     document: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), AdapterError> {
-    // Preserve model-specific effort semantics for non-Qwen3.7 targets sharing this adapter.
-    let qwen3_7 = matches!(
+    // Preserve model-specific effort semantics for targets without the Qwen boolean wire contract.
+    let qwen_hybrid_thinking = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("qwen3.7-max" | "qwen3.7-plus")
+        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus")
     );
-    if !qwen3_7 {
+    if !qwen_hybrid_thinking {
         return Ok(());
     }
 
