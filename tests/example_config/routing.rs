@@ -34,6 +34,37 @@ fn subscription_only_gpt_chat_uses_the_responses_bridge() {
 }
 
 #[test]
+fn longcat_responses_tool_continuation_prepares_native_and_bridge_candidates() {
+    // Compile the checked-in dual-protocol LongCat source with its Native-first route order.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_registry(bootstrap, compiled_config()).unwrap();
+    let body = bytes::Bytes::from_static(
+        br#"{"model":"LongCat-2.0","input":[{"role":"user","content":"look up the synthetic value"},{"type":"function_call","id":"fc_lookup","call_id":"call_lookup","name":"lookup","arguments":"{\"key\":\"value\"}"},{"type":"function_call_output","call_id":"call_lookup","output":"{\"value\":42}"},{"role":"user","content":"return DONE"}],"tools":[{"name":"lookup","parameters":{"type":"object"},"type":"function"}],"tool_choice":"none"}"#,
+    );
+
+    // Require every fixed candidate to prepare so a convertible fallback cannot invalidate the Native primary.
+    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+    let plan = plan_request(&registry, &profile, body).unwrap();
+    assert_eq!(
+        plan.candidates()
+            .iter()
+            .map(|candidate| candidate.route_id())
+            .collect::<Vec<_>>(),
+        ["longcat-2-responses", "longcat-2-responses-via-chat"]
+    );
+    assert!(plan.candidates()[0].bridge().is_none());
+    let bridge_candidate = &plan.candidates()[1];
+    assert!(bridge_candidate.bridge().is_some());
+    assert_eq!(
+        bridge_candidate.request().protocol(),
+        ApiProtocol::ChatCompletions
+    );
+    let chat_request: serde_json::Value =
+        serde_json::from_slice(bridge_candidate.request().body()).unwrap();
+    assert_eq!(chat_request["messages"].as_array().unwrap().len(), 4);
+}
+
+#[test]
 fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
     // Clone the LongCat deployment into an OpenAI-owned target that references the same canonical Model.
     let bootstrap = include_str!("../../config/bootstrap.toml");

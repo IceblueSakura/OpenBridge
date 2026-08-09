@@ -86,27 +86,34 @@ fn responses_input_to_chat(
     // Build the call ledger in wire order before converting messages and outputs in their original order.
     for item in items {
         let item = item.as_object().ok_or(BridgeError::InvalidShape)?;
-        match item.get("type").and_then(Value::as_str) {
-            Some("message") => {
-                let role = required_string(item, "role")?;
-                if !pending_reasoning.is_empty() && role != "assistant" {
-                    return Err(BridgeError::UnsupportedSemantics);
-                }
-                if !calls.is_empty() && !emitted_calls {
-                    messages.push(chat_assistant_tool_message(
-                        &call_order,
-                        &calls,
-                        (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
-                    ));
-                    pending_reasoning.clear();
-                    emitted_calls = true;
-                }
-                messages.push(responses_message_to_chat(
-                    item,
-                    (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
-                )?);
-                pending_reasoning.clear();
+        let item_type = item.get("type").and_then(Value::as_str);
+        let message_shorthand = item.get("type").is_none()
+            && item.len() == 2
+            && item.contains_key("role")
+            && item.contains_key("content");
+        if item_type == Some("message") || message_shorthand {
+            let role = required_string(item, "role")?;
+            if !pending_reasoning.is_empty() && role != "assistant" {
+                return Err(BridgeError::UnsupportedSemantics);
             }
+            if !calls.is_empty() && !emitted_calls {
+                messages.push(chat_assistant_tool_message(
+                    &call_order,
+                    &calls,
+                    (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+                ));
+                pending_reasoning.clear();
+                emitted_calls = true;
+            }
+            messages.push(responses_message_to_chat(
+                item,
+                (!pending_reasoning.is_empty()).then_some(pending_reasoning.as_str()),
+            )?);
+            pending_reasoning.clear();
+            continue;
+        }
+
+        match item_type {
             Some("reasoning") => {
                 if !reasoning_supported {
                     return Err(BridgeError::UnsupportedSemantics);

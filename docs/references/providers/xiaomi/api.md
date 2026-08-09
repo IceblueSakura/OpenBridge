@@ -1,4 +1,4 @@
-# Xiaomi MiMo API 协议入口调研（复核于 2026-08-08）
+# Xiaomi MiMo API 协议入口调研（复核于 2026-08-09）
 
 ## 来源与范围
 
@@ -12,6 +12,7 @@
 
 - [Chat Completions API](https://mimo.mi.com/docs/zh-CN/api/chat/openai-api)
 - [Responses API](https://mimo.mi.com/docs/zh-CN/api/chat/responses)
+- [结构化输出](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/text-generation/structured-output)
 - [Models list](https://mimo.mi.com/docs/zh-CN/api/model/list-models)
 - [模型下线说明](https://mimo.mi.com/docs/zh-CN/updates/deprecate)
 
@@ -22,6 +23,17 @@
   - `api-key: $MIMO_API_KEY`
   - `Authorization: Bearer $MIMO_API_KEY`
 - Responses 文档明确不支持 `background` 与 `previous_response_id`。
+- 独立 structured-output 页面明确列出 `mimo-v2.5` 与 `mimo-v2.5-pro`，使用
+  `response_format: {"type":"json_object"}`；prompt 必须明确只返回 JSON，并完整描述字段、层级和类型。流式响应需要拼接完整文本后
+  再解析。
+- 官方把该能力定义为 JSON mode：只保证输出是合法 JSON，不保证字段和类型符合预设 JSON Schema，并建议客户端使用
+  `jsonschema` 库另行校验。因此不能把外部校验示例外推成上游 `json_schema` mode。
+- Responses API 的 `text.format` 同样列出 JSON object 形态，且可用模型为 `mimo-v2.5` 与 `mimo-v2.5-pro`。页面明确只有已声明参数会
+  正常处理，未定义参数可能被过滤或报错；这些文字能力不能外推到专用音频 task。
+- Chat 与 Responses 的 `tool_choice` 都只列出 `auto`。官方明确说明任何非 `auto` 值都会被后端移除，模型行为仍等同于 auto；因此
+  某次 required/named 请求产生 tool call 不能证明该 choice 生效。
+- 两种协议都声明 function tool 的 `strict` 字段及受限 JSON Schema 遵循；当前请求参数列表没有声明 `parallel_tool_calls`。自然产生
+  多个 tool call 不等于客户端可以控制并行选择。
 - Chat 使用 `thinking.type` 控制 reasoning：`enabled` 开启、`disabled` 关闭；官方关闭示例的
   `completion_tokens_details.reasoning_tokens` 为 0。
 - Responses 使用标准 `reasoning.effort`，接受 `none`、`low`、`medium`、`high`。`none` 关闭 reasoning；官方明确说明
@@ -30,5 +42,5 @@
 
 ## 证据边界
 
-endpoint、认证与上述 reasoning 参数只证明官方协议声明，不能替代真实账号、streaming、Bridge、负载或长期运行验证。
+endpoint、认证、JSON mode 与上述 reasoning 参数只证明官方协议声明，不能替代逐 model/operation 的真实账号、streaming、Bridge、负载或长期运行验证。
 MiMo 接受三个开启值不表示它们当前产生不同推理强度。动态模型目录和 Provider 行为会变化；使用前须按功能页的日期与证据层重新复核。

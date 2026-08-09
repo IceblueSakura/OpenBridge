@@ -88,7 +88,16 @@
   `cargo test --locked --test example_config` 与 `cargo test --locked --test forwarding_contract deepseek_v4_flash`：通过；
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
-本轮没有执行真实 DeepSeek、外部 OpenAI SDK、Codex/Hermes runtime、负载或长期运行验收。
+2026-08-09 DeepSeek V4 Flash tool-choice 收窄验证：
+
+- DeepSeek Responses Upstream API 只保留真实确认的 `none/auto`，因此 Public Model 的 Responses interface 通过固定 DeepSeek/OpenRouter
+  候选交集公开同一集合；`required/named` 不会因为后备 OpenRouter 更强而成为公共保证；
+- `example_config::providers::deepseek_flash_responses_exposes_only_proven_tool_choice_modes` 覆盖 Models 投影、正向计划与
+  `required/named` 计划阶段拒绝；最终 `cargo test --locked --test example_config` 通过（13 项）；
+- 真实 DeepSeek 首选路径的 `none/auto/required/named` × JSON/SSE 共 8/8 符合固定契约：前四项 HTTP 200 且终态合法，后四项在
+  egress 前返回 HTTP 400 `unsupported_model_capability`。当前通用能力错误不携带 `param`。
+
+真实检查不证明 OpenRouter fallback、外部 OpenAI SDK、Codex/Hermes runtime、负载或长期运行兼容性。
 
 ## 相关文档
 

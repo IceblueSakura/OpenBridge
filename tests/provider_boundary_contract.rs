@@ -5,7 +5,7 @@ use http::{
     header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT},
 };
 use openbridge::{
-    core::{ApiProtocol, ReasoningOutput},
+    core::{ApiProtocol, ReasoningOutput, StructuredOutputMode, ToolChoiceMode},
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
         CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
@@ -363,20 +363,23 @@ fn provider_capability_ceilings_preserve_verified_feature_differences() {
     let mimo = ProviderAdapter::for_kind(ProviderKind::MiMo)
         .contract()
         .capabilities();
-    assert!(
-        mimo.chat_completions
-            .function_tools
-            .is_some_and(|profile| profile.parallel_calls)
-    );
-    assert!(
-        mimo.responses
-            .function_tools
-            .is_some_and(|profile| profile.parallel_calls)
-    );
+    for profile in [
+        mimo.chat_completions.function_tools.unwrap(),
+        mimo.responses.function_tools.unwrap(),
+    ] {
+        assert_eq!(profile.choice_modes, &[ToolChoiceMode::Auto]);
+        assert!(!profile.parallel_calls);
+        assert!(profile.strict_schema);
+    }
     assert!(mimo.chat_completions.image_input.is_some());
     assert!(mimo.responses.image_input.is_some());
-    assert!(mimo.chat_completions.structured_outputs.is_some());
-    assert!(mimo.responses.structured_outputs.is_some());
+    for profile in [
+        mimo.chat_completions.structured_outputs.unwrap(),
+        mimo.responses.structured_outputs.unwrap(),
+    ] {
+        assert_eq!(profile.modes, &[StructuredOutputMode::JsonObject]);
+        assert!(!profile.strict_schema);
+    }
     assert_eq!(
         mimo.chat_completions.reasoning_output,
         ReasoningOutput::PlainText

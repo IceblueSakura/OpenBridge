@@ -28,6 +28,8 @@
   `choices: []` + `usage` object 块，随后等待 `[DONE]` 并产生唯一 `response.completed`；
 - 此前标准 `reasoning_effort: "none"` 与参考 off shape 均让 GLM/Qwen 三个模型的 Chat JSON/SSE reasoning 内容为空；
   当前 high 实现与复测不加载或调用 Hermes，也不发送 Hermes custom 字段。
+- `qwen3.7-text-embedding` 默认维度与官方七个显式维度共 8 个成功请求均返回结构正确的 HTTP 200；OpenBridge 接受并丢弃
+  Bailian 顶层 `id`，保持 Public Model 投影。旧目录中的 `64/128` 已移除并在 egress 前精确拒绝，完整维度矩阵 10/10 通过。
 
 最终矩阵和剩余错误边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
 
@@ -37,5 +39,5 @@
 `Summary`、Chat switch 与 Responses effort 原值；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
 验证既有 usage-only SSE lifecycle。
 
-本轮没有真实复测 Qwen3.7 Native Responses 或 `minimal/low/medium/xhigh/max`，也没有把四个已实测 Target 的 reasoning 事实
+本轮没有真实复测 Qwen3.7 Native Responses 或 `minimal/low/medium/xhigh/max`，也没有把四个已实测 generation Target 的 reasoning 事实
 外推到其他 Bailian Target。确定性测试不证明其他账号、区域、未来 Provider 行为、外部 SDK、负载或长期运行兼容性。

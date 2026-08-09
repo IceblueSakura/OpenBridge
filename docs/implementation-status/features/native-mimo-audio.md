@@ -14,6 +14,8 @@
   `model`、Chat body、顶层 `asr_options`/`modalities`/`audio` 和音频 part 保持原样转发。
 - 四个音频 target 都把 Provider-wide function-tool ceiling 收窄为不支持；扩展 Models 不公开 `tools`、`tool_choice` 或
   `parallel_tool_calls`，带 function tool 的合法音频 task 在 Provider egress 前拒绝。
+- 四个音频 target 同样把 structured outputs 收窄为不支持；`response_format` 不会与 ASR/TTS/VoiceDesign/VoiceClone 媒体任务组合
+  转发，task-valid 请求在 Provider egress 前返回稳定能力错误。
 - ASR profile 只接受一个 user `input_audio`，首批 source 为 data URL/pure Base64，format 为 WAV，language 为 `auto`/`zh`/`en`。
   混入 text、多音频、非 user 角色、Responses audio 或非法 Base64 在 Provider egress 前拒绝。
 - TTS profile 接受一个 assistant 目标文本，可带 user 风格文本；JSON 输出 format 只开放 WAV，streaming Chat audio format 只开放
@@ -49,7 +51,10 @@
 - 2026-08-08 使用本地私有 credential 直连真实 MiMo Provider：ASR 返回语义正确的短 WAV transcript；TTS、VoiceDesign 与
   VoiceClone 均返回可在内存中解码的 RIFF/WAV。四模型携带 `tool_choice: "required"` 的对照请求均返回 `tool_calls: null` 并继续
   原音频任务，因此不构成工具调用支持。完整脱敏矩阵见 [MiMo Provider 状态](../providers/mimo.md)。
-- 最终 Rust 基线：`cargo fmt -- --check`、`cargo test --locked`（55 个单元测试及全部契约测试通过）、
+- 2026-08-09 真实交叉结果确认四个音频模型的 `json_object/json_schema` × JSON/SSE 为 0/16；收窄后 task-valid 同维度 HTTP
+  矩阵 16/16 在本地返回 `unsupported_model_capability`。`mimo_unreliable_tool_and_structured_output_combinations_fail_before_egress`
+  证明这些请求不进入 transport。
+- 最终 Rust 基线：`cargo fmt -- --check`、`cargo test --locked`（64 个单元测试及全部契约测试通过）、
   `cargo clippy --locked -- -D warnings` 和 `git diff --check` 均通过；本专题不把静态/loopback 测试写成真实 Provider 验收。
 
 ## 未覆盖范围

@@ -663,6 +663,7 @@ async fn omitted_fields_resolve_interface_defaults_without_adapter_invention() {
 #[tokio::test]
 async fn bounded_success_response_projects_model_and_preserves_embedding_values() {
     let float_response = SyntheticEmbeddingResponse::json(json!({
+        "id": "emb-bailian-synthetic",
         "object": "list",
         "data": [
             {"object":"embedding","embedding":[0.25,-0.5],"index":0},
@@ -703,6 +704,7 @@ async fn bounded_success_response_projects_model_and_preserves_embedding_values(
     assert_eq!(actual["data"][1]["embedding"], json!([1.25, 2.5]));
     assert_eq!(actual["data"][1]["index"], 1);
     assert_eq!(actual["usage"], json!({"prompt_tokens":7,"total_tokens":7}));
+    assert!(actual.get("id").is_none());
 
     // Preserve an already encoded base64 vector byte-for-byte while projecting only the model.
     let response = app

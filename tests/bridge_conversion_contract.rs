@@ -480,6 +480,55 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
 }
 
 #[test]
+fn responses_message_shorthand_preserves_a_tool_result_round_trip() {
+    // Build a standard stateless Responses continuation whose message items omit the optional type discriminator.
+    let responses_request = serde_json::json!({
+        "model": "public-model",
+        "input": [
+            {"role": "user", "content": "look up the synthetic value"},
+            {"type": "function_call", "id": "fc_lookup", "call_id": "call_lookup", "name": "lookup", "arguments": "{\"key\":\"value\"}"},
+            {"type": "function_call_output", "call_id": "call_lookup", "output": "{\"value\":42}"},
+            {"role": "user", "content": "return DONE"}
+        ],
+        "tools": [{"name": "lookup", "parameters": {"type": "object"}, "type": "function"}],
+        "tool_choice": "none"
+    });
+
+    // Convert the shorthand through the same ledger used by explicit message items.
+    let (_, chat_request) = BridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&responses_request).unwrap()),
+    )
+    .expect("Responses message shorthand should convert to Chat");
+    let chat_request: Value = serde_json::from_slice(chat_request.body()).unwrap();
+    assert_eq!(chat_request["messages"][0]["role"], "user");
+    assert_eq!(
+        chat_request["messages"][1]["tool_calls"][0]["id"],
+        "call_lookup"
+    );
+    assert_eq!(chat_request["messages"][2]["tool_call_id"], "call_lookup");
+    assert_eq!(chat_request["messages"][3]["content"], "return DONE");
+
+    // Keep missing discriminators closed when the object is not exactly the standard shorthand.
+    let ambiguous = Bytes::from_static(
+        br#"{"model":"public-model","input":[{"role":"user","content":"hello","future":true}]}"#,
+    );
+    assert!(
+        BridgePlan::prepare(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            "upstream-model",
+            ambiguous,
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn chat_reasoning_stream_offsets_visible_message_output_index() {
     let (plan, _) = BridgePlan::prepare_with_reasoning_output(
         ApiProtocol::Responses,

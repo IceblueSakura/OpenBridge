@@ -120,6 +120,8 @@ reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只�
 对于已声明支持的普通 `type: "function"` tool：
 
 - 需要保持请求 schema、并行调用顺序、`call_id` / `tool_call_id`、arguments 分片和 tool result 的关联；
+- Responses `input` 中标准 message 可以显式携带 `type: "message"`，也可以使用只包含 `role` 与 `content` 的 shorthand；
+  Responses→Chat Bridge 必须对两种写法采用同一 message 转换，缺失 `type` 且含额外字段的模糊对象仍须拒绝；
 - arguments 在完成前是未可信的字符串，网关不得执行或授权模型返回的工具调用；
 - tool call/result、`item_id`、stream output index 与 request id 是不同身份，不能相互替代。
 

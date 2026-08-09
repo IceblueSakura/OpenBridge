@@ -21,6 +21,8 @@ pub(super) struct EmbeddingResponseError;
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EmbeddingResponseBody {
+    #[serde(default, rename = "id", skip_serializing)]
+    _provider_id: Option<String>,
     object: String,
     data: Vec<EmbeddingData>,
     model: String,

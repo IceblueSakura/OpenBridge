@@ -12,6 +12,8 @@
 - `BridgePlan` 在上游调用前检查可表达性；tool-call identity、fragmented arguments、response/project index 和 Responses terminal 由独立 stream
   state machine 维护。
 - Chat→Responses 与 Responses→Chat 均使用显式的 request converter、stream renderer 和 terminal lifecycle，不把两种协议简单当作字段别名。
+- Responses→Chat 接受显式 `type: "message"` 与只含 `role/content` 的标准 message shorthand；两种写法复用同一 content/role
+  校验和 function call/output ledger，缺失 discriminator 的额外或模糊对象继续 fail closed。
 - Chat→Responses SSE 在成功 `finish_reason` 与 `[DONE]` 之间允许一个严格的 `choices: []` + `usage` object
   统计块；该块不产生业务输出，普通 late chunk、重复 usage、finish 前 usage 和 EOF-before-terminal 仍 fail closed。
 - `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
@@ -38,6 +40,9 @@
 - `bridge_conversion_contract::responses_to_chat_non_stream_drops_completed_opaque_continuation` 覆盖真实 GPT 形状的 output-only opaque
   continuation，以及可读 summary 的保留；`forwarding_contract::chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat`
   覆盖 streaming-only upstream 的完整 buffer 与非流式 Chat JSON 接入。
+- `bridge_conversion_contract::responses_message_shorthand_preserves_a_tool_result_round_trip` 与
+  `example_config::routing::longcat_responses_tool_continuation_prepares_native_and_bridge_candidates` 覆盖 shorthand 转换和 Native-first
+  固定候选计划；2026-08-09 真实 LongCat Responses 非流式 call/result/final-text 续接为 2/2 HTTP 200，最终文本为 `DONE` 且没有重复 tool call。
 - [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
   Responses-via-Chat JSON/SSE，以及五个 GPT ChatGPT-source 模型的 Chat/Responses、stream on/off 与 omitted/high 最终验收结果；
   120 个文字生成单元均达到合法成功终态；同日最新聚焦复测另确认 Kimi Responses-via-Chat 在非默认 `temperature` 下的 JSON/SSE

@@ -17,7 +17,7 @@ use crate::{
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
     &[EmbeddingInputForm::String, EmbeddingInputForm::StringArray];
 const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
-const EMBEDDING_DIMENSIONS: &[u32] = &[64, 128, 256, 512, 768, 1_024, 2_560];
+const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 
 /// Bounded Model Studio Chat, Responses, and Embeddings ceilings confirmed independently of any model-specific target.

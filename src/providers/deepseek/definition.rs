@@ -5,7 +5,7 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities,
+        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -13,6 +13,9 @@ use crate::{
     },
     providers::openai_compatible::OpenAiCompatibleAdapter,
 };
+
+const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
+    &[ToolChoiceMode::None, ToolChoiceMode::Auto];
 
 /// DeepSeek generation capability ceiling; model registration narrows Responses to V4 Flash.
 pub static CONTRACT: ProviderContract = ProviderContract::new(
@@ -44,7 +47,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             enabled: true,
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
+                choice_modes: RESPONSES_TOOL_CHOICE_MODES,
                 parallel_calls: false,
                 strict_schema: false,
             }),

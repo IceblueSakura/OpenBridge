@@ -4,11 +4,10 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities, AudioCapabilities,
-        AudioFormat, AudioInputCapabilities, AudioInputSource, AudioOutputCapabilities, AudioTask,
-        ChatCompletionsCapabilities, FunctionToolCapabilities, ImageInputCapabilities,
-        ImageInputSource, ImageMediaType, ReasoningOutput, ResponsesCapabilities,
-        StructuredOutputProfile,
+        ApiCapabilities, AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
+        AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, FunctionToolCapabilities,
+        ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
+        ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
@@ -54,6 +53,17 @@ const AUDIO_INPUT_FORMATS: &[AudioFormat] = &[
 const AUDIO_OUTPUT_FORMATS: &[AudioFormat] = &[AudioFormat::Wav, AudioFormat::Mp3];
 const AUDIO_STREAMING_FORMATS: &[AudioFormat] = &[AudioFormat::Pcm16];
 const AUDIO_VOICES: &[&str] = &["mimo_default"];
+const TEXT_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[ToolChoiceMode::Auto];
+const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
+const TEXT_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
+    choice_modes: TEXT_TOOL_CHOICE_MODES,
+    parallel_calls: false,
+    strict_schema: true,
+};
+const TEXT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
+    modes: JSON_OBJECT_MODE,
+    strict_schema: false,
+};
 
 const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities {
     sources: AUDIO_INPUT_SOURCES,
@@ -155,16 +165,9 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         chat_completions: ChatCompletionsCapabilities {
             enabled: true,
             streaming: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: true,
-                strict_schema: true,
-            }),
+            function_tools: Some(TEXT_FUNCTION_TOOLS),
             image_input: Some(IMAGE_INPUT),
-            structured_outputs: Some(StructuredOutputProfile {
-                modes: ALL_STRUCTURED_OUTPUT_MODES,
-                strict_schema: true,
-            }),
+            structured_outputs: Some(TEXT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -180,16 +183,9 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
         responses: ResponsesCapabilities {
             enabled: true,
             streaming: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: true,
-                strict_schema: true,
-            }),
+            function_tools: Some(TEXT_FUNCTION_TOOLS),
             image_input: Some(IMAGE_INPUT),
-            structured_outputs: Some(StructuredOutputProfile {
-                modes: ALL_STRUCTURED_OUTPUT_MODES,
-                strict_schema: true,
-            }),
+            structured_outputs: Some(TEXT_STRUCTURED_OUTPUTS),
             store: false,
             previous_response_id: false,
             background: false,

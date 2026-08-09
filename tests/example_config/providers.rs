@@ -111,6 +111,141 @@ fn checked_in_fallback_chains_follow_provider_priority_and_protocol_boundaries()
 }
 
 #[test]
+fn deepseek_flash_responses_exposes_only_proven_tool_choice_modes() {
+    // Compile the checked-in multi-source interface and inspect its downstream contract.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let info = serde_json::to_value(
+        registry
+            .public_model("deepseek-v4-flash")
+            .expect("DeepSeek Flash Public Model must exist")
+            .info(),
+    )
+    .unwrap();
+    assert_eq!(
+        info["interfaces"]["responses"]["tools"]["tool_choice_modes"],
+        serde_json::json!(["none", "auto"])
+    );
+
+    // Admit the two proven modes through every fixed Responses candidate.
+    for choice in [serde_json::json!("none"), serde_json::json!("auto")] {
+        let body = bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "Use the synthetic tool only when allowed.",
+                "tools": [{"type": "function", "name": "report_result", "parameters": {"type": "object"}}],
+                "tool_choice": choice
+            }))
+            .unwrap(),
+        );
+        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+        plan_request(&registry, &profile, body).expect("the proven choice must be plannable");
+    }
+
+    // Reject force-call modes before building any upstream request.
+    for choice in [
+        serde_json::json!("required"),
+        serde_json::json!({"type": "function", "name": "report_result"}),
+    ] {
+        let body = bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "Call the synthetic tool.",
+                "tools": [{"type": "function", "name": "report_result", "parameters": {"type": "object"}}],
+                "tool_choice": choice
+            }))
+            .unwrap(),
+        );
+        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+        assert!(matches!(
+            plan_request(&registry, &profile, body),
+            Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
+        ));
+    }
+}
+
+#[test]
+fn mimo_public_interfaces_expose_only_proven_tool_and_structured_output_profiles() {
+    // Compile the checked-in registry and compare each text model's operation-specific profile.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let model_info = |model_id: &str| {
+        serde_json::to_value(
+            registry
+                .public_model(model_id)
+                .expect("MiMo Public Model must exist")
+                .info(),
+        )
+        .unwrap()
+    };
+    let text_tool_modes = serde_json::json!(["auto"]);
+    let json_object_profile = serde_json::json!({
+        "support": "supported",
+        "modes": ["json_object"],
+        "strict_schema": "unsupported"
+    });
+
+    let v25 = model_info("mimo-v2.5");
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(
+            v25["interfaces"][protocol]["tools"]["tool_choice_modes"],
+            text_tool_modes
+        );
+        assert_eq!(
+            v25["interfaces"][protocol]["tools"]["parallel_calls"],
+            "unsupported"
+        );
+        assert_eq!(
+            v25["interfaces"][protocol]["tools"]["strict_schema"],
+            "supported"
+        );
+        assert_eq!(
+            v25["interfaces"][protocol]["structured_outputs"],
+            json_object_profile
+        );
+    }
+
+    let pro = model_info("mimo-v2.5-pro");
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(
+            pro["interfaces"][protocol]["tools"]["tool_choice_modes"],
+            text_tool_modes
+        );
+        assert_eq!(
+            pro["interfaces"][protocol]["tools"]["parallel_calls"],
+            "unsupported"
+        );
+        assert_eq!(
+            pro["interfaces"][protocol]["tools"]["strict_schema"],
+            "supported"
+        );
+        assert_eq!(
+            pro["interfaces"][protocol]["structured_outputs"],
+            json_object_profile
+        );
+    }
+
+    // Keep structured text constraints out of every task-specific audio interface.
+    for model_id in [
+        "mimo-v2.5-asr",
+        "mimo-v2.5-tts",
+        "mimo-v2.5-tts-voicedesign",
+        "mimo-v2.5-tts-voiceclone",
+    ] {
+        let info = model_info(model_id);
+        assert_eq!(
+            info["interfaces"]["chat_completions"]["structured_outputs"]["support"], "unsupported",
+            "{model_id}"
+        );
+        assert_eq!(
+            info["interfaces"]["chat_completions"]["structured_outputs"]["modes"],
+            serde_json::json!([]),
+            "{model_id}"
+        );
+    }
+}
+
+#[test]
 fn every_advertised_reasoning_level_is_plannable() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");

@@ -93,3 +93,60 @@ fn checked_in_embedding_interfaces_are_private_and_directly_plannable() {
         })
     ));
 }
+
+#[test]
+fn qwen_checked_in_dimension_domain_matches_the_bailian_contract() {
+    // Compile the checked-in registry and assert the exact downstream dimension projection.
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+        .expect("the checked-in bootstrap must remain valid");
+    let registry = build_compiled_registry(bootstrap)
+        .expect("the checked-in Embeddings registrations must compile");
+    let public_model = registry
+        .public_model("qwen3.7-text-embedding")
+        .expect("the Qwen Embeddings Public Model must be discoverable");
+    let info = serde_json::to_value(public_model.info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["embeddings"]["dimensions"],
+        json!({
+            "default": 1024,
+            "allowed": {
+                "kind": "values",
+                "values": [256, 512, 768, 1024, 1536, 2048, 2560]
+            }
+        })
+    );
+
+    // Accept every declared dimension through request preflight.
+    for dimensions in [256, 512, 768, 1_024, 1_536, 2_048, 2_560] {
+        let body = Bytes::from(
+            serde_json::to_vec(&json!({
+                "model": "qwen3.7-text-embedding",
+                "input": "alpha",
+                "dimensions": dimensions
+            }))
+            .unwrap(),
+        );
+        let requirements = analyze_embedding_request(&body).unwrap();
+        let plan = plan_embedding_request(&registry, &requirements, body).unwrap();
+        assert_eq!(plan.dimensions(), dimensions);
+    }
+
+    // Reject dimensions that the former catalog exposed but Bailian does not support.
+    for dimensions in [64, 128] {
+        let body = Bytes::from(
+            serde_json::to_vec(&json!({
+                "model": "qwen3.7-text-embedding",
+                "input": "alpha",
+                "dimensions": dimensions
+            }))
+            .unwrap(),
+        );
+        let requirements = analyze_embedding_request(&body).unwrap();
+        assert!(matches!(
+            plan_embedding_request(&registry, &requirements, body),
+            Err(EmbeddingRequestError::UnsupportedModelCapability {
+                param: "dimensions"
+            })
+        ));
+    }
+}

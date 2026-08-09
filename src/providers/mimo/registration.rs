@@ -102,8 +102,11 @@ fn target(
     // Narrow the Provider audio ceiling and unrelated generation features to the model-specific Chat task.
     capabilities.chat_completions.audio = audio;
     if audio.is_some() {
-        // Dedicated audio models ignore function tools, so their fixed interface must fail closed before egress.
+        // Dedicated audio models ignore tools and cannot combine their media task with structured text output.
         capabilities.chat_completions.function_tools = None;
+        capabilities.chat_completions.structured_outputs = None;
+        capabilities.responses.function_tools = None;
+        capabilities.responses.structured_outputs = None;
     }
 
     let mut upstream_apis = native_upstream_apis(upstream_model, capabilities);
