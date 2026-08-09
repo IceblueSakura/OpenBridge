@@ -11,11 +11,12 @@ use std::{
     sync::Arc,
 };
 
-use crate::config::BootstrapConfig;
+use crate::{config::BootstrapConfig, core::ExecutableAudioProfile};
 
 use super::{
-    CredentialPoolBinding, ModelInfo, ModelMode, ProviderInstance, RegistryConfig, RegistryError,
-    RegistryVersion, Route, RouteMode, RuntimeRegistry, UpstreamApi, UpstreamTarget,
+    CanonicalTaskKind, CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryConfig,
+    RegistryError, RegistryVersion, Route, RouteMode, RuntimeRegistry, UpstreamApi,
+    UpstreamApiCapabilities, UpstreamTarget,
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
@@ -77,15 +78,9 @@ fn build_registry_internal(
             id: id.clone(),
             name: model.name,
             description: model.description,
-            context_length: model.context_length,
-            mode: model.mode,
-            input_modalities: model.input_modalities,
-            output_modalities: model.output_modalities,
             tokenizer: model.tokenizer,
             knowledge_cutoff: model.knowledge_cutoff,
-            supported_parameters: model.supported_parameters,
-            reasoning: model.reasoning,
-            reasoning_levels: model.reasoning_levels,
+            task: model.task,
         };
 
         // Build a unique model index so later targets cannot reference an ambiguous model.
@@ -255,7 +250,7 @@ fn build_registry_internal(
                 return Err(RegistryError::InvalidUpstreamStreamingPolicy {
                     upstream_target: target.id,
                     upstream_operation,
-                    detail: "required streaming needs an enabled generation streaming capability",
+                    detail: "required streaming needs generation streaming support",
                 });
             }
             if upstream_api.streaming_policy.buffers_responses_sse()
@@ -268,7 +263,7 @@ fn build_registry_internal(
                 });
             }
 
-            // Validate the complete Embeddings profile before capability comparison or public projection.
+            // Validate mutable executable operation payloads before Provider ceiling containment.
             if let Some(capabilities) = upstream_api.capabilities.embeddings() {
                 capabilities.validate().map_err(|detail| {
                     RegistryError::InvalidEmbeddingsCapabilities {
@@ -277,12 +272,6 @@ fn build_registry_internal(
                         detail,
                     }
                 })?;
-                if model.mode() != Some(ModelMode::Embedding) {
-                    return Err(RegistryError::EmbeddingsModelTaskMismatch {
-                        upstream_target: target.id,
-                        upstream_operation,
-                    });
-                }
             }
 
             // Require a non-blank model ID for the upstream request; the Provider adapter writes this value into the egress request.
@@ -303,6 +292,9 @@ fn build_registry_internal(
                     upstream_operation,
                 });
             }
+
+            // Reject operation/task/profile mismatches only after Provider ceiling validation.
+            validate_upstream_api_model_task(&target.id, &model, upstream_api.capabilities)?;
 
             // Build the model-rule validation context from the target/operation identity; this string is not a credential key.
             let api_key = format!("{}/{upstream_operation}", target.id);
@@ -362,7 +354,6 @@ fn build_registry_internal(
                 upstream_model: upstream_api.upstream_model,
                 capabilities: upstream_api.capabilities,
                 streaming_policy: upstream_api.streaming_policy,
-                state_affinity: upstream_api.state_affinity,
                 reasoning_level_mappings,
                 ignored_parameters,
             };
@@ -516,9 +507,8 @@ fn build_registry_internal(
                         ),
                     })?;
 
-            // Keep the initial Embeddings execution interface to one statically executable Native candidate.
+            // Keep the initial Embeddings execution interface to one statically selectable Native candidate.
             if target.enabled()
-                && upstream_api.capabilities().enabled()
                 && route.downstream_operation() == crate::core::OperationKind::EmbeddingsCreate
             {
                 embedding_candidates += 1;
@@ -565,5 +555,54 @@ fn build_registry_internal(
         upstream_targets,
         routes,
         public_models,
+    })
+}
+
+/// Validates the closed canonical-task and executable-operation compatibility matrix.
+fn validate_upstream_api_model_task(
+    upstream_target: &str,
+    model: &ModelInfo,
+    capabilities: UpstreamApiCapabilities,
+) -> Result<(), RegistryError> {
+    let compatible = match capabilities {
+        UpstreamApiCapabilities::Embeddings(_) => model.task_kind() == CanonicalTaskKind::Embedding,
+        UpstreamApiCapabilities::Responses(_) => model.task_kind() == CanonicalTaskKind::Generation,
+        UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+            match (model.task_kind(), capabilities.audio) {
+                (CanonicalTaskKind::Generation, None) => true,
+                (
+                    CanonicalTaskKind::Generation,
+                    Some(ExecutableAudioProfile::AudioUnderstanding(_)),
+                ) => {
+                    model
+                        .input_modalities()
+                        .is_some_and(|modalities| modalities.contains(&super::InputModality::Audio))
+                        && model.output_modalities().is_some_and(|modalities| {
+                            modalities.contains(&super::OutputModality::Text)
+                        })
+                }
+                (
+                    CanonicalTaskKind::SpeechRecognition,
+                    Some(ExecutableAudioProfile::SpeechRecognition(_)),
+                )
+                | (
+                    CanonicalTaskKind::SpeechSynthesis,
+                    Some(ExecutableAudioProfile::SpeechSynthesis(_)),
+                )
+                | (CanonicalTaskKind::VoiceDesign, Some(ExecutableAudioProfile::VoiceDesign(_)))
+                | (CanonicalTaskKind::VoiceClone, Some(ExecutableAudioProfile::VoiceClone(_))) => {
+                    true
+                }
+                _ => false,
+            }
+        }
+    };
+    if compatible {
+        return Ok(());
+    }
+    Err(RegistryError::UpstreamApiModelTaskMismatch {
+        upstream_target: upstream_target.to_owned(),
+        upstream_operation: capabilities.operation(),
+        canonical_model: model.id().to_owned(),
     })
 }

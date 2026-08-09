@@ -5,8 +5,10 @@ use std::{path::Path, sync::Arc, time::Duration};
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities,
+        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ApiProtocol, ExecutableResponsesState,
+        FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        ResponsesAffinity, StorageSupport,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
@@ -14,10 +16,11 @@ use openbridge::{
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CredentialPoolConfig, ModelConfig, ModelContextLength, ModelLifecycle,
-        ProviderInstanceConfig, PublicModelConfig, ReasoningSupport, RegistryConfig, RouteConfig,
-        RouteMode, RuntimeRegistry, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig, build_registry,
+        CanonicalModelTask, CredentialPoolConfig, GenerationModelProfile, ModelConfig,
+        ModelContextLength, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
+        ReasoningProfile, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
+        build_registry,
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
@@ -35,6 +38,14 @@ upstream_connect_timeout_ms = 5000
 upstream_pool_idle_timeout_ms = 90000
 upstream_pool_max_idle_per_host = 16
 "#;
+
+/// Returns the generation payload owned by a synthetic canonical Model fixture.
+pub fn generation_profile_mut(model: &mut ModelConfig) -> &mut GenerationModelProfile {
+    match &mut model.task {
+        CanonicalModelTask::Generation(profile) => profile,
+        _ => panic!("the shared synthetic Model must remain a generation task"),
+    }
+}
 
 pub fn bootstrap(document: &str) -> BootstrapConfig {
     parse_bootstrap_config(document).expect("test bootstrap must be valid")
@@ -146,8 +157,7 @@ auth_json_file = "{locator}"
 
 pub fn capabilities() -> ApiCapabilities {
     ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+        chat_completions: Some(ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -167,9 +177,8 @@ pub fn capabilities() -> ApiCapabilities {
             moderation: false,
             logprobs: false,
             multiple_choices: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
+        }),
+        responses: Some(ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -178,8 +187,7 @@ pub fn capabilities() -> ApiCapabilities {
             }),
             image_input: None,
             structured_outputs: None,
-            store: false,
-            previous_response_id: false,
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
@@ -192,8 +200,8 @@ pub fn capabilities() -> ApiCapabilities {
             include: &[],
             moderation: false,
             logprobs: false,
-        },
-        embeddings: Default::default(),
+        }),
+        embeddings: None,
     }
 }
 
@@ -204,15 +212,15 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             id: "openai/test-model".to_owned(),
             name: "Test model".to_owned(),
             description: Some("Model used by integration tests.".to_owned()),
-            context_length: ModelContextLength::new(Some(128_000), None, Some(8_192)),
-            mode: None,
-            input_modalities: None,
-            output_modalities: None,
             tokenizer: None,
             knowledge_cutoff: None,
-            supported_parameters: Vec::new(),
-            reasoning: ReasoningSupport::Unknown,
-            reasoning_levels: Vec::new(),
+            task: CanonicalModelTask::Generation(GenerationModelProfile {
+                context_length: ModelContextLength::new(Some(128_000), None, Some(8_192)),
+                input_modalities: None,
+                output_modalities: None,
+                supported_parameters: Vec::new(),
+                reasoning: ReasoningProfile::Unknown,
+            }),
         }],
         provider_instances: vec![ProviderInstanceConfig {
             id: "openai".to_owned(),
@@ -239,17 +247,26 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     upstream_model: upstream_model.to_owned(),
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::ChatCompletions(
-                        capabilities().chat_completions,
+                        capabilities()
+                            .chat_completions
+                            .expect("the synthetic Provider must expose Chat Completions")
+                            .to_executable(None),
                     ),
                     streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
-                    state_affinity: StateAffinity::Unbound,
                 },
                 UpstreamApiConfig {
                     upstream_model: upstream_model.to_owned(),
                     model_rules: UpstreamApiModelRules::default(),
-                    capabilities: UpstreamApiCapabilities::Responses(capabilities().responses),
+                    capabilities: UpstreamApiCapabilities::Responses(
+                        capabilities()
+                            .responses
+                            .expect("the synthetic Provider must expose Responses")
+                            .to_executable(ExecutableResponsesState::new(
+                                StorageSupport::Unsupported,
+                                ResponsesAffinity::TargetBound,
+                            )),
+                    ),
                     streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
-                    state_affinity: StateAffinity::TargetBound,
                 },
             ],
         }],

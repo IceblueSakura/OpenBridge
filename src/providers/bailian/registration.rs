@@ -3,24 +3,23 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ReasoningOutput, StructuredOutputMode, StructuredOutputProfile},
+    core::{
+        ExecutableResponsesState, ReasoningOutput, ResponsesAffinity, StorageSupport,
+        StructuredOutputProfile,
+    },
     models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const CREDENTIAL_POOL_ID: &str = "bailian-primary";
-const DEEPSEEK_JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
-const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
-    modes: DEEPSEEK_JSON_OBJECT_MODE,
-    strict_schema: false,
-};
+const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -71,12 +70,6 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             ReasoningOutput::Unknown,
         ),
         chat_target(
-            "bailian-qwen-audio-3-0-asr-flash",
-            qwen::qwen_audio_3_0_asr_flash::ID,
-            "qwen-audio-3.0-asr-flash",
-            ReasoningOutput::Unknown,
-        ),
-        chat_target(
             "bailian-qwen3-5-livetranslate-flash-realtime",
             qwen::qwen3_5_livetranslate_flash_realtime::ID,
             "qwen3.5-livetranslate-flash-realtime",
@@ -119,9 +112,14 @@ fn embedding_target() -> UpstreamTargetConfig {
         upstream_apis: vec![UpstreamApiConfig {
             upstream_model: "qwen3.7-text-embedding".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Embeddings(CONTRACT.capabilities().embeddings),
+            capabilities: UpstreamApiCapabilities::Embeddings(
+                DEFINITION
+                    .contract()
+                    .capabilities()
+                    .embeddings
+                    .expect("Bailian embedding targets require Embeddings capabilities"),
+            ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     }
 }
@@ -134,33 +132,43 @@ fn chat_target(
     reasoning_output: ReasoningOutput,
 ) -> UpstreamTargetConfig {
     // Narrow the Provider ceilings to the reasoning output confirmed for this specific model.
-    let mut chat_capabilities = CONTRACT.capabilities().chat_completions;
+    let mut chat_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .chat_completions
+        .expect("Bailian generation targets require Chat Completions capabilities")
+        .to_executable(None);
     chat_capabilities.reasoning_output = reasoning_output;
     chat_capabilities.structured_outputs = matches!(
         canonical_model,
         deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
     )
     .then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
-    let responses_capabilities = CONTRACT.capabilities().responses;
-
     // Bind Chat for every target and Responses only for the documented stable Qwen models.
     let mut upstream_apis = vec![UpstreamApiConfig {
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules::default(),
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
         streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-        state_affinity: StateAffinity::Unbound,
     }];
     if matches!(
         canonical_model,
         qwen::qwen3_8_max::ID | qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
     ) {
+        let responses_capabilities = DEFINITION
+            .contract()
+            .capabilities()
+            .responses
+            .expect("Bailian Qwen targets require Responses capabilities")
+            .to_executable(ExecutableResponsesState::new(
+                StorageSupport::Unsupported,
+                ResponsesAffinity::TargetBound,
+            ));
         upstream_apis.push(UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::TargetBound,
         });
     }
 

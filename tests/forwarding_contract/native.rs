@@ -269,9 +269,8 @@ async fn deepseek_json_object_is_preserved_by_native_and_bridge_egress() {
 #[tokio::test]
 async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::XHigh]);
     for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
         upstream_api.model_rules.reasoning_level_mappings = vec![ReasoningLevelMapping {
             downstream: ReasoningLevel::XHigh,
@@ -316,7 +315,7 @@ async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
 #[tokio::test]
 async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
-    definition.models[0].supported_parameters =
+    support::generation_profile_mut(&mut definition.models[0]).supported_parameters =
         ["logprobs", "n", "seed", "temperature", "top_logprobs"]
             .into_iter()
             .map(str::to_owned)
@@ -340,14 +339,15 @@ async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
     let _ = to_bytes(response.into_body(), 4096).await.unwrap();
 
     // Verify only the selected API's configured keys disappear from the final egress body.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert!(requests[0].body.get("temperature").is_none());
-    assert_eq!(requests[0].body["logprobs"], true);
-    assert_eq!(requests[0].body["n"], 2);
-    assert_eq!(requests[0].body["seed"], 7);
-    assert_eq!(requests[0].body["top_logprobs"], 3);
-    drop(requests);
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].body.get("temperature").is_none());
+        assert_eq!(requests[0].body["logprobs"], true);
+        assert_eq!(requests[0].body["n"], 2);
+        assert_eq!(requests[0].body["seed"], 7);
+        assert_eq!(requests[0].body["top_logprobs"], 3);
+    }
 
     // Keep ignored parameters visible as downstream-accepted interface parameters.
     let model = authenticated_get(&app, "/openbridge/v1/models/public-model").await;
@@ -409,24 +409,25 @@ async fn kimi_k3_drops_documented_fixed_sampling_parameters_before_egress() {
     }
 
     // Remove all fixed Kimi sampling fields while preserving an independently accepted ordinary field.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    for request in requests.iter() {
-        for parameter in [
-            "frequency_penalty",
-            "presence_penalty",
-            "temperature",
-            "top_p",
-        ] {
-            assert!(
-                request.body.get(parameter).is_none(),
-                "unexpected egress parameter {parameter}"
-            );
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            for parameter in [
+                "frequency_penalty",
+                "presence_penalty",
+                "temperature",
+                "top_p",
+            ] {
+                assert!(
+                    request.body.get(parameter).is_none(),
+                    "unexpected egress parameter {parameter}"
+                );
+            }
         }
+        assert_eq!(requests[0].body["seed"], 7);
+        assert!(requests[1].body.get("seed").is_none());
     }
-    assert_eq!(requests[0].body["seed"], 7);
-    assert!(requests[1].body.get("seed").is_none());
-    drop(requests);
 
     // Advertise ignored hints but exclude output-shaping parameters rejected by this API.
     let model = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;

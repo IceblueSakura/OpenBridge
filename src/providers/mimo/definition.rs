@@ -4,20 +4,26 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ApiCapabilities, AudioCapabilities, AudioFormat, AudioInputCapabilities, AudioInputSource,
-        AudioOutputCapabilities, AudioTask, ChatCompletionsCapabilities, FunctionToolCapabilities,
-        ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
-        ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+        AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits, AudioInputSource,
+        AudioUnderstandingProfile, ExecutableAudioProfile, FunctionToolCapabilities,
+        GeneratedAudioCapabilities, ImageDetailPolicy, ImageInputCapabilities, ImageMediaType,
+        ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+        JsonAudioDelivery, JsonAudioFraming, PresetVoiceCapabilities, ProviderAudioCeiling,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits,
+        SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming,
+        StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile, VoiceDesignProfile,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+        take_chat_reasoning_switch,
+    },
 };
 
-const IMAGE_SOURCES: &[ImageInputSource] =
-    &[ImageInputSource::RemoteUrl, ImageInputSource::DataUrl];
 const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
     ImageMediaType::Jpeg,
     ImageMediaType::Png,
@@ -25,18 +31,23 @@ const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
     ImageMediaType::Webp,
     ImageMediaType::Bmp,
 ];
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
-    sources: IMAGE_SOURCES,
-    media_types: IMAGE_MEDIA_TYPES,
-    detail_default: None,
-    allowed_details: &[],
-    max_parts: 64,
-    max_url_length: 8_192,
-    max_inline_encoded_bytes: 50 * 1024 * 1024,
-    max_inline_decoded_bytes: 38 * 1024 * 1024,
-    max_total_inline_encoded_bytes: 50 * 1024 * 1024,
-    max_total_inline_decoded_bytes: 38 * 1024 * 1024,
-};
+const IMAGE_REMOTE_LIMITS: RemoteImageInputLimits = RemoteImageInputLimits::new(8_192);
+const IMAGE_INLINE_LIMITS: InlineImageInputLimits = InlineImageInputLimits::new(
+    50 * 1024 * 1024,
+    38 * 1024 * 1024,
+    50 * 1024 * 1024,
+    38 * 1024 * 1024,
+);
+const IMAGE_INLINE_PROFILE: InlineImageInputProfile =
+    InlineImageInputProfile::new(IMAGE_MEDIA_TYPES, IMAGE_INLINE_LIMITS);
+const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+    64,
+    ImageSourceCapabilities::RemoteUrlAndDataUrl {
+        remote: IMAGE_REMOTE_LIMITS,
+        data: IMAGE_INLINE_PROFILE,
+    },
+    ImageDetailPolicy::OmittedOnly { default: None },
+);
 
 const AUDIO_INPUT_SOURCES: &[AudioInputSource] = &[
     AudioInputSource::RemoteUrl,
@@ -53,117 +64,129 @@ const AUDIO_INPUT_FORMATS: &[AudioFormat] = &[
 const AUDIO_OUTPUT_FORMATS: &[AudioFormat] = &[AudioFormat::Wav, AudioFormat::Mp3];
 const AUDIO_STREAMING_FORMATS: &[AudioFormat] = &[AudioFormat::Pcm16];
 const AUDIO_VOICES: &[&str] = &["mimo_default"];
+const ASR_LANGUAGES: &[AsrLanguage] = &[AsrLanguage::Auto, AsrLanguage::Zh, AsrLanguage::En];
 const TEXT_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[ToolChoiceMode::Auto];
-const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
 const TEXT_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
     choice_modes: TEXT_TOOL_CHOICE_MODES,
     parallel_calls: false,
     strict_schema: true,
 };
-const TEXT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
-    modes: JSON_OBJECT_MODE,
-    strict_schema: false,
-};
+const TEXT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
-const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities {
-    sources: AUDIO_INPUT_SOURCES,
-    formats: AUDIO_INPUT_FORMATS,
-    max_parts: 64,
-    max_url_length: 8_192,
-    max_inline_encoded_bytes: 10 * 1024 * 1024,
-    max_inline_decoded_bytes: 8 * 1024 * 1024,
-    max_total_inline_encoded_bytes: 10 * 1024 * 1024,
-    max_total_inline_decoded_bytes: 8 * 1024 * 1024,
-};
+const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities::new(
+    AUDIO_INPUT_SOURCES,
+    AUDIO_INPUT_FORMATS,
+    AudioInputLimits::new(
+        64,
+        8_192,
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+    ),
+);
 
-const VOICE_CONDITIONING: AudioInputCapabilities = AudioInputCapabilities {
-    sources: &[AudioInputSource::DataUrl],
-    formats: &[AudioFormat::Wav, AudioFormat::Mp3],
-    max_parts: 1,
-    max_url_length: 0,
-    max_inline_encoded_bytes: 10 * 1024 * 1024,
-    max_inline_decoded_bytes: 8 * 1024 * 1024,
-    max_total_inline_encoded_bytes: 10 * 1024 * 1024,
-    max_total_inline_decoded_bytes: 8 * 1024 * 1024,
-};
+const VOICE_CONDITIONING: AudioInputCapabilities = AudioInputCapabilities::new(
+    &[AudioInputSource::DataUrl],
+    &[AudioFormat::Wav, AudioFormat::Mp3],
+    AudioInputLimits::new(
+        1,
+        0,
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+    ),
+);
 
-const AUDIO_OUTPUT: AudioOutputCapabilities = AudioOutputCapabilities {
-    formats: AUDIO_OUTPUT_FORMATS,
-    streaming_formats: AUDIO_STREAMING_FORMATS,
-    voices: AUDIO_VOICES,
-    max_inline_encoded_bytes: 16 * 1024 * 1024,
-    max_inline_decoded_bytes: 12 * 1024 * 1024,
-    max_stream_decoded_bytes: 64 * 1024 * 1024,
-};
+const GENERATED_AUDIO_CEILING: GeneratedAudioCapabilities = GeneratedAudioCapabilities::new(
+    JsonAudioDelivery::new(
+        AUDIO_OUTPUT_FORMATS,
+        16 * 1024 * 1024,
+        12 * 1024 * 1024,
+        JsonAudioFraming::ChatMessageAudioData,
+    ),
+    SseAudioDelivery::new(
+        AUDIO_STREAMING_FORMATS,
+        64 * 1024 * 1024,
+        SseAudioFraming::ChatDeltaAudioData,
+    ),
+);
 
-/// MiMo Provider-wide audio ceiling; each concrete target narrows this to one task profile.
-pub(crate) const AUDIO_CEILING: AudioCapabilities = AudioCapabilities {
-    task: AudioTask::Any,
-    input: Some(AUDIO_INPUT),
-    voice_conditioning: Some(VOICE_CONDITIONING),
-    output: Some(AUDIO_OUTPUT),
-};
+const GENERATED_AUDIO_TARGET: GeneratedAudioCapabilities = GeneratedAudioCapabilities::new(
+    JsonAudioDelivery::new(
+        &[AudioFormat::Wav],
+        16 * 1024 * 1024,
+        12 * 1024 * 1024,
+        JsonAudioFraming::ChatMessageAudioData,
+    ),
+    SseAudioDelivery::new(
+        AUDIO_STREAMING_FORMATS,
+        64 * 1024 * 1024,
+        SseAudioFraming::ChatDeltaAudioData,
+    ),
+);
 
 /// Fixed ASR task profile accepted by the MiMo Chat endpoint.
-pub(crate) const ASR_AUDIO: AudioCapabilities = AudioCapabilities {
-    task: AudioTask::Asr,
-    input: Some(AudioInputCapabilities {
-        sources: &[AudioInputSource::DataUrl, AudioInputSource::Base64],
-        formats: &[AudioFormat::Wav],
-        max_parts: 1,
-        max_url_length: 0,
-        max_inline_encoded_bytes: 10 * 1024 * 1024,
-        max_inline_decoded_bytes: 8 * 1024 * 1024,
-        max_total_inline_encoded_bytes: 10 * 1024 * 1024,
-        max_total_inline_decoded_bytes: 8 * 1024 * 1024,
-    }),
-    voice_conditioning: None,
-    output: None,
-};
+pub(crate) const ASR_AUDIO: ExecutableAudioProfile =
+    ExecutableAudioProfile::SpeechRecognition(SpeechRecognitionProfile::new(
+        AudioInputCapabilities::new(
+            &[AudioInputSource::DataUrl, AudioInputSource::Base64],
+            &[AudioFormat::Wav],
+            AudioInputLimits::new(
+                1,
+                0,
+                10 * 1024 * 1024,
+                8 * 1024 * 1024,
+                10 * 1024 * 1024,
+                8 * 1024 * 1024,
+            ),
+        ),
+        ASR_LANGUAGES,
+    ));
 
 /// Fixed ordinary TTS task profile accepted by the MiMo Chat endpoint.
-pub(crate) const TTS_AUDIO: AudioCapabilities = AudioCapabilities {
-    task: AudioTask::Tts,
-    input: None,
-    voice_conditioning: None,
-    output: Some(AudioOutputCapabilities {
-        formats: &[AudioFormat::Wav],
-        streaming_formats: AUDIO_STREAMING_FORMATS,
-        voices: AUDIO_VOICES,
-        ..AUDIO_OUTPUT
-    }),
-};
+pub(crate) const TTS_AUDIO: ExecutableAudioProfile =
+    ExecutableAudioProfile::SpeechSynthesis(SpeechSynthesisProfile::new(
+        GENERATED_AUDIO_TARGET,
+        PresetVoiceCapabilities::new(AUDIO_VOICES),
+    ));
 
 /// Fixed voice-design task profile; a natural-language voice description is carried in Chat text.
-pub(crate) const VOICE_DESIGN_AUDIO: AudioCapabilities = AudioCapabilities {
-    task: AudioTask::VoiceDesign,
-    input: None,
-    voice_conditioning: None,
-    output: Some(AudioOutputCapabilities {
-        formats: &[AudioFormat::Wav],
-        voices: &[],
-        ..AUDIO_OUTPUT
-    }),
-};
+pub(crate) const VOICE_DESIGN_AUDIO: ExecutableAudioProfile =
+    ExecutableAudioProfile::VoiceDesign(VoiceDesignProfile::new(GENERATED_AUDIO_TARGET));
 
 /// Fixed voice-clone task profile; reference audio is a separate conditioning resource.
-pub(crate) const VOICE_CLONE_AUDIO: AudioCapabilities = AudioCapabilities {
-    task: AudioTask::VoiceClone,
-    input: None,
-    voice_conditioning: Some(VOICE_CONDITIONING),
-    output: Some(AudioOutputCapabilities {
-        formats: &[AudioFormat::Wav],
-        voices: &[],
-        ..AUDIO_OUTPUT
-    }),
-};
+pub(crate) const VOICE_CLONE_AUDIO: ExecutableAudioProfile = ExecutableAudioProfile::VoiceClone(
+    VoiceCloneProfile::new(VOICE_CONDITIONING, GENERATED_AUDIO_TARGET),
+);
 
-/// Confirmed MiMo capability ceiling for Chat Completions and Responses.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::MiMo,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// MiMo Provider-wide audio ceiling with one complete payload per independently supported task.
+const AUDIO_CEILING: ProviderAudioCeiling = ProviderAudioCeiling::new(
+    ExecutableAudioProfile::AudioUnderstanding(AudioUnderstandingProfile::new(AUDIO_INPUT)),
+)
+.with(ExecutableAudioProfile::SpeechRecognition(
+    SpeechRecognitionProfile::new(AUDIO_INPUT, ASR_LANGUAGES),
+))
+.with(ExecutableAudioProfile::SpeechSynthesis(
+    SpeechSynthesisProfile::new(
+        GENERATED_AUDIO_CEILING,
+        PresetVoiceCapabilities::new(AUDIO_VOICES),
+    ),
+))
+.with(ExecutableAudioProfile::VoiceDesign(
+    VoiceDesignProfile::new(GENERATED_AUDIO_CEILING),
+))
+.with(ExecutableAudioProfile::VoiceClone(VoiceCloneProfile::new(
+    VOICE_CONDITIONING,
+    GENERATED_AUDIO_CEILING,
+)));
+
+/// Confirmed MiMo Chat and Responses operation surface.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: Some(TEXT_FUNCTION_TOOLS),
             image_input: Some(IMAGE_INPUT),
@@ -180,14 +203,15 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(TEXT_FUNCTION_TOOLS),
             image_input: Some(IMAGE_INPUT),
             structured_outputs: Some(TEXT_STRUCTURED_OUTPUTS),
-            store: false,
-            previous_response_id: false,
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -201,26 +225,25 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
-    },
-    &[CredentialKind::ApiKey],
+    )),
+    None,
 );
 
 /// Dual-protocol OpenAI-compatible wire profile used by MiMo.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::MiMo,
-    &CONTRACT,
-    Some("/v1/chat/completions"),
-    Some("/v1/responses"),
-    None,
+    API_SURFACE,
     "/v1/models",
     transform_request_headers,
 )
 .with_request_body_hook(transform_request_body);
 
 /// Single static descriptor for the MiMo contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Preserves the dedicated hook boundary for future MiMo ordinary-header transforms.
 fn transform_request_headers(

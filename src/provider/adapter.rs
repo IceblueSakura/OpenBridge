@@ -93,6 +93,13 @@ impl ProviderAdapter {
         }
     }
 
+    /// Returns the Provider kind that owns this closed adapter implementation.
+    pub(crate) const fn kind(&self) -> ProviderKind {
+        match self.implementation {
+            ProviderAdapterImplementation::OpenAiCompatible(adapter) => adapter.kind(),
+        }
+    }
+
     /// Selects an adapter from the Provider kind in the registry.
     pub fn for_kind(kind: ProviderKind) -> Self {
         kind.definition().adapter()
@@ -107,7 +114,7 @@ impl ProviderAdapter {
 
     /// Returns the adapter's static Provider contract.
     pub fn contract(&self) -> &'static ProviderContract {
-        self.openai_compatible().contract()
+        self.kind().contract()
     }
 
     /// Assembles hook output, fixed Provider headers, and sensitive authentication headers.

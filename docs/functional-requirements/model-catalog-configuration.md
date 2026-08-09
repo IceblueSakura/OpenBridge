@@ -30,7 +30,7 @@ Provider 接入按固定优先级暴露成 Public Model。所有变更都通过�
 | 来源                 | 拥有的事实                                                                                                                                      | 明确不拥有的事实                                                                |
 |----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | `config/models.toml` | Canonical Model 事实、Provider-Model binding、真实 upstream model、Public Model 元数据和有序 source                                             | Provider 实现、endpoint、credential、header/wire mapping、任意能力或 Route 定义 |
-| Rust Provider 目录   | 闭合 Provider 与 integration profile、受信 endpoint、credential binding、Native API/保守能力基线、state affinity、固定 Route 生成规则和协议转换 | secret；也不能从远程目录自动发现 Model                                          |
+| Rust Provider 目录   | 闭合 Provider 与 integration profile、受信 endpoint、credential binding、Native API/保守能力基线、typed state ownership、固定 Route 生成规则和协议转换 | secret；也不能从远程目录自动发现 Model                                          |
 | 私有 credential TOML | 下游用户 Key 与已由代码声明的上游 credential pool secret                                                                                        | Model、Provider、endpoint、Route 或能力                                         |
 | 启动构建器           | 校验上述静态输入并生成不可变 registry 和 credential snapshot                                                                                    | listener 启动后的配置变更或动态策略                                             |
 
@@ -162,7 +162,7 @@ Chat 记录出现 `embedding` 子表、Embedding 记录出现 `chat` 子表，�
 
 Provider instance 必须冻结 `ProviderKind` 与唯一 endpoint origin；代码内 integration profile 必须冻结 operation 相对路径、
 credential pool/kind、timeout、quota/fault 边界、每个 `OperationKind` 至多一份的 Native API 集合、受 Provider contract 约束的保守
-能力基线、state affinity，以及可生成的 Native/Bridge Route surface。配置只能引用已注册实例并选择其 family 的 integration
+能力基线、typed state ownership，以及可生成的 Native/Bridge Route surface。配置只能引用已注册实例并选择其 family 的 integration
 profile，不能覆盖上述任一项，也不能扩大 integration profile 或 Canonical Model 能力。
 
 同一个 `upstream_model` 适用于该 integration profile 生成的全部 Native API。可选 `model_rules` 也统一作用于 这些 API，并与

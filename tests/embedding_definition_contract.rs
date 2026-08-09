@@ -9,9 +9,9 @@ use openbridge::{
     },
     provider::ProviderKind,
     registry::{
-        IgnorableGenerationParameter, ModelMode, OutputModality, RegistryError, RouteConfig,
-        RouteMode, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        build_registry,
+        CanonicalModelTask, EmbeddingModelProfile, IgnorableGenerationParameter, InputModality,
+        RegistryError, RouteConfig, RouteMode, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiModelRules, build_registry,
     },
 };
 use serde_json::json;
@@ -34,7 +34,6 @@ const PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
 
 fn embedding_capabilities() -> EmbeddingsCapabilities {
     EmbeddingsCapabilities {
-        enabled: true,
         input_forms: INPUT_FORMS,
         default_encoding: EmbeddingEncoding::Float,
         allowed_encodings: Some(ENCODINGS),
@@ -52,9 +51,11 @@ fn embedding_definition() -> openbridge::registry::RegistryConfig {
     // Reuse the synthetic trusted target while replacing its generation model and API surface.
     let mut definition = definition("embedding-contract", "embedding-test", "embedding-upstream");
     let model = &mut definition.models[0];
-    model.mode = Some(ModelMode::Embedding);
-    model.output_modalities = Some(vec![OutputModality::Embedding]);
-    model.supported_parameters = PARAMETERS.iter().map(|value| (*value).to_owned()).collect();
+    model.task = CanonicalModelTask::Embedding(EmbeddingModelProfile {
+        max_input_tokens: Some(8_192),
+        input_modalities: Some(vec![InputModality::Text]),
+        supported_parameters: PARAMETERS.iter().map(|value| (*value).to_owned()).collect(),
+    });
 
     // Bind one JSON-only Native Embeddings API and Route to the synthetic Public Model.
     definition.upstream_targets[0].upstream_apis = vec![UpstreamApiConfig {
@@ -62,7 +63,6 @@ fn embedding_definition() -> openbridge::registry::RegistryConfig {
         model_rules: UpstreamApiModelRules::default(),
         capabilities: UpstreamApiCapabilities::Embeddings(embedding_capabilities()),
         streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
-        state_affinity: openbridge::registry::StateAffinity::Unbound,
     }];
     definition.routes = vec![RouteConfig {
         id: "public-embeddings".to_owned(),
@@ -223,11 +223,20 @@ fn embedding_compiler_rejects_invalid_closed_contracts() {
 fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
     // Reject a generation canonical model and a Native Route whose operations differ.
     let mut model = embedding_definition();
-    model.models[0].mode = Some(ModelMode::Chat);
-    model.models[0].supported_parameters.clear();
+    model.models[0].task = definition(
+        "generation-contract",
+        "generation-test",
+        "generation-upstream",
+    )
+    .models[0]
+        .task
+        .clone();
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), model),
-        Err(RegistryError::EmbeddingsModelTaskMismatch { .. })
+        Err(RegistryError::UpstreamApiModelTaskMismatch {
+            upstream_operation: OperationKind::EmbeddingsCreate,
+            ..
+        })
     ));
     let mut route = embedding_definition();
     route.routes[0].downstream_operation = OperationKind::Responses;
@@ -240,9 +249,10 @@ fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
 #[test]
 fn embedding_api_rejects_generation_parameter_ignore_rules() {
     let mut definition = embedding_definition();
-    definition.models[0]
-        .supported_parameters
-        .push("temperature".to_owned());
+    let CanonicalModelTask::Embedding(profile) = &mut definition.models[0].task else {
+        panic!("expected Embedding canonical task");
+    };
+    profile.supported_parameters.push("temperature".to_owned());
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
         .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];

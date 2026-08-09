@@ -25,10 +25,9 @@ use openbridge::{
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
     registry::{
-        InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
-        PublicModelConfig, ReasoningSupport, RouteConfig, RouteMode, StateAffinity,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget,
-        UpstreamTargetConfig, build_registry,
+        CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig, ModelLifecycle,
+        PublicModelConfig, RouteConfig, RouteMode, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig, build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -381,18 +380,16 @@ fn embedding_observability_app(
         id: "openai/embedding-observed".to_owned(),
         name: "Observed embedding model".to_owned(),
         description: Some("Synthetic observability contract model.".to_owned()),
-        context_length: ModelContextLength::new(None, Some(8_192), None),
-        mode: Some(ModelMode::Embedding),
-        input_modalities: Some(vec![InputModality::Text]),
-        output_modalities: Some(vec![OutputModality::Embedding]),
         tokenizer: Some("synthetic-tokenizer".to_owned()),
         knowledge_cutoff: None,
-        supported_parameters: OBSERVED_EMBEDDING_PARAMETERS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::Embedding(EmbeddingModelProfile {
+            max_input_tokens: Some(8_192),
+            input_modalities: Some(vec![InputModality::Text]),
+            supported_parameters: OBSERVED_EMBEDDING_PARAMETERS
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+        }),
     });
     definition.upstream_targets.push(UpstreamTargetConfig {
         id: "embedding-observed-target".to_owned(),
@@ -408,7 +405,6 @@ fn embedding_observability_app(
             upstream_model: "embedding-observed-upstream".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(EmbeddingsCapabilities {
-                enabled: true,
                 input_forms: OBSERVED_EMBEDDING_FORMS,
                 default_encoding: EmbeddingEncoding::Float,
                 allowed_encodings: Some(OBSERVED_EMBEDDING_ENCODINGS),
@@ -423,7 +419,6 @@ fn embedding_observability_app(
                 supported_parameters: OBSERVED_EMBEDDING_PARAMETERS,
             }),
             streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     });
     definition.routes.push(RouteConfig {

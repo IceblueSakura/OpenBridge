@@ -13,6 +13,64 @@ use crate::registry::{
     IgnorableGenerationParameter, ModelLifecycleStatus, RouteMode, UpstreamStreamingPolicy,
 };
 
+/// Private identity of the one Target/API allowed to receive an opaque continuation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ContinuationIssuer {
+    upstream_target: String,
+    upstream_operation: OperationKind,
+}
+
+impl ContinuationIssuer {
+    /// Freezes one validated Target/API identity for Public Model continuation aggregation.
+    pub(super) fn new(upstream_target: String, upstream_operation: OperationKind) -> Self {
+        Self {
+            upstream_target,
+            upstream_operation,
+        }
+    }
+
+    /// Returns whether a planning candidate belongs to this exact issuing Target/API.
+    fn matches(&self, upstream_target: &str, upstream_operation: OperationKind) -> bool {
+        self.upstream_target == upstream_target && self.upstream_operation == upstream_operation
+    }
+}
+
+/// Private continuation contract compiled from every candidate behind one downstream interface.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) enum PublicContinuationContract {
+    /// The interface cannot safely accept an opaque Provider-issued response ID.
+    #[default]
+    Unsupported,
+    /// Every candidate resolves continuation to the same issuing Target/API.
+    Supported {
+        /// Unique issuer retained only for preflight and planning invariants.
+        issuer: ContinuationIssuer,
+    },
+}
+
+impl PublicContinuationContract {
+    /// Creates a supported contract after conservative Route aggregation proves one issuer.
+    pub(super) fn supported(issuer: ContinuationIssuer) -> Self {
+        Self::Supported { issuer }
+    }
+
+    /// Returns whether request preflight may accept `previous_response_id`.
+    pub(super) const fn is_supported(&self) -> bool {
+        matches!(self, Self::Supported { .. })
+    }
+
+    /// Returns whether one candidate belongs to the unique compiled continuation issuer.
+    fn candidate_matches(&self, candidate: &RouteExecutionCandidate) -> bool {
+        match self {
+            Self::Unsupported => false,
+            Self::Supported { issuer } => issuer.matches(
+                candidate.upstream_target_id(),
+                candidate.upstream_operation(),
+            ),
+        }
+    }
+}
+
 /// Private execution candidate compiled from one statically executable Route.
 ///
 /// This type is never serialized or exposed by a downstream API. It freezes the Route identity and
@@ -97,6 +155,7 @@ impl RouteExecutionCandidate {
 pub(crate) struct ModelExecutionInterface {
     pub(super) generation_capabilities: Option<ModelInterfaceCapabilities>,
     pub(super) embedding_capabilities: Option<EmbeddingInterfaceCapabilities>,
+    pub(super) continuation: PublicContinuationContract,
     pub(super) candidates: Vec<RouteExecutionCandidate>,
 }
 
@@ -111,6 +170,20 @@ impl ModelExecutionInterface {
     /// Returns the fixed Embeddings contract derived from this interface's single Native candidate.
     pub(crate) const fn embedding_capabilities(&self) -> Option<&EmbeddingInterfaceCapabilities> {
         self.embedding_capabilities.as_ref()
+    }
+
+    /// Returns whether the private compiled contract admits `previous_response_id`.
+    pub(crate) const fn supports_previous_response_id(&self) -> bool {
+        self.continuation.is_supported()
+    }
+
+    /// Confirms that every candidate belongs to the one compiled continuation issuer.
+    pub(crate) fn continuation_candidates_match_issuer(&self) -> bool {
+        self.continuation.is_supported()
+            && self
+                .candidates
+                .iter()
+                .all(|candidate| self.continuation.candidate_matches(candidate))
     }
 
     /// Returns static candidates in their configured priority order.

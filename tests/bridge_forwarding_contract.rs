@@ -22,7 +22,7 @@ use openbridge::{
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
     registry::{
-        ReasoningLevel, ReasoningSupport, RegistryError, RouteConfig, RouteMode, UpstreamTarget,
+        ReasoningLevel, ReasoningProfile, RegistryError, RouteConfig, RouteMode, UpstreamTarget,
         build_registry,
     },
     transport::{
@@ -132,9 +132,8 @@ fn app_with_reasoning_output(
 ) -> axum::Router {
     // Keep only the reverse Bridged Route so a Native candidate cannot mask conversion behavior.
     let mut definition = support::definition("bridge-forward", "public-model", "upstream-model");
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::High];
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::High]);
     let use_deepseek_chat =
         upstream == ApiProtocol::ChatCompletions && reasoning_output == ReasoningOutput::PlainText;
     if use_deepseek_chat {
@@ -559,6 +558,29 @@ async fn production_router_rejects_unbridgeable_requests_before_egress() {
             assert_eq!(error["error"]["code"], "unimplemented_request");
         }
     }
+
+    // Reject a known Native image part because a protocol Bridge contributes no image source.
+    let image_response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.invalid/image.png"}]}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(image_response.status(), StatusCode::BAD_REQUEST);
+    let error: Value = serde_json::from_slice(
+        &to_bytes(image_response.into_body(), 64 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+
     assert!(transport.requests.lock().unwrap().is_empty());
 }
 

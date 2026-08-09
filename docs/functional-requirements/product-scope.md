@@ -112,7 +112,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 
 ## 暂不纳入当前产品承诺
 
-- image、structured output、reasoning、Provider 私有扩展或 continuation 的跨协议转换；
+- image、opaque/未建模 reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
 - 除[ChatGPT subscription OAuth 两阶段范围](upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret

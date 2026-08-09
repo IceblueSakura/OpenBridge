@@ -8,38 +8,59 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde_json::Value;
 use url::{Host, Url};
 
-use crate::core::{ApiProtocol, AudioFormat, AudioInputSource};
+use crate::core::{ApiProtocol, AsrLanguage, AudioFormat, AudioInputSource};
 
 use super::super::super::{
     error::RequestPlanningError,
-    types::{AudioInputRequirements, AudioOutputRequirements},
+    types::{
+        AudioInputRequirements, GeneratedAudioMessageShape, InputAudioMessageShape,
+        RequestedAsrLanguage, RequestedAsrOptions, RequestedAudio, RequestedAudioDelivery,
+        RequestedVoice,
+    },
 };
 
-/// Bounded audio facts returned by the Chat audio analyzer.
-type AudioAnalysis = Result<
-    (
-        Option<AudioInputRequirements>,
-        Option<AudioInputRequirements>,
-        Option<AudioOutputRequirements>,
-    ),
-    RequestPlanningError,
->;
-
-/// Extracts Chat audio input, voice-conditioning, and generated-audio facts.
+/// Extracts one closed Chat audio request shape without assigning a business task.
 pub(super) fn analyze_audio(
     protocol: ApiProtocol,
     object: &serde_json::Map<String, Value>,
-) -> AudioAnalysis {
+) -> Result<Option<RequestedAudio>, RequestPlanningError> {
     if protocol == ApiProtocol::Responses {
-        return Ok((None, None, None));
+        return Ok(None);
     }
 
-    // Parse user input_audio parts and preserve only bounded source/format facts.
+    // Parse resource, control, delivery, and message shapes without consulting a Model or Route.
     let input = analyze_chat_audio_input(object)?;
+    let generated = analyze_chat_audio_output(object)?;
+    let asr_options = analyze_asr_options(object)?;
+    let input_message_shape = classify_input_audio_message_shape(object);
+    let generated_message_shape = classify_generated_audio_message_shape(object);
 
-    // Parse top-level Chat audio output controls and any reference voice condition.
-    let (output, voice_conditioning) = analyze_chat_audio_output(object)?;
-    Ok((input, voice_conditioning, output))
+    // Reject mutually exclusive wire families before preflight interprets their task semantics.
+    match (input, generated, asr_options) {
+        (Some(resources), None, asr_options) => Ok(Some(RequestedAudio::Input {
+            resources,
+            message_shape: input_message_shape,
+            asr_options,
+        })),
+        (None, None, RequestedAsrOptions::Present { language }) => {
+            Ok(Some(RequestedAudio::Input {
+                resources: AudioInputRequirements::default(),
+                message_shape: input_message_shape,
+                asr_options: RequestedAsrOptions::Present { language },
+            }))
+        }
+        (None, None, RequestedAsrOptions::Absent) => Ok(None),
+        (None, Some((delivery, voice)), RequestedAsrOptions::Absent) => {
+            Ok(Some(RequestedAudio::Generated {
+                delivery,
+                message_shape: generated_message_shape,
+                voice,
+            }))
+        }
+        (Some(_), Some(_), _) | (None, Some(_), RequestedAsrOptions::Present { .. }) => {
+            Err(RequestPlanningError::InvalidMultimodalInput)
+        }
+    }
 }
 
 /// Parses `input_audio` parts from Chat user messages.
@@ -52,31 +73,10 @@ fn analyze_chat_audio_input(
     let mut requirements = AudioInputRequirements::default();
     for message in messages {
         let Some(parts) = message.get("content").and_then(Value::as_array) else {
-            if message
-                .get("content")
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty())
-            {
-                requirements.text_part_count = requirements
-                    .text_part_count
-                    .checked_add(1)
-                    .ok_or(RequestPlanningError::MultimodalInputLimitExceeded)?;
-            }
             continue;
         };
         for part in parts {
             if part.get("type").and_then(Value::as_str) != Some("input_audio") {
-                if part.get("type").and_then(Value::as_str) == Some("text")
-                    && part
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .is_some_and(|value| !value.is_empty())
-                {
-                    requirements.text_part_count = requirements
-                        .text_part_count
-                        .checked_add(1)
-                        .ok_or(RequestPlanningError::MultimodalInputLimitExceeded)?;
-                }
                 continue;
             }
             if message.get("role").and_then(Value::as_str) != Some("user") {
@@ -109,13 +109,7 @@ fn analyze_chat_audio_input(
 /// Parses the Chat top-level `modalities` and `audio` output controls.
 fn analyze_chat_audio_output(
     object: &serde_json::Map<String, Value>,
-) -> Result<
-    (
-        Option<AudioOutputRequirements>,
-        Option<AudioInputRequirements>,
-    ),
-    RequestPlanningError,
-> {
+) -> Result<Option<(RequestedAudioDelivery, RequestedVoice)>, RequestPlanningError> {
     let requests_audio_modality = object
         .get("modalities")
         .and_then(Value::as_array)
@@ -128,7 +122,7 @@ fn analyze_chat_audio_output(
         if requests_audio_modality {
             return Err(RequestPlanningError::InvalidMultimodalInput);
         }
-        return Ok((None, None));
+        return Ok(None);
     };
     if !requests_audio_modality {
         return Err(RequestPlanningError::InvalidMultimodalInput);
@@ -141,16 +135,14 @@ fn analyze_chat_audio_output(
         .and_then(Value::as_str)
         .and_then(AudioFormat::from_wire)
         .ok_or(RequestPlanningError::InvalidMultimodalInput)?;
-    let mut voice_conditioning = None;
     let voice = match audio.get("voice").filter(|value| !value.is_null()) {
-        None => None,
+        None => RequestedVoice::Unspecified,
         Some(Value::String(value)) if value.starts_with("data:") => {
             let mut requirements = AudioInputRequirements::default();
             ingest_audio_reference(value, None, &mut requirements)?;
-            voice_conditioning = Some(requirements);
-            None
+            RequestedVoice::ReferenceVoice(requirements)
         }
-        Some(Value::String(value)) if !value.is_empty() => Some(value.to_owned()),
+        Some(Value::String(value)) if !value.is_empty() => RequestedVoice::Preset(value.to_owned()),
         Some(Value::Object(value)) => {
             let data = value
                 .get("data")
@@ -163,42 +155,102 @@ fn analyze_chat_audio_output(
                 .and_then(AudioFormat::from_wire);
             let mut requirements = AudioInputRequirements::default();
             ingest_audio_reference(data, format, &mut requirements)?;
-            voice_conditioning = Some(requirements);
-            None
+            RequestedVoice::ReferenceVoice(requirements)
         }
         Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
     };
-    Ok((
-        Some(AudioOutputRequirements {
-            format,
-            voice,
-            voice_description: has_user_text(object),
-            assistant_text_count: count_assistant_text(object),
-        }),
-        voice_conditioning,
-    ))
+    Ok(Some((RequestedAudioDelivery { format }, voice)))
 }
 
-/// Counts non-empty assistant target-text messages without retaining their content.
-fn count_assistant_text(object: &serde_json::Map<String, Value>) -> u32 {
-    let Some(messages) = object.get("messages").and_then(Value::as_array) else {
-        return 0;
+/// Parses the optional ASR control without deciding whether the selected model is ASR.
+fn analyze_asr_options(
+    object: &serde_json::Map<String, Value>,
+) -> Result<RequestedAsrOptions, RequestPlanningError> {
+    let Some(options) = object.get("asr_options").filter(|value| !value.is_null()) else {
+        return Ok(RequestedAsrOptions::Absent);
     };
-    messages
-        .iter()
-        .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
-        .map(|message| match message.get("content") {
-            Some(Value::String(value)) => u32::from(!value.is_empty()),
-            Some(Value::Array(parts)) => u32::from(parts.iter().any(|part| {
-                part.get("type").and_then(Value::as_str) == Some("text")
-                    && part
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .is_some_and(|value| !value.is_empty())
-            })),
-            _ => 0,
-        })
-        .sum()
+    let options = options
+        .as_object()
+        .ok_or(RequestPlanningError::InvalidMultimodalInput)?;
+    let language = match options.get("language").filter(|value| !value.is_null()) {
+        None => None,
+        Some(Value::String(value)) => Some(match value.as_str() {
+            "auto" => RequestedAsrLanguage::Known(AsrLanguage::Auto),
+            "zh" => RequestedAsrLanguage::Known(AsrLanguage::Zh),
+            "en" => RequestedAsrLanguage::Known(AsrLanguage::En),
+            _ => RequestedAsrLanguage::Unsupported,
+        }),
+        Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
+    };
+    Ok(RequestedAsrOptions::Present { language })
+}
+
+/// Classifies whether the complete envelope is exactly one user audio-only message.
+fn classify_input_audio_message_shape(
+    object: &serde_json::Map<String, Value>,
+) -> InputAudioMessageShape {
+    let Some(messages) = object.get("messages").and_then(Value::as_array) else {
+        return InputAudioMessageShape::GeneralConversation;
+    };
+    let [message] = messages.as_slice() else {
+        return InputAudioMessageShape::GeneralConversation;
+    };
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return InputAudioMessageShape::GeneralConversation;
+    }
+    let Some(parts) = message.get("content").and_then(Value::as_array) else {
+        return InputAudioMessageShape::GeneralConversation;
+    };
+    let [part] = parts.as_slice() else {
+        return InputAudioMessageShape::GeneralConversation;
+    };
+    if part.get("type").and_then(Value::as_str) == Some("input_audio") {
+        InputAudioMessageShape::SingleUserAudioOnly
+    } else {
+        InputAudioMessageShape::GeneralConversation
+    }
+}
+
+/// Classifies the complete envelope into the generated-audio text arrangements supported today.
+fn classify_generated_audio_message_shape(
+    object: &serde_json::Map<String, Value>,
+) -> GeneratedAudioMessageShape {
+    let Some(messages) = object.get("messages").and_then(Value::as_array) else {
+        return GeneratedAudioMessageShape::Other;
+    };
+    match messages.as_slice() {
+        [assistant] if is_text_only_message(assistant, "assistant") => {
+            GeneratedAudioMessageShape::AssistantTextOnly
+        }
+        [user, assistant]
+            if is_text_only_message(user, "user")
+                && is_text_only_message(assistant, "assistant") =>
+        {
+            GeneratedAudioMessageShape::UserTextThenAssistantText
+        }
+        _ => GeneratedAudioMessageShape::Other,
+    }
+}
+
+/// Returns whether one message has the expected role and contains only non-empty text.
+fn is_text_only_message(message: &Value, expected_role: &str) -> bool {
+    if message.get("role").and_then(Value::as_str) != Some(expected_role) {
+        return false;
+    }
+    match message.get("content") {
+        Some(Value::String(value)) => !value.is_empty(),
+        Some(Value::Array(parts)) => {
+            !parts.is_empty()
+                && parts.iter().all(|part| {
+                    part.get("type").and_then(Value::as_str) == Some("text")
+                        && part
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|value| !value.is_empty())
+                })
+        }
+        _ => false,
+    }
 }
 
 /// Records one remote URL, data URL, or pure Base64 audio source.
@@ -390,27 +442,4 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
         || segments[0] & 0xfe00 == 0xfc00
         || segments[0] & 0xffc0 == 0xfe80
         || (segments[0] == 0x2001 && segments[1] == 0x0db8))
-}
-
-/// Detects whether a user message supplies any non-empty text for voice style/design semantics.
-fn has_user_text(object: &serde_json::Map<String, Value>) -> bool {
-    object
-        .get("messages")
-        .and_then(Value::as_array)
-        .is_some_and(|messages| {
-            messages.iter().any(|message| {
-                message.get("role").and_then(Value::as_str) == Some("user")
-                    && match message.get("content") {
-                        Some(Value::String(value)) => !value.is_empty(),
-                        Some(Value::Array(parts)) => parts.iter().any(|part| {
-                            part.get("type").and_then(Value::as_str) == Some("text")
-                                && part
-                                    .get("text")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|text| !text.is_empty())
-                        }),
-                        _ => false,
-                    }
-            })
-        })
 }

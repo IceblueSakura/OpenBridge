@@ -12,25 +12,34 @@ pub use embeddings::{
 };
 pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
-    ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, AudioCapabilities, AudioFormat,
-    AudioInputCapabilities, AudioInputSource, AudioOutputCapabilities, AudioTask,
-    ChatCompletionsCapabilities, FunctionToolCapabilities, HostedToolKind, ImageDetail,
-    ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
-    ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits,
+    AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
+    ChatCompletionsProfile, ExecutableAudioProfile, ExecutableResponsesState,
+    FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
+    ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
+    ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+    JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
+    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+    ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
+    ResponsesAffinity, ResponsesCapabilities, ResponsesProfile, SpeechRecognitionProfile,
+    SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming, StorageSupport,
+    StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
+    VoiceDesignProfile,
 };
 
 /// Protocol-specific capability ceilings for a Provider contract.
 ///
-/// An Upstream API may disable capabilities supported by the Provider contract but cannot enable
-/// unimplemented capabilities. The request path uses a separately precompiled Public Model
-/// contract. Chat Completions, Responses, and Embeddings remain separate so observations from one
-/// operation are not incorrectly applied to another.
+/// A Provider contract omits an unsupported operation profile. A present Upstream API may narrow
+/// capabilities supported by its Provider contract but cannot enable unimplemented capabilities.
+/// The request path uses a separately precompiled Public Model contract. Chat Completions,
+/// Responses, and Embeddings remain separate so observations from one operation are not
+/// incorrectly applied to another.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ApiCapabilities {
-    /// Capability ceiling for the Chat Completions endpoint.
-    pub chat_completions: ChatCompletionsCapabilities,
-    /// Capability ceiling for the Responses endpoint.
-    pub responses: ResponsesCapabilities,
-    /// Capability ceiling for the Embeddings Create operation.
-    pub embeddings: EmbeddingsCapabilities,
+    /// Capability ceiling for Chat Completions, or `None` when the operation is unsupported.
+    pub chat_completions: Option<ProviderChatCompletionsCapabilities>,
+    /// Capability ceiling for Responses, or `None` when the operation is unsupported.
+    pub responses: Option<ProviderResponsesCapabilities>,
+    /// Capability ceiling for Embeddings Create, or `None` when the operation is unsupported.
+    pub embeddings: Option<EmbeddingsCapabilities>,
 }

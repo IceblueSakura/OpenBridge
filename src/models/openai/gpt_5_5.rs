@@ -1,8 +1,8 @@
 //! Complete canonical model facts for OpenAI GPT-5.5 (`openai/gpt-5.5`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for OpenAI GPT-5.5.
@@ -17,22 +17,20 @@ pub(crate) fn config() -> ModelConfig {
             "OpenAI frontier model for complex professional work with strong reasoning and reliability."
                 .to_owned(),
         ),
+        tokenizer: Some("GPT".to_owned()),
+        knowledge_cutoff: Some("2025-12-01".to_owned()),
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
         context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(128_000)),
-        mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![
             InputModality::Text,
             InputModality::Image,
             InputModality::File,
         ]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("GPT".to_owned()),
-        knowledge_cutoff: Some("2025-12-01".to_owned()),
         supported_parameters: [
             "include_reasoning",
             "max_completion_tokens",
             "max_tokens",
-            "reasoning",
-            "reasoning_effort",
             "response_format",
             "seed",
             "structured_outputs",
@@ -42,13 +40,13 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
             .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![
+        reasoning: ReasoningProfile::supported([
             ReasoningLevel::XHigh,
             ReasoningLevel::High,
             ReasoningLevel::Medium,
             ReasoningLevel::Low,
             ReasoningLevel::None,
-        ],
+        ]),
+        }),
     }
 }

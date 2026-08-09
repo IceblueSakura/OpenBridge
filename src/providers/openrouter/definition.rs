@@ -4,29 +4,26 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities, StructuredOutputMode,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
         StructuredOutputProfile,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+    },
 };
 
-const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
-const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
-    modes: JSON_OBJECT_MODE,
-    strict_schema: false,
-};
+const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
-/// Conservative capability ceiling for OpenRouter Chat Completions.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::OpenRouter,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// Conservative stateless Chat and Responses operation surface for OpenRouter.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -47,8 +44,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -57,8 +56,7 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             }),
             image_input: None,
             structured_outputs: Some(STRUCTURED_OUTPUTS),
-            store: false,
-            previous_response_id: false,
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
@@ -72,26 +70,25 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
-    },
-    &[CredentialKind::ApiKey],
+    )),
+    None,
 );
 
 /// Stateless Chat/Responses OpenAI-compatible wire profile used by OpenRouter.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::OpenRouter,
-    &CONTRACT,
-    Some("/chat/completions"),
-    Some("/responses"),
-    None,
+    API_SURFACE,
     "/models",
     transform_request_headers,
 )
 .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the OpenRouter contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Keeps optional OpenRouter attribution and routing headers under explicit compile-time policy.
 fn transform_request_headers(

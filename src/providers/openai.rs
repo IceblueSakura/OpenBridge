@@ -5,6 +5,5 @@
 mod definition;
 mod registration;
 
-pub use definition::CONTRACT;
 pub(crate) use definition::DEFINITION;
-pub use registration::{conservative_openai_capabilities, provider_instance, upstream_targets};
+pub use registration::{provider_instance, upstream_targets};

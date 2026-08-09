@@ -3,23 +3,19 @@
 use std::time::Duration;
 
 use crate::{
-    core::{StructuredOutputMode, StructuredOutputProfile},
+    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport, StructuredOutputProfile},
     models::{deepseek, minimax},
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
-const DEEPSEEK_JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
-const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
-    modes: DEEPSEEK_JSON_OBJECT_MODE,
-    strict_schema: false,
-};
+const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted OpenRouter API deployment used by the checked-in target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -53,11 +49,25 @@ fn dual_protocol_target(
     upstream_model: &str,
 ) -> UpstreamTargetConfig {
     // Narrow the generic OpenRouter ceiling to model-specific DeepSeek JSON Output evidence.
-    let mut capabilities = *CONTRACT.capabilities();
+    let mut chat_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .chat_completions
+        .expect("OpenRouter targets require Chat Completions capabilities")
+        .to_executable(None);
+    let mut responses_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .responses
+        .expect("OpenRouter targets require Responses capabilities")
+        .to_executable(ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::Unbound,
+        ));
     let structured_outputs =
         (canonical_model == deepseek::deepseek_v4_flash::ID).then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
-    capabilities.chat_completions.structured_outputs = structured_outputs;
-    capabilities.responses.structured_outputs = structured_outputs;
+    chat_capabilities.structured_outputs = structured_outputs;
+    responses_capabilities.structured_outputs = structured_outputs;
 
     // Bind the model-specific capabilities to both stateless Native protocol endpoints.
     UpstreamTargetConfig {
@@ -74,18 +84,14 @@ fn dual_protocol_target(
             UpstreamApiConfig {
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
-                capabilities: UpstreamApiCapabilities::ChatCompletions(
-                    capabilities.chat_completions,
-                ),
+                capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-                state_affinity: StateAffinity::Unbound,
             },
             UpstreamApiConfig {
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
-                capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
+                capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-                state_affinity: StateAffinity::Unbound,
             },
         ],
     }

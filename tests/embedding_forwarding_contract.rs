@@ -30,10 +30,10 @@ use openbridge::{
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::{PreparedUpstreamRequest, ProviderKind},
     registry::{
-        InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelMode, OutputModality,
-        PublicModelConfig, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget,
-        UpstreamTargetConfig, build_registry,
+        CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig, ModelLifecycle,
+        PublicModelConfig, RegistryConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig,
+        build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -410,7 +410,6 @@ fn valid_embedding_response(request: &Value) -> SyntheticEmbeddingResponse {
 
 fn embedding_capabilities() -> EmbeddingsCapabilities {
     EmbeddingsCapabilities {
-        enabled: true,
         input_forms: INPUT_FORMS,
         default_encoding: EmbeddingEncoding::Float,
         allowed_encodings: Some(ENCODINGS),
@@ -435,15 +434,13 @@ fn embedding_registry_definition() -> RegistryConfig {
         id: "openai/embedding-test".to_owned(),
         name: "Embedding test model".to_owned(),
         description: Some("Synthetic Embeddings contract model.".to_owned()),
-        context_length: ModelContextLength::new(None, Some(8_192), None),
-        mode: Some(ModelMode::Embedding),
-        input_modalities: Some(vec![InputModality::Text]),
-        output_modalities: Some(vec![OutputModality::Embedding]),
         tokenizer: Some("synthetic-tokenizer".to_owned()),
         knowledge_cutoff: None,
-        supported_parameters: PARAMETERS.iter().map(|value| (*value).to_owned()).collect(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::Embedding(EmbeddingModelProfile {
+            max_input_tokens: Some(8_192),
+            input_modalities: Some(vec![InputModality::Text]),
+            supported_parameters: PARAMETERS.iter().map(|value| (*value).to_owned()).collect(),
+        }),
     });
     definition.upstream_targets.push(UpstreamTargetConfig {
         id: "embedding-target".to_owned(),
@@ -460,7 +457,6 @@ fn embedding_registry_definition() -> RegistryConfig {
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(embedding_capabilities()),
             streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     });
     definition.routes.push(RouteConfig {

@@ -128,6 +128,10 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
     let qwen38_extended_detail =
         compiled_authenticated_get(&compiled, "/openbridge/v1/models/qwen3.8-max").await;
     assert_eq!(&qwen38_extended_detail, qwen38_extended);
+    assert_eq!(
+        qwen38_extended["capabilities"]["tasks"],
+        serde_json::json!(["chat", "text_generation"])
+    );
     let expected_levels =
         serde_json::json!(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
     for interface in ["chat_completions", "responses"] {

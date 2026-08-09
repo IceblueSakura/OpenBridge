@@ -85,10 +85,8 @@ impl EmbeddingDimensionDomain {
 /// The profile contains only fixed request and response guarantees. It does not contain Provider,
 /// endpoint, credential, or Route identity and is projected into an owned public interface by the
 /// registry compiler.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EmbeddingsCapabilities {
-    /// Whether the Embeddings Create operation is enabled.
-    pub enabled: bool,
     /// Accepted non-empty input shapes in deterministic enum order.
     pub input_forms: &'static [EmbeddingInputForm],
     /// Encoding produced when `encoding_format` is omitted.
@@ -112,29 +110,8 @@ pub struct EmbeddingsCapabilities {
 }
 
 impl EmbeddingsCapabilities {
-    /// Creates a disabled Provider or Upstream API capability profile.
-    pub const fn disabled() -> Self {
-        Self {
-            enabled: false,
-            input_forms: &[],
-            default_encoding: EmbeddingEncoding::Float,
-            allowed_encodings: None,
-            default_dimensions: 0,
-            allowed_dimensions: None,
-            max_inputs: 0,
-            max_tokens_per_input: None,
-            max_total_tokens: None,
-            locally_counted_input_forms: &[],
-            supported_parameters: &[],
-        }
-    }
-
     /// Validates closed sets, defaults, domains, limits, and parameter ownership.
     pub(crate) fn validate(self) -> Result<(), &'static str> {
-        if !self.enabled {
-            return Ok(());
-        }
-
         // Validate non-empty deterministic input and explicit-encoding domains.
         if !is_strictly_sorted(self.input_forms) {
             return Err("input_forms must be non-empty, unique, and ordered");
@@ -222,14 +199,10 @@ impl EmbeddingsCapabilities {
 
     /// Returns whether this API profile stays within a Provider capability ceiling.
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
-        if !self.enabled {
-            return true;
-        }
-        if !upper.enabled
-            || self
-                .input_forms
-                .iter()
-                .any(|form| !upper.input_forms.contains(form))
+        if self
+            .input_forms
+            .iter()
+            .any(|form| !upper.input_forms.contains(form))
             || !encoding_supported_by(upper, self.default_encoding)
             || !dimension_supported_by(upper, self.default_dimensions)
             || !limit_is_subset(self.max_inputs, upper.max_inputs)

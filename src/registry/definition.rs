@@ -46,6 +46,95 @@ pub enum ReasoningLevel {
     Max,
 }
 
+/// Ordered, duplicate-free reasoning levels confirmed for one canonical Model.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReasoningLevels {
+    values: Vec<ReasoningLevel>,
+}
+
+impl ReasoningLevels {
+    /// Builds a stable set while preserving the first occurrence of each level.
+    pub fn new(levels: impl IntoIterator<Item = ReasoningLevel>) -> Self {
+        let mut values = Vec::new();
+        for level in levels {
+            if !values.contains(&level) {
+                values.push(level);
+            }
+        }
+        Self { values }
+    }
+
+    /// Returns the confirmed levels in their canonical catalog order.
+    pub fn as_slice(&self) -> &[ReasoningLevel] {
+        &self.values
+    }
+
+    /// Returns whether no configurable reasoning level is publicly confirmed.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Returns whether every level in this set is present in the supplied ceiling.
+    fn is_subset_of(&self, upper: &Self) -> bool {
+        self.values.iter().all(|level| upper.values.contains(level))
+    }
+}
+
+/// Canonical reasoning evidence and the levels that may be selected downstream.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum ReasoningProfile {
+    /// The configuration lacks enough evidence to determine reasoning support.
+    #[default]
+    Unknown,
+    /// The model explicitly does not support reasoning.
+    Unsupported,
+    /// The model supports reasoning with the listed confirmed control levels.
+    Supported {
+        /// Ordered, duplicate-free levels; an empty set means no selectable level is confirmed.
+        levels: ReasoningLevels,
+    },
+}
+
+impl ReasoningProfile {
+    /// Builds a supported profile from an ordered set of confirmed levels.
+    pub fn supported(levels: impl IntoIterator<Item = ReasoningLevel>) -> Self {
+        Self::Supported {
+            levels: ReasoningLevels::new(levels),
+        }
+    }
+
+    /// Returns the public three-state support projection without duplicating stored state.
+    pub const fn support(&self) -> ReasoningSupport {
+        match self {
+            Self::Unknown => ReasoningSupport::Unknown,
+            Self::Unsupported => ReasoningSupport::Unsupported,
+            Self::Supported { .. } => ReasoningSupport::Supported,
+        }
+    }
+
+    /// Returns the confirmed selectable levels, or an empty slice when none are available.
+    pub fn levels(&self) -> &[ReasoningLevel] {
+        match self {
+            Self::Supported { levels } => levels.as_slice(),
+            Self::Unknown | Self::Unsupported => &[],
+        }
+    }
+
+    /// Returns whether this profile is no broader than the supplied canonical ceiling.
+    pub(crate) fn is_subset_of(&self, upper: &Self) -> bool {
+        match (self, upper) {
+            (Self::Unsupported, _) | (Self::Unknown, Self::Unknown | Self::Supported { .. }) => {
+                true
+            }
+            (Self::Supported { levels }, Self::Supported { levels: upper }) => {
+                levels.is_subset_of(upper)
+            }
+            (Self::Unknown | Self::Supported { .. }, Self::Unsupported)
+            | (Self::Supported { .. }, Self::Unknown) => false,
+        }
+    }
+}
+
 impl ReasoningLevel {
     /// Parses a protocol wire string into a catalog enum.
     pub fn from_wire(value: &str) -> Option<Self> {
@@ -159,21 +248,6 @@ impl ModelContextLength {
     }
 }
 
-/// Task mode of a canonical Model.
-///
-/// OpenBridge currently registers only `Chat` models for Chat Completions/Responses generation.
-/// This enum reserves a position for future model-information projection and is not used in registry
-/// capability calculations.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelMode {
-    /// Conversational text or multimodal generation model.
-    Chat,
-    /// Model that maps supported inputs to embedding vectors.
-    Embedding,
-}
-
 /// Input modalities accepted by a canonical Model.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -206,6 +280,190 @@ pub enum OutputModality {
     Embedding,
 }
 
+/// Payload-free identity of one canonical Model task.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanonicalTaskKind {
+    /// General text or multimodal generation.
+    Generation,
+    /// Embedding-vector generation.
+    Embedding,
+    /// Speech audio transcription.
+    SpeechRecognition,
+    /// Ordinary text-to-speech synthesis.
+    SpeechSynthesis,
+    /// Speech synthesis from a natural-language voice description.
+    VoiceDesign,
+    /// Speech synthesis conditioned on a reference voice recording.
+    VoiceClone,
+}
+
+/// Canonical facts owned only by a general generation task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GenerationModelProfile {
+    /// Combined input/output token limits confirmed for the model.
+    pub context_length: ModelContextLength,
+    /// Confirmed input modalities; `None` means unknown.
+    pub input_modalities: Option<Vec<InputModality>>,
+    /// Confirmed output modalities; `None` means unknown.
+    pub output_modalities: Option<Vec<OutputModality>>,
+    /// Ordinary model parameters, excluding protocol-specific reasoning aliases.
+    pub supported_parameters: Vec<String>,
+    /// Canonical model reasoning evidence and selectable levels.
+    pub reasoning: ReasoningProfile,
+}
+
+/// Canonical facts owned only by an Embeddings task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmbeddingModelProfile {
+    /// Maximum tokens accepted as embedding input; `None` means unknown.
+    pub max_input_tokens: Option<u32>,
+    /// Confirmed embedding input modalities; `None` means unknown.
+    pub input_modalities: Option<Vec<InputModality>>,
+    /// Embeddings request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
+/// Canonical facts owned only by a speech-recognition task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpeechRecognitionModelProfile {
+    /// Token limits published for the Chat-native transcript envelope.
+    pub context_length: ModelContextLength,
+    /// ASR-specific request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
+/// Canonical facts owned only by an ordinary speech-synthesis task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpeechSynthesisModelProfile {
+    /// Token limits published for the Chat-native synthesis envelope.
+    pub context_length: ModelContextLength,
+    /// TTS-specific request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
+/// Canonical facts owned only by a voice-design task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoiceDesignModelProfile {
+    /// Token limits published for the Chat-native voice-design envelope.
+    pub context_length: ModelContextLength,
+    /// Voice-design-specific request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
+/// Canonical facts owned only by a reference-voice cloning task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoiceCloneModelProfile {
+    /// Token limits published for the Chat-native voice-clone envelope.
+    pub context_length: ModelContextLength,
+    /// Voice-clone-specific request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
+/// Closed canonical task union whose variant owns every task-specific model fact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CanonicalModelTask {
+    /// General text or multimodal generation facts.
+    Generation(GenerationModelProfile),
+    /// Embedding-vector generation facts.
+    Embedding(EmbeddingModelProfile),
+    /// Speech-recognition facts.
+    SpeechRecognition(SpeechRecognitionModelProfile),
+    /// Ordinary speech-synthesis facts.
+    SpeechSynthesis(SpeechSynthesisModelProfile),
+    /// Voice-design synthesis facts.
+    VoiceDesign(VoiceDesignModelProfile),
+    /// Reference-voice cloning facts.
+    VoiceClone(VoiceCloneModelProfile),
+}
+
+impl CanonicalModelTask {
+    /// Returns the payload-free task identity used by registry compatibility gates.
+    pub const fn kind(&self) -> CanonicalTaskKind {
+        match self {
+            Self::Generation(_) => CanonicalTaskKind::Generation,
+            Self::Embedding(_) => CanonicalTaskKind::Embedding,
+            Self::SpeechRecognition(_) => CanonicalTaskKind::SpeechRecognition,
+            Self::SpeechSynthesis(_) => CanonicalTaskKind::SpeechSynthesis,
+            Self::VoiceDesign(_) => CanonicalTaskKind::VoiceDesign,
+            Self::VoiceClone(_) => CanonicalTaskKind::VoiceClone,
+        }
+    }
+
+    /// Returns the context or input-token limits owned by this task variant.
+    pub const fn context_length(&self) -> ModelContextLength {
+        match self {
+            Self::Generation(profile) => profile.context_length,
+            Self::Embedding(profile) => {
+                ModelContextLength::new(profile.max_input_tokens, profile.max_input_tokens, None)
+            }
+            Self::SpeechRecognition(profile) => profile.context_length,
+            Self::SpeechSynthesis(profile) => profile.context_length,
+            Self::VoiceDesign(profile) => profile.context_length,
+            Self::VoiceClone(profile) => profile.context_length,
+        }
+    }
+
+    /// Returns confirmed input modalities, deriving fixed task semantics where applicable.
+    pub fn input_modalities(&self) -> Option<&[InputModality]> {
+        match self {
+            Self::Generation(profile) => profile.input_modalities.as_deref(),
+            Self::Embedding(profile) => profile.input_modalities.as_deref(),
+            Self::SpeechRecognition(_) => Some(&[InputModality::Audio]),
+            Self::SpeechSynthesis(_) | Self::VoiceDesign(_) => Some(&[InputModality::Text]),
+            Self::VoiceClone(_) => Some(&[InputModality::Audio, InputModality::Text]),
+        }
+    }
+
+    /// Returns confirmed output modalities, deriving fixed task semantics where applicable.
+    pub fn output_modalities(&self) -> Option<&[OutputModality]> {
+        match self {
+            Self::Generation(profile) => profile.output_modalities.as_deref(),
+            Self::Embedding(_) => Some(&[OutputModality::Embedding]),
+            Self::SpeechRecognition(_) => Some(&[OutputModality::Text]),
+            Self::SpeechSynthesis(_) | Self::VoiceDesign(_) | Self::VoiceClone(_) => {
+                Some(&[OutputModality::Audio])
+            }
+        }
+    }
+
+    /// Returns the ordinary or task-specific parameters owned by this variant.
+    pub fn supported_parameters(&self) -> &[String] {
+        match self {
+            Self::Generation(profile) => &profile.supported_parameters,
+            Self::Embedding(profile) => &profile.supported_parameters,
+            Self::SpeechRecognition(profile) => &profile.supported_parameters,
+            Self::SpeechSynthesis(profile) => &profile.supported_parameters,
+            Self::VoiceDesign(profile) => &profile.supported_parameters,
+            Self::VoiceClone(profile) => &profile.supported_parameters,
+        }
+    }
+
+    /// Returns canonical reasoning support, deriving unsupported for non-generation tasks.
+    pub const fn reasoning_support(&self) -> ReasoningSupport {
+        match self {
+            Self::Generation(profile) => profile.reasoning.support(),
+            Self::Embedding(_)
+            | Self::SpeechRecognition(_)
+            | Self::SpeechSynthesis(_)
+            | Self::VoiceDesign(_)
+            | Self::VoiceClone(_) => ReasoningSupport::Unsupported,
+        }
+    }
+
+    /// Returns confirmed reasoning levels for a generation task.
+    pub fn reasoning_levels(&self) -> &[ReasoningLevel] {
+        match self {
+            Self::Generation(profile) => profile.reasoning.levels(),
+            Self::Embedding(_)
+            | Self::SpeechRecognition(_)
+            | Self::SpeechSynthesis(_)
+            | Self::VoiceDesign(_)
+            | Self::VoiceClone(_) => &[],
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Provider-independent canonical model facts.
 pub struct ModelConfig {
@@ -215,24 +473,39 @@ pub struct ModelConfig {
     pub name: String,
     /// Optional model description.
     pub description: Option<String>,
-    /// Context length declared by the model.
-    pub context_length: ModelContextLength,
-    /// Confirmed model task mode; `None` means the definition has no evidence.
-    pub mode: Option<ModelMode>,
-    /// Confirmed input modalities; `None` means unknown, not an empty set or explicit rejection.
-    pub input_modalities: Option<Vec<InputModality>>,
-    /// Confirmed output modalities; `None` means unknown, not an empty set or explicit rejection.
-    pub output_modalities: Option<Vec<OutputModality>>,
     /// Tokenizer identifier published by the model catalog; `None` means unknown.
     pub tokenizer: Option<String>,
     /// Knowledge-cutoff date published by the model catalog; `None` means unknown.
     pub knowledge_cutoff: Option<String>,
-    /// OpenAI-compatible parameter names supported by the model.
-    pub supported_parameters: Vec<String>,
-    /// Model reasoning support state.
-    pub reasoning: ReasoningSupport,
-    /// Reasoning levels accepted by the model.
-    pub reasoning_levels: Vec<ReasoningLevel>,
+    /// Required task identity and every fact whose meaning depends on that task.
+    pub task: CanonicalModelTask,
+}
+
+impl ModelConfig {
+    /// Returns the payload-free canonical task identity.
+    pub const fn task_kind(&self) -> CanonicalTaskKind {
+        self.task.kind()
+    }
+
+    /// Returns the context or input-token limits owned by the task payload.
+    pub const fn context_length(&self) -> ModelContextLength {
+        self.task.context_length()
+    }
+
+    /// Returns confirmed input modalities derived from the task payload.
+    pub fn input_modalities(&self) -> Option<&[InputModality]> {
+        self.task.input_modalities()
+    }
+
+    /// Returns confirmed output modalities derived from the task payload.
+    pub fn output_modalities(&self) -> Option<&[OutputModality]> {
+        self.task.output_modalities()
+    }
+
+    /// Returns ordinary or task-specific parameters without reasoning protocol aliases.
+    pub fn supported_parameters(&self) -> &[String] {
+        self.task.supported_parameters()
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -240,8 +513,8 @@ pub struct ModelConfig {
 pub struct UpstreamApiModelRules {
     /// Context length the Upstream API may narrow further.
     pub context_length: ModelContextLength,
-    /// Reasoning state the Upstream API may narrow further.
-    pub reasoning: Option<ReasoningSupport>,
+    /// Canonical reasoning profile the Upstream API may narrow further.
+    pub reasoning: Option<ReasoningProfile>,
     /// Parameter names the Upstream API disables but cannot add.
     pub disabled_parameters: Vec<String>,
     /// Ordinary downstream parameters accepted by OpenBridge but omitted from upstream egress.
@@ -273,7 +546,10 @@ pub struct ProviderInstanceConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Upstream API capability configuration bound to a concrete protocol.
+/// Upstream API capability configuration bound to one present, executable operation.
+///
+/// An unsupported operation is omitted from the Target API list instead of being represented by a
+/// disabled capability payload.
 pub enum UpstreamApiCapabilities {
     /// Chat Completions endpoint capabilities.
     ChatCompletions(ChatCompletionsCapabilities),
@@ -335,31 +611,17 @@ impl UpstreamApiCapabilities {
 
     pub(super) fn is_subset_of(self, upper: ApiCapabilities) -> bool {
         match self {
-            Self::ChatCompletions(capabilities) => {
-                capabilities.is_subset_of(upper.chat_completions)
-            }
-            Self::Responses(capabilities) => capabilities.is_subset_of(upper.responses),
-            Self::Embeddings(capabilities) => capabilities.is_subset_of(upper.embeddings),
+            Self::ChatCompletions(capabilities) => upper
+                .chat_completions
+                .is_some_and(|upper| capabilities.is_subset_of(upper)),
+            Self::Responses(capabilities) => upper
+                .responses
+                .is_some_and(|upper| capabilities.is_subset_of(upper)),
+            Self::Embeddings(capabilities) => upper
+                .embeddings
+                .is_some_and(|upper| capabilities.is_subset_of(upper)),
         }
     }
-
-    /// Returns whether this capability profile is statically enabled.
-    pub(crate) const fn enabled(self) -> bool {
-        match self {
-            Self::ChatCompletions(capabilities) => capabilities.enabled,
-            Self::Responses(capabilities) => capabilities.enabled,
-            Self::Embeddings(capabilities) => capabilities.enabled,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Ownership scope for Provider-issued continuation state.
-pub enum StateAffinity {
-    /// The request carries no state that requires a fixed target.
-    Unbound,
-    /// State is bound to the current Upstream Target; cross-target fallback is forbidden.
-    TargetBound,
 }
 
 /// Conversion policy for a downstream non-streaming request when an Upstream API requires SSE.
@@ -422,8 +684,6 @@ pub struct UpstreamApiConfig {
     pub capabilities: UpstreamApiCapabilities,
     /// Upstream streaming requirement and optional downstream non-streaming conversion.
     pub streaming_policy: UpstreamStreamingPolicy,
-    /// Continuation/state ownership policy.
-    pub state_affinity: StateAffinity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

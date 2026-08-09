@@ -35,7 +35,7 @@ impl CredentialStore {
         &self,
         registry: &RuntimeRegistry,
     ) -> Result<(), CredentialStoreError> {
-        // Continuations cannot be safely replayed across keys, so the corresponding pool must have exactly one member.
+        // Continuations cannot be replayed across keys, so the corresponding pool may load at most one member.
         for pool_id in registry.credential_pool_ids() {
             if !registry.credential_pool_requires_single_member(pool_id) {
                 continue;

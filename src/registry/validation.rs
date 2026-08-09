@@ -7,8 +7,9 @@ use url::Url;
 use crate::core::GenerationRequestField;
 
 use super::{
-    ModelConfig, ModelContextLength, ModelInfo, ModelLifecycleStatus, ModelMode, PublicModelConfig,
-    ReasoningLevel, ReasoningLevelMapping, ReasoningSupport, RegistryError, UpstreamApiModelRules,
+    CanonicalModelTask, CanonicalTaskKind, ModelConfig, ModelContextLength, ModelInfo,
+    ModelLifecycleStatus, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
+    ReasoningSupport, RegistryError, UpstreamApiModelRules,
 };
 
 /// Validates canonical-model fields, parameter names, and reasoning configuration.
@@ -46,21 +47,13 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
         }
     }
     // Validate that explicit model modalities are non-empty, duplicate-free known facts.
-    validate_model_modalities(
-        &model.id,
-        "input_modalities",
-        model.input_modalities.as_deref(),
-    )?;
-    validate_model_modalities(
-        &model.id,
-        "output_modalities",
-        model.output_modalities.as_deref(),
-    )?;
+    validate_model_modalities(&model.id, "input_modalities", model.input_modalities())?;
+    validate_model_modalities(&model.id, "output_modalities", model.output_modalities())?;
     // Validate that known context limits are positive.
     for (limit, value) in [
-        ("context", model.context_length.context_tokens()),
-        ("input", model.context_length.input_tokens()),
-        ("output", model.context_length.output_tokens()),
+        ("context", model.context_length().context_tokens()),
+        ("input", model.context_length().input_tokens()),
+        ("output", model.context_length().output_tokens()),
     ] {
         if value == Some(0) {
             return Err(RegistryError::InvalidModelContextLength {
@@ -69,26 +62,31 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
-    if model.context_length.input_tokens().is_some_and(|input| {
+    if model.context_length().input_tokens().is_some_and(|input| {
         model
-            .context_length
+            .context_length()
             .context_tokens()
             .is_some_and(|context| input > context)
-    }) || model.context_length.output_tokens().is_some_and(|output| {
-        model
-            .context_length
-            .context_tokens()
-            .is_some_and(|context| output > context)
-    }) {
+    }) || model
+        .context_length()
+        .output_tokens()
+        .is_some_and(|output| {
+            model
+                .context_length()
+                .context_tokens()
+                .is_some_and(|context| output > context)
+        })
+    {
         return Err(RegistryError::InconsistentModelContextLength {
             model: model.id.clone(),
         });
     }
     // Validate supported parameter-name format and uniqueness.
     let mut seen = BTreeSet::new();
-    for parameter in &model.supported_parameters {
+    for parameter in model.supported_parameters() {
         if !is_valid_parameter_name(parameter)
-            || model.mode != Some(ModelMode::Embedding)
+            || matches!(parameter.as_str(), "reasoning" | "reasoning_effort")
+            || model.task_kind() != CanonicalTaskKind::Embedding
                 && GenerationRequestField::from_model_parameter(parameter).is_none()
         {
             return Err(RegistryError::InvalidSupportedParameter {
@@ -103,10 +101,7 @@ pub(super) fn validate_model_config(model: &ModelConfig) -> Result<(), RegistryE
             });
         }
     }
-    // Validate consistency among reasoning state, parameter declarations, and levels.
-    validate_reasoning_config(&model.id, &model.supported_parameters, model.reasoning).and_then(
-        |()| validate_reasoning_levels(&model.id, model.reasoning, &model.reasoning_levels),
-    )
+    Ok(())
 }
 
 /// Validates a model identity used by the definition or routing layer.
@@ -217,85 +212,73 @@ pub(super) fn validate_public_model_config(model: &PublicModelConfig) -> Result<
     Ok(())
 }
 
-/// Validates that reasoning levels appear only in the supported state and are unique.
-fn validate_reasoning_levels(
-    model: &str,
-    reasoning: ReasoningSupport,
-    levels: &[ReasoningLevel],
-) -> Result<(), RegistryError> {
-    if reasoning != ReasoningSupport::Supported && !levels.is_empty() {
-        return Err(RegistryError::InconsistentReasoningConfig {
-            model: model.to_owned(),
-            detail: "reasoning levels require reasoning = supported",
-        });
-    }
-    let mut seen = BTreeSet::new();
-    if levels.iter().any(|level| !seen.insert(*level)) {
-        return Err(RegistryError::InconsistentReasoningConfig {
-            model: model.to_owned(),
-            detail: "reasoning levels must not contain duplicates",
-        });
-    }
-    Ok(())
-}
-
-/// Validates consistency between reasoning state and the model's supported-parameter set.
-fn validate_reasoning_config(
-    model: &str,
-    parameters: &[String],
-    reasoning: ReasoningSupport,
-) -> Result<(), RegistryError> {
-    let declared = parameters.iter().any(|parameter| parameter == "reasoning");
-    match (reasoning, declared) {
-        (ReasoningSupport::Supported, false) => Err(RegistryError::InconsistentReasoningConfig {
-            model: model.to_owned(),
-            detail: "reasoning = supported requires supported_parameters to include reasoning",
-        }),
-        (ReasoningSupport::Unsupported, true) => Err(RegistryError::InconsistentReasoningConfig {
-            model: model.to_owned(),
-            detail: "reasoning = unsupported conflicts with supported_parameters",
-        }),
-        _ => Ok(()),
-    }
-}
-
 /// Applies Upstream API narrowing rules to canonical model facts.
 pub(super) fn apply_model_rules(
-    model: ModelInfo,
+    mut model: ModelInfo,
     upstream_api: &str,
     rules: UpstreamApiModelRules,
 ) -> Result<ModelInfo, RegistryError> {
+    let UpstreamApiModelRules {
+        context_length: rule_context,
+        reasoning: rule_reasoning,
+        disabled_parameters,
+        ignored_parameters,
+        reasoning_level_mappings: _,
+    } = rules;
+
     // First verify that context rules do not expand the canonical model ceiling.
     validate_model_limit(
         upstream_api,
         "context_length.context",
-        model.context_length.context_tokens(),
-        rules.context_length.context_tokens(),
+        model.context_length().context_tokens(),
+        rule_context.context_tokens(),
     )?;
     validate_model_limit(
         upstream_api,
         "context_length.input",
-        model.context_length.input_tokens(),
-        rules.context_length.input_tokens(),
+        model.context_length().input_tokens(),
+        rule_context.input_tokens(),
     )?;
     validate_model_limit(
         upstream_api,
         "context_length.output",
-        model.context_length.output_tokens(),
-        rules.context_length.output_tokens(),
+        model.context_length().output_tokens(),
+        rule_context.output_tokens(),
     )?;
-    // Compute the narrowed reasoning state and reject capability expansion.
-    let reasoning = rules.reasoning.unwrap_or(model.reasoning);
-    if reasoning_rank(reasoning) > reasoning_rank(model.reasoning) {
-        return Err(RegistryError::UpstreamApiModelRuleWidensModel {
+
+    // Keep Embeddings model rules within their input-only token domain.
+    if model.task_kind() == CanonicalTaskKind::Embedding && rule_context.output_tokens().is_some() {
+        return Err(RegistryError::InconsistentUpstreamApiModelRules {
             upstream_api: upstream_api.to_owned(),
-            field: "reasoning",
+            detail: "embedding model rules cannot declare an output-token limit",
         });
     }
+
+    // Narrow canonical reasoning only inside the Generation variant.
+    let effective_reasoning = match (&model.task, rule_reasoning) {
+        (CanonicalModelTask::Generation(profile), Some(reasoning)) => {
+            if !reasoning.is_subset_of(&profile.reasoning) {
+                return Err(RegistryError::UpstreamApiModelRuleWidensModel {
+                    upstream_api: upstream_api.to_owned(),
+                    field: "reasoning",
+                });
+            }
+            Some(reasoning)
+        }
+        (CanonicalModelTask::Generation(profile), None) => Some(profile.reasoning.clone()),
+        (_, Some(_)) => {
+            return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                upstream_api: upstream_api.to_owned(),
+                detail: "reasoning model rules require a Generation canonical task",
+            });
+        }
+        (_, None) => None,
+    };
+
     // Apply disabled parameters and reject parameters not declared by the model.
-    let disabled = rules.disabled_parameters.iter().collect::<BTreeSet<_>>();
+    let disabled = disabled_parameters.iter().collect::<BTreeSet<_>>();
     for parameter in &disabled {
-        if !model.supported_parameters.contains(parameter) {
+        if !model.supported_parameters().contains(parameter) {
             return Err(
                 RegistryError::UpstreamApiModelRuleDisablesUnknownParameter {
                     upstream_api: upstream_api.to_owned(),
@@ -305,12 +288,8 @@ pub(super) fn apply_model_rules(
         }
     }
     // Validate the closed ordinary-parameter ignore set without narrowing downstream acceptance.
-    let ignored = rules
-        .ignored_parameters
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    if ignored.len() != rules.ignored_parameters.len() {
+    let ignored = ignored_parameters.iter().copied().collect::<BTreeSet<_>>();
+    if ignored.len() != ignored_parameters.len() {
         return Err(RegistryError::InconsistentUpstreamApiModelRules {
             upstream_api: upstream_api.to_owned(),
             detail: "ignored generation parameters must be unique",
@@ -319,7 +298,7 @@ pub(super) fn apply_model_rules(
     for parameter in ignored {
         let parameter = parameter.as_wire_name();
         if !model
-            .supported_parameters
+            .supported_parameters()
             .iter()
             .any(|supported| supported == parameter)
         {
@@ -338,26 +317,25 @@ pub(super) fn apply_model_rules(
             });
         }
     }
-    // Build the effective parameter set and revalidate reasoning semantics.
+    // Build the effective ordinary-parameter set without reintroducing reasoning aliases.
     let supported_parameters = model
-        .supported_parameters
+        .supported_parameters()
         .iter()
         .filter(|parameter| !disabled.contains(parameter))
         .cloned()
         .collect::<Vec<_>>();
-    validate_effective_reasoning_config(upstream_api, &supported_parameters, reasoning)?;
     let context_length = ModelContextLength::new(
         min_known_limit(
-            model.context_length.context_tokens(),
-            rules.context_length.context_tokens(),
+            model.context_length().context_tokens(),
+            rule_context.context_tokens(),
         ),
         min_known_limit(
-            model.context_length.input_tokens(),
-            rules.context_length.input_tokens(),
+            model.context_length().input_tokens(),
+            rule_context.input_tokens(),
         ),
         min_known_limit(
-            model.context_length.output_tokens(),
-            rules.context_length.output_tokens(),
+            model.context_length().output_tokens(),
+            rule_context.output_tokens(),
         ),
     );
     if context_length.input_tokens().is_some_and(|input| {
@@ -374,24 +352,44 @@ pub(super) fn apply_model_rules(
             detail: "effective input or output limit exceeds the total context window",
         });
     }
-    Ok(ModelInfo {
-        id: model.id,
-        name: model.name,
-        description: model.description,
-        context_length,
-        mode: model.mode,
-        input_modalities: model.input_modalities,
-        output_modalities: model.output_modalities,
-        tokenizer: model.tokenizer,
-        knowledge_cutoff: model.knowledge_cutoff,
-        supported_parameters,
-        reasoning,
-        reasoning_levels: if reasoning == ReasoningSupport::Supported {
-            model.reasoning_levels
-        } else {
-            Vec::new()
-        },
-    })
+    // Write the narrowed facts back into the same task variant.
+    match &mut model.task {
+        CanonicalModelTask::Generation(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+            let Some(reasoning) = effective_reasoning else {
+                return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                    upstream_api: upstream_api.to_owned(),
+                    detail: "Generation narrowing requires one reasoning profile",
+                });
+            };
+            profile.reasoning = reasoning;
+        }
+        CanonicalModelTask::Embedding(profile) => {
+            profile.max_input_tokens = min_known_limit(
+                context_length.context_tokens(),
+                context_length.input_tokens(),
+            );
+            profile.supported_parameters = supported_parameters;
+        }
+        CanonicalModelTask::SpeechRecognition(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+        }
+        CanonicalModelTask::SpeechSynthesis(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+        }
+        CanonicalModelTask::VoiceDesign(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+        }
+        CanonicalModelTask::VoiceClone(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+        }
+    }
+    Ok(model)
 }
 
 /// Validates that one Upstream API model limit is positive and within the canonical ceiling.
@@ -419,30 +417,6 @@ fn validate_model_limit(
     Ok(())
 }
 
-/// Validates reasoning state and parameters after narrowing rules are applied.
-fn validate_effective_reasoning_config(
-    upstream_api: &str,
-    parameters: &[String],
-    reasoning: ReasoningSupport,
-) -> Result<(), RegistryError> {
-    let declared = parameters.iter().any(|parameter| parameter == "reasoning");
-    match (reasoning, declared) {
-        (ReasoningSupport::Supported, false) => {
-            Err(RegistryError::InconsistentUpstreamApiModelRules {
-                upstream_api: upstream_api.to_owned(),
-                detail: "reasoning = supported requires the effective parameter set to include reasoning",
-            })
-        }
-        (ReasoningSupport::Unsupported, true) => {
-            Err(RegistryError::InconsistentUpstreamApiModelRules {
-                upstream_api: upstream_api.to_owned(),
-                detail: "reasoning = unsupported conflicts with the effective parameter set",
-            })
-        }
-        _ => Ok(()),
-    }
-}
-
 /// Validates that mappings do not expand the canonical reasoning contract and compiles a read-only
 /// table with one target per source level.
 pub(super) fn validate_reasoning_level_mappings(
@@ -453,7 +427,7 @@ pub(super) fn validate_reasoning_level_mappings(
     // Verify each source level is declared by the effective model and each target is a restricted wire name.
     let mut resolved = BTreeMap::new();
     for mapping in mappings {
-        if model.reasoning() != ReasoningSupport::Supported
+        if model.reasoning_support() != ReasoningSupport::Supported
             || !model.reasoning_levels().contains(&mapping.downstream)
         {
             return Err(RegistryError::InconsistentUpstreamApiModelRules {
@@ -489,15 +463,6 @@ fn min_known_limit(left: Option<u32>, right: Option<u32>) -> Option<u32> {
         (Some(left), None) => Some(left),
         (None, Some(right)) => Some(right),
         (None, None) => None,
-    }
-}
-
-/// Maps a reasoning state to a comparable conservatism rank.
-fn reasoning_rank(reasoning: ReasoningSupport) -> u8 {
-    match reasoning {
-        ReasoningSupport::Unsupported => 0,
-        ReasoningSupport::Unknown => 1,
-        ReasoningSupport::Supported => 2,
     }
 }
 

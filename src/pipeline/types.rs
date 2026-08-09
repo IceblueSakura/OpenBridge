@@ -5,9 +5,9 @@ use std::collections::BTreeSet;
 use crate::{
     bridge::BridgePlan,
     core::{
-        ApiProtocol, ApiRequest, AudioFormat, AudioInputSource, EmbeddingEncoding,
+        ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, EmbeddingEncoding,
         EmbeddingInputForm, EmbeddingRequest, GenerationRequestField, ImageDetail,
-        ImageInputSource, ImageMediaType, OperationKind, StructuredOutputMode, ToolChoiceMode,
+        ImageInputSource, ImageMediaType, OperationKind, ToolChoiceMode,
     },
     registry::ReasoningLevel,
 };
@@ -94,19 +94,116 @@ pub(super) struct RequestedCapabilities {
     pub(super) function_tool_strict_schema: bool,
     pub(super) parallel_tool_calls: bool,
     pub(super) image_input: Option<ImageInputRequirements>,
-    pub(super) audio_input: Option<AudioInputRequirements>,
-    pub(super) voice_conditioning: Option<AudioInputRequirements>,
-    pub(super) audio_output: Option<AudioOutputRequirements>,
-    pub(super) asr_options_present: bool,
-    pub(super) asr_language: Option<String>,
-    pub(super) structured_output_mode: Option<StructuredOutputMode>,
-    pub(super) structured_output_strict_schema: bool,
-    pub(super) unknown_structured_output: bool,
+    pub(super) audio: Option<RequestedAudio>,
+    pub(super) structured_output: RequestedStructuredOutput,
     pub(super) store: bool,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
+}
+
+/// Closed structured-output requirement extracted from one downstream generation request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedStructuredOutput {
+    /// The request omits a format constraint or explicitly requests plain text.
+    Unconstrained,
+    /// The request asks for a syntactically valid JSON object.
+    JsonObject,
+    /// The request asks for JSON Schema output with one exact strictness requirement.
+    JsonSchema(RequestedJsonSchemaStrictness),
+    /// The request carries an unknown format or conflicting standard format locations.
+    Unknown,
+}
+
+/// Strictness requested for a JSON Schema structured-output format.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedJsonSchemaStrictness {
+    /// The request omits `strict: true`.
+    NonStrict,
+    /// The request explicitly enables strict JSON Schema constraints.
+    Strict,
+}
+
+/// Frozen protocol shape for one request that uses Chat Native audio fields.
+#[derive(Debug)]
+pub(super) enum RequestedAudio {
+    /// Content-understanding or speech-recognition input and optional ASR controls.
+    Input {
+        /// Bounded audio resources carried by user content parts.
+        resources: AudioInputRequirements,
+        /// Task-neutral classification of the complete Chat message envelope.
+        message_shape: InputAudioMessageShape,
+        /// Presence and language facts from the optional ASR control object.
+        asr_options: RequestedAsrOptions,
+    },
+    /// Generated-audio delivery controls and optional voice selection or conditioning.
+    Generated {
+        /// Requested output format; the streaming flag remains a shared request fact.
+        delivery: RequestedAudioDelivery,
+        /// Task-neutral classification of the complete Chat message envelope.
+        message_shape: GeneratedAudioMessageShape,
+        /// Preset or reference-voice request shape.
+        voice: RequestedVoice,
+    },
+}
+
+/// Closed Chat message shapes for requests carrying `input_audio` content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum InputAudioMessageShape {
+    /// The envelope contains exactly one user message whose sole part is the audio resource.
+    SingleUserAudioOnly,
+    /// The envelope contains instructions, additional parts, or any other message arrangement.
+    GeneralConversation,
+}
+
+/// Closed Chat message shapes for requests asking the model to generate audio.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum GeneratedAudioMessageShape {
+    /// The envelope contains exactly one assistant target-text message.
+    AssistantTextOnly,
+    /// One user text message is followed by one assistant target-text message.
+    UserTextThenAssistantText,
+    /// The envelope is missing required text or contains any additional or differently ordered message.
+    Other,
+}
+
+/// Presence and optional language carried by `asr_options`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedAsrOptions {
+    /// The request omitted `asr_options` or set it to null.
+    Absent,
+    /// The request supplied a syntactically valid ASR control object.
+    Present {
+        /// Optional known or unsupported language value.
+        language: Option<RequestedAsrLanguage>,
+    },
+}
+
+/// Closed classification of one syntactically valid ASR language string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedAsrLanguage {
+    /// Language represented by the typed executable profile.
+    Known(AsrLanguage),
+    /// Well-formed string that the current typed profile cannot accept.
+    Unsupported,
+}
+
+/// Requested output format for generated Chat audio.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RequestedAudioDelivery {
+    pub(super) format: AudioFormat,
+}
+
+/// Requested generated-audio voice shape without any Provider interpretation.
+#[derive(Debug)]
+pub(super) enum RequestedVoice {
+    /// The request omitted the voice field.
+    Unspecified,
+    /// A non-empty preset voice identifier.
+    Preset(String),
+    /// Inline reference audio used only as voice conditioning.
+    ReferenceVoice(AudioInputRequirements),
 }
 
 /// Frozen source, format, and size facts for one audio resource set.
@@ -120,16 +217,6 @@ pub(super) struct AudioInputRequirements {
     pub(super) max_inline_decoded_bytes: u32,
     pub(super) total_inline_encoded_bytes: u32,
     pub(super) total_inline_decoded_bytes: u32,
-    pub(super) text_part_count: u32,
-}
-
-/// Frozen output format, voice, and style facts for one TTS-like request.
-#[derive(Debug)]
-pub(super) struct AudioOutputRequirements {
-    pub(super) format: AudioFormat,
-    pub(super) voice: Option<String>,
-    pub(super) voice_description: bool,
-    pub(super) assistant_text_count: u32,
 }
 
 /// Frozen image-input facts extracted without selecting or inspecting any Route.

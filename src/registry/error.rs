@@ -90,7 +90,7 @@ pub enum RegistryError {
         /// Typed operation with the blank model ID.
         upstream_operation: OperationKind,
     },
-    /// An enabled Embeddings capability profile contains an invalid closed set, default, domain, or limit.
+    /// A registered Embeddings capability profile contains an invalid closed set, default, domain, or limit.
     #[error(
         "upstream operation '{upstream_operation}' on upstream target '{upstream_target}' has invalid Embeddings capabilities: {detail}"
     )]
@@ -114,15 +114,17 @@ pub enum RegistryError {
         /// Stable validation detail without request or topology data.
         detail: &'static str,
     },
-    /// An Embeddings API references a canonical model without the Embedding task.
+    /// An executable Upstream API profile is incompatible with its canonical Model task.
     #[error(
-        "upstream Embeddings operation '{upstream_operation}' on target '{upstream_target}' requires an embedding model"
+        "upstream operation '{upstream_operation}' on target '{upstream_target}' is incompatible with canonical model '{canonical_model}'"
     )]
-    EmbeddingsModelTaskMismatch {
+    UpstreamApiModelTaskMismatch {
         /// Owning target ID.
         upstream_target: String,
-        /// Typed operation with the incompatible model.
+        /// Typed operation with the incompatible executable profile.
         upstream_operation: OperationKind,
+        /// Canonical Model ID whose task does not match the operation profile.
+        canonical_model: String,
     },
     /// A required canonical-model string is blank.
     #[error("model '{model}' field '{field}' must not be blank")]
@@ -189,14 +191,6 @@ pub enum RegistryError {
         model: String,
         /// Duplicated parameter name.
         parameter: String,
-    },
-    /// Canonical-model reasoning state conflicts with its parameter set.
-    #[error("model '{model}' has inconsistent reasoning configuration: {detail}")]
-    InconsistentReasoningConfig {
-        /// Model ID with the inconsistent configuration.
-        model: String,
-        /// Specific inconsistency reason.
-        detail: &'static str,
     },
     /// Upstream API model rules declare a zero limit.
     #[error("upstream API '{upstream_api}' model rule '{field}' must be greater than zero")]
@@ -307,6 +301,22 @@ pub enum RegistryError {
     EmptyPublicModel {
         /// Public Model name with no Route.
         public_model: String,
+    },
+    /// A Public Model combines Route bindings that reference different canonical tasks.
+    #[error("public model '{public_model}' combines incompatible canonical tasks")]
+    PublicModelTaskMismatch {
+        /// Public Model name containing the incompatible Route set.
+        public_model: String,
+    },
+    /// Same-task Route profiles have no valid common interface payload.
+    #[error(
+        "public model '{public_model}' has no common profile for downstream operation '{downstream_operation}'"
+    )]
+    PublicModelInterfaceProfileMismatch {
+        /// Public Model name containing the incompatible interface profiles.
+        public_model: String,
+        /// Downstream operation whose profile intersection is empty.
+        downstream_operation: OperationKind,
     },
     /// A Public Model contains more than one executable Embeddings candidate during the initial single-Route phase.
     #[error("public model '{public_model}' contains multiple executable Embeddings candidates")]

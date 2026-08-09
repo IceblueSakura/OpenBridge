@@ -7,20 +7,20 @@ use std::collections::BTreeSet;
 
 use crate::{
     core::{
-        ApiProtocol, AudioTask, EmbeddingsCapabilities, GenerationRequestField, OperationKind,
-        ReasoningOutput, StructuredOutputMode, ToolChoiceMode,
+        ApiProtocol, EmbeddingsCapabilities, GenerationRequestField, OperationKind,
+        ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
     },
     registry::{
-        InputModality, OutputModality, ReasoningLevel, Route, RouteMode, UpstreamApi,
-        UpstreamApiCapabilities,
+        CanonicalTaskKind, InputModality, OutputModality, ReasoningLevel, Route, RouteMode,
+        UpstreamApi, UpstreamApiCapabilities,
     },
 };
 
 use super::super::{
-    AudioInputInterfaceCapabilities, AudioOutputInterfaceCapabilities, ContextWindow,
-    ImageInputInterfaceCapabilities, ModelModalities, ModelTask, ReasoningOutputMode, SupportState,
+    AudioInterfaceCapabilities, ContextWindow, ImageInputInterfaceCapabilities, ModelModalities,
+    ReasoningOutputMode, SupportState,
 };
-use super::PublicRouteBinding;
+use super::{super::execution::ContinuationIssuer, PublicRouteBinding};
 
 mod aggregate;
 
@@ -31,16 +31,13 @@ pub(super) use aggregate::{
 
 #[derive(Clone)]
 pub(super) struct RouteContractContribution {
-    pub(super) model_tasks: Vec<ModelTask>,
+    pub(super) canonical_task: CanonicalTaskKind,
     pub(super) embedding_capabilities: Option<EmbeddingsCapabilities>,
-    pub(super) continuation_issuer: ContinuationIssuer,
+    pub(super) continuation: RouteContinuationContract,
     pub(super) context_window: ContextWindow,
     pub(super) modalities: ModelModalities,
     pub(super) image_input: Option<ImageInputInterfaceCapabilities>,
-    pub(super) audio_input: Option<AudioInputInterfaceCapabilities>,
-    pub(super) voice_conditioning: Option<AudioInputInterfaceCapabilities>,
-    pub(super) audio_output: Option<AudioOutputInterfaceCapabilities>,
-    pub(super) audio_task: Option<AudioTask>,
+    pub(super) audio: Option<AudioInterfaceCapabilities>,
     pub(super) model_modalities: Option<ModelModalities>,
     pub(super) model_description: Option<String>,
     pub(super) model_tokenizer: Option<String>,
@@ -55,23 +52,41 @@ pub(super) struct RouteContractContribution {
     pub(super) function_tool_choice_modes: Vec<ToolChoiceMode>,
     pub(super) tool_strict_schema: SupportState,
     pub(super) parallel_tool_calls: SupportState,
-    pub(super) structured_outputs: SupportState,
-    pub(super) structured_output_modes: Vec<StructuredOutputMode>,
-    pub(super) structured_output_strict_schema: SupportState,
+    pub(super) structured_outputs: Option<StructuredOutputProfile>,
     pub(super) reasoning: SupportState,
     pub(super) reasoning_levels: Vec<ReasoningLevel>,
     pub(super) reasoning_output: ReasoningOutputMode,
     pub(super) prompt_caching: SupportState,
     pub(super) store: SupportState,
-    pub(super) previous_response_id: SupportState,
     pub(super) background: SupportState,
 }
 
-/// Internal target/operation identity used only to prove continuation issuer uniqueness.
-#[derive(Clone, Eq, PartialEq)]
-pub(super) struct ContinuationIssuer {
-    pub(super) upstream_target: String,
-    pub(super) upstream_operation: OperationKind,
+/// Per-Route continuation contract before conservative Public Model aggregation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) enum RouteContinuationContract {
+    /// This Route cannot carry `previous_response_id` safely.
+    #[default]
+    Unsupported,
+    /// This Native Responses Route has one statically known issuing Target/API.
+    Supported {
+        /// Private issuer identity consumed only by Public Model aggregation.
+        issuer: ContinuationIssuer,
+    },
+}
+
+impl RouteContinuationContract {
+    /// Returns whether this one Route contributes continuation support.
+    const fn is_supported(&self) -> bool {
+        matches!(self, Self::Supported { .. })
+    }
+
+    /// Returns the unique issuer carried by a supported Route contract.
+    pub(super) const fn issuer(&self) -> Option<&ContinuationIssuer> {
+        match self {
+            Self::Unsupported => None,
+            Self::Supported { issuer } => Some(issuer),
+        }
+    }
 }
 
 impl RouteContractContribution {
@@ -102,20 +117,13 @@ impl RouteContractContribution {
         } else {
             Vec::new()
         };
-        let (
-            previous_response_id,
+        let ProtocolCapabilities {
+            continuation,
             background,
             prompt_caching,
-            audio_input,
-            voice_conditioning,
+            audio,
             file_input,
-            audio_output,
-            audio_task,
-        ) = protocol_specific_capabilities(route, upstream_api, bridged);
-        // Provider ceilings may use `Any`, but an executable API must publish one concrete task identity.
-        if audio_task == Some(AudioTask::Any) {
-            panic!("audio task ceiling cannot be used as an executable Route identity");
-        }
+        } = protocol_specific_capabilities(route, upstream_api, bridged);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
@@ -137,24 +145,27 @@ impl RouteContractContribution {
             structured_outputs.is_some(),
             reasoning,
             store,
-            previous_response_id,
+            &continuation,
             background,
         );
         let mut input = vec![InputModality::Text];
         if image_input.is_some() {
             input.push(InputModality::Image);
         }
-        if audio_input.is_some() {
-            input.push(InputModality::Audio);
-        }
-        if voice_conditioning.is_some() && !input.contains(&InputModality::Audio) {
+        if audio
+            .as_ref()
+            .is_some_and(AudioInterfaceCapabilities::has_input)
+        {
             input.push(InputModality::Audio);
         }
         if file_input {
             input.push(InputModality::File);
         }
         let mut output = vec![OutputModality::Text];
-        if audio_output.is_some() {
+        if audio
+            .as_ref()
+            .is_some_and(AudioInterfaceCapabilities::has_output)
+        {
             output.push(OutputModality::Audio);
         }
         if let Some(model_input) = upstream_api.model().input_modalities() {
@@ -174,7 +185,7 @@ impl RouteContractContribution {
                 input: sorted_values(input),
                 output: sorted_values(output),
             });
-        let model_reasoning = SupportState::from(upstream_api.model().reasoning());
+        let model_reasoning = SupportState::from(upstream_api.model().reasoning_support());
         let model_reasoning_levels = if model_reasoning.is_supported() {
             upstream_api.model().reasoning_levels().to_vec()
         } else {
@@ -182,19 +193,13 @@ impl RouteContractContribution {
         };
 
         Self {
-            model_tasks: vec![ModelTask::Chat, ModelTask::TextGeneration],
+            canonical_task: upstream_api.model().task_kind(),
             embedding_capabilities: None,
-            continuation_issuer: ContinuationIssuer {
-                upstream_target: route.upstream_target().to_owned(),
-                upstream_operation: route.upstream_operation(),
-            },
+            continuation,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             image_input,
-            audio_input,
-            voice_conditioning,
-            audio_output,
-            audio_task,
+            audio,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -216,18 +221,12 @@ impl RouteContractContribution {
             parallel_tool_calls: SupportState::from_bool(
                 function_tools.is_some_and(|profile| profile.parallel_calls),
             ),
-            structured_outputs: SupportState::from_bool(structured_outputs.is_some()),
-            structured_output_modes: structured_outputs
-                .map_or_else(Vec::new, |profile| profile.modes.to_vec()),
-            structured_output_strict_schema: SupportState::from_bool(
-                structured_outputs.is_some_and(|profile| profile.strict_schema),
-            ),
+            structured_outputs,
             reasoning,
             reasoning_levels,
             reasoning_output: route_reasoning_output(upstream_api, bridged, reasoning),
             prompt_caching: SupportState::from_bool(prompt_caching),
             store: SupportState::from_bool(store),
-            previous_response_id: SupportState::from_bool(previous_response_id),
             background: SupportState::from_bool(background),
         }
     }
@@ -237,7 +236,6 @@ impl RouteContractContribution {
         binding: &PublicRouteBinding<'_>,
         capabilities: EmbeddingsCapabilities,
     ) -> Self {
-        let route = binding.route;
         let upstream_api = binding.upstream_api;
 
         // Derive safe model facts without projecting target, API, or upstream-model identity.
@@ -257,23 +255,17 @@ impl RouteContractContribution {
                 input: sorted_values(input),
                 output: sorted_values(output),
             });
-        let model_reasoning = SupportState::from(upstream_api.model().reasoning());
+        let model_reasoning = SupportState::from(upstream_api.model().reasoning_support());
 
         // Populate generation-only fields with explicit unsupported values; they are never projected into this operation.
         Self {
-            model_tasks: vec![ModelTask::Embedding],
+            canonical_task: upstream_api.model().task_kind(),
             embedding_capabilities: Some(capabilities),
-            continuation_issuer: ContinuationIssuer {
-                upstream_target: route.upstream_target().to_owned(),
-                upstream_operation: route.upstream_operation(),
-            },
+            continuation: RouteContinuationContract::Unsupported,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
             image_input: None,
-            audio_input: None,
-            voice_conditioning: None,
-            audio_output: None,
-            audio_task: None,
+            audio: None,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -292,15 +284,12 @@ impl RouteContractContribution {
             function_tool_choice_modes: Vec::new(),
             tool_strict_schema: SupportState::Unsupported,
             parallel_tool_calls: SupportState::Unsupported,
-            structured_outputs: SupportState::Unsupported,
-            structured_output_modes: Vec::new(),
-            structured_output_strict_schema: SupportState::Unsupported,
+            structured_outputs: None,
             reasoning: SupportState::Unsupported,
             reasoning_levels: Vec::new(),
             reasoning_output: ReasoningOutputMode::Unsupported,
             prompt_caching: SupportState::Unsupported,
             store: SupportState::Unsupported,
-            previous_response_id: SupportState::Unsupported,
             background: SupportState::Unsupported,
         }
     }
@@ -328,16 +317,13 @@ fn route_reasoning_output(
 }
 
 /// Protocol-specific capability facts returned to the Public Model contribution builder.
-type ProtocolCapabilities = (
-    bool,
-    bool,
-    bool,
-    Option<AudioInputInterfaceCapabilities>,
-    Option<AudioInputInterfaceCapabilities>,
-    bool,
-    Option<AudioOutputInterfaceCapabilities>,
-    Option<AudioTask>,
-);
+struct ProtocolCapabilities {
+    continuation: RouteContinuationContract,
+    background: bool,
+    prompt_caching: bool,
+    audio: Option<AudioInterfaceCapabilities>,
+    file_input: bool,
+}
 
 /// Reads protocol-specific Native endpoint capabilities; the Bridge always narrows state and extra modalities.
 fn protocol_specific_capabilities(
@@ -346,39 +332,43 @@ fn protocol_specific_capabilities(
     bridged: bool,
 ) -> ProtocolCapabilities {
     if bridged {
-        return (false, false, false, None, None, false, None, None);
+        return ProtocolCapabilities {
+            continuation: RouteContinuationContract::Unsupported,
+            background: false,
+            prompt_caching: false,
+            audio: None,
+            file_input: false,
+        };
     }
     match upstream_api.capabilities() {
-        UpstreamApiCapabilities::ChatCompletions(capabilities) => {
-            let audio = capabilities.audio;
-            (
-                false,
-                false,
-                capabilities.prompt_caching,
-                audio
-                    .and_then(|audio| audio.input)
-                    .map(AudioInputInterfaceCapabilities::from_capabilities),
-                audio
-                    .and_then(|audio| audio.voice_conditioning)
-                    .map(AudioInputInterfaceCapabilities::from_capabilities),
-                capabilities.file_input,
-                audio
-                    .and_then(|audio| audio.output)
-                    .map(AudioOutputInterfaceCapabilities::from_capabilities),
-                audio.map(|audio| audio.task),
-            )
-        }
-        UpstreamApiCapabilities::Responses(capabilities) => (
-            route.downstream_operation() == OperationKind::Responses
-                && capabilities.previous_response_id,
-            route.downstream_operation() == OperationKind::Responses && capabilities.background,
-            capabilities.prompt_caching,
-            None,
-            None,
-            capabilities.file_input,
-            None,
-            None,
-        ),
+        UpstreamApiCapabilities::ChatCompletions(capabilities) => ProtocolCapabilities {
+            continuation: RouteContinuationContract::Unsupported,
+            background: false,
+            prompt_caching: capabilities.prompt_caching,
+            audio: capabilities
+                .audio
+                .map(AudioInterfaceCapabilities::from_capabilities),
+            file_input: capabilities.file_input,
+        },
+        UpstreamApiCapabilities::Responses(capabilities) => ProtocolCapabilities {
+            continuation: if route.downstream_operation() == OperationKind::Responses
+                && upstream_api.supports_previous_response_id()
+            {
+                RouteContinuationContract::Supported {
+                    issuer: ContinuationIssuer::new(
+                        route.upstream_target().to_owned(),
+                        route.upstream_operation(),
+                    ),
+                }
+            } else {
+                RouteContinuationContract::Unsupported
+            },
+            background: route.downstream_operation() == OperationKind::Responses
+                && capabilities.background,
+            prompt_caching: capabilities.prompt_caching,
+            audio: None,
+            file_input: capabilities.file_input,
+        },
         UpstreamApiCapabilities::Embeddings(_) => {
             unreachable!("Embeddings does not use generation protocol capabilities")
         }
@@ -387,7 +377,7 @@ fn protocol_specific_capabilities(
 
 /// Determines whether model reasoning remains publishable as a downstream request capability after this Route.
 fn route_reasoning_support(upstream_api: &UpstreamApi, bridged: bool) -> SupportState {
-    let model_support = SupportState::from(upstream_api.model().reasoning());
+    let model_support = SupportState::from(upstream_api.model().reasoning_support());
     if !bridged || model_support != SupportState::Supported {
         return model_support;
     }
@@ -419,7 +409,7 @@ fn interface_parameters(
     structured_outputs: bool,
     reasoning: SupportState,
     store: bool,
-    previous_response_id: bool,
+    continuation: &RouteContinuationContract,
     background: bool,
 ) -> Vec<String> {
     // Retain only source-protocol parameters; Bridge also accepts hints removed before conversion.
@@ -478,7 +468,7 @@ fn interface_parameters(
     } else {
         parameters.remove("store");
     }
-    if previous_response_id {
+    if continuation.is_supported() {
         parameters.insert("previous_response_id".to_owned());
     }
     if background {

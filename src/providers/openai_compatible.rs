@@ -12,15 +12,19 @@ use http::{
 use zeroize::Zeroizing;
 
 use crate::{
-    core::{ApiCapabilities, ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
+    core::{
+        ApiCapabilities, ApiProtocol, ApiRequest, ChatCompletionsCapabilities, EmbeddingRequest,
+        EmbeddingsCapabilities, OperationKind, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ResponsesCapabilities,
+    },
     credential::CredentialType,
     provider::{
-        AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderContract, ProviderKind,
+        AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderKind,
         ProviderRequestHeaders, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
         StreamEventStatus, UpstreamErrorKind,
     },
     registry::{
-        ReasoningLevel, ReasoningLevelMapping, StateAffinity, UpstreamApi, UpstreamApiCapabilities,
+        ReasoningLevel, ReasoningLevelMapping, UpstreamApi, UpstreamApiCapabilities,
         UpstreamApiConfig, UpstreamApiModelRules,
     },
     transport::sse::SseEvent,
@@ -33,6 +37,88 @@ pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
 /// Compile-time Provider hook for extracting model identifiers from a model-list response.
 pub(crate) type ModelListParser = fn(&serde_json::Value) -> Option<Vec<String>>;
+
+/// One fixed OpenAI-compatible operation endpoint paired with its capability ceiling.
+#[derive(Clone, Copy)]
+pub(crate) struct OpenAiCompatibleEndpoint<T> {
+    relative_path: &'static str,
+    capabilities: T,
+}
+
+impl<T> OpenAiCompatibleEndpoint<T> {
+    /// Pairs one trusted relative endpoint path with the capabilities implemented there.
+    pub(crate) const fn new(relative_path: &'static str, capabilities: T) -> Self {
+        Self {
+            relative_path,
+            capabilities,
+        }
+    }
+}
+
+/// Closed operation surface shared by one Provider contract and its wire adapter.
+#[derive(Clone, Copy)]
+pub(crate) struct OpenAiCompatibleApiSurface {
+    chat_completions: Option<OpenAiCompatibleEndpoint<ProviderChatCompletionsCapabilities>>,
+    responses: Option<OpenAiCompatibleEndpoint<ProviderResponsesCapabilities>>,
+    embeddings: Option<OpenAiCompatibleEndpoint<EmbeddingsCapabilities>>,
+}
+
+impl OpenAiCompatibleApiSurface {
+    /// Creates one operation surface; an absent endpoint is an unsupported operation.
+    pub(crate) const fn new(
+        chat_completions: Option<OpenAiCompatibleEndpoint<ProviderChatCompletionsCapabilities>>,
+        responses: Option<OpenAiCompatibleEndpoint<ProviderResponsesCapabilities>>,
+        embeddings: Option<OpenAiCompatibleEndpoint<EmbeddingsCapabilities>>,
+    ) -> Self {
+        Self {
+            chat_completions,
+            responses,
+            embeddings,
+        }
+    }
+
+    /// Projects the Provider capability contract from the same typed endpoint descriptors.
+    pub(crate) const fn capabilities(self) -> ApiCapabilities {
+        ApiCapabilities {
+            chat_completions: match self.chat_completions {
+                Some(endpoint) => Some(endpoint.capabilities),
+                None => None,
+            },
+            responses: match self.responses {
+                Some(endpoint) => Some(endpoint.capabilities),
+                None => None,
+            },
+            embeddings: match self.embeddings {
+                Some(endpoint) => Some(endpoint.capabilities),
+                None => None,
+            },
+        }
+    }
+
+    /// Returns the trusted Chat Completions path when that operation is present.
+    const fn chat_path(self) -> Option<&'static str> {
+        match self.chat_completions {
+            Some(endpoint) => Some(endpoint.relative_path),
+            None => None,
+        }
+    }
+
+    /// Returns the trusted Responses path when that operation is present.
+    const fn responses_path(self) -> Option<&'static str> {
+        match self.responses {
+            Some(endpoint) => Some(endpoint.relative_path),
+            None => None,
+        }
+    }
+
+    /// Returns the trusted Embeddings path when that operation is present.
+    const fn embeddings_path(self) -> Option<&'static str> {
+        match self.embeddings {
+            Some(endpoint) => Some(endpoint.relative_path),
+            None => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 /// Source used to identify OpenAI terminal event names in SSE events.
@@ -56,7 +142,6 @@ enum StreamingResponseMediaTypePolicy {
 #[derive(Clone, Copy)]
 pub(crate) struct OpenAiCompatibleAdapter {
     kind: ProviderKind,
-    contract: &'static ProviderContract,
     chat_path: Option<&'static str>,
     responses_path: Option<&'static str>,
     embeddings_path: Option<&'static str>,
@@ -73,19 +158,15 @@ impl OpenAiCompatibleAdapter {
     /// Builds the static wire profile owned by the concrete Provider.
     pub(crate) const fn new(
         kind: ProviderKind,
-        contract: &'static ProviderContract,
-        chat_path: Option<&'static str>,
-        responses_path: Option<&'static str>,
-        embeddings_path: Option<&'static str>,
+        api_surface: OpenAiCompatibleApiSurface,
         model_list_path: &'static str,
         request_header_hook: RequestHeaderHook,
     ) -> Self {
         Self {
             kind,
-            contract,
-            chat_path,
-            responses_path,
-            embeddings_path,
+            chat_path: api_surface.chat_path(),
+            responses_path: api_surface.responses_path(),
+            embeddings_path: api_surface.embeddings_path(),
             model_list_path,
             model_list_parser: parse_openai_model_list_ids,
             request_header_hook,
@@ -134,9 +215,9 @@ impl OpenAiCompatibleAdapter {
         self
     }
 
-    /// Returns the static Provider contract bound to this profile.
-    pub(crate) fn contract(self) -> &'static ProviderContract {
-        self.contract
+    /// Returns the Provider kind that owns this closed wire profile.
+    pub(crate) const fn kind(self) -> ProviderKind {
+        self.kind
     }
 
     /// Builds the fixed model-list request used by the administrative probe.
@@ -310,7 +391,7 @@ impl OpenAiCompatibleAdapter {
         let CredentialType::Upstream(kind) = credential.metadata().credential_type() else {
             return Err(AdapterError::CredentialKindMismatch);
         };
-        if !self.contract.credential_kinds().contains(&kind) {
+        if !self.kind.contract().credential_kinds().contains(&kind) {
             return Err(AdapterError::CredentialKindMismatch);
         }
 
@@ -534,28 +615,30 @@ fn classify_data_json_openai_terminal(event: &SseEvent) -> Option<StreamEventSta
     classify_openai_terminal_name(document.get("type").and_then(serde_json::Value::as_str))
 }
 
-/// Builds an explicit pair of Chat/Responses HTTP JSON/SSE Upstream APIs.
+/// Builds Chat followed by an optional Responses HTTP JSON/SSE Upstream API.
 pub(crate) fn native_upstream_apis(
     upstream_model: &str,
-    capabilities: ApiCapabilities,
+    chat_capabilities: ChatCompletionsCapabilities,
+    responses_capabilities: Option<ResponsesCapabilities>,
 ) -> Vec<UpstreamApiConfig> {
-    // Build Chat and Responses Native supplies sharing the same target and model.
-    vec![
-        UpstreamApiConfig {
+    // Build the required stateless Chat API as the first operation.
+    let mut upstream_apis = vec![UpstreamApiConfig {
+        upstream_model: upstream_model.to_owned(),
+        model_rules: UpstreamApiModelRules::default(),
+        capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
+        streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
+    }];
+
+    // Append the target-bound Responses API only when the target exposes that operation.
+    if let Some(responses_capabilities) = responses_capabilities {
+        upstream_apis.push(UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::ChatCompletions(capabilities.chat_completions),
+            capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
-        },
-        UpstreamApiConfig {
-            upstream_model: upstream_model.to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Responses(capabilities.responses),
-            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::TargetBound,
-        },
-    ]
+        });
+    }
+    upstream_apis
 }
 
 #[cfg(test)]
@@ -598,10 +681,17 @@ mod tests {
         // Configure one synthetic adapter and conflicting downstream identity.
         let adapter = OpenAiCompatibleAdapter::new(
             ProviderKind::OpenAi,
-            &crate::providers::openai::CONTRACT,
-            Some("/chat"),
-            Some("/responses"),
-            None,
+            OpenAiCompatibleApiSurface::new(
+                Some(OpenAiCompatibleEndpoint::new(
+                    "/chat",
+                    ProviderChatCompletionsCapabilities::default(),
+                )),
+                Some(OpenAiCompatibleEndpoint::new(
+                    "/responses",
+                    ProviderResponsesCapabilities::default(),
+                )),
+                None,
+            ),
             "/models",
             transform_headers,
         )

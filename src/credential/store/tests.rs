@@ -2,6 +2,7 @@
 
 use secrecy::SecretString;
 
+use crate::core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport};
 use crate::credential::{
     CredentialMetadata, CredentialSource, CredentialStoreBuilder, CredentialStoreError,
 };
@@ -14,7 +15,10 @@ fn state_bound_continuation_rejects_a_multi_member_pool() {
     if let crate::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.previous_response_id = true;
+        capabilities.state = ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        );
     }
     let bootstrap =
         crate::config::parse_bootstrap_config(include_str!("../../../config/bootstrap.toml"))

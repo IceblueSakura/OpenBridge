@@ -2,6 +2,8 @@
 
 use super::*;
 
+type ProviderPlanCase<'a> = (&'a str, ApiProtocol, &'a [u8], &'a [(ProviderKind, bool)]);
+
 #[test]
 fn checked_in_targets_stay_within_provider_and_credential_boundaries() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
@@ -23,9 +25,11 @@ fn checked_in_targets_stay_within_provider_and_credential_boundaries() {
 
         for (operation, _) in target.upstream_apis() {
             let supported = match operation {
-                OperationKind::ChatCompletions => contract.capabilities().chat_completions.enabled,
-                OperationKind::Responses => contract.capabilities().responses.enabled,
-                OperationKind::EmbeddingsCreate => contract.capabilities().embeddings.enabled,
+                OperationKind::ChatCompletions => {
+                    contract.capabilities().chat_completions.is_some()
+                }
+                OperationKind::Responses => contract.capabilities().responses.is_some(),
+                OperationKind::EmbeddingsCreate => contract.capabilities().embeddings.is_some(),
             };
             assert!(
                 supported,
@@ -36,10 +40,87 @@ fn checked_in_targets_stay_within_provider_and_credential_boundaries() {
 }
 
 #[test]
+fn checked_in_responses_targets_preserve_the_executable_state_matrix() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let mut seen_provider_families = Vec::new();
+
+    // Inspect every executable Responses API instead of inferring state from its Provider ceiling.
+    for target_id in registry.upstream_target_ids() {
+        let target = registry
+            .upstream_target(target_id)
+            .expect("checked-in Target must resolve");
+        let Some(api) = target.upstream_api(OperationKind::Responses) else {
+            continue;
+        };
+        let UpstreamApiCapabilities::Responses(capabilities) = api.capabilities() else {
+            panic!("Responses lookup must return a Responses capability profile");
+        };
+        let expected_affinity = match target.kind() {
+            ProviderKind::OpenAi
+            | ProviderKind::ChatGpt
+            | ProviderKind::LongCat
+            | ProviderKind::MiMo
+            | ProviderKind::Bailian => ResponsesAffinity::TargetBound,
+            ProviderKind::DeepSeek | ProviderKind::OpenRouter => ResponsesAffinity::Unbound,
+            ProviderKind::Nvidia | ProviderKind::KimiCn => {
+                panic!("Chat-only Provider unexpectedly exposed Responses: {target_id}")
+            }
+        };
+
+        assert!(!capabilities.supports_store(), "{target_id}");
+        assert!(!capabilities.supports_previous_response_id(), "{target_id}");
+        assert_eq!(
+            capabilities.state().affinity(),
+            expected_affinity,
+            "{target_id}"
+        );
+        assert_eq!(
+            api.is_target_bound(),
+            expected_affinity != ResponsesAffinity::Unbound
+        );
+        assert!(!api.requires_single_credential_member(), "{target_id}");
+        if !seen_provider_families.contains(&target.kind()) {
+            seen_provider_families.push(target.kind());
+        }
+    }
+
+    // Ensure the fixture actually exercises every Responses-capable built-in family.
+    for kind in [
+        ProviderKind::ChatGpt,
+        ProviderKind::OpenAi,
+        ProviderKind::LongCat,
+        ProviderKind::DeepSeek,
+        ProviderKind::MiMo,
+        ProviderKind::OpenRouter,
+        ProviderKind::Bailian,
+    ] {
+        assert!(seen_provider_families.contains(&kind), "{kind:?}");
+    }
+}
+
+#[test]
+fn unverified_bailian_qwen_audio_remains_canonical_without_an_executable_target() {
+    let config = compiled_config();
+
+    // Retain model-list identity while refusing to invent an unverified Chat audio profile.
+    assert!(
+        config
+            .models
+            .iter()
+            .any(|model| model.id == "qwen/qwen-audio-3.0-asr-flash")
+    );
+    assert!(config.upstream_targets.iter().all(|target| {
+        target.id != "bailian-qwen-audio-3-0-asr-flash"
+            && target.canonical_model != "qwen/qwen-audio-3.0-asr-flash"
+    }));
+}
+
+#[test]
 fn checked_in_fallback_chains_follow_provider_priority_and_protocol_boundaries() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    let cases: [(&str, ApiProtocol, &[u8], &[(ProviderKind, bool)]); 7] = [
+    let cases: [ProviderPlanCase<'_>; 7] = [
         (
             "Kimi Responses Bridge",
             ApiProtocol::Responses,
@@ -189,7 +270,7 @@ fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
     assert_eq!(context.input_tokens(), Some(262_144));
     assert_eq!(context.output_tokens(), Some(65_536));
 
-    // Match the current OpenRouter model-level parameter set without inventing reasoning efforts.
+    // Keep ordinary parameters free of protocol-specific reasoning aliases.
     assert_eq!(
         model.supported_parameters(),
         [
@@ -200,7 +281,6 @@ fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
             "max_tokens",
             "min_p",
             "presence_penalty",
-            "reasoning",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -214,6 +294,7 @@ fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
             "top_p",
         ]
     );
+    assert_eq!(model.reasoning_support(), ReasoningSupport::Supported);
     assert_eq!(
         model.reasoning_levels(),
         &[ReasoningLevel::High, ReasoningLevel::None]

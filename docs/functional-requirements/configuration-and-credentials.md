@@ -52,8 +52,9 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 - Upstream Target 引用一个 Provider 实例，并绑定 Model、credential pool、timeout 和共享故障边界；
 - 每个 Upstream Target 对每个 `OperationKind` 最多注册一个 Upstream API；API 的 capabilities variant 是 operation 的唯一事实源，
   transport 由 operation 固定，API 不再拥有字符串 ID 或 endpoint profile；
-- Upstream API 独立声明一个 operation 的 upstream model、served limit、能力、state affinity，以及可选的 canonical reasoning
-  level 到安全上游 wire 值的显式映射；Route 以 Target + typed upstream operation 引用它；
+- Upstream API 独立声明一个 operation 的 upstream model、served limit、能力，以及可选的 canonical reasoning level 到安全上游
+  wire 值的显式映射；Responses executable profile 以 `Unbound | TargetBound | TargetBoundContinuation` 判别联合拥有状态归属，
+  Route 以 Target + typed upstream operation 引用它；
 - 同一 Public Model 可以显式列出多个 Provider route source；相同 canonical Model ID 本身不得触发自动发现、 隐式 Route 注册或
   Provider 聚合；
 - Public Model 保存由这些 source 生成的有序完整 Route；对每个下游协议，代码目录先按 source 声明顺序排列 Native
@@ -109,8 +110,8 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
   deadline，不保存、复制或重新读取 secret；
 - pool 选择只返回短时 credential 借用视图；每次 attempt 必须重新构造敏感认证 header，不能缓存或复用 上一次 member 的
   header；
-- `previous_response_id` 等 `TargetBound` Upstream API 在没有 credential affinity 证据或 ledger 时不得引用 多 member
-  pool，避免 continuation 在不同账号/key 间漂移；
+- 只有 `TargetBoundContinuation` Responses executable profile 可以接受 `previous_response_id`；在没有 credential affinity ledger
+  时，其启用 Target 不得引用多 member pool，避免 continuation 在不同账号/key 间漂移；普通 `TargetBound` 不虚构该限制；
 - 更换 API key、改变 pool member 或顺序仍需重启。API-key pool 不承担 OAuth、余额查询、keyring、加密 secret 文件、远程 secret
   manager、动态 reload 或跨进程 pool 状态；ChatGPT OAuth 使用独立 credential kind 和生命周期要求。
 
@@ -204,7 +205,7 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。                                                                 |
 | CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool、空白/重复 secret 或不能解析时，会在 listener 绑定前阻止服务启动；缺失或为空的已注册 pool 会让其引用 Target 在本次启动中不可执行。 |
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；激活 pool 必须满足 Provider/kind 与 member 约束，未激活 pool 不要求 secret。                                               |
-| CFG-12 | 多 member pool 不得用于缺少 credential affinity 证明的 `TargetBound` Upstream API。                                                                            |
+| CFG-12 | 多 member pool 不得用于启用 `TargetBoundContinuation` 的 Responses API；普通 Target-bound、无 continuation 的 API 不因此失去 credential rotation。                         |
 | CFG-13 | 四个 ChatGPT target 只进入固定 Responses-native Route/Public Model；请求和 probe 都不接受本机 Codex auth、environment、terminal 或 executable selector，OAuth credential 只从 OpenBridge-owned 配置加载并由 manager 受控借用。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |

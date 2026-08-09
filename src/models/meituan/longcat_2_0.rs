@@ -1,8 +1,8 @@
 //! Complete canonical model facts for LongCat 2.0 (`meituan/longcat-2.0`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for LongCat 2.0.
@@ -17,17 +17,17 @@ pub(crate) fn config() -> ModelConfig {
             "Sparse Mixture-of-Experts model for coding, repository changes, and long-horizon agents."
                 .to_owned(),
         ),
+        tokenizer: Some("Other".to_owned()),
+        knowledge_cutoff: None,
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
         // The catalog publishes the total context window; routing validates only the declared output limit, while the upstream enforces the combined limit.
         context_length: ModelContextLength::new(
             Some(1_048_756),
             Some(1_048_756),
             Some(262_144),
         ),
-        mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![InputModality::Text]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Other".to_owned()),
-        knowledge_cutoff: None,
         supported_parameters: vec![
             "frequency_penalty",
             "include_reasoning",
@@ -35,7 +35,6 @@ pub(crate) fn config() -> ModelConfig {
             "max_tokens",
             "min_p",
             "presence_penalty",
-            "reasoning",
             "repetition_penalty",
             "seed",
             "stop",
@@ -48,7 +47,7 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
         .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::None],
+        reasoning: ReasoningProfile::supported([ReasoningLevel::High, ReasoningLevel::None]),
+        }),
     }
 }

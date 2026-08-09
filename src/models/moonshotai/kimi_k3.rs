@@ -1,8 +1,8 @@
 //! Complete canonical model facts for Kimi K3 (`moonshotai/kimi-k3`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for Kimi K3.
@@ -17,12 +17,12 @@ pub(crate) fn config() -> ModelConfig {
             "Open-weight multimodal reasoning model for coding, knowledge work, and long-horizon agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), None),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
-        output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: Some("Other".to_owned()),
         knowledge_cutoff: None,
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
+        context_length: ModelContextLength::new(Some(1_048_576), Some(1_048_576), None),
+        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
+        output_modalities: Some(vec![OutputModality::Text]),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -32,8 +32,6 @@ pub(crate) fn config() -> ModelConfig {
             "min_p",
             "n",
             "presence_penalty",
-            "reasoning",
-            "reasoning_effort",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -49,11 +47,11 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
             .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![
+        reasoning: ReasoningProfile::supported([
             ReasoningLevel::Max,
             ReasoningLevel::High,
             ReasoningLevel::Low,
-        ],
+        ]),
+        }),
     }
 }

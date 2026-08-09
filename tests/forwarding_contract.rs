@@ -27,14 +27,17 @@ use http::{HeaderMap, HeaderValue};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
-    core::{ApiProtocol, OperationKind},
+    core::{
+        ApiProtocol, ExecutableResponsesState, JsonSchemaSupport, OperationKind, ResponsesAffinity,
+        StorageSupport, StructuredOutputProfile,
+    },
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel,
-        ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode,
-        UpstreamStreamingPolicy, UpstreamTarget, build_registry,
+        ReasoningLevelMapping, ReasoningProfile, RegistryConfig, RouteConfig, RouteMode,
+        UpstreamApiCapabilities, UpstreamStreamingPolicy, UpstreamTarget, build_registry,
     },
     transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -139,6 +142,40 @@ const COMPLETED_RESPONSES_STREAM: &str = concat!(
     "event: response.completed\n",
     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"status\":\"completed\"}}\n\n",
 );
+
+const MIMO_CHAT_IMAGE_STREAM: &[u8] = br#"data: {"id":"chat_image","object":"chat.completion.chunk","model":"mimo-v2.5","choices":[{"index":0,"delta":{"role":"assistant","content":"red and blue"},"finish_reason":null}]}
+
+data: {"id":"chat_image","object":"chat.completion.chunk","model":"mimo-v2.5","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+
+const MIMO_RESPONSES_IMAGE_STREAM: &[u8] = br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_image","model":"mimo-v2.5","object":"response","output":[],"status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"msg_image","role":"assistant","status":"in_progress","type":"message"}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_image","output_index":0,"part":{"annotations":[],"text":"","type":"output_text"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"red and blue","item_id":"msg_image","output_index":0}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_image","output_index":0,"text":"red and blue"}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_image","output_index":0,"part":{"annotations":[],"text":"red and blue","type":"output_text"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"content":[{"annotations":[],"text":"red and blue","type":"output_text"}],"id":"msg_image","role":"assistant","status":"completed","type":"message"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_image","model":"mimo-v2.5","object":"response","output":[],"status":"completed"}}
+
+"#;
 
 #[derive(Default)]
 struct MimoResponsesToolStreamTransport {
@@ -814,8 +851,10 @@ impl UpstreamTransport for MimoImageTransport {
         request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // Capture the exact Native request after trusted path, model, and authentication preparation.
+        // Capture the exact Native request and its delivery mode after trusted preparation.
         let path = request.relative_uri().path().to_owned();
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+        let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
         self.requests.lock().unwrap().push(RecordedRequest {
             path: path.clone(),
             authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
@@ -823,14 +862,25 @@ impl UpstreamTransport for MimoImageTransport {
                 .get(USER_AGENT)
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned),
-            body: serde_json::from_slice(request.body()).unwrap(),
+            body,
         });
 
-        // Return one valid non-streaming response in the same protocol as the selected Native endpoint.
+        // Return a complete JSON or SSE lifecycle in the selected Native protocol.
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            let body = if path.ends_with("/responses") {
+            response_headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static(if streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }),
+            );
+            let body = if streaming && path.ends_with("/responses") {
+                Body::from(MIMO_RESPONSES_IMAGE_STREAM)
+            } else if streaming {
+                Body::from(MIMO_CHAT_IMAGE_STREAM)
+            } else if path.ends_with("/responses") {
                 Body::from(
                     r#"{"id":"resp_image","object":"response","status":"completed","model":"mimo-v2.5","output":[{"id":"msg_image","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"red and blue","annotations":[]}]}],"output_text":"red and blue"}"#,
                 )
@@ -858,6 +908,7 @@ impl UpstreamTransport for MimoAudioTransport {
         // Capture the exact task-specific Chat Native body without retaining any provider secret.
         let body: Value = serde_json::from_slice(request.body()).unwrap();
         let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
+        let speech_recognition = body.get("model").and_then(Value::as_str) == Some("mimo-v2.5-asr");
         self.requests.lock().unwrap().push(RecordedRequest {
             path: request.relative_uri().path().to_owned(),
             authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
@@ -868,7 +919,7 @@ impl UpstreamTransport for MimoAudioTransport {
             body,
         });
 
-        // Return a minimal Chat JSON envelope; audio bytes remain an upstream response concern.
+        // Return task-appropriate transcript or generated-audio framing for both delivery modes.
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(
@@ -879,13 +930,21 @@ impl UpstreamTransport for MimoAudioTransport {
                     "application/json"
                 }),
             );
-            let body = if streaming {
+            let body = if streaming && speech_recognition {
+                Body::from(
+                    "data: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"transcript\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+                )
+            } else if streaming {
                 Body::from(
                     "data: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"UklGRg==\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
                 )
+            } else if speech_recognition {
+                Body::from(
+                    r#"{"id":"chat_asr","object":"chat.completion","model":"audio-model","choices":[{"index":0,"message":{"role":"assistant","content":"transcript"},"finish_reason":"stop"}]}"#,
+                )
             } else {
                 Body::from(
-                    r#"{"id":"chat_audio","object":"chat.completion","model":"audio-model","choices":[{"index":0,"message":{"role":"assistant","content":"transcript"},"finish_reason":"stop"}]}"#,
+                    r#"{"id":"chat_audio","object":"chat.completion","model":"audio-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"audio":{"data":"UklGRg=="}},"finish_reason":"stop"}]}"#,
                 )
             };
             Ok(UpstreamResponse::new(

@@ -2,7 +2,7 @@
 
 ## 范围
 
-本页定义四种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS，以及以文本或参考音频约束音色的设计/克隆。
+本页定义五种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS、以文本约束音色的 VoiceDesign，以及以参考音频约束音色的 VoiceClone。
 当前 checkout 已接入 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 与
 `mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface；`mimo-v2.5` 通用音频理解仍未开放。
 本页不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
@@ -22,6 +22,12 @@
 Upstream API profile、能力交集、计费语义或 fallback 候选。通用模型被提示“转写”不等于 ASR transcript contract；voice sample
 也不等于可供问答的音频内容。
 
+Canonical Model 使用必填 task union：通用音频理解仍属于 `Generation`，其余四类分别使用 `SpeechRecognition`、
+`SpeechSynthesis`、`VoiceDesign`、`VoiceClone`。Provider audio ceiling 与 Target executable profile 是不同静态类型：ceiling 是
+非空、task 不重复的完整 profile 集合，每个元素携带自己的 input/output/conditioning/delivery 上界；一个 Chat Upstream API
+只能省略 audio，或绑定一个 `AudioUnderstanding | SpeechRecognition | SpeechSynthesis | VoiceDesign | VoiceClone` concrete profile。
+这两个闭合类型是 Provider 多任务上界与单 Target 可执行能力的唯一表示。
+
 ## 2. `mimo-v2.5` 通用音频理解
 
 - 首个协议目标只开放 Chat user message content 中的 `input_audio`，可与同一 user message 中的 text part 混合；Responses audio
@@ -40,13 +46,13 @@ Upstream API profile、能力交集、计费语义或 fallback 候选。通用�
 ## 3. MiMo ASR/TTS 最小目标契约
 
 MiMo 音频模型虽然都使用 `/v1/chat/completions`，但属于独立 canonical task、Public Model 与 Upstream API profile；不得继承
-`mimo-v2.5` 文本/图片 Route，也不得通过 Provider 级历史 `audio_input`/`audio_output` bool 扩大其他模型能力；当前 presence 只能从 typed
-audio profile 推导。
+`mimo-v2.5` 文本/图片 Route。Provider ceiling 只能限制 Target 的 complete executable profile，不能直接成为 Route profile，也不能
+授予其他 task 能力；audio presence 与 input/output/conditioning 必须从 concrete variant 派生。
 
 | Public Model       | Native 请求契约                                                                                                                                  | Native 成功响应                                                                                                                |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | `mimo-v2.5-asr`    | 恰好一个 user `input_audio`；首个目标只接受 WAV，来源为 data URL 或 pure Base64 + `format: "wav"`；`asr_options.language` 只开放 `auto`/`zh`/`en`；JSON/SSE | JSON assistant `message.content` 或有序 Chat text delta；保留 `audio_tokens`、seconds、finish reason 与标准 Chat terminal     |
-| `mimo-v2.5-tts`    | 可选 user 风格文本 + 恰好一个 assistant 目标文本；必需顶层 `audio`；JSON 只开放 `wav`，SSE 只开放 `pcm16`，voice 首个目标只开放 `mimo_default`             | JSON `message.audio.data` 保持 Base64 WAV；SSE `delta.audio.data` 保持有序 Base64 PCM16LE chunk，并以唯一 stop/`[DONE]` 结束 |
+| `mimo-v2.5-tts`    | 可选 user 风格文本 + 恰好一个 assistant 目标文本；必需顶层 `audio` 与 `format`；JSON 只开放 `wav`，SSE 只开放 `pcm16`；`voice` 可省略，显式提供时首个目标只开放 `mimo_default` | JSON `message.audio.data` 保持 Base64 WAV；SSE `delta.audio.data` 保持有序 Base64 PCM16LE chunk，并以唯一 stop/`[DONE]` 结束 |
 
 `asr_options` 与 `audio` 是对应 Chat interface 的顶层 typed parameter，只能由相应 Public Model 在 `supported_parameters` 中公开。TTS
 assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文本混入、多音频 part、非 user 角色或额外 message。
@@ -65,11 +71,16 @@ assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文�
 
 ## 5. `multimodal_output.audio` 与响应预算
 
-音频输出不能使用粗粒度 `audio_output: true` 表达。Chat interface 必须提供类型化 `multimodal_output.audio`，至少区分：
+音频输出不能使用粗粒度 bool 表达。Chat interface 必须提供类型化 `multimodal_output.audio`，至少区分：
 
 - JSON/SSE mode 及各自允许的 request format/voice；
 - response encoding/container、PCM endian、sample width、channels 与 sample rate；
 - 单 event、非流式 JSON body 和累计 decoded audio 上限。
+
+当前获准的 generated-audio executable profile 必须同时携带完整 JSON delivery 与完整 SSE delivery；二者都不是 `Option`，各自的
+format 集合必须非空、budget 必须为正，并固定自己的 framing。只支持 JSON 或只支持 SSE 是未来未获准 contract，不能用空集合、零值
+或缺失 payload 预占。普通 TTS 另拥有非空 preset voice 集合；VoiceDesign/VoiceClone 不使用空 voice 集合哨兵，VoiceClone 另有必填
+conditioning profile。TTS downstream `audio.voice` 仍可省略；省略不等于配置中存在一个空 voice。
 
 依赖 `stream` 才成立的 format 不能压平为无条件 allowed set。非流式 Base64 成功体必须在下游提交前受 JSON response hard limit
 约束；SSE 只有 event limit 而没有累计 audio limit 时不得开放。
@@ -77,10 +88,21 @@ assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文�
 ASR inline bytes 同时受 typed profile 与 gateway request hard limit 约束；Provider 声明的 10 MB encoded limit 不会覆盖默认 1 MiB
 request body limit，扩展 Models 必须公开实际更小的可保证值。
 
-## 6. 预检、保真与 Bridge
+## 6. 启动门禁、预检、保真与 Bridge
 
-- 请求分析冻结 task/purpose、message role/数量、source、encoding、input/output format、voice、ASR language、stream mode、part 数和
-  byte facts。
+- 请求分析只冻结任务无关的协议结构，不决定业务 task：`RequestedAudio::Input` 保存 resources、
+  `InputAudioMessageShape::SingleUserAudioOnly | GeneralConversation` 与
+  `RequestedAsrOptions::Absent | Present { language }`；`RequestedAudio::Generated` 保存 delivery、
+  `GeneratedAudioMessageShape::AssistantTextOnly | UserTextThenAssistantText | Other` 与
+  `RequestedVoice::Unspecified | Preset | ReferenceVoice`。analyzer 不查询 registry、不选择 Public Model interface/Route，也不把
+  user text 提前解释为 TTS style 或 VoiceDesign description。
+- Public Model preflight 解析所选的 concrete audio interface 后，才以双 enum match 解释 ASR/TTS/VoiceDesign/VoiceClone 的 role、text、
+  language、voice 和 conditioning 语义；ASR 只接受 `SingleUserAudioOnly`，VoiceClone 只接受 `AssistantTextOnly`，TTS 接受
+  `AssistantTextOnly` 或 `UserTextThenAssistantText`，VoiceDesign 只接受 `UserTextThenAssistantText`。`Other` 必须 fail closed，
+  不改选模型或候选；AudioUnderstanding 才可接受通用 conversation shape。
+- 启动时先依赖 checked constructors 保证每个 primitive/profile 完整，再验证 executable profile 是 Provider ceiling 中同 variant 的
+  payload subset，最后校验 canonical task/profile matrix。专用 canonical task 缺 profile 或绑定不同 variant 必须失败；Generation
+  只有在 input modalities 明确含 Audio 且 output modalities 明确含 Text 时才可绑定 AudioUnderstanding，未知 evidence 失败关闭。
 - ASR、TTS、音色条件和通用音频理解必须独立编译；`mimo-v2.5` 的普通 text/audio 生成仍属于同一固定 Chat interface，但不能与
   专用模型聚合为 fallback 候选。
 - ASR transcript 是该 task 的正常文本结果；TTS Base64 WAV/PCM delta 是正常音频结果，不能送入纯文本 validator、拼成
@@ -103,13 +125,15 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 
 | ID     | 应被保护的可观察行为                                                                                                                          |
 |--------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| AUD-01 | Chat 音频能力按 understanding、ASR、TTS 与 voice conditioning 分开公开；Responses audio 和未声明模型的 audio output 在 egress 前拒绝。     |
+| AUD-01 | Chat 音频能力按 understanding、ASR、TTS、VoiceDesign、VoiceClone 分开公开；Responses audio 和未声明模型的 audio output 在 egress 前拒绝。 |
 | AUD-02 | `mimo-v2.5` 只在固定 Chat Native interface 接受已声明 source/format/limit，保持 mixed audio/text wire，并返回文本回答而非 transcript/audio。 |
 | AUD-03 | `mimo-v2.5-asr` 的 WAV source/language/message contract、JSON/SSE transcript、usage、model 投影与单音频边界可确定复现。                    |
 | AUD-04 | `mimo-v2.5-tts` 的 assistant/audio/voice contract、JSON WAV、SSE PCM16 chunk、累计预算、唯一 terminal 与取消可确定复现。                  |
 | AUD-05 | voice design/clone 使用独立条件输入、输出 contract 和失败边界；首批只开放有界 Chat profile，不建立授权存储、voice identity 或资源复用。 |
 | AUD-06 | 音频请求不进入 Bridge、跨 task fallback、请求期候选筛选，或伪装成 `/audio/*`；首输出 commit 后不发生第二次响应。                           |
 | AUD-07 | 独立客户端与真实 Provider 分别记录 task、endpoint、model、字段和证据边界；未运行 source/format/SDK/负载或长期层不声称通过。                |
+| AUD-08 | Provider 完整 profile ceiling、单个 executable profile 与 canonical task 依次通过启动门禁；多任务上界不进入单 Target 或跨 task 聚合。 |
+| AUD-09 | analyzer 只冻结 `Input | Generated` 结构；preflight 才解释 task，且 VoiceClone reference audio 只进入独立 conditioning contract。          |
 
 ## 9. 非目标与参考
 

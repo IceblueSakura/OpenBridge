@@ -188,7 +188,6 @@ pub async fn replay_transport_error_after_output_case(case_id: &str) -> ReplayOb
 }
 
 /// Replays one canonical Responses stream cancelled after its declared visible event boundary.
-
 pub async fn replay_cancel_after_output_case(case_id: &str) -> ReplayObservation {
     // Load the canonical request and complete SSE events up to the cancellation boundary.
     let CanonicalCancellationCase {

@@ -140,7 +140,7 @@ public model name
 → ordered route ids
 → route(downstream protocol + mode)
 → upstream target(endpoint + credential + timeout)
-→ upstream API(protocol + upstream model + capabilities + state affinity)
+→ upstream API(protocol + upstream model + typed executable capabilities/state ownership)
 → canonical model facts
 ```
 

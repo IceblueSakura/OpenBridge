@@ -9,12 +9,20 @@ mod request;
 
 pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
-    ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities, AudioCapabilities,
-    AudioFormat, AudioInputCapabilities, AudioInputSource, AudioOutputCapabilities, AudioTask,
-    ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-    EmbeddingsCapabilities, FunctionToolCapabilities, HostedToolKind, ImageDetail,
-    ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput, ResponseInclude,
-    ResponsesCapabilities, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    ALL_TOOL_CHOICE_MODES, ApiCapabilities, AsrLanguage, AudioFormat, AudioInputCapabilities,
+    AudioInputLimits, AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
+    ChatCompletionsProfile, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
+    EmbeddingsCapabilities, ExecutableAudioProfile, ExecutableResponsesState,
+    FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
+    ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
+    ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+    JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
+    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+    ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
+    ResponsesAffinity, ResponsesCapabilities, ResponsesProfile, SpeechRecognitionProfile,
+    SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming, StorageSupport,
+    StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
+    VoiceDesignProfile,
 };
 pub(crate) use generation_parameter::GenerationRequestField;
 pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

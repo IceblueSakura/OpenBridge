@@ -78,11 +78,11 @@ SSE/Bridge，也不在网关转换 vector encoding 或 dimensions。客户端必
 `interfaces.embeddings` 的 forms、domain、parameters 与有效 limits 为准。
 
 显式 `Bridged` Route 必须只转换两协议共同可表达且已由 Upstream API capability 确认可读、方向兼容的 reasoning
-channel、text、function schema、tool call/result identity、非流式 JSON 和流式 SSE lifecycle；
+channel、text、allowlist Structured Output、function schema、tool call/result identity、非流式 JSON 和流式 SSE lifecycle；
 `Unknown`、`Unsupported` reasoning 输出，以及下游请求或 history 中需要继续提交的 opaque continuation，必须拒绝。已完成的上游
 Responses 输出转为无状态 Chat response 时，可以在验证 reasoning item 形状后丢弃 Chat 无字段承载的 `encrypted_content`，但不得把它
 伪装为 `reasoning_content`，不得丢失同一响应中的可读 summary/content、text 或 tool call，且 JSON/SSE 必须采用同一边界。未知顶层字段、
-hosted/custom tool、image、structured output、background/store 和其他 Provider 私有扩展必须在 egress 前拒绝。Bridge 不能因字段名
+hosted/custom tool、image、background/store 和其他 Provider 私有扩展必须在 egress 前拒绝。Bridge 不能因字段名
 相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
 
 流式请求必须满足：

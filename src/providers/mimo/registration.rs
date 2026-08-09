@@ -1,18 +1,35 @@
-//! Registers Xiaomi MiMo V2.5 Upstream Targets and dual-protocol Upstream APIs.
+//! Registers Xiaomi MiMo V2.5 dual-protocol text/image and Chat-only audio target surfaces.
 
 use std::time::Duration;
 
 use crate::{
-    core::{AudioCapabilities, ReasoningOutput},
+    core::{
+        ExecutableAudioProfile, ExecutableResponsesState, ReasoningOutput, ResponsesAffinity,
+        StorageSupport,
+    },
     models::xiaomi,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{ProviderInstanceConfig, UpstreamTargetConfig},
+    registry::{ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamTargetConfig},
 };
 
-use super::definition::{ASR_AUDIO, CONTRACT, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO};
+use super::{
+    DEFINITION,
+    definition::{ASR_AUDIO, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO},
+};
 
 const PROVIDER_INSTANCE_ID: &str = "mimo";
+
+/// Closed model-specific operation and modality profile for a MiMo target.
+#[derive(Clone, Copy)]
+enum MimoTargetProfile {
+    /// Text-only Chat and Responses operations.
+    TextOnly,
+    /// Image-capable Chat and Responses operations.
+    ImageUnderstanding,
+    /// One Chat-only audio task.
+    Audio(ExecutableAudioProfile),
+}
 
 /// Builds the trusted MiMo API deployment used by the checked-in targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -31,91 +48,106 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             xiaomi::mimo_v2_5_pro::ID,
             "mimo-v2.5-pro",
             "mimo-primary",
-            false,
-            None,
+            MimoTargetProfile::TextOnly,
         ),
         target(
             "mimo-v2-5",
             xiaomi::mimo_v2_5::ID,
             "mimo-v2.5",
             "mimo-primary",
-            true,
-            None,
+            MimoTargetProfile::ImageUnderstanding,
         ),
         target(
             "mimo-v2-5-asr",
             xiaomi::mimo_v2_5_asr::ID,
             "mimo-v2.5-asr",
             "mimo-primary",
-            false,
-            Some(ASR_AUDIO),
+            MimoTargetProfile::Audio(ASR_AUDIO),
         ),
         target(
             "mimo-v2-5-tts",
             xiaomi::mimo_v2_5_tts::ID,
             "mimo-v2.5-tts",
             "mimo-primary",
-            false,
-            Some(TTS_AUDIO),
+            MimoTargetProfile::Audio(TTS_AUDIO),
         ),
         target(
             "mimo-v2-5-tts-voicedesign",
             xiaomi::mimo_v2_5_tts_voicedesign::ID,
             "mimo-v2.5-tts-voicedesign",
             "mimo-primary",
-            false,
-            Some(VOICE_DESIGN_AUDIO),
+            MimoTargetProfile::Audio(VOICE_DESIGN_AUDIO),
         ),
         target(
             "mimo-v2-5-tts-voiceclone",
             xiaomi::mimo_v2_5_tts_voiceclone::ID,
             "mimo-v2.5-tts-voiceclone",
             "mimo-primary",
-            false,
-            Some(VOICE_CLONE_AUDIO),
+            MimoTargetProfile::Audio(VOICE_CLONE_AUDIO),
         ),
     ]
 }
 
-/// Builds a Chat/Responses target for a MiMo V2.5 model.
+/// Builds the closed operation surface for one MiMo V2.5 model profile.
 fn target(
     id: &str,
     canonical_model: &str,
     upstream_model: &str,
     credential_id: &str,
-    image_input: bool,
-    audio: Option<AudioCapabilities>,
+    profile: MimoTargetProfile,
 ) -> UpstreamTargetConfig {
-    // Narrow the Provider ceiling because current MiMo evidence limits image understanding to V2.5.
-    let mut capabilities = *CONTRACT.capabilities();
-    if !image_input {
-        capabilities.chat_completions.image_input = None;
-        capabilities.responses.image_input = None;
-    }
+    // Resolve the Chat ceiling required by every MiMo target.
+    let chat_ceiling = DEFINITION
+        .contract()
+        .capabilities()
+        .chat_completions
+        .expect("MiMo targets require Chat Completions capabilities");
+    let mut chat_capabilities = chat_ceiling.to_executable(match profile {
+        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => None,
+        MimoTargetProfile::Audio(audio) => Some(audio),
+    });
 
-    // Keep readable reasoning limited to the two text targets covered by current Provider evidence.
-    if audio.is_some() {
-        capabilities.chat_completions.reasoning_output = ReasoningOutput::Unknown;
-        capabilities.responses.reasoning_output = ReasoningOutput::Unknown;
-    }
+    // Narrow modalities and operation presence according to the closed model-specific profile.
+    let responses_capabilities = match profile {
+        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => {
+            let mut responses_capabilities = DEFINITION
+                .contract()
+                .capabilities()
+                .responses
+                .expect("MiMo text targets require Responses capabilities")
+                .to_executable(ExecutableResponsesState::new(
+                    StorageSupport::Unsupported,
+                    ResponsesAffinity::TargetBound,
+                ));
+            if matches!(profile, MimoTargetProfile::TextOnly) {
+                chat_capabilities.image_input = None;
+                responses_capabilities.image_input = None;
+            }
+            Some(responses_capabilities)
+        }
+        MimoTargetProfile::Audio(_) => {
+            chat_capabilities.image_input = None;
+            chat_capabilities.reasoning_output = ReasoningOutput::Unknown;
+            chat_capabilities.function_tools = None;
+            chat_capabilities.structured_outputs = None;
+            None
+        }
+    };
 
-    // Narrow the Provider audio ceiling and unrelated generation features to the model-specific Chat task.
-    capabilities.chat_completions.audio = audio;
-    if audio.is_some() {
-        // Dedicated audio models ignore tools and cannot combine their media task with structured text output.
-        capabilities.chat_completions.function_tools = None;
-        capabilities.chat_completions.structured_outputs = None;
-        capabilities.responses.function_tools = None;
-        capabilities.responses.structured_outputs = None;
-    }
-
-    let mut upstream_apis = native_upstream_apis(upstream_model, capabilities);
-    if audio.is_some() {
-        // MiMo audio models expose only Chat Native; do not create a Responses or Bridge candidate.
-        upstream_apis.truncate(1);
-    } else {
-        // Current MiMo Responses rejects top_logprobs even though the Chat API accepts it.
-        upstream_apis[1].model_rules.disabled_parameters = vec!["top_logprobs".to_owned()];
+    // Build only the operations selected by the typed target profile.
+    let mut upstream_apis =
+        native_upstream_apis(upstream_model, chat_capabilities, responses_capabilities);
+    match profile {
+        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => {
+            // Current MiMo Responses rejects top_logprobs even though the Chat API accepts it.
+            upstream_apis
+                .iter_mut()
+                .find(|api| matches!(api.capabilities, UpstreamApiCapabilities::Responses(_)))
+                .expect("MiMo text targets must expose a Responses API")
+                .model_rules
+                .disabled_parameters = vec!["top_logprobs".to_owned()];
+        }
+        MimoTargetProfile::Audio(_) => {}
     }
 
     // Build the immutable target with the model-specific API ceiling.

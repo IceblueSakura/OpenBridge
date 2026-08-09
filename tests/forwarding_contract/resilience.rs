@@ -3,8 +3,17 @@
 use super::*;
 
 #[tokio::test]
-async fn streaming_requests_fail_over_to_the_next_configured_target_before_output() {
+async fn stateless_requests_keep_fallback_across_continuation_capable_targets() {
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let UpstreamApiCapabilities::Responses(primary_capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    primary_capabilities.state = ExecutableResponsesState::new(
+        StorageSupport::Unsupported,
+        ResponsesAffinity::TargetBoundContinuation,
+    );
     let mut fallback = definition.upstream_targets[0].clone();
     fallback.id = "openai-fallback".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
@@ -21,6 +30,7 @@ async fn streaming_requests_fail_over_to_the_next_configured_target_before_outpu
         .push("fallback-responses".to_owned());
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
+    // Omit continuation state so ambiguous continuation issuers cannot disable ordinary fallback.
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -154,7 +164,10 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.previous_response_id = true;
+        capabilities.state = ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        );
     }
     let transport = Arc::new(ScopedHealthTransport::default());
 
@@ -210,13 +223,19 @@ async fn ambiguous_target_bound_continuation_is_rejected_before_upstream() {
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.previous_response_id = true;
+        capabilities.state = ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        );
     }
     add_responses_fallback(&mut definition, "alternate-issuer", ProviderKind::OpenAi);
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[1].upstream_apis[1].capabilities
     {
-        capabilities.previous_response_id = true;
+        capabilities.state = ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        );
     }
     let transport = Arc::new(ScopedHealthTransport::default());
 
@@ -323,7 +342,10 @@ async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() 
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.previous_response_id = true;
+        capabilities.state = ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        );
     }
     definition.routes.push(openbridge::registry::RouteConfig {
         id: "fallback-responses".to_owned(),

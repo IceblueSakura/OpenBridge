@@ -4,22 +4,24 @@ use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities,
-        FunctionToolCapabilities, ReasoningOutput, ResponsesCapabilities,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+        take_chat_reasoning_switch,
+    },
 };
 
-/// LongCat OpenAI-compatible capability ceiling based on direct checks and the OpenRouter catalog.
-pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::LongCat,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// Single LongCat operation surface shared by the Provider contract and wire adapter.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/openai/v1/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -40,8 +42,10 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/openai/v1/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -50,8 +54,7 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             }),
             image_input: None,
             structured_outputs: None,
-            store: false,
-            previous_response_id: false,
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -65,18 +68,14 @@ pub(crate) static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
-    },
-    &[CredentialKind::ApiKey],
+    )),
+    None,
 );
 
 /// Static OpenAI-compatible wire profile used by LongCat.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::LongCat,
-    &CONTRACT,
-    Some("/openai/v1/chat/completions"),
-    Some("/openai/v1/responses"),
-    None,
+    API_SURFACE,
     "/openai/v1/models",
     transform_request_headers,
 )
@@ -84,8 +83,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
 .with_openai_data_type_responses_terminal();
 
 /// Single static descriptor for the LongCat contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Applies the ordinary-header transform currently required by LongCat.
 fn transform_request_headers(

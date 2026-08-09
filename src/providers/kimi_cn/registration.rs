@@ -6,12 +6,12 @@ use crate::{
     models::moonshotai,
     provider::ProviderKind,
     registry::{
-        IgnorableGenerationParameter, ProviderInstanceConfig, StateAffinity,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
+        IgnorableGenerationParameter, ProviderInstanceConfig, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "kimi-cn";
 const CREDENTIAL_POOL_ID: &str = "kimi-primary";
@@ -63,10 +63,14 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
                 ..UpstreamApiModelRules::default()
             },
             capabilities: UpstreamApiCapabilities::ChatCompletions(
-                CONTRACT.capabilities().chat_completions,
+                DEFINITION
+                    .contract()
+                    .capabilities()
+                    .chat_completions
+                    .expect("Kimi China targets require Chat Completions capabilities")
+                    .to_executable(None),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     }
 }

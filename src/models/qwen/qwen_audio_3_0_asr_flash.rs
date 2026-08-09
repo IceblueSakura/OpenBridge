@@ -5,7 +5,7 @@
 //! in the shared model metadata shape.
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    CanonicalModelTask, ModelConfig, ModelContextLength, SpeechRecognitionModelProfile,
 };
 
 /// Stable OpenBridge catalog ID for Qwen Audio 3.0 ASR Flash.
@@ -20,14 +20,11 @@ pub(crate) fn config() -> ModelConfig {
             "Qwen Audio 3.0 Flash speech-recognition model for multilingual audio transcription."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(None, None, None),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Audio]),
-        output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: None,
         knowledge_cutoff: None,
-        supported_parameters: Vec::new(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::SpeechRecognition(SpeechRecognitionModelProfile {
+            context_length: ModelContextLength::new(None, None, None),
+            supported_parameters: Vec::new(),
+        }),
     }
 }

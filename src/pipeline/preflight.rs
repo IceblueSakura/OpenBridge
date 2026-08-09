@@ -4,18 +4,25 @@
 //! capabilities, apply Provider wire mappings, or influence configured Route order.
 
 use crate::{
-    core::{AudioTask, EmbeddingEncoding, OperationKind},
+    core::{
+        EmbeddingEncoding, ImageInputSource, JsonSchemaSupport, OperationKind,
+        StructuredOutputProfile,
+    },
     registry::{
-        ModelExecutionInterface, ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry,
-        SupportState,
+        AudioInputInterfaceCapabilities, AudioInterfaceCapabilities,
+        AudioOutputInterfaceCapabilities, ModelExecutionInterface, ModelInterfaceCapabilities,
+        ReasoningLevel, RuntimeRegistry, SupportState,
     },
 };
 
 use super::{
     error::{EmbeddingRequestError, RequestPlanningError},
     types::{
-        EmbeddingRequestRequirements, RequestRequirements, RequestedCapabilities,
-        RequestedReasoning,
+        AudioInputRequirements, EmbeddingRequestRequirements, GeneratedAudioMessageShape,
+        InputAudioMessageShape, RequestRequirements, RequestedAsrLanguage, RequestedAsrOptions,
+        RequestedAudio, RequestedAudioDelivery, RequestedCapabilities,
+        RequestedJsonSchemaStrictness, RequestedReasoning, RequestedStructuredOutput,
+        RequestedVoice,
     },
 };
 
@@ -37,6 +44,7 @@ pub(super) fn preflight_public_model<'a>(
         &requirements.requested_capabilities,
         requirements.requested_output_tokens,
         interface.capabilities(),
+        interface.supports_previous_response_id(),
     )?;
 
     // Reject known parameters outside the same fixed interface after specialized semantic checks.
@@ -130,12 +138,10 @@ fn validate_interface_request(
     requested_features: &RequestedCapabilities,
     requested_output_tokens: Option<u64>,
     interface: &ModelInterfaceCapabilities,
+    supports_previous_response_id: bool,
 ) -> Result<(), RequestPlanningError> {
     // Validate shared generation and state capabilities before any egress preparation.
-    if requested_features.unmodeled_tools
-        || requested_features.unknown_tool_choice
-        || requested_features.unknown_structured_output
-    {
+    if requested_features.unmodeled_tools || requested_features.unknown_tool_choice {
         return Err(RequestPlanningError::UnsupportedCapabilities);
     }
     if requested_features.streaming && !interface.supports_streaming() {
@@ -148,16 +154,14 @@ fn validate_interface_request(
         .function_tool_choice
         .is_some_and(|mode| !interface.supports_tool_choice(mode))
         || (requested_features.parallel_tool_calls && !interface.supports_parallel_tool_calls())
-        || (requested_features
-            .structured_output_mode
-            .is_some_and(|mode| !interface.supports_structured_output_mode(mode)))
+        || !supports_requested_structured_output(
+            requested_features.structured_output,
+            interface.structured_outputs(),
+        )
         || (requested_features.function_tool_strict_schema
             && !interface.supports_strict_tool_schema())
-        || (requested_features.structured_output_mode.is_some()
-            && requested_features.structured_output_strict_schema
-            && !interface.supports_strict_structured_outputs())
         || (requested_features.store && !interface.supports_store())
-        || (requested_features.previous_response_id && !interface.supports_previous_response_id())
+        || (requested_features.previous_response_id && !supports_previous_response_id)
         || (requested_features.background && !interface.supports_background())
     {
         return Err(RequestPlanningError::UnsupportedCapabilities);
@@ -185,54 +189,35 @@ fn validate_interface_request(
             return Err(RequestPlanningError::UnsupportedCapabilities);
         }
 
-        // Keep locally countable size failures distinct from unsupported source semantics.
+        // Keep locally countable size failures distinct and consult only the retained source payload.
         let exceeds_limit = requested.part_count > image.max_parts()
-            || requested.max_url_length > image.max_url_length()
-            || requested.max_inline_encoded_bytes > image.max_inline_encoded_bytes()
-            || requested.max_inline_decoded_bytes > image.max_inline_decoded_bytes()
-            || requested.total_inline_encoded_bytes > image.max_total_inline_encoded_bytes()
-            || requested.total_inline_decoded_bytes > image.max_total_inline_decoded_bytes();
+            || (requested.sources.contains(&ImageInputSource::RemoteUrl)
+                && exceeds_image_limit(requested.max_url_length, image.max_url_length()))
+            || (requested.sources.contains(&ImageInputSource::DataUrl)
+                && (exceeds_image_limit(
+                    requested.max_inline_encoded_bytes,
+                    image.max_inline_encoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.max_inline_decoded_bytes,
+                    image.max_inline_decoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.total_inline_encoded_bytes,
+                    image.max_total_inline_encoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.total_inline_decoded_bytes,
+                    image.max_total_inline_decoded_bytes(),
+                )));
         if exceeds_limit {
             return Err(RequestPlanningError::MultimodalInputLimitExceeded);
         }
     }
 
-    // Validate task-specific audio inputs, conditioning resources, and bounded inline sizes.
-    if let Some(requested) = requested_features.audio_input.as_ref() {
-        let audio = interface
-            .audio_input()
-            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
-        validate_audio_input(requested, audio)?;
-    }
-    if let Some(requested) = requested_features.voice_conditioning.as_ref() {
-        let voice = interface
-            .voice_conditioning()
-            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
-        validate_audio_input(requested, voice)?;
-    }
-    if let Some(requested) = requested_features.audio_output.as_ref() {
-        let audio = interface
-            .audio_output()
-            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
-        if !audio.supports_format(requested.format, requested_features.streaming) {
-            return Err(RequestPlanningError::UnsupportedCapabilities);
-        }
-        if let Some(voice) = requested.voice.as_deref()
-            && !audio.supports_voice(voice)
-        {
-            return Err(RequestPlanningError::UnsupportedCapabilities);
-        }
-        if requested_features.streaming {
-            if audio.max_stream_decoded_bytes() == 0 {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            }
-        } else if audio.max_inline_encoded_bytes() == 0 || audio.max_inline_decoded_bytes() == 0 {
-            return Err(RequestPlanningError::UnsupportedCapabilities);
-        }
-    }
-
-    // Enforce the fixed task identity and message shape after generic audio facts are validated.
-    validate_audio_task(requested_features, interface.audio_task())?;
+    // Interpret one frozen audio wire shape only after resolving the fixed interface profile.
+    validate_audio_request(
+        requested_features.audio.as_ref(),
+        interface.audio(),
+        requested_features.streaming,
+    )?;
 
     // Enforce the fixed output limit when the request carries an explicit value.
     if interface.max_output_tokens().is_some_and(|limit| {
@@ -266,10 +251,50 @@ fn validate_interface_request(
     Ok(())
 }
 
+/// Returns whether one closed interface profile accepts the complete structured-output request.
+fn supports_requested_structured_output(
+    requested: RequestedStructuredOutput,
+    supported: Option<StructuredOutputProfile>,
+) -> bool {
+    use JsonSchemaSupport::StrictSupported;
+    use RequestedJsonSchemaStrictness::{NonStrict, Strict};
+    use RequestedStructuredOutput::{JsonObject, JsonSchema, Unconstrained};
+    use StructuredOutputProfile::{
+        JsonObject as SupportsJsonObject, JsonObjectAndJsonSchema, JsonSchema as SupportsJsonSchema,
+    };
+
+    matches!(
+        (requested, supported),
+        (Unconstrained, _)
+            | (
+                JsonObject,
+                Some(SupportsJsonObject | JsonObjectAndJsonSchema(_))
+            )
+            | (
+                JsonSchema(NonStrict),
+                Some(SupportsJsonSchema(_) | JsonObjectAndJsonSchema(_))
+            )
+            | (
+                JsonSchema(Strict),
+                Some(
+                    SupportsJsonSchema(StrictSupported) | JsonObjectAndJsonSchema(StrictSupported)
+                )
+            )
+    )
+}
+
+/// Returns whether one request measurement exceeds a source-specific owned image limit.
+fn exceeds_image_limit(requested: u32, limit: Option<u32>) -> bool {
+    match limit {
+        Some(limit) => requested > limit,
+        None => true,
+    }
+}
+
 /// Validates one analyzed audio input against a fixed public source, format, and size profile.
 fn validate_audio_input(
-    requested: &super::types::AudioInputRequirements,
-    profile: &crate::registry::AudioInputInterfaceCapabilities,
+    requested: &AudioInputRequirements,
+    profile: &AudioInputInterfaceCapabilities,
 ) -> Result<(), RequestPlanningError> {
     if requested.part_count > profile.max_parts()
         || requested.max_url_length > profile.max_url_length()
@@ -294,83 +319,141 @@ fn validate_audio_input(
     Ok(())
 }
 
-/// Enforces task-specific required inputs and target-text semantics without selecting a Route.
-fn validate_audio_task(
-    requested: &RequestedCapabilities,
-    task: Option<AudioTask>,
+/// Matches one structural request union against one fixed executable audio profile.
+fn validate_audio_request(
+    requested: Option<&RequestedAudio>,
+    profile: Option<&AudioInterfaceCapabilities>,
+    streaming: bool,
 ) -> Result<(), RequestPlanningError> {
-    let Some(task) = task else {
-        if requested.audio_input.is_some()
-            || requested.voice_conditioning.is_some()
-            || requested.audio_output.is_some()
-            || requested.asr_options_present
-        {
-            return Err(RequestPlanningError::UnsupportedCapabilities);
+    match (requested, profile) {
+        (None, None | Some(AudioInterfaceCapabilities::AudioUnderstanding { .. })) => Ok(()),
+        (None, Some(_)) | (Some(_), None) => Err(RequestPlanningError::UnsupportedCapabilities),
+        (
+            Some(RequestedAudio::Input {
+                resources,
+                asr_options,
+                ..
+            }),
+            Some(AudioInterfaceCapabilities::AudioUnderstanding { input }),
+        ) => {
+            validate_audio_input(resources, input)?;
+            if !matches!(asr_options, RequestedAsrOptions::Absent) {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            Ok(())
         }
-        return Ok(());
-    };
-    match task {
-        AudioTask::Asr => {
-            let Some(input) = requested.audio_input.as_ref() else {
+        (
+            Some(RequestedAudio::Input {
+                resources,
+                message_shape,
+                asr_options,
+            }),
+            Some(AudioInterfaceCapabilities::SpeechRecognition { input, languages }),
+        ) => {
+            validate_audio_input(resources, input)?;
+            if resources.part_count != 1
+                || *message_shape != InputAudioMessageShape::SingleUserAudioOnly
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            validate_asr_options(*asr_options, languages)
+        }
+        (
+            Some(RequestedAudio::Generated {
+                delivery,
+                message_shape,
+                voice,
+            }),
+            Some(AudioInterfaceCapabilities::SpeechSynthesis { output }),
+        ) => {
+            validate_audio_output(*delivery, output, streaming)?;
+            if !matches!(
+                message_shape,
+                GeneratedAudioMessageShape::AssistantTextOnly
+                    | GeneratedAudioMessageShape::UserTextThenAssistantText
+            ) {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            match voice {
+                RequestedVoice::Unspecified => Ok(()),
+                RequestedVoice::Preset(voice) if output.supports_voice(voice) => Ok(()),
+                RequestedVoice::Preset(_) | RequestedVoice::ReferenceVoice(_) => {
+                    Err(RequestPlanningError::UnsupportedCapabilities)
+                }
+            }
+        }
+        (
+            Some(RequestedAudio::Generated {
+                delivery,
+                message_shape,
+                voice,
+            }),
+            Some(AudioInterfaceCapabilities::VoiceDesign { output }),
+        ) => {
+            validate_audio_output(*delivery, output, streaming)?;
+            if *message_shape != GeneratedAudioMessageShape::UserTextThenAssistantText
+                || !matches!(voice, RequestedVoice::Unspecified)
+            {
+                return Err(RequestPlanningError::UnsupportedCapabilities);
+            }
+            Ok(())
+        }
+        (
+            Some(RequestedAudio::Generated {
+                delivery,
+                message_shape,
+                voice,
+            }),
+            Some(AudioInterfaceCapabilities::VoiceClone {
+                conditioning,
+                output,
+            }),
+        ) => {
+            validate_audio_output(*delivery, output, streaming)?;
+            let RequestedVoice::ReferenceVoice(reference) = voice else {
                 return Err(RequestPlanningError::UnsupportedCapabilities);
             };
-            if input.part_count != 1
-                || input.text_part_count != 0
-                || requested.audio_output.is_some()
-            {
+            validate_audio_input(reference, conditioning)?;
+            if *message_shape != GeneratedAudioMessageShape::AssistantTextOnly {
                 return Err(RequestPlanningError::UnsupportedCapabilities);
             }
-            if requested
-                .asr_language
-                .as_deref()
-                .is_some_and(|language| !matches!(language, "auto" | "zh" | "en"))
-            {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            }
-            if !requested.asr_options_present && requested.asr_language.is_some() {
-                return Err(RequestPlanningError::InvalidMultimodalInput);
-            }
+            Ok(())
         }
-        AudioTask::Tts => {
-            let Some(output) = requested.audio_output.as_ref() else {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            };
-            if output.assistant_text_count != 1
-                || requested.audio_input.is_some()
-                || requested.voice_conditioning.is_some()
-                || requested.asr_options_present
-            {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            }
+        (Some(RequestedAudio::Input { .. }), Some(_))
+        | (Some(RequestedAudio::Generated { .. }), Some(_)) => {
+            Err(RequestPlanningError::UnsupportedCapabilities)
         }
-        AudioTask::VoiceDesign => {
-            let Some(output) = requested.audio_output.as_ref() else {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            };
-            if output.assistant_text_count != 1
-                || !output.voice_description
-                || requested.audio_input.is_some()
-                || requested.voice_conditioning.is_some()
-                || requested.asr_options_present
-            {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            }
-        }
-        AudioTask::VoiceClone => {
-            let Some(output) = requested.audio_output.as_ref() else {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            };
-            if output.assistant_text_count != 1
-                || requested.voice_conditioning.is_none()
-                || requested.audio_input.is_some()
-                || requested.asr_options_present
-            {
-                return Err(RequestPlanningError::UnsupportedCapabilities);
-            }
-        }
-        AudioTask::AudioUnderstanding => {}
-        // `Any` is a Provider ceiling marker and is never a concrete executable task identity.
-        AudioTask::Any => return Err(RequestPlanningError::UnsupportedCapabilities),
+    }
+}
+
+/// Validates optional ASR controls against the exact language set in the executable profile.
+fn validate_asr_options(
+    requested: RequestedAsrOptions,
+    languages: &[crate::core::AsrLanguage],
+) -> Result<(), RequestPlanningError> {
+    match requested {
+        RequestedAsrOptions::Absent | RequestedAsrOptions::Present { language: None } => Ok(()),
+        RequestedAsrOptions::Present {
+            language: Some(RequestedAsrLanguage::Known(language)),
+        } if languages.contains(&language) => Ok(()),
+        RequestedAsrOptions::Present {
+            language: Some(RequestedAsrLanguage::Known(_) | RequestedAsrLanguage::Unsupported),
+        } => Err(RequestPlanningError::UnsupportedCapabilities),
+    }
+}
+
+/// Validates generated-audio delivery format and the positive bounded response profile.
+fn validate_audio_output(
+    requested: RequestedAudioDelivery,
+    profile: &AudioOutputInterfaceCapabilities,
+    streaming: bool,
+) -> Result<(), RequestPlanningError> {
+    if !profile.supports_format(requested.format, streaming)
+        || (streaming && profile.max_stream_decoded_bytes() == 0)
+        || (!streaming
+            && (profile.max_inline_encoded_bytes() == 0 || profile.max_inline_decoded_bytes() == 0))
+    {
+        return Err(RequestPlanningError::UnsupportedCapabilities);
     }
     Ok(())
 }

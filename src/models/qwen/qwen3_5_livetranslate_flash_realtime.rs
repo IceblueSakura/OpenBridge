@@ -7,7 +7,8 @@
 //! context and modality facts but does not invent Chat Completions parameter support.
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for Qwen3.5 LiveTranslate Flash Realtime.
@@ -22,14 +23,14 @@ pub(crate) fn config() -> ModelConfig {
             "Qwen3.5 real-time audio and video translation model with visual enhancement and text/audio output."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(53_248), Some(49_152), Some(4_096)),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Audio, InputModality::Image]),
-        output_modalities: Some(vec![OutputModality::Text, OutputModality::Audio]),
         tokenizer: None,
         knowledge_cutoff: None,
-        supported_parameters: Vec::new(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
+            context_length: ModelContextLength::new(Some(53_248), Some(49_152), Some(4_096)),
+            input_modalities: Some(vec![InputModality::Audio, InputModality::Image]),
+            output_modalities: Some(vec![OutputModality::Text, OutputModality::Audio]),
+            supported_parameters: Vec::new(),
+            reasoning: ReasoningProfile::Unsupported,
+        }),
     }
 }

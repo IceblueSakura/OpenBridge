@@ -4,17 +4,21 @@ use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{
-        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities,
-        ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingsCapabilities, FunctionToolCapabilities, ImageDetail,
-        ImageInputCapabilities, ImageInputSource, ImageMediaType, ReasoningOutput,
-        ResponsesCapabilities, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
+        EmbeddingsCapabilities, FunctionToolCapabilities, ImageDetail, ImageDetailPolicy,
+        ImageDetailProfile, ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
+        InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits,
+        StructuredOutputProfile,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+    },
 };
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] = &[
@@ -30,13 +34,6 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
-const CHAT_IMAGE_SOURCES: &[ImageInputSource] =
-    &[ImageInputSource::RemoteUrl, ImageInputSource::DataUrl];
-const RESPONSES_IMAGE_SOURCES: &[ImageInputSource] = &[
-    ImageInputSource::RemoteUrl,
-    ImageInputSource::DataUrl,
-    ImageInputSource::FileId,
-];
 const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
     ImageMediaType::Jpeg,
     ImageMediaType::Png,
@@ -49,40 +46,41 @@ const IMAGE_DETAILS: &[ImageDetail] = &[
     ImageDetail::High,
     ImageDetail::Original,
 ];
-const CHAT_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
-    sources: CHAT_IMAGE_SOURCES,
-    media_types: IMAGE_MEDIA_TYPES,
-    detail_default: Some(ImageDetail::Auto),
-    allowed_details: IMAGE_DETAILS,
-    max_parts: 500,
-    max_url_length: 8_192,
-    max_inline_encoded_bytes: 20 * 1024 * 1024,
-    max_inline_decoded_bytes: 15 * 1024 * 1024,
-    max_total_inline_encoded_bytes: 50 * 1024 * 1024,
-    max_total_inline_decoded_bytes: 38 * 1024 * 1024,
-};
-const RESPONSES_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
-    sources: RESPONSES_IMAGE_SOURCES,
-    ..CHAT_IMAGE_INPUT
-};
+const IMAGE_REMOTE_LIMITS: RemoteImageInputLimits = RemoteImageInputLimits::new(8_192);
+const IMAGE_INLINE_LIMITS: InlineImageInputLimits = InlineImageInputLimits::new(
+    20 * 1024 * 1024,
+    15 * 1024 * 1024,
+    50 * 1024 * 1024,
+    38 * 1024 * 1024,
+);
+const IMAGE_INLINE_PROFILE: InlineImageInputProfile =
+    InlineImageInputProfile::new(IMAGE_MEDIA_TYPES, IMAGE_INLINE_LIMITS);
+const IMAGE_DETAIL_PROFILE: ImageDetailProfile =
+    ImageDetailProfile::new(Some(ImageDetail::Auto), IMAGE_DETAILS);
+const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+    500,
+    ImageSourceCapabilities::RemoteUrlAndDataUrl {
+        remote: IMAGE_REMOTE_LIMITS,
+        data: IMAGE_INLINE_PROFILE,
+    },
+    ImageDetailPolicy::Explicit(IMAGE_DETAIL_PROFILE),
+);
 
-/// Static OpenAI adapter capabilities and permitted endpoint/credential scope.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::OpenAi,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// Single OpenAI operation surface shared by the Provider contract and wire adapter.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(CHAT_IMAGE_INPUT),
-            structured_outputs: Some(StructuredOutputProfile {
-                modes: ALL_STRUCTURED_OUTPUT_MODES,
-                strict_schema: true,
-            }),
+            image_input: Some(IMAGE_INPUT),
+            structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported,
+            )),
             store: true,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
@@ -95,21 +93,21 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(RESPONSES_IMAGE_INPUT),
-            structured_outputs: Some(StructuredOutputProfile {
-                modes: ALL_STRUCTURED_OUTPUT_MODES,
-                strict_schema: true,
-            }),
-            store: true,
-            previous_response_id: true,
+            image_input: Some(IMAGE_INPUT),
+            structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported,
+            )),
+            state: ProviderResponsesStateCeiling::StorageAndContinuation,
             background: false,
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
@@ -123,8 +121,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: EmbeddingsCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/embeddings",
+        EmbeddingsCapabilities {
             input_forms: EMBEDDING_INPUT_FORMS,
             default_encoding: EmbeddingEncoding::Float,
             allowed_encodings: Some(EMBEDDING_ENCODINGS),
@@ -139,24 +139,23 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             locally_counted_input_forms: LOCALLY_COUNTED_EMBEDDING_FORMS,
             supported_parameters: EMBEDDING_PARAMETERS,
         },
-    },
-    &[CredentialKind::ApiKey],
+    )),
 );
 
 /// Static OpenAI-compatible wire profile used by OpenAI.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::OpenAi,
-    &CONTRACT,
-    Some("/v1/chat/completions"),
-    Some("/v1/responses"),
-    Some("/v1/embeddings"),
+    API_SURFACE,
     "/v1/models",
     transform_request_headers,
 );
 
 /// Single static descriptor for the OpenAI contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Applies the ordinary-header transform currently required by OpenAI.
 fn transform_request_headers(

@@ -7,13 +7,16 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, GenerationRequestField, StructuredOutputMode, ToolChoiceMode},
+    core::{ApiProtocol, GenerationRequestField, ToolChoiceMode},
     registry::ReasoningLevel,
 };
 
 use super::super::{
     error::RequestPlanningError,
-    types::{RequestRequirements, RequestedCapabilities, RequestedReasoning},
+    types::{
+        RequestRequirements, RequestedCapabilities, RequestedJsonSchemaStrictness,
+        RequestedReasoning, RequestedStructuredOutput,
+    },
 };
 
 mod audio;
@@ -50,20 +53,7 @@ pub fn analyze_request(
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     // Derive the capabilities actually requested from protocol fields.
     let requested_output_tokens = requested_output_tokens(object);
-    let (audio_input, voice_conditioning, audio_output) = analyze_audio(protocol, object)?;
-    let asr_options = object.get("asr_options").filter(|value| !value.is_null());
-    let asr_options_present = asr_options.is_some();
-    let asr_language = match asr_options {
-        None => None,
-        Some(Value::Object(options)) => {
-            match options.get("language").filter(|value| !value.is_null()) {
-                None => None,
-                Some(Value::String(language)) => Some(language.to_owned()),
-                Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
-            }
-        }
-        Some(_) => return Err(RequestPlanningError::InvalidMultimodalInput),
-    };
+    let audio = analyze_audio(protocol, object)?;
     let requests_function_calling = object
         .get("tools")
         .and_then(Value::as_array)
@@ -79,8 +69,7 @@ pub fn analyze_request(
                     .iter()
                     .any(|tool| !is_function_tool(tool) && !is_reserved_tool(protocol, tool))
             });
-    let (structured_output_mode, structured_output_strict_schema, unknown_structured_output) =
-        requested_structured_output(object);
+    let structured_output = requested_structured_output(object);
     let function_tool_strict_schema = object
         .get("tools")
         .and_then(Value::as_array)
@@ -93,14 +82,8 @@ pub fn analyze_request(
         parallel_tool_calls: requests_function_calling
             && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
         image_input: analyze_image_input(protocol, object)?,
-        audio_input,
-        voice_conditioning,
-        audio_output,
-        asr_options_present,
-        asr_language,
-        structured_output_mode,
-        structured_output_strict_schema,
-        unknown_structured_output,
+        audio,
+        structured_output,
         store: object.get("store").and_then(Value::as_bool) == Some(true),
         unmodeled_tools: requests_unmodeled_tools,
         reasoning: requested_reasoning(protocol, object),
@@ -425,12 +408,12 @@ fn requested_tool_choice(
     }
 }
 
-/// Extracts one structured-output mode and strict-schema requirement from standard wire shapes.
+/// Extracts one closed structured-output requirement from the standard wire locations.
 fn requested_structured_output(
     object: &serde_json::Map<String, Value>,
-) -> (Option<StructuredOutputMode>, bool, bool) {
-    let mut mode = None;
-    let mut unknown = false;
+) -> RequestedStructuredOutput {
+    let mut requested = RequestedStructuredOutput::Unconstrained;
+
     // Parse every protocol-specific format location and reject conflicting or unknown modes.
     for format in [
         object.get("response_format"),
@@ -442,43 +425,50 @@ fn requested_structured_output(
     .into_iter()
     .flatten()
     {
-        let (candidate, candidate_unknown) = structured_output_mode(format);
-        unknown |= candidate_unknown;
-        match candidate {
-            Some(candidate) if mode.is_none() => mode = Some(candidate),
-            Some(candidate) if mode == Some(candidate) => {}
-            Some(_) => unknown = true,
-            None => {}
-        }
+        requested =
+            merge_structured_output_requirements(requested, structured_output_requirement(format));
     }
-    // Read strict JSON Schema markers without inferring a mode from an unrelated tool profile.
-    let strict = [
-        object.get("response_format"),
-        object
-            .get("text")
-            .and_then(Value::as_object)
-            .and_then(|text| text.get("format")),
-    ]
-    .into_iter()
-    .flatten()
-    .any(format_requests_strict);
-    (mode, strict, unknown)
+    requested
 }
 
-/// Maps one response-format object to the typed structured-output mode.
-fn structured_output_mode(value: &Value) -> (Option<StructuredOutputMode>, bool) {
+/// Maps one response-format object to a complete structured-output requirement.
+fn structured_output_requirement(value: &Value) -> RequestedStructuredOutput {
     let Some(format_type) = value
         .as_object()
         .and_then(|object| object.get("type"))
         .and_then(Value::as_str)
     else {
-        return (None, true);
+        return RequestedStructuredOutput::Unknown;
     };
     match format_type {
-        "text" => (None, false),
-        "json_object" => (Some(StructuredOutputMode::JsonObject), false),
-        "json_schema" => (Some(StructuredOutputMode::JsonSchema), false),
-        _ => (None, true),
+        "text" => RequestedStructuredOutput::Unconstrained,
+        "json_object" => RequestedStructuredOutput::JsonObject,
+        "json_schema" => RequestedStructuredOutput::JsonSchema(if format_requests_strict(value) {
+            RequestedJsonSchemaStrictness::Strict
+        } else {
+            RequestedJsonSchemaStrictness::NonStrict
+        }),
+        _ => RequestedStructuredOutput::Unknown,
+    }
+}
+
+/// Merges equivalent standard format locations and marks incompatible combinations unknown.
+fn merge_structured_output_requirements(
+    current: RequestedStructuredOutput,
+    candidate: RequestedStructuredOutput,
+) -> RequestedStructuredOutput {
+    use RequestedJsonSchemaStrictness::{NonStrict, Strict};
+    use RequestedStructuredOutput::{JsonObject, JsonSchema, Unconstrained, Unknown};
+
+    match (current, candidate) {
+        (Unknown, _) | (_, Unknown) => Unknown,
+        (Unconstrained, value) | (value, Unconstrained) => value,
+        (JsonObject, JsonObject) => JsonObject,
+        (JsonSchema(Strict), JsonSchema(_)) | (JsonSchema(_), JsonSchema(Strict)) => {
+            JsonSchema(Strict)
+        }
+        (JsonSchema(NonStrict), JsonSchema(NonStrict)) => JsonSchema(NonStrict),
+        (JsonObject, JsonSchema(_)) | (JsonSchema(_), JsonObject) => Unknown,
     }
 }
 
@@ -495,8 +485,7 @@ fn format_requests_strict(value: &Value) -> bool {
                 == Some(true))
 }
 
-/// Chat Completions places strict inside `function`, while Responses places it directly on the
-/// function tool. Both wire shapes represent Structured Outputs and require `structured_outputs`.
+/// Detects strict function-schema requests without conflating them with response Structured Output.
 fn tool_requests_strict_mode(tool: &Value) -> bool {
     tool.get("strict").and_then(Value::as_bool) == Some(true)
         || tool
@@ -505,4 +494,71 @@ fn tool_requests_strict_mode(tool: &Value) -> bool {
             .and_then(|function| function.get("strict"))
             .and_then(Value::as_bool)
             == Some(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        RequestedJsonSchemaStrictness, RequestedStructuredOutput,
+        merge_structured_output_requirements, requested_structured_output,
+    };
+
+    #[test]
+    fn structured_output_merge_covers_every_closed_combination_class() {
+        use RequestedJsonSchemaStrictness::{NonStrict, Strict};
+        use RequestedStructuredOutput::{JsonObject, JsonSchema, Unconstrained, Unknown};
+
+        // Define the equivalent, strictness-widening, unconstrained, and conflicting cases.
+        let cases = [
+            (JsonObject, JsonObject, JsonObject),
+            (
+                JsonSchema(NonStrict),
+                JsonSchema(Strict),
+                JsonSchema(Strict),
+            ),
+            (Unconstrained, JsonObject, JsonObject),
+            (JsonObject, JsonSchema(NonStrict), Unknown),
+        ];
+
+        // Require each pair to collapse to one deterministic request variant.
+        for (current, candidate, expected) in cases {
+            assert_eq!(
+                merge_structured_output_requirements(current, candidate),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn equivalent_structured_output_locations_merge_strictness() {
+        // Build both standard locations with the same mode and one strict marker.
+        let request = json!({
+            "response_format": {"type": "json_schema"},
+            "text": {"format": {"type": "json_schema", "strict": true}}
+        });
+
+        let structured_output = requested_structured_output(request.as_object().unwrap());
+
+        // Require strictness to widen without turning equivalent modes into a conflict.
+        assert_eq!(
+            structured_output,
+            RequestedStructuredOutput::JsonSchema(RequestedJsonSchemaStrictness::Strict)
+        );
+    }
+
+    #[test]
+    fn conflicting_structured_output_locations_are_unknown() {
+        // Build the two standard locations with incompatible structured-output modes.
+        let request = json!({
+            "response_format": {"type": "json_object"},
+            "text": {"format": {"type": "json_schema"}}
+        });
+
+        let structured_output = requested_structured_output(request.as_object().unwrap());
+
+        // Require the closed analyzer state to preserve the conflict for preflight rejection.
+        assert_eq!(structured_output, RequestedStructuredOutput::Unknown);
+    }
 }

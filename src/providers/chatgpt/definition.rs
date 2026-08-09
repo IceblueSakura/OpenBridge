@@ -7,15 +7,17 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiCapabilities,
-        ChatCompletionsCapabilities, FunctionToolCapabilities, ReasoningOutput,
-        ResponsesCapabilities, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        StructuredOutputProfile,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+    },
 };
 
 const CHATGPT_IDENTITY_HEADERS: &[StaticRequestHeader] = &[
@@ -28,30 +30,12 @@ const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::
     .with_user_agent(CODEX_CLI_LINUX_USER_AGENT)
     .with_headers(CHATGPT_IDENTITY_HEADERS);
 
-/// Static ChatGPT Codex adapter capabilities and permitted endpoint/credential scope.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::ChatGpt,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: false,
-            streaming: false,
-            function_tools: None,
-            image_input: None,
-            structured_outputs: None,
-            store: false,
-            reasoning_output: ReasoningOutput::Unsupported,
-            custom_tool_calling: false,
-            audio: None,
-            file_input: false,
-            predicted_outputs: false,
-            web_search: false,
-            prompt_caching: false,
-            moderation: false,
-            logprobs: false,
-            multiple_choices: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
+/// Single ChatGPT operation surface shared by the Provider contract and wire adapter.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    None,
+    Some(OpenAiCompatibleEndpoint::new(
+        "/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
@@ -59,12 +43,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
                 strict_schema: true,
             }),
             image_input: None,
-            structured_outputs: Some(StructuredOutputProfile {
-                modes: ALL_STRUCTURED_OUTPUT_MODES,
-                strict_schema: true,
-            }),
-            store: false,
-            previous_response_id: false,
+            structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported,
+            )),
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::Summary,
             custom_tool_calling: false,
@@ -78,18 +60,14 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
-    },
-    &[CredentialKind::OAuth2BearerAccessToken],
+    )),
+    None,
 );
 
 /// Responses-only wire profile used by the fixed ChatGPT Codex backend.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::ChatGpt,
-    &CONTRACT,
-    None,
-    Some("/responses"),
-    None,
+    API_SURFACE,
     "/models?client_version=0.146.0",
     transform_request_headers,
 )
@@ -100,8 +78,11 @@ static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
 .with_model_list_parser(parse_model_list_ids);
 
 /// Single static descriptor for the ChatGPT contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::OAuth2BearerAccessToken],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Keeps downstream headers out of the fixed ChatGPT request identity.
 fn transform_request_headers(

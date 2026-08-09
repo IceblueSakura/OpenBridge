@@ -142,3 +142,122 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
         "unsupported"
     );
 }
+
+#[tokio::test]
+async fn disjoint_structured_output_routes_fail_with_zero_egress() {
+    // Build two independently valid Native candidates whose Structured Output modes are disjoint.
+    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    let mut schema_target = definition.upstream_targets[0].clone();
+    schema_target.id = "openai-schema-only".to_owned();
+    for api in &mut schema_target.upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonSchema(
+                    JsonSchemaSupport::NonStrictOnly,
+                ));
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonSchema(
+                    JsonSchemaSupport::NonStrictOnly,
+                ));
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    definition.upstream_targets.push(schema_target);
+    definition.routes.extend([
+        RouteConfig {
+            id: "schema-only-chat".to_owned(),
+            upstream_target: "openai-schema-only".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
+            downstream_operation: OperationKind::ChatCompletions,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "schema-only-responses".to_owned(),
+            upstream_target: "openai-schema-only".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Native,
+        },
+    ]);
+    definition.public_models[0].routes.extend([
+        "schema-only-chat".to_owned(),
+        "schema-only-responses".to_owned(),
+    ]);
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // Reject both disjoint modes for both protocols through the public HTTP boundary.
+    for (path, request) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "json_object"}
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "json_schema", "json_schema": {"name": "answer"}}
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_object"}}
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_schema", "name": "answer"}}
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{path} {request}"
+        );
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(
+            error["error"]["code"], "unsupported_model_capability",
+            "{path} {request}"
+        );
+    }
+
+    // Prove no rejected request crossed the trusted transport boundary.
+    assert!(transport.requests.lock().unwrap().is_empty());
+}

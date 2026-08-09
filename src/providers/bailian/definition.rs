@@ -4,15 +4,18 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ApiCapabilities, ChatCompletionsCapabilities, EmbeddingDimensionDomain, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingsCapabilities, ReasoningOutput, ResponsesCapabilities,
-        StructuredOutputMode, StructuredOutputProfile,
+        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile,
     },
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::{OpenAiCompatibleAdapter, take_chat_reasoning_switch},
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+        take_chat_reasoning_switch,
+    },
 };
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
@@ -20,18 +23,13 @@ const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
 const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
-const JSON_OBJECT_MODE: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
-const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile {
-    modes: JSON_OBJECT_MODE,
-    strict_schema: false,
-};
+const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
-/// Bounded Model Studio Chat, Responses, and Embeddings ceilings confirmed independently of any model-specific target.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::Bailian,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// Bounded Model Studio operation surface confirmed independently of any model-specific target.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: None,
             image_input: None,
@@ -48,14 +46,15 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/responses",
+        ProviderResponsesCapabilities {
             streaming: true,
             function_tools: None,
             image_input: None,
             structured_outputs: None,
-            store: false,
-            previous_response_id: false,
+            state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::Summary,
             custom_tool_calling: false,
@@ -69,8 +68,10 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             moderation: false,
             logprobs: false,
         },
-        embeddings: EmbeddingsCapabilities {
-            enabled: true,
+    )),
+    Some(OpenAiCompatibleEndpoint::new(
+        "/embeddings",
+        EmbeddingsCapabilities {
             input_forms: EMBEDDING_INPUT_FORMS,
             default_encoding: EmbeddingEncoding::Float,
             allowed_encodings: Some(EMBEDDING_ENCODINGS),
@@ -84,25 +85,24 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             locally_counted_input_forms: &[],
             supported_parameters: EMBEDDING_PARAMETERS,
         },
-    },
-    &[CredentialKind::ApiKey],
+    )),
 );
 
 /// OpenAI-compatible generation and Embeddings wire profile used by the Model Studio Beijing endpoint.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::Bailian,
-    &CONTRACT,
-    Some("/chat/completions"),
-    Some("/responses"),
-    Some("/embeddings"),
+    API_SURFACE,
     "/models",
     transform_request_headers,
 )
 .with_request_body_hook(transform_request_body);
 
 /// Single static descriptor for the Model Studio contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Preserves a dedicated boundary for future Model Studio ordinary-header requirements.
 fn transform_request_headers(

@@ -4,18 +4,19 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ChatCompletionsCapabilities, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingsCapabilities, FunctionToolCapabilities, ReasoningOutput,
-        ResponsesCapabilities,
+        ALL_TOOL_CHOICE_MODES, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
+        ExecutableResponsesState, FunctionToolCapabilities, ResponsesAffinity, StorageSupport,
     },
     models::openai,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
+
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "openai";
 
@@ -32,6 +33,11 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["encoding_format", "user"];
+const CONSERVATIVE_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
+    choice_modes: ALL_TOOL_CHOICE_MODES,
+    parallel_calls: false,
+    strict_schema: false,
+};
 
 /// Builds the trusted OpenAI API deployment used by the checked-in targets.
 pub fn provider_instance() -> ProviderInstanceConfig {
@@ -67,6 +73,30 @@ fn generation_target(
     canonical_model: &str,
     upstream_model: &str,
 ) -> UpstreamTargetConfig {
+    // Resolve both operation profiles required by every checked-in OpenAI generation target.
+    let capabilities = DEFINITION.contract().capabilities();
+    let mut chat_capabilities = capabilities
+        .chat_completions
+        .expect("OpenAI generation targets require Chat Completions capabilities")
+        .to_executable(None);
+    let mut responses_capabilities = capabilities
+        .responses
+        .expect("OpenAI generation targets require Responses capabilities")
+        .to_executable(ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBound,
+        ));
+
+    // Narrow unverified multimodal, strict-tool, structured-output, and persistent-state features.
+    chat_capabilities.function_tools = Some(CONSERVATIVE_FUNCTION_TOOLS);
+    chat_capabilities.image_input = None;
+    chat_capabilities.structured_outputs = None;
+    chat_capabilities.store = false;
+    responses_capabilities.function_tools = Some(CONSERVATIVE_FUNCTION_TOOLS);
+    responses_capabilities.image_input = None;
+    responses_capabilities.structured_outputs = None;
+
+    // Bind the concrete operation profiles to the trusted OpenAI deployment.
     UpstreamTargetConfig {
         id: id.to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
@@ -77,7 +107,11 @@ fn generation_target(
         fault_domain: None,
         request_timeout: Duration::from_secs(120),
         enabled: true,
-        upstream_apis: native_upstream_apis(upstream_model, conservative_openai_capabilities()),
+        upstream_apis: native_upstream_apis(
+            upstream_model,
+            chat_capabilities,
+            Some(responses_capabilities),
+        ),
     }
 }
 
@@ -98,7 +132,6 @@ fn embedding_target() -> UpstreamTargetConfig {
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     }
 }
@@ -106,7 +139,6 @@ fn embedding_target() -> UpstreamTargetConfig {
 /// Returns the checked-in OpenAI `text-embedding-3-small` execution contract.
 pub const fn text_embedding_3_small_capabilities() -> EmbeddingsCapabilities {
     EmbeddingsCapabilities {
-        enabled: true,
         input_forms: EMBEDDING_INPUT_FORMS,
         default_encoding: EmbeddingEncoding::Float,
         allowed_encodings: Some(EMBEDDING_ENCODINGS),
@@ -117,59 +149,5 @@ pub const fn text_embedding_3_small_capabilities() -> EmbeddingsCapabilities {
         max_total_tokens: Some(300_000),
         locally_counted_input_forms: LOCALLY_COUNTED_EMBEDDING_FORMS,
         supported_parameters: EMBEDDING_PARAMETERS,
-    }
-}
-
-/// Returns conservative OpenAI capabilities that must be expanded only after an upstream probe.
-pub const fn conservative_openai_capabilities() -> ApiCapabilities {
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
-            streaming: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
-            }),
-            image_input: None,
-            structured_outputs: None,
-            store: false,
-            reasoning_output: ReasoningOutput::Unknown,
-            custom_tool_calling: false,
-            audio: None,
-            file_input: false,
-            predicted_outputs: false,
-            web_search: false,
-            prompt_caching: false,
-            moderation: false,
-            logprobs: false,
-            multiple_choices: false,
-        },
-        responses: ResponsesCapabilities {
-            enabled: true,
-            streaming: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
-            }),
-            image_input: None,
-            structured_outputs: None,
-            store: false,
-            previous_response_id: false,
-            background: false,
-            reasoning_output: ReasoningOutput::Unknown,
-            custom_tool_calling: false,
-            hosted_tools: &[],
-            file_input: false,
-            conversation: false,
-            prompt_templates: false,
-            prompt_caching: false,
-            context_management: false,
-            include: &[],
-            moderation: false,
-            logprobs: false,
-        },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
     }
 }

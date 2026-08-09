@@ -7,18 +7,18 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    core::{AudioTask, EmbeddingsCapabilities},
-    registry::ModelContextLength,
+    core::{EmbeddingsCapabilities, StructuredOutputProfile},
+    registry::{CanonicalTaskKind, ModelContextLength},
 };
 
 use super::RouteContractContribution;
+use crate::registry::public_model::execution::PublicContinuationContract;
 use crate::registry::public_model::{
-    AudioInputInterfaceCapabilities, AudioOutputInterfaceCapabilities, ContextWindow,
-    EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities,
-    EmbeddingLimits, ImageInputInterfaceCapabilities, InterfaceReasoningCapabilities,
-    ModelCapabilities, ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities,
-    MultimodalInputCapabilities, MultimodalOutputCapabilities, ReasoningOutputMode,
-    StateCapabilities, StructuredOutputCapabilities, SupportState, ToolCapabilities, ToolType,
+    AudioInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
+    EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities, EmbeddingLimits,
+    ImageInputInterfaceCapabilities, InterfaceReasoningCapabilities, ModelCapabilities,
+    ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities, ModelTask,
+    ReasoningOutputMode, StateCapabilities, SupportState, ToolCapabilities, ToolType,
 };
 
 impl ContextWindow {
@@ -46,6 +46,17 @@ impl ModelModalities {
             output: intersect_sets(values.map(|value| value.output.as_slice())),
         }
     }
+}
+
+/// Intersects complete structured-output profiles and closes any absent or empty result.
+fn intersect_structured_outputs(
+    values: impl Iterator<Item = Option<StructuredOutputProfile>>,
+) -> Option<StructuredOutputProfile> {
+    let mut values = values;
+    let first = values.next().flatten()?;
+    values.try_fold(first, |intersection, profile| {
+        intersection.intersection(profile?)
+    })
 }
 
 impl EmbeddingInterfaceCapabilities {
@@ -94,13 +105,19 @@ pub(crate) fn aggregate_embedding_interface<'a>(
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.
 pub(crate) fn aggregate_interface<'a>(
     contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
-) -> Option<ModelInterfaceCapabilities> {
+) -> Result<
+    (
+        Option<ModelInterfaceCapabilities>,
+        PublicContinuationContract,
+    ),
+    (),
+> {
     let contributions = contributions.collect::<Vec<_>>();
     if contributions.is_empty() {
-        return None;
+        return Ok((None, PublicContinuationContract::Unsupported));
     }
 
-    // Compute conservative intersections for scalars, sets, and reasoning output separately.
+    // Compute conservative intersections for scalars, sets, closed profiles, and reasoning output.
     let context_window =
         ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
@@ -108,28 +125,27 @@ pub(crate) fn aggregate_interface<'a>(
     let image_input = ImageInputInterfaceCapabilities::intersection(
         contributions.iter().map(|value| value.image_input.as_ref()),
     );
-    let audio_input = AudioInputInterfaceCapabilities::intersection(
-        contributions.iter().map(|value| value.audio_input.as_ref()),
-    );
-    let voice_conditioning = AudioInputInterfaceCapabilities::intersection(
-        contributions
-            .iter()
-            .map(|value| value.voice_conditioning.as_ref()),
-    );
-    let audio_output = AudioOutputInterfaceCapabilities::intersection(
-        contributions
-            .iter()
-            .map(|value| value.audio_output.as_ref()),
-    );
-    let audio_task = intersect_audio_task(contributions.iter().map(|value| value.audio_task));
-    let previous_response_id = aggregate_previous_response_id(&contributions);
+    let audio = AudioInterfaceCapabilities::intersection(
+        contributions.iter().map(|value| value.audio.as_ref()),
+    )?;
+    let continuation = aggregate_continuation(&contributions);
+    let structured_outputs =
+        intersect_structured_outputs(contributions.iter().map(|value| value.structured_outputs));
     let mut supported_parameters = intersect_sets(
         contributions
             .iter()
             .map(|value| value.interface_parameters.as_slice()),
     );
-    if !previous_response_id.is_supported() {
+    if !continuation.is_supported() {
         supported_parameters.retain(|parameter| parameter != "previous_response_id");
+    }
+    if structured_outputs.is_none() {
+        supported_parameters.retain(|parameter| {
+            !matches!(
+                parameter.as_str(),
+                "response_format" | "structured_outputs" | "text"
+            )
+        });
     }
     let streaming = SupportState::intersection(contributions.iter().map(|value| value.streaming));
     let non_streaming =
@@ -145,18 +161,6 @@ pub(crate) fn aggregate_interface<'a>(
         SupportState::intersection(contributions.iter().map(|value| value.tool_strict_schema));
     let parallel_tool_calls =
         SupportState::intersection(contributions.iter().map(|value| value.parallel_tool_calls));
-    let structured_outputs =
-        SupportState::intersection(contributions.iter().map(|value| value.structured_outputs));
-    let structured_output_modes = intersect_sets(
-        contributions
-            .iter()
-            .map(|value| value.structured_output_modes.as_slice()),
-    );
-    let structured_output_strict_schema = SupportState::intersection(
-        contributions
-            .iter()
-            .map(|value| value.structured_output_strict_schema),
-    );
     let reasoning = SupportState::intersection(contributions.iter().map(|value| value.reasoning));
     let reasoning_levels = if reasoning.is_supported() {
         intersect_sets(
@@ -170,19 +174,12 @@ pub(crate) fn aggregate_interface<'a>(
     let reasoning_output =
         intersect_reasoning_output(contributions.iter().map(|value| value.reasoning_output));
 
-    // Build stable tool, structured-output, and state subobjects from the aggregate state.
-    Some(ModelInterfaceCapabilities {
+    // Build stable tool and state subobjects beside the already closed capability profiles.
+    let capabilities = ModelInterfaceCapabilities {
         context_window,
         modalities,
-        multimodal_input: MultimodalInputCapabilities {
-            image: image_input,
-            audio: audio_input,
-            voice_conditioning,
-        },
-        multimodal_output: MultimodalOutputCapabilities {
-            audio: audio_output,
-        },
-        audio_task,
+        image_input,
+        audio,
         supported_parameters,
         streaming,
         non_streaming,
@@ -200,11 +197,7 @@ pub(crate) fn aggregate_interface<'a>(
             parallel_calls: parallel_tool_calls,
             strict_schema: tool_strict_schema,
         },
-        structured_outputs: StructuredOutputCapabilities {
-            support: structured_outputs,
-            modes: structured_output_modes,
-            strict_schema: structured_output_strict_schema,
-        },
+        structured_outputs,
         reasoning: InterfaceReasoningCapabilities {
             support: reasoning,
             levels: reasoning_levels,
@@ -215,50 +208,42 @@ pub(crate) fn aggregate_interface<'a>(
         ),
         state: StateCapabilities {
             store: SupportState::intersection(contributions.iter().map(|value| value.store)),
-            previous_response_id,
+            previous_response_id: SupportState::from_bool(continuation.is_supported()),
             background: SupportState::intersection(
                 contributions.iter().map(|value| value.background),
             ),
         },
-    })
-}
-
-/// Publishes one audio task only when every executable Route exposes the same task identity.
-fn intersect_audio_task(values: impl Iterator<Item = Option<AudioTask>>) -> Option<AudioTask> {
-    let mut values = values;
-    let first = values.next()?;
-    values
-        .all(|value| value == first)
-        .then_some(first)
-        .flatten()
+    };
+    Ok((Some(capabilities), continuation))
 }
 
 /// Exposes continuation only when every Route supports it and one target/API is the unique issuer.
-fn aggregate_previous_response_id(contributions: &[&RouteContractContribution]) -> SupportState {
-    // Intersect Route capabilities before applying the stricter issuer-affinity boundary.
-    let support =
-        SupportState::intersection(contributions.iter().map(|value| value.previous_response_id));
-    if !support.is_supported() {
-        return support;
-    }
-
-    // Reject an otherwise supported contract when a response ID could belong to multiple issuers.
-    let Some(first) = contributions.first() else {
-        return SupportState::Unsupported;
+fn aggregate_continuation(
+    contributions: &[&RouteContractContribution],
+) -> PublicContinuationContract {
+    // Require the first Route to carry a statically known issuer before comparing the full set.
+    let Some(first_issuer) = contributions
+        .first()
+        .and_then(|contribution| contribution.continuation.issuer())
+    else {
+        return PublicContinuationContract::Unsupported;
     };
+
+    // Publish continuation only when every Route carries the exact same Target/API identity.
     if contributions
         .iter()
-        .all(|value| value.continuation_issuer == first.continuation_issuer)
+        .all(|contribution| contribution.continuation.issuer() == Some(first_issuer))
     {
-        support
+        PublicContinuationContract::supported(first_issuer.clone())
     } else {
-        SupportState::Unsupported
+        PublicContinuationContract::Unsupported
     }
 }
 
 /// Aggregates Public Model model capabilities without mixing in Provider or Route identity.
 pub(crate) fn aggregate_model_capabilities(
     contributions: &[RouteContractContribution],
+    canonical_task: Option<CanonicalTaskKind>,
 ) -> ModelCapabilities {
     if contributions.is_empty() {
         return ModelCapabilities {
@@ -285,11 +270,7 @@ pub(crate) fn aggregate_model_capabilities(
         .map(|value| value.model_modalities.as_ref())
         .collect::<Option<Vec<_>>>();
     ModelCapabilities {
-        tasks: intersect_sets(
-            contributions
-                .iter()
-                .map(|contribution| contribution.model_tasks.as_slice()),
-        ),
+        tasks: canonical_task.map_or_else(Vec::new, ModelTask::from_canonical),
         context_window: ContextWindow::intersection(
             contributions.iter().map(|value| &value.context_window),
         ),

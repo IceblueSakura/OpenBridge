@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::{
-    IgnorableGenerationParameter, InputModality, ModelContextLength, ModelMode, OutputModality,
-    PublicModel, ReasoningLevel, ReasoningSupport, RouteMode, StateAffinity,
+    CanonicalModelTask, CanonicalTaskKind, IgnorableGenerationParameter, InputModality,
+    ModelContextLength, OutputModality, PublicModel, ReasoningLevel, ReasoningSupport, RouteMode,
     UpstreamApiCapabilities,
 };
 
@@ -26,15 +26,9 @@ pub struct ModelInfo {
     pub(super) id: String,
     pub(super) name: String,
     pub(super) description: Option<String>,
-    pub(super) context_length: ModelContextLength,
-    pub(super) mode: Option<ModelMode>,
-    pub(super) input_modalities: Option<Vec<InputModality>>,
-    pub(super) output_modalities: Option<Vec<OutputModality>>,
     pub(super) tokenizer: Option<String>,
     pub(super) knowledge_cutoff: Option<String>,
-    pub(super) supported_parameters: Vec<String>,
-    pub(super) reasoning: ReasoningSupport,
-    pub(super) reasoning_levels: Vec<ReasoningLevel>,
+    pub(super) task: CanonicalModelTask,
 }
 
 impl ModelInfo {
@@ -55,22 +49,27 @@ impl ModelInfo {
 
     /// Returns the effective context length.
     pub const fn context_length(&self) -> ModelContextLength {
-        self.context_length
+        self.task.context_length()
     }
 
-    /// Returns the confirmed model task mode; `None` means it remains unknown at the definition layer.
-    pub const fn mode(&self) -> Option<ModelMode> {
-        self.mode
+    /// Returns the required canonical task identity without its task-specific payload.
+    pub const fn task_kind(&self) -> CanonicalTaskKind {
+        self.task.kind()
+    }
+
+    /// Returns the canonical task and its immutable task-specific payload.
+    pub const fn task(&self) -> &CanonicalModelTask {
+        &self.task
     }
 
     /// Returns confirmed input modalities; `None` does not mean explicitly unsupported.
     pub fn input_modalities(&self) -> Option<&[InputModality]> {
-        self.input_modalities.as_deref()
+        self.task.input_modalities()
     }
 
     /// Returns confirmed output modalities; `None` does not mean explicitly unsupported.
     pub fn output_modalities(&self) -> Option<&[OutputModality]> {
-        self.output_modalities.as_deref()
+        self.task.output_modalities()
     }
 
     /// Returns the tokenizer identifier, when the catalog confirms one.
@@ -85,17 +84,17 @@ impl ModelInfo {
 
     /// Returns the effective supported parameters.
     pub fn supported_parameters(&self) -> &[String] {
-        &self.supported_parameters
+        self.task.supported_parameters()
     }
 
-    /// Returns the effective reasoning state.
-    pub const fn reasoning(&self) -> ReasoningSupport {
-        self.reasoning
+    /// Returns the effective canonical reasoning support projection.
+    pub const fn reasoning_support(&self) -> ReasoningSupport {
+        self.task.reasoning_support()
     }
 
     /// Returns the effective reasoning levels.
     pub fn reasoning_levels(&self) -> &[ReasoningLevel] {
-        &self.reasoning_levels
+        self.task.reasoning_levels()
     }
 }
 
@@ -158,19 +157,15 @@ impl RuntimeRegistry {
         self.credential_pools.keys().map(String::as_str)
     }
 
-    /// Returns whether the pool serves a TargetBound Responses API with continuation enabled.
+    /// Returns whether any enabled Target restricts the pool to at most one loaded member.
     pub fn credential_pool_requires_single_member(&self, pool_id: &str) -> bool {
         self.upstream_targets.values().any(|target| {
             target.enabled()
                 && target.credential_pool_id() == pool_id
-                && target.upstream_apis.values().any(|upstream_api| {
-                    upstream_api.state_affinity() == StateAffinity::TargetBound
-                        && matches!(
-                            upstream_api.capabilities(),
-                            UpstreamApiCapabilities::Responses(capabilities)
-                                if capabilities.previous_response_id
-                        )
-                })
+                && target
+                    .upstream_apis
+                    .values()
+                    .any(UpstreamApi::requires_single_credential_member)
         })
     }
 
@@ -361,7 +356,6 @@ pub struct UpstreamApi {
     pub(super) upstream_model: String,
     pub(super) capabilities: UpstreamApiCapabilities,
     pub(super) streaming_policy: super::UpstreamStreamingPolicy,
-    pub(super) state_affinity: StateAffinity,
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
     pub(super) ignored_parameters: BTreeSet<IgnorableGenerationParameter>,
 }
@@ -402,9 +396,25 @@ impl UpstreamApi {
         self.streaming_policy
     }
 
-    /// Returns the ownership policy for continuation state.
-    pub fn state_affinity(&self) -> StateAffinity {
-        self.state_affinity
+    /// Returns whether Provider state is bound to this concrete Upstream Target.
+    pub fn is_target_bound(&self) -> bool {
+        self.capabilities
+            .responses()
+            .is_some_and(|capabilities| capabilities.is_target_bound())
+    }
+
+    /// Returns whether this API accepts a Target-bound opaque response continuation.
+    pub fn supports_previous_response_id(&self) -> bool {
+        self.capabilities
+            .responses()
+            .is_some_and(|capabilities| capabilities.supports_previous_response_id())
+    }
+
+    /// Returns whether this API restricts its credential pool to at most one loaded member.
+    pub fn requires_single_credential_member(&self) -> bool {
+        self.capabilities
+            .responses()
+            .is_some_and(|capabilities| capabilities.requires_single_credential_member())
     }
 
     /// Returns the explicit wire mapping for a standard level on this Upstream API.

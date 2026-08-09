@@ -1,11 +1,15 @@
-//! Verifies downstream/upstream credential merging, purpose isolation, uniqueness, and state affinity.
+//! Verifies credential merging, purpose isolation, uniqueness, and continuation affinity.
+
+mod support;
 
 use openbridge::{
+    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport},
     credential::{
         CredentialId, CredentialMetadata, CredentialSource, CredentialStoreError, CredentialType,
     },
     identity::UserConfiguration,
     provider::{CredentialKind, ProviderAdapter, ProviderKind},
+    registry::{UpstreamApiCapabilities, build_registry},
 };
 use secrecy::SecretString;
 use std::time::{Duration, SystemTime};
@@ -25,6 +29,56 @@ name = "Disabled User"
 api_key = "disabled-user-api-key-0000000000"
 enabled = false
 "#;
+
+#[test]
+fn continuation_pool_rejects_multiple_members_without_a_public_model() {
+    // Enable continuation on the executable API while removing every Public Model and Route.
+    let mut definition =
+        support::definition("credential-continuation", "unused-public-model", "upstream");
+    let UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    capabilities.state = ExecutableResponsesState::new(
+        StorageSupport::Unsupported,
+        ResponsesAffinity::TargetBoundContinuation,
+    );
+    definition.public_models.clear();
+    definition.routes.clear();
+    let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+
+    // Validate the executable Target constraint directly, without relying on a public projection.
+    let (_, credentials) = support::users_and_credential_pool(
+        "downstream-token-0000000000000000",
+        &registry,
+        &["key-a", "key-b"],
+    );
+    assert_eq!(
+        credentials.validate_registry(&registry),
+        Err(CredentialStoreError::StatefulPoolHasMultipleMembers)
+    );
+}
+
+#[test]
+fn ordinary_target_bound_pool_accepts_multiple_members() {
+    // Keep the fixture's ordinary Target-bound Responses state without enabling continuation.
+    let mut definition =
+        support::definition("credential-target-bound", "unused-public-model", "upstream");
+    definition.public_models.clear();
+    definition.routes.clear();
+    let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
+
+    // Storage-independent Target affinity alone must not disable credential rotation.
+    let (_, credentials) = support::users_and_credential_pool(
+        "downstream-token-0000000000000000",
+        &registry,
+        &["key-a", "key-b"],
+    );
+    credentials
+        .validate_registry(&registry)
+        .expect("ordinary Target-bound state must permit multiple credential members");
+}
 
 #[test]
 fn one_store_keeps_downstream_and_upstream_credentials_purpose_bound_and_redacted() {

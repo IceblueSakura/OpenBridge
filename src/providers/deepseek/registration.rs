@@ -3,17 +3,26 @@
 use std::time::Duration;
 
 use crate::{
+    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport},
     models::deepseek,
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "deepseek";
+
+/// Native operation set exposed by one DeepSeek model target.
+enum ModelApiSurface {
+    /// Exposes only Chat Completions.
+    ChatOnly,
+    /// Exposes both Chat Completions and Responses.
+    ChatAndResponses,
+}
 
 /// Builds the trusted DeepSeek API deployment used by the checked-in targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -32,44 +41,60 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
             "deepseek-primary",
-            false,
+            ModelApiSurface::ChatOnly,
         ),
         target(
             "deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash",
             "deepseek-primary",
-            true,
+            ModelApiSurface::ChatAndResponses,
         ),
     ]
 }
 
-/// Builds a DeepSeek V4 target and enables Responses only for an explicitly supported model.
+/// Builds a DeepSeek V4 target with its explicit Native operation surface.
 fn target(
     id: &str,
     canonical_model: &str,
     upstream_model: &str,
     credential_id: &str,
-    responses_enabled: bool,
+    api_surface: ModelApiSurface,
 ) -> UpstreamTargetConfig {
-    // Build the model-specific Native API set without introducing state affinity.
+    // Resolve the Chat profile required by every DeepSeek target.
+    let chat_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .chat_completions
+        .expect("DeepSeek targets require Chat Completions capabilities")
+        .to_executable(None);
+
+    // Build the model-specific Native API set without introducing Target-bound state.
     let mut upstream_apis = vec![UpstreamApiConfig {
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules::default(),
-        capabilities: UpstreamApiCapabilities::ChatCompletions(
-            CONTRACT.capabilities().chat_completions,
-        ),
+        capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
         streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-        state_affinity: StateAffinity::Unbound,
     }];
-    if responses_enabled {
-        upstream_apis.push(UpstreamApiConfig {
-            upstream_model: upstream_model.to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Responses(CONTRACT.capabilities().responses),
-            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
-        });
+    match api_surface {
+        ModelApiSurface::ChatOnly => {}
+        ModelApiSurface::ChatAndResponses => {
+            let responses_capabilities = DEFINITION
+                .contract()
+                .capabilities()
+                .responses
+                .expect("DeepSeek Responses targets require Responses capabilities")
+                .to_executable(ExecutableResponsesState::new(
+                    StorageSupport::Unsupported,
+                    ResponsesAffinity::Unbound,
+                ));
+            upstream_apis.push(UpstreamApiConfig {
+                upstream_model: upstream_model.to_owned(),
+                model_rules: UpstreamApiModelRules::default(),
+                capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
+                streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
+            });
+        }
     }
 
     // Bind the immutable API set to the fixed trusted DeepSeek deployment.

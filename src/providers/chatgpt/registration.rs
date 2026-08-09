@@ -6,16 +6,17 @@
 use std::time::Duration;
 
 use crate::{
+    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport},
     models::chatgpt,
     provider::ProviderKind,
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ProviderInstanceConfig,
-        StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamStreamingPolicy, UpstreamTargetConfig,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy,
+        UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "chatgpt";
 
@@ -112,17 +113,23 @@ fn upstream_target(
             streaming_policy: UpstreamStreamingPolicy::Required {
                 non_streaming: NonStreamingConversion::BufferResponsesSse,
             },
-            state_affinity: StateAffinity::TargetBound,
         }],
     }
 }
 
 /// Narrows the family contract to the capabilities guaranteed by one fixed ChatGPT model.
 fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilities {
-    let mut capabilities = CONTRACT.capabilities().responses;
+    let mut capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .responses
+        .expect("ChatGPT targets require Responses capabilities");
     if !advanced_capabilities {
         capabilities.function_tools = None;
         capabilities.structured_outputs = None;
     }
-    UpstreamApiCapabilities::Responses(capabilities)
+    UpstreamApiCapabilities::Responses(capabilities.to_executable(ExecutableResponsesState::new(
+        StorageSupport::Unsupported,
+        ResponsesAffinity::TargetBound,
+    )))
 }

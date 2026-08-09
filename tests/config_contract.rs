@@ -4,13 +4,13 @@ mod support;
 
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
-    core::OperationKind,
+    core::{ExecutableResponsesState, OperationKind, ResponsesAffinity, StorageSupport},
     provider::{CredentialKind, ProviderKind},
     registry::{
         IgnorableGenerationParameter, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
         NonStreamingConversion, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
-        ReasoningSupport, RegistryError, UpstreamApiCapabilities, UpstreamStreamingPolicy,
-        build_registry,
+        ReasoningProfile, ReasoningSupport, RegistryError, UpstreamApiCapabilities,
+        UpstreamStreamingPolicy, build_registry,
     },
 };
 
@@ -59,10 +59,8 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
 #[test]
 fn registry_rejects_duplicate_upstream_operations() {
     let mut duplicate = definition("test", "code-primary", "test-model");
-    duplicate.upstream_targets[0].upstream_apis[1].capabilities = duplicate.upstream_targets[0]
-        .upstream_apis[0]
-        .capabilities
-        .clone();
+    duplicate.upstream_targets[0].upstream_apis[1].capabilities =
+        duplicate.upstream_targets[0].upstream_apis[0].capabilities;
 
     let error = build_registry(bootstrap(BOOTSTRAP), duplicate).unwrap_err();
 
@@ -72,6 +70,26 @@ fn registry_rejects_duplicate_upstream_operations() {
             upstream_target,
             upstream_operation: OperationKind::ChatCompletions,
         } if upstream_target == "openai-main"
+    ));
+}
+
+#[test]
+fn registry_rejects_a_route_for_an_absent_upstream_operation() {
+    let mut absent = definition("test", "code-primary", "test-model");
+    absent.upstream_targets[0]
+        .upstream_apis
+        .retain(|api| api.capabilities.operation() != OperationKind::Responses);
+
+    let error = build_registry(bootstrap(BOOTSTRAP), absent).unwrap_err();
+
+    assert!(matches!(
+        error,
+        RegistryError::UnknownReference {
+            entity: "route",
+            id,
+            target: "upstream operation",
+            ..
+        } if id == "public-responses"
     ));
 }
 
@@ -279,14 +297,15 @@ fn bootstrap_accepts_explicit_otlp_metrics_export_and_rejects_unsafe_url_shapes(
 #[test]
 fn model_config_and_typed_rules_are_validated() {
     let mut invalid = definition("test", "code-primary", "test-model");
-    invalid.models[0].context_length = ModelContextLength::new(None, None, Some(0));
+    support::generation_profile_mut(&mut invalid.models[0]).context_length =
+        ModelContextLength::new(None, None, Some(0));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), invalid),
         Err(RegistryError::InvalidModelContextLength { .. })
     ));
 
     let mut inconsistent_context = definition("test", "code-primary", "test-model");
-    inconsistent_context.models[0].context_length =
+    support::generation_profile_mut(&mut inconsistent_context.models[0]).context_length =
         ModelContextLength::new(Some(4_096), None, Some(8_192));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), inconsistent_context),
@@ -294,42 +313,42 @@ fn model_config_and_typed_rules_are_validated() {
     ));
 
     let mut duplicate = definition("test", "code-primary", "test-model");
-    duplicate.models[0].supported_parameters = vec!["tools".to_owned(), "tools".to_owned()];
+    support::generation_profile_mut(&mut duplicate.models[0]).supported_parameters =
+        vec!["tools".to_owned(), "tools".to_owned()];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate),
         Err(RegistryError::DuplicateSupportedParameter { .. })
     ));
 
     let mut unknown_parameter = definition("test", "code-primary", "test-model");
-    unknown_parameter.models[0].supported_parameters = vec!["future_parameter".to_owned()];
+    support::generation_profile_mut(&mut unknown_parameter.models[0]).supported_parameters =
+        vec!["future_parameter".to_owned()];
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), unknown_parameter),
         Err(RegistryError::InvalidSupportedParameter { parameter, .. })
             if parameter == "future_parameter"
     ));
 
-    let mut inconsistent = definition("test", "code-primary", "test-model");
-    inconsistent.models[0].reasoning = ReasoningSupport::Supported;
+    let mut reasoning_alias = definition("test", "code-primary", "test-model");
+    support::generation_profile_mut(&mut reasoning_alias.models[0]).supported_parameters =
+        vec!["reasoning".to_owned()];
     assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), inconsistent),
-        Err(RegistryError::InconsistentReasoningConfig { .. })
+        build_registry(bootstrap(BOOTSTRAP), reasoning_alias),
+        Err(RegistryError::InvalidSupportedParameter { parameter, .. })
+            if parameter == "reasoning"
     ));
 
-    let mut invalid_levels = definition("test", "code-primary", "test-model");
-    invalid_levels.models[0].reasoning_levels = vec![ReasoningLevel::Low];
+    let mut reasoning_effort_alias = definition("test", "code-primary", "test-model");
+    support::generation_profile_mut(&mut reasoning_effort_alias.models[0]).supported_parameters =
+        vec!["reasoning_effort".to_owned()];
     assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), invalid_levels),
-        Err(RegistryError::InconsistentReasoningConfig { .. })
+        build_registry(bootstrap(BOOTSTRAP), reasoning_effort_alias),
+        Err(RegistryError::InvalidSupportedParameter { parameter, .. })
+            if parameter == "reasoning_effort"
     ));
 
-    let mut duplicate_levels = definition("test", "code-primary", "test-model");
-    duplicate_levels.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    duplicate_levels.models[0].reasoning = ReasoningSupport::Supported;
-    duplicate_levels.models[0].reasoning_levels = vec![ReasoningLevel::High, ReasoningLevel::High];
-    assert!(matches!(
-        build_registry(bootstrap(BOOTSTRAP), duplicate_levels),
-        Err(RegistryError::InconsistentReasoningConfig { .. })
-    ));
+    let reasoning = ReasoningProfile::supported([ReasoningLevel::High, ReasoningLevel::High]);
+    assert_eq!(reasoning.levels(), [ReasoningLevel::High]);
 }
 
 #[test]
@@ -362,18 +381,15 @@ fn canonical_and_provider_model_id_layers_are_validated_separately() {
 #[test]
 fn upstream_api_rules_only_reduce_model_info() {
     let mut definition = definition("test", "code-primary", "test-model");
-    definition.models[0].supported_parameters =
-        vec!["max_tokens".to_owned(), "reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
+    let profile = support::generation_profile_mut(&mut definition.models[0]);
+    profile.supported_parameters = vec!["max_tokens".to_owned()];
+    profile.reasoning = ReasoningProfile::supported([ReasoningLevel::High]);
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
         .context_length = ModelContextLength::new(Some(64_000), None, Some(4_096));
     definition.upstream_targets[0].upstream_apis[0]
         .model_rules
-        .reasoning = Some(ReasoningSupport::Unsupported);
-    definition.upstream_targets[0].upstream_apis[0]
-        .model_rules
-        .disabled_parameters = vec!["reasoning".to_owned()];
+        .reasoning = Some(ReasoningProfile::Unsupported);
 
     let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
     let base = registry.model("openai/test-model").unwrap();
@@ -385,16 +401,17 @@ fn upstream_api_rules_only_reduce_model_info() {
         .model();
 
     assert_eq!(base.context_length().output_tokens(), Some(8_192));
-    assert_eq!(base.reasoning(), ReasoningSupport::Supported);
+    assert_eq!(base.reasoning_support(), ReasoningSupport::Supported);
     assert_eq!(effective.context_length().output_tokens(), Some(4_096));
-    assert_eq!(effective.reasoning(), ReasoningSupport::Unsupported);
+    assert_eq!(effective.reasoning_support(), ReasoningSupport::Unsupported);
     assert_eq!(effective.supported_parameters(), ["max_tokens"]);
 }
 
 #[test]
 fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
     let mut accepted = definition("test", "code-primary", "test-model");
-    accepted.models[0].supported_parameters = vec!["seed".to_owned(), "temperature".to_owned()];
+    support::generation_profile_mut(&mut accepted.models[0]).supported_parameters =
+        vec!["seed".to_owned(), "temperature".to_owned()];
     accepted.upstream_targets[0].upstream_apis[0]
         .model_rules
         .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
@@ -426,7 +443,8 @@ fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
     ));
 
     let mut duplicate = definition("test", "code-primary", "test-model");
-    duplicate.models[0].supported_parameters = vec!["temperature".to_owned()];
+    support::generation_profile_mut(&mut duplicate.models[0]).supported_parameters =
+        vec!["temperature".to_owned()];
     duplicate.upstream_targets[0].upstream_apis[0]
         .model_rules
         .ignored_parameters = vec![
@@ -439,7 +457,8 @@ fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
     ));
 
     let mut contradictory = definition("test", "code-primary", "test-model");
-    contradictory.models[0].supported_parameters = vec!["temperature".to_owned()];
+    support::generation_profile_mut(&mut contradictory.models[0]).supported_parameters =
+        vec!["temperature".to_owned()];
     contradictory.upstream_targets[0].upstream_apis[0]
         .model_rules
         .disabled_parameters = vec!["temperature".to_owned()];
@@ -466,7 +485,7 @@ fn upstream_api_rules_cannot_widen_model_info() {
     let mut widened_reasoning = definition("test", "code-primary", "test-model");
     widened_reasoning.upstream_targets[0].upstream_apis[0]
         .model_rules
-        .reasoning = Some(ReasoningSupport::Supported);
+        .reasoning = Some(ReasoningProfile::supported([ReasoningLevel::High]));
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), widened_reasoning),
         Err(RegistryError::UpstreamApiModelRuleWidensModel { .. })
@@ -521,9 +540,8 @@ fn public_model_identity_and_lifecycle_are_validated() {
 fn reasoning_level_mappings_are_validated_at_registry_build_time() {
     let configured = |mapping: ReasoningLevelMapping| {
         let mut definition = definition("test", "code-primary", "test-model");
-        definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-        definition.models[0].reasoning = ReasoningSupport::Supported;
-        definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+        support::generation_profile_mut(&mut definition.models[0]).reasoning =
+            ReasoningProfile::supported([ReasoningLevel::XHigh]);
         definition.upstream_targets[0].upstream_apis[1]
             .model_rules
             .reasoning_level_mappings = vec![mapping];
@@ -704,6 +722,61 @@ fn registry_rejects_capability_elevation_and_unsupported_credential_kind() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), elevation),
         Err(RegistryError::CapabilityElevation { .. })
+    ));
+
+    // Reject each independent executable Responses state axis when the Provider ceiling is stateless.
+    for state in [
+        ExecutableResponsesState::new(StorageSupport::Supported, ResponsesAffinity::TargetBound),
+        ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::TargetBoundContinuation,
+        ),
+    ] {
+        let mut elevation = definition("test", "code-primary", "test-model");
+        elevation.provider_instances[0].kind = ProviderKind::LongCat;
+        elevation.credential_pools[0].provider = ProviderKind::LongCat;
+        elevation.upstream_targets[0].provider_model =
+            ProviderKind::LongCat.routing_model_id(&elevation.upstream_targets[0].canonical_model);
+        let UpstreamApiCapabilities::Responses(capabilities) =
+            &mut elevation.upstream_targets[0].upstream_apis[1].capabilities
+        else {
+            panic!("second synthetic API must be Responses");
+        };
+        capabilities.state = state;
+        assert!(matches!(
+            build_registry(bootstrap(BOOTSTRAP), elevation),
+            Err(RegistryError::CapabilityElevation {
+                upstream_operation: OperationKind::Responses,
+                ..
+            })
+        ));
+    }
+
+    // Accept the combined executable state when both axes stay within the OpenAI Provider ceiling.
+    let mut within_ceiling = definition("test", "code-primary", "test-model");
+    let UpstreamApiCapabilities::Responses(capabilities) =
+        &mut within_ceiling.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    capabilities.state = ExecutableResponsesState::new(
+        StorageSupport::Supported,
+        ResponsesAffinity::TargetBoundContinuation,
+    );
+    build_registry(bootstrap(BOOTSTRAP), within_ceiling)
+        .expect("OpenAI state axes must remain within its combined Provider ceiling");
+
+    let mut absent_operation = definition("test", "code-primary", "test-model");
+    absent_operation.provider_instances[0].kind = ProviderKind::ChatGpt;
+    absent_operation.credential_pools[0].provider = ProviderKind::ChatGpt;
+    absent_operation.credential_pools[0].kind = CredentialKind::OAuth2BearerAccessToken;
+    absent_operation.upstream_targets[0].provider_model = "chatgpt/test-model".to_owned();
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), absent_operation),
+        Err(RegistryError::CapabilityElevation {
+            upstream_operation: OperationKind::ChatCompletions,
+            ..
+        })
     ));
 
     let mut oauth = definition("test", "code-primary", "test-model");

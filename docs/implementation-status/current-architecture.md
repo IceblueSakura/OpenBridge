@@ -51,12 +51,12 @@ Route；transport 不解释模型和协议能力。
 | Credential    | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`OAuth2CredentialManager`、`UpstreamCredential`                                                          | 启动时解析 binding，分别冻结 API key 与 OAuth2 bundle，并提供受限只读视图                            |
 | 下游身份      | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User`                                                                                                                                                          | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份                                       |
 | 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 binding id 分别装载有序 API key 或单一 OAuth2 auth 文件                    |
-| API 语义      | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ChatCompletionsCapabilities`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`GenerationCapabilities`                        | 独立 operation、generation 协议/请求、Embeddings 请求、分域能力和仅供内部判定使用的公共生成能力投影 |
+| API 语义      | `OperationKind`、`ApiProtocol`、`ApiRequest`、`EmbeddingRequest`、`ApiCapabilities`、`ProviderChatCompletionsCapabilities`、`ChatCompletionsCapabilities`、`ProviderAudioCeiling`、`ExecutableAudioProfile`、`ResponsesCapabilities`、`EmbeddingsCapabilities`、`StructuredOutputProfile`、`GenerationCapabilities` | 独立 operation、generation 协议/请求、Provider/Target 分层能力和仅供内部判定使用的公共生成能力投影 |
 | 注册配置      | `ModelConfig`、`ProviderInstanceConfig`、`UpstreamTargetConfig`、`UpstreamApiConfig`、`UpstreamStreamingPolicy`、`RouteConfig`、`PublicModelConfig`                                                                  | 编译期写入并等待校验的配置                                                                          |
 | 运行注册表    | `RuntimeRegistry`、`ModelInfo`、`ProviderInstance`、`PublicModelInfo`、`StandardModel`、`ModelInterfaceCapabilities`、`EmbeddingInterfaceCapabilities`、`ModelExecutionInterface`、`UpstreamTarget`、`UpstreamApi`、`Route`、`PublicModel` | 校验通过后供模型接口和请求路径共同只读使用的数据                                                    |
 | 请求规划      | `RequestRequirements`、`RoutePlan`、`RouteCandidate`、`StreamResponseConversion`、`EmbeddingRequestRequirements`、`EmbeddingRoutePlan`                                                                                | 请求需要什么、可走哪些固定 route、每条 route 绑定到哪里及是否需要 bounded response takeover          |
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
-| Provider      | `ProviderContract`、`ProviderAdapter`、`PreparedUpstreamRequest`                                                                                                                                                       | Provider 能力上界、闭合实现分派和待发送请求                                                         |
+| Provider      | `ProviderDefinition`、`ProviderContract`、`ProviderAdapter`、`OpenAiCompatibleApiSurface`、`PreparedUpstreamRequest`                                                                                                   | 单点声明 operation endpoint/能力、闭合实现分派和待发送请求                                          |
 | Transport     | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse`                                                                                                                                                              | 可替换的发送边界、生产 HTTP client 和上游响应                                                       |
 | Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`TelemetryRuntime`、`GatewayMetrics` | 请求/attempt trace 生命周期、原始 upstream body/SSE 观测、SDK metrics instruments 与 OTLP export |
 | Probe         | `ProbeOptions`、`ProbeResult`、`TargetProbeReport`                                                                                                                                                                     | 探测输入、单项观察和 target 汇总报告                                                                |
@@ -155,28 +155,31 @@ RegistryConfig
 
 | 实体                   | 所有内容                                                                                                             |
 |------------------------|----------------------------------------------------------------------------------------------------------------------|
-| `ProviderContract`     | Provider adapter 代码拥有的 credential kind 与能力上界                                                               |
+| `ProviderContract`     | 从 Provider adapter 的 typed operation surface 派生的能力上界，以及允许的 credential kind                               |
 | `ProviderInstanceConfig` | 一个稳定实例 ID、一个 `ProviderKind` 与唯一受信 BaseURL；不同 URL/区域使用不同实例                                  |
-| `ModelConfig`          | 显式 canonical profile 的模型事实、total/input/output context、mode、模态、参数与 reasoning 元数据；不同 profile 的已核实事实可分开注册 |
+| `ModelConfig`          | 公共 identity/catalog 字段与必填 `CanonicalModelTask`；各 task variant 独占自己的 context/input limit、模态、参数与 reasoning 事实，`CanonicalTaskKind` 只从该 union 派生 |
 | `CredentialPoolConfig` | 非敏感 pool id、Provider 与 credential kind                                                                          |
 | `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
-| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、能力证据、streaming policy、state affinity、可选 reasoning level 映射与普通参数忽略规则 |
+| `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、typed executable capability、streaming policy、可选 reasoning level 映射与普通参数忽略规则；Responses state ownership 由 capability union 自身拥有 |
 | `RouteConfig`          | target、typed upstream operation、下游 operation 和 `Native`/`Bridged` 执行模式                                      |
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
-当前编译目录包含 21 个 `ModelConfig`：19 个 generation 模型，以及独立的
-`openai/text-embedding-3-small` 与 `qwen/qwen3.7-text-embedding` Embedding 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
+当前编译目录包含 31 个 `ModelConfig`：24 个 Generation、2 个 Embedding、2 个 SpeechRecognition，以及各 1 个
+SpeechSynthesis、VoiceDesign、VoiceClone 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
 侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark、GPT-5.5 以及 GPT-5.6
 Luna/Terra/Sol 共 5 个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
 checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、`chatgpt/gpt_5_3_codex_spark.rs`、
 `deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。各根模块直接维持
 目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 或 `chatgpt::gpt_5_3_codex_spark::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
-`z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、context、 参数、reasoning 状态和
-level，不从共享默认值拼装模型字段；mode 与模态可作为显式已知事实进入扩展信息。目录存在不等于 可调用；只有被 Upstream Target
+`z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、可选描述/tokenizer/knowledge cutoff 与一个必填
+`CanonicalModelTask` payload，不从共享默认值拼装模型字段。Generation variant 拥有 context、可选输入/输出模态、参数与 reasoning；
+Embedding 和四种语音 variant 分别只拥有本 task 有意义的 limit/参数，固定模态与非 generation reasoning 由 union variant 派生。
+目录存在不等于 可调用；只有被 Upstream Target
 引用并进入 Public Model Route 的模型才会参与规划或出现在 `/v1/models`。服务启动还会根据私有凭证配置派生 active pool 集合；缺失、无 source
 或空 API-key pool 会使引用它的 Target/Public Model 在本次运行中不可执行，但不会删除代码注册的 Provider 或 canonical Model。
-`ModelConfig` 已分型表示 Chat 与 Embedding，但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被 伪装成可调用
+`ModelConfig` 以 `CanonicalModelTask` 闭合表示 Generation、Embedding、SpeechRecognition、SpeechSynthesis、VoiceDesign 与 VoiceClone，
+但仍没有 rerank task；两个 Nemotron retrieval 条目没有因此被伪装成可调用
 Embedding/rerank 模型。其中 OpenRouter 精确匹配的模型已补齐现有字段；
 `chatgpt/gpt-5.3-codex-spark` 没有精确目录项，其 context、输出和 level 是人工修订值。外部事实与 Nemotron
 `:free` 变体边界见 [OpenRouter 模型目录](../references/providers/openrouter/models.md)。
@@ -184,8 +187,10 @@ ChatGPT GPT-5.5/5.6 profiles 复制对应 OpenAI model facts，但 canonical con
 128,000。Spark 与 GPT-5.6 Luna/Terra/Sol 已分别进入固定 target、Responses-native Route 和 Public Model；OpenAI GPT-5.5、GPT-5.6
 Luna/Terra 也分别进入固定 OpenAI Target，但仍不单独生成 Public Model 或 Route。
 
-同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、 context/output
-限制、能力证据和 state affinity。API operation 只由 capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
+同一 generation target 可以同时注册 Chat 和 Responses Upstream API；二者可拥有不同 upstream model、context/output
+限制和能力证据。Responses 使用 `ResponsesProfile<S>` 静态区分 Provider ceiling 与 Target executable state，后者以
+`ExecutableResponsesState { storage, affinity }` 和闭合 `ResponsesAffinity` 同点表达 state ownership。API operation 只由
+capabilities variant 决定，同一 Target 对每个 `OperationKind` 最多一份；
 Route 和执行候选以 typed operation 引用 API。每个 Embeddings checked-in 注册使用独立 target，并只包含一个 Embeddings API。
 BaseURL 只属于 Provider instance；credential、Model、timeout 与故障边界仍属于 target。
 
@@ -233,9 +238,42 @@ URL、credential 或内部 route ID。
 `src/pipeline/types.rs`、`src/pipeline/analysis.rs`、`src/pipeline/analysis/{generation,embeddings}.rs`、
 `src/pipeline/preflight.rs`、`src/pipeline/planning.rs`；`src/pipeline/mod.rs` 只保留包入口与公共重导出。
 
-`core/capability.rs` 只在 `ApiCapabilities` 汇总 operation family；generation 与 Embeddings 子模块分别拥有自己的闭合字段、校验和
-subset 规则。`pipeline/analysis.rs` 只重导出两个 analyzer：generation analyzer 处理 Chat/Responses 请求事实，Embeddings analyzer
+`core/capability.rs` 只在 `ApiCapabilities` 以 `Option<operation profile>` 汇总 operation family；`None` 是 Provider 不实现该
+operation 的唯一表达。generation 与 Embeddings 子模块分别拥有自己的闭合 payload、校验和 subset 规则，payload 不再重复携带
+operation-level `enabled`；Embeddings 的有效 profile 也不提供 disabled/零值 `Default`。`pipeline/analysis.rs` 只重导出两个
+analyzer：generation analyzer 处理 Chat/Responses 请求事实，Embeddings analyzer
 处理严格 input union 与 endpoint 字段；二者都不查询 registry、不构造 RoutePlan，也不改写 body。
+
+Chat 的公共字段只由泛型 `ChatCompletionsProfile<A>` 保存一份：Provider definition 使用
+`ProviderChatCompletionsCapabilities = ChatCompletionsProfile<Option<ProviderAudioCeiling>>`，具体 Target Upstream API 使用
+`ChatCompletionsCapabilities = ChatCompletionsProfile<Option<ExecutableAudioProfile>>`。`to_executable` 只替换音频层，因而
+Provider 的多任务上界不能误入请求执行状态，Target 也不能携带“任意任务”或多任务组合。`ProviderAudioCeiling::new(first)`
+要求至少一个完整任务 payload，`with(profile)` 只接受尚未出现的 variant；`ExecutableAudioProfile` 是
+`AudioUnderstanding`、`SpeechRecognition`、`SpeechSynthesis`、`VoiceDesign`、`VoiceClone` 五分支判别联合，每个 Target Chat API
+至多选择其中一个。registry 的 subset 校验要求 Target 与 Provider ceiling 中同名 variant 匹配，并逐字段收窄 payload。
+
+音频 primitive 不能通过公开字段构造非法状态。`AudioInputLimits::new` 检查非零 part 数、inline limit 组完整性以及单资源/总量
+关系，`AudioInputCapabilities::new` 再把这组数值与非空、无重复的 source/format 集合绑定，并要求 remote/inline source 与对应
+limit 组严格同在；其只读 getter 是 preflight 和 Models 投影的入口。JSON/SSE delivery 的 format 集合、ASR language 集合和 preset
+voice 集合都在 `const` constructor 中拒绝重复；ASR language 与 preset voice 还必须非空。生成音频 payload 由
+`GeneratedAudioCapabilities { json, sse }` 同时要求两个 delivery，JSON/SSE format 均非空且 budget 为正，并显式携带各自 framing；
+不存在 disabled、零值或单 delivery placeholder。
+
+图片 primitive 也只允许构造可执行状态。`ImageInputCapabilities` 是私有字段 envelope，组合正数 `max_parts`、
+`ImageSourceCapabilities::RemoteUrl | DataUrl | RemoteUrlAndDataUrl` 与
+`ImageDetailPolicy::OmittedOnly | Explicit`；source variant 自身拥有完整 payload，不再把 source tag、MIME 与六个独立 limit
+平铺成可任意组合的配置。Remote payload 的 URL UTF-8 byte budget 至少为 9，可容纳当前 analyzer 接受的最短绝对 HTTPS URL
+`https://a`；inline payload 的 MIME set 非空且无重复，Base64 encoded/decoded 单项下界分别为 4/1，累计预算必须覆盖一项且不超过
+`per-item × max_parts`。显式 detail domain 非空且无重复；省略后的 default 与客户端可显式提交的 allowed set 保持不同语义。
+`ImageInputSource::FileId` 只保留为 Responses request analyzer 的闭合 wire fact，用于在 preflight 稳定 fail closed；Provider ceiling、
+Target executable profile 与 Public Models 静态 source union 都没有无 resource ownership/affinity payload 的 `FileId` variant。
+
+Structured Output 也只保存闭合、非空 profile：`JsonObject`、携带 `NonStrictOnly | StrictSupported` 的 `JsonSchema`，或携带同一
+schema payload 的 combined variant。Provider ceiling、Target API、Route contribution 与 Public execution interface 直接共享这一
+core 类型；mode/strict subset 和 intersection 由 variant 派生，Object-only 与 Schema-only 的 Public 交集为 `None`。Models 既有
+`support/modes/strict_schema` 只在 serializer 的瞬时 wire helper 中生成，preflight 不读取该投影。request analyzer 另以
+`Unconstrained | JsonObject | JsonSchema(NonStrict | Strict) | Unknown` 冻结请求事实，因而不再能保存 `mode=None + strict=true`
+或独立 unknown bool。
 
 ```text
 raw body + downstream operation
@@ -276,8 +314,10 @@ Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Respo
 `reasoning.summary[]` schema 声明为 `Summary`；level 集合相同不表示两种协议必须使用相同输出 wire。尚未公开的 Qwen3.6 27B
 只有 thinking 开关证据，canonical profile 因而声明 `none/high`，不推导中间强度。
 
-请求携带 `previous_response_id` 时，计划关闭跨 target fallback。registry 还要求全部 Responses Route 的 continuation issuer
-唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前 拒绝请求。不同 Route 或 Upstream API
+`TargetBoundContinuation` 是唯一能贡献 `previous_response_id` 的 executable affinity。Route contribution 与私有 Public execution
+interface 分别以携带 issuer 的判别联合保存该事实，Bridge 固定贡献 unsupported；Public Models 只投影 `SupportState` 和 parameter。
+请求实际携带 `previous_response_id` 时计划才关闭跨 target fallback；无状态请求不因候选具备 continuation 而失去 fallback。registry
+还要求全部 Responses Route 的 continuation issuer 唯一解析到同一 Target/API；多个潜在签发者会把固定能力收窄为 `unsupported`，并在规划前拒绝请求。不同 Route 或 Upstream API
 的其他能力只在 registry 构建时做保守交集，绝不按字段求并集；请求能力 不用于跳过较弱 Route 选择较强 Route。
 
 ## 6. Provider 适配层
@@ -287,7 +327,11 @@ Reasoning level 只由 Canonical Model 定义；绑定同一模型的 Chat/Respo
 `definition.rs` 与可选 `registration.rs`；`src/provider/mod.rs` 和 `src/providers/mod.rs` 只保留包入口， 具体 Provider 不使用
 `mod.rs`。
 
-`ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；
+`ProviderKind` 是闭合集合。每个具体 Provider 以一个静态 `ProviderDefinition` 聚合自己的 contract 与 adapter；definition
+从 adapter 唯一派生 Provider identity，不能分别声明两个可能漂移的 kind。每个 OpenAI-compatible Provider 只维护一个 typed
+`OpenAiCompatibleApiSurface`：每个存在的 operation descriptor 同时携带固定相对 endpoint path 与 concrete capability profile，
+`ProviderContract` 和 wire adapter 都从同一 surface 派生；不支持的 operation 以 descriptor 缺席表达，不再维护独立 path、
+capability `enabled` 或 disabled placeholder。
 `ProviderKind::definition` 是 kind 到具体 definition 的唯一穷举分派，`ProviderKind::contract` 与
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA、百炼与 Kimi CN 的独立静态定义拥有
 Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
@@ -328,6 +372,11 @@ OpenRouter 两个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两�
 Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
+Provider image ceiling 与单 Target executable profile 分层保存。MiMo 与 OpenAI 的 Chat/Responses Provider ceiling 都声明完整
+Remote URL + data URL union；只有 `mimo-v2.5` 的 Chat/Responses Target 选择同类 executable profile，`mimo-v2.5-pro`、MiMo
+专用 audio Target 和所有 checked-in OpenAI generation Target 都保持 `image_input = None`。因此 Provider family 上界不会自动打开
+未经 Target 证实的图片能力；OpenAI ceiling 先前的静态 `FileId` 声明也已删除。
+
 ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个 target、同一个 Codex backend、`responses` path、各自的 upstream
 model 和共享 `chatgpt-codex` OAuth pool；每个 GPT Public Model 都有 ChatGPT Responses Native 与受限 Chat Bridge，`gpt-5.6-sol`
 还以 OpenAI 为后备 source，但两个下游协议都按 `SourceFirst` 优先 ChatGPT。ChatGPT definition 固定
@@ -339,15 +388,22 @@ Upstream API policy 声明 streaming required，并启用 Responses SSE bufferin
 部署主机 OS/environment/terminal identity，也不调用 Codex executable/app-server；Models probe 使用的
 `/models?client_version=0.146.0` query 是编译期固定的 adapter 事实，不由本机 client profile 提供。
 
-静态协议能力现在使用 `ChatCompletionsCapabilities` 与 `ResponsesCapabilities` 分域表达； crate-private
+静态协议能力现在将 `ProviderChatCompletionsCapabilities` 上界、Target `ChatCompletionsCapabilities` 与
+`ResponsesCapabilities` 分域表达；crate-private
 `GenerationCapabilities` 只是公共子集判断使用的投影，不再充当可注册或公共导出的模糊 endpoint 类型。Chat/Responses
-`image_input` 使用 source、MIME、detail 和本地可计数 limit 组成的 typed profile；request analyzer 将实际图片事实冻结后交给固定
-interface preflight，不以图片能力筛选候选。
+`image_input` 进入 Public Model compiler 后转换为 registry-owned source/detail union。所有 Route candidate 必须贡献该 source 才会保留：
+Remote URL limit 取最小值；data URL MIME 取交集，四个 inline limit 分别收窄，累计值再 clamp 到交集后的
+`per-item × max_parts` 可达上限。data MIME 交集为空时只移除 DataUrl，仍有完整 Remote payload 就降为 remote-only；所有 source
+消失、或 detail omission default 不一致时才关闭整个 image 子契约。Models 继续序列化既有 flat JSON shape，不适用的 source-specific
+limit 只在只读 wire 投影中显示为 `0`；preflight 直接读取 owned union 的 source-specific `Option` accessor，先校验 source/MIME/detail，
+再校验对应 limit，不反向读取 JSON sentinel，也不以图片能力筛选或重排候选。request analyzer 只冻结实际 wire 事实；Bridge 和
+`FileId` 在固定 interface gate 保持 zero-egress fail closed。
 `EmbeddingsCapabilities` 独立拥有 input forms、encoding/dimension domain、request limits 与 可选参数，不参与 generation
 intersection 或 Bridge。canonical
-`ModelConfig` 记录已核实的 `mode`、`input_modalities`、`output_modalities`、tokenizer 和 knowledge cutoff；当前 OpenRouter
+`ModelConfig` 的公共层只记录 identity、描述、tokenizer 与 knowledge cutoff；必填 `CanonicalModelTask` variant 拥有已核实的
+task-specific limits、模态、参数与 reasoning，并以 `CanonicalTaskKind` 提供无 payload 分类。当前 OpenRouter Generation
 精确匹配的 canonical 模型还记录模型级 `context_length` 作为总上下文和输入上限，并记录可用的 最大输出上限。没有精确目录记录的
-Codex Spark 继续保留未知字段。Chat 预留 audio/file/custom tool、audio output、 predicted output、web search、prompt
+Codex Spark 继续保留未知字段。Chat 预留 file/custom tool、predicted output、web search、prompt
 caching、moderation、logprobs 和 multiple choices；Responses 另以
 `HostedToolKind`、`ResponseInclude` 及状态字段预留 hosted tool、附加输出、conversation、prompt template 和 context
 management。Provider/API definition 仍保持这些未实现的 endpoint 字段为 `None`、`false` 或空集合；进入 registry 编译的 Model
@@ -356,7 +412,7 @@ wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingre
 400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。 因此这些类型位置与请求错误边界都不构成已实现能力声明。
 
 OpenRouter 当前注册 `openrouter-deepseek-v4-flash` 与 `openrouter-minimax-m3` 两个固定 target；每个 target 都提供 Chat/Responses
-Upstream API、`Unbound` state affinity 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与
+Upstream API、`ResponsesAffinity::Unbound` executable state 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与
 `minimax/minimax-m3`。DeepSeek Public Model 中 OpenRouter 是第二 source；MiniMax Public Model 中 OpenRouter 是第一 source，Chat
 按 OpenRouter、NVIDIA 排序，Responses 只保留 OpenRouter Native，不为 NVIDIA Chat source 生成冗余 Bridge。两个 target 的 `store`、
 `previous_response_id` 与 `background` 都在 capability gate 关闭，也不注册显式 Bridged route 或 `:free` 变体；只有 DeepSeek Flash
@@ -406,8 +462,9 @@ credential/endpoint URL 仍不进入 metric attributes；`GatewayMetrics` 只持
 `ingress::credential_health::CredentialHealth` 与 `ingress::health::TargetHealth` 在所有 `GatewayState` clone 间共享。
 前者维护每 pool round-robin cursor，以及按 `member_id + generation` 隔离的 429 cooldown；`Retry-After`
 缺失/非法时为 1 秒并封顶 30 秒。后者只把暂时性 5xx/transport failure 隔离到注册表提供的 `fault_domain`。 无状态请求跳过冷却
-member/target；启用 continuation 的 target-bound API 在启动时要求单成员 pool，并保持原
-target。两类状态都不持久化、不跨进程，也不执行动态权重或后台探测。
+member/target；credential gate 直接扫描全部启用 Target 的 `TargetBoundContinuation` executable API，不依赖 Public Model 可见性，
+并在启动时要求单成员 pool。普通 `TargetBound` 保留 credential rotation；continuation 请求保持原 Target。两类状态都不持久化、
+不跨进程，也不执行动态权重或后台探测。
 
 `src/bridge.rs` 作为生产 Protocol Bridge 门面；`bridge/chat.rs` 与 `bridge/responses.rs` 分别维护两种 stream 状态机，
 `bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE 转换。Responses 侧分别固定
@@ -449,4 +506,5 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 - [当前实现总览](current-implementation.md)
 - [遥测指标](telemetry-metrics.md)
 - [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
+- [Native 图片输入](../functional-requirements/native-image.md)
 - [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)

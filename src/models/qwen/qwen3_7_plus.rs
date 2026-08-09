@@ -1,8 +1,8 @@
 //! Complete canonical model facts for Qwen3.7 Plus (`qwen/qwen3.7-plus`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for Qwen3.7 Plus.
@@ -17,19 +17,18 @@ pub(crate) fn config() -> ModelConfig {
             "Cost-effective multimodal Qwen3.7 model for coding, tool use, productivity, and GUI agents."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_000_000), Some(1_000_000), Some(131_072)),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
-        output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: Some("Qwen".to_owned()),
         knowledge_cutoff: None,
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
+        context_length: ModelContextLength::new(Some(1_000_000), Some(1_000_000), Some(131_072)),
+        input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
+        output_modalities: Some(vec![OutputModality::Text]),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
             "logprobs",
             "max_tokens",
             "presence_penalty",
-            "reasoning",
             "response_format",
             "seed",
             "stop",
@@ -44,8 +43,7 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
         .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![
+        reasoning: ReasoningProfile::supported([
             ReasoningLevel::Max,
             ReasoningLevel::XHigh,
             ReasoningLevel::High,
@@ -53,6 +51,7 @@ pub(crate) fn config() -> ModelConfig {
             ReasoningLevel::Low,
             ReasoningLevel::Minimal,
             ReasoningLevel::None,
-        ],
+        ]),
+        }),
     }
 }

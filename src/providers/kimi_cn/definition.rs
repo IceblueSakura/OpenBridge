@@ -3,20 +3,21 @@
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiCapabilities, ChatCompletionsCapabilities, ReasoningOutput, ResponsesCapabilities},
+    core::{ProviderChatCompletionsCapabilities, ReasoningOutput},
     provider::{
-        AdapterError, CredentialKind, ProviderAdapter, ProviderContract, ProviderDefinition,
-        ProviderKind, SafeHeaders,
+        AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
+        SafeHeaders,
     },
-    providers::openai_compatible::OpenAiCompatibleAdapter,
+    providers::openai_compatible::{
+        OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
+    },
 };
 
-/// Conservative Kimi China Chat Completions ceiling used by the registered Kimi K3 Target.
-pub static CONTRACT: ProviderContract = ProviderContract::new(
-    ProviderKind::KimiCn,
-    ApiCapabilities {
-        chat_completions: ChatCompletionsCapabilities {
-            enabled: true,
+/// Conservative Kimi China Chat-only operation surface used by the registered Kimi K3 Target.
+const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
+    Some(OpenAiCompatibleEndpoint::new(
+        "/v1/chat/completions",
+        ProviderChatCompletionsCapabilities {
             streaming: true,
             function_tools: None,
             image_input: None,
@@ -33,46 +34,25 @@ pub static CONTRACT: ProviderContract = ProviderContract::new(
             logprobs: false,
             multiple_choices: false,
         },
-        responses: ResponsesCapabilities {
-            enabled: false,
-            streaming: false,
-            function_tools: None,
-            image_input: None,
-            structured_outputs: None,
-            store: false,
-            previous_response_id: false,
-            background: false,
-            reasoning_output: ReasoningOutput::Unknown,
-            custom_tool_calling: false,
-            hosted_tools: &[],
-            file_input: false,
-            conversation: false,
-            prompt_templates: false,
-            prompt_caching: false,
-            context_management: false,
-            include: &[],
-            moderation: false,
-            logprobs: false,
-        },
-        embeddings: crate::core::EmbeddingsCapabilities::disabled(),
-    },
-    &[CredentialKind::ApiKey],
+    )),
+    None,
+    None,
 );
 
 /// OpenAI-compatible Chat wire profile used by the Kimi China endpoint.
-static ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
+const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::KimiCn,
-    &CONTRACT,
-    Some("/v1/chat/completions"),
-    None,
-    None,
+    API_SURFACE,
     "/v1/models",
     transform_request_headers,
 );
 
 /// Single static descriptor for the Kimi China contract and adapter.
-pub(crate) static DEFINITION: ProviderDefinition =
-    ProviderDefinition::new(&CONTRACT, ProviderAdapter::from_openai_compatible(ADAPTER));
+pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
+    API_SURFACE.capabilities(),
+    &[CredentialKind::ApiKey],
+    ProviderAdapter::from_openai_compatible(ADAPTER),
+);
 
 /// Preserves a dedicated boundary for future Kimi China ordinary-header requirements.
 fn transform_request_headers(

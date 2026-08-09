@@ -4,8 +4,8 @@
 //! remains the mainline alias.
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for Qwen3.6 27B.
@@ -20,16 +20,16 @@ pub(crate) fn config() -> ModelConfig {
             "Dense 27-billion-parameter Qwen3.6 multimodal model for agentic coding, visual understanding, and reasoning."
                 .to_owned(),
         ),
+        tokenizer: Some("Qwen3".to_owned()),
+        knowledge_cutoff: None,
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
         context_length: ModelContextLength::new(Some(262_144), Some(262_144), Some(65_536)),
-        mode: Some(ModelMode::Chat),
         input_modalities: Some(vec![
             InputModality::Text,
             InputModality::Image,
             InputModality::Video,
         ]),
         output_modalities: Some(vec![OutputModality::Text]),
-        tokenizer: Some("Qwen3".to_owned()),
-        knowledge_cutoff: None,
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -38,7 +38,6 @@ pub(crate) fn config() -> ModelConfig {
             "max_tokens",
             "min_p",
             "presence_penalty",
-            "reasoning",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -54,7 +53,7 @@ pub(crate) fn config() -> ModelConfig {
         .into_iter()
         .map(str::to_owned)
         .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![ReasoningLevel::High, ReasoningLevel::None],
+        reasoning: ReasoningProfile::supported([ReasoningLevel::High, ReasoningLevel::None]),
+        }),
     }
 }

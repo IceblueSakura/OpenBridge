@@ -33,6 +33,9 @@ pub fn plan_request(
 ) -> Result<RoutePlan, RequestPlanningError> {
     // Complete fixed-contract preflight and resolve the same interface's static candidates.
     let interface = preflight_public_model(registry, requirements)?;
+    if requirements.requested_capabilities.previous_response_id {
+        debug_assert!(interface.continuation_candidates_match_issuer());
+    }
 
     // Build requests in compiled priority order; request facts cannot filter or reorder candidates.
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());

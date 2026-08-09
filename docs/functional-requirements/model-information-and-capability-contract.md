@@ -20,8 +20,8 @@ egress 边界静默删除，其他请求字段不得被隐式降级。
 
 | 层次                    | 拥有的事实                                                                          | 是否向下游公开                                     |
 |-------------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|
-| Canonical Model         | 与 endpoint/credential 无关的模型名称、上下文、模态、参数和 reasoning 事实；已核实的 ChatGPT subscription profile 与一般 API 事实不同时，可使用独立 canonical profile identity | 模型事实经 Public Model 聚合；参数只经接口契约公开 |
-| Provider / Upstream API | Provider 能力上界、served limits、协议、upstream model、state affinity 和 wire 映射 | 否                                                 |
+| Canonical Model         | 与 endpoint/credential 无关的公共 identity envelope，以及必填 task union 所拥有的上下文、模态、参数和 reasoning 事实；已核实的 ChatGPT subscription profile 与一般 API 事实不同时，可使用独立 canonical profile identity | 模型事实经 Public Model 聚合；参数只经接口契约公开 |
+| Provider / Upstream API | Provider operation 能力上界；音频与 Responses state ceiling 分别和单个 Target executable profile 静态分型；另拥有 served limits、协议、upstream model、state ownership 和 wire 映射 | 否                                                 |
 | Route                   | 下游协议、Target、Upstream API、`Native`/`Bridged` 模式及配置顺序                   | 否                                                 |
 | Public Model            | 稳定身份、生命周期、模型事实和每协议唯一固定能力契约                                | 是                                                 |
 | RoutePlan / attempt     | 已接受请求的执行顺序、retry、fallback、credential 与 cooldown 状态                  | 否                                                 |
@@ -32,6 +32,11 @@ signal 导出，不属于 `PublicModelInfo`；上游 `/models` 与 probe 结果�
 
 Canonical profile identity 只用于区分不同的已核实模型事实，不代表 endpoint、credential 或请求方可选择的 Provider；其具体可调用性
 仍必须由显式 Target、Upstream API、Route 和 Public Model 注册形成。
+
+每个 canonical Model 必须选择且只选择一个闭合 task variant：`Generation`、`Embedding`、`SpeechRecognition`、
+`SpeechSynthesis`、`VoiceDesign` 或 `VoiceClone`。公共 identity envelope 不复制 task payload；context、modalities、ordinary
+parameters 和 canonical reasoning 只能由所选 variant 拥有或派生。不得重新引入平铺 task 字段、多个 bool、空 payload 或第二套可独立
+修改的 task 状态。
 
 [Model 目录与 Provider 接入配置](model-catalog-configuration.md)目前是待定方案，不属于本契约或当前实施任务。
 在它重新获得明确批准前，Canonical Model、Target/API、Route source 与 Public Model 继续由代码目录显式注册。
@@ -67,6 +72,21 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 [普通参数上游兼容规则](gateway-api-compatibility.md#54-普通生成参数的上游兼容)显式列出的字段，具体候选可以在 egress 前忽略，因而不承诺
 每个 Provider 都会实际应用该提示。
 
+`capabilities.tasks` 必须从唯一 canonical task 固定映射，不得从 Route operation、audio presence 或请求字段猜测：
+
+| Canonical task       | Public task projection              |
+|----------------------|-------------------------------------|
+| `Generation`         | `chat`、`text_generation`           |
+| `Embedding`          | `embedding`                         |
+| `SpeechRecognition`  | `speech_recognition`                |
+| `SpeechSynthesis`    | `speech_synthesis`                  |
+| `VoiceDesign`        | `voice_design`                      |
+| `VoiceClone`         | `voice_clone`                       |
+
+Generation reasoning 只由 `Unsupported | Unknown | Supported { levels }` 保存，levels 是有序、唯一的 checked set。普通参数不得保存
+`reasoning` 或 `reasoning_effort` sentinel；Public Model compiler 必须按 canonical reasoning profile 与目标 downstream protocol
+派生对应 wire parameter。
+
 ### 4.2 未知语义
 
 - 布尔能力使用 `supported`、`unsupported`、`unknown`；只有 `supported` 能通过请求预检。
@@ -95,7 +115,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
 | reasoning 输出形态                                                                  | 全部 Route 形态相同时公开该值，否则为 `unknown`                                                                       |
 | function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode |
-| structured outputs                                                              | `json_object`、`json_schema` mode 与 strict schema 分字段声明；每个集合取所有 Route 的交集，未知或空集合不得放行 |
+| structured outputs                                                              | 执行契约只保存 `JsonObject | JsonSchema(strictness) | JsonObjectAndJsonSchema(strictness)` 闭合 profile；按完整 variant 相交，空 mode 交集关闭整个能力，Models 的 support/modes/strict 只从结果投影 |
 | `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
 
 Embedding 接口不使用生成协议的 token-output、tool、reasoning 或 stream 字段。它应独立保守相交 input forms、默认/可显式请求的
@@ -111,10 +131,15 @@ format、voice、framing 与累计预算。嵌套 content part 字段不加入�
 
 音频输入还必须绑定业务用途：`content_understanding`、`speech_recognition` 与 `voice_conditioning` 不能因为都使用 Base64/URL 或
 `input_audio` 而聚合。模型任务、输入用途、输出语义和 typed parameter 任一不同，都必须使用独立 interface/Public Model contract。
+同一 Public Model 的全部 Route 必须先证明 canonical task 相同；同一 operation 的 audio candidate 还必须是同一个 executable profile
+variant，且完整 payload 交集非空。VoiceClone 的 reference audio 只能投影到独立 `voice_conditioning`，不得伪装成 content-understanding
+audio input。
 
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
-`previous_response_id` 除了要求全部 Responses Route 明确支持，还要求这些 Route 唯一解析到同一个 Upstream
-Target/API；存在多个潜在签发者时必须公开为 `unsupported`，并从接口 `supported_parameters` 删除。
+`previous_response_id` 只能由 executable `TargetBoundContinuation` profile 贡献。Route contribution 必须携带 issuer 的判别联合；
+全部 Responses Route 明确支持且唯一解析到同一个 Upstream Target/API 后，Private execution interface 才保存
+`Supported { issuer }`，Public JSON 仅投影 `SupportState` 与 parameter。存在多个潜在签发者或 Bridge 时必须公开为
+`unsupported`，并从接口 `supported_parameters` 删除。
 
 若同一 canonical Model 由多个 Provider Target 提供，只有代码目录将对应 route source 显式列入同一 Public Model 时才形成聚合；模型
 ID 相同不能自动新增候选。聚合后每个协议的全部静态可执行 Route 仍共同参与上述 保守交集，不能只按首选 Provider 计算公共契约。
@@ -124,9 +149,11 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 模型请求必须遵循固定顺序：
 
 1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming/non-streaming delivery、精确 tool choice mode、媒体
-   part/source/format/detail、URL 长度、inline 编码/解码字节、结构化输出、reasoning、state 和输出限制等事实。
+   part/source/format/detail、URL 长度、inline 编码/解码字节、task-neutral message shape、闭合 Structured Output request variant、reasoning、state 和输出限制等结构事实；
+   analyzer 不选择 canonical task、Public Model interface 或 Route。
 2. 查询所选 Public Model 的目标接口固定契约。
-3. 对所有已建模请求能力执行一次 fail-closed 预检。
+3. 取得固定接口后才解释 task-specific 音频 shape，并对所有已建模请求能力执行一次 fail-closed 预检；VoiceClone conditioning 保持独立，
+   specialist audio 的额外、空或角色错误 message 不得进入 RoutePlan。
 4. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
 5. 预检通过后，严格按 Public Model 的配置顺序构造完整 RoutePlan。
 
@@ -147,7 +174,8 @@ Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、
 映射只能在选定候选的 Provider egress 请求准备阶段改写 wire 副本，不得写入 RoutePlan，也不能 改变候选资格或顺序。若完整
 `BridgePlan` 无法表示已通过 公共预检的请求，整个请求必须失败，不能跳过该 Bridge 去选择其他 Route。 运行期
 cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属于可用性执行，不是能力路由；
-`previous_response_id` 等 state affinity 可以禁止跨 Target fallback，但不能选择能力更强的候选。
+只有请求实际携带 `previous_response_id` 时才禁止跨 Target fallback；候选具备 continuation 能力本身不能改变无状态请求的 fallback，
+state ownership 也不能选择能力更强的候选。
 
 ## 6. Models API 契约
 
@@ -172,14 +200,19 @@ cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属�
 
 registry 必须在监听前拒绝：
 
+- 缺少 canonical task，或 task variant 与其 payload、固定 modalities/reasoning 语义矛盾；
 - 非法 Public Model id、零值 `created`、空白展示字段或不一致生命周期时间；
 - total/input/output context 为零，或输入/输出上限超过 total context；
 - 显式模态集合为空或重复；
 - 空 Route 列表、重复 Route 或未知引用；
 - Upstream API 规则扩大 canonical Model、收窄后产生不一致事实，或普通忽略参数未由 Model 声明、重复、与禁用字段重叠、绑定 Embeddings；Embedding identity、dimension、encoding 或 input-form 声明矛盾；
 - Chat/Responses 媒体 source/format/detail/media type 集合为空、重复、协议错配，或 limits 为零/相互矛盾；
-- reasoning 状态、level、参数声明或 wire mapping 不一致；
-- Upstream API 能力超过 Provider contract 上界。
+- Structured Output profile 为空、重复、把 strict 与不含 JSON Schema 的 mode 组合，或 executable profile 超过 Provider ceiling；
+- reasoning checked set 或 wire mapping 不一致，以及 ordinary parameter 重新声明协议 reasoning alias；
+- Provider audio ceiling 为空、重复 task、缺少该 task 的完整 input/output/conditioning/delivery payload，或把 Provider ceiling 当成
+  单个 executable profile；generated-audio profile 缺少必填 JSON 或 SSE delivery；
+- Upstream API 能力超过 Provider contract 上界；通过 ceiling 后，operation/executable profile 与 canonical task 不兼容；
+- 一个 Public Model 混合不同 canonical task，或同 task/same audio variant 的必需 payload 交集为空。
 
 ## 8. 功能验收要求
 
@@ -195,6 +228,9 @@ registry 必须在监听前拒绝：
 | MODEL-08 | 未知模型和 retired 模型统一返回安全 `model_not_found`；能力不足返回 `unsupported_model_capability`。                                                                   |
 | MODEL-09 | registry 在启动时拒绝非法身份、生命周期、上下文、模态、引用和能力扩大。                                                                                                |
 | MODEL-10 | Embeddings dimension domain、Chat/Responses source-aware 输入与 mode-aware 音频输出由 Models projection 和 preflight 共享，不能由 bool、Native passthrough 或请求期 Route 过滤扩大。 |
+| MODEL-11 | `capabilities.tasks` 只由唯一 canonical task 按闭合映射产生；不同 task 的 Route 不能编译进同一 Public Model。                                                    |
+| MODEL-12 | Provider 完整 audio ceiling、单个 executable profile 与 canonical task 在启动期逐层校验；VoiceClone conditioning 不进入 content-understanding input。             |
+| MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
 
 确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
 LiteLLM/OpenRouter 目录新鲜度。

@@ -6,12 +6,12 @@ use crate::{
     models::minimax,
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, StateAffinity, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTargetConfig,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
-use super::CONTRACT;
+use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "nvidia";
 const CREDENTIAL_POOL_ID: &str = "nvidia-primary";
@@ -50,10 +50,14 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::ChatCompletions(
-                CONTRACT.capabilities().chat_completions,
+                DEFINITION
+                    .contract()
+                    .capabilities()
+                    .chat_completions
+                    .expect("NVIDIA targets require Chat Completions capabilities")
+                    .to_executable(None),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            state_affinity: StateAffinity::Unbound,
         }],
     }
 }

@@ -51,7 +51,7 @@ pub enum CredentialKind {
 /// Upstream API capabilities may only narrow this contract and cannot declare adapter features that
 /// do not exist. Credential kinds are restricted here as well, preventing Route configuration from
 /// becoming a dynamic Provider DSL.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProviderContract {
     kind: ProviderKind,
     capabilities: ApiCapabilities,
@@ -60,7 +60,7 @@ pub struct ProviderContract {
 
 impl ProviderContract {
     /// Creates the static contract for a Provider.
-    pub const fn new(
+    pub(crate) const fn new(
         kind: ProviderKind,
         capabilities: ApiCapabilities,
         credential_kinds: &'static [CredentialKind],

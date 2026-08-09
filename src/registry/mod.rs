@@ -14,25 +14,27 @@ mod validation;
 pub use availability::ConfigurationAvailabilityReport;
 pub use compiler::{build_registry, build_registry_with_active_pools};
 pub use definition::{
-    CredentialPoolConfig, IgnorableGenerationParameter, InputModality, ModelConfig,
-    ModelContextLength, ModelLifecycle, ModelLifecycleStatus, ModelMode, NonStreamingConversion,
+    CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, EmbeddingModelProfile,
+    GenerationModelProfile, IgnorableGenerationParameter, InputModality, ModelConfig,
+    ModelContextLength, ModelLifecycle, ModelLifecycleStatus, NonStreamingConversion,
     OutputModality, ProviderInstanceConfig, PublicModelConfig, ReasoningLevel,
-    ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, StateAffinity,
+    ReasoningLevelMapping, ReasoningLevels, ReasoningProfile, ReasoningSupport, RegistryConfig,
+    RouteConfig, RouteMode, SpeechRecognitionModelProfile, SpeechSynthesisModelProfile,
     UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy,
-    UpstreamTargetConfig,
+    UpstreamTargetConfig, VoiceCloneModelProfile, VoiceDesignModelProfile,
 };
 pub use error::RegistryError;
 pub(crate) use public_model::ModelExecutionInterface;
 pub use public_model::{
-    AudioInputInterfaceCapabilities, AudioInputLimits, AudioOutputInterfaceCapabilities,
-    ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
-    EmbeddingInterfaceCapabilities, EmbeddingLimits, ImageDetailCapabilities,
-    ImageInputInterfaceCapabilities, ImageInputLimits, InterfaceReasoningCapabilities,
-    ModelCapabilities, ModelInterfaceCapabilities, ModelInterfaces, ModelModalities,
-    ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities,
+    AudioInputInterfaceCapabilities, AudioInputLimits, AudioInterfaceCapabilities,
+    AudioOutputInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
+    EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities, EmbeddingLimits,
+    ImageDetailCapabilities, ImageInputInterfaceCapabilities, ImageInputLimits,
+    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelInterfaces,
+    ModelModalities, ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities,
     MultimodalOutputCapabilities, PublicModel, PublicModelInfo, ReasoningOutputMode, StandardModel,
-    StateCapabilities, StructuredOutputCapabilities, StructuredOutputMode, SupportState,
-    ToolCapabilities, ToolChoiceMode, ToolType,
+    StateCapabilities, StructuredOutputMode, SupportState, ToolCapabilities, ToolChoiceMode,
+    ToolType,
 };
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,

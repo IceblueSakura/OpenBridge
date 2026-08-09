@@ -3,18 +3,25 @@
 //! The descriptor aggregates compiled metadata only; it does not register targets, Routes, or
 //! Public Models and does not read credentials.
 
-use super::{ProviderAdapter, ProviderContract, ProviderKind};
+use crate::core::ApiCapabilities;
+
+use super::{CredentialKind, ProviderAdapter, ProviderContract, ProviderKind};
 
 /// Binds a Provider's static contract and closed adapter.
 #[derive(Clone, Copy)]
 pub struct ProviderDefinition {
-    contract: &'static ProviderContract,
+    contract: ProviderContract,
     adapter: ProviderAdapter,
 }
 
 impl ProviderDefinition {
-    /// Creates a static descriptor owned by the concrete Provider module.
-    pub(crate) const fn new(contract: &'static ProviderContract, adapter: ProviderAdapter) -> Self {
+    /// Creates a static descriptor and derives the contract identity from its closed adapter.
+    pub(crate) const fn new(
+        capabilities: ApiCapabilities,
+        credential_kinds: &'static [CredentialKind],
+        adapter: ProviderAdapter,
+    ) -> Self {
+        let contract = ProviderContract::new(adapter.kind(), capabilities, credential_kinds);
         Self { contract, adapter }
     }
 
@@ -24,8 +31,8 @@ impl ProviderDefinition {
     }
 
     /// Returns the Provider's static capabilities and configuration ceiling.
-    pub fn contract(&self) -> &'static ProviderContract {
-        self.contract
+    pub fn contract(&self) -> &ProviderContract {
+        &self.contract
     }
 
     /// Returns the Provider's closed request and response adapter.

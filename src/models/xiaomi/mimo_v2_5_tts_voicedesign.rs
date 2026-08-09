@@ -1,7 +1,7 @@
 //! Canonical model facts for MiMo-V2.5-TTS-VoiceDesign.
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
+    CanonicalModelTask, ModelConfig, ModelContextLength, VoiceDesignModelProfile,
 };
 
 /// Stable OpenBridge catalog ID for MiMo-V2.5-TTS-VoiceDesign.
@@ -15,22 +15,19 @@ pub(crate) fn config() -> ModelConfig {
         description: Some(
             "MiMo voice-design synthesis model exposed through Chat Completions.".to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(32_768), Some(32_768), Some(8_192)),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text]),
-        output_modalities: Some(vec![OutputModality::Audio]),
         tokenizer: Some("Other".to_owned()),
         knowledge_cutoff: None,
-        supported_parameters: [
-            "audio",
-            "modalities",
-            "optimize_text_preview",
-            "temperature",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::VoiceDesign(VoiceDesignModelProfile {
+            context_length: ModelContextLength::new(Some(32_768), Some(32_768), Some(8_192)),
+            supported_parameters: [
+                "audio",
+                "modalities",
+                "optimize_text_preview",
+                "temperature",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        }),
     }
 }

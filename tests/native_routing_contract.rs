@@ -4,36 +4,212 @@ mod support;
 
 use openbridge::{
     core::{
-        ALL_STRUCTURED_OUTPUT_MODES, ALL_TOOL_CHOICE_MODES, ApiProtocol, FunctionToolCapabilities,
-        ImageDetail, ImageInputCapabilities, ImageInputSource, ImageMediaType, OperationKind,
-        ReasoningOutput, StructuredOutputMode, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, ApiProtocol, ExecutableResponsesState, FunctionToolCapabilities,
+        ImageDetail, ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageMediaType,
+        ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+        JsonSchemaSupport, OperationKind, ReasoningOutput, RemoteImageInputLimits,
+        ResponsesAffinity, StorageSupport, StructuredOutputProfile,
     },
     pipeline::RequestPlanningError,
+    provider::{CredentialKind, ProviderAdapter, ProviderKind},
+    providers::compiled_config,
     registry::{
-        IgnorableGenerationParameter, ModelContextLength, NonStreamingConversion, ReasoningLevel,
-        ReasoningLevelMapping, ReasoningSupport, RegistryConfig, RouteConfig, RouteMode,
-        RuntimeRegistry, UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
+        CredentialPoolConfig, IgnorableGenerationParameter, ModelContextLength,
+        NonStreamingConversion, ProviderInstanceConfig, ReasoningLevel, ReasoningLevelMapping,
+        ReasoningProfile, RegistryConfig, RegistryError, RouteConfig, RouteMode, RuntimeRegistry,
+        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
     },
 };
 use serde_json::{Value, json};
 
-const TINY_IMAGE_SOURCES: &[ImageInputSource] = &[ImageInputSource::DataUrl];
 const TINY_IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[ImageMediaType::Png];
-const TINY_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities {
-    sources: TINY_IMAGE_SOURCES,
-    media_types: TINY_IMAGE_MEDIA_TYPES,
-    detail_default: Some(ImageDetail::Auto),
-    allowed_details: &[],
-    max_parts: 2,
-    max_url_length: 64,
-    max_inline_encoded_bytes: 4,
-    max_inline_decoded_bytes: 3,
-    max_total_inline_encoded_bytes: 4,
-    max_total_inline_decoded_bytes: 3,
-};
+const JPEG_IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[ImageMediaType::Jpeg];
+const PNG_AND_JPEG_IMAGE_MEDIA_TYPES: &[ImageMediaType] =
+    &[ImageMediaType::Png, ImageMediaType::Jpeg];
+const LOW_IMAGE_DETAIL: &[ImageDetail] = &[ImageDetail::Low];
+const HIGH_IMAGE_DETAIL: &[ImageDetail] = &[ImageDetail::High];
+const LOW_AND_HIGH_IMAGE_DETAILS: &[ImageDetail] = &[ImageDetail::Low, ImageDetail::High];
+const TINY_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+    2,
+    ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(
+        TINY_IMAGE_MEDIA_TYPES,
+        InlineImageInputLimits::new(4, 3, 4, 3),
+    )),
+    ImageDetailPolicy::OmittedOnly {
+        default: Some(ImageDetail::Auto),
+    },
+);
 
 fn base_definition() -> RegistryConfig {
     support::definition("routing-test", "public-model", "upstream-model")
+}
+
+fn omitted_auto_detail() -> ImageDetailPolicy {
+    ImageDetailPolicy::OmittedOnly {
+        default: Some(ImageDetail::Auto),
+    }
+}
+
+fn explicit_auto_detail(allowed: &'static [ImageDetail]) -> ImageDetailPolicy {
+    ImageDetailPolicy::Explicit(ImageDetailProfile::new(Some(ImageDetail::Auto), allowed))
+}
+
+fn remote_image_input(
+    max_parts: u32,
+    max_url_length: u32,
+    detail: ImageDetailPolicy,
+) -> ImageInputCapabilities {
+    ImageInputCapabilities::new(
+        max_parts,
+        ImageSourceCapabilities::RemoteUrl(RemoteImageInputLimits::new(max_url_length)),
+        detail,
+    )
+}
+
+fn data_image_input(
+    max_parts: u32,
+    media_types: &'static [ImageMediaType],
+    limits: InlineImageInputLimits,
+    detail: ImageDetailPolicy,
+) -> ImageInputCapabilities {
+    ImageInputCapabilities::new(
+        max_parts,
+        ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(media_types, limits)),
+        detail,
+    )
+}
+
+fn remote_and_data_image_input(
+    max_parts: u32,
+    max_url_length: u32,
+    media_types: &'static [ImageMediaType],
+    limits: InlineImageInputLimits,
+    detail: ImageDetailPolicy,
+) -> ImageInputCapabilities {
+    ImageInputCapabilities::new(
+        max_parts,
+        ImageSourceCapabilities::RemoteUrlAndDataUrl {
+            remote: RemoteImageInputLimits::new(max_url_length),
+            data: InlineImageInputProfile::new(media_types, limits),
+        },
+        detail,
+    )
+}
+
+fn set_image_input(
+    definition: &mut RegistryConfig,
+    target_index: usize,
+    operation: OperationKind,
+    image_input: ImageInputCapabilities,
+) {
+    set_target_image_input(
+        &mut definition.upstream_targets[target_index],
+        operation,
+        image_input,
+    );
+}
+
+fn add_chat_image_candidate(
+    definition: &mut RegistryConfig,
+    target_id: &str,
+    route_id: &str,
+    image_input: ImageInputCapabilities,
+) {
+    // Clone and narrow one executable Chat target to the requested image profile.
+    let mut target = definition.upstream_targets[0].clone();
+    target.id = target_id.to_owned();
+    set_target_image_input(&mut target, OperationKind::ChatCompletions, image_input);
+
+    // Attach the target and its Native Route to the fixed Public Model candidate order.
+    definition.upstream_targets.push(target);
+    definition.routes.push(RouteConfig {
+        id: route_id.to_owned(),
+        upstream_target: target_id.to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes.push(route_id.to_owned());
+}
+
+fn add_mimo_chat_image_candidate(
+    definition: &mut RegistryConfig,
+    target_id: &str,
+    route_id: &str,
+    image_input: ImageInputCapabilities,
+) {
+    // Register one synthetic MiMo deployment and credential boundary for the second Route.
+    definition.provider_instances.push(ProviderInstanceConfig {
+        id: "mimo-test".to_owned(),
+        kind: ProviderKind::MiMo,
+        base_url: "https://api.xiaomimimo.com".to_owned(),
+    });
+    definition.credential_pools.push(CredentialPoolConfig {
+        id: "mimo-test".to_owned(),
+        provider: ProviderKind::MiMo,
+        kind: CredentialKind::ApiKey,
+    });
+
+    // Rebind a Chat-only candidate to the MiMo Provider and its independently checked ceiling.
+    let mut target = definition.upstream_targets[0].clone();
+    target.id = target_id.to_owned();
+    target.provider_instance = "mimo-test".to_owned();
+    target.provider_model = ProviderKind::MiMo.routing_model_id(&target.canonical_model);
+    target.credential_pool = "mimo-test".to_owned();
+    target
+        .upstream_apis
+        .retain(|api| api.capabilities.operation() == OperationKind::ChatCompletions);
+    target.upstream_apis[0].capabilities = UpstreamApiCapabilities::ChatCompletions(
+        ProviderAdapter::for_kind(ProviderKind::MiMo)
+            .contract()
+            .capabilities()
+            .chat_completions
+            .expect("MiMo must expose Chat Completions")
+            .to_executable(None),
+    );
+    set_target_image_input(&mut target, OperationKind::ChatCompletions, image_input);
+
+    // Attach the rebound target and its Native Route to the fixed Public Model candidate order.
+    definition.upstream_targets.push(target);
+    definition.routes.push(RouteConfig {
+        id: route_id.to_owned(),
+        upstream_target: target_id.to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::ChatCompletions,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes.push(route_id.to_owned());
+}
+
+fn set_target_image_input(
+    target: &mut openbridge::registry::UpstreamTargetConfig,
+    operation: OperationKind,
+    image_input: ImageInputCapabilities,
+) {
+    // Resolve the exact generation operation that owns the image profile.
+    let upstream_api = target
+        .upstream_apis
+        .iter_mut()
+        .find(|api| api.capabilities.operation() == operation)
+        .expect("test target must expose the selected generation operation");
+
+    // Apply the profile without allowing an Embeddings operation to absorb generation state.
+    match &mut upstream_api.capabilities {
+        UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+            capabilities.image_input = Some(image_input);
+        }
+        UpstreamApiCapabilities::Responses(capabilities) => {
+            capabilities.image_input = Some(image_input);
+        }
+        UpstreamApiCapabilities::Embeddings(_) => panic!("image input requires generation"),
+    }
+}
+
+fn public_chat_image(definition: RegistryConfig) -> Value {
+    // Compile the fixed interface before reading its downstream-safe JSON projection.
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    info["interfaces"]["chat_completions"]["multimodal_input"]["image"].clone()
 }
 
 fn all_function_tools() -> FunctionToolCapabilities {
@@ -48,14 +224,12 @@ const COMMON_TOOL_CHOICE_MODES: &[openbridge::core::ToolChoiceMode] = &[
     openbridge::core::ToolChoiceMode::None,
     openbridge::core::ToolChoiceMode::Auto,
 ];
-const COMMON_STRUCTURED_OUTPUT_MODES: &[StructuredOutputMode] = &[StructuredOutputMode::JsonObject];
 
 #[test]
 fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
     let mut definition = base_definition();
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::XHigh];
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::XHigh]);
     for upstream_api in &mut definition.upstream_targets[0].upstream_apis {
         upstream_api.model_rules.reasoning_level_mappings = vec![ReasoningLevelMapping {
             downstream: ReasoningLevel::XHigh,
@@ -161,9 +335,8 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
 
     // After explicit model declaration, Chat and Responses requests preserve their respective levels.
     let mut definition = base_definition();
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::None, ReasoningLevel::Max];
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::None, ReasoningLevel::Max]);
     let registry = build_test_registry(definition);
     for (protocol, request, pointer, expected) in [
         (
@@ -204,9 +377,8 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
 #[test]
 fn request_preflight_rejects_conflicting_reasoning_configuration_sources() {
     let mut definition = base_definition();
-    definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
-    definition.models[0].reasoning_levels = vec![ReasoningLevel::Low, ReasoningLevel::High];
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::Low, ReasoningLevel::High]);
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
@@ -226,9 +398,8 @@ fn request_preflight_rejects_conflicting_reasoning_configuration_sources() {
 fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
     fn definition(reasoning_output: ReasoningOutput) -> RegistryConfig {
         let mut definition = base_definition();
-        definition.models[0].supported_parameters = vec!["reasoning".to_owned()];
-        definition.models[0].reasoning = ReasoningSupport::Supported;
-        definition.models[0].reasoning_levels = vec![ReasoningLevel::High];
+        support::generation_profile_mut(&mut definition.models[0]).reasoning =
+            ReasoningProfile::supported([ReasoningLevel::High]);
 
         definition.credential_pools[0].id = "deepseek-primary".to_owned();
         definition.credential_pools[0].provider = openbridge::provider::ProviderKind::DeepSeek;
@@ -273,6 +444,47 @@ fn bridged_reasoning_requires_a_readable_upstream_output_capability() {
     let plan = support::prepare(&readable, ApiProtocol::Responses, request.into())
         .expect("plain-text reasoning should remain bridgeable");
     assert!(plan.candidates()[0].bridge().is_some());
+}
+
+#[test]
+fn bridged_responses_never_exposes_native_continuation_state() {
+    // Enable continuation on the sibling Native Responses API, then expose only a Chat-to-Responses Bridge.
+    let mut definition = base_definition();
+    let UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    capabilities.state = ExecutableResponsesState::new(
+        StorageSupport::Unsupported,
+        ResponsesAffinity::TargetBoundContinuation,
+    );
+    definition.routes = vec![RouteConfig {
+        id: "responses-via-chat".to_owned(),
+        upstream_target: "openai-main".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Bridged,
+    }];
+    definition.public_models[0].routes = vec!["responses-via-chat".to_owned()];
+    let registry = build_test_registry(definition);
+
+    // Keep continuation out of both the public Bridge contract and pre-egress planning.
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["responses"]["state"]["previous_response_id"],
+        "unsupported"
+    );
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "previous_response_id": "resp_test"
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
 }
 
 fn build_test_registry(definition: RegistryConfig) -> RuntimeRegistry {
@@ -348,7 +560,8 @@ fn generation_request_analysis_rejects_unknown_top_level_fields_for_both_paths()
 fn generation_interfaces_exclude_parameters_owned_only_by_another_source_protocol() {
     // Declare one Chat-only canonical parameter across otherwise symmetric Native APIs.
     let mut definition = base_definition();
-    definition.models[0].supported_parameters = vec!["max_tokens".to_owned()];
+    support::generation_profile_mut(&mut definition.models[0]).supported_parameters =
+        vec!["max_tokens".to_owned()];
     let registry = build_test_registry(definition);
     let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
 
@@ -386,7 +599,8 @@ fn generation_interfaces_exclude_parameters_owned_only_by_another_source_protoco
 fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() {
     // Compile one Responses Bridge whose Chat API accepts temperature only as an ignored hint.
     let mut bridged = base_definition();
-    bridged.models[0].supported_parameters = vec!["temperature".to_owned()];
+    support::generation_profile_mut(&mut bridged.models[0]).supported_parameters =
+        vec!["temperature".to_owned()];
     bridged.upstream_targets[0].upstream_apis[0]
         .model_rules
         .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
@@ -414,7 +628,8 @@ fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() 
 
     // Give the preferred Native API an ignore rule while its fallback supports the same field.
     let mut fallback = base_definition();
-    fallback.models[0].supported_parameters = vec!["temperature".to_owned()];
+    support::generation_profile_mut(&mut fallback.models[0]).supported_parameters =
+        vec!["temperature".to_owned()];
     fallback.upstream_targets[0].upstream_apis[0]
         .model_rules
         .ignored_parameters = vec![IgnorableGenerationParameter::Temperature];
@@ -627,7 +842,8 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
 #[test]
 fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements() {
     let mut definition = base_definition();
-    definition.models[0].context_length = ModelContextLength::new(None, None, Some(32));
+    support::generation_profile_mut(&mut definition.models[0]).context_length =
+        ModelContextLength::new(None, None, Some(32));
     let registry = build_test_registry(definition);
 
     let too_large = serde_json::to_vec(&json!({
@@ -686,6 +902,338 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, invalid_shape.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
+    ));
+}
+
+#[test]
+fn native_image_preflight_accepts_the_minimum_legal_remote_and_data_wires() {
+    // Compile one profile whose source budgets admit exactly the minimum canonical wire examples.
+    let image_input = remote_and_data_image_input(
+        1,
+        "https://a".len() as u32,
+        TINY_IMAGE_MEDIA_TYPES,
+        InlineImageInputLimits::new(4, 1, 4, 1),
+        omitted_auto_detail(),
+    );
+    let mut definition = base_definition();
+    set_image_input(
+        &mut definition,
+        0,
+        OperationKind::ChatCompletions,
+        image_input,
+    );
+    set_image_input(&mut definition, 0, OperationKind::Responses, image_input);
+    let registry = build_test_registry(definition);
+
+    // Admit the shortest explicit HTTPS host and one canonical one-byte Base64 payload.
+    for (protocol, request) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [{"role": "user", "content": [{
+                    "type": "image_url",
+                    "image_url": {"url": "https://a"}
+                }]}]
+            }),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": [{"role": "user", "content": [{
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,AA=="
+                }]}]
+            }),
+        ),
+    ] {
+        let body = serde_json::to_vec(&request).unwrap();
+        support::prepare(&registry, protocol, body.into())
+            .expect("minimum legal image wire must pass the compiled profile");
+    }
+}
+
+#[test]
+fn public_image_projection_preserves_exact_source_specific_payloads() {
+    let cases = [
+        (
+            remote_image_input(3, 1_024, omitted_auto_detail()),
+            json!({
+                "sources": ["remote_url"],
+                "media_types": [],
+                "detail": {"default": "auto", "allowed": []},
+                "limits": {
+                    "max_parts": 3,
+                    "max_url_length": 1_024,
+                    "max_inline_encoded_bytes": 0,
+                    "max_inline_decoded_bytes": 0,
+                    "max_total_inline_encoded_bytes": 0,
+                    "max_total_inline_decoded_bytes": 0
+                }
+            }),
+        ),
+        (
+            data_image_input(
+                2,
+                TINY_IMAGE_MEDIA_TYPES,
+                InlineImageInputLimits::new(8, 6, 16, 12),
+                explicit_auto_detail(LOW_AND_HIGH_IMAGE_DETAILS),
+            ),
+            json!({
+                "sources": ["data_url"],
+                "media_types": ["image/png"],
+                "detail": {"default": "auto", "allowed": ["low", "high"]},
+                "limits": {
+                    "max_parts": 2,
+                    "max_url_length": 0,
+                    "max_inline_encoded_bytes": 8,
+                    "max_inline_decoded_bytes": 6,
+                    "max_total_inline_encoded_bytes": 16,
+                    "max_total_inline_decoded_bytes": 12
+                }
+            }),
+        ),
+        (
+            remote_and_data_image_input(
+                2,
+                1_024,
+                TINY_IMAGE_MEDIA_TYPES,
+                InlineImageInputLimits::new(8, 6, 16, 12),
+                explicit_auto_detail(LOW_AND_HIGH_IMAGE_DETAILS),
+            ),
+            json!({
+                "sources": ["remote_url", "data_url"],
+                "media_types": ["image/png"],
+                "detail": {"default": "auto", "allowed": ["low", "high"]},
+                "limits": {
+                    "max_parts": 2,
+                    "max_url_length": 1_024,
+                    "max_inline_encoded_bytes": 8,
+                    "max_inline_decoded_bytes": 6,
+                    "max_total_inline_encoded_bytes": 16,
+                    "max_total_inline_decoded_bytes": 12
+                }
+            }),
+        ),
+    ];
+
+    // Compile each closed source variant through the OpenAI Provider ceiling.
+    for (image_input, expected) in cases {
+        let mut definition = base_definition();
+        set_image_input(
+            &mut definition,
+            0,
+            OperationKind::ChatCompletions,
+            image_input,
+        );
+
+        // Compare the complete existing flat JSON projection, including zero-only derived fields.
+        assert_eq!(public_chat_image(definition), expected);
+    }
+}
+
+#[test]
+fn public_image_intersection_closes_or_downgrades_disjoint_data_sources() {
+    // Intersect two data-only profiles whose MIME sets are disjoint.
+    let mut data_only = base_definition();
+    set_image_input(
+        &mut data_only,
+        0,
+        OperationKind::ChatCompletions,
+        data_image_input(
+            2,
+            TINY_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(8, 6, 16, 12),
+            omitted_auto_detail(),
+        ),
+    );
+    add_chat_image_candidate(
+        &mut data_only,
+        "jpeg-data-target",
+        "jpeg-data-chat",
+        data_image_input(
+            2,
+            JPEG_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(8, 6, 16, 12),
+            omitted_auto_detail(),
+        ),
+    );
+    assert!(public_chat_image(data_only).is_null());
+
+    // Preserve the complete remote payload when the same disjoint MIME sets occur under Both.
+    let mut both = base_definition();
+    set_image_input(
+        &mut both,
+        0,
+        OperationKind::ChatCompletions,
+        remote_and_data_image_input(
+            3,
+            1_024,
+            TINY_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(8, 6, 16, 12),
+            omitted_auto_detail(),
+        ),
+    );
+    add_chat_image_candidate(
+        &mut both,
+        "jpeg-both-target",
+        "jpeg-both-chat",
+        remote_and_data_image_input(
+            2,
+            900,
+            JPEG_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(8, 6, 16, 12),
+            omitted_auto_detail(),
+        ),
+    );
+    assert_eq!(
+        public_chat_image(both),
+        json!({
+            "sources": ["remote_url"],
+            "media_types": [],
+            "detail": {"default": "auto", "allowed": []},
+            "limits": {
+                "max_parts": 2,
+                "max_url_length": 900,
+                "max_inline_encoded_bytes": 0,
+                "max_inline_decoded_bytes": 0,
+                "max_total_inline_encoded_bytes": 0,
+                "max_total_inline_decoded_bytes": 0
+            }
+        })
+    );
+}
+
+#[test]
+fn public_image_detail_intersection_keeps_omission_separate_from_explicit_values() {
+    // Close the image interface when omission would have different behavior across fallback Routes.
+    let mut mismatched_default = base_definition();
+    set_image_input(
+        &mut mismatched_default,
+        0,
+        OperationKind::ChatCompletions,
+        remote_image_input(2, 1_024, omitted_auto_detail()),
+    );
+    add_mimo_chat_image_candidate(
+        &mut mismatched_default,
+        "unknown-default-target",
+        "unknown-default-chat",
+        remote_image_input(2, 1_024, ImageDetailPolicy::OmittedOnly { default: None }),
+    );
+    assert!(public_chat_image(mismatched_default).is_null());
+
+    // Downgrade disjoint explicit domains to omission-only while retaining the shared default.
+    let mut disjoint_explicit = base_definition();
+    set_image_input(
+        &mut disjoint_explicit,
+        0,
+        OperationKind::ChatCompletions,
+        remote_image_input(2, 1_024, explicit_auto_detail(LOW_IMAGE_DETAIL)),
+    );
+    add_chat_image_candidate(
+        &mut disjoint_explicit,
+        "high-detail-target",
+        "high-detail-chat",
+        remote_image_input(2, 1_024, explicit_auto_detail(HIGH_IMAGE_DETAIL)),
+    );
+    let registry = build_test_registry(disjoint_explicit);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["multimodal_input"]["image"]["detail"],
+        json!({"default": "auto", "allowed": []})
+    );
+
+    // Admit omission but reject a value accepted by only one candidate through the same compiled contract.
+    let omitted = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": [{
+            "type": "image_url",
+            "image_url": {"url": "https://example.invalid/image.png"}
+        }]}]
+    }))
+    .unwrap();
+    assert!(support::prepare(&registry, ApiProtocol::ChatCompletions, omitted.into()).is_ok());
+    let explicit = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": [{
+            "type": "image_url",
+            "image_url": {"url": "https://example.invalid/image.png", "detail": "low"}
+        }]}]
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, explicit.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+}
+
+#[test]
+fn public_image_intersection_clamps_cross_minima_to_reachable_inline_totals() {
+    // Combine minima taken from opposite profiles so raw independent minima would be unreachable.
+    let mut definition = base_definition();
+    set_image_input(
+        &mut definition,
+        0,
+        OperationKind::ChatCompletions,
+        data_image_input(
+            1,
+            PNG_AND_JPEG_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(100, 75, 100, 75),
+            omitted_auto_detail(),
+        ),
+    );
+    add_chat_image_candidate(
+        &mut definition,
+        "small-item-target",
+        "small-item-chat",
+        data_image_input(
+            25,
+            TINY_IMAGE_MEDIA_TYPES,
+            InlineImageInputLimits::new(4, 3, 100, 75),
+            omitted_auto_detail(),
+        ),
+    );
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["multimodal_input"]["image"],
+        json!({
+            "sources": ["data_url"],
+            "media_types": ["image/png"],
+            "detail": {"default": "auto", "allowed": []},
+            "limits": {
+                "max_parts": 1,
+                "max_url_length": 0,
+                "max_inline_encoded_bytes": 4,
+                "max_inline_decoded_bytes": 3,
+                "max_total_inline_encoded_bytes": 4,
+                "max_total_inline_decoded_bytes": 3
+            }
+        })
+    );
+
+    // Confirm preflight consumes the clamped contract rather than either unaggregated candidate.
+    let accepted = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": [{
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AAAA"}
+        }]}]
+    }))
+    .unwrap();
+    assert!(support::prepare(&registry, ApiProtocol::ChatCompletions, accepted.into()).is_ok());
+    let above_clamp = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": [{
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AAAAAAAA"}
+        }]}]
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, above_clamp.into()).unwrap_err(),
+        RequestPlanningError::MultimodalInputLimitExceeded
     ));
 }
 
@@ -820,19 +1368,207 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
         .unwrap_err(),
         RequestPlanningError::UnsupportedCapabilities
     ));
+}
 
+#[test]
+fn absent_operation_is_omitted_from_the_public_model_and_planner() {
     let mut definition = base_definition();
-    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
-    {
-        capabilities.enabled = false;
-    }
+    definition.upstream_targets[0]
+        .upstream_apis
+        .retain(|api| api.capabilities.operation() != OperationKind::Responses);
+    definition
+        .routes
+        .retain(|route| route.id != "public-responses");
+    definition.public_models[0]
+        .routes
+        .retain(|route| route != "public-responses");
     let registry = build_test_registry(definition);
+
+    // Project only the operation backed by a present Target API and Route.
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert!(info["interfaces"]["chat_completions"].is_object());
+    assert!(info["interfaces"]["responses"].is_null());
+
+    // Reject the absent operation before request planning can select an upstream candidate.
     let request = serde_json::to_vec(&json!({"model": "public-model", "input": "hello"})).unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
         RequestPlanningError::UnsupportedProtocol
     ));
+}
+
+#[test]
+fn disjoint_structured_output_routes_compile_to_unsupported_contract() {
+    // Narrow both original Native operations to the independently valid JSON Object profile.
+    let mut definition = base_definition();
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+
+    // Clone both operations under one second Target and narrow them to non-strict JSON Schema.
+    let mut schema_target = definition.upstream_targets[0].clone();
+    schema_target.id = "openai-schema-only".to_owned();
+    for api in &mut schema_target.upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonSchema(
+                    JsonSchemaSupport::NonStrictOnly,
+                ));
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(StructuredOutputProfile::JsonSchema(
+                    JsonSchemaSupport::NonStrictOnly,
+                ));
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    definition.upstream_targets.push(schema_target);
+    definition.routes.extend([
+        RouteConfig {
+            id: "schema-only-chat".to_owned(),
+            upstream_target: "openai-schema-only".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
+            downstream_operation: OperationKind::ChatCompletions,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "schema-only-responses".to_owned(),
+            upstream_target: "openai-schema-only".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Native,
+        },
+    ]);
+    definition.public_models[0].routes.extend([
+        "schema-only-chat".to_owned(),
+        "schema-only-responses".to_owned(),
+    ]);
+
+    // Compile both operations and require one closed unsupported projection with no control fields.
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    let expected = json!({
+        "support": "unsupported",
+        "modes": [],
+        "strict_schema": "unsupported"
+    });
+    for protocol in ["chat_completions", "responses"] {
+        let interface = &info["interfaces"][protocol];
+        assert_eq!(interface["structured_outputs"], expected, "{protocol}");
+        let parameters = interface["supported_parameters"].as_array().unwrap();
+        for parameter in ["response_format", "text", "structured_outputs"] {
+            assert!(
+                !parameters.iter().any(|value| value == parameter),
+                "{protocol} must remove {parameter}"
+            );
+        }
+    }
+
+    // Reject both Structured Output modes for both protocols without producing any RoutePlan.
+    let requests = [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "json_object"}
+            }),
+        ),
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "answer", "schema": {"type": "object"}}
+                }
+            }),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_object"}}
+            }),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {
+                    "type": "json_schema",
+                    "name": "answer",
+                    "schema": {"type": "object"}
+                }}
+            }),
+        ),
+    ];
+    for (protocol, request) in requests {
+        let body = serde_json::to_vec(&request).unwrap();
+        assert!(matches!(
+            support::prepare(&registry, protocol, body.into()),
+            Err(RequestPlanningError::UnsupportedCapabilities)
+        ));
+    }
+}
+
+#[test]
+fn structured_output_schema_and_strict_elevation_fail_at_the_provider_boundary() {
+    let cases = [
+        (
+            "schema-mode",
+            StructuredOutputProfile::JsonSchema(JsonSchemaSupport::NonStrictOnly),
+        ),
+        (
+            "strict-schema",
+            StructuredOutputProfile::JsonSchema(JsonSchemaSupport::StrictSupported),
+        ),
+    ];
+
+    // Elevate one checked-in JSON Object Target beyond Bailian's operation ceiling.
+    for (case, elevated_profile) in cases {
+        let mut definition = compiled_config();
+        let target = definition
+            .upstream_targets
+            .iter_mut()
+            .find(|target| target.id == "bailian-deepseek-v4-pro")
+            .expect("the checked-in Bailian DeepSeek target must exist");
+        let capabilities = target
+            .upstream_apis
+            .iter_mut()
+            .find_map(|api| match &mut api.capabilities {
+                UpstreamApiCapabilities::ChatCompletions(capabilities) => Some(capabilities),
+                UpstreamApiCapabilities::Responses(_) | UpstreamApiCapabilities::Embeddings(_) => {
+                    None
+                }
+            })
+            .expect("the Bailian DeepSeek target must expose Chat Completions");
+        capabilities.structured_outputs = Some(elevated_profile);
+
+        // Reject both schema mode and strict-schema elevation before compiling the registry.
+        assert!(
+            matches!(
+                build_registry(support::bootstrap(support::BOOTSTRAP), definition),
+                Err(RegistryError::CapabilityElevation {
+                    upstream_operation: OperationKind::ChatCompletions,
+                    ..
+                })
+            ),
+            "{case}"
+        );
+    }
 }
 
 #[test]
@@ -846,10 +1582,9 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
             parallel_calls: true,
             strict_schema: true,
         });
-        capabilities.structured_outputs = Some(StructuredOutputProfile {
-            modes: ALL_STRUCTURED_OUTPUT_MODES,
-            strict_schema: true,
-        });
+        capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+            JsonSchemaSupport::StrictSupported,
+        ));
     }
     let mut weaker = definition.upstream_targets[0].clone();
     weaker.id = "openai-weaker".to_owned();
@@ -861,10 +1596,7 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
             parallel_calls: false,
             strict_schema: false,
         });
-        capabilities.structured_outputs = Some(StructuredOutputProfile {
-            modes: COMMON_STRUCTURED_OUTPUT_MODES,
-            strict_schema: false,
-        });
+        capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
     }
     definition.upstream_targets.push(weaker);
     definition.routes.push(openbridge::registry::RouteConfig {
@@ -886,6 +1618,14 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
     assert_eq!(
         info["interfaces"]["chat_completions"]["structured_outputs"]["modes"],
         json!(["json_object"])
+    );
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["structured_outputs"],
+        json!({
+            "support": "supported",
+            "modes": ["json_object"],
+            "strict_schema": "unsupported"
+        })
     );
     assert_eq!(
         info["interfaces"]["chat_completions"]["tools"]["parallel_calls"],
@@ -914,6 +1654,288 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
     assert_eq!(plan.candidates().len(), 2);
     assert_eq!(plan.candidates()[0].route_id(), "public-chat");
     assert_eq!(plan.candidates()[1].route_id(), "weaker-chat");
+}
+
+#[test]
+fn combined_structured_output_intersection_keeps_mode_order_and_downgrades_strict() {
+    let strict =
+        StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+    let non_strict =
+        StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::NonStrictOnly);
+
+    // Give the original Native operations the complete strict-capable combined profile.
+    let mut definition = base_definition();
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(strict);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(strict);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+
+    // Add a second Native Target that keeps both modes but accepts non-strict schemas only.
+    let mut weaker = definition.upstream_targets[0].clone();
+    weaker.id = "openai-non-strict".to_owned();
+    for api in &mut weaker.upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(non_strict);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(non_strict);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    definition.upstream_targets.push(weaker);
+    definition.routes.extend([
+        RouteConfig {
+            id: "non-strict-chat".to_owned(),
+            upstream_target: "openai-non-strict".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
+            downstream_operation: OperationKind::ChatCompletions,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "non-strict-responses".to_owned(),
+            upstream_target: "openai-non-strict".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Native,
+        },
+    ]);
+    definition.public_models[0].routes.extend([
+        "non-strict-chat".to_owned(),
+        "non-strict-responses".to_owned(),
+    ]);
+
+    // Project one stable combined profile while conservatively dropping strict-schema support.
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    let expected = json!({
+        "support": "supported",
+        "modes": ["json_object", "json_schema"],
+        "strict_schema": "unsupported"
+    });
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(info["interfaces"][protocol]["structured_outputs"], expected);
+    }
+
+    // Admit non-strict schema requests to both candidates and reject strict requests globally.
+    let requests = [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "answer", "schema": {"type": "object"}}
+                }
+            }),
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "answer",
+                        "schema": {"type": "object"},
+                        "strict": true
+                    }
+                }
+            }),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {
+                    "type": "json_schema",
+                    "name": "answer",
+                    "schema": {"type": "object"}
+                }}
+            }),
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {
+                    "type": "json_schema",
+                    "name": "answer",
+                    "schema": {"type": "object"},
+                    "strict": true
+                }}
+            }),
+        ),
+    ];
+    for (protocol, non_strict_request, strict_request) in requests {
+        let non_strict_body = serde_json::to_vec(&non_strict_request).unwrap();
+        let plan = support::prepare(&registry, protocol, non_strict_body.into()).unwrap();
+        assert_eq!(plan.candidates().len(), 2, "{protocol:?}");
+
+        let strict_body = serde_json::to_vec(&strict_request).unwrap();
+        assert!(matches!(
+            support::prepare(&registry, protocol, strict_body.into()),
+            Err(RequestPlanningError::UnsupportedCapabilities)
+        ));
+    }
+}
+
+#[test]
+fn structured_output_analysis_and_preflight_cover_each_public_request_variant() {
+    let strict =
+        StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+
+    // Compile both protocol interfaces with the complete strict-capable profile.
+    let mut definition = base_definition();
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.structured_outputs = Some(strict);
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.structured_outputs = Some(strict);
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    let registry = build_test_registry(definition);
+
+    // Exercise absent, plain text, Object, Schema strictness, and unknown variants per protocol.
+    let cases = [
+        (
+            "chat-absent",
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": []}),
+            true,
+        ),
+        (
+            "chat-plain-text",
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "text"}
+            }),
+            true,
+        ),
+        (
+            "chat-object",
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "json_object"}
+            }),
+            true,
+        ),
+        (
+            "chat-schema-non-strict",
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "json_schema", "json_schema": {"name": "answer"}}
+            }),
+            true,
+        ),
+        (
+            "chat-schema-strict",
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "answer", "strict": true}
+                }
+            }),
+            true,
+        ),
+        (
+            "chat-unknown",
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "response_format": {"type": "future_json"}
+            }),
+            false,
+        ),
+        (
+            "responses-absent",
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "answer"}),
+            true,
+        ),
+        (
+            "responses-plain-text",
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "text"}}
+            }),
+            true,
+        ),
+        (
+            "responses-object",
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_object"}}
+            }),
+            true,
+        ),
+        (
+            "responses-schema-non-strict",
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_schema", "name": "answer"}}
+            }),
+            true,
+        ),
+        (
+            "responses-schema-strict",
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "json_schema", "name": "answer", "strict": true}}
+            }),
+            true,
+        ),
+        (
+            "responses-unknown",
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": "answer",
+                "text": {"format": {"type": "future_json"}}
+            }),
+            false,
+        ),
+    ];
+    for (case, protocol, request, accepted) in cases {
+        let body = serde_json::to_vec(&request).unwrap();
+        let result = support::prepare(&registry, protocol, body.into());
+        if accepted {
+            assert_eq!(result.unwrap().candidates().len(), 1, "{case}");
+        } else {
+            assert!(
+                matches!(result, Err(RequestPlanningError::UnsupportedCapabilities)),
+                "{case}: {result:?}"
+            );
+        }
+    }
 }
 
 #[test]

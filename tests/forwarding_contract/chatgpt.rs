@@ -301,12 +301,13 @@ async fn chatgpt_drops_seed_but_rejects_include_reasoning_before_egress() {
     }
 
     // Keep seed accepted downstream while ensuring it never reaches the private backend.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 4);
-    for request in requests.iter() {
-        assert!(!request.seed_present);
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        for request in requests.iter() {
+            assert!(!request.seed_present);
+        }
     }
-    drop(requests);
 
     // Reject the output-visibility switch and do not create any additional transport attempts.
     for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] {

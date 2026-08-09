@@ -1,8 +1,6 @@
 //! Canonical facts for OpenAI's `text-embedding-3-small` model.
 
-use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningSupport,
-};
+use crate::registry::{CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig};
 
 /// Stable OpenBridge catalog ID for `text-embedding-3-small`.
 pub(crate) const ID: &str = "openai/text-embedding-3-small";
@@ -16,17 +14,15 @@ pub(crate) fn config() -> ModelConfig {
             "OpenAI embedding model for mapping text and token inputs to numeric vectors."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(8_192), Some(8_192), None),
-        mode: Some(ModelMode::Embedding),
-        input_modalities: Some(vec![InputModality::Text]),
-        output_modalities: Some(vec![OutputModality::Embedding]),
         tokenizer: None,
         knowledge_cutoff: None,
-        supported_parameters: ["encoding_format", "user"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
-        reasoning: ReasoningSupport::Unsupported,
-        reasoning_levels: Vec::new(),
+        task: CanonicalModelTask::Embedding(EmbeddingModelProfile {
+            max_input_tokens: Some(8_192),
+            input_modalities: Some(vec![InputModality::Text]),
+            supported_parameters: ["encoding_format", "user"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }),
     }
 }

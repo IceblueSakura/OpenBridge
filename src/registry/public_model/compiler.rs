@@ -5,13 +5,14 @@
 
 use crate::{
     core::OperationKind,
-    registry::{PublicModelConfig, RegistryError, Route, UpstreamApi},
+    registry::{CanonicalTaskKind, PublicModelConfig, RegistryError, Route, UpstreamApi},
 };
 
 use super::{
     MODEL_INFO_SCHEMA_VERSION, PublicModelInfo, StandardModel,
     execution::{
-        ModelExecutionInterface, ModelExecutionInterfaces, PublicModel, RouteExecutionCandidate,
+        ModelExecutionInterface, ModelExecutionInterfaces, PublicContinuationContract, PublicModel,
+        RouteExecutionCandidate,
     },
 };
 
@@ -34,8 +35,8 @@ pub(in crate::registry) struct PublicRouteBinding<'a> {
 
 /// Compiles a fixed Public Model without deployment details from the complete Route set.
 ///
-/// Returns an error when an Embeddings interface cannot fit one worst-case valid result within
-/// the configured JSON response budget.
+/// Returns an error when executable Routes disagree on canonical task or interface payload, or
+/// when an Embeddings interface cannot fit one worst-case valid result within the JSON budget.
 pub(in crate::registry) fn compile_public_model(
     config: PublicModelConfig,
     bindings: &[PublicRouteBinding<'_>],
@@ -47,6 +48,9 @@ pub(in crate::registry) fn compile_public_model(
         .filter_map(PrecompiledRouteCandidate::from_binding)
         .collect::<Vec<_>>();
 
+    // Reject cross-operation canonical task mixtures before operation-specific narrowing.
+    let canonical_task = validate_public_model_task(&config.id, &candidates)?;
+
     // Narrow an Embeddings batch contract to what one bounded validated response can always contain.
     constrain_embedding_response_budget(&config.id, max_json_response_body_bytes, &mut candidates)?;
 
@@ -55,8 +59,8 @@ pub(in crate::registry) fn compile_public_model(
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let execution_interfaces = compile_execution_interfaces(&candidates);
-    let capabilities = aggregate_model_capabilities(&contributions);
+    let execution_interfaces = compile_execution_interfaces(&config.id, &candidates)?;
+    let capabilities = aggregate_model_capabilities(&contributions, canonical_task);
     let description = config.description.or_else(|| {
         intersect_optional_string(
             contributions
@@ -87,65 +91,101 @@ pub(in crate::registry) fn compile_public_model(
     })
 }
 
-/// Compiles the unique operation execution interfaces from one Public Model's candidates.
+/// Compiles unique operation interfaces and rejects an empty same-variant profile intersection.
 fn compile_execution_interfaces(
+    public_model: &str,
     candidates: &[PrecompiledRouteCandidate],
-) -> ModelExecutionInterfaces {
+) -> Result<ModelExecutionInterfaces, RegistryError> {
     // Partition the already ordered candidates by their fixed downstream operation.
-    ModelExecutionInterfaces {
+    Ok(ModelExecutionInterfaces {
         chat_completions: compile_execution_interface(
+            public_model,
             OperationKind::ChatCompletions,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::ChatCompletions
             }),
-        ),
+        )?,
         responses: compile_execution_interface(
+            public_model,
             OperationKind::Responses,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::Responses
             }),
-        ),
+        )?,
         embeddings: compile_execution_interface(
+            public_model,
             OperationKind::EmbeddingsCreate,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::EmbeddingsCreate
             }),
-        ),
-    }
+        )?,
+    })
 }
 
 /// Pairs one operation's conservative capability contract with its fixed static candidates.
 fn compile_execution_interface<'a>(
+    public_model: &str,
     operation: OperationKind,
     candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
-) -> Option<ModelExecutionInterface> {
+) -> Result<Option<ModelExecutionInterface>, RegistryError> {
     // Materialize one operation's static candidates without changing their configuration order.
     let candidates = candidates.collect::<Vec<_>>();
     if candidates.is_empty() {
-        return None;
+        return Ok(None);
     }
     let contributions = candidates
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let (generation_capabilities, embedding_capabilities) = match operation {
-        OperationKind::ChatCompletions | OperationKind::Responses => {
-            (aggregate_interface(contributions.iter()), None)
-        }
-        OperationKind::EmbeddingsCreate => {
-            (None, aggregate_embedding_interface(contributions.iter()))
-        }
-    };
+    let (generation_capabilities, embedding_capabilities, continuation) =
+        match operation {
+            OperationKind::ChatCompletions | OperationKind::Responses => {
+                let (capabilities, continuation) = aggregate_interface(contributions.iter())
+                    .map_err(|()| RegistryError::PublicModelInterfaceProfileMismatch {
+                        public_model: public_model.to_owned(),
+                        downstream_operation: operation,
+                    })?;
+                (capabilities, None, continuation)
+            }
+            OperationKind::EmbeddingsCreate => (
+                None,
+                aggregate_embedding_interface(contributions.iter()),
+                PublicContinuationContract::Unsupported,
+            ),
+        };
 
     // Freeze the matching planning data beside the contract that was derived from it.
-    Some(ModelExecutionInterface {
+    Ok(Some(ModelExecutionInterface {
         generation_capabilities,
         embedding_capabilities,
+        continuation,
         candidates: candidates
             .into_iter()
             .map(|candidate| candidate.execution.clone())
             .collect(),
-    })
+    }))
+}
+
+/// Validates the one canonical task shared by every executable Public Model candidate.
+fn validate_public_model_task(
+    public_model: &str,
+    candidates: &[PrecompiledRouteCandidate],
+) -> Result<Option<CanonicalTaskKind>, RegistryError> {
+    let Some(first) = candidates
+        .first()
+        .map(|value| value.contribution.canonical_task)
+    else {
+        return Ok(None);
+    };
+    if candidates
+        .iter()
+        .any(|value| value.contribution.canonical_task != first)
+    {
+        return Err(RegistryError::PublicModelTaskMismatch {
+            public_model: public_model.to_owned(),
+        });
+    }
+    Ok(Some(first))
 }
 
 /// Static candidate and capability input compiled together from one resolved Route binding.
@@ -155,10 +195,10 @@ struct PrecompiledRouteCandidate {
 }
 
 impl PrecompiledRouteCandidate {
-    /// Includes only a statically enabled Target/API and preserves its validated Route facts.
+    /// Includes only a statically enabled Target and preserves its validated Route and API facts.
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
-        // Reject disabled Targets and APIs before either capability aggregation or request planning can see them.
-        if !binding.target_enabled || !binding.upstream_api.capabilities().enabled() {
+        // Reject disabled Targets before either capability aggregation or request planning can see them.
+        if !binding.target_enabled {
             return None;
         }
 

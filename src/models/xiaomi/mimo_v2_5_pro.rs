@@ -1,8 +1,8 @@
 //! Complete canonical model facts for MiMo-V2.5-Pro (`xiaomi/mimo-v2.5-pro`).
 
 use crate::registry::{
-    InputModality, ModelConfig, ModelContextLength, ModelMode, OutputModality, ReasoningLevel,
-    ReasoningSupport,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for MiMo-V2.5-Pro.
@@ -17,12 +17,12 @@ pub(crate) fn config() -> ModelConfig {
             "Xiaomi flagship model for complex software engineering and long-horizon agentic tasks."
                 .to_owned(),
         ),
-        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
-        mode: Some(ModelMode::Chat),
-        input_modalities: Some(vec![InputModality::Text]),
-        output_modalities: Some(vec![OutputModality::Text]),
         tokenizer: Some("Other".to_owned()),
         knowledge_cutoff: None,
+        task: CanonicalModelTask::Generation(GenerationModelProfile {
+        context_length: ModelContextLength::new(Some(1_050_000), Some(1_050_000), Some(131_072)),
+        input_modalities: Some(vec![InputModality::Text]),
+        output_modalities: Some(vec![OutputModality::Text]),
         supported_parameters: [
             "frequency_penalty",
             "include_reasoning",
@@ -31,7 +31,6 @@ pub(crate) fn config() -> ModelConfig {
             "max_tokens",
             "min_p",
             "presence_penalty",
-            "reasoning",
             "repetition_penalty",
             "response_format",
             "seed",
@@ -47,12 +46,12 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
         .collect(),
-        reasoning: ReasoningSupport::Supported,
-        reasoning_levels: vec![
+        reasoning: ReasoningProfile::supported([
             ReasoningLevel::High,
             ReasoningLevel::Medium,
             ReasoningLevel::Low,
             ReasoningLevel::None,
-        ],
+        ]),
+        }),
     }
 }
