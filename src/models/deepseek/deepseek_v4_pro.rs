@@ -50,7 +50,11 @@ pub(crate) fn config() -> ModelConfig {
             .into_iter()
             .map(str::to_owned)
             .collect(),
-            reasoning: ReasoningProfile::supported([ReasoningLevel::Max, ReasoningLevel::High]),
+            reasoning: ReasoningProfile::supported([
+                ReasoningLevel::Max,
+                ReasoningLevel::High,
+                ReasoningLevel::None,
+            ]),
         }),
     }
 }

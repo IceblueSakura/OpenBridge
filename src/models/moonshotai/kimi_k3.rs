@@ -51,6 +51,7 @@ pub(crate) fn config() -> ModelConfig {
             ReasoningLevel::Max,
             ReasoningLevel::High,
             ReasoningLevel::Low,
+            ReasoningLevel::None,
         ]),
         }),
     }

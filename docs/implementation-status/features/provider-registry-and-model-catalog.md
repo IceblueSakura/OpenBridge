@@ -2,8 +2,9 @@
 
 ## 状态
 
-**已完成（当前 checkout）。** Provider 和 31 个 canonical Model leaf 由 Rust 代码显式编译为不可变 `RuntimeRegistry`；每个 Model
-必须选择一个闭合 canonical task variant。当前没有动态 Provider DSL、自动发现或按名称隐式聚合，Provider 池只来自显式 source 注册。
+**已完成（当前 checkout）。** Provider、31 个 canonical Model leaf、34 个固定 Upstream Target 和 23 个 Public Model 由 Rust
+代码显式编译为不可变 `RuntimeRegistry`；每个 Model 必须选择一个闭合 canonical task variant。当前没有动态 Provider DSL、自动发现
+或按名称隐式聚合，Provider 池只来自显式 source 注册。
 
 ## 已完成内容
 
@@ -31,16 +32,17 @@
   Responses Bridge，并将 `qwen/qwen3.7-plus`、`qwen/qwen3.7-max` 与 `qwen/qwen3.8-max` 绑定为双协议 Native Public Model。
   百炼另外将 `qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
   `qwen/qwen3.5-livetranslate-flash-realtime` 与 `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，并将
-  `qwen/qwen3.7-text-embedding` 编译为固定
-  Embeddings Upstream Target；其中 `qwen3.7-text-embedding` 已加入唯一
-  `qwen3-7-text-embedding-bailian-embeddings` Native Route 和同名 Public Model，其余 Qwen 专用条目仍暂不加入 Public Model 或 Route。
+  `qwen/qwen3.7-text-embedding` 编译为固定 Embeddings Upstream Target。`qwen3.6-27b` 已加入 Chat Native、Responses-via-Chat
+  Bridge Route 和同名 Public Model；`qwen3.7-text-embedding` 已加入唯一
+  `qwen3-7-text-embedding-bailian-embeddings` Native Route 和同名 Public Model。Qwen Image 与 LiveTranslate 条目仍暂不加入
+  Public Model 或 Route。
   `qwen/qwen-audio-3.0-asr-flash` 保留为 `SpeechRecognition` canonical Model；因当前没有已确认的 Bailian Chat executable ASR
   profile，其原 generic Chat Target 已删除，也没有 Route/Public Model，不能仅凭 model-list 可见性获得可调用能力。
 - Kimi CN 固定到 `https://api.moonshot.cn`，使用独立的 `kimi-primary` API-key pool 和 OpenAI-compatible Chat adapter；
   `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model，提供 `/v1/chat/completions` Chat Native，并自动补充一个
   `Responses-via-Chat` Bridge Route。
 - 当前可调用的 Generation Public Model 为 `gpt-5.6-sol`、`LongCat-2.0`、`deepseek-v4-pro`、`deepseek-v4-flash`、
-  `mimo-v2.5-pro`、`mimo-v2.5`、`minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、`qwen3.8-max`、
+  `mimo-v2.5-pro`、`mimo-v2.5`、`minimax-m3`、`kimi-k3`、`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、`qwen3.8-max`、`qwen3.6-27b`、
   `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra`；
   `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign`、`mimo-v2.5-tts-voiceclone` 分别是
   `SpeechRecognition`、`SpeechSynthesis`、`VoiceDesign`、`VoiceClone` Public Model；
@@ -83,6 +85,59 @@
   Remote limit 取最小值；data MIME 取交集，四个 inline limit 取最小值并按交集后的 per-item/part 数 clamp 累计上限；data payload
   消失时可从 Both 降为 Remote-only，所有 source 消失才关闭 image。既有 Models JSON 只从该 union 单向投影，不适用 limit 的 `0`
   是 wire-only 表示；preflight 读取同一 owned contract 的 source-specific `Option` limit，不读取 flat DTO sentinel。
+
+### 当前实际接入清单与 2026-08-09 文字复测
+
+“实际接入”在本页指已经进入 Public Model、至少拥有一条固定 Route，且能由启动期 registry 编译为下游接口；它不包括只有 canonical
+Model 或 Upstream Target 的条目。静态目录共有 23 个 Public Model，其中 17 个是同时提供 Chat/Responses 的文本 Generation 模型，
+4 个是 Chat-only MiMo 专用音频模型，2 个是 Embeddings 模型。运行时还会依据 active credential pool 收窄该集合。
+
+2026-08-09 在 `main@ed515cc` 启动当前服务后，`GET /openbridge/v1/models` 返回 21 个可执行模型：16 个文本模型全部进入
+`reasoning=none/high × Chat/Responses × stream=false/true` 八项矩阵，5 个非通用文字模型单列；静态
+`text-embedding-3-small` 当次没有进入运行时 Models。下表只描述正常首选路径，没有强制后备 source。
+
+| Public Model | 固定 Provider source | Chat/Responses 路径 | 当次八项矩阵 |
+|---|---|---|---|
+| `gpt-5.6-sol` | ChatGPT；OpenAI 后备 | ChatGPT Responses Native；Chat Bridge；OpenAI 双协议后备 | 8/8 HTTP 200、文字和终态完整 |
+| `gpt-5.3-codex-spark` | ChatGPT | Responses Native；Chat Bridge | `high` 4/4 HTTP 200；`none` 4/4 HTTP 400 `unsupported_value` |
+| `gpt-5.5` | ChatGPT | Responses Native；Chat Bridge | 8/8 HTTP 200、文字和终态完整 |
+| `gpt-5.6-luna` | ChatGPT | Responses Native；Chat Bridge | 8/8 HTTP 200、文字和终态完整 |
+| `gpt-5.6-terra` | ChatGPT | Responses Native；Chat Bridge | 8/8 HTTP 200、文字和终态完整 |
+| `LongCat-2.0` | LongCat | Chat/Responses Native，保留双向 Bridge | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `deepseek-v4-pro` | DeepSeek；Bailian 后备 | Chat Native；Responses Bridge | 8/8 HTTP 200；测试时未公开的 `none` 四项实际关闭 reasoning |
+| `deepseek-v4-flash` | DeepSeek；OpenRouter；Bailian Chat 后备 | DeepSeek/OpenRouter 双协议 Native；Bailian Chat 后备 | 8/8 HTTP 200；测试时未公开的 `none` 四项实际关闭 reasoning |
+| `minimax-m3` | OpenRouter；NVIDIA Chat 后备 | OpenRouter 双协议 Native；NVIDIA Chat 后备 | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `kimi-k3` | Kimi CN | Chat Native；Responses Bridge | 8/8 HTTP 200；测试时未公开的 `none` 四项实际关闭 reasoning |
+| `glm-5.2` | Bailian | Chat Native；Responses Bridge | 8/8 HTTP 200；测试时未公开的 `none` 四项实际关闭 reasoning |
+| `qwen3.7-plus` | Bailian | Chat/Responses Native | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `qwen3.7-max` | Bailian | Chat/Responses Native | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `qwen3.8-max` | Bailian | Chat/Responses Native | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `mimo-v2.5-pro` | MiMo | Chat/Responses Native | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+| `mimo-v2.5` | MiMo | Chat/Responses Native | 8/8 HTTP 200；`none` 无 reasoning、`high` 有 reasoning |
+
+128 个基础单元中，124 个为 HTTP 200，且全部有非空文字和完整 JSON/SSE 终态；另外 4 个是 Spark `none` 的最终 HTTP 400，错误为
+`unsupported_value`、参数 `reasoning.effort`。64 个 `high` 单元全部成功；简单 prompt 中 15 个 GPT 单元没有可观察 reasoning，改用多步
+求解 prompt 定向复测后 13 个出现 reasoning，只剩 Spark Chat JSON/SSE 仍无可观察 summary。完整逐单元矩阵和判据见
+[最新真实 E2E 结果](../real-e2e-test-2026-08-08.md)。
+
+依据上述矩阵，当前四个 canonical profile 已补入 `none`，DeepSeek V4 Pro/Flash、Kimi K3 与 GLM-5.2 的 Chat/Responses Models
+投影现与已确认的关闭能力一致；Bailian DeepSeek Chat egress 只把 `none` 转为 `enable_thinking:false`。preflight 仍把显式
+`ReasoningLevel::None` 当作“不要求 reasoning 能力”放行，因此没有公开 `none` 的 Spark 仍会到达当前 source 并返回 400；该边界不在
+本次补全范围内。
+
+以下条目不进入上述文字矩阵：
+
+- 当次 Models 可见的 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign`、
+  `mimo-v2.5-tts-voiceclone` 是 Chat-only 专用音频 Public Model；`qwen3.7-text-embedding` 是 Embeddings-only Public Model；
+- 静态 `text-embedding-3-small` 是 Embeddings-only Public Model，当次没有进入运行时 Models；
+- `qwen3.6-27b` 在该 2026-08-09 快照后才加入 Public Model，因此不进入当次 16 模型文字矩阵；其 2026-08-10 接入后 8 单元补测见
+  [最新真实 E2E 结果](../real-e2e-test-2026-08-08.md)；
+- `openai/gpt-5.5`、`openai/gpt-5.6-luna`、`openai/gpt-5.6-terra` 以及 `qwen/qwen-image-3.0`、
+  `qwen/qwen-image-3.0-pro`、`qwen/qwen3.5-livetranslate-flash-realtime` 在当次快照中只有固定 Target，没有 Public Model/Route；
+- `qwen/qwen-audio-3.0-asr-flash` 只有 canonical Model，没有 executable Target、Route 或 Public Model。
+
+其中 Qwen Image 3.0/Pro 和 LiveTranslate 的 generic Bailian Chat Target 只表示静态 trusted deployment 绑定；当前没有对应下游
+image-generation/realtime interface、Route 或真实协议验收，不能把 Models 可见性或 registry 编译成功表述为可执行能力。
 
 ## 实现边界
 
@@ -356,6 +411,51 @@ payload。
   MiMo/DeepSeek/Bridge wire 与 HTTP zero-egress 聚焦测试通过。最终本地运行 `cargo fmt -- --check`、`cargo test --locked`、
   `cargo clippy --locked -- -D warnings` 与 `git diff --check`，全部通过。
 - 本轮未执行真实 Provider、外部 SDK、Models HTTP probe、负载或长期运行验收，也未读取或修改私有 credential。
+
+2026-08-09 当前实际接入清单与文字矩阵：
+
+- 按当前源码重新核对 31 个 canonical Model、34 个固定 Target 和 22 个 Public Model；文字矩阵候选固定为 16 个 Chat/Responses
+  Generation Public Model，另外 4 个专用音频和 2 个 Embeddings Public Model 明确排除；
+- 当次扩展 Models 返回 21 个可执行模型，其中 16 个文本模型、4 个专用音频模型和 1 个 Embeddings 模型；静态
+  `text-embedding-3-small` 没有进入运行时 Models；
+- `cargo test --locked --test example_config`：通过（24 项）；`cargo test --locked --test embedding_registry_contract`：通过（2 项）；
+  `cargo test --locked --test forwarding_contract models::`：通过（2 项）；
+- 对当前 checkout 构建并启动本地服务，使用私有下游用户 key 和现有 Provider credential 执行 128 个真实请求：124 个 HTTP 200
+  均有非空文字和完整 JSON/SSE 终态；Spark `none` 四项返回 HTTP 400 `unsupported_value`；没有最终 429/5xx、传输或协议错误；
+- 15 个简单 prompt 下缺少 reasoning 证据的 GPT `high` 单元经多步求解 prompt 定向复测后有 13 个出现 reasoning；Spark Chat
+  JSON/SSE 仍无可观察 summary，而同模型 Responses 两项有 reasoning item/token；
+- 本次没有运行外部 SDK、强制 fallback、负载、并发稳定性或长期运行测试；完整逐单元证据见
+  [最新真实 E2E 结果](../real-e2e-test-2026-08-08.md)。
+
+2026-08-10 已确认 `none` 能力补全：
+
+- TDD 先固定四个 Public Model 的 Chat/Responses levels 和 Spark 的排除边界，并固定 Bailian DeepSeek Pro/Flash 的 off wire；两个
+  focused test 在旧实现上均按预期失败；
+- DeepSeek V4 Pro/Flash、Kimi K3 与 GLM-5.2 canonical profile 已补入 `none`；Bailian adapter 仅对两个固定 DeepSeek Chat
+  deployment 将 `none` 转为 `enable_thinking:false`，不会折叠其他 effort，也不会改写 GLM；
+- `cargo test --locked --test example_config`：通过（25 项）；`cargo test --locked --test provider_contract`：通过（9 项）；
+  `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；
+- 本次代码修补没有重复运行 128 单元真实 Provider 矩阵、外部 SDK、强制 fallback、负载或长期测试；外部行为依据仍是上方已记录的
+  E2E 与 direct off probe。
+
+2026-08-10 Qwen3.6 27B Public Model/Route：
+
+- 将已有 `bailian-qwen3-6-27b` Chat Target 接入下游 `qwen3.6-27b` Public Model；Chat 使用唯一 Native Route，Responses 使用同一
+  Target/API 的唯一 Responses-via-Chat Bridge Route，没有声明未经验证的 Bailian Native Responses；
+- 两个下游接口只公开已由 direct Chat off/on 探测确认的 `none/high`。Target reasoning output 从 `Unknown` 收窄为
+  `PlainText`，Bailian adapter 将两个 level 分别转换为 `enable_thinking=false/true`，使 Responses Bridge 可以读取
+  `reasoning_content`；
+- Public Model 的 executable contract 仍不公开图片、视频、tools 或 Structured Outputs；canonical Model 的较宽模型事实不会扩大
+  当前 Bailian Chat Target 的已确认接口能力；
+- 聚焦 `qwen36_registry_contract` 在旧实现上先因 output/公开执行契约不完整而失败；实现后该契约通过（1 项），
+  `example_config` 通过（25 项），`provider_contract` 通过（9 项），Models HTTP 聚焦回归通过（2 项）；
+- `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；
+- 接入后扩展 Models 单模型查询返回 HTTP 200，Chat/Responses 均投影 `none/high` 和 `plain_text`；真实下游
+  `none/high × Chat/Responses × JSON/SSE` 为 8/8 HTTP 200、文字非空且终态完整，四个 `none` 均无 reasoning，四个 `high`
+  均有可读 reasoning。Chat `high` 另有正 reasoning token 计数；Responses-via-Chat `high` 有 reasoning item，但未投影 reasoning
+  token 计数；
+- 本轮未运行外部 SDK、强制 fallback、其他 reasoning level、tools、多模态、负载、并发稳定性或长期测试；逐单元结果见
+  [最新真实 E2E 结果](../real-e2e-test-2026-08-08.md)。
 
 ## 相关文档
 

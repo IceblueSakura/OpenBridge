@@ -302,6 +302,52 @@ fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
 }
 
 #[test]
+fn live_confirmed_reasoning_off_levels_compile_into_public_interfaces() {
+    // Compile the production registry from the checked-in Provider and model definitions.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Require every live-confirmed off level on both downstream generation interfaces.
+    for (model_id, expected_levels) in [
+        ("deepseek-v4-pro", &["none", "high", "max"][..]),
+        ("deepseek-v4-flash", &["none", "low", "high", "max"][..]),
+        ("kimi-k3", &["none", "low", "high", "max"][..]),
+        ("glm-5.2", &["none", "high", "xhigh"][..]),
+    ] {
+        let info = serde_json::to_value(
+            registry
+                .public_model(model_id)
+                .unwrap_or_else(|| panic!("{model_id} Public Model must exist"))
+                .info(),
+        )
+        .unwrap();
+        for interface in ["chat_completions", "responses"] {
+            assert_eq!(
+                info["interfaces"][interface]["reasoning"]["levels"],
+                serde_json::json!(expected_levels),
+                "{model_id} {interface}"
+            );
+        }
+    }
+
+    // Keep the rejected Spark off level outside both public interfaces.
+    let spark = serde_json::to_value(
+        registry
+            .public_model("gpt-5.3-codex-spark")
+            .expect("Spark Public Model must exist")
+            .info(),
+    )
+    .unwrap();
+    for interface in ["chat_completions", "responses"] {
+        assert_eq!(
+            spark["interfaces"][interface]["reasoning"]["levels"],
+            serde_json::json!(["low", "medium", "high", "xhigh"]),
+            "Spark {interface}"
+        );
+    }
+}
+
+#[test]
 fn deepseek_flash_responses_exposes_only_proven_tool_choice_modes() {
     // Compile the checked-in multi-source interface and inspect its downstream contract.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();

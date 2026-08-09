@@ -46,10 +46,9 @@
 - `forwarding_contract::native::deepseek_json_object_is_preserved_by_native_and_bridge_egress` 覆盖 DeepSeek V4 Pro
   Responses `text.format:json_object` 到 Chat `response_format:json_object` 的生产 Bridge；同日真实 JSON/SSE 聚焦请求 2/2 返回可解析的
   预期 JSON。
-- [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 记录真实 Bailian/Kimi CN
-  Responses-via-Chat JSON/SSE，以及五个 GPT ChatGPT-source 模型的 Chat/Responses、stream on/off 与 omitted/high 最终验收结果；
-  120 个文字生成单元均达到合法成功终态；同日最新聚焦复测另确认 Kimi Responses-via-Chat 在非默认 `temperature` 下的 JSON/SSE
-  仍为 HTTP 200，而未知字段和已禁用输出语义参数在 Bridge 前稳定拒绝。
+- [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 只保留最新的 16 个可见文字模型
+  `none/high × Chat/Responses × JSON/SSE` 矩阵；128 个请求中 124 个返回完整 HTTP 200 终态，另外 4 个均为 Spark `none`
+  的已记录 HTTP 400。矩阵覆盖 Kimi 与 GLM 的 Responses-via-Chat JSON/SSE，但不证明强制 fallback 或未纳入该矩阵的参数组合。
 
 确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
 OpenAI API 或任意 Provider 私有语义可转换。

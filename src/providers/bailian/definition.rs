@@ -112,26 +112,38 @@ fn transform_request_headers(
     Ok(())
 }
 
-/// Converts each admitted hybrid Qwen Chat level to Model Studio's official thinking switch.
+/// Converts confirmed Chat off controls and Qwen reasoning levels to Model Studio switches.
 fn transform_request_body(
     protocol: crate::core::ApiProtocol,
     document: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), AdapterError> {
-    // Preserve model-specific effort semantics for targets without the Qwen boolean wire contract.
-    let qwen_hybrid_thinking = matches!(
+    // Convert every admitted Qwen reasoning level to its confirmed boolean Chat switch.
+    let qwen_boolean_thinking = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus")
+        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus" | "qwen3.6-27b")
     );
-    if !qwen_hybrid_thinking {
-        return Ok(());
-    }
-
-    // Replace the downstream Chat level with the official boolean extension.
-    if let Some(enabled) = take_chat_reasoning_switch(protocol, document)? {
+    if qwen_boolean_thinking && let Some(enabled) = take_chat_reasoning_switch(protocol, document)?
+    {
         document.insert(
             "enable_thinking".to_owned(),
             serde_json::Value::Bool(enabled),
         );
+    }
+
+    // Convert only DeepSeek's off level while preserving its multi-level effort vocabulary.
+    let bailian_deepseek = matches!(
+        document.get("model").and_then(serde_json::Value::as_str),
+        Some("deepseek-v4-pro" | "deepseek-v4-flash-0731")
+    );
+    if protocol == crate::core::ApiProtocol::ChatCompletions
+        && bailian_deepseek
+        && document
+            .get("reasoning_effort")
+            .and_then(serde_json::Value::as_str)
+            == Some("none")
+    {
+        document.remove("reasoning_effort");
+        document.insert("enable_thinking".to_owned(), serde_json::Value::Bool(false));
     }
     Ok(())
 }

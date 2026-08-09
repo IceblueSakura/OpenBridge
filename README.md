@@ -52,14 +52,15 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `gpt-5.6-luna` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge；下游支持 JSON/SSE |
 | `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge；下游支持 JSON/SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first + Bridge；公开 none/high 与明文 reasoning |
-| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 high/max、明文 reasoning 与 `json_object` |
-| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备；公开 `json_object` |
+| `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 none/high/max、明文 reasoning 与 `json_object` |
+| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备；公开 none/low/high/max 与 `json_object` |
 | `minimax-m3` | Chat、Responses | `openrouter-primary`、`nvidia-primary` | OpenRouter Chat/Responses Native 优先、NVIDIA Chat Native 后备；两接口公开 none/high |
-| `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
-| `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，当前公开文本与 streaming 基线 |
+| `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/low/high/max |
+| `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/high/xhigh |
 | `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
 | `qwen3.7-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
 | `qwen3.8-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
+| `qwen3.6-27b` | Chat、Responses | `bailian-primary` | 百炼 Chat Native；Responses 通过 Chat Bridge；公开 none/high，不公开图片、视频或工具能力 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；不公开图片输入 |
 | `mimo-v2.5` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；支持受限 URL/Base64 图片 |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
@@ -71,7 +72,7 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 
 Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公开同一集合。MiMo 官方当前把 `low`、`medium`、`high`
 都解释为开启 reasoning，但 OpenBridge 仍在 Native Responses 中原样传递每个已声明值；Qwen3.7 与 Qwen3.8 同理保留官方七档。
-MiniMax M3 官方只声明 thinking 可开/关，因此统一公开 `none/high`，不外推未声明的中间强度档位。
+MiniMax M3 与 Qwen3.6 27B 当前都只有 thinking 开关证据，因此统一公开 `none/high`，不外推未声明的中间强度档位。
 只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。

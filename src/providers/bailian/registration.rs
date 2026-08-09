@@ -79,7 +79,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "bailian-qwen3-6-27b",
             qwen::qwen3_6_27b::ID,
             "qwen3.6-27b",
-            ReasoningOutput::Unknown,
+            ReasoningOutput::PlainText,
         ),
         embedding_target(),
         chat_target(

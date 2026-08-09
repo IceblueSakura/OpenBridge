@@ -1,194 +1,107 @@
-# 真实端到端测试当前最终结果
+# 最新文字模型 E2E 测试结果
 
-## 1. 测试范围
+本文只保留当前最新的 `none/high × Chat/Responses × JSON/SSE` E2E 证据：2026-08-09 的 16 模型基础矩阵、
+后续修补状态，以及 2026-08-10 新接入 `qwen3.6-27b` 后执行的 8 单元补测。
 
-本报告只保留当前 checkout 的最终结果，不记录重试历史或修复过程。
+## 1. 测试边界
 
-- checkout：`main`，commit `90180d8` 加当前已验证 worktree；服务 registry version：`dev-1`。
-- 服务：由当前源码执行 `cargo build --locked` 后启动的 `target\debug\openbridge.exe`，地址为
+- checkout：`main`，commit `ed515cc` 加未修改运行时代码的文档 worktree；服务 registry version：`dev-1`。
+- 服务：对当前 checkout 执行 `cargo build --locked --bin openbridge` 后启动 `target\debug\openbridge.exe`，监听
   `http://127.0.0.1:8080`。
-- 最终有效证据时间：2026-08-09 01:21:22 至 14:42:35（UTC+08:00）。
-- 下游认证：使用私有 `config/users.toml` 中启用用户的真实 Bearer key；key 未输出、复制或写入结果。
-- 路由范围：只验收固定顺序下正常可用的首选路径，不制造故障、不强制 fallback。下游响应不公开实际 Target，因此本报告不把
-  fallback、NVIDIA 后备或其他第二候选描述为已验收。
-- Models：检查 `GET /v1/models` 与 `GET /openbridge/v1/models` 的状态、集合完整性、重复项和 ID 格式。
-- 文字生成：覆盖 15 个模型的 Chat/Responses、JSON/SSE、reasoning 字段省略以及全部公开 reasoning level。
-- 扩展能力：覆盖 function tools、tool choice、parallel calls、structured outputs、工具结果续接、严格参数处置、MiMo 图片、
-  MiMo 专用音频和 Qwen Embeddings。
-- 所有测试只保留状态码、协议终态、语义布尔值、错误分类和媒体字节数；不保存生成文本、reasoning、tool arguments、向量、音频、
-  transcript、Provider request ID 或 credential。
+- Models 快照：`GET /openbridge/v1/models` 返回 21 个当前可执行 Public Model；其中 16 个同时提供文本 Chat/Responses，进入矩阵；
+  其余 5 个按任务和 interface 单列，不发送本矩阵请求。
+- 基础矩阵时间：2026-08-09 23:52:24 至 23:56:49（UTC+08:00）；16 个模型各执行
+  `reasoning=none/high × Chat/Responses × stream=false/true`，共 128 个请求单元。
+- 请求只携带模型、同一条无状态纯文本 prompt、对应协议的标准 reasoning 字段和 `stream`；不添加 token 上限、tools、structured
+  outputs 或其他可选参数。Chat 使用 `reasoning_effort`，Responses 使用 `reasoning.effort`。
+- `stream:false` 要求合法 JSON、完整协议终态和非空文字；`stream:true` 还要求 Chat `[DONE]` 或 Responses
+  `response.completed`。`none` 记录可观察 reasoning 是否为空；`high` 分别记录 reasoning item、可读内容和 usage token 证据。
+- 基础 prompt 只要求回复 `OK`。为避免把“任务过于简单”误判成 reasoning 转换缺失，对其中 15 个成功但没有可观察 reasoning 的
+  GPT `high` 单元又使用同一条多步整数求解 prompt 定向复测；复测于 2026-08-09 23:59:33（UTC+08:00）完成。
+- 结果只保存状态码、终态、语义布尔值、reasoning token 计数和耗时；未保存生成正文、reasoning 正文、Provider request ID 或
+  credential。只验收正常首选路径，没有制造故障或强制 fallback。
 
 ## 2. 总体结果
 
-| 验收面 | 通过 | 总单元 | 最终结论 |
-|---|---:|---:|---|
-| Models 标准/扩展端点 | 2 | 2 | 均为 HTTP 200，ID 集合一致，共 20 个当前可执行模型 |
-| 文字 + reasoning | 312 | 312 | 全部返回合法 JSON/SSE 终态 |
-| 当前公开的 function tools + 文字 structured outputs | 164 | 164 | 全部符合当前公开能力；含 8 个 strict function-schema 单元 |
-| 已移除 generation 能力的本地拒绝 | 44 | 44 | 全部在 egress 前返回 HTTP 400 |
-| Function tool result 续接 | 16 | 16 | 全部完成 call/result/final-text 续接 |
-| 严格参数处置 | 16 | 16 | 接受项成功；未知和不支持项均在 egress 前返回精确参数错误 |
-| MiMo 图片 | 4 | 4 | Chat/Responses × JSON/SSE 全部通过 |
-| Qwen Embeddings | 10 | 10 | 默认/合法维度成功；非法维度在本地被拒绝 |
-| MiMo 音频基础/扩展能力 | 15 | 15 | ASR、TTS、VoiceClone、VoiceDesign 全部通过 |
-| MiMo 音频 structured-output 能力拒绝 | 16 | 16 | 全部在 egress 前返回 HTTP 400 |
-| **业务请求单元合计（不含 Models 检查）** | **597** | **597** | **全部符合当前公开契约；没有最终 429/503 或传输错误** |
-
-597 个业务请求单元是能力组合，不代表相同数量的模型或产品功能。预期的 HTTP 400 表示 OpenBridge 正确拒绝未公开、未知或不支持的
-能力，因此计为契约通过，不计作生成成功。
-
-## 3. Models 端点
-
-当前静态目录有 21 个 Public Model。私有配置没有激活 `text-embedding-3-small` 的唯一 OpenAI 来源，因此两个 Models 端点均返回
-其余 20 个当前可执行模型。
-
-| 检查项 | 最终结果 |
-|---|---:|
-| `GET /v1/models` | HTTP 200，20 项 |
-| `GET /openbridge/v1/models` | HTTP 200，20 项 |
-| 两个 list response 的 `object` | 均为 `list` |
-| 标准/扩展端点 ID 集合差异 | 0 |
-| 相对当前可执行目录缺失或多余 ID | 0 |
-| 重复 ID | 0 |
-| 不符合 `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}` 的 ID | 0 |
-
-最终可见的 20 个 ID：
-
-`LongCat-2.0`、`deepseek-v4-flash`、`deepseek-v4-pro`、`glm-5.2`、
-`gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra`、
-`kimi-k3`、`mimo-v2.5`、`mimo-v2.5-asr`、`mimo-v2.5-pro`、`mimo-v2.5-tts`、
-`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign`、`minimax-m3`、`qwen3.7-max`、
-`qwen3.7-plus`、`qwen3.7-text-embedding`。
-
-## 4. 文字与 reasoning
-
-每个单元均覆盖一个协议、delivery mode 和 reasoning 配置。字段省略表示使用 Provider 默认行为；显式配置覆盖每个模型公开的全部
-level，包括适用模型的 `none`。Chat 使用 `reasoning_effort`，Responses 使用 `reasoning.effort`。
-
-| Model | 单元 | 合法成功 | HTTP/协议/传输错误 |
-|---|---:|---:|---:|
-| `LongCat-2.0` | 12 | 12 | 0 |
-| `deepseek-v4-flash` | 16 | 16 | 0 |
-| `deepseek-v4-pro` | 12 | 12 | 0 |
-| `glm-5.2` | 12 | 12 | 0 |
-| `gpt-5.3-codex-spark` | 20 | 20 | 0 |
-| `gpt-5.5` | 24 | 24 | 0 |
-| `gpt-5.6-luna` | 28 | 28 | 0 |
-| `gpt-5.6-sol` | 28 | 28 | 0 |
-| `gpt-5.6-terra` | 28 | 28 | 0 |
-| `kimi-k3` | 16 | 16 | 0 |
-| `mimo-v2.5` | 20 | 20 | 0 |
-| `mimo-v2.5-pro` | 20 | 20 | 0 |
-| `minimax-m3` | 12 | 12 | 0 |
-| `qwen3.7-max` | 32 | 32 | 0 |
-| `qwen3.7-plus` | 32 | 32 | 0 |
-| **合计** | **312** | **312** | **0** |
-
-这组结果确认当前首选路径上的基础 Chat/Responses 转换、`stream:true` 直传、ChatGPT 上游强制流式到下游非流式的缓冲转换，以及公开
-reasoning level 的请求映射均可完成。reasoning 内容只做存在性检查；opaque continuation 不伪装为可读 reasoning。
-
-## 5. Function tools 与 structured outputs
-
-### 5.1 当前公开能力
-
-正向矩阵只请求 Models 接口当前公开的能力。Function tool 覆盖公开的 tool choice、适用接口的 `parallel_tool_calls`、
-Chat/Responses 与 JSON/SSE；structured output 覆盖公开的 `json_object/json_schema`、Chat/Responses 与 JSON/SSE。
-
-| Model | 通过 | 总单元 | 最终公开边界 |
-|---|---:|---:|---|
-| `LongCat-2.0` | 16 | 16 | 维持当前公开能力 |
-| `deepseek-v4-flash` | 4 | 4 | Responses 仅公开 `none/auto` tool choice |
-| `gpt-5.5` | 28 | 28 | 维持当前公开能力 |
-| `gpt-5.6-luna` | 28 | 28 | 维持当前公开能力 |
-| `gpt-5.6-sol` | 28 | 28 | 维持当前公开能力 |
-| `gpt-5.6-terra` | 28 | 28 | 维持当前公开能力 |
-| `mimo-v2.5` | 8 | 8 | `tool_choice:auto`；Chat/Responses 支持 `json_object` |
-| `mimo-v2.5-pro` | 8 | 8 | `tool_choice:auto`；Chat/Responses 支持 `json_object` |
-| `minimax-m3` | 8 | 8 | 维持当前公开能力 |
-| **公开能力矩阵小计** | **156** | **156** | **全部通过** |
-| MiMo strict function schema | 8 | 8 | 两个文字模型的 Chat/Responses × JSON/SSE 全部通过 |
-| **合计** | **164** | **164** | **全部通过** |
-
-MiMo 的自然多调用输出仍可被 OpenBridge 保真转发，但官方没有声明 `parallel_tool_calls` 请求参数，因此 Public Model 不把它公开为
-可控能力。
-MiMo 两款文字模型的 `json_object` 按官方前提使用明确 JSON-only prompt；Chat/Responses × JSON/SSE 共 8/8 返回合法 JSON、完整终态，
-且合成字段和值与请求一致。该结果不外推为 `json_schema` 字段约束。
-
-### 5.2 未公开能力的拒绝边界
-
-| 场景 | 通过/总数 | 最终结果 |
+| 检查面 | 结果 | 结论 |
 |---|---:|---|
-| DeepSeek Flash Responses `required/named` × JSON/SSE | 4/4 | HTTP 400 `unsupported_model_capability` |
-| MiMo V2.5 `none/required/named` × Chat/Responses × JSON/SSE | 12/12 | HTTP 400 `unsupported_model_capability` |
-| MiMo V2.5 Pro `none/required/named` × Chat/Responses × JSON/SSE | 12/12 | HTTP 400 `unsupported_model_capability` |
-| MiMo 两模型 `parallel_tool_calls:true` × Chat/Responses × JSON/SSE | 8/8 | HTTP 400 `unsupported_model_capability` |
-| MiMo 两模型 `json_schema` × Chat/Responses × JSON/SSE | 8/8 | HTTP 400 `unsupported_model_capability` |
-| **合计** | **44/44** | **全部在本地能力门禁拒绝** |
+| 基础矩阵 | 128 | 16 个模型各 8 个单元全部执行 |
+| HTTP 200 | 124 | 124/124 均有非空文字和完整 JSON/SSE 终态 |
+| HTTP 400 | 4 | 全部为 `gpt-5.3-codex-spark` 的 `none`，`unsupported_value`，参数 `reasoning.effort` |
+| `none` | 60 个 200 + 4 个 400 | 60 个成功体均没有可观察 reasoning；没有“关闭后仍返回 reasoning”的单元 |
+| `high` | 64 个 200 | 64/64 均有文字和完整终态；简单 prompt 中 49 个有 reasoning 证据，15 个没有 |
+| `high` 定向复测 | 13/15 出现 reasoning | Luna/Sol/Terra 四组合与 GPT-5.5 Chat SSE 均出现；Spark Chat JSON/SSE 仍无可观察 summary |
+| HTTP 429/5xx、传输或协议终态错误 | 0 | 未观察到最终限流、服务端错误、连接错误、非法 JSON/SSE 或缺失终态 |
 
-## 6. Function tool result 续接
+## 3. 请求结果矩阵
 
-16 个公开 function-tool 接口均完成一次非流式 call、stateless tool result 和最终文本回复：
+缩写：`C` 为 Chat、`R` 为 Responses；`OK` 表示 HTTP 200、非空文字和正确终态；`R-` 表示没有可观察 reasoning，`R+` 表示
+存在 reasoning item、可读 reasoning 或正 reasoning token 计数。`*` 表示扩展 Models 没有列出 `none`，但实际请求成功；`‡` 表示
+简单 prompt 没有 reasoning、定向复测后出现；`†` 表示定向复测后仍没有可观察 reasoning。
 
-- `LongCat-2.0` Responses 接受标准的 `{role, content}` message shorthand；后备 Responses-to-Chat Bridge 能保留原始 call identity，
-  并完成最终回复。
-- `deepseek-v4-flash` Responses 使用当前允许的初始 `tool_choice:auto`，续接时使用 `tool_choice:none`；包含 reasoning history 的
-  tool-result 请求完成最终回复且没有重复调用工具。
-- GPT-5.5、GPT-5.6 Luna/Sol/Terra 的 Chat/Responses、LongCat Chat 和 MiniMax Responses 均完成相同续接契约。MiMo V2.5/Pro
-  的四个接口以首轮 `tool_choice:auto` 产生合法 call，续接轮不再提交 tools，最终均返回 `DONE` 且没有重复调用。
+| Model | C none JSON | C none SSE | R none JSON | R none SSE | C high JSON | C high SSE | R high JSON | R high SSE |
+|---|---|---|---|---|---|---|---|---|
+| `deepseek-v4-flash` | OK R-* | OK R-* | OK R-* | OK R-* | OK R+ | OK R+ | OK R+ | OK R+ |
+| `deepseek-v4-pro` | OK R-* | OK R-* | OK R-* | OK R-* | OK R+ | OK R+ | OK R+ | OK R+ |
+| `glm-5.2` | OK R-* | OK R-* | OK R-* | OK R-* | OK R+ | OK R+ | OK R+ | OK R+ |
+| `gpt-5.3-codex-spark` | 400 `unsupported_value` | 400 `unsupported_value` | 400 `unsupported_value` | 400 `unsupported_value` | OK R?† | OK R?† | OK R+ | OK R+ |
+| `gpt-5.5` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+‡ | OK R+ | OK R+ |
+| `gpt-5.6-luna` | OK R- | OK R- | OK R- | OK R- | OK R+‡ | OK R+‡ | OK R+‡ | OK R+‡ |
+| `gpt-5.6-sol` | OK R- | OK R- | OK R- | OK R- | OK R+‡ | OK R+‡ | OK R+‡ | OK R+‡ |
+| `gpt-5.6-terra` | OK R- | OK R- | OK R- | OK R- | OK R+‡ | OK R+‡ | OK R+‡ | OK R+‡ |
+| `kimi-k3` | OK R-* | OK R-* | OK R-* | OK R-* | OK R+ | OK R+ | OK R+ | OK R+ |
+| `LongCat-2.0` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `mimo-v2.5` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `mimo-v2.5-pro` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `minimax-m3` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `qwen3.7-max` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `qwen3.7-plus` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
+| `qwen3.8-max` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
 
-最终结果为 16/16，没有 HTTP、协议或传输错误。
+`gpt-5.3-codex-spark` 的 Responses `high` 两个基础单元分别返回 reasoning item 和正 reasoning token 计数；同模型 Chat
+JSON/SSE 在基础 prompt 和多步求解 prompt 下都只返回完整文字，没有 summary、reasoning item 或 reasoning token 证据。因此这里记录为
+Chat Bridge 可见性排查项，而不是 HTTP、文本或终态失败。
 
-## 7. 严格参数处置
+## 4. 不进入文字矩阵的模型
 
-“通过”表示实际状态、错误 code、精确 `param` 和 transport 边界均与固定契约一致：
+| Public Model | 当次运行时状态 | 任务/interface | 排除原因 |
+|---|---|---|---|
+| `mimo-v2.5-asr` | Models 可见 | `speech_recognition`；Chat-only | 专用 ASR，不是通用文字 Chat/Responses |
+| `mimo-v2.5-tts` | Models 可见 | `speech_synthesis`；Chat-only | 专用 TTS，不是通用文字 Chat/Responses |
+| `mimo-v2.5-tts-voiceclone` | Models 可见 | `voice_clone`；Chat-only | 专用语音克隆，不是通用文字 Chat/Responses |
+| `mimo-v2.5-tts-voicedesign` | Models 可见 | `voice_design`；Chat-only | 专用音色设计，不是通用文字 Chat/Responses |
+| `qwen3.7-text-embedding` | Models 可见 | Embeddings-only | 没有 Chat/Responses interface |
+| `text-embedding-3-small` | 静态注册、当次 Models 不可见 | Embeddings-only | 当次没有可执行运行时 Route，且不属于文字对话矩阵 |
 
-| 场景 | 协议与 delivery | 通过/总数 | 最终结果 |
-|---|---|---:|---|
-| Kimi K3 `temperature:0.2` | Chat/Responses × JSON/SSE | 4/4 | HTTP 200，合法 JSON/SSE 终态，每项 1 次 Provider attempt |
-| 未知 `future_parameter` | Chat/Responses JSON | 2/2 | HTTP 400 `unknown_parameter`，精确 `param`，0 次 Provider attempt |
-| Kimi K3 `n/logprobs/top_logprobs` | Chat/Responses JSON | 6/6 | HTTP 400 `unsupported_model_capability`，精确 `param`，0 次 Provider attempt |
-| GPT-5.6 Luna `seed` | Chat/Responses JSON | 2/2 | HTTP 200，合法 JSON 终态，每项 1 次 Provider attempt |
-| GPT-5.6 Luna `include_reasoning` | Chat/Responses JSON | 2/2 | HTTP 400 `unsupported_model_capability`，精确 `param`，0 次 Provider attempt |
+## 5. 修补状态与剩余证据边界
 
-Kimi 的四个成功单元确认选中 Chat API 的类型化忽略规则同时适用于 Chat Native 与 Responses-to-Chat Bridge，并覆盖下游
-`stream:true/false`。16 个单元均一次完成，没有最终 429/503、协议或传输错误。
+- 本快照执行时，`deepseek-v4-pro`、`deepseek-v4-flash`、`kimi-k3`、`glm-5.2` 的扩展 Models levels 没有 `none`，但 16 个
+  `none` 单元全部成功且 reasoning 为空。2026-08-10 的后续实现已给四个 canonical profile 补入 `none`，并为 Bailian
+  DeepSeek Pro/Flash 增加 `none` 到 `enable_thinking:false` 的 Chat egress 转换；表中的 `*` 继续表示测试时状态。
+- 当前 preflight 仍把显式 `ReasoningLevel::None` 当作“不要求 reasoning 能力”直接放行。因此 Spark 的 `none` 没有在本地按 Models
+  契约拒绝，而是形成四个最终 400；本次后续实现没有给 Spark 增加 `none`，也没有收紧这一准入边界。
+- Spark Responses `high` 有 reasoning，而 Chat Bridge 没有可观察 summary；下一步应沿 Responses-to-Chat 转换检查 summary
+  生成和 JSON/SSE 两条输出路径，但本轮没有修改实现。
+- 2026-08-10 的后续代码修补只运行确定性 Rust 契约和全仓基线，没有重复运行本次 128 单元真实 Provider 矩阵；本次矩阵仍是该修补的
+  外部行为依据，而不是修补后运行时的重新验收。
+- 本轮没有执行其他 reasoning level、tools、structured outputs、图片、音频、Embeddings、外部 SDK、强制 fallback、负载、长时间
+  运行或生产验收；未覆盖范围不能从其他历史测试自动外推到 `ed515cc`。
 
-## 8. 图片、Embeddings 与音频
+## 6. `qwen3.6-27b` 接入后补测
 
-### 8.1 MiMo 图片
+2026-08-10 在 `ed515cc` 加当前未提交实现 worktree 上重新构建并启动 OpenBridge。扩展 Models 单模型查询返回 HTTP 200；
+`qwen3.6-27b` 的 Chat/Responses 均公开 `none/high`，reasoning output 均为 `plain_text`。随后使用真实下游用户 key 和现有
+Bailian credential 对同一正常首选 Route 执行 8 个请求，结果如下：
 
-`mimo-v2.5` 使用内联 PNG，Chat/Responses × JSON/SSE 共 4/4 通过；语义检查确认模型识别出合成图中的红、蓝区域。图片正文未保存。
+| Model | C none JSON | C none SSE | R none JSON | R none SSE | C high JSON | C high SSE | R high JSON | R high SSE |
+|---|---|---|---|---|---|---|---|---|
+| `qwen3.6-27b` | OK R- | OK R- | OK R- | OK R- | OK R+ | OK R+ | OK R+ | OK R+ |
 
-### 8.2 Qwen Embeddings
-
-`qwen3.7-text-embedding` 共 10/10 符合当前契约：
-
-- 默认请求和 `256/512/768/1024/1536/2048/2560` 七个显式合法维度均返回 HTTP 200，向量长度与请求一致；默认维度为
-  `1024`。
-- 百炼成功体的顶层 `id` 可被严格解析器接受，但不会作为 OpenBridge 下游 Embeddings 字段输出。
-- `64/128` 均在本地返回 HTTP 400 `unsupported_model_capability`，精确 `param` 为 `dimensions`。
-
-### 8.3 MiMo 音频
-
-基础与扩展任务共 15/15 通过：
-
-- TTS：JSON/WAV 与 SSE/PCM16；
-- ASR：JSON/SSE、`auto/zh` language、data URL 与纯 Base64 source；
-- VoiceClone：JSON/SSE，reference WAV 只在进程内存中使用；
-- VoiceDesign：JSON/SSE 与 `optimize_text_preview`。
-
-`mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign` 的 Models 接口均不再公开
-structured outputs。四个模型的 `json_object/json_schema` × JSON/SSE 共 16/16 在本地返回 HTTP 400
-`unsupported_model_capability`；确定性 forwarding 契约同时确认这些请求不会产生 Provider egress。
-
-## 9. 剩余验收边界
-
-本报告原列出的 Qwen Embeddings、LongCat Responses shorthand、MiMo 能力过度声明以及 DeepSeek Flash Responses tool-choice 四类问题
-均已关闭。仍未形成真实验收证据的范围如下：
-
-- 当前 OpenRouter 注册表没有 GPT target；`gpt-5.6-sol` 的第二 source 是 OpenAI，GPT-5.5/Luna/Terra 只有 ChatGPT source。因此
-  “ChatGPT 优先、不可用时回落 OpenRouter GPT-5.6，尤其 Luna”的既定要求尚未实现，也无法验收。
-- 当前只验收正常首选路径，没有强制测试 `deepseek-v4-flash` 的 OpenRouter fallback、`minimax-m3` 的 NVIDIA Chat fallback，或
-  `gpt-5.6-sol` 的 OpenAI fallback。
-- `text-embedding-3-small` 因当前 OpenAI credential pool 未激活而不在 Models 列表中，未执行真实请求。
-- 未运行外部 OpenAI SDK、负载、并发稳定性、长期运行或生产环境验收；测试未依赖 Hermes。
+- 8/8 均为 HTTP 200、content type 正确、文字非空且协议终态完整；Chat SSE 收到 `[DONE]`，Responses SSE 收到
+  `response.completed`。单请求耗时为 260–2915 ms。
+- 四个 `none` 单元均没有 reasoning item、可读 reasoning 或正 reasoning token 证据，确认当前下游 `none` 能关闭 thinking。
+- Chat `high` 的 JSON/SSE 均有可读 `reasoning_content` 和正 reasoning token 计数；Responses-via-Chat `high` 的 JSON/SSE 均有
+  reasoning item 和可读 reasoning 文本，但没有 reasoning token 计数。本次把它记录为 usage 映射现状，不影响文字、reasoning item
+  或终态验收。
+- 结果仍只保存状态码、终态、语义布尔值和耗时，没有保存生成正文、reasoning 正文、Provider request ID 或 credential；没有执行
+  外部 SDK、强制 fallback、其他 reasoning level、tools、多模态、负载、并发稳定性、长时间运行或生产验收。

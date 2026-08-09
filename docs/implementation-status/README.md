@@ -23,7 +23,8 @@
 
 ## Provider 实施与实测状态
 
-Provider 状态页按 family 汇总当前注册模型的多模态、工具调用和真实上游证据；它们不替代上面的功能专题。维护规则和证据术语见
+Provider 状态页按 family 汇总当前固定 Target、Public Model 的多模态与工具调用能力，以及真实上游证据；它们不替代上面的功能专题。
+维护规则和证据术语见
 [Provider 状态目录](providers/README.md)。
 
 | Provider | 状态页 | 主要内容 |
@@ -44,6 +45,7 @@ Provider 状态页按 family 汇总当前注册模型的多模态、工具调用
 | [当前代码架构](current-architecture.md) | 模块所有权、装配链和请求数据流；不是功能清单 |
 | [运行时指标与遥测](telemetry-metrics.md) | OTLP traces/metrics、SDK instruments、属性和生命周期边界 |
 | [上游模型发现与基础 API 探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
+| [最新真实 E2E 结果](real-e2e-test-2026-08-08.md) | 2026-08-09 全量可见文字模型 `none/high` 聚焦矩阵及后续修补状态 |
 | [当前测试资产树](test-inventory.md) | 以功能模块归类全部 Rust/Python 可执行测试，并单列 canonical oracle |
 | [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
 

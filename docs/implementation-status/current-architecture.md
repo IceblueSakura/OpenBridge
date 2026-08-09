@@ -422,10 +422,11 @@ DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`
 fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat
 Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、
 OpenRouter 排序的 Native candidates。DeepSeek Chat reasoning output 为 `PlainText`；Bailian `deepseek-v4-pro` fallback 也按 target
-收窄为 `PlainText`，因此 V4 Pro 的 Chat/Responses 固定契约都公开 `high`、`max`。DeepSeek Flash Responses reasoning output 仍为
-`Unknown`。两个 DeepSeek Public Model 的 Chat/Responses 都公开非 strict 的 `json_object`；DeepSeek、OpenRouter 与 Bailian ceiling
-只在相应 DeepSeek target 保留该 profile，V4 Pro Responses 通过 Chat Bridge 转换标准字段。LongCat 两个 Native API 与 MiMo
-两个文本 target 的 Chat/Responses reasoning output 为 `PlainText`，对应 Public Model
+收窄为 `PlainText`，因此 V4 Pro 的 Chat/Responses 固定契约都公开 `none`、`high`、`max`；V4 Flash 两个接口公开 `none`、`low`、
+`high`、`max`，其 Responses reasoning output 仍为 `Unknown`。Bailian 的两个 DeepSeek Chat target 只把 `none` 转换为
+`enable_thinking=false`，其他 effort 保留原值。两个 DeepSeek Public Model 的 Chat/Responses 都公开非 strict 的 `json_object`；
+DeepSeek、OpenRouter 与 Bailian ceiling 只在相应 DeepSeek target 保留该 profile，V4 Pro Responses 通过 Chat Bridge 转换标准字段。
+LongCat 两个 Native API 与 MiMo 两个文本 target 的 Chat/Responses reasoning output 为 `PlainText`，对应 Public Model
 公开各自固定档位并保留原 Native/Bridge 候选；MiniMax M3 以官方 thinking 开关建模为 `none/high`，OpenRouter 与 NVIDIA 当前
 reasoning output 仍为 `Unknown`。MiMo ASR/TTS target 继续收窄为 `Unknown`，不继承文本模型证据。DeepSeek Flash Responses
 的 `store`、`previous_response_id` 与 `background` 仍在公共 capability gate 关闭。

@@ -110,7 +110,7 @@
 - 对固定上游候选做脱敏定向验证：DeepSeek 官方 endpoint 6/6、OpenRouter Flash 4/4、Bailian Pro/Flash 4/4，全部为 HTTP 200、
   终态完整且返回预期 JSON；请求均按官方前提包含 `json` 与字段示例，未保存 credential、正文或 request ID；
 - 本轮只验证 `json_object`，未验证或公开 `json_schema`/strict schema；没有运行完整真实 E2E、外部 Agent、负载或长时间测试，也没有
-  改写既有完整 E2E 报告。
+  改写当时的 E2E 结果文档。
 
 真实检查不证明外部 OpenAI SDK、Codex/Hermes runtime、其他账户、负载或长期运行兼容性。
 
