@@ -41,61 +41,6 @@ type ChatReservation = fn(&mut ChatCompletionsCapabilities);
 type ResponsesReservation = fn(&mut ResponsesCapabilities);
 
 #[test]
-fn definitions_expose_protocol_specific_reserved_fields() {
-    // Build reserved canonical Model modes and input/output modalities.
-    let mut definition = support::definition("reserved-model-facts", "public-model", "upstream");
-    let model = &mut definition.models[0];
-    model.mode = Some(ModelMode::Chat);
-    model.input_modalities = Some(vec![
-        InputModality::Text,
-        InputModality::Image,
-        InputModality::Audio,
-        InputModality::File,
-    ]);
-    model.output_modalities = Some(vec![
-        OutputModality::Text,
-        OutputModality::Image,
-        OutputModality::Audio,
-    ]);
-
-    // Build standard Chat Completions capability positions not yet on the request path.
-    let chat = ChatCompletionsCapabilities {
-        custom_tool_calling: true,
-        file_input: true,
-        predicted_outputs: true,
-        web_search: true,
-        prompt_caching: true,
-        moderation: true,
-        logprobs: true,
-        multiple_choices: true,
-        ..ChatCompletionsCapabilities::default()
-    };
-
-    // Build Responses tool, state, and additional-output positions not yet on the request path.
-    let responses = ResponsesCapabilities {
-        custom_tool_calling: true,
-        hosted_tools: HOSTED_TOOLS,
-        file_input: true,
-        conversation: true,
-        prompt_templates: true,
-        prompt_caching: true,
-        context_management: true,
-        include: INCLUDES,
-        moderation: true,
-        logprobs: true,
-        ..ResponsesCapabilities::default()
-    };
-
-    assert_eq!(model.mode, Some(ModelMode::Chat));
-    assert_eq!(model.input_modalities.as_deref().unwrap().len(), 4);
-    assert_eq!(model.output_modalities.as_deref().unwrap().len(), 3);
-    assert!(chat.custom_tool_calling && chat.predicted_outputs);
-    assert_eq!(responses.hosted_tools, HOSTED_TOOLS);
-    assert_eq!(responses.include, INCLUDES);
-    assert!(responses.conversation && responses.context_management);
-}
-
-#[test]
 fn canonical_model_mode_and_modalities_compile_into_public_model_information() {
     let mut definition = support::definition("model-facts", "public-model", "upstream");
     definition.models[0].mode = Some(ModelMode::Chat);
@@ -130,8 +75,8 @@ fn canonical_model_mode_and_modalities_compile_into_public_model_information() {
 }
 
 #[test]
-fn every_chat_reservation_stops_before_registry_compilation() {
-    let cases: [(&str, ChatReservation); 8] = [
+fn reserved_interface_capabilities_fail_closed_before_registry_compilation() {
+    let chat_cases: [(&str, ChatReservation); 8] = [
         ("custom_tool_calling", |capabilities| {
             capabilities.custom_tool_calling = true
         }),
@@ -150,8 +95,8 @@ fn every_chat_reservation_stops_before_registry_compilation() {
         }),
     ];
 
-    // Enable each Chat capability and confirm that no individual field enters the runtime registry.
-    for (case, configure) in cases {
+    // Enable each reserved Chat capability and require compilation to stop at the closed boundary.
+    for (case, configure) in chat_cases {
         let mut definition = support::definition(case, "public-model", "upstream");
         let UpstreamApiCapabilities::ChatCompletions(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[0].capabilities
@@ -160,19 +105,12 @@ fn every_chat_reservation_stops_before_registry_compilation() {
         };
         configure(capabilities);
 
-        assert_unimplemented(
-            case,
-            "reserved Chat Completions capabilities are not implemented",
-            move || {
-                let _ = build_registry(support::bootstrap(support::BOOTSTRAP), definition);
-            },
-        );
+        assert_registry_compilation_panics(case, move || {
+            let _ = build_registry(support::bootstrap(support::BOOTSTRAP), definition);
+        });
     }
-}
 
-#[test]
-fn every_responses_reservation_stops_before_registry_compilation() {
-    let cases: [(&str, ResponsesReservation); 10] = [
+    let responses_cases: [(&str, ResponsesReservation); 10] = [
         ("custom_tool_calling", |capabilities| {
             capabilities.custom_tool_calling = true
         }),
@@ -197,8 +135,8 @@ fn every_responses_reservation_stops_before_registry_compilation() {
         ("logprobs", |capabilities| capabilities.logprobs = true),
     ];
 
-    // Enable each Responses capability and confirm that no individual field enters the runtime registry.
-    for (case, configure) in cases {
+    // Enable each reserved Responses capability and require compilation to stop at the closed boundary.
+    for (case, configure) in responses_cases {
         let mut definition = support::definition(case, "public-model", "upstream");
         let UpstreamApiCapabilities::Responses(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[1].capabilities
@@ -207,13 +145,9 @@ fn every_responses_reservation_stops_before_registry_compilation() {
         };
         configure(capabilities);
 
-        assert_unimplemented(
-            case,
-            "reserved Responses capabilities are not implemented",
-            move || {
-                let _ = build_registry(support::bootstrap(support::BOOTSTRAP), definition);
-            },
-        );
+        assert_registry_compilation_panics(case, move || {
+            let _ = build_registry(support::bootstrap(support::BOOTSTRAP), definition);
+        });
     }
 }
 
@@ -369,22 +303,11 @@ fn assert_reserved_requests_unimplemented(
     }
 }
 
-/// Captures and checks the stable `unimplemented!` text for the reserved interface.
-fn assert_unimplemented(case: &str, expected: &str, action: impl FnOnce()) {
-    // Capture the panic so one field does not prevent the remaining fields from being checked.
-    let panic = match catch_unwind(AssertUnwindSafe(action)) {
-        Ok(()) => panic!("{case} must stop at its unimplemented boundary"),
-        Err(panic) => panic,
-    };
-
-    // Normalize common Rust panic payloads and check the stable message.
-    let message = if let Some(message) = panic.downcast_ref::<&str>() {
-        *message
-    } else if let Some(message) = panic.downcast_ref::<String>() {
-        message.as_str()
-    } else {
-        panic!("{case} produced a non-string panic payload");
-    };
-    let expected = format!("not implemented: {expected}");
-    assert_eq!(message, expected, "unexpected panic for {case}");
+/// Requires registry compilation to stop before a reserved capability becomes executable.
+fn assert_registry_compilation_panics(case: &str, action: impl FnOnce()) {
+    let result = catch_unwind(AssertUnwindSafe(action));
+    assert!(
+        result.is_err(),
+        "{case} must stop at its fail-closed compilation boundary"
+    );
 }

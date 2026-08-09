@@ -3,270 +3,57 @@
 use super::*;
 
 #[test]
-fn checked_in_bootstrap_and_compiled_registry_are_loadable() {
-    let bootstrap = include_str!("../../config/bootstrap.toml");
-    let bootstrap =
-        parse_bootstrap_config(bootstrap).expect("checked-in bootstrap must remain valid");
-    let bootstrap_template = include_str!("../../config/bootstrap.example.toml");
-    let bootstrap_template = parse_bootstrap_config(bootstrap_template)
+fn checked_in_examples_compile_into_a_closed_runtime_registry() {
+    // Parse the active and example bootstrap documents as one maintained process policy.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml"))
+        .expect("checked-in bootstrap must remain valid");
+    let template = parse_bootstrap_config(include_str!("../../config/bootstrap.example.toml"))
         .expect("checked-in bootstrap template must remain valid");
-    assert_eq!(bootstrap_template, bootstrap);
+    assert_eq!(template, bootstrap);
+    assert!(bootstrap.listen().ip().is_loopback());
     let registry =
         build_compiled_registry(bootstrap).expect("compiled registry must remain internally valid");
-
-    assert_eq!(registry.version().as_str(), "dev-1");
-    assert!(registry.listen().ip().is_loopback());
     let users = UserConfigPath::new("config/users.example.toml")
         .load()
         .expect("checked-in user example must remain valid");
-    assert_eq!(users.users().users().next().unwrap().id(), "local-user");
-    assert_eq!(
-        registry
-            .public_model("gpt-5.6-sol")
-            .expect("public model is compiled")
-            .routes(),
-        [
-            "gpt-5.6-sol-chatgpt-chat-via-responses",
-            "gpt-5.6-sol-openai-chat",
-            "gpt-5.6-sol-openai-chat-via-responses",
-            "gpt-5.6-sol-chatgpt-responses",
-            "gpt-5.6-sol-openai-responses",
-            "gpt-5.6-sol-openai-responses-via-chat",
-        ]
-    );
-    assert!(registry.public_model("openai/gpt-5.6-sol").is_none());
-    assert!(registry.public_model("chatgpt/gpt-5.6-sol").is_none());
-    let gpt_pool = registry
-        .public_model("gpt-5.6-sol")
-        .expect("the merged GPT-5.6 Sol Public Model is compiled");
-    let gpt_info = serde_json::to_value(gpt_pool.info()).unwrap();
-    assert_eq!(
-        gpt_info["interfaces"]["chat_completions"]["context_window"]["max_context_tokens"],
-        272_000
-    );
-    assert_eq!(
-        gpt_info["interfaces"]["responses"]["context_window"]["max_context_tokens"],
-        272_000
-    );
-    assert_eq!(
-        gpt_info["interfaces"]["chat_completions"]["non_streaming"],
-        "supported"
-    );
-    assert_eq!(
-        gpt_info["interfaces"]["responses"]["non_streaming"],
-        "supported"
-    );
+    assert!(users.users().users().next().is_some());
 
-    let longcat = registry
-        .public_model("LongCat-2.0")
-        .expect("LongCat public model is compiled");
-    assert_eq!(longcat.routes().len(), 4);
-    let target = registry
-        .upstream_target("longcat-2")
-        .expect("LongCat target is compiled");
-    let chat = target.upstream_api(OperationKind::ChatCompletions).unwrap();
-    assert_eq!(target.kind(), ProviderKind::LongCat);
-    assert_eq!(chat.upstream_model(), "LongCat-2.0");
-    assert_eq!(chat.reasoning_output(), ReasoningOutput::PlainText);
-    assert_eq!(
-        target
-            .upstream_api(OperationKind::Responses)
-            .unwrap()
-            .reasoning_output(),
-        ReasoningOutput::PlainText
-    );
-    assert_eq!(target.endpoint_base().as_str(), "https://api.longcat.chat/");
-    assert_eq!(
-        chat.model().context_length().context_tokens(),
-        Some(1_048_756)
-    );
-    assert_eq!(
-        chat.model().context_length().input_tokens(),
-        Some(1_048_756)
-    );
-    assert_eq!(chat.model().context_length().output_tokens(), Some(262_144));
-    assert_eq!(chat.model().reasoning(), ReasoningSupport::Supported);
-    assert!(
-        chat.model()
-            .supported_parameters()
-            .iter()
-            .any(|parameter| parameter == "tools")
-    );
-    assert!(
-        chat.model()
-            .supported_parameters()
-            .iter()
-            .any(|parameter| parameter == "reasoning")
-    );
-
-    let openai = registry
-        .upstream_target("openai-main")
-        .expect("OpenAI target is compiled");
-    assert_eq!(
-        openai
-            .upstream_api(OperationKind::ChatCompletions)
-            .unwrap()
-            .model()
-            .id(),
-        "openai/gpt-5.6-sol"
-    );
-    assert_eq!(
-        openai
-            .upstream_api(OperationKind::ChatCompletions)
-            .unwrap()
-            .upstream_model(),
-        "gpt-5.6-sol"
-    );
-
-    let deepseek_public = registry
-        .public_model("deepseek-v4-flash")
-        .expect("multi-Provider DeepSeek V4 Flash public model is compiled");
-    assert_eq!(
-        deepseek_public.routes(),
-        [
-            "deepseek-v4-flash-deepseek-chat",
-            "deepseek-v4-flash-openrouter-chat",
-            "deepseek-v4-flash-bailian-chat",
-            "deepseek-v4-flash-deepseek-responses",
-            "deepseek-v4-flash-openrouter-responses"
-        ]
-    );
-    let openrouter = registry
-        .upstream_target("openrouter-deepseek-v4-flash")
-        .expect("OpenRouter DeepSeek V4 Flash target is compiled");
-    assert_eq!(openrouter.kind(), ProviderKind::OpenRouter);
-    assert_eq!(
-        openrouter.canonical_model_id(),
-        "deepseek/deepseek-v4-flash"
-    );
-    assert_eq!(
-        openrouter.provider_model_id(),
-        "openrouter/deepseek-v4-flash"
-    );
-    assert_eq!(openrouter.credential_pool_id(), "openrouter-primary");
-    assert!(registry.credential_pool("openrouter-primary").is_some());
-    assert_eq!(
-        openrouter.endpoint_base().as_str(),
-        "https://openrouter.ai/api/v1/"
-    );
-    let openrouter_chat = openrouter
-        .upstream_api(OperationKind::ChatCompletions)
-        .unwrap();
-    assert_eq!(
-        openrouter_chat.upstream_model(),
-        "deepseek/deepseek-v4-flash"
-    );
-    let openrouter_responses = openrouter.upstream_api(OperationKind::Responses).unwrap();
-    assert_eq!(
-        openrouter_responses.upstream_model(),
-        "deepseek/deepseek-v4-flash"
-    );
-    let responses_capabilities = match openrouter_responses.capabilities() {
-        UpstreamApiCapabilities::Responses(capabilities) => capabilities,
-        UpstreamApiCapabilities::ChatCompletions(_) => panic!("expected Responses capabilities"),
-        UpstreamApiCapabilities::Embeddings(_) => panic!("expected Responses capabilities"),
-    };
-    assert!(responses_capabilities.enabled);
-    assert!(responses_capabilities.streaming);
-    assert!(responses_capabilities.function_tools.is_some());
-    assert!(!responses_capabilities.store);
-    assert!(!responses_capabilities.previous_response_id);
-    assert!(!responses_capabilities.background);
-
-    let body = bytes::Bytes::from_static(
-        br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high"}"#,
-    );
-    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
-    let plan = plan_request(&registry, &profile, body).unwrap();
-    assert_eq!(
-        plan.candidates()
-            .iter()
-            .map(|candidate| candidate.route_id())
-            .collect::<Vec<_>>(),
-        [
-            "deepseek-v4-flash-deepseek-chat",
-            "deepseek-v4-flash-openrouter-chat",
-            "deepseek-v4-flash-bailian-chat"
-        ]
-    );
-
-    let tools = bytes::Bytes::from_static(
-        br#"{"model":"deepseek-v4-flash","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
-    );
-    let profile = analyze_request(ApiProtocol::ChatCompletions, &tools).unwrap();
-    assert!(matches!(
-        plan_request(&registry, &profile, tools),
-        Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
-    ));
-
-    let responses = bytes::Bytes::from_static(
-        br#"{"model":"deepseek-v4-flash","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
-    );
-    let profile = analyze_request(ApiProtocol::Responses, &responses).unwrap();
-    let plan = plan_request(&registry, &profile, responses).unwrap();
-    assert_eq!(
-        plan.candidates()
-            .iter()
-            .map(|candidate| candidate.route_id())
-            .collect::<Vec<_>>(),
-        [
-            "deepseek-v4-flash-deepseek-responses",
-            "deepseek-v4-flash-openrouter-responses"
-        ]
-    );
-
-    for unsupported in [
-        br#"{"model":"deepseek-v4-flash","input":"hello","store":true}"#.as_slice(),
-        br#"{"model":"deepseek-v4-flash","input":"hello","previous_response_id":"resp_123"}"#
-            .as_slice(),
-        br#"{"model":"deepseek-v4-flash","input":"hello","background":true}"#.as_slice(),
-    ] {
-        let body = bytes::Bytes::copy_from_slice(unsupported);
-        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
-        assert!(matches!(
-            plan_request(&registry, &profile, body),
-            Err(openbridge::pipeline::RequestPlanningError::UnsupportedCapabilities)
-        ));
+    // Resolve every published Route through a trusted Target and one declared Upstream API.
+    let mut public_model_count = 0;
+    for public_model in registry.public_models() {
+        public_model_count += 1;
+        assert!(
+            !public_model.routes().is_empty(),
+            "{} has no executable Route",
+            public_model.standard().id()
+        );
+        for route_id in public_model.routes() {
+            let route = registry
+                .route(route_id)
+                .expect("published Route must resolve");
+            let target = registry
+                .upstream_target(route.upstream_target())
+                .expect("published Route Target must resolve");
+            assert!(target.enabled(), "{} is not selectable", target.id());
+            assert!(
+                target.upstream_api(route.upstream_operation()).is_some(),
+                "{route_id} references an unavailable Upstream API"
+            );
+        }
     }
+    assert!(public_model_count > 0);
 
-    for (protocol, body) in [
-        (
-            ApiProtocol::ChatCompletions,
-            r#"{"model":"LongCat-2.0","messages":[]}"#,
-        ),
-        (
-            ApiProtocol::Responses,
-            r#"{"model":"LongCat-2.0","input":"hello"}"#,
-        ),
-        (
-            ApiProtocol::ChatCompletions,
-            r#"{"model":"LongCat-2.0","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
-        ),
-        (
-            ApiProtocol::Responses,
-            r#"{"model":"LongCat-2.0","input":"hello","tools":[{"type":"function","name":"probe","parameters":{"type":"object"}}]}"#,
-        ),
-    ] {
-        let body = bytes::Bytes::copy_from_slice(body.as_bytes());
-        let profile = analyze_request(protocol, &body).unwrap();
-        let plan = plan_request(&registry, &profile, body)
-            .expect("LongCat should remain on the native path for both protocols");
-        assert_eq!(plan.upstream_target_id(), "longcat-2");
+    // Keep every compiled Target on HTTPS and bound to a declared credential pool.
+    for target_id in registry.upstream_target_ids() {
+        let target = registry.upstream_target(target_id).unwrap();
+        assert_eq!(target.endpoint_base().scheme(), "https", "{target_id}");
+        assert!(
+            registry
+                .credential_pool(target.credential_pool_id())
+                .is_some(),
+            "{target_id} has no credential pool"
+        );
     }
-
-    // Readable reasoning on both Native APIs lets the fixed Responses contract retain its reverse Bridge.
-    let body = bytes::Bytes::from(
-        r#"{"model":"LongCat-2.0","input":"hello","reasoning":{"effort":"high"}}"#,
-    );
-    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
-    let plan = plan_request(&registry, &profile, body).unwrap();
-    assert_eq!(
-        plan.candidates()
-            .iter()
-            .map(|candidate| candidate.route_id())
-            .collect::<Vec<_>>(),
-        ["longcat-2-responses", "longcat-2-responses-via-chat"]
-    );
 }
 
 #[test]

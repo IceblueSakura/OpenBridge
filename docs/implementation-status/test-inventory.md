@@ -2,7 +2,7 @@
 
 ## 状态
 
-**Confirmed。** 当前 checkout 共有 336 个可执行测试：291 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
+**Confirmed。** 当前 checkout 共有 341 个可执行测试：296 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
 测试当前没有 ignored test；51 个 canonical wire case 与 9 个 semantic case 是测试输入与判定 oracle，不计入可执行测试总数。
 
 本文按功能所有权维护测试树。叶节点覆盖当前每一个可执行测试所在的 target、文件或互斥命名模块；括号内是该叶节点实际收集的
@@ -13,16 +13,16 @@ test case 数量。一个物理 target 跨越多个功能时，使用不重叠�
 ## 可执行测试树
 
 ```text
-OpenBridge 可执行测试（336）
-├─ Rust 默认测试（291；ignored 0）
-│  ├─ HTTP ingress 与下游认证（19）
+OpenBridge 可执行测试（341）
+├─ Rust 默认测试（296；ignored 0）
+│  ├─ HTTP ingress 与下游认证（18）
 │  │  ├─ src/lib.rs :: ingress::*（8）
 │  │  ├─ tests/downstream_auth_contract.rs（2）
-│  │  ├─ tests/ingress_contract.rs（6）
+│  │  ├─ tests/ingress_contract.rs（5）
 │  │  └─ tests/forwarding_contract.rs :: admission::*（3）
-│  ├─ 启动配置、用户与受信凭证（38）
+│  ├─ 启动配置、用户与受信凭证（39）
 │  │  ├─ src/lib.rs :: credential::store::*（3）
-│  │  ├─ tests/config_contract.rs（17）
+│  │  ├─ tests/config_contract.rs（18）
 │  │  ├─ tests/credential_store_contract.rs（1）
 │  │  ├─ tests/startup_contract.rs（3）
 │  │  └─ tests/upstream_credential_config.rs（14）
@@ -31,35 +31,36 @@ OpenBridge 可执行测试（336）
 │  │  ├─ src/bin/openbridge-auth.rs（1）
 │  │  ├─ tests/oauth2_login_cli.rs（2）
 │  │  └─ tests/forwarding_contract.rs :: chatgpt::*（6）
-│  ├─ Registry、Models、能力预检与路由（42）
-│  │  ├─ src/lib.rs :: providers::catalog::route_compiler::*（1）
+│  ├─ Registry、Models、能力预检与路由（46）
+│  │  ├─ src/lib.rs :: core::capability::*（2）
+│  │  ├─ src/lib.rs :: providers::catalog::route_compiler::*（7）
 │  │  ├─ src/lib.rs :: registry::availability::*（2）
-│  │  ├─ tests/capability_definition_contract.rs（6）
-│  │  ├─ tests/example_config.rs（13）
-│  │  ├─ tests/forwarding_contract.rs :: models::*（3）
-│  │  └─ tests/native_routing_contract.rs（17）
-│  ├─ Provider adapter、probe 与上游 transport（48）
+│  │  ├─ tests/capability_definition_contract.rs（4）
+│  │  ├─ tests/example_config.rs（10）
+│  │  ├─ tests/forwarding_contract.rs :: models::*（2）
+│  │  └─ tests/native_routing_contract.rs（19）
+│  ├─ Provider adapter、probe 与上游 transport（43）
 │  │  ├─ src/lib.rs :: probe::*（11）
 │  │  ├─ src/bin/openbridge-probe.rs（2）
 │  │  ├─ src/lib.rs :: provider::*（5）
 │  │  ├─ src/lib.rs :: providers::openai_compatible::*（2）
 │  │  ├─ src/lib.rs :: transport::upstream::*（7）
-│  │  ├─ tests/provider_boundary_contract.rs（14）
+│  │  ├─ tests/provider_boundary_contract.rs（9）
 │  │  └─ tests/provider_contract.rs（7）
-│  ├─ Native generation、图片输入与 SSE 解码（14）
+│  ├─ Native generation、图片输入与 SSE 解码（16）
 │  │  ├─ tests/forwarding_contract.rs :: native::*（5）
-│  │  ├─ tests/forwarding_contract.rs :: mimo::*（3）
+│  │  ├─ tests/forwarding_contract.rs :: mimo::*（5）
 │  │  └─ tests/sse_contract.rs（6）
-│  ├─ Retry、fallback、credential health 与取消（32）
-│  │  ├─ tests/forwarding_contract.rs :: resilience::*（24）
-│  │  └─ tests/process_replay_contract.rs（8）
-│  ├─ Chat ↔ Responses Protocol Bridge（29）
-│  │  ├─ tests/bridge_conversion_contract.rs（12）
-│  │  ├─ tests/bridge_forwarding_contract.rs（9）
+│  ├─ Retry、fallback、credential health 与取消（35）
+│  │  ├─ tests/forwarding_contract.rs :: resilience::*（28）
+│  │  └─ tests/process_replay_contract.rs（7）
+│  ├─ Chat ↔ Responses Protocol Bridge（31）
+│  │  ├─ tests/bridge_conversion_contract.rs（13）
+│  │  ├─ tests/bridge_forwarding_contract.rs（10）
 │  │  └─ tests/protocol_bridge_replay.rs（8）
-│  ├─ OpenAI-compatible Embeddings（27）
+│  ├─ OpenAI-compatible Embeddings（26）
 │  │  ├─ tests/embedding_definition_contract.rs（5）
-│  │  ├─ tests/embedding_registry_contract.rs（2）
+│  │  ├─ tests/embedding_registry_contract.rs（1）
 │  │  └─ tests/embedding_forwarding_contract.rs（20）
 │  └─ Observability、metrics 与 traces（22）
 │     ├─ src/lib.rs :: observability::*（5）
@@ -111,18 +112,18 @@ Python SSE parser 的参数空间，不是 342 个独立测试，也不是应提
   Mock Server/Client loopback、observation verifier 和 normalized function-tool semantic verifier。
 - Canonical corpus 是两层共享的只读协议输入。fixture 存在只证明 oracle 已登记；Rust replay 或 Python loopback 也只证明其直接执行的
   边界。
-- 当前默认测试树不包含外部 OpenAI SDK、Codex、Hermes、真实 Provider、负载或长期运行测试；这些验收层不能由 336 个确定性测试
+- 当前默认测试树不包含外部 OpenAI SDK、Codex、Hermes、真实 Provider、负载或长期运行测试；这些验收层不能由 341 个确定性测试
   代替。
 
 ## 盘点与验证证据
 
-2026-08-08 本次 probe 拆分在当前 Windows checkout 执行：
+2026-08-09 本次低价值测试删除、合并与重写在当前 Windows checkout 执行：
 
 ```powershell
 cargo test --locked
 ```
 
-结果：Cargo 执行并通过 291 个测试。Python 资产未变化，本次未重跑；同日最近一次 Python 基线命令与结果为：
+结果：Cargo 对独立暂存快照执行并通过 296 个测试。Python 资产未变化，本次未重跑；前一日最近一次 Python 基线命令与结果为：
 
 ```powershell
 uv run --project tools/corpus pytest tools/corpus/tests
@@ -137,7 +138,7 @@ pytest 收集并通过 45 个测试。
 
 1. 增删、移动或重命名测试时，同步更新对应叶节点和所有祖先计数；Rust 总数必须等于所有 Rust 功能分支之和。
 2. 跨功能 test target 必须按互斥模块前缀拆分，不能把同一测试重复登记到多个功能点。
-3. 函数级名称以 `cargo test --locked -- --list` 和 pytest `--collect-only` 的实时输出为准，不在状态文档复制 336 个易漂移的函数名。
+3. 函数级名称以 `cargo test --locked -- --list` 和 pytest `--collect-only` 的实时输出为准，不在状态文档复制 341 个易漂移的函数名。
 4. `testdata/` 或 `tools/corpus/` 的契约、case 或生成规则变化时，同时更新[协议测试语料与工具](protocol-test-corpus.md)中的版本、
    验证证据和未覆盖范围。
 

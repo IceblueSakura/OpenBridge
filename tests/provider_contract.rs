@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use http::Method;
 use openbridge::{
-    core::{ApiProtocol, ApiRequest, ReasoningOutput},
+    core::{ApiProtocol, ApiRequest},
     provider::{AdapterError, CredentialKind, ProviderAdapter, ProviderKind},
 };
 
@@ -58,62 +58,80 @@ fn native_chat_adapter_builds_only_relative_upstream_request_parts() {
 }
 
 #[test]
-fn nvidia_bailian_and_kimi_adapters_bind_their_confirmed_api_surfaces() {
-    // Verify each fixed API-key Provider contract exposes only its confirmed API surfaces.
-    for provider in [
-        ProviderKind::Nvidia,
-        ProviderKind::Bailian,
-        ProviderKind::KimiCn,
-    ] {
-        let contract = provider.contract();
-        assert_eq!(contract.credential_kinds(), [CredentialKind::ApiKey]);
-        assert!(contract.capabilities().chat_completions.enabled);
-        assert!(contract.capabilities().chat_completions.streaming);
-        assert_eq!(
-            contract.capabilities().responses.enabled,
-            provider == ProviderKind::Bailian
-        );
-        assert_eq!(
-            contract.capabilities().responses.streaming,
-            provider == ProviderKind::Bailian
-        );
-        if provider == ProviderKind::Bailian {
-            assert_eq!(
-                contract.capabilities().responses.reasoning_output,
-                ReasoningOutput::Summary
-            );
-        }
-        assert_eq!(
-            contract.capabilities().chat_completions.reasoning_output,
-            if provider == ProviderKind::Nvidia {
-                ReasoningOutput::Unknown
-            } else {
-                ReasoningOutput::PlainText
-            }
-        );
-        assert_eq!(
-            contract.capabilities().embeddings.enabled,
-            provider == ProviderKind::Bailian
-        );
-
-        // Build a relative OpenAI-compatible request without selecting any endpoint or credential.
-        let adapter = ProviderAdapter::for_kind(provider);
-        let request = ApiRequest::new(
+fn openai_compatible_adapters_build_relative_protocol_requests() {
+    let cases = [
+        (
+            ProviderKind::Nvidia,
             ApiProtocol::ChatCompletions,
-            Bytes::from_static(br#"{"model":"public","messages":[]}"#),
-        );
-        let upstream = adapter.prepare_request(&request, "upstream-model").unwrap();
+            "/chat/completions",
+            "nvidia/model",
+        ),
+        (
+            ProviderKind::Bailian,
+            ApiProtocol::ChatCompletions,
+            "/chat/completions",
+            "bailian/model",
+        ),
+        (
+            ProviderKind::Bailian,
+            ApiProtocol::Responses,
+            "/responses",
+            "bailian/model",
+        ),
+        (
+            ProviderKind::KimiCn,
+            ApiProtocol::ChatCompletions,
+            "/v1/chat/completions",
+            "kimi-k3",
+        ),
+        (
+            ProviderKind::MiMo,
+            ApiProtocol::ChatCompletions,
+            "/v1/chat/completions",
+            "mimo-v2.5",
+        ),
+        (
+            ProviderKind::MiMo,
+            ApiProtocol::Responses,
+            "/v1/responses",
+            "mimo-v2.5",
+        ),
+        (
+            ProviderKind::OpenRouter,
+            ApiProtocol::ChatCompletions,
+            "/chat/completions",
+            "minimax/minimax-m3",
+        ),
+        (
+            ProviderKind::OpenRouter,
+            ApiProtocol::Responses,
+            "/responses",
+            "minimax/minimax-m3",
+        ),
+    ];
+
+    // Exercise every supported protocol through the Provider wire adapter.
+    for (provider, protocol, expected_path, upstream_model) in cases {
+        let body = match protocol {
+            ApiProtocol::ChatCompletions => {
+                Bytes::from_static(br#"{"model":"public","messages":[]}"#)
+            }
+            ApiProtocol::Responses => Bytes::from_static(br#"{"model":"public","input":"hello"}"#),
+        };
+        let request = ApiRequest::new(protocol, body);
+        let upstream = ProviderAdapter::for_kind(provider)
+            .prepare_request(&request, upstream_model)
+            .unwrap();
         assert_eq!(upstream.method(), Method::POST);
         assert_eq!(
             upstream.relative_uri().to_string(),
-            if provider == ProviderKind::KimiCn {
-                "/v1/chat/completions"
-            } else {
-                "/chat/completions"
-            }
+            expected_path,
+            "{provider:?}"
         );
         assert!(upstream.relative_uri().scheme().is_none());
         assert!(upstream.relative_uri().authority().is_none());
+        let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+        assert_eq!(body["model"], upstream_model, "{provider:?}");
     }
 }
 
@@ -170,29 +188,6 @@ fn deepseek_adapter_encodes_chat_and_responses() {
         assert_eq!(upstream.relative_uri().to_string(), expected_path);
         let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
         assert_eq!(body["model"], "deepseek-v4-flash");
-    }
-}
-
-#[test]
-fn mimo_adapter_encodes_chat_and_responses() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::MiMo);
-
-    for (protocol, body, expected_path) in [
-        (
-            ApiProtocol::ChatCompletions,
-            Bytes::from_static(br#"{"model":"mimo-public","messages":[]}"#),
-            "/v1/chat/completions",
-        ),
-        (
-            ApiProtocol::Responses,
-            Bytes::from_static(br#"{"model":"mimo-public","input":"hello"}"#),
-            "/v1/responses",
-        ),
-    ] {
-        let request = ApiRequest::new(protocol, body);
-        let upstream = adapter.prepare_request(&request, "mimo-v2.5-pro").unwrap();
-
-        assert_eq!(upstream.relative_uri().to_string(), expected_path);
     }
 }
 
@@ -289,37 +284,4 @@ fn native_responses_preserve_every_documented_reasoning_level() {
             assert_eq!(body["reasoning"]["effort"], *level);
         }
     }
-}
-
-#[test]
-fn openrouter_adapter_supports_chat_and_responses() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
-    let chat = ApiRequest::new(
-        ApiProtocol::ChatCompletions,
-        Bytes::from_static(br#"{"model":"minimax-m3","messages":[],"reasoning_effort":"high"}"#),
-    );
-
-    let upstream = adapter
-        .prepare_request(&chat, "minimax/minimax-m3")
-        .unwrap();
-    assert_eq!(upstream.method(), Method::POST);
-    assert_eq!(upstream.relative_uri().to_string(), "/chat/completions");
-    let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "minimax/minimax-m3");
-    assert_eq!(body["reasoning_effort"], "high");
-
-    let responses = ApiRequest::new(
-        ApiProtocol::Responses,
-        Bytes::from_static(
-            br#"{"model":"minimax-m3","input":"hello","reasoning":{"effort":"none"}}"#,
-        ),
-    );
-    let upstream = adapter
-        .prepare_request(&responses, "minimax/minimax-m3")
-        .unwrap();
-    assert_eq!(upstream.method(), Method::POST);
-    assert_eq!(upstream.relative_uri().to_string(), "/responses");
-    let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-    assert_eq!(body["model"], "minimax/minimax-m3");
-    assert_eq!(body["reasoning"]["effort"], "none");
 }

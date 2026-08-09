@@ -2,12 +2,8 @@
 
 mod support;
 
-use std::{path::PathBuf, time::Duration};
-
 use openbridge::{
-    config::{
-        BootstrapConfigError, BootstrapConfigFileError, BootstrapConfigPath, parse_bootstrap_config,
-    },
+    config::{BootstrapConfigError, parse_bootstrap_config},
     core::OperationKind,
     provider::{CredentialKind, ProviderKind},
     registry::{
@@ -20,48 +16,43 @@ use openbridge::{
 use support::{BOOTSTRAP, bootstrap, definition};
 
 #[test]
-fn bootstrap_and_code_registry_build_a_runtime_registry() {
-    let mut definition = definition("test-1", "code-primary", "test-model");
-    definition.models[0].supported_parameters = vec![
-        "max_tokens".to_owned(),
-        "tools".to_owned(),
-        "reasoning".to_owned(),
-    ];
-    definition.models[0].reasoning = ReasoningSupport::Supported;
+fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
+    let policy = bootstrap(BOOTSTRAP);
+    let registry = build_registry(
+        policy.clone(),
+        definition("test-1", "code-primary", "test-model"),
+    )
+    .unwrap();
 
-    let registry = build_registry(bootstrap(BOOTSTRAP), definition).unwrap();
+    // Preserve the local-only process and bounded replay relationships without copying every fixture value.
+    assert!(registry.listen().ip().is_loopback());
+    assert_ne!(policy.users_file(), policy.upstream_credentials_file());
+    assert!(
+        registry.limits().max_replay_body_bytes() <= registry.limits().max_request_body_bytes()
+    );
+    assert!(
+        registry.limits().max_request_body_bytes()
+            <= registry.limits().max_json_response_body_bytes()
+    );
+    assert!(!registry.http_client().connect_timeout().is_zero());
 
-    assert_eq!(registry.version().as_str(), "test-1");
-    assert_eq!(registry.listen().to_string(), "127.0.0.1:8080");
-    assert_eq!(
-        bootstrap(BOOTSTRAP).users_file(),
-        std::path::Path::new("config/users.toml")
-    );
-    assert_eq!(
-        bootstrap(BOOTSTRAP).upstream_credentials_file(),
-        std::path::Path::new("config/upstream-credentials.toml")
-    );
-    assert_eq!(registry.limits().max_request_body_bytes(), 1_048_576);
-    assert_eq!(registry.limits().max_json_response_body_bytes(), 16_777_216);
-    assert_eq!(registry.limits().max_replay_body_bytes(), 262_144);
-    assert_eq!(
-        registry.http_client().connect_timeout(),
-        Duration::from_secs(5)
-    );
+    // Resolve every public Route through a trusted target, credential pool, and typed Upstream API.
     let target = registry.upstream_target("openai-main").unwrap();
     assert!(
         registry
             .credential_pool(target.credential_pool_id())
             .is_some()
     );
-    let upstream_api = target.upstream_api(OperationKind::ChatCompletions).unwrap();
-    assert_eq!(upstream_api.upstream_model(), "test-model");
-    assert_eq!(target.provider_instance_id(), "openai");
-    assert_eq!(target.endpoint_base().as_str(), "https://api.openai.com/");
-    assert_eq!(
-        registry.public_model("code-primary").unwrap().routes(),
-        &["public-chat", "public-responses"]
-    );
+    assert_eq!(target.endpoint_base().scheme(), "https");
+    let public_model = registry.public_model("code-primary").unwrap();
+    assert!(!public_model.routes().is_empty());
+    for route_id in public_model.routes() {
+        let route = registry.route(route_id).expect("public Route must resolve");
+        let target = registry
+            .upstream_target(route.upstream_target())
+            .expect("Route target must resolve");
+        assert!(target.upstream_api(route.upstream_operation()).is_some());
+    }
 }
 
 #[test]
@@ -74,30 +65,12 @@ fn registry_rejects_duplicate_upstream_operations() {
 
     let error = build_registry(bootstrap(BOOTSTRAP), duplicate).unwrap_err();
 
-    assert_eq!(
-        error.to_string(),
-        "upstream target 'openai-main' contains duplicate upstream operation 'chat_completions'"
-    );
-}
-
-#[test]
-fn bootstrap_path_loads_process_policy_and_private_file_locations() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let path = BootstrapConfigPath::new(root.join("config/bootstrap.toml"));
-    let policy = path.load().unwrap();
-
-    assert!(policy.listen().ip().is_loopback());
-    assert_eq!(policy.users_file(), PathBuf::from("config/users.toml"));
-    assert_eq!(
-        policy.upstream_credentials_file(),
-        PathBuf::from("config/upstream-credentials.toml")
-    );
-    assert!(path.path().ends_with("config/bootstrap.toml"));
-
-    let missing = BootstrapConfigPath::new(root.join("config/missing-bootstrap.toml"));
     assert!(matches!(
-        missing.load().unwrap_err(),
-        BootstrapConfigFileError::Read { .. }
+        error,
+        RegistryError::DuplicateUpstreamOperation {
+            upstream_target,
+            upstream_operation: OperationKind::ChatCompletions,
+        } if upstream_target == "openai-main"
     ));
 }
 

@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn gpt_sol_keeps_the_chatgpt_chat_bridge_when_the_openai_target_is_disabled() {
+fn subscription_only_gpt_chat_uses_the_responses_bridge() {
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
     let mut definition = compiled_config();
 
@@ -22,75 +22,15 @@ fn gpt_sol_keeps_the_chatgpt_chat_bridge_when_the_openai_target_is_disabled() {
     );
     let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
     let plan = plan_request(&registry, &profile, body).unwrap();
-    assert_eq!(plan.candidates().len(), 1);
-    assert_eq!(
-        plan.candidates()[0].route_id(),
-        "gpt-5.6-sol-chatgpt-chat-via-responses"
-    );
-    assert!(plan.candidates()[0].bridge().is_some());
-}
-
-#[test]
-fn compiled_registry_can_select_each_protocol_bridge_when_the_native_api_is_unavailable() {
-    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
-    let mut definition = compiled_config();
-    let target = definition
-        .upstream_targets
-        .iter_mut()
-        .find(|target| target.id == "openai-main")
-        .unwrap();
-
-    // Disable Chat Native capability so downstream Chat requests must use the Responses bridge.
-    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
-        &mut target.upstream_apis[0].capabilities
-    {
-        capabilities.enabled = false;
-    }
-    definition
-        .upstream_targets
-        .iter_mut()
-        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
-        .expect("the ChatGPT pool member must exist")
-        .enabled = false;
-    let registry = build_registry(bootstrap.clone(), definition.clone()).unwrap();
-    let body = bytes::Bytes::from_static(
-        br#"{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}]}"#,
-    );
-    let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
-    let plan = plan_request(&registry, &profile, body).unwrap();
-    assert_eq!(plan.candidates().len(), 1);
-    assert_eq!(
-        plan.candidates()[0].route_id(),
-        "gpt-5.6-sol-openai-chat-via-responses"
-    );
-    assert!(plan.candidates()[0].bridge().is_some());
-
-    // Disable Responses Native capability so downstream Responses requests must use the Chat bridge.
-    let target = definition
-        .upstream_targets
-        .iter_mut()
-        .find(|target| target.id == "openai-main")
-        .unwrap();
-    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
-        &mut target.upstream_apis[0].capabilities
-    {
-        capabilities.enabled = true;
-    }
-    if let UpstreamApiCapabilities::Responses(capabilities) =
-        &mut target.upstream_apis[1].capabilities
-    {
-        capabilities.enabled = false;
-    }
-    let registry = build_registry(bootstrap, definition).unwrap();
-    let body = bytes::Bytes::from_static(br#"{"model":"gpt-5.6-sol","input":"hello"}"#);
-    let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
-    let plan = plan_request(&registry, &profile, body).unwrap();
-    assert_eq!(plan.candidates().len(), 1);
-    assert_eq!(
-        plan.candidates()[0].route_id(),
-        "gpt-5.6-sol-openai-responses-via-chat"
-    );
-    assert!(plan.candidates()[0].bridge().is_some());
+    let [candidate] = plan.candidates() else {
+        panic!("the subscription-only deployment must have one Chat candidate");
+    };
+    let target = registry
+        .upstream_target(candidate.upstream_target_id())
+        .expect("planned Target must resolve");
+    assert_eq!(target.kind(), ProviderKind::ChatGpt);
+    assert_eq!(candidate.upstream_operation(), OperationKind::Responses);
+    assert!(candidate.bridge().is_some());
 }
 
 #[test]

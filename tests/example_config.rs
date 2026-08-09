@@ -2,20 +2,15 @@
 
 use openbridge::{
     config::parse_bootstrap_config,
-    core::{ApiProtocol, ApiRequest, OperationKind, ReasoningOutput},
+    core::{ApiProtocol, OperationKind, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
-    provider::{CredentialKind, ProviderAdapter, ProviderKind},
+    provider::{CredentialKind, ProviderKind},
     providers::{build_compiled_registry, compiled_config},
-    registry::{
-        InputModality, ModelMode, OutputModality, ReasoningLevel, ReasoningSupport, RouteConfig,
-        RouteMode, StateAffinity, UpstreamApiCapabilities, build_registry,
-    },
+    registry::{RouteConfig, RouteMode, UpstreamApiCapabilities, build_registry},
     upstream_credentials::UpstreamCredentialConfiguration,
 };
 
-#[path = "example_config/catalog.rs"]
-mod catalog;
 #[path = "example_config/configuration.rs"]
 mod configuration;
 #[path = "example_config/providers.rs"]

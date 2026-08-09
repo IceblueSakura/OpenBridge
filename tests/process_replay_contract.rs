@@ -50,21 +50,6 @@ fn assert_http_failure_metrics(
 }
 
 #[tokio::test]
-async fn responses_rate_limit_case_does_not_replay_an_exhausted_single_member() {
-    let observation =
-        support::process_replay::replay_http_error_case("responses_native.rate_limit.non_stream")
-            .await;
-
-    // Compare the fixed corpus HTTP semantics and request-level attempt observation.
-    assert_eq!(observation.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(observation.retry_after.as_deref(), Some("1"));
-    assert_eq!(observation.rate_limit_remaining_requests, None);
-    assert_eq!(observation.upstream_attempts, 1);
-    assert_eq!(observation.upstream_request_matches, vec![true]);
-    assert!(observation.downstream_body_matches);
-}
-
-#[tokio::test]
 async fn responses_http_error_with_sse_content_type_stays_an_http_error() {
     let observation = support::process_replay::replay_http_error_case(
         "responses_native.http_error.sse_content_type",
@@ -132,6 +117,7 @@ async fn canonical_non_retryable_client_errors_stop_after_one_attempt() {
 async fn canonical_rate_limits_preserve_retry_after_formats() {
     for (case_id, expected_retry_after, expected_remaining) in [
         ("chat_native.rate_limit.non_stream", "1", None),
+        ("responses_native.rate_limit.non_stream", "1", None),
         (
             "responses_native.rate_limit.http_date.non_stream",
             "Wed, 21 Oct 2037 07:28:00 GMT",
