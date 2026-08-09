@@ -206,7 +206,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
         NEITHER,
     ),
     field("metadata", BOTH, FieldRole::InterfaceParameter, NEITHER),
-    field("service_tier", BOTH, FieldRole::InterfaceParameter, NEITHER),
+    field("service_tier", BOTH, FieldRole::InterfaceParameter, BOTH),
     field("user", BOTH, FieldRole::InterfaceParameter, NEITHER),
     field(
         "safety_identifier",

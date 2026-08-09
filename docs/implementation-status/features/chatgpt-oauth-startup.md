@@ -26,6 +26,8 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - GPT-5.5 与 GPT-5.6 的 `seed` 仍作为下游可接受普通提示公开，并在四个 advanced ChatGPT Responses API 的 candidate egress 删除。
   `include_reasoning` 会改变 reasoning 可见性，当前 API 将其显式禁用，Chat/Responses 固定 interface 不再公开并在 egress 前拒绝。
   输出 token 上限、reasoning level、tools、state 与其他能力字段同样不进入普通参数忽略例外。
+- GPT-5.5、GPT-5.6 Luna/Terra/Sol 的 canonical profile 在 Chat 与 Responses interface 公开 `service_tier`；Responses Native
+  与 Chat→Responses Bridge 保留下游提交的 JSON 值，不在网关内新增枚举、改写值或宣称真实 fast/priority 服务质量。
 - 请求只从 manager 借用短生命周期、账户绑定的当前 generation。首个预提交 `401` 先 guarded reload，persisted generation 未变化时才
   refresh，然后只重放一次；第二个 `401` 把仍被拒绝的 generation 标记为 `reauth_required`。
 - 管理员可通过 `openbridge-probe --target <chatgpt-target> --list-models` 或 `--responses` 对已激活的 ChatGPT target 执行固定 Models
@@ -101,6 +103,14 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 
 本轮新增 capability 与 Bridge 的验证是确定性 Rust 证据；真实登录/refresh authority、真实 ChatGPT 工具/structured-output 调用、
 外部 SDK compatibility、多模态、负载和长稳测试未执行。本轮没有修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus 基线。
+
+2026-08-09 `service_tier` 下游透传变更的确定性验证：
+
+- `forwarding_contract::chatgpt::chatgpt_service_tier_is_advertised_and_preserved_across_native_and_bridge` 通过，覆盖四个目标模型
+  的 Chat/Responses `supported_parameters`，以及 `priority` 在 Responses Native 和 Chat→Responses Bridge 上游 body 中的原值保留；
+- `cargo test --locked --test forwarding_contract chatgpt`：8 项通过；`cargo test --locked`：通过；
+  `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`：通过；
+- 未运行真实 ChatGPT Provider、外部 SDK、负载或长期运行验收，因此本轮只证明网关契约和合成 transport 的 wire 透传。
 
 ## 相关文档
 

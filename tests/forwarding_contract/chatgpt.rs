@@ -75,6 +75,88 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 }
 
 #[tokio::test]
+async fn chatgpt_service_tier_is_advertised_and_preserved_across_native_and_bridge() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    // Confirm every requested ChatGPT model advertises the shared service-tier field on both interfaces.
+    for public_model in ["gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] {
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
+                .await;
+        for interface in ["chat_completions", "responses"] {
+            assert!(
+                model["interfaces"][interface]["supported_parameters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value == "service_tier"),
+                "{public_model} must advertise service_tier on {interface}"
+            );
+        }
+    }
+
+    // Verify Native Responses and the Chat compatibility Bridge preserve the selected service tier.
+    for (path, body) in [
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "service_tier": "priority",
+                "stream": true,
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "gpt-5.6-luna",
+                "messages": [{"role": "user", "content": "hello"}],
+                "service_tier": "priority",
+                "stream": true,
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].service_tier,
+        Some(serde_json::json!("priority"))
+    );
+    assert_eq!(
+        requests[1].service_tier,
+        Some(serde_json::json!("priority"))
+    );
+}
+
+#[tokio::test]
 async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);

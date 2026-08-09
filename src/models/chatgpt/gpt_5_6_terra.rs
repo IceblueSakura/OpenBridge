@@ -36,6 +36,7 @@ pub(crate) fn config() -> ModelConfig {
             "reasoning_effort",
             "response_format",
             "seed",
+            "service_tier",
             "structured_outputs",
             "tool_choice",
             "tools",

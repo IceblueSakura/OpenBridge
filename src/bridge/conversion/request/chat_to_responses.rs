@@ -37,7 +37,12 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
     copy_fields(
         source,
         &mut result,
-        &["parallel_tool_calls", "temperature", "top_p"],
+        &[
+            "parallel_tool_calls",
+            "service_tier",
+            "temperature",
+            "top_p",
+        ],
     );
     if let Some(effort) = chat_reasoning_effort(source)? {
         if !reasoning_supported && effort != "none" {
