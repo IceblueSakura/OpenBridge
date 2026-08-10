@@ -89,7 +89,7 @@ pub fn build_router(state: GatewayState) -> Router {
             require_user,
         ));
 
-    // Expose the originless MCP placeholder behind the same static downstream identity boundary.
+    // Expose the originless MCP service behind the same static downstream identity boundary.
     let mcp = Router::new()
         .route("/mcp", post(mcp::endpoint))
         .route_layer(middleware::from_fn_with_state(

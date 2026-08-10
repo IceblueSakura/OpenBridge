@@ -10,8 +10,8 @@
 - 提供未认证的 `GET /healthz`、`GET /openapi.yaml`、`GET /swagger-ui` 和 `GET /swagger-ui/`。
 - 提供 Bearer 保护的 `GET /v1/models`、`GET /v1/models/{model}`、扩展 Models 接口、
   `POST /v1/chat/completions`、`POST /v1/responses` 和 `POST /v1/embeddings`。
-- 提供 Bearer 保护的 `POST /mcp`，实现 MCP `2026-07-28` `server/discover` 和确定性的空 `tools/list`；未注册
-  `tools/call`，不建立 session，也不访问 Provider。
+- 提供 Bearer 保护的 `POST /mcp`，实现 MCP `2026-07-28` `server/discover`、确定性的 `hello` 工具目录和
+  `tools/call`；`hello` 只格式化字符串，不建立 session，也不访问 Provider。
 - 旧 `GET /openbridge/v1/metrics` 与 `GET /openbridge/v1/metrics/providers` 未注册并返回 `404`；metrics 是独立的
   startup-owned OTLP/HTTP 出站 signal，不属于下游 API 或 OpenAPI schema。
 - 在进入业务 handler 前执行 Bearer 认证、请求体上限、请求 ID、敏感 `Authorization` header 标记和 tracing middleware。
@@ -25,7 +25,8 @@
 
 - Router 组装位于 [`src/ingress/router.rs`](../../../src/ingress/router.rs)，业务 handler 位于
   [`src/ingress/handlers.rs`](../../../src/ingress/handlers.rs)。
-- MCP transport、JSON-RPC validation、discovery 与空目录位于 [`src/ingress/mcp.rs`](../../../src/ingress/mcp.rs)，不进入
+- MCP transport、JSON-RPC/header validation 与 dispatch 位于 [`src/ingress/mcp.rs`](../../../src/ingress/mcp.rs)，静态目录、
+  `hello` schema、argument validation 与执行位于 [`src/ingress/mcp/tools.rs`](../../../src/ingress/mcp/tools.rs)；两者不进入
   registry、pipeline、Provider adapter 或 upstream transport。
 - OpenTelemetry instruments 与 exporter 位于 [`src/observability/`](../../../src/observability)，不在 HTTP handler 中提供查询或
   第二套聚合逻辑。
@@ -37,21 +38,21 @@
 - [`tests/ingress_contract.rs`](../../../tests/ingress_contract.rs) 覆盖公开/受保护路由、请求边界和 handler 前置行为。
 - [`tests/downstream_auth_contract.rs`](../../../tests/downstream_auth_contract.rs) 覆盖 Bearer 认证、失败响应和敏感信息边界。
 - [`tests/ingress_contract.rs`](../../../tests/ingress_contract.rs) 还覆盖旧 metrics path 的 `404` 与 OpenAPI schema 移除。
-- [`tests/mcp_contract.rs`](../../../tests/mcp_contract.rs) 的 2 个测试覆盖 discovery、空工具目录、Bearer、Origin、header mismatch、
-  未注册 tool call 和非 POST method。
+- [`tests/mcp_contract.rs`](../../../tests/mcp_contract.rs) 的 3 个测试覆盖 discovery、`hello` 目录/成功调用/无效参数、Bearer、Origin、
+  header mismatch、未知工具和非 POST method。
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖示例配置可解析性。
 
-2026-08-10 为 MCP 占位入口实际执行并通过：
+2026-08-10 为 `hello` 工具切片实际执行：
 
-- `cargo test --locked --test mcp_contract`：2 passed；
+- `cargo test --locked --test mcp_contract`：3 passed；
 - `cargo fmt -- --check`；
-- `cargo test --locked`；
+- `cargo test --locked`：第二次完整运行通过；第一次运行只有 `otlp_trace_contract` 的 span 数量断言出现一次性失败，随后该测试
+  单独复跑 2 passed，未修改遥测代码；
 - `cargo clippy --locked -- -D warnings`；
 - `git diff --check`。
 
-测试与 clippy 使用隔离的临时 `CARGO_TARGET_DIR`，因为一个工作前已运行的 OpenBridge 进程占用了默认
-`target/debug/openbridge.exe`；该进程没有被停止。未运行外部 MCP SDK/Client、真实网络部署、浏览器、反向代理、Provider、
-负载或长期运行验收。
+测试与 clippy 使用隔离的临时 `CARGO_TARGET_DIR`。未运行外部 MCP SDK/Client、真实网络部署、浏览器、反向代理、Provider、负载或
+长期运行验收。
 
 这些是进程内确定性契约测试，不等同于真实网络部署、外部 MCP SDK/Client、浏览器、生产反向代理或工具安全验收。
 

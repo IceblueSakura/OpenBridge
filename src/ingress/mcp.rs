@@ -1,8 +1,10 @@
-//! Minimal MCP Streamable HTTP ingress for the authenticated placeholder tool catalog.
+//! Minimal MCP Streamable HTTP ingress for the authenticated local tool catalog.
 //!
-//! This module implements only protocol revision `2026-07-28`, `server/discover`, and an empty
-//! `tools/list`. It owns no Provider routing and deliberately rejects browser Origins, legacy
-//! sessions, and every tool execution method.
+//! This module implements only protocol revision `2026-07-28`, discovery, tool listing, and the
+//! side-effect-free `hello` test tool. It owns no Provider routing and deliberately rejects browser
+//! Origins, legacy sessions, and every unregistered tool or protocol method.
+
+mod tools;
 
 use axum::{
     Json,
@@ -32,7 +34,7 @@ const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 
 /// Rejects every browser Origin before downstream authentication or JSON-RPC dispatch.
 pub(super) async fn reject_origin(request: Request, next: Next) -> Response {
-    // Fail closed because this loopback placeholder has no configured browser Origin allowlist.
+    // Fail closed because this loopback MCP service has no configured browser Origin allowlist.
     if request.headers().contains_key(ORIGIN) {
         return error_response(
             StatusCode::FORBIDDEN,
@@ -153,7 +155,12 @@ pub(super) async fn endpoint(headers: HeaderMap, body: Bytes) -> Response {
         );
     }
 
-    // Dispatch only discovery and the deterministic empty tool catalog.
+    // Validate the tool-specific routing mirror before selecting a local implementation.
+    if let Some(response) = tool_name_header_error(&headers, &request) {
+        return response;
+    }
+
+    // Dispatch only discovery, the deterministic tool catalog, and registered local tools.
     match request.method.as_str() {
         "server/discover" if discover_params_are_valid(&request.params) => {
             result_response(request.id, discover_result())
@@ -161,6 +168,7 @@ pub(super) async fn endpoint(headers: HeaderMap, body: Bytes) -> Response {
         "tools/list" if list_params_are_valid(&request.params) => {
             result_response(request.id, tools_list_result())
         }
+        "tools/call" => call_tool(request),
         "server/discover" | "tools/list" => error_response(
             StatusCode::BAD_REQUEST,
             Some(request.id),
@@ -173,6 +181,58 @@ pub(super) async fn endpoint(headers: HeaderMap, body: Bytes) -> Response {
             Some(request.id),
             METHOD_NOT_FOUND,
             "Method not found",
+            None,
+        ),
+    }
+}
+
+/// Returns a transport error when `Mcp-Name` does not mirror a tool call body.
+fn tool_name_header_error(headers: &HeaderMap, request: &ParsedRequest) -> Option<Response> {
+    // Leave name-independent methods to their existing header and parameter validation.
+    if request.method != "tools/call" {
+        return None;
+    }
+
+    // Let protocol parameter validation report a missing or non-string body name.
+    let tool_name = request.params.get("name")?.as_str()?;
+
+    // Reject missing, malformed, duplicate, or mismatched tool routing metadata.
+    if required_header(headers, "mcp-name") != Some(tool_name) {
+        return Some(error_response(
+            StatusCode::BAD_REQUEST,
+            Some(request.id.clone()),
+            HEADER_MISMATCH,
+            "Mcp-Name header does not match the requested tool",
+            None,
+        ));
+    }
+    None
+}
+
+/// Dispatches one schema-valid tool call to the static local catalog.
+fn call_tool(request: ParsedRequest) -> Response {
+    // Parse the closed call shape before consulting the tool catalog.
+    let Some((tool_name, arguments)) = tool_call_params(&request.params) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            Some(request.id),
+            INVALID_PARAMS,
+            "Tool call parameters are invalid",
+            None,
+        );
+    };
+
+    // Execute only a registered local tool and decorate its result with server identity.
+    match tools::call(tool_name, arguments) {
+        Ok(mut result) => {
+            result["_meta"] = server_metadata();
+            result_response(request.id, result)
+        }
+        Err(tools::ToolDispatchError::UnknownTool) => error_response(
+            StatusCode::BAD_REQUEST,
+            Some(request.id),
+            INVALID_PARAMS,
+            "Unknown tool",
             None,
         ),
     }
@@ -247,8 +307,27 @@ fn list_params_are_valid(params: &Map<String, Value>) -> bool {
         return false;
     }
 
-    // Accept omission or one opaque string cursor even though the empty list has no next page.
+    // Accept omission or one opaque string cursor even though the static list has no next page.
     params.get("cursor").is_none_or(Value::is_string)
+}
+
+/// Returns the tool name and optional arguments from a closed call parameter object.
+fn tool_call_params(params: &Map<String, Value>) -> Option<(&str, Option<&Map<String, Value>>)> {
+    // Reject fields that do not belong to the supported one-round tool call shape.
+    if !params
+        .keys()
+        .all(|key| key == "_meta" || key == "name" || key == "arguments")
+    {
+        return None;
+    }
+
+    // Require a string tool name and, when present, an object argument payload.
+    let tool_name = params.get("name")?.as_str()?;
+    let arguments = match params.get("arguments") {
+        Some(arguments) => Some(arguments.as_object()?),
+        None => None,
+    };
+    Some((tool_name, arguments))
 }
 
 /// Returns one required, unique, visible HTTP header value.
@@ -300,24 +379,24 @@ fn server_metadata() -> Value {
     })
 }
 
-/// Builds the cache-disabled discovery result for the placeholder server.
+/// Builds the cache-disabled discovery result for the local test server.
 fn discover_result() -> Value {
     json!({
         "resultType": "complete",
         "supportedVersions": [PROTOCOL_VERSION],
         "capabilities": { "tools": {} },
         "_meta": server_metadata(),
-        "instructions": "No tools are currently registered on this OpenBridge MCP endpoint.",
+        "instructions": "This OpenBridge MCP endpoint provides a local hello test tool.",
         "ttlMs": 0,
         "cacheScope": "private"
     })
 }
 
-/// Builds the deterministic, cache-disabled empty tool list.
+/// Builds the deterministic, cache-disabled local tool list.
 fn tools_list_result() -> Value {
     json!({
         "resultType": "complete",
-        "tools": [],
+        "tools": tools::catalog(),
         "_meta": server_metadata(),
         "ttlMs": 0,
         "cacheScope": "private"

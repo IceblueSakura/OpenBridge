@@ -18,7 +18,8 @@ Route。
 当前核心结果：
 
 - 下游通过 Public Model 调用 `POST /v1/responses`、`POST /v1/chat/completions` 或独立的 `POST /v1/embeddings`；
-- 已认证本地客户端可以通过 `POST /mcp` 发现 MCP `2026-07-28` 占位服务并取得空工具列表，当前不执行工具或访问 Provider；
+- 已认证本地客户端可以通过 `POST /mcp` 发现 MCP `2026-07-28` 本地服务，并调用唯一的无副作用
+  `hello(name: string)` 测试工具取得 `Hi, {name}!`；该路径不访问 Provider；
 - Responses 以客户端携带完整历史、`store` 省略或为 `false`、`previous_response_id` 省略或为 `null`、`background` 省略或为
   `false` 的无状态调用作为核心兼容面、默认使用方式和当前验收基线；
 - `previous_response_id`、`background` 与 `store: true` 是次要目标，当前支持不完整，不构成通用会话、后台任务或 response
@@ -102,7 +103,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 | `POST /v1/chat/completions`                                      | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                          |
 | `POST /v1/responses`                                             | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                     |
 | `POST /v1/embeddings`                                            | 在独立 Embedding Public Model 的固定契约内按唯一 Native Route 提供有界 JSON 向量结果。                        |
-| `POST /mcp`                                                      | 提供 Bearer 保护的 MCP `2026-07-28` discovery 与空工具列表占位入口。                                          |
+| `POST /mcp`                                                      | 提供 Bearer 保护的 MCP `2026-07-28` discovery、静态 `hello` 列表与调用入口。                                  |
 
 ## 扩展接口状态
 
@@ -121,7 +122,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
   文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenBridge 内置 Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
-- hosted tool、MCP Tool Bridge、MCP `tools/call` 执行或由网关执行普通 function tool；
+- hosted tool、MCP Tool Bridge、`hello` 之外的 MCP `tools/call` 执行或由生成网关执行普通 function tool；
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 
 本节只限定产品范围，不声明代码缺口。当前实现是否已经覆盖某项核心结果，以

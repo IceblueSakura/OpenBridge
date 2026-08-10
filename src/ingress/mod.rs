@@ -1,7 +1,7 @@
 //! Package entry point for downstream HTTP ingress.
 //!
-//! Submodules own Router/authentication, request lifecycle, OpenAI-compatible endpoints, the MCP
-//! placeholder, bounded attempts/fallback, Native/Bridged streaming, and response normalization.
+//! Submodules own Router/authentication, request lifecycle, OpenAI-compatible endpoints, the local
+//! MCP test service, bounded attempts/fallback, Native/Bridged streaming, and response normalization.
 //! This file only declares modules and exposes the service assembly entry point.
 
 mod attempt;
