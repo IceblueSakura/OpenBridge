@@ -12,6 +12,7 @@ pub(crate) mod deepseek;
 pub mod meituan;
 pub(crate) mod minimax;
 pub(crate) mod moonshotai;
+pub(crate) mod nvidia;
 pub(crate) mod openai;
 pub(crate) mod qwen;
 pub(crate) mod xiaomi;

@@ -25,6 +25,12 @@ pub(super) fn compiled_registrations() -> Vec<CompiledPublicModel> {
             "qwen3.7-text-embedding",
             "Qwen3.7 text embedding model with a fixed Native execution path.",
         ),
+        compiled_registration(
+            "nemotron-3-embed-1b-nvidia-embeddings",
+            "nvidia-nemotron-3-embed-1b",
+            "nemotron-3-embed-1b",
+            "NVIDIA Nemotron 3 Embed 1B text embedding model with a fixed Native execution path.",
+        ),
     ]
 }
 

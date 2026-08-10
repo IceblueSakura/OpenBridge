@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    models::minimax,
+    models::{minimax, nvidia},
     provider::ProviderKind,
     registry::{
         ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
@@ -25,13 +25,16 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed MiniMax M3 Chat target for NVIDIA API Catalog.
+/// Builds the fixed MiniMax M3 Chat target and Nemotron 3 Embed 1B target for NVIDIA API Catalog.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
-    vec![chat_target(
-        "nvidia-minimax-m3",
-        minimax::minimax_m3::ID,
-        "minimaxai/minimax-m3",
-    )]
+    vec![
+        chat_target(
+            "nvidia-minimax-m3",
+            minimax::minimax_m3::ID,
+            "minimaxai/minimax-m3",
+        ),
+        embedding_target(),
+    ]
 }
 
 /// Binds one canonical model to NVIDIA's trusted Chat endpoint and credential pool.
@@ -56,6 +59,33 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
                     .chat_completions
                     .expect("NVIDIA targets require Chat Completions capabilities")
                     .to_executable(None),
+            ),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
+        }],
+    }
+}
+
+/// Binds Nemotron 3 Embed 1B to NVIDIA's trusted Embeddings endpoint and credential pool.
+fn embedding_target() -> UpstreamTargetConfig {
+    UpstreamTargetConfig {
+        id: "nvidia-nemotron-3-embed-1b".to_owned(),
+        provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
+        canonical_model: nvidia::nemotron_3_embed_1b::ID.to_owned(),
+        provider_model: ProviderKind::Nvidia.routing_model_id(nvidia::nemotron_3_embed_1b::ID),
+        credential_pool: CREDENTIAL_POOL_ID.to_owned(),
+        quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
+        fault_domain: Some("nvidia-api".to_owned()),
+        request_timeout: Duration::from_secs(120),
+        enabled: true,
+        upstream_apis: vec![UpstreamApiConfig {
+            upstream_model: "nvidia/nemotron-3-embed-1b".to_owned(),
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::Embeddings(
+                DEFINITION
+                    .contract()
+                    .capabilities()
+                    .embeddings
+                    .expect("NVIDIA embedding targets require Embeddings capabilities"),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         }],

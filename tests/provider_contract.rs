@@ -81,7 +81,13 @@ fn provider_contracts_encode_operation_support_by_profile_presence() {
             &[OperationKind::ChatCompletions, OperationKind::Responses],
         ),
         (ProviderKind::ChatGpt, &[OperationKind::Responses]),
-        (ProviderKind::Nvidia, &[OperationKind::ChatCompletions]),
+        (
+            ProviderKind::Nvidia,
+            &[
+                OperationKind::ChatCompletions,
+                OperationKind::EmbeddingsCreate,
+            ],
+        ),
         (ProviderKind::KimiCn, &[OperationKind::ChatCompletions]),
     ];
 
