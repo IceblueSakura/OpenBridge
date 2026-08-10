@@ -46,6 +46,7 @@ project A research
 
 - [细粒度协议调研总索引](openai/README.md)
 - [API 规范目录](openai/api-specification-catalog.md)
+- [OpenAI API 端点采用、兼容档位与 fake 合同测试](openai/endpoint-adoption-and-fake-testing.md)
 - [Audio 与自定义声音](openai/README.md#6-音频与语音)
 - [Realtime 实时对话、翻译与转写](openai/README.md#7-realtime)
 - [Videos 异步资源与派生 operation](openai/README.md#8-视频)

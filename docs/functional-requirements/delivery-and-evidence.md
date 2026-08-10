@@ -49,6 +49,28 @@ OpenBridge 尚未发布任何版本，也没有承诺支持的外部部署、SDK
 离线 fixture 用于可重复的 framing、错误、EOF、partial stream、cancel 与 tool-call 回归；它们不替代目标客户端观察。真实
 Provider 一次成功也不替代可重复测试。
 
+### 新 endpoint 的 fake-first 合同证据
+
+新增 OpenAI-compatible endpoint 时，可以先在尚未选择真实 Provider/model 的情况下完成协议合同：测试专用的 synthetic
+Provider/Target/Route/Public Model、loopback upstream、resource store 或 session simulator 可以作为先失败测试的执行边界。它们必须走与
+真实请求相同的下游 router、认证、body limit、request analysis、planning、transport、renderer、错误与终态观测路径；只直接调用内部
+serializer 或返回固定 `200` 不足以证明 endpoint 客户端可见行为。
+
+fake 资产必须同时满足：
+
+- 仅存在于 test/fixture 组装，不进入 production bootstrap、示例配置或 production `/v1/models`；
+- 使用合成 id、内容和 credential，不读取真实 Provider 配置，不发起真实网络调用；
+- JSON operation 覆盖成功、字段拒绝、上游错误和取消；multipart/binary/SSE 进一步覆盖 content type、分片、budget、terminal 与首个
+  下游 byte 后失败；
+- resource、async job 或 session 不以固定 canned body 冒充，分别覆盖 issuer affinity、分页/过期/删除，合法状态转换/取消/幂等，或
+  双向 event/close/backpressure；
+- 可用官方 SDK 或独立 curl/Python 对 loopback test server 做协议观察，但记录为 fake/loopback 证据。
+
+generic endpoint contract 通过后，可以再选择满足该 operation 的真实 Provider/model，并单独验证官方 Provider path、认证、能力、limit、
+真实成功/错误和适用 transport。若 operation 由 model 选择，接入还须完整注册 canonical model、Target、Route、Public Model 与 Models
+projection；若 operation 围绕资源执行，则必须固定 issuer 与 account/region affinity。只有 fake 通过时不得向 production 下游公开
+synthetic model，也不得声称任何真实 Provider、model、media quality、retention、费用或负载已经可用。
+
 ## SDK 与客户端工具的滚动记录
 
 不对 OpenAI SDK、Python/curl 工具或目标客户端设长期固定版本。每次需要作为证据保存的运行，应记录：

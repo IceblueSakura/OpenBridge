@@ -60,6 +60,7 @@
 ## 相关文档
 
 - [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api-compatibility.md)
+- [OpenAI API 端点采用与 fake 合同测试调研](../../references/openai/endpoint-adoption-and-fake-testing.md)
 - [启动配置与凭证边界](startup-configuration-and-credentials.md)
 - [模型信息与能力预检](models-api-and-capability-preflight.md)
 - [当前代码架构](../current-architecture.md)

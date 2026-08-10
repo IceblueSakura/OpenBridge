@@ -2,11 +2,13 @@
 
 ## 来源、范围与快照
 
-本文只记录 Responses create 之外围绕 response identity 的 background、retrieve、cancel、input-items、compaction 与 input-token
+本文只记录 Responses create 之外围绕 response identity 的 background、retrieve、delete、cancel、input-items、compaction 与 input-token
 operation。它们共享 Responses resource/state 边界，但 request method 与成功体必须逐 operation 保持。
 
-- 官方来源：[Responses API](https://developers.openai.com/api/reference/resources/responses)、[Background mode](https://platform.openai.com/docs/guides/background)
-- 协议复核日期：2026-08-03；本次结构整理未重新在线复核 endpoint beta 状态或 retention。
+- 官方来源：[Responses API](https://developers.openai.com/api/reference/resources/responses)、
+  [Delete a response](https://developers.openai.com/api/reference/resources/responses/methods/delete)、
+  [Background mode](https://developers.openai.com/api/docs/guides/background)；
+- 协议复核日期：2026-08-10；动态 endpoint、beta 状态、retention 与 background limit 使用前仍须重核。
 
 ## 1. Operation map
 
@@ -14,6 +16,7 @@ operation。它们共享 Responses resource/state 边界，但 request method �
 |--------|------------------------------------------|-------------------------------------------|
 | `POST` | `/v1/responses`                          | 创建同步、流式或 background response      |
 | `GET`  | `/v1/responses/{response_id}`            | 读取已存储 response/resource 状态         |
+| `DELETE` | `/v1/responses/{response_id}`          | 删除已存储 response                       |
 | `POST` | `/v1/responses/{response_id}/cancel`     | 取消可取消 response                       |
 | `GET`  | `/v1/responses/{response_id}/input_items`| 分页读取关联 input items                  |
 | `POST` | `/v1/responses/compact`                  | 显式上下文压缩                            |
@@ -26,10 +29,11 @@ operation。它们共享 Responses resource/state 边界，但 request method �
 当前快照的 background guide 要求相应服务端存储行为；background 与 `store`、retrieve/cancel 和轮询共同构成资源生命周期。仅接受
 `background: true` 却不提供 resource ownership，会产生不可兑现的 response id。
 
-## 3. Retrieve、cancel 与 input items
+## 3. Retrieve、delete、cancel 与 input items
 
-retrieve 读取既有 resource；cancel 是有副作用的 operation；input-items 是分页 resource view。它们对不存在、过期、无权限、已
-terminal 或不可取消 resource 的错误语义不能合并成普通 create error。
+retrieve 读取既有 resource；delete 移除已存储 resource；cancel 尝试改变仍可取消 resource 的执行状态；input-items 是分页 resource
+view。它们对不存在、已删除、过期、无权限、已 terminal 或不可取消 resource 的错误语义不能合并成普通 create error，也不能作为跨
+issuer 重试的理由。
 
 ## 4. Compaction 与 input tokens
 
@@ -39,5 +43,5 @@ compaction 改变后续上下文表示，input-tokens 则是计算/预检 operat
 ## 5. 证据边界
 
 - 仅实现 `POST /responses` 不等于实现完整 Responses resource API；
-- 返回看似合法的 `resp_*` 字符串不证明 storage、retrieve、cancel 或 restart recovery；
+- 返回看似合法的 `resp_*` 字符串不证明 storage、retrieve、delete、cancel 或 restart recovery；
 - mock lifecycle 不证明真实 retention、background duration、并发取消或长期运行。

@@ -25,6 +25,7 @@ SDK/文档版本。
 | Streaming result  | data-only SSE chunks                | [Chat SSE](chat-completions/streaming.md)                          |
 | Client tools      | JSON call/result round trip         | [Function tools](chat-completions/function-tools.md)               |
 | Structured output | `response_format` JSON              | [Structured output](chat-completions/structured-output.md)         |
+| Stored resources  | list/retrieve/update/delete/messages | [Stored Chat resources](chat-completions/stored-resources.md)      |
 
 ## 2. Responses
 
@@ -33,9 +34,10 @@ SDK/文档版本。
 | Create request      | `POST /v1/responses` JSON                     | [Create JSON request](responses/request.md)                   |
 | Non-stream result   | JSON `response` + ordered `output[]`          | [非流式响应](responses/non-streaming-response.md)             |
 | Streaming result    | typed semantic SSE                           | [Responses SSE](responses/streaming.md)                       |
+| WebSocket mode      | persistent typed JSON event connection       | [Responses WebSocket](responses/websocket.md)                 |
 | Client tools        | item/call/result round trip                  | [Function tools](responses/function-tools.md)                 |
 | Continuation        | response chain、conversation、manual replay  | [State ownership](responses/state.md)                         |
-| Resource operations | background/retrieve/cancel/compact/token ops | [Resource lifecycle](responses/resource-lifecycle.md)         |
+| Resource operations | background/retrieve/delete/cancel/compact/token ops | [Resource lifecycle](responses/resource-lifecycle.md)  |
 | Structured output   | `text.format` JSON                           | [Structured output](responses/structured-output.md)           |
 
 ## 3. Embeddings
@@ -96,7 +98,17 @@ SDK/文档版本。
 > **时效边界：**截至 2026-08-10，官方指南已将 Sora 2 Videos API 及其 models 标为 deprecated，并计划于
 > **2026-09-24** 关闭。本组 Videos 文档用于保存关闭前的协议快照，不构成长期兼容承诺；任何实现工作开始前必须重新确认替代 API。
 
-## 9. 测试与兼容性资产
+## 9. 端点采用、Moderations 与 fake 边界
+
+| 主题 | Request/response 形式 | Owner 文档 |
+|------|-----------------------|------------|
+| 全 API family 采用分析 | JSON/multipart/binary/SSE/resource/job/session 分层 | [端点采用与 fake 合同测试](endpoint-adoption-and-fake-testing.md) |
+| Moderations create | `POST /v1/moderations` JSON → JSON classifications | [Moderations Create](moderations/create.md) |
+
+跨 family 文档只比较 endpoint、依赖与证据边界；字段级事实仍由上面各 operation owner 文档维护。它给出的采用判断是研究推论，
+不是 OpenBridge 当前实施状态或获准计划。
+
+## 10. 测试与兼容性资产
 
 这些文档研究测试项目或 SDK consumer，不是 OpenAI API 字段规范：
 

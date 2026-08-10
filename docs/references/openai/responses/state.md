@@ -5,8 +5,10 @@
 本文只比较 Responses 多轮上下文的三种 owner：`previous_response_id`、Conversations resource 与客户端 manual item replay。
 Background/retrieve/cancel 等 resource operations 由另一文档维护。
 
-- 官方来源：[Conversation state](https://platform.openai.com/docs/guides/conversation-state)、[Create a response](https://developers.openai.com/api/reference/resources/responses/methods/create)
-- 协议复核日期：2026-08-03；本次结构整理未重新在线复核 TTL 或 retention policy。
+- 官方来源：[Conversation state](https://developers.openai.com/api/docs/guides/conversation-state)、
+  [Conversations API](https://developers.openai.com/api/reference/resources/conversations)、
+  [Create a response](https://developers.openai.com/api/reference/resources/responses/methods/create)；
+- 协议复核日期：2026-08-10；动态 TTL、retention、pagination 与 metadata limit 使用前仍须重核。
 
 ## 1. `previous_response_id`
 
@@ -17,6 +19,18 @@ input tokens 不再计入后续 input token 费用。
 
 `conversation` 引用长期 conversation object。其 items 会加入 request 上下文，response 完成后新的 input/output items 可写回同一
 conversation。conversation identity、权限、retention 与普通 response identity 不能混用。
+
+当前 operation map 为：
+
+| Method | Path | 语义 |
+|--------|------|------|
+| `POST` | `/v1/conversations` | 创建 conversation |
+| `GET`/`POST`/`DELETE` | `/v1/conversations/{conversation_id}` | retrieve、metadata update 或 delete |
+| `POST`/`GET` | `/v1/conversations/{conversation_id}/items` | 创建 item 或分页列出 items |
+| `GET`/`DELETE` | `/v1/conversations/{conversation_id}/items/{item_id}` | retrieve 或 delete item |
+
+resource method 共享 identity，但各自 request/response shape、分页和错误必须按当期 API Reference 固定。它们不是 Responses create 的
+本地 history helper。
 
 ## 3. Manual item replay
 
