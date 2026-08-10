@@ -226,7 +226,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
     ),
     field(
         "stream_options",
-        BOTH,
+        CHAT,
         FieldRole::InterfaceParameter,
         NEITHER,
     ),

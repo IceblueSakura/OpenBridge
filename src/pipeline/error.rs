@@ -50,6 +50,9 @@ pub enum RequestPlanningError {
     /// The request provides conflicting reasoning configuration sources or shapes.
     #[error("request contains conflicting reasoning configuration")]
     InvalidReasoningConfiguration,
+    /// Chat stream_options is not the one verified usage-tail request shape.
+    #[error("request contains invalid stream_options")]
+    InvalidStreamOptions,
     /// A multimodal content part is malformed or appears outside its protocol-defined position.
     #[error("request contains invalid multimodal input")]
     InvalidMultimodalInput,

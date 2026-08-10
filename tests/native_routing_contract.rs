@@ -851,6 +851,105 @@ fn generation_interfaces_exclude_parameters_owned_only_by_another_source_protoco
 }
 
 #[test]
+fn stream_usage_options_are_exact_chat_only_native_contract() {
+    // Declare the one ordinary model parameter while retaining symmetric Native protocol routes.
+    let mut definition = base_definition();
+    support::generation_profile_mut(&mut definition.models[0]).supported_parameters =
+        vec!["stream_options".to_owned()];
+    let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+
+    // Publish the field only on Chat and preserve the one verified Hermes wire shape.
+    let chat_parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    let responses_parameters = info["interfaces"]["responses"]["supported_parameters"]
+        .as_array()
+        .unwrap();
+    assert!(
+        chat_parameters
+            .iter()
+            .any(|value| value == "stream_options")
+    );
+    assert!(
+        !responses_parameters
+            .iter()
+            .any(|value| value == "stream_options")
+    );
+    let exact = json!({
+        "model": "public-model",
+        "messages": [],
+        "stream": true,
+        "stream_options": {"include_usage": true}
+    });
+    let prepared = support::prepare(
+        &registry,
+        ApiProtocol::ChatCompletions,
+        serde_json::to_vec(&exact).unwrap().into(),
+    )
+    .unwrap();
+    let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+    assert_eq!(upstream, exact);
+
+    // Reject every unverified nested value or non-streaming combination before Provider egress.
+    for invalid in [
+        json!({"model":"public-model","messages":[],"stream":false,"stream_options":{"include_usage":true}}),
+        json!({"model":"public-model","messages":[],"stream":true,"stream_options":null}),
+        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{}}),
+        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{"include_usage":false}}),
+        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{"include_usage":true,"future":true}}),
+    ] {
+        let error = support::prepare(
+            &registry,
+            ApiProtocol::ChatCompletions,
+            serde_json::to_vec(&invalid).unwrap().into(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, RequestPlanningError::InvalidStreamOptions),
+            "invalid stream_options must fail: {invalid}"
+        );
+    }
+
+    // Keep the Chat-only field unknown on Responses rather than exposing a compatibility alias.
+    let responses = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "stream": true,
+        "stream_options": {"include_usage": true}
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, responses.into()).unwrap_err(),
+        RequestPlanningError::UnknownParameter(parameter) if parameter == "stream_options"
+    ));
+
+    // A Chat-to-Responses Bridge must not inherit this Native-only field from the model profile.
+    let mut bridged = base_definition();
+    support::generation_profile_mut(&mut bridged.models[0]).supported_parameters =
+        vec!["stream_options".to_owned()];
+    bridged.routes = vec![RouteConfig {
+        id: "chat-via-responses".to_owned(),
+        upstream_target: "openai-main".to_owned(),
+        upstream_operation: OperationKind::Responses,
+        downstream_operation: OperationKind::ChatCompletions,
+        mode: RouteMode::Bridged,
+    }];
+    bridged.public_models[0].routes = vec!["chat-via-responses".to_owned()];
+    let bridged = build_test_registry(bridged);
+    let error = support::prepare(
+        &bridged,
+        ApiProtocol::ChatCompletions,
+        serde_json::to_vec(&exact).unwrap().into(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        RequestPlanningError::UnsupportedParameter(parameter) if parameter == "stream_options"
+    ));
+}
+
+#[test]
 fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() {
     // Compile one Responses Bridge whose Chat API accepts temperature only as an ignored hint.
     let mut bridged = base_definition();

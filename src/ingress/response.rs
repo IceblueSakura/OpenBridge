@@ -42,6 +42,7 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
         RequestPlanningError::InvalidJson
         | RequestPlanningError::MissingModel
         | RequestPlanningError::InvalidReasoningConfiguration
+        | RequestPlanningError::InvalidStreamOptions
         | RequestPlanningError::InvalidMultimodalInput => api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",

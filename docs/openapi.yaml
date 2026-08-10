@@ -1184,7 +1184,13 @@ components:
           default: false
         stream_options:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          required: [ include_usage ]
+          description: Supported only with stream:true on Public Models whose Chat interface lists stream_options.
+          properties:
+            include_usage:
+              type: boolean
+              enum: [ true ]
         temperature:
           type: number
           nullable: true
@@ -1326,9 +1332,6 @@ components:
         stream:
           type: boolean
           default: false
-        stream_options:
-          type: object
-          additionalProperties: true
         temperature:
           type: number
           nullable: true

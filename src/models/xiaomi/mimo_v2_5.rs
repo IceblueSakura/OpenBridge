@@ -40,6 +40,7 @@ pub(crate) fn config() -> ModelConfig {
             "response_format",
             "seed",
             "stop",
+            "stream_options",
             "structured_outputs",
             "temperature",
             "tool_choice",

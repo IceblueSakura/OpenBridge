@@ -109,6 +109,11 @@ Responses 输出转为无状态 Chat response 时，可以在验证 reasoning it
 hosted/custom tool、image、background/store 和其他 Provider 私有扩展必须在 egress 前拒绝。Bridge 不能因字段名
 相似、Provider 名称或 capability 并集猜测转换；没有完整 Native/Bridged Route 时返回稳定能力错误。
 
+Chat `stream_options` 只在固定 Public Model interface 明确列出时可用，当前公共契约只接受同时设置 `stream:true` 且该对象恰为
+`{"include_usage":true}`。Native Chat 必须原样转发该请求对象并保留 Provider 返回的 usage 尾块；OpenBridge 不生成、修正或推算
+usage。非对象、额外子字段、`include_usage:false` 或非流式组合必须在 Provider egress 前按无效请求拒绝。Responses interface 与全部
+Bridge 不公开、不转换也不透传该 Chat-only 字段。
+
 流式请求必须满足：
 
 - 原样保持协议的 SSE framing、event/data 负载与输出顺序；不得注入 OpenBridge 自定义 SSE event。
@@ -294,6 +299,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
 | API-14 | 有效静态 token 可通过 `POST /mcp` 发现唯一静态 `hello(name: string)` 工具并取得 `Hi, {name}!`；Origin、transport metadata、无效参数、未知工具/method 与非 POST method 按固定边界失败，且调用不访问 Provider 或外部系统。 |
 | API-15 | `include: []` 作为 no-op 在全部 egress 前移除；非空 `include` 按 Public Model 逐值交集预检，未知或 Bridge 不可保真的投影 zero-egress 失败；`prompt_cache_key` 只在固定候选全部支持时原样转发，且不承诺缓存效果。 |
+| API-16 | 只有明确列出 `stream_options` 的 Chat interface 接受 `stream:true` 与精确 `{"include_usage":true}` 组合；Native egress 和 usage 尾块保持原始 wire，其他对象形状、Responses 与 Bridge 在 egress 前失败关闭。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
 | OBS-03 | OTLP metrics 使用 SDK 原生 counter/histogram 和有界维度；单 attempt output speed 只由明确 output usage 与 generation duration 计算，分位数、平均值、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |

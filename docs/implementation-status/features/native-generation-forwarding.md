@@ -21,6 +21,9 @@
   当前新增范围是 DeepSeek V4 Flash、MiMo V2.5，以及支撑 GLM 5.2 Bridge 的 Bailian Chat Target；DeepSeek V4 Pro 因 Bailian fallback
   未验证、MiMo Pro 与 OpenRouter MiniMax 因对应 Target 未验证而保持 unsupported。接受字段不保证单次响应产生多个 tool call，也不证明
   Provider 内部并发执行。
+- Chat `stream_options` 当前只在 `glm-5.2`、`deepseek-v4-flash` 与 `mimo-v2.5` 的完整固定 Native Chat candidate 交集中公开，且只接受
+  `stream:true` 与精确 `{"include_usage":true}`。Native adapter 原样保留该对象，SSE validator 校验 framing/terminal 后返回原始 chunk，
+  不归一化 Provider usage details；Responses、Bridge、其他对象形状和未验证相邻模型在 egress 前失败关闭。
 - Upstream API 可以用闭合 `IgnorableGenerationParameter` 集合接受但不向上游发送已确认不兼容的普通生成字段；这些字段仍保留在
   Public Model `supported_parameters`。当前 Kimi K3 Chat 只删除 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`；
   ChatGPT GPT-5.5/5.6 Responses 只删除 `seed`。Kimi 的 `n/logprobs/top_logprobs`、MiMo V2.5/Pro Responses 的
@@ -86,6 +89,25 @@ Codex backend 的 GPT-5.6 Luna 在 `store:false` 下两组都返回 opaque `encr
 MiniMax M3、Kimi K3、OpenRouter GLM 5.2/DeepSeek Flash 均返回 HTTP 200；OpenRouter 与 NVIDIA 的单次响应观察到两个 tool call，其他
 单次结果没有形成多调用。当前实现只开放 Hermes 目标 Public Model 的完整固定候选集，不把 HTTP 200 外推到缺少工具能力或未完整验证的
 fallback。ChatGPT parallel capability 沿用既有 Provider 契约；本轮没有通过标准 endpoint 重新直连探测。
+
+同日 M3 实施前的直连流式 Chat 探测记录目标候选所用的 Bailian、DeepSeek、OpenRouter 与 MiMo 接受
+`stream_options:{"include_usage":true}` 并出现 usage 尾块；NVIDIA、Kimi 与 LongCat 也接受，ChatGPT 由用户确认，OpenAI 未探测。
+OpenRouter、NVIDIA、Kimi 与 MiMo 当轮只保留请求接受和尾块存在性的结论，没有留存 usage 明细。已留存的原始 Chat 样本为：
+
+- DeepSeek Flash：`prompt_tokens=89`、`completion_tokens=17`、`total_tokens=106`，另有 cached 0、reasoning 14 和 prompt cache
+  hit/miss 明细；
+- Bailian GLM 5.2：18/116/134，另有 cached 0、reasoning 112；
+- LongCat 流：13/20/33，prompt details 各分类均为 0，usage chunk 另带 `lastOne:true`。
+
+用于核对遥测兼容性的 Responses 观测为：Bailian GLM 经 OpenBridge Chat→Responses Bridge 得到 18/125/143；DeepSeek Flash 经
+OpenBridge Native Responses 得到 89/16/105，另有 cached 0、reasoning 13；ChatGPT Codex backend GPT-5.6 Luna 直连上游得到
+35/6/41，另有 cached/cache-write 0、reasoning 0。前者是 Bridge 输出而非 Bailian 原生 Responses wire。observability parser 同时识别
+`input_tokens|prompt_tokens`、`output_tokens|completion_tokens`、显式 total 或两者求和、常见顶层 cache read/write 别名，以及 details
+内的 cached/creation 变体；这些解析只生成遥测，不改写下游 body。上述结果不证明 token 数值、缓存明细或计费准确，也未在实现后重新执行。
+
+M3 的失败测试最初分别观察到 Responses 参数目录错误包含 `stream_options`、目标 Chat Models 未公开该参数，以及 DeepSeek 流式请求
+返回 400；实现后 `native_routing_contract`、`example_config` 与 `forwarding_contract` 的对应聚焦测试全部通过。确定性证据证明本地
+契约、候选规划、post-adapter 请求与 response bytes，不替代真实 Provider 或 Hermes 复测。
 
 2026-08-09 ChatGPT streaming response media 修复的实际验证：
 

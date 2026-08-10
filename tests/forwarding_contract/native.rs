@@ -169,6 +169,43 @@ async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
 }
 
 #[tokio::test]
+async fn deepseek_stream_usage_option_and_usage_tail_are_byte_transparent() {
+    // Exercise the checked-in first DeepSeek Flash Chat candidate with the exact Hermes option.
+    let transport = Arc::new(DeepSeekUsageStreamTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let request_body = r#"{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#;
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(request_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Preserve every Provider-specific usage detail and the terminal without local normalization.
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(body.as_ref(), DEEPSEEK_CHAT_USAGE_STREAM);
+
+    // Preserve the exact nested request value on the post-adapter Native wire.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/chat/completions");
+    assert_eq!(requests[0].body["model"], "deepseek-v4-flash");
+    assert_eq!(
+        requests[0].body["stream_options"],
+        serde_json::json!({"include_usage": true})
+    );
+}
+
+#[tokio::test]
 async fn deepseek_v4_flash_responses_native_preserves_typed_reasoning_stream() {
     // Build the production registry and select the first Responses candidate for DeepSeek V4 Flash.
     let transport = Arc::new(DeepSeekResponsesStreamTransport::default());

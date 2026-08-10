@@ -176,16 +176,24 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
   `tests/forwarding_contract.rs` 的 ChatGPT include 与 MiMo parallel egress，以及 `tests/bridge_forwarding_contract.rs` 的 include 消费
   用例均通过。确定性测试证明本地契约、规划和 wire 行为，不证明上游必定返回 reasoning item、多个 tool call 或内部并行执行。
 
-Hermes 当前仍有两个独立的已确认拒绝边界，本轮未获准也未修改：Chat `stream_options.include_usage` 尚未进入目标 interface，
-Chat `json_schema`/`strict:true` 也未进入 DeepSeek Flash 与 MiMo V2.5 的完整固定候选交集。2026-08-10 直连流式 Chat 证明 Bailian、
-DeepSeek、OpenRouter、MiMo、NVIDIA、Kimi 与 LongCat 接受 `stream_options.include_usage` 并返回 usage 尾块；ChatGPT 由用户确认，OpenAI
-未探测。该证据不自动证明完整 Public Model 候选集或计费准确性。`json_schema` 仍需分别验证非 strict/strict 请求接受、JSON 合法性与
-schema 约束，而不能只凭 HTTP 200 扩大契约。
+2026-08-10 Hermes M3 以失败优先测试锁定了三个旧行为：Responses interface 仍错误识别 `stream_options`，目标 Chat interface 尚未公开
+该参数，DeepSeek Flash 的流式请求在 Provider egress 前被拒绝。实现后：
 
-本轮最终运行 `cargo fmt -- --check`、隔离 target 目录下的完整 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
-`git diff --check`，均通过。首次完整测试中的 OTLP trace 计数用例偶发只收到 1/2 个 span；该用例连续两次聚焦重跑和随后完整基线均通过，
-未因此修改无关遥测实现。默认 `target` 被用户正在运行的 `openbridge.exe` 锁定，所以 Rust build/test 使用临时 target 目录且未停止该进程。
-本轮没有重新执行真实 Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
+- `glm-5.2` 的 1 个、`deepseek-v4-flash` 的 3 个和 `mimo-v2.5` 的 1 个完整固定 Native Chat candidate 共同公开
+  `stream_options`；对应 Responses interface、全部 Bridge 和未验证相邻模型继续保持 unsupported。
+- 参数分析只接受 Chat `stream:true` 且 `stream_options` 恰为 `{"include_usage":true}`；非对象、空对象、`false`、额外子字段及
+  非流式组合在 egress 前以稳定无效请求失败。
+- `tests/native_routing_contract.rs` 覆盖 Chat-only 参数目录、精确形状、Responses/Bridge fail-closed；
+  `tests/example_config/providers.rs` 覆盖三个 Public Model 的完整候选交集和相邻模型收窄；`tests/forwarding_contract.rs` 使用编译后的
+  DeepSeek 首选 candidate 验证 post-adapter 请求与带 Provider 私有 usage details 的 SSE 尾块逐字节保持。
+
+M4 仍未实现且未获准：DeepSeek Flash 与 MiMo V2.5 的 Chat interface 只公开 `json_object`。MiMo 直连探测虽接受非 strict 和
+`strict:true` 的 `json_schema`，但 enum/字段名约束出现违背并伴随 `finish=abort`，不能证明 strict 语义可靠；DeepSeek、Bailian、
+OpenRouter 也尚未完成同等验证。因此当前完整候选交集继续 fail closed，详见当前焦点。
+
+M3 最终验证中，`native_routing_contract` 36 项、`example_config` 30 项和 `forwarding_contract` 66 项全部通过；隔离 target 目录下的完整
+`cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。本轮没有重新执行真实
+Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
 
 ## 相关文档
 

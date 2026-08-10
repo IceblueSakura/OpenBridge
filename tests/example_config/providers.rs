@@ -613,6 +613,86 @@ fn hermes_parallel_tool_calls_is_plannable_on_every_verified_candidate() {
 }
 
 #[test]
+fn hermes_stream_usage_is_chat_only_on_every_verified_candidate() {
+    // Compile the exact GLM, DeepSeek Flash, and MiMo Chat candidates exercised by Hermes.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    for (model_id, expected_candidates) in
+        [("glm-5.2", 1), ("deepseek-v4-flash", 3), ("mimo-v2.5", 1)]
+    {
+        // Publish stream_options only on the complete fixed Chat interface candidate set.
+        let model = registry
+            .public_model(model_id)
+            .unwrap_or_else(|| panic!("{model_id} Public Model must exist"));
+        let info = serde_json::to_value(model.info()).unwrap();
+        let chat_parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        let responses_parameters = info["interfaces"]["responses"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(
+            chat_parameters
+                .iter()
+                .any(|parameter| parameter == "stream_options"),
+            "{model_id} Chat"
+        );
+        assert!(
+            !responses_parameters
+                .iter()
+                .any(|parameter| parameter == "stream_options"),
+            "{model_id} Responses"
+        );
+
+        // Preserve the exact verified option on every Native Chat candidate without reordering.
+        let body = bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": model_id,
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": true,
+                "stream_options": {"include_usage": true}
+            }))
+            .unwrap(),
+        );
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body)
+            .unwrap_or_else(|error| panic!("{model_id} Chat: {error:?}"));
+        assert_eq!(plan.candidates().len(), expected_candidates, "{model_id}");
+        for candidate in plan.candidates() {
+            assert!(candidate.bridge().is_none(), "{model_id}");
+            let upstream: serde_json::Value =
+                serde_json::from_slice(candidate.request().body()).unwrap();
+            assert_eq!(
+                upstream["stream_options"],
+                serde_json::json!({"include_usage": true}),
+                "{model_id} {}",
+                candidate.route_id()
+            );
+        }
+    }
+
+    // Keep adjacent unverified models and every Responses interface fail closed.
+    for model_id in [
+        "deepseek-v4-pro",
+        "mimo-v2.5-pro",
+        "minimax-m3",
+        "gpt-5.6-luna",
+    ] {
+        let info = serde_json::to_value(registry.public_model(model_id).unwrap().info()).unwrap();
+        let parameters = info["interfaces"]["chat_completions"]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !parameters
+                .iter()
+                .any(|parameter| parameter == "stream_options"),
+            "{model_id}"
+        );
+    }
+}
+
+#[test]
 fn deepseek_public_interfaces_expose_json_object_across_fixed_candidates() {
     // Compile the checked-in multi-source DeepSeek interfaces and require their exact shared profile.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();

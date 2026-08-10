@@ -59,6 +59,11 @@ struct RecordingTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
+#[derive(Default)]
+struct DeepSeekUsageStreamTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
 const MIMO_RESPONSES_PARALLEL_TOOL_STREAM: &[u8] = br#"event: response.created
 data: {"type":"response.created","response":{"id":"resp_mimo_1","status":"in_progress"}}
 
@@ -104,6 +109,16 @@ data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":
 data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"\u7b54\u6848"},"finish_reason":null}]}
 
 data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+
+const DEEPSEEK_CHAT_USAGE_STREAM: &[u8] = br#"data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":89,"completion_tokens":17,"total_tokens":106,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":14},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":89}}
 
 data: [DONE]
 
@@ -842,6 +857,40 @@ impl UpstreamTransport for RecordingTransport {
                     b"{\"id\":\"chatcmpl_result\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}",
                 ))]
             };
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from_stream(stream::iter(chunks)),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for DeepSeekUsageStreamTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Capture the exact post-adapter Chat request before returning a usage-bearing terminal stream.
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path: request.relative_uri().path().to_owned(),
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body: serde_json::from_slice(request.body()).unwrap(),
+        });
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let chunks = DEEPSEEK_CHAT_USAGE_STREAM
+                .chunks(19)
+                .map(Bytes::copy_from_slice)
+                .map(Ok::<_, Infallible>)
+                .collect::<Vec<_>>();
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 response_headers,
