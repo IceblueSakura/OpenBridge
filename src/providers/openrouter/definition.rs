@@ -4,9 +4,12 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        ResponseInclude, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy,
+        ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
+        InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
+        StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -17,8 +20,30 @@ use crate::{
     },
 };
 
-const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const STRUCTURED_OUTPUTS: StructuredOutputProfile =
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
 const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
+
+/// Image surface confirmed for the OpenRouter Chat family.
+///
+/// One PNG data-URL image is proven upstream on MiniMax M3 (2026-08-10); JPEG is
+/// declared by OpenAI-compatible endpoint convention, no other media type was exercised.
+const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+    4,
+    ImageSourceCapabilities::RemoteUrlAndDataUrl {
+        remote: RemoteImageInputLimits::new(8_192),
+        data: InlineImageInputProfile::new(
+            &[ImageMediaType::Jpeg, ImageMediaType::Png],
+            InlineImageInputLimits::new(
+                20 * 1024 * 1024,
+                15 * 1024 * 1024,
+                20 * 1024 * 1024,
+                15 * 1024 * 1024,
+            ),
+        ),
+    },
+    ImageDetailPolicy::OmittedOnly { default: None },
+);
 
 /// Conservative stateless Chat and Responses operation surface for OpenRouter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -29,18 +54,18 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: true,
-                strict_schema: false,
+                strict_schema: true,
             }),
-            image_input: None,
+            image_input: Some(IMAGE_INPUT),
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             audio: None,
             file_input: false,
             predicted_outputs: false,
             web_search: false,
-            prompt_cache_key: false,
+            prompt_cache_key: true,
             moderation: false,
             logprobs: false,
             multiple_choices: false,
@@ -53,13 +78,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: true,
-                strict_schema: false,
+                strict_schema: true,
             }),
             image_input: None,
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,

@@ -9,7 +9,7 @@ use crate::{
         ImageDetailProfile, ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
         InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
         ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
         StructuredOutputProfile,
     },
     provider::{
@@ -117,7 +117,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: false,
             context_management: false,
-            include: &[],
+            include: &[ResponseInclude::ReasoningEncryptedContent],
             moderation: false,
             logprobs: false,
         },

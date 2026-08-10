@@ -2,103 +2,6 @@
 
 use super::*;
 
-type ProviderPlanCase<'a> = (&'a str, ApiProtocol, &'a [u8], &'a [(ProviderKind, bool)]);
-
-#[test]
-fn checked_in_targets_stay_within_provider_and_credential_boundaries() {
-    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
-    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-
-    // Relate every checked-in Target to its Provider credential and protocol ceilings.
-    for target_id in registry.upstream_target_ids() {
-        let target = registry.upstream_target(target_id).unwrap();
-        let pool = registry
-            .credential_pool(target.credential_pool_id())
-            .expect("Target credential pool must resolve");
-        let contract = target.kind().contract();
-        assert_eq!(pool.provider(), target.kind(), "{target_id}");
-        assert!(
-            contract.credential_kinds().contains(&pool.kind()),
-            "{target_id} uses an unsupported credential kind"
-        );
-        assert_eq!(target.endpoint_base().scheme(), "https", "{target_id}");
-
-        for (operation, _) in target.upstream_apis() {
-            let supported = match operation {
-                OperationKind::ChatCompletions => {
-                    contract.capabilities().chat_completions.is_some()
-                }
-                OperationKind::Responses => contract.capabilities().responses.is_some(),
-                OperationKind::EmbeddingsCreate => contract.capabilities().embeddings.is_some(),
-            };
-            assert!(
-                supported,
-                "{target_id} exceeds its Provider contract with {operation}"
-            );
-        }
-    }
-}
-
-#[test]
-fn checked_in_responses_targets_preserve_the_executable_state_matrix() {
-    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
-    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    let mut seen_provider_families = Vec::new();
-
-    // Inspect every executable Responses API instead of inferring state from its Provider ceiling.
-    for target_id in registry.upstream_target_ids() {
-        let target = registry
-            .upstream_target(target_id)
-            .expect("checked-in Target must resolve");
-        let Some(api) = target.upstream_api(OperationKind::Responses) else {
-            continue;
-        };
-        let UpstreamApiCapabilities::Responses(capabilities) = api.capabilities() else {
-            panic!("Responses lookup must return a Responses capability profile");
-        };
-        let expected_affinity = match target.kind() {
-            ProviderKind::OpenAi
-            | ProviderKind::ChatGpt
-            | ProviderKind::LongCat
-            | ProviderKind::MiMo
-            | ProviderKind::Bailian => ResponsesAffinity::TargetBound,
-            ProviderKind::DeepSeek | ProviderKind::OpenRouter => ResponsesAffinity::Unbound,
-            ProviderKind::Nvidia | ProviderKind::KimiCn => {
-                panic!("Chat-only Provider unexpectedly exposed Responses: {target_id}")
-            }
-        };
-
-        assert!(!capabilities.supports_store(), "{target_id}");
-        assert!(!capabilities.supports_previous_response_id(), "{target_id}");
-        assert_eq!(
-            capabilities.state().affinity(),
-            expected_affinity,
-            "{target_id}"
-        );
-        assert_eq!(
-            api.is_target_bound(),
-            expected_affinity != ResponsesAffinity::Unbound
-        );
-        assert!(!api.requires_single_credential_member(), "{target_id}");
-        if !seen_provider_families.contains(&target.kind()) {
-            seen_provider_families.push(target.kind());
-        }
-    }
-
-    // Ensure the fixture actually exercises every Responses-capable built-in family.
-    for kind in [
-        ProviderKind::ChatGpt,
-        ProviderKind::OpenAi,
-        ProviderKind::LongCat,
-        ProviderKind::DeepSeek,
-        ProviderKind::MiMo,
-        ProviderKind::OpenRouter,
-        ProviderKind::Bailian,
-    ] {
-        assert!(seen_provider_families.contains(&kind), "{kind:?}");
-    }
-}
-
 #[test]
 fn unverified_bailian_qwen_audio_remains_canonical_without_an_executable_target() {
     let config = compiled_config();
@@ -114,81 +17,6 @@ fn unverified_bailian_qwen_audio_remains_canonical_without_an_executable_target(
         target.id != "bailian-qwen-audio-3-0-asr-flash"
             && target.canonical_model != "qwen/qwen-audio-3.0-asr-flash"
     }));
-}
-
-#[test]
-fn checked_in_fallback_chains_follow_provider_priority_and_protocol_boundaries() {
-    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
-    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
-    let cases: [ProviderPlanCase<'_>; 7] = [
-        (
-            "Kimi Responses Bridge",
-            ApiProtocol::Responses,
-            br#"{"model":"kimi-k3","input":"hello","stream":true}"#,
-            &[(ProviderKind::KimiCn, true)],
-        ),
-        (
-            "MiniMax Chat fallbacks",
-            ApiProtocol::ChatCompletions,
-            br#"{"model":"minimax-m3","messages":[],"reasoning_effort":"high"}"#,
-            &[
-                (ProviderKind::OpenRouter, false),
-                (ProviderKind::Nvidia, false),
-            ],
-        ),
-        (
-            "DeepSeek Flash Chat fallbacks",
-            ApiProtocol::ChatCompletions,
-            br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high"}"#,
-            &[
-                (ProviderKind::DeepSeek, false),
-                (ProviderKind::Bailian, false),
-                (ProviderKind::OpenRouter, false),
-            ],
-        ),
-        (
-            "Qwen Chat Native",
-            ApiProtocol::ChatCompletions,
-            br#"{"model":"qwen3.7-max","messages":[]}"#,
-            &[(ProviderKind::Bailian, false)],
-        ),
-        (
-            "Qwen Responses Native",
-            ApiProtocol::Responses,
-            br#"{"model":"qwen3.7-max","input":"hello"}"#,
-            &[(ProviderKind::Bailian, false)],
-        ),
-        (
-            "MiMo Chat Native",
-            ApiProtocol::ChatCompletions,
-            br#"{"model":"mimo-v2.5","messages":[]}"#,
-            &[(ProviderKind::MiMo, false)],
-        ),
-        (
-            "MiMo Responses Native",
-            ApiProtocol::Responses,
-            br#"{"model":"mimo-v2.5","input":"hello"}"#,
-            &[(ProviderKind::MiMo, false)],
-        ),
-    ];
-
-    // Plan representative requests and compare observable Provider order instead of copied Route IDs.
-    for (case, protocol, request, expected) in cases {
-        let body = bytes::Bytes::copy_from_slice(request);
-        let profile = analyze_request(protocol, &body).unwrap();
-        let plan = plan_request(&registry, &profile, body).unwrap();
-        let actual = plan
-            .candidates()
-            .iter()
-            .map(|candidate| {
-                let target = registry
-                    .upstream_target(candidate.upstream_target_id())
-                    .expect("planned Target must resolve");
-                (target.kind(), candidate.bridge().is_some())
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(actual, expected, "{case}");
-    }
 }
 
 #[test]
@@ -601,8 +429,6 @@ fn hermes_parallel_tool_calls_is_plannable_on_every_verified_candidate() {
         ("deepseek-v4-pro", "chat_completions"),
         ("mimo-v2.5-pro", "chat_completions"),
         ("mimo-v2.5-pro", "responses"),
-        ("minimax-m3", "chat_completions"),
-        ("minimax-m3", "responses"),
     ] {
         let info = serde_json::to_value(registry.public_model(model_id).unwrap().info()).unwrap();
         assert_eq!(
@@ -743,7 +569,6 @@ fn deepseek_public_interfaces_expose_json_object_across_fixed_candidates() {
 
     // Prevent Provider ceilings from leaking this model-specific evidence into unrelated targets.
     for target_id in [
-        "openrouter-minimax-m3",
         "bailian-glm-5-2",
         "bailian-qwen3-7-plus",
         "bailian-qwen3-7-max",

@@ -92,7 +92,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "bailian-deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash-0731",
-            ReasoningOutput::Unknown,
+            ReasoningOutput::PlainText,
         ),
     ]
 }

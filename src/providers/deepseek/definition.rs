@@ -61,7 +61,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
-            reasoning_output: ReasoningOutput::Unknown,
+            reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
             file_input: false,

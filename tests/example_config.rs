@@ -2,7 +2,7 @@
 
 use openbridge::{
     config::parse_bootstrap_config,
-    core::{ApiProtocol, OperationKind, ReasoningOutput, ResponsesAffinity},
+    core::{ApiProtocol, OperationKind, ReasoningOutput},
     identity::UserConfigPath,
     pipeline::{analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},

@@ -4,8 +4,9 @@ use http::{HeaderMap, header::USER_AGENT};
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, ResponseInclude, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -25,11 +26,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
+                parallel_calls: true,
+                strict_schema: true,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported,
+            )),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -49,11 +52,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
+                parallel_calls: true,
+                strict_schema: true,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported,
+            )),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -64,7 +69,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: true,
             context_management: false,
-            include: &[],
+            include: &[ResponseInclude::ReasoningEncryptedContent],
             moderation: false,
             logprobs: false,
         },

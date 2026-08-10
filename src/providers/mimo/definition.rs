@@ -24,59 +24,45 @@ use crate::{
     },
 };
 
-const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
-    ImageMediaType::Jpeg,
-    ImageMediaType::Png,
-    ImageMediaType::Gif,
-    ImageMediaType::Webp,
-    ImageMediaType::Bmp,
-];
-const IMAGE_REMOTE_LIMITS: RemoteImageInputLimits = RemoteImageInputLimits::new(8_192);
-const IMAGE_INLINE_LIMITS: InlineImageInputLimits = InlineImageInputLimits::new(
-    50 * 1024 * 1024,
-    38 * 1024 * 1024,
-    50 * 1024 * 1024,
-    38 * 1024 * 1024,
-);
-const IMAGE_INLINE_PROFILE: InlineImageInputProfile =
-    InlineImageInputProfile::new(IMAGE_MEDIA_TYPES, IMAGE_INLINE_LIMITS);
 const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     64,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {
-        remote: IMAGE_REMOTE_LIMITS,
-        data: IMAGE_INLINE_PROFILE,
+        remote: RemoteImageInputLimits::new(8_192),
+        data: InlineImageInputProfile::new(
+            &[
+                ImageMediaType::Jpeg,
+                ImageMediaType::Png,
+                ImageMediaType::Gif,
+                ImageMediaType::Webp,
+                ImageMediaType::Bmp,
+            ],
+            InlineImageInputLimits::new(
+                50 * 1024 * 1024,
+                38 * 1024 * 1024,
+                50 * 1024 * 1024,
+                38 * 1024 * 1024,
+            ),
+        ),
     },
     ImageDetailPolicy::OmittedOnly { default: None },
 );
 
-const AUDIO_INPUT_SOURCES: &[AudioInputSource] = &[
-    AudioInputSource::RemoteUrl,
-    AudioInputSource::DataUrl,
-    AudioInputSource::Base64,
-];
-const AUDIO_INPUT_FORMATS: &[AudioFormat] = &[
-    AudioFormat::Wav,
-    AudioFormat::Mp3,
-    AudioFormat::Flac,
-    AudioFormat::M4a,
-    AudioFormat::Ogg,
-];
-const AUDIO_OUTPUT_FORMATS: &[AudioFormat] = &[AudioFormat::Wav, AudioFormat::Mp3];
 const AUDIO_STREAMING_FORMATS: &[AudioFormat] = &[AudioFormat::Pcm16];
 const AUDIO_VOICES: &[&str] = &["mimo_default"];
 const ASR_LANGUAGES: &[AsrLanguage] = &[AsrLanguage::Auto, AsrLanguage::Zh, AsrLanguage::En];
-const TEXT_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[ToolChoiceMode::Auto];
-const TEXT_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
-    choice_modes: TEXT_TOOL_CHOICE_MODES,
-    parallel_calls: true,
-    strict_schema: true,
-};
-const TEXT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
-const TEXT_RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
-
 const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities::new(
-    AUDIO_INPUT_SOURCES,
-    AUDIO_INPUT_FORMATS,
+    &[
+        AudioInputSource::RemoteUrl,
+        AudioInputSource::DataUrl,
+        AudioInputSource::Base64,
+    ],
+    &[
+        AudioFormat::Wav,
+        AudioFormat::Mp3,
+        AudioFormat::Flac,
+        AudioFormat::M4a,
+        AudioFormat::Ogg,
+    ],
     AudioInputLimits::new(
         64,
         8_192,
@@ -102,7 +88,7 @@ const VOICE_CONDITIONING: AudioInputCapabilities = AudioInputCapabilities::new(
 
 const GENERATED_AUDIO_CEILING: GeneratedAudioCapabilities = GeneratedAudioCapabilities::new(
     JsonAudioDelivery::new(
-        AUDIO_OUTPUT_FORMATS,
+        &[AudioFormat::Wav, AudioFormat::Mp3],
         16 * 1024 * 1024,
         12 * 1024 * 1024,
         JsonAudioFraming::ChatMessageAudioData,
@@ -189,9 +175,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/v1/chat/completions",
         ProviderChatCompletionsCapabilities {
             streaming: true,
-            function_tools: Some(TEXT_FUNCTION_TOOLS),
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: &[ToolChoiceMode::Auto],
+                parallel_calls: true,
+                strict_schema: true,
+            }),
             image_input: Some(IMAGE_INPUT),
-            structured_outputs: Some(TEXT_STRUCTURED_OUTPUTS),
+            structured_outputs: Some(StructuredOutputProfile::JsonObject),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -209,9 +199,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/v1/responses",
         ProviderResponsesCapabilities {
             streaming: true,
-            function_tools: Some(TEXT_FUNCTION_TOOLS),
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: &[ToolChoiceMode::Auto],
+                parallel_calls: true,
+                strict_schema: true,
+            }),
             image_input: Some(IMAGE_INPUT),
-            structured_outputs: Some(TEXT_STRUCTURED_OUTPUTS),
+            structured_outputs: Some(StructuredOutputProfile::JsonObject),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -222,7 +216,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: true,
             context_management: false,
-            include: TEXT_RESPONSES_INCLUDES,
+            include: &[ResponseInclude::ReasoningEncryptedContent],
             moderation: false,
             logprobs: false,
         },

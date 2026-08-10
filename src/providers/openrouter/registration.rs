@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport, StructuredOutputProfile},
+    core::{
+        ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
+        StructuredOutputProfile,
+    },
     models::{deepseek, minimax},
     provider::ProviderKind,
     registry::{
@@ -15,7 +18,8 @@ use crate::{
 use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
-const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const STRUCTURED_OUTPUTS: StructuredOutputProfile =
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
 
 /// Builds the trusted OpenRouter API deployment used by the checked-in target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -64,21 +68,11 @@ fn dual_protocol_target(
             StorageSupport::Unsupported,
             ResponsesAffinity::Unbound,
         ));
-    let structured_outputs =
-        (canonical_model == deepseek::deepseek_v4_flash::ID).then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
-    chat_capabilities.structured_outputs = structured_outputs;
-    responses_capabilities.structured_outputs = structured_outputs;
-    if canonical_model != deepseek::deepseek_v4_flash::ID {
-        chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
-            profile.parallel_calls = false;
-            profile
-        });
-        responses_capabilities.function_tools =
-            responses_capabilities.function_tools.map(|mut profile| {
-                profile.parallel_calls = false;
-                profile
-            });
-        responses_capabilities.include = &[];
+    chat_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
+    responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
+    // DeepSeek V4 Flash is text-only; MiniMax M3 keeps the Chat family image ceiling.
+    if canonical_model == deepseek::deepseek_v4_flash::ID {
+        chat_capabilities.image_input = None;
     }
 
     // Bind the model-specific capabilities to both stateless Native protocol endpoints.

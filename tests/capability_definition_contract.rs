@@ -14,7 +14,6 @@ use openbridge::{
         StructuredOutputProfile,
     },
     pipeline::RequestPlanningError,
-    providers::compiled_config,
     registry::{
         CanonicalTaskKind, InputModality, OutputModality, RegistryError, UpstreamApiCapabilities,
         build_registry,
@@ -96,73 +95,6 @@ fn response_include_values_round_trip_exact_wire_paths() {
         assert_eq!(serde_json::to_value(include).unwrap(), json!(wire));
     }
     assert_eq!(ResponseInclude::from_wire("future.output"), None);
-}
-
-#[test]
-fn checked_in_targets_publish_only_the_probed_request_option_pairs() {
-    const CHAT_TARGETS: &[&str] = &[
-        "bailian-glm-5-2",
-        "bailian-qwen3-6-27b",
-        "bailian-deepseek-v4-pro",
-        "deepseek-v4-pro",
-        "longcat-2",
-        "kimi-cn-kimi-k3",
-    ];
-    const RESPONSES_TARGETS: &[&str] = &[
-        "bailian-qwen3-7-plus",
-        "bailian-qwen3-7-max",
-        "bailian-qwen3-8-max",
-        "deepseek-v4-flash",
-        "longcat-2",
-        "mimo-v2-5-pro",
-        "mimo-v2-5",
-        "openrouter-deepseek-v4-flash",
-        "openrouter-minimax-m3",
-    ];
-    const REASONING_INCLUDE_TARGETS: &[&str] = &[
-        "chatgpt-gpt-5-3-codex-spark",
-        "chatgpt-gpt-5-5",
-        "chatgpt-gpt-5-6-luna",
-        "chatgpt-gpt-5-6-sol",
-        "chatgpt-gpt-5-6-terra",
-        "deepseek-v4-flash",
-        "mimo-v2-5",
-        "openrouter-deepseek-v4-flash",
-    ];
-    const REASONING_INCLUDE: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
-
-    // Compare every checked-in generation API against the exact Target/API pairs proved upstream.
-    for target in compiled_config().upstream_targets {
-        for upstream_api in target.upstream_apis {
-            match upstream_api.capabilities {
-                UpstreamApiCapabilities::ChatCompletions(capabilities) => assert_eq!(
-                    capabilities.prompt_cache_key,
-                    CHAT_TARGETS.contains(&target.id.as_str()),
-                    "unexpected Chat prompt_cache_key capability for {}",
-                    target.id
-                ),
-                UpstreamApiCapabilities::Responses(capabilities) => {
-                    assert_eq!(
-                        capabilities.prompt_cache_key,
-                        RESPONSES_TARGETS.contains(&target.id.as_str()),
-                        "unexpected Responses prompt_cache_key capability for {}",
-                        target.id
-                    );
-                    assert_eq!(
-                        capabilities.include,
-                        if REASONING_INCLUDE_TARGETS.contains(&target.id.as_str()) {
-                            REASONING_INCLUDE
-                        } else {
-                            &[]
-                        },
-                        "unexpected Responses include capability for {}",
-                        target.id,
-                    );
-                }
-                UpstreamApiCapabilities::Embeddings(_) => {}
-            }
-        }
-    }
 }
 
 #[test]

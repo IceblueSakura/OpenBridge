@@ -285,7 +285,10 @@ fn prompt_cache_key_is_forwarded_to_every_native_candidate_and_empty_include_is_
             .iter()
             .any(|value| value == "prompt_cache_key")
     );
-    assert_eq!(interface["response_includes"], json!([]));
+    assert_eq!(
+        interface["response_includes"],
+        json!(["reasoning.encrypted_content"])
+    );
     assert!(interface.get("prompt_caching").is_none());
 
     // Build each fallback independently from the same canonical request option.
@@ -308,7 +311,7 @@ fn prompt_cache_key_is_forwarded_to_every_native_candidate_and_empty_include_is_
     let unsupported = serde_json::to_vec(&json!({
         "model": "public-model",
         "input": "hello",
-        "include": ["reasoning.encrypted_content"]
+        "include": ["web_search_call.action.sources"]
     }))
     .unwrap();
     assert!(matches!(
