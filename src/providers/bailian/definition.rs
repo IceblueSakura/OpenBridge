@@ -4,9 +4,10 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
-        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
+        EmbeddingsCapabilities, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -24,6 +25,13 @@ const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
+    &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+const FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
+    choice_modes: ALL_TOOL_CHOICE_MODES,
+    parallel_calls: false,
+    strict_schema: false,
+};
 
 /// Bounded Model Studio operation surface confirmed independently of any model-specific target.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -31,7 +39,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/chat/completions",
         ProviderChatCompletionsCapabilities {
             streaming: true,
-            function_tools: None,
+            function_tools: Some(FUNCTION_TOOLS),
             image_input: None,
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
@@ -51,7 +59,11 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/responses",
         ProviderResponsesCapabilities {
             streaming: true,
-            function_tools: None,
+            function_tools: Some(FunctionToolCapabilities {
+                choice_modes: RESPONSES_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: false,
+            }),
             image_input: None,
             structured_outputs: None,
             state: ProviderResponsesStateCeiling::Stateless,

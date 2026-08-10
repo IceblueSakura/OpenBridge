@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A secure OpenAI-compatible model gateway and protocol bridge."
 license = "MIT"
+default-run = "openbridge"
 
 [dependencies]
 anyhow = "1.0"
