@@ -416,13 +416,19 @@ intersection 或 Bridge。canonical
 `ModelConfig` 的公共层只记录 identity、描述、tokenizer 与 knowledge cutoff；必填 `CanonicalModelTask` variant 拥有已核实的
 task-specific limits、模态、参数与 reasoning，并以 `CanonicalTaskKind` 提供无 payload 分类。当前 OpenRouter Generation
 精确匹配的 canonical 模型还记录模型级 `context_length` 作为总上下文和输入上限，并记录可用的 最大输出上限。没有精确目录记录的
-Codex Spark 继续保留未知字段。Chat 预留 file/custom tool、predicted output、web search、prompt
-caching、moderation、logprobs 和 multiple choices；Responses 另以
-`HostedToolKind`、`ResponseInclude` 及状态字段预留 hosted tool、附加输出、conversation、prompt template 和 context
-management。Provider/API definition 仍保持这些未实现的 endpoint 字段为 `None`、`false` 或空集合；进入 registry 编译的 Model
-或 Upstream API definition 一旦启用任一预留字段，就会在监听前触发 `unimplemented!`。 请求分析按 Chat/Responses 分域识别相同预留
-wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingress 映射为稳定的 `unimplemented_request` HTTP
-400；未知且尚未进入预留枚举的 tool type 仍走普通 unsupported gate。 因此这些类型位置与请求错误边界都不构成已实现能力声明。
+Codex Spark 继续保留未知字段。Chat 预留 file/custom tool、predicted output、web search、moderation、logprobs 和 multiple choices；Responses
+另以 `HostedToolKind` 及状态字段预留 hosted tool、conversation、prompt template 和 context management。Provider/API definition 仍保持这些
+未实现的 endpoint 字段为 `None`、`false` 或空集合；进入 registry 编译的 Model 或 Upstream API definition 一旦启用任一预留字段，就会在
+监听前触发 `unimplemented!`。请求分析按 Chat/Responses 分域识别相同预留 wire 语义，在 route/egress 前返回
+`UnimplementedCapabilities`，由 ingress 映射为稳定的 `unimplemented_request` HTTP 400；未知且尚未进入预留枚举的 tool type 仍走普通
+unsupported gate。
+
+`ResponseInclude` 已从整体预留位变为精确 wire 值的闭合枚举。Responses analyzer 把非空 `include` 冻结为类型化集合，Route contribution
+携带逐值能力，Public Model compiler 对全部固定候选求交集并以 `response_includes` 投影；空数组/null 在 candidate 展开前移除，未知或不在
+交集中的值 zero-egress fail closed。当前 checked-in Upstream API 的 include 集合仍全部为空，未开放 hosted-tool 或
+`reasoning.encrypted_content` 输出。`prompt_cache_key` 独立表示 exact request forwarding：只在全部固定候选支持时进入
+`supported_parameters`，Native 与 Bridge 原样复制，但不再公开旧的 `prompt_caching` 效果字段，也不承诺 cache hit；options、retention 和
+breakpoint 仍属于未实现边界。
 
 OpenRouter 当前注册 `openrouter-deepseek-v4-flash` 与 `openrouter-minimax-m3` 两个固定 target；每个 target 都提供 Chat/Responses
 Upstream API、`ResponsesAffinity::Unbound` executable state 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与

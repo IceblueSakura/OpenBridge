@@ -37,9 +37,15 @@ pub fn plan_request(
         debug_assert!(interface.continuation_candidates_match_issuer());
     }
 
+    // Remove the typed inactive Responses projection before any Native or Bridged egress body is built.
+    let normalized_body = normalize_inactive_response_include(&body, requirements.protocol())?;
+
     // Normalize the canonical request once so every static fallback candidate receives one effort.
-    let normalized_body =
-        normalize_reasoning_level(&body, requirements.protocol(), normalized_reasoning_level)?;
+    let normalized_body = normalize_reasoning_level(
+        &normalized_body,
+        requirements.protocol(),
+        normalized_reasoning_level,
+    )?;
 
     // Build requests in compiled priority order; request facts cannot filter or reorder candidates.
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());
@@ -90,6 +96,36 @@ pub fn plan_request(
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
+}
+
+/// Removes only an analyzed inactive Responses `include` value from the canonical request body.
+fn normalize_inactive_response_include(
+    body: &Bytes,
+    protocol: ApiProtocol,
+) -> Result<Bytes, RequestPlanningError> {
+    // Preserve original bytes unless the Responses field is explicitly null or an empty array.
+    if protocol != ApiProtocol::Responses {
+        return Ok(body.clone());
+    }
+    let document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let inactive = document
+        .as_object()
+        .and_then(|object| object.get("include"))
+        .is_some_and(|value| value.is_null() || value.as_array().is_some_and(Vec::is_empty));
+    if !inactive {
+        return Ok(body.clone());
+    }
+
+    // Remove the no-op field once and serialize one immutable source for every candidate.
+    let mut document = document;
+    document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?
+        .remove("include");
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
 }
 
 /// Rewrites only a preflight-resolved canonical reasoning level before candidate expansion.

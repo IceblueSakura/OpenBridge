@@ -62,12 +62,13 @@ fn target(
     api_surface: ModelApiSurface,
 ) -> UpstreamTargetConfig {
     // Resolve the Chat profile required by every DeepSeek target.
-    let chat_capabilities = DEFINITION
+    let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .chat_completions
         .expect("DeepSeek targets require Chat Completions capabilities")
         .to_executable(None);
+    chat_capabilities.prompt_cache_key = canonical_model == deepseek::deepseek_v4_pro::ID;
 
     // Build the model-specific Native API set without introducing Target-bound state.
     let mut upstream_apis = vec![UpstreamApiConfig {

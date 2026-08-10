@@ -61,7 +61,7 @@ parameters 和 canonical reasoning 只能由所选 variant 拥有或派生。不
 - 生命周期和展示信息：`name`、`description`、`lifecycle`；
 - 模型事实：任务、total/input/output context、输入/输出模态、tokenizer、知识截止和 reasoning；
 - 接口契约：`chat_completions` 与 `responses` 各自至多一个生成接口能力对象，分别公开 `streaming` 与 `non_streaming` 支持状态，并可带协议内 source-aware `multimodal_input`；固定
-  音频生成任务还可带 mode-aware `multimodal_output.audio`；
+  音频生成任务还可带 mode-aware `multimodal_output.audio`；生成接口还公开逐值 `response_includes`，Chat 或没有共同 Responses 投影时为空数组；
   `embeddings` 至多一个独立 Embedding 接口能力对象；
 - schema 版本：首版固定为字符串 `"1"`。Embeddings interface 首次加入前该扩展契约尚未发布，因此直接修正 v1 DTO、序列化、OpenAPI
   和测试，不增加无意义的 v2、legacy 字段镜像或双写兼容层。
@@ -114,6 +114,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
 | reasoning 输出形态                                                                  | 全部 Route 形态相同时公开该值，否则为 `unknown`                                                                       |
+| Responses `include` 输出投影                                                        | Route contribution 携带逐值闭合集合，Public Model 取全部固定候选的集合交集；Bridge 不能完整保真时贡献空集             |
 | function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode |
 | structured outputs                                                              | 执行契约只保存 `JsonObject | JsonSchema(strictness) | JsonObjectAndJsonSchema(strictness)` 闭合 profile；按完整 variant 相交，空 mode 交集关闭整个能力，Models 的 support/modes/strict 只从结果投影 |
 | `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
@@ -153,7 +154,7 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 模型请求必须遵循固定顺序：
 
 1. 分析请求 operation、Public Model，以及该接口的 input form、encoding/dimensions、streaming/non-streaming delivery、精确 tool choice mode、媒体
-   part/source/format/detail、URL 长度、inline 编码/解码字节、task-neutral message shape、闭合 Structured Output request variant、reasoning、state 和输出限制等结构事实；
+   part/source/format/detail、URL 长度、inline 编码/解码字节、task-neutral message shape、闭合 Structured Output request variant、逐值 Responses `include`、reasoning、state 和输出限制等结构事实；
    analyzer 不选择 canonical task、Public Model interface 或 Route。
 2. 查询所选 Public Model 的目标接口固定契约。
 3. 取得固定接口后才解释 task-specific 音频 shape，并对所有已建模请求能力执行一次 fail-closed 预检；VoiceClone conditioning 保持独立，
@@ -199,6 +200,8 @@ state ownership 也不能选择能力更强的候选。
 - `StandardModel` 严格只有 `id`、`object: "model"`、`created` 和 `owned_by: "openbridge"`。
 - 扩展 generation interface 的 `reasoning.levels` 是实际可执行交集，`accepted_levels` 是下游可提交的标准词汇，`input_policy`
   明确两者间的固定解析规则；三者不得泄漏 Route、Provider 或 wire mapping。
+- 扩展 generation interface 的 `response_includes` 只包含全部固定候选共同保证的精确 wire 值；`prompt_cache_key` 只通过
+  `supported_parameters` 表示 exact forwarding，不得重新投影为“缓存受支持”或 cache-hit 保证。
 - 同一 snapshot 下，retrieve 必须与对应列表元素逐字段相同；列表按 Public Model id 确定性排序。
 - 未知、retired 或当前不可用模型返回 HTTP 404、`model_not_found`，`param` 为 `model`，不得区分内部存在性。
 - 固定接口契约不支持请求时返回 HTTP 400、`unsupported_model_capability`，并保证上游调用次数为零。
@@ -222,6 +225,7 @@ registry 必须在监听前拒绝：
 - Provider audio ceiling 为空、重复 task、缺少该 task 的完整 input/output/conditioning/delivery payload，或把 Provider ceiling 当成
   单个 executable profile；generated-audio profile 缺少必填 JSON 或 SSE delivery；
 - Upstream API 能力超过 Provider contract 上界；通过 ceiling 后，operation/executable profile 与 canonical task 不兼容；
+- Responses `include` capability set 含重复值或超过 Provider ceiling；
 - 一个 Public Model 混合不同 canonical task，或同 task/same audio variant 的必需 payload 交集为空。
 
 ## 8. 功能验收要求
@@ -242,6 +246,7 @@ registry 必须在监听前拒绝：
 | MODEL-12 | Provider 完整 audio ceiling、单个 executable profile 与 canonical task 在启动期逐层校验；VoiceClone conditioning 不进入 content-understanding input。             |
 | MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
 | MODEL-14 | generation reasoning `levels`、`accepted_levels` 与 `input_policy` 共享同一固定接口；正向归一化在 candidate 展开前执行一次，`none` 保持独立，标准 Models 投影不变。 |
+| MODEL-15 | Responses `response_includes` 按具体 wire 值保守相交并直接供 preflight 使用；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
 
 确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
 LiteLLM/OpenRouter 目录新鲜度。

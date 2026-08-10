@@ -87,6 +87,38 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
 }
 
 #[tokio::test]
+async fn longcat_responses_native_forwards_prompt_cache_key_and_removes_empty_include() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Exercise the checked-in LongCat Native Responses target that passed the real upstream probe.
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    r#"{"model":"LongCat-2.0","input":"hello","stream":true,"include":[],"prompt_cache_key":"cache-test"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+
+    // Inspect the post-adapter wire body rather than only the pre-adapter RoutePlan.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/openai/v1/responses");
+    assert_eq!(requests[0].body["prompt_cache_key"], "cache-test");
+    assert!(requests[0].body.get("include").is_none());
+}
+
+#[tokio::test]
 async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
     // Build the actual compiled DeepSeek route and an explicit reasoning request.
     let transport = Arc::new(DeepSeekReasoningStreamTransport::default());

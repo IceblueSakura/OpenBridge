@@ -163,6 +163,10 @@ fn validate_interface_request(
         || (requested_features.store && !interface.supports_store())
         || (requested_features.previous_response_id && !supports_previous_response_id)
         || (requested_features.background && !interface.supports_background())
+        || requested_features
+            .response_includes
+            .iter()
+            .any(|include| !interface.supports_response_include(*include))
     {
         return Err(RequestPlanningError::UnsupportedCapabilities);
     }

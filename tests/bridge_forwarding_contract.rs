@@ -159,6 +159,7 @@ fn app_with_reasoning_output(
             profile
         });
         capabilities.reasoning_output = reasoning_output;
+        capabilities.prompt_cache_key = use_deepseek_chat;
     }
     if !use_deepseek_chat
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
@@ -235,6 +236,77 @@ fn assert_stream_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]
             assert_eq!(actual_state.tool_calls(), expected_state.tool_calls());
         }
     }
+}
+
+#[tokio::test]
+async fn responses_bridge_forwards_prompt_cache_key_and_removes_empty_include() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/chat/completions",
+        upstream_body: fixture(
+            "responses_to_chat/responses_to_chat.text.non_stream/upstream-response.json",
+        ),
+        content_type: "application/json",
+        requests: Mutex::new(Vec::new()),
+    });
+
+    // Send the exact request option through the probed DeepSeek Chat-backed Responses Route.
+    let response = app_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport.clone(),
+        ReasoningOutput::PlainText,
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","include":[],"prompt_cache_key":"cache-test"}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+
+    // Verify exact egress while keeping the inactive Responses projection out of the Chat body.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/chat/completions");
+    assert_eq!(requests[0].1["prompt_cache_key"], "cache-test");
+    assert!(requests[0].1.get("include").is_none());
+}
+
+#[tokio::test]
+async fn responses_bridge_rejects_nonempty_include_before_egress() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/chat/completions",
+        upstream_body: Bytes::new(),
+        content_type: "application/json",
+        requests: Mutex::new(Vec::new()),
+    });
+
+    // A Bridge cannot synthesize opaque reasoning output merely because the upstream accepts JSON.
+    let response = app_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport.clone(),
+        ReasoningOutput::PlainText,
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","include":["reasoning.encrypted_content"]}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(transport.requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

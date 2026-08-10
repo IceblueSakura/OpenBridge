@@ -7,7 +7,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, GenerationRequestField, ToolChoiceMode},
+    core::{ApiProtocol, GenerationRequestField, ResponseInclude, ToolChoiceMode},
     registry::ReasoningLevel,
 };
 
@@ -53,6 +53,7 @@ pub fn analyze_request(
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     // Derive the capabilities actually requested from protocol fields.
     let requested_output_tokens = requested_output_tokens(object);
+    let response_includes = analyze_response_includes(protocol, object)?;
     let audio = analyze_audio(protocol, object)?;
     let requests_function_calling = object
         .get("tools")
@@ -93,6 +94,7 @@ pub fn analyze_request(
                 .is_some_and(|value| !value.is_null()),
         background: protocol == ApiProtocol::Responses
             && object.get("background").and_then(Value::as_bool) == Some(true),
+        response_includes,
     };
     // Freeze request facts so later Route planning does not reinterpret the body.
     Ok(RequestRequirements {
@@ -153,7 +155,7 @@ fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) ->
         || chat_messages_contain_part_type(object, "file")
         || has_non_null_field(object, "prediction")
         || has_non_null_field(object, "web_search_options")
-        || requests_prompt_caching(object)
+        || requests_reserved_prompt_cache_features(object)
         || has_non_null_field(object, "moderation")
 }
 
@@ -166,9 +168,8 @@ fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value
         || has_non_null_field(object, "audio")
         || has_non_null_field(object, "conversation")
         || has_non_null_field(object, "prompt")
-        || requests_prompt_caching(object)
+        || requests_reserved_prompt_cache_features(object)
         || has_non_null_field(object, "context_management")
-        || has_non_null_field(object, "include")
         || has_non_null_field(object, "moderation")
 }
 
@@ -258,16 +259,40 @@ fn has_non_null_field(object: &serde_json::Map<String, Value>, field: &str) -> b
     object.get(field).is_some_and(|value| !value.is_null())
 }
 
-/// Returns whether a request uses prompt-cache key/options/retention or a content breakpoint.
-fn requests_prompt_caching(object: &serde_json::Map<String, Value>) -> bool {
-    [
-        "prompt_cache_key",
-        "prompt_cache_options",
-        "prompt_cache_retention",
-    ]
-    .iter()
-    .any(|field| has_non_null_field(object, field))
+/// Returns whether a request uses unsupported prompt-cache options, retention, or a breakpoint.
+fn requests_reserved_prompt_cache_features(object: &serde_json::Map<String, Value>) -> bool {
+    ["prompt_cache_options", "prompt_cache_retention"]
+        .iter()
+        .any(|field| has_non_null_field(object, field))
         || object.values().any(contains_prompt_cache_breakpoint)
+}
+
+/// Parses the Responses `include` field into a closed, registry-independent projection set.
+fn analyze_response_includes(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> Result<std::collections::BTreeSet<ResponseInclude>, RequestPlanningError> {
+    // Treat omission and explicit null as an inactive value on either analyzed protocol.
+    if protocol != ApiProtocol::Responses {
+        return Ok(std::collections::BTreeSet::new());
+    }
+    let Some(value) = object.get("include").filter(|value| !value.is_null()) else {
+        return Ok(std::collections::BTreeSet::new());
+    };
+
+    // Parse every exact wire value and fail closed for malformed or unknown projections.
+    let values = value
+        .as_array()
+        .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .and_then(ResponseInclude::from_wire)
+                .ok_or(RequestPlanningError::UnsupportedCapabilities)
+        })
+        .collect()
 }
 
 /// Recursively identifies a `prompt_cache_breakpoint` part in a content tree.

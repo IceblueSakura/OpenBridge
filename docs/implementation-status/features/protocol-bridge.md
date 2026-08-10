@@ -19,6 +19,9 @@
 - `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
 - Bridge 与 Native 共用源协议顶层字段目录。未知字段先返回 `unknown_parameter`；已知但当前方向不可表示的字段只有在所选 API 对五类
   普通提示具有显式忽略规则时才能接受，并会在 Bridge request converter 之前删除。每个 fallback candidate 仍从原始 body 独立构造。
+- `prompt_cache_key` 是显式的双向 shared request field；只有目标 Upstream API 的静态 profile 声明 exact forwarding 时，Bridge Route 才把
+  它贡献到固定接口并原样复制。`include: []` 先作为 no-op 移除；非空 include 需要 converter 同时保真请求和客户端可见输出，当前 Bridge
+  不贡献任何值，不能因 Chat upstream 接受任意 JSON 就伪造 reasoning 或 server-side-tool 输出。
 - 不可表达的 image/file/audio、hosted/custom tool、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，不伪造等价语义。
   下游 request/history 中的 opaque continuation 仍拒绝；已完成 Responses 输出转为无状态 Chat response 时，验证后丢弃
   `encrypted_content`，保留可读 summary/content、text 与 tool call，且绝不把 opaque 值投影为 `reasoning_content`。
@@ -34,6 +37,7 @@
 
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖双向 request、JSON 和 SSE renderer。
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
+  其中缓存键用例检查 Responses→DeepSeek Chat post-adapter exact egress 与空 include 移除，非空 opaque include 用例检查 transport zero egress。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 Bridge 未知字段分类、转换前 candidate 参数删除和
   fallback body 隔离；[`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖对应 HTTP 错误与 transport zero egress。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
@@ -49,6 +53,10 @@
 - [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 只保留最新的 16 个可见文字模型
   `none/high × Chat/Responses × JSON/SSE` 矩阵；128 个请求中 124 个返回完整 HTTP 200 终态，另外 4 个均为 Spark `none`
   的已记录 HTTP 400。矩阵覆盖 Kimi 与 GLM 的 Responses-via-Chat JSON/SSE，但不证明强制 fallback 或未纳入该矩阵的参数组合。
+
+2026-08-10 对 6 个真实 Responses-via-Chat 候选分别执行 baseline 与 `prompt_cache_key` 脱敏请求，12/12 得到 HTTP 200 和可识别 Chat
+completion：LongCat、DeepSeek V4 Pro、Bailian DeepSeek V4 Pro、Kimi K3、Bailian GLM-5.2 与 Qwen3.6 27B。该结果只支持 exact
+forwarding 声明；未执行 cache-hit 因果验收，也未证明 Bridge 能返回任何非空 Responses include 投影。
 
 确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
 OpenAI API 或任意 Provider 私有语义可转换。

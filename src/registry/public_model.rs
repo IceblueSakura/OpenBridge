@@ -11,7 +11,7 @@ use crate::core::{
     EmbeddingEncoding, EmbeddingInputForm, ExecutableAudioProfile, GeneratedAudioCapabilities,
     ImageDetail, ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
     ImageSourceCapabilities, InlineImageInputProfile, JsonAudioFraming, ReasoningOutput,
-    SseAudioFraming, StructuredOutputProfile,
+    ResponseInclude, SseAudioFraming, StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -1248,7 +1248,7 @@ pub struct ModelInterfaceCapabilities {
     tools: ToolCapabilities,
     structured_outputs: Option<StructuredOutputProfile>,
     reasoning: InterfaceReasoningCapabilities,
-    prompt_caching: SupportState,
+    response_includes: Vec<ResponseInclude>,
     state: StateCapabilities,
 }
 
@@ -1293,7 +1293,7 @@ struct ModelInterfaceCapabilitiesWire<'a> {
     tools: &'a ToolCapabilities,
     structured_outputs: StructuredOutputCapabilitiesWire,
     reasoning: &'a InterfaceReasoningCapabilities,
-    prompt_caching: SupportState,
+    response_includes: &'a [ResponseInclude],
     state: &'a StateCapabilities,
 }
 
@@ -1338,7 +1338,7 @@ impl Serialize for ModelInterfaceCapabilities {
             tools: &self.tools,
             structured_outputs,
             reasoning: &self.reasoning,
-            prompt_caching: self.prompt_caching,
+            response_includes: &self.response_includes,
             state: &self.state,
         }
         .serialize(serializer)
@@ -1456,6 +1456,11 @@ impl ModelInterfaceCapabilities {
         self.supported_parameters
             .iter()
             .any(|supported| supported == parameter)
+    }
+
+    /// Returns whether this Responses interface guarantees one additional output projection.
+    pub(crate) fn supports_response_include(&self, include: ResponseInclude) -> bool {
+        self.response_includes.contains(&include)
     }
 
     /// Returns whether the interface guarantees streaming support.

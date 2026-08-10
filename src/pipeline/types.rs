@@ -7,7 +7,7 @@ use crate::{
     core::{
         ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, EmbeddingEncoding,
         EmbeddingInputForm, EmbeddingRequest, GenerationRequestField, ImageDetail,
-        ImageInputSource, ImageMediaType, OperationKind, ToolChoiceMode,
+        ImageInputSource, ImageMediaType, OperationKind, ResponseInclude, ToolChoiceMode,
     },
     registry::ReasoningLevel,
 };
@@ -101,6 +101,7 @@ pub(super) struct RequestedCapabilities {
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
+    pub(super) response_includes: BTreeSet<ResponseInclude>,
 }
 
 /// Closed structured-output requirement extracted from one downstream generation request.

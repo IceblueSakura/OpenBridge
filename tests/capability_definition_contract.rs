@@ -14,6 +14,7 @@ use openbridge::{
         StructuredOutputProfile,
     },
     pipeline::RequestPlanningError,
+    providers::compiled_config,
     registry::{
         CanonicalTaskKind, InputModality, OutputModality, RegistryError, UpstreamApiCapabilities,
         build_registry,
@@ -85,6 +86,68 @@ const NON_STRICT_JSON_SCHEMA_OUTPUT: StructuredOutputProfile =
     StructuredOutputProfile::JsonSchema(JsonSchemaSupport::NonStrictOnly);
 const STRICT_COMBINED_OUTPUT: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+
+#[test]
+fn response_include_values_round_trip_exact_wire_paths() {
+    // Keep typed analysis, Models projection, and egress JSON on one exact closed wire vocabulary.
+    for include in INCLUDES {
+        let wire = include.as_wire();
+        assert_eq!(ResponseInclude::from_wire(wire), Some(*include));
+        assert_eq!(serde_json::to_value(include).unwrap(), json!(wire));
+    }
+    assert_eq!(ResponseInclude::from_wire("future.output"), None);
+}
+
+#[test]
+fn checked_in_targets_publish_only_the_probed_prompt_cache_key_forwarding_pairs() {
+    const CHAT_TARGETS: &[&str] = &[
+        "bailian-glm-5-2",
+        "bailian-qwen3-6-27b",
+        "bailian-deepseek-v4-pro",
+        "deepseek-v4-pro",
+        "longcat-2",
+        "kimi-cn-kimi-k3",
+    ];
+    const RESPONSES_TARGETS: &[&str] = &[
+        "bailian-qwen3-7-plus",
+        "bailian-qwen3-7-max",
+        "bailian-qwen3-8-max",
+        "deepseek-v4-flash",
+        "longcat-2",
+        "mimo-v2-5-pro",
+        "mimo-v2-5",
+        "openrouter-deepseek-v4-flash",
+        "openrouter-minimax-m3",
+    ];
+
+    // Compare every checked-in generation API against the exact Target/API pairs proved upstream.
+    for target in compiled_config().upstream_targets {
+        for upstream_api in target.upstream_apis {
+            match upstream_api.capabilities {
+                UpstreamApiCapabilities::ChatCompletions(capabilities) => assert_eq!(
+                    capabilities.prompt_cache_key,
+                    CHAT_TARGETS.contains(&target.id.as_str()),
+                    "unexpected Chat prompt_cache_key capability for {}",
+                    target.id
+                ),
+                UpstreamApiCapabilities::Responses(capabilities) => {
+                    assert_eq!(
+                        capabilities.prompt_cache_key,
+                        RESPONSES_TARGETS.contains(&target.id.as_str()),
+                        "unexpected Responses prompt_cache_key capability for {}",
+                        target.id
+                    );
+                    assert!(
+                        capabilities.include.is_empty(),
+                        "unprobed Responses include value enabled for {}",
+                        target.id
+                    );
+                }
+                UpstreamApiCapabilities::Embeddings(_) => {}
+            }
+        }
+    }
+}
 
 #[test]
 fn structured_output_profile_is_a_non_empty_const_union_with_derived_accessors() {
@@ -286,7 +349,7 @@ fn canonical_model_task_and_modalities_compile_into_public_model_information() {
 
 #[test]
 fn reserved_interface_capabilities_fail_closed_before_registry_compilation() {
-    let chat_cases: [(&str, ChatReservation); 8] = [
+    let chat_cases: [(&str, ChatReservation); 7] = [
         ("custom_tool_calling", |capabilities| {
             capabilities.custom_tool_calling = true
         }),
@@ -295,9 +358,6 @@ fn reserved_interface_capabilities_fail_closed_before_registry_compilation() {
             capabilities.predicted_outputs = true
         }),
         ("web_search", |capabilities| capabilities.web_search = true),
-        ("prompt_caching", |capabilities| {
-            capabilities.prompt_caching = true
-        }),
         ("moderation", |capabilities| capabilities.moderation = true),
         ("logprobs", |capabilities| capabilities.logprobs = true),
         ("multiple_choices", |capabilities| {
@@ -320,7 +380,7 @@ fn reserved_interface_capabilities_fail_closed_before_registry_compilation() {
         });
     }
 
-    let responses_cases: [(&str, ResponsesReservation); 10] = [
+    let responses_cases: [(&str, ResponsesReservation); 8] = [
         ("custom_tool_calling", |capabilities| {
             capabilities.custom_tool_calling = true
         }),
@@ -334,13 +394,9 @@ fn reserved_interface_capabilities_fail_closed_before_registry_compilation() {
         ("prompt_templates", |capabilities| {
             capabilities.prompt_templates = true
         }),
-        ("prompt_caching", |capabilities| {
-            capabilities.prompt_caching = true
-        }),
         ("context_management", |capabilities| {
             capabilities.context_management = true
         }),
-        ("include", |capabilities| capabilities.include = INCLUDES),
         ("moderation", |capabilities| capabilities.moderation = true),
         ("logprobs", |capabilities| capabilities.logprobs = true),
     ];
@@ -397,11 +453,26 @@ fn every_reserved_chat_request_field_stops_before_route_planning() {
             }),
         ),
         (
-            "prompt_caching",
+            "prompt_cache_options",
             json!({
                 "model": "public-model",
                 "messages": [{"role": "user", "content": "hello"}],
-                "prompt_cache_key": "cache-test"
+                "prompt_cache_options": {"type": "ephemeral"}
+            }),
+        ),
+        (
+            "prompt_cache_retention",
+            json!({
+                "model": "public-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                "prompt_cache_retention": "24h"
+            }),
+        ),
+        (
+            "prompt_cache_breakpoint",
+            json!({
+                "model": "public-model",
+                "messages": [{"role": "user", "content": [{"type": "prompt_cache_breakpoint"}]}]
             }),
         ),
         (
@@ -454,16 +525,20 @@ fn every_reserved_responses_request_field_stops_before_route_planning() {
             json!({"model": "public-model", "input": "hello", "prompt": {"id": "pmpt_test"}}),
         ),
         (
-            "prompt_caching",
-            json!({"model": "public-model", "input": "hello", "prompt_cache_key": "cache-test"}),
+            "prompt_cache_options",
+            json!({"model": "public-model", "input": "hello", "prompt_cache_options": {"type": "ephemeral"}}),
+        ),
+        (
+            "prompt_cache_retention",
+            json!({"model": "public-model", "input": "hello", "prompt_cache_retention": "24h"}),
+        ),
+        (
+            "prompt_cache_breakpoint",
+            json!({"model": "public-model", "input": [{"type": "prompt_cache_breakpoint"}]}),
         ),
         (
             "context_management",
             json!({"model": "public-model", "input": "hello", "context_management": {}}),
-        ),
-        (
-            "include",
-            json!({"model": "public-model", "input": "hello", "include": ["message.output_text.logprobs"]}),
         ),
         (
             "moderation",
@@ -473,6 +548,57 @@ fn every_reserved_responses_request_field_stops_before_route_planning() {
 
     // Submit each capability-bearing Responses request and prove that it stops before the Provider adapter.
     assert_reserved_requests_unimplemented(&registry, ApiProtocol::Responses, cases);
+}
+
+#[test]
+fn empty_responses_include_is_an_inactive_value_removed_before_egress() {
+    let registry = support::registry("empty-include", "public-model", "upstream");
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "include": []
+    }))
+    .unwrap();
+
+    // Admit the typed no-op value without claiming support for any non-empty projection.
+    let plan = support::prepare(&registry, ApiProtocol::Responses, request.into())
+        .expect("an empty include set must not require an interface capability");
+    let upstream: Value = serde_json::from_slice(plan.request().body()).unwrap();
+    assert!(upstream.get("include").is_none());
+}
+
+#[test]
+fn unknown_responses_include_fails_as_an_unsupported_capability() {
+    let registry = support::registry("unknown-include", "public-model", "upstream");
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "include": ["future.output"]
+    }))
+    .unwrap();
+
+    // Fail closed during typed analysis instead of treating the whole field as one reserved switch.
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+}
+
+#[test]
+fn undeclared_prompt_cache_key_is_a_parameter_capability_failure() {
+    let registry = support::registry("prompt-cache-key", "public-model", "upstream");
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "prompt_cache_key": "cache-test"
+    }))
+    .unwrap();
+
+    // Keep the forwarding option in the ordinary fixed-interface gate when this model does not expose it.
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedParameter("prompt_cache_key")
+    ));
 }
 
 /// Submits each reserved request and checks its protocol-specific stable panic text.

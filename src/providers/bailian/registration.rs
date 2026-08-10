@@ -139,6 +139,10 @@ fn chat_target(
         .expect("Bailian generation targets require Chat Completions capabilities")
         .to_executable(None);
     chat_capabilities.reasoning_output = reasoning_output;
+    chat_capabilities.prompt_cache_key = matches!(
+        canonical_model,
+        z_ai::glm_5_2::ID | qwen::qwen3_6_27b::ID | deepseek::deepseek_v4_pro::ID
+    );
     chat_capabilities.structured_outputs = matches!(
         canonical_model,
         deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID

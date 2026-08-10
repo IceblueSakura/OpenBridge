@@ -77,6 +77,11 @@ Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公�
 MiniMax M3 与 Qwen3.6 27B 当前都只有 thinking 开关证据，因此统一公开 `none/high`，不外推未声明的中间强度档位。
 只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
+扩展 Models 的 generation interface 以 `response_includes` 公开全部固定候选共同保证的 Responses 输出投影；当前已注册 Public Model
+都返回空集合，因此非空 `include` 会在上游调用前拒绝，但 `include: []` 作为 no-op 会在 egress 前移除。`prompt_cache_key` 只有在
+对应 interface 的 `supported_parameters` 中出现时才会对 Native/Bridge 每个候选原样转发；这只表示请求选项可传递，不承诺缓存启用、
+命中、延迟或成本效果。`prompt_cache_options`、`prompt_cache_retention` 和 `prompt_cache_breakpoint` 当前仍不支持。
+
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 `qwen3.7-text-embedding` 当前公开 string/string-array 输入、float `encoding_format`、`dimensions` 及其固定允许值，默认维度为
 1024，批量上限为 20，单输入 token 上限为 128000；不公开 `user`，也不支持 streaming 或 Bridge。
@@ -426,6 +431,10 @@ curl -N http://127.0.0.1:8080/v1/responses \
 `store: true`、非空 `previous_response_id` 和 `background: true` 不是通用可用能力，状态支持也不是当前默认验收范围。
 当前 ChatGPT source 的 Responses 路径固定为 Native，Chat 路径为受限 Bridge；两种路径的下游都支持 JSON/SSE。ChatGPT 上游仍固定
 `stream: true` 和 `store: false`；非流式 JSON 由 OpenBridge 在完整、合法、bounded 的 Responses SSE terminal 后生成。
+
+需要缓存路由提示时，先读取 `/openbridge/v1/models/{model}` 并确认 Responses interface 的 `supported_parameters` 包含
+`prompt_cache_key`。可用时该字段会原样发送给每个固定候选；OpenBridge 不据此报告或保证 cache hit。`include: []` 可以与它同时发送，
+但非空 `include` 还必须逐值属于同一 interface 的 `response_includes`。
 
 ### 7.4 Embeddings
 

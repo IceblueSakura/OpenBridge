@@ -13,6 +13,9 @@
   Responses→Chat JSON Bridge 返回。
 - Native Route 对已知且被接口接受的字段保留下游 canonical wire 语义；Provider adapter 在 egress 阶段绑定固定 upstream model、
   相对 path、普通固定 header 和 purpose-bound authentication。未知顶层字段不再属于 Native 透明透传范围。
+- `prompt_cache_key` 只在真实探测过的具体 Target/API 上声明 exact forwarding；Native candidate 与 Provider adapter 保留原值，不附带
+  cache-hit 或效果保证。Responses `include: []` 在 candidate 展开前移除；当前所有 checked-in Responses Target 的非空 include 集合为空，
+  因而 `reasoning.encrypted_content`、web-search sources 等投影在任何 Native egress 前失败关闭。
 - Upstream API 可以用闭合 `IgnorableGenerationParameter` 集合接受但不向上游发送已确认不兼容的普通生成字段；这些字段仍保留在
   Public Model `supported_parameters`。当前 Kimi K3 Chat 只删除 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`；
   ChatGPT GPT-5.5/5.6 Responses 只删除 `seed`。Kimi 的 `n/logprobs/top_logprobs`、MiMo V2.5/Pro Responses 的
@@ -63,6 +66,13 @@
   DeepSeek V4 Flash 的 DeepSeek→OpenRouter Responses 候选顺序、固定 `/responses` egress 与 typed SSE terminal。
 - `tests/example_config.rs::minimax_m3_compiles_with_openrouter_first_and_binary_reasoning` 覆盖 MiniMax 的 OpenRouter→NVIDIA Chat
   顺序、OpenRouter Responses Native 和 `none/high` 两接口契约。
+- `forwarding_contract::native::longcat_responses_native_forwards_prompt_cache_key_and_removes_empty_include` 检查 post-adapter LongCat
+  Responses egress；`native_routing_contract` 的双候选用例检查 fallback 从同一 body 独立保留缓存键且都不携带空 include。
+
+2026-08-10 使用私有配置中已启用的非 GPT API-key pool 完成 63 次脱敏固定探测；未使用 `OPENAI_API_KEY` 或 ChatGPT OAuth。9 个 Native
+Responses Target 的 baseline、空 include、`reasoning.encrypted_content`、缓存键与组合请求均为 HTTP 200/完整 terminal，但没有一次返回
+`encrypted_content`，因此只开放缓存键 exact forwarding，非空 include 保持 unsupported。该证据只适用于当时的 Target、账号、网络与固定
+payload，不证明 cache hit、其他 include、其他账号或未来上游行为。
 
 2026-08-09 ChatGPT streaming response media 修复的实际验证：
 

@@ -34,6 +34,7 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
         &mut result,
         &[
             "parallel_tool_calls",
+            "prompt_cache_key",
             "service_tier",
             "temperature",
             "top_p",

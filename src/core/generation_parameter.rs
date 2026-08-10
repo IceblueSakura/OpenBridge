@@ -12,6 +12,8 @@ use super::ApiProtocol;
 enum FieldRole {
     Envelope,
     InterfaceParameter,
+    RequestOption,
+    ResponsesInclude,
     Streaming,
     Store,
     Background,
@@ -76,6 +78,10 @@ impl GenerationRequestField {
         match self.role {
             FieldRole::Envelope | FieldRole::Streaming => false,
             FieldRole::InterfaceParameter => true,
+            FieldRole::RequestOption => !value.is_null(),
+            FieldRole::ResponsesInclude => {
+                value.as_array().is_some_and(|values| !values.is_empty())
+            }
             FieldRole::Store | FieldRole::Background => value.as_bool() == Some(true),
             FieldRole::PreviousResponseId => !value.is_null(),
         }
@@ -93,6 +99,10 @@ impl GenerationRequestField {
                 value.is_null() || value.as_bool() == Some(false)
             }
             FieldRole::PreviousResponseId => value.is_null(),
+            FieldRole::ResponsesInclude => {
+                value.is_null() || value.as_array().is_some_and(Vec::is_empty)
+            }
+            FieldRole::RequestOption => value.is_null(),
             FieldRole::Envelope | FieldRole::InterfaceParameter | FieldRole::Streaming => false,
         }
     }
@@ -220,12 +230,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
         FieldRole::InterfaceParameter,
         NEITHER,
     ),
-    field(
-        "prompt_cache_key",
-        BOTH,
-        FieldRole::InterfaceParameter,
-        NEITHER,
-    ),
+    field("prompt_cache_key", BOTH, FieldRole::RequestOption, BOTH),
     field(
         "prompt_cache_options",
         BOTH,
@@ -282,7 +287,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
         FieldRole::InterfaceParameter,
         NEITHER,
     ),
-    field("include", RESPONSES, FieldRole::InterfaceParameter, NEITHER),
+    field("include", RESPONSES, FieldRole::ResponsesInclude, NEITHER),
     field(
         "truncation",
         RESPONSES,

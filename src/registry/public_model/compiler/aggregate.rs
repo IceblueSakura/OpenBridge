@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    core::{EmbeddingsCapabilities, StructuredOutputProfile},
+    core::{EmbeddingsCapabilities, ResponseInclude, StructuredOutputProfile},
     registry::{CanonicalTaskKind, ModelContextLength, ReasoningLevelPolicy},
 };
 
@@ -175,6 +175,14 @@ pub(super) fn aggregate_interface<'a>(
     let accepted_reasoning_levels = reasoning_level_policy.accepted_levels(&reasoning_levels);
     let reasoning_output =
         intersect_reasoning_output(contributions.iter().map(|value| value.reasoning_output));
+    let response_includes: Vec<ResponseInclude> = intersect_sets(
+        contributions
+            .iter()
+            .map(|value| value.response_includes.as_slice()),
+    );
+    if response_includes.is_empty() {
+        supported_parameters.retain(|parameter| parameter != "include");
+    }
 
     // Build stable tool and state subobjects beside the already closed capability profiles.
     let capabilities = ModelInterfaceCapabilities {
@@ -207,9 +215,7 @@ pub(super) fn aggregate_interface<'a>(
             input_policy: reasoning_level_policy,
             output: reasoning_output,
         },
-        prompt_caching: SupportState::intersection(
-            contributions.iter().map(|value| value.prompt_caching),
-        ),
+        response_includes,
         state: StateCapabilities {
             store: SupportState::intersection(contributions.iter().map(|value| value.store)),
             previous_response_id: SupportState::from_bool(continuation.is_supported()),
@@ -354,5 +360,91 @@ fn intersect_reasoning_output(
         first
     } else {
         ReasoningOutputMode::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::ResponseInclude;
+    use crate::registry::{
+        CanonicalTaskKind, InputModality, ModelContextLength, OutputModality, ReasoningLevelPolicy,
+    };
+
+    use super::{aggregate_interface, intersect_sets};
+    use crate::registry::public_model::{
+        ContextWindow, ModelModalities, ReasoningOutputMode, SupportState,
+    };
+
+    use super::super::contribution::{RouteContinuationContract, RouteContractContribution};
+
+    fn generation_contribution(
+        response_includes: Vec<ResponseInclude>,
+    ) -> RouteContractContribution {
+        RouteContractContribution {
+            canonical_task: CanonicalTaskKind::Generation,
+            embedding_capabilities: None,
+            continuation: RouteContinuationContract::Unsupported,
+            context_window: ContextWindow::from_model(ModelContextLength::default()),
+            modalities: ModelModalities {
+                input: vec![InputModality::Text],
+                output: vec![OutputModality::Text],
+            },
+            image_input: None,
+            audio: None,
+            model_modalities: None,
+            model_description: None,
+            model_tokenizer: None,
+            model_knowledge_cutoff: None,
+            model_reasoning: SupportState::Unknown,
+            model_reasoning_levels: Vec::new(),
+            interface_parameters: vec!["include".to_owned()],
+            streaming: SupportState::Supported,
+            non_streaming: SupportState::Supported,
+            system_messages: SupportState::Unknown,
+            function_tools: SupportState::Unsupported,
+            function_tool_choice_modes: Vec::new(),
+            tool_strict_schema: SupportState::Unsupported,
+            parallel_tool_calls: SupportState::Unsupported,
+            structured_outputs: None,
+            reasoning: SupportState::Unknown,
+            reasoning_levels: Vec::new(),
+            reasoning_output: ReasoningOutputMode::Unknown,
+            response_includes,
+            store: SupportState::Unsupported,
+            background: SupportState::Unsupported,
+        }
+    }
+
+    #[test]
+    fn response_include_intersection_preserves_only_values_supported_by_every_route() {
+        let broad = [
+            ResponseInclude::WebSearchCallSources,
+            ResponseInclude::ReasoningEncryptedContent,
+        ];
+        let narrow = [ResponseInclude::WebSearchCallSources];
+
+        // Aggregate the typed sets exactly as the Public Model compiler aggregates Route contributions.
+        assert_eq!(
+            intersect_sets([broad.as_slice(), narrow.as_slice()].into_iter()),
+            vec![ResponseInclude::WebSearchCallSources]
+        );
+
+        // Verify the complete interface compiler publishes the same typed intersection.
+        let broad = generation_contribution(broad.to_vec());
+        let narrow = generation_contribution(narrow.to_vec());
+        let (interface, _) =
+            aggregate_interface([&broad, &narrow].into_iter(), ReasoningLevelPolicy::Strict)
+                .unwrap();
+        let interface = interface.expect("generation contributions must compile an interface");
+        assert_eq!(
+            interface.response_includes,
+            vec![ResponseInclude::WebSearchCallSources]
+        );
+        assert!(
+            interface
+                .supported_parameters
+                .iter()
+                .any(|parameter| parameter == "include")
+        );
     }
 }

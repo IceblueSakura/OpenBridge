@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use crate::{
     core::{
         ApiProtocol, EmbeddingsCapabilities, GenerationRequestField, OperationKind,
-        ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
+        ReasoningOutput, ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
     },
     registry::{
         CanonicalTaskKind, InputModality, OutputModality, ReasoningLevel, Route, RouteMode,
@@ -50,7 +50,7 @@ pub(super) struct RouteContractContribution {
     pub(super) reasoning: SupportState,
     pub(super) reasoning_levels: Vec<ReasoningLevel>,
     pub(super) reasoning_output: ReasoningOutputMode,
-    pub(super) prompt_caching: SupportState,
+    pub(super) response_includes: Vec<ResponseInclude>,
     pub(super) store: SupportState,
     pub(super) background: SupportState,
 }
@@ -114,7 +114,8 @@ impl RouteContractContribution {
         let ProtocolCapabilities {
             continuation,
             background,
-            prompt_caching,
+            prompt_cache_key,
+            response_includes,
             audio,
             file_input,
         } = protocol_specific_capabilities(route, upstream_api, bridged);
@@ -141,6 +142,8 @@ impl RouteContractContribution {
             store,
             &continuation,
             background,
+            prompt_cache_key,
+            &response_includes,
         );
         let mut input = vec![InputModality::Text];
         if image_input.is_some() {
@@ -219,7 +222,7 @@ impl RouteContractContribution {
             reasoning,
             reasoning_levels,
             reasoning_output: route_reasoning_output(upstream_api, bridged, reasoning),
-            prompt_caching: SupportState::from_bool(prompt_caching),
+            response_includes,
             store: SupportState::from_bool(store),
             background: SupportState::from_bool(background),
         }
@@ -282,7 +285,7 @@ impl RouteContractContribution {
             reasoning: SupportState::Unsupported,
             reasoning_levels: Vec::new(),
             reasoning_output: ReasoningOutputMode::Unsupported,
-            prompt_caching: SupportState::Unsupported,
+            response_includes: Vec::new(),
             store: SupportState::Unsupported,
             background: SupportState::Unsupported,
         }
@@ -314,7 +317,8 @@ fn route_reasoning_output(
 struct ProtocolCapabilities {
     continuation: RouteContinuationContract,
     background: bool,
-    prompt_caching: bool,
+    prompt_cache_key: bool,
+    response_includes: Vec<ResponseInclude>,
     audio: Option<AudioInterfaceCapabilities>,
     file_input: bool,
 }
@@ -326,10 +330,18 @@ fn protocol_specific_capabilities(
     bridged: bool,
 ) -> ProtocolCapabilities {
     if bridged {
+        let prompt_cache_key = match upstream_api.capabilities() {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities.prompt_cache_key,
+            UpstreamApiCapabilities::Responses(capabilities) => capabilities.prompt_cache_key,
+            UpstreamApiCapabilities::Embeddings(_) => {
+                unreachable!("Embeddings does not use generation protocol capabilities")
+            }
+        };
         return ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
-            prompt_caching: false,
+            prompt_cache_key,
+            response_includes: Vec::new(),
             audio: None,
             file_input: false,
         };
@@ -338,7 +350,8 @@ fn protocol_specific_capabilities(
         UpstreamApiCapabilities::ChatCompletions(capabilities) => ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
-            prompt_caching: capabilities.prompt_caching,
+            prompt_cache_key: capabilities.prompt_cache_key,
+            response_includes: Vec::new(),
             audio: capabilities
                 .audio
                 .map(AudioInterfaceCapabilities::from_capabilities),
@@ -359,7 +372,8 @@ fn protocol_specific_capabilities(
             },
             background: route.downstream_operation() == OperationKind::Responses
                 && capabilities.background,
-            prompt_caching: capabilities.prompt_caching,
+            prompt_cache_key: capabilities.prompt_cache_key,
+            response_includes: capabilities.include.to_vec(),
             audio: None,
             file_input: capabilities.file_input,
         },
@@ -405,6 +419,8 @@ fn interface_parameters(
     store: bool,
     continuation: &RouteContinuationContract,
     background: bool,
+    prompt_cache_key: bool,
+    response_includes: &[ResponseInclude],
 ) -> Vec<String> {
     // Retain only source-protocol parameters; Bridge also accepts hints removed before conversion.
     let mut parameters = model_parameters
@@ -467,6 +483,16 @@ fn interface_parameters(
     }
     if background {
         parameters.insert("background".to_owned());
+    }
+    if prompt_cache_key {
+        parameters.insert("prompt_cache_key".to_owned());
+    } else {
+        parameters.remove("prompt_cache_key");
+    }
+    if protocol == ApiProtocol::Responses && !response_includes.is_empty() {
+        parameters.insert("include".to_owned());
+    } else {
+        parameters.remove("include");
     }
     parameters.into_iter().collect()
 }

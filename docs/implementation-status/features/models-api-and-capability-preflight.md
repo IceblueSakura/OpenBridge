@@ -27,6 +27,12 @@
   `unsupported_model_capability`，两类拒绝都不会调用 Provider。
 - generation `supported_parameters` 表示 OpenBridge 接受对应字段。每条 Route 只能以“当前 API 转发”或“当前 API 明确忽略”贡献
   参数；Bridge 还要求该转换方向可完整表示字段。固定 interface 继续按全部候选相交，不按请求参数筛选或重排 Route。
+- Responses `include` 由 `ResponseInclude` 精确 wire 枚举解析为请求集合；Route contribution 保存逐值集合，Public Model 对全部固定
+  candidate 求交集并以 `response_includes` 公开。当前 checked-in generation interface 的该集合均为空；`include: []` 不请求能力并会在
+  candidate 展开前移除，已知但不在交集中的值和未知 wire 值都在 egress 前失败关闭。
+- 旧的 `prompt_caching: SupportState` 已删除。`prompt_cache_key` 现在是独立 request option：Provider/Target 声明只表示 exact
+  forwarding，编译后仅通过 `supported_parameters` 公开，不表示 cache hit、延迟或成本效果。Bridge 只有在目标 Upstream API 明确支持且
+  converter 原样复制时才贡献该参数；options、retention 与 breakpoint 仍保持未实现。
 - 每 Upstream API 的闭合普通参数忽略集合不从该 interface 删除字段，但启动时校验 canonical 声明、唯一性、与 disabled 参数互斥及
   generation-only 边界。当前只允许 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`、`seed`；输出数量、结构或
   reasoning 可见性字段仍按固定契约 fail closed。generation canonical parameter 还必须存在于同一类型化目录，防止配置任意字符串。
@@ -107,7 +113,7 @@
   Responses 空 reasoning object 保留和 Models 三字段一致性；`tests/example_config/providers.rs` 另覆盖 Spark Chat 输入先归一化再进入
   Responses Bridge，`tests/embedding_definition_contract.rs` 覆盖非 generation 策略启动拒绝。
 - [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖 capability subset、三种 image source payload、
-  Provider containment 与 payload elevation；core generation 单测覆盖 9-byte URL、4/1-byte inline 下界、空/重复 set、累计可达性和完整
+  Provider containment、`ResponseInclude` wire round-trip、当前 15 个已探测 Target/API forwarding 声明与 payload elevation；core generation 单测覆盖 9-byte URL、4/1-byte inline 下界、空/重复 set、累计可达性和完整
   source/detail subset lattice。
 - [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs) 固定 MiMo/OpenAI Chat/Responses Provider ceiling 的
   source、media、detail、`max_parts`、URL limit 和四项 inline limit，并确认只有 `mimo-v2.5` executable Chat/Responses Target 开放图片，
@@ -142,6 +148,18 @@
 `config/bootstrap.example.toml` 未启用；未修改该本地配置。使用
 `cargo test --locked -- --skip checked_in_examples_compile_into_a_closed_runtime_registry` 后其余全部测试通过。以上检查只证明本地
 registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不证明真实 Provider、当前外部 SDK、目标 Agent runtime、负载或长期运行。
+
+2026-08-10 `include`/`prompt_cache_key` 根因修复先以三个旧实现失败用例确认整体 reserved gate：空 `include` 无法通过、未知投影错误分类、
+未声明缓存键未进入固定参数 gate。实现后 `capability_definition_contract`、`native_routing_contract`、`forwarding_contract` 与
+`bridge_forwarding_contract` 聚焦套件通过；Models 不再输出 `prompt_caching`，改为逐值 `response_includes` 与
+`supported_parameters` 中的 `prompt_cache_key`。确定性测试只证明静态声明、交集、预检和 exact egress；真实上游证据边界见 Native/Bridge
+专题，未据此承诺缓存命中或开放任何非空 include。
+
+最终验证中，`capability_definition_contract` 14 项、`native_routing_contract` 35 项、`forwarding_contract` 64 项和
+`bridge_forwarding_contract` 12 项全部通过；include 交集的 library 聚焦测试与 example-config Route 聚焦测试也通过。
+`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整 `cargo test --locked` 仍只在未修改的本地
+`config/bootstrap.toml` 与示例文件 OTLP 全等断言失败；跳过 `checked_in_examples_compile_into_a_closed_runtime_registry` 后其余测试全部通过。
+本轮实现后未重新执行真实 Provider、外部 OpenAI SDK、Hermes、负载或长期运行验收。
 
 ## 相关文档
 

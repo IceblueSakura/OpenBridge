@@ -45,6 +45,34 @@ fn base_definition() -> RegistryConfig {
     support::definition("routing-test", "public-model", "upstream-model")
 }
 
+fn prompt_cache_definition() -> RegistryConfig {
+    // Rebind the synthetic fixture to the probed LongCat dual-protocol Provider contract.
+    let mut definition = base_definition();
+    definition.provider_instances[0].kind = ProviderKind::LongCat;
+    definition.provider_instances[0].base_url = "https://api.longcat.chat".to_owned();
+    definition.credential_pools[0].provider = ProviderKind::LongCat;
+    let provider = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let capabilities = provider.contract().capabilities();
+    let target = &mut definition.upstream_targets[0];
+    target.provider_model = ProviderKind::LongCat.routing_model_id(&target.canonical_model);
+    target.upstream_apis[0].capabilities = UpstreamApiCapabilities::ChatCompletions(
+        capabilities
+            .chat_completions
+            .expect("LongCat must expose Chat Completions")
+            .to_executable(None),
+    );
+    target.upstream_apis[1].capabilities = UpstreamApiCapabilities::Responses(
+        capabilities
+            .responses
+            .expect("LongCat must expose Responses")
+            .to_executable(ExecutableResponsesState::new(
+                StorageSupport::Unsupported,
+                ResponsesAffinity::TargetBound,
+            )),
+    );
+    definition
+}
+
 fn omitted_auto_detail() -> ImageDetailPolicy {
     ImageDetailPolicy::OmittedOnly {
         default: Some(ImageDetail::Auto),
@@ -225,6 +253,69 @@ const COMMON_TOOL_CHOICE_MODES: &[openbridge::core::ToolChoiceMode] = &[
     openbridge::core::ToolChoiceMode::None,
     openbridge::core::ToolChoiceMode::Auto,
 ];
+
+#[test]
+fn prompt_cache_key_is_forwarded_to_every_native_candidate_and_empty_include_is_removed() {
+    let mut definition = prompt_cache_definition();
+
+    // Add a second fixed Native Responses candidate with the same exact forwarding contract.
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = "longcat-fallback".to_owned();
+    definition.upstream_targets.push(fallback);
+    definition.routes.push(RouteConfig {
+        id: "fallback-responses".to_owned(),
+        upstream_target: "longcat-fallback".to_owned(),
+        upstream_operation: OperationKind::Responses,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0].routes = vec![
+        "public-responses".to_owned(),
+        "fallback-responses".to_owned(),
+    ];
+    let registry = build_test_registry(definition);
+
+    // Publish forwarding as a request parameter without claiming any unsupported include value.
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    let interface = &info["interfaces"]["responses"];
+    assert!(
+        interface["supported_parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "prompt_cache_key")
+    );
+    assert_eq!(interface["response_includes"], json!([]));
+    assert!(interface.get("prompt_caching").is_none());
+
+    // Build each fallback independently from the same canonical request option.
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "include": [],
+        "prompt_cache_key": "cache-test"
+    }))
+    .unwrap();
+    let plan = support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap();
+    assert_eq!(plan.candidates().len(), 2);
+    for candidate in plan.candidates() {
+        let upstream: Value = serde_json::from_slice(candidate.request().body()).unwrap();
+        assert_eq!(upstream["prompt_cache_key"], "cache-test");
+        assert!(upstream.get("include").is_none());
+    }
+
+    // Keep an unsupported known output projection behind the typed Public Model preflight gate.
+    let unsupported = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "include": ["reasoning.encrypted_content"]
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, unsupported.into()).unwrap_err(),
+        RequestPlanningError::UnsupportedCapabilities
+    ));
+}
 
 #[test]
 fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {

@@ -195,11 +195,23 @@ fallback 顺序或把固定值伪造成用户请求值。每个 candidate 必须
 的明确外部或真实测试证据和确定性 egress 回归测试。未配置为忽略的 Native 普通字段继续保持 wire 语义，不能因为另一个 Provider
 不支持就全局删除。
 
-以下字段不属于该兼容例外：`n`、`logprobs`、`top_logprobs`、`include_reasoning`、streaming mode、reasoning level/开关、
+以下字段不属于该兼容例外：`n`、`logprobs`、`top_logprobs`、`include_reasoning`、Responses `include`、prompt-cache 字段、streaming mode、reasoning level/开关、
 tools/tool choice、structured output、state/continuation、媒体输入输出、输出 token 上限、认证与 Provider 私有扩展。它们会改变
 可观察输出、能力、资源或安全边界；不支持或 Bridge 无法完整表达时必须在 egress 前拒绝，不得静默降级。`supported_parameters` 对普通
 忽略字段表示“OpenBridge 接受请求”，不保证每个候选上游都会应用该提示；这一例外不得扩展为任意字符串、用户可配置或请求可选择的过滤器，
 也不得提供任意 `extra_body` 绕过类型化目录和固定能力预检。
+
+### 5.5 Responses 输出投影与缓存键转发
+
+- Responses `include` 必须解析为逐值的类型化输出投影集合。省略、`null` 与空数组不请求任何投影；`include: []` 在一次公共预检后、
+  candidate 展开前移除，不能进入 Native 或 Bridge egress。未知 wire 值必须在 egress 前失败关闭。
+- 每条 Responses Route 只贡献其能完整返回下游的具体 `include` 值，Public Model 的 `response_includes` 是全部固定候选的集合交集。
+  Native 只有在对应 Upstream API 明确支持请求和输出语义时才贡献；Bridge 只有在 request converter 与 response converter 都能保真时才贡献。
+  hosted-tool execution 与 `web_search_call.action.sources` 等输出投影是两个独立能力，请求同时使用时必须共同通过预检。
+- `prompt_cache_key` 是请求级转发选项，不是缓存效果能力。它只在全部固定候选都能原样保留时进入 `supported_parameters`；每个 candidate
+  必须从同一 canonical body 独立构造并原样转发。OpenBridge 不承诺上游启用缓存、产生命中、降低延迟或成本，也不得以该不确定性为由静默删除键值。
+- `prompt_cache_options`、`prompt_cache_retention` 和嵌套 `prompt_cache_breakpoint` 不因缓存键可转发而获得支持；未实现时继续在 egress
+  前返回稳定错误。以上字段均不得触发请求期 Route 筛选、跳过或重排。
 
 Responses 标准 event 见[Responses typed SSE 调研](../references/openai/responses/streaming.md)；Codex 私有扩展仍由对应 Codex
 项目调研维护。
@@ -273,6 +285,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-12 | Embeddings、图片、文件与音频分别满足[扩展共同规则](embedding-and-native-multimodal.md)及其功能页的 wire、能力、资源归属、限制和证据边界。                                             |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
 | API-14 | 有效静态 token 可通过 `POST /mcp` 发现唯一静态 `hello(name: string)` 工具并取得 `Hi, {name}!`；Origin、transport metadata、无效参数、未知工具/method 与非 POST method 按固定边界失败，且调用不访问 Provider 或外部系统。 |
+| API-15 | `include: []` 作为 no-op 在全部 egress 前移除；非空 `include` 按 Public Model 逐值交集预检，未知或 Bridge 不可保真的投影 zero-egress 失败；`prompt_cache_key` 只在固定候选全部支持时原样转发，且不承诺缓存效果。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
 | OBS-03 | OTLP metrics 使用 SDK 原生 counter/histogram 和有界维度；单 attempt output speed 只由明确 output usage 与 generation duration 计算，分位数、平均值、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |

@@ -77,25 +77,62 @@ pub enum HostedToolKind {
 
 /// Standard additional output kinds for the Responses Create `include` field.
 ///
-/// Variants use descriptive Rust names and Rustdoc identifies their wire paths; they currently
-/// serve as reserved interface positions.
+/// Variants use descriptive Rust names while serialization preserves the exact Responses wire
+/// path. Capability profiles carry sets of these values independently so one projection never
+/// implies support for another.
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ResponseInclude {
     /// `web_search_call.action.sources`.
+    #[serde(rename = "web_search_call.action.sources")]
     WebSearchCallSources,
     /// `code_interpreter_call.outputs`.
+    #[serde(rename = "code_interpreter_call.outputs")]
     CodeInterpreterCallOutputs,
     /// `computer_call_output.output.image_url`.
+    #[serde(rename = "computer_call_output.output.image_url")]
     ComputerCallOutputImageUrl,
     /// `file_search_call.results`.
+    #[serde(rename = "file_search_call.results")]
     FileSearchCallResults,
     /// `message.input_image.image_url`.
+    #[serde(rename = "message.input_image.image_url")]
     InputImageImageUrl,
     /// `message.output_text.logprobs`.
+    #[serde(rename = "message.output_text.logprobs")]
     OutputTextLogprobs,
     /// `reasoning.encrypted_content`.
+    #[serde(rename = "reasoning.encrypted_content")]
     ReasoningEncryptedContent,
+}
+
+impl ResponseInclude {
+    /// Parses one exact Responses `include` wire value.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "web_search_call.action.sources" => Some(Self::WebSearchCallSources),
+            "code_interpreter_call.outputs" => Some(Self::CodeInterpreterCallOutputs),
+            "computer_call_output.output.image_url" => Some(Self::ComputerCallOutputImageUrl),
+            "file_search_call.results" => Some(Self::FileSearchCallResults),
+            "message.input_image.image_url" => Some(Self::InputImageImageUrl),
+            "message.output_text.logprobs" => Some(Self::OutputTextLogprobs),
+            "reasoning.encrypted_content" => Some(Self::ReasoningEncryptedContent),
+            _ => None,
+        }
+    }
+
+    /// Returns the exact Responses `include` wire value.
+    pub const fn as_wire(self) -> &'static str {
+        match self {
+            Self::WebSearchCallSources => "web_search_call.action.sources",
+            Self::CodeInterpreterCallOutputs => "code_interpreter_call.outputs",
+            Self::ComputerCallOutputImageUrl => "computer_call_output.output.image_url",
+            Self::FileSearchCallResults => "file_search_call.results",
+            Self::InputImageImageUrl => "message.input_image.image_url",
+            Self::OutputTextLogprobs => "message.output_text.logprobs",
+            Self::ReasoningEncryptedContent => "reasoning.encrypted_content",
+        }
+    }
 }
 
 /// Standard image source kinds accepted by one protocol-native input profile.
@@ -1672,8 +1709,8 @@ pub struct ChatCompletionsProfile<A> {
     pub predicted_outputs: bool,
     /// Whether `web_search_options` is supported.
     pub web_search: bool,
-    /// Whether prompt cache key/options/breakpoint semantics are supported.
-    pub prompt_caching: bool,
+    /// Whether the request wire field `prompt_cache_key` is forwarded exactly.
+    pub prompt_cache_key: bool,
     /// Whether request-level moderation configuration is supported.
     pub moderation: bool,
     /// Whether token log probabilities are supported.
@@ -1707,7 +1744,6 @@ impl<A: Copy> ChatCompletionsProfile<A> {
             || self.file_input
             || self.predicted_outputs
             || self.web_search
-            || self.prompt_caching
             || self.moderation
             || self.logprobs
             || self.multiple_choices
@@ -1741,7 +1777,7 @@ impl ChatCompletionsProfile<Option<ProviderAudioCeiling>> {
             file_input: self.file_input,
             predicted_outputs: self.predicted_outputs,
             web_search: self.web_search,
-            prompt_caching: self.prompt_caching,
+            prompt_cache_key: self.prompt_cache_key,
             moderation: self.moderation,
             logprobs: self.logprobs,
             multiple_choices: self.multiple_choices,
@@ -1760,6 +1796,7 @@ impl ChatCompletionsProfile<Option<ExecutableAudioProfile>> {
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
             && optional_executable_audio_is_subset_of(self.audio, upper.audio)
+            && (!self.prompt_cache_key || upper.prompt_cache_key)
     }
 
     /// Returns whether the typed audio profile contains any input capability.
@@ -1951,8 +1988,8 @@ pub struct ResponsesProfile<S> {
     pub conversation: bool,
     /// Whether `prompt` template references are supported.
     pub prompt_templates: bool,
-    /// Whether prompt cache key/options/breakpoint semantics are supported.
-    pub prompt_caching: bool,
+    /// Whether the request wire field `prompt_cache_key` is forwarded exactly.
+    pub prompt_cache_key: bool,
     /// Whether `context_management` is supported.
     pub context_management: bool,
     /// Declared additional output kinds supported by `include`.
@@ -2000,7 +2037,7 @@ impl ProviderResponsesCapabilities {
             file_input: self.file_input,
             conversation: self.conversation,
             prompt_templates: self.prompt_templates,
-            prompt_caching: self.prompt_caching,
+            prompt_cache_key: self.prompt_cache_key,
             context_management: self.context_management,
             include: self.include,
             moderation: self.moderation,
@@ -2070,6 +2107,8 @@ impl ResponsesCapabilities {
             .is_subset_of(upper.generation_capabilities())
             && self.state.is_subset_of(upper.state)
             && (!self.background || upper.background)
+            && (!self.prompt_cache_key || upper.prompt_cache_key)
+            && response_includes_are_subset_of(self.include, upper.include)
     }
 }
 
@@ -2081,9 +2120,7 @@ impl<S: Copy> ResponsesProfile<S> {
             || self.file_input
             || self.conversation
             || self.prompt_templates
-            || self.prompt_caching
             || self.context_management
-            || !self.include.is_empty()
             || self.moderation
             || self.logprobs
         {
@@ -2096,6 +2133,20 @@ impl<S: Copy> ResponsesProfile<S> {
             panic!("invalid Responses function-tool capability profile");
         }
     }
+}
+
+/// Validates duplicate-free `include` sets and checks every concrete value against the ceiling.
+fn response_includes_are_subset_of(values: &[ResponseInclude], upper: &[ResponseInclude]) -> bool {
+    // Reject duplicate values in either trusted static capability set.
+    let unique = |items: &[ResponseInclude]| {
+        items
+            .iter()
+            .enumerate()
+            .all(|(index, item)| !items[index + 1..].contains(item))
+    };
+
+    // Require every executable projection to be explicitly present in the Provider ceiling.
+    unique(values) && unique(upper) && values.iter().all(|value| upper.contains(value))
 }
 
 #[cfg(test)]

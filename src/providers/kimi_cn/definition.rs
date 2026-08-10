@@ -29,7 +29,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             file_input: false,
             predicted_outputs: false,
             web_search: false,
-            prompt_caching: false,
+            prompt_cache_key: true,
             moderation: false,
             logprobs: false,
             multiple_choices: false,
