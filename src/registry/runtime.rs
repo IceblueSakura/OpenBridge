@@ -132,6 +132,11 @@ impl RuntimeRegistry {
         self.bootstrap.http_client()
     }
 
+    /// Returns startup-owned instructions for ChatGPT Provider request preparation.
+    pub(crate) fn chatgpt_instructions(&self) -> Option<&str> {
+        self.bootstrap.chatgpt_instructions()
+    }
+
     /// Looks up model metadata by internal model ID.
     pub fn model(&self, id: &str) -> Option<&ModelInfo> {
         self.models.get(id)

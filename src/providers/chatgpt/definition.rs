@@ -13,7 +13,7 @@ use crate::{
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
-        ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
+        ProviderRequestContext, ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
     },
     providers::openai_compatible::{
         OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
@@ -72,6 +72,7 @@ const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     transform_request_headers,
 )
 .with_request_body_hook(transform_request_body)
+.with_contextual_request_body_hook(apply_startup_instructions)
 .with_request_headers(CHATGPT_REQUEST_HEADERS)
 .with_openai_data_type_responses_terminal()
 .with_missing_responses_content_type_as_sse()
@@ -148,5 +149,26 @@ fn transform_request_body(
         }
         Some(_) => return Err(AdapterError::InvalidRequestBody),
     }
+    Ok(())
+}
+
+/// Injects startup-owned instructions after Native or Bridged requests reach the ChatGPT adapter.
+fn apply_startup_instructions(
+    protocol: crate::core::ApiProtocol,
+    context: ProviderRequestContext<'_>,
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Require the startup-validated value only on the fixed ChatGPT Responses wire surface.
+    let instructions = context
+        .chatgpt_instructions()
+        .filter(|instructions| !instructions.trim().is_empty())
+        .filter(|_| protocol == crate::core::ApiProtocol::Responses)
+        .ok_or(AdapterError::InvalidRequestBody)?;
+
+    // Override any downstream value so Provider policy stays owned by Bootstrap configuration.
+    document.insert(
+        "instructions".to_owned(),
+        serde_json::Value::String(instructions.to_owned()),
+    );
     Ok(())
 }

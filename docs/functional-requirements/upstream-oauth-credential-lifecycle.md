@@ -41,7 +41,9 @@ OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable
    definition 固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，并且不接受 auth file、executable、
    client identity 或 header override selector。
 7. ChatGPT adapter 只接受 `stream: true` 的 Responses 请求，将标准字符串 `input` 收窄为等价 user message 数组，强制
-   `store: false`，并在 egress 前拒绝当前 backend 不接受的输出 token limit 字段；这些字段不得出现在 Public Model 的有效参数集合中。
+   `store: false`，并在 Native 或 Chat→Responses Bridge 完成后把 Bootstrap 的非空 `chatgpt_instructions` 写入上游
+   `instructions`，同时在 egress 前拒绝当前 backend 不接受的输出 token limit 字段；该启动字段不得由下游覆盖，也不得因此出现在
+   Public Model 的有效参数集合中。未激活 ChatGPT Target 时不要求配置该字段；激活任一 ChatGPT Target 时缺失或纯空白必须阻止启动。
 8. token、账户、locator、JWT payload 和完整 auth record 不进入 report、日志、metric、Debug、错误或测试 fixture。
 
 常驻服务的数据面只能取得 manager 发布的短生命周期、账户绑定 credential lease。它不能读取 auth locator 或完整 bundle，也不能把
@@ -203,7 +205,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | OAUTH-08 | 登录使用 PKCE `S256`、有界 private device session、固定 HTTPS exchange、完整 token/account 校验、事务持久化和失败清理，不在普通请求中隐式启动。 |
 | OAUTH-09 | 自动 refresh 具有 expiry safety window、single-flight、guarded reload 与原子 rotation 写回；终态错误、结果不确定或身份变化 fail closed。 |
 | OAUTH-10 | 数据面只借用受控 snapshot；401 recovery 先 reload、再按 Provider contract 至多 refresh/重放一次，并服从 response commit 边界。 |
-| OAUTH-11 | ChatGPT Responses adapter 要求 `stream: true`、将字符串 `input` 转为 user message 数组、强制 `store: false`，并在 egress 前拒绝且不公开输出 token limit 参数。 |
+| OAUTH-11 | ChatGPT Responses adapter 要求 `stream: true`、将字符串 `input` 转为 user message 数组、强制 `store: false`，并在 Bridge 后注入启动校验过的 `chatgpt_instructions`；激活 ChatGPT Target 时缺失或纯空白值阻止启动，且该字段不向下游公开。adapter 仍在 egress 前拒绝且不公开输出 token limit 参数。 |
 | OAUTH-12 | 不提供运行中换账户；用户必须停止服务、手动删除该 binding 的 OpenBridge-owned auth 授权文件、显式重新登录并重启，且不得操作本机 Codex cache。 |
 
 ## 9. 仍不在范围内

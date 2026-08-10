@@ -287,6 +287,7 @@ enum SyntheticTokenGeneration {
 struct ChatGptRecordedRequest {
     path: String,
     model: String,
+    instructions: Option<String>,
     input_is_array: bool,
     store_is_false: bool,
     output_limit_present: bool,
@@ -477,6 +478,10 @@ impl UpstreamTransport for ChatGptOAuthTransport {
         self.requests.lock().unwrap().push(ChatGptRecordedRequest {
             path: request.relative_uri().path().to_owned(),
             model: body["model"].as_str().unwrap().to_owned(),
+            instructions: body
+                .get("instructions")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             input_is_array: body["input"].is_array(),
             store_is_false: body["store"] == false,
             output_limit_present: ["max_output_tokens", "max_completion_tokens", "max_tokens"]

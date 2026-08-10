@@ -12,7 +12,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 
 | 来源                                        | 内容                                                                                                                            | 能否包含 secret                    |
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
-| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、默认禁用的 OTLP/HTTP 导出策略 | 否                                 |
+| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、ChatGPT startup instructions、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、默认禁用的 OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；来源是否存在决定已注册 pool 的启动激活状态 | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
@@ -24,6 +24,10 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 `max_replay_body_bytes` 与 `max_sse_event_bytes` 均为非零值，并要求 replay limit 不大于 request limit；这些
 字段职责独立，不互相提供缺省或回退。
+
+`chatgpt_instructions` 是可选的 Bootstrap 字符串；只有当前 active credential pool 集合保留至少一个可执行 ChatGPT Target 时，
+它才必须存在且不能是空字符串或纯空白。该值是 Provider-owned 启动策略，只能在 Chat→Responses Bridge 完成后由 ChatGPT adapter
+写入上游 Responses `instructions`；下游请求、环境和本机 Codex 状态不能覆盖它，未激活 ChatGPT 时不得因其缺失而阻止其他 Provider 启动。
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。

@@ -20,6 +20,26 @@ mod error;
 
 pub use error::AdapterError;
 
+/// Startup-owned values available only while preparing one selected Provider request.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ProviderRequestContext<'a> {
+    chatgpt_instructions: Option<&'a str>,
+}
+
+impl<'a> ProviderRequestContext<'a> {
+    /// Creates request context without allowing downstream payloads to supply Provider policy.
+    pub(crate) const fn new(chatgpt_instructions: Option<&'a str>) -> Self {
+        Self {
+            chatgpt_instructions,
+        }
+    }
+
+    /// Returns the startup-validated instructions reserved for the ChatGPT adapter.
+    pub(crate) const fn chatgpt_instructions(self) -> Option<&'a str> {
+        self.chatgpt_instructions
+    }
+}
+
 /// Upstream request with a selected protocol but no Upstream Target origin bound yet.
 ///
 /// Adapters can produce only relative URIs; transport joins them to an allowlisted configured
@@ -189,9 +209,10 @@ impl ProviderAdapter {
         &self,
         request: &ApiRequest,
         upstream_api: &UpstreamApi,
+        context: ProviderRequestContext<'_>,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         self.openai_compatible()
-            .prepare_routed_request(request, upstream_api)
+            .prepare_routed_request(request, upstream_api, context)
     }
 
     /// Builds the selected Native Embeddings request using the Provider's fixed relative path.

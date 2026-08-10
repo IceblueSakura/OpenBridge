@@ -262,6 +262,7 @@ curl http://127.0.0.1:8080/v1/responses \
 | `listen` | `127.0.0.1:8080` | loopback listener，只接受 loopback 地址 |
 | `users_file` | `config/users.toml` | 下游用户文件 |
 | `upstream_credentials_file` | `config/upstream-credentials.toml` | 上游 credential binding 文件 |
+| `chatgpt_instructions` | `You are a coding agent...` | ChatGPT Codex 上游的启动级 instructions；激活任一 ChatGPT Target 时必须为非空、非纯空白字符串 |
 | `max_request_body_bytes` | `1048576` | 普通请求 body 上限，1 MiB |
 | `max_json_response_body_bytes` | `16777216` | JSON 成功体上限，16 MiB |
 | `max_replay_body_bytes` | `262144` | 可重放请求 body 上限，256 KiB |
@@ -272,6 +273,11 @@ curl http://127.0.0.1:8080/v1/responses \
 
 所有 limit 和 timeout 必须为非零值，`max_replay_body_bytes` 不能超过 `max_request_body_bytes`。监听地址不能改成
 `0.0.0.0` 或其他非 loopback 地址。
+
+`chatgpt_instructions` 只属于 ChatGPT Provider 的上游 request envelope。未激活 ChatGPT Target 时可以省略或留空；一旦
+`chatgpt-codex` credential pool 激活至少一个 ChatGPT Target，缺失、空字符串或纯空白值都会阻止启动。该值在 Chat→Responses
+Bridge 完成后由 ChatGPT adapter 写入，因此 Native Responses、Chat Bridge 和显式 Responses probe 使用同一 instructions，而其他
+Provider 不受影响。
 
 ### 启用 OpenTelemetry OTLP/HTTP 导出
 

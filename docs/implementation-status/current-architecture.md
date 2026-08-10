@@ -114,7 +114,7 @@ BootstrapConfigPath::load
 → TelemetryRuntime::shutdown
 ```
 
-`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、request/JSON response/replay/SSE 大小和 HTTP client
+`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、可选的 ChatGPT startup instructions、request/JSON response/replay/SSE 大小和 HTTP client
 参数，以及分别默认禁用的 `[telemetry.traces]`、`[telemetry.metrics]` OTLP/HTTP base URL。四个 limit 都是必填非零值，replay limit 不得超过 request limit；
 exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http` URL，固定 `/v1/traces`、`/v1/metrics` 和代码内
 processor/reader/timeout/shutdown 策略，不接受 URL credential、自定义 path/query/fragment、header 或请求级覆盖；HTTP client 会剥离
@@ -392,7 +392,9 @@ ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个
 model 和共享 `chatgpt-codex` OAuth pool；每个 GPT Public Model 都有 ChatGPT Responses Native 与受限 Chat Bridge，`gpt-5.6-sol`
 还以 OpenAI 为后备 source，但两个下游协议都按 `SourceFirst` 优先 ChatGPT。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
-`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`，在 egress 前拒绝三个输出 token limit 字段。其
+`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`；当 active pool 保留任一 ChatGPT Target 时，启动编译要求
+Bootstrap `chatgpt_instructions` 非空且非纯空白，并在 Native 或 Chat→Responses Bridge 完成后由 adapter 写入上游 `instructions`。
+该值不参与 Bridge 能力判断，也不能由下游覆盖。adapter 仍在 egress 前拒绝三个输出 token limit 字段。其
 Upstream API policy 声明 streaming required，并启用 Responses SSE buffering；因此下游非流式 Chat/Responses 会在 planning 后固定
 上游 `stream: true`，完整验证 terminal 再返回 JSON。该静态 media profile 允许真实 ChatGPT 成功 SSE 缺失 `Content-Type`，并向下游
 规范化为 `text/event-stream`；其他 Provider、显式错误媒体类型和重复 header 仍 fail closed。该 profile 不读取本机 Codex auth、

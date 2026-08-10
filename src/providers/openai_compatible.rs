@@ -20,8 +20,8 @@ use crate::{
     credential::CredentialType,
     provider::{
         AdapterError, ClassifiedSseEvent, PreparedUpstreamRequest, ProviderKind,
-        ProviderRequestHeaders, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
-        StreamEventStatus, UpstreamErrorKind,
+        ProviderRequestContext, ProviderRequestHeaders, RetryHint, SafeHeaders, SensitiveHeaders,
+        StatusClassification, StreamEventStatus, UpstreamErrorKind,
     },
     registry::{
         ReasoningLevel, ReasoningLevelMapping, UpstreamApi, UpstreamApiCapabilities,
@@ -35,6 +35,12 @@ pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(
 /// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
 pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
+/// Provider-owned hook for applying startup request context after protocol conversion.
+pub(crate) type ContextualRequestBodyHook = for<'a> fn(
+    ApiProtocol,
+    ProviderRequestContext<'a>,
+    &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError>;
 /// Compile-time Provider hook for extracting model identifiers from a model-list response.
 pub(crate) type ModelListParser = fn(&serde_json::Value) -> Option<Vec<String>>;
 
@@ -149,6 +155,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     model_list_parser: ModelListParser,
     request_header_hook: RequestHeaderHook,
     request_body_hook: RequestBodyHook,
+    contextual_request_body_hook: ContextualRequestBodyHook,
     request_headers: ProviderRequestHeaders,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
     streaming_response_media_type_policy: StreamingResponseMediaTypePolicy,
@@ -171,6 +178,7 @@ impl OpenAiCompatibleAdapter {
             model_list_parser: parse_openai_model_list_ids,
             request_header_hook,
             request_body_hook: preserve_request_body,
+            contextual_request_body_hook: preserve_contextual_request_body,
             request_headers: ProviderRequestHeaders::new(),
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
             streaming_response_media_type_policy:
@@ -184,6 +192,15 @@ impl OpenAiCompatibleAdapter {
         request_body_hook: RequestBodyHook,
     ) -> Self {
         self.request_body_hook = request_body_hook;
+        self
+    }
+
+    /// Attaches one Provider-owned transformation that consumes startup request context.
+    pub(crate) const fn with_contextual_request_body_hook(
+        mut self,
+        contextual_request_body_hook: ContextualRequestBodyHook,
+    ) -> Self {
+        self.contextual_request_body_hook = contextual_request_body_hook;
         self
     }
 
@@ -252,8 +269,13 @@ impl OpenAiCompatibleAdapter {
         self,
         request: &ApiRequest,
         upstream_api: &UpstreamApi,
+        context: ProviderRequestContext<'_>,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.prepare_request_with_api(request, upstream_api.upstream_model(), Some(upstream_api))
+        self.prepare_request_with_api(
+            request,
+            upstream_api.upstream_model(),
+            Some((upstream_api, context)),
+        )
     }
 
     /// Replaces the Public Model and binds the fixed Native Embeddings endpoint.
@@ -297,7 +319,7 @@ impl OpenAiCompatibleAdapter {
         self,
         request: &ApiRequest,
         upstream_model: &str,
-        upstream_api: Option<&UpstreamApi>,
+        routed: Option<(&UpstreamApi, ProviderRequestContext<'_>)>,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         // Select the static relative endpoint for the request protocol.
         let path = match request.protocol() {
@@ -326,8 +348,19 @@ impl OpenAiCompatibleAdapter {
                 .ok_or(AdapterError::InvalidRequestBody)?,
         )?;
 
+        // Apply startup-owned Provider context only after any Chat-to-Responses conversion has completed.
+        if let Some((_, context)) = routed {
+            (self.contextual_request_body_hook)(
+                request.protocol(),
+                context,
+                document
+                    .as_object_mut()
+                    .ok_or(AdapterError::InvalidRequestBody)?,
+            )?;
+        }
+
         // Remove ordinary fields that the selected API is configured to accept only downstream.
-        if let Some(upstream_api) = upstream_api {
+        if let Some((upstream_api, _)) = routed {
             discard_ignored_generation_parameters(
                 document
                     .as_object_mut()
@@ -337,7 +370,7 @@ impl OpenAiCompatibleAdapter {
         }
 
         // Apply only the selected Upstream API's explicit reasoning wire mapping.
-        let reasoning_level_mapping = upstream_api.and_then(|upstream_api| {
+        let reasoning_level_mapping = routed.and_then(|(upstream_api, _)| {
             apply_reasoning_level_mapping(
                 request.protocol(),
                 document.as_object_mut()?,
@@ -518,6 +551,15 @@ fn discard_ignored_generation_parameters(
 /// Keeps ordinary OpenAI-compatible request bodies unchanged after model replacement.
 fn preserve_request_body(
     _protocol: ApiProtocol,
+    _document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Ignores startup request context for Providers without a contextual wire rule.
+fn preserve_contextual_request_body(
+    _protocol: ApiProtocol,
+    _context: ProviderRequestContext<'_>,
     _document: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), AdapterError> {
     Ok(())

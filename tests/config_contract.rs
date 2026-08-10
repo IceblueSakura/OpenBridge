@@ -2,10 +2,13 @@
 
 mod support;
 
+use std::collections::BTreeSet;
+
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
     core::{ExecutableResponsesState, OperationKind, ResponsesAffinity, StorageSupport},
     provider::{CredentialKind, ProviderKind},
+    providers::build_compiled_registry_with_active_pools,
     registry::{
         IgnorableGenerationParameter, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
         NonStreamingConversion, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
@@ -168,6 +171,42 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
             request: 1_048_576
         })
     ));
+}
+
+#[test]
+fn active_chatgpt_targets_require_non_blank_bootstrap_instructions() {
+    // Keep the optional field absent when no ChatGPT credential pool activates a target.
+    let without_instructions = BOOTSTRAP.replace(
+        "chatgpt_instructions = \"You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.\"\n",
+        "",
+    );
+    build_compiled_registry_with_active_pools(
+        parse_bootstrap_config(&without_instructions).unwrap(),
+        &BTreeSet::new(),
+    )
+    .expect("inactive ChatGPT targets must not require instructions");
+
+    // Reject missing, empty, and whitespace-only values once the ChatGPT pool is active.
+    let active_pools = BTreeSet::from(["chatgpt-codex".to_owned()]);
+    for document in [
+        without_instructions,
+        BOOTSTRAP.replace(
+            "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+            "",
+        ),
+        BOOTSTRAP.replace(
+            "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+            "   ",
+        ),
+    ] {
+        assert!(matches!(
+            build_compiled_registry_with_active_pools(
+                parse_bootstrap_config(&document).unwrap(),
+                &active_pools,
+            ),
+            Err(RegistryError::MissingChatGptInstructions)
+        ));
+    }
 }
 
 #[test]

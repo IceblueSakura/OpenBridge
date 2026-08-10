@@ -14,7 +14,10 @@ use crate::{
     core::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
     credential::CredentialStore,
     oauth2_credentials::OAuth2CredentialManager,
-    provider::{PreparedUpstreamRequest, ProviderAdapter, ProviderKind, StreamEventStatus},
+    provider::{
+        PreparedUpstreamRequest, ProviderAdapter, ProviderKind, ProviderRequestContext,
+        StreamEventStatus,
+    },
     registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
     transport::{
         sse::SseDecoder,
@@ -147,6 +150,7 @@ async fn run_probe_session_with_headers(
         target,
         transport,
         adapter: ProviderAdapter::for_kind(target.kind()),
+        chatgpt_instructions: registry.chatgpt_instructions(),
         headers,
         max_response_bytes: registry.limits().max_json_response_body_bytes(),
         max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
@@ -188,6 +192,7 @@ struct ProbeSession<'a> {
     target: &'a UpstreamTarget,
     transport: &'a dyn UpstreamTransport,
     adapter: ProviderAdapter,
+    chatgpt_instructions: Option<&'a str>,
     headers: HeaderMap,
     max_response_bytes: usize,
     max_sse_event_bytes: usize,
@@ -407,7 +412,11 @@ impl ProbeSession<'_> {
 
         // Let the compile-time adapter bind the model, wire mappings, and relative path.
         self.adapter
-            .prepare_routed_request(&request, upstream_api)
+            .prepare_routed_request(
+                &request,
+                upstream_api,
+                ProviderRequestContext::new(self.chatgpt_instructions),
+            )
             .map_err(|_| ProbeResult::unknown(None))
     }
 

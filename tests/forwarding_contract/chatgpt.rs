@@ -61,6 +61,12 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
     ]) {
         assert_eq!(request.path, "/responses");
         assert_eq!(request.model, upstream_model);
+        assert_eq!(
+            request.instructions.as_deref(),
+            Some(
+                "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+            )
+        );
         assert!(request.input_is_array);
         assert!(request.store_is_false);
         assert!(!request.output_limit_present);
@@ -208,6 +214,12 @@ async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
     let request = &requests[0];
     assert_eq!(request.path, "/responses");
     assert_eq!(request.model, "gpt-5.6-luna");
+    assert_eq!(
+        request.instructions.as_deref(),
+        Some(
+            "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        )
+    );
     assert!(request.input_is_array);
     assert!(request.store_is_false);
     assert!(!request.output_limit_present);

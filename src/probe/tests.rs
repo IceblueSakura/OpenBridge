@@ -39,6 +39,7 @@ schema_version = 2
 listen = "127.0.0.1:8080"
 users_file = "config/users.toml"
 upstream_credentials_file = "config/upstream-credentials.toml"
+chatgpt_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
 max_request_body_bytes = 1048576
 max_json_response_body_bytes = 16777216
 max_replay_body_bytes = 262144
@@ -563,6 +564,12 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     assert_eq!(
         requests[0].1.get("store").and_then(Value::as_bool),
         Some(false)
+    );
+    assert_eq!(
+        requests[0].1.get("instructions").and_then(Value::as_str),
+        Some(
+            "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        )
     );
     assert!(requests[0].1.get("max_output_tokens").is_none());
     assert!(requests[0].1.get("tools").is_none());

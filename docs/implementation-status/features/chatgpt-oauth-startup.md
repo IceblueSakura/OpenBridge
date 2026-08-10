@@ -21,7 +21,9 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
   Chat→Responses Bridge 对应转换 function tools、parallel tool calls 以及 `response_format`/`text.format` 的 text、JSON object 和
   JSON Schema 形状。Spark 仍保持文本-only capability。
 - ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream: true`，把字符串 `input` 转为 user
-  message 数组、强制 `store: false`，并在 egress 前拒绝且不公开当前 backend 不接受的输出 token limit 参数。真实 backend 的成功 SSE
+  message 数组、强制 `store: false`，并在 Native 或 Chat→Responses Bridge 完成后注入 Bootstrap 的 `chatgpt_instructions`。只有 active
+  pool 保留 ChatGPT Target 时该字段才必须非空且非纯空白；未激活 ChatGPT 不阻止其他 Provider 启动。adapter 仍在 egress 前拒绝且不公开
+  当前 backend 不接受的输出 token limit 参数。真实 backend 的成功 SSE
   可以缺失 `Content-Type`；静态 ChatGPT media profile 识别该形状、执行完整 lifecycle 校验并向下游规范化 SSE media type。
 - GPT-5.5 与 GPT-5.6 的 `seed` 仍作为下游可接受普通提示公开，并在四个 advanced ChatGPT Responses API 的 candidate egress 删除。
   `include_reasoning` 会改变 reasoning 可见性，当前 API 将其显式禁用，Chat/Responses 固定 interface 不再公开并在 egress 前拒绝。
@@ -54,7 +56,8 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖五个 target/Public Model/Route 的编译、能力和固定规划。
 - [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖五个模型的模型改写、streaming 请求 envelope、账户绑定
-  header、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的 pre-egress 拒绝。
+  header、Native/Chat Bridge 共用的 startup instructions、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的
+  pre-egress 拒绝；`tests/config_contract.rs` 覆盖 active ChatGPT 条件下缺失、空值和纯空白启动失败以及 inactive ChatGPT 的可选行为。
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖 Chat/Responses structured output request shape 的双向
   转换和未知字段拒绝。
 - [`src/oauth2_credentials/manager.rs`](../../../src/oauth2_credentials/manager.rs) 的单元测试覆盖 rejected generation 的强制 refresh、
@@ -111,6 +114,18 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - `cargo test --locked --test forwarding_contract chatgpt`：8 项通过；`cargo test --locked`：通过；
   `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`：通过；
 - 未运行真实 ChatGPT Provider、外部 SDK、负载或长期运行验收，因此本轮只证明网关契约和合成 transport 的 wire 透传。
+
+2026-08-10 `chatgpt_instructions` 启动约束与上游注入的确定性验证：
+
+- `config_contract` 覆盖无 active ChatGPT Target 时字段可缺失，以及 active ChatGPT Target 下缺失、空字符串和纯空白均启动失败；
+- `forwarding_contract` 覆盖 Responses Native 与 Chat→Responses Bridge 在 Provider adapter 处注入同一启动值，`probe` 单元测试覆盖同一
+  Responses request preparation 路径，`startup_contract` 覆盖真实进程组合夹具；
+- `cargo test --locked --test config_contract`：21 项通过；`cargo test --locked --test forwarding_contract chatgpt`：8 项通过；相关
+  `probe` 与 `startup_contract` 聚焦测试通过；
+- `cargo test --locked -- --skip configuration::checked_in_examples_compile_into_a_closed_runtime_registry`：通过；未跳过的仓库级测试只有该既有
+  示例一致性检查失败，原因是 `config/bootstrap.toml` 与 example 中本轮未修改的 telemetry enabled 值不同；
+- `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`：通过。未运行真实 ChatGPT Provider、外部 SDK、负载或
+  长期运行验收；本轮未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus 基线。
 
 ## 相关文档
 

@@ -90,6 +90,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         listen,
         users_file: raw.users_file,
         upstream_credentials_file: raw.upstream_credentials_file,
+        chatgpt_instructions: raw.chatgpt_instructions,
         limits: RuntimeLimits {
             max_request_body_bytes: raw.max_request_body_bytes,
             max_json_response_body_bytes: raw.max_json_response_body_bytes,

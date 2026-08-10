@@ -9,6 +9,7 @@ mod contracts;
 mod definition;
 mod kind;
 
+pub(crate) use adapter::ProviderRequestContext;
 pub use adapter::{AdapterError, PreparedUpstreamRequest, ProviderAdapter};
 pub use contracts::{
     ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,
