@@ -16,9 +16,11 @@ pub enum RegistryError {
     /// The Provider instance ID is blank.
     #[error("provider instance id must not be blank")]
     BlankProviderInstanceId,
-    /// At least one active ChatGPT Target has no usable startup instructions.
-    #[error("active ChatGPT targets require non-blank bootstrap chatgpt_instructions")]
-    MissingChatGptInstructions,
+    /// At least one active general Generation interface has no usable startup fallback.
+    #[error(
+        "active general generation interfaces require non-blank bootstrap default_instructions"
+    )]
+    MissingDefaultInstructions,
     /// An entity collection contains a duplicate ID.
     #[error("duplicate {entity} id '{id}'")]
     DuplicateId {

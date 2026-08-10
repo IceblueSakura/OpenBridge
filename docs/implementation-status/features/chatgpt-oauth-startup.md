@@ -20,9 +20,9 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - GPT-5.5 与 GPT-5.6 的 Responses upstream contract 声明 function tools、parallel tool calls 和 structured outputs；ChatGPT 的
   Chat→Responses Bridge 对应转换 function tools、parallel tool calls 以及 `response_format`/`text.format` 的 text、JSON object 和
   JSON Schema 形状。Spark 仍保持文本-only capability。
-- ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream: true`，把字符串 `input` 转为 user
-  message 数组、强制 `store: false`，并在 Native 或 Chat→Responses Bridge 完成后注入 Bootstrap 的 `chatgpt_instructions`。只有 active
-  pool 保留 ChatGPT Target 时该字段才必须非空且非纯空白；未激活 ChatGPT 不阻止其他 Provider 启动。adapter 仍在 egress 前拒绝且不公开
+- ChatGPT adapter 固定 SSE `Accept`、`originator` 和 headless Codex CLI UA；它要求 `stream:true`，把字符串 `input` 转为 user
+  message 数组并保持 `store:false`。通用 planning 已按客户端优先、项目默认回落写入 `instructions`；adapter 不再拥有 Provider 专属
+  instruction context/hook，也不会覆盖客户端值。adapter 仍在 egress 前拒绝且不公开
   当前 backend 不接受的输出 token limit 参数。真实 backend 的成功 SSE
   可以缺失 `Content-Type`；静态 ChatGPT media profile 识别该形状、执行完整 lifecycle 校验并向下游规范化 SSE media type。
 - GPT-5.5 与 GPT-5.6 的 `seed` 仍作为下游可接受普通提示公开，并在四个 advanced ChatGPT Responses API 的 candidate egress 删除。
@@ -60,8 +60,9 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 
 - [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖五个 target/Public Model/Route 的编译、能力和固定规划。
 - [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖五个模型的模型改写、streaming 请求 envelope、账户绑定
-  header、Native/Chat Bridge 共用的 startup instructions、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的
-  pre-egress 拒绝；`tests/config_contract.rs` 覆盖 active ChatGPT 条件下缺失、空值和纯空白启动失败以及 inactive ChatGPT 的可选行为。
+  header、Native/Chat Bridge 共用的客户端优先/项目默认 instructions、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的
+  pre-egress 拒绝；`tests/config_contract.rs` 覆盖存在通用 Generation interface 时缺失、空值和纯空白默认值均启动失败，以及仅有
+  Embeddings/专用 task 时不制造该要求。
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖 Chat/Responses structured output request shape 的双向
   转换和未知字段拒绝。
 - [`src/oauth2_credentials/manager.rs`](../../../src/oauth2_credentials/manager.rs) 的单元测试覆盖 rejected generation 的强制 refresh、
@@ -124,7 +125,7 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
   `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`：通过；
 - 未运行真实 ChatGPT Provider、外部 SDK、负载或长期运行验收，因此本轮只证明网关契约和合成 transport 的 wire 透传。
 
-2026-08-10 `chatgpt_instructions` 启动约束与上游注入的确定性验证：
+2026-08-10 `chatgpt_instructions` 启动约束与上游注入的历史确定性验证（该行为已被 2026-08-11 通用策略替代）：
 
 - `config_contract` 覆盖无 active ChatGPT Target 时字段可缺失，以及 active ChatGPT Target 下缺失、空字符串和纯空白均启动失败；
 - `forwarding_contract` 覆盖 Responses Native 与 Chat→Responses Bridge 在 Provider adapter 处注入同一启动值，`probe` 单元测试覆盖同一
@@ -135,6 +136,11 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
   示例一致性检查失败，原因是 `config/bootstrap.toml` 与 example 中本轮未修改的 telemetry enabled 值不同；
 - `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`：通过。未运行真实 ChatGPT Provider、外部 SDK、负载或
   长期运行验收；本轮未修改 `testdata/` 或 `tools/corpus/`，因此未运行 Python corpus 基线。
+
+2026-08-11 M5 已删除上述 ChatGPT 专属注入：Bootstrap 改为通用 `default_instructions`，显式 Responses 值和 Chat 首条
+system/developer 值优先，ChatGPT Native/Bridge 都保留原始客户端字节；缺失时由 planning 统一回落。ChatGPT adapter 仍只负责固定
+Responses envelope（stream、input array、store false）、header/OAuth 与输出 token limit 拒绝。确定性覆盖见
+`forwarding_contract::chatgpt::chatgpt_preserves_client_instructions_across_native_and_chat_bridge_paths` 和通用 M5 实施现状。
 
 ## 相关文档
 

@@ -14,6 +14,7 @@ use crate::{
 
 use super::{
     error::{EmbeddingRequestError, RequestPlanningError},
+    instructions::normalize_generation_request,
     preflight::{preflight_embedding_public_model, preflight_public_model},
     types::{
         EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
@@ -23,9 +24,10 @@ use super::{
 
 /// Generates a Native or Bridged execution plan from one Public Model's precompiled interface.
 ///
-/// Native request fields remain unchanged except for one preflight-resolved reasoning level and
-/// the `model` later rewritten by the adapter. Bridged requests convert only shared semantics in
-/// the explicit allowlist. A failed BridgePlan rejects the request and does not skip the Route.
+/// Planning first applies one preflight-resolved reasoning level and the gateway-owned
+/// instructions/store envelope to an immutable canonical request. Native candidates preserve that
+/// body until the adapter rewrites `model`; Bridged candidates convert only shared semantics in the
+/// explicit allowlist. A failed BridgePlan rejects the request and does not skip the Route.
 pub fn plan_request(
     registry: &RuntimeRegistry,
     requirements: &RequestRequirements,
@@ -37,8 +39,27 @@ pub fn plan_request(
         debug_assert!(interface.continuation_candidates_match_issuer());
     }
 
+    // Resolve the project fallback once after Public Model preflight and before candidate expansion.
+    let normalized_body = if registry
+        .public_model(requirements.public_model())
+        .is_some_and(|model| model.is_general_generation())
+    {
+        let default_instructions = registry
+            .default_instructions()
+            .expect("general Generation registries validate default instructions at startup");
+        normalize_generation_request(
+            &body,
+            requirements.protocol(),
+            &requirements.requested_instructions,
+            default_instructions,
+        )?
+    } else {
+        body
+    };
+
     // Remove the typed inactive Responses projection before any Native or Bridged egress body is built.
-    let normalized_body = normalize_inactive_response_include(&body, requirements.protocol())?;
+    let normalized_body =
+        normalize_inactive_response_include(&normalized_body, requirements.protocol())?;
 
     // Normalize the canonical request once so every static fallback candidate receives one effort.
     let normalized_body = normalize_reasoning_level(

@@ -1503,11 +1503,6 @@ impl ModelInterfaceCapabilities {
         self.structured_outputs
     }
 
-    /// Returns whether the interface guarantees `store: true`.
-    pub(crate) const fn supports_store(&self) -> bool {
-        self.state.store.is_supported()
-    }
-
     /// Returns whether the interface guarantees background responses.
     pub(crate) const fn supports_background(&self) -> bool {
         self.state.background.is_supported()

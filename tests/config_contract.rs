@@ -201,20 +201,19 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
 }
 
 #[test]
-fn active_chatgpt_targets_require_non_blank_bootstrap_instructions() {
-    // Keep the optional field absent when no ChatGPT credential pool activates a target.
+fn active_general_generation_interfaces_require_non_blank_default_instructions() {
+    // Keep the optional field absent when no credential pool activates a general Generation interface.
     let without_instructions = BOOTSTRAP.replace(
-        "chatgpt_instructions = \"You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.\"\n",
+        "default_instructions = \"You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.\"\n",
         "",
     );
     build_compiled_registry_with_active_pools(
         parse_bootstrap_config(&without_instructions).unwrap(),
         &BTreeSet::new(),
     )
-    .expect("inactive ChatGPT targets must not require instructions");
+    .expect("a deployment without an active general Generation interface needs no default");
 
-    // Reject missing, empty, and whitespace-only values once the ChatGPT pool is active.
-    let active_pools = BTreeSet::from(["chatgpt-codex".to_owned()]);
+    // Reject missing, empty, and whitespace-only values for any active general Generation interface.
     for document in [
         without_instructions,
         BOOTSTRAP.replace(
@@ -227,13 +226,20 @@ fn active_chatgpt_targets_require_non_blank_bootstrap_instructions() {
         ),
     ] {
         assert!(matches!(
-            build_compiled_registry_with_active_pools(
+            build_registry(
                 parse_bootstrap_config(&document).unwrap(),
-                &active_pools,
+                definition("instructions-test", "public-model", "upstream-model"),
             ),
-            Err(RegistryError::MissingChatGptInstructions)
+            Err(RegistryError::MissingDefaultInstructions)
         ));
     }
+
+    // The unpublished ChatGPT-only field is replaced outright by the project-wide field.
+    let legacy = BOOTSTRAP.replace("default_instructions", "chatgpt_instructions");
+    assert!(matches!(
+        parse_bootstrap_config(&legacy),
+        Err(BootstrapConfigError::Parse)
+    ));
 }
 
 #[test]

@@ -2,7 +2,8 @@
 //!
 //! Providers, Models, Upstream Targets, Upstream APIs, Routes, Public Models, endpoints, and
 //! credential bindings are defined by the code registry; bootstrap carries listen settings,
-//! ChatGPT startup instructions, resource limits, local HTTP logging, and shared HTTP client policy.
+//! Project-wide generation instructions, resource limits, local HTTP logging, and shared HTTP
+//! client policy.
 
 use std::{
     net::SocketAddr,
@@ -28,7 +29,7 @@ pub struct BootstrapConfig {
     listen: SocketAddr,
     users_file: PathBuf,
     upstream_credentials_file: PathBuf,
-    chatgpt_instructions: Option<String>,
+    default_instructions: Option<String>,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
     http_logging: HttpLoggingConfig,
@@ -52,9 +53,9 @@ impl BootstrapConfig {
         &self.upstream_credentials_file
     }
 
-    /// Returns the optional startup-owned instructions used only by active ChatGPT Targets.
-    pub fn chatgpt_instructions(&self) -> Option<&str> {
-        self.chatgpt_instructions.as_deref()
+    /// Returns the startup-owned fallback used by every active general Generation interface.
+    pub fn default_instructions(&self) -> Option<&str> {
+        self.default_instructions.as_deref()
     }
 
     /// Returns independent runtime limits for request, replay, JSON-response, and SSE bodies.

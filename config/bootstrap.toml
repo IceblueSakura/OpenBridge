@@ -6,8 +6,8 @@ listen = "127.0.0.1:8080"
 users_file = "config/users.toml"
 # Locates the private upstream API-key and OAuth2 credential bindings.
 upstream_credentials_file = "config/upstream-credentials.toml"
-# Supplies the fixed developer instruction used by registered ChatGPT upstream requests.
-chatgpt_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+# Supplies the fallback instruction for every active general Generation interface.
+default_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
 # Limits one downstream request body to 1 MiB and bounds its optional log capture.
 max_request_body_bytes = 1048576
 # Limits buffered JSON responses and optional response-body log capture to 16 MiB.

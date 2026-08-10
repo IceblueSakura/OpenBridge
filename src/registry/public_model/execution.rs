@@ -240,6 +240,7 @@ pub struct PublicModel {
     pub(super) routes: Vec<String>,
     pub(super) execution_interfaces: ModelExecutionInterfaces,
     pub(super) info: PublicModelInfo,
+    pub(super) general_generation: bool,
 }
 
 impl PublicModel {
@@ -273,5 +274,10 @@ impl PublicModel {
     pub(crate) fn is_available(&self) -> bool {
         self.info.lifecycle.status != ModelLifecycleStatus::Retired
             && self.execution_interfaces.is_available()
+    }
+
+    /// Returns whether the executable Public Model is a general Generation surface.
+    pub(crate) fn is_general_generation(&self) -> bool {
+        self.general_generation
     }
 }

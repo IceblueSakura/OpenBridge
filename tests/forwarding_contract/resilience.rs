@@ -672,7 +672,9 @@ async fn healthy_requests_share_the_pool_round_robin_cursor() {
         let request = Request::post("/v1/chat/completions")
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
             .unwrap();
         assert_eq!(
             app.clone().oneshot(request).await.unwrap().status(),
@@ -694,7 +696,9 @@ async fn rate_limited_member_stays_cooled_while_a_successful_peer_remains_availa
         let request = Request::post("/v1/chat/completions")
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
             .unwrap();
         assert_eq!(
             app.clone().oneshot(request).await.unwrap().status(),
@@ -718,7 +722,9 @@ async fn server_errors_retry_the_same_member_without_rotating() {
     let request = Request::post("/v1/chat/completions")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+        ))
         .unwrap();
 
     assert_eq!(
@@ -743,7 +749,9 @@ async fn two_rate_limited_members_exhaust_the_candidate_without_wrapping() {
     let request = Request::post("/v1/chat/completions")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+        ))
         .unwrap();
 
     assert_eq!(
@@ -774,7 +782,9 @@ async fn non_429_client_errors_do_not_retry_or_rotate_credentials() {
         let request = Request::post("/v1/chat/completions")
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-            .body(Body::from(r#"{"model":"public-model","messages":[]}"#))
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
             .unwrap();
 
         assert_eq!(app.oneshot(request).await.unwrap().status(), status);

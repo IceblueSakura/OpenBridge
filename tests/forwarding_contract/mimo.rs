@@ -131,7 +131,22 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
         assert_eq!(requests.len(), 4);
         for (request, (expected_path, expected_body, _, _)) in requests.iter().zip(&cases) {
             assert_eq!(request.path, *expected_path);
-            assert_eq!(&request.body, expected_body);
+            let mut expected_body = expected_body.clone();
+            if expected_path.ends_with("chat/completions") {
+                expected_body["messages"].as_array_mut().unwrap().insert(
+                    0,
+                    serde_json::json!({
+                        "role": "system",
+                        "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+                    }),
+                );
+            } else {
+                expected_body["instructions"] = serde_json::json!(
+                    "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+                );
+                expected_body["store"] = serde_json::json!(false);
+            }
+            assert_eq!(request.body, expected_body);
         }
     }
 

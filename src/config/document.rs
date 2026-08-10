@@ -13,7 +13,7 @@ pub(super) struct RawBootstrap {
     pub(super) listen: String,
     pub(super) users_file: PathBuf,
     pub(super) upstream_credentials_file: PathBuf,
-    pub(super) chatgpt_instructions: Option<String>,
+    pub(super) default_instructions: Option<String>,
     pub(super) max_request_body_bytes: usize,
     pub(super) max_json_response_body_bytes: usize,
     pub(super) max_replay_body_bytes: usize,

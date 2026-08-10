@@ -115,7 +115,8 @@ BootstrapConfigPath::load
 → TelemetryRuntime::shutdown
 ```
 
-`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、可选的 ChatGPT startup instructions、request/JSON response/replay/SSE 大小、HTTP client
+`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、在存在通用 Generation interface 时必填的项目级
+`default_instructions`、request/JSON response/replay/SSE 大小、HTTP client
 参数、随附开发配置中显式全开的四个 `[logging]` 下游内容开关，以及分别默认禁用的 `[telemetry.traces]`、`[telemetry.metrics]` OTLP/HTTP base URL。省略日志表或字段时对应开关回退关闭；四个 limit 都是必填非零值，replay limit 不得超过 request limit；
 exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http` URL，固定 `/v1/traces`、`/v1/metrics` 和代码内
 processor/reader/timeout/shutdown 策略，不接受 URL credential、自定义 path/query/fragment、header 或请求级覆盖；HTTP client 会剥离
@@ -389,13 +390,18 @@ Remote URL + data URL union；只有 `mimo-v2.5` 的 Chat/Responses Target 选�
 专用 audio Target 和所有 checked-in OpenAI generation Target 都保持 `image_input = None`。因此 Provider family 上界不会自动打开
 未经 Target 证实的图片能力；OpenAI ceiling 先前的静态 `FileId` 声明也已删除。
 
+通用 Generation instruction policy 位于 request analysis/planning：Responses 显式非空 string 优先，Chat 只认首条可无损提升的
+system/developer string，否则使用 Bootstrap `default_instructions`。planning 在 Public Model 预检后、candidate 展开前规范化一次；
+Responses 总是显式 `store:false`，Chat 在需要回落时 prepend system。Bridge 只进行协议编码并保留 transcript 顺序，probe 复用同一
+规范化入口；`instructions` 和 false-only store 不进入 model `supported_parameters`/state capability。Embeddings 与专用音频 Public
+Model 通过编译保存的 canonical task 跳过该策略。
+
 ChatGPT registration 为 Spark、GPT-5.5 与 GPT-5.6 Luna/Terra/Sol 固定五个 target、同一个 Codex backend、`responses` path、各自的 upstream
 model 和共享 `chatgpt-codex` OAuth pool；每个 GPT Public Model 都有 ChatGPT Responses Native 与受限 Chat Bridge，`gpt-5.6-sol`
 还以 OpenAI 为后备 source，但两个下游协议都按 `SourceFirst` 优先 ChatGPT。ChatGPT definition 固定
 `Accept: text/event-stream`、`originator: codex_cli_rs` 与 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` UA，要求
-`stream: true`，把字符串 `input` 转为 user message 数组并强制 `store: false`；当 active pool 保留任一 ChatGPT Target 时，启动编译要求
-Bootstrap `chatgpt_instructions` 非空且非纯空白，并在 Native 或 Chat→Responses Bridge 完成后由 adapter 写入上游 `instructions`。
-该值不参与 Bridge 能力判断，也不能由下游覆盖。adapter 仍在 egress 前拒绝三个输出 token limit 字段。其
+`stream:true`，把字符串 `input` 转为 user message 数组并保持 `store:false`。客户端优先或默认回落的 `instructions` 已由通用 planning
+写入；ChatGPT adapter 不再持有 Provider request context 或覆盖 hook。adapter 仍在 egress 前拒绝三个输出 token limit 字段。其
 Upstream API policy 声明 streaming required，并启用 Responses SSE buffering；因此下游非流式 Chat/Responses 会在 planning 后固定
 上游 `stream: true`，完整验证 terminal 再返回 JSON。该静态 media profile 允许真实 ChatGPT 成功 SSE 缺失 `Content-Type`，并向下游
 规范化为 `text/event-stream`；其他 Provider、显式错误媒体类型和重复 header 仍 fail closed。该 profile 不读取本机 Codex auth、

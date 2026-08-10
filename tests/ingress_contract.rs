@@ -192,7 +192,7 @@ async fn chat_admission_maps_invalid_documents_and_fixed_streaming_rejections() 
                 .header(CONTENT_TYPE, "Application/JSON")
                 .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
                 .body(Body::from(
-                    r#"{"model":"code-primary","messages":[],"stream":true}"#,
+                    r#"{"model":"code-primary","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
                 ))
                 .unwrap(),
         )
@@ -202,4 +202,65 @@ async fn chat_admission_maps_invalid_documents_and_fixed_streaming_rejections() 
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     let error: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(error["error"]["code"], "unsupported_model_capability");
+}
+
+#[tokio::test]
+async fn instruction_and_stateless_boundaries_return_typed_bad_requests_before_egress() {
+    let app = test_app(support::registry(
+        "instruction-admission-test",
+        "code-primary",
+        "test-model",
+    ));
+    for (body, param) in [
+        (
+            serde_json::json!({"model": "code-primary", "input": "hello", "instructions": null}),
+            "instructions",
+        ),
+        (
+            serde_json::json!({"model": "code-primary", "input": "hello", "instructions": "   "}),
+            "instructions",
+        ),
+        (
+            serde_json::json!({"model": "code-primary", "input": "hello", "store": true}),
+            "store",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_request_error");
+        assert_eq!(error["error"]["param"], param);
+    }
+
+    for messages in [
+        serde_json::json!([]),
+        serde_json::json!([{"role": "future", "content": "hello"}]),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                    .body(Body::from(
+                        serde_json::json!({"model": "code-primary", "messages": messages})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }

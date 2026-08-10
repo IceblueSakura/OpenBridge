@@ -142,6 +142,18 @@ fn embedding_definition_compiles_into_the_typed_models_interface() {
 }
 
 #[test]
+fn embedding_only_registry_does_not_require_generation_default_instructions() {
+    let without_default = BOOTSTRAP.replace(
+        "default_instructions = \"You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.\"\n",
+        "",
+    );
+
+    build_registry(bootstrap(&without_default), embedding_definition()).expect(
+        "an Embeddings-only registry must not manufacture a generation instruction requirement",
+    );
+}
+
+#[test]
 fn embedding_compiler_derives_batch_limit_from_the_json_response_budget() {
     // Force the worst-case 1,024-dimension float response to fit once but not twice.
     let one_vector_budget = BOOTSTRAP.replace(

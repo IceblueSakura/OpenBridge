@@ -95,9 +95,9 @@
 - credential startup gate 扫描全部启用 Target，不依赖 Public Model/Route 可见性；`TargetBoundContinuation` 使用多 member pool 时拒绝，
   普通 `TargetBound` 仍允许 credential rotation。只有请求实际携带 `previous_response_id` 才关闭跨 Target fallback；无状态请求不因
   候选具备 continuation 而改变现有 fallback。
-- 当前实现把 `previous_response_id`、`background` 与 `store: true` 作为受限状态能力的安全 gate，而不是完整的有状态服务；
-  当前 Public Model 注册不提供通用 response storage、retrieve/cancel、conversation lifecycle 或 continuation ledger。它们是次要目标，
-  当前支持不完整，默认客户端和验证仍应使用每次携带完整历史的无状态请求。
+- 当前 Responses 核心只接受省略或显式 `store:false`，并在每个 Responses candidate 上编码 `false`；`store:true` 在 route 执行前
+  统一拒绝，Public Model 的 state 投影固定为 storage unsupported。`previous_response_id` 与 `background` 仍使用既有受限状态能力 gate；
+  当前不提供通用 response storage、retrieve/cancel、conversation lifecycle 或 continuation ledger，客户端应每次携带完整历史。
 
 ## 实现边界
 
@@ -189,11 +189,36 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
 
 M4 仍未实现且未获准：DeepSeek Flash 与 MiMo V2.5 的 Chat interface 只公开 `json_object`。MiMo 直连探测虽接受非 strict 和
 `strict:true` 的 `json_schema`，但 enum/字段名约束出现违背并伴随 `finish=abort`，不能证明 strict 语义可靠；DeepSeek、Bailian、
-OpenRouter 也尚未完成同等验证。因此当前完整候选交集继续 fail closed，详见当前焦点。
+OpenRouter 也尚未完成同等验证。因此当前完整候选交集继续 fail closed。
 
 M3 最终验证中，`native_routing_contract` 36 项、`example_config` 30 项和 `forwarding_contract` 66 项全部通过；隔离 target 目录下的完整
 `cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。本轮没有重新执行真实
 Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
+
+2026-08-11 M5 使用失败优先测试锁定了两个旧行为：Chat→Responses 没有提升首条合格 system/developer，且 planning 尚无统一
+instructions/store 错误与规范化入口。实现后：
+
+- Bootstrap `default_instructions` 直接替换旧字段；只要保留可执行通用 Generation interface 就要求非空值，仅 Embeddings/专用音频
+  task 不要求。Responses 显式非空 string 和 Chat 首条纯文本 system/developer 优先，缺失时使用项目默认值；后续 transcript 不扫描、
+  拼接或删除，instruction-only Chat→Responses 产生 `input:[]`。
+- planning 在 Public Model 预检后、candidate 展开前生成一个 canonical body；Native、Bridge、retry/fallback 与 probe 使用同一有效
+  文本。所有 Responses candidate 显式携带 `store:false`，`store:true` 或其他显式形状在 route 执行前返回 typed 400。
+  `instructions` 与 false-only store 不进入 model parameter/state 投影，Embeddings 与专用音频 task 跳过该策略。
+- ChatGPT 专属 request context 与覆盖 hook 已删除；adapter 只保留固定 Responses stream/input/store envelope、header/OAuth 和输出
+  token limit 拒绝。双向 Bridge 分别负责单次提升/删除或 prepend system，不读取 Bootstrap 或 Provider。
+- 聚焦验证通过：`bridge_conversion_contract` 20 项、`bridge_forwarding_contract` 12 项、`config_contract` 22 项、
+  `embedding_definition_contract` 8 项、`forwarding_contract` 67 项、`ingress_contract` 6 项、`native_routing_contract` 41 项、
+  `qwen36_registry_contract` 1 项、`startup_contract` 3 项、probe 单元测试 11 项和 `process_replay_contract` 7 项。
+  `example_config` 的 M5 全通用模型/全固定候选审计通过；完整 28 项中其余 27 项通过，唯一失败来自工作区并行 Google/Gemma 变更把
+  canonical 数量增加为 33，但其范围内的既有断言仍期望 32。
+- `cargo test --locked -- --skip canonical_catalog_assigns_every_model_to_one_expected_task`、
+  `cargo clippy --locked -- -D warnings`、`git diff --check`、`uv lock --check --project tools/corpus`、corpus Python 45 项和 corpus lint
+  通过。`cargo fmt -- --check` 仍只报告两个未由 M5 修改的已提交文件 `src/providers/kimi_cn/definition.rs` 与
+  `src/providers/openrouter/definition.rs` 的既有格式差异；M5 Rust 文件已用同版 rustfmt 单独检查。
+
+以上确定性证据证明本地配置、analysis/planning、Models 投影、Native/Bridge wire、retry body 复用和 canonical fixture，不证明真实
+Provider、Hermes、外部 SDK、强制多 Provider fallback、负载或长期运行。M5 未实现或验证 `previous_response_id`；
+`reasoning.summary` 仍是独立后续边界。
 
 ## 相关文档
 

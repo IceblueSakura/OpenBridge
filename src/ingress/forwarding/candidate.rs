@@ -11,7 +11,7 @@ use crate::{
     ingress::{response::api_error, state::GatewayState},
     oauth2_credentials::OAuth2CredentialLease,
     pipeline::RouteCandidate,
-    provider::{CredentialKind, PreparedUpstreamRequest, ProviderAdapter, ProviderRequestContext},
+    provider::{CredentialKind, PreparedUpstreamRequest, ProviderAdapter},
     registry::{CredentialPoolBinding, RuntimeRegistry, UpstreamApi, UpstreamTarget},
 };
 
@@ -84,11 +84,7 @@ pub(super) async fn prepare_candidate<'a>(
     // Prepare the relative Provider request before entering the bounded attempt loop.
     let adapter = ProviderAdapter::for_kind(target.kind());
     let request = adapter
-        .prepare_routed_request(
-            candidate.request(),
-            upstream_api,
-            ProviderRequestContext::new(registry.chatgpt_instructions()),
-        )
+        .prepare_routed_request(candidate.request(), upstream_api)
         .map_err(|_| {
             api_error(
                 http::StatusCode::BAD_REQUEST,

@@ -9,7 +9,7 @@ async fn provider_request_header_hook_overrides_user_agent_for_upstream() {
     for (path, body) in [
         (
             "/v1/chat/completions",
-            r#"{"model":"public-model","messages":[]}"#,
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
         ),
         (
             "/v1/responses",
@@ -45,7 +45,7 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
     let cases = [
         (
             "/v1/chat/completions",
-            r#"{"model":"public-model","messages":[]}"#,
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}]}"#,
             "application/json",
             b"{\"id\":\"chatcmpl_result\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}".as_slice(),
         ),
@@ -354,7 +354,7 @@ async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
-            r#"{"model":"public-model","messages":[],"reasoning_effort":"xhigh"}"#,
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"xhigh"}"#,
         ))
         .unwrap();
     let response = app.clone().oneshot(chat).await.unwrap();
@@ -400,7 +400,7 @@ async fn routed_egress_drops_only_configured_ordinary_generation_parameters() {
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
         .body(Body::from(
-            r#"{"model":"public-model","messages":[],"logprobs":true,"n":2,"seed":7,"temperature":0.2,"top_logprobs":3}"#,
+            r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"logprobs":true,"n":2,"seed":7,"temperature":0.2,"top_logprobs":3}"#,
         ))
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
@@ -541,7 +541,10 @@ async fn kimi_k3_rejects_output_shaping_parameters_before_egress() {
         let mut request = if path.ends_with("responses") {
             serde_json::json!({"model": "kimi-k3", "input": "hello"})
         } else {
-            serde_json::json!({"model": "kimi-k3", "messages": []})
+            serde_json::json!({
+                "model": "kimi-k3",
+                "messages": [{"role": "user", "content": "hello"}]
+            })
         };
         request[parameter] = value;
         let response = app

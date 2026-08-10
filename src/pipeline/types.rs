@@ -20,7 +20,17 @@ pub struct RequestRequirements {
     pub(super) is_streaming: bool,
     pub(super) requested_output_tokens: Option<u64>,
     pub(super) requested_parameters: BTreeSet<GenerationRequestField>,
+    pub(super) requested_instructions: RequestedInstructions,
     pub(super) requested_capabilities: RequestedCapabilities,
+}
+
+/// Client-owned instruction fact extracted before registry preflight.
+#[derive(Debug)]
+pub(super) enum RequestedInstructions {
+    /// Exact non-blank client text; surrounding whitespace remains significant.
+    Client(String),
+    /// No eligible client source was present, so planning must use the startup fallback.
+    Default,
 }
 
 /// Registry-independent facts extracted from one strict Embeddings Create request.
@@ -96,7 +106,6 @@ pub(super) struct RequestedCapabilities {
     pub(super) image_input: Option<ImageInputRequirements>,
     pub(super) audio: Option<RequestedAudio>,
     pub(super) structured_output: RequestedStructuredOutput,
-    pub(super) store: bool,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
     pub(super) previous_response_id: bool,

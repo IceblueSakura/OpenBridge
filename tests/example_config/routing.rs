@@ -61,7 +61,14 @@ fn longcat_responses_tool_continuation_prepares_native_and_bridge_candidates() {
     );
     let chat_request: serde_json::Value =
         serde_json::from_slice(bridge_candidate.request().body()).unwrap();
-    assert_eq!(chat_request["messages"].as_array().unwrap().len(), 4);
+    assert_eq!(chat_request["messages"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        chat_request["messages"][0],
+        serde_json::json!({
+            "role": "system",
+            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        })
+    );
 }
 
 #[test]
@@ -215,7 +222,7 @@ fn same_model_routes_are_aggregated_across_providers_in_native_first_order() {
         "unsupported"
     );
     let tools_body = bytes::Bytes::from_static(
-        br#"{"model":"LongCat-2.0","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+        br#"{"model":"LongCat-2.0","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
     );
     let tools_profile = analyze_request(ApiProtocol::ChatCompletions, &tools_body).unwrap();
     assert!(matches!(

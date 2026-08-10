@@ -393,17 +393,6 @@ fn build_registry_internal(
         }
     }
 
-    // Require startup-owned instructions only when this deployment retains an executable ChatGPT Target.
-    if upstream_targets
-        .values()
-        .any(|target| target.enabled() && target.kind() == crate::provider::ProviderKind::ChatGpt)
-        && bootstrap
-            .chatgpt_instructions()
-            .is_none_or(|instructions| instructions.trim().is_empty())
-    {
-        return Err(RegistryError::MissingChatGptInstructions);
-    }
-
     // Resolve Route references and validate Native operation identity and generation-only Bridge directions.
     let mut routes = BTreeMap::new();
     for route in definition.routes {
@@ -554,6 +543,17 @@ fn build_registry_internal(
                 id,
             });
         }
+    }
+
+    // Require one usable project fallback only when compilation retained a general Generation interface.
+    if public_models
+        .values()
+        .any(|model| model.is_available() && model.is_general_generation())
+        && bootstrap
+            .default_instructions()
+            .is_none_or(|instructions| instructions.trim().is_empty())
+    {
+        return Err(RegistryError::MissingDefaultInstructions);
     }
 
     // Assemble the complete request-path read-only snapshot only after all entities, references, and capability boundaries pass validation.

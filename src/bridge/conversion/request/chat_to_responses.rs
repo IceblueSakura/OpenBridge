@@ -25,6 +25,7 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
         .get("messages")
         .and_then(Value::as_array)
         .ok_or(BridgeError::InvalidShape)?;
+    let (instructions, messages) = promoted_first_instruction(messages);
     let stream = source.get("stream").and_then(Value::as_bool) == Some(true);
     let tools_present = source.get("tools").is_some();
     let input = chat_messages_to_responses(messages, stream, tools_present, reasoning_supported)?;
@@ -33,6 +34,13 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
     let mut result = Map::new();
     result.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
     result.insert("input".to_owned(), input);
+    if let Some(instructions) = instructions {
+        result.insert(
+            "instructions".to_owned(),
+            Value::String(instructions.to_owned()),
+        );
+    }
+    result.insert("store".to_owned(), Value::Bool(false));
     result.insert("stream".to_owned(), Value::Bool(stream));
     copy_fields(
         source,
@@ -88,6 +96,25 @@ pub(in crate::bridge::conversion) fn chat_request_to_responses(
         );
     }
     Ok(Value::Object(result))
+}
+
+/// Promotes exactly one lossless leading system/developer string and retains every later message.
+fn promoted_first_instruction(messages: &[Value]) -> (Option<&str>, &[Value]) {
+    let Some(first) = messages.first().and_then(Value::as_object) else {
+        return (None, messages);
+    };
+    let promotable_role = first
+        .get("role")
+        .and_then(Value::as_str)
+        .is_some_and(|role| matches!(role, "system" | "developer"));
+    let instructions = first
+        .get("content")
+        .and_then(Value::as_str)
+        .filter(|text| promotable_role && !text.trim().is_empty());
+    match instructions {
+        Some(instructions) => (Some(instructions), &messages[1..]),
+        None => (None, messages),
+    }
 }
 
 /// Converts ordered Chat messages into Responses input and validates call/result identities.

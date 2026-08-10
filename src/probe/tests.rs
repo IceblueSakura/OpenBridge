@@ -39,7 +39,7 @@ schema_version = 2
 listen = "127.0.0.1:8080"
 users_file = "config/users.toml"
 upstream_credentials_file = "config/upstream-credentials.toml"
-chatgpt_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+default_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
 max_request_body_bytes = 1048576
 max_json_response_body_bytes = 16777216
 max_replay_body_bytes = 262144
@@ -423,6 +423,28 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
             .filter_map(|(_, path, body)| (path != "/v1/models").then_some(body))
             .all(|body| body.get("model").and_then(Value::as_str) == Some("test-model"))
     );
+    let chat = requests
+        .iter()
+        .find(|(_, path, _)| path == "/v1/chat/completions")
+        .map(|(_, _, body)| body)
+        .unwrap();
+    assert_eq!(
+        chat["messages"][0],
+        serde_json::json!({
+            "role": "system",
+            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        })
+    );
+    let responses = requests
+        .iter()
+        .find(|(_, path, _)| path == "/v1/responses")
+        .map(|(_, _, body)| body)
+        .unwrap();
+    assert_eq!(
+        responses["instructions"],
+        "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+    );
+    assert_eq!(responses["store"], false);
     assert!(requests.iter().all(|(_, _, body)| {
         body.get("tools").is_none()
             && body.get("tool_choice").is_none()

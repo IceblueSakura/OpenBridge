@@ -26,7 +26,7 @@ OpenBridge 的核心实现重点是无状态服务，也是默认使用方式和
 优先省略 `store`、`previous_response_id` 和 `background`，或分别使用 `store: false`、`previous_response_id: null`
 以及 `background: false`。
 
-`previous_response_id`、`background` 和 `store: true` 属于次要目标，当前支持不完整，不能作为通用会话、后台任务或响应资源
+`store: true` 当前统一拒绝；`previous_response_id` 与 `background` 属于次要目标，当前支持不完整，不能作为通用会话、后台任务或响应资源
 服务使用。当前实现没有完整的 response state storage、retrieve/cancel、conversation lifecycle 或 continuation ledger；涉及
 状态的请求还必须受所选 Public Model、唯一 issuing Target/API 和 Native-only 边界约束。正常接入、客户端示例和验收都应优先
 采用无状态请求。
@@ -271,7 +271,7 @@ curl http://127.0.0.1:8080/v1/responses \
 | `listen` | `127.0.0.1:8080` | loopback listener，只接受 loopback 地址 |
 | `users_file` | `config/users.toml` | 下游用户文件 |
 | `upstream_credentials_file` | `config/upstream-credentials.toml` | 上游 credential binding 文件 |
-| `chatgpt_instructions` | `You are a coding agent...` | ChatGPT Codex 上游的启动级 instructions；激活任一 ChatGPT Target 时必须为非空、非纯空白字符串 |
+| `default_instructions` | `You are a coding agent...` | 所有通用 Generation Chat/Responses interface 的项目级指令回落；存在任一可执行 interface 时必须为非空、非纯空白字符串 |
 | `max_request_body_bytes` | `1048576` | 普通请求 body 上限，1 MiB |
 | `max_json_response_body_bytes` | `16777216` | JSON 成功体上限，16 MiB |
 | `max_replay_body_bytes` | `262144` | 可重放请求 body 上限，256 KiB |
@@ -287,10 +287,11 @@ curl http://127.0.0.1:8080/v1/responses \
 所有 limit 和 timeout 必须为非零值，`max_replay_body_bytes` 不能超过 `max_request_body_bytes`。监听地址不能改成
 `0.0.0.0` 或其他非 loopback 地址。
 
-`chatgpt_instructions` 只属于 ChatGPT Provider 的上游 request envelope。未激活 ChatGPT Target 时可以省略或留空；一旦
-`chatgpt-codex` credential pool 激活至少一个 ChatGPT Target，缺失、空字符串或纯空白值都会阻止启动。该值在 Chat→Responses
-Bridge 完成后由 ChatGPT adapter 写入，因此 Native Responses、Chat Bridge 和显式 Responses probe 使用同一 instructions，而其他
-Provider 不受影响。
+`default_instructions` 属于网关级 Generation envelope，而不是某个 Provider 或 Model 参数。Responses 的显式非空 string
+`instructions` 优先；只有字段省略才使用默认值。Chat 仅把索引 0 的非空纯文本 `system`/`developer` 作为客户端指令；否则在
+原 transcript 前插入默认 `system`。同一有效值在 Native、Bridge、retry/fallback 和 probe 中保持一致；Embeddings 与专用
+ASR/TTS/voice task 不注入。若编译结果没有可执行的通用 Generation interface，该字段可以省略；旧 `chatgpt_instructions`
+不再接受。
 
 ### 启用本地下游 HTTP 内容日志
 
@@ -458,9 +459,10 @@ curl -N http://127.0.0.1:8080/v1/responses \
   -d '{"model":"gpt-5.6-sol","input":"Say hello.","stream":true}'
 ```
 
-无状态请求是推荐路径：每次携带完整历史，并省略 `store`、`previous_response_id` 与 `background`。这些状态相关字段是否
-可用取决于所选 Public Model 的固定 interface；不要根据 OpenAPI 的通用 schema 推断每个模型都支持它们。当前
-`store: true`、非空 `previous_response_id` 和 `background: true` 不是通用可用能力，状态支持也不是当前默认验收范围。
+无状态请求是推荐路径：每次携带完整历史，并省略 `store`、`previous_response_id` 与 `background`。`store` 省略与
+`store:false` 等价；`store:true` 在任何 Provider egress 前拒绝，每个上游 Responses candidate 都显式收到 `store:false`。
+非空 `previous_response_id` 和 `background:true` 仍受既有固定 interface 边界约束，不是当前默认验收范围。
+Responses 显式非空 string `instructions` 优先于项目默认值；显式 `null`、空白或非 string 值返回 400。
 当前 ChatGPT source 的 Responses 路径固定为 Native，Chat 路径为受限 Bridge；两种路径的下游都支持 JSON/SSE。ChatGPT 上游仍固定
 `stream: true` 和 `store: false`；非流式 JSON 由 OpenBridge 在完整、合法、bounded 的 Responses SSE terminal 后生成。
 

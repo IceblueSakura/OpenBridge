@@ -97,6 +97,7 @@ pub(in crate::registry) fn compile_public_model(
         routes: config.routes,
         execution_interfaces,
         info,
+        general_generation: canonical_task == Some(CanonicalTaskKind::Generation),
     })
 }
 

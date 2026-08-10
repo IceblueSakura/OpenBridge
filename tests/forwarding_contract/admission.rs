@@ -123,7 +123,7 @@ async fn unsupported_public_model_capability_fails_before_any_upstream_attempt()
                 .header(CONTENT_TYPE, "application/json")
                 .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
                 .body(Body::from(
-                    r#"{"model":"public-model","messages":[],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"probe"}}]}"#,
                 ))
                 .unwrap(),
         )
@@ -205,7 +205,7 @@ async fn disjoint_structured_output_routes_fail_with_zero_egress() {
             "/v1/chat/completions",
             serde_json::json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "json_object"}
             }),
         ),
@@ -213,7 +213,7 @@ async fn disjoint_structured_output_routes_fail_with_zero_egress() {
             "/v1/chat/completions",
             serde_json::json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "json_schema", "json_schema": {"name": "answer"}}
             }),
         ),

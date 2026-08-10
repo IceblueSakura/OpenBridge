@@ -41,12 +41,27 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
         RequestPlanningError::InvalidJson
         | RequestPlanningError::MissingModel
+        | RequestPlanningError::InvalidMessages
         | RequestPlanningError::InvalidReasoningConfiguration
         | RequestPlanningError::InvalidStreamOptions
         | RequestPlanningError::InvalidMultimodalInput => api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
             "Request body is invalid",
+        ),
+        RequestPlanningError::InvalidInstructions => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Instructions must be a non-blank string",
+            Some("instructions"),
+        ),
+        RequestPlanningError::InvalidStore => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Store must be false when present",
+            Some("store"),
         ),
         RequestPlanningError::UnknownParameter(parameter) => typed_api_error(
             StatusCode::BAD_REQUEST,

@@ -262,9 +262,10 @@ paths:
       description: |
         Accepts a Responses JSON request and executes Native forwarding or a restricted
         Responses-to-Chat bridge through the complete route. OpenBridge's core compatibility
-        surface is stateless Responses; store, previous_response_id, and background are governed
-        by the selected Public Model's fixed capability contract. State affinity continues to
-        constrain subsequent execution and fallback. When stream is true, successful responses use
+        surface is stateless Responses: store may be omitted or false, every Responses egress
+        request encodes store:false, and store:true is rejected before egress. A non-blank string
+        instructions value wins; omission uses the project default. Existing previous_response_id
+        and background capability rules remain separate. When stream is true, successful responses use
         text/event-stream. Image parts require a model whose fixed Responses interface exposes
         multimodal_input.image and are supported only on a same-protocol Native route.
       security:
@@ -1155,7 +1156,7 @@ components:
     StateCapabilities:
       type: object
       additionalProperties: false
-      description: previous_response_id is supported only when every executable Responses route agrees and one upstream target/API is the unique continuation issuer.
+      description: Store is always unsupported because the gateway accepts only store:false; previous_response_id remains supported only when every executable Responses route agrees and one upstream target/API is the unique continuation issuer.
       required: [ store, previous_response_id, background ]
       properties:
         store:
@@ -1177,6 +1178,8 @@ components:
           example: gpt-5.6-sol
         messages:
           type: array
+          minItems: 1
+          description: The first plain non-blank system/developer string is the client instruction; otherwise OpenBridge prepends the project default without scanning later messages.
           items:
             $ref: '#/components/schemas/ChatMessage'
         stream:
@@ -1263,6 +1266,9 @@ components:
           additionalProperties: true
         store:
           type: boolean
+          enum: [ false ]
+          default: false
+          description: Only the stateless false value is accepted.
         metadata:
           type: object
           additionalProperties: true
@@ -1400,6 +1406,9 @@ components:
           minimum: 0
         store:
           type: boolean
+          enum: [ false ]
+          default: false
+          description: Omission is normalized to false and every Responses upstream request explicitly carries false.
         previous_response_id:
           type: string
           nullable: true
@@ -1435,9 +1444,10 @@ components:
           type: object
           additionalProperties: true
         instructions:
-          oneOf:
-            - type: string
-            - type: array
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+          description: Exact non-blank client instruction; omission uses the project-wide default and explicit null or non-string values are invalid.
         conversation:
           oneOf:
             - type: string

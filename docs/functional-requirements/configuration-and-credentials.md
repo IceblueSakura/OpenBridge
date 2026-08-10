@@ -12,7 +12,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 
 | 来源                                        | 内容                                                                                                                            | 能否包含 secret                    |
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
-| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、ChatGPT startup instructions、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、本地下游 HTTP 内容日志与 OTLP/HTTP 导出策略 | 否                                 |
+| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、Generation `default_instructions`、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、本地下游 HTTP 内容日志与 OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；来源是否存在决定已注册 pool 的启动激活状态 | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
@@ -25,9 +25,10 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 `max_replay_body_bytes` 与 `max_sse_event_bytes` 均为非零值，并要求 replay limit 不大于 request limit；这些
 字段职责独立，不互相提供缺省或回退。
 
-`chatgpt_instructions` 是可选的 Bootstrap 字符串；只有当前 active credential pool 集合保留至少一个可执行 ChatGPT Target 时，
-它才必须存在且不能是空字符串或纯空白。该值是 Provider-owned 启动策略，只能在 Chat→Responses Bridge 完成后由 ChatGPT adapter
-写入上游 Responses `instructions`；下游请求、环境和本机 Codex 状态不能覆盖它，未激活 ChatGPT 时不得因其缺失而阻止其他 Provider 启动。
+`default_instructions` 是项目级 Bootstrap 字符串；只要启动编译结果保留至少一个可执行的通用 Generation Chat/Responses
+interface，它就必须存在且不能是空字符串或纯空白。该值只在客户端没有有效指令来源时回落，并在候选展开前统一写入 canonical
+request；它不是 Provider-owned hook，也不要求 canonical Model 重复声明。只有 Embeddings 或专用 ASR/TTS/voice task 可执行时不制造
+该要求。旧 `chatgpt_instructions` 因严格 schema 直接拒绝，不提供 alias 或双写。
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
@@ -224,6 +225,7 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |
 | CFG-17 | 主服务在配置验证后、listener 前输出配置态 Provider/Public Model 可用/不可用双表；分类复用 active Target/执行接口且不触发 Provider egress，不输出 credential 或内部拓扑，也不把配置态结果声明为真实健康。 |
 | CFG-18 | 随附开发配置的四个本地下游 HTTP 内容日志开关显式全开，自定义配置缺表/缺字段时回退关闭且可独立覆盖；未知 logging 字段阻止启动，敏感 header 始终脱敏，body capture 有界且不进入 OTLP，开关不改变请求/响应字节、路由或终态。 |
+| CFG-19 | 任一通用 Generation interface 可执行时要求非空 `default_instructions`；仅有 Embeddings/专用音频 task 时不要求。客户端有效值优先，默认值在 candidate 展开前统一解析，Provider、probe 或请求不能另行覆盖。 |
 
 ## 关联文档
 

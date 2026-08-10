@@ -86,7 +86,7 @@ fn qwen36_27b_is_publicly_routable_through_bailian_chat() {
         (
             ApiProtocol::ChatCompletions,
             Bytes::from_static(
-                br#"{"model":"qwen3.6-27b","messages":[],"reasoning_effort":"high"}"#,
+                br#"{"model":"qwen3.6-27b","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}"#,
             ),
             false,
         ),
@@ -117,7 +117,7 @@ fn qwen36_27b_is_publicly_routable_through_bailian_chat() {
         let request = ApiRequest::new(
             ApiProtocol::ChatCompletions,
             Bytes::from(format!(
-                r#"{{"model":"qwen3.6-27b","messages":[],"reasoning_effort":"{level}"}}"#
+                r#"{{"model":"qwen3.6-27b","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
             )),
         );
         let upstream = adapter.prepare_request(&request, "qwen3.6-27b").unwrap();

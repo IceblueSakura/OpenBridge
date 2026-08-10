@@ -43,8 +43,8 @@
   OpenRouter/Bailian 只对相应 DeepSeek target 启用该能力，不扩大 MiniMax、Qwen 或 GLM。
 - `mimo-v2.5` 的两个同协议 Native surface 还支持固定 typed contract 内的 URL/Base64 图片输入；具体边界和真实 Provider 证据由
   [Native 图片专题](native-image-input.md)记录。
-- DeepSeek V4 Flash 与 OpenRouter 的 `store: true`、非空 `previous_response_id` 和 `background: true` 等未声明状态语义在 egress
-  前拒绝；DeepSeek V4 Pro 仍只注册 Chat Native API。
+- 所有 Responses 请求只接受省略或显式 `store:false`，并对每个 Responses candidate 显式编码 `false`；`store:true` 在 route
+  执行前统一拒绝。非空 `previous_response_id` 和 `background:true` 仍按既有固定状态契约预检；DeepSeek V4 Pro 仍只注册 Chat Native API。
 - 上游 safe response headers、SSE framing、terminal、EOF-before-terminal 和 body failure 在统一 ingress/transport 边界处理。
 - streaming-to-JSON takeover 只接受 Responses SSE，并同时受 JSON response body 与单 SSE event 上限约束；它校验标准 text lifecycle，
   从 response snapshots 与有序 `response.output_item.done` 补齐稀疏 terminal；非法 framing/UTF-8、

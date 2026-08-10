@@ -24,8 +24,8 @@ Provider API-key pool 的目标行为。实现事实仍以实施现状为准；�
   Target/Upstream API 可由配置唯一确定时才能形成候选，否则在 egress 前拒绝；
 - 多个 Target/API 即使都声明支持 `previous_response_id`，在没有 issuer ledger 时也不能形成唯一签发者；固定 Responses
   契约必须关闭该能力，不能默认把 ID 发送给第一 Provider；
-- `store: true` 只有在所选 Public Model 的固定 Responses 契约明确支持时才可进入；该契约必须由全部对应 Responses Route
-  共同保证，任何 `Bridged` Route 都不能通过字段删除把它降级为无状态调用。
+- 当前 Responses 核心统一为无状态：`store` 省略或显式 `false` 才可进入 planning，`true` 在任何 Provider egress 前稳定拒绝；
+  每个 Responses candidate 显式编码 `store:false`，Responses→Chat Bridge 消费该事实而不向 Chat wire 伪造字段。
 
 ## 当前 retry 与 fallback
 
@@ -130,7 +130,8 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 ## 当前验证重点
 
 - Public Model 能力只预检一次；通过后 RoutePlan 保留配置顺序，不按能力改变候选资格或顺序；
-- `store: true` 与非空 `previous_response_id` 只有在固定契约支持且 issuing target 可唯一确定时才可进入 Native Route；
+- `store: true` 在 route 执行前统一拒绝；非空 `previous_response_id` 仍只有在既有固定契约支持且 issuing target 可唯一确定时
+  才可进入 Native Route，本轮无状态 instructions 变更不扩大该能力；
 - 有状态 Responses 不进入 Bridge 或跨 target fallback；
 - stream/non-stream 提交下游 response 前的 retry/fallback 具有 request-wide 硬上限和指数退避；
 - 下游取消 pending send 或退避时不会启动后续 attempt；

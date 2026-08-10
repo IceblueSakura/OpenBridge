@@ -1,4 +1,6 @@
 {
+  "instructions": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+  "store": false,
   "input": "Wrong content type.",
   "model": "upstream-model",
   "stream": true

@@ -373,10 +373,30 @@ async fn production_router_converts_non_stream_requests_and_responses_in_both_di
         let requests = transport.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].0, transport.expected_path);
-        let expected_upstream: Value = serde_json::from_slice(&fixture(&format!(
+        let mut expected_upstream: Value = serde_json::from_slice(&fixture(&format!(
             "{directory}/expected-upstream-request.json"
         )))
         .unwrap();
+        match upstream {
+            ApiProtocol::Responses => {
+                expected_upstream["instructions"] = Value::String(
+                    "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+                        .to_owned(),
+                );
+            }
+            ApiProtocol::ChatCompletions => {
+                expected_upstream["messages"]
+                    .as_array_mut()
+                    .unwrap()
+                    .insert(
+                        0,
+                        serde_json::json!({
+                            "role": "system",
+                            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+                        }),
+                    );
+            }
+        }
         assert_eq!(requests[0].1, expected_upstream);
     }
 }

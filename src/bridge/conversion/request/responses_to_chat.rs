@@ -24,7 +24,14 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
 
     // Expand Responses input into Chat messages and validate the call/output ledger.
     let input = source.get("input").ok_or(BridgeError::InvalidShape)?;
-    let messages = responses_input_to_chat(input, reasoning_supported)?;
+    let mut messages = responses_input_to_chat(input, reasoning_supported)?;
+    if let Some(instructions) = source.get("instructions") {
+        let instructions = instructions
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(BridgeError::InvalidShape)?;
+        messages.insert(0, json!({"content": instructions, "role": "system"}));
+    }
     let stream = source.get("stream").and_then(Value::as_bool) == Some(true);
 
     // Copy shared fields and wrap the flat function schema as a Chat function object.

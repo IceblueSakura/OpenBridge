@@ -2,6 +2,7 @@
   "input": "Give weather and time.",
   "model": "upstream-model",
   "parallel_tool_calls": true,
+  "store": false,
   "stream": true,
   "tools": [
     {

@@ -154,20 +154,31 @@ reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只�
 - arguments 在完成前是未可信的字符串，网关不得执行或授权模型返回的工具调用；
 - tool call/result、`item_id`、stream output index 与 request id 是不同身份，不能相互替代。
 
-### 5.2 无状态核心与有状态 Native pass-through
+### 5.2 统一 generation instructions 与无状态核心
+
+通用 Generation 请求按一次解析结果使用同一有效指令：Responses 的显式非空 string `instructions` 优先；Chat 只把
+`messages[0]` 中非空纯文本 `system`/`developer` 作为客户端来源；其他情况回落 Bootstrap `default_instructions`。
+Responses 显式 `null`、空白或非 string 值在 egress 前返回 400。后续 system/developer 与复合首条消息属于 transcript，
+不能扫描、拼接或删除。Chat→Responses 只提升并删除首条合格消息一次，instruction-only 请求必须发送顶层 `instructions`
+与 `input: []`；Responses→Chat 把有效值编码为唯一首位 system message。Embeddings 和专用音频 task 不注入。
+
+该值在 Public Model 预检后、candidate 展开前统一写入 canonical request，因此 Native、Bridge、retry、fallback 与 probe
+使用同一字节串。`instructions` 是网关 envelope，不属于 canonical Model `supported_parameters`，ChatGPT 或其他 Provider
+adapter 不得再次覆盖。
 
 OpenBridge 的核心实现重点是无状态服务；无状态请求是默认使用方式、主要客户端兼容面和当前验收基线。客户端必须在每次请求中
 携带所需完整历史，`store` 应省略或为 `false`，`previous_response_id` 应省略或为 `null`，`background` 应省略或为 `false`。
 该路径可以在完整能力约束下使用 Native Route、有限 retry/fallback，以及仅转换显式共同语义的 Bridge。
 
-`previous_response_id`、`background` 与 `store: true` 是次要目标。当前实现只有能力 gate、状态亲和与唯一签发者校验等基础约束，
+`store:true` 当前不是次要 pass-through：它在所有 Provider egress 前统一拒绝。`previous_response_id` 与 `background` 是次要目标；
+当前实现只有能力 gate、状态亲和与唯一签发者校验等基础约束，
 尚未形成完整的 response state storage、retrieve/cancel、conversation lifecycle 或 continuation ledger；它们不能作为通用会话、
 后台任务或跨 Provider 状态迁移能力使用。正常接入、示例和验收不得以这些字段为前提。
 
-有状态 Responses 当前只作为能力受限的 Native pass-through：
+Responses 状态边界固定为：
 
-- `store: true` 只能进入明确声明该能力的 Native Responses Upstream API；不得通过 Bridge 实现或静默改写为
-  `false`；
+- `store` 省略与显式 `false` 等价；每个上游 Responses candidate 都显式编码 `store:false`，Responses→Chat Bridge 消费该事实但不伪造 Chat 字段；
+- `store:true` 及显式非 boolean/`null` 值稳定失败，不得因某个 Native Provider 接受而扩大；
 - 非空 `previous_response_id` 只能原样发送给可由当前配置唯一确定的 issuing Upstream Target/Upstream API； 不能唯一确定时必须在
   egress 前拒绝；
 - 有状态请求不得进入 Protocol Bridge 或跨 Upstream Target fallback，不得因 cooldown、权重或暂时故障改投 另一候选；
@@ -286,7 +297,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 |--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | API-01 | 有效静态 token 可访问标准/扩展模型与业务 endpoint；认证失败、未知 Public Model、不支持 feature 与非 JSON 请求在 egress 前安全失败。                                                |
 | API-02 | 标准/扩展 Models 接口满足[模型能力契约](model-information-and-capability-contract.md)的身份、逐字段一致性与部署信息隔离要求。                                                      |
-| API-03 | Native Chat/Responses 已知且被接口接受的请求字段除固定 Public Model reasoning 输入归一化、受信模型/认证改写、Provider wire mapping 及已验证的普通参数忽略规则外保持 wire 语义；未知请求顶层字段在 egress 前拒绝，上游响应中的未知合法字段/event 不因网关丢失。 |
+| API-03 | Native Chat/Responses 已知且被接口接受的请求字段除统一 instructions/store envelope、固定 Public Model reasoning 输入归一化、受信模型/认证改写、Provider wire mapping 及已验证的普通参数忽略规则外保持 wire 语义；未知请求顶层字段在 egress 前拒绝，上游响应中的未知合法字段/event 不因网关丢失。 |
 | API-04 | SSE 分片、终态、EOF、上游 error 和下游 cancel 不会产生伪成功、重复 terminal 或跨 Upstream Target 拼接。                                                                            |
 | API-05 | Chat/Responses 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；生成链路不执行这些工具。                                                      |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。                                                      |
@@ -294,12 +305,13 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，普通忽略参数按选中 API 删除，其他支持请求保持配置 Route 顺序，不按请求能力筛选或重排候选。                       |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。                                                                      |
 | API-10 | reasoning input 只接受 canonical vocabulary 与 Public Model `accepted_levels` 的交集；`strict` 保持精确值，`clamp_positive_floor` 只在正向 effort 中解析到固定接口实际 `levels`，`none` 不参与转换；有效值再按选定 Upstream API 的已校验规则改写，未知值、歧义源或非法目标在 egress 前失败。   |
-| API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |
+| API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store` 省略或 false 均规范化为每个 Responses egress 的显式 false，true 在 egress 前拒绝；非空 `previous_response_id` 与 `background:true` 仍属次要且不完整的 Native 目标。 |
 | API-12 | Embeddings、图片、文件与音频分别满足[扩展共同规则](embedding-and-native-multimodal.md)及其功能页的 wire、能力、资源归属、限制和证据边界。                                             |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
 | API-14 | 有效静态 token 可通过 `POST /mcp` 发现唯一静态 `hello(name: string)` 工具并取得 `Hi, {name}!`；Origin、transport metadata、无效参数、未知工具/method 与非 POST method 按固定边界失败，且调用不访问 Provider 或外部系统。 |
 | API-15 | `include: []` 作为 no-op 在全部 egress 前移除；非空 `include` 按 Public Model 逐值交集预检，未知或 Bridge 不可保真的投影 zero-egress 失败；`prompt_cache_key` 只在固定候选全部支持时原样转发，且不承诺缓存效果。 |
 | API-16 | 只有明确列出 `stream_options` 的 Chat interface 接受 `stream:true` 与精确 `{"include_usage":true}` 组合；Native egress 和 usage 尾块保持原始 wire，其他对象形状、Responses 与 Bridge 在 egress 前失败关闭。 |
+| API-17 | 通用 Generation 只解析一次客户端 instructions 来源并在缺失时使用项目默认值；Native/Bridge/候选/重试/probe 编码一致，首条合格 Chat 指令只提升删除一次，后续 transcript 保序，专用 task 不注入。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |
 | OBS-02 | 一个已认证业务请求产生一个脱敏 request root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复也不改变实际因果关系。       |
 | OBS-03 | OTLP metrics 使用 SDK 原生 counter/histogram 和有界维度；单 attempt output speed 只由明确 output usage 与 generation duration 计算，分位数、平均值、错误率、缓存 token 比例与 Provider + Public Model 排名由外部系统计算，未知值不补零。 |

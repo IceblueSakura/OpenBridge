@@ -11,6 +11,15 @@ pub enum RequestPlanningError {
     /// The request lacks a non-empty Public Model.
     #[error("request body must contain a non-empty model")]
     MissingModel,
+    /// Responses instructions are explicit but not one non-blank string.
+    #[error("instructions must be a non-blank string")]
+    InvalidInstructions,
+    /// The Chat messages envelope cannot support deterministic instruction selection.
+    #[error("messages must be a non-empty valid Chat message array")]
+    InvalidMessages,
+    /// The gateway accepts only stateless generation requests.
+    #[error("store must be false when present")]
+    InvalidStore,
     /// The request contains a top-level field outside the selected source protocol catalog.
     #[error("request contains unknown top-level parameter {0}")]
     UnknownParameter(String),

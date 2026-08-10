@@ -1,4 +1,6 @@
 {
+  "instructions": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+  "store": false,
   "input": "Get weather and local time for Shanghai.",
   "model": "upstream-model",
   "parallel_tool_calls": true,

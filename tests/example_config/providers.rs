@@ -63,7 +63,7 @@ fn qwen38_max_compiles_as_bailian_dual_native_with_official_reasoning_levels() {
         (
             ApiProtocol::ChatCompletions,
             bytes::Bytes::from_static(
-                br#"{"model":"qwen3.8-max","messages":[],"reasoning_effort":"none"}"#,
+                br#"{"model":"qwen3.8-max","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"none"}"#,
             ),
         ),
         (
@@ -155,7 +155,7 @@ fn sparse_reasoning_normalization_precedes_protocol_bridge() {
     // Normalize Chat input before its single Bridge converts the canonical field to Responses.
     for (requested, expected) in [("minimal", "low"), ("max", "xhigh")] {
         let body = bytes::Bytes::from(format!(
-            r#"{{"model":"gpt-5.3-codex-spark","messages":[],"reasoning_effort":"{requested}"}}"#
+            r#"{{"model":"gpt-5.3-codex-spark","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{requested}"}}"#
         ));
         let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
         let plan = plan_request(&registry, &profile, body).unwrap();
@@ -699,7 +699,7 @@ fn every_advertised_reasoning_level_is_plannable() {
                     .expect("reasoning level must serialize as text");
                 let request = match protocol {
                     ApiProtocol::ChatCompletions => format!(
-                        r#"{{"model":"{model_id}","messages":[],"reasoning_effort":"{level}"}}"#
+                        r#"{{"model":"{model_id}","messages":[{{"role":"user","content":"hello"}}],"reasoning_effort":"{level}"}}"#
                     ),
                     ApiProtocol::Responses => format!(
                         r#"{{"model":"{model_id}","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
@@ -715,6 +715,73 @@ fn every_advertised_reasoning_level_is_plannable() {
         }
     }
     assert!(checked_interfaces > 0);
+}
+
+#[test]
+fn every_general_generation_candidate_uses_the_gateway_instruction_and_store_envelope() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let default = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.";
+    let mut checked_candidates = 0;
+
+    for public_model in registry.public_models() {
+        let model_id = public_model.standard().id();
+        let info = serde_json::to_value(public_model.info()).unwrap();
+        if !info["capabilities"]["tasks"]
+            .as_array()
+            .is_some_and(|tasks| tasks.iter().any(|task| task == "text_generation"))
+        {
+            continue;
+        }
+
+        for (protocol, body, expected) in [
+            (
+                ApiProtocol::ChatCompletions,
+                serde_json::json!({
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": "hello"}]
+                }),
+                default,
+            ),
+            (
+                ApiProtocol::Responses,
+                serde_json::json!({
+                    "model": model_id,
+                    "input": "hello",
+                    "instructions": "  client instruction  "
+                }),
+                "  client instruction  ",
+            ),
+        ] {
+            let interface_name = match protocol {
+                ApiProtocol::ChatCompletions => "chat_completions",
+                ApiProtocol::Responses => "responses",
+            };
+            if info["interfaces"][interface_name].is_null() {
+                continue;
+            }
+            let body = bytes::Bytes::from(serde_json::to_vec(&body).unwrap());
+            let profile = analyze_request(protocol, &body).unwrap();
+            let plan = plan_request(&registry, &profile, body)
+                .unwrap_or_else(|error| panic!("{model_id} {interface_name}: {error:?}"));
+
+            for candidate in plan.candidates() {
+                checked_candidates += 1;
+                let request: serde_json::Value =
+                    serde_json::from_slice(candidate.request().body()).unwrap();
+                match candidate.request().protocol() {
+                    ApiProtocol::Responses => {
+                        assert_eq!(request["instructions"], expected, "{model_id}");
+                        assert_eq!(request["store"], false, "{model_id}");
+                    }
+                    ApiProtocol::ChatCompletions => {
+                        assert_eq!(request["messages"][0]["content"], expected, "{model_id}");
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked_candidates > 0);
 }
 
 #[test]

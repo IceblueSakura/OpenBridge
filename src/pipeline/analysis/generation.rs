@@ -13,6 +13,7 @@ use crate::{
 
 use super::super::{
     error::RequestPlanningError,
+    instructions::{analyze_requested_instructions, validate_stateless_store},
     types::{
         RequestRequirements, RequestedCapabilities, RequestedJsonSchemaStrictness,
         RequestedReasoning, RequestedStructuredOutput,
@@ -46,6 +47,8 @@ pub fn analyze_request(
 
     // Classify every top-level field before Native preservation or Bridge validation can observe it.
     let requested_parameters = classify_top_level_parameters(protocol, object)?;
+    let requested_instructions = analyze_requested_instructions(protocol, object)?;
+    validate_stateless_store(object)?;
 
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
     // Validate the one bounded Chat usage-tail option before any Native preservation can forward it.
@@ -88,7 +91,6 @@ pub fn analyze_request(
         image_input: analyze_image_input(protocol, object)?,
         audio,
         structured_output,
-        store: object.get("store").and_then(Value::as_bool) == Some(true),
         unmodeled_tools: requests_unmodeled_tools,
         reasoning: requested_reasoning(protocol, object),
         previous_response_id: protocol == ApiProtocol::Responses
@@ -106,6 +108,7 @@ pub fn analyze_request(
         is_streaming,
         requested_output_tokens,
         requested_parameters,
+        requested_instructions,
         requested_capabilities,
     })
 }

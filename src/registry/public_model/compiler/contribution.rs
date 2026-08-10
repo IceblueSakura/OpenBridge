@@ -104,7 +104,8 @@ impl RouteContractContribution {
             .then_some(generation.image_input)
             .flatten()
             .map(ImageInputInterfaceCapabilities::from_capabilities);
-        let store = generation.store && !bridged;
+        // The gateway exposes only stateless generation even when a Native Provider can persist state.
+        let store = false;
         let reasoning = route_reasoning_support(upstream_api, bridged);
         let reasoning_levels = if reasoning == SupportState::Supported {
             upstream_api.model().reasoning_levels().to_vec()

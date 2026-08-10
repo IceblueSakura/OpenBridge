@@ -81,6 +81,69 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 }
 
 #[tokio::test]
+async fn chatgpt_preserves_client_instructions_across_native_and_chat_bridge_paths() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    for (path, body) in [
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "gpt-5.6-sol",
+                "instructions": "  native client instruction  ",
+                "input": "hello",
+                "stream": true
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "gpt-5.6-sol",
+                "messages": [
+                    {"role": "developer", "content": "  bridge client instruction  "},
+                    {"role": "user", "content": "hello"}
+                ],
+                "stream": true
+            }),
+        ),
+    ] {
+        let request = Request::post(path)
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                AUTHORIZATION,
+                "Bearer downstream-token-00000000000000000000000000000000",
+            )
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].instructions.as_deref(),
+        Some("  native client instruction  ")
+    );
+    assert_eq!(
+        requests[1].instructions.as_deref(),
+        Some("  bridge client instruction  ")
+    );
+    assert!(requests.iter().all(|request| request.store_is_false));
+    assert!(requests.iter().all(|request| request.input_is_array));
+}
+
+#[tokio::test]
 async fn chatgpt_service_tier_is_advertised_and_preserved_across_native_and_bridge() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);

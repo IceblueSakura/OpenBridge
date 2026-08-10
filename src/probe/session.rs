@@ -14,11 +14,9 @@ use crate::{
     core::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
     credential::CredentialStore,
     oauth2_credentials::OAuth2CredentialManager,
-    provider::{
-        PreparedUpstreamRequest, ProviderAdapter, ProviderKind, ProviderRequestContext,
-        StreamEventStatus,
-    },
-    registry::{RuntimeRegistry, UpstreamApi, UpstreamTarget},
+    pipeline::normalize_probe_generation_request,
+    provider::{PreparedUpstreamRequest, ProviderAdapter, ProviderKind, StreamEventStatus},
+    registry::{CanonicalTaskKind, RuntimeRegistry, UpstreamApi, UpstreamTarget},
     transport::{
         sse::SseDecoder,
         upstream::{UpstreamResponse, UpstreamTransport},
@@ -150,7 +148,7 @@ async fn run_probe_session_with_headers(
         target,
         transport,
         adapter: ProviderAdapter::for_kind(target.kind()),
-        chatgpt_instructions: registry.chatgpt_instructions(),
+        default_instructions: registry.default_instructions(),
         headers,
         max_response_bytes: registry.limits().max_json_response_body_bytes(),
         max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
@@ -192,7 +190,7 @@ struct ProbeSession<'a> {
     target: &'a UpstreamTarget,
     transport: &'a dyn UpstreamTransport,
     adapter: ProviderAdapter,
-    chatgpt_instructions: Option<&'a str>,
+    default_instructions: Option<&'a str>,
     headers: HeaderMap,
     max_response_bytes: usize,
     max_sse_event_bytes: usize,
@@ -400,23 +398,26 @@ impl ProbeSession<'_> {
     fn prepare_protocol_request(
         &self,
         protocol: ApiProtocol,
-        body: Value,
+        mut body: Value,
     ) -> Result<PreparedUpstreamRequest, ProbeResult> {
-        // Serialize the fixed body and resolve the already validated Upstream API registration.
-        let body = serde_json::to_vec(&body).expect("probe request JSON is serializable");
-        let request = ApiRequest::new(protocol, Bytes::from(body));
+        // Resolve the already validated Upstream API registration before normalizing its task envelope.
         let upstream_api = self
             .target
             .upstream_api(protocol.operation())
             .expect("probe protocol has a configured upstream API");
+        if upstream_api.model().task_kind() == CanonicalTaskKind::Generation {
+            let default_instructions = self
+                .default_instructions
+                .ok_or_else(|| ProbeResult::unknown(None))?;
+            normalize_probe_generation_request(protocol, &mut body, default_instructions)
+                .map_err(|_| ProbeResult::unknown(None))?;
+        }
+        let body = serde_json::to_vec(&body).expect("probe request JSON is serializable");
+        let request = ApiRequest::new(protocol, Bytes::from(body));
 
         // Let the compile-time adapter bind the model, wire mappings, and relative path.
         self.adapter
-            .prepare_routed_request(
-                &request,
-                upstream_api,
-                ProviderRequestContext::new(self.chatgpt_instructions),
-            )
+            .prepare_routed_request(&request, upstream_api)
             .map_err(|_| ProbeResult::unknown(None))
     }
 

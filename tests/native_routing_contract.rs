@@ -393,7 +393,7 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
     // Verify that planning also preserves the canonical Chat level for every candidate.
     let chat = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "reasoning_effort": "xhigh"
     }))
     .unwrap();
@@ -446,25 +446,25 @@ fn clamp_positive_floor_normalizes_sparse_reasoning_before_candidate_expansion()
     for (protocol, request, pointer, expected) in [
         (
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": [], "reasoning_effort": "minimal"}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}], "reasoning_effort": "minimal"}),
             "/reasoning_effort",
             "medium",
         ),
         (
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": [], "reasoning_effort": "low"}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}], "reasoning_effort": "low"}),
             "/reasoning_effort",
             "medium",
         ),
         (
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": [], "reasoning_effort": "xhigh"}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}], "reasoning_effort": "xhigh"}),
             "/reasoning_effort",
             "high",
         ),
         (
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": [], "reasoning_effort": "max"}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}], "reasoning_effort": "max"}),
             "/reasoning_effort",
             "high",
         ),
@@ -522,7 +522,7 @@ fn clamp_positive_floor_normalizes_sparse_reasoning_before_candidate_expansion()
     for (protocol, request) in [
         (
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": [], "reasoning_effort": "none"}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}], "reasoning_effort": "none"}),
         ),
         (
             ApiProtocol::Responses,
@@ -541,7 +541,7 @@ fn clamp_positive_floor_normalizes_sparse_reasoning_before_candidate_expansion()
     }
     let unknown = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "reasoning_effort": "future"
     }))
     .unwrap();
@@ -601,7 +601,7 @@ fn native_routes_accept_declared_none_and_max_reasoning_levels() {
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "reasoning_effort": "max"
             }),
             "/reasoning_effort",
@@ -640,7 +640,7 @@ fn request_preflight_rejects_conflicting_reasoning_configuration_sources() {
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "reasoning": {"effort": "low"},
         "reasoning_effort": "high"
     }))
@@ -750,7 +750,7 @@ fn build_test_registry(definition: RegistryConfig) -> RuntimeRegistry {
 }
 
 #[test]
-fn native_routing_preserves_original_request_for_the_provider_adapter() {
+fn native_routing_normalizes_default_instructions_before_the_provider_adapter() {
     let registry = build_test_registry(base_definition());
     let original = json!({
         "model": "public-model",
@@ -768,7 +768,183 @@ fn native_routing_preserves_original_request_for_the_provider_adapter() {
     let preserved: Value = serde_json::from_slice(prepared.request().body()).unwrap();
 
     assert_eq!(prepared.upstream_target_id(), "openai-main");
-    assert_eq!(preserved, original);
+    assert_eq!(
+        preserved["messages"],
+        json!([
+            {
+                "role": "system",
+                "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+            },
+            {"role": "user", "content": "hello"}
+        ])
+    );
+    assert_eq!(preserved["tools"], original["tools"]);
+    assert_eq!(preserved["stream"], original["stream"]);
+}
+
+#[test]
+fn instructions_and_stateless_store_are_normalized_once_for_native_and_bridge_candidates() {
+    let mut definition = base_definition();
+    definition.routes.push(RouteConfig {
+        id: "responses-via-chat".to_owned(),
+        upstream_target: "openai-main".to_owned(),
+        upstream_operation: OperationKind::ChatCompletions,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Bridged,
+    });
+    definition.public_models[0].routes = vec![
+        "public-responses".to_owned(),
+        "responses-via-chat".to_owned(),
+    ];
+    let registry = build_test_registry(definition);
+
+    for (instructions, expected) in [
+        (Some("  client instruction  "), "  client instruction  "),
+        (
+            None,
+            "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+        ),
+    ] {
+        let mut request = json!({"model": "public-model", "input": "hello"});
+        if let Some(instructions) = instructions {
+            request["instructions"] = Value::String(instructions.to_owned());
+        }
+        let plan = support::prepare(
+            &registry,
+            ApiProtocol::Responses,
+            serde_json::to_vec(&request).unwrap().into(),
+        )
+        .unwrap();
+        assert_eq!(plan.candidates().len(), 2);
+
+        let native: Value = serde_json::from_slice(plan.candidates()[0].request().body()).unwrap();
+        let bridged: Value = serde_json::from_slice(plan.candidates()[1].request().body()).unwrap();
+        assert_eq!(native["instructions"], expected);
+        assert_eq!(native["store"], false);
+        assert_eq!(
+            bridged["messages"][0],
+            json!({"role": "system", "content": expected})
+        );
+        assert!(bridged.get("store").is_none());
+    }
+}
+
+#[test]
+fn chat_client_instruction_wins_and_later_instruction_messages_remain_transcript() {
+    let registry = build_test_registry(base_definition());
+    let request = json!({
+        "model": "public-model",
+        "messages": [
+            {"role": "developer", "content": "client instruction"},
+            {"role": "user", "content": "hello"},
+            {"role": "system", "content": "later transcript guidance"}
+        ]
+    });
+    let plan = support::prepare(
+        &registry,
+        ApiProtocol::ChatCompletions,
+        serde_json::to_vec(&request).unwrap().into(),
+    )
+    .unwrap();
+    let body: Value = serde_json::from_slice(plan.request().body()).unwrap();
+
+    assert_eq!(body["messages"], request["messages"]);
+}
+
+#[test]
+fn invalid_instructions_and_stateful_store_fail_before_route_egress() {
+    let registry = build_test_registry(base_definition());
+    for instructions in [
+        Value::Null,
+        Value::String(String::new()),
+        Value::String("   ".to_owned()),
+        json!([]),
+        json!({}),
+        json!(7),
+    ] {
+        let request = serde_json::to_vec(&json!({
+            "model": "public-model",
+            "input": "hello",
+            "instructions": instructions
+        }))
+        .unwrap();
+        assert!(matches!(
+            support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
+            RequestPlanningError::InvalidInstructions
+        ));
+    }
+
+    let request = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "store": true
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::Responses, request.into()).unwrap_err(),
+        RequestPlanningError::InvalidStore
+    ));
+}
+
+#[test]
+fn chat_instruction_selection_rejects_empty_messages_and_preserves_composite_guidance() {
+    let registry = build_test_registry(base_definition());
+    for messages in [
+        json!([]),
+        json!([{"role": "future", "content": "hello"}]),
+        json!([{"role": "user", "content": 7}]),
+    ] {
+        let request = serde_json::to_vec(&json!({
+            "model": "public-model",
+            "messages": messages
+        }))
+        .unwrap();
+        assert!(matches!(
+            support::prepare(&registry, ApiProtocol::ChatCompletions, request.into()).unwrap_err(),
+            RequestPlanningError::InvalidMessages
+        ));
+    }
+
+    let composite = json!({
+        "model": "public-model",
+        "messages": [
+            {"role": "system", "content": [{"type": "text", "text": "transcript guidance"}]},
+            {"role": "user", "content": "hello"}
+        ]
+    });
+    let plan = support::prepare(
+        &registry,
+        ApiProtocol::ChatCompletions,
+        serde_json::to_vec(&composite).unwrap().into(),
+    )
+    .unwrap();
+    let body: Value = serde_json::from_slice(plan.request().body()).unwrap();
+    assert_eq!(
+        body["messages"][0],
+        json!({
+            "role": "system",
+            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        })
+    );
+    assert_eq!(body["messages"][1], composite["messages"][0]);
+}
+
+#[test]
+fn gateway_instructions_are_not_projected_as_model_parameters() {
+    let registry = build_test_registry(base_definition());
+    let model =
+        serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    for protocol in ["chat_completions", "responses"] {
+        let parameters = model["interfaces"][protocol]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(!parameters.iter().any(|value| value == "instructions"));
+        assert!(!parameters.iter().any(|value| value == "store"));
+        assert_eq!(
+            model["interfaces"][protocol]["state"]["store"],
+            "unsupported"
+        );
+    }
 }
 
 #[test]
@@ -881,7 +1057,7 @@ fn stream_usage_options_are_exact_chat_only_native_contract() {
     );
     let exact = json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "stream": true,
         "stream_options": {"include_usage": true}
     });
@@ -892,15 +1068,23 @@ fn stream_usage_options_are_exact_chat_only_native_contract() {
     )
     .unwrap();
     let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
-    assert_eq!(upstream, exact);
+    let mut normalized = exact.clone();
+    normalized["messages"].as_array_mut().unwrap().insert(
+        0,
+        json!({
+            "role": "system",
+            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        }),
+    );
+    assert_eq!(upstream, normalized);
 
     // Reject every unverified nested value or non-streaming combination before Provider egress.
     for invalid in [
-        json!({"model":"public-model","messages":[],"stream":false,"stream_options":{"include_usage":true}}),
-        json!({"model":"public-model","messages":[],"stream":true,"stream_options":null}),
-        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{}}),
-        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{"include_usage":false}}),
-        json!({"model":"public-model","messages":[],"stream":true,"stream_options":{"include_usage":true,"future":true}}),
+        json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":false,"stream_options":{"include_usage":true}}),
+        json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":null}),
+        json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{}}),
+        json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":false}}),
+        json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true,"future":true}}),
     ] {
         let error = support::prepare(
             &registry,
@@ -1015,7 +1199,7 @@ fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() 
     let registry = build_test_registry(fallback);
     let request = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "temperature": 0.2
     }))
     .unwrap();
@@ -1029,7 +1213,11 @@ fn candidate_parameter_ignores_apply_before_bridge_without_mutating_fallbacks() 
 #[test]
 fn public_model_preflight_rejects_unknown_models() {
     let registry = build_test_registry(base_definition());
-    let body = serde_json::to_vec(&json!({"model": "missing", "messages": []})).unwrap();
+    let body = serde_json::to_vec(&json!({
+        "model": "missing",
+        "messages": [{"role": "user", "content": "hello"}]
+    }))
+    .unwrap();
 
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap_err(),
@@ -1081,7 +1269,7 @@ fn public_model_preflight_rejects_streaming_when_the_fixed_interface_disables_it
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "stream": true
     }))
     .unwrap();
@@ -1125,7 +1313,7 @@ fn public_model_preflight_rejects_non_streaming_when_conversion_is_disabled() {
     // Reject before egress instead of skipping the preferred source for a stronger fallback Route.
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": []
+        "messages": [{"role": "user", "content": "hello"}]
     }))
     .unwrap();
     assert!(matches!(
@@ -1145,7 +1333,7 @@ fn public_model_preflight_rejects_capabilities_not_guaranteed_by_its_contract() 
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
     .unwrap();
@@ -1184,7 +1372,7 @@ fn public_model_capability_rejection_does_not_select_a_stronger_later_route() {
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
     .unwrap();
@@ -1205,7 +1393,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
 
     let too_large = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "max_completion_tokens": 33
     }))
     .unwrap();
@@ -1216,7 +1404,7 @@ fn public_model_preflight_gates_output_parallel_image_and_reasoning_requirements
 
     let parallel = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe"}}],
         "parallel_tool_calls": true
     }))
@@ -1665,7 +1853,7 @@ fn public_model_output_limit_uses_the_most_restrictive_route() {
     let registry = build_test_registry(definition);
     let request = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "max_completion_tokens": 4097
     }))
     .unwrap();
@@ -1685,12 +1873,20 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
         capabilities.store = true;
     }
     let registry = build_test_registry(definition);
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    assert_eq!(
+        info["interfaces"]["chat_completions"]["state"]["store"],
+        "unsupported"
+    );
 
     let chat_store = serde_json::to_vec(&json!({
-        "model": "public-model", "messages": [], "store": true
+        "model": "public-model", "messages": [{"role": "user", "content": "hello"}], "store": true
     }))
     .unwrap();
-    assert!(support::prepare(&registry, ApiProtocol::ChatCompletions, chat_store.into()).is_ok());
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, chat_store.into()).unwrap_err(),
+        RequestPlanningError::InvalidStore
+    ));
 
     let responses_store = serde_json::to_vec(&json!({
         "model": "public-model", "input": "hello", "store": true
@@ -1698,7 +1894,7 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
     .unwrap();
     assert!(matches!(
         support::prepare(&registry, ApiProtocol::Responses, responses_store.into()).unwrap_err(),
-        RequestPlanningError::UnsupportedCapabilities
+        RequestPlanningError::InvalidStore
     ));
 
     let unmodeled_tool = serde_json::to_vec(&json!({
@@ -1712,7 +1908,7 @@ fn public_model_interfaces_scope_capabilities_and_detect_strict_functions() {
 
     let strict_function = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe", "strict": true}}]
     }))
     .unwrap();
@@ -1836,7 +2032,7 @@ fn disjoint_structured_output_routes_compile_to_unsupported_contract() {
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "json_object"}
             }),
         ),
@@ -1844,7 +2040,7 @@ fn disjoint_structured_output_routes_compile_to_unsupported_contract() {
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {"name": "answer", "schema": {"type": "object"}}
@@ -1991,7 +2187,7 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
 
     let unsupported = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "response_format": {"type": "json_schema", "json_schema": {"name": "answer", "schema": {"type": "object"}}}
     }))
     .unwrap();
@@ -2002,7 +2198,7 @@ fn fine_grained_generation_capabilities_intersect_without_capability_routing() {
 
     let supported = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe"}}],
         "tool_choice": "auto"
     }))
@@ -2088,7 +2284,7 @@ fn combined_structured_output_intersection_keeps_mode_order_and_downgrades_stric
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {"name": "answer", "schema": {"type": "object"}}
@@ -2096,7 +2292,7 @@ fn combined_structured_output_intersection_keeps_mode_order_and_downgrades_stric
             }),
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {
@@ -2168,7 +2364,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
         (
             "chat-absent",
             ApiProtocol::ChatCompletions,
-            json!({"model": "public-model", "messages": []}),
+            json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}]}),
             true,
         ),
         (
@@ -2176,7 +2372,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "text"}
             }),
             true,
@@ -2186,7 +2382,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "json_object"}
             }),
             true,
@@ -2196,7 +2392,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "json_schema", "json_schema": {"name": "answer"}}
             }),
             true,
@@ -2206,7 +2402,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {"name": "answer", "strict": true}
@@ -2219,7 +2415,7 @@ fn structured_output_analysis_and_preflight_cover_each_public_request_variant() 
             ApiProtocol::ChatCompletions,
             json!({
                 "model": "public-model",
-                "messages": [],
+                "messages": [{"role": "user", "content": "hello"}],
                 "response_format": {"type": "future_json"}
             }),
             false,
@@ -2325,7 +2521,7 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
     let registry = build_test_registry(definition);
     let body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": []
+        "messages": [{"role": "user", "content": "hello"}]
     }))
     .unwrap();
 
@@ -2338,7 +2534,18 @@ fn route_plan_preserves_configured_order_after_public_model_preflight() {
         prepared.candidates()[1].upstream_target_id(),
         "openai-tools"
     );
-    assert_eq!(prepared.request().body(), &body.as_slice());
+    let normalized: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+    assert_eq!(
+        normalized["messages"][0],
+        json!({
+            "role": "system",
+            "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+        })
+    );
+    assert_eq!(
+        prepared.candidates()[0].request().body(),
+        prepared.candidates()[1].request().body()
+    );
 }
 
 #[test]
@@ -2388,7 +2595,11 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
         info["interfaces"]["chat_completions"]["tools"]["support"],
         "supported"
     );
-    let body = serde_json::to_vec(&json!({"model": "public-model", "messages": []})).unwrap();
+    let body = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": "hello"}]
+    }))
+    .unwrap();
     let plan = support::prepare(&registry, ApiProtocol::ChatCompletions, body.into()).unwrap();
     assert_eq!(
         plan.candidates()
@@ -2401,7 +2612,7 @@ fn static_disabled_routes_do_not_contribute_to_the_compiled_interface_or_plan() 
     // Confirm that the same static contract admits the enabled Route's function-tool request.
     let tool_body = serde_json::to_vec(&json!({
         "model": "public-model",
-        "messages": [],
+        "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function", "function": {"name": "probe"}}]
     }))
     .unwrap();

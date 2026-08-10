@@ -160,7 +160,6 @@ fn validate_interface_request(
         )
         || (requested_features.function_tool_strict_schema
             && !interface.supports_strict_tool_schema())
-        || (requested_features.store && !interface.supports_store())
         || (requested_features.previous_response_id && !supports_previous_response_id)
         || (requested_features.background && !interface.supports_background())
         || requested_features

@@ -1015,3 +1015,170 @@ fn named_function_tool_choice_is_converted_in_both_directions() {
         serde_json::json!({"function": {"name": "lookup"}, "type": "function"})
     );
 }
+
+#[test]
+fn chat_to_responses_promotes_only_the_first_plain_instruction_message() {
+    let source = serde_json::json!({
+        "model": "public-model",
+        "messages": [
+            {"role": "developer", "content": "client instruction"},
+            {"role": "user", "content": "hello"},
+            {"role": "system", "content": "later transcript guidance"}
+        ]
+    });
+
+    let (_, request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&source).unwrap()),
+    )
+    .expect("the first developer message must be bridgeable as instructions");
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+
+    assert_eq!(request["instructions"], "client instruction");
+    assert_eq!(request["store"], false);
+    assert_eq!(request["input"].as_array().unwrap().len(), 2);
+    assert_eq!(request["input"][0]["role"], "user");
+    assert_eq!(request["input"][1]["role"], "system");
+    assert!(
+        !request["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["content"].to_string().contains("client instruction"))
+    );
+}
+
+#[test]
+fn chat_to_responses_forwards_instruction_only_requests_without_fabricating_input() {
+    for role in ["system", "developer"] {
+        let source = serde_json::json!({
+            "model": "public-model",
+            "messages": [{"role": role, "content": "instruction only"}]
+        });
+        let (_, request) = BridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            Bytes::from(serde_json::to_vec(&source).unwrap()),
+        )
+        .expect("an instruction-only Chat request must remain forwardable");
+        let request: Value = serde_json::from_slice(request.body()).unwrap();
+
+        assert_eq!(request["instructions"], "instruction only");
+        assert_eq!(request["input"], serde_json::json!([]));
+        assert_eq!(request["store"], false);
+    }
+}
+
+#[test]
+fn chat_to_responses_does_not_promote_a_leading_user_message() {
+    let source = serde_json::json!({
+        "model": "public-model",
+        "messages": [
+            {"role": "user", "content": "hello"},
+            {"role": "system", "content": "later transcript guidance"}
+        ]
+    });
+    let (_, request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&source).unwrap()),
+    )
+    .unwrap();
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+
+    assert!(request.get("instructions").is_none());
+    assert_eq!(request["input"][0]["role"], "user");
+    assert_eq!(request["input"][1]["role"], "system");
+    assert_eq!(request["store"], false);
+}
+
+#[test]
+fn responses_to_chat_prepends_instructions_once_and_preserves_input_order() {
+    let source = serde_json::json!({
+        "model": "public-model",
+        "instructions": "client instruction",
+        "input": [
+            {"type": "message", "role": "user", "content": "hello"},
+            {"type": "message", "role": "developer", "content": "later transcript guidance"}
+        ],
+        "store": false
+    });
+
+    let (_, request) = BridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from(serde_json::to_vec(&source).unwrap()),
+    )
+    .expect("Responses instructions must be bridgeable to Chat");
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+
+    assert_eq!(
+        request["messages"],
+        serde_json::json!([
+            {"role": "system", "content": "client instruction"},
+            {"role": "user", "content": "hello"},
+            {"role": "developer", "content": "later transcript guidance"}
+        ])
+    );
+    assert!(request.get("store").is_none());
+}
+
+#[test]
+fn responses_bridge_rejects_invalid_instruction_and_store_shapes() {
+    for instructions in [
+        Value::Null,
+        Value::String(String::new()),
+        Value::String("   ".to_owned()),
+        serde_json::json!([]),
+        serde_json::json!({}),
+    ] {
+        let body = serde_json::json!({
+            "model": "public-model",
+            "input": "hello",
+            "instructions": instructions,
+            "store": false
+        });
+        assert!(
+            BridgePlan::prepare(
+                ApiProtocol::Responses,
+                ApiProtocol::ChatCompletions,
+                "public-model",
+                "upstream-model",
+                Bytes::from(serde_json::to_vec(&body).unwrap()),
+            )
+            .is_err()
+        );
+    }
+
+    for store in [
+        Value::Null,
+        Value::Bool(true),
+        Value::String("false".to_owned()),
+    ] {
+        let body = serde_json::json!({
+            "model": "public-model",
+            "input": "hello",
+            "instructions": "client instruction",
+            "store": store
+        });
+        assert!(
+            BridgePlan::prepare(
+                ApiProtocol::Responses,
+                ApiProtocol::ChatCompletions,
+                "public-model",
+                "upstream-model",
+                Bytes::from(serde_json::to_vec(&body).unwrap()),
+            )
+            .is_err()
+        );
+    }
+}

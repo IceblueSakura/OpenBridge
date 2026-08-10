@@ -95,9 +95,8 @@ impl GenerationRequestField {
     /// Returns whether an otherwise unrepresentable state field carries a typed inactive value.
     pub(crate) fn bridge_inactive(self, value: &Value) -> bool {
         match self.role {
-            FieldRole::Store | FieldRole::Background => {
-                value.is_null() || value.as_bool() == Some(false)
-            }
+            FieldRole::Store => value.as_bool() == Some(false),
+            FieldRole::Background => value.is_null() || value.as_bool() == Some(false),
             FieldRole::PreviousResponseId => value.is_null(),
             FieldRole::ResponsesInclude => {
                 value.is_null() || value.as_array().is_some_and(Vec::is_empty)
@@ -268,12 +267,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
         NEITHER,
     ),
     field("verbosity", CHAT, FieldRole::InterfaceParameter, NEITHER),
-    field(
-        "instructions",
-        RESPONSES,
-        FieldRole::InterfaceParameter,
-        NEITHER,
-    ),
+    field("instructions", RESPONSES, FieldRole::Envelope, RESPONSES),
     field(
         "conversation",
         RESPONSES,

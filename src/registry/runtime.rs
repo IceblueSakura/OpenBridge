@@ -137,9 +137,9 @@ impl RuntimeRegistry {
         self.bootstrap.http_logging()
     }
 
-    /// Returns startup-owned instructions for ChatGPT Provider request preparation.
-    pub(crate) fn chatgpt_instructions(&self) -> Option<&str> {
-        self.bootstrap.chatgpt_instructions()
+    /// Returns the startup-validated fallback for general Generation requests.
+    pub(crate) fn default_instructions(&self) -> Option<&str> {
+        self.bootstrap.default_instructions()
     }
 
     /// Looks up model metadata by internal model ID.

@@ -1,6 +1,10 @@
 {
   "messages": [
     {
+      "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
+      "role": "system"
+    },
+    {
       "content": "Invalid request.",
       "role": "user"
     }
