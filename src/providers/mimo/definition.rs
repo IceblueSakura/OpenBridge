@@ -10,7 +10,7 @@ use crate::{
         ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
         JsonAudioDelivery, JsonAudioFraming, PresetVoiceCapabilities, ProviderAudioCeiling,
         ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
         SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming,
         StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile, VoiceDesignProfile,
     },
@@ -68,10 +68,11 @@ const ASR_LANGUAGES: &[AsrLanguage] = &[AsrLanguage::Auto, AsrLanguage::Zh, AsrL
 const TEXT_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[ToolChoiceMode::Auto];
 const TEXT_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
     choice_modes: TEXT_TOOL_CHOICE_MODES,
-    parallel_calls: false,
+    parallel_calls: true,
     strict_schema: true,
 };
 const TEXT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const TEXT_RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 
 const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities::new(
     AUDIO_INPUT_SOURCES,
@@ -221,7 +222,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: true,
             context_management: false,
-            include: &[],
+            include: TEXT_RESPONSES_INCLUDES,
             moderation: false,
             logprobs: false,
         },

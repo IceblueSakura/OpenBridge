@@ -138,6 +138,13 @@ fn chat_target(
         .chat_completions
         .expect("Bailian generation targets require Chat Completions capabilities")
         .to_executable(None);
+    chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
+        profile.parallel_calls = matches!(
+            canonical_model,
+            z_ai::glm_5_2::ID | deepseek::deepseek_v4_flash::ID
+        );
+        profile
+    });
     chat_capabilities.reasoning_output = reasoning_output;
     chat_capabilities.prompt_cache_key = matches!(
         canonical_model,
@@ -159,7 +166,7 @@ fn chat_target(
         canonical_model,
         qwen::qwen3_8_max::ID | qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
     ) {
-        let responses_capabilities = DEFINITION
+        let mut responses_capabilities = DEFINITION
             .contract()
             .capabilities()
             .responses
@@ -168,6 +175,11 @@ fn chat_target(
                 StorageSupport::Unsupported,
                 ResponsesAffinity::TargetBound,
             ));
+        responses_capabilities.function_tools =
+            responses_capabilities.function_tools.map(|mut profile| {
+                profile.parallel_calls = false;
+                profile
+            });
         upstream_apis.push(UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),

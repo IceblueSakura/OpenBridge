@@ -287,7 +287,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
         FieldRole::InterfaceParameter,
         NEITHER,
     ),
-    field("include", RESPONSES, FieldRole::ResponsesInclude, NEITHER),
+    field("include", RESPONSES, FieldRole::ResponsesInclude, RESPONSES),
     field(
         "truncation",
         RESPONSES,

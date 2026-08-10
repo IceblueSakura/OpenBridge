@@ -6,7 +6,7 @@ use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
         ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        StructuredOutputProfile, ToolChoiceMode,
+        ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -19,6 +19,7 @@ use crate::{
 
 const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
     &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Single DeepSeek operation surface shared by the Provider contract and wire adapter.
@@ -29,7 +30,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
+                parallel_calls: true,
                 strict_schema: false,
             }),
             image_input: None,
@@ -53,7 +54,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: RESPONSES_TOOL_CHOICE_MODES,
-                parallel_calls: false,
+                parallel_calls: true,
                 strict_schema: false,
             }),
             image_input: None,
@@ -68,7 +69,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: true,
             context_management: false,
-            include: &[],
+            include: RESPONSES_INCLUDES,
             moderation: false,
             logprobs: false,
         },

@@ -28,8 +28,10 @@
 - generation `supported_parameters` 表示 OpenBridge 接受对应字段。每条 Route 只能以“当前 API 转发”或“当前 API 明确忽略”贡献
   参数；Bridge 还要求该转换方向可完整表示字段。固定 interface 继续按全部候选相交，不按请求参数筛选或重排 Route。
 - Responses `include` 由 `ResponseInclude` 精确 wire 枚举解析为请求集合；Route contribution 保存逐值集合，Public Model 对全部固定
-  candidate 求交集并以 `response_includes` 公开。当前 checked-in generation interface 的该集合均为空；`include: []` 不请求能力并会在
-  candidate 展开前移除，已知但不在交集中的值和未知 wire 值都在 egress 前失败关闭。
+  candidate 求交集并以 `response_includes` 公开。公开值表示接口能够接受并安全处理该条件性请求，不保证对应 output item 存在或
+  reasoning 形态发生变化。`reasoning.encrypted_content` 当前在 `glm-5.2` Responses、`deepseek-v4-flash` Responses、
+  `mimo-v2.5` Responses 和仅由 ChatGPT 提供的 Responses Public Model 上进入交集；Native 原样转发，GLM 的 Responses→Chat Bridge
+  显式消费且不伪造 opaque item。`include: []` 在 candidate 展开前移除，已知但不在交集中的值和未知 wire 值都在 egress 前失败关闭。
 - 旧的 `prompt_caching: SupportState` 已删除。`prompt_cache_key` 现在是独立 request option：Provider/Target 声明只表示 exact
   forwarding，编译后仅通过 `supported_parameters` 公开，不表示 cache hit、延迟或成本效果。Bridge 只有在目标 Upstream API 明确支持且
   converter 原样复制时才贡献该参数；options、retention 与 breakpoint 仍保持未实现。
@@ -153,13 +155,37 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
 未声明缓存键未进入固定参数 gate。实现后 `capability_definition_contract`、`native_routing_contract`、`forwarding_contract` 与
 `bridge_forwarding_contract` 聚焦套件通过；Models 不再输出 `prompt_caching`，改为逐值 `response_includes` 与
 `supported_parameters` 中的 `prompt_cache_key`。确定性测试只证明静态声明、交集、预检和 exact egress；真实上游证据边界见 Native/Bridge
-专题，未据此承诺缓存命中或开放任何非空 include。
+专题；该阶段当时未据此承诺缓存命中或开放任何非空 include。
 
 最终验证中，`capability_definition_contract` 14 项、`native_routing_contract` 35 项、`forwarding_contract` 64 项和
 `bridge_forwarding_contract` 12 项全部通过；include 交集的 library 聚焦测试与 example-config Route 聚焦测试也通过。
 `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整 `cargo test --locked` 仍只在未修改的本地
 `config/bootstrap.toml` 与示例文件 OTLP 全等断言失败；跳过 `checked_in_examples_compile_into_a_closed_runtime_registry` 后其余测试全部通过。
 本轮实现后未重新执行真实 Provider、外部 OpenAI SDK、Hermes、负载或长期运行验收。
+
+2026-08-10 Hermes M1/M2 能力扩展使用失败优先测试锁定了两个旧行为：目标 Responses interface 拒绝
+`include:["reasoning.encrypted_content"]`，目标 Chat/Responses interface 拒绝 `parallel_tool_calls:true`。实现后：
+
+- DeepSeek Flash、OpenRouter DeepSeek Flash、MiMo V2.5 与 ChatGPT Codex Responses Target 接受并原样转发该 include；MiMo Pro、
+  OpenRouter MiniMax 和未验证 Target 保持空集。GLM 5.2 的 Responses Bridge 接受后在转换器中移除，Chat egress 不携带 `include`，
+  response converter 不合成 `encrypted_content`。
+- `glm-5.2`、`deepseek-v4-flash` 与 `mimo-v2.5` 的目标 Chat/Responses interface 公开
+  `parallel_tool_calls`；DeepSeek Flash 的三个 Chat candidate、两个 Responses candidate，以及 GLM Bridge 和 MiMo Native candidate
+  均保留 `true`。DeepSeek Pro 因 Bailian fallback 未验证、MiMo Pro 与 OpenRouter MiniMax 因目标证据不足继续公开 unsupported。
+- `tests/example_config.rs` 的完整候选规划、`tests/provider_boundary_contract.rs` 的 Provider/Target 矩阵、
+  `tests/forwarding_contract.rs` 的 ChatGPT include 与 MiMo parallel egress，以及 `tests/bridge_forwarding_contract.rs` 的 include 消费
+  用例均通过。确定性测试证明本地契约、规划和 wire 行为，不证明上游必定返回 reasoning item、多个 tool call 或内部并行执行。
+
+Hermes 当前仍有两个独立的已确认拒绝边界，本轮未获准也未修改：Chat `stream_options.include_usage` 尚未进入目标 interface，
+Chat `json_schema`/`strict:true` 也未进入 DeepSeek Flash 与 MiMo V2.5 的完整固定候选交集。2026-08-10 直连流式 Chat 证明 Bailian、
+DeepSeek、OpenRouter、MiMo、NVIDIA、Kimi 与 LongCat 接受 `stream_options.include_usage` 并返回 usage 尾块；ChatGPT 由用户确认，OpenAI
+未探测。该证据不自动证明完整 Public Model 候选集或计费准确性。`json_schema` 仍需分别验证非 strict/strict 请求接受、JSON 合法性与
+schema 约束，而不能只凭 HTTP 200 扩大契约。
+
+本轮最终运行 `cargo fmt -- --check`、隔离 target 目录下的完整 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与
+`git diff --check`，均通过。首次完整测试中的 OTLP trace 计数用例偶发只收到 1/2 个 span；该用例连续两次聚焦重跑和随后完整基线均通过，
+未因此修改无关遥测实现。默认 `target` 被用户正在运行的 `openbridge.exe` 锁定，所以 Rust build/test 使用临时 target 目录且未停止该进程。
+本轮没有重新执行真实 Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
 
 ## 相关文档
 

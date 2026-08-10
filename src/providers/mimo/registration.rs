@@ -121,7 +121,18 @@ fn target(
                 ));
             if matches!(profile, MimoTargetProfile::TextOnly) {
                 chat_capabilities.image_input = None;
+                chat_capabilities.function_tools =
+                    chat_capabilities.function_tools.map(|mut profile| {
+                        profile.parallel_calls = false;
+                        profile
+                    });
                 responses_capabilities.image_input = None;
+                responses_capabilities.function_tools =
+                    responses_capabilities.function_tools.map(|mut profile| {
+                        profile.parallel_calls = false;
+                        profile
+                    });
+                responses_capabilities.include = &[];
             }
             Some(responses_capabilities)
         }

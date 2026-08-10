@@ -292,6 +292,7 @@ struct ChatGptRecordedRequest {
     store_is_false: bool,
     output_limit_present: bool,
     include_reasoning_present: bool,
+    include: Option<Value>,
     seed_present: bool,
     service_tier: Option<Value>,
     stream_is_true: bool,
@@ -488,6 +489,7 @@ impl UpstreamTransport for ChatGptOAuthTransport {
                 .iter()
                 .any(|field| body.get(*field).is_some()),
             include_reasoning_present: body.get("include_reasoning").is_some(),
+            include: body.get("include").cloned(),
             seed_present: body.get("seed").is_some(),
             service_tier: body.get("service_tier").cloned(),
             stream_is_true: body.get("stream").and_then(Value::as_bool) == Some(true),

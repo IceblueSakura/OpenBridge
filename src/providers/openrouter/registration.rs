@@ -68,6 +68,18 @@ fn dual_protocol_target(
         (canonical_model == deepseek::deepseek_v4_flash::ID).then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
     chat_capabilities.structured_outputs = structured_outputs;
     responses_capabilities.structured_outputs = structured_outputs;
+    if canonical_model != deepseek::deepseek_v4_flash::ID {
+        chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
+            profile.parallel_calls = false;
+            profile
+        });
+        responses_capabilities.function_tools =
+            responses_capabilities.function_tools.map(|mut profile| {
+                profile.parallel_calls = false;
+                profile
+            });
+        responses_capabilities.include = &[];
+    }
 
     // Bind the model-specific capabilities to both stateless Native protocol endpoints.
     UpstreamTargetConfig {

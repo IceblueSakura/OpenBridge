@@ -6,7 +6,7 @@ use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
         ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        StructuredOutputProfile,
+        ResponseInclude, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -18,6 +18,7 @@ use crate::{
 };
 
 const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 
 /// Conservative stateless Chat and Responses operation surface for OpenRouter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -27,7 +28,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
+                parallel_calls: true,
                 strict_schema: false,
             }),
             image_input: None,
@@ -51,7 +52,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
+                parallel_calls: true,
                 strict_schema: false,
             }),
             image_input: None,
@@ -66,7 +67,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: true,
             context_management: false,
-            include: &[],
+            include: RESPONSES_INCLUDES,
             moderation: false,
             logprobs: false,
         },

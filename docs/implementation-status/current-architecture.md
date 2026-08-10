@@ -426,8 +426,10 @@ unsupported gate。
 
 `ResponseInclude` 已从整体预留位变为精确 wire 值的闭合枚举。Responses analyzer 把非空 `include` 冻结为类型化集合，Route contribution
 携带逐值能力，Public Model compiler 对全部固定候选求交集并以 `response_includes` 投影；空数组/null 在 candidate 展开前移除，未知或不在
-交集中的值 zero-egress fail closed。当前 checked-in Upstream API 的 include 集合仍全部为空，未开放 hosted-tool 或
-`reasoning.encrypted_content` 输出。`prompt_cache_key` 独立表示 exact request forwarding：只在全部固定候选支持时进入
+交集中的值 zero-egress fail closed。`reasoning.encrypted_content` 当前按精确 Target/API 证据在 DeepSeek Flash、OpenRouter DeepSeek
+Flash、MiMo V2.5 与 ChatGPT Codex Responses API 上声明，Native 原样转发；GLM 5.2 的 Responses→Chat Bridge 显式消费该无 Chat wire
+对应物的提示。公开该值只表示请求可执行，不保证输出 item 存在或形态变化，也不允许 Bridge 伪造 opaque reasoning；其他 include 值仍
+fail closed。`prompt_cache_key` 独立表示 exact request forwarding：只在全部固定候选支持时进入
 `supported_parameters`，Native 与 Bridge 原样复制，但不再公开旧的 `prompt_caching` 效果字段，也不承诺 cache hit；options、retention 和
 breakpoint 仍属于未实现边界。
 

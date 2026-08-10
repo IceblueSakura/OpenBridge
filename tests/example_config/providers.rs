@@ -443,6 +443,176 @@ fn deepseek_flash_responses_exposes_only_proven_tool_choice_modes() {
 }
 
 #[test]
+fn hermes_reasoning_include_is_plannable_on_target_responses_interfaces() {
+    // Compile the exact GLM Bridge, DeepSeek multi-source Native, and MiMo Native interfaces.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    for (model_id, expected_candidates, expects_bridge) in [
+        ("glm-5.2", 1, true),
+        ("deepseek-v4-flash", 2, false),
+        ("mimo-v2.5", 1, false),
+        ("gpt-5.6-luna", 1, false),
+    ] {
+        // Publish the conditional Responses projection only when every fixed candidate can accept it.
+        let model = registry
+            .public_model(model_id)
+            .unwrap_or_else(|| panic!("{model_id} Public Model must exist"));
+        let info = serde_json::to_value(model.info()).unwrap();
+        let interface = &info["interfaces"]["responses"];
+        assert_eq!(
+            interface["response_includes"],
+            serde_json::json!(["reasoning.encrypted_content"]),
+            "{model_id}"
+        );
+        assert!(
+            interface["supported_parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parameter| parameter == "include"),
+            "{model_id}"
+        );
+
+        // Preserve the include on Native requests and consume it only at a Responses-to-Chat Bridge.
+        let body = bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": model_id,
+                "input": "hello",
+                "include": ["reasoning.encrypted_content"]
+            }))
+            .unwrap(),
+        );
+        let profile = analyze_request(ApiProtocol::Responses, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).expect("include must be plannable");
+        assert_eq!(plan.candidates().len(), expected_candidates, "{model_id}");
+        for candidate in plan.candidates() {
+            assert_eq!(candidate.bridge().is_some(), expects_bridge, "{model_id}");
+            let upstream: serde_json::Value =
+                serde_json::from_slice(candidate.request().body()).unwrap();
+            if expects_bridge {
+                assert!(upstream.get("include").is_none(), "{model_id}");
+            } else {
+                assert_eq!(
+                    upstream["include"],
+                    serde_json::json!(["reasoning.encrypted_content"]),
+                    "{model_id}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn hermes_parallel_tool_calls_is_plannable_on_every_verified_candidate() {
+    // Compile the exact GLM Bridge, DeepSeek multi-source, and MiMo Native interfaces used by Hermes.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    for (model_id, protocol, interface_name, expected_candidates) in [
+        (
+            "glm-5.2",
+            ApiProtocol::ChatCompletions,
+            "chat_completions",
+            1,
+        ),
+        ("glm-5.2", ApiProtocol::Responses, "responses", 1),
+        (
+            "deepseek-v4-flash",
+            ApiProtocol::ChatCompletions,
+            "chat_completions",
+            3,
+        ),
+        ("deepseek-v4-flash", ApiProtocol::Responses, "responses", 2),
+        (
+            "mimo-v2.5",
+            ApiProtocol::ChatCompletions,
+            "chat_completions",
+            1,
+        ),
+        ("mimo-v2.5", ApiProtocol::Responses, "responses", 1),
+    ] {
+        // Publish the control only when the complete fixed candidate set accepts it.
+        let model = registry
+            .public_model(model_id)
+            .unwrap_or_else(|| panic!("{model_id} Public Model must exist"));
+        let info = serde_json::to_value(model.info()).unwrap();
+        let interface = &info["interfaces"][interface_name];
+        assert_eq!(
+            interface["tools"]["parallel_calls"], "supported",
+            "{model_id} {interface_name}"
+        );
+        assert!(
+            interface["supported_parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parameter| parameter == "parallel_tool_calls"),
+            "{model_id} {interface_name}"
+        );
+
+        // Preserve true on every Native candidate and through the Responses-to-Chat Bridge.
+        let body = match protocol {
+            ApiProtocol::ChatCompletions => serde_json::json!({
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Call the synthetic tool."}],
+                "tools": [{
+                    "type": "function",
+                    "function": {"name": "report_result", "parameters": {"type": "object"}}
+                }],
+                "tool_choice": "auto",
+                "parallel_tool_calls": true
+            }),
+            ApiProtocol::Responses => serde_json::json!({
+                "model": model_id,
+                "input": "Call the synthetic tool.",
+                "tools": [{
+                    "type": "function",
+                    "name": "report_result",
+                    "parameters": {"type": "object"}
+                }],
+                "tool_choice": "auto",
+                "parallel_tool_calls": true
+            }),
+        };
+        let body = bytes::Bytes::from(serde_json::to_vec(&body).unwrap());
+        let profile = analyze_request(protocol, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body)
+            .unwrap_or_else(|error| panic!("{model_id} {interface_name}: {error:?}"));
+        assert_eq!(
+            plan.candidates().len(),
+            expected_candidates,
+            "{model_id} {interface_name}"
+        );
+        for candidate in plan.candidates() {
+            let upstream: serde_json::Value =
+                serde_json::from_slice(candidate.request().body()).unwrap();
+            assert_eq!(
+                upstream["parallel_tool_calls"],
+                true,
+                "{model_id} {interface_name} {}",
+                candidate.route_id()
+            );
+        }
+    }
+
+    // Keep neighboring unverified complete candidate sets fail closed.
+    for (model_id, interface_name) in [
+        ("deepseek-v4-pro", "chat_completions"),
+        ("mimo-v2.5-pro", "chat_completions"),
+        ("mimo-v2.5-pro", "responses"),
+        ("minimax-m3", "chat_completions"),
+        ("minimax-m3", "responses"),
+    ] {
+        let info = serde_json::to_value(registry.public_model(model_id).unwrap().info()).unwrap();
+        assert_eq!(
+            info["interfaces"][interface_name]["tools"]["parallel_calls"], "unsupported",
+            "{model_id} {interface_name}"
+        );
+    }
+}
+
+#[test]
 fn deepseek_public_interfaces_expose_json_object_across_fixed_candidates() {
     // Compile the checked-in multi-source DeepSeek interfaces and require their exact shared profile.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
@@ -543,7 +713,7 @@ fn mimo_public_interfaces_expose_only_proven_tool_and_structured_output_profiles
         );
         assert_eq!(
             v25["interfaces"][protocol]["tools"]["parallel_calls"],
-            "unsupported"
+            "supported"
         );
         assert_eq!(
             v25["interfaces"][protocol]["tools"]["strict_schema"],

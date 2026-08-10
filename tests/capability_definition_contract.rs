@@ -99,7 +99,7 @@ fn response_include_values_round_trip_exact_wire_paths() {
 }
 
 #[test]
-fn checked_in_targets_publish_only_the_probed_prompt_cache_key_forwarding_pairs() {
+fn checked_in_targets_publish_only_the_probed_request_option_pairs() {
     const CHAT_TARGETS: &[&str] = &[
         "bailian-glm-5-2",
         "bailian-qwen3-6-27b",
@@ -119,6 +119,17 @@ fn checked_in_targets_publish_only_the_probed_prompt_cache_key_forwarding_pairs(
         "openrouter-deepseek-v4-flash",
         "openrouter-minimax-m3",
     ];
+    const REASONING_INCLUDE_TARGETS: &[&str] = &[
+        "chatgpt-gpt-5-3-codex-spark",
+        "chatgpt-gpt-5-5",
+        "chatgpt-gpt-5-6-luna",
+        "chatgpt-gpt-5-6-sol",
+        "chatgpt-gpt-5-6-terra",
+        "deepseek-v4-flash",
+        "mimo-v2-5",
+        "openrouter-deepseek-v4-flash",
+    ];
+    const REASONING_INCLUDE: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 
     // Compare every checked-in generation API against the exact Target/API pairs proved upstream.
     for target in compiled_config().upstream_targets {
@@ -137,10 +148,15 @@ fn checked_in_targets_publish_only_the_probed_prompt_cache_key_forwarding_pairs(
                         "unexpected Responses prompt_cache_key capability for {}",
                         target.id
                     );
-                    assert!(
-                        capabilities.include.is_empty(),
-                        "unprobed Responses include value enabled for {}",
-                        target.id
+                    assert_eq!(
+                        capabilities.include,
+                        if REASONING_INCLUDE_TARGETS.contains(&target.id.as_str()) {
+                            REASONING_INCLUDE
+                        } else {
+                            &[]
+                        },
+                        "unexpected Responses include capability for {}",
+                        target.id,
                     );
                 }
                 UpstreamApiCapabilities::Embeddings(_) => {}

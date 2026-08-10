@@ -969,7 +969,7 @@ components:
         response_includes:
           type: array
           uniqueItems: true
-          description: Exact Responses output projections guaranteed by every fixed candidate; an empty set does not reject include: [].
+          description: "Exact Responses include values accepted by every fixed candidate; a value does not guarantee the corresponding output item, and an empty set does not reject include: []."
           items:
             $ref: '#/components/schemas/ResponseInclude'
         state:

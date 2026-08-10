@@ -721,15 +721,17 @@ async fn mimo_unreliable_tool_and_structured_output_combinations_fail_before_egr
             ));
         }
 
-        // Reject the undocumented parallel-call control independently of natural multi-call output.
-        cases.push((
-            "/v1/chat/completions",
-            serde_json::json!({"model":model,"messages":[{"role":"user","content":"call the tool"}],"tools":[chat_tool.clone()],"tool_choice":"auto","parallel_tool_calls":true}),
-        ));
-        cases.push((
-            "/v1/responses",
-            serde_json::json!({"model":model,"input":"call the tool","tools":[responses_tool.clone()],"tool_choice":"auto","parallel_tool_calls":true}),
-        ));
+        // Keep the control rejected on MiMo Pro, whose exact target has not been verified.
+        if model == "mimo-v2.5-pro" {
+            cases.push((
+                "/v1/chat/completions",
+                serde_json::json!({"model":model,"messages":[{"role":"user","content":"call the tool"}],"tools":[chat_tool.clone()],"tool_choice":"auto","parallel_tool_calls":true}),
+            ));
+            cases.push((
+                "/v1/responses",
+                serde_json::json!({"model":model,"input":"call the tool","tools":[responses_tool.clone()],"tool_choice":"auto","parallel_tool_calls":true}),
+            ));
+        }
     }
 
     // Reject unsupported structured modes and text constraints on dedicated audio tasks.
@@ -928,14 +930,15 @@ async fn mimo_invalid_unsupported_and_oversized_images_fail_before_egress() {
 }
 
 #[tokio::test]
-async fn mimo_responses_native_preserves_multi_tool_stream_without_parallel_control() {
-    // Build the actual compiled MiMo Route and a multi-tool request that leaves selection in documented auto mode.
+async fn mimo_responses_native_preserves_parallel_tool_control_and_multi_tool_stream() {
+    // Build the actual compiled MiMo Route and a multi-tool request using the verified parallel control.
     let transport = Arc::new(MimoResponsesToolStreamTransport::default());
     let app = app_with_compiled_registry(transport.clone());
     let request_body = r#"{
         "model":"mimo-v2.5",
         "input":"查天气和时间",
         "stream":true,
+        "parallel_tool_calls":true,
         "tools":[
             {"type":"function","name":"lookup_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}},
             {"type":"function","name":"lookup_time","parameters":{"type":"object","properties":{"tz":{"type":"string"}}}}
@@ -963,7 +966,7 @@ async fn mimo_responses_native_preserves_multi_tool_stream_without_parallel_cont
     let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert_eq!(body.as_ref(), MIMO_RESPONSES_PARALLEL_TOOL_STREAM);
 
-    // Verify that natural multi-call output remains valid without exposing an unsupported control parameter.
+    // Verify that the returned multi-call stream remains valid independently of the accepted control.
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(&body).unwrap();
     events.extend(decoder.finish().unwrap());
@@ -982,14 +985,14 @@ async fn mimo_responses_native_preserves_multi_tool_stream_without_parallel_cont
     assert_eq!(tool_calls[1].name(), "lookup_time");
     assert_eq!(tool_calls[1].arguments(), r#"{"tz":"Asia/Shanghai"}"#);
 
-    // Confirm that the request uses MiMo Responses without inventing the parallel-call switch.
+    // Confirm that the request preserves the explicitly requested parallel-call switch.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].path, "/v1/responses");
     assert_eq!(requests[0].authorization, "Bearer upstream-token");
     assert_eq!(requests[0].body["model"], "mimo-v2.5");
     assert_eq!(requests[0].body["stream"], true);
-    assert!(requests[0].body.get("parallel_tool_calls").is_none());
+    assert_eq!(requests[0].body["parallel_tool_calls"], true);
     assert_eq!(requests[0].body["input"], "查天气和时间");
     assert_eq!(requests[0].body["tools"].as_array().unwrap().len(), 2);
 }

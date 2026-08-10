@@ -7,7 +7,7 @@ use http::{
 use openbridge::{
     core::{
         ApiProtocol, ImageDetail, ImageDetailPolicy, ImageMediaType, ImageSourceCapabilities,
-        JsonSchemaSupport, ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
+        JsonSchemaSupport, OperationKind, ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
@@ -397,7 +397,7 @@ fn provider_capability_ceilings_preserve_verified_feature_differences() {
         mimo_responses.function_tools.unwrap(),
     ] {
         assert_eq!(profile.choice_modes, &[ToolChoiceMode::Auto]);
-        assert!(!profile.parallel_calls);
+        assert!(profile.parallel_calls);
         assert!(profile.strict_schema);
     }
     assert!(mimo_chat.image_input.is_some());
@@ -434,6 +434,93 @@ fn provider_capability_ceilings_preserve_verified_feature_differences() {
                 .is_none(),
             "{kind:?} must not inherit an unverified Provider audio ceiling"
         );
+    }
+}
+
+#[test]
+fn checked_in_parallel_tool_profiles_follow_per_target_evidence() {
+    // Provider ceilings may be broad enough for verified models while executable targets stay narrow.
+    for kind in [
+        ProviderKind::Bailian,
+        ProviderKind::DeepSeek,
+        ProviderKind::OpenRouter,
+        ProviderKind::MiMo,
+        ProviderKind::ChatGpt,
+    ] {
+        let capabilities = kind.contract().capabilities();
+        for profile in [
+            capabilities
+                .chat_completions
+                .and_then(|capabilities| capabilities.function_tools),
+            capabilities
+                .responses
+                .and_then(|capabilities| capabilities.function_tools),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(profile.parallel_calls, "{kind:?}");
+        }
+    }
+
+    let config = compiled_config();
+    for (target_id, operation, expected) in [
+        ("bailian-glm-5-2", OperationKind::ChatCompletions, true),
+        (
+            "bailian-deepseek-v4-flash",
+            OperationKind::ChatCompletions,
+            true,
+        ),
+        (
+            "bailian-deepseek-v4-pro",
+            OperationKind::ChatCompletions,
+            false,
+        ),
+        ("bailian-qwen3-8-max", OperationKind::ChatCompletions, false),
+        ("deepseek-v4-pro", OperationKind::ChatCompletions, true),
+        ("deepseek-v4-flash", OperationKind::ChatCompletions, true),
+        ("deepseek-v4-flash", OperationKind::Responses, true),
+        (
+            "openrouter-deepseek-v4-flash",
+            OperationKind::ChatCompletions,
+            true,
+        ),
+        (
+            "openrouter-deepseek-v4-flash",
+            OperationKind::Responses,
+            true,
+        ),
+        (
+            "openrouter-minimax-m3",
+            OperationKind::ChatCompletions,
+            false,
+        ),
+        ("openrouter-minimax-m3", OperationKind::Responses, false),
+        ("mimo-v2-5", OperationKind::ChatCompletions, true),
+        ("mimo-v2-5", OperationKind::Responses, true),
+        ("mimo-v2-5-pro", OperationKind::ChatCompletions, false),
+        ("mimo-v2-5-pro", OperationKind::Responses, false),
+    ] {
+        let target = config
+            .upstream_targets
+            .iter()
+            .find(|target| target.id == target_id)
+            .unwrap_or_else(|| panic!("missing target {target_id}"));
+        let api = target
+            .upstream_apis
+            .iter()
+            .find(|api| api.capabilities.operation() == operation)
+            .unwrap_or_else(|| panic!("missing {target_id} {operation}"));
+        let actual = match &api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities
+                .function_tools
+                .is_some_and(|profile| profile.parallel_calls),
+            UpstreamApiCapabilities::Responses(capabilities) => capabilities
+                .function_tools
+                .is_some_and(|profile| profile.parallel_calls),
+            UpstreamApiCapabilities::Embeddings(_) => unreachable!(),
+        };
+        assert_eq!(actual, expected, "{target_id} {operation}");
     }
 }
 

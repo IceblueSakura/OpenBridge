@@ -14,8 +14,13 @@
 - Native Route 对已知且被接口接受的字段保留下游 canonical wire 语义；Provider adapter 在 egress 阶段绑定固定 upstream model、
   相对 path、普通固定 header 和 purpose-bound authentication。未知顶层字段不再属于 Native 透明透传范围。
 - `prompt_cache_key` 只在真实探测过的具体 Target/API 上声明 exact forwarding；Native candidate 与 Provider adapter 保留原值，不附带
-  cache-hit 或效果保证。Responses `include: []` 在 candidate 展开前移除；当前所有 checked-in Responses Target 的非空 include 集合为空，
-  因而 `reasoning.encrypted_content`、web-search sources 等投影在任何 Native egress 前失败关闭。
+  cache-hit 或效果保证。Responses `include: []` 在 candidate 展开前移除；`reasoning.encrypted_content` 当前只在 DeepSeek Flash、
+  OpenRouter DeepSeek Flash、MiMo V2.5 与 ChatGPT Codex 的固定 Responses Target 上声明并原样转发。该参数不控制 reasoning 的存在性或
+  明文/opaque 形态，`response_includes` 也不构成输出 item 保证；未声明 Target 与其他 include 值继续在 Native egress 前失败关闭。
+- `parallel_tool_calls` 只在完整固定候选集均有直接接受证据时进入 Public Model interface，并在 Native candidate 保留原布尔值。
+  当前新增范围是 DeepSeek V4 Flash、MiMo V2.5，以及支撑 GLM 5.2 Bridge 的 Bailian Chat Target；DeepSeek V4 Pro 因 Bailian fallback
+  未验证、MiMo Pro 与 OpenRouter MiniMax 因对应 Target 未验证而保持 unsupported。接受字段不保证单次响应产生多个 tool call，也不证明
+  Provider 内部并发执行。
 - Upstream API 可以用闭合 `IgnorableGenerationParameter` 集合接受但不向上游发送已确认不兼容的普通生成字段；这些字段仍保留在
   Public Model `supported_parameters`。当前 Kimi K3 Chat 只删除 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`；
   ChatGPT GPT-5.5/5.6 Responses 只删除 `seed`。Kimi 的 `n/logprobs/top_logprobs`、MiMo V2.5/Pro Responses 的
@@ -71,8 +76,16 @@
 
 2026-08-10 使用私有配置中已启用的非 GPT API-key pool 完成 63 次脱敏固定探测；未使用 `OPENAI_API_KEY` 或 ChatGPT OAuth。9 个 Native
 Responses Target 的 baseline、空 include、`reasoning.encrypted_content`、缓存键与组合请求均为 HTTP 200/完整 terminal，但没有一次返回
-`encrypted_content`，因此只开放缓存键 exact forwarding，非空 include 保持 unsupported。该证据只适用于当时的 Target、账号、网络与固定
-payload，不证明 cache hit、其他 include、其他账号或未来上游行为。
+`encrypted_content`。随后对带/不带 include 做同形复测：Bailian Qwen3.8、DeepSeek Flash、OpenRouter GLM/DeepSeek、MiMo V2.5 与
+LongCat 均保持各自明文 `summary_text`/`reasoning_text` 形态；OpenRouter DeepSeek 的偶发无 reasoning item 同时出现在两组。ChatGPT
+Codex backend 的 GPT-5.6 Luna 在 `store:false` 下两组都返回 opaque `encrypted_content`。因此 include 被建模为上游接受的条件性兼容
+请求值，而不是输出开关；当前只对完成固定候选证明的 Public Model 开放。Bailian GLM 没有 Responses endpoint，仍由 Chat Bridge 处理。
+该证据只适用于当时 Target、账号、网络和请求形状，不证明其他 include、其他账号或未来 Provider 行为。
+
+同日 `parallel_tool_calls:true` 直连 Chat 探测中，Bailian GLM 5.2/DeepSeek Flash、DeepSeek V4 Flash/Pro、MiMo V2.5、NVIDIA
+MiniMax M3、Kimi K3、OpenRouter GLM 5.2/DeepSeek Flash 均返回 HTTP 200；OpenRouter 与 NVIDIA 的单次响应观察到两个 tool call，其他
+单次结果没有形成多调用。当前实现只开放 Hermes 目标 Public Model 的完整固定候选集，不把 HTTP 200 外推到缺少工具能力或未完整验证的
+fallback。ChatGPT parallel capability 沿用既有 Provider 契约；本轮没有通过标准 endpoint 重新直连探测。
 
 2026-08-09 ChatGPT streaming response media 修复的实际验证：
 

@@ -9,7 +9,7 @@ use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
         ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        StructuredOutputProfile,
+        ResponseInclude, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -29,6 +29,7 @@ const CODEX_CLI_LINUX_USER_AGENT: &str = "codex_cli_rs/0.146.0 (Linux unknown; x
 const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
     .with_user_agent(CODEX_CLI_LINUX_USER_AGENT)
     .with_headers(CHATGPT_IDENTITY_HEADERS);
+const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 
 /// Single ChatGPT operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -56,7 +57,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             prompt_templates: false,
             prompt_cache_key: false,
             context_management: false,
-            include: &[],
+            include: RESPONSES_INCLUDES,
             moderation: false,
             logprobs: false,
         },

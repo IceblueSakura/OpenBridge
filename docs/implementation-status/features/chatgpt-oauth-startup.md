@@ -28,6 +28,10 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 - GPT-5.5 与 GPT-5.6 的 `seed` 仍作为下游可接受普通提示公开，并在四个 advanced ChatGPT Responses API 的 candidate egress 删除。
   `include_reasoning` 会改变 reasoning 可见性，当前 API 将其显式禁用，Chat/Responses 固定 interface 不再公开并在 egress 前拒绝。
   输出 token 上限、reasoning level、tools、state 与其他能力字段同样不进入普通参数忽略例外。
+- 标准 Responses `include:["reasoning.encrypted_content"]` 与 Provider 私有的 `include_reasoning` 不是同一字段。五个 ChatGPT Target
+  均接受并原样转发标准 include；公开值只表示兼容请求可执行。真实 GPT-5.6 Luna 的 `store:false` 对照中，带/不带 include 都返回
+  opaque `encrypted_content`，因此该值不被解释为 reasoning 输出开关。`gpt-5.6-sol` 的 Public Model 仍按 ChatGPT 与 OpenAI 完整候选
+  交集决定是否公开，不因单个 ChatGPT Target 自动扩大。
 - GPT-5.5、GPT-5.6 Luna/Terra/Sol 的 canonical profile 在 Chat 与 Responses interface 公开 `service_tier`；Responses Native
   与 Chat→Responses Bridge 保留下游提交的 JSON 值，不在网关内新增枚举、改写值或宣称真实 fast/priority 服务质量。
 - 请求只从 manager 借用短生命周期、账户绑定的当前 generation。首个预提交 `401` 先 guarded reload，persisted generation 未变化时才
@@ -79,6 +83,11 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 `include_reasoning` 2/2 在 egress 前返回带精确 `param` 的 `unsupported_model_capability`；全部一次完成，没有最终 429/503 或
 传输错误。确定性 RecordingTransport 测试覆盖 GPT-5.5 与三个 GPT-5.6 advanced profile，确认 seed 不进入上游 body 且
 `include_reasoning` 不产生 transport attempt。
+
+2026-08-10 对 GPT-5.6 Luna 的 stateless Responses 请求执行标准 `reasoning.encrypted_content` include 对照：带 include 为 HTTP 200 并
+返回 1292 字符 opaque 内容，不带 include 同为 HTTP 200 并返回 1548 字符 opaque 内容。两组都返回 reasoning，长度差异不构成 include
+控制输出的证据。确定性 forwarding 契约另行确认 OpenBridge 的 ChatGPT Native egress 原样保留标准 include，并继续独立拒绝
+`include_reasoning`。
 
 以下表格保留 2026-08-06 历史调用当时的 Public Model 名称；当前 GPT-5.3 Codex Spark、Luna 和 Terra 名称已按注册契约改为
 `gpt-5.3-codex-spark`、`gpt-5.6-luna` 和 `gpt-5.6-terra`。该历史记录通过同一固定 target 证明上游数据面，不代表旧名称仍可用。

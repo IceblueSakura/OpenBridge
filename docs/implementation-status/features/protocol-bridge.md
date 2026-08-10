@@ -20,8 +20,9 @@
 - Bridge 与 Native 共用源协议顶层字段目录。未知字段先返回 `unknown_parameter`；已知但当前方向不可表示的字段只有在所选 API 对五类
   普通提示具有显式忽略规则时才能接受，并会在 Bridge request converter 之前删除。每个 fallback candidate 仍从原始 body 独立构造。
 - `prompt_cache_key` 是显式的双向 shared request field；只有目标 Upstream API 的静态 profile 声明 exact forwarding 时，Bridge Route 才把
-  它贡献到固定接口并原样复制。`include: []` 先作为 no-op 移除；非空 include 需要 converter 同时保真请求和客户端可见输出，当前 Bridge
-  不贡献任何值，不能因 Chat upstream 接受任意 JSON 就伪造 reasoning 或 server-side-tool 输出。
+  它贡献到固定接口并原样复制。`include: []` 先作为 no-op 移除。Responses→Chat 当前只对具有可读 reasoning channel 的 Route 接受
+  `reasoning.encrypted_content`：该值没有 Chat wire 对应物，方向转换器验证后显式消费，继续保留上游真实明文 reasoning，但不保证
+  reasoning item 存在，也不把明文重新标记为 opaque `encrypted_content`。其他非空 include 仍不贡献。
 - 不可表达的 image/file/audio、hosted/custom tool、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，不伪造等价语义。
   下游 request/history 中的 opaque continuation 仍拒绝；已完成 Responses 输出转为无状态 Chat response 时，验证后丢弃
   `encrypted_content`，保留可读 summary/content、text 与 tool call，且绝不把 opaque 值投影为 `reasoning_content`。
@@ -37,7 +38,8 @@
 
 - [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖双向 request、JSON 和 SSE renderer。
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
-  其中缓存键用例检查 Responses→DeepSeek Chat post-adapter exact egress 与空 include 移除，非空 opaque include 用例检查 transport zero egress。
+  其中缓存键用例检查 Responses→DeepSeek Chat post-adapter exact egress 与空 include 移除；reasoning include 用例检查固定 interface
+  接受该值、Chat egress 显式移除且不合成 opaque output。
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 Bridge 未知字段分类、转换前 candidate 参数删除和
   fallback body 隔离；[`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖对应 HTTP 错误与 transport zero egress。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。

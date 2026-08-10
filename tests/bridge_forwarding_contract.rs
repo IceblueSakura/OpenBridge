@@ -279,15 +279,17 @@ async fn responses_bridge_forwards_prompt_cache_key_and_removes_empty_include() 
 }
 
 #[tokio::test]
-async fn responses_bridge_rejects_nonempty_include_before_egress() {
+async fn responses_bridge_consumes_reasoning_include_before_chat_egress() {
     let transport = Arc::new(ExpectedTransport {
         expected_path: "/chat/completions",
-        upstream_body: Bytes::new(),
+        upstream_body: Bytes::from_static(
+            br#"{"id":"chatcmpl_include","object":"chat.completion","model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#,
+        ),
         content_type: "application/json",
         requests: Mutex::new(Vec::new()),
     });
 
-    // A Bridge cannot synthesize opaque reasoning output merely because the upstream accepts JSON.
+    // Accept the known compatibility hint without promising or synthesizing opaque reasoning output.
     let response = app_with_reasoning_output(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
@@ -305,8 +307,17 @@ async fn responses_bridge_rejects_nonempty_include_before_egress() {
     )
     .await
     .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    assert!(transport.requests.lock().unwrap().is_empty());
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["output"][0]["content"][0]["text"], "ok");
+
+    // The Chat wire has no include field, so the Bridge must consume it before egress.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/chat/completions");
+    assert!(requests[0].1.get("include").is_none());
 }
 
 #[tokio::test]

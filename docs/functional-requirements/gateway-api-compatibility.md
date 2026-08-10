@@ -203,10 +203,12 @@ tools/tool choice、structured output、state/continuation、媒体输入输出�
 
 ### 5.5 Responses 输出投影与缓存键转发
 
-- Responses `include` 必须解析为逐值的类型化输出投影集合。省略、`null` 与空数组不请求任何投影；`include: []` 在一次公共预检后、
-  candidate 展开前移除，不能进入 Native 或 Bridge egress。未知 wire 值必须在 egress 前失败关闭。
-- 每条 Responses Route 只贡献其能完整返回下游的具体 `include` 值，Public Model 的 `response_includes` 是全部固定候选的集合交集。
-  Native 只有在对应 Upstream API 明确支持请求和输出语义时才贡献；Bridge 只有在 request converter 与 response converter 都能保真时才贡献。
+- Responses `include` 必须解析为逐值的类型化条件输出请求集合。省略、`null` 与空数组不请求任何值；`include: []` 在一次公共预检后、
+  candidate 展开前移除，不能进入 Native 或 Bridge egress。未知 wire 值必须在 egress 前失败关闭。接口接受某个值不保证响应一定出现
+  对应 item，也不允许把该值解释为 reasoning 输出存在性或形态开关。
+- 每条 Responses Route 只贡献其能安全接受的具体 `include` 值，Public Model 的 `response_includes` 是全部固定候选的集合交集。
+  Native 只有在对应 Upstream API 明确接受并能原样转发时才贡献；Bridge 只有在 converter 显式处理该值、保持真实可观察输出且不伪造
+  条件 item 时才贡献。没有目标协议 wire 对应物的值必须由 converter 显式消费，不能泄漏到错误的上游协议。
   hosted-tool execution 与 `web_search_call.action.sources` 等输出投影是两个独立能力，请求同时使用时必须共同通过预检。
 - `prompt_cache_key` 是请求级转发选项，不是缓存效果能力。它只在全部固定候选都能原样保留时进入 `supported_parameters`；每个 candidate
   必须从同一 canonical body 独立构造并原样转发。OpenBridge 不承诺上游启用缓存、产生命中、降低延迟或成本，也不得以该不确定性为由静默删除键值。

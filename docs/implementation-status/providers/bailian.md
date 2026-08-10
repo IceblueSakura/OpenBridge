@@ -21,6 +21,9 @@
   显式收窄为 `Unknown`；
 - `bailian-deepseek-v4-pro` 与 `bailian-deepseek-v4-flash` Chat target 单独公开非 strict 的 `json_object`，不把 Provider ceiling
   外推到 GLM、Qwen 或其他 Bailian target。
+- `bailian-glm-5-2` 与 `bailian-deepseek-v4-flash` Chat target 接受并转发 `parallel_tool_calls:true`；其他 Bailian generation target
+  仍在 registration 层收窄为 unsupported。GLM 没有上游 Responses endpoint，OpenBridge 的 Responses Bridge 只消费
+  `reasoning.encrypted_content` include 提示并保留真实明文 reasoning，不向 Chat wire 泄漏 `include` 或伪造 opaque item。
 - `qwen/qwen-audio-3.0-asr-flash` 只保留为 canonical `SpeechRecognition` Model；当前没有 Bailian executable Target、Route 或
   Public Model，不计入上述 11 个 Target，也不属于运行时可调用模型。
 
@@ -54,6 +57,9 @@
 - 2026-08-10 接入后，扩展 Models 单模型查询返回 HTTP 200，Chat/Responses 均公开 `none/high` 和 `plain_text`；真实下游
   Chat/Responses × JSON/SSE × none/high 为 8/8 HTTP 200、文字非空且终态完整。四个 none 单元均无 reasoning，四个 high
   单元均有可读 reasoning；其中 Responses-via-Chat high 同时产生 reasoning item，但没有 reasoning token 计数。
+- 2026-08-10 直连 Chat 证明 GLM 5.2 与 `deepseek-v4-flash-0731` 接受 `parallel_tool_calls:true`；单次结果未证明多 tool call。
+  同日 Qwen3.8 Native Responses 的带/不带 `reasoning.encrypted_content` 请求都返回相同明文 `summary_text`，而 GLM 5.2 的直连
+  Responses 返回 `Unsupported model`，与当前 Chat Bridge 边界一致。
 
 最终矩阵和剩余错误边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
 

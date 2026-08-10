@@ -118,7 +118,7 @@ impl RouteContractContribution {
             response_includes,
             audio,
             file_input,
-        } = protocol_specific_capabilities(route, upstream_api, bridged);
+        } = protocol_specific_capabilities(route, upstream_api, bridged, reasoning);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
@@ -328,6 +328,7 @@ fn protocol_specific_capabilities(
     route: &Route,
     upstream_api: &UpstreamApi,
     bridged: bool,
+    reasoning: SupportState,
 ) -> ProtocolCapabilities {
     if bridged {
         let prompt_cache_key = match upstream_api.capabilities() {
@@ -337,11 +338,21 @@ fn protocol_specific_capabilities(
                 unreachable!("Embeddings does not use generation protocol capabilities")
             }
         };
+        // A readable Responses-to-Chat Bridge can consume the conditional encrypted-content hint
+        // without forwarding it or fabricating an opaque output item.
+        let response_includes = if route.downstream_operation() == OperationKind::Responses
+            && upstream_api.api_protocol() == Some(ApiProtocol::ChatCompletions)
+            && reasoning.is_supported()
+        {
+            vec![ResponseInclude::ReasoningEncryptedContent]
+        } else {
+            Vec::new()
+        };
         return ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
             prompt_cache_key,
-            response_includes: Vec::new(),
+            response_includes,
             audio: None,
             file_input: false,
         };

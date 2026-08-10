@@ -51,17 +51,17 @@
 
 | Public Model | 真实 Provider 结果 | 当前确定性证据 | 结论 |
 |---|---|---|---|
-| `mimo-v2.5-pro` | Chat 返回 `finish_reason: "tool_calls"` 和 1 个有效 function call；Responses 返回 1 个 `function_call` output item | `mimo_models_compile_model_specific_native_surfaces` 覆盖 Chat/Responses Native function-tool 规划 | Chat、Responses 工具调用实测支持 |
-| `mimo-v2.5` | Chat 与 Responses 各返回 1 个有效 function call | 同一编译测试覆盖两协议 Native 规划；`mimo_responses_native_preserves_multi_tool_stream_without_parallel_control` 覆盖 Responses streaming 多调用保真 | Chat、Responses 工具调用实测支持；不公开并行控制参数 |
+| `mimo-v2.5-pro` | Chat 返回 `finish_reason: "tool_calls"` 和 1 个有效 function call；Responses 返回 1 个 `function_call` output item | `mimo_models_compile_model_specific_native_surfaces` 覆盖 Chat/Responses Native function-tool 规划 | Chat、Responses 工具调用实测支持；parallel control 未验证，保持 unsupported |
+| `mimo-v2.5` | Chat 与 Responses 各返回 1 个有效 function call；另行确认接受 `parallel_tool_calls:true` | 同一编译测试覆盖两协议 Native 规划；`mimo_responses_native_preserves_parallel_tool_control_and_multi_tool_stream` 覆盖 Responses exact egress 与 streaming 多调用保真 | Chat、Responses 工具调用及 parallel 请求参数受支持；不保证多调用或内部并发 |
 | `mimo-v2.5-asr` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 transcript | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 | `mimo-v2.5-tts` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 | `mimo-v2.5-tts-voicedesign` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 | `mimo-v2.5-tts-voiceclone` | HTTP 200，但 `tool_calls: null`、`finish_reason: "stop"`，仍返回 audio | canonical 参数和 Chat target 均不声明 tools；扩展 Models 公开 `unsupported`，带工具请求在 egress 前拒绝 | 不支持；Provider 静默忽略，OpenBridge fail closed |
 
-当前两个文字模型的 Chat/Responses 均只公开 `tool_choice:auto`、`strict_schema:supported`，并把 parallel control 标记为 unsupported。
-官方说明 `none/required/named` 会被移除并退化成 auto，因此这些值即使返回 tool call 也不构成 choice 支持。自然多调用输出仍由现有
-Responses state machine 正确保真，但不据此公开 `parallel_tool_calls` 请求参数。真实 auto + strict 的两模型、两协议和 JSON/SSE
-共 8/8 返回合法 function call，arguments 严格匹配合成 schema。
+两个文字模型的 Chat/Responses 均只公开 `tool_choice:auto` 与 `strict_schema:supported`；只有 `mimo-v2.5` 按 2026-08-10 的直接接受
+证据公开 `parallel_tool_calls`，Pro 保持 unsupported。官方说明 `none/required/named` 会被移除并退化成 auto，因此这些值即使返回
+tool call 也不构成 choice 支持。Responses state machine 会保真自然或显式 parallel 请求产生的多个调用，但调用数量与执行并发仍由
+上游决定。真实 auto + strict 的两模型、两协议和 JSON/SSE 共 8/8 返回合法 function call，arguments 严格匹配合成 schema。
 
 ## Structured outputs
 
@@ -78,8 +78,8 @@ Responses state machine 正确保真，但不据此公开 `parallel_tool_calls` 
 
 ## 当前实现收窄
 
-两个文本 target 将 function-tool choices 收窄为 `auto`、关闭 parallel control、保留 strict function schema，并在 Chat/Responses
-都只公开 `json_object`。四个音频专用
+两个文本 target 将 function-tool choices 收窄为 `auto`、保留 strict function schema，并在 Chat/Responses 都只公开
+`json_object`；`mimo-v2.5` 保留 Provider 的 parallel ceiling，Pro 在 target registration 层关闭。四个音频专用
 模型的 canonical `supported_parameters` 均没有工具或结构化文本字段，真实 Provider 也没有产生有效
 tool call/structured text。当前 model-specific audio target 已将 Chat `function_tools` 与 `structured_outputs` 收窄为 `None`；扩展
 Models 因此公开两者 `unsupported`。合法音频 task 一旦携带这些能力，会在创建 RoutePlan 和 Provider egress 前返回 HTTP 400。
@@ -111,10 +111,13 @@ transport；收窄 audio target 后，同一测试确认四模型公开 `unsuppo
 - [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)：MiMo Provider 能力上界；
 - [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs)：typed 多模态/工具能力定义与收窄规则。
 
-2026-08-09 最终聚焦验证：structured-output 矩阵 8/8，auto + strict function-tool 矩阵 8/8，四个 MiMo tool-result continuation
-接口 4/4。Models 对两款文字模型均只公开 `json_object`、`tool_choice:auto` 和 strict function schema。非 auto choice 24/24、
-`parallel_tool_calls` 8/8、`json_schema` 8/8 均在本地返回 HTTP 400 `unsupported_model_capability`；确定性 forwarding 契约同时证明
-zero egress。相关 Rust 聚焦契约共 85 项通过。
+2026-08-09 聚焦验证当时：structured-output 矩阵 8/8，auto + strict function-tool 矩阵 8/8，四个 MiMo tool-result continuation
+接口 4/4。非 auto choice 24/24、当时尚未开放的 `parallel_tool_calls` 8/8、`json_schema` 8/8 均在本地返回 HTTP 400
+`unsupported_model_capability`；确定性 forwarding 契约同时证明 zero egress。
+
+2026-08-10 对 `mimo-v2.5` 直连 Chat 确认 `parallel_tool_calls:true` 返回 HTTP 200；当前 Models 与 Native Chat/Responses egress
+据此开放并保留该值，Pro 仍 zero-egress fail closed。Responses 的带/不带 `reasoning.encrypted_content` 对照都返回相同明文
+`reasoning_text`，因此该 include 只按接受兼容参数公开，不承诺 output item；MiMo V2.5 Native egress 原样转发，Pro 保持空 include 集合。
 
 所有真实请求只使用合成文本、内存 PNG 和内存 WAV；没有记录 credential、完整请求/响应、原始 Base64、完整 reasoning、Provider
 request ID 或音频文件。
@@ -122,7 +125,7 @@ request ID 或音频文件。
 ## 未覆盖范围
 
 - `mimo-v2.5` video、remote audio、多个 audio part、其他图片/音频格式和上限；
-- 更多提示与长对话下的 auto 工具选择稳定性；自然多调用输出不构成 parallel control 支持；
+- 更多提示与长对话下的 auto/parallel 工具选择稳定性；HTTP 200 或多调用输出不证明上游内部并发执行；
 - 四个音频模型的外部 OpenAI SDK、目标 Agent、负载和长期运行；
 - 两个文本模型的 `none/low/medium` 真实 Chat/Responses JSON/SSE；
 - ASR 人声/方言质量、TTS 音色质量与播放器验收；

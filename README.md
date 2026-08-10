@@ -77,10 +77,14 @@ Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公�
 MiniMax M3 与 Qwen3.6 27B 当前都只有 thinking 开关证据，因此统一公开 `none/high`，不外推未声明的中间强度档位。
 只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
-扩展 Models 的 generation interface 以 `response_includes` 公开全部固定候选共同保证的 Responses 输出投影；当前已注册 Public Model
-都返回空集合，因此非空 `include` 会在上游调用前拒绝，但 `include: []` 作为 no-op 会在 egress 前移除。`prompt_cache_key` 只有在
-对应 interface 的 `supported_parameters` 中出现时才会对 Native/Bridge 每个候选原样转发；这只表示请求选项可传递，不承诺缓存启用、
-命中、延迟或成本效果。`prompt_cache_options`、`prompt_cache_retention` 和 `prompt_cache_breakpoint` 当前仍不支持。
+扩展 Models 的 generation interface 以 `response_includes` 公开全部固定候选共同接受的 Responses `include` 值；公开某个值只表示请求
+可执行，不保证响应一定出现对应 item，也不把它解释为 reasoning 输出开关。当前 `reasoning.encrypted_content` 已在 `glm-5.2` 的
+Responses-via-Chat Bridge、`deepseek-v4-flash`、`mimo-v2.5` 和仅由 ChatGPT 提供的 Responses interface 上开放：Native 原样转发，
+GLM Bridge 显式消费且不伪造 opaque 内容。其他非空值仍在上游调用前拒绝，`include: []` 作为 no-op 会在 egress 前移除。
+`parallel_tool_calls` 也只在完整固定候选集均有接受证据时公开并保持请求值；它不保证单次响应产生多个 tool call 或证明上游内部并行执行。
+`prompt_cache_key` 只有在对应 interface 的 `supported_parameters` 中出现时才会对 Native/Bridge 每个候选原样转发；这只表示请求选项
+可传递，不承诺缓存启用、命中、延迟或成本效果。`prompt_cache_options`、`prompt_cache_retention` 和
+`prompt_cache_breakpoint` 当前仍不支持。
 
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 `qwen3.7-text-embedding` 当前公开 string/string-array 输入、float `encoding_format`、`dimensions` 及其固定允许值，默认维度为

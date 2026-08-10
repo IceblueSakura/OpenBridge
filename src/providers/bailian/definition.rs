@@ -29,7 +29,7 @@ const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
     &[ToolChoiceMode::None, ToolChoiceMode::Auto];
 const FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
     choice_modes: ALL_TOOL_CHOICE_MODES,
-    parallel_calls: false,
+    parallel_calls: true,
     strict_schema: false,
 };
 
@@ -61,7 +61,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: RESPONSES_TOOL_CHOICE_MODES,
-                parallel_calls: false,
+                parallel_calls: true,
                 strict_schema: false,
             }),
             image_input: None,
