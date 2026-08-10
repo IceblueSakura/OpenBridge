@@ -1,20 +1,45 @@
+# Selects the strict Bootstrap document schema accepted by this OpenBridge build.
 schema_version = 2
+# Binds the downstream server to a loopback-only socket address.
 listen = "127.0.0.1:8080"
+# Locates the private downstream user and API-key configuration file.
 users_file = "config/users.toml"
+# Locates the private upstream API-key and OAuth2 credential bindings.
 upstream_credentials_file = "config/upstream-credentials.toml"
+# Supplies the fixed developer instruction used by registered ChatGPT upstream requests.
 chatgpt_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+# Limits one downstream request body to 1 MiB and bounds its optional log capture.
 max_request_body_bytes = 1048576
+# Limits buffered JSON responses and optional response-body log capture to 16 MiB.
 max_json_response_body_bytes = 16777216
+# Limits replayable request bodies to 256 KiB and must not exceed the request-body limit.
 max_replay_body_bytes = 262144
+# Limits one decoded Server-Sent Events event to 256 KiB.
 max_sse_event_bytes = 262144
+# Limits one upstream TCP connection attempt to 5 seconds.
 upstream_connect_timeout_ms = 5000
+# Retains an idle pooled upstream connection for at most 90 seconds.
 upstream_pool_idle_timeout_ms = 90000
+# Retains at most 16 idle upstream connections for one host.
 upstream_pool_max_idle_per_host = 16
 
-# Trace export is disabled unless this startup-owned collector table is uncommented.
+# Controls authenticated downstream HTTP diagnostics for the checked-in development profile.
+[logging]
+# Logs sanitized downstream request-header snapshots at the info level.
+request_headers = true
+# Logs downstream request bodies up to the configured request-body limit.
+request_body = true
+# Logs sanitized final downstream response-header snapshots at the info level.
+response_headers = true
+# Logs final downstream response bodies up to the configured JSON-response limit.
+response_body = true
+
+# Configures startup-owned OTLP/HTTP trace export; remove this table to disable it.
 [telemetry.traces]
+# Selects the collector base URL to which OpenBridge appends the fixed /v1/traces path.
 otlp_http_endpoint = "http://127.0.0.1:4318"
 
-# Metrics export is disabled unless this startup-owned collector table is uncommented.
+# Configures startup-owned OTLP/HTTP metrics export; remove this table to disable it.
 [telemetry.metrics]
+# Selects the collector base URL to which OpenBridge appends the fixed /v1/metrics path.
 otlp_http_endpoint = "http://127.0.0.1:4318"

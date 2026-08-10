@@ -27,7 +27,7 @@ use openbridge::{
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     provider::PreparedUpstreamRequest,
-    registry::UpstreamTarget,
+    registry::{UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use opentelemetry_proto::tonic::{
@@ -43,7 +43,9 @@ use tracing_subscriber::layer::SubscriberExt;
 
 const DOWNSTREAM_TOKEN: &str = "downstream-test-token-00000000000";
 const UPSTREAM_TOKEN: &str = "upstream-synthetic-secret";
+const REQUEST_HEADER_MARKER: &str = "safe-request-header-marker";
 const REQUEST_MARKER: &str = "sensitive-business-request-marker";
+const RESPONSE_HEADER_MARKER: &str = "safe-response-header-marker";
 const RESPONSE_MARKER: &str = "sensitive-business-response-marker";
 
 struct SuccessfulTransport;
@@ -58,6 +60,10 @@ impl UpstreamTransport for SuccessfulTransport {
         Box::pin(async move {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(
+                "openai-request-id",
+                HeaderValue::from_static(RESPONSE_HEADER_MARKER),
+            );
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 headers,
@@ -150,9 +156,37 @@ fn bootstrap_with_trace_export(endpoint: &str) -> BootstrapConfig {
     .unwrap()
 }
 
+fn bootstrap_with_trace_export_and_local_content(endpoint: &str) -> BootstrapConfig {
+    // Enable every local content event alongside traces so OTLP exclusion is exercised explicitly.
+    parse_bootstrap_config(&format!(
+        "{}\n[logging]\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n\n[telemetry.traces]\notlp_http_endpoint = \"{endpoint}\"\n",
+        support::BOOTSTRAP
+    ))
+    .unwrap()
+}
+
 fn app_with_metrics(metrics: GatewayMetrics) -> Router {
     // Build the ordinary synthetic registry and bind only synthetic credentials.
     let registry = support::registry("otlp-test", "code-primary", "test-model");
+    let (users, credentials) =
+        support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
+    let state = GatewayState::new(
+        Arc::new(registry),
+        Arc::new(SuccessfulTransport),
+        users,
+        credentials,
+    )
+    .with_metrics(metrics);
+    build_router(state)
+}
+
+fn app_with_bootstrap_and_metrics(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Router {
+    // Compile the ordinary synthetic registry with the exact logging policy under test.
+    let registry = build_registry(
+        bootstrap,
+        support::definition("otlp-test", "code-primary", "test-model"),
+    )
+    .unwrap();
     let (users, credentials) =
         support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
     let state = GatewayState::new(
@@ -172,6 +206,7 @@ async fn execute_business_request(app: Router) -> (StatusCode, Bytes) {
             Request::post("/v1/chat/completions")
                 .header("authorization", format!("Bearer {DOWNSTREAM_TOKEN}"))
                 .header(CONTENT_TYPE, "application/json")
+                .header("x-request-debug", REQUEST_HEADER_MARKER)
                 .body(Body::from(format!(
                     r#"{{"model":"code-primary","messages":[{{"role":"user","content":"{REQUEST_MARKER}"}}]}}"#
                 )))
@@ -268,12 +303,12 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
 async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
     // Start a loopback OTLP/HTTP collector and create the fixed batch exporter before serving a request.
     let (endpoint, collector, server) = start_capturing_collector().await;
-    let bootstrap = bootstrap_with_trace_export(&endpoint);
+    let bootstrap = bootstrap_with_trace_export_and_local_content(&endpoint);
     let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
     let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
         runtime.tracer().expect("trace exporter should be enabled"),
     ));
-    let app = app_with_metrics(runtime.metrics());
+    let app = app_with_bootstrap_and_metrics(bootstrap, runtime.metrics());
 
     // Keep the test-local subscriber attached through response-body completion.
     let (status, body) = execute_business_request(app)
@@ -453,7 +488,9 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
         DOWNSTREAM_TOKEN,
         UPSTREAM_TOKEN,
         "test-user",
+        REQUEST_HEADER_MARKER,
         REQUEST_MARKER,
+        RESPONSE_HEADER_MARKER,
         RESPONSE_MARKER,
         "/v1/chat/completions",
         "https://api.openai.com",

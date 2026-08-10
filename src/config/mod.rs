@@ -2,7 +2,7 @@
 //!
 //! Providers, Models, Upstream Targets, Upstream APIs, Routes, Public Models, endpoints, and
 //! credential bindings are defined by the code registry; bootstrap carries listen settings,
-//! ChatGPT startup instructions, resource limits, and shared HTTP client policy.
+//! ChatGPT startup instructions, resource limits, local HTTP logging, and shared HTTP client policy.
 
 use std::{
     net::SocketAddr,
@@ -31,6 +31,7 @@ pub struct BootstrapConfig {
     chatgpt_instructions: Option<String>,
     limits: RuntimeLimits,
     http_client: HttpClientConfig,
+    http_logging: HttpLoggingConfig,
     otlp_http_trace_export: Option<OtlpHttpExportConfig>,
     otlp_http_metrics_export: Option<OtlpHttpExportConfig>,
 }
@@ -66,6 +67,11 @@ impl BootstrapConfig {
         &self.http_client
     }
 
+    /// Returns the default-off local logging policy for authenticated downstream HTTP boundaries.
+    pub fn http_logging(&self) -> &HttpLoggingConfig {
+        &self.http_logging
+    }
+
     /// Returns the optional startup-only OTLP/HTTP trace exporter policy.
     pub fn otlp_http_trace_export(&self) -> Option<&OtlpHttpExportConfig> {
         self.otlp_http_trace_export.as_ref()
@@ -74,6 +80,37 @@ impl BootstrapConfig {
     /// Returns the optional startup-only OTLP/HTTP metrics exporter policy.
     pub fn otlp_http_metrics_export(&self) -> Option<&OtlpHttpExportConfig> {
         self.otlp_http_metrics_export.as_ref()
+    }
+}
+
+/// Independent local logging switches for authenticated downstream HTTP messages.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct HttpLoggingConfig {
+    request_headers: bool,
+    request_body: bool,
+    response_headers: bool,
+    response_body: bool,
+}
+
+impl HttpLoggingConfig {
+    /// Returns whether authenticated downstream request headers are logged locally.
+    pub const fn request_headers(self) -> bool {
+        self.request_headers
+    }
+
+    /// Returns whether authenticated downstream request bodies are logged locally.
+    pub const fn request_body(self) -> bool {
+        self.request_body
+    }
+
+    /// Returns whether downstream response headers are logged locally.
+    pub const fn response_headers(self) -> bool {
+        self.response_headers
+    }
+
+    /// Returns whether downstream response bodies are logged locally.
+    pub const fn response_body(self) -> bool {
+        self.response_body
     }
 }
 

@@ -87,6 +87,8 @@ struct ProviderMetricsStreamingTransport;
 
 struct JsonResponseAboveRequestLimitTransport;
 
+struct ContentLoggingTransport;
+
 struct EmbeddingMetricsTransport {
     attempts: AtomicUsize,
 }
@@ -354,8 +356,55 @@ impl UpstreamTransport for ReplayLimitEmbeddingTransport {
     }
 }
 
+impl UpstreamTransport for ContentLoggingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Return synthetic header and body sentinels so the local HTTP boundary can be asserted exactly.
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(
+                "openai-request-id",
+                HeaderValue::from_static("RESPONSE_HEADER_SENTINEL_7D41"),
+            );
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(
+                    r#"{"id":"chatcmpl-log","choices":[{"message":{"role":"assistant","content":"RESPONSE_BODY_SENTINEL_6B32"}}]}"#,
+                ),
+            ))
+        })
+    }
+}
+
 fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, TestMetrics) {
     let registry = support::registry("observability-test", "code-primary", "test-model");
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-test-token-00000000000",
+        &registry,
+        "upstream-test-token",
+    );
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
+        .with_metrics(metrics.instruments());
+    (build_router(state), metrics)
+}
+
+fn app_with_transport_and_bootstrap(
+    transport: Arc<dyn UpstreamTransport>,
+    bootstrap: &str,
+) -> (axum::Router, TestMetrics) {
+    // Compile the ordinary synthetic registry under the caller-selected startup logging policy.
+    let registry = build_registry(
+        parse_bootstrap_config(bootstrap).unwrap(),
+        support::definition("observability-test", "code-primary", "test-model"),
+    )
+    .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -605,6 +654,107 @@ async fn completed_request_records_attempt_retry_and_confirmed_usage_once() {
     assert_eq!(provider_snapshot.attempts_started, 2);
     assert_eq!(provider_snapshot.attempts_completed, 1);
     assert_eq!(provider_snapshot.attempts_http_failed, 1);
+}
+
+#[tokio::test]
+async fn bootstrap_switches_emit_complete_local_http_boundaries_with_sensitive_headers_redacted() {
+    let logs = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(logs.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let bootstrap = format!(
+        "{}\n[logging]\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n",
+        support::BOOTSTRAP
+    );
+    let (app, _) = app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
+
+    // Complete one request so both transparent body observers reach EOF and emit one snapshot each.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header(
+                    "authorization",
+                    "Bearer downstream-test-token-00000000000",
+                )
+                .header(CONTENT_TYPE, "application/json")
+                .header("x-request-debug", "REQUEST_HEADER_SENTINEL_4A19")
+                .body(Body::from(
+                    r#"{"model":"code-primary","messages":[{"role":"user","content":"REQUEST_BODY_SENTINEL_5C20"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
+
+    // Preserve opted-in safe values and both bodies while keeping authentication material absent.
+    let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    assert!(output.contains("downstream_request_headers"));
+    assert!(output.contains("REQUEST_HEADER_SENTINEL_4A19"));
+    assert!(output.contains("downstream_request_body"));
+    assert!(output.contains("REQUEST_BODY_SENTINEL_5C20"));
+    let response_headers = output
+        .lines()
+        .find(|line| line.contains("downstream_response_headers"))
+        .expect("response header snapshot must be emitted");
+    assert!(response_headers.contains("RESPONSE_HEADER_SENTINEL_7D41"));
+    assert!(response_headers.contains("x-request-id"));
+    assert!(output.contains("downstream_response_body"));
+    assert!(output.contains("RESPONSE_BODY_SENTINEL_6B32"));
+    assert!(output.contains("[REDACTED]"));
+    assert!(!output.contains("downstream-test-token-00000000000"));
+}
+
+#[tokio::test]
+async fn local_http_logging_switches_do_not_enable_adjacent_dimensions() {
+    let logs = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(logs.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let bootstrap = format!(
+        "{}\n[logging]\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = true\n",
+        support::BOOTSTRAP
+    );
+    let (app, _) = app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
+
+    // Exercise one mixed policy so the runtime wiring cannot couple adjacent header/body switches.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header(
+                    "authorization",
+                    "Bearer downstream-test-token-00000000000",
+                )
+                .header(CONTENT_TYPE, "application/json")
+                .header("x-request-debug", "REQUEST_HEADER_SENTINEL_4A19")
+                .body(Body::from(
+                    r#"{"model":"code-primary","messages":[{"role":"user","content":"REQUEST_BODY_SENTINEL_5C20"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
+
+    let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    assert!(output.contains("downstream_request_headers"));
+    assert!(output.contains("REQUEST_HEADER_SENTINEL_4A19"));
+    assert!(!output.contains("downstream_request_body"));
+    assert!(!output.contains("REQUEST_BODY_SENTINEL_5C20"));
+    assert!(!output.contains("downstream_response_headers"));
+    assert!(output.contains("downstream_response_body"));
+    assert!(output.contains("RESPONSE_BODY_SENTINEL_6B32"));
 }
 
 #[tokio::test]

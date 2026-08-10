@@ -5,7 +5,7 @@ use url::Url;
 
 use super::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapConfig, BootstrapConfigError, HttpClientConfig,
-    OtlpHttpExportConfig, RuntimeLimits, document::RawBootstrap,
+    HttpLoggingConfig, OtlpHttpExportConfig, RuntimeLimits, document::RawBootstrap,
 };
 
 /// Parses and validates bootstrap TOML.
@@ -85,6 +85,9 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         None => (None, None),
     };
 
+    // Convert the optional local logging switches into a default-off immutable policy.
+    let logging = raw.logging.unwrap_or_default();
+
     // Convert raw fields into runtime value objects.
     Ok(BootstrapConfig {
         listen,
@@ -101,6 +104,12 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             connect_timeout: Duration::from_millis(raw.upstream_connect_timeout_ms),
             pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
+        },
+        http_logging: HttpLoggingConfig {
+            request_headers: logging.request_headers,
+            request_body: logging.request_body,
+            response_headers: logging.response_headers,
+            response_body: logging.response_body,
         },
         otlp_http_trace_export,
         otlp_http_metrics_export,

@@ -9,7 +9,7 @@ use std::{
 use url::Url;
 
 use crate::{
-    config::{BootstrapConfig, HttpClientConfig, RuntimeLimits},
+    config::{BootstrapConfig, HttpClientConfig, HttpLoggingConfig, RuntimeLimits},
     core::{ApiProtocol, OperationKind, ReasoningOutput},
     provider::{CredentialKind, ProviderKind},
 };
@@ -130,6 +130,11 @@ impl RuntimeRegistry {
     /// Returns the upstream HTTP client policy.
     pub fn http_client(&self) -> &HttpClientConfig {
         self.bootstrap.http_client()
+    }
+
+    /// Returns the startup-frozen local HTTP logging policy.
+    pub fn http_logging(&self) -> &HttpLoggingConfig {
+        self.bootstrap.http_logging()
     }
 
     /// Returns startup-owned instructions for ChatGPT Provider request preparation.

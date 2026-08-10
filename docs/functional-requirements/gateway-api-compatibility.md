@@ -248,6 +248,10 @@ OpenTelemetry 是可选的 headless 出站观测通道，不是新的下游管�
   分位数、cache ratio、error rate 或 Provider 排名由外部系统计算。
 - **Logs**：导出启动、关闭、exporter 状态和需要人工诊断的安全结构化事件，并通过 trace/span id 关联业务 trace。不得为每个 SSE
   chunk/delta 产生日志，也不得把已经由 attempt/request span terminal 完整表达的事实再复制为一组高频业务日志。
+- **本地开发内容日志**：Bootstrap 的四个独立开关可以分别记录认证后下游 request header/body 与最终 response header/body；
+  仓库随附开发配置显式全开，自定义配置缺表或缺字段时对应回退关闭。
+  header 值先强制脱敏认证、Cookie 和 secret-like 名称；body 只保留既有 request/JSON-response budget 内的有界 snapshot，长流明确
+  标记截断且每个方向最多一个事件。该本地 formatter 事件不进入 span-only OTLP layer，不得被解释为原始 Provider wire dump。
 
 OpenBridge 不执行下游 Agent 的工具，不能从 tool arguments、tool result 文本或下一轮 prompt 猜测工具是否执行成功；实际 tool error
 rate 只有在未来存在显式、低基数且不携带业务内容的客户端 outcome 契约时才可统计。本次迁移只保留已有的协议级 tool 生命周期事实，
@@ -261,6 +265,8 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 - 所有 signals 使用固定 `service.name = "openbridge"` 和本次进程资源身份。traces 可携带 request id 以供关联；任何 signal 都不得包含
   Authorization、credential、用户身份、请求/响应正文、tool arguments/result、reasoning 正文、原始上游错误正文、query 或真实
   endpoint URL。
+- 本地开发内容日志不是 OTLP signal；即使显式启用，认证、Cookie、credential 与 secret-like header 值仍不得进入日志。body snapshot
+  可能包含受控开发业务内容；随附开发配置显式全开，生产部署必须由 bootstrap 所有者按需关闭。
 - request hot path 只写入内存中的有界 signal primitive；网络 export 必须批处理并与请求异步隔离。队列满、collector 不可达或 export
   timeout 只能丢弃观测并产生有界、限频的本地诊断，不能改变下游状态、重试、fallback、取消或 Provider 结果。关闭时 flush 也必须有界。
 - metrics 只通过启动时配置的 OTLP/HTTP 出站；不得保留自定义进程内累计查询 API，旧
@@ -293,6 +299,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | OBS-05 | export 使用有界异步队列和有界关闭；collector 故障、超时或背压不阻塞请求、不改变 HTTP/SSE/Provider 行为，只允许丢弃 telemetry 并产生限频本地诊断。                          |
 | OBS-06 | 所有 signals 都不包含 credential、Authorization、用户身份、业务正文、tool/reasoning 内容、原始错误正文、query 或真实 endpoint URL；metric attributes 不含高基数身份。       |
 | OBS-07 | OTLP metrics 覆盖 request/attempt、韧性、timing、usage 与 cache 事实后，旧 metrics HTTP endpoint 和自定义 snapshot 聚合保持删除，不为未发布原型保留兼容垫片。 |
+| OBS-08 | 本地下游 HTTP header/body 日志由四个彼此独立的 bootstrap 开关控制；随附开发配置显式全开、缺表/缺字段时回退关闭，只覆盖认证后客户端边界，敏感 header 强制脱敏、body capture 有界且每个方向最多一个终态事件，并保持 OTLP exclusion。 |
 
 ## 9. 非目标
 

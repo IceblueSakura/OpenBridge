@@ -275,6 +275,10 @@ curl http://127.0.0.1:8080/v1/responses \
 | `upstream_connect_timeout_ms` | `5000` | 上游连接超时 |
 | `upstream_pool_idle_timeout_ms` | `90000` | 上游连接池 idle 超时 |
 | `upstream_pool_max_idle_per_host` | `16` | 每个 host 的最大 idle 连接数 |
+| `logging.request_headers` | `true` | 在本地日志记录已认证下游请求的 header snapshot |
+| `logging.request_body` | `true` | 在本地日志记录已认证下游请求正文 |
+| `logging.response_headers` | `true` | 在本地日志记录对应下游响应的 header snapshot |
+| `logging.response_body` | `true` | 在本地日志记录对应下游响应正文 |
 
 所有 limit 和 timeout 必须为非零值，`max_replay_body_bytes` 不能超过 `max_request_body_bytes`。监听地址不能改成
 `0.0.0.0` 或其他非 loopback 地址。
@@ -283,6 +287,30 @@ curl http://127.0.0.1:8080/v1/responses \
 `chatgpt-codex` credential pool 激活至少一个 ChatGPT Target，缺失、空字符串或纯空白值都会阻止启动。该值在 Chat→Responses
 Bridge 完成后由 ChatGPT adapter 写入，因此 Native Responses、Chat Bridge 和显式 Responses probe 使用同一 instructions，而其他
 Provider 不受影响。
+
+### 启用本地下游 HTTP 内容日志
+
+四个开关彼此独立。仓库随附的 `config/bootstrap.toml` 与示例配置面向当前开发调试，显式将四项全部设为 `true`：
+
+```toml
+[logging]
+request_headers = true
+request_body = true
+response_headers = true
+response_body = true
+```
+
+省略整个 `[logging]` 表或省略其中某个字段时，对应解析回退仍为 `false`；上线配置应按实际诊断需求逐项关闭。
+
+这些开关只记录通过下游 Bearer 认证后的客户端请求与最终客户端响应，不记录匿名认证失败流量，也不是原始上游 Provider
+wire dump。header 事件保留全部 header 名称和安全值，但 `Authorization`、`Proxy-Authorization`、Cookie 以及名称包含
+token/key/secret/password 的 header 值始终显示为 `[REDACTED]`。正文按转义后的 UTF-8 字段写入本地 `tracing` formatter；请求正文受
+`max_request_body_bytes` 约束，响应正文最多保留 `max_json_response_body_bytes` 字节，并同时记录 `captured_bytes`、
+`observed_bytes`、`complete` 与 `truncated`。因此长时间 SSE 仍只产生一个有界终态 snapshot，不会逐 chunk/delta 打日志。
+
+内容事件使用 `info` 级别并继承 `RUST_LOG` 过滤器。它们是本地开发诊断，现有 OTLP trace layer 只导出 allowlist span，
+不会导出这些 tracing events。请求/响应正文可能包含 prompt、tool、reasoning、向量或 Base64 等业务内容；只应对受控开发流量开启，
+上线前将不需要的开关恢复为 `false` 并重启服务。
 
 ### 启用 OpenTelemetry OTLP/HTTP 导出
 
@@ -507,6 +535,8 @@ latency、TTFT、token usage、cache usage 和 output speed。标准生成式 AI
 Authorization、credential、用户、request ID 或 endpoint URL。历史、查询、dashboard、告警、rate/ratio 和跨进程聚合由外部
 OpenTelemetry backend 负责；OpenBridge 不再提供自定义 metrics HTTP endpoint。完整口径见
 [运行时指标与遥测](docs/implementation-status/telemetry-metrics.md)。
+
+Bootstrap 显式启用的本地下游 HTTP 内容日志不属于 OTLP metric 或 trace attribute；OTLP layer 不导出这些日志事件。
 
 ### 8.2 Swagger UI 和 OpenAPI
 

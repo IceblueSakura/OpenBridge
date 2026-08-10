@@ -22,6 +22,7 @@ use tower_http::{
 };
 
 use crate::{
+    config::HttpLoggingConfig,
     credential::CredentialStore,
     identity::UserRegistry,
     mcp,
@@ -34,7 +35,7 @@ use super::{
         chat_completions, embeddings, extended_model, extended_models, health, model, models,
         responses,
     },
-    lifecycle::{RequestLifecycleGuard, observe_response_body},
+    lifecycle::{RequestLifecycleGuard, observe_request_body, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
     response::{api_error, embedding_request_too_large},
     state::GatewayState,
@@ -45,6 +46,9 @@ struct DownstreamAuthState {
     users: Arc<UserRegistry>,
     credentials: Arc<CredentialStore>,
     metrics: GatewayMetrics,
+    http_logging: HttpLoggingConfig,
+    max_request_body_bytes: usize,
+    max_response_body_bytes: usize,
     max_sse_event_bytes: usize,
 }
 
@@ -72,6 +76,9 @@ pub fn build_router(state: GatewayState) -> Router {
         users: state.users.clone(),
         credentials: state.credentials.clone(),
         metrics: state.metrics.clone(),
+        http_logging: *state.registry.http_logging(),
+        max_request_body_bytes,
+        max_response_body_bytes: state.registry.limits().max_json_response_body_bytes(),
         max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
     };
 
@@ -132,9 +139,9 @@ async fn require_user(
     next: Next,
 ) -> Response {
     // Extract request identifiers and safe audit fields without relying on an unauthenticated user object.
-    let request_id = request
-        .headers()
-        .get("x-request-id")
+    let request_id_header = request.headers().get("x-request-id").cloned();
+    let request_id = request_id_header
+        .as_ref()
         .and_then(|value| value.to_str().ok())
         .unwrap_or("unknown")
         .to_owned();
@@ -159,14 +166,42 @@ async fn require_user(
     // Bind the authenticated user before invoking any protected handler.
     request.extensions_mut().insert(user.clone());
 
-    // Bind the observed request to a span and finish it only at the downstream body boundary.
+    // Bind the observed request to a span and freeze its startup-owned local logging policy.
     let span = tracing::info_span!("downstream_request", %request_id);
-    let observation = RequestObservation::new(auth.metrics.clone(), span.clone());
+    let observation = RequestObservation::new_with_http_logging(
+        auth.metrics.clone(),
+        span.clone(),
+        auth.http_logging,
+    );
     let mut lifecycle = RequestLifecycleGuard::new(observation.clone());
+
+    // Capture only explicitly enabled authenticated request headers and a bounded body copy.
+    observation.log_request_headers(&method, &path, request.headers());
+    observe_request_body(
+        &mut request,
+        observation.clone(),
+        auth.max_request_body_bytes,
+    );
     request.extensions_mut().insert(observation.clone());
+
+    // Run the protected handler under the request span until response headers are ready.
     let mut response = tracing::Instrument::instrument(next.run(request), span).await;
+    if let Some(request_id_header) = request_id_header {
+        // Make the outer propagation result visible to the response snapshot without changing its final value.
+        response
+            .headers_mut()
+            .insert("x-request-id", request_id_header);
+    }
     observation.record_response_ready(response.status());
-    observe_response_body(&mut response, observation, auth.max_sse_event_bytes);
+    observation.log_response_headers(response.status(), response.headers());
+
+    // Transfer terminal and optional bounded response-body logging to the transparent body wrapper.
+    observe_response_body(
+        &mut response,
+        observation,
+        auth.max_sse_event_bytes,
+        auth.max_response_body_bytes,
+    );
     lifecycle.handoff_to_body();
     response
 }

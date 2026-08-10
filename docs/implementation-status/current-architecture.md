@@ -14,7 +14,8 @@ JSON/SSE renderer 和 stream 状态机已经接入统一 ingress；模型信息�
 另有严格 JSON ingress、单条 Native Route 和预提交有界成功体校验。请求生命周期观测已接入 OpenTelemetry traces/metrics；
 显式配置时通过 bootstrap-owned OTLP/HTTP collector 导出脱敏 request/attempt spans，以及由 SDK Counter/Histogram 聚合的
 request/attempt、韧性、timing、usage 和 cache metrics。旧进程内快照与 JSON metrics endpoint 已删除；OTLP logs 与内置
-Prometheus exporter 尚未接入。
+Prometheus exporter 尚未接入。Bootstrap 另有四个本地下游 HTTP 内容日志开关；随附开发配置显式全开，缺表或缺字段时回退关闭，
+其有界本地事件不进入 OTLP。
 
 ## 1. 分层结构
 
@@ -47,7 +48,7 @@ Route；transport 不解释模型和协议能力。
 
 | 层            | 核心类型                                                                                                                                                                                                               | 简单定义                                                                                            |
 |---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| 启动配置      | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig`                                                                                                                                                                 | 进程启动参数、request/response/replay/SSE 限制和 HTTP client 参数                                   |
+| 启动配置      | `BootstrapConfig`、`RuntimeLimits`、`HttpClientConfig`、`HttpLoggingConfig`                                                                                                                                            | 进程启动参数、request/response/replay/SSE 限制、本地内容日志和 HTTP client 参数                      |
 | Credential    | `CredentialPoolConfig`、`CredentialPoolBinding`、`CredentialId`、`CredentialStoreBuilder`、`CredentialStore`、`OAuth2CredentialManager`、`UpstreamCredential`                                                          | 启动时解析 binding，分别冻结 API key 与 OAuth2 bundle，并提供受限只读视图                            |
 | 下游身份      | `UserConfigPath`、`UserConfiguration`、`UserRegistry`、`User`                                                                                                                                                          | 启动时分离用户元数据与 Key，通过 Store 匹配后提供稳定用户身份                                       |
 | 上游凭证      | `UpstreamCredentialConfigPath`、`UpstreamCredentialConfiguration`                                                                                                                                                      | 校验私有 TOML，并按编译期 binding id 分别装载有序 API key 或单一 OAuth2 auth 文件                    |
@@ -58,7 +59,7 @@ Route；transport 不解释模型和协议能力。
 | Bridge        | `BridgePlan`、`BridgeStreamRenderer`、`ChatStreamState`、`ResponsesStreamState`                                                                                                                                        | 受限双向请求/响应转换及单请求 stream lifecycle、tool identity 与 arguments 重建                     |
 | Provider      | `ProviderDefinition`、`ProviderContract`、`ProviderAdapter`、`OpenAiCompatibleApiSurface`、`PreparedUpstreamRequest`                                                                                                   | 单点声明 operation endpoint/能力、闭合实现分派和待发送请求                                          |
 | Transport     | `UpstreamTransport`、`UpstreamClient`、`UpstreamResponse`                                                                                                                                                              | 可替换的发送边界、生产 HTTP client 和上游响应                                                       |
-| Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`TelemetryRuntime`、`GatewayMetrics` | 请求/attempt trace 生命周期、原始 upstream body/SSE 观测、SDK metrics instruments 与 OTLP export |
+| Observability | `RequestObservation`、`FirstOutputCapture`、`ProviderAttemptObservation`、`TelemetryRuntime`、`GatewayMetrics` | 请求/attempt trace 生命周期、显式启用的有界下游 HTTP snapshot、SDK metrics instruments 与 OTLP export |
 | Probe         | `ProbeOptions`、`ProbeResult`、`TargetProbeReport`                                                                                                                                                                     | 探测输入、单项观察和 target 汇总报告                                                                |
 
 命名规则保持简单：`*Config` 表示构建前配置，去掉 `Config` 表示校验后的运行实体，`*Info` 表示只读事实，
@@ -81,7 +82,7 @@ transport；Provider 的请求、认证、SSE 和错误处理统一由闭合 `Pr
 | HTTP 与上游传输           | `ingress/*`、`transport/*`                                                                                | ingress 拥有认证、响应与 attempt 生命周期；transport 只发送受信相对请求并处理 HTTP/SSE framing |
 | MCP server               | `mcp/{mod,transport}.rs`、`mcp/tools/*`                                                                   | facade、Streamable HTTP transport、工具目录/分派与逐工具实现分开；本地工具不进入 Provider 链路 |
 | Protocol Bridge          | `bridge.rs`、`bridge/*`                                                                                   | facade、请求/响应转换与双协议 stream 状态机分开；不选择 Provider 或 Route                     |
-| 观测与管理员探测          | `observability.rs`、`observability/*`、`probe.rs`、`probe/*`                                              | 观测不保存业务正文或 secret；probe 只使用已注册且显式选择的 target                            |
+| 观测与管理员探测          | `observability.rs`、`observability/*`、`probe.rs`、`probe/*`                                              | 业务正文只由显式本地开关有界采集且不进入 OTLP；敏感 header 不保存；probe 只使用已注册且显式选择的 target |
 
 本轮结构审计将三个混合职责的根文件收敛为 facade：`core/capability.rs` 按 generation/Embeddings 分域，
 `pipeline/analysis.rs` 按 generation/Embeddings 请求分析分域，`registry/public_model.rs` 将下游 DTO、私有执行快照、契约聚合与
@@ -114,8 +115,8 @@ BootstrapConfigPath::load
 → TelemetryRuntime::shutdown
 ```
 
-`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、可选的 ChatGPT startup instructions、request/JSON response/replay/SSE 大小和 HTTP client
-参数，以及分别默认禁用的 `[telemetry.traces]`、`[telemetry.metrics]` OTLP/HTTP base URL。四个 limit 都是必填非零值，replay limit 不得超过 request limit；
+`bootstrap.toml` 拥有 loopback listener、两份私有 credential 文件位置、可选的 ChatGPT startup instructions、request/JSON response/replay/SSE 大小、HTTP client
+参数、随附开发配置中显式全开的四个 `[logging]` 下游内容开关，以及分别默认禁用的 `[telemetry.traces]`、`[telemetry.metrics]` OTLP/HTTP base URL。省略日志表或字段时对应开关回退关闭；四个 limit 都是必填非零值，replay limit 不得超过 request limit；
 exporter 接受带有效 loopback、非 loopback IP 或 DNS host 的绝对 `http` URL，固定 `/v1/traces`、`/v1/metrics` 和代码内
 processor/reader/timeout/shutdown 策略，不接受 URL credential、自定义 path/query/fragment、header 或请求级覆盖；HTTP client 会剥离
 环境注入的非协议 header。用户文件、 上游 credential
@@ -495,10 +496,11 @@ terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowli
 语义；无法表达的字段与私有扩展在 egress 前拒绝。下游 request/history 中的 opaque continuation 也拒绝；完成 Responses output 中已验证的
 `encrypted_content` 在生成无状态 Chat response 时丢弃，不转换成明文 reasoning，其他可读输出保持不变。
 
-`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider observation、usage、SDK instruments
-与 startup-owned OTLP lifecycle 拆到同名目录。`downstream_request` root 和每个实际 `provider_attempt` child 使用显式 attribute
-allowlist；metrics 使用 SDK 原生 cumulative sum/histogram、固定 60 秒 reader 和 1,024 attribute-set 上限。进程持有 tracer/meter
-provider 到 Axum 停止并执行有界 shutdown。后者将固定 payload 和受信 probe session 拆到同名目录。
+`src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider observation、usage、SDK instruments、
+显式启用的有界本地下游 HTTP snapshot 与 startup-owned OTLP lifecycle 拆到同名目录。`downstream_request` root 和每个实际
+`provider_attempt` child 使用显式 attribute allowlist；本地 header/body events 不进入 OTLP；metrics 使用 SDK 原生 cumulative
+sum/histogram、固定 60 秒 reader 和 1,024 attribute-set 上限。进程持有 tracer/meter provider 到 Axum 停止并执行有界 shutdown。
+后者将固定 payload 和受信 probe session 拆到同名目录。
 
 ## 8. Probe 与验证层
 

@@ -13,13 +13,14 @@ use std::{
     time::Instant,
 };
 
-use http::StatusCode;
+use http::{HeaderMap, Method, StatusCode};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::core::OperationKind;
+use crate::{config::HttpLoggingConfig, core::OperationKind};
 
 use super::{
+    http_logging,
     metrics::GatewayMetrics,
     provider::{
         AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
@@ -37,6 +38,7 @@ pub(crate) struct RequestObservation {
 struct RequestObservationInner {
     metrics: GatewayMetrics,
     span: Span,
+    http_logging: HttpLoggingConfig,
     started: Instant,
     first_body_byte_recorded: AtomicBool,
     first_output_recorded: AtomicBool,
@@ -67,12 +69,23 @@ struct RequestState {
 
 impl RequestObservation {
     /// Creates request observation and immediately increments started requests.
+    #[cfg(test)]
     pub(crate) fn new(metrics: GatewayMetrics, span: Span) -> Self {
+        Self::new_with_http_logging(metrics, span, HttpLoggingConfig::default())
+    }
+
+    /// Creates request observation with one startup-frozen local HTTP logging policy.
+    pub(crate) fn new_with_http_logging(
+        metrics: GatewayMetrics,
+        span: Span,
+        http_logging: HttpLoggingConfig,
+    ) -> Self {
         metrics.record_request_started();
         Self {
             inner: Arc::new(RequestObservationInner {
                 metrics,
                 span,
+                http_logging,
                 started: Instant::now(),
                 first_body_byte_recorded: AtomicBool::new(false),
                 first_output_recorded: AtomicBool::new(false),
@@ -80,6 +93,68 @@ impl RequestObservation {
                 upstream_first_output_pending: AtomicBool::new(false),
                 state: Mutex::new(RequestState::default()),
             }),
+        }
+    }
+
+    /// Emits authenticated downstream request headers when their independent switch is enabled.
+    pub(crate) fn log_request_headers(&self, method: &Method, path: &str, headers: &HeaderMap) {
+        if self.inner.http_logging.request_headers() {
+            http_logging::emit_request_headers(&self.inner.span, method, path, headers);
+        }
+    }
+
+    /// Returns whether the request body needs a bounded local capture.
+    pub(crate) fn logs_request_body(&self) -> bool {
+        self.inner.http_logging.request_body()
+    }
+
+    /// Emits one authenticated downstream request-body snapshot.
+    pub(crate) fn log_request_body(
+        &self,
+        bytes: &[u8],
+        total_bytes: usize,
+        complete: bool,
+        truncated: bool,
+    ) {
+        if self.inner.http_logging.request_body() {
+            http_logging::emit_request_body(
+                &self.inner.span,
+                bytes,
+                total_bytes,
+                complete,
+                truncated,
+            );
+        }
+    }
+
+    /// Emits downstream response headers when their independent switch is enabled.
+    pub(crate) fn log_response_headers(&self, status: StatusCode, headers: &HeaderMap) {
+        if self.inner.http_logging.response_headers() {
+            http_logging::emit_response_headers(&self.inner.span, status, headers);
+        }
+    }
+
+    /// Returns whether the response body needs a bounded local capture.
+    pub(crate) fn logs_response_body(&self) -> bool {
+        self.inner.http_logging.response_body()
+    }
+
+    /// Emits one downstream response-body snapshot.
+    pub(crate) fn log_response_body(
+        &self,
+        bytes: &[u8],
+        total_bytes: usize,
+        complete: bool,
+        truncated: bool,
+    ) {
+        if self.inner.http_logging.response_body() {
+            http_logging::emit_response_body(
+                &self.inner.span,
+                bytes,
+                total_bytes,
+                complete,
+                truncated,
+            );
         }
     }
 

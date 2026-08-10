@@ -12,7 +12,7 @@ API、Route、Public Model、endpoint、能力和字段转换由 Rust 代码显�
 
 | 来源                                        | 内容                                                                                                                            | 能否包含 secret                    |
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
-| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、ChatGPT startup instructions、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、默认禁用的 OTLP/HTTP 导出策略 | 否                                 |
+| `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、ChatGPT startup instructions、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、本地下游 HTTP 内容日志与 OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
 | 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；来源是否存在决定已注册 pool 的启动激活状态 | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
@@ -31,6 +31,14 @@ schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
+
+`[logging]` 只拥有 `request_headers`、`request_body`、`response_headers` 与 `response_body` 四个彼此独立的布尔值。仓库随附的
+活动开发配置和示例配置显式将四项全部设为 `true`；自定义文档省略整个表或任一字段时，对应解析回退为 `false`。
+它们只控制认证成功后的下游客户端 HTTP 边界：header snapshot 在进入 tracing 字段前必须强制脱敏认证、Cookie 与
+token/key/secret/password-like header；request body 只能在现有 request limit 内保留，response body 只能在现有 JSON response
+budget 内保留前缀，并以 `complete`、`truncated`、captured/observed byte count 区分完整、截断、错误或取消。一个 body 生命周期最多
+产生一个本地内容事件，不得逐 SSE chunk/delta 打日志。这些事件受本地 `RUST_LOG` 过滤，不进入只接受 allowlist span 的 OTLP trace
+layer，也不构成 OTLP logs。匿名认证失败、原始上游 Provider wire、credential 和 secret 不属于该功能。
 
 OTLP exporter 属于启动时进程资源策略：`[telemetry.traces]` 与 `[telemetry.metrics]` 分别默认禁用，collector 地址只能来自
 bootstrap，并允许配置所有者选择 loopback、非 loopback IP 或 DNS host；不接受 URL credential、自定义认证 header、环境注入 header
@@ -203,7 +211,7 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 | CFG-03 | 业务请求无法覆盖 endpoint、真实 model、credential、敏感 header 或 candidate 顺序；普通 header 只能由受信 Provider 代码声明或转换，固定 UA/header 在 hook 后应用，业务请求不能选择规则或覆盖固定值。 |
 | CFG-04 | secret 不进入代码注册项、`RuntimeRegistry`、日志、错误或 probe report。                                                                                        |
 | CFG-05 | 每个 Provider family 由独立、闭合的 definition owner 管理，并经单一显式 composition root 注册；不存在自动注册。                                             |
-| CFG-06 | bootstrap 只控制 listener、文件位置、资源上限、HTTP client 与默认禁用的 telemetry 导出等进程资源策略，不能注册或修改 Provider；collector host 可由配置所有者选择。 |
+| CFG-06 | bootstrap 只控制 listener、文件位置、资源上限、HTTP client、本地 HTTP 内容日志与 telemetry 导出等进程资源策略，不能注册或修改 Provider；collector host 可由配置所有者选择。 |
 | CFG-07 | listener 只允许 loopback；非 loopback 地址必须在监听前拒绝。                                                                                                   |
 | CFG-08 | 用户文件中的无效 schema、重复 ID/Key、短 Key 或无启用用户会阻止启动。                                                                                          |
 | CFG-09 | 上下游 secret 只进入启动时不可变 `CredentialStore`；运行时按用途受限接口访问，不重新读取来源。                                                                 |
@@ -215,6 +223,7 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |
 | CFG-17 | 主服务在配置验证后、listener 前输出配置态 Provider/Public Model 可用/不可用双表；分类复用 active Target/执行接口且不触发 Provider egress，不输出 credential 或内部拓扑，也不把配置态结果声明为真实健康。 |
+| CFG-18 | 随附开发配置的四个本地下游 HTTP 内容日志开关显式全开，自定义配置缺表/缺字段时回退关闭且可独立覆盖；未知 logging 字段阻止启动，敏感 header 始终脱敏，body capture 有界且不进入 OTLP，开关不改变请求/响应字节、路由或终态。 |
 
 ## 关联文档
 

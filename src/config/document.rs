@@ -21,7 +21,17 @@ pub(super) struct RawBootstrap {
     pub(super) upstream_connect_timeout_ms: u64,
     pub(super) upstream_pool_idle_timeout_ms: u64,
     pub(super) upstream_pool_max_idle_per_host: usize,
+    pub(super) logging: Option<RawHttpLogging>,
     pub(super) telemetry: Option<RawTelemetry>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct RawHttpLogging {
+    pub(super) request_headers: bool,
+    pub(super) request_body: bool,
+    pub(super) response_headers: bool,
+    pub(super) response_body: bool,
 }
 
 #[derive(Deserialize)]

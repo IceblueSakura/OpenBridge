@@ -60,6 +60,33 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
 }
 
 #[test]
+fn bootstrap_http_logging_switches_fallback_off_and_enable_independently() {
+    // Keep every content-bearing local HTTP event disabled when the optional table is absent.
+    let disabled = parse_bootstrap_config(BOOTSTRAP).unwrap();
+    assert!(!disabled.http_logging().request_headers());
+    assert!(!disabled.http_logging().request_body());
+    assert!(!disabled.http_logging().response_headers());
+    assert!(!disabled.http_logging().response_body());
+
+    // Enable an arbitrary subset without coupling header and body decisions.
+    let enabled = format!("{BOOTSTRAP}\n[logging]\nrequest_headers = true\nresponse_body = true\n");
+    let enabled = parse_bootstrap_config(&enabled).unwrap();
+    assert!(enabled.http_logging().request_headers());
+    assert!(!enabled.http_logging().request_body());
+    assert!(!enabled.http_logging().response_headers());
+    assert!(enabled.http_logging().response_body());
+
+    // Reject misspelled or future logging policy instead of silently ignoring it.
+    let unknown = format!(
+        "{BOOTSTRAP}\n[logging]\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = false\ninclude_credentials = true\n"
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&unknown),
+        Err(BootstrapConfigError::Parse)
+    ));
+}
+
+#[test]
 fn registry_rejects_duplicate_upstream_operations() {
     let mut duplicate = definition("test", "code-primary", "test-model");
     duplicate.upstream_targets[0].upstream_apis[1].capabilities =

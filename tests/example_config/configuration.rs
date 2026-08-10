@@ -89,6 +89,36 @@ fn canonical_catalog_assigns_every_model_to_one_expected_task() {
 }
 
 #[test]
+fn bootstrap_example_documents_every_field_and_enables_development_http_logging() {
+    let example_document = include_str!("../../config/bootstrap.example.toml");
+    let lines = example_document.lines().collect::<Vec<_>>();
+
+    // Require a directly adjacent explanation for every concrete TOML assignment in the example.
+    for (index, line) in lines.iter().enumerate() {
+        let field = line.trim();
+        if field.is_empty() || field.starts_with('#') || !field.contains('=') {
+            continue;
+        }
+        assert!(
+            index > 0 && lines[index - 1].trim_start().starts_with('#'),
+            "bootstrap example field `{field}` must have an immediately preceding comment"
+        );
+    }
+
+    // Keep both checked-in development profiles verbose while retaining parser-level safe fallback tests.
+    for document in [
+        include_str!("../../config/bootstrap.toml"),
+        example_document,
+    ] {
+        let bootstrap = parse_bootstrap_config(document).unwrap();
+        assert!(bootstrap.http_logging().request_headers());
+        assert!(bootstrap.http_logging().request_body());
+        assert!(bootstrap.http_logging().response_headers());
+        assert!(bootstrap.http_logging().response_body());
+    }
+}
+
+#[test]
 fn checked_in_examples_compile_into_a_closed_runtime_registry() {
     // Parse the active and example bootstrap documents as one maintained process policy.
     let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml"))

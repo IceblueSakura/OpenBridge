@@ -17,7 +17,8 @@ otlp_http_endpoint = "http://127.0.0.1:4318"
 拥有 `TelemetryRuntime`、共享 resource、OTLP/HTTP exporter、reader/processor 和 shutdown；
 [`src/observability/metrics.rs`](../../src/observability/metrics.rs) 只定义固定 instruments；
 [`src/observability/provider.rs`](../../src/observability/provider.rs)、
-[`request.rs`](../../src/observability/request.rs) 与 [`usage.rs`](../../src/observability/usage.rs) 保留协议生命周期观测。
+[`request.rs`](../../src/observability/request.rs) 与 [`usage.rs`](../../src/observability/usage.rs) 保留协议生命周期观测；
+[`http_logging.rs`](../../src/observability/http_logging.rs) 只渲染 bootstrap 显式启用的本地下游 HTTP snapshot。
 
 OpenBridge 不再维护原子计数快照、Provider `BTreeMap`、自算 sum/min/max 聚合或 JSON metrics handler。
 `GET /openbridge/v1/metrics` 与 `GET /openbridge/v1/metrics/providers` 已删除，OpenAPI 也不再声明这些路径和 snapshot schema。
@@ -107,7 +108,9 @@ HTTP path/query、原始错误文本、request/response body、tool arguments/re
 属性值来自已验证的静态 registry、typed operation 或固定 outcome vocabulary；业务正文不能动态创建 attribute key/value。
 
 OTLP trace 继续只导出 `downstream_request` root 与每个实际 `provider_attempt` child 的 allowlist attributes，不导出 tracing
-events。Provider/request 本地 completion event 仍用于本机诊断，但不作为第二套 metrics 聚合。
+events。Provider/request 本地 completion event 仍用于本机诊断，但不作为第二套 metrics 聚合。随附开发配置显式全开的四个
+`[logging]` 开关所产生的认证后 downstream header/body 本地事件同样不会进入 OTLP；缺表/缺字段时对应开关回退关闭，其 header 强制脱敏，body capture 受现有 request/JSON
+response budget 约束，并在长流、错误或取消时显式标记不完整或截断。
 
 ## 生命周期语义
 
@@ -132,6 +135,11 @@ events。Provider/request 本地 completion event 仍用于本机诊断，但不
 - `tests/observability_contract.rs` 使用 OpenTelemetry SDK 官方 in-memory exporter 验证 retry、HTTP/stream failure、取消、
   JSON/SSE、reasoning TTFT、Embeddings usage 和已知长度 body terminal；测试层不要求生产 snapshot API。
 - `tests/ingress_contract.rs` 验证两个旧 metrics path 返回 `404`，OpenAPI 不含旧 path/schema。
+
+2026-08-10，本地下游 HTTP 内容日志扩展的实际验证通过：`tests/observability_contract.rs` 的 15 个测试确认四个 bootstrap
+开关保持独立，并覆盖 header 脱敏、有界正文 snapshot、成功、错误、取消和流式生命周期；`tests/otlp_trace_contract.rs` 的
+2 个 loopback 测试确认四个开关全开时，header/body marker 仍不进入 OTLP protobuf。`cargo fmt -- --check`、
+`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。
 
 这些确定性测试和 loopback collector 只证明当前进程的生命周期、SDK 聚合与 OTLP/HTTP protobuf 边界；不证明真实 Provider
 指标准确性、外部 collector/backend、dashboard/告警、负载、长期运行或多进程聚合。真实 MiMo 的历史单次 timing 证据不能视为

@@ -8,7 +8,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Context, Result};
 use openbridge::{
-    config::{BootstrapConfig, BootstrapConfigPath},
+    config::{BootstrapConfig, BootstrapConfigPath, HttpLoggingConfig},
     identity::UserConfigPath,
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
@@ -33,12 +33,33 @@ async fn main() -> Result<()> {
         .context("failed to initialize OpenBridge telemetry export")?;
     init_tracing(&telemetry)?;
 
+    // Warn once when the operator explicitly enables local HTTP content diagnostics.
+    warn_if_http_logging_enabled(*bootstrap.http_logging());
+
     // Inject the runtime meter, retain both providers, and perform one bounded shutdown flush.
     let server_result = run_service(bootstrap, telemetry.metrics()).await;
     if let Err(error) = telemetry.shutdown().await {
         tracing::warn!(%error, "OpenBridge telemetry exporter shutdown was incomplete");
     }
     server_result
+}
+
+/// Warns that opted-in local HTTP snapshots can contain owner-controlled business content.
+fn warn_if_http_logging_enabled(logging: HttpLoggingConfig) {
+    // Keep the default path silent and report the exact enabled dimensions without any HTTP data.
+    if logging.request_headers()
+        || logging.request_body()
+        || logging.response_headers()
+        || logging.response_body()
+    {
+        tracing::warn!(
+            request_headers = logging.request_headers(),
+            request_body = logging.request_body(),
+            response_headers = logging.response_headers(),
+            response_body = logging.response_body(),
+            "local authenticated HTTP content logging is enabled; use only with controlled development traffic"
+        );
+    }
 }
 
 /// Loads private snapshots, serves Axum, and stops the OAuth2 worker after graceful shutdown.

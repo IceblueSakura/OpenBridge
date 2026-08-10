@@ -1,9 +1,11 @@
-//! Facade for request-lifecycle tracing and OpenTelemetry metrics.
+//! Facade for request-lifecycle tracing, local HTTP diagnostics, and OpenTelemetry metrics.
 //!
 //! `metrics` owns fixed OpenTelemetry instruments, `provider` observes each compiled attempt,
-//! `request` maintains per-request terminal state and tracing, and `usage` parses only usage
-//! explicitly returned by the Provider. No module estimates tokens or records request/response bodies.
+//! `request` maintains per-request terminal state and tracing, `http_logging` renders explicitly
+//! enabled local snapshots, and `usage` parses only usage explicitly returned by the Provider.
+//! Local content events are never eligible for the span-only OTLP layer.
 
+mod http_logging;
 mod metrics;
 mod otlp;
 mod provider;
