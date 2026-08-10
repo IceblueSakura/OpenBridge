@@ -2,22 +2,27 @@
 
 ## 来源、范围与快照
 
-本文只记录 Videos generation create operation 的 request 与初始 async resource。Poll、download、cancel/delete 由 lifecycle 文档
+本文只记录 Videos generation create operation 的 request 与初始 async resource。List、poll、download 与 delete 由 lifecycle 文档
 维护。
 
-- 官方来源：[Video generation](https://developers.openai.com/api/docs/guides/video-generation)、[Videos API](https://developers.openai.com/api/reference/resources/videos)
-- 原始资料复核日期：2026-08-04；本次结构整理未重新在线复核 model、duration、size、format 或 beta 状态。
+- 官方来源：[Video generation](https://developers.openai.com/api/docs/guides/video-generation)、[Create video](https://developers.openai.com/api/reference/resources/videos/methods/create)；
+- 官方资料复核日期：2026-08-10；动态 model、duration、size、format、limit 与 availability 使用前仍须重核；
+- **弃用边界：**官方指南已将 Sora 2 Videos API 及其 models 标为 deprecated，并计划于 **2026-09-24** 关闭。
 
 ## 1. Create request
 
-create 可按当期 endpoint/profile 使用 JSON 或 multipart，并可能引用 prompt、input image 或其他 profile-specific source。model、
-duration、size、format、edit/remix/extension 等字段不能从一个 endpoint/model 推断为整个 Videos family 的共同能力。
+`POST /v1/videos` 创建异步 Video job。纯 JSON request 可以引用 prompt 以及 `file_id`/`image_url` 形式的 `input_reference`；需要直接
+上传二进制 reference asset 时使用 multipart。两种 encoding 是同一 create operation 的不同 wire contract，不能互换字段和
+content type。
+
+model、duration、size、format 等字段必须按目标 model/profile 验证。Edit、extension 与 remix 是返回新 Video resource 的独立
+operation，见[派生 Video jobs](derived-jobs.md)；character identity 见[Video characters](characters.md)。
 
 SDK helper 不能替代实际 JSON/multipart method、field、filename、content type 与 bytes contract。
 
 ## 2. Initial resource
 
-success 创建 video job/resource，并返回 opaque id 与初始 status；它通常不是最终 video bytes。id 绑定原服务、账户/项目和生成状态，
+success 返回新的异步 Video resource 与 opaque id，而不是最终 video bytes。id 绑定原服务、账户/项目和生成状态，
 不是通用 media URL。
 
 ## 3. Retry 与数据边界
@@ -27,6 +32,7 @@ create 可能已经排队、计费或生成 resource。transport 结果不确定
 
 ## 4. 证据边界
 
-- create success 不证明 completed、download、cancel/delete 或媒体有效；
+- create success 不证明 completed、download、delete 或媒体有效；
 - 一个 model/size sample 不证明 edit/remix/extension 或全部 format；
 - mock create 不证明真实生成耗时、费用或容量。
+- 因官方已经公布关闭日期，本文不能作为 2026-09-24 之后的实现依据；届时必须重新选择并调研替代 API。

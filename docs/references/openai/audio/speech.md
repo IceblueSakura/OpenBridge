@@ -6,14 +6,16 @@
 Realtime 不在本文定义。
 
 - 官方来源：[Create speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)、[Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)
-- 官方资料复核日期：2026-08-08；动态 model、voice、format 与 limit 使用前仍须重核。
+- 官方资料复核日期：2026-08-10；动态 model、voice、format 与 limit 使用前仍须重核。
 
 ## 1. JSON request
 
 核心字段包括 `model`、待合成 `input` 与 `voice`；`instructions`、language、speed 或输出 format 是否可用取决于目标
 model/profile。
 
-voice 是受 model/Provider 约束的 enum 或 identity，不能假定跨 model 或 Provider 可移植。input 与 voice 也属于可能敏感的数据。
+当前 reference 中，`voice` 可以是内置 voice 名称字符串，也可以是引用自定义声音的 `{ "id": "..." }` 对象。两种形式都受
+model、账户与 Provider 约束，不能假定跨 model 或 Provider 可移植；自定义 identity 的创建见[自定义声音与 consent](custom-voices.md)。
+input、voice identity 与声音样本也属于可能敏感的数据。
 
 ## 2. Binary/stream response
 

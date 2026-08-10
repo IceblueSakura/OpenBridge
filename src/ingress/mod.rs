@@ -1,8 +1,8 @@
 //! Package entry point for downstream HTTP ingress.
 //!
-//! Submodules own Router/authentication, request lifecycle, OpenAI-compatible endpoints, the local
-//! MCP test service, bounded attempts/fallback, Native/Bridged streaming, and response normalization.
-//! This file only declares modules and exposes the service assembly entry point.
+//! Submodules own Router/authentication, request lifecycle, OpenAI-compatible endpoints, MCP route
+//! integration, bounded attempts/fallback, Native/Bridged streaming, and response normalization.
+//! The independent crate-level `mcp` module owns MCP protocol and tool behavior.
 
 mod attempt;
 mod auth;
@@ -11,7 +11,6 @@ mod forwarding;
 mod handlers;
 mod health;
 mod lifecycle;
-mod mcp;
 mod openapi;
 mod response;
 mod router;

@@ -74,21 +74,27 @@ SDK/文档版本。
 | Speech               | JSON → binary/stream audio                    | [Audio Speech](audio/speech.md)                        |
 | Transcriptions       | multipart audio → JSON/text/subtitle/stream   | [Audio Transcriptions](audio/transcriptions.md)        |
 | Translations         | multipart audio → translation result          | [Audio Translations](audio/translations.md)            |
+| Custom voices        | multipart consent/sample → voice resources    | [自定义声音与 consent](audio/custom-voices.md)         |
 | Chat audio in/out    | Chat JSON / data-only SSE                     | [Chat 音频输入/输出](audio/chat-input-output.md)       |
 
 ## 7. Realtime
 
 | Operation          | Request/response 形式                         | Owner 文档                                      |
 |--------------------|-----------------------------------------------|-------------------------------------------------|
-| HTTP control plane | session/client-secret/call resources          | [Realtime control plane](realtime/control-plane.md) |
-| Data plane         | WebRTC/WebSocket/SIP 双向 media/events        | [Realtime transport](realtime/transport.md)     |
+| HTTP control plane | client-secret/call/signaling resources        | [Realtime control plane](realtime/control-plane.md) |
+| Session/data plane | 对话、翻译、转写的 WebRTC/WebSocket/SIP events | [Realtime transport](realtime/transport.md)         |
 
 ## 8. 视频
 
-| Operation          | Request/response 形式                         | Owner 文档                                          |
-|--------------------|-----------------------------------------------|-----------------------------------------------------|
-| Videos create      | JSON/multipart → async resource               | [Videos Create](videos/create.md)                   |
-| Video lifecycle    | poll/status/download/cancel/delete            | [Resource lifecycle](videos/resource-lifecycle.md)  |
+| Operation                  | Request/response 形式                          | Owner 文档                                         |
+|----------------------------|------------------------------------------------|----------------------------------------------------|
+| Videos create              | JSON/multipart → async resource                | [Videos Create](videos/create.md)                  |
+| Video lifecycle            | list/retrieve/status/download/delete           | [Resource lifecycle](videos/resource-lifecycle.md) |
+| Edit/extension/remix       | source media/resource → new async resource     | [派生 Video jobs](videos/derived-jobs.md)          |
+| Characters                 | multipart sample → character resource          | [Video characters](videos/characters.md)           |
+
+> **时效边界：**截至 2026-08-10，官方指南已将 Sora 2 Videos API 及其 models 标为 deprecated，并计划于
+> **2026-09-24** 关闭。本组 Videos 文档用于保存关闭前的协议快照，不构成长期兼容承诺；任何实现工作开始前必须重新确认替代 API。
 
 ## 9. 测试与兼容性资产
 

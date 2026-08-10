@@ -24,6 +24,7 @@ use tower_http::{
 use crate::{
     credential::CredentialStore,
     identity::UserRegistry,
+    mcp,
     observability::{GatewayMetrics, RequestObservation},
 };
 
@@ -34,7 +35,6 @@ use super::{
         responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_response_body},
-    mcp,
     openapi::{openapi_spec, swagger_ui},
     response::{api_error, embedding_request_too_large},
     state::GatewayState,

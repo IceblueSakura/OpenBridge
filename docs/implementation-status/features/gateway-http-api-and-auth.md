@@ -25,9 +25,10 @@
 
 - Router 组装位于 [`src/ingress/router.rs`](../../../src/ingress/router.rs)，业务 handler 位于
   [`src/ingress/handlers.rs`](../../../src/ingress/handlers.rs)。
-- MCP transport、JSON-RPC/header validation 与 dispatch 位于 [`src/ingress/mcp.rs`](../../../src/ingress/mcp.rs)，静态目录、
-  `hello` schema、argument validation 与执行位于 [`src/ingress/mcp/tools.rs`](../../../src/ingress/mcp/tools.rs)；两者不进入
-  registry、pipeline、Provider adapter 或 upstream transport。
+- MCP crate-level facade 位于 [`src/mcp/mod.rs`](../../../src/mcp/mod.rs)，transport validation/dispatch 位于
+  [`src/mcp/transport.rs`](../../../src/mcp/transport.rs)，确定性目录/分派位于
+  [`src/mcp/tools/mod.rs`](../../../src/mcp/tools/mod.rs)，`hello` schema、argument validation 与执行位于
+  [`src/mcp/tools/hello.rs`](../../../src/mcp/tools/hello.rs)；这些模块不进入 registry、pipeline、Provider adapter 或 upstream transport。
 - OpenTelemetry instruments 与 exporter 位于 [`src/observability/`](../../../src/observability)，不在 HTTP handler 中提供查询或
   第二套聚合逻辑。
 - OpenAPI 与 Swagger UI 是本地服务内置资源，不代表已通过外部 SDK 或浏览器客户端完成验收。

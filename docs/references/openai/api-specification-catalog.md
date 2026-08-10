@@ -5,7 +5,7 @@
 本文只保存 API family/path 的发现地图，帮助定位应阅读的细粒度协议文档；它不重复 request field、response schema、stream grammar 或
 resource state machine。
 
-- 初次采集日期：2026-07-18；扩展 endpoint 复核日期：2026-08-04；
+- 初次采集日期：2026-07-18；扩展 endpoint 复核日期：2026-08-04；Audio、Realtime 与 Videos 专项复核日期：2026-08-10；
 - 机器可读规范：官方 endpoint catalog，OpenAPI `3.1.0`，当时 `info.version=2.3.0`；
 - 2026-08-04 快照读取到 182 个 endpoint path；数字只标识当次动态在线目录；
 - 官方来源：[openai/openai-openapi](https://github.com/openai/openai-openapi)、[OpenAI API Reference](https://developers.openai.com/api/reference)。
@@ -33,9 +33,9 @@ OpenAPI shape 不能替代 model capability、tool lifecycle、resource retentio
 | Images                    | `/images/generations`、`/images/edits`、`/images/variations`                  | [图片文档组](README.md#4-图片)                |
 | Files/Uploads             | `/files/*`、`/uploads/*`                                                       | [文件文档组](README.md#5-文件与检索资源)      |
 | Vector Stores             | `/vector_stores/*`                                                            | [Vector Stores](files/vector-stores.md)       |
-| Audio                     | `/audio/speech`、`/audio/transcriptions`、`/audio/translations`               | [音频文档组](README.md#6-音频与语音)          |
-| Realtime                  | `/realtime/*` 与 WebRTC/WebSocket/SIP                                         | [Realtime 文档组](README.md#7-realtime)       |
-| Videos                    | `/videos/*`                                                                   | [视频文档组](README.md#8-视频)                |
+| Audio                     | `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、`/audio/voice_consents/*`、`/audio/voices` | [音频文档组](README.md#6-音频与语音) |
+| Realtime                  | `/realtime`、`/realtime/client_secrets`、`/realtime/translations/*`、`/realtime/calls/*` 与 WebRTC/WebSocket/SIP | [Realtime 文档组](README.md#7-realtime) |
+| Videos                    | `/videos`、`/videos/{id}/*`、`/videos/edits`、`/videos/extensions`、`/videos/characters/*` | [视频文档组](README.md#8-视频) |
 | Conversations             | `/conversations/*`                                                            | [Responses state](responses/state.md)         |
 | Moderations               | `/moderations`                                                                | 尚无本目录细节页，使用前需单独调研            |
 | Models                    | `/models`、`/models/{model}`                                                   | 尚无本目录细节页，不能当 capability/price 源 |
@@ -51,4 +51,5 @@ OpenAPI shape 不能替代 model capability、tool lifecycle、resource retentio
 - beta path、dynamic enum 与 SDK surface 使用前需要固定日期/版本；
 - SDK method 是 HTTP API 的语言封装，不是独立 wire authority；
 - endpoint family 的成功 sample 不能外推到同模态的其他 operation；
+- 截至 2026-08-10，Sora 2 Videos API 及其 models 已被官方标记为 deprecated，并计划于 2026-09-24 关闭；
 - 本目录没有细节页的 family 不应从这张地图推导实现承诺。

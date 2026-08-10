@@ -79,6 +79,7 @@ transport；Provider 的请求、认证、SSE 和错误处理统一由闭合 `Pr
 | Registry                  | `registry/{definition,runtime,validation,compiler}.rs`、`registry/public_model*`                          | 配置、校验、运行实体、公共 DTO、私有执行快照和编译算法不互相混放                             |
 | 请求分析与规划            | `pipeline/analysis*`、`pipeline/{types,preflight,planning,error}.rs`                                      | analysis 只提取请求事实；preflight 只读固定契约；planning 只消费同一执行接口的固定候选        |
 | HTTP 与上游传输           | `ingress/*`、`transport/*`                                                                                | ingress 拥有认证、响应与 attempt 生命周期；transport 只发送受信相对请求并处理 HTTP/SSE framing |
+| MCP server               | `mcp/{mod,transport}.rs`、`mcp/tools/*`                                                                   | facade、Streamable HTTP transport、工具目录/分派与逐工具实现分开；本地工具不进入 Provider 链路 |
 | Protocol Bridge          | `bridge.rs`、`bridge/*`                                                                                   | facade、请求/响应转换与双协议 stream 状态机分开；不选择 Provider 或 Route                     |
 | 观测与管理员探测          | `observability.rs`、`observability/*`、`probe.rs`、`probe/*`                                              | 观测不保存业务正文或 secret；probe 只使用已注册且显式选择的 target                            |
 
@@ -213,12 +214,15 @@ RuntimeRegistry
 
 ## 4. HTTP 接入层
 
-实现位置：`src/ingress/*`；其中 `router.rs` 负责服务装配，`handlers.rs` 负责 OpenAI-compatible endpoint，
-`mcp.rs` 负责无 session 的 MCP `2026-07-28` transport、JSON-RPC/header validation 与 dispatch，`mcp/tools.rs` 负责静态
-`hello` schema、argument validation 和无副作用执行，
+OpenAI-compatible 接入实现位于 `src/ingress/*`；其中 `router.rs` 负责服务装配并把 `/mcp` 接入共享认证/middleware，
+`handlers.rs` 负责 OpenAI-compatible endpoint，
 `forwarding.rs` 负责 generation candidate/retry/fallback，`forwarding/embeddings.rs` 负责单 Route Embeddings attempt，
 `forwarding/embedding_response.rs` 负责有界成功体校验，`forwarding/response.rs` 负责把 已选 generation 上游响应交给
 Native 或 Bridged 返回路径，`streaming.rs` 负责 SSE 生命周期，`response.rs` 与 `lifecycle.rs` 分别负责响应归一化和 请求终态观测。
+
+MCP 独立实现位于 `src/mcp/*`：`mod.rs` 是 crate-level facade，`transport.rs` 负责无 session 的 MCP `2026-07-28`
+Streamable HTTP、JSON-RPC/header validation 与 dispatch，`tools/mod.rs` 负责确定性目录和名称分派，`tools/hello.rs` 独立拥有
+`hello` schema、argument validation 和无副作用执行。新增工具通过新的叶模块接入目录，不修改 transport 责任。
 
 | Endpoint                            | 当前处理                                                            |
 |-------------------------------------|---------------------------------------------------------------------|
