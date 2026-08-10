@@ -308,6 +308,14 @@ pub enum RegistryError {
         /// Public Model name containing the incompatible Route set.
         public_model: String,
     },
+    /// A non-generation Public Model enables positive reasoning-level normalization.
+    #[error(
+        "public model '{public_model}' applies a reasoning-level policy to a non-generation task"
+    )]
+    PublicModelReasoningPolicyTaskMismatch {
+        /// Public Model name containing the incompatible reasoning policy.
+        public_model: String,
+    },
     /// Same-task Route profiles have no valid common interface payload.
     #[error(
         "public model '{public_model}' has no common profile for downstream operation '{downstream_operation}'"

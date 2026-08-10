@@ -30,7 +30,7 @@ use super::{
 pub(super) fn preflight_public_model<'a>(
     registry: &'a RuntimeRegistry,
     requirements: &RequestRequirements,
-) -> Result<&'a ModelExecutionInterface, RequestPlanningError> {
+) -> Result<(&'a ModelExecutionInterface, Option<ReasoningLevel>), RequestPlanningError> {
     // Resolve the downstream model and its precompiled protocol interface without consulting any Route candidate.
     let public_model = registry
         .public_model(requirements.public_model())
@@ -40,7 +40,7 @@ pub(super) fn preflight_public_model<'a>(
         .ok_or(RequestPlanningError::UnsupportedProtocol)?;
 
     // Validate every modeled request fact against the single fixed interface contract.
-    validate_interface_request(
+    let normalized_reasoning_level = validate_interface_request(
         &requirements.requested_capabilities,
         requirements.requested_output_tokens,
         interface.capabilities(),
@@ -57,7 +57,7 @@ pub(super) fn preflight_public_model<'a>(
             parameter.as_wire_name(),
         ));
     }
-    Ok(interface)
+    Ok((interface, normalized_reasoning_level))
 }
 
 /// Resolves and validates one Embeddings request against its immutable typed execution interface.
@@ -139,7 +139,7 @@ fn validate_interface_request(
     requested_output_tokens: Option<u64>,
     interface: &ModelInterfaceCapabilities,
     supports_previous_response_id: bool,
-) -> Result<(), RequestPlanningError> {
+) -> Result<Option<ReasoningLevel>, RequestPlanningError> {
     // Validate shared generation and state capabilities before any egress preparation.
     if requested_features.unmodeled_tools || requested_features.unknown_tool_choice {
         return Err(RequestPlanningError::UnsupportedCapabilities);
@@ -226,19 +226,19 @@ fn validate_interface_request(
         return Err(RequestPlanningError::OutputLimitExceeded);
     }
 
-    // Validate reasoning support and the fixed public level set without applying Provider mappings.
-    match requested_features.reasoning {
-        RequestedReasoning::None | RequestedReasoning::Level(ReasoningLevel::None) => {}
+    // Resolve reasoning against the fixed Public Model policy without applying Provider mappings.
+    let normalized_reasoning_level = match requested_features.reasoning {
+        RequestedReasoning::None => None,
         RequestedReasoning::Unspecified
             if interface.reasoning_support() != SupportState::Supported =>
         {
             return Err(RequestPlanningError::ReasoningUnsupported);
         }
-        RequestedReasoning::Level(level)
-            if interface.reasoning_support() != SupportState::Supported
-                || !interface.reasoning_levels().contains(&level) =>
-        {
-            return Err(RequestPlanningError::ReasoningLevelUnsupported);
+        RequestedReasoning::Level(level) => {
+            let effective = interface
+                .resolve_reasoning_level(level)
+                .ok_or(RequestPlanningError::ReasoningLevelUnsupported)?;
+            (effective != level).then_some(effective)
         }
         RequestedReasoning::UnknownLevel => {
             return Err(RequestPlanningError::ReasoningLevelUnsupported);
@@ -246,9 +246,9 @@ fn validate_interface_request(
         RequestedReasoning::Conflicting => {
             return Err(RequestPlanningError::InvalidReasoningConfiguration);
         }
-        RequestedReasoning::Unspecified | RequestedReasoning::Level(_) => {}
-    }
-    Ok(())
+        RequestedReasoning::Unspecified => None,
+    };
+    Ok(normalized_reasoning_level)
 }
 
 /// Returns whether one closed interface profile accepts the complete structured-output request.

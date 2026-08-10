@@ -4,12 +4,15 @@
 //! Native/Bridge surfaces. It does not construct RouteConfig values or perform request-time
 //! routing; those responsibilities belong to the route compiler and pipeline planner.
 
+use crate::registry::ReasoningLevelPolicy;
+
 /// Returns the checked-in generation Public Model registrations in catalog order.
 pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
     &[
         PublicModelRegistration {
             public_name: "gpt-5.6-sol",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "gpt-5.6-sol-chatgpt",
@@ -26,6 +29,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "gpt-5.3-codex-spark",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
@@ -35,6 +39,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "gpt-5.5",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-5",
                 upstream_target: "chatgpt-gpt-5-5",
@@ -44,6 +49,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "gpt-5.6-luna",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-luna",
                 upstream_target: "chatgpt-gpt-5-6-luna",
@@ -53,6 +59,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "gpt-5.6-terra",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-6-terra",
                 upstream_target: "chatgpt-gpt-5-6-terra",
@@ -62,6 +69,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "LongCat-2.0",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "longcat-2",
                 upstream_target: "longcat-2",
@@ -71,6 +79,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "deepseek-v4-pro",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-pro-deepseek",
@@ -86,7 +95,8 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-flash",
-            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-flash-deepseek",
@@ -94,20 +104,21 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                     surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
-                    route_prefix: "deepseek-v4-flash-openrouter",
-                    upstream_target: "openrouter-deepseek-v4-flash",
-                    surface: PublicModelSurface::DualProtocolNativeOnly,
-                },
-                ProviderRouteRegistration {
                     route_prefix: "deepseek-v4-flash-bailian",
                     upstream_target: "bailian-deepseek-v4-flash",
                     surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "deepseek-v4-flash-openrouter",
+                    upstream_target: "openrouter-deepseek-v4-flash",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
             ],
         },
         PublicModelRegistration {
             public_name: "minimax-m3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "minimax-m3-openrouter",
@@ -124,6 +135,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "kimi-k3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "kimi-k3-kimi-cn",
                 upstream_target: "kimi-cn-kimi-k3",
@@ -133,6 +145,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "glm-5.2",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "glm-5-2-bailian",
                 upstream_target: "bailian-glm-5-2",
@@ -142,6 +155,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "qwen3.7-plus",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-plus-bailian",
                 upstream_target: "bailian-qwen3-7-plus",
@@ -151,6 +165,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "qwen3.7-max",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-7-max-bailian",
                 upstream_target: "bailian-qwen3-7-max",
@@ -160,6 +175,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "qwen3.8-max",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-8-max-bailian",
                 upstream_target: "bailian-qwen3-8-max",
@@ -169,6 +185,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "qwen3.6-27b",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-6-27b-bailian",
                 upstream_target: "bailian-qwen3-6-27b",
@@ -178,6 +195,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5-pro",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-pro-mimo",
                 upstream_target: "mimo-v2-5-pro",
@@ -187,6 +205,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-mimo",
                 upstream_target: "mimo-v2-5",
@@ -196,6 +215,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5-asr",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-asr-mimo",
                 upstream_target: "mimo-v2-5-asr",
@@ -205,6 +225,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-mimo",
                 upstream_target: "mimo-v2-5-tts",
@@ -214,6 +235,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts-voicedesign",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voicedesign-mimo",
                 upstream_target: "mimo-v2-5-tts-voicedesign",
@@ -223,6 +245,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         PublicModelRegistration {
             public_name: "mimo-v2.5-tts-voiceclone",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "mimo-v2-5-tts-voiceclone-mimo",
                 upstream_target: "mimo-v2-5-tts-voiceclone",
@@ -239,6 +262,8 @@ pub(super) struct PublicModelRegistration {
     pub(super) public_name: &'static str,
     /// Typed candidate-ordering policy applied independently to each downstream protocol.
     pub(super) routing_strategy: PublicModelRoutingStrategy,
+    /// Typed downstream reasoning-level acceptance and resolution policy.
+    pub(super) reasoning_level_policy: ReasoningLevelPolicy,
     /// Provider Target surfaces in explicit fallback priority.
     pub(super) providers: &'static [ProviderRouteRegistration],
 }

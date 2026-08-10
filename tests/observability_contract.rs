@@ -434,6 +434,7 @@ fn embedding_observability_app(
         display_name: "Observed embeddings".to_owned(),
         description: Some("Synthetic Embeddings observability model.".to_owned()),
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
         routes: vec!["embedding-observed-route".to_owned()],
     });
 

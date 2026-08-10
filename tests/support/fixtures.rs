@@ -292,6 +292,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             display_name: "Test public model".to_owned(),
             description: Some("Public model used by integration tests.".to_owned()),
             lifecycle: ModelLifecycle::active(),
+            reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
             routes: vec!["public-chat".to_owned(), "public-responses".to_owned()],
         }],
     }

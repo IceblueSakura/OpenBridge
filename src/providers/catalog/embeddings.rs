@@ -5,7 +5,7 @@
 
 use crate::{
     core::OperationKind,
-    registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
+    registry::{ModelLifecycle, PublicModelConfig, ReasoningLevelPolicy, RouteConfig, RouteMode},
 };
 
 use super::routing::CompiledPublicModel;
@@ -51,6 +51,7 @@ fn compiled_registration(
         display_name: public_model_id.to_owned(),
         description: Some(description.to_owned()),
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: ReasoningLevelPolicy::Strict,
         routes: vec![route.id.clone()],
     };
     CompiledPublicModel {

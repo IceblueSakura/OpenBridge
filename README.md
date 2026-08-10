@@ -36,9 +36,10 @@ OpenBridge 的核心实现重点是无状态服务，也是默认使用方式和
 Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游业务输出前的 fallback。
 
 每个 generation Public Model 都显式选择类型化 Route 策略。`NativeFirst` 对每个下游协议先排列所有 Native，再排列 Bridge；
-`SourceFirst` 先保持 source 优先级，再在同一 source 内优先 Native。GPT Public Model 使用 `SourceFirst`，因此 Chat 与 Responses
-都优先 ChatGPT source，ChatGPT 不可执行或首输出前发生可 fallback 的失败时才进入后备 source。缺失协议仍可从相反 Native protocol
-自动补充 Bridge；显式 Bridge surface 可以在已有其他 Native source 时保留。task-specific 音频等明确不跨协议的 surface 仍保持关闭。
+`SourceFirst` 先保持 source 优先级，再在同一 source 内优先 Native。`gpt-5.6-sol` 使用 `SourceFirst` 让 Chat 与 Responses 都优先
+ChatGPT source；`deepseek-v4-flash` 也使用 `SourceFirst`，其 Chat source 固定为 DeepSeek、Bailian、OpenRouter。缺失协议仍可从相反
+Native protocol 自动补充 Bridge；显式 Bridge surface 可以在已有其他 Native source 时保留。task-specific 音频等明确不跨协议的
+surface 仍保持关闭。
 
 ## 2. 当前可调用模型
 
@@ -54,7 +55,7 @@ Native 转发、受限 Chat ↔ Responses Bridge、有限 retry 或首个下游�
 | `gpt-5.6-terra` | Chat、Responses | `chatgpt-codex` | ChatGPT Responses Native；Chat 通过受限 Chat→Responses Bridge；下游支持 JSON/SSE |
 | `LongCat-2.0` | Chat、Responses | `longcat-primary` | Native-first + Bridge；公开 none/high 与明文 reasoning |
 | `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 none/high/max、明文 reasoning 与 `json_object` |
-| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`openrouter-primary` | 两个协议均优先 DeepSeek Native，并保留 OpenRouter 同协议 Native 后备；公开 none/low/high/max 与 `json_object` |
+| `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`bailian-primary`、`openrouter-primary` | `SourceFirst`；Chat 按 DeepSeek、Bailian、OpenRouter，Responses 按 DeepSeek、OpenRouter；公开 none/low/high/max 与 `json_object` |
 | `minimax-m3` | Chat、Responses | `openrouter-primary`、`nvidia-primary` | OpenRouter Chat/Responses Native 优先、NVIDIA Chat Native 后备；两接口公开 none/high |
 | `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/low/high/max |
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/high/xhigh |
@@ -150,8 +151,9 @@ OpenAI generation Target 以及 `openai-text-embedding-3-small`，但不会删�
 `chatgpt-codex` OAuth2 pool，不受此设置影响。
 
 `openrouter-primary` 激活 `deepseek-v4-flash` 的 OpenRouter 后备和 `minimax-m3` 的第一双协议 source；`nvidia-primary` 激活
-`minimax-m3` 的 NVIDIA Chat 后备。`kimi-primary` 激活 `kimi-k3`，`bailian-primary` 激活 `glm-5.2`、`qwen3.7-plus`、
-`qwen3.7-max`、`qwen3.8-max` 与 `qwen3.7-text-embedding`。填入相应 key 并重启后，启动编译器才会保留引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
+`minimax-m3` 的 NVIDIA Chat 后备。`kimi-primary` 激活 `kimi-k3`；`bailian-primary` 激活两个 DeepSeek 的 Bailian Chat source、
+`glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、`qwen3.8-max` 与 `qwen3.7-text-embedding`。填入相应 key 并重启后，启动编译器才会保留
+引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
 ### 4.3 启动参数与环境变量
 
@@ -341,6 +343,11 @@ Authorization: Bearer <users.toml 中启用用户的 api_key>
 
 标准 Models 接口只返回客户端可用的 Public Model 身份，不返回 Provider、Target、Route、上游 model、endpoint、
 credential、health 或 pricing。需要确定可用参数时，先读取扩展 Models：
+
+扩展 generation interface 的 `reasoning.levels` 表示实际执行档位，`accepted_levels` 表示客户端可提交档位，`input_policy` 表示固定
+转换规则。当前通用文本 generation Public Model 使用 `clamp_positive_floor`：正向 effort 向下落到不高于请求值的最高可执行档，低于
+最小档时夹到最小档；`none` 仅在实际 `levels` 包含它时原样接受，永不转换为开启 reasoning。音频专用与 Embeddings Public Model
+保持 `strict`。
 
 ```bash
 curl http://127.0.0.1:8080/v1/models \

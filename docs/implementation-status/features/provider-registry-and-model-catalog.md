@@ -49,8 +49,10 @@
   `text-embedding-3-small` 与 `qwen3.7-text-embedding` 是独立 Embeddings Public Model。
 - `gpt-5.6-sol` 显式绑定 ChatGPT 与 OpenAI 两个 source，并使用 `SourceFirst` 让两个下游协议都优先 ChatGPT、再回落 OpenAI；
   固定接口仍按全部可执行候选的最小公共契约公开；
-  `deepseek-v4-flash` 显式绑定 DeepSeek 与 OpenRouter 两个双协议 Native source，并在 Chat/Responses 内都按该顺序保留候选。
-  `minimax-m3` 显式绑定 OpenRouter 双协议 Native 与 NVIDIA Chat Native 两个 source：Chat 按 OpenRouter、NVIDIA 排序，Responses
+- `deepseek-v4-pro` 显式绑定 DeepSeek 与 Bailian 两个 Chat Native source，并在 Responses 缺少 Native coverage 时按相同顺序补充 Bridge；
+- `deepseek-v4-flash` 显式绑定 DeepSeek、Bailian 与 OpenRouter 三个 source，并使用 `SourceFirst`。Chat 按 DeepSeek、Bailian、
+  OpenRouter 排列三个 Native 候选；Responses 因 Bailian 只有 Chat Native surface 而保持 DeepSeek、OpenRouter 两个 Native 候选；
+- `minimax-m3` 显式绑定 OpenRouter 双协议 Native 与 NVIDIA Chat Native 两个 source：Chat 按 OpenRouter、NVIDIA 排序，Responses
   只使用 OpenRouter Native。其他当前 generation Public Model 仍按各自注册项使用一个 Provider source。
 - Canonical Model ID 保持 `designer/model`，Upstream Target 同时保存并校验 `canonical_model` 与 `provider_model` 两个分层身份；
   `provider_model` 使用 `provider/model`，而下游只接触不带前缀的 Public Model 名称。
@@ -456,6 +458,14 @@ payload。
   token 计数；
 - 本轮未运行外部 SDK、强制 fallback、其他 reasoning level、tools、多模态、负载、并发稳定性或长期测试；逐单元结果见
   [最新真实 E2E 结果](../real-e2e-test-2026-08-08.md)。
+
+2026-08-10 DeepSeek V4 Flash source 优先级调整：
+
+- `deepseek-v4-flash` 从 `NativeFirst` 切换为 `SourceFirst`，并把固定 source 顺序调整为 DeepSeek、Bailian、OpenRouter；
+- Chat Route 因此按 DeepSeek、Bailian、OpenRouter 排列，Responses 因 Bailian 只有 Chat Native surface 而继续按 DeepSeek、
+  OpenRouter 排列；Provider Target、能力、Bridge surface、credential pool 和 fallback 失败分类均未改变；
+- route compiler 与 example-config 的相关断言已同步修改；按用户要求未执行 `cargo test`，因此本轮没有运行时测试通过证据；
+- `cargo fmt -- --check` 与 `git diff --check`：通过；未运行 build、clippy、真实 Provider、外部 SDK、强制 fallback、负载或长期验收。
 
 ## 相关文档
 

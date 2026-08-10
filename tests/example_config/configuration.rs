@@ -345,6 +345,7 @@ fn public_model_rejects_cross_operation_canonical_task_mixture() {
         display_name: "Mixed canonical task".to_owned(),
         description: None,
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
         routes: vec![generation_route, embedding_route],
     });
 
@@ -393,6 +394,7 @@ fn public_model_rejects_empty_same_variant_audio_profile_intersection() {
         display_name: "Empty ASR language intersection".to_owned(),
         description: None,
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
         routes: vec![original_route.id, disjoint_route.id],
     });
 

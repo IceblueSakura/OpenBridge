@@ -121,6 +121,7 @@ impl PublicModelRegistration {
             display_name: self.public_name.to_owned(),
             description: None,
             lifecycle: ModelLifecycle::active(),
+            reasoning_level_policy: self.reasoning_level_policy,
             routes: route_ids,
         };
         CompiledPublicModel {
@@ -245,7 +246,7 @@ fn route(
 
 #[cfg(test)]
 mod tests {
-    use crate::registry::RouteMode;
+    use crate::registry::{ReasoningLevelPolicy, RouteMode};
 
     use super::super::public_models::{
         ProviderRouteRegistration, PublicModelRegistration, PublicModelRoutingStrategy,
@@ -277,11 +278,58 @@ mod tests {
     }
 
     #[test]
+    fn checked_in_public_models_choose_a_reasoning_input_policy() {
+        // Keep task-specific audio surfaces strict while making general generation Agent-friendly.
+        for registration in generation_registrations() {
+            let expected = if registration.public_name.starts_with("mimo-v2.5-asr")
+                || registration.public_name.starts_with("mimo-v2.5-tts")
+            {
+                ReasoningLevelPolicy::Strict
+            } else {
+                ReasoningLevelPolicy::ClampPositiveFloor
+            };
+            assert_eq!(
+                registration.reasoning_level_policy, expected,
+                "{}",
+                registration.public_name
+            );
+        }
+    }
+
+    #[test]
+    fn deepseek_flash_uses_source_first_with_bailian_before_openrouter() {
+        // Load the checked-in DeepSeek Flash registration and require its explicit source-first policy.
+        let registration = generation_registrations()
+            .iter()
+            .find(|registration| registration.public_name == "deepseek-v4-flash")
+            .copied()
+            .expect("deepseek-v4-flash registration must exist");
+        assert!(matches!(
+            registration.routing_strategy,
+            PublicModelRoutingStrategy::SourceFirst
+        ));
+
+        // Preserve Bailian ahead of OpenRouter for Chat while retaining the two Native Responses sources.
+        let compiled = registration.compile();
+        assert_eq!(
+            compiled.public_model.routes,
+            [
+                "deepseek-v4-flash-deepseek-chat",
+                "deepseek-v4-flash-bailian-chat",
+                "deepseek-v4-flash-openrouter-chat",
+                "deepseek-v4-flash-deepseek-responses",
+                "deepseek-v4-flash-openrouter-responses",
+            ]
+        );
+    }
+
+    #[test]
     fn multiple_providers_are_compiled_native_first_for_each_protocol() {
         // Register two equivalent Provider targets in their explicit fallback priority.
         let registration = PublicModelRegistration {
             public_name: "shared-model",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "shared-primary",
@@ -329,6 +377,7 @@ mod tests {
         let registration = PublicModelRegistration {
             public_name: "chat-only-model",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chat-only-provider",
                 upstream_target: "chat-only-target",
@@ -353,6 +402,7 @@ mod tests {
         let registration = PublicModelRegistration {
             public_name: "responses-only-model",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[ProviderRouteRegistration {
                 route_prefix: "responses-only-provider",
                 upstream_target: "responses-only-target",
@@ -377,6 +427,7 @@ mod tests {
         let registration = PublicModelRegistration {
             public_name: "mixed-model",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "native-primary",
@@ -410,6 +461,7 @@ mod tests {
         let registration = PublicModelRegistration {
             public_name: "source-first-model",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "responses-primary",
@@ -445,6 +497,7 @@ mod tests {
         let registration = PublicModelRegistration {
             public_name: "complete-native-model",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::Strict,
             providers: &[
                 ProviderRouteRegistration {
                     route_prefix: "complete-primary",

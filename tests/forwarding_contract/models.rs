@@ -135,8 +135,11 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
     let expected_levels =
         serde_json::json!(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
     for interface in ["chat_completions", "responses"] {
+        let reasoning = &qwen38_extended["interfaces"][interface]["reasoning"];
+        assert_eq!(reasoning["levels"], expected_levels, "{interface}");
+        assert_eq!(reasoning["accepted_levels"], expected_levels, "{interface}");
         assert_eq!(
-            qwen38_extended["interfaces"][interface]["reasoning"]["levels"], expected_levels,
+            reasoning["input_policy"], "clamp_positive_floor",
             "{interface}"
         );
     }

@@ -18,7 +18,7 @@ pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
 
 use super::{
     CanonicalTaskKind, InputModality, ModelContextLength, ModelLifecycle, OutputModality,
-    ReasoningLevel, ReasoningSupport,
+    ReasoningLevel, ReasoningLevelPolicy, ReasoningSupport,
 };
 
 mod compiler;
@@ -222,6 +222,8 @@ pub enum ToolType {
 pub struct InterfaceReasoningCapabilities {
     support: SupportState,
     levels: Vec<ReasoningLevel>,
+    accepted_levels: Vec<ReasoningLevel>,
+    input_policy: ReasoningLevelPolicy,
     output: ReasoningOutputMode,
 }
 
@@ -1516,9 +1518,20 @@ impl ModelInterfaceCapabilities {
         self.reasoning.support
     }
 
-    /// Returns the reasoning levels guaranteed by the interface.
-    pub(crate) fn reasoning_levels(&self) -> &[ReasoningLevel] {
-        &self.reasoning.levels
+    /// Resolves one requested reasoning level against the fixed interface input policy.
+    pub(crate) fn resolve_reasoning_level(
+        &self,
+        requested: ReasoningLevel,
+    ) -> Option<ReasoningLevel> {
+        // Unknown or unsupported reasoning cannot acquire an executable level through normalization.
+        if !self.reasoning.support.is_supported() {
+            return None;
+        }
+
+        // Apply only the Public Model policy compiled beside the executable level intersection.
+        self.reasoning
+            .input_policy
+            .resolve(requested, &self.reasoning.levels)
     }
 }
 

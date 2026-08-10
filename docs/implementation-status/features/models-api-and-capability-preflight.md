@@ -15,6 +15,11 @@
   `speech_recognition`、`speech_synthesis`、`voice_design`、`voice_clone`。
 - Generation reasoning 由 `ReasoningProfile` 单源保存，普通 canonical parameters 不再包含 `reasoning`/`reasoning_effort`；
   interface compiler 按目标 downstream protocol 派生对应 reasoning wire parameter。
+- Public Model 另以 `Strict | ClampPositiveFloor` 保存 reasoning input policy。当前通用文本 generation 注册使用
+  `ClampPositiveFloor`，在 `minimal < low < medium < high < xhigh < max` 中 floor 到不高于请求值的最高实际档位，并把低于最小档的
+  输入 clamp 到最小档；四个 MiMo 音频专用模型与 Embeddings 保持 `Strict`。`none` 独立于正向序列，只有实际接口包含它时才接受。
+- 扩展 Models 的 interface reasoning 同时投影实际可执行 `levels`、下游 `accepted_levels` 与 `input_policy`；标准 Models 四字段对象
+  未改变。Registry 拒绝在非 generation Public Model 上配置正向档位归一化。
 - 每个 Public Model 的 Chat、Responses、Embeddings interface 在启动期按所有可执行 candidate 的保守交集编译；未知事实保持未知，不被
   猜测为支持。
 - Chat/Responses analyzer 先用同一份协议级类型化顶层字段目录分类请求。目录外字段（包括值为 `null` 的字段）在 Native/Bridge
@@ -57,6 +62,8 @@
   前拒绝带 function tool 的合法音频 task。通用 `mimo-v2.5` 与 Pro 的工具契约不受影响。
 - 请求先解析 operation-specific requirements，再对选定 Public Model 做一次能力、限制和 private continuation contract preflight；
   不支持的请求在任何 Provider egress 前以稳定本地错误拒绝，preflight 不回查 Target capability。
+- preflight 只返回需要变化的有效 reasoning level；planning 在静态 candidate 展开前改写一次 canonical body，随后 Native、Bridge 与
+  全部 fallback candidate 共享同一结果。Provider-specific wire mapping 仍只在 candidate egress 阶段执行。
 - Chat audio analyzer 只冻结 `RequestedAudio::Input | Generated` 任务无关结构，以及有界 source/format/size 与
   `InputAudioMessageShape`/`GeneratedAudioMessageShape`，不猜 ASR/TTS/VoiceDesign/VoiceClone。preflight 取得已编译 audio interface 后才
   解释 task：ASR 只接受 `SingleUserAudioOnly`，VoiceClone 只接受 `AssistantTextOnly`，TTS 接受 `AssistantTextOnly` 或
@@ -96,6 +103,9 @@
 - [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 typed mode 交集、未知字段分类、能力预检、Route 顺序、
   candidate 独立请求体和 continuation issuer 安全；图片用例还覆盖 Remote/Data/Both 精确 Models projection、source/MIME/detail 交集降级、
   cross-minima encoded/decoded clamp、最小 `https://a`/`AA==` preflight 正例，以及单项/累计上限拒绝。
+- 同一 `native_routing_contract` 以只支持 `medium/high` 的双候选接口覆盖 `minimal/low → medium`、`xhigh/max → high`、`none`/未知拒绝、
+  Responses 空 reasoning object 保留和 Models 三字段一致性；`tests/example_config/providers.rs` 另覆盖 Spark Chat 输入先归一化再进入
+  Responses Bridge，`tests/embedding_definition_contract.rs` 覆盖非 generation 策略启动拒绝。
 - [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖 capability subset、三种 image source payload、
   Provider containment 与 payload elevation；core generation 单测覆盖 9-byte URL、4/1-byte inline 下界、空/重复 set、累计可达性和完整
   source/detail subset lattice。
@@ -125,8 +135,13 @@
   Models 的 Generation/Embedding task 投影和 list/retrieve equality，
   [`tests/forwarding_contract/mimo.rs`](../../../tests/forwarding_contract/mimo.rs) 覆盖四个专用 task 投影与 private audio union tag 不泄漏。
 
-最终本地验证运行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；这些检查只证明
-本地 registry、analysis、planning 与静态 Provider 定义，不证明每个公共模型对真实上游均可用。
+2026-08-10 reasoning input policy 迁移验证：失败测试先因 `ReasoningLevelPolicy` 与 Public Model 字段尚不存在而按预期编译失败；实现后
+`native_routing_contract` 34 项、`embedding_definition_contract` 7 项、`config_contract` 20 项、Models HTTP 2 项，以及 Spark Bridge
+聚焦测试通过。`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整
+`cargo test --locked` 只在既有 example-config 全等断言失败：当前本地 `config/bootstrap.toml` 启用了 OTLP，而
+`config/bootstrap.example.toml` 未启用；未修改该本地配置。使用
+`cargo test --locked -- --skip checked_in_examples_compile_into_a_closed_runtime_registry` 后其余全部测试通过。以上检查只证明本地
+registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不证明真实 Provider、当前外部 SDK、目标 Agent runtime、负载或长期运行。
 
 ## 相关文档
 

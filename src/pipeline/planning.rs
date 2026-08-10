@@ -5,10 +5,10 @@ use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiRequest, EmbeddingRequest, OperationKind},
+    core::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
     registry::{
-        IgnorableGenerationParameter, NonStreamingConversion, RouteMode, RuntimeRegistry,
-        UpstreamStreamingPolicy,
+        IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel, RouteMode,
+        RuntimeRegistry, UpstreamStreamingPolicy,
     },
 };
 
@@ -23,26 +23,32 @@ use super::{
 
 /// Generates a Native or Bridged execution plan from one Public Model's precompiled interface.
 ///
-/// Native request fields remain unchanged except for the `model` later rewritten by the adapter;
-/// Bridged requests convert only shared semantics in the explicit allowlist. A failed BridgePlan
-/// rejects the request and does not become a reason to skip the Route.
+/// Native request fields remain unchanged except for one preflight-resolved reasoning level and
+/// the `model` later rewritten by the adapter. Bridged requests convert only shared semantics in
+/// the explicit allowlist. A failed BridgePlan rejects the request and does not skip the Route.
 pub fn plan_request(
     registry: &RuntimeRegistry,
     requirements: &RequestRequirements,
     body: Bytes,
 ) -> Result<RoutePlan, RequestPlanningError> {
     // Complete fixed-contract preflight and resolve the same interface's static candidates.
-    let interface = preflight_public_model(registry, requirements)?;
+    let (interface, normalized_reasoning_level) = preflight_public_model(registry, requirements)?;
     if requirements.requested_capabilities.previous_response_id {
         debug_assert!(interface.continuation_candidates_match_issuer());
     }
 
+    // Normalize the canonical request once so every static fallback candidate receives one effort.
+    let normalized_body =
+        normalize_reasoning_level(&body, requirements.protocol(), normalized_reasoning_level)?;
+
     // Build requests in compiled priority order; request facts cannot filter or reorder candidates.
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());
     for candidate in interface.candidates() {
-        // Rebuild this candidate from the original body and apply only its typed omission rules.
-        let candidate_body =
-            discard_candidate_ignored_parameters(&body, candidate.ignored_generation_parameters())?;
+        // Rebuild this candidate from the canonical body and apply only its typed omission rules.
+        let candidate_body = discard_candidate_ignored_parameters(
+            &normalized_body,
+            candidate.ignored_generation_parameters(),
+        )?;
         let (request, bridge) = match candidate.mode() {
             RouteMode::Native => (
                 ApiRequest::new(candidate.downstream_protocol(), candidate_body),
@@ -84,6 +90,48 @@ pub fn plan_request(
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
+}
+
+/// Rewrites only a preflight-resolved canonical reasoning level before candidate expansion.
+fn normalize_reasoning_level(
+    body: &Bytes,
+    protocol: ApiProtocol,
+    normalized_level: Option<ReasoningLevel>,
+) -> Result<Bytes, RequestPlanningError> {
+    // Preserve the original bytes exactly when the requested level already matches the contract.
+    let Some(level) = normalized_level else {
+        return Ok(body.clone());
+    };
+
+    // Parse the analyzed object and replace only the protocol-owned canonical effort field.
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    match protocol {
+        ApiProtocol::ChatCompletions => {
+            object.insert(
+                "reasoning_effort".to_owned(),
+                Value::String(level.as_wire().to_owned()),
+            );
+        }
+        ApiProtocol::Responses => {
+            let reasoning = object
+                .get_mut("reasoning")
+                .and_then(Value::as_object_mut)
+                .ok_or(RequestPlanningError::InvalidJson)?;
+            reasoning.insert(
+                "effort".to_owned(),
+                Value::String(level.as_wire().to_owned()),
+            );
+        }
+    }
+
+    // Serialize one immutable canonical body for every Native or Bridged fallback candidate.
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
 }
 
 /// Removes the selected Upstream API's closed ordinary-parameter set from one candidate body.

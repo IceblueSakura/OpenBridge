@@ -27,7 +27,7 @@ immutable RuntimeRegistry + UserRegistry + CredentialStore + OAuth2CredentialMan
           ↓
 HTTP Models projection / request ingress
           ↓
-operation-specific requirements → Public Model interface preflight → RoutePlan / optional BridgePlan / stream response conversion
+operation-specific requirements → Public Model interface preflight → optional reasoning input normalization → RoutePlan / optional BridgePlan / stream response conversion
           ↓
 ProviderAdapter + ProviderInstance + UpstreamTarget + UpstreamApi
           ↓
@@ -163,7 +163,7 @@ RegistryConfig
 | `UpstreamTargetConfig` | Provider instance、Model、credential pool 引用、timeout、启停及 quota/fault 边界                                     |
 | `UpstreamApiConfig`    | 单一原生 operation 的 upstream model、served limits、typed executable capability、streaming policy、可选 reasoning level 映射与普通参数忽略规则；Responses state ownership 由 capability union 自身拥有 |
 | `RouteConfig`          | target、typed upstream operation、下游 operation 和 `Native`/`Bridged` 执行模式                                      |
-| `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期与私有有序 Route ID                                                       |
+| `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期、reasoning input policy 与私有有序 Route ID                              |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
 当前编译目录包含 31 个 `ModelConfig`：24 个 Generation、2 个 Embedding、2 个 SpeechRecognition，以及各 1 个
@@ -289,12 +289,15 @@ raw body + downstream operation
 → RequestRequirements / EmbeddingRequestRequirements
 → Public Model operation execution interface（fixed capability + static candidates）
 → operation-specific capability and limit preflight
+→ optional canonical reasoning effort normalization
 → RoutePlan<RouteCandidate> / EmbeddingRoutePlan
 ```
 
-`RequestRequirements` 只记录 generation 请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。 reasoning
-level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为 显式 level，字段缺失才表示调用方没有请求
-reasoning。
+`RequestRequirements` 只记录 generation 请求事实：public model、协议、streaming、功能组合、输出限制和状态亲和指示。reasoning
+level parser 识别 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 与 `max`；`none` 保持为显式 level，字段缺失才表示调用方没有请求
+reasoning。每个 Public Model 以 `Strict | ClampPositiveFloor` 冻结输入策略；后者只在六个正向档位中 floor/clamp 到接口实际交集，
+`none` 只有被实际公开时才接受。preflight 返回可选有效档位，planning 在候选展开和 Bridge 前只改写一次 canonical body，所有 fallback
+共享结果；精确支持、字段缺失和 Responses 空 reasoning object 保留原字节。
 `EmbeddingRequestRequirements` 只保存 input form/count、可本地计算的 token counts、可选 encoding/dimensions 和 `user`
 是否出现，不复制业务输入。 registry compiler 在完成 Route、Target 与 Upstream API 引用和方向校验后，为每个 Public Model/下游
 operation 编译一个
@@ -309,7 +312,7 @@ candidate 保存目标协议的 canonical `ApiRequest`；两者都不在 RoutePl
 preflight 读取同一执行接口的四种 input form、encoding/dimension domain 和有效 limit；planning 只接受 唯一 Native
 candidate，并把原始 `EmbeddingRequest` 交给 adapter 在 egress 时改写受信 model/path。
 
-Provider adapter 在选定候选进入 egress 准备时一次性解析 JSON，写入真实 model，执行固定 Provider request-body hook，删除该 Upstream API
+Provider adapter 在选定候选进入 egress 准备时一次性解析已归一化的 JSON，写入真实 model，执行固定 Provider request-body hook，删除该 Upstream API
 显式配置为下游接受但上游忽略的闭合普通参数，再把 canonical reasoning level 改为安全 wire 值。忽略集合只允许 generation 参数，必须由
 canonical Model 声明且不能与 disabled parameter 重叠；它不改变 Public Model 参数交集、Route 资格或 fallback 顺序。映射源必须属于有效
 Model 的 level 集合，目标值必须满足受限 wire 命名规则，同一源不得重复；没有映射的候选保持 canonical level，未知下游 level 仍在
@@ -374,8 +377,8 @@ Chat。OpenAI 当前有 `openai-main`、GPT-5.5、GPT-5.6 Luna/Terra 三个额�
 generation target 做请求期模型分支。目录中的每个 generation Public Model 由一个编译注册单元持有有序 Provider route
 source 和显式 `NativeFirst`/`SourceFirst` 策略；前者在每个协议内先排列所有 Native，后者先保持 source 顺序并在 source 内优先
 Native。编译器仍先统计 Native coverage，只为全局缺失的 downstream protocol 自动补充 Bridge；显式 Bridge surface 可在其他 source
-已有 Native 时保留。GPT 注册使用 `SourceFirst`；其他当前注册使用 `NativeFirst`。`deepseek-v4-flash` 显式绑定 DeepSeek 与
-OpenRouter 两个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个 source。MiMo
+已有 Native 时保留。`gpt-5.6-sol` 与 `deepseek-v4-flash` 使用 `SourceFirst`；其他当前注册使用 `NativeFirst`。DeepSeek Flash
+按 DeepSeek、Bailian、OpenRouter 顺序绑定三个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；两者都只注册
 Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
@@ -421,15 +424,17 @@ wire 语义，在 route/egress 前返回 `UnimplementedCapabilities`，由 ingre
 
 OpenRouter 当前注册 `openrouter-deepseek-v4-flash` 与 `openrouter-minimax-m3` 两个固定 target；每个 target 都提供 Chat/Responses
 Upstream API、`ResponsesAffinity::Unbound` executable state 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与
-`minimax/minimax-m3`。DeepSeek Public Model 中 OpenRouter 是第二 source；MiniMax Public Model 中 OpenRouter 是第一 source，Chat
-按 OpenRouter、NVIDIA 排序，Responses 只保留 OpenRouter Native，不为 NVIDIA Chat source 生成冗余 Bridge。两个 target 的 `store`、
+`minimax/minimax-m3`。DeepSeek Public Model 中 OpenRouter 是第三个 Chat source、第二个 Responses source；MiniMax Public Model 中
+OpenRouter 是第一 source，Chat 按 OpenRouter、NVIDIA 排序，Responses 只保留 OpenRouter Native，不为 NVIDIA Chat source 生成冗余
+Bridge。两个 target 的 `store`、
 `previous_response_id` 与 `background` 都在 capability gate 关闭，也不注册显式 Bridged route 或 `:free` 变体；只有 DeepSeek Flash
 target 从 OpenRouter ceiling 保留 `json_object`，MiniMax target 显式收窄为不支持 structured output。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
 fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat
-Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并与 OpenRouter source 聚合为两个协议各自按 DeepSeek、
-OpenRouter 排序的 Native candidates。DeepSeek Chat reasoning output 为 `PlainText`；Bailian `deepseek-v4-pro` fallback 也按 target
+Bridge；`deepseek-v4-flash` target 额外注册 `Unbound` Responses API，并与 Bailian Chat、OpenRouter 双协议 source 聚合。
+`SourceFirst` 使 Chat candidates 按 DeepSeek、Bailian、OpenRouter 排序；Responses 因 Bailian 没有 Responses Native API 而保持 DeepSeek、
+OpenRouter。DeepSeek Chat reasoning output 为 `PlainText`；Bailian `deepseek-v4-pro` fallback 也按 target
 收窄为 `PlainText`，因此 V4 Pro 的 Chat/Responses 固定契约都公开 `none`、`high`、`max`；V4 Flash 两个接口公开 `none`、`low`、
 `high`、`max`，其 Responses reasoning output 仍为 `Unknown`。Bailian 的两个 DeepSeek Chat target 只把 `none` 转换为
 `enable_thinking=false`，其他 effort 保留原值。两个 DeepSeek Public Model 的 Chat/Responses 都公开非 strict 的 `json_object`；

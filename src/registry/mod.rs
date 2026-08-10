@@ -18,10 +18,10 @@ pub use definition::{
     GenerationModelProfile, IgnorableGenerationParameter, InputModality, ModelConfig,
     ModelContextLength, ModelLifecycle, ModelLifecycleStatus, NonStreamingConversion,
     OutputModality, ProviderInstanceConfig, PublicModelConfig, ReasoningLevel,
-    ReasoningLevelMapping, ReasoningLevels, ReasoningProfile, ReasoningSupport, RegistryConfig,
-    RouteConfig, RouteMode, SpeechRecognitionModelProfile, SpeechSynthesisModelProfile,
-    UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy,
-    UpstreamTargetConfig, VoiceCloneModelProfile, VoiceDesignModelProfile,
+    ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
+    ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, SpeechRecognitionModelProfile,
+    SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
+    UpstreamStreamingPolicy, UpstreamTargetConfig, VoiceCloneModelProfile, VoiceDesignModelProfile,
 };
 pub use error::RegistryError;
 pub(crate) use public_model::ModelExecutionInterface;

@@ -10,8 +10,8 @@ use openbridge::{
     provider::ProviderKind,
     registry::{
         CanonicalModelTask, EmbeddingModelProfile, IgnorableGenerationParameter, InputModality,
-        RegistryError, RouteConfig, RouteMode, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, build_registry,
+        ReasoningLevelPolicy, RegistryError, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, build_registry,
     },
 };
 use serde_json::json;
@@ -243,6 +243,18 @@ fn embedding_compiler_derives_operation_and_enforces_model_task_identity() {
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), route),
         Err(RegistryError::NativeRouteOperationMismatch { .. })
+    ));
+}
+
+#[test]
+fn embedding_public_model_rejects_reasoning_level_normalization() {
+    // Keep positive reasoning normalization exclusive to generation Public Models.
+    let mut definition = embedding_definition();
+    definition.public_models[0].reasoning_level_policy = ReasoningLevelPolicy::ClampPositiveFloor;
+
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), definition),
+        Err(RegistryError::PublicModelReasoningPolicyTaskMismatch { .. })
     ));
 }
 

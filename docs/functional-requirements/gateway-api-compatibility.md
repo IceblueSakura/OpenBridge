@@ -83,13 +83,19 @@ billing identity；变更需要重启。认证失败与未知/不支持 endpoint
 
 ## 4. Native Path 与流式语义
 
-当下游与上游协议一致且请求已通过 Public Model 固定契约预检时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
+当下游与上游协议一致且请求已通过 Public Model 固定契约预检与输入归一化时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
 reasoning level wire 映射和已验证的普通生成提示忽略，保留其他已知且被接口接受的请求 JSON，并保持上游响应中的未知合法 JSON
 字段/SSE event，不经过通用 IR 重渲染。level
 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model 声明， 目标必须是安全 wire
 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。 canonical reasoning level vocabulary 为
 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`； 每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
 reasoning，不等同于缺少 reasoning 字段。
+
+每个 generation Public Model 必须静态选择 reasoning input policy。`strict` 只接受固定接口 `levels` 中的值；
+`clamp_positive_floor` 仅处理正向序列 `minimal < low < medium < high < xhigh < max`：选择不高于请求值的最高可执行档位，若请求值低于
+全部可执行正向档位则选择最低可执行正向档位。`none` 不属于该序列，只能在固定接口实际包含 `none` 时原样接受，永不转换为正向 effort；
+字段缺失与 Responses `reasoning: {}` 保持原样，未知、冲突或非法值仍在 egress 前失败。归一化必须在一次公共接口预检后、Route candidate
+展开和 Bridge 转换前执行一次，全部 fallback candidate 获得同一有效档位；随后选中 Upstream API 的 wire mapping 仍独立执行。
 
 Embeddings Native Path 使用独立严格 JSON request union 和有界 JSON response validator；不保留未知字段，不进入 generation
 SSE/Bridge，也不在网关转换 vector encoding 或 dimensions。客户端必须以所选
@@ -255,14 +261,14 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 |--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | API-01 | 有效静态 token 可访问标准/扩展模型与业务 endpoint；认证失败、未知 Public Model、不支持 feature 与非 JSON 请求在 egress 前安全失败。                                                |
 | API-02 | 标准/扩展 Models 接口满足[模型能力契约](model-information-and-capability-contract.md)的身份、逐字段一致性与部署信息隔离要求。                                                      |
-| API-03 | Native Chat/Responses 已知且被接口接受的请求字段除受信模型/认证改写及已验证的普通参数忽略规则外保持 wire 语义；未知请求顶层字段在 egress 前拒绝，上游响应中的未知合法字段/event 不因网关丢失。 |
+| API-03 | Native Chat/Responses 已知且被接口接受的请求字段除固定 Public Model reasoning 输入归一化、受信模型/认证改写、Provider wire mapping 及已验证的普通参数忽略规则外保持 wire 语义；未知请求顶层字段在 egress 前拒绝，上游响应中的未知合法字段/event 不因网关丢失。 |
 | API-04 | SSE 分片、终态、EOF、上游 error 和下游 cancel 不会产生伪成功、重复 terminal 或跨 Upstream Target 拼接。                                                                            |
 | API-05 | Chat/Responses 普通 function tool 的 call/result identity 与 fragmented arguments 在已声明路径中保持；生成链路不执行这些工具。                                                      |
 | API-06 | Codex Native profile 能在受限 allowlist 下保留其已验证的 turn-state 扩展；bridge、route change 或 fallback 不会误复用该状态。                                                      |
 | API-07 | 对 Codex、OpenAI SDK 或 Hermes 的兼容声明均有相应 endpoint/feature 的可重复证据，并写入实施现状而非仅引用设计。                                                                    |
 | API-08 | 客户端只选择 Public Model 与下游协议；固定能力契约不支持时统一拒绝，普通忽略参数按选中 API 删除，其他支持请求保持配置 Route 顺序，不按请求能力筛选或重排候选。                       |
 | API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound continuation 不因健康状态切换 issuing target。                                                                      |
-| API-10 | Native reasoning level 只接受 canonical vocabulary 中由 Model 显式声明的值，并按选定 Upstream API 的已校验规则改写；未知或未声明的下游 level、歧义源或非法目标在 egress 前失败。   |
+| API-10 | reasoning input 只接受 canonical vocabulary 与 Public Model `accepted_levels` 的交集；`strict` 保持精确值，`clamp_positive_floor` 只在正向 effort 中解析到固定接口实际 `levels`，`none` 不参与转换；有效值再按选定 Upstream API 的已校验规则改写，未知值、歧义源或非法目标在 egress 前失败。   |
 | API-11 | 无状态 Responses 是核心兼容面、默认使用方式和当前验收基线；`store: true`、非空 `previous_response_id` 与 `background: true` 仅作为次要且不完整的 Native pass-through 目标，不进入 Bridge、跨 Target fallback 或状态迁移。 |
 | API-12 | Embeddings、图片、文件与音频分别满足[扩展共同规则](embedding-and-native-multimodal.md)及其功能页的 wire、能力、资源归属、限制和证据边界。                                             |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |

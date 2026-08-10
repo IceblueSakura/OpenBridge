@@ -142,8 +142,8 @@ fn checked_in_fallback_chains_follow_provider_priority_and_protocol_boundaries()
             br#"{"model":"deepseek-v4-flash","messages":[],"reasoning_effort":"high"}"#,
             &[
                 (ProviderKind::DeepSeek, false),
-                (ProviderKind::OpenRouter, false),
                 (ProviderKind::Bailian, false),
+                (ProviderKind::OpenRouter, false),
             ],
         ),
         (
@@ -299,6 +299,47 @@ fn qwen36_27b_preserves_confirmed_parameters_and_binary_reasoning() {
         model.reasoning_levels(),
         &[ReasoningLevel::High, ReasoningLevel::None]
     );
+}
+
+#[test]
+fn sparse_reasoning_normalization_precedes_protocol_bridge() {
+    // Compile the checked-in Responses-only Spark route with its sparse positive reasoning set.
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+    let info = serde_json::to_value(
+        registry
+            .public_model("gpt-5.3-codex-spark")
+            .expect("Spark Public Model must compile")
+            .info(),
+    )
+    .unwrap();
+    let reasoning = &info["interfaces"]["chat_completions"]["reasoning"];
+    assert_eq!(
+        reasoning["levels"],
+        serde_json::json!(["low", "medium", "high", "xhigh"])
+    );
+    assert_eq!(
+        reasoning["accepted_levels"],
+        serde_json::json!(["minimal", "low", "medium", "high", "xhigh", "max"])
+    );
+    assert_eq!(reasoning["input_policy"], "clamp_positive_floor");
+
+    // Normalize Chat input before its single Bridge converts the canonical field to Responses.
+    for (requested, expected) in [("minimal", "low"), ("max", "xhigh")] {
+        let body = bytes::Bytes::from(format!(
+            r#"{{"model":"gpt-5.3-codex-spark","messages":[],"reasoning_effort":"{requested}"}}"#
+        ));
+        let profile = analyze_request(ApiProtocol::ChatCompletions, &body).unwrap();
+        let plan = plan_request(&registry, &profile, body).unwrap();
+        let [candidate] = plan.candidates() else {
+            panic!("Spark Chat must have exactly one bridged candidate");
+        };
+        assert!(candidate.bridge().is_some());
+        assert_eq!(candidate.request().protocol(), ApiProtocol::Responses);
+        let upstream: serde_json::Value =
+            serde_json::from_slice(candidate.request().body()).unwrap();
+        assert_eq!(upstream["reasoning"]["effort"], expected);
+    }
 }
 
 #[test]

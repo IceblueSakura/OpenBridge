@@ -472,6 +472,7 @@ fn embedding_registry_definition() -> RegistryConfig {
         display_name: "Embedding test".to_owned(),
         description: Some("Synthetic Embeddings Public Model.".to_owned()),
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
         routes: vec!["embedding-route".to_owned()],
     });
     definition

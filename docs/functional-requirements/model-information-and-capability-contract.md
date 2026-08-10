@@ -109,7 +109,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 |-------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | 布尔能力                                                                            | 全部 Route 明确支持才是 `supported`；任一明确不支持则为 `unsupported`；证据不足保持 `unknown`                         |
 | token 上限                                                                          | 全部 Route 都有已知值时取最小值；任一未知则为 `null`                                                                  |
-| 模态、参数、reasoning level                                                         | 取集合交集并稳定排序；某 API 的普通忽略参数仍属于其下游可接受参数                                                     |
+| 模态、参数、实际可执行 reasoning level                                             | 取集合交集并稳定排序；某 API 的普通忽略参数仍属于其下游可接受参数                                                     |
 | image/file/audio source、inline encoding、format、detail allowed、可验证 media type | 按目标协议分别取集合交集；detail default 必须一致，任一必需集合为空则对应媒体输入子契约不可公开                       |
 | audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
@@ -117,6 +117,10 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode |
 | structured outputs                                                              | 执行契约只保存 `JsonObject | JsonSchema(strictness) | JsonObjectAndJsonSchema(strictness)` 闭合 profile；按完整 variant 相交，空 mode 交集关闭整个能力，Models 的 support/modes/strict 只从结果投影 |
 | `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
+
+reasoning 的 `levels` 始终表示上述可执行交集。generation Public Model 另以静态 `input_policy` 决定下游输入：`strict`
+只接受 `levels`；`clamp_positive_floor` 在正向序列中向下取不高于请求值的最高档，低于最小档时夹到最小档，并由此投影
+`accepted_levels`。`none` 保持独立，只有它属于实际 `levels` 时才进入 `accepted_levels`，不能被正向策略吸收。
 
 Embedding 接口不使用生成协议的 token-output、tool、reasoning 或 stream 字段。它应独立保守相交 input forms、默认/可显式请求的
 output encoding、默认维度、可请求 dimension domain 和输入/批量限制；encoding 与 dimensions 都不得压缩成布尔值。公开
@@ -154,8 +158,10 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 2. 查询所选 Public Model 的目标接口固定契约。
 3. 取得固定接口后才解释 task-specific 音频 shape，并对所有已建模请求能力执行一次 fail-closed 预检；VoiceClone conditioning 保持独立，
    specialist audio 的额外、空或角色错误 message 不得进入 RoutePlan。
-4. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
-5. 预检通过后，严格按 Public Model 的配置顺序构造完整 RoutePlan。
+4. generation 请求若需要正向 reasoning level 归一化，只在该固定接口上解析并改写一次 canonical body；字段缺失、Responses
+   `reasoning: {}` 和已精确支持的值保持原字节，`none` 不参与正向归一化。
+5. 不支持或未知时立即返回错误，不创建 RoutePlan，不调用 Provider adapter 或 transport。
+6. 预检通过后，严格按 Public Model 的配置顺序构造完整 RoutePlan，全部 fallback candidate 使用同一归一化结果。
 
 代码目录从多个 Provider source 生成配置顺序时，必须使用 Public Model 显式声明的 `NativeFirst` 或 `SourceFirst` 类型化策略；
 生成后这一 Vec 即为固定配置顺序，运行时不得再按 Provider 或模式重排。无论采用哪种策略，全部静态候选都参与固定能力交集；某条
@@ -170,8 +176,9 @@ streaming-only Route 禁用转换时，不得为了满足非流式请求而跳�
 - 根据能力、模型字符串、价格、健康或 benchmark 重排 Route；
 - 把一条 Route 的 tool、image、reasoning 或 token 优势与另一条 Route 的能力做字段并集。
 
-Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、顺序及 `Native`/`Bridged` 模式均来自固定配置。 reasoning wire
-映射只能在选定候选的 Provider egress 请求准备阶段改写 wire 副本，不得写入 RoutePlan，也不能 改变候选资格或顺序。若完整
+Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、顺序及 `Native`/`Bridged` 模式均来自固定配置。Public Model 的 reasoning
+输入归一化发生在 RoutePlan 构造前；Provider reasoning wire 映射只能在选定候选的 egress 请求准备阶段改写 wire 副本，不得写入
+RoutePlan，也不能改变候选资格或顺序。若完整
 `BridgePlan` 无法表示已通过 公共预检的请求，整个请求必须失败，不能跳过该 Bridge 去选择其他 Route。 运行期
 cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属于可用性执行，不是能力路由；
 只有请求实际携带 `previous_response_id` 时才禁止跨 Target fallback；候选具备 continuation 能力本身不能改变无状态请求的 fallback，
@@ -190,6 +197,8 @@ state ownership 也不能选择能力更强的候选。
 
 - 四个接口使用与生成接口相同的静态 Bearer 认证。
 - `StandardModel` 严格只有 `id`、`object: "model"`、`created` 和 `owned_by: "openbridge"`。
+- 扩展 generation interface 的 `reasoning.levels` 是实际可执行交集，`accepted_levels` 是下游可提交的标准词汇，`input_policy`
+  明确两者间的固定解析规则；三者不得泄漏 Route、Provider 或 wire mapping。
 - 同一 snapshot 下，retrieve 必须与对应列表元素逐字段相同；列表按 Public Model id 确定性排序。
 - 未知、retired 或当前不可用模型返回 HTTP 404、`model_not_found`，`param` 为 `model`，不得区分内部存在性。
 - 固定接口契约不支持请求时返回 HTTP 400、`unsupported_model_capability`，并保证上游调用次数为零。
@@ -209,6 +218,7 @@ registry 必须在监听前拒绝：
 - Chat/Responses 媒体 source/format/detail/media type 集合为空、重复、协议错配，或 limits 为零/相互矛盾；
 - Structured Output profile 为空、重复、把 strict 与不含 JSON Schema 的 mode 组合，或 executable profile 超过 Provider ceiling；
 - reasoning checked set 或 wire mapping 不一致，以及 ordinary parameter 重新声明协议 reasoning alias；
+- 非 generation Public Model 配置正向 reasoning level 归一化策略；
 - Provider audio ceiling 为空、重复 task、缺少该 task 的完整 input/output/conditioning/delivery payload，或把 Provider ceiling 当成
   单个 executable profile；generated-audio profile 缺少必填 JSON 或 SSE delivery；
 - Upstream API 能力超过 Provider contract 上界；通过 ceiling 后，operation/executable profile 与 canonical task 不兼容；
@@ -231,6 +241,7 @@ registry 必须在监听前拒绝：
 | MODEL-11 | `capabilities.tasks` 只由唯一 canonical task 按闭合映射产生；不同 task 的 Route 不能编译进同一 Public Model。                                                    |
 | MODEL-12 | Provider 完整 audio ceiling、单个 executable profile 与 canonical task 在启动期逐层校验；VoiceClone conditioning 不进入 content-understanding input。             |
 | MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
+| MODEL-14 | generation reasoning `levels`、`accepted_levels` 与 `input_policy` 共享同一固定接口；正向归一化在 candidate 展开前执行一次，`none` 保持独立，标准 Models 投影不变。 |
 
 确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
 LiteLLM/OpenRouter 目录新鲜度。

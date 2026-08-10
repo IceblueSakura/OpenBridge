@@ -703,6 +703,7 @@ fn registry_rejects_duplicate_and_unknown_references() {
         display_name: "Code Primary".to_owned(),
         description: None,
         lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
         routes: vec!["public-chat".to_owned(), "public-chat".to_owned()],
     }];
     assert!(matches!(

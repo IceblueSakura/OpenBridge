@@ -16,8 +16,9 @@ use openbridge::{
     registry::{
         CredentialPoolConfig, IgnorableGenerationParameter, ModelContextLength,
         NonStreamingConversion, ProviderInstanceConfig, ReasoningLevel, ReasoningLevelMapping,
-        ReasoningProfile, RegistryConfig, RegistryError, RouteConfig, RouteMode, RuntimeRegistry,
-        UpstreamApiCapabilities, UpstreamStreamingPolicy, build_registry,
+        ReasoningLevelPolicy, ReasoningProfile, RegistryConfig, RegistryError, RouteConfig,
+        RouteMode, RuntimeRegistry, UpstreamApiCapabilities, UpstreamStreamingPolicy,
+        build_registry,
     },
 };
 use serde_json::{Value, json};
@@ -320,6 +321,169 @@ fn planning_preserves_canonical_reasoning_levels_for_every_candidate() {
         support::prepare(&registry, ApiProtocol::Responses, unsupported.into()).unwrap_err(),
         RequestPlanningError::ReasoningLevelUnsupported
     ));
+}
+
+#[test]
+fn clamp_positive_floor_normalizes_sparse_reasoning_before_candidate_expansion() {
+    // Configure one sparse Public Model contract and a second fallback target for both protocols.
+    let mut definition = base_definition();
+    support::generation_profile_mut(&mut definition.models[0]).reasoning =
+        ReasoningProfile::supported([ReasoningLevel::Medium, ReasoningLevel::High]);
+    definition.public_models[0].reasoning_level_policy = ReasoningLevelPolicy::ClampPositiveFloor;
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = "openai-fallback".to_owned();
+    definition.upstream_targets.push(fallback);
+    for (id, operation) in [
+        ("fallback-chat", OperationKind::ChatCompletions),
+        ("fallback-responses", OperationKind::Responses),
+    ] {
+        definition.routes.push(RouteConfig {
+            id: id.to_owned(),
+            upstream_target: "openai-fallback".to_owned(),
+            upstream_operation: operation,
+            downstream_operation: operation,
+            mode: RouteMode::Native,
+        });
+        definition.public_models[0].routes.push(id.to_owned());
+    }
+    let registry = build_test_registry(definition);
+
+    // Normalize every positive edge case once and give every fallback candidate the same body.
+    for (protocol, request, pointer, expected) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "reasoning_effort": "minimal"}),
+            "/reasoning_effort",
+            "medium",
+        ),
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "reasoning_effort": "low"}),
+            "/reasoning_effort",
+            "medium",
+        ),
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "reasoning_effort": "xhigh"}),
+            "/reasoning_effort",
+            "high",
+        ),
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "reasoning_effort": "max"}),
+            "/reasoning_effort",
+            "high",
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "reasoning": {"effort": "minimal"}}),
+            "/reasoning/effort",
+            "medium",
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "reasoning": {"effort": "low"}}),
+            "/reasoning/effort",
+            "medium",
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "reasoning": {"effort": "xhigh"}}),
+            "/reasoning/effort",
+            "high",
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "reasoning": {"effort": "max"}}),
+            "/reasoning/effort",
+            "high",
+        ),
+    ] {
+        let prepared = support::prepare(
+            &registry,
+            protocol,
+            serde_json::to_vec(&request).unwrap().into(),
+        )
+        .unwrap();
+        assert_eq!(prepared.candidates().len(), 2, "{protocol:?}");
+        for candidate in prepared.candidates() {
+            let upstream: Value = serde_json::from_slice(candidate.request().body()).unwrap();
+            let upstream_pointer = match candidate.request().protocol() {
+                ApiProtocol::ChatCompletions => "/reasoning_effort",
+                ApiProtocol::Responses => "/reasoning/effort",
+            };
+            assert_eq!(
+                upstream.pointer(upstream_pointer).and_then(Value::as_str),
+                Some(expected),
+                "{protocol:?} {}",
+                request
+                    .pointer(pointer)
+                    .and_then(Value::as_str)
+                    .expect("test request must contain an effort")
+            );
+        }
+    }
+
+    // Keep `none`, unknown values, and an unspecified Responses object outside positive clamping.
+    for (protocol, request) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"model": "public-model", "messages": [], "reasoning_effort": "none"}),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({"model": "public-model", "input": "hello", "reasoning": {"effort": "none"}}),
+        ),
+    ] {
+        assert!(matches!(
+            support::prepare(
+                &registry,
+                protocol,
+                serde_json::to_vec(&request).unwrap().into()
+            )
+            .unwrap_err(),
+            RequestPlanningError::ReasoningLevelUnsupported
+        ));
+    }
+    let unknown = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "messages": [],
+        "reasoning_effort": "future"
+    }))
+    .unwrap();
+    assert!(matches!(
+        support::prepare(&registry, ApiProtocol::ChatCompletions, unknown.into()).unwrap_err(),
+        RequestPlanningError::ReasoningLevelUnsupported
+    ));
+    let unspecified = serde_json::to_vec(&json!({
+        "model": "public-model",
+        "input": "hello",
+        "reasoning": {}
+    }))
+    .unwrap();
+    let prepared = support::prepare(&registry, ApiProtocol::Responses, unspecified.into()).unwrap();
+    let upstream: Value = serde_json::from_slice(prepared.request().body()).unwrap();
+    assert_eq!(upstream["reasoning"], json!({}));
+
+    // Publish executable levels separately from the complete positive input vocabulary.
+    let info = serde_json::to_value(registry.public_model("public-model").unwrap().info()).unwrap();
+    for interface in ["chat_completions", "responses"] {
+        let reasoning = &info["interfaces"][interface]["reasoning"];
+        assert_eq!(
+            reasoning["levels"],
+            json!(["medium", "high"]),
+            "{interface}"
+        );
+        assert_eq!(
+            reasoning["accepted_levels"],
+            json!(["minimal", "low", "medium", "high", "xhigh", "max"]),
+            "{interface}"
+        );
+        assert_eq!(
+            reasoning["input_policy"], "clamp_positive_floor",
+            "{interface}"
+        );
+    }
 }
 
 #[test]

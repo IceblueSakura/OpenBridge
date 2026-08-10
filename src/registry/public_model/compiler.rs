@@ -5,7 +5,10 @@
 
 use crate::{
     core::OperationKind,
-    registry::{CanonicalTaskKind, PublicModelConfig, RegistryError, Route, UpstreamApi},
+    registry::{
+        CanonicalTaskKind, PublicModelConfig, ReasoningLevelPolicy, RegistryError, Route,
+        UpstreamApi,
+    },
 };
 
 use super::{
@@ -53,6 +56,9 @@ pub(in crate::registry) fn compile_public_model(
     // Reject cross-operation canonical task mixtures before operation-specific narrowing.
     let canonical_task = validate_public_model_task(&config.id, &candidates)?;
 
+    // Keep positive reasoning normalization exclusive to generation Public Model definitions.
+    validate_reasoning_level_policy(&config.id, config.reasoning_level_policy, bindings)?;
+
     // Narrow an Embeddings batch contract to what one bounded validated response can always contain.
     constrain_embedding_response_budget(&config.id, max_json_response_body_bytes, &mut candidates)?;
 
@@ -61,7 +67,8 @@ pub(in crate::registry) fn compile_public_model(
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let execution_interfaces = compile_execution_interfaces(&config.id, &candidates)?;
+    let execution_interfaces =
+        compile_execution_interfaces(&config.id, config.reasoning_level_policy, &candidates)?;
     let capabilities = aggregate_model_capabilities(&contributions, canonical_task);
     let description = config.description.or_else(|| {
         intersect_optional_string(
@@ -96,6 +103,7 @@ pub(in crate::registry) fn compile_public_model(
 /// Compiles unique operation interfaces and rejects an empty same-variant profile intersection.
 fn compile_execution_interfaces(
     public_model: &str,
+    reasoning_level_policy: ReasoningLevelPolicy,
     candidates: &[PrecompiledRouteCandidate],
 ) -> Result<ModelExecutionInterfaces, RegistryError> {
     // Partition the already ordered candidates by their fixed downstream operation.
@@ -103,6 +111,7 @@ fn compile_execution_interfaces(
         chat_completions: compile_execution_interface(
             public_model,
             OperationKind::ChatCompletions,
+            reasoning_level_policy,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::ChatCompletions
             }),
@@ -110,6 +119,7 @@ fn compile_execution_interfaces(
         responses: compile_execution_interface(
             public_model,
             OperationKind::Responses,
+            reasoning_level_policy,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::Responses
             }),
@@ -117,6 +127,7 @@ fn compile_execution_interfaces(
         embeddings: compile_execution_interface(
             public_model,
             OperationKind::EmbeddingsCreate,
+            reasoning_level_policy,
             candidates.iter().filter(|candidate| {
                 candidate.execution.downstream_operation() == OperationKind::EmbeddingsCreate
             }),
@@ -128,6 +139,7 @@ fn compile_execution_interfaces(
 fn compile_execution_interface<'a>(
     public_model: &str,
     operation: OperationKind,
+    reasoning_level_policy: ReasoningLevelPolicy,
     candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
 ) -> Result<Option<ModelExecutionInterface>, RegistryError> {
     // Materialize one operation's static candidates without changing their configuration order.
@@ -139,22 +151,23 @@ fn compile_execution_interface<'a>(
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let (generation_capabilities, embedding_capabilities, continuation) =
-        match operation {
-            OperationKind::ChatCompletions | OperationKind::Responses => {
-                let (capabilities, continuation) = aggregate_interface(contributions.iter())
-                    .map_err(|()| RegistryError::PublicModelInterfaceProfileMismatch {
+    let (generation_capabilities, embedding_capabilities, continuation) = match operation {
+        OperationKind::ChatCompletions | OperationKind::Responses => {
+            let (capabilities, continuation) =
+                aggregate_interface(contributions.iter(), reasoning_level_policy).map_err(
+                    |()| RegistryError::PublicModelInterfaceProfileMismatch {
                         public_model: public_model.to_owned(),
                         downstream_operation: operation,
-                    })?;
-                (capabilities, None, continuation)
-            }
-            OperationKind::EmbeddingsCreate => (
-                None,
-                aggregate_embedding_interface(contributions.iter()),
-                PublicContinuationContract::Unsupported,
-            ),
-        };
+                    },
+                )?;
+            (capabilities, None, continuation)
+        }
+        OperationKind::EmbeddingsCreate => (
+            None,
+            aggregate_embedding_interface(contributions.iter()),
+            PublicContinuationContract::Unsupported,
+        ),
+    };
 
     // Freeze the matching planning data beside the contract that was derived from it.
     Ok(Some(ModelExecutionInterface {
@@ -188,6 +201,30 @@ fn validate_public_model_task(
         });
     }
     Ok(Some(first))
+}
+
+/// Rejects reasoning-level normalization on task-specific non-generation Public Models.
+fn validate_reasoning_level_policy(
+    public_model: &str,
+    policy: ReasoningLevelPolicy,
+    bindings: &[PublicRouteBinding<'_>],
+) -> Result<(), RegistryError> {
+    // Strict input validation is valid for every canonical task.
+    if policy == ReasoningLevelPolicy::Strict {
+        return Ok(());
+    }
+
+    // Inspect every configured binding so disabled targets cannot hide an invalid task policy.
+    let has_non_generation = bindings.iter().any(|binding| {
+        RouteContractContribution::from_binding(binding).canonical_task
+            != CanonicalTaskKind::Generation
+    });
+    if has_non_generation {
+        return Err(RegistryError::PublicModelReasoningPolicyTaskMismatch {
+            public_model: public_model.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 /// Static candidate and capability input compiled together from one resolved Route binding.

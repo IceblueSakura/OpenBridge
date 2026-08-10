@@ -1108,15 +1108,24 @@ components:
     InterfaceReasoningCapabilities:
       type: object
       additionalProperties: false
-      required: [ support, levels, output ]
+      required: [ support, levels, accepted_levels, input_policy, output ]
       properties:
         support:
           $ref: '#/components/schemas/SupportState'
         levels:
+          description: Reasoning levels the fixed executable interface can actually receive after Public Model normalization.
           type: array
           uniqueItems: true
           items:
             $ref: '#/components/schemas/ReasoningEffort'
+        accepted_levels:
+          description: Standard downstream reasoning levels accepted before applying the fixed Public Model input policy.
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+        input_policy:
+          $ref: '#/components/schemas/ReasoningLevelInputPolicy'
         output:
           type: string
           enum: [ unsupported, plain_text, summary, opaque, unknown ]
@@ -1565,6 +1574,11 @@ components:
       type: string
       description: Canonical reasoning level used by both model information and downstream requests.
       enum: [ none, minimal, low, medium, high, xhigh, max ]
+
+    ReasoningLevelInputPolicy:
+      type: string
+      description: Fixed Public Model policy for resolving accepted downstream reasoning levels into executable levels.
+      enum: [ strict, clamp_positive_floor ]
 
     KnownGenerationParameter:
       description: A recognized top-level generation parameter whose exact accepted shape and support are narrowed by the selected Public Model interface.

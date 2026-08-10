@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     core::{EmbeddingsCapabilities, StructuredOutputProfile},
-    registry::{CanonicalTaskKind, ModelContextLength},
+    registry::{CanonicalTaskKind, ModelContextLength, ReasoningLevelPolicy},
 };
 
 use super::contribution::RouteContractContribution;
@@ -105,6 +105,7 @@ pub(super) fn aggregate_embedding_interface<'a>(
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.
 pub(super) fn aggregate_interface<'a>(
     contributions: impl Iterator<Item = &'a RouteContractContribution> + Clone,
+    reasoning_level_policy: ReasoningLevelPolicy,
 ) -> Result<
     (
         Option<ModelInterfaceCapabilities>,
@@ -171,6 +172,7 @@ pub(super) fn aggregate_interface<'a>(
     } else {
         Vec::new()
     };
+    let accepted_reasoning_levels = reasoning_level_policy.accepted_levels(&reasoning_levels);
     let reasoning_output =
         intersect_reasoning_output(contributions.iter().map(|value| value.reasoning_output));
 
@@ -201,6 +203,8 @@ pub(super) fn aggregate_interface<'a>(
         reasoning: InterfaceReasoningCapabilities {
             support: reasoning,
             levels: reasoning_levels,
+            accepted_levels: accepted_reasoning_levels,
+            input_policy: reasoning_level_policy,
             output: reasoning_output,
         },
         prompt_caching: SupportState::intersection(

@@ -46,6 +46,81 @@ pub enum ReasoningLevel {
     Max,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+/// Public Model policy for accepting and resolving downstream reasoning levels.
+pub enum ReasoningLevelPolicy {
+    /// Accepts only reasoning levels in the fixed executable interface contract.
+    #[default]
+    Strict,
+    /// Floors positive levels within the executable set and clamps values below its minimum.
+    ClampPositiveFloor,
+}
+
+const POSITIVE_REASONING_LEVELS: [ReasoningLevel; 6] = [
+    ReasoningLevel::Minimal,
+    ReasoningLevel::Low,
+    ReasoningLevel::Medium,
+    ReasoningLevel::High,
+    ReasoningLevel::XHigh,
+    ReasoningLevel::Max,
+];
+
+impl ReasoningLevelPolicy {
+    /// Resolves one standard downstream level without converting the independent `none` value.
+    pub fn resolve(
+        self,
+        requested: ReasoningLevel,
+        executable: &[ReasoningLevel],
+    ) -> Option<ReasoningLevel> {
+        // Keep the explicit reasoning-disable value outside every positive normalization rule.
+        if requested == ReasoningLevel::None {
+            return executable
+                .contains(&ReasoningLevel::None)
+                .then_some(ReasoningLevel::None);
+        }
+
+        // Resolve strict membership or floor within the executable positive levels.
+        match self {
+            Self::Strict => executable.contains(&requested).then_some(requested),
+            Self::ClampPositiveFloor => executable
+                .iter()
+                .copied()
+                .filter(|level| *level != ReasoningLevel::None && *level <= requested)
+                .max()
+                .or_else(|| {
+                    executable
+                        .iter()
+                        .copied()
+                        .filter(|level| *level != ReasoningLevel::None)
+                        .min()
+                }),
+        }
+    }
+
+    /// Returns the standard downstream levels accepted by this policy for one executable set.
+    pub fn accepted_levels(self, executable: &[ReasoningLevel]) -> Vec<ReasoningLevel> {
+        // Preserve exact executable levels for strict input contracts.
+        if self == Self::Strict {
+            return executable.to_vec();
+        }
+
+        // Publish every positive input only when at least one positive result can be resolved.
+        let has_positive = executable
+            .iter()
+            .any(|level| *level != ReasoningLevel::None);
+        let mut accepted = executable
+            .contains(&ReasoningLevel::None)
+            .then_some(ReasoningLevel::None)
+            .into_iter()
+            .collect::<Vec<_>>();
+        if has_positive {
+            accepted.extend(POSITIVE_REASONING_LEVELS);
+        }
+        accepted
+    }
+}
+
 /// Ordered, duplicate-free reasoning levels confirmed for one canonical Model.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReasoningLevels {
@@ -748,6 +823,8 @@ pub struct PublicModelConfig {
     pub description: Option<String>,
     /// Static Public Model lifecycle.
     pub lifecycle: ModelLifecycle,
+    /// Static policy for resolving standard downstream reasoning levels.
+    pub reasoning_level_policy: ReasoningLevelPolicy,
     /// Complete Route IDs ordered by priority.
     pub routes: Vec<String>,
 }
