@@ -73,6 +73,11 @@ Provider 文档按"调研方向"组织：每个 provider 一个目录，目录�
 - [API 与模型能力调研](providers/openrouter/api.md)——接口分层、`Model` 对象字段语义、入口/认证、live wire 观察
 - [模型目录](providers/openrouter/models.md)——全模态目录、精确匹配与 endpoint 参数差异（复核 2026-08-09）
 
+### ChatGPT Codex backend
+
+- [模型目录快照](providers/chatgpt/models.md)——2026-08-10 的模型、模态、reasoning、visibility 与 API 支持字段；原始 JSON
+  快照不含 OAuth token、账户标识或 Authorization 值
+
 ### DeepSeek、LongCat、Xiaomi MiMo、Kimi、NVIDIA 与阿里云百炼
 
 - [DeepSeek API 协议入口](providers/deepseek/api.md)（2026-08-08）——endpoint、认证、Responses 约束
