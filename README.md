@@ -403,6 +403,11 @@ Authorization: Bearer <users.toml 中启用用户的 api_key>
 标准 Models 接口只返回客户端可用的 Public Model 身份，不返回 Provider、Target、Route、上游 model、endpoint、
 credential、health 或 pricing。需要确定可用参数时，先读取扩展 Models：
 
+扩展 list 可使用 `native_protocol=chat_completions` 或 `native_protocol=responses`，只保留对应 downstream 协议至少存在一条
+Native candidate 的 Public Model；仅能通过 Protocol Bridge 接受该协议的模型会被排除。参数省略时仍返回完整扩展目录。
+该筛选只帮助下游选择请求协议，不公开或重排 Route，也不改变既有 retry/fallback。空值、未知值、重复参数或其他未知 query
+parameter 返回 HTTP 400，不会静默退化为未筛选列表。
+
 扩展 generation interface 的 `reasoning.levels` 表示实际执行档位，`accepted_levels` 表示客户端可提交档位，`input_policy` 表示固定
 转换规则。当前通用文本 generation Public Model 使用 `clamp_positive_floor`：正向 effort 向下落到不高于请求值的最高可执行档，低于
 最小档时夹到最小档；`none` 仅在实际 `levels` 包含它时原样接受，永不转换为开启 reasoning。音频专用与 Embeddings Public Model
@@ -413,6 +418,9 @@ curl http://127.0.0.1:8080/v1/models \
   -H 'Authorization: Bearer replace-with-a-local-client-token'
 
 curl http://127.0.0.1:8080/openbridge/v1/models \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl 'http://127.0.0.1:8080/openbridge/v1/models?native_protocol=responses' \
   -H 'Authorization: Bearer replace-with-a-local-client-token'
 
 curl http://127.0.0.1:8080/openbridge/v1/models/text-embedding-3-small \

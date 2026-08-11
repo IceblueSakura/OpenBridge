@@ -146,6 +146,143 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
 }
 
 #[tokio::test]
+async fn extended_models_filter_by_executable_native_generation_protocol() {
+    // Give each Public Model one Native protocol and one opposite-direction Bridge surface.
+    let mut definition = support::definition("native-filter-test", "template", "upstream-model");
+    let template = definition.public_models.remove(0);
+    definition.routes = vec![
+        RouteConfig {
+            id: "chat-native-chat".to_owned(),
+            upstream_target: "openai-main".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
+            downstream_operation: OperationKind::ChatCompletions,
+            mode: RouteMode::Native,
+        },
+        RouteConfig {
+            id: "chat-native-responses-bridge".to_owned(),
+            upstream_target: "openai-main".to_owned(),
+            upstream_operation: OperationKind::ChatCompletions,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Bridged,
+        },
+        RouteConfig {
+            id: "responses-native-chat-bridge".to_owned(),
+            upstream_target: "openai-main".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::ChatCompletions,
+            mode: RouteMode::Bridged,
+        },
+        RouteConfig {
+            id: "responses-native-responses".to_owned(),
+            upstream_target: "openai-main".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Native,
+        },
+    ];
+    definition.public_models = vec![
+        openbridge::registry::PublicModelConfig {
+            id: "chat-native".to_owned(),
+            display_name: "Chat Native".to_owned(),
+            routes: vec![
+                "chat-native-chat".to_owned(),
+                "chat-native-responses-bridge".to_owned(),
+            ],
+            ..template.clone()
+        },
+        openbridge::registry::PublicModelConfig {
+            id: "responses-native".to_owned(),
+            display_name: "Responses Native".to_owned(),
+            routes: vec![
+                "responses-native-chat-bridge".to_owned(),
+                "responses-native-responses".to_owned(),
+            ],
+            ..template
+        },
+    ];
+    let app =
+        app_with_transport_and_definition(Arc::new(RecordingTransport::default()), definition);
+
+    // Omission preserves the deterministic full list; each filter keeps only a true Native surface.
+    let unfiltered = authenticated_get(&app, "/openbridge/v1/models").await;
+    assert_eq!(
+        unfiltered["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["chat-native", "responses-native"]
+    );
+    for (protocol, expected_id) in [
+        ("chat_completions", "chat-native"),
+        ("responses", "responses-native"),
+    ] {
+        let filtered = authenticated_get(
+            &app,
+            &format!("/openbridge/v1/models?native_protocol={protocol}"),
+        )
+        .await;
+        assert_eq!(filtered["object"], "list");
+        assert_eq!(filtered["data"].as_array().unwrap().len(), 1);
+        assert_eq!(filtered["data"][0]["id"], expected_id);
+        let original = unfiltered["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|model| model["id"] == expected_id)
+            .unwrap();
+        assert_eq!(&filtered["data"][0], original);
+
+        // Filtering is a private execution-snapshot predicate, not a new topology projection.
+        let serialized = serde_json::to_string(&filtered).unwrap();
+        for private_value in [
+            "\"routes\"",
+            "\"upstream_target\"",
+            "\"upstream_model\"",
+            "\"mode\"",
+        ] {
+            assert!(
+                !serialized.contains(private_value),
+                "leaked {private_value}"
+            );
+        }
+    }
+
+    // Reject malformed or misspelled filters so callers cannot mistake an unfiltered list for a match.
+    for (path, expected_code, expected_param) in [
+        (
+            "/openbridge/v1/models?native_protocol=",
+            "invalid_query_parameter",
+            "native_protocol",
+        ),
+        (
+            "/openbridge/v1/models?native_protocol=embeddings",
+            "invalid_query_parameter",
+            "native_protocol",
+        ),
+        (
+            "/openbridge/v1/models?native_protocol=responses&native_protocol=chat_completions",
+            "invalid_query_parameter",
+            "native_protocol",
+        ),
+        (
+            "/openbridge/v1/models?protocol=responses",
+            "unknown_parameter",
+            "protocol",
+        ),
+    ] {
+        let response = authenticated_response(&app, path).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["type"], "invalid_request_error", "{path}");
+        assert_eq!(error["error"]["code"], expected_code, "{path}");
+        assert_eq!(error["error"]["param"], expected_param, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn retired_public_models_are_hidden_and_cannot_be_requested() {
     // Mark a valid Public Model as disabled while preserving valid lifecycle timestamps.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");

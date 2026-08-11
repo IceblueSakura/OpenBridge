@@ -192,7 +192,7 @@ state ownership 也不能选择能力更强的候选。
 |-------------------------------------|-------------------------------------------------|
 | `GET /v1/models`                    | `object: "list"` 与严格四字段 `StandardModel[]` |
 | `GET /v1/models/{model}`            | 一个严格四字段 `StandardModel`                  |
-| `GET /openbridge/v1/models`         | `object: "list"` 与完整 `PublicModelInfo[]`     |
+| `GET /openbridge/v1/models`         | 可选 Native generation 协议筛选后的 `object: "list"` 与完整 `PublicModelInfo[]` |
 | `GET /openbridge/v1/models/{model}` | 一个完整 `PublicModelInfo`                      |
 
 共同要求：
@@ -203,11 +203,16 @@ state ownership 也不能选择能力更强的候选。
   明确两者间的固定解析规则；三者不得泄漏 Route、Provider 或 wire mapping。
 - 扩展 generation interface 的 `response_includes` 只包含全部固定候选共同接受且能安全处理的精确 wire 值，不构成输出 item 保证；`prompt_cache_key` 只通过
   `supported_parameters` 表示 exact forwarding，不得重新投影为“缓存受支持”或 cache-hit 保证。
+- 扩展 list 接受至多一个 `native_protocol=chat_completions|responses`。省略时返回完整可见目录；存在时只保留目标 downstream
+  protocol 的固定 execution interface 至少包含一条 `Native` candidate 的 Public Model。仅有 `Bridged` candidate 的同协议
+  interface 不得命中；筛选不得公开 candidate、Route 或部署事实，也不得改变模型顺序或请求 Route 顺序。
+- 空值、未知值、重复 `native_protocol` 和其他未知 query parameter 必须返回 HTTP 400 `invalid_request_error`，并在 `param`
+  中定位对应 query parameter；不得静默忽略并返回完整目录。
 - 同一 snapshot 下，retrieve 必须与对应列表元素逐字段相同；列表按 Public Model id 确定性排序。
 - 未知、retired 或当前不可用模型返回 HTTP 404、`model_not_found`，`param` 为 `model`，不得区分内部存在性。
 - 固定接口契约不支持请求时返回 HTTP 400、`unsupported_model_capability`，并保证上游调用次数为零。
 - 已识别但当前 OpenBridge 尚未实现的协议能力可以返回独立稳定的 `unimplemented_request`，不得尝试透传猜测。
-- 第一版不提供分页、搜索、排序参数、模型 ACL、能力过滤或动态刷新。
+- 除上述单一 Native generation 协议筛选外，不提供分页、搜索、排序、模型 ACL、通用能力过滤或动态刷新。
 
 ## 7. 启动时校验
 
@@ -248,6 +253,7 @@ registry 必须在监听前拒绝：
 | MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
 | MODEL-14 | generation reasoning `levels`、`accepted_levels` 与 `input_policy` 共享同一固定接口；正向归一化在 candidate 展开前执行一次，`none` 保持独立，标准 Models 投影不变。 |
 | MODEL-15 | Responses `response_includes` 按具体 wire 值保守相交并直接供 preflight 使用；接受值不保证输出 item，Bridge 只能显式安全消费；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
+| MODEL-16 | 扩展 list 的 `native_protocol` 只命中含对应 Native candidate 的 Public Model；Bridge-only interface 被排除，省略参数保持完整列表，非法、重复或未知 query 显式失败且响应不泄漏拓扑。 |
 
 确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
 LiteLLM/OpenRouter 目录新鲜度。
@@ -259,7 +265,7 @@ LiteLLM/OpenRouter 目录新鲜度。
 - 在 Models API 中暴露 deployment、endpoint、credential、健康、价格、配额、指标或 benchmark；运行指标只通过独立 OTLP metrics
   signal 导出，不属于模型目录或模型能力契约；
 - 从 LiteLLM、OpenRouter、Provider `/models` 或 probe 动态发现和注册模型；
-- 模型推荐、自动迁移、alias resolution、ACL、分页搜索或 capability query API；
+- 模型推荐、自动迁移、alias resolution、ACL、分页搜索，或除 `native_protocol` 外的通用 capability query API；
 - 在未实现协议语义前，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state、embedding 参数或 opaque reasoning。
 
 ## 关联文档

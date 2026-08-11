@@ -270,6 +270,20 @@ impl PublicModel {
         self.execution_interfaces.for_operation(operation)
     }
 
+    /// Returns whether one downstream generation protocol has an executable Native candidate.
+    ///
+    /// This predicate intentionally exposes neither the matching candidate nor any deployment
+    /// identity to the Models handler.
+    pub(crate) fn has_native_candidate(&self, protocol: ApiProtocol) -> bool {
+        self.execution_interface(protocol.operation())
+            .is_some_and(|interface| {
+                interface
+                    .candidates()
+                    .iter()
+                    .any(|candidate| candidate.mode() == RouteMode::Native)
+            })
+    }
+
     /// Returns whether the model remains visible to clients and has at least one executable interface.
     pub(crate) fn is_available(&self) -> bool {
         self.info.lifecycle.status != ModelLifecycleStatus::Retired

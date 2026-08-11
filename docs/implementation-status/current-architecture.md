@@ -232,7 +232,7 @@ Streamable HTTP、JSON-RPC/header validation 与 dispatch，`tools/mod.rs` 负�
 | `GET /healthz`                      | 返回状态与注册表版本                                                |
 | `GET /v1/models`                    | 返回 Public Model 的 OpenAI 标准四字段列表                          |
 | `GET /v1/models/{model}`            | 返回一个标准四字段 Model 对象                                       |
-| `GET /openbridge/v1/models`         | 返回完整 Public Model 能力列表                                      |
+| `GET /openbridge/v1/models`         | 返回完整 Public Model 能力列表；可按 Chat/Responses Native candidate 筛选 |
 | `GET /openbridge/v1/models/{model}` | 返回一个完整 Public Model 能力对象                                  |
 | `POST /v1/chat/completions`         | 进入 Chat Native/Bridged RoutePlan                                  |
 | `POST /v1/responses`                | 进入 Responses Native/Bridged RoutePlan                             |

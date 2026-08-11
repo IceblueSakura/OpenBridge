@@ -136,9 +136,13 @@ paths:
       description: |
         Returns model facts precompiled by the immutable registry and one fixed capability contract
         per protocol. The response contains no Provider, Target, Route, upstream model, endpoint,
-        credential, health, or pricing information.
+        credential, health, or pricing information. When native_protocol is present, only Public
+        Models with at least one executable Native candidate for that downstream generation protocol
+        are retained; Bridge-only interfaces do not match and candidate topology remains private.
       security:
         - BearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/NativeProtocol'
       responses:
         '200':
           description: Public Model extended-capability list
@@ -149,6 +153,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExtendedModelListResponse'
+        '400':
+          $ref: '#/components/responses/ModelsQueryBadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -424,6 +430,17 @@ components:
       schema:
         type: string
         pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+    NativeProtocol:
+      name: native_protocol
+      in: query
+      required: false
+      description: >-
+        Filters the extended list to Public Models whose fixed execution interface contains at
+        least one Native candidate for this downstream generation protocol. Omission returns the
+        full visible list. Empty, repeated, or unsupported values are rejected rather than ignored.
+      schema:
+        type: string
+        enum: [ chat_completions, responses ]
 
   responses:
     BadRequest:
@@ -441,6 +458,21 @@ components:
               type: invalid_request_error
               param: null
               code: invalid_request_error
+    ModelsQueryBadRequest:
+      description: The Native protocol filter is empty, repeated, or unsupported, or the query contains an unknown parameter.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The query parameter is invalid
+              type: invalid_request_error
+              param: native_protocol
+              code: invalid_query_parameter
     Unauthorized:
       description: The downstream Bearer API key is missing or invalid.
       headers:

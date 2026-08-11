@@ -254,6 +254,28 @@ pub(super) fn model_not_found() -> Response {
     )
 }
 
+/// Builds a stable query-value rejection without reflecting the supplied value.
+pub(super) fn invalid_query_parameter(param: &str) -> Response {
+    typed_api_error(
+        StatusCode::BAD_REQUEST,
+        "invalid_request_error",
+        "invalid_query_parameter",
+        "The query parameter is invalid",
+        Some(param),
+    )
+}
+
+/// Builds a stable unknown-query rejection while locating the offending parameter name.
+pub(super) fn unknown_query_parameter(param: &str) -> Response {
+    typed_api_error(
+        StatusCode::BAD_REQUEST,
+        "invalid_request_error",
+        "unknown_parameter",
+        "The request contains an unknown query parameter",
+        Some(param),
+    )
+}
+
 /// Builds a normalized error envelope optionally located at a standard request parameter.
 fn api_error_with_param(
     status: StatusCode,

@@ -2,7 +2,7 @@
 
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, RawQuery, State},
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
@@ -17,7 +17,10 @@ use crate::{
 
 use super::{
     forwarding::{forward_embeddings_request, forward_request},
-    response::{api_error, embedding_unsupported_media_type, model_not_found},
+    response::{
+        api_error, embedding_unsupported_media_type, invalid_query_parameter, model_not_found,
+        unknown_query_parameter,
+    },
     state::GatewayState,
 };
 
@@ -53,17 +56,63 @@ pub(super) async fn model(
 /// Returns the OpenBridge extended capability objects for all Public Models.
 pub(super) async fn extended_models(
     State(state): State<GatewayState>,
-) -> Json<ModelListResponse<PublicModelInfo>> {
-    // Clone precompiled DTOs; the handler does not traverse Routes or rededuce capabilities during a request.
-    let data = state
+    RawQuery(raw_query): RawQuery,
+) -> Response {
+    // Parse the one closed filter before reading the registry so malformed queries cannot degrade to a full list.
+    let native_protocol = match parse_extended_models_query(raw_query.as_deref()) {
+        Ok(protocol) => protocol,
+        Err(ExtendedModelsQueryError::InvalidNativeProtocol) => {
+            return invalid_query_parameter("native_protocol");
+        }
+        Err(ExtendedModelsQueryError::UnknownParameter(parameter)) => {
+            return unknown_query_parameter(&parameter);
+        }
+    };
+
+    // Clone precompiled DTOs after applying only the private execution-snapshot predicate.
+    let data: Vec<PublicModelInfo> = state
         .registry
         .public_models()
+        .filter(|model| native_protocol.is_none_or(|protocol| model.has_native_candidate(protocol)))
         .map(|model| model.info().clone())
         .collect();
     Json(ModelListResponse {
         object: "list",
         data,
     })
+    .into_response()
+}
+
+/// Closed parse failures for the extended Models list query.
+enum ExtendedModelsQueryError {
+    InvalidNativeProtocol,
+    UnknownParameter(String),
+}
+
+/// Parses the optional, unique generation Native-protocol filter from a raw query string.
+fn parse_extended_models_query(
+    raw_query: Option<&str>,
+) -> Result<Option<ApiProtocol>, ExtendedModelsQueryError> {
+    let mut native_protocol = None;
+    for (parameter, value) in url::form_urlencoded::parse(raw_query.unwrap_or_default().as_bytes())
+    {
+        // Reject unknown names before inspecting values so misspellings cannot return an unfiltered list.
+        if parameter != "native_protocol" {
+            return Err(ExtendedModelsQueryError::UnknownParameter(
+                parameter.into_owned(),
+            ));
+        }
+        // A scalar filter must not acquire last-value-wins behavior through repetition.
+        if native_protocol.is_some() {
+            return Err(ExtendedModelsQueryError::InvalidNativeProtocol);
+        }
+        native_protocol = Some(match value.as_ref() {
+            "chat_completions" => ApiProtocol::ChatCompletions,
+            "responses" => ApiProtocol::Responses,
+            _ => return Err(ExtendedModelsQueryError::InvalidNativeProtocol),
+        });
+    }
+    Ok(native_protocol)
 }
 
 /// Returns the complete OpenBridge extended capability object for one Public Model.

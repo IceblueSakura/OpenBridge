@@ -9,6 +9,9 @@
 
 - `GET /v1/models` 与 `GET /v1/models/{model}` 提供 OpenAI 标准四字段模型对象；扩展 Models 提供 operation、输入/输出 modality、reasoning、
   state、独立的 `streaming`/`non_streaming` 支持状态、typed `multimodal_input` 和 `supported_parameters` 等下游安全事实。
+- `GET /openbridge/v1/models` 接受可选 `native_protocol=chat_completions|responses`，通过私有 execution snapshot 只保留目标
+  downstream protocol 至少有一条 Native candidate 的 Public Model；Bridge-only interface 不命中。省略参数保持完整目录，
+  非法、空、重复或未知 query 显式返回 typed 400。响应 DTO、id 顺序、请求 Route 顺序和 fallback 均不改变。
 - Canonical Model 使用必填 `Generation | Embedding | SpeechRecognition | SpeechSynthesis | VoiceDesign | VoiceClone` task union；
   `ModelInfo` 保存同构 owned union，context/modalities/parameters/reasoning 不再有独立 shadow fields 或第二个 task tag。
   扩展 Models 的 task 总映射固定为 Generation → `chat,text_generation`、Embedding → `embedding`，其余四个专用 task 分别投影
@@ -110,13 +113,16 @@
 
 - Public Model projection 位于 [`src/registry/public_model.rs`](../../../src/registry/public_model.rs)，编译逻辑位于
   [`src/registry/public_model/compiler.rs`](../../../src/registry/public_model/compiler.rs)。
+- Native protocol list filter 由 `src/ingress/handlers.rs` 解析闭合 query，并只调用 `PublicModel` 的私有 candidate predicate；
+  `PublicModelInfo` 不增加 Route mode、candidate 或部署字段。
 - generation 与 Embeddings analyzer 分开；analyzer 只提取请求事实，不解析 registry entity，也不选择 Route。
 - 当前不包含动态目录、通用 capability negotiation、continuation ledger 或请求级 Route 选择 API。
 
 ## 验证证据
 
 - [`tests/forwarding_contract/models.rs`](../../../tests/forwarding_contract/models.rs) 从 HTTP 边界覆盖标准/扩展 Models 的 list/retrieve、
-  task 投影、私有拓扑不泄漏和不可用模型拒绝；不再复制完整 canonical catalog、Route ID 或 capability DTO 快照。
+  Native protocol 筛选与错误矩阵、task 投影、私有拓扑不泄漏和不可用模型拒绝；不再复制完整 canonical catalog、Route ID 或
+  capability DTO 快照。
 - [`tests/forwarding_contract/admission.rs`](../../../tests/forwarding_contract/admission.rs) 与
   [`tests/ingress_contract.rs`](../../../tests/ingress_contract.rs) 覆盖未知字段、不支持能力、instructions/store 和固定 streaming 边界的
   客户端状态码、错误体与 zero egress。
@@ -203,6 +209,18 @@ instructions/store 错误与规范化入口。实现后：
 以上确定性证据证明本地配置、analysis/planning、Models 投影、Native/Bridge wire、retry body 复用和 canonical fixture，不证明真实
 Provider、Hermes、外部 SDK、强制多 Provider fallback、负载或长期运行。M5 未实现或验证 `previous_response_id`；后续完成的
 `reasoning.summary` 请求分类和 Bridge 映射规则见 [Chat 与 Responses 的显式 Protocol Bridge](protocol-bridge.md)。
+
+2026-08-11 Native protocol list filter 使用失败优先 HTTP 测试锁定旧行为：带
+`native_protocol=chat_completions` 的扩展 list 仍返回 fixture 中的两个模型，而预期只返回 Chat Native 模型。实现后，同一 fixture
+分别以“Chat Native + Responses Bridge”和“Responses Native + Chat Bridge”证明两个允许值只命中真正 Native 的 Public Model；
+省略参数保持完整 id 顺序，空、未知、重复值与未知 query parameter 返回稳定 typed 400，筛选元素与原列表 DTO 逐字段相同且不泄漏
+candidate topology。
+
+聚焦 `forwarding_contract` Models 3 项通过。因当前运行中的 `target/debug/openbridge.exe` 锁住默认构建产物，完整验证使用独立临时
+target 目录执行；`cargo fmt -- --check`、`cargo test --locked --target-dir <isolated-target-dir>`、
+`cargo clippy --locked --target-dir <isolated-target-dir> -- -D warnings` 与 `git diff --check` 全部通过。
+OpenAPI 的参数/响应引用和定义完成静态结构检查，完整测试也覆盖 `/openapi.yaml` 资源交付；未运行真实 Provider、外部 SDK、负载或
+长期运行验证。
 
 ## 相关文档
 
