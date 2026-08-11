@@ -19,10 +19,9 @@
 
 ## 证据边界
 
-`tests/example_config.rs` 中的 `kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge` 已验证 Provider、pool、endpoint、三层
-模型身份、Target、Public Model、Chat Native/Responses Bridge Route、本地两协议规划以及 adapter 的相对请求路径和上游 model 替换。
-`tests/provider_contract.rs` 同时验证 Kimi CN 使用 API-key、仅声明 Chat Native 上游基线，并保持相对 URI 与 credential header 的
-Provider 边界。
+`tests/provider_contract.rs` 验证 Kimi CN 使用 API-key、仅声明 Chat Native 上游基线，并保持相对 URI、上游 model 替换与 credential
+header 的 Provider 边界；`tests/forwarding_contract.rs` 从客户端入口覆盖 Kimi Native/Bridge 参数处置和 zero-egress 错误。默认测试不再
+固定 Kimi 的内部 Route ID、候选数量或顺序。
 
 2026-08-08 使用真实下游用户 key 和当前私有 Kimi credential 执行了 Chat/Responses × JSON/SSE × reasoning
 字段省略/high 矩阵，8 个单元最终全部成功。Responses-via-Chat 的 JSON 能保留 reasoning item，两种 SSE reasoning

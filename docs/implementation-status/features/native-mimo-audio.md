@@ -58,10 +58,6 @@
 
 ## 验证证据
 
-- `cargo test --locked --test example_config`：通过；其中 canonical catalog/task 表、audio task/profile mismatch、Provider ceiling miss、
-  AudioUnderstanding modality matrix 和 Public Model profile 交集测试覆盖启动边界。
-- 完整 `cargo test --locked` 中的 `core::capability::generation::tests` 通过，覆盖五种完整 audio profile、Provider ceiling same-variant
-  containment 和 checked input/delivery 构造边界。
 - 完整 Rust baseline 中的 `forwarding_contract` 通过；`mimo_audio_models_are_chat_native_and_keep_task_specific_wire`、
   `mimo_audio_task_mismatches_fail_before_egress` 等用例覆盖四个模型的 JSON/SSE Chat wire 保真、canonical task Models 投影、private
   union tag 不泄漏、VoiceClone conditioning、task-specific shape、function-tool contract 和 zero-egress 失败边界。

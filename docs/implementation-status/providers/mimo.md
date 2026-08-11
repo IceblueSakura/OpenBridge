@@ -106,10 +106,9 @@ transport；收窄 audio target 后，同一测试确认四模型公开 `unsuppo
 
 当前 checkout 的确定性证据入口：
 
-- [`tests/example_config.rs`](../../../tests/example_config.rs)：MiMo model、target、Route、图片和工具规划；
 - [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs)：图片/音频 wire、任务拒绝和 Responses 并行工具流；
-- [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)：MiMo Provider 能力上界；
-- [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs)：typed 多模态/工具能力定义与收窄规则。
+- [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 与
+  [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)：MiMo Provider 请求、认证与安全出站边界。
 
 2026-08-09 聚焦验证当时：structured-output 矩阵 8/8，auto + strict function-tool 矩阵 8/8，四个 MiMo tool-result continuation
 接口 4/4。非 auto choice 24/24、当时尚未开放的 `parallel_tool_calls` 8/8、`json_schema` 8/8 均在本地返回 HTTP 400

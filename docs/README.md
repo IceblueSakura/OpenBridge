@@ -78,8 +78,9 @@ bootstrap + users + private upstream credential TOML
 ```
 
 配套测试先看 [`tests/config_contract.rs`](../tests/config_contract.rs)、
-[`tests/downstream_auth_contract.rs`](../tests/downstream_auth_contract.rs) 和
-[`tests/example_config.rs`](../tests/example_config.rs)。它们比直接通读 `registry/compiler.rs` 更容易说明哪些校验是契约。
+[`tests/downstream_auth_contract.rs`](../tests/downstream_auth_contract.rs)、
+[`tests/startup_contract.rs`](../tests/startup_contract.rs) 和 [`tests/example_config.rs`](../tests/example_config.rs)。它们从启动结果、
+认证结果和 checked-in profile 烟雾编译说明哪些校验具有运行时价值。
 
 读完后应能回答：为什么业务请求不能动态指定上游 URL、credential、Provider 或 route？为什么用户文件和注册表 变更需要重启？
 
@@ -115,9 +116,9 @@ HTTP request
 → preserve JSON/SSE response within safe header and terminal rules
 ```
 
-配套阅读 [`tests/native_routing_contract.rs`](../tests/native_routing_contract.rs) 和
-[`tests/forwarding_contract.rs`](../tests/forwarding_contract.rs)。前者回答“为什么 Public Model 在 Route 前拒绝请求、
-以及通过后如何保持 Route 顺序”，后者回答“实际转发、fallback、错误、取消和响应是什么”。
+配套阅读 [`tests/ingress_contract.rs`](../tests/ingress_contract.rs) 和
+[`tests/forwarding_contract.rs`](../tests/forwarding_contract.rs)：前者固定客户端可见 admission 错误，后者固定实际转发、fallback、错误、
+取消和响应。测试不再锁定内部 Route ID、候选数量或候选顺序。
 
 ## 6. 第四阶段：理解核心数据所有权
 
@@ -201,8 +202,8 @@ credential。管理员可以对已激活 target 显式执行受信 probe，但�
 
 | 测试资产                                                          | 主要保护内容                                                            | 不证明什么                                           |
 |-------------------------------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------|
-| `tests/config_contract.rs`、`tests/upstream_credential_config.rs` | bootstrap、registry 引用、私有 credential TOML、能力收窄与 endpoint     | 真实网络或 Provider 可用性                           |
-| `tests/native_routing_contract.rs`                                | 请求事实、Public Model 固定能力预检、Route 顺序和 state affinity        | HTTP/SSE 实际发送                                    |
+| `tests/config_contract.rs`、`tests/upstream_credential_config.rs` | bootstrap、registry 引用、私有 credential TOML 与 endpoint              | 真实网络或 Provider 可用性                           |
+| `tests/ingress_contract.rs`                                       | 客户端认证、body/JSON 边界和 pre-egress 业务错误                        | 上游真实响应                                         |
 | `tests/forwarding_contract.rs`                                    | Ingress 到 transport 的 JSON/SSE、fallback、timeout、取消和 header 行为 | 外部 SDK 或真实 Provider 兼容                        |
 | `tests/provider*_contract.rs`                                     | Provider 请求、认证、能力和错误边界                                     | 全部 Provider 私有扩展                               |
 | [`testdata/`](../testdata/README.md)                              | canonical Chat/Responses/SSE/tool/error corpus                          | 任一 case 已经过 OpenBridge runtime                  |
@@ -215,7 +216,7 @@ credential。管理员可以对已激活 target 显式执行受信 probe，但�
 | 你要解决的问题                              | 阅读路线                                                                                                                                                                                              |
 |---------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 启动失败或配置被拒绝                        | 配置需求 → `src/config` → `src/providers/catalog.rs` → `build_registry` → `config_contract.rs`                                                                                                        |
-| 请求为何在 Route 前被拒绝或没有可执行 Route | 模型能力契约 → `analyze_request` → `plan_request` → `native_routing_contract.rs`                                                                                                                      |
+| 请求为何在 Route 前被拒绝或没有可执行 Route | 模型能力契约 → `analyze_request` → `plan_request` → `ingress_contract.rs` / `forwarding_contract/admission.rs`                                                                                       |
 | 模型名或 endpoint 改写错误                  | registry ownership → Provider adapter → `UpstreamClient::send` → provider tests                                                                                                                       |
 | SSE 提前结束、重复 terminal 或乱码          | Responses/Chat 协议参考 → `transport/sse.rs` → `ingress/streaming.rs` → SSE/forwarding tests                                                                                                          |
 | fallback 或 retry 不符合预期                | Provider 韧性需求 → `ingress/forwarding.rs` → status/error classification → forwarding tests                                                                                                          |

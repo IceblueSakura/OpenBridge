@@ -1,151 +1,103 @@
-# 当前测试资产树
+# 当前测试资产与保留标准
 
 ## 状态
 
-**Confirmed。** 当前 checkout 共有 355 个可执行测试：310 个 Rust 默认测试和 45 个 Python testkit 测试。Rust
-测试当前没有 ignored test；51 个 canonical wire case 与 9 个 semantic case 是测试输入与判定 oracle，不计入可执行测试总数。
+**Confirmed。** 当前 checkout 收集 291 个 Rust 默认测试和 45 个 Python testkit 测试。Rust 没有 ignored test；
+`testdata/cases/` 的 51 个 canonical wire case 与 `testdata/semantic-cases/` 的 9 个 semantic case 是输入/oracle，
+不计入可执行测试。
 
-本文按功能所有权维护测试树。叶节点覆盖当前每一个可执行测试所在的 target、文件或互斥命名模块；括号内是该叶节点实际收集的
-test case 数量。一个物理 target 跨越多个功能时，使用不重叠的 Rust 模块前缀拆分，例如
-`tests/forwarding_contract.rs` 的 `admission::*`、`chatgpt::*`、`models::*`、`native::*`、`mimo::*` 和
-`resilience::*`，每个测试只计算一次。
+2026-08-11 完成一次测试质量收敛：删除 142 个只固定内部 capability DTO/交集、完整模型目录、Route ID/顺序、候选数量或
+规划中间态的 Rust 测试。产品实现未因此改变。
 
-## 可执行测试树
+## 保留门槛
 
-```text
-OpenBridge 可执行测试（355）
-├─ Rust 默认测试（310；ignored 0）
-│  ├─ HTTP ingress 与下游认证（19）
-│  │  ├─ src/lib.rs :: ingress::*（8）
-│  │  ├─ tests/downstream_auth_contract.rs（2）
-│  │  ├─ tests/ingress_contract.rs（5）
-│  │  └─ tests/forwarding_contract.rs :: admission::*（4）
-│  ├─ 启动配置、用户与受信凭证（40）
-│  │  ├─ src/lib.rs :: credential::store::*（3）
-│  │  ├─ tests/config_contract.rs（19）
-│  │  ├─ tests/credential_store_contract.rs（1）
-│  │  ├─ tests/startup_contract.rs（3）
-│  │  └─ tests/upstream_credential_config.rs（14）
-│  ├─ ChatGPT OAuth2 生命周期与数据面（21）
-│  │  ├─ src/lib.rs :: oauth2_credentials::*（11）
-│  │  ├─ src/bin/openbridge-auth.rs（1）
-│  │  ├─ tests/oauth2_login_cli.rs（2）
-│  │  └─ tests/forwarding_contract.rs :: chatgpt::*（7）
-│  ├─ Registry、Models、能力预检与路由（49）
-│  │  ├─ src/lib.rs :: core::capability::*（2）
-│  │  ├─ src/lib.rs :: providers::catalog::route_compiler::*（7）
-│  │  ├─ src/lib.rs :: registry::availability::*（2）
-│  │  ├─ tests/capability_definition_contract.rs（4）
-│  │  ├─ tests/example_config.rs（10）
-│  │  ├─ tests/forwarding_contract.rs :: models::*（2）
-│  │  └─ tests/native_routing_contract.rs（22）
-│  ├─ Provider adapter、probe 与上游 transport（44）
-│  │  ├─ src/lib.rs :: probe::*（11）
-│  │  ├─ src/bin/openbridge-probe.rs（2）
-│  │  ├─ src/lib.rs :: provider::*（6）
-│  │  ├─ src/lib.rs :: providers::openai_compatible::*（2）
-│  │  ├─ src/lib.rs :: transport::upstream::*（7）
-│  │  ├─ tests/provider_boundary_contract.rs（9）
-│  │  └─ tests/provider_contract.rs（7）
-│  ├─ Native generation、图片输入与 SSE 解码（20）
-│  │  ├─ tests/forwarding_contract.rs :: native::*（9）
-│  │  ├─ tests/forwarding_contract.rs :: mimo::*（5）
-│  │  └─ tests/sse_contract.rs（6）
-│  ├─ Retry、fallback、credential health 与取消（36）
-│  │  ├─ tests/forwarding_contract.rs :: resilience::*（29）
-│  │  └─ tests/process_replay_contract.rs（7）
-│  ├─ Chat ↔ Responses Protocol Bridge（32）
-│  │  ├─ tests/bridge_conversion_contract.rs（14）
-│  │  ├─ tests/bridge_forwarding_contract.rs（10）
-│  │  └─ tests/protocol_bridge_replay.rs（8）
-│  ├─ OpenAI-compatible Embeddings（27）
-│  │  ├─ tests/embedding_definition_contract.rs（6）
-│  │  ├─ tests/embedding_registry_contract.rs（1）
-│  │  └─ tests/embedding_forwarding_contract.rs（20）
-│  └─ Observability、metrics 与 traces（22）
-│     ├─ src/lib.rs :: observability::*（5）
-│     ├─ tests/observability_contract.rs（13）
-│     ├─ tests/otlp_metrics_contract.rs（2）
-│     └─ tests/otlp_trace_contract.rs（2）
-└─ Python protocol corpus/testkit（45）
-   ├─ tools/corpus/tests/test_corpus.py（14）
-   ├─ tools/corpus/tests/test_semantic.py（8）
-   ├─ tools/corpus/tests/test_sse.py（3）
-   ├─ tools/corpus/tests/test_testkit.py（11）
-   └─ tools/corpus/tests/test_verifier.py（9）
-```
+默认测试必须至少保护以下一项：
 
-Rust 树包含 24 个 integration test target、`src/lib.rs` 和两个有测试的 binary target。`src/main.rs` 与 Rust
-doc-tests 当前各收集 0 个测试，因此不作为可执行叶节点；当前也没有 benchmark。
+1. 客户端可观察的 HTTP、JSON、SSE、CLI 或进程启动结果；
+2. Provider adapter 产生的受信相对 URI、header、请求 body 或响应终态；
+3. Chat ↔ Responses、Embeddings 或 SSE 的协议转换与错误边界；
+4. 认证、凭证、敏感信息、body budget、retry/fallback/cooldown、取消或 observability 的运行时安全结果；
+5. 直接影响启动或请求安全的 fail-closed 边界，例如非法 registry 引用、endpoint、credential ownership 或 body budget。
 
-## Canonical oracle 树
+不再为以下内容单独建立测试：
 
-`testdata/cases/` 中的 51 个 case 是 Rust replay 与 Python testkit 可读取的共享 wire oracle，不是 51 个额外的可执行测试：
+- 完整 canonical Model/Target/Public Model 清单和静态计数；
+- 某个模型的完整 capability JSON 快照；
+- Route ID、Route 数量、候选数量或候选顺序；
+- 仅调用 planner/compiler 后检查内部 DTO、交集结果或中间态；
+- 已由 HTTP/forwarding/bridge 测试覆盖的重复 preflight 正反例。
 
-```text
-testdata/cases（51 个 canonical wire case；非可执行）
-├─ bridge（19）
-│  ├─ chat_to_responses（6）
-│  └─ responses_to_chat（13）
-├─ faults（10）
-│  ├─ chat_native（1）
-│  └─ responses_native（9）
-├─ native（20）
-│  ├─ chat_native（9）
-│  └─ responses_native（11）
-└─ transport（2）
-   ├─ chat_native（1）
-   └─ responses_native（1）
-```
+fail-closed 测试必须从 registry 构建、HTTP admission、Provider wire 或资源生命周期入口验证结果，不单独测试 capability 数据类型的
+集合、交集或构造器中间态。
 
-`testdata/semantic-cases/` 另有 9 个协议无关 function-tool case，覆盖 no-tool、单调用参数、歧义选择、缺参澄清、
-none/required/forced tool choice、无序并行 calls 和结果事实；每个 case 的 reference trace 是正向 oracle，不是额外可执行测试。
+## Rust 业务测试入口
 
-seed `20260726` 生成的 342 个 SSE wire variants 是从 canonical wire case 确定性派生的 byte-fragmentation 输入；它们属于
-Python SSE parser 的参数空间，不是 342 个独立测试，也不是应提交的 canonical 文件。
+| 业务边界 | 主要测试入口 |
+|---|---|
+| HTTP admission、认证与启动 | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs`、`tests/startup_contract.rs` |
+| Bootstrap、用户与凭证 | `tests/config_contract.rs`、`tests/upstream_credential_config.rs`、`tests/credential_store_contract.rs`、`tests/example_config.rs` |
+| Native/Provider 转发 | `tests/forwarding_contract.rs`、`tests/provider_contract.rs`、`tests/provider_boundary_contract.rs` |
+| Protocol Bridge 与 SSE | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs`、`tests/protocol_bridge_replay.rs`、`tests/sse_contract.rs` |
+| Embeddings | `tests/embedding_forwarding_contract.rs` |
+| Retry/fallback/cancel | `tests/forwarding_contract/resilience.rs`、`tests/process_replay_contract.rs` |
+| OAuth2 | `src/oauth2_credentials/**/tests.rs`、`tests/oauth2_login_cli.rs`、`tests/forwarding_contract/chatgpt.rs` |
+| Probe 与 transport | `src/probe/tests.rs`、`src/transport/upstream.rs`、`src/bin/openbridge-probe.rs` |
+| Observability | `tests/observability_contract.rs`、`tests/otlp_metrics_contract.rs`、`tests/otlp_trace_contract.rs` |
+| MCP | `tests/mcp_contract.rs` |
 
-## 所有权与证据边界
+`tests/example_config.rs` 只验证两个 checked-in Bootstrap profile 可以编译成运行时注册表，不再复制模型、能力或路由目录。
+标准/扩展 Models 的业务契约由 `tests/forwarding_contract/models.rs` 从 HTTP 边界验证。
 
-- Rust 测试负责 OpenBridge runtime 行为：ingress、registry/routing、Provider contract、Native/Bridge 转发、retry/fallback、
-  cancellation、OAuth2、Embeddings 与 observability。
-- Python 测试负责 corpus 与独立 testkit：schema/provenance/secret lint、确定性 generation/report/pack、SSE fragmentation、
-  Mock Server/Client loopback、observation verifier 和 normalized function-tool semantic verifier。
-- Canonical corpus 是两层共享的只读协议输入。fixture 存在只证明 oracle 已登记；Rust replay 或 Python loopback 也只证明其直接执行的
-  边界。
-- 当前默认测试树不包含外部 OpenAI SDK、Codex、Hermes、真实 Provider、负载或长期运行测试；这些验收层不能由 350 个确定性测试
-  代替。
+## 已删除的低价值套件
 
-## 盘点与验证证据
+- `tests/capability_definition_contract.rs`
+- `tests/native_routing_contract.rs`
+- `tests/embedding_definition_contract.rs`
+- `tests/embedding_registry_contract.rs`
+- `tests/qwen36_registry_contract.rs`
+- `tests/example_config/configuration.rs`
+- `tests/example_config/providers.rs`
+- `tests/example_config/routing.rs`
+- `src/providers/catalog/route_compiler.rs` 中的固定 Route 顺序/自动补桥单测
+- `src/registry/public_model/compiler/aggregate.rs` 中的 capability 交集单点断言
+- `src/core/capability/generation.rs` 中的 capability 集合、交集和构造器断言
+- `src/pipeline/analysis/generation.rs` 中的 structured-output 中间态合并断言
+- `tests/provider_contract.rs` 中的全 Provider operation/capability 静态矩阵
 
-2026-08-09 本次低价值测试删除、合并与重写在当前 Windows checkout 执行：
+## Canonical oracle 与 Python testkit
+
+`testdata/cases/` 保留 19 个 Bridge、10 个 fault、20 个 Native 和 2 个 transport case；
+`testdata/semantic-cases/` 保留 9 个 function-tool semantic case。它们是 Rust replay 与 Python testkit 共享的只读协议输入，
+fixture 存在本身不证明 OpenBridge runtime 已执行该行为。
+
+Python 的 45 个测试继续负责 corpus schema/provenance/secret lint、确定性 generation/report/pack、SSE fragmentation、
+Mock Server/Client loopback、observation verifier 和 normalized function-tool semantic verifier。本轮没有修改 Python 或 `testdata/`。
+
+## 验证证据与边界
+
+2026-08-11 当前 Windows checkout 执行：
 
 ```powershell
+cargo test --locked -- --list
+cargo fmt -- --check
 cargo test --locked
+cargo clippy --locked -- -D warnings
+git diff --check
 ```
 
-结果：Cargo 执行并通过 310 个测试。Python 资产未变化，本次未重跑；前一日最近一次 Python 基线命令与结果为：
-
-```powershell
-uv run --project tools/corpus pytest tools/corpus/tests
-```
-
-pytest 收集并通过 45 个测试。
-只读解析 `testdata/cases/**/case.json` 得到 51 个唯一 wire case manifest，
-目录分布为 19/10/20/2；`testdata/semantic-cases/**/case.json` 得到 9 个唯一 semantic case。Rust baseline 与 Python test body
-的实际执行结果见[协议测试语料与工具](protocol-test-corpus.md)；没有执行真实 Provider、外部 SDK、负载或长期运行验收。
+Rust 收集并通过 291 个测试；OTLP trace collector 的业务测试改为按通知等待两个已解码 span，定向连续运行 10 次并通过，随后完整
+Rust baseline 通过。Python/testdata 未变化，因此没有为本次 Rust 测试治理重复运行 Python基线。默认测试仍不包含外部 OpenAI SDK、
+Codex、Hermes、真实 Provider、负载或长期运行验收。
 
 ## 维护规则
 
-1. 增删、移动或重命名测试时，同步更新对应叶节点和所有祖先计数；Rust 总数必须等于所有 Rust 功能分支之和。
-2. 跨功能 test target 必须按互斥模块前缀拆分，不能把同一测试重复登记到多个功能点。
-3. 函数级名称以 `cargo test --locked -- --list` 和 pytest `--collect-only` 的实时输出为准，不在状态文档复制 350 个易漂移的函数名。
-4. `testdata/` 或 `tools/corpus/` 的契约、case 或生成规则变化时，同时更新[协议测试语料与工具](protocol-test-corpus.md)中的版本、
-   验证证据和未覆盖范围。
+1. 新测试必须在名称、注释或 fixture 中明确客户端结果、wire 行为或安全失败边界；不得只复制注册表事实。
+2. 路由行为通过实际 fallback/retry/bridge 结果验证，不断言 Route ID、候选数量或顺序。
+3. Models/能力通过 HTTP list/retrieve、请求接受/拒绝和实际 egress 验证，不维护完整静态快照测试。
+4. `testdata/` 或 `tools/corpus/` 变化时，仍同步更新[协议测试语料与工具](protocol-test-corpus.md)并运行 Python 基线。
 
 ## 相关文档
 
 - [实施现状目录](README.md)
 - [协议测试语料与工具](protocol-test-corpus.md)
-- [测试补全计划](../implementation-plans/test-coverage-completion-plan.md)
-- [Corpus 指南](../../testdata/README.md)
-- [Testkit 指南](../../tools/corpus/README.md)
+- [TDD 与证据要求](../functional-requirements/delivery-and-evidence.md)

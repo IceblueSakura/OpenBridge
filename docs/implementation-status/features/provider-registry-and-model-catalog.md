@@ -158,15 +158,14 @@ image-generation/realtime interface、Route 或真实协议验收，不能把 Mo
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖注册项、引用和启动校验。
 - [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖 active pool 筛选、Target/Public Model 过滤和
   非激活 pool 不进入服务凭证要求。
-- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖 OpenAI/ChatGPT target、显式 Provider 池、Public Model/Route 的固定编译事实和能力收窄。
-- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖候选顺序、Public Model 与 Route 规划。
+- [`tests/example_config.rs`](../../../tests/example_config.rs) 只覆盖两个 checked-in Bootstrap profile 能编译为运行时注册表的启动烟雾行为。
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 和 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider 请求、认证和受信出站边界。
-- [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖能力定义的合法性和收窄规则。
 - [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 MiMo 图片 Chat/Responses 的 data/remote、JSON/SSE 原样透传与完整
   terminal，以及专用语音模型的 Chat JSON/SSE 透传与 task-specific zero-egress 拒绝。
 
-这些测试证明当前代码注册表和进程内规划行为，不证明 Provider 目录的外部可用性或动态配置能力。
+这些测试证明启动、客户端边界和实际进程内转发行为，不把内部 capability 快照、Route ID、候选数量或顺序作为独立验收目标；
+也不证明 Provider 目录的外部可用性或动态配置能力。
 
 2026-08-07 Provider 池与模型命名分层变更的确定性验证：
 
@@ -214,10 +213,8 @@ payload。
 
 2026-08-08 Kimi CN Provider 与 Kimi K3 Chat Native 绑定的确定性验证：
 
-- 实现前运行 `cargo test --locked --test example_config kimi_cn_k3_compiles_as_a_chat_native_route`，按预期因缺少 `ProviderKind::KimiCn` 失败；
-- 实现后 `cargo test --locked --test example_config kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge` 通过（1 项），覆盖
-  Provider、API-key pool、可信 endpoint、canonical/provider/upstream model identity、Chat Native/自动 Responses Bridge Route、两协议
-  本地规划和 `/v1/chat/completions` adapter model 替换；
+- 实现前失败用例按预期因缺少 `ProviderKind::KimiCn` 失败；实现后 Provider/forwarding 测试覆盖 API-key、可信 endpoint、相对请求
+  与 `/v1/chat/completions` adapter model 替换；
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
 本轮未执行真实 Moonshot 请求、Models probe、外部 SDK、负载或长期运行测试；静态 Target、规划和 adapter 测试不证明真实账号权限、模型可用性、
@@ -225,13 +222,8 @@ payload。
 
 2026-08-08 Native-first 与缺失协议 Bridge 自动补全：
 
-- `cargo test --locked --test example_config kimi_cn_k3_compiles_with_native_chat_and_auto_responses_bridge`：通过（1 项）；
-- `cargo test --locked route_compiler::tests`：通过（4 项），覆盖 Chat-only、Responses-only 自动补全、完整 Native coverage 抑制冗余
-  自动 Bridge，以及既有显式双协议 Bridge 顺序；
-- `cargo test --locked --test example_config -- --skip compiled_model_catalog_preserves_registered_model_facts`：通过（14 项），覆盖 Kimi、
-  ChatGPT、DeepSeek、NVIDIA、百炼、MiMo 和公共 Route/能力契约；`cargo test --locked --test provider_contract`：通过（7 项）；
-- `cargo test --locked --test forwarding_contract`：通过（46 项）；`cargo test --locked --test native_routing_contract`：通过（18 项）；
-  `cargo test --locked --lib`：通过（60 项）；
+- 当时 Provider 与 forwarding 套件覆盖 Chat-only/Responses-only 的实际 Bridge 与 Native 转发结果；2026-08-11 已删除只断言自动补桥
+  和固定 Route 顺序的 compiler/example-config 测试；
 - `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 
 上述完整测试记录早于本次 Qwen 模型与 Bailian Target 变更；本次按要求未重新执行 Rust 测试、真实 Provider、外部 SDK、负载或长期运行测试。
@@ -248,8 +240,7 @@ payload。
 
 - `openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 新增固定 OpenAI Target；每个 Target 使用对应的
   `openai/<model>` routing identity、OpenAI upstream model、`openai-primary` API-key pool 和 Chat/Responses Native API。
-- `tests/example_config/providers.rs::openai_generation_profiles_compile_as_fixed_api_key_targets` 在实现前因 Target 不存在失败，
-  实现后通过，并确认不激活 `openai-primary` 时这些 Target 保留但 disabled。
+- 当时的启动编译验证确认不激活 `openai-primary` 时这些 Target 保留但 disabled；当前测试资产不再复制完整 Target 表。
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`：通过。
 - 本次未修改私有 credential TOML，未运行真实 OpenAI Provider、probe、外部 SDK、负载或长期运行验收。
 
@@ -300,8 +291,7 @@ payload。
 - 将已有 `bailian-qwen3-7-text-embedding` Embeddings Target 接入下游 `qwen3.7-text-embedding` Public Model，新增唯一
   `qwen3-7-text-embedding-bailian-embeddings` Native Route；标准 `/v1/models` 与扩展 `/openbridge/v1/models` 均公开该模型，
   请求规划固定使用百炼 `/embeddings` Native API。
-- `cargo test --locked --test embedding_registry_contract`：通过（4 项）；当前完整 Rust baseline 也已覆盖该 Public Model、Models
-  endpoint 与固定百炼 Route。
+- 当前 `embedding_forwarding_contract` 与 Models HTTP 测试覆盖该模型的客户端入口、百炼 egress 与响应边界，不再断言固定 Route identity。
 - 未执行真实百炼请求、Models probe、外部 SDK、负载或长期运行验收。
 
 2026-08-09 类型化 Route strategy 与 streaming-only Responses 非流式转换：
@@ -360,14 +350,9 @@ payload。
   modalities、parameters、reasoning 或 task shadow state。
 - MiMo ASR/TTS/VoiceDesign/VoiceClone 使用同名 canonical task 和 executable profile；标准/扩展 Models 分别投影
   `speech_recognition`、`speech_synthesis`、`voice_design`、`voice_clone`，普通 Generation 与 Embedding 的既有 task 投影保持不变。
-- Registry 聚焦测试覆盖专用 task 缺 profile、ASR 误绑 TTS、Provider audio ceiling 越界、Generation AudioUnderstanding 的
-  confirmed/unknown modality matrix、Embedding operation mismatch、跨 operation Public Model task 混合，以及同 ASR variant 的空
-  language 交集；错误分别固定为 `UpstreamApiModelTaskMismatch`、`CapabilityElevation`、`PublicModelTaskMismatch` 和
-  `PublicModelInterfaceProfileMismatch`。
 - `qwen/qwen-audio-3.0-asr-flash` 仍在 31-leaf catalog 中并固定为 `SpeechRecognition`，但 Bailian generic Chat Target 已删除；
-  `tests/example_config/providers.rs::unverified_bailian_qwen_audio_remains_canonical_without_an_executable_target` 保持该 fail-closed 事实。
-- 本轮实际运行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`，全部通过；
-  `tests/example_config.rs` 23 项、`tests/embedding_definition_contract.rs` 6 项和 `tests/config_contract.rs` 20 项聚焦测试也全部通过。
+  当前 HTTP Models/forwarding 测试只验证其没有成为可调用业务入口，不再固定完整 canonical catalog。
+- 当时实际运行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`，全部通过。
 - 本轮未执行真实 Provider、外部 SDK、Models HTTP probe、负载、长期运行或媒体内容验收，也未读取或修改私有 credential。
 
 2026-08-09 Responses continuation 与 credential affinity 静态分型：
@@ -423,8 +408,7 @@ payload。
   Generation Public Model，另外 4 个专用音频和 2 个 Embeddings Public Model 明确排除；
 - 当次扩展 Models 返回 21 个可执行模型，其中 16 个文本模型、4 个专用音频模型和 1 个 Embeddings 模型；静态
   `text-embedding-3-small` 没有进入运行时 Models；
-- `cargo test --locked --test example_config`：通过（24 项）；`cargo test --locked --test embedding_registry_contract`：通过（2 项）；
-  `cargo test --locked --test forwarding_contract models::`：通过（2 项）；
+- 当时 Models HTTP 聚焦测试通过；2026-08-11 已移除静态 example-config/embedding registry 快照测试；
 - 对当前 checkout 构建并启动本地服务，使用私有下游用户 key 和现有 Provider credential 执行 128 个真实请求：124 个 HTTP 200
   均有非空文字和完整 JSON/SSE 终态；Spark `none` 四项返回 HTTP 400 `unsupported_value`；没有最终 429/5xx、传输或协议错误；
 - 15 个简单 prompt 下缺少 reasoning 证据的 GPT `high` 单元经多步求解 prompt 定向复测后有 13 个出现 reasoning；Spark Chat
@@ -452,8 +436,8 @@ payload。
   `reasoning_content`；
 - Public Model 的 executable contract 仍不公开图片、视频、tools 或 Structured Outputs；canonical Model 的较宽模型事实不会扩大
   当前 Bailian Chat Target 的已确认接口能力；
-- 聚焦 `qwen36_registry_contract` 在旧实现上先因 output/公开执行契约不完整而失败；实现后该契约通过（1 项），
-  `example_config` 通过（25 项），`provider_contract` 通过（9 项），Models HTTP 聚焦回归通过（2 项）；
+- 旧实现先因 output/公开执行契约不完整而失败；实现后 `provider_contract` 与 Models HTTP 聚焦回归通过；2026-08-11 已删除
+  Qwen 专属 registry/Route 快照测试；
 - `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；
 - 接入后扩展 Models 单模型查询返回 HTTP 200，Chat/Responses 均投影 `none/high` 和 `plain_text`；真实下游
   `none/high × Chat/Responses × JSON/SSE` 为 8/8 HTTP 200、文字非空且终态完整，四个 `none` 均无 reasoning，四个 `high`

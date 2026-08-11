@@ -65,13 +65,9 @@
 
 ## 证据边界
 
-`tests/example_config.rs` 与 `tests/provider_contract.rs` 验证 Qwen3.7/Qwen3.8 统一七档、双协议 Native Route、Chat `PlainText`、Responses
-`Summary`、Chat switch 与 Responses effort 原值，并锁定 Qwen3.6 的 context、参数集合和 `none/high`；
-`tests/qwen36_registry_contract.rs` 固定 Qwen3.6 Public Model、Chat Native/Responses Bridge、`PlainText`、`none/high` Models 投影和
-Bailian boolean egress；同一组契约还固定四个实测模型的 Public Model `none` 投影，以及 Bailian DeepSeek 仅转换 `none`、保留其他
-effort 的 egress 边界；
-`tests/forwarding_contract.rs` 验证 Qwen3.8 标准/扩展 Models HTTP 投影；`tests/bridge_conversion_contract.rs` 与 `tests/bridge_forwarding_contract.rs`
-验证既有 usage-only SSE lifecycle。
+`tests/provider_contract.rs` 验证 Bailian Chat switch、Responses effort 原值和 DeepSeek `none` 转换；
+`tests/forwarding_contract.rs` 验证 Qwen3.8 标准/扩展 Models HTTP 投影及客户端转发结果；`tests/bridge_conversion_contract.rs` 与
+`tests/bridge_forwarding_contract.rs` 验证既有 usage-only SSE lifecycle。默认测试不再固定 Qwen Route ID、候选数量/顺序或完整能力快照。
 
 Qwen3.6 当前已接成 Chat Native/Responses Bridge Public Model，并完成上述正常首选 Route 的真实 E2E；本轮没有把 Qwen3.8
 多模态/工具/结构化输出或其他 generation Target 的 reasoning 事实外推到未验证能力。当前单账号、单区域请求不证明其他账号、

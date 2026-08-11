@@ -40,7 +40,7 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
     );
     assert!(!registry.http_client().connect_timeout().is_zero());
 
-    // Resolve every public Route through a trusted target, credential pool, and typed Upstream API.
+    // Resolve the configured target through a trusted credential pool and HTTPS endpoint.
     let target = registry.upstream_target("openai-main").unwrap();
     assert!(
         registry
@@ -48,15 +48,6 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
             .is_some()
     );
     assert_eq!(target.endpoint_base().scheme(), "https");
-    let public_model = registry.public_model("code-primary").unwrap();
-    assert!(!public_model.routes().is_empty());
-    for route_id in public_model.routes() {
-        let route = registry.route(route_id).expect("public Route must resolve");
-        let target = registry
-            .upstream_target(route.upstream_target())
-            .expect("Route target must resolve");
-        assert!(target.upstream_api(route.upstream_operation()).is_some());
-    }
 }
 
 #[test]

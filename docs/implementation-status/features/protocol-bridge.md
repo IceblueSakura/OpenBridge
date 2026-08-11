@@ -40,8 +40,8 @@
 - [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
   其中缓存键用例检查 Responses→DeepSeek Chat post-adapter exact egress 与空 include 移除；reasoning include 用例检查固定 interface
   接受该值、Chat egress 显式移除且不合成 opaque output。
-- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 Bridge 未知字段分类、转换前 candidate 参数删除和
-  fallback body 隔离；[`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖对应 HTTP 错误与 transport zero egress。
+- [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 Bridge 相关 HTTP 错误、参数处置、fallback 隔离与 transport
+  zero egress；默认测试不再单独锁定内部 candidate body 或 Route 顺序。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
 - `bridge_conversion_contract::responses_to_chat_non_stream_drops_completed_opaque_continuation` 覆盖真实 GPT 形状的 output-only opaque
   continuation，以及可读 summary 的保留；`forwarding_contract::chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat`

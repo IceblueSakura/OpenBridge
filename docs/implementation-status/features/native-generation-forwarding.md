@@ -66,16 +66,13 @@
 - [`tests/sse_contract.rs`](../../../tests/sse_contract.rs) 覆盖 SSE framing、terminal、EOF 和错误边界。
 - [`tests/provider_contract.rs`](../../../tests/provider_contract.rs) 与 [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs)
   覆盖 Provider wire、认证和安全出站。
-- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖公共契约与候选规划。
 - [`tests/config_contract.rs`](../../../tests/config_contract.rs) 覆盖 streaming policy 与 operation/capability 的启动校验；
   [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 ChatGPT JSON/SSE、强制上游 `stream: true`、terminal takeover
   以及非法/超限流的安全失败。
-- [`tests/example_config.rs`](../../../tests/example_config.rs) 与 [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖
-  DeepSeek V4 Flash 的 DeepSeek→OpenRouter Responses 候选顺序、固定 `/responses` egress 与 typed SSE terminal。
-- `tests/example_config.rs::minimax_m3_compiles_with_openrouter_first_and_binary_reasoning` 覆盖 MiniMax 的 OpenRouter→NVIDIA Chat
-  顺序、OpenRouter Responses Native 和 `none/high` 两接口契约。
+- [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 DeepSeek V4 Flash 的固定 `/responses` egress、typed SSE
+  terminal，以及 MiniMax/相邻 Provider 的客户端可见转发行为；不再断言内部候选顺序。
 - `forwarding_contract::native::longcat_responses_native_forwards_prompt_cache_key_and_removes_empty_include` 检查 post-adapter LongCat
-  Responses egress；`native_routing_contract` 的双候选用例检查 fallback 从同一 body 独立保留缓存键且都不携带空 include。
+  Responses egress与空 include 移除。
 
 2026-08-10 使用私有配置中已启用的非 GPT API-key pool 完成 63 次脱敏固定探测；未使用 `OPENAI_API_KEY` 或 ChatGPT OAuth。9 个 Native
 Responses Target 的 baseline、空 include、`reasoning.encrypted_content`、缓存键与组合请求均为 HTTP 200/完整 terminal，但没有一次返回
@@ -106,8 +103,8 @@ OpenBridge Native Responses 得到 89/16/105，另有 cached 0、reasoning 13；
 内的 cached/creation 变体；这些解析只生成遥测，不改写下游 body。上述结果不证明 token 数值、缓存明细或计费准确，也未在实现后重新执行。
 
 M3 的失败测试最初分别观察到 Responses 参数目录错误包含 `stream_options`、目标 Chat Models 未公开该参数，以及 DeepSeek 流式请求
-返回 400；实现后 `native_routing_contract`、`example_config` 与 `forwarding_contract` 的对应聚焦测试全部通过。确定性证据证明本地
-契约、候选规划、post-adapter 请求与 response bytes，不替代真实 Provider 或 Hermes 复测。
+返回 400；实现后 forwarding HTTP/wire 聚焦测试通过。确定性证据证明客户端错误、post-adapter 请求与 response bytes，不替代真实
+Provider 或 Hermes 复测。
 
 2026-08-09 ChatGPT streaming response media 修复的实际验证：
 
@@ -119,8 +116,7 @@ M3 的失败测试最初分别观察到 Responses 参数目录错误包含 `stre
 2026-08-09 严格参数处置的最终验证：
 
 - `tests/config_contract.rs` 验证 canonical 参数必须进入类型化目录，以及 ignore rule 的声明、重复/冲突边界；
-  `tests/embedding_definition_contract.rs` 验证 Embeddings 拒绝 generation ignore rule；`tests/native_routing_contract.rs` 和
-  `tests/forwarding_contract.rs` 覆盖 Native/Bridge 未知参数、candidate 级删除、fallback 隔离、固定 interface 投影和 zero egress 拒绝；
+  `tests/forwarding_contract.rs` 覆盖 Native/Bridge 未知参数、参数删除、fallback 隔离和 zero egress 拒绝；
 - 使用真实下游 key 对 Kimi `temperature` 执行 Chat/Responses × JSON/SSE，4/4 为 HTTP 200 且终态合法；同一运行中的未知字段 2/2
   返回 `unknown_parameter`，Kimi `n/logprobs/top_logprobs` 两协议 6/6 返回带精确 `param` 的
   `unsupported_model_capability`；

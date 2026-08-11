@@ -1,22 +1,16 @@
-//! Verifies that example configuration, the compiled model catalog, and default route facts remain consistent.
+//! Verifies that both checked-in Bootstrap profiles compile into a runnable registry.
 
-use openbridge::{
-    config::parse_bootstrap_config,
-    core::{ApiProtocol, OperationKind, ReasoningOutput},
-    identity::UserConfigPath,
-    pipeline::{analyze_request, plan_request},
-    provider::{CredentialKind, ProviderKind},
-    providers::{build_compiled_registry, compiled_config},
-    registry::{
-        ReasoningLevel, ReasoningSupport, RouteConfig, RouteMode, UpstreamApiCapabilities,
-        build_registry,
-    },
-    upstream_credentials::UpstreamCredentialConfiguration,
-};
+use openbridge::{config::parse_bootstrap_config, providers::build_compiled_registry};
 
-#[path = "example_config/configuration.rs"]
-mod configuration;
-#[path = "example_config/providers.rs"]
-mod providers;
-#[path = "example_config/routing.rs"]
-mod routing;
+#[test]
+fn checked_in_bootstrap_profiles_compile_into_the_runtime_registry() {
+    for document in [
+        include_str!("../config/bootstrap.toml"),
+        include_str!("../config/bootstrap.example.toml"),
+    ] {
+        let bootstrap = parse_bootstrap_config(document)
+            .expect("the checked-in Bootstrap profile must remain parseable");
+        build_compiled_registry(bootstrap)
+            .expect("the checked-in Bootstrap profile must compile into a runtime registry");
+    }
+}

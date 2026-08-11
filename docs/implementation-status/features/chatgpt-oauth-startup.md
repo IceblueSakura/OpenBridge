@@ -58,7 +58,6 @@ refresh，以及 Spark、GPT-5.5、GPT-5.6 Luna/Terra 和作为 `gpt-5.6-sol` po
 
 ## 验证证据
 
-- [`tests/example_config.rs`](../../../tests/example_config.rs) 覆盖五个 target/Public Model/Route 的编译、能力和固定规划。
 - [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖五个模型的模型改写、streaming 请求 envelope、账户绑定
   header、Native/Chat Bridge 共用的客户端优先/项目默认 instructions、首次 `401` reload/replay、第二次 `401` fail-closed，以及非流式/输出限制请求的
   pre-egress 拒绝；`tests/config_contract.rs` 覆盖存在通用 Generation interface 时缺失、空值和纯空白默认值均启动失败，以及仅有

@@ -69,8 +69,9 @@ refresh 稳定性。配置了 OAuth2 auth-file locator 仍可能处于待登录�
 
 2026-08-08 NVIDIA 与百炼 credential binding 扩展验证：
 
-- `tests/example_config.rs::nvidia_and_bailian_compile_as_fixed_api_key_provider_profiles`：确认两个 API-key pool、固定 Provider instance 与模板 placeholder；
-- `tests/example_config.rs::compiled_provider_credential_pools_are_shared_and_match_the_private_toml_example`：确认模板仍可按编译期 binding 装载；
+- 当时确认两个 API-key pool、固定 Provider instance 与模板 placeholder，并确认模板可按编译期 binding 装载；
+- 当前 [`tests/example_config.rs`](../../../tests/example_config.rs) 只保留两个 checked-in Bootstrap profile 的运行时注册表编译烟雾，
+  credential 解析和启用/禁用结果由 [`tests/upstream_credential_config.rs`](../../../tests/upstream_credential_config.rs) 覆盖；
 - `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `cargo fmt -- --check`：通过。
 
 本轮只验证无真实值的模板和本地静态绑定；没有读取、打印或测试真实 key，也没有执行 Provider 网络请求。

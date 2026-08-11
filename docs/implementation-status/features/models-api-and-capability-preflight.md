@@ -108,57 +108,33 @@
 
 ## 验证证据
 
-- [`tests/native_routing_contract.rs`](../../../tests/native_routing_contract.rs) 覆盖 typed mode 交集、未知字段分类、能力预检、Route 顺序、
-  candidate 独立请求体和 continuation issuer 安全；图片用例还覆盖 Remote/Data/Both 精确 Models projection、source/MIME/detail 交集降级、
-  cross-minima encoded/decoded clamp、最小 `https://a`/`AA==` preflight 正例，以及单项/累计上限拒绝。
-- 同一 `native_routing_contract` 以只支持 `medium/high` 的双候选接口覆盖 `minimal/low → medium`、`xhigh/max → high`、`none`/未知拒绝、
-  Responses 空 reasoning object 保留和 Models 三字段一致性；`tests/example_config/providers.rs` 另覆盖 Spark Chat 输入先归一化再进入
-  Responses Bridge，`tests/embedding_definition_contract.rs` 覆盖非 generation 策略启动拒绝。
-- [`tests/capability_definition_contract.rs`](../../../tests/capability_definition_contract.rs) 覆盖 capability subset、三种 image source payload、
-  Provider containment、`ResponseInclude` wire round-trip、当前 15 个已探测 Target/API forwarding 声明与 payload elevation；core generation 单测覆盖 9-byte URL、4/1-byte inline 下界、空/重复 set、累计可达性和完整
-  source/detail subset lattice。
-- [`tests/provider_boundary_contract.rs`](../../../tests/provider_boundary_contract.rs) 固定 MiMo/OpenAI Chat/Responses Provider ceiling 的
-  source、media、detail、`max_parts`、URL limit 和四项 inline limit，并确认只有 `mimo-v2.5` executable Chat/Responses Target 开放图片，
-  MiMo Pro/audio 与全部 checked-in OpenAI Target 保持 `None`；同一测试还逐 operation 固定 9 个 Provider family ceiling 与 45 个
-  checked-in generation Target 的 Structured Output profile。
-- [`tests/forwarding_contract/mimo.rs`](../../../tests/forwarding_contract/mimo.rs) 对 Chat/Responses 分别覆盖 data-URL JSON 与 remote-URL SSE
-  的 exact upstream body、mixed part 顺序、response bytes 和唯一 successful terminal；同一入口还覆盖非法 role、URL/Base64/MIME/detail、
-  `file_id` 与超限输入 zero-egress。[`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 固定图片请求不能经过
-  Chat ↔ Responses Bridge 且不会触发 transport。
-- [`tests/credential_store_contract.rs`](../../../tests/credential_store_contract.rs) 覆盖 continuation Target 即使没有 Public Model 仍要求
-  单 member，以及普通 Target-bound pool 允许多 member；[`tests/forwarding_contract/resilience.rs`](../../../tests/forwarding_contract/resilience.rs)
-  覆盖 continuation 请求禁跨 Target fallback，而无状态请求在 continuation-capable candidates 上仍保留 fallback。
-- `cargo test --locked --lib core::capability::generation::tests` 验证 typed generation subset 与 audio profile presence 推导；
-  `cargo test --locked --test native_routing_contract` 验证交集外 mode 和未知参数在 egress 前拒绝、候选顺序不变，以及一个候选的参数删除
-  不污染支持该字段的 fallback candidate。
-- Structured Output 首个测试在旧平铺结构上按预期得到 `support: supported, modes: []` 并失败；实现后 core 5×5
-  subset/intersection truth table、analyzer merge/conflict、Public 空交集/strict 降级/稳定 mode 顺序、Provider ceiling elevation 与
-  HTTP 四类请求 `unsupported_model_capability`/zero-egress 全部通过。MiMo JSON Object、DeepSeek Native/Bridge 与双向 JSON Schema
-  Bridge 回归保持通过。
-- [`tests/embedding_definition_contract.rs`](../../../tests/embedding_definition_contract.rs) 和 [`tests/embedding_registry_contract.rs`](../../../tests/embedding_registry_contract.rs)
-  覆盖 Embeddings interface 的独立编译和公开契约。
-- [`tests/example_config/configuration.rs`](../../../tests/example_config/configuration.rs) 覆盖 33 个 canonical leaf 的 task 表、
-  canonical/audio mismatch、Provider ceiling miss、Generation AudioUnderstanding modality matrix、Public Model 跨 operation task gate 和
-  same-variant 空 payload 交集；[`tests/forwarding_contract/models.rs`](../../../tests/forwarding_contract/models.rs) 覆盖标准/扩展
-  Models 的 Generation/Embedding task 投影和 list/retrieve equality，
-  [`tests/forwarding_contract/mimo.rs`](../../../tests/forwarding_contract/mimo.rs) 覆盖四个专用 task 投影与 private audio union tag 不泄漏。
+- [`tests/forwarding_contract/models.rs`](../../../tests/forwarding_contract/models.rs) 从 HTTP 边界覆盖标准/扩展 Models 的 list/retrieve、
+  task 投影、私有拓扑不泄漏和不可用模型拒绝；不再复制完整 canonical catalog、Route ID 或 capability DTO 快照。
+- [`tests/forwarding_contract/admission.rs`](../../../tests/forwarding_contract/admission.rs) 与
+  [`tests/ingress_contract.rs`](../../../tests/ingress_contract.rs) 覆盖未知字段、不支持能力、instructions/store 和固定 streaming 边界的
+  客户端状态码、错误体与 zero egress。
+- [`tests/forwarding_contract/mimo.rs`](../../../tests/forwarding_contract/mimo.rs) 对图片、工具、结构化输出和专用音频覆盖 exact upstream
+  wire、客户端响应与非法组合 zero egress；[`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖
+  Bridge 可转换边界。
+- [`tests/credential_store_contract.rs`](../../../tests/credential_store_contract.rs) 和
+  [`tests/forwarding_contract/resilience.rs`](../../../tests/forwarding_contract/resilience.rs) 覆盖 state affinity、credential 与 fallback 的
+  运行时安全结果。
+- [`tests/embedding_forwarding_contract.rs`](../../../tests/embedding_forwarding_contract.rs) 覆盖 Embeddings 客户端输入、受信 egress、
+  成功体校验、retry 与取消。默认测试不再单独验证 capability 构造器、集合或交集中间态。
 
 2026-08-10 reasoning input policy 迁移验证：失败测试先因 `ReasoningLevelPolicy` 与 Public Model 字段尚不存在而按预期编译失败；实现后
-`native_routing_contract` 34 项、`embedding_definition_contract` 7 项、`config_contract` 20 项、Models HTTP 2 项，以及 Spark Bridge
-聚焦测试通过。`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整
+config、Models HTTP 与 Spark Bridge 聚焦测试通过。`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整
 `cargo test --locked` 只在既有 example-config 全等断言失败：当前本地 `config/bootstrap.toml` 启用了 OTLP，而
 `config/bootstrap.example.toml` 未启用；未修改该本地配置。使用
 `cargo test --locked -- --skip checked_in_examples_compile_into_a_closed_runtime_registry` 后其余全部测试通过。以上检查只证明本地
 registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不证明真实 Provider、当前外部 SDK、目标 Agent runtime、负载或长期运行。
 
 2026-08-10 `include`/`prompt_cache_key` 根因修复先以三个旧实现失败用例确认整体 reserved gate：空 `include` 无法通过、未知投影错误分类、
-未声明缓存键未进入固定参数 gate。实现后 `capability_definition_contract`、`native_routing_contract`、`forwarding_contract` 与
-`bridge_forwarding_contract` 聚焦套件通过；Models 不再输出 `prompt_caching`，改为逐值 `response_includes` 与
+未声明缓存键未进入固定参数 gate。实现后 forwarding 与 bridge forwarding 聚焦套件通过；Models 不再输出 `prompt_caching`，改为逐值 `response_includes` 与
 `supported_parameters` 中的 `prompt_cache_key`。确定性测试只证明静态声明、交集、预检和 exact egress；真实上游证据边界见 Native/Bridge
 专题；该阶段当时未据此承诺缓存命中或开放任何非空 include。
 
-最终验证中，`capability_definition_contract` 14 项、`native_routing_contract` 35 项、`forwarding_contract` 64 项和
-`bridge_forwarding_contract` 12 项全部通过；include 交集的 library 聚焦测试与 example-config Route 聚焦测试也通过。
+最终验证中，forwarding 与 bridge forwarding 业务套件全部通过。
 `cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 通过。完整 `cargo test --locked` 仍只在未修改的本地
 `config/bootstrap.toml` 与示例文件 OTLP 全等断言失败；跳过 `checked_in_examples_compile_into_a_closed_runtime_registry` 后其余测试全部通过。
 本轮实现后未重新执行真实 Provider、外部 OpenAI SDK、Hermes、负载或长期运行验收。
@@ -172,9 +148,8 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
 - `glm-5.2`、`deepseek-v4-flash` 与 `mimo-v2.5` 的目标 Chat/Responses interface 公开
   `parallel_tool_calls`；DeepSeek Flash 的三个 Chat candidate、两个 Responses candidate，以及 GLM Bridge 和 MiMo Native candidate
   均保留 `true`。DeepSeek Pro 因 Bailian fallback 未验证、MiMo Pro 与 OpenRouter MiniMax 因目标证据不足继续公开 unsupported。
-- `tests/example_config.rs` 的完整候选规划、`tests/provider_boundary_contract.rs` 的 Provider/Target 矩阵、
-  `tests/forwarding_contract.rs` 的 ChatGPT include 与 MiMo parallel egress，以及 `tests/bridge_forwarding_contract.rs` 的 include 消费
-  用例均通过。确定性测试证明本地契约、规划和 wire 行为，不证明上游必定返回 reasoning item、多个 tool call 或内部并行执行。
+- `tests/forwarding_contract.rs` 的 ChatGPT include 与 MiMo parallel egress，以及 `tests/bridge_forwarding_contract.rs` 的 include 消费
+  用例均通过。确定性测试证明客户端与 wire 行为，不证明上游必定返回 reasoning item、多个 tool call 或内部并行执行。
 
 2026-08-10 Hermes M3 以失败优先测试锁定了三个旧行为：Responses interface 仍错误识别 `stream_options`，目标 Chat interface 尚未公开
 该参数，DeepSeek Flash 的流式请求在 Provider egress 前被拒绝。实现后：
@@ -183,15 +158,14 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
   `stream_options`；对应 Responses interface、全部 Bridge 和未验证相邻模型继续保持 unsupported。
 - 参数分析只接受 Chat `stream:true` 且 `stream_options` 恰为 `{"include_usage":true}`；非对象、空对象、`false`、额外子字段及
   非流式组合在 egress 前以稳定无效请求失败。
-- `tests/native_routing_contract.rs` 覆盖 Chat-only 参数目录、精确形状、Responses/Bridge fail-closed；
-  `tests/example_config/providers.rs` 覆盖三个 Public Model 的完整候选交集和相邻模型收窄；`tests/forwarding_contract.rs` 使用编译后的
-  DeepSeek 首选 candidate 验证 post-adapter 请求与带 Provider 私有 usage details 的 SSE 尾块逐字节保持。
+- `tests/forwarding_contract.rs` 使用编译后的 DeepSeek 请求验证 Chat-only 精确形状、Responses fail-closed、post-adapter wire 与带
+  Provider 私有 usage details 的 SSE 尾块逐字节保持。
 
 M4 仍未实现且未获准：DeepSeek Flash 与 MiMo V2.5 的 Chat interface 只公开 `json_object`。MiMo 直连探测虽接受非 strict 和
 `strict:true` 的 `json_schema`，但 enum/字段名约束出现违背并伴随 `finish=abort`，不能证明 strict 语义可靠；DeepSeek、Bailian、
 OpenRouter 也尚未完成同等验证。因此当前完整候选交集继续 fail closed。
 
-M3 最终验证中，`native_routing_contract` 36 项、`example_config` 30 项和 `forwarding_contract` 66 项全部通过；隔离 target 目录下的完整
+M3 最终验证中，forwarding 业务套件通过；隔离 target 目录下的完整
 `cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。本轮没有重新执行真实
 Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
 
@@ -206,11 +180,9 @@ instructions/store 错误与规范化入口。实现后：
   `instructions` 与 false-only store 不进入 model parameter/state 投影，Embeddings 与专用音频 task 跳过该策略。
 - ChatGPT 专属 request context 与覆盖 hook 已删除；adapter 只保留固定 Responses stream/input/store envelope、header/OAuth 和输出
   token limit 拒绝。双向 Bridge 分别负责单次提升/删除或 prepend system，不读取 Bootstrap 或 Provider。
-- 聚焦验证通过：`bridge_conversion_contract` 20 项、`bridge_forwarding_contract` 12 项、`config_contract` 22 项、
-  `embedding_definition_contract` 8 项、`forwarding_contract` 67 项、`ingress_contract` 6 项、`native_routing_contract` 41 项、
-  `qwen36_registry_contract` 1 项、`startup_contract` 3 项、probe 单元测试 11 项和 `process_replay_contract` 7 项。
-  `example_config` 的 M5 全通用模型/全固定候选审计通过；完整 28 项中其余 27 项通过，唯一失败来自工作区并行 Google/Gemma 变更把
-  canonical 数量增加为 33，但其范围内的既有断言仍期望 32。
+- 聚焦验证通过：`bridge_conversion_contract`、`bridge_forwarding_contract`、`config_contract`、`forwarding_contract`、
+  `ingress_contract`、`startup_contract`、probe 单元测试和 `process_replay_contract`。2026-08-11 测试治理继续保留这些客户端、wire、
+  启动与安全边界，删除完整模型/候选审计。
 - `cargo test --locked -- --skip canonical_catalog_assigns_every_model_to_one_expected_task`、
   `cargo clippy --locked -- -D warnings`、`git diff --check`、`uv lock --check --project tools/corpus`、corpus Python 45 项和 corpus lint
   通过。`cargo fmt -- --check` 仍只报告两个未由 M5 修改的已提交文件 `src/providers/kimi_cn/definition.rs` 与

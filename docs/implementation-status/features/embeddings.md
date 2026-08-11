@@ -28,12 +28,9 @@ Native Route 提供受限的 `POST /v1/embeddings` JSON 链路。
 
 ## 验证证据
 
-- [`tests/embedding_definition_contract.rs`](../../../tests/embedding_definition_contract.rs) 覆盖 Embeddings capability 和编译约束。
-- [`tests/embedding_registry_contract.rs`](../../../tests/embedding_registry_contract.rs) 覆盖 Public Model、唯一 candidate 和公开接口。
 - [`tests/embedding_forwarding_contract.rs`](../../../tests/embedding_forwarding_contract.rs) 覆盖受信 egress、客户端可见 JSON
   response、成功体边界、retry、cancel 和脱敏。
-- 2026-08-09 聚焦验证：`cargo test --locked --test embedding_definition_contract --test embedding_forwarding_contract --test embedding_registry_contract`
-  通过（6 + 20 + 2 项）。
+- 当前默认基线只以该 HTTP forwarding target 固定 Embeddings 业务行为，不再单独断言内部 capability DTO、唯一 candidate 或 Route identity。
 - 2026-08-09 真实 Bailian 验证：默认维度与 `256/512/768/1024/1536/2048/2560` 均返回 HTTP 200、向量维度正确且下游不含
   Provider `id`；`64/128` 均在 egress 前返回 HTTP 400 `unsupported_model_capability`，精确 `param: dimensions`，共 10/10 通过。
 - 2026-08-10 真实 NVIDIA 定向验证：string-array 输入返回两个 2048 维 float 向量；当前只据此固定 input form、float encoding、

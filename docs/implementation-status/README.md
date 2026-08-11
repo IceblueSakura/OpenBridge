@@ -11,14 +11,14 @@
 |---|---|---|
 | HTTP 网关接口与下游认证 | [gateway-http-api-and-auth.md](features/gateway-http-api-and-auth.md) | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs` |
 | 启动配置、用户与受信凭证边界 | [startup-configuration-and-credentials.md](features/startup-configuration-and-credentials.md) | `tests/config_contract.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
-| Provider/Model/Target/API/Route/Public Model 注册表 | [provider-registry-and-model-catalog.md](features/provider-registry-and-model-catalog.md) | `tests/native_routing_contract.rs`、`tests/provider*_contract.rs` |
-| Models 接口、公共契约与能力预检 | [models-api-and-capability-preflight.md](features/models-api-and-capability-preflight.md) | `tests/native_routing_contract.rs`、`tests/capability_definition_contract.rs` |
+| Provider/Model/Target/API/Route/Public Model 注册表 | [provider-registry-and-model-catalog.md](features/provider-registry-and-model-catalog.md) | `tests/config_contract.rs`、`tests/provider*_contract.rs`、`tests/forwarding_contract.rs` |
+| Models 接口、公共契约与能力预检 | [models-api-and-capability-preflight.md](features/models-api-and-capability-preflight.md) | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs` |
 | Chat/Responses Native 转发 | [native-generation-forwarding.md](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
-| `mimo-v2.5` Chat/Responses Native 图片输入 | [native-image-input.md](features/native-image-input.md) | `tests/example_config.rs`、`tests/forwarding_contract.rs` |
-| MiMo 专用 ASR/TTS/VoiceDesign/VoiceClone Chat Native | [native-mimo-audio.md](features/native-mimo-audio.md) | `tests/example_config.rs`、`tests/capability_definition_contract.rs`、`tests/forwarding_contract.rs` |
+| `mimo-v2.5` Chat/Responses Native 图片输入 | [native-image-input.md](features/native-image-input.md) | `tests/forwarding_contract.rs` |
+| MiMo 专用 ASR/TTS/VoiceDesign/VoiceClone Chat Native | [native-mimo-audio.md](features/native-mimo-audio.md) | `tests/forwarding_contract.rs` |
 | Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
 | Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
-| OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_*_contract.rs` |
+| OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_forwarding_contract.rs` |
 | ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
 
 ## Provider 实施与实测状态
@@ -46,7 +46,7 @@ Provider 状态页按 family 汇总当前固定 Target、Public Model 的多模�
 | [运行时指标与遥测](telemetry-metrics.md) | OTLP traces/metrics、SDK instruments、属性和生命周期边界 |
 | [上游模型发现与基础 API 探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
 | [最新真实 E2E 结果](real-e2e-test-2026-08-08.md) | 2026-08-09 全量可见文字模型 `none/high` 聚焦矩阵及后续修补状态 |
-| [当前测试资产树](test-inventory.md) | 以功能模块归类全部 Rust/Python 可执行测试，并单列 canonical oracle |
+| [当前测试资产与保留标准](test-inventory.md) | 业务测试入口、低价值测试排除规则与 canonical oracle 边界 |
 | [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
 
 ## 证据和维护规则

@@ -37,6 +37,7 @@ use opentelemetry_proto::tonic::{
     trace::v1::Span as OtlpSpan,
 };
 use prost::Message;
+use tokio::sync::Notify;
 use tower::ServiceExt;
 use tracing::instrument::WithSubscriber;
 use tracing_subscriber::layer::SubscriberExt;
@@ -79,6 +80,7 @@ impl UpstreamTransport for SuccessfulTransport {
 struct CollectorState {
     payloads: Arc<Mutex<Vec<CapturedPayload>>>,
     calls: Arc<AtomicUsize>,
+    payload_ready: Arc<Notify>,
 }
 
 #[derive(Clone)]
@@ -101,6 +103,7 @@ async fn capture_trace_export(
         .lock()
         .unwrap()
         .push(CapturedPayload { headers, uri, body });
+    state.payload_ready.notify_waiters();
 
     // Return the empty successful protobuf response defined by the OTLP trace service.
     (
@@ -240,6 +243,33 @@ fn decode_exports(payloads: &[CapturedPayload]) -> (Vec<Resource>, Vec<OtlpSpan>
     (resources, spans)
 }
 
+async fn wait_for_exported_spans(state: &CollectorState, expected: usize) -> Vec<CapturedPayload> {
+    let result = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            // Register before checking so an export cannot complete between the check and await.
+            let notified = state.payload_ready.notified();
+            let payloads = state.payloads.lock().unwrap().clone();
+            if decode_exports(&payloads).1.len() >= expected {
+                return payloads;
+            }
+            notified.await;
+        }
+    })
+    .await;
+    match result {
+        Ok(payloads) => payloads,
+        Err(_) => {
+            let payloads = state.payloads.lock().unwrap().clone();
+            let names = decode_exports(&payloads)
+                .1
+                .into_iter()
+                .map(|span| span.name)
+                .collect::<Vec<_>>();
+            panic!("expected {expected} exported spans, observed {names:?}");
+        }
+    }
+}
+
 fn string_value<'a>(attributes: &'a [KeyValue], key: &str) -> Option<&'a str> {
     attributes
         .iter()
@@ -319,9 +349,9 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
 
     // Flush and stop the exporter while the fake collector can still accept the final batch.
     runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 2).await;
     server.abort();
     let _ = server.await;
-    let payloads = collector.payloads.lock().unwrap().clone();
     assert!(!payloads.is_empty());
     let request_shapes = payloads
         .iter()

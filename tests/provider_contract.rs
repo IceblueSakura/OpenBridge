@@ -3,29 +3,19 @@
 use bytes::Bytes;
 use http::Method;
 use openbridge::{
-    core::{ApiProtocol, ApiRequest, OperationKind},
+    core::{ApiProtocol, ApiRequest},
     provider::{AdapterError, CredentialKind, ProviderAdapter, ProviderKind},
 };
 
 #[test]
 fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
-    // Verify the independent Provider contract exposes only the ChatGPT Responses surface.
+    // Verify the fixed credential type and actual adapter behavior at the Provider boundary.
     let contract = ProviderKind::ChatGpt.contract();
     assert_eq!(
         contract.credential_kinds(),
         [CredentialKind::OAuth2BearerAccessToken]
     );
-    assert!(contract.capabilities().chat_completions.is_none());
-    assert!(
-        contract
-            .capabilities()
-            .responses
-            .expect("ChatGPT must expose its Responses operation")
-            .streaming
-    );
-    assert!(contract.capabilities().embeddings.is_none());
-
-    // Verify the adapter binds Responses to the fixed backend path and rejects Chat Completions.
+    // Bind Responses to the fixed backend path and reject Chat Completions.
     let adapter = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
     let responses = ApiRequest::new(
         ApiProtocol::Responses,
@@ -43,76 +33,6 @@ fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
         adapter.prepare_request(&chat, "gpt-5.6-sol"),
         Err(AdapterError::UnsupportedProtocol)
     ));
-}
-
-#[test]
-fn provider_contracts_encode_operation_support_by_profile_presence() {
-    let cases: [(ProviderKind, &[OperationKind]); 9] = [
-        (
-            ProviderKind::OpenAi,
-            &[
-                OperationKind::ChatCompletions,
-                OperationKind::Responses,
-                OperationKind::EmbeddingsCreate,
-            ],
-        ),
-        (
-            ProviderKind::Bailian,
-            &[
-                OperationKind::ChatCompletions,
-                OperationKind::Responses,
-                OperationKind::EmbeddingsCreate,
-            ],
-        ),
-        (
-            ProviderKind::LongCat,
-            &[OperationKind::ChatCompletions, OperationKind::Responses],
-        ),
-        (
-            ProviderKind::OpenRouter,
-            &[OperationKind::ChatCompletions, OperationKind::Responses],
-        ),
-        (
-            ProviderKind::DeepSeek,
-            &[OperationKind::ChatCompletions, OperationKind::Responses],
-        ),
-        (
-            ProviderKind::MiMo,
-            &[OperationKind::ChatCompletions, OperationKind::Responses],
-        ),
-        (ProviderKind::ChatGpt, &[OperationKind::Responses]),
-        (
-            ProviderKind::Nvidia,
-            &[
-                OperationKind::ChatCompletions,
-                OperationKind::EmbeddingsCreate,
-            ],
-        ),
-        (ProviderKind::KimiCn, &[OperationKind::ChatCompletions]),
-    ];
-
-    // Keep every Provider's closed operation set explicit without positional boolean encoding.
-    for (provider, expected) in cases {
-        assert_eq!(provider.definition().kind(), provider);
-        assert_eq!(
-            ProviderAdapter::for_kind(provider).contract().kind(),
-            provider
-        );
-        let capabilities = provider.contract().capabilities();
-        let actual = [
-            capabilities
-                .chat_completions
-                .map(|_| OperationKind::ChatCompletions),
-            capabilities.responses.map(|_| OperationKind::Responses),
-            capabilities
-                .embeddings
-                .map(|_| OperationKind::EmbeddingsCreate),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-        assert_eq!(actual, expected, "{provider:?}");
-    }
 }
 
 #[test]
