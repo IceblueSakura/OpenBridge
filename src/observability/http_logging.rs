@@ -71,6 +71,11 @@ fn emit_body(
     let content = String::from_utf8_lossy(bytes);
 
     // Emit one terminal snapshot instead of producing a log event for every body chunk.
+    // Format the body with Display (`%content`) rather than Debug (`?content`): the Debug
+    // renderer escapes newlines/quotes into `\n`/`\"` and journald adds a second escape
+    // layer, making captured JSON nearly unreadable. Display preserves the raw text so the
+    // local log line shows the body as-is (control characters are still sanitized by the
+    // tracing formatter's EscapeGuard).
     span.in_scope(|| match message {
         "request" => tracing::info!(
             body_encoding = encoding,
@@ -78,7 +83,7 @@ fn emit_body(
             observed_bytes = total_bytes,
             complete,
             truncated,
-            content = ?content,
+            %content,
             "downstream_request_body"
         ),
         "response" => tracing::info!(
@@ -87,7 +92,7 @@ fn emit_body(
             observed_bytes = total_bytes,
             complete,
             truncated,
-            content = ?content,
+            %content,
             "downstream_response_body"
         ),
         _ => unreachable!("local HTTP body message kind must be closed"),
@@ -148,9 +153,12 @@ fn is_sensitive_header(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
     use http::{HeaderMap, HeaderValue};
 
-    use super::sanitized_headers;
+    use super::{emit_body, sanitized_headers};
 
     #[test]
     fn header_snapshot_preserves_safe_duplicates_and_redacts_secret_like_names() {
@@ -181,5 +189,59 @@ mod tests {
         )));
         assert!(!format!("{snapshot:?}").contains("synthetic-secret"));
         assert!(!format!("{snapshot:?}").contains("synthetic-key"));
+    }
+
+    #[test]
+    fn body_snapshot_uses_display_and_preserves_newlines() {
+        use tracing::subscriber::with_default;
+
+        // Capture the formatter output instead of writing to stdout.
+        let sink = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = {
+            let sink = Arc::clone(&sink);
+            move || {
+                let sink = Arc::clone(&sink);
+                struct Capture(Arc<Mutex<Vec<u8>>>);
+                impl Write for Capture {
+                    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                        self.0.lock().unwrap().extend_from_slice(buf);
+                        Ok(buf.len())
+                    }
+                    fn flush(&mut self) -> std::io::Result<()> {
+                        Ok(())
+                    }
+                }
+                Capture(sink)
+            }
+        };
+
+        let body = b"{\"a\":1,\n\"b\":2}\n";
+        with_default(
+            tracing_subscriber::fmt()
+                .with_writer(writer)
+                .with_ansi(false)
+                .finish(),
+            || {
+                let span = tracing::info_span!("test");
+                let _guard = span.enter();
+                emit_body(&span, "request", body, body.len(), true, false);
+            },
+        );
+
+        let text = String::from_utf8(sink.lock().unwrap().clone()).unwrap();
+        assert!(
+            text.contains("downstream_request_body"),
+            "missing event marker: {text:?}"
+        );
+        // Display preserves the literal newline instead of escaping it into `\n`.
+        assert!(
+            text.contains("{\"a\":1,\n\"b\":2}\n"),
+            "body newline was not preserved: {text:?}"
+        );
+        // Debug rendering would have produced a literal backslash-n; ensure it is absent.
+        assert!(
+            !text.contains("\\n"),
+            "body was Debug-escaped (backslash-n found): {text:?}"
+        );
     }
 }
