@@ -1,5 +1,15 @@
 # 上游 OAuth 2.0 设备码登录与 token 刷新综合调研
 
+## 文档元数据
+
+| 字段 | 值 |
+|---|---|
+| Source snapshot | RFC 8628/6749/9700、Codex 官方认证资料，以及 Codex、CLIProxyAPI、Hermes、LiteLLM 前置文档的固定 commit |
+| Last reverified | 2026-08-12：仅复核当前综合与前置链接，没有刷新 authority policy、外部源码或真实 token flow |
+| Scope | 比较标准 device grant、Codex 产品 flow、数据面 request identity、refresh 协调与 rotation 风险 |
+| Evidence boundary | 私有 endpoint、client registration、account header 和项目 refresh 策略不构成公共 OAuth 合同或第三方授权 |
+| Recheck trigger | RFC/BCP、Codex 认证产品 flow、client registration、header policy 或任一前置项目的 refresh 实现变化时 |
+
 ## 1. 状态、规范与项目级前置文档
 
 本文是标准与四个项目调研结果的综合比较，不记录任何具体网关的实现状态或实施方案。
@@ -88,9 +98,8 @@ request identity 不是 OAuth grant 的标准字段，但三个 ChatGPT/Codex �
 这些 header 只证明各项目快照的客户端行为，不是 OAuth 标准，也不证明第三方 client identity、subscription 用途或 edge policy 获得长期授权。
 account header 属于 credential context，不能降级成普通静态 header 或由下游覆盖。
 
-Codex 的 Linux UA 会随实际发行版、kernel/OS version、architecture 与 terminal 环境变化，因此不存在唯一的 Linux 字符串。OpenBridge
-选择 `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown` 作为固定 headless Linux x86_64 source-compatible profile；它只复用
-`rust-v0.146.0` 的格式和版本，不宣称复现任一具体 Linux 主机，也不动态读取部署环境。
+Codex 的 Linux UA 会随实际发行版、kernel/OS version、architecture 与 terminal 环境变化，因此不存在唯一的 Linux 字符串。
+兼容消费者若选择固定 UA，那是该消费者自己的部署策略，不能记作 Codex 或 OAuth 规范要求。
 
 ## 5. refresh 实现对比
 

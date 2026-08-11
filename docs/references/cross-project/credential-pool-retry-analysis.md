@@ -1,5 +1,15 @@
 # Credential Pool、冷却与有限重试综合调研
 
+## 文档元数据
+
+| 字段 | 值 |
+|---|---|
+| Source snapshot | CLIProxyAPI、LiteLLM 与 cc-switch 三篇前置文档拥有的固定源码 commit 与来源 |
+| Last reverified | 2026-08-12：仅对当前前置文档复核综合表述与链接，没有拉取外部仓库或执行 retry 场景 |
+| Scope | 比较 credential/account、deployment 与 Provider 三种隔离单位下的 attempt、cooldown 和 failover |
+| Evidence boundary | 静态项目行为不能证明真实 Provider quota、跨主机一致性、state migration 或通用 status-code 策略 |
+| Recheck trigger | 任一前置项目的 retry/cooldown 实现、资源身份、持久化模型或错误分类发生变化时 |
+
 ## 状态与前置文档
 
 本文只比较三个项目已经分别记录的行为：

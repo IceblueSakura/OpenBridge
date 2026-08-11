@@ -1,56 +1,52 @@
 # ChatGPT subscription OAuth credential lifecycle
 
-## 状态
+本文定义 ChatGPT subscription credential 的固定 Provider、OpenBridge-owned auth 文件、显式 PKCE 登录、
+expiry-driven refresh、短期 credential lease 与有界 `401` recovery。
 
-本文定义 ChatGPT subscription credential 的当前边界与生命周期方向。当前已实现独立的 ChatGPT Provider/Provider instance、
-四个固定 Responses-native target/Public Model、从 private upstream credential TOML 显式配置的 OpenBridge-owned OAuth2 auth
-文件、显式 ChatGPT private device interaction + PKCE 登录命令、到期驱动的自动 token refresh，以及请求级 credential 借用和有界
-`401` recovery。
+OpenBridge 不搜索或导入 Codex 用户目录，不调用 Codex executable/app-server，也不从 OS、environment 或 terminal
+推导身份。数据面只使用代码注册的 backend/model/request identity 和 OpenBridge-owned credential；普通请求不会
+隐式登录或选择账户。管理员 probe 只能借用所选 Target 的 manager lease，不改变 registry 或 credential binding。
 
-本机 Codex auth loader、OS/environment/terminal identity 探测和 Codex executable probe 已移除。管理员显式运行的
-`openbridge-probe` 支持已激活 ChatGPT target 的固定 Models 和 streaming Responses 基础 probe；该 probe 只通过选定的 OAuth2 manager
-借用短期 lease，不携带工具，不读取本机状态、不改变注册表，也不构成工具、模型语义、SDK 或长期 Provider 验收。ChatGPT adapter
-可声明固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA 与普通 header，但不从本机状态推导 identity，
-也不接受运行时覆盖。
-OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable 或 app-server。数据面只使用代码注册的固定 backend、model、
-请求身份和 OpenBridge-owned credential；普通请求不会隐式登录或选择其他账户。
-
-外部 OAuth 行为仍应在实现前重新核对 Provider 官方资料和届时的参考实现，不能把历史快照或一次成功调用视为长期稳定协议。
+外部 OAuth authority、client registration 与私有 protocol 在扩大范围前必须重新核对 Provider 官方资料；参考项目
+快照或单次成功调用不形成长期协议承诺。
 
 - [Codex 设备登录与 token 刷新调研](../../references/codex/codex-device-auth-token-refresh-analysis.md)
 - [Codex 浏览器 OAuth 调研](../../references/codex/codex-oauth-and-tool-call-analysis.md)
 - [OAuth 设备登录与 token 刷新综合调研](../../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)
 
-## 1. 当前边界与后续范围
+## 1. Provider 与 credential 边界
 
 ### 1.1 Provider 与 OpenBridge-owned 启动快照
 
-当前实现必须满足：
+必须满足：
 
 1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
 2. BaseURL、operation path 与 credential kind 来自受信 Rust 注册；业务请求和 credential 文件不能覆盖上游 URL、model path 或
    任意 header。
-3. `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个启用的固定 target，并且只加入一个
-   Responses-native Route/Public Model；通用 API-key probe 不借用 OAuth manager credential。
+3. `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个
+   固定 Responses-native ChatGPT Target。前四个 Target 分别是四个 ChatGPT-only Public Model 的唯一 source；Sol
+   Target 是还包含 OpenAI 后备 source 的 `gpt-5.6-sol` Public Model 的 ChatGPT source。通用 API-key probe 不借用
+   OAuth manager credential。
 4. private upstream credential TOML 可为 ChatGPT OAuth2 binding 显式配置一个 OpenBridge-owned `auth_json_file`；不得默认、
    搜索、导入或回退到 `$CODEX_HOME/auth.json`。
-5. 启动 loader 对存在且非空的 auth 文件校验完整 id/access/refresh token bundle、账户绑定与 access-token expiry，并把它装入内部可变、对外
-   snapshot 化的 `OAuth2CredentialManager`；缺失文件在锁内创建为空并保持待登录，不发布 snapshot；完整过期 bundle 进入立即 refresh，非空损坏或
-   不完整 bundle 仍阻止启动。
+5. 启动 loader 要求 auth 文件已存在，并校验完整 id/access/refresh token bundle、账户绑定与 access-token expiry，
+   再把固定 binding/locator/wiring 装入 `OAuth2CredentialManager`；缺失、空白、损坏或不完整 bundle 阻止启动，完整过期 bundle
+   进入立即 refresh。独立 login CLI 可以从 missing version 事务性创建一次完整文件；manager wiring 保持不变，内部
+   token snapshot/generation 可以按本页规则 guarded reload/rotation。
 6. OpenBridge 不读取 terminal 相关环境变量，不根据部署主机 OS、architecture 或 Codex state 构造 Agent identity；ChatGPT 只使用受信 Rust
    definition 固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，并且不接受 auth file、executable、
    client identity 或 header override selector。
 7. ChatGPT adapter 只接受 `stream:true` 的 Responses 请求，将标准字符串 `input` 收窄为等价 user message 数组，保持
    `store:false`，并在 egress 前拒绝当前 backend 不接受的输出 token limit 字段。通用 planning 已在进入 adapter 前按客户端优先、
    项目默认回落的统一规则写入 `instructions`；ChatGPT 不再拥有专属配置、context 或覆盖 hook。
-8. token、账户、locator、JWT payload 和完整 auth record 不进入 report、日志、metric、Debug、错误或测试 fixture。
+8. token、账户、locator、JWT payload 和完整 auth record 不进入 report、日志、metric、Debug 或错误。
 
 常驻服务的数据面只能取得 manager 发布的短生命周期、账户绑定 credential lease。它不能读取 auth locator 或完整 bundle，也不能把
 OAuth credential 放入通用 API-key Store、probe 或业务请求可控字段。
 
-### 1.2 已实现 PKCE 登录与后续 token 续约
+### 1.2 PKCE 登录与 token 续约
 
-当前显式登录已经满足：
+显式登录必须满足：
 
 1. `openbridge-auth login chatgpt` 使用固定 ChatGPT private device interaction 与 authorization-code + PKCE `S256`；
 2. 登录临时状态、authorization code、PKCE verifier 和 device state 只在有界会话中存在，失败或取消后清除；
@@ -58,10 +54,10 @@ OAuth credential 放入通用 API-key Store、probe 或业务请求可控字段�
    source-version CAS 与同目录 atomic replace 持久化完整 credential bundle；
 4. CLI 不接受 issuer、client、endpoint、header、auth-file 或其他应用 cache override，普通服务启动和模型请求不隐式发起登录。
 
-当前不提供运行中换账户 API。换账户时必须停止服务，手动删除 private upstream credential binding 指向的 OpenBridge-owned
+不提供运行中换账户 API。换账户时必须停止服务，手动删除 private upstream credential binding 指向的 OpenBridge-owned
 `auth_json_file` 及同一登录流程明确创建的其他 OpenBridge-owned 授权文件（如有），再执行显式登录并重启；不得操作本机 Codex auth cache。
 
-当前自动 refresh 已经满足：
+自动 refresh 必须满足：
 
 1. 按 expiry safety window 合并 refresh，从持久化源 guarded reload，并跨进程/进程内 single-flight；
 2. rotated refresh token 与 access token、expiry、identity 和 generation 原子写回，终态错误转为 `reauth_required` 或 `ambiguous`；
@@ -69,10 +65,9 @@ OAuth credential 放入通用 API-key Store、probe 或业务请求可控字段�
 4. 429/5xx 与确认未送达错误进入有界 backoff；terminal OAuth code 进入 `reauth_required`；可能已发生 rotation 但无法安全落盘的结果进入
    `ambiguous` 并停止自动复用旧 token。
 
-数据面已经通过 OAuth2 manager 的受控 lease 生成 Provider authentication header，并在首个预提交 `401` 后执行一次 guarded
-reload、必要时 refresh 和一次重放；第二个 `401` fail closed 为 `reauth_required`。当前真实验收覆盖使用已有 bundle 的四个最小文本
-Responses 请求，不覆盖真实登录/refresh authority。参考客户端也没有为 OpenBridge 提供可独立建立的 JWT signature trust store；校验不能
-表述为离线 signature、通用 issuer/audience 或 subscription policy 验证。
+数据面只通过 OAuth2 manager 的受控 lease 生成 Provider authentication header，并在首个预提交 `401` 后执行一次
+guarded reload、必要时 refresh 和至多一次 replay；第二个 `401` fail closed 为 `reauth_required`。没有独立受信 JWT
+signature source 时，校验不得表述为离线 signature、通用 issuer/audience 或 subscription policy 验证。
 
 ## 2. Provider OAuth preflight
 
@@ -106,9 +101,9 @@ Responses 请求，不覆盖真实登录/refresh authority。参考客户端也�
 
 ## 4. Credential bundle
 
-后续可刷新 credential 至少以同一版本管理：
+可刷新 credential 至少以同一版本管理：
 
-当前 ChatGPT 文件使用兼容的 OAuth JSON 字段：顶层 `auth_mode`、`OPENAI_API_KEY`、`tokens` 与 `last_refresh`，其中
+ChatGPT auth 文件使用闭合 OAuth JSON 字段：顶层 `auth_mode`、`OPENAI_API_KEY`、`tokens` 与 `last_refresh`，其中
 `tokens` 包含 `id_token`、`access_token`、`refresh_token` 和 `account_id`。OpenBridge 不在该文件中加入 Provider、endpoint、
 pool、status 或 locator 字段；这些非 secret 绑定来自编译期注册表和私有 upstream credential TOML。
 
@@ -157,7 +152,6 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 - 启动时从持久化 expiry 重建 due queue；
 - 全局 worker limit 与每 credential 单飞；
 - bounded jitter 不得把 refresh 推迟到 access token 过期以后；
-- 多实例共享 credential 时使用共享 lease 与 CAS，进程内 mutex 不足够；
 - 是否为了 refresh-token inactivity 主动 refresh 只能来自 Provider 正式政策；
 - single-use rotation 下，refresh 请求可能成功但响应丢失时进入 `ambiguous`，不得盲目重用旧 token。
 
@@ -195,16 +189,16 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定受信 BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
-| OAUTH-02 | 四个固定 ChatGPT target 各自只进入一个 Responses-native Route/Public Model；GPT-5.6 Luna/Terra 的下游 Public Model 使用 `gpt-5.6-luna`/`gpt-5.6-terra` 等不带 Provider 前缀的模型名，Provider-qualified identity 仅保留在内部；通用 API-key probe 不借用 OAuth manager credential。 |
+| OAUTH-02 | 五个固定 ChatGPT Target 都是 Responses-native；Spark/GPT-5.5/Luna/Terra 分别属于四个 ChatGPT-only Public Model，Sol Target 属于还包含 OpenAI source 的 `gpt-5.6-sol`；Provider-qualified identity 只保留在内部，通用 API-key probe 不借用 OAuth manager credential。 |
 | OAUTH-03 | ChatGPT OAuth 文件只由 private upstream credential TOML 显式定位并由 OpenBridge 拥有；不得搜索、导入或回退到本机 Codex state。 |
 | OAUTH-04 | 生产代码不从 terminal、部署主机 OS、architecture、environment 或 Codex state 推导 client identity；ChatGPT 只发送编译期固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，不提供运行时 override 或 Codex auth/executable probe selector。 |
-| OAUTH-05 | 启动 loader 为缺失的 `auth_json_file` 创建空的待登录文件；对存在且非空的文件完整校验 OAuth2 bundle，并构建内部 guarded、对外 snapshot 化且脱敏的 `OAuth2CredentialManager`；过期完整 bundle 可立即 refresh。 |
+| OAUTH-05 | login CLI 可以从 missing version 事务性创建完整 `auth_json_file`；主服务启动要求文件已存在且完整校验 OAuth2 bundle，再构建内部 guarded、对外 snapshot 化且脱敏的 `OAuth2CredentialManager`；缺失、空白或损坏文件阻止启动，过期完整 bundle 可立即 refresh。 |
 | OAUTH-06 | upstream credential TOML 以互斥的 `api_keys`/`auth_json_file` 绑定编译期 credential kind；每个 OAuth2 Provider 只加载一个 OpenBridge-owned auth 文件。 |
 | OAUTH-07 | 数据面只通过短生命周期、账户绑定的受控 credential lease 生成 Provider authentication header，不得把 locator 或完整 token bundle 暴露给普通请求路径。 |
 | OAUTH-08 | 登录使用 PKCE `S256`、有界 private device session、固定 HTTPS exchange、完整 token/account 校验、事务持久化和失败清理，不在普通请求中隐式启动。 |
 | OAUTH-09 | 自动 refresh 具有 expiry safety window、single-flight、guarded reload 与原子 rotation 写回；终态错误、结果不确定或身份变化 fail closed。 |
 | OAUTH-10 | 数据面只借用受控 snapshot；401 recovery 先 reload、再按 Provider contract 至多 refresh/重放一次，并服从 response commit 边界。 |
-| OAUTH-11 | ChatGPT Responses adapter 要求 `stream:true`、将字符串 `input` 转为 user message 数组并保持 `store:false`；客户端优先的通用 instructions 已在 candidate 展开前解析，adapter 不持有 Provider 专属 instruction context/hook。adapter 仍在 egress 前拒绝且不公开输出 token limit 参数。 |
+| OAUTH-11 | ChatGPT Responses adapter 要求 `stream:true`、将字符串 `input` 转为 user message 数组并保持 `store:false`；通用 instructions 必须在 candidate 展开前解析，adapter 不持有 Provider 专属 instruction context/hook，并在 egress 前拒绝且不公开 output-token-limit 参数。 |
 | OAUTH-12 | 不提供运行中换账户；用户必须停止服务、手动删除该 binding 的 OpenBridge-owned auth 授权文件、显式重新登录并重启，且不得操作本机 Codex cache。 |
 
 ## 9. 仍不在范围内

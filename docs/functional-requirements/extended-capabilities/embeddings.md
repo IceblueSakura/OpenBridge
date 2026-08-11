@@ -3,9 +3,8 @@
 ## 范围
 
 本页只定义 OpenAI-compatible `POST /v1/embeddings` 的输入、输出、能力、资源和失败边界。它不定义图片、文件、音频或其他
-Chat/Responses 媒体能力；共同的能力分层、固定 Route 与证据规则见
-[媒体扩展共同规则](embedding-and-native-multimodal.md)。当前实现事实与实际验证见
-[Embeddings 实施状态](../../implementation-status/features/embeddings.md)。
+Chat/Responses 媒体能力；共同的能力分层与固定 Route 规则见
+[扩展共同规则](README.md)。实现与验证事实见[实施现状](../../implementation-status/README.md)。
 
 ## 1. 用户结果
 
@@ -58,7 +57,7 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
 ## 4. 重放、取消与数据保护
 
 - 请求 body 不超过 replay budget 且响应尚未提交时才可有限重放；超过 replay budget 但仍合法的请求只执行第一次 attempt。
-- 只有 vector identity 等价得到显式 registry 证明时才允许跨 Target；当前目标不以同名模型推断等价。
+- 只有 vector identity 等价得到显式 registry contract 时才允许跨 Target；不得以同名模型推断等价。
 - 下游取消必须停止发送、接收和待执行 backoff；任何成功 body byte 提交后不得 retry 或拼接第二个响应。
 - 原始文本、token array、向量、Base64 与 `user` 不得进入日志、trace attribute 或 metrics label。
 - Embeddings operation 固定使用低基数 `embeddings_create`；只记录明确返回的 input/total token，不虚构 output token 或生成速度。

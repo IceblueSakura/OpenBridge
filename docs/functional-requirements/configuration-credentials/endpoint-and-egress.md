@@ -24,4 +24,4 @@ credential 均不能替换 endpoint origin。
 - [配置与凭证域导航](README.md)
 - [所有权划分与代码注册表](ownership-and-registry.md)
 - [生命周期](lifecycle.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

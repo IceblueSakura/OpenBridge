@@ -11,13 +11,13 @@
 |---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
 | `config/bootstrap.toml`                     | loopback listener、两份私有 credential 文件位置、Generation `default_instructions`、request/JSON response/replay/SSE 上限、共享 HTTP client 参数、本地下游 HTTP 内容日志与 OTLP/HTTP 导出策略 | 否                                 |
 | 被忽略的 `config/users.toml`                | 下游用户、API Key 与启停状态                                                                                                    | 是                                 |
-| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；来源是否存在决定已注册 pool 的启动激活状态 | API key 是；locator 本身不是 secret |
+| 被忽略的 `config/upstream-credentials.toml` | 编译期 credential binding id 与互斥的有序 API key 或单一 OAuth2 `auth_json_file` locator；非空 source 字段决定已注册 pool 是否进入启动激活集合，后续仍须加载校验 | API key 是；locator 本身不是 secret |
 | `src/models/*`                              | Model 事实、token 限制、参数和 reasoning                                                                                        | 否                                 |
 | `src/providers/*`                           | Provider Family 定义、Provider 实例、共享协议机制、request-header hook、target/upstream API、credential pool/binding、route 与 Public Model | 否                                 |
 | 下游业务请求                                | Public Model 和模型调用参数                                                                                                     | 否；也不能选择 endpoint/credential |
 
 每个运行配置都有同名 `.example` 模板：`config/bootstrap.example.toml`、`config/users.example.toml` 和
-`config/upstream-credentials.example.toml`。模板不得包含真实凭证；Bootstrap 模板由测试约束为与默认配置一致。 Bootstrap
+`config/upstream-credentials.example.toml`。模板不得包含真实凭证；两个 Bootstrap profile 必须解析为相同配置。Bootstrap
 schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
 `max_replay_body_bytes` 与 `max_sse_event_bytes` 均为非零值，并要求 replay limit 不大于 request limit；这些
 字段职责独立，不互相提供缺省或回退。
@@ -38,8 +38,8 @@ budget 内保留前缀，并以 `complete`、`truncated`、captured/observed byt
 产生一个本地内容事件，不得逐 SSE chunk/delta 打日志。这些事件受本地 `RUST_LOG` 过滤，不进入只接受 allowlist span 的 OTLP trace
 layer，也不构成 OTLP logs。匿名认证失败、原始上游 Provider wire、credential 和 secret 不属于该功能。
 
-OTLP exporter 属于启动时进程资源策略：`[telemetry.traces]` 与 `[telemetry.metrics]` 分别默认禁用，collector 地址只能来自
-bootstrap，并允许配置所有者选择 loopback、非 loopback IP 或 DNS host；不接受 URL credential、自定义认证 header、环境注入 header
+OTLP exporter 属于启动时进程资源策略：省略 `[telemetry.traces]` 或 `[telemetry.metrics]` 时对应 signal 禁用；随附的两个开发
+profile 显式启用二者并指向 `http://127.0.0.1:4318`。collector 地址只能来自 bootstrap，并允许配置所有者选择 loopback、非 loopback IP 或 DNS host；不接受 URL credential、自定义认证 header、环境注入 header
 或业务请求覆盖。无效 scheme、缺失 host、自定义 path/query/fragment 或不支持字段必须在 listener 与 exporter egress 前阻止启动；
 signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Provider、Route、credential 或动态控制配置入口。
 
@@ -67,11 +67,12 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
   Route 以 Target + typed upstream operation 引用它；
 - 同一 Public Model 可以显式列出多个 Provider route source；相同 canonical Model ID 本身不得触发自动发现、 隐式 Route 注册或
   Provider 聚合；
-- Public Model 保存由这些 source 生成的有序完整 Route；对每个下游协议，代码目录先按 source 声明顺序排列 Native
-  Route，再按相同顺序排列 Bridge Route；
+- Public Model 必须显式选择 `NativeFirst` 或 `SourceFirst`，并保存由 route source 生成的有序完整 Route；策略的
+  唯一排序与自动 Bridge 规则见[路由与 Provider 韧性](../routing-resilience/README.md)，本页不重复定义；
 - 启动监听前必须完成唯一性、引用、能力、reasoning、credential pool 和 URL 校验。
 
-修改 Provider、Model 或路由必须重新编译并重启。项目不要求热重载。
+修改 Provider、Model、Route、用户、API-key pool 或 OAuth binding/locator 必须重新编译或重启。OAuth manager 只可按
+专有 lifecycle 更新同一 binding 内的 token snapshot/generation；这不构成 registry 或配置热重载。
 
 ## 关联文档
 
@@ -80,4 +81,5 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 - [Endpoint 与出站边界](endpoint-and-egress.md)
 - [生命周期](lifecycle.md)
 - [当前代码架构](../../implementation-status/current-architecture.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [路由与 Provider 韧性](../routing-resilience/README.md)
+- [实施现状](../../implementation-status/README.md)

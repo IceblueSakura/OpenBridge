@@ -2,9 +2,8 @@
 
 ## 状态
 
-本文是[模型与能力契约域](README.md)的验收与非目标模块。验收项是功能需求文档的行为约束；"必须""不得""只允许"
-是验收约束，不代表当前实现已经满足。代码、测试、probe 或真实运行已经证明的内容只写入
-`implementation-status/`。
+本文是[模型与能力契约域](README.md)的验收与非目标模块。下列 ID 是稳定行为约束；实现与验证事实只写入
+[实施现状](../../implementation-status/README.md)。
 
 ## 1. 功能验收要求
 
@@ -27,9 +26,6 @@
 | MODEL-15 | Responses `response_includes` 按具体 wire 值保守相交并直接供 preflight 使用；接受值不保证输出 item，Bridge 只能显式安全消费；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
 | MODEL-16 | 扩展 list 的 `native_protocol` 只命中含对应 Native candidate 的 Public Model；Bridge-only interface 被排除，省略参数保持完整列表，非法、重复或未知 query 显式失败且响应不泄漏拓扑。 |
 
-确定性 Rust/HTTP 测试只证明本地 registry、序列化、预检和 Route 顺序；不证明真实 Provider 当前能力、外部 SDK、负载、长期运行或
-LiteLLM/OpenRouter 目录新鲜度。
-
 ## 2. 非目标
 
 - 根据能力、质量、成本或 benchmark 自动选模；
@@ -38,13 +34,13 @@ LiteLLM/OpenRouter 目录新鲜度。
   signal 导出，不属于模型目录或模型能力契约；
 - 从 LiteLLM、OpenRouter、Provider `/models` 或 probe 动态发现和注册模型；
 - 模型推荐、自动迁移、alias resolution、ACL、分页搜索，或除 `native_protocol` 外的通用 capability query API；
-- 在未实现协议语义前，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state、embedding 参数或 opaque reasoning。
+- 在没有完整协议语义时，仅因模型本体声称支持就放行 hosted/custom tool、audio/file、state、embedding 参数或 opaque reasoning。
 
 ## 关联文档
 
 - [模型与能力契约域导航](README.md)
-- [产品范围](../product-scope/product-scope.md)
+- [产品范围](../product-scope/README.md)
 - [网关 API 与客户端兼容](../gateway-api/README.md)
-- [扩展能力导航及共同规则](../extended-capabilities/embedding-and-native-multimodal.md)
-- [路由与 Provider 韧性](../routing-resilience/provider-resilience.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [扩展能力导航及共同规则](../extended-capabilities/README.md)
+- [路由与 Provider 韧性](../routing-resilience/README.md)
+- [实施现状](../../implementation-status/README.md)

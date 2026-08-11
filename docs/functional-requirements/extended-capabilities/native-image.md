@@ -3,15 +3,15 @@
 ## 范围
 
 本页只定义 Chat `image_url` 与 Responses `input_image` 的同协议 Native 输入能力。它不定义 Images generation/edit/variation、
-文件、音频、视频或跨协议媒体转换；共同规则见[媒体扩展共同规则](embedding-and-native-multimodal.md)。当前已完成切片与实际证据见
-[`mimo-v2.5` Native 图片输入](../../implementation-status/features/native-image-input.md)。
+文件、音频、视频或跨协议媒体转换；共同规则见[扩展共同规则](README.md)。实现与验证事实见
+[实施现状](../../implementation-status/README.md)。
 
 ## 1. 用户结果与 wire
 
 | 协议 part               | 可建模来源                          | 固定边界                                                                  |
 |-------------------------|-------------------------------------|---------------------------------------------------------------------------|
 | Chat `image_url`        | `remote_url`、`data_url`            | 只在 user message content 中有效；省略/显式 `detail` 分别服从 profile     |
-| Responses `input_image` | `remote_url`、`data_url`、`file_id` | 当前目标只开放 URL/data URL；没有 resource affinity 时必须拒绝 `file_id` |
+| Responses `input_image` | `remote_url`、`data_url`、`file_id` | 固定契约只开放 URL/data URL；没有 resource affinity 时必须拒绝 `file_id` |
 
 图片 part 必须出现在协议规定的 user content union 中；developer/system/tool/assistant 或任意递归同名字段都不能被当作合法图片输入。
 Native 转发保持 mixed text/image part 的顺序、类型、URL/data、detail 与原协议 JSON/SSE terminal，只允许受信 model/path/auth/header
@@ -76,7 +76,7 @@ Data-only 的 URL limit 投影为 `0`，Both 投影两组正数。`0` 不是 cor
 | IMG-01 | Chat/Responses 分别从 source-payload union 公开 typed source、media type、detail 与 limit，并与请求 preflight 使用同一 fixed owned interface。 |
 | IMG-02 | Native 上游收到原有 mixed text/image part 顺序和 wire；请求不按图片能力跳过、筛选或重排候选。                                     |
 | IMG-03 | 非 user 位置、`file_id`、非法 URL/Base64/media type/detail、不可达 profile 与超限输入在 egress 前稳定拒绝。                      |
-| IMG-04 | URL/data source 的确定性测试、独立客户端和真实 Provider 证据分层记录；未运行格式、尺寸、SDK、负载或长期层不声称通过。             |
+| IMG-04 | URL/data source 的限制、日志保护与 Native 保真使用同一固定 profile；未声明的格式、尺寸或 source 在 egress 前拒绝。             |
 
 ## 6. 非目标与参考
 

@@ -9,10 +9,9 @@ Bridge 转换边界、SSE 生命周期与遥测计时规则。其他模块见[�
 
 当下游与上游协议一致且请求已通过 Public Model 固定契约预检与输入归一化时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
 reasoning level wire 映射和已验证的普通生成提示忽略，保留其他已知且被接口接受的请求 JSON，并保持上游响应中的未知合法 JSON
-字段/SSE event，不经过通用 IR 重渲染。level
-映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model 声明， 目标必须是安全 wire
-值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。 canonical reasoning level vocabulary 为
-`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`； 每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
+字段/SSE event，不经过通用 IR 重渲染。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model
+声明，目标必须是安全 wire 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。canonical reasoning
+level vocabulary 为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
 reasoning，不等同于缺少 reasoning 字段。
 
 每个 generation Public Model 必须静态选择 reasoning input policy。`strict` 只接受固定接口 `levels` 中的值；
@@ -83,8 +82,9 @@ reasoning text delta 也属于生成输出。TTFT、首字节和首输出均只�
 
 - [网关 API 域导航](README.md)
 - [请求、Public Model 与安全边界](request-and-security-boundary.md)
-- [tools、continuation 与扩展](tools-continuation-and-extensions.md)
-- [运行期观测与 OpenTelemetry 导出](observability-and-otel.md)
-- [路由与 Provider 韧性](../routing-resilience/provider-resilience.md)
+- [Generation envelope 与状态](generation-state.md)
+- [Function tool 与私有扩展](tools-and-extensions.md)
+- [运行期观测与 OpenTelemetry](../observability/README.md)
+- [路由与 Provider 韧性](../routing-resilience/README.md)
 - [Responses typed SSE 调研](../../references/openai/responses/streaming.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

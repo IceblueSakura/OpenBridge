@@ -1,5 +1,15 @@
 # LiteLLM 与 OpenRouter 模型信息综合调研
 
+## 文档元数据
+
+| 字段 | 值 |
+|---|---|
+| Source snapshot | LiteLLM 模型信息叶文档的固定源码基线与 OpenRouter API/目录叶文档的固定采集日期 |
+| Last reverified | 2026-08-12：仅按当前前置文档核对信息层与链接，没有刷新 LiteLLM 或 OpenRouter |
+| Scope | 比较模型身份、目录能力、部署/供应、经济/质量和运行时观测的信息所有权 |
+| Evidence boundary | 目录字段不能单独证明具体 endpoint、账户、候选交集、当前可用性或任一 gateway 的实现 |
+| Recheck trigger | LiteLLM routes/catalog schema、OpenRouter Models/endpoint schema 或字段缺失语义变化时 |
+
 ## 状态与前置文档
 
 本综合文档建立在两个独立项目调研之上：

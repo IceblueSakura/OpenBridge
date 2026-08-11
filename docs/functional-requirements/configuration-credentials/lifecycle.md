@@ -29,14 +29,20 @@ read bootstrap.toml
 至少有一个经 active pool 收窄后 enabled 的 Target 时进入可用列；Public Model 至少有一个已编译执行接口时进入可用列。另一列只显示
 稳定 Provider/Public Model 名称、Target 计数、接口和脱敏原因，不得显示 pool、Target、Route、endpoint、auth-file locator 或 secret。
 
-表头必须明确标注 `configuration only` 和 `no network probe`。这里的"可用"只表示本次启动配置允许形成执行候选：OAuth2 auth-file
-locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登录状态；该表不证明当前 credential lease、网络、配额、远端模型或协议能力
-实际可用。无效配置继续在表格输出前阻止启动，真实探测只能由管理员显式运行独立 probe。
+表头必须明确标注 `configuration only` 和 `no network probe`。这里的"可用"只表示本次启动配置允许形成执行候选；OAuth2
+auth-file locator 会先参与 active-pool 筛选，但主服务必须在输出表格前读取并校验完整 bundle，缺失、空白或损坏文件会阻止启动。
+该表不证明当前 credential lease、网络、配额、远端模型或协议能力实际可用；真实探测只能由管理员显式运行独立 probe。
 
-## 2. 运行时不可变性
+## 2. 冻结 wiring 与可变 OAuth generation
 
-注册表与 credential manager 启动后不可变。服务没有文件监听、user/route/auth reload、`ArcSwap` 或部分更新语义。运行中的请求和
-后续请求都读取同一组 `RuntimeRegistry`、`UserRegistry`、`CredentialStore` 与 `OAuth2CredentialManager`；改变任一启动输入都必须重启。
+`RuntimeRegistry`、`UserRegistry`、API-key `CredentialStore`、OAuth manager 实例及其 binding/locator/wiring 在启动后
+保持不变。服务没有用户、Route、Provider、API-key pool 或 auth-file locator 的文件监听、`ArcSwap` 或部分更新语义；
+改变这些启动输入必须重启。
+
+`OAuth2CredentialManager` 内部 token snapshot 与 generation 不是不可变 registry 事实。独立显式登录把完整文件写好后需要
+重启服务，由新进程建立初始 snapshot；运行中的 manager 只允许 expiry-driven refresh 或首个预提交 `401` recovery 按同一
+Provider/account binding 执行 guarded reload、single-flight 和原子 rotation。该内部更新不得替换 manager、改变 locator、切换账户、
+修改 Route 或发布另一套 RuntimeRegistry。
 
 ## 关联文档
 
@@ -44,4 +50,5 @@ locator 仍按既有 active-pool 语义参与配置筛选，可能处于待登�
 - [所有权划分与代码注册表](ownership-and-registry.md)
 - [凭证](credentials.md)
 - [Endpoint 与出站边界](endpoint-and-egress.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)
+- [实施现状](../../implementation-status/README.md)

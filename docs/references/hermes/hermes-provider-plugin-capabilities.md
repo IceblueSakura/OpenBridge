@@ -129,19 +129,19 @@ _static dict _PROVIDER_VISION_MODELS（xiaomi → mimo-v2.5，zai → glm-5v-tur
 - 用户插件同名覆盖 bundled（last-writer-wins）；多个 profile 用唯一模块名隔离（`_hermes_user_provider_<name>`）。
 - `requires_env` 缺失时 `hermes plugins list` 标记，但 model-provider 的 discovery 不检查 env——profile 注册照常发生，运行时才缺 key 报错。
 
-## 5. 对 OpenBridge 网关（聚合转发）的落地建议
+## 5. 聚合网关 ProviderProfile 示例
 
 以自研 OpenAI 兼容网关作为 provider 插件接入时：
 
 ```python
-# $HERMES_HOME/plugins/model-providers/openbridge/__init__.py
+# $HERMES_HOME/plugins/model-providers/gateway/__init__.py
 from providers import register_provider
 from providers.base import ProviderProfile
 
-class OpenBridgeProfile(ProviderProfile):
+class GatewayProfile(ProviderProfile):
     def get_max_tokens(self, model):      # 上游各有不同输出上限
         return {  # 按上游模型名返回
-            "deepseek-v4-flash": 8192,
+            "large-model": 8192,
         }.get(model, self.default_max_tokens)
 
     def build_api_kwargs_extras(self, *, reasoning_config=None, model=None, **ctx):
@@ -153,20 +153,20 @@ class OpenBridgeProfile(ProviderProfile):
     def default_vision_model(self):             # 网关有专用视觉模型时
         return "vision-model-id"
 
-openbridge = OpenBridgeProfile(
-    name="openbridge",
-    aliases=("ob",),
-    display_name="OpenBridge",
+gateway = GatewayProfile(
+    name="gateway",
+    aliases=("gw",),
+    display_name="Example Gateway",
     description="自研 OpenAI 兼容聚合网关",
-    env_vars=("OPENBRIDGE_API_KEY", "OPENBRIDGE_BASE_URL"),
-    base_url="http://localhost:8080/v1",
+    env_vars=("GATEWAY_API_KEY", "GATEWAY_BASE_URL"),
+    base_url="https://gateway.example/v1",
     auth_type="api_key",
     api_mode="chat_completions",
-    default_aux_model="deepseek-v4-flash",      # ← 侧任务（压缩/标题/vision/审批）走此模型
+    default_aux_model="fast-model",             # ← 侧任务（压缩/标题/vision/审批）走此模型
     default_max_tokens=65536,                   # 未显式设置时的地板
-    fallback_models=("deepseek-v4-flash", "deepseek-v4-pro"),
+    fallback_models=("model-a", "model-b"),
 )
-register_provider(openbridge)
+register_provider(gateway)
 ```
 
 要点：
@@ -177,6 +177,7 @@ register_provider(openbridge)
 
 ## 6. 边界与未验证项
 
-- 行号固定于本机 v0.20.0；references/README.md 登记的旧 checkout（`470cf66b`）与本机安装目录不是同一快照，引用行号前以安装目录源码为准。
+- 行号固定于本机 v0.20.0；[Hermes 索引](README.md)记录的 OAuth 专项 checkout（`470cf66b`）与本机安装目录不是同一快照，
+  引用行号前以安装目录源码为准。
 - 未验证：`kind: model-provider` 插件目录内同时存在 `def register(ctx)` 时 PluginManager 是否完全忽略（源码显示不 import，但未实测）；`auth_type` 各值对聚合网关的影响面（oauth_external/copilot/aws_sdk 分支未逐条核实）；`get_max_tokens` 在 `/model` 切换与 aux 路径是否全量生效。
 - 未覆盖：PluginLlm（`ctx.llm`）的完整配置面（`plugins.entries.<id>.llm.*` 门控）；model-provider 插件与 `custom_providers` 配置（`config.yaml`）的关系——插件注册的 profile 是编译期存在，`custom_providers` 是用户运行时覆盖，两者并列。

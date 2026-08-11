@@ -2,11 +2,10 @@
 
 ## 范围
 
-本页定义五种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS、以文本约束音色的 VoiceDesign，以及以参考音频约束音色的 VoiceClone。
-当前 checkout 已接入 `mimo-v2.5` 通用音频理解，以及 `mimo-v2.5-asr`、`mimo-v2.5-tts`、
-`mimo-v2.5-tts-voicedesign` 与 `mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface。
-本页不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
-[媒体扩展共同规则](embedding-and-native-multimodal.md)。已实现事实与验证证据见 [Native MiMo 音频专题](../../implementation-status/features/native-mimo-audio.md)。
+本页定义五种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS、以文本约束音色的 VoiceDesign，
+以及以参考音频约束音色的 VoiceClone。本页不定义 OpenAI `/audio/speech`、`/audio/transcriptions`、
+`/audio/translations`、Responses audio 或 Realtime；共同规则见[扩展共同规则](README.md)，实现与验证事实见
+[实施现状](../../implementation-status/README.md)。
 
 ## 1. 任务身份与不可替代性
 
@@ -33,7 +32,7 @@ Canonical Model 使用必填 task union：通用音频理解仍属于 `Generatio
 - 首个协议目标只开放 Chat user message content 中的 `input_audio`，可与同一 user message 中的 text part 混合；Responses audio
   仍无目标 wire。
 - 官方能力上界包括公网 URL 与 Base64 data URL、MP3/WAV/FLAC/M4A/OGG 和多个音频；Public Model 只能公开固定 Route 已有独立
-  证据且具有本地有界校验的 source、media type、part 数和 limits，不能一次性照搬 Provider 上界。
+  完整 contract 与本地有界校验的 source、media type、part 数和 limits，不能直接照搬 Provider 上界。
 - 当前 executable profile 只开放一个 WAV data URL，单项与累计 encoded/decoded 上限分别为 10 MiB/8 MiB；remote URL、pure
   Base64、其他格式和多个 audio part 均保持关闭。部署级 request hard limit 继续独立生效。
 - `multimodal_input.audio` 必须公开业务用途 `content_understanding`、source、inline encoding、可验证 media type、part 数、URL
@@ -59,17 +58,17 @@ MiMo 音频模型虽然都使用 `/v1/chat/completions`，但属于独立 canoni
 `asr_options` 与 `audio` 是对应 Chat interface 的顶层 typed parameter，只能由相应 Public Model 在 `supported_parameters` 中公开。TTS
 assistant message 是待合成文本，不是普通历史；ASR 必须拒绝文本混入、多音频 part、非 user 角色或额外 message。
 
-本目标只承诺真实 Provider 已覆盖的组合。官方另声明 ASR MP3/`en`、TTS MP3/其他 preset voice，但须以独立证据扩展固定 profile。
+本契约只允许固定 profile 明确列出的组合；其他 format/language/voice 必须先扩展该 profile，不能从 Provider 上界自动继承。
 `mimo-v2.5-tts-voicedesign`、`mimo-v2.5-tts-voiceclone` 与 `mimo-v2.5` 通用音频理解不是这两个 Public Model 的 fallback 或别名。
 
 ## 4. 音色设计与音色克隆边界
 
 - 音色设计的自然语言描述是生成条件，不得作为普通 TTS 可选 voice 名称或通用模型 instruction 处理。
-- 音色克隆的参考音频是 `voice_conditioning` resource，不得进入 `content_understanding` 或 `speech_recognition` profile；首批接入只
+- 音色克隆的参考音频是 `voice_conditioning` resource，不得进入 `content_understanding` 或 `speech_recognition` profile；固定 contract 只
   暴露独立 source/format/byte limit，授权确认、保留期和日志脱敏策略仍是后续媒体治理边界。
 - 两个变体各自使用独立 canonical task、Chat Native profile 与失败边界；普通 TTS 成功不提升其他模型能力。
 - VoiceDesign 只接受自然语言 voice description；VoiceClone 只接受独立 `audio.voice` reference resource，不建立跨模型
-  voice identity 或资源复用。首批实现只做 shape/source/format/size 预检，不宣称授权、保留期或媒体内容验证。
+  voice identity 或资源复用。gateway 只做 shape/source/format/size 预检，不承诺授权、保留期或媒体内容验证。
 
 ## 5. `multimodal_output.audio` 与响应预算
 
@@ -121,7 +120,7 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 - 原始音频、Base64、transcript、TTS 目标/风格文本、voice sample 和 Provider request ID 不得进入普通日志、metrics label、probe
   report 或 fixture。
 - `audio_tokens`、seconds、audio bytes 与文本 token 必须保持语义，不把 PCM bytes 当 token、transcript 长度当时长或 chunk 数当速度；
-  首批 gateway 只保留并透传上游 JSON/SSE，不自行计算或重解释这些字段。
+  gateway 只保留并透传上游 JSON/SSE，不自行计算或重解释这些字段。
 
 ## 8. 验收
 
@@ -131,9 +130,9 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 | AUD-02 | `mimo-v2.5` 只在固定 Chat Native interface 接受已声明 source/format/limit，保持 mixed audio/text wire，并返回文本回答而非 transcript/audio。 |
 | AUD-03 | `mimo-v2.5-asr` 的 WAV source/language/message contract、JSON/SSE transcript、usage、model 投影与单音频边界可确定复现。                    |
 | AUD-04 | `mimo-v2.5-tts` 的 assistant/audio/voice contract、JSON WAV、SSE PCM16 chunk、累计预算、唯一 terminal 与取消可确定复现。                  |
-| AUD-05 | voice design/clone 使用独立条件输入、输出 contract 和失败边界；首批只开放有界 Chat profile，不建立授权存储、voice identity 或资源复用。 |
+| AUD-05 | voice design/clone 使用独立条件输入、输出 contract 和失败边界；只开放有界 Chat profile，不建立授权存储、voice identity 或资源复用。 |
 | AUD-06 | 音频请求不进入 Bridge、跨 task fallback、请求期候选筛选，或伪装成 `/audio/*`；首输出 commit 后不发生第二次响应。                           |
-| AUD-07 | 独立客户端与真实 Provider 分别记录 task、endpoint、model、字段和证据边界；未运行 source/format/SDK/负载或长期层不声称通过。                |
+| AUD-07 | 每个 task 的 endpoint/model/source/format 都由固定 profile 单独拥有；一个 task 的成功不能提升另一 task 的能力。                |
 | AUD-08 | Provider 完整 profile ceiling、单个 executable profile 与 canonical task 依次通过启动门禁；多任务上界不进入单 Target 或跨 task 聚合。 |
 | AUD-09 | analyzer 只冻结 `Input | Generated` 结构；preflight 才解释 task，且 VoiceClone reference audio 只进入独立 conditioning contract。          |
 

@@ -3,7 +3,8 @@
 ## 范围
 
 本页只定义 Chat `file` 与 Responses `input_file` content part 的同协议 Native 输入能力。它不定义 Files/Uploads/Vector Stores/File
-Search 生命周期；共同规则见[媒体扩展共同规则](embedding-and-native-multimodal.md)。当前尚无已完成的 Native file 功能专题。
+Search 生命周期；共同规则见[扩展共同规则](README.md)。实现与验证事实见
+[实施现状](../../implementation-status/README.md)。
 
 ## 1. 用户结果与 source 规则
 
@@ -50,7 +51,7 @@ Search 生命周期；共同规则见[媒体扩展共同规则](embedding-and-na
 | FILE-01 | Chat/Responses 各自只接受标准 content part、source one-of、encoding、filename/detail 与 typed limit。                          |
 | FILE-02 | 无 issuer/owner affinity 时 `file_id` 在 egress 前稳定拒绝；不会跨 Provider/Target 猜测或迁移资源。                            |
 | FILE-03 | Native wire、part 顺序和 metadata 保持；请求不进入 Bridge、下载、文本提取、转换或请求期能力路由。                              |
-| FILE-04 | URL/inline limit、日志脱敏、replay budget、取消和首输出 commit 均有确定性测试；真实 Provider/SDK 层单独记录。                 |
+| FILE-04 | URL/inline limit、日志脱敏、replay budget、取消和首输出 commit 共享同一固定失败边界。                 |
 
 ## 6. 非目标与参考
 

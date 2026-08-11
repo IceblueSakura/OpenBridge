@@ -1,96 +1,41 @@
 # 功能：Chat 与 Responses 的显式 Protocol Bridge
 
-## 状态
+## 当前行为
 
-**已完成（当前 checkout）。** 对注册为 `Bridged` 的 Route，网关可以在明确可表达的语义范围内执行 Chat Completions ↔ Responses 双向请求和
-响应转换，包括 JSON 与 SSE。
+- 只有注册为 `Bridged` 的 Route 执行 Chat ↔ Responses request/JSON/SSE 转换；支持 allowlist 内 text、function tool、parallel
+  tool call、tool result、structured output 与明文 reasoning channel。
+- `BridgePlan` 在 egress 前检查可表达性；两侧 stream state machine 维护 item/call/index、fragmented arguments 和唯一 terminal。
+- Responses `reasoning.summary` 接受省略、`false` 与 `"auto"`；Responses→Chat 消费 summary 选项但不伪造 summary，真实
+  `reasoning_content` 映射为 Responses reasoning text。`false` 不等于关闭 reasoning。
+- Responses message shorthand 与显式 message 共享 role/content/tool ledger；额外或模糊对象 fail closed。
+- Chat `include_usage:true` 由 Bridge 消费并从完整 Responses terminal usage 生成唯一 Chat usage-only chunk；缺失/非法 usage
+  不伪造成功尾部。`{}`/`false` 是 no-op。
+- `response_format`/`text.format` 只转换明确的 text、JSON object/Schema；`prompt_cache_key` 只有目标 API 和 converter 都能
+  exact-forward 时才贡献。
+- image/file/audio、hosted/custom tool、background/state、opaque continuation 和 Provider 私有语义没有可验证等价物时在 egress
+  前拒绝。已完成 Responses output 的 opaque encrypted content 不投影成明文 reasoning。
 
-## 已完成内容
+## 所有权
 
-- 支持 allowlist 内的 text、function tool、parallel tool call、tool result、structured output、明文 reasoning channel、非流式 JSON 和流式
-  SSE 转换。
-- `BridgePlan` 在上游调用前检查可表达性；tool-call identity、fragmented arguments、response/project index 和 Responses terminal 由独立 stream
-  state machine 维护。
-- Chat→Responses 与 Responses→Chat 均使用显式的 request converter、stream renderer 和 terminal lifecycle，不把两种协议简单当作字段别名。
-- Responses 请求分析已类型化区分 `reasoning.summary` 的省略、兼容 `false`、标准 `"auto"` 与非法值。Native Responses 精确保留
-  `false`/`"auto"`；Responses→Chat 只消费该字段并继续把 `reasoning.effort` 映射为 `reasoning_effort`，不向 Chat wire 添加
-  summary 或私有 reasoning 开关。Chat 上游实际返回的 `reasoning_content` 映射为 Responses reasoning item 的
-  `content[].type:"reasoning_text"` 与流式 `response.reasoning_text.delta/done`，`summary` 保持空数组且不生成
-  `response.reasoning_summary_*` 事件。兼容值 `false` 不关闭 reasoning；其他 summary shape 以及显式 `effort:"none"` +
-  `summary:"auto"` 在 Provider egress 前返回稳定无效请求。
-- Responses→Chat 接受显式 `type: "message"` 与只含 `role/content` 的标准 message shorthand；两种写法复用同一 content/role
-  校验和 function call/output ledger，缺失 discriminator 的额外或模糊对象继续 fail closed。
-- Chat→Responses SSE 在成功 `finish_reason` 与 `[DONE]` 之间允许一个严格的 `choices: []` + `usage` object
-  统计块；该块不产生业务输出，普通 late chunk、重复 usage、finish 前 usage 和 EOF-before-terminal 仍 fail closed。
-- 下游 Chat `stream_options.include_usage:true` 现在是 Bridge-owned 输出契约：Chat→Responses request converter 消费该字段且不写入
-  Responses wire，`BridgePlan` 保存分析器冻结的 usage 请求事实。Responses→Chat stream renderer 让内容、plain reasoning、tool-call 与
-  finish chunks 都携带 `usage:null`，随后从成功 `response.completed.response.usage` 生成唯一 `choices:[]` usage-only chunk，再发送
-  `[DONE]`。省略、空对象和 `include_usage:false` 不启用该策略，后两者在候选展开前移除。
-- 非流式与流式 Responses→Chat 共用严格 usage mapper：三个顶层计数必须是非负整数，并只映射 cached/reasoning 两个明确同义的可选
-  details；未知 Provider usage 扩展被忽略，不估算缺失 token。请求 usage 而 terminal usage 缺失、`null`、负数、字符串或不完整时，
-  renderer 在发送 finish 前判定流无效，不生成 usage-only 或 `[DONE]`，已提交的业务输出也不会触发 retry/fallback 拼接。
-- `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
-- Bridge 与 Native 共用源协议顶层字段目录。未知字段先返回 `unknown_parameter`；已知但当前方向不可表示的字段只有在所选 API 对五类
-  普通提示具有显式忽略规则时才能接受，并会在 Bridge request converter 之前删除。每个 fallback candidate 仍从原始 body 独立构造。
-- `prompt_cache_key` 是显式的双向 shared request field；只有目标 Upstream API 的静态 profile 声明 exact forwarding 时，Bridge Route 才把
-  它贡献到固定接口并原样复制。`include: []` 先作为 no-op 移除。Responses→Chat 当前只对具有可读 reasoning channel 的 Route 接受
-  `reasoning.encrypted_content`：该值没有 Chat wire 对应物，方向转换器验证后显式消费，继续保留上游真实明文 reasoning，但不保证
-  reasoning item 存在，也不把明文重新标记为 opaque `encrypted_content`。其他非空 include 仍不贡献。
-- 不可表达的 image/file/audio、hosted/custom tool、后台状态、未确认 reasoning 或 Provider 私有扩展在 egress 前拒绝，不伪造等价语义。
-  下游 request/history 中的 opaque continuation 仍拒绝；已完成 Responses 输出转为无状态 Chat response 时，验证后丢弃
-  `encrypted_content`，保留可读 summary/content、text 与 tool call，且绝不把 opaque 值投影为 `reasoning_content`。
+转换位于 [`src/bridge/`](../../../src/bridge/)，生产接入位于 `src/ingress/` 与 `src/pipeline/`。Bridge 不选择 Provider/Route；
+Embeddings 没有 Bridge representation。
 
-## 实现边界
+## 确定性与真实证据
 
-- 转换实现位于 [`src/bridge/`](../../../src/bridge/)，生产接入位于 [`src/ingress/`](../../../src/ingress/) 和
-  [`src/pipeline/`](../../../src/pipeline/)。
-- Bridge 只对代码显式注册的 Route 生效；Embeddings 没有 Bridge representation。
-- 当前没有通用异构 Provider、可配置 ConversionPolicy、动态 converter catalog 或 continuation ledger。
+`tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` 与 `tests/protocol_bridge_replay.rs` 覆盖双向 request、
+JSON/SSE、usage、reasoning、tool identity、terminal/EOF/conflict 和 zero egress；`tests/forwarding_contract.rs` 覆盖生产 Router、
+fallback 隔离与 Provider wire。
 
-## 验证证据
+[2026-08-09 文字矩阵](../evidence/real-provider/2026-08-09-text-generation-none-high-matrix.md)包含 Kimi、GLM 与 ChatGPT 等
+正常 Bridge 路径，但没有强制多 Provider fallback。LongCat tool continuation 与 DeepSeek `json_object` 的定向真实请求支持对应
+已建模转换；`prompt_cache_key` 请求成功不证明 cache hit。
 
-- [`tests/bridge_conversion_contract.rs`](../../../tests/bridge_conversion_contract.rs) 覆盖双向 request、JSON 和 SSE renderer。
-- [`tests/bridge_forwarding_contract.rs`](../../../tests/bridge_forwarding_contract.rs) 覆盖生产 Router、Bridge Route 和 egress 前拒绝。
-  其中缓存键用例检查 Responses→DeepSeek Chat post-adapter exact egress 与空 include 移除；reasoning include 用例检查固定 interface
-  接受该值、Chat egress 显式移除且不合成 opaque output。
-- [`tests/forwarding_contract.rs`](../../../tests/forwarding_contract.rs) 覆盖 Bridge 相关 HTTP 错误、参数处置、fallback 隔离与 transport
-  zero egress；默认测试不再单独锁定内部 candidate body 或 Route 顺序。
-- 2026-08-11 的 M6 失败优先测试先确认旧 Bridge 对 `false`/`"auto"` 返回 `UnsupportedSemantics`；实现后，转换与生产 Router
-  测试覆盖两个值的 Chat exact egress、JSON/SSE reasoning content 与零伪造 summary，Native 测试覆盖两个值的 exact forwarding，
-  并确认 `"auto"` 在凭据轮换重试时复用完全相同的请求 body。非法 string、`true`、`null`、object 和 `none+auto` 均覆盖 typed
-  HTTP 400 与 zero Provider egress。
-- 2026-08-11 的 M7 失败优先测试先确认旧 Bridge 对有效 `include_usage:true`、空对象与 `false` 返回
-  `UnsupportedSemantics`/HTTP 400；实现后覆盖 text、plain reasoning、parallel function tool、严格 terminal usage、生产 Router、
-  一次可重试失败后的成功、实际编译的 `gpt-5.3-codex-spark` ChatGPT Bridge，以及非法 shape/能力不足的 zero-egress 结果。测试只断言
-  客户端行为、post-adapter wire、usage 尾块和 attempt 数量，不新增 Provider 目录、候选顺序或 Route 排名断言。
-- 同日 `cargo fmt -- --check`、完整 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；
-  聚焦结果为 `bridge_conversion_contract` 25 项、`bridge_forwarding_contract` 16 项、`forwarding_contract` 72 项、
-  `ingress_contract` 6 项。`uv lock --check --project tools/corpus`、45 项 corpus pytest 与 canonical corpus lint 也全部通过。
-  本轮没有运行 Hermes、外部 OpenAI SDK、真实 Provider、强制多 Provider fallback、负载或长期运行验收；用户已确认没有真实有效的
-  OpenAI API Key，因此这里没有把确定性 fake transport 证据扩大为真实 OpenAI/ChatGPT Provider 验收结论。
-- [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
-- `bridge_conversion_contract::responses_to_chat_non_stream_drops_completed_opaque_continuation` 覆盖真实 GPT 形状的 output-only opaque
-  continuation，以及可读 summary 的保留；`forwarding_contract::chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat`
-  覆盖 streaming-only upstream 的完整 buffer 与非流式 Chat JSON 接入。
-- `bridge_conversion_contract::responses_message_shorthand_preserves_a_tool_result_round_trip` 与
-  `example_config::routing::longcat_responses_tool_continuation_prepares_native_and_bridge_candidates` 覆盖 shorthand 转换和 Native-first
-  固定候选计划；2026-08-09 真实 LongCat Responses 非流式 call/result/final-text 续接为 2/2 HTTP 200，最终文本为 `DONE` 且没有重复 tool call。
-- `forwarding_contract::native::deepseek_json_object_is_preserved_by_native_and_bridge_egress` 覆盖 DeepSeek V4 Pro
-  Responses `text.format:json_object` 到 Chat `response_format:json_object` 的生产 Bridge；同日真实 JSON/SSE 聚焦请求 2/2 返回可解析的
-  预期 JSON。
-- [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md) 只保留最新的 16 个可见文字模型
-  `none/high × Chat/Responses × JSON/SSE` 矩阵；128 个请求中 124 个返回完整 HTTP 200 终态，另外 4 个均为 Spark `none`
-  的已记录 HTTP 400。矩阵覆盖 Kimi 与 GLM 的 Responses-via-Chat JSON/SSE，但不证明强制 fallback 或未纳入该矩阵的参数组合。
+## 未证明范围
 
-2026-08-10 对 6 个真实 Responses-via-Chat 候选分别执行 baseline 与 `prompt_cache_key` 脱敏请求，12/12 得到 HTTP 200 和可识别 Chat
-completion：LongCat、DeepSeek V4 Pro、Bailian DeepSeek V4 Pro、Kimi K3、Bailian GLM-5.2 与 Qwen3.6 27B。该结果只支持 exact
-forwarding 声明；未执行 cache-hit 因果验收，也未证明 Bridge 能返回任何非空 Responses include 投影。
-
-确定性测试证明已建模语义的转换和进程内 lifecycle；真实测试只证明文档所列 endpoint、账号、模型和时间点，不证明完整
-OpenAI API 或任意 Provider 私有语义可转换。
+完整 OpenAI API、通用异构 conversion policy、动态 converter、图片/音频/file Bridge、opaque state、外部 SDK/Agent、负载和长期运行未证明。
 
 ## 相关文档
 
-- [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api/README.md)
-- [Native Chat/Responses 转发](native-generation-forwarding.md)
-- [协议测试语料与工具](../protocol-test-corpus.md)
+- [网关 API 需求](../../functional-requirements/gateway-api/README.md)
+- [Native generation](native-generation-forwarding.md)
+- [协议语料与工具](../test-assets/protocol-corpus.md)

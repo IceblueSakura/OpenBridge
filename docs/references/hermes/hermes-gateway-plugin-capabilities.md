@@ -1,12 +1,12 @@
-# Hermes Agent：自研 OpenAI 兼容网关的插件化扩展能力全景
+# Hermes Agent：聚合网关可用的插件化扩展面
 
 ## 范围与证据
 
 - 调研对象：Hermes Agent 本机安装版本 `v0.20.0 (2026.8.3)`，安装目录 `C:\Users\IceblueSakura\AppData\Local\hermes\hermes-agent`。
 - 阅读范围：`hermes_cli/plugins.py`（PluginContext/PluginManager、VALID_HOOKS、VALID_MIDDLEWARE 引用）、`hermes_cli/middleware.py`（middleware 契约）、`agent/auxiliary_client.py`（aux 分派）、`plugins/model-providers/litellm`（standalone 管理工具先例）、`plugins/web/`、`plugins/platforms/`。
 - 前置文档：`hermes-provider-plugin-capabilities.md`（ProviderProfile 字段/hooks 与 aux 分派）、`hermes-models-endpoint-schema.md`（/models 数据契约）。
-- 本文评估对象：**自研 OpenAI 兼容聚合网关**（OpenBridge 定位：聚合转发多个上游 provider，后续通过 MCP 暴露 web_search 等特殊工具）。评估"网关作为 Hermes 下游消费者"时，插件系统还提供哪些值得利用的扩展点。
-- **已排除**：`register_secret_source`（用户明确忽略；源码语义见 plugins.py:824，插件 source 不参与首进程 bootstrap）。
+- 本文评估对象：作为 Hermes 推理后端和工具提供方的自研 OpenAI-compatible 聚合网关；只比较插件系统提供的外部接入面。
+- **未覆盖**：`register_secret_source`；源码语义见 plugins.py:824，插件 source 不参与首进程 bootstrap。
 - 动态事实为 2026-08-08 阅读快照；升级 Hermes 后须重新复核。
 
 ## 1. 框架：网关在 Hermes 面前的三个角色
@@ -105,21 +105,23 @@
 | `llm_request` middleware | **动态会话级** | 每次请求发出前 | 整个 api_kwargs | 会话粘性、重试换路、按平台注入、配额门控 |
 | `pre_llm_call` hook | 观察+注入 | 每次 LLM 调用 | 追加 context 到 user message | 注入网关状态/路由提示 |
 
-## 6. 推荐落地顺序（OpenBridge 视角）
+## 6. 能力依赖分层（研究推论）
 
 ```
-Phase 1（已有文档）：ProviderProfile + default_aux_model + /models 动态 context
-Phase 2：llm_request middleware 动态路由（网关核心价值，先做）
-Phase 3：网关管理工具集（kind: standalone + register_tool，litellm 模式）
-Phase 4：MCP 服务接入；需要无前缀时补 register_web_search_provider
-Phase 5：观测 hooks（post_api_request/api_request_error）+ 辅助任务 register_auxiliary_task
-Phase 6：生命周期/策略 hooks（on_session_*、pre_verify、transform_*）按需
+基础协议：ProviderProfile + default_aux_model + /models dynamic context
+动态请求：llm_request middleware
+管理能力：kind: standalone + register_tool
+工具提供：MCP；需要无前缀时使用 register_web_search_provider
+观测能力：post_api_request/api_request_error + register_auxiliary_task
+生命周期：on_session_*、pre_verify、transform_* 等 hooks
 ```
 
-判断依据：Phase 1-3 是"网关作为推理后端"的基础价值；Phase 4 是"网关作为工具提供方"的增值；Phase 5-6 是运维完善。
+前两层决定网关作为推理后端的请求合同；管理和工具层提供额外 surface；观测与生命周期 hooks 属于独立运维能力。该分层只描述
+Hermes 插件面的依赖关系，不是任何具体产品的实施顺序。
 
 ## 7. 边界与未验证项
 
-- 行号固定于本机 v0.20.0；references/README.md 登记的旧 checkout（`470cf66b`）与本机安装目录不是同一快照，引用行号前以安装目录源码为准。
+- 行号固定于本机 v0.20.0；[Hermes 索引](README.md)记录的 OAuth 专项 checkout（`470cf66b`）与本机安装目录不是同一快照，
+  引用行号前以安装目录源码为准。
 - 未验证：`llm_request` middleware 在 aux 调用路径（compression/title/vision）是否同样生效（源码只确认主 conversation_loop 调用点；aux 路径经 `auxiliary_client` 独立构造请求，未逐行核实是否经过 middleware 链）；`register_auxiliary_task` 的 env 桥接与 picker 集成未实测；`transform_tool_result` 的具体返回契约（替换还是包装）未逐行确认；A2A 平台插件的实际能力面未调研。
 - 未覆盖：PluginLlm 的完整配置面；`register_platform` 各 adapter 实现细节；middleware 与 hooks 在 gateway/kanban worker 进程的执行差异。

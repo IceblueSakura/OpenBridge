@@ -10,7 +10,7 @@
   - `originator: codex_cli_rs`
   - `User-Agent: codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown`
   - `accept: text/event-stream`
-- 原始数据：`models-2026-08-10.json`（9 个模型，366 KB，含 service_tiers、truncation_policy、
+- 原始数据：[脱敏原始 JSON 快照](models-2026-08-10.json)（9 个模型，366 KB，含 service_tiers、truncation_policy、
   experimental_supported_tools、model_messages、base_instructions 等完整字段）。
 - 快照会过期：模型集合、字段与 API 可用性会随 ChatGPT 后端变化，本文不是永久事实。
 

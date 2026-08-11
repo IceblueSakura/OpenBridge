@@ -83,8 +83,8 @@ Model
 id 的目录事实、用户可见性和某个 endpoint 的实时供应状态需要分别解释。
 
 模型级 `supported_parameters` 不是所有 endpoint 的共同保证；具体 endpoint 的字段列表需要从
-`/api/v1/models/{author}/{slug}/endpoints` 单独读取。本次两个 OpenBridge target 的模型级集合都等于 endpoint 并集，具体快照见
-[models.md](models.md#当前-openrouter-target-的-endpoint-差异)。OpenRouter 请求体中的 `provider.require_parameters` 默认为
+`/api/v1/models/{author}/{slug}/endpoints` 单独读取。本次选取 DeepSeek V4 Flash 与 MiniMax M3 比较模型级集合和 endpoint
+详情，固定快照见 [models.md](models.md#模型级与-endpoint-详情差异)。OpenRouter 请求体中的 `provider.require_parameters` 默认为
 `false`：默认路由可把请求发送给不支持全部所传参数的 Provider，并由该 Provider 忽略未知参数；设为 `true` 才要求候选 Provider
 支持请求中的全部参数。
 

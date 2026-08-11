@@ -38,5 +38,5 @@
 - [网关 API 域导航](README.md)
 - [Public Model 与模型能力契约](../model-capability/README.md)
 - [Native Path 与流式语义](native-path-and-streaming.md)
-- [路由与 Provider 韧性](../routing-resilience/provider-resilience.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [路由与 Provider 韧性](../routing-resilience/README.md)
+- [实施现状](../../implementation-status/README.md)

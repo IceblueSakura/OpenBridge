@@ -1,268 +1,105 @@
-# OpenBridge 文档与源码阅读指引
+# OpenBridge 文档索引
 
-本页既是文档总索引，也是从产品边界逐步进入架构与实现的阅读手册。OpenBridge 当前是实验性的
-Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以当前 checkout、实施现状、测试和源码
-为准，不把历史方案、外部参考项目或未实现类型当成现有能力。
+本文只负责文档分类、阅读入口和维护规则。当前 checkout、源码、确定性测试和明确记录的实际验证是实现事实的依据；需求、计划或外部
+参考不能自动证明代码已经支持某项能力。
 
-## 1. 先选择阅读路线
+## 1. 按目标选择入口
 
-| 目标                |  建议用时 | 阅读范围                                                        | 完成标志                                                 |
-|---------------------|----------:|-----------------------------------------------------------------|----------------------------------------------------------|
-| 快速了解项目        |   30 分钟 | 根 README → 产品范围 → 实施现状目录 → 当前代码架构              | 能解释项目解决什么问题、当前只支持什么路径、明确不做什么 |
-| 看懂一次请求        | 2～3 小时 | 快速路线 + 启动装配 + Ingress → Pipeline → Provider → Transport | 能从 endpoint 追到上游请求，再追到下游响应               |
-| 准备修改代码        |  半天以上 | 请求调用链 + 对应功能需求 + 契约测试 + 当前开发焦点             | 能指出行为需求、失败测试、最小改动面和验证边界           |
-| 深挖协议或 Provider |    按专题 | 对应实现模块 + OpenAI 协议参考 + corpus/testkit                 | 能区分项目事实、外部协议事实和仍待真实验证的结论         |
+| 目标 | 从这里开始 | 继续阅读 |
+|---|---|---|
+| 安装、配置和调用 | [根 README](../README.md) | 配置模板、OpenAPI、常见问题 |
+| 判断产品应保持什么行为 | [功能需求](functional-requirements/README.md) | 对应功能域的合同、失败语义与非目标 |
+| 判断当前代码已实现什么 | [实施现状](implementation-status/README.md) | feature、Provider、test asset 与 evidence |
+| 查看当前保留的实施优先级 | [实施计划入口](implementation-plans/README.md) | [当前开发焦点](implementation-plans/current-focus.md)及对应需求、测试和状态页 |
+| 核验外部协议或 Provider 事实 | [参考资料](references/README.md) | 固定 source snapshot 与重新核验边界 |
+| 从文档进入源码 | [当前源码阅读指引](implementation-status/reading-guide.md) | [当前代码架构](implementation-status/current-architecture.md) |
 
-第一次阅读推荐严格按第 3～9 节顺序进行。已经有明确问题时，可直接使用第 10 节的专题路线。
+## 2. 文档类别与唯一职责
 
-## 2. 四类文档分别回答什么
+| 类别 | 只回答什么 | 不应包含什么 |
+|---|---|---|
+| `functional-requirements/` | 产品行为、客户端结果、安全边界、非目标和验收约束 | 当前测试结果、实现日志、候选设计 |
+| `implementation-status/` | 当前 checkout 已实现的事实、源码 owner、已执行证据和未证明边界 | 未获准路线图、外部协议全文 |
+| `implementation-plans/` | 当前保留的开发焦点与优先级 | 第二份路线图、完成历史、状态快照 |
+| `references/` | 外部协议、SDK、Provider、客户端和参考项目事实 | OpenBridge 当前实现、产品承诺或实施步骤 |
 
-| 分类                                          | 回答的问题                                    | 入口                         |
-|-----------------------------------------------|-----------------------------------------------|------------------------------|
-| [功能需求](functional-requirements/README.md) | 产品应保持什么用户行为、安全边界和非目标      | 产品目标与验收依据           |
-| [实施现状](implementation-status/README.md)   | 当前代码和已执行验证真正证明了什么            | 已实现事实与未验证边界       |
-| [实施计划](implementation-plans/README.md)    | 当前是否有一个获准实施的短周期行为            | 单一 TDD 开发焦点            |
-| [参考文档](references/README.md)              | 外部协议、SDK、客户端和参考项目提供了什么事实 | 研究证据，不自动构成功能承诺 |
+本地实现理由优先写在模块/API 文档中；只有形成跨模块产品合同或实施事实时，才进入上述文档。
 
-阅读时保持三个区分：功能需求不等于已经实现；测试通过不等于真实 Provider 或 Agent 已兼容；参考项目的 做法不等于 OpenBridge
-应照搬。
+## 3. 运行时契约资产
 
-当前服务的机器可读接口定义见 [OpenAPI 规范](openapi.yaml)，本地浏览器测试页面源文件见
-[Swagger UI 页面](swagger-ui.html)；运行服务后分别通过 `/openapi.yaml` 和 `/swagger-ui/` 访问。
+[openapi.yaml](openapi.yaml)和 [swagger-ui.html](swagger-ui.html)会由服务编译并分别通过 `/openapi.yaml` 与 `/swagger-ui/` 交付。
+它们不是生成后的附属文件：接口行为变化时必须与源码、serialization、错误、示例和测试原子更新。
 
-## 3. 第一阶段：建立产品坐标
+OpenAPI 描述当前 system 与 OpenAI-compatible HTTP surface，不包含 MCP dual-era transport；MCP 由
+[独立需求页](functional-requirements/gateway-api/mcp.md)及对应 transport tests 拥有。OpenAPI 也不表示每个 Public Model 支持所有
+可选字段；具体模型能力以运行中的 `/openbridge/v1/models` 固定接口契约为准。
 
-按顺序阅读：
+## 4. 功能专题入口
 
-1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
-2. [产品范围](functional-requirements/product-scope/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
-3. [扩展导航及共同规则](functional-requirements/extended-capabilities/embedding-and-native-multimodal.md)：先确认共同的能力分层和 Native/Bridge 边界，再按
-   [Embeddings](functional-requirements/extended-capabilities/embeddings.md)、[图片](functional-requirements/extended-capabilities/native-image.md)、
-   [文件](functional-requirements/extended-capabilities/native-file.md)或[音频](functional-requirements/extended-capabilities/native-audio.md)进入具体功能。
-4. [Public Model 与模型能力契约](functional-requirements/model-capability/README.md)
-   ：确认模型信息、固定能力预检和禁止能力路由边界。
-5. [实施现状目录](implementation-status/README.md)：按功能点阅读已经完成的实现事实和验证边界。
-6. [当前实现总览](implementation-status/current-implementation.md)：查看功能专题导航、证据层级和未完成范围。
-7. [遥测指标](implementation-status/telemetry-metrics.md)：查看 OTLP traces/metrics、Provider attempt 指标与安全属性边界。
-8. [当前代码架构](implementation-status/current-architecture.md)：先看分层图、关键词汇和“尚未实现”。
+| 问题域 | 需求 | 当前实现或证据 |
+|---|---|---|
+| 产品范围与部署边界 | [产品范围](functional-requirements/product-scope/README.md) | [实施现状目录](implementation-status/README.md) |
+| 网关 endpoint、认证、JSON/SSE、MCP | [网关 API](functional-requirements/gateway-api/README.md) | [HTTP 网关状态](implementation-status/features/gateway-http-api-and-auth.md) |
+| Public Model、Models API、能力预检 | [模型能力](functional-requirements/model-capability/README.md) | [Models 与预检状态](implementation-status/features/models-api-and-capability-preflight.md) |
+| Bootstrap、用户、API key 与 OAuth | [配置与凭证](functional-requirements/configuration-credentials/README.md) | [启动配置状态](implementation-status/features/startup-configuration-and-credentials.md) |
+| Route ordering、retry/fallback、cooldown | [路由与韧性](functional-requirements/routing-resilience/README.md) | [韧性状态](implementation-status/features/resilience-retry-fallback-and-cancellation.md) |
+| Embeddings、图片、文件与音频 | [扩展能力](functional-requirements/extended-capabilities/README.md) | [功能状态目录](implementation-status/README.md) |
+| 本地内容日志与 OpenTelemetry | [观测需求](functional-requirements/observability/README.md) | [运行时指标与遥测](implementation-status/telemetry-metrics.md) |
+| Provider 当前接入 | 对应产品/能力需求 | [Provider 状态目录](implementation-status/providers/README.md) |
+| 外部 OpenAI/Provider/项目事实 | 不构成需求 | [参考资料](references/README.md) |
 
-这一阶段暂时不要钻进具体函数。读完后应能回答：
+## 5. 变更工作流
 
-- 下游客户端看到的是 Public Model，还是上游真实模型？
-- 当前是否已经实现 Chat ↔ Responses Protocol Bridge？
-- Provider family、Provider instance、Upstream Target、Upstream API、Route 和 Public Model 分别拥有哪类事实？
-- 哪些结论只由 mock/fixture 证明，哪些仍需要 SDK、独立 Python/curl、目标 Agent 客户端或真实 Provider 验证？
+行为变更开始前：
 
-## 4. 第二阶段：看懂启动与装配
+1. 从当前源码、工作树、功能需求和实施状态建立基线；
+2. 明确用户可观察结果、失败语义、安全/资源边界和不做项；
+3. 在[当前开发焦点](implementation-plans/current-focus.md)中记录获准范围；
+4. 先建立失败测试、fixture 或最小客户端复现，再做最小实现；
+5. 先运行 focused validation，再运行与改动相称的仓库基线；
+6. 把确认事实与实际命令写入实施状态或 evidence，更新所有受影响的单一事实 owner。
 
-先读[配置、凭证与受信运行边界](functional-requirements/configuration-credentials/README.md)，再按以下顺序进入源码：
+未发布原型可以在获准焦点内直接修正 API、Bootstrap、fixture 或内部模块，但不得因此读取、重写或提交私有配置，也不得保留无意义的
+legacy alias、双实现、猜测式迁移或兼容垫片。
 
-| 顺序 | 文件                                                                                                        | 重点                                                                |
-|-----:|-------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-|    1 | [`src/main.rs`](../src/main.rs)                                                                             | 进程入口、配置加载、注册表构建、共享 HTTP client、Router 和优雅关闭 |
-|    2 | [`src/config/mod.rs`](../src/config/mod.rs)、[`parser.rs`](../src/config/parser.rs)                         | Bootstrap 基础定义、TOML 解析和边界校验                             |
-|    3 | [`src/config/source.rs`](../src/config/source.rs)                                                           | bootstrap 文件定位与读取错误边界                                    |
-|    4 | [`src/identity.rs`](../src/identity.rs)                                                                     | 私有用户文件、下游 API Key 匹配和不可变 `UserRegistry`              |
-|    5 | [`src/providers/catalog.rs`](../src/providers/catalog.rs)、[`catalog/`](../src/providers/catalog)           | 编译期 Provider instance、模型、target、Route 与 Public Model 装配  |
-|    6 | [`src/registry/compiler.rs`](../src/registry/compiler.rs)、[`validation.rs`](../src/registry/validation.rs) | 校验 `RegistryConfig` 并生成不可变 `RuntimeRegistry`                |
+## 6. 证据表达
 
-把启动链记成一条线即可：
+必须分别标明以下层次：
 
-```text
-bootstrap + users + private upstream credential TOML
-→ compiled provider registry + startup CredentialStore
-→ immutable RuntimeRegistry + UserRegistry + CredentialStore
-→ shared UpstreamClient
-→ GatewayState
-→ Axum Router
-```
+1. 静态源码或 schema 检查；
+2. 确定性 Rust test / fixture；
+3. Python corpus/testkit 或独立 loopback；
+4. 外部 SDK 或独立 curl/Python 客户端；
+5. 目标 Agent runtime；
+6. 真实 Provider；
+7. 负载、长时间运行或生产环境。
 
-配套测试先看 [`tests/config_contract.rs`](../tests/config_contract.rs)、
-[`tests/downstream_auth_contract.rs`](../tests/downstream_auth_contract.rs)、
-[`tests/startup_contract.rs`](../tests/startup_contract.rs) 和 [`tests/example_config.rs`](../tests/example_config.rs)。它们从启动结果、
-认证结果和 checked-in profile 烟雾编译说明哪些校验具有运行时价值。
+低层证据不能替代高层验收，真实 Provider 一次成功也不能替代可重复回归。每份 evidence 应记录时间及时区、checkout、工作树状态、
+工具版本、脱敏配置形状、实际范围、结果和“不证明什么”，不得保存 credential、Cookie、私人正文或 Provider request ID。
 
-读完后应能回答：为什么业务请求不能动态指定上游 URL、credential、Provider 或 route？为什么用户文件和注册表 变更需要重启？
+新 endpoint 可以先使用仅存在于 test/fixture 的 synthetic Provider、loopback upstream 或 resource/session simulator 建立 fake contract；
+它必须经过真实下游 router、认证、limit、analysis、planning、transport、renderer、错误和终态观测路径。fake 成功只证明相应 wire 或
+state-machine，不得进入 production `/v1/models`，也不证明真实 Provider、模型质量、费用、保留策略或负载能力。
 
-## 5. 第三阶段：沿一次请求追完整调用链
+## 7. 参考资料元数据
 
-建议选择一个最简单的 `POST /v1/responses` 非流式请求，从下表自上而下阅读；理解后再换成 streaming 请求。
+每份 reference 应能独立说明：
 
-| 调用阶段           | 代码入口                                                                                                      | 阅读问题                                                                           |
-|--------------------|---------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| Router 与 endpoint | [`ingress::build_router`](../src/ingress/router.rs)                                                           | 哪些 endpoint 公开？哪些需要下游认证？                                             |
-| HTTP 基础检查      | `require_user`、`responses`、`has_json_content_type`                                                          | 认证、Content-Type 和 body 上限在哪次 egress 前完成？                              |
-| 请求编排           | [`ingress::forward_request`](../src/ingress/forwarding.rs)                                                    | 请求规划、候选循环、retry/fallback 和响应返回如何连接？                            |
-| 请求事实提取       | [`pipeline::analyze_request`](../src/pipeline/analysis.rs)                                                    | 从 JSON 中提取哪些 capability、limit、reasoning 和 state-affinity 事实供统一预检？ |
-| Public Model 预检  | [`PublicModelInfo`](../src/registry/public_model.rs)、[`pipeline::plan_request`](../src/pipeline/planning.rs) | 为什么能力只校验一次，未知或不支持为何在查看 Route 前失败？                        |
-| Route 计划         | [`pipeline::plan_request`](../src/pipeline/planning.rs)                                                       | 预检通过后为何必须保持配置 Route 的资格与顺序？                                    |
-| 运行事实查询       | [`RuntimeRegistry`](../src/registry/runtime.rs)                                                               | Public Model 如何落到 Route、Target 与 Upstream API？                              |
-| Provider 改写      | [`ProviderAdapter::prepare_request`](../src/provider/adapter.rs)                                              | 上游相对 path、真实 model、普通 header 与认证 header 在哪里产生？                  |
-| HTTP 发送          | [`UpstreamClient::send`](../src/transport/upstream.rs)                                                        | endpoint base、相对 URI、timeout、redirect 和连接复用如何受控？                    |
-| 响应处理           | `ingress::upstream_response`                                                                                  | status、safe response headers、JSON/SSE body 如何返回下游？                        |
-| 错误归一           | `route_error`、`upstream_error`                                                                               | 哪些错误在本地生成，哪些来自上游，哪些信息不得泄露？                               |
+- source 与 source snapshot；
+- last reverified；
+- 阅读范围与证据边界；
+- 重新核验触发条件。
 
-主链路可以压缩为：
+动态 endpoint、SDK、模型、价格、beta 和 deprecation 事实必须按快照理解；真正实施前重新核验。综合文档必须链接其项目级前置证据。
 
-```text
-HTTP request
-→ authenticate and bound body
-→ analyze RequestRequirements
-→ preflight the selected Public Model interface once
-→ plan ordered RouteCandidates
-→ select Target + typed upstream operation + ProviderAdapter
-→ prepare relative request and sensitive auth
-→ UpstreamClient.send
-→ preserve JSON/SSE response within safe header and terminal rules
-```
+## 8. 文档验证
 
-配套阅读 [`tests/ingress_contract.rs`](../tests/ingress_contract.rs) 和
-[`tests/forwarding_contract.rs`](../tests/forwarding_contract.rs)：前者固定客户端可见 admission 错误，后者固定实际转发、fallback、错误、
-取消和响应。测试不再锁定内部 Route ID、候选数量或候选顺序。
+纯文档变更至少检查：
 
-## 6. 第四阶段：理解核心数据所有权
+- Markdown 相对文件链接与本地锚点；
+- 每个文档和非 Markdown 快照是否有可达 owner；
+- requirements 是否混入实施事实，status 是否混入候选计划，references 是否混入本地当前状态；
+- 模型数量、测试数量、Provider 清单和“最近证据”是否只有一个 owner；
+- `git diff --check`。
 
-这一阶段解决最容易混淆的配置与运行实体问题。
-
-| 问题                              | 先读文档                                                                                            | 再读源码                                                                                |
-|-----------------------------------|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
-| 模型事实放在哪里                  | [当前代码架构第 3 节](implementation-status/current-architecture.md#3-注册表层)                     | [`src/models/`](../src/models)、`ModelConfig`、`ModelInfo`                              |
-| Public Model 能力如何形成         | [Public Model 与模型能力契约](functional-requirements/model-capability/README.md) | [`src/registry/public_model.rs`](../src/registry/public_model.rs)、`PublicModelInfo`    |
-| Provider 能力上界是谁定义         | [网关 API 与兼容](functional-requirements/gateway-api/README.md)                             | [`src/provider/kind.rs`](../src/provider/kind.rs)、[`src/providers/`](../src/providers) |
-| target 与 upstream API 为什么分开 | [当前代码架构](implementation-status/current-architecture.md)                                       | `UpstreamTargetConfig`、`UpstreamApiConfig`                                             |
-| Route 如何保持配置顺序            | [路由与 Provider 韧性](functional-requirements/routing-resilience/provider-resilience.md)                              | `PublicModelConfig`、`RouteConfig`、`plan_request`                                      |
-| capability 为什么只能收窄         | [配置与凭证边界](functional-requirements/configuration-credentials/README.md)                          | [`src/core/capability.rs`](../src/core/capability.rs)、`build_registry`                 |
-
-建议自己画一条具体映射：
-
-```text
-public model name
-→ fixed Chat/Responses interface contract
-→ ordered route ids
-→ route(downstream protocol + mode)
-→ upstream target(endpoint + credential + timeout)
-→ upstream API(protocol + upstream model + typed executable capabilities/state ownership)
-→ canonical model facts
-```
-
-如果不能指出每个字段属于哪一层，就先不要修改 registry 或 Provider 配置。
-
-## 7. 第五阶段：专门阅读 Streaming、retry 与安全边界
-
-这部分是当前实现中最需要结合测试阅读的区域：
-
-1. 读[Native Path 与流式语义](functional-requirements/gateway-api/native-path-and-streaming.md)与
-   [错误与客户端可见结果](functional-requirements/gateway-api/errors-and-client-results.md)。
-2. 读[路由与 Provider 韧性](functional-requirements/routing-resilience/provider-resilience.md)。
-3. 读 [`src/transport/sse.rs`](../src/transport/sse.rs)：SSE framing、UTF-8、event 大小和 terminal 观察。
-4. 读 [`ingress/forwarding.rs`](../src/ingress/forwarding.rs) 与 [`ingress/streaming.rs`](../src/ingress/streaming.rs)
-   ：首输出 commit point、EOF、取消与 retry/fallback 边界。
-5. 读 [`src/provider/contracts.rs`](../src/provider/contracts.rs)：safe/sensitive headers、status 分类与 retry hint。
-6. 用 [`tests/sse_contract.rs`](../tests/sse_contract.rs)、`forwarding_contract.rs` 中的 streaming cases 逐条反证。
-
-必须能解释以下不变量：
-
-- `output_item.done` 不等于 Responses terminal；EOF-before-terminal 不能伪造成成功。
-- 第一个下游业务 body byte 写出后，不能 fallback、retry 或拼接另一上游响应。
-- 下游取消必须终止对应上游工作。
-- safe headers 与 credential headers 必须分离；业务请求不能控制任意 egress header。
-
-## 8. 第六阶段：理解 Provider 与 Probe
-
-添加或审计 Provider 时，按以下顺序阅读：
-
-1. [`src/provider/kind.rs`](../src/provider/kind.rs) 与 [`src/provider/adapter.rs`](../src/provider/adapter.rs)：闭合
-   `ProviderKind`、`ProviderContract` 与 `ProviderAdapter`。
-2. [`src/providers/openai_compatible.rs`](../src/providers/openai_compatible.rs)：OpenAI-compatible 请求、认证、SSE、错误与
-   API pair 共享机制。
-3. [`src/providers/openai.rs`](../src/providers/openai.rs)、[`longcat.rs`](../src/providers/longcat.rs)、
-   [`openrouter.rs`](../src/providers/openrouter.rs)、[`deepseek.rs`](../src/providers/deepseek.rs)、
-   [`mimo.rs`](../src/providers/mimo.rs)、[`chatgpt.rs`](../src/providers/chatgpt.rs)、
-   [`nvidia.rs`](../src/providers/nvidia.rs)、[`bailian.rs`](../src/providers/bailian.rs) 与 [`kimi_cn.rs`](../src/providers/kimi_cn.rs)：九个已注册 Provider 如何聚合各自目录中的
-   contract、endpoint path、request hook 与注册事实；其中 ChatGPT 通过独立 OAuth manager 服务固定 Responses-native Public Model，
-   Chat-only Provider 在缺少 Responses Native 时由 Public Model 编译器自动补充 Bridge。
-4. [`tests/provider_contract.rs`](../tests/provider_contract.rs) 与
-   [`tests/provider_boundary_contract.rs`](../tests/provider_boundary_contract.rs)：相对 URI、认证隔离、能力上界和错误分类。
-5. [Provider 实施与实测状态](implementation-status/providers/README.md)：按 Provider family 查看当前模型、多模态、工具调用和
-   真实上游证据。
-6. [能力探测实施现状](implementation-status/capability-probing.md)、[`src/probe.rs`](../src/probe.rs) 与
-   [`src/bin/openbridge-probe.rs`](../src/bin/openbridge-probe.rs)：probe 如何复用受信 target，同时不修改注册表。
-
-注意：当前 OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、NVIDIA、百炼与 Kimi 的已绑定 target 都走 OpenAI-compatible Native
-Path；OpenAI 与 LongCat 注册双协议和 Bridge，Qwen3.7、MiMo V2.5/Pro，以及 OpenRouter 的 DeepSeek V4 Flash/MiniMax M3 target
-只注册双协议 Native Route。DeepSeek V4 Pro、NVIDIA MiniMax、百炼 GLM/Qwen 与 Kimi K3 target 只提供 Chat Native；Public Model
-编译器仅在整个模型缺少 Responses Native 时自动补充 Responses-via-Chat Bridge。MiniMax 已有 OpenRouter Responses Native，因而
-NVIDIA Chat 后备不生成冗余 Bridge；V4 Flash 同理不为 Bailian Chat fallback 生成冗余 Bridge。ChatGPT
-的固定 target 只提供 Responses Native Route，独立 Responses-only Public Model 自动补充受限 Chat Bridge，通过独立 OAuth2 manager 借用
-credential。管理员可以对已激活 target 显式执行受信 probe，但不提供本机 Codex credential、identity 或 executable probe；这些路径仍不构成
-真实异构 Provider、外部 SDK 或客户端 runtime 验收。
-
-## 9. 第七阶段：用测试理解“已经证明什么”
-
-先读 [TDD 与证据要求](functional-requirements/delivery-evidence/delivery-and-evidence.md)，再使用下表定位证据：
-
-| 测试资产                                                          | 主要保护内容                                                            | 不证明什么                                           |
-|-------------------------------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------|
-| `tests/config_contract.rs`、`tests/upstream_credential_config.rs` | bootstrap、registry 引用、私有 credential TOML 与 endpoint              | 真实网络或 Provider 可用性                           |
-| `tests/ingress_contract.rs`                                       | 客户端认证、body/JSON 边界和 pre-egress 业务错误                        | 上游真实响应                                         |
-| `tests/forwarding_contract.rs`                                    | Ingress 到 transport 的 JSON/SSE、fallback、timeout、取消和 header 行为 | 外部 SDK 或真实 Provider 兼容                        |
-| `tests/provider*_contract.rs`                                     | Provider 请求、认证、能力和错误边界                                     | 全部 Provider 私有扩展                               |
-| [`testdata/`](../testdata/README.md)                              | canonical Chat/Responses/SSE/tool/error corpus                          | 任一 case 已经过 OpenBridge runtime                  |
-| [`tools/corpus/`](../tools/corpus/README.md)                      | Python corpus 管理、Mock Client/Server 与单 case observation 判定       | 自动启动 SUT、多 attempt runner、真实 Agent/Provider |
-
-已执行结果、版本和未接入边界以[实施现状目录](implementation-status/README.md)及对应功能专题为准，不要只根据测试文件存在就宣称某层已经验证。
-
-## 10. 按问题选择专题路线
-
-| 你要解决的问题                              | 阅读路线                                                                                                                                                                                              |
-|---------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 启动失败或配置被拒绝                        | 配置需求 → `src/config` → `src/providers/catalog.rs` → `build_registry` → `config_contract.rs`                                                                                                        |
-| 请求为何在 Route 前被拒绝或没有可执行 Route | 模型能力契约 → `analyze_request` → `plan_request` → `ingress_contract.rs` / `forwarding_contract/admission.rs`                                                                                       |
-| 模型名或 endpoint 改写错误                  | registry ownership → Provider adapter → `UpstreamClient::send` → provider tests                                                                                                                       |
-| SSE 提前结束、重复 terminal 或乱码          | Responses/Chat 协议参考 → `transport/sse.rs` → `ingress/streaming.rs` → SSE/forwarding tests                                                                                                          |
-| fallback 或 retry 不符合预期                | Provider 韧性需求 → `ingress/forwarding.rs` → status/error classification → forwarding tests                                                                                                          |
-| 比较 Provider 性能、usage、cache 或检查 trace | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/{provider,otlp}.rs` → observability/OTLP contract tests                                                                   |
-| credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
-| 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
-| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/configuration-credentials/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
-| 实现 Embeddings、图片或文件                 | [扩展共同规则](functional-requirements/extended-capabilities/embedding-and-native-multimodal.md) → 对应功能需求 → [OpenAI 细粒度协议索引](references/openai/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
-| 实现音频能力                               | [音频需求](functional-requirements/extended-capabilities/native-audio.md) → [OpenAI 音频协议索引](references/openai/README.md#6-音频与语音) → [MiMo 六模型能力矩阵](references/providers/xiaomi/audio.md) → 当前焦点 → contract tests |
-| 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
-
-只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：
-
-- [Chat Completions 细粒度协议](references/openai/README.md#1-chat-completions)
-- [Responses 细粒度协议](references/openai/README.md#2-responses)
-- [标准 Audio/Speech 细粒度协议](references/openai/README.md#6-音频与语音)
-- [MiMo 全模型语音能力矩阵](references/providers/xiaomi/audio.md)
-- [OpenAI 协议调研总索引](references/openai/README.md)
-- [Codex OAuth 调研](references/codex/codex-device-auth-token-refresh-analysis.md)
-- [参考项目比较矩阵](references/project-comparison.md)
-- [Chat/Responses、SSE 与工具测试集调研](references/cross-project/chat-responses-sse-tool-test-suite-survey.md)
-
-## 11. 推荐的阅读练习
-
-完成主路线后，用三个小练习检查理解，而不是继续无目的通读：
-
-1. 选一个非流式 Responses 请求，写出从 Public Model 到 upstream model 的完整对象链，并指出 model 改写位置。
-2. 选 `eof_before_terminal_does_not_fabricate_a_terminal_event`，从测试反向追到 SSE decoder 和响应关闭路径。
-3. 选一个 unsupported capability，请说明它在哪层被发现、为什么没有 egress、下游收到哪类稳定错误。
-
-阅读笔记建议固定记录四项：观察到的当前事实、对应需求、代码/测试证据、尚未验证的边界。这样可以避免把 计划、推论或外部参考误写成当前实现。
-
-## 12. 开始修改代码前
-
-1. 检查工作树和当前源码，不覆盖无关改动。
-2. 核对[当前开发焦点](implementation-plans/current-focus.md)是否为空或与任务一致。
-3. 从功能需求或已知缺陷选择一个可观察行为。
-4. 先写失败测试，再做最小实现；完成后更新实施现状并清空当前焦点。
-5. 按改动面运行 Rust 基线；修改 `testdata/` 或 `tools/corpus/` 时追加 Python corpus/testkit 基线。
-6. 明确区分静态检查、确定性测试、SDK/独立客户端、目标 Agent、真实 Provider、负载与长期运行证据。
-
-## 13. 文档维护规则
-
-- 产品行为、边界或非目标变化：更新 `functional-requirements/`；
-- 已实现行为或已完成验证变化：更新 `implementation-status/`；
-- 下一个功能获准实施：只更新 `implementation-plans/current-focus.md`，完成后恢复为空焦点；
-- 外部协议、SDK、目标客户端或参考项目事实变化：更新 `references/`，并按影响同步前述文档；
-- 不保留远期设计、阶段路线图、目标变迁或淘汰方案；需要实施时再从当前源码建立焦点。
+只有文档调整涉及运行时资产、serialization、OpenAPI 交付路径或产品行为时，才追加对应 Rust focused tests 和完整基线。

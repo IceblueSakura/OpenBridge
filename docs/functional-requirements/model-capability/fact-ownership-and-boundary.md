@@ -27,12 +27,9 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 parameters 和 canonical reasoning 只能由所选 variant 拥有或派生。不得重新引入平铺 task 字段、多个 bool、空 payload 或第二套可独立
 修改的 task 状态。
 
-[Model 目录与 Provider 接入配置](../pending/model-catalog-configuration.md)目前是待定方案，不属于本契约或当前实施任务。
-在它重新获得明确批准前，Canonical Model、Target/API、Route source 与 Public Model 继续由代码目录显式注册。
-
 ## 关联文档
 
 - [模型与能力契约域导航](README.md)
 - [Public Model 身份、生命周期与可见性](identity-and-lifecycle.md)
 - [模型事实与固定接口契约](model-facts-and-interface-contract.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

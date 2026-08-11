@@ -21,4 +21,4 @@
 - [事实所有权与公开边界](fact-ownership-and-boundary.md)
 - [Models API 契约](models-api.md)
 - [启动时校验](startup-validation.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

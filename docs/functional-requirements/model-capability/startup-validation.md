@@ -31,4 +31,4 @@ registry 必须在监听前拒绝：
 - [事实所有权与公开边界](fact-ownership-and-boundary.md)
 - [模型事实与固定接口契约](model-facts-and-interface-contract.md)
 - [配置与凭证](../configuration-credentials/README.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

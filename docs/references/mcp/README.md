@@ -8,7 +8,7 @@
 
 关键结论先行：**截至快照日，Rust 生态中唯一完整实现 2026-07-28 现行规范的库是官方 rust-sdk（crate 名 `rmcp`）**；其余活跃库（rust-mcp-stack、pmcp）仍锚定 2025-11-25。若目标是与最新规范对齐，选型空间实际上是"用官方 `rmcp`"还是"接受旧规范用社区库"。
 
-远程访问模式见[远程访问模式调研](remote-access-modes.md)：互联网访问 MCP 的唯一标准传输是 Streamable HTTP；2026-07-28 无状态化使 server 可被网关/负载均衡/CDN/无服务器直接托管；远程认证为 OAuth 2.1（RFC 8707 资源指示器 + audience 校验 + 禁止 token passthrough）；MCP 网关（单入口联合多 server + 统一策略/审计/限流）是与本仓库形态最相关的部署模式。
+远程访问模式见[远程访问模式调研](remote-access-modes.md)：互联网访问 MCP 的唯一标准传输是 Streamable HTTP；2026-07-28 无状态化使 server 可被网关/负载均衡/CDN/无服务器直接托管；远程认证为 OAuth 2.1（RFC 8707 资源指示器 + audience 校验 + 禁止 token passthrough）；MCP 网关（单入口联合多 server + 统一策略/审计/限流）是聚合网关采用时需要单独比较的部署模式。
 
 ## 1. 生态全景
 

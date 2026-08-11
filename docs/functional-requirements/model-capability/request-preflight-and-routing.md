@@ -37,8 +37,8 @@ streaming-only Route 禁用转换时，不得为了满足非流式请求而跳�
 
 Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、顺序及 `Native`/`Bridged` 模式均来自固定配置。Public Model 的 reasoning
 输入归一化发生在 RoutePlan 构造前；Provider reasoning wire 映射只能在选定候选的 egress 请求准备阶段改写 wire 副本，不得写入
-RoutePlan，也不能改变候选资格或顺序。若完整
-`BridgePlan` 无法表示已通过 公共预检的请求，整个请求必须失败，不能跳过该 Bridge 去选择其他 Route。 运行期
+RoutePlan，也不能改变候选资格或顺序。若完整 `BridgePlan` 无法表示已通过公共预检的请求，整个请求必须失败，不能跳过该
+Bridge 去选择其他 Route。运行期
 cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属于可用性执行，不是能力路由；
 只有请求实际携带 `previous_response_id` 时才禁止跨 Target fallback；候选具备 continuation 能力本身不能改变无状态请求的 fallback，
 state ownership 也不能选择能力更强的候选。
@@ -47,6 +47,6 @@ state ownership 也不能选择能力更强的候选。
 
 - [模型与能力契约域导航](README.md)
 - [模型事实与固定接口契约](model-facts-and-interface-contract.md)
-- [路由与 Provider 韧性](../routing-resilience/provider-resilience.md)
+- [路由与 Provider 韧性](../routing-resilience/README.md)
 - [网关 API 域：请求与安全边界](../gateway-api/request-and-security-boundary.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [实施现状](../../implementation-status/README.md)

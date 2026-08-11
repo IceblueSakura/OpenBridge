@@ -16,13 +16,12 @@
   音频生成任务还可带 mode-aware `multimodal_output.audio`；生成接口还公开逐值 `response_includes`，Chat 或没有共同可接受 Responses
   include 值时为空数组；
   `embeddings` 至多一个独立 Embedding 接口能力对象；
-- schema 版本：首版固定为字符串 `"1"`。Embeddings interface 首次加入前该扩展契约尚未发布，因此直接修正 v1 DTO、序列化、OpenAPI
-  和测试，不增加无意义的 v2、legacy 字段镜像或双写兼容层。
+- schema 版本固定为字符串 `"1"`；不提供 v2 alias、legacy 字段镜像或双写兼容层。
 
 模型事实是模型本体的安全公共上界；模型请求是否可调用某能力，必须以目标 `interfaces` 项为准。某协议没有 可执行 Route 时，其接口值为
 `null`。canonical Model 的参数事实只参与编译各接口的
 `supported_parameters`，模型事实层不得再公开一份不能直接用于请求放行的重复列表。该字段表示 OpenBridge 接受对应顶层参数；对
-[普通参数上游兼容规则](../gateway-api/tools-continuation-and-extensions.md)显式列出的字段，具体候选可以在 egress 前忽略，因而不承诺
+[普通参数上游兼容规则](../gateway-api/parameter-compatibility.md)显式列出的字段，具体候选可以在 egress 前忽略，因而不承诺
 每个 Provider 都会实际应用该提示。
 
 `capabilities.tasks` 必须从唯一 canonical task 固定映射，不得从 Route operation、audio presence 或请求字段猜测：
@@ -70,7 +69,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | Responses `include` 条件输出请求                                                    | Route contribution 携带逐值闭合集合，Public Model 取全部固定候选的集合交集；公开值不保证对应 item 存在，Bridge 只有显式安全消费且不伪造输出时才贡献 |
 | function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode；parallel 只承诺接受请求值，不保证调用数量或执行并发 |
 | structured outputs                                                              | 执行契约只保存 `JsonObject | JsonSchema(strictness) | JsonObjectAndJsonSchema(strictness)` 闭合 profile；按完整 variant 相交，空 mode 交集关闭整个能力，Models 的 support/modes/strict 只从结果投影 |
-| `Bridged` Route                                                                     | 只贡献当前转换器完整支持的公共子集；本阶段对 image/file/audio source 与 audio output 贡献空集                         |
+| `Bridged` Route                                                                     | 只贡献转换器完整支持的公共子集；image/file/audio source 与 audio output 贡献空集                                     |
 
 reasoning 的 `levels` 始终表示上述可执行交集。generation Public Model 另以静态 `input_policy` 决定下游输入：`strict`
 只接受 `levels`；`clamp_positive_floor` 在正向序列中向下取不高于请求值的最高档，低于最小档时夹到最小档，并由此投影
@@ -84,7 +83,7 @@ output encoding、默认维度、可请求 dimension domain 和输入/批量限�
 Chat/Responses 的 `modalities.input`/`modalities.output` 只是摘要。具体 image/file/audio 请求还必须匹配 `multimodal_input` 中的协议
 part、source、inline encoding、format/detail/media type 与 limits；音频生成还必须匹配 `multimodal_output.audio` 的 JSON/SSE mode、
 format、voice、framing 与累计预算。嵌套 content part 字段不加入顶层 `supported_parameters`；task-specific `asr_options`/`audio` 只在
-对应 interface 顶层公开。共同编译规则见[扩展导航](../extended-capabilities/embedding-and-native-multimodal.md)，闭合集合分别由
+对应 interface 顶层公开。共同编译规则见[扩展导航](../extended-capabilities/README.md)，闭合集合分别由
 [图片](../extended-capabilities/native-image.md)、[文件](../extended-capabilities/native-file.md)和[音频](../extended-capabilities/native-audio.md)功能页拥有。
 
 音频输入还必须绑定业务用途：`content_understanding`、`speech_recognition` 与 `voice_conditioning` 不能因为都使用 Base64/URL 或
@@ -107,5 +106,5 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 - [模型与能力契约域导航](README.md)
 - [事实所有权与公开边界](fact-ownership-and-boundary.md)
 - [请求预检与禁止能力路由](request-preflight-and-routing.md)
-- [扩展能力导航及共同规则](../extended-capabilities/embedding-and-native-multimodal.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [扩展能力导航及共同规则](../extended-capabilities/README.md)
+- [实施现状](../../implementation-status/README.md)

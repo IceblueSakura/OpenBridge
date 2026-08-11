@@ -24,10 +24,6 @@
 - Responses 返回 HTTP 200、完成态 `response`、`mimo-v2.5`，并产生可见图片语义文本；
 - 测试没有记录 credential、请求正文或模型原文。
 
-同日又经本地 OpenBridge 独立端口复测 PNG data URL 与官方示例公网 PNG URL；Chat/Responses 四个请求均返回 HTTP 200、正确
-object/model 和非空图片语义文本，其中内存红蓝图的两个结果都命中预期颜色。该结果证明当次 OpenBridge Native 路径与 MiMo
-remote/data source 可用。
-
 ## 证据边界
 
 观察只覆盖一个账号、PNG data/remote URL 和一次网络状态；它不把未探测的 `detail`、`file_id`、全部格式/尺寸、SDK、负载、长期

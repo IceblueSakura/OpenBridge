@@ -30,7 +30,7 @@
 - 同一 snapshot 下，retrieve 必须与对应列表元素逐字段相同；列表按 Public Model id 确定性排序。
 - 未知、retired 或当前不可用模型返回 HTTP 404、`model_not_found`，`param` 为 `model`，不得区分内部存在性。
 - 固定接口契约不支持请求时返回 HTTP 400、`unsupported_model_capability`，并保证上游调用次数为零。
-- 已识别但当前 OpenBridge 尚未实现的协议能力可以返回独立稳定的 `unimplemented_request`，不得尝试透传猜测。
+- 已识别但未纳入当前协议契约的能力可以返回独立稳定的 `unimplemented_request`，不得尝试透传猜测。
 - 除上述单一 Native generation 协议筛选外，不提供分页、搜索、排序、模型 ACL、通用能力过滤或动态刷新。
 
 ## 关联文档
@@ -38,5 +38,5 @@
 - [模型与能力契约域导航](README.md)
 - [Public Model 身份、生命周期与可见性](identity-and-lifecycle.md)
 - [模型事实与固定接口契约](model-facts-and-interface-contract.md)
-- [网关 API 域：接口与认证](../gateway-api/interfaces-and-auth.md)
-- [当前实现总览](../../implementation-status/current-implementation.md)
+- [网关 API 域：Endpoint 与认证](../gateway-api/endpoints-and-auth.md)
+- [实施现状](../../implementation-status/README.md)

@@ -1,59 +1,63 @@
 # 实施现状目录
 
-本目录只记录当前 checkout 已经实现，并由代码、测试或明确验证记录支持的事实。每个已完成的功能点使用一个专题文件，专题文件是该功能
-的唯一状态来源；未实施的设计、后续设想和外部协议调研分别放在 `implementation-plans/`、`functional-requirements/` 和 `references/`。
+本页是当前 checkout 实施状态的唯一索引。专题页只记录 live source 已存在的行为、所有权、确定性证据入口、带日期的外部证据
+链接和明确未证明范围；功能需求、当前实施授权与外部协议事实分别由 `functional-requirements/`、`implementation-plans/` 和
+`references/` 拥有。
 
-## 已完成的功能点
+同一事实冲突时按“当前 checkout → 对应确定性测试 → 带日期的外部验证记录”处理。外部记录只证明其日期、账号、网络、模型
+和 payload，不能覆盖后续 source，也不能替代 SDK、Agent、fallback、负载或长期运行验收。
 
-专题页统一使用“状态 → 已完成内容 → 实现边界 → 验证证据 → 未覆盖范围 → 相关文档”的结构，便于区分实现事实和验收结论。
+## 功能状态
 
-| 功能点 | 专题文件 | 主要证据入口 |
+| 功能点 | 当前状态页 | 主要确定性证据入口 |
 |---|---|---|
-| HTTP 网关接口与下游认证 | [gateway-http-api-and-auth.md](features/gateway-http-api-and-auth.md) | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs` |
-| 启动配置、用户与受信凭证边界 | [startup-configuration-and-credentials.md](features/startup-configuration-and-credentials.md) | `tests/config_contract.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
-| Provider/Model/Target/API/Route/Public Model 注册表 | [provider-registry-and-model-catalog.md](features/provider-registry-and-model-catalog.md) | `tests/config_contract.rs`、`tests/provider*_contract.rs`、`tests/forwarding_contract.rs` |
-| Models 接口、公共契约与能力预检 | [models-api-and-capability-preflight.md](features/models-api-and-capability-preflight.md) | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs` |
-| Chat/Responses Native 转发 | [native-generation-forwarding.md](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
-| `mimo-v2.5` Chat/Responses Native 图片输入 | [native-image-input.md](features/native-image-input.md) | `tests/forwarding_contract.rs` |
-| `mimo-v2.5` 音频理解与 MiMo 专用 ASR/TTS/VoiceDesign/VoiceClone Chat Native | [native-mimo-audio.md](features/native-mimo-audio.md) | `tests/forwarding_contract.rs` |
-| Chat ↔ Responses Protocol Bridge | [protocol-bridge.md](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
-| Retry、fallback、credential rotation、cooldown 与取消 | [resilience-retry-fallback-and-cancellation.md](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
-| OpenAI-compatible Embeddings | [embeddings.md](features/embeddings.md) | `tests/embedding_forwarding_contract.rs` |
-| ChatGPT OAuth2 生命周期与 Responses 数据面 | [chatgpt-oauth-startup.md](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
+| HTTP 网关接口与下游认证 | [HTTP 网关与认证](features/gateway-http-api-and-auth.md) | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs`、`tests/mcp_contract.rs` |
+| 启动配置、用户与受信凭证 | [启动配置与凭证](features/startup-configuration-and-credentials.md) | `tests/config_contract.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
+| Provider/Model/Target/API/Route/Public Model 注册表 | [注册表与模型目录](features/provider-registry-and-model-catalog.md) | `tests/config_contract.rs`、`tests/provider*_contract.rs`、`tests/forwarding_contract.rs` |
+| Models 接口与能力预检 | [Models 与 preflight](features/models-api-and-capability-preflight.md) | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs` |
+| Chat/Responses Native 转发 | [Native generation](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
+| `mimo-v2.5` Native 图片 | [Native 图片](features/native-image-input.md) | `tests/forwarding_contract.rs` |
+| MiMo 音频理解与专用音频 task | [MiMo 音频](features/native-mimo-audio.md) | `tests/forwarding_contract.rs` |
+| Chat ↔ Responses Protocol Bridge | [Protocol Bridge](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
+| Retry、fallback、cooldown 与取消 | [韧性与取消](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
+| Embeddings | [Embeddings](features/embeddings.md) | `tests/embedding_forwarding_contract.rs` |
+| ChatGPT OAuth2 与 Responses 数据面 | [ChatGPT OAuth2](features/chatgpt-oauth-startup.md) | `tests/oauth2_login_cli.rs`、`tests/startup_contract.rs`、`tests/forwarding_contract.rs` |
 
-## Provider 实施与实测状态
+## Provider 状态
 
-Provider 状态页按 family 汇总当前固定 Target、Public Model 的多模态与工具调用能力，以及真实上游证据；它们不替代上面的功能专题。
-维护规则和证据术语见
-[Provider 状态目录](providers/README.md)。
+[Provider 状态目录](providers/README.md)定义真实 Provider、端到端网关与确定性证据的区别。九个编译期 family 均有当前状态页：
 
-| Provider | 状态页 | 主要内容 |
+| Provider family | 状态页 | 当前证据边界摘要 |
 |---|---|---|
-| Xiaomi MiMo | [MiMo 多模态与工具调用状态](providers/mimo.md) | 六模型 text/image/audio/video 边界、function tool 实测和模型级固定能力收窄 |
+| ChatGPT | [chatgpt.md](providers/chatgpt.md) | OAuth/Responses/Bridge 有确定性证据；文字矩阵只走正常首选 source |
+| OpenAI | [openai.md](providers/openai.md) | 注册与 Embeddings 有确定性证据；没有成功的真实 Provider 记录 |
+| LongCat | [longcat.md](providers/longcat.md) | Native/Bridge 有确定性证据和正常路径文字矩阵 |
+| DeepSeek | [deepseek.md](providers/deepseek.md) | Native/Bridge 有确定性证据和定向 structured-output 真实请求 |
+| Xiaomi MiMo | [mimo.md](providers/mimo.md) | 文本、图片、音频、tool 的分层证据 |
+| OpenRouter | [openrouter.md](providers/openrouter.md) | 固定三 Target；MiniMax/Gemma 有真实证据，未强制 DeepSeek 后备 |
+| NVIDIA | [nvidia.md](providers/nvidia.md) | Nemotron Embeddings 有真实证据，MiniMax 后备未强制验收 |
+| Alibaba Cloud Model Studio | [bailian.md](providers/bailian.md) | Qwen/GLM/DeepSeek/Embeddings 的分层真实证据 |
+| Kimi CN | [kimi-cn.md](providers/kimi-cn.md) | Chat/Responses Bridge 与参数边界有确定性和正常路径证据 |
 
-## 已实现的横向能力
+## 横向状态
 
-| 功能点 | 状态文档 | 主要证据入口 |
-|---|---|---|
-| OpenTelemetry traces/metrics 与 OTLP/HTTP 导出 | [telemetry-metrics.md](telemetry-metrics.md) | `tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`tests/otlp_metrics_contract.rs` |
-
-## 横向状态文档
-
-| 文档 | 用途 |
+| 文档 | 所有内容 |
 |---|---|
-| [当前实现总览](current-implementation.md) | 功能页导航、证据层级和未完成范围总览 |
-| [当前代码架构](current-architecture.md) | 模块所有权、装配链和请求数据流；不是功能清单 |
-| [运行时指标与遥测](telemetry-metrics.md) | OTLP traces/metrics、SDK instruments、属性和生命周期边界 |
-| [上游模型发现与基础 API 探测](capability-probing.md) | 显式 target probe 的实现事实和安全边界 |
-| [最新真实 E2E 结果](real-e2e-test-2026-08-08.md) | 2026-08-09 全量可见文字模型 `none/high` 聚焦矩阵及后续修补状态 |
-| [当前测试资产与保留标准](test-inventory.md) | 业务测试入口、低价值测试排除规则与 canonical oracle 边界 |
-| [协议测试语料与工具](protocol-test-corpus.md) | canonical corpus、Python testkit、Mock Server/Client 和 Rust replay 边界 |
+| [当前代码架构](current-architecture.md) | 稳定模块所有权、装配链和请求数据流；不保存模型/Provider 动态矩阵 |
+| [OpenTelemetry 遥测](telemetry-metrics.md) | traces/metrics、OTLP 生命周期、instrument 与安全属性边界 |
+| [能力探测](capability-probing.md) | 显式 Target probe 的输入、输出、分类和安全边界 |
 
-## 证据和维护规则
+## 测试资产与外部证据
 
-同一事实出现冲突时，按“当前 checkout → 对应确定性测试 → 本目录最近一次实际验证记录”的顺序处理；历史计数和外部观察不得覆盖 live
-source。静态源码、确定性 mock/fixture、loopback/独立客户端、外部 SDK、目标 Agent、真实 Provider、负载和长期运行分别是不同证据层，
-专题页必须明确写出实际运行和未运行的层次。
+| 文档 | 所有内容 |
+|---|---|
+| [测试资产与保留标准](test-assets/inventory.md) | Rust/Python 测试责任和保留门槛；不保存会漂移的测试总数 |
+| [协议语料与工具](test-assets/protocol-corpus.md) | corpus/testkit 版本、case/variant/Python test 数量和验证边界 |
+| [带日期的外部验证](evidence/README.md) | 不可变真实 Provider/SDK/Agent 记录；不承担当前状态所有权 |
 
-新增完成行为时，先为一个可观察功能点建立专题文件，再把目录和相关导航链接同步更新；不要把同一功能重新复制到多个状态页，也不要把
-计划或参考资料写成已完成事实。
+## 维护规则
+
+1. 新完成行为更新最接近的单一专题；不要再创建第二个“当前实现总览”。
+2. 状态页使用“当前行为 → 所有权 → 确定性证据 → 外部证据链接 → 未证明边界”，不追加实施日记或过期计数。
+3. 模型、Target、Route 与 Provider 列表只在其当前状态 owner 出现；外部验证按日期新增到 `evidence/`，不改写为“当前”。
+4. 测试运行命令和结果必须区分实际执行与未执行；确定性测试不升级为真实 Provider、SDK、Agent、负载或生产验收。

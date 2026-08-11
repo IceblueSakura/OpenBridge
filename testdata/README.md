@@ -9,7 +9,7 @@ cases（6 `accepted`、3 `reviewed`），以及默认 seed 下 342 个可重建�
 result 与 parallel stream；既有 wire case 和 runtime document 的 `schema_version` 仍为 `0.1`。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)
-。当前已验证状态和集成边界见[协议测试语料与工具现状](../docs/implementation-status/protocol-test-corpus.md)。
+。当前已验证状态和集成边界见[协议测试语料与工具现状](../docs/implementation-status/test-assets/protocol-corpus.md)。
 
 ## 何时使用
 

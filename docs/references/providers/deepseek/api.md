@@ -42,11 +42,10 @@
 - V4 thinking mode 默认启用并支持模型自主产生 tool call；官方 Oh My Pi 兼容页同时要求 `supportsToolChoice: false`，明确提示 V4
   thinking mode 会拒绝强制 `tool_choice` 参数。通用 Chat Completion schema 虽列出 `none/auto/required/named`，但不能据此推导
   Responses 默认 thinking 路径对四档均可执行。
-- 官方文档还列出 web search、custom `apply_patch`、`text.format`、Chat Prefix Completion（Beta）、FIM Completion（Beta，仅非思考模式）等能力，但这些事实不能自动扩大 OpenBridge 当前公开能力；被上游忽略的字段也不能记作可控能力。
+- 官方文档还列出 web search、custom `apply_patch`、`text.format`、Chat Prefix Completion（Beta）、FIM Completion（Beta，仅非思考模式）等能力；这些目录或指南事实不能自动证明任一 consumer/gateway 已公开相同能力，被上游忽略的字段也不能记作可控能力。
 - 模型特性矩阵（JSON Output、Tool Calls、Anthropic API、Chat Prefix、FIM 的逐模型支持）见 [models.md](models.md)。
 
 ## 证据边界
 
-官方协议页说明公开 wire contract，不证明任一具体 API key、账户、区域或模型当前可用。当前 checkout 的独立真实 Provider 证据记录在
-[Native generation 实施现状](../../../implementation-status/features/native-generation-forwarding.md)；该证据仍不证明其他账户、未来行为、
-SDK 版本兼容性或长时间 streaming。
+官方协议页说明公开 wire contract，不证明任一具体 API key、账户、区域或模型当前可用，也不证明其他账户、未来行为、SDK 版本兼容性
+或长时间 streaming。模型/API 发布状态、Responses 支持范围或字段语义变化时，需要重新固定官方页面并执行独立请求验证。

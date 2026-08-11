@@ -1,21 +1,31 @@
-# LongCat 2.0 Provider 状态
+# LongCat Provider 状态
 
-## 当前注册
+## 当前实现
 
-- 固定 origin 为 `https://api.longcat.chat`，使用 `longcat-primary` API-key pool。
-- `LongCat-2.0` 保留 Chat/Responses Native 与两个显式 Bridge 候选；reasoning output 为 `PlainText`。
-- canonical reasoning 是二态 `none/high`，两个 Public Model interface 对固定候选取交集后也公开 `none/high`。
-- Chat egress 把标准 `reasoning_effort:none/high` 固定转换为官方 `thinking.type=disabled/enabled`；Responses 保留标准
-  `reasoning.effort`。
+- Provider family 为 `longcat`，固定 origin 为 `https://api.longcat.chat`，使用 `longcat-primary` API-key pool。
+- `LongCat-2.0` 提供 Chat/Responses Native 和两个显式 Bridge surface；Public Model 使用 `NativeFirst`。
+- canonical reasoning 为 `none/high`，输出为 `PlainText`。Chat 将标准 effort 映射到
+  `thinking.type=disabled/enabled`，Responses 保留标准 `reasoning.effort`。
+- adapter 固定 LongCat 的 Models 与 generation 相对路径、API-key 认证和 Responses terminal discriminator。
 
-## 证据
+## 所有权与确定性证据
 
-- 官方 Chat 文档明确声明 `thinking.type` 的 enabled/disabled 二态；官方 Codex/CC Switch 配置确认 Native Responses 与
-  `model_reasoning_effort=high`。外部证据见 [LongCat API 调研](../../references/providers/longcat/api.md)。
-- 2026-08-08 真实下游 E2E 已覆盖 Chat/Responses × JSON/SSE × high，共 4 个单元，全部 HTTP 200、终态完整且 reasoning 非空。
-- 当前确定性测试覆盖 canonical level、Public Model 交集、none/high planning 与 Chat 官方 wire 转换。
+- 注册与 wire 规则：[`src/providers/longcat/`](../../../src/providers/longcat/)。
+- `tests/provider_contract.rs`、`tests/provider_boundary_contract.rs` 保护 endpoint、模型、认证和 terminal profile。
+- `tests/forwarding_contract.rs` 与 Bridge tests 保护 Native/Bridge、JSON/SSE、tool continuation 和请求边界。
 
-## 未验证边界
+## 真实 Provider 证据
 
-本轮没有使用真实 LongCat key 复测 none，也没有执行外部 SDK、负载或长期运行。确定性测试和官方参数说明不等同于当前账号的
-真实 Provider 验收；Native Responses 的完整 reasoning 枚举仍未由官方 API 参考列出。
+[2026-08-09 文字矩阵](../evidence/real-provider/2026-08-09-text-generation-none-high-matrix.md)覆盖
+`LongCat-2.0` 的 Chat/Responses × JSON/SSE × `none/high`，当次单元均得到完整成功终态；`none` 无可观察 reasoning，
+`high` 有 reasoning 证据。另有非流式 function call/result/final text 续接的定向成功记录。
+
+## 未证明边界
+
+其他 reasoning 档位、更多工具形状、外部 SDK/Agent、强制 Bridge/fallback、负载和长期运行未证明。官方参数说明和一次账号
+请求不构成未来 Provider SLA。
+
+## 相关文档
+
+- [LongCat API 参考](../../references/providers/longcat/api.md)
+- [Protocol Bridge](../features/protocol-bridge.md)

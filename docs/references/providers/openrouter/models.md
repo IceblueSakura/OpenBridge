@@ -1,5 +1,15 @@
 # OpenRouter 模型目录调研（2026-08-09 复核）
 
+## 文档元数据
+
+| 字段 | 值 |
+|---|---|
+| Source snapshot | 2026-08-09 的公开 Models/endpoint API；2026-08-10 的 Gemma 4 31B 定向请求；MiniMax 官方发布说明 |
+| Last reverified | 外部目录最后复核 2026-08-09，Gemma 定向观察 2026-08-10；2026-08-12 仅移除本地实现对照，没有刷新 OpenRouter |
+| Scope | 全模态目录计数、17 个固定模型样本、DeepSeek/MiniMax endpoint 参数差异、reasoning 元数据与 Gemma 定向 wire |
+| Evidence boundary | 聚合目录、模型级字段和一次真实请求不证明所有 endpoint、账户、路由、额度、语义质量或长期可用性 |
+| Recheck trigger | Models/endpoint schema、Provider routing、样本模型 metadata、free endpoint 政策或采用的参数集合变化时 |
+
 ## 来源与采集边界
 
 - 采集时间：2026-08-09，Asia/Shanghai。
@@ -10,37 +20,14 @@
 - Provider 参数路由：[`provider.require_parameters`](https://openrouter.ai/docs/guides/routing/provider-selection)。
 - reasoning 解释：[OpenRouter Reasoning Tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
 - MiniMax 模型行为：[MiniMax M3 官方发布说明](https://www.minimax.io/blog/minimax-m3)：只声明 thinking 可开/关。
-- 本地对照范围：当前 checkout 的 31 个 canonical Model；只接受完整 model id 精确匹配，不以相近名称或同系列模型补齐记录。
 
-本快照只比较 identity、context、最大输出、输入/输出模态、tokenizer、knowledge cutoff、`supported_parameters` 和
+本快照只记录 identity、context、最大输出、输入/输出模态、tokenizer、knowledge cutoff、`supported_parameters` 和
 reasoning effort。价格、排行、吞吐、数据策略和动态可用性属于其他字段类别。OpenRouter 目录和 endpoint 会变化，本文不是永久事实。
 
-## 全量对照摘要
+## 目录摘要与固定样本
 
-| 项目 | 结果 | 解释 |
-|---|---:|---|
-| OpenRouter 全模态公开目录 | 525 | 显式使用 `output_modalities=all` |
-| OpenBridge canonical Model | 31 | 当前 checkout 的编译期目录 |
-| 完整 id 精确匹配 | 17 | 只比较同一完整 id |
-| 无精确匹配 | 14 | 5 个 `chatgpt/*`、5 个 Qwen 专用模型、4 个 MiMo 音频模型 |
-| 精确匹配且 `supported_parameters` 完全相同 | 15 / 17 | 两个差异见下文 |
-
-14 个无精确匹配项为：
-
-- `chatgpt/gpt-5.3-codex-spark`、`chatgpt/gpt-5.5`、`chatgpt/gpt-5.6-luna`、
-  `chatgpt/gpt-5.6-sol`、`chatgpt/gpt-5.6-terra`；
-- `qwen/qwen3.5-livetranslate-flash-realtime`、`qwen/qwen3.7-text-embedding`、
-  `qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`；
-- `xiaomi/mimo-v2.5-asr`、`xiaomi/mimo-v2.5-tts`、`xiaomi/mimo-v2.5-tts-voicedesign`、
-  `xiaomi/mimo-v2.5-tts-voiceclone`。
-
-`chatgpt/gpt-5.5` 与三个 `chatgpt/gpt-5.6-*` profile 虽可和对应 `openai/*` 模型作同系列参考，但不是精确 id；
-它们相对 OpenRouter 对应记录多声明 `parallel_tool_calls`。`chatgpt/gpt-5.3-codex-spark` 也不能用相近的
-`openai/gpt-5.3-codex` 替代。
-
-## 17 个精确匹配记录
-
-下表记录 OpenRouter 侧数值；“未声明”不等于不支持。
+显式使用 `output_modalities=all` 时，本次公开目录返回 525 条记录。下表保留调研涉及的 17 个固定模型样本；它不是完整目录，
+也不表示这些模型对任一账户或 endpoint 当前可用。“未声明”只表示该次目录记录没有给出字段。
 
 | OpenRouter model id | `context_length` | 最大输出 | input modalities | tokenizer | knowledge cutoff | supported efforts |
 |---|---:|---:|---|---|---|---|
@@ -62,59 +49,39 @@ reasoning effort。价格、排行、吞吐、数据策略和动态可用性属�
 | `minimax/minimax-m3` | 1,048,576 | 512,000 | `text, image, video` | `Other` | 未声明 | 未声明离散 effort |
 | `openai/text-embedding-3-small` | 8,192 | 未声明 | `text` | `Other` | 未声明 | 不适用 |
 
-## `supported_parameters` 精确差异
+## 目录字段观察
 
-| model id | OpenBridge 独有 | OpenRouter 独有 | 当前解释 |
-|---|---|---|---|
-| `moonshotai/kimi-k3` | `n` | 无 | Kimi 官方固定 `n=1`；OpenBridge 继续接受标准字段，但 Kimi CN egress 会删除它 |
-| `openai/text-embedding-3-small` | `encoding_format`, `user` | `frequency_penalty`, `logit_bias`, `logprobs`, `max_completion_tokens`, `max_tokens`, `presence_penalty`, `response_format`, `seed`, `stop`, `structured_outputs`, `temperature`, `top_logprobs`, `top_p` | OpenRouter 同一记录明确是 `text -> embeddings`，但列出 generation 参数并遗漏 Embeddings 专用字段；当前把它视为目录元数据不一致，不据此扩张本地类型化 Embeddings 契约 |
+- `supported_parameters` 是模型级目录元数据，不能解释成每个 endpoint 的共同保证。
+- `openai/text-embedding-3-small` 的同一记录将任务描述为 `text -> embeddings`，但参数列表包含 generation 参数并遗漏
+  `encoding_format`、`dimensions` 等 Embeddings 专用字段；这是目录内部的信息层不一致，不能据此推导 endpoint contract。
+- `supported_efforts` 缺失不等于不支持 reasoning；`mandatory=false` 也只说明 reasoning 不是强制模式，不自动提供离散强度语义。
+- `Other` tokenizer 是聚合分类，不是具体 tokenizer 实现证据；单复数 output modality 词汇也不应直接提升为 wire schema。
 
-其余 15 个精确匹配模型的集合完全相同；这里比较的是集合，不依赖数组顺序。
+## 模型级与 endpoint 详情差异
 
-## 其他精确元数据差异
-
-| model id | OpenBridge | OpenRouter | 处理边界 |
-|---|---|---|---|
-| `deepseek/deepseek-v4-flash` | reasoning levels `max, high, low` | `xhigh, high` | Provider 词汇不一致；OpenRouter fallback 需要独立映射与真实验收，不能直接等同 |
-| `deepseek/deepseek-v4-pro` | reasoning levels `max, high` | `xhigh, high` | 同上；当前 OpenBridge 没有该模型的 OpenRouter target |
-| `qwen/qwen3.6-27b` | 最大输出 65,536 | 最大输出 262,144 | 本地仍保持较保守的已确认上限，不由聚合目录自动放宽 |
-| `qwen/qwen3.8-max` | reasoning levels `none, minimal, low, medium, high, xhigh, max` | `minimal, low, medium, high, xhigh`；mandatory | OpenBridge 当前 target 使用 Bailian 稳定 alias；其官方双协议文档与真实北京请求确认可关闭并接受七档，不能用 OpenRouter 的 dated endpoint 收窄 Bailian source |
-| `z-ai/glm-5.2` | 最大输出 131,072 | 最大输出 128,000 | 两侧数值不一致，需要回到实际 Provider/官方资料决定具体 target 上限 |
-| `openai/text-embedding-3-small` | output modality `embedding`；tokenizer 未知 | output modality `embeddings`；tokenizer `Other` | 前者有单复数词汇差异；`Other` 不是具体 tokenizer 证据 |
-
-除上表外，精确匹配项的 context、模态、tokenizer 和 knowledge cutoff 没有发现其他差异。OpenRouter 未提供 MiMo、LongCat、
-Qwen3.7 和 MiniMax 的 `supported_efforts` 属于元数据缺失，不构成对本地官方 Provider 证据的反证。
-
-## 当前 OpenRouter target 的 endpoint 差异
-
-OpenBridge 当前只把 `deepseek/deepseek-v4-flash` 与 `minimax/minimax-m3` 接入 OpenRouter。两者本地 canonical
-`supported_parameters` 均与 OpenRouter 模型级集合相同，但 endpoint 交集明显更窄：
+本次对 DeepSeek V4 Flash 与 MiniMax M3 读取独立 endpoint 资源。两者的模型级 `supported_parameters` 都等于 endpoint 并集，
+但所有 endpoint 的交集明显更窄：
 
 | model id | endpoint 数 | 模型级/endpoint 并集 | 所有 endpoint 交集 | 非全 endpoint 共同支持 |
 |---|---:|---:|---|---:|
 | `deepseek/deepseek-v4-flash` | 20 | 21 | `include_reasoning`, `max_tokens`, `reasoning`, `reasoning_effort`, `temperature`, `tool_choice`, `tools`, `top_p` | 13 |
 | `minimax/minimax-m3` | 9 | 19 | `include_reasoning`, `max_tokens`, `reasoning`, `temperature`, `top_p` | 14 |
 
-本次两个模型中，模型级集合都等于 endpoint 并集；不在所有 endpoint 交集中的字段为：
+不在所有 endpoint 交集中的字段为：
 
 - DeepSeek V4 Flash：`frequency_penalty`、`logit_bias`、`logprobs`、`min_p`、`presence_penalty`、
   `repetition_penalty`、`response_format`、`seed`、`stop`、`structured_outputs`、`top_a`、`top_k`、`top_logprobs`；
 - MiniMax M3：`frequency_penalty`、`logit_bias`、`logprobs`、`min_p`、`presence_penalty`、`repetition_penalty`、
   `response_format`、`seed`、`stop`、`structured_outputs`、`tool_choice`、`tools`、`top_k`、`top_logprobs`。
 
-因此，至少对这两个当前 target，模型级 `supported_parameters` 不能解释成每个 endpoint 的共同保证。OpenRouter 的
-`provider.require_parameters` 默认为 `false`；默认路由可把请求交给不支持全部字段的 endpoint，并由其忽略未知参数。设置为
-`true` 才会排除不支持请求中全部参数的 endpoint。当前 OpenBridge OpenRouter adapter 没有主动注入该开关，所以模型级集合不能单独
-证明每次路由都会实际应用对应参数。
+OpenRouter 的 `provider.require_parameters` 默认为 `false`：默认路由可选择不支持全部所传参数的 endpoint，并由该 Provider
+忽略未知参数；设为 `true` 才会排除不支持请求中全部参数的 endpoint。采用模型级参数集合时需要显式决定是否接受这一行为。
 
-## reasoning 解释边界
+## Reasoning 解释边界
 
-`mandatory=false` 只说明 reasoning 不是强制模式；它不自动提供 `low`、`medium`、`high` 等强度语义。OpenRouter 可作为
-reasoning 支持/可关闭性的交叉证据，但不能用缺失的 `supported_efforts` 扩张 Provider 官方未声明的 level 集合。MiniMax M3 与
-Qwen3.6 27B 因而按 `none/high` 二态模型契约解释：`none` 表示关闭，`high` 表示开启；该归一化不是对中间强度的推断。
-Qwen3.6 27B 的当前模型级 `supported_parameters` 与本地集合逐项一致；OpenRouter 的 Alibaba endpoint 仍明确给出 262,144 context
-和 65,536 最大输出。Qwen 官方模型卡同样声明 262,144 原生 context；依据 OpenBridge 对 OpenRouter `context_length` 同时投影为
-context/input 上限的既有契约，本地不再保留没有来源的 260,096 input 值。
+MiniMax M3 官方材料只声明 thinking 可开/关；OpenRouter 缺少离散 `supported_efforts` 不能补出中间强度。Qwen3.6 27B 的
+Alibaba endpoint 在该快照中给出 262,144 context 和 65,536 最大输出，但模型级记录的最大输出为 262,144，说明聚合层级需要分别记录。
+Qwen3.8 Max 的样本记录给出 `minimal` 至 `xhigh` 且标记 mandatory；这只适用于该次 OpenRouter 目录，不应外推到其他 Provider。
 
 ## 2026-08-10 Gemma 4 31B 定向观察
 

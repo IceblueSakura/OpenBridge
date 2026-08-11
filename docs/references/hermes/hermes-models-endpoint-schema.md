@@ -26,7 +26,7 @@ flowchart LR
     D1 -->|pricing/工具能力| I
 ```
 
-### 路径 A：`fetch_endpoint_model_metadata`（自定义端点探测）—— **OpenBridge 网关走这里**
+### 路径 A：`fetch_endpoint_model_metadata`（自定义端点探测）
 
 `agent/model_metadata.py:1213`。条件：base_url 不是 openrouter.ai（`_is_openrouter_base_url`），即任何自定义/未知端点。
 
@@ -123,7 +123,7 @@ flowchart LR
 2. **novita**（$/M）：顶层 `input_token_price_per_m`、`output_token_price_per_m`
 3. **deepinfra**（$/MTok）：`metadata.pricing.{input_tokens, output_tokens, cache_read_tokens}`
 
-## 3. 推荐 Schema（OpenBridge 网关）
+## 3. 自定义兼容端点的推荐 Schema
 
 针对 OpenAI 兼容聚合网关的最小完整实现（同时服务路径 A/C/D 的读取）：
 

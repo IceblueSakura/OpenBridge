@@ -1,37 +1,35 @@
 # DeepSeek Provider 状态
 
-## 当前注册
+## 当前实现
 
-- Provider family：`deepseek`；可信 Base URL：`https://api.deepseek.com`（不带 `/v1`）；
-- credential pool：`deepseek-primary`，仅允许 API key；
-- 固定 2 个 Target：`deepseek-v4-pro`（Chat-only）、`deepseek-v4-flash`（Chat + Responses Native）；
-- Chat 端点只公开 `json_object` structured output（`response_format.type=json_schema` 被上游 400 拒绝）；
-- Responses 端点公开 `JsonObjectAndJsonSchema(StrictSupported)`（2026-08-11 实测 `strict:true` 被接受且输出符合 schema）；
-- 两端工具 `strict_schema` 均保持 `false`：本轮未实测 DeepSeek 工具 strict。
+- Provider family 为 `deepseek`，固定 origin 为 `https://api.deepseek.com`，使用 `deepseek-primary` API-key pool。
+- `deepseek-v4-pro` 只注册 Chat Native，Public Model 在全局缺少 Responses Native 时补充 Responses-via-Chat Bridge。
+- `deepseek-v4-flash` 注册 Chat/Responses Native，并与 Bailian Chat、OpenRouter 双协议 source 聚合；`SourceFirst` 保持
+  DeepSeek 为两个下游协议的首选。
+- Chat 只公开 `json_object`；Flash Responses 公开 `json_object` 与 strict JSON Schema。工具 strict 仍关闭。
+- Pro/Flash 公共 reasoning 档位分别为 `none/high/max` 与 `none/low/high/max`；Chat 输出为 `PlainText`。
 
-## 真实验证（2026-08-11）
+## 所有权与确定性证据
 
-使用当前私有 credential 直连 `https://api.deepseek.com`：
+- 注册与 wire 规则：[`src/providers/deepseek/`](../../../src/providers/deepseek/)。
+- `tests/provider_contract.rs`、`tests/provider_boundary_contract.rs` 保护 endpoint、API surface、认证和错误边界。
+- `tests/forwarding_contract.rs` 与 Bridge tests 保护 DeepSeek Native/Bridge、JSON object、reasoning 和多 source 失败边界。
 
-- `GET /models`：HTTP 200，返回 `deepseek-v4-flash`、`deepseek-v4-pro`；
-- Chat `response_format:{type:"json_object"}`：HTTP 200，正常 JSON 输出；
-- Chat `response_format:{type:"json_schema", strict:true}` 与 `strict:false`：均 HTTP 400，
-  `"This response_format type is unavailable now"`（`json_schema` 整体不可用，与 strict 值无关）；
-- Responses `text.format:{type:"json_schema", schema, strict:true}`：HTTP 200，输出严格符合 schema
-  （`{"answer":"Paris"}`，响应回显 `strict:true`）；
-- Responses `text.format:{type:"json_object"}`：HTTP 200；
-- `/beta` 前缀（`https://api.deepseek.com/beta`）：Chat/Responses 行为与根路径完全一致；仅
-  `GET /beta/models` 为 404，即 beta 是部分路由别名，不是独立特性开关。
+## 真实 Provider 证据
 
-## 证据边界
+2026-08-11 直连请求确认 Models 列表包含 V4 Pro/Flash；Flash Chat `json_object` 成功、Chat `json_schema`
+被 400 拒绝；Flash Responses `json_object` 和 `json_schema strict:true` 均成功且 strict 请求输出符合 schema。`/beta`
+前缀的 generation 行为与根路径一致，但 `/beta/models` 为 404。
 
-- 单账号、单区域请求，不证明其他账号/区域/未来 Provider 行为；
-- 只实测 `deepseek-v4-flash`；`deepseek-v4-pro` 不绑定 Responses 端点，Chat 端与 flash 共享
-  Provider ceiling（`json_object`），本轮无模型级外推；
-- 工具调用 strict、SSE streaming 的 structured output、SDK/Agent 兼容和负载均未在本轮覆盖；
-- 能力声明由 `src/providers/deepseek/definition.rs` 的 `definition::tests` 单元断言锁定。
+[2026-08-09 文字矩阵](../evidence/real-provider/2026-08-09-text-generation-none-high-matrix.md)记录 Pro/Flash
+正常首选路径的 `none/high` Chat/Responses JSON/SSE 结果；它没有强制 Bailian 或 OpenRouter 后备。
+
+## 未证明边界
+
+Structured-output 探测只覆盖 Flash；Pro 没有 Responses Native。工具 strict、structured-output SSE 的完整组合、其他账号/区域、
+强制 fallback、外部 SDK/Agent、负载和长期运行未证明。
 
 ## 相关文档
 
-- [Provider 状态目录](README.md)
-- [Models 接口与能力预检](../features/models-api-and-capability-preflight.md)
+- [DeepSeek API 参考](../../references/providers/deepseek/api.md)
+- [Models/能力预检](../features/models-api-and-capability-preflight.md)

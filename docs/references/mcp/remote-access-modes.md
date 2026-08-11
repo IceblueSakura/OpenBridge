@@ -72,7 +72,8 @@ Streamable HTTP 把 body 字段镜像到 HTTP 头，使中间件**无需解析 J
 | 无服务器平台 | session 状态需外部存储 | 天然适配（每次请求独立执行） |
 | 多客户端 | 每客户端一个连接 | 无连接概念，按请求鉴权 |
 
-推论：无状态化让 MCP server 从"进程内服务"变成了"普通 HTTP API"，这是它能够被标准 API 网关（Kong、Tyk、Zuplo 等）托管的前提，也是 OpenBridge 这类网关能够代理 MCP 流量的协议基础。
+推论：无状态化让 MCP server 从"进程内服务"变成了"普通 HTTP API"，这是它能够被标准 API 网关（Kong、Tyk、Zuplo 等）
+托管或代理的协议基础。
 
 ## 4. 部署模式全景
 
@@ -123,7 +124,9 @@ Streamable HTTP 把 body 字段镜像到 HTTP 头，使中间件**无需解析 J
 | health check | 自行添加 | ✅ 内置 `/health` | 未查证 |
 | 与网关配合 | ✅ 请求头镜像自动发出（≥2026-07-28）；`with_json_response(true)` 减少 SSE（对代理友好） | 需自行验证 | 需自行验证 |
 
-对 OpenBridge 的推论：若未来让 OpenBridge 充当 MCP 网关/代理，rmcp 的 Tower service 形态可直接嵌入既有 axum 路由；其自动的 `Mcp-Method`/`Mcp-Name`/`Mcp-Param-*` 头镜像正好服务于网关级路由与审计（无需解析 body）。rust-mcp-sdk 则适合"快速暴露一个自带全部安全项的独立 MCP server"，代价是协议停在 2025-11-25 且绑定其 server 生命周期。
+对 axum 聚合网关的推论：rmcp 的 Tower service 形态可嵌入既有路由；其自动的 `Mcp-Method`/`Mcp-Name`/`Mcp-Param-*`
+头镜像可服务于网关级路由与审计（无需解析 body）。rust-mcp-sdk 则适合"快速暴露一个自带全部安全项的独立 MCP server"，
+代价是协议停在 2025-11-25 且绑定其 server 生命周期。
 
 ## 6. 证据边界与未验证项
 

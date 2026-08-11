@@ -130,9 +130,10 @@ async fn main() -> SdkResult<()> {
 | 协议 | 2026-07-28（现行） | 2025-11-25 |
 | 状态模型 | 无状态（默认）/ 旧版兼容 | session 化（2025-11-25 形态） |
 | HTTP 托管 | 只给 Tower service，router 自备 | `create_axum_server` 一站式（含 health/OAuth/rebinding） |
-| 与 OpenBridge 技术栈契合 | axum 挂载即可，控制面全留给自己 | 开箱即用但绑定其 server 生命周期 |
+| 与现有 axum host 结合 | axum 挂载即可，控制面由 host 保留 | 开箱即用但绑定其 server 生命周期 |
 
-若短期目标是快速让 axum 应用暴露 MCP 工具且可接受 2025-11-25 协议，rust-mcp-sdk 的集成成本最低；若要求与现行规范对齐，只能选 rmcp（其无状态语义也更贴近 OpenBridge 已有的 stateless 网关架构）。
+若短期目标是快速让 axum 应用暴露 MCP 工具且可接受 2025-11-25 协议，rust-mcp-sdk 的集成成本最低；若要求与现行规范对齐，
+则需要选择支持现行规范的 SDK。rmcp 的 Tower service 和无状态语义更适合由既有 axum host 保留路由与控制面。
 
 ## 7. 证据边界
 
