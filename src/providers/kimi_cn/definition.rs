@@ -4,11 +4,10 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy,
-        ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
-        InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
-        ProviderChatCompletionsCapabilities, ReasoningOutput, RemoteImageInputLimits,
-        StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy, ImageInputCapabilities,
+        ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+        JsonSchemaSupport, ProviderChatCompletionsCapabilities, ReasoningOutput,
+        RemoteImageInputLimits, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,

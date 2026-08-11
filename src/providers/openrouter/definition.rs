@@ -4,10 +4,9 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy,
-        ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
-        InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
-        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy, ImageInputCapabilities,
+        ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+        JsonSchemaSupport, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
         ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
         StructuredOutputProfile,
     },

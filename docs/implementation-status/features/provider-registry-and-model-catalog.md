@@ -477,9 +477,7 @@ payload。
 - 根据 2026-08-10 定向实测只公开文本/PNG 图片输入、parallel tool calls 与 `json_object`；未确认 reasoning，strict JSON Schema
   因返回 markdown 包裹内容而不公开；
 - `cargo test --locked --test example_config`：通过（29 项）；provider/native routing 聚焦契约：通过（41 + 8 + 9 项）；
-  `cargo test --locked` 与 `cargo clippy --locked -- -D warnings`：通过；本次变更文件的 `rustfmt --check` 与 `git diff --check`：通过；
-- 仓库级 `cargo fmt -- --check` 仍报告未纳入本次修改的 `src/providers/kimi_cn/definition.rs` 与
-  `src/providers/openrouter/definition.rs` 两处既有 import 排版差异；本轮没有为提交 Gemma 而扩大修改范围；
+  `cargo test --locked`、`cargo clippy --locked -- -D warnings`、仓库级 `cargo fmt -- --check` 与 `git diff --check`：通过；
 - 本轮没有重复运行真实 OpenRouter、外部 SDK、fallback、负载或长期验收；上游行为边界仍以 2026-08-10 定向请求为准。
 
 ## 相关文档
