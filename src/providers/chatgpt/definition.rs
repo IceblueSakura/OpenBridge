@@ -56,7 +56,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             file_input: false,
             conversation: false,
             prompt_templates: false,
-            prompt_cache_key: false,
+            prompt_cache_key: true,
             context_management: false,
             include: RESPONSES_INCLUDES,
             moderation: false,
