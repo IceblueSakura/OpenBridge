@@ -2,7 +2,9 @@
 //!
 //! Embedding facts follow the 2026-08-10 direct probe of the NVIDIA API Catalog
 //! `/v1/embeddings` endpoint: `nemotron-3-embed-1b` returned two 2048-dimension
-//! float vectors for a string-array input. Only that confirmed shape is recorded.
+//! float vectors for a string-array input. The 2026-08-11 probe reconfirmed the
+//! endpoint (`supported`) and the model card declares a 32,768-token maximum
+//! sequence length, which is recorded as the input limit.
 
 use crate::registry::{CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig};
 
@@ -21,7 +23,7 @@ pub(crate) fn config() -> ModelConfig {
         tokenizer: None,
         knowledge_cutoff: None,
         task: CanonicalModelTask::Embedding(EmbeddingModelProfile {
-            max_input_tokens: None,
+            max_input_tokens: Some(32_768),
             input_modalities: Some(vec![InputModality::Text]),
             supported_parameters: ["dimensions", "encoding_format"]
                 .into_iter()

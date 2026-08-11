@@ -1,8 +1,13 @@
 //! Complete canonical model facts for ChatGPT GPT-5.3 Codex Spark (`chatgpt/gpt-5.3-codex-spark`).
+//!
+//! Facts follow the 2026-08-11 OAuth2 subscription probe: the model slug is present in the
+//! ChatGPT Codex manifest and the Responses endpoint accepts the fixed streaming request.
+//! OpenAI publishes the model as a text-only real-time coding model with a 128K context
+//! window, so only Text modalities are recorded.
 
 use crate::registry::{
-    CanonicalModelTask, GenerationModelProfile, ModelConfig, ModelContextLength, ReasoningLevel,
-    ReasoningProfile,
+    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
+    OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
 /// Stable OpenBridge catalog ID for the ChatGPT subscription profile.
@@ -13,13 +18,16 @@ pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
         name: "GPT-5.3 Codex Spark".to_owned(),
-        description: None,
+        description: Some(
+            "Ultra-low-latency real-time coding model for interactive Codex workflows."
+                .to_owned(),
+        ),
         tokenizer: None,
         knowledge_cutoff: None,
         task: CanonicalModelTask::Generation(GenerationModelProfile {
-            context_length: ModelContextLength::new(Some(128_000), None, Some(128_000)),
-            input_modalities: None,
-            output_modalities: None,
+            context_length: ModelContextLength::new(Some(128_000), Some(128_000), Some(128_000)),
+            input_modalities: Some(vec![InputModality::Text]),
+            output_modalities: Some(vec![OutputModality::Text]),
             supported_parameters: [
                 "include_reasoning",
                 "max_completion_tokens",

@@ -5,6 +5,11 @@
 //! PNG data-URL image input and the Responses endpoint all work; JSON-schema
 //! strict output is unreliable (markdown-wrapped JSON) and reasoning is off by
 //! default, so only those confirmed facts are recorded.
+//!
+//! The 2026-08-11 probe reconfirmed Chat (`supported`) and Responses
+//! (`supported`) on the registered free endpoint and the OpenRouter model card
+//! publishes context 262,144 with no declared completion limit, so the output
+//! limit stays unset.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
