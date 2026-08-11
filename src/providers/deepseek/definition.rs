@@ -4,9 +4,10 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, ResponseInclude, StructuredOutputProfile,
+        ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -20,7 +21,9 @@ use crate::{
 const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
     &[ToolChoiceMode::None, ToolChoiceMode::Auto];
 const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
-const STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const RESPONSES_STRUCTURED_OUTPUTS: StructuredOutputProfile =
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
 
 /// Single DeepSeek operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -35,7 +38,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: Some(STRUCTURED_OUTPUTS),
+            structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
@@ -60,7 +63,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: Some(STRUCTURED_OUTPUTS),
+            structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -100,4 +103,48 @@ fn transform_request_headers(
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{JsonSchemaSupport, StructuredOutputMode};
+
+    #[test]
+    fn chat_endpoint_keeps_json_object_only_structured_outputs() {
+        let chat = DEFINITION
+            .contract()
+            .capabilities()
+            .chat_completions
+            .expect("DeepSeek contract must expose Chat Completions");
+        let profile = chat
+            .structured_outputs
+            .expect("DeepSeek Chat must expose structured outputs");
+        assert_eq!(profile, StructuredOutputProfile::JsonObject);
+        assert_eq!(
+            profile.modes(),
+            &[StructuredOutputMode::JsonObject],
+            "DeepSeek Chat rejects json_schema with HTTP 400"
+        );
+        assert!(!profile.supports_strict_schema());
+    }
+
+    #[test]
+    fn responses_endpoint_exposes_strict_json_schema() {
+        let responses = DEFINITION
+            .contract()
+            .capabilities()
+            .responses
+            .expect("DeepSeek contract must expose Responses");
+        let profile = responses
+            .structured_outputs
+            .expect("DeepSeek Responses must expose structured outputs");
+        assert_eq!(
+            profile,
+            StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported)
+        );
+        assert!(profile.supports(StructuredOutputMode::JsonObject));
+        assert!(profile.supports(StructuredOutputMode::JsonSchema));
+        assert!(profile.supports_strict_schema());
+    }
 }

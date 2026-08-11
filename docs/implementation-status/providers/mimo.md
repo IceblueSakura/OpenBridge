@@ -76,6 +76,17 @@ tool call 也不构成 choice 支持。Responses state machine 会保真自然�
 两款文字模型都不公开 `json_schema` 或 strict structured schema。JSON mode 只保证语法合法；OpenBridge 不重写 prompt、校验业务字段或
 重试模型输出，也不因某个后备来源理论上更强而扩大固定 Public Model contract。
 
+2026-08-11 对 `mimo-v2.5-pro` 直连补充探测（`https://api.xiaomimimo.com`）：
+
+- Chat 发送 `response_format:{type:"json_schema", schema, strict:true}` 返回 HTTP 200，但模型一旦生成不符合 required 键的输出，
+  服务端以 `finish_reason:"abort"` 截断内容（含 temperature 0 复测 3/3 稳定）；宽松 `{"type":"object"}` schema 正常 `stop`；
+- 工具调用 `tools[].function.strict:true` 返回 HTTP 200 且 `arguments` 严格符合 schema；
+- Responses 发送 `text.format:{type:"json_schema", strict:true}` 返回 HTTP 400
+  `responses_feature_not_supported`，只允许 `text`/`json_object`。
+
+因此 MiMo Chat 的 `json_schema` 是「接受请求 + 事后 abort」语义，不是 OpenAI 式事前保证，当前 Chat/Responses 只公开
+`json_object` 的收窄保持正确；工具 `strict_schema:supported` 有直接证据。
+
 ## 当前实现收窄
 
 两个文本 target 将 function-tool choices 收窄为 `auto`、保留 strict function schema，并在 Chat/Responses 都只公开

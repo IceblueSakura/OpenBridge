@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        ExecutableResponsesState, ReasoningOutput, ResponsesAffinity, StorageSupport,
-        StructuredOutputProfile,
+        ExecutableResponsesState, JsonSchemaSupport, ReasoningOutput, ResponsesAffinity,
+        StorageSupport, StructuredOutputProfile,
     },
     models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
@@ -20,6 +20,9 @@ use super::DEFINITION;
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const CREDENTIAL_POOL_ID: &str = "bailian-primary";
 const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const QWEN3_7_PLUS_STRUCTURED_OUTPUTS: StructuredOutputProfile =
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+const QWEN3_6_27B_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -150,11 +153,14 @@ fn chat_target(
         canonical_model,
         z_ai::glm_5_2::ID | qwen::qwen3_6_27b::ID | deepseek::deepseek_v4_pro::ID
     );
-    chat_capabilities.structured_outputs = matches!(
-        canonical_model,
-        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
-    )
-    .then_some(DEEPSEEK_STRUCTURED_OUTPUTS);
+    chat_capabilities.structured_outputs = match canonical_model {
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID => {
+            Some(DEEPSEEK_STRUCTURED_OUTPUTS)
+        }
+        qwen::qwen3_7_plus::ID => Some(QWEN3_7_PLUS_STRUCTURED_OUTPUTS),
+        qwen::qwen3_6_27b::ID => Some(QWEN3_6_27B_STRUCTURED_OUTPUTS),
+        _ => None,
+    };
     // Bind Chat for every target and Responses only for the documented stable Qwen models.
     let mut upstream_apis = vec![UpstreamApiConfig {
         upstream_model: upstream_model.to_owned(),
@@ -180,6 +186,15 @@ fn chat_target(
                 profile.parallel_calls = false;
                 profile
             });
+        // Real probing (2026-08-11) shows qwen3.7-plus Responses accepts json_object only;
+        // json_schema is silently downgraded, so it is not advertised. Other Responses
+        // targets in this branch (qwen3.8-max, qwen3.7-max) are not covered by that probe
+        // and stay narrowed to no structured outputs despite the Provider ceiling.
+        responses_capabilities.structured_outputs = if canonical_model == qwen::qwen3_7_plus::ID {
+            Some(StructuredOutputProfile::JsonObject)
+        } else {
+            None
+        };
         upstream_apis.push(UpstreamApiConfig {
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
@@ -200,5 +215,93 @@ fn chat_target(
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{JsonSchemaSupport, StructuredOutputMode};
+
+    fn chat_profile(target_id: &str) -> Option<StructuredOutputProfile> {
+        upstream_targets()
+            .into_iter()
+            .find(|target| target.id == target_id)
+            .and_then(|target| {
+                target
+                    .upstream_apis
+                    .into_iter()
+                    .find_map(|api| match api.capabilities {
+                        UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                            capabilities.structured_outputs
+                        }
+                        _ => None,
+                    })
+            })
+    }
+
+    fn responses_profile(target_id: &str) -> Option<StructuredOutputProfile> {
+        upstream_targets()
+            .into_iter()
+            .find(|target| target.id == target_id)
+            .and_then(|target| {
+                target
+                    .upstream_apis
+                    .into_iter()
+                    .find_map(|api| match api.capabilities {
+                        UpstreamApiCapabilities::Responses(capabilities) => {
+                            capabilities.structured_outputs
+                        }
+                        _ => None,
+                    })
+            })
+    }
+
+    #[test]
+    fn qwen3_7_plus_chat_exposes_strict_json_schema() {
+        assert_eq!(
+            chat_profile("bailian-qwen3-7-plus"),
+            Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::StrictSupported
+            ))
+        );
+    }
+
+    #[test]
+    fn qwen3_7_plus_responses_exposes_json_object_only() {
+        assert_eq!(
+            responses_profile("bailian-qwen3-7-plus"),
+            Some(StructuredOutputProfile::JsonObject)
+        );
+    }
+
+    #[test]
+    fn qwen3_6_27b_chat_exposes_json_object_only() {
+        assert_eq!(
+            chat_profile("bailian-qwen3-6-27b"),
+            Some(StructuredOutputProfile::JsonObject)
+        );
+        assert!(
+            !chat_profile("bailian-qwen3-6-27b")
+                .expect("qwen3.6-27b Chat must expose structured outputs")
+                .supports(StructuredOutputMode::JsonSchema)
+        );
+    }
+
+    #[test]
+    fn deepseek_targets_keep_json_object_only() {
+        assert_eq!(
+            chat_profile("bailian-deepseek-v4-pro"),
+            Some(StructuredOutputProfile::JsonObject)
+        );
+        assert_eq!(
+            chat_profile("bailian-deepseek-v4-flash"),
+            Some(StructuredOutputProfile::JsonObject)
+        );
+    }
+
+    #[test]
+    fn glm_5_2_chat_keeps_no_structured_outputs() {
+        assert_eq!(chat_profile("bailian-glm-5-2"), None);
     }
 }

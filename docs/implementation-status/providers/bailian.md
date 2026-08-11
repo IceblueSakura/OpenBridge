@@ -21,6 +21,10 @@
   显式收窄为 `Unknown`；
 - `bailian-deepseek-v4-pro` 与 `bailian-deepseek-v4-flash` Chat target 单独公开非 strict 的 `json_object`，不把 Provider ceiling
   外推到 GLM、Qwen 或其他 Bailian target。
+- 2026-08-11 按真实探测把 `qwen3.7-plus` Chat 收窄为 `JsonObjectAndJsonSchema(StrictSupported)`（strict 被真强制）、
+  `qwen3.7-plus` Responses 与 `qwen3.6-27b` Chat 收窄为 `JsonObject`；`qwen3.8-max`/`qwen3.7-max` 的 Responses 和其余
+  Chat target 保持无 structured outputs。Provider Chat ceiling 同步升到 strict、Responses ceiling 升到 `json_object`，
+  但只有带直接证据的 target 继承。
 - `bailian-glm-5-2` 与 `bailian-deepseek-v4-flash` Chat target 接受并转发 `parallel_tool_calls:true`；其他 Bailian generation target
   仍在 registration 层收窄为 unsupported。GLM 没有上游 Responses endpoint，OpenBridge 的 Responses Bridge 只消费
   `reasoning.encrypted_content` include 提示并保留真实明文 reasoning，不向 Chat wire 泄漏 `include` 或伪造 opaque item。
@@ -62,6 +66,18 @@
   Responses 返回 `Unsupported model`，与当前 Chat Bridge 边界一致。
 
 最终矩阵和剩余错误边界见 [`real-e2e-test-2026-08-08.md`](../real-e2e-test-2026-08-08.md)。
+
+2026-08-11 直连 structured-output 探测（`https://dashscope.aliyuncs.com/compatible-mode/v1`）：
+
+- `qwen3.7-plus` Chat `json_schema` + `strict:true` 对反自然键名（`zzz_capital_field`）与 enum 约束均严格遵循，输出
+  `{"zzz_capital_field":"Paris","zzz_confidence_field":1.0}` 与 `{"color":"BLUE"}`；`json_object` 基线正常；
+- `qwen3.7-plus` Responses `text.format:{type:"json_schema", strict:true}` 返回 200 但输出与 `json_object` 相同，schema
+  键名不被遵循，即静默降级；
+- `qwen3.6-27b` Chat `json_schema`（strict true/false）在 prompt 不含 "json" 时返回 400，错误正文要求满足
+  `json_object` 前提；prompt 含 "json" 后返回 200，但反自然 schema 键名不被遵循、enum 不生效，即静默降级为
+  `json_object`；其工具调用 `strict:true` 返回 200 且 `arguments` 符合 schema；
+- 上述证据已落到 `src/providers/bailian/definition.rs` 与 `registration.rs` 的 ceiling/target 收窄，并有
+  `registration::tests` 单元断言覆盖。
 
 ## 证据边界
 

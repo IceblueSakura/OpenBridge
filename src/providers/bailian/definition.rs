@@ -5,9 +5,9 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        StructuredOutputProfile, ToolChoiceMode,
+        EmbeddingsCapabilities, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -24,7 +24,9 @@ const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
 const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
-const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile =
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+const RESPONSES_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
     &[ToolChoiceMode::None, ToolChoiceMode::Auto];
 const FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
@@ -67,7 +69,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 strict_schema: false,
             }),
             image_input: None,
-            structured_outputs: None,
+            structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::Summary,
