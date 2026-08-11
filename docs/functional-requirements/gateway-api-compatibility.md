@@ -115,10 +115,13 @@ Chat 上游返回的 `reasoning_content` 始终映射为 Responses `reasoning.co
 不得因下游提交 `"auto"` 而合成 `reasoning.summary[]` 或 `response.reasoning_summary_*`。`false` 只关闭 summary 请求，不关闭
 reasoning；`"auto"` 与显式 `effort:"none"` 的冲突、其他 summary string、`true`、`null` 或复合值均在 Provider egress 前失败。
 
-Chat `stream_options` 只在固定 Public Model interface 明确列出时可用，当前公共契约只接受同时设置 `stream:true` 且该对象恰为
-`{"include_usage":true}`。Native Chat 必须原样转发该请求对象并保留 Provider 返回的 usage 尾块；OpenBridge 不生成、修正或推算
-usage。非对象、额外子字段、`include_usage:false` 或非流式组合必须在 Provider egress 前按无效请求拒绝。Responses interface 与全部
-Bridge 不公开、不转换也不透传该 Chat-only 字段。
+Chat `stream_options` 只允许与 `stream:true` 组合。省略、空对象与 `{"include_usage":false}` 都是合法 no-op：它们不构成能力请求，
+并在任何候选 egress 前移除。有效 `{"include_usage":true}` 是必须完整履行的输出契约，只有固定 Public Model Chat interface 明确列出
+`stream_options` 时才可执行。Native Chat 必须原样转发有效对象并保留 Provider usage 尾块；Chat→Responses Bridge 必须消费该字段，
+从成功 `response.completed.response.usage` 严格投影 prompt/completion/total、cached 与 reasoning token 计数，在 finish 后、`[DONE]`
+前生成唯一 `choices:[]` usage-only chunk，并使此前所有 Chat chunk 带 `usage:null`。Bridge 不估算、修正或补造 token；请求 usage 时若
+terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`。非对象、未知/额外成员、`include_obfuscation`、非布尔
+`include_usage` 和非流式组合必须在 Provider egress 前拒绝；Responses interface 继续把该 Chat-only 顶层字段视为未知参数。
 
 流式请求必须满足：
 
@@ -316,7 +319,7 @@ rate 只有在未来存在显式、低基数且不携带业务内容的客户端
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/生成窗口，非流式 Chat/Responses 成功 JSON 只在首个非空下游 body chunk 记录一次可直接观测的 gateway TTFT，不得据此伪造 upstream TTFT、生成时长或输出速度；OTLP metrics 不含请求正文、响应正文、Authorization、credential、用户或 request ID。 |
 | API-14 | 有效静态 token 可通过 `POST /mcp` 发现唯一静态 `hello(name: string)` 工具并取得 `Hi, {name}!`；Origin、transport metadata、无效参数、未知工具/method 与非 POST method 按固定边界失败，且调用不访问 Provider 或外部系统。 |
 | API-15 | `include: []` 作为 no-op 在全部 egress 前移除；非空 `include` 按 Public Model 逐值交集预检，未知或 Bridge 不可保真的投影 zero-egress 失败；`prompt_cache_key` 只在固定候选全部支持时原样转发，且不承诺缓存效果。 |
-| API-16 | 只有明确列出 `stream_options` 的 Chat interface 接受 `stream:true` 与精确 `{"include_usage":true}` 组合；Native egress 和 usage 尾块保持原始 wire，其他对象形状、Responses 与 Bridge 在 egress 前失败关闭。 |
+| API-16 | Chat `stream:true` 下的空 `stream_options` 与 `include_usage:false` 作为 no-op 在能力预检和 egress 前移除；有效 `include_usage:true` 只有在固定 Chat interface 完整保证时接受，Native 原样保留，Chat→Responses Bridge 从合法 terminal usage 生成标准 usage-only 尾块，非法形状、Responses 顶层字段和缺失/非法 terminal usage 均 fail closed。 |
 | API-17 | 通用 Generation 只解析一次客户端 instructions 来源并在缺失时使用项目默认值；Native/Bridge/候选/重试/probe 编码一致，首条合格 Chat 指令只提升删除一次，后续 transcript 保序，专用 task 不注入。 |
 | API-18 | Responses `reasoning.summary` 接受 `"auto"` 与兼容 `false`：Native 精确保留，Responses→Chat 消费且只返回真实 Chat `reasoning_content` 对应的 Responses reasoning content，不伪造 summary；非法值与 `none+auto` 在 egress 前失败。 |
 | OBS-01 | OTLP exporter 默认禁用；只有合法的 startup-only OTLP/HTTP 配置能启用相应 signal，collector host 可由配置所有者选择，非法配置在 listener 和 exporter egress 前失败，业务请求无法覆盖。 |

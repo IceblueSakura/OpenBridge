@@ -7,7 +7,10 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    core::{ApiProtocol, GenerationRequestField, ResponseInclude, ToolChoiceMode},
+    core::{
+        ApiProtocol, ChatStreamUsage, GenerationRequestField, ResponseInclude, ToolChoiceMode,
+        parse_chat_stream_usage,
+    },
     registry::ReasoningLevel,
 };
 
@@ -51,8 +54,8 @@ pub fn analyze_request(
     validate_stateless_store(object)?;
 
     let is_streaming = object.get("stream").and_then(Value::as_bool) == Some(true);
-    // Validate the one bounded Chat usage-tail option before any Native preservation can forward it.
-    validate_stream_options(protocol, object, is_streaming)?;
+    // Freeze the bounded Chat usage-tail request before preflight or candidate materialization.
+    let chat_stream_usage = analyze_chat_stream_usage(protocol, object, is_streaming)?;
 
     // Block unimplemented protocol-specific fields before Route planning can enter Native or Bridge paths.
     reject_reserved_request_fields(protocol, object)?;
@@ -107,6 +110,7 @@ pub fn analyze_request(
         public_model: public_model.to_owned(),
         protocol,
         is_streaming,
+        chat_stream_usage,
         requested_output_tokens,
         requested_parameters,
         requested_instructions,
@@ -114,25 +118,16 @@ pub fn analyze_request(
     })
 }
 
-/// Accepts only the live-verified Chat usage-tail option on an explicitly streaming request.
-fn validate_stream_options(
+/// Normalizes omitted and explicit no-op Chat stream options into one closed request fact.
+fn analyze_chat_stream_usage(
     protocol: ApiProtocol,
     object: &serde_json::Map<String, Value>,
     is_streaming: bool,
-) -> Result<(), RequestPlanningError> {
-    let Some(value) = object.get("stream_options") else {
-        return Ok(());
-    };
-    if protocol != ApiProtocol::ChatCompletions || !is_streaming {
-        return Err(RequestPlanningError::InvalidStreamOptions);
+) -> Result<ChatStreamUsage, RequestPlanningError> {
+    if protocol != ApiProtocol::ChatCompletions {
+        return Ok(ChatStreamUsage::NotRequested);
     }
-    let options = value
-        .as_object()
-        .ok_or(RequestPlanningError::InvalidStreamOptions)?;
-    if options.len() != 1 || options.get("include_usage").and_then(Value::as_bool) != Some(true) {
-        return Err(RequestPlanningError::InvalidStreamOptions);
-    }
-    Ok(())
+    parse_chat_stream_usage(object, is_streaming).ok_or(RequestPlanningError::InvalidStreamOptions)
 }
 
 /// Classifies recognized fields and returns the active parameters owned by the fixed interface.

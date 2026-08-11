@@ -83,6 +83,12 @@ Responses `reasoning.summary` 当前接受标准值 `"auto"` 与 OpenBridge 兼�
 Responses→Chat Bridge 消费它而不向 Chat 上游伪造字段，并把上游真实 `reasoning_content` 返回为 Responses
 `reasoning.content`/`reasoning_text`，不会合成 summary 事件。`false` 不关闭 reasoning；reasoning 是否关闭仍由 level `none` 决定。
 
+Chat streaming 的 `stream_options` 当前只建模 `include_usage`。省略、`{}` 与 `{"include_usage":false}` 都是合法 no-op，
+会在任何候选 egress 前移除；`{"include_usage":true}` 则是必须完整履行的输出契约，并要求所选 Chat interface 的
+`supported_parameters` 包含 `stream_options`。Native Chat 原样转发有效 `true` 并保留 Provider usage 尾块；Chat→Responses Bridge
+消费该字段，从合法 `response.completed.response.usage` 依次生成带 `usage:null` 的普通/finish chunk、一个 `choices:[]` usage-only
+chunk 和 `[DONE]`。Bridge 不估算缺失 token；terminal usage 缺失或非法时不会伪造成功尾部。`include_obfuscation` 和其他成员仍不支持。
+
 扩展 Models 的 generation interface 以 `response_includes` 公开全部固定候选共同接受的 Responses `include` 值；公开某个值只表示请求
 可执行，不保证响应一定出现对应 item，也不把它解释为 reasoning 输出开关。当前 `reasoning.encrypted_content` 已在 `glm-5.2` 的
 Responses-via-Chat Bridge、`deepseek-v4-flash`、`mimo-v2.5` 和仅由 ChatGPT 提供的 Responses interface 上开放：Native 原样转发，

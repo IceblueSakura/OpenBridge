@@ -502,10 +502,12 @@ member/target；credential gate 直接扫描全部启用 Target 的 `TargetBound
 不跨进程，也不执行动态权重或后台探测。
 
 `src/bridge.rs` 作为生产 Protocol Bridge 门面；`bridge/chat.rs` 与 `bridge/responses.rs` 分别维护两种 stream 状态机，
-`bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE 转换。Responses 侧分别固定
+`bridge/conversion/request/*`、`response.rs` 与 `stream/*` 分别承担双向请求、非流式响应与增量 SSE 转换，`usage.rs` 复用严格的
+Responses input/output/total → Chat prompt/completion/total usage 投影。Responses 侧分别固定
 response id、item id、call id 和 output index；Chat 侧只用 tool index 关联同一 stream 的分片，不用它替代 call id。两侧要求唯一
 terminal 和闭合 JSON object arguments。`BridgePlan` 只接受 显式 allowlist 内的共同 text/function 与明文 reasoning channel
-语义；无法表达的字段与私有扩展在 egress 前拒绝。下游 request/history 中的 opaque continuation 也拒绝；完成 Responses output 中已验证的
+语义；Chat `include_usage:true` 由 typed request fact 写入 plan 并只在 Responses terminal usage 完整时生成 Chat 尾块。无法表达的字段与
+私有扩展在 egress 前拒绝。下游 request/history 中的 opaque continuation 也拒绝；完成 Responses output 中已验证的
 `encrypted_content` 在生成无状态 Chat response 时丢弃，不转换成明文 reasoning，其他可读输出保持不变。
 
 `src/observability.rs` 与 `src/probe.rs` 同样只保留公开门面：前者将 request lifecycle、Provider observation、usage、SDK instruments、

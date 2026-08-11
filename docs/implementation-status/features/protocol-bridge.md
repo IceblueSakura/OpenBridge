@@ -22,6 +22,13 @@
   校验和 function call/output ledger，缺失 discriminator 的额外或模糊对象继续 fail closed。
 - Chat→Responses SSE 在成功 `finish_reason` 与 `[DONE]` 之间允许一个严格的 `choices: []` + `usage` object
   统计块；该块不产生业务输出，普通 late chunk、重复 usage、finish 前 usage 和 EOF-before-terminal 仍 fail closed。
+- 下游 Chat `stream_options.include_usage:true` 现在是 Bridge-owned 输出契约：Chat→Responses request converter 消费该字段且不写入
+  Responses wire，`BridgePlan` 保存分析器冻结的 usage 请求事实。Responses→Chat stream renderer 让内容、plain reasoning、tool-call 与
+  finish chunks 都携带 `usage:null`，随后从成功 `response.completed.response.usage` 生成唯一 `choices:[]` usage-only chunk，再发送
+  `[DONE]`。省略、空对象和 `include_usage:false` 不启用该策略，后两者在候选展开前移除。
+- 非流式与流式 Responses→Chat 共用严格 usage mapper：三个顶层计数必须是非负整数，并只映射 cached/reasoning 两个明确同义的可选
+  details；未知 Provider usage 扩展被忽略，不估算缺失 token。请求 usage 而 terminal usage 缺失、`null`、负数、字符串或不完整时，
+  renderer 在发送 finish 前判定流无效，不生成 usage-only 或 `[DONE]`，已提交的业务输出也不会触发 retry/fallback 拼接。
 - `response_format` 与 `text.format` 只转换 text、JSON object 和 JSON Schema 的明确字段；未知格式字段不可表达，会在 egress 前拒绝。
 - Bridge 与 Native 共用源协议顶层字段目录。未知字段先返回 `unknown_parameter`；已知但当前方向不可表示的字段只有在所选 API 对五类
   普通提示具有显式忽略规则时才能接受，并会在 Bridge request converter 之前删除。每个 fallback candidate 仍从原始 body 独立构造。
@@ -52,9 +59,15 @@
   测试覆盖两个值的 Chat exact egress、JSON/SSE reasoning content 与零伪造 summary，Native 测试覆盖两个值的 exact forwarding，
   并确认 `"auto"` 在凭据轮换重试时复用完全相同的请求 body。非法 string、`true`、`null`、object 和 `none+auto` 均覆盖 typed
   HTTP 400 与 zero Provider egress。
-- 同日 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；其中
-  `bridge_conversion_contract` 20 项、`bridge_forwarding_contract` 12 项、`forwarding_contract` 70 项、`ingress_contract` 6 项通过。
-  本轮没有运行 Hermes、外部 OpenAI SDK、真实 Provider、强制多 Provider fallback、负载或长期运行验收。
+- 2026-08-11 的 M7 失败优先测试先确认旧 Bridge 对有效 `include_usage:true`、空对象与 `false` 返回
+  `UnsupportedSemantics`/HTTP 400；实现后覆盖 text、plain reasoning、parallel function tool、严格 terminal usage、生产 Router、
+  一次可重试失败后的成功、实际编译的 `gpt-5.3-codex-spark` ChatGPT Bridge，以及非法 shape/能力不足的 zero-egress 结果。测试只断言
+  客户端行为、post-adapter wire、usage 尾块和 attempt 数量，不新增 Provider 目录、候选顺序或 Route 排名断言。
+- 同日 `cargo fmt -- --check`、完整 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 全部通过；
+  聚焦结果为 `bridge_conversion_contract` 25 项、`bridge_forwarding_contract` 16 项、`forwarding_contract` 72 项、
+  `ingress_contract` 6 项。`uv lock --check --project tools/corpus`、45 项 corpus pytest 与 canonical corpus lint 也全部通过。
+  本轮没有运行 Hermes、外部 OpenAI SDK、真实 Provider、强制多 Provider fallback、负载或长期运行验收；用户已确认没有真实有效的
+  OpenAI API Key，因此这里没有把确定性 fake transport 证据扩大为真实 OpenAI/ChatGPT Provider 验收结论。
 - [`tests/protocol_bridge_replay.rs`](../../../tests/protocol_bridge_replay.rs) 复放 canonical SSE，覆盖 identity、terminal、EOF 和事件冲突。
 - `bridge_conversion_contract::responses_to_chat_non_stream_drops_completed_opaque_continuation` 覆盖真实 GPT 形状的 output-only opaque
   continuation，以及可读 summary 的保留；`forwarding_contract::chatgpt_buffers_streaming_responses_for_non_streaming_responses_and_chat`

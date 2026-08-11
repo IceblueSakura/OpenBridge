@@ -312,6 +312,7 @@ struct ChatGptRecordedRequest {
     seed_present: bool,
     service_tier: Option<Value>,
     stream_is_true: bool,
+    stream_options_present: bool,
     token_generation: SyntheticTokenGeneration,
     account_matches: bool,
     originator_matches: bool,
@@ -509,6 +510,7 @@ impl UpstreamTransport for ChatGptOAuthTransport {
             seed_present: body.get("seed").is_some(),
             service_tier: body.get("service_tier").cloned(),
             stream_is_true: body.get("stream").and_then(Value::as_bool) == Some(true),
+            stream_options_present: body.get("stream_options").is_some(),
             token_generation,
             account_matches: headers
                 .get("chatgpt-account-id")

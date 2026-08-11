@@ -24,5 +24,7 @@ pub use capability::{
     StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
     VoiceDesignProfile,
 };
-pub(crate) use generation_parameter::GenerationRequestField;
+pub(crate) use generation_parameter::{
+    ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,
+};
 pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};

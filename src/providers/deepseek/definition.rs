@@ -28,6 +28,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/chat/completions",
         ProviderChatCompletionsCapabilities {
             streaming: true,
+            stream_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: true,
@@ -52,6 +53,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/responses",
         ProviderResponsesCapabilities {
             streaming: true,
+            terminal_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: RESPONSES_TOOL_CHOICE_MODES,
                 parallel_calls: true,

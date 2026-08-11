@@ -5,8 +5,8 @@
 本文只记录 `POST /v1/responses` 使用 `stream: true` 时的 response/item/content/text 核心 typed SSE grammar。工具参数、图片生成
 等专用 delta 由对应 operation 文档维护。
 
-- 官方来源：[Streaming responses](https://platform.openai.com/docs/guides/streaming-responses)、[Streaming events reference](https://platform.openai.com/docs/api-reference/responses-streaming)
-- 协议复核日期：2026-07-25 至 2026-08-03；本次结构整理未重新在线复核完整 event catalog。
+- 官方来源：[Streaming responses](https://developers.openai.com/api/docs/guides/streaming-responses)、[Streaming events reference](https://developers.openai.com/api/reference/resources/responses/streaming-events)
+- 协议复核日期：2026-08-11；本次只复核成功 terminal usage，不穷举完整 event catalog。
 
 ## 1. Core lifecycle
 
@@ -33,7 +33,8 @@ Responses event 带 `type` 与语义字段，不是 Chat data-only chunk。item 
 3. `output_item.added` 创建 item，content/text delta 只更新对应 buffer；
 4. `output_item.done` 只结束一个 item；
 5. `response.completed`、`response.incomplete`、`response.failed` 或 `response.cancelled` 结束 response lifecycle；
-6. terminal event 中的 response status、usage、error 仍需完整读取。
+6. terminal event 中的 response status、usage、error 仍需完整读取；成功 `response.completed.response.usage` 使用
+   `input_tokens`、`output_tokens`、`total_tokens` 及可选 details，不能从中间 delta 自行估算。
 
 ## 3. Error 与 EOF
 

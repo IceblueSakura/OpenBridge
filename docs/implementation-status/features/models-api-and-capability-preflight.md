@@ -27,6 +27,13 @@
   `unsupported_model_capability`，两类拒绝都不会调用 Provider。
 - generation `supported_parameters` 表示 OpenBridge 接受对应字段。每条 Route 只能以“当前 API 转发”或“当前 API 明确忽略”贡献
   参数；Bridge 还要求该转换方向可完整表示字段。固定 interface 继续按全部候选相交，不按请求参数筛选或重排 Route。
+- Chat stream usage 由 analyzer 一次解析为闭合 `NotRequested | Include` 请求事实。省略、空对象和 `include_usage:false` 都归一为
+  `NotRequested`，不进入有效参数预检，并在候选 body 生成前移除显式 no-op；`include_usage:true` 才要求固定 Chat interface 支持
+  `stream_options`。非法对象仍在 egress 前返回稳定请求错误，Responses 顶层同名字段仍是 `unknown_parameter`。
+- Chat API profile 用 `stream_usage` 声明 Native 请求/尾块保证，Responses API profile 用 `terminal_usage` 声明成功 terminal 的完整 usage
+  保证。每条 Native Chat Route 还要求 canonical model 接受该字段；Chat→Responses Bridge Route 要求 streaming、terminal usage 与
+  converter 投影同时成立。结果直接进入每 Route 的私有 interface contribution，再由 Public Model 对全部固定候选求交集；请求不会据此
+  跳过、选择或重排 Route。
 - Responses `include` 由 `ResponseInclude` 精确 wire 枚举解析为请求集合；Route contribution 保存逐值集合，Public Model 对全部固定
   candidate 求交集并以 `response_includes` 公开。公开值表示接口能够接受并安全处理该条件性请求，不保证对应 output item 存在或
   reasoning 形态发生变化。`reasoning.encrypted_content` 当前在 `glm-5.2` Responses、`deepseek-v4-flash` Responses、
@@ -152,11 +159,11 @@ registry、analysis、planning、静态 Provider 定义与确定性 Bridge，不
   用例均通过。确定性测试证明客户端与 wire 行为，不证明上游必定返回 reasoning item、多个 tool call 或内部并行执行。
 
 2026-08-10 Hermes M3 以失败优先测试锁定了三个旧行为：Responses interface 仍错误识别 `stream_options`，目标 Chat interface 尚未公开
-该参数，DeepSeek Flash 的流式请求在 Provider egress 前被拒绝。实现后：
+该参数，DeepSeek Flash 的流式请求在 Provider egress 前被拒绝。当时实现范围为：
 
 - `glm-5.2` 的 1 个、`deepseek-v4-flash` 的 3 个和 `mimo-v2.5` 的 1 个完整固定 Native Chat candidate 共同公开
-  `stream_options`；对应 Responses interface、全部 Bridge 和未验证相邻模型继续保持 unsupported。
-- 参数分析只接受 Chat `stream:true` 且 `stream_options` 恰为 `{"include_usage":true}`；非对象、空对象、`false`、额外子字段及
+  `stream_options`；对应 Responses interface 与 Bridge 当时保持 unsupported。
+- 参数分析当时只接受 Chat `stream:true` 且 `stream_options` 恰为 `{"include_usage":true}`；非对象、空对象、`false`、额外子字段及
   非流式组合在 egress 前以稳定无效请求失败。
 - `tests/forwarding_contract.rs` 使用编译后的 DeepSeek 请求验证 Chat-only 精确形状、Responses fail-closed、post-adapter wire 与带
   Provider 私有 usage details 的 SSE 尾块逐字节保持。
@@ -168,6 +175,11 @@ OpenRouter 也尚未完成同等验证。因此当前完整候选交集继续 fa
 M3 最终验证中，forwarding 业务套件通过；隔离 target 目录下的完整
 `cargo test --locked`、`cargo fmt -- --check`、`cargo clippy --locked -- -D warnings` 与 `git diff --check` 均通过。本轮没有重新执行真实
 Provider、Hermes、外部 SDK、强制 fallback、负载或长期运行验收。
+
+2026-08-11 M7 已取代 M3 的 no-op/Bridge 限制：空对象与 `include_usage:false` 现在是所有 Chat streaming interface 都可提交的
+省略等价形状；只有 `true` 形成参数能力要求。固定 Route contribution 同时读取 typed API usage guarantee、Native canonical 参数或
+Bridge converter guarantee，再按既有 Public Model candidate 交集公开。HTTP 业务测试证明能力不足时 `true` 为 zero egress，而 no-op
+仍执行且不进入 Native/Responses upstream body；没有引入请求级能力路由、完整目录或候选顺序断言。
 
 2026-08-11 M5 使用失败优先测试锁定了两个旧行为：Chat→Responses 没有提升首条合格 system/developer，且 planning 尚无统一
 instructions/store 错误与规范化入口。实现后：

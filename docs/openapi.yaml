@@ -1191,12 +1191,14 @@ components:
         stream_options:
           type: object
           additionalProperties: false
-          required: [ include_usage ]
-          description: Supported only with stream:true on Public Models whose Chat interface lists stream_options.
+          description: >-
+            Accepted only with stream:true. An empty object or include_usage:false is an omitted-equivalent no-op
+            removed before egress. include_usage:true requires the fixed Chat interface to list stream_options;
+            Native Chat forwards it exactly, while Chat-to-Responses Bridge generates the standard usage-only tail.
+            Other members, including include_obfuscation, are unsupported.
           properties:
             include_usage:
               type: boolean
-              enum: [ true ]
         temperature:
           type: number
           nullable: true

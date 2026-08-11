@@ -1689,6 +1689,8 @@ impl GenerationCapabilities {
 pub struct ChatCompletionsProfile<A> {
     /// Whether Chat Completions streaming is supported.
     pub streaming: bool,
+    /// Whether streaming can provide the final usage-only Chat chunk requested by `stream_options`.
+    pub stream_usage: bool,
     /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
     pub function_tools: Option<FunctionToolCapabilities>,
     /// Typed `image_url` input profile, or `None` when images are unsupported.
@@ -1767,6 +1769,7 @@ impl ChatCompletionsProfile<Option<ProviderAudioCeiling>> {
     ) -> ChatCompletionsCapabilities {
         ChatCompletionsProfile {
             streaming: self.streaming,
+            stream_usage: self.stream_usage,
             function_tools: self.function_tools,
             image_input: self.image_input,
             structured_outputs: self.structured_outputs,
@@ -1795,6 +1798,7 @@ impl ChatCompletionsProfile<Option<ExecutableAudioProfile>> {
         // Compare common fields and require any executable audio profile to fit the same-task slot.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
+            && (!self.stream_usage || upper.stream_usage)
             && optional_executable_audio_is_subset_of(self.audio, upper.audio)
             && (!self.prompt_cache_key || upper.prompt_cache_key)
     }
@@ -1966,6 +1970,8 @@ impl ProviderResponsesStateCeiling {
 pub struct ResponsesProfile<S> {
     /// Whether Responses streaming is supported.
     pub streaming: bool,
+    /// Whether a successful streaming terminal carries complete token usage.
+    pub terminal_usage: bool,
     /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
     pub function_tools: Option<FunctionToolCapabilities>,
     /// Typed `input_image` profile, or `None` when images are unsupported.
@@ -2026,6 +2032,7 @@ impl ProviderResponsesCapabilities {
     pub const fn to_executable(self, state: ExecutableResponsesState) -> ResponsesCapabilities {
         ResponsesProfile {
             streaming: self.streaming,
+            terminal_usage: self.terminal_usage,
             function_tools: self.function_tools,
             image_input: self.image_input,
             structured_outputs: self.structured_outputs,
@@ -2105,6 +2112,7 @@ impl ResponsesCapabilities {
         // Compare implemented common capabilities and Responses state capabilities.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
+            && (!self.terminal_usage || upper.terminal_usage)
             && self.state.is_subset_of(upper.state)
             && (!self.background || upper.background)
             && (!self.prompt_cache_key || upper.prompt_cache_key)

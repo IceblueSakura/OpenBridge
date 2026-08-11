@@ -40,6 +40,11 @@ struct ExpectedTransport {
     requests: Mutex<Vec<(String, Value)>>,
 }
 
+struct RetryThenSuccessTransport {
+    upstream_body: Bytes,
+    attempts: Mutex<Vec<Value>>,
+}
+
 impl UpstreamTransport for ExpectedTransport {
     fn send<'a>(
         &'a self,
@@ -53,6 +58,33 @@ impl UpstreamTransport for ExpectedTransport {
             self.requests.lock().unwrap().push((path, body));
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, self.content_type.parse().unwrap());
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(self.upstream_body.clone()),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for RetryThenSuccessTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let body = serde_json::from_slice(request.body()).expect("upstream request JSON");
+        let mut attempts = self.attempts.lock().unwrap();
+        attempts.push(body);
+        let should_retry = attempts.len() == 1;
+        drop(attempts);
+        Box::pin(async move {
+            if should_retry {
+                return Err(TransportError::Timeout);
+            }
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, "text/event-stream".parse().unwrap());
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 headers,
@@ -116,6 +148,27 @@ fn fixture(path: &str) -> Bytes {
     )
 }
 
+fn responses_usage_stream() -> Bytes {
+    Bytes::from_static(
+        br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_router_usage","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_router_usage","type":"message","role":"assistant","status":"in_progress","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_router_usage","output_index":0,"content_index":0,"delta":"ok"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_router_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_router_usage","status":"completed","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}
+
+"#,
+    )
+}
+
 fn app(
     downstream: ApiProtocol,
     upstream: ApiProtocol,
@@ -129,6 +182,16 @@ fn app_with_reasoning_output(
     upstream: ApiProtocol,
     transport: Arc<dyn UpstreamTransport>,
     reasoning_output: ReasoningOutput,
+) -> axum::Router {
+    app_with_protocol_capabilities(downstream, upstream, transport, reasoning_output, true)
+}
+
+fn app_with_protocol_capabilities(
+    downstream: ApiProtocol,
+    upstream: ApiProtocol,
+    transport: Arc<dyn UpstreamTransport>,
+    reasoning_output: ReasoningOutput,
+    responses_terminal_usage: bool,
 ) -> axum::Router {
     // Keep only the reverse Bridged Route so a Native candidate cannot mask conversion behavior.
     let mut definition = support::definition("bridge-forward", "public-model", "upstream-model");
@@ -170,6 +233,7 @@ fn app_with_reasoning_output(
             profile
         });
         capabilities.reasoning_output = reasoning_output;
+        capabilities.terminal_usage = responses_terminal_usage;
     }
     definition.routes = vec![RouteConfig {
         id: "bridge-route".to_owned(),
@@ -465,6 +529,234 @@ async fn production_router_converts_text_and_parallel_tool_streams_in_both_direc
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].0, upstream_path);
     }
+}
+
+#[tokio::test]
+async fn production_router_fulfills_chat_stream_usage_through_responses() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/responses",
+        upstream_body: responses_usage_stream(),
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+    let response = app(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+    )
+    .oneshot(
+        Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    let chunks = events[..events.len() - 1]
+        .iter()
+        .map(|event| serde_json::from_str::<Value>(event.data()).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk["usage"].is_null())
+    );
+    assert_eq!(chunks.last().unwrap()["choices"], serde_json::json!([]));
+    assert_eq!(
+        chunks.last().unwrap()["usage"],
+        serde_json::json!({"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7})
+    );
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/v1/responses");
+    assert!(requests[0].1.get("stream_options").is_none());
+}
+
+#[tokio::test]
+async fn retried_chat_usage_bridge_preserves_the_request_contract_until_success() {
+    let transport = Arc::new(RetryThenSuccessTransport {
+        upstream_body: responses_usage_stream(),
+        attempts: Mutex::new(Vec::new()),
+    });
+    let response = app(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+    )
+    .oneshot(
+        Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // The retry succeeds with one usage tail, proving the immutable Bridge output option survived.
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    let usage_chunks = events
+        .iter()
+        .filter_map(|event| serde_json::from_str::<Value>(event.data()).ok())
+        .filter(|chunk| chunk["choices"] == serde_json::json!([]))
+        .collect::<Vec<_>>();
+    assert_eq!(usage_chunks.len(), 1);
+    assert_eq!(
+        usage_chunks[0]["usage"],
+        serde_json::json!({"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7})
+    );
+
+    let attempts = transport.attempts.lock().unwrap();
+    assert_eq!(attempts.len(), 2);
+    assert!(
+        attempts.iter().all(|request| {
+            request["stream"] == true && request.get("stream_options").is_none()
+        })
+    );
+}
+
+#[tokio::test]
+async fn production_router_removes_chat_stream_usage_noops_before_any_egress() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/responses",
+        upstream_body: fixture(
+            "chat_to_responses/chat_to_responses.text.stream/upstream-stream.sse",
+        ),
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+    let app = app(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+    );
+    for stream_options in [
+        serde_json::json!({}),
+        serde_json::json!({"include_usage": false}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header("authorization", "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "model": "public-model",
+                            "messages": [{"role": "user", "content": "hello"}],
+                            "stream": true,
+                            "stream_options": stream_options
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("\"usage\""));
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|(_, body)| body.get("stream_options").is_none())
+    );
+}
+
+#[tokio::test]
+async fn chat_usage_bridge_requires_terminal_usage_but_noops_do_not() {
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/responses",
+        upstream_body: fixture(
+            "chat_to_responses/chat_to_responses.text.stream/upstream-stream.sse",
+        ),
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+    let app = app_with_protocol_capabilities(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+        ReasoningOutput::Unknown,
+        false,
+    );
+
+    // The effective usage contract is rejected by Public Model preflight before any Provider attempt.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(error["error"]["param"], "stream_options");
+    assert!(transport.requests.lock().unwrap().is_empty());
+
+    // Omitted-equivalent shapes execute through the same fixed Bridge and are removed from egress.
+    for stream_options in [
+        serde_json::json!({}),
+        serde_json::json!({"include_usage": false}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header("authorization", "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "model": "public-model",
+                            "messages": [{"role": "user", "content": "hello"}],
+                            "stream": true,
+                            "stream_options": stream_options
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    }
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|(_, body)| body.get("stream_options").is_none())
+    );
 }
 
 #[tokio::test]

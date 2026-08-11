@@ -5,9 +5,10 @@ use std::collections::BTreeSet;
 use crate::{
     bridge::BridgePlan,
     core::{
-        ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, EmbeddingEncoding,
-        EmbeddingInputForm, EmbeddingRequest, GenerationRequestField, ImageDetail,
-        ImageInputSource, ImageMediaType, OperationKind, ResponseInclude, ToolChoiceMode,
+        ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, ChatStreamUsage,
+        EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest, GenerationRequestField,
+        ImageDetail, ImageInputSource, ImageMediaType, OperationKind, ResponseInclude,
+        ToolChoiceMode,
     },
     registry::ReasoningLevel,
 };
@@ -18,6 +19,7 @@ pub struct RequestRequirements {
     pub(super) public_model: String,
     pub(super) protocol: ApiProtocol,
     pub(super) is_streaming: bool,
+    pub(super) chat_stream_usage: ChatStreamUsage,
     pub(super) requested_output_tokens: Option<u64>,
     pub(super) requested_parameters: BTreeSet<GenerationRequestField>,
     pub(super) requested_instructions: RequestedInstructions,

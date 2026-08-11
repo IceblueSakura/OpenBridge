@@ -14,6 +14,7 @@ use super::{
     super::{
         BridgeError,
         shared::{map_id, required_string},
+        usage::responses_usage_to_chat,
     },
     shared::sse_data,
 };
@@ -22,6 +23,7 @@ use super::{
 pub(in crate::bridge::conversion) struct ResponsesToChatStream {
     state: ResponsesStreamState,
     reasoning_supported: bool,
+    include_usage: bool,
     chat_id: Option<String>,
     role_emitted: bool,
     tool_indices: BTreeMap<u64, u64>,
@@ -33,10 +35,14 @@ pub(in crate::bridge::conversion) struct ResponsesToChatStream {
 
 impl ResponsesToChatStream {
     /// Creates a renderer waiting for `response.created`.
-    pub(in crate::bridge::conversion) fn new(reasoning_supported: bool) -> Self {
+    pub(in crate::bridge::conversion) fn new(
+        reasoning_supported: bool,
+        include_usage: bool,
+    ) -> Self {
         Self {
             state: ResponsesStreamState::new(),
             reasoning_supported,
+            include_usage,
             chat_id: None,
             role_emitted: false,
             tool_indices: BTreeMap::new(),
@@ -99,6 +105,7 @@ impl ResponsesToChatStream {
                         public_model,
                         strip_null_role(delta),
                         Value::Null,
+                        self.include_usage,
                     )?);
                 } else if item.get("type").and_then(Value::as_str) == Some("reasoning")
                     && !self.reasoning_supported
@@ -129,6 +136,7 @@ impl ResponsesToChatStream {
                     public_model,
                     Value::Object(delta),
                     Value::Null,
+                    self.include_usage,
                 )?);
             }
             "response.reasoning_summary_part.added"
@@ -151,6 +159,7 @@ impl ResponsesToChatStream {
                     public_model,
                     Value::Object(delta),
                     Value::Null,
+                    self.include_usage,
                 )?);
             }
             "response.function_call_arguments.delta" => {
@@ -171,16 +180,35 @@ impl ResponsesToChatStream {
                         "index": chat_index
                     }]}),
                     Value::Null,
+                    self.include_usage,
                 )?);
             }
             "response.completed" => {
+                // Validate requested terminal usage before exposing a successful Chat terminal.
+                let usage = if self.include_usage {
+                    let response = value
+                        .get("response")
+                        .and_then(Value::as_object)
+                        .ok_or(BridgeError::InvalidStream)?;
+                    let usage = response
+                        .get("usage")
+                        .and_then(Value::as_object)
+                        .ok_or(BridgeError::InvalidStream)?;
+                    Some(responses_usage_to_chat(usage).map_err(|_| BridgeError::InvalidStream)?)
+                } else {
+                    None
+                };
                 let finish = if self.has_tools { "tool_calls" } else { "stop" };
                 output.extend(chat_chunk(
                     self.chat_id()?,
                     public_model,
                     json!({}),
                     Value::String(finish.to_owned()),
+                    self.include_usage,
                 )?);
+                if let Some(usage) = usage {
+                    output.extend(chat_usage_chunk(self.chat_id()?, public_model, usage)?);
+                }
                 output.extend_from_slice(b"data: [DONE]\n\n");
                 self.terminal_emitted = true;
             }
@@ -225,12 +253,28 @@ fn chat_chunk(
     model: &str,
     delta: Value,
     finish_reason: Value,
+    include_usage: bool,
 ) -> Result<Vec<u8>, BridgeError> {
     // Wrap the single-choice Chat chunk and encode it as a data-only SSE block.
-    sse_data(&json!({
+    let mut chunk = json!({
         "choices": [{"delta": delta, "finish_reason": finish_reason, "index": 0}],
         "id": id,
         "model": model,
         "object": "chat.completion.chunk"
+    });
+    if include_usage {
+        chunk["usage"] = Value::Null;
+    }
+    sse_data(&chunk)
+}
+
+/// Wraps the terminal Chat usage object in the required empty-choice SSE chunk.
+fn chat_usage_chunk(id: &str, model: &str, usage: Value) -> Result<Vec<u8>, BridgeError> {
+    sse_data(&json!({
+        "choices": [],
+        "id": id,
+        "model": model,
+        "object": "chat.completion.chunk",
+        "usage": usage
     }))
 }

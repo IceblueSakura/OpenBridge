@@ -124,6 +124,141 @@ async fn invalid_reasoning_summary_requests_fail_before_upstream() {
 }
 
 #[tokio::test]
+async fn chat_stream_usage_admission_keeps_noops_but_rejects_invalid_or_unsupported_requests() {
+    // Build a streaming Chat model whose fixed Native API cannot guarantee the effective usage tail.
+    let mut definition =
+        support::definition("stream-usage-admission", "public-model", "upstream-model");
+    if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    {
+        capabilities.stream_usage = false;
+    }
+    let transport = Arc::new(DeepSeekUsageStreamTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+
+    // Malformed Chat shapes and the Responses-only protocol mismatch fail before transport.
+    for (path, request, expected_code) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream_options":{"include_usage":true}}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":false,"stream_options":{"include_usage":true}}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":"true"}}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true,"future":false}}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_obfuscation":false}}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":"usage"}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":null}),
+            "invalid_request_error",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","stream":true,"stream_options":{"include_usage":true}}),
+            "unknown_parameter",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{path} {request}"
+        );
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], expected_code, "{path} {request}");
+        assert!(transport.requests.lock().unwrap().is_empty());
+    }
+
+    // A valid effective request needs the missing capability and therefore also fails with zero egress.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(error["error"]["param"], "stream_options");
+    assert!(transport.requests.lock().unwrap().is_empty());
+
+    // Empty and explicit-false objects are omitted-equivalent and cross the same unsupported API.
+    for stream_options in [
+        serde_json::json!({}),
+        serde_json::json!({"include_usage": false}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "model": "public-model",
+                            "messages": [{"role": "user", "content": "hello"}],
+                            "stream": true,
+                            "stream_options": stream_options
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    }
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.body.get("stream_options").is_none())
+    );
+}
+
+#[tokio::test]
 async fn unsupported_public_model_capability_fails_before_any_upstream_attempt() {
     // Build a preferred Route with weaker tool capability and a later Route with stronger capability.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");

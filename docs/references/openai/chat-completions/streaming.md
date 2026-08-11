@@ -4,8 +4,8 @@
 
 本文只记录 `POST /v1/chat/completions` 使用 `stream: true` 时的 data-only SSE response 与 chunk 累积规则。
 
-- 官方来源：[Create chat completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[Streaming responses](https://platform.openai.com/docs/guides/streaming-responses)
-- 协议复核日期：2026-08-03；本次结构整理未重新在线复核 SDK 或 event 扩展。
+- 官方来源：[Chat API reference](https://developers.openai.com/api/reference/resources/chat)、[Streaming responses](https://developers.openai.com/api/docs/guides/streaming-responses)
+- 协议复核日期：2026-08-11；本次只复核 `stream_options.include_usage` 与 usage 尾块，不穷举其他 event 扩展。
 
 ## 1. Chunk shape
 
@@ -36,7 +36,9 @@ chunk 使用 `choices[].delta`，不是非流式的 `choices[].message`。delta 
 
 ## 3. Usage、terminal 与失败
 
-若请求 `stream_options` 中的 usage，usage 通常按该选项的协议语义出现在尾部 chunk；不能假定每个 chunk 都含 usage。
+`stream_options.include_usage:true` 只与 `stream:true` 组合。启用后，普通 chunks 的 `usage` 为 `null`；在 `[DONE]` 前额外出现一个
+`choices:[]` 且携带整次请求 usage 的 chunk。流在到达 terminal 前中断时可能收不到该尾块，因此消费者不能把缺失 usage 自动补零，
+也不能把 finish chunk 当成 usage chunk。
 
 Chat stream 是 data-only SSE，不具有 Responses 的 typed response/item/content event grammar。transport EOF、SSE parse error、非 2xx
 upstream error与正常 terminal 必须分开；partial text 不能在异常 EOF 后伪装成完整成功。

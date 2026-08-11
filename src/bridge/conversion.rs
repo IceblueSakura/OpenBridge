@@ -9,7 +9,7 @@ use bytes::Bytes;
 use thiserror::Error;
 
 use crate::{
-    core::{ApiProtocol, ApiRequest, ReasoningOutput},
+    core::{ApiProtocol, ApiRequest, ChatStreamUsage, ReasoningOutput, parse_chat_stream_usage},
     transport::sse::SseEvent,
 };
 
@@ -23,6 +23,7 @@ mod request;
 mod response;
 mod shared;
 mod stream;
+mod usage;
 
 /// Error returned when a request, response, or stream cannot be converted under the restricted Bridge contract.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -57,6 +58,7 @@ pub struct BridgePlan {
     upstream_protocol: ApiProtocol,
     public_model: String,
     reasoning_supported: bool,
+    chat_stream_usage: ChatStreamUsage,
 }
 
 impl BridgePlan {
@@ -88,14 +90,62 @@ impl BridgePlan {
         body: Bytes,
         reasoning_output: ReasoningOutput,
     ) -> Result<(Self, ApiRequest), BridgeError> {
+        let source = parse_value_object(&body)?;
+        let chat_stream_usage = direct_chat_stream_usage(downstream_protocol, &source)?;
+        Self::prepare_from_source(
+            downstream_protocol,
+            upstream_protocol,
+            public_model,
+            upstream_model,
+            source,
+            reasoning_output,
+            chat_stream_usage,
+        )
+    }
+
+    /// Prepares a Bridge from request facts already frozen by production request analysis.
+    pub(crate) fn prepare_with_request_facts(
+        downstream_protocol: ApiProtocol,
+        upstream_protocol: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        body: Bytes,
+        reasoning_output: ReasoningOutput,
+        chat_stream_usage: ChatStreamUsage,
+    ) -> Result<(Self, ApiRequest), BridgeError> {
+        let source = parse_value_object(&body)?;
+        Self::prepare_from_source(
+            downstream_protocol,
+            upstream_protocol,
+            public_model,
+            upstream_model,
+            source,
+            reasoning_output,
+            chat_stream_usage,
+        )
+    }
+
+    /// Converts one already parsed request after fixing all response-side Bridge options.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_from_source(
+        downstream_protocol: ApiProtocol,
+        upstream_protocol: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        mut source: serde_json::Map<String, serde_json::Value>,
+        reasoning_output: ReasoningOutput,
+        chat_stream_usage: ChatStreamUsage,
+    ) -> Result<(Self, ApiRequest), BridgeError> {
         // Pass only reasoning that the current upstream protocol can safely represent to the directional converter.
         let reasoning_supported = bridge_reasoning_supported(upstream_protocol, reasoning_output);
 
-        // Reject same-protocol calls and unsupported extensions before running directional conversion.
+        // Reject same-protocol calls and consume the typed Chat-only output option before directional validation.
         if downstream_protocol == upstream_protocol {
             return Err(BridgeError::UnsupportedSemantics);
         }
-        let source = parse_value_object(&body)?;
+        if downstream_protocol == ApiProtocol::ChatCompletions {
+            source.remove("stream_options");
+        }
         reject_unsupported_request(downstream_protocol, &source)?;
         let converted = match (downstream_protocol, upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => chat_request_to_responses(
@@ -121,6 +171,7 @@ impl BridgePlan {
                 upstream_protocol,
                 public_model: public_model.to_owned(),
                 reasoning_supported,
+                chat_stream_usage,
             },
             request,
         ))
@@ -186,7 +237,10 @@ impl BridgeStreamRenderer {
     fn new(plan: BridgePlan) -> Self {
         let state = match (plan.downstream_protocol, plan.upstream_protocol) {
             (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => {
-                StreamState::ResponsesToChat(ResponsesToChatStream::new(plan.reasoning_supported))
+                StreamState::ResponsesToChat(ResponsesToChatStream::new(
+                    plan.reasoning_supported,
+                    plan.chat_stream_usage.is_requested(),
+                ))
             }
             (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => {
                 StreamState::ChatToResponses(ChatToResponsesStream::new(plan.reasoning_supported))
@@ -211,4 +265,16 @@ impl BridgeStreamRenderer {
             StreamState::ChatToResponses(state) => state.finish(),
         }
     }
+}
+
+/// Derives the closed Chat stream-usage fact for direct Bridge callers.
+fn direct_chat_stream_usage(
+    downstream_protocol: ApiProtocol,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> Result<ChatStreamUsage, BridgeError> {
+    if downstream_protocol != ApiProtocol::ChatCompletions {
+        return Ok(ChatStreamUsage::NotRequested);
+    }
+    let streaming = source.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
+    parse_chat_stream_usage(source, streaming).ok_or(BridgeError::UnsupportedSemantics)
 }

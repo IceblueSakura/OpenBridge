@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
+    core::{ApiProtocol, ApiRequest, ChatStreamUsage, EmbeddingRequest, OperationKind},
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel, RouteMode,
         RuntimeRegistry, UpstreamStreamingPolicy,
@@ -57,6 +57,13 @@ pub fn plan_request(
         body
     };
 
+    // Remove explicit Chat usage no-ops once so every fixed candidate sees the omitted-equivalent body.
+    let normalized_body = normalize_chat_stream_options(
+        &normalized_body,
+        requirements.protocol(),
+        requirements.chat_stream_usage,
+    )?;
+
     // Remove the typed inactive Responses projection before any Native or Bridged egress body is built.
     let normalized_body =
         normalize_inactive_response_include(&normalized_body, requirements.protocol())?;
@@ -81,13 +88,14 @@ pub fn plan_request(
                 ApiRequest::new(candidate.downstream_protocol(), candidate_body),
                 None,
             ),
-            RouteMode::Bridged => match BridgePlan::prepare_with_reasoning_output(
+            RouteMode::Bridged => match BridgePlan::prepare_with_request_facts(
                 candidate.downstream_protocol(),
                 candidate.upstream_protocol(),
                 requirements.public_model(),
                 candidate.upstream_model(),
                 candidate_body,
                 candidate.reasoning_output(),
+                requirements.chat_stream_usage,
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
                 Err(_) => return Err(RequestPlanningError::UnsupportedCapabilities),
@@ -117,6 +125,28 @@ pub fn plan_request(
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
     })
+}
+
+/// Removes only omitted-equivalent Chat stream options before any candidate body is materialized.
+fn normalize_chat_stream_options(
+    body: &Bytes,
+    protocol: ApiProtocol,
+    usage: ChatStreamUsage,
+) -> Result<Bytes, RequestPlanningError> {
+    if protocol != ApiProtocol::ChatCompletions || usage.is_requested() {
+        return Ok(body.clone());
+    }
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    if object.remove("stream_options").is_none() {
+        return Ok(body.clone());
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
 }
 
 /// Removes only an analyzed inactive Responses `include` value from the canonical request body.

@@ -21,9 +21,10 @@
   当前新增范围是 DeepSeek V4 Flash、MiMo V2.5，以及支撑 GLM 5.2 Bridge 的 Bailian Chat Target；DeepSeek V4 Pro 因 Bailian fallback
   未验证、MiMo Pro 与 OpenRouter MiniMax 因对应 Target 未验证而保持 unsupported。接受字段不保证单次响应产生多个 tool call，也不证明
   Provider 内部并发执行。
-- Chat `stream_options` 当前只在 `glm-5.2`、`deepseek-v4-flash` 与 `mimo-v2.5` 的完整固定 Native Chat candidate 交集中公开，且只接受
-  `stream:true` 与精确 `{"include_usage":true}`。Native adapter 原样保留该对象，SSE validator 校验 framing/terminal 后返回原始 chunk，
-  不归一化 Provider usage details；Responses、Bridge、其他对象形状和未验证相邻模型在 egress 前失败关闭。
+- Chat `stream_options` 当前只建模 `include_usage` 且只与 `stream:true` 组合。有效 `true` 只有在完整固定 Chat candidate 交集都能履行时
+  才公开：Native candidate 要求 canonical model 与 Chat API 的 typed `stream_usage` 保证，并原样保留对象和 Provider usage details；
+  Chat→Responses Bridge 则由独立 terminal-usage 投影保证贡献同一公共能力。空对象和 `false` 是不要求该能力的 no-op，会在 Native/Bridge
+  candidate egress 前统一移除；非法/额外成员、非对象与非流式组合继续 zero egress 失败。
 - Upstream API 可以用闭合 `IgnorableGenerationParameter` 集合接受但不向上游发送已确认不兼容的普通生成字段；这些字段仍保留在
   Public Model `supported_parameters`。当前 Kimi K3 Chat 只删除 `frequency_penalty`、`presence_penalty`、`temperature`、`top_p`；
   ChatGPT GPT-5.5/5.6 Responses 只删除 `seed`。Kimi 的 `n/logprobs/top_logprobs`、MiMo V2.5/Pro Responses 的
@@ -105,6 +106,11 @@ OpenBridge Native Responses 得到 89/16/105，另有 cached 0、reasoning 13；
 M3 的失败测试最初分别观察到 Responses 参数目录错误包含 `stream_options`、目标 Chat Models 未公开该参数，以及 DeepSeek 流式请求
 返回 400；实现后 forwarding HTTP/wire 聚焦测试通过。确定性证据证明客户端错误、post-adapter 请求与 response bytes，不替代真实
 Provider 或 Hermes 复测。
+
+2026-08-11 M7 保留了 Native `include_usage:true` 的 exact-forwarding 行为，并把 `{}`/`false` 统一归一化为省略；同一 typed Route
+contribution 现在还能让具备完整 Responses terminal usage 的 Chat Bridge 参与固定 interface 交集。确定性 Native 测试覆盖 true 原样
+egress 和不支持该能力时 no-op 仍可执行且不出现在 upstream body；Bridge 生成的 usage 尾块不属于 Native response 改写。由于用户明确
+没有有效 OpenAI API key，本轮未重新执行 OpenAI、ChatGPT、Hermes 或其他真实 Provider 验收，既有历史探测也不作为本轮回归结果。
 
 2026-08-09 ChatGPT streaming response media 修复的实际验证：
 

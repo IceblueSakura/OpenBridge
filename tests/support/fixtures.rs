@@ -160,6 +160,7 @@ pub fn capabilities() -> ApiCapabilities {
     ApiCapabilities {
         chat_completions: Some(ProviderChatCompletionsCapabilities {
             streaming: true,
+            stream_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: false,
@@ -181,6 +182,7 @@ pub fn capabilities() -> ApiCapabilities {
         }),
         responses: Some(ProviderResponsesCapabilities {
             streaming: true,
+            terminal_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: false,

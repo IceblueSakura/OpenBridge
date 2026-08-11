@@ -38,6 +38,26 @@ fn decode(document: &[u8]) -> Vec<SseEvent> {
     events
 }
 
+fn responses_stream_with_terminal_usage(document: &[u8], usage: Value) -> Bytes {
+    // Add usage only to the successful terminal while preserving the semantic event sequence.
+    let mut output = String::new();
+    for event in decode(document) {
+        let mut value: Value = serde_json::from_str(event.data()).expect("Responses event JSON");
+        if value.get("type").and_then(Value::as_str) == Some("response.completed") {
+            value["response"]["usage"] = usage.clone();
+        }
+        if let Some(kind) = event.event() {
+            output.push_str("event: ");
+            output.push_str(kind);
+            output.push('\n');
+        }
+        output.push_str("data: ");
+        output.push_str(&value.to_string());
+        output.push_str("\n\n");
+    }
+    Bytes::from(output)
+}
+
 fn assert_sse_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]) {
     match protocol {
         ApiProtocol::ChatCompletions => {
@@ -208,6 +228,305 @@ fn canonical_text_and_parallel_tool_streams_render_in_both_directions() {
             &actual,
             &fixture(directory, "expected-client-stream.sse"),
         );
+    }
+}
+
+#[test]
+fn chat_to_responses_stream_usage_is_consumed_and_rendered_as_a_chat_tail() {
+    let (plan, upstream_request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(
+            br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+        ),
+    )
+    .expect("the exact Chat usage request must be bridgeable");
+    let upstream_request: Value =
+        serde_json::from_slice(upstream_request.body()).expect("upstream request JSON");
+    assert_eq!(upstream_request["stream"], true);
+    assert!(upstream_request.get("stream_options").is_none());
+
+    let upstream = Bytes::from_static(
+        br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_usage","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_usage","type":"message","role":"assistant","status":"in_progress","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_usage","output_index":0,"content_index":0,"delta":"ok"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_usage","object":"response","model":"upstream-model","status":"completed","output":[{"id":"msg_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}],"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":3},"output_tokens":7,"output_tokens_details":{"reasoning_tokens":2},"total_tokens":18}}}
+
+"#,
+    );
+    let mut renderer = plan.stream_renderer();
+    let mut actual = Vec::new();
+    for event in decode(&upstream) {
+        actual.extend(
+            renderer
+                .render(event)
+                .expect("usage stream event must render"),
+        );
+    }
+    actual.extend(renderer.finish().expect("usage stream must finish"));
+
+    let events = decode(&actual);
+    assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
+    let chunks = events[..events.len() - 1]
+        .iter()
+        .map(|event| serde_json::from_str::<Value>(event.data()).expect("Chat chunk JSON"))
+        .collect::<Vec<_>>();
+    assert_eq!(chunks.len(), 3);
+    assert!(chunks[..2].iter().all(|chunk| chunk["usage"].is_null()));
+    assert_eq!(chunks[1]["choices"][0]["finish_reason"], "stop");
+    assert_eq!(chunks[2]["choices"], serde_json::json!([]));
+    assert_eq!(
+        chunks[2]["usage"],
+        serde_json::json!({
+            "prompt_tokens": 11,
+            "prompt_tokens_details": {"cached_tokens": 3},
+            "completion_tokens": 7,
+            "completion_tokens_details": {"reasoning_tokens": 2},
+            "total_tokens": 18
+        })
+    );
+}
+
+#[test]
+fn chat_to_responses_stream_usage_marks_plain_reasoning_chunks() {
+    let (plan, _) = BridgePlan::prepare_with_reasoning_output(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(
+            br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high","stream":true,"stream_options":{"include_usage":true}}"#,
+        ),
+        ReasoningOutput::PlainText,
+    )
+    .expect("plain Responses reasoning must remain bridgeable with a Chat usage tail");
+    let upstream = Bytes::from_static(
+        br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_usage_reasoning","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_usage_reasoning","type":"reasoning","status":"in_progress","content":[],"summary":[]}}
+
+event: response.reasoning_text.delta
+data: {"type":"response.reasoning_text.delta","item_id":"rs_usage_reasoning","output_index":0,"content_index":0,"delta":"think"}
+
+event: response.reasoning_text.done
+data: {"type":"response.reasoning_text.done","item_id":"rs_usage_reasoning","output_index":0,"content_index":0,"text":"think"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_usage_reasoning","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"think"}],"summary":[]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_usage_reasoning","status":"completed","output":[{"id":"rs_usage_reasoning","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"think"}],"summary":[]}],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}
+
+"#,
+    );
+    let mut renderer = plan.stream_renderer();
+    let mut actual = Vec::new();
+    for event in decode(&upstream) {
+        actual.extend(renderer.render(event).expect("reasoning event must render"));
+    }
+    actual.extend(
+        renderer
+            .finish()
+            .expect("reasoning usage stream must finish"),
+    );
+
+    let events = decode(&actual);
+    assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
+    let chunks = events[..events.len() - 1]
+        .iter()
+        .map(|event| serde_json::from_str::<Value>(event.data()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        chunks[0]["choices"][0]["delta"]["reasoning_content"],
+        "think"
+    );
+    assert!(
+        chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk["usage"].is_null())
+    );
+    assert_eq!(
+        chunks[chunks.len() - 2]["choices"][0]["finish_reason"],
+        "stop"
+    );
+    assert_eq!(chunks.last().unwrap()["choices"], serde_json::json!([]));
+    assert_eq!(
+        chunks.last().unwrap()["usage"],
+        serde_json::json!({"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6})
+    );
+}
+
+#[test]
+fn chat_to_responses_stream_usage_marks_function_tool_chunks() {
+    let directory = "chat_to_responses/chat_to_responses.parallel_tools.fragmented_arguments";
+    let mut request: Value =
+        serde_json::from_slice(&fixture(directory, "client-request.json")).unwrap();
+    request["stream_options"] = serde_json::json!({"include_usage": true});
+    let (plan, upstream_request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from(request.to_string()),
+    )
+    .expect("parallel tools must remain bridgeable with a Chat usage tail");
+    let upstream_request: Value = serde_json::from_slice(upstream_request.body()).unwrap();
+    assert!(upstream_request.get("stream_options").is_none());
+
+    let upstream = responses_stream_with_terminal_usage(
+        &fixture(directory, "upstream-stream.sse"),
+        serde_json::json!({"input_tokens": 8, "output_tokens": 5, "total_tokens": 13}),
+    );
+    let mut renderer = plan.stream_renderer();
+    let mut actual = Vec::new();
+    for event in decode(&upstream) {
+        actual.extend(renderer.render(event).expect("tool event must render"));
+    }
+    actual.extend(renderer.finish().expect("tool usage stream must finish"));
+
+    let events = decode(&actual);
+    assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
+    let chunks = events[..events.len() - 1]
+        .iter()
+        .map(|event| serde_json::from_str::<Value>(event.data()).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        chunks
+            .iter()
+            .any(|chunk| { chunk["choices"][0]["delta"].get("tool_calls").is_some() })
+    );
+    assert!(
+        chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk["usage"].is_null())
+    );
+    assert_eq!(
+        chunks[chunks.len() - 2]["choices"][0]["finish_reason"],
+        "tool_calls"
+    );
+    assert_eq!(chunks.last().unwrap()["choices"], serde_json::json!([]));
+    assert_eq!(
+        chunks.last().unwrap()["usage"],
+        serde_json::json!({"prompt_tokens": 8, "completion_tokens": 5, "total_tokens": 13})
+    );
+}
+
+#[test]
+fn chat_to_responses_stream_usage_noops_are_removed_without_changing_the_wire() {
+    for stream_options in [
+        serde_json::json!({}),
+        serde_json::json!({"include_usage": false}),
+    ] {
+        let request = serde_json::json!({
+            "model": "public-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": true,
+            "stream_options": stream_options
+        });
+        let (plan, upstream_request) = BridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            Bytes::from(request.to_string()),
+        )
+        .expect("a no-op Chat stream option must be bridgeable");
+        let upstream_request: Value =
+            serde_json::from_slice(upstream_request.body()).expect("upstream request JSON");
+        assert!(upstream_request.get("stream_options").is_none());
+
+        let mut renderer = plan.stream_renderer();
+        let mut actual = Vec::new();
+        for event in decode(&fixture(
+            "chat_to_responses/chat_to_responses.text.stream",
+            "upstream-stream.sse",
+        )) {
+            actual.extend(
+                renderer
+                    .render(event)
+                    .expect("ordinary stream event must render"),
+            );
+        }
+        actual.extend(renderer.finish().expect("ordinary stream must finish"));
+        assert!(!String::from_utf8_lossy(&actual).contains("\"usage\""));
+    }
+}
+
+#[test]
+fn chat_to_responses_requested_usage_requires_a_valid_responses_terminal_usage() {
+    for usage in [
+        None,
+        Some(serde_json::json!(null)),
+        Some(serde_json::json!({"input_tokens": -1, "output_tokens": 1, "total_tokens": 0})),
+        Some(serde_json::json!({"input_tokens": "1", "output_tokens": 1, "total_tokens": 2})),
+        Some(serde_json::json!({"input_tokens": 1, "output_tokens": 1})),
+    ] {
+        let (plan, _) = BridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            Bytes::from_static(
+                br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+            ),
+        )
+        .expect("the exact Chat usage request must be bridgeable");
+        let created = decode(
+            br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_invalid_usage","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_invalid_usage","type":"message","role":"assistant","status":"in_progress","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_invalid_usage","output_index":0,"content_index":0,"delta":"partial"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_invalid_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"partial","annotations":[]}]}}
+
+"#,
+        );
+        let mut renderer = plan.stream_renderer();
+        let mut actual = Vec::new();
+        for event in created {
+            actual.extend(renderer.render(event).expect("partial output must render"));
+        }
+        let mut response = serde_json::json!({
+            "id": "resp_invalid_usage",
+            "status": "completed",
+            "output": [{
+                "id": "msg_invalid_usage",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "partial", "annotations": []}]
+            }]
+        });
+        if let Some(usage) = usage {
+            response["usage"] = usage;
+        }
+        let terminal = format!(
+            "event: response.completed\ndata: {}\n\n",
+            serde_json::json!({"type": "response.completed", "response": response})
+        );
+        let terminal = decode(terminal.as_bytes());
+        assert_eq!(terminal.len(), 1);
+        assert!(renderer.render(terminal[0].clone()).is_err());
+        assert!(!String::from_utf8_lossy(&actual).contains("[DONE]"));
     }
 }
 

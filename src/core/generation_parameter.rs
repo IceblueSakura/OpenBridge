@@ -4,7 +4,7 @@
 //! interpreting model capabilities or selecting Routes. Unknown names remain outside the type so
 //! request analysis can reject them before Native preservation or protocol conversion.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::ApiProtocol;
 
@@ -15,9 +15,49 @@ enum FieldRole {
     RequestOption,
     ResponsesInclude,
     Streaming,
+    ChatStreamOptions,
     Store,
     Background,
     PreviousResponseId,
+}
+
+/// Semantic Chat streaming-usage request after strict wire-shape validation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ChatStreamUsage {
+    /// No usage tail is requested; omitted, empty, and explicit false shapes are equivalent.
+    #[default]
+    NotRequested,
+    /// The client requires the standard usage-only chunk before `[DONE]`.
+    Include,
+}
+
+impl ChatStreamUsage {
+    /// Returns whether the downstream response must contain the Chat usage tail contract.
+    pub(crate) const fn is_requested(self) -> bool {
+        matches!(self, Self::Include)
+    }
+}
+
+/// Parses the complete supported `stream_options` domain for one Chat request.
+pub(crate) fn parse_chat_stream_usage(
+    object: &Map<String, Value>,
+    is_streaming: bool,
+) -> Option<ChatStreamUsage> {
+    let Some(value) = object.get("stream_options") else {
+        return Some(ChatStreamUsage::NotRequested);
+    };
+    if !is_streaming {
+        return None;
+    }
+    let options = value.as_object()?;
+    match options.len() {
+        0 => Some(ChatStreamUsage::NotRequested),
+        1 => match options.get("include_usage")?.as_bool()? {
+            true => Some(ChatStreamUsage::Include),
+            false => Some(ChatStreamUsage::NotRequested),
+        },
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -64,7 +104,11 @@ impl GenerationRequestField {
     /// Resolves a canonical generation-model parameter independently of one wire protocol.
     pub(crate) fn from_model_parameter(wire_name: &str) -> Option<Self> {
         GENERATION_REQUEST_FIELDS.iter().copied().find(|field| {
-            field.wire_name == wire_name && field.role == FieldRole::InterfaceParameter
+            field.wire_name == wire_name
+                && matches!(
+                    field.role,
+                    FieldRole::InterfaceParameter | FieldRole::ChatStreamOptions
+                )
         })
     }
 
@@ -78,6 +122,13 @@ impl GenerationRequestField {
         match self.role {
             FieldRole::Envelope | FieldRole::Streaming => false,
             FieldRole::InterfaceParameter => true,
+            FieldRole::ChatStreamOptions => {
+                value
+                    .as_object()
+                    .and_then(|options| options.get("include_usage"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            }
             FieldRole::RequestOption => !value.is_null(),
             FieldRole::ResponsesInclude => {
                 value.as_array().is_some_and(|values| !values.is_empty())
@@ -102,6 +153,11 @@ impl GenerationRequestField {
                 value.is_null() || value.as_array().is_some_and(Vec::is_empty)
             }
             FieldRole::RequestOption => value.is_null(),
+            FieldRole::ChatStreamOptions => value.as_object().is_some_and(|options| {
+                options.is_empty()
+                    || (options.len() == 1
+                        && options.get("include_usage").and_then(Value::as_bool) == Some(false))
+            }),
             FieldRole::Envelope | FieldRole::InterfaceParameter | FieldRole::Streaming => false,
         }
     }
@@ -226,7 +282,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
     field(
         "stream_options",
         CHAT,
-        FieldRole::InterfaceParameter,
+        FieldRole::ChatStreamOptions,
         NEITHER,
     ),
     field("prompt_cache_key", BOTH, FieldRole::RequestOption, BOTH),

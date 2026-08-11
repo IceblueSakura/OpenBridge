@@ -116,6 +116,7 @@ impl RouteContractContribution {
             continuation,
             background,
             prompt_cache_key,
+            chat_stream_usage,
             response_includes,
             audio,
             file_input,
@@ -144,6 +145,7 @@ impl RouteContractContribution {
             &continuation,
             background,
             prompt_cache_key,
+            chat_stream_usage,
             &response_includes,
         );
         let mut input = vec![InputModality::Text];
@@ -319,6 +321,7 @@ struct ProtocolCapabilities {
     continuation: RouteContinuationContract,
     background: bool,
     prompt_cache_key: bool,
+    chat_stream_usage: bool,
     response_includes: Vec<ResponseInclude>,
     audio: Option<AudioInterfaceCapabilities>,
     file_input: bool,
@@ -332,9 +335,16 @@ fn protocol_specific_capabilities(
     reasoning: SupportState,
 ) -> ProtocolCapabilities {
     if bridged {
-        let prompt_cache_key = match upstream_api.capabilities() {
-            UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities.prompt_cache_key,
-            UpstreamApiCapabilities::Responses(capabilities) => capabilities.prompt_cache_key,
+        let (prompt_cache_key, chat_stream_usage) = match upstream_api.capabilities() {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                (capabilities.prompt_cache_key, false)
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => (
+                capabilities.prompt_cache_key,
+                route.downstream_operation() == OperationKind::ChatCompletions
+                    && capabilities.streaming
+                    && capabilities.terminal_usage,
+            ),
             UpstreamApiCapabilities::Embeddings(_) => {
                 unreachable!("Embeddings does not use generation protocol capabilities")
             }
@@ -353,6 +363,7 @@ fn protocol_specific_capabilities(
             continuation: RouteContinuationContract::Unsupported,
             background: false,
             prompt_cache_key,
+            chat_stream_usage,
             response_includes,
             audio: None,
             file_input: false,
@@ -363,6 +374,9 @@ fn protocol_specific_capabilities(
             continuation: RouteContinuationContract::Unsupported,
             background: false,
             prompt_cache_key: capabilities.prompt_cache_key,
+            chat_stream_usage: route.downstream_operation() == OperationKind::ChatCompletions
+                && capabilities.streaming
+                && capabilities.stream_usage,
             response_includes: Vec::new(),
             audio: capabilities
                 .audio
@@ -385,6 +399,7 @@ fn protocol_specific_capabilities(
             background: route.downstream_operation() == OperationKind::Responses
                 && capabilities.background,
             prompt_cache_key: capabilities.prompt_cache_key,
+            chat_stream_usage: false,
             response_includes: capabilities.include.to_vec(),
             audio: None,
             file_input: capabilities.file_input,
@@ -432,6 +447,7 @@ fn interface_parameters(
     continuation: &RouteContinuationContract,
     background: bool,
     prompt_cache_key: bool,
+    chat_stream_usage: bool,
     response_includes: &[ResponseInclude],
 ) -> Vec<String> {
     // Retain only source-protocol parameters; Bridge also accepts hints removed before conversion.
@@ -449,6 +465,17 @@ fn interface_parameters(
     // Add and narrow protocol-control fields actually gated by OpenBridge.
     if streaming {
         parameters.insert("stream".to_owned());
+    }
+    if protocol == ApiProtocol::ChatCompletions
+        && chat_stream_usage
+        && (mode == RouteMode::Bridged
+            || model_parameters
+                .iter()
+                .any(|parameter| parameter == "stream_options"))
+    {
+        parameters.insert("stream_options".to_owned());
+    } else {
+        parameters.remove("stream_options");
     }
     if function_calling {
         parameters.insert("tools".to_owned());

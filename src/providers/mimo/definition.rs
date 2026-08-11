@@ -175,6 +175,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/v1/chat/completions",
         ProviderChatCompletionsCapabilities {
             streaming: true,
+            stream_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: &[ToolChoiceMode::Auto],
                 parallel_calls: true,
@@ -199,6 +200,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
         "/v1/responses",
         ProviderResponsesCapabilities {
             streaming: true,
+            terminal_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: &[ToolChoiceMode::Auto],
                 parallel_calls: true,

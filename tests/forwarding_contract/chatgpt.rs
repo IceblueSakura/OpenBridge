@@ -353,6 +353,70 @@ async fn chatgpt_chat_requests_use_the_automatic_responses_to_chat_bridge() {
 }
 
 #[tokio::test]
+async fn chatgpt_chat_bridge_fulfills_hermes_stream_usage_contract() {
+    let directory = SyntheticAuthDirectory::new();
+    let (document, access_token) = synthetic_chatgpt_document(1);
+    fs::write(directory.auth_file(), document).unwrap();
+    let transport = Arc::new(ChatGptOAuthTransport {
+        first_authorization: format!("Bearer {access_token}"),
+        second_authorization: "Bearer unused-synthetic-token".to_owned(),
+        replacement: Mutex::new(None),
+        reject_after_replacement: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let (app, _) = app_with_chatgpt_oauth(transport.clone(), &directory.auth_file());
+
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "gpt-5.3-codex-spark",
+                        "messages": [{"role": "user", "content": "hello"}],
+                        "stream": true,
+                        "stream_options": {"include_usage": true}
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    let chunks = events[..events.len() - 1]
+        .iter()
+        .map(|event| serde_json::from_str::<Value>(event.data()).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk["usage"].is_null())
+    );
+    assert_eq!(chunks.last().unwrap()["choices"], serde_json::json!([]));
+    assert_eq!(
+        chunks.last().unwrap()["usage"],
+        serde_json::json!({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
+    );
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/responses");
+    assert_eq!(requests[0].model, "gpt-5.3-codex-spark");
+    assert!(requests[0].stream_is_true);
+    assert!(!requests[0].stream_options_present);
+}
+
+#[tokio::test]
 async fn chatgpt_rejects_unsupported_output_limit_before_egress() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);

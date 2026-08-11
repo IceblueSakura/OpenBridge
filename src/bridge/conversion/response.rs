@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use super::{
     BridgeError,
     shared::{allocate_non_stream_item_id, id_suffix, map_id, required_string, validate_arguments},
+    usage::responses_usage_to_chat,
 };
 
 /// Converts a complete successful Responses object into a single-choice Chat response.
@@ -96,12 +97,9 @@ pub(super) fn responses_response_to_chat(
         "model": public_model,
         "object": "chat.completion"
     });
-    if let Some(usage) = source.get("usage").and_then(Value::as_object) {
-        result["usage"] = json!({
-            "completion_tokens": usage.get("output_tokens").cloned().unwrap_or(Value::Null),
-            "prompt_tokens": usage.get("input_tokens").cloned().unwrap_or(Value::Null),
-            "total_tokens": usage.get("total_tokens").cloned().unwrap_or(Value::Null)
-        });
+    if let Some(usage) = source.get("usage").filter(|usage| !usage.is_null()) {
+        result["usage"] =
+            responses_usage_to_chat(usage.as_object().ok_or(BridgeError::InvalidShape)?)?;
     }
     Ok(result)
 }
