@@ -76,6 +76,8 @@
   专用 task 只接受同名 profile，Embedding 只接受 Embeddings，Responses 只接受 Generation；Generation AudioUnderstanding 还要求
   canonical Audio input 与 Text output 都有明确证据。Public Model 跨 operation 混合 task，或同 task/same audio variant 的 payload
   交集为空，也会以 typed error 拒绝启动。
+- `mimo-v2.5` 的 Chat interface 公开 `AudioUnderstanding`，Models 将其 `audio_task` 投影为 `content_understanding`，并公开单个 WAV
+  data URL 及 10 MiB encoded/8 MiB decoded 单项与累计上限；同一 Public Model 的 Responses interface 不投影音频契约。
 - MiMo 四个音频专用 target 将 Provider-wide function-tool ceiling 收窄为 `None`；扩展 Models 公开 tools `unsupported`，并在 egress
   前拒绝带 function tool 的合法音频 task。通用 `mimo-v2.5` 与 Pro 的工具契约不受影响。
 - 请求先解析 operation-specific requirements，再对选定 Public Model 做一次能力、限制和 private continuation contract preflight；
@@ -83,8 +85,9 @@
 - preflight 只返回需要变化的有效 reasoning level；planning 在静态 candidate 展开前改写一次 canonical body，随后 Native、Bridge 与
   全部 fallback candidate 共享同一结果。Provider-specific wire mapping 仍只在 candidate egress 阶段执行。
 - Chat audio analyzer 只冻结 `RequestedAudio::Input | Generated` 任务无关结构，以及有界 source/format/size 与
-  `InputAudioMessageShape`/`GeneratedAudioMessageShape`，不猜 ASR/TTS/VoiceDesign/VoiceClone。preflight 取得已编译 audio interface 后才
-  解释 task：ASR 只接受 `SingleUserAudioOnly`，VoiceClone 只接受 `AssistantTextOnly`，TTS 接受 `AssistantTextOnly` 或
+  `InputAudioMessageShape`/`GeneratedAudioMessageShape`，不猜 AudioUnderstanding/ASR/TTS/VoiceDesign/VoiceClone。preflight 取得已编译
+  audio interface 后才解释 task：AudioUnderstanding 接受通用 conversation shape，ASR 只接受 `SingleUserAudioOnly`，VoiceClone
+  只接受 `AssistantTextOnly`，TTS 接受 `AssistantTextOnly` 或
   `UserTextThenAssistantText`，VoiceDesign 只接受 `UserTextThenAssistantText`；`Other` 以及 extra/empty/role mismatch fail closed。
   VoiceClone reference audio 只匹配独立
   `voice_conditioning`，不投影成 content-understanding input。TTS preset voice 可显式为 `mimo_default`，也保留 downstream
@@ -228,4 +231,5 @@ OpenAPI 的参数/响应引用和定义完成静态结构检查，完整测试�
 - [Provider 注册表与模型目录](provider-registry-and-model-catalog.md)
 - [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [`mimo-v2.5` Native 图片输入](native-image-input.md)
+- [`mimo-v2.5` 音频理解与 MiMo 专用音频](native-mimo-audio.md)
 - [HTTP 网关接口与下游认证](gateway-http-api-and-auth.md)

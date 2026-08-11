@@ -29,11 +29,11 @@
 | Model ID                         | 语音任务与支持结论                         | 输入 → 输出                              | Provider 调用途径                                                                 | 证据                         |
 |----------------------------------|--------------------------------------------|-------------------------------------------|-----------------------------------------------------------------------------------|------------------------------|
 | `mimo-v2.5-pro`                  | 未声明语音理解、ASR 或 TTS                 | 无语音 contract                           | 官方音频理解页没有把该模型列为支持模型；其文本生成入口不构成语音途径              | Models 实测；官方负向边界    |
-| `mimo-v2.5`                      | 通用音频理解                               | audio + instruction → Chat 文本/推理结果 | `POST /v1/chat/completions`；user `input_audio` 与 text content part              | Models 实测；音频调用未实测  |
+| `mimo-v2.5`                      | 通用音频理解                               | audio + instruction → Chat 文本/推理结果 | `POST /v1/chat/completions`；user `input_audio` 与 text content part              | Models、短 WAV 均实测        |
 | `mimo-v2.5-asr`                  | 专用 ASR/STT                               | speech audio → transcript                 | `POST /v1/chat/completions`；单个 user `input_audio` + 顶层 `asr_options`          | Models、JSON/SSE 均实测      |
 | `mimo-v2.5-tts`                  | 预置音色 TTS                               | target text + style → audio               | `POST /v1/chat/completions`；user style + assistant target + 顶层 `audio`          | Models、JSON/SSE 均实测      |
-| `mimo-v2.5-tts-voicedesign`      | 文本描述设计新音色并合成                   | voice description + target text → audio   | `POST /v1/chat/completions`；user voice description + assistant target + `audio`  | Models 实测；音频调用未实测  |
-| `mimo-v2.5-tts-voiceclone`       | 参考音频克隆音色并合成                     | reference audio + target text → audio     | `POST /v1/chat/completions`；assistant target + `audio.voice` 中的 audio data URL  | Models 实测；音频调用未实测  |
+| `mimo-v2.5-tts-voicedesign`      | 文本描述设计新音色并合成                   | voice description + target text → audio   | `POST /v1/chat/completions`；user voice description + assistant target + `audio`  | Models、非流式 WAV 均实测    |
+| `mimo-v2.5-tts-voiceclone`       | 参考音频克隆音色并合成                     | reference audio + target text → audio     | `POST /v1/chat/completions`；assistant target + `audio.voice` 中的 audio data URL  | Models、非流式 WAV 均实测    |
 
 当前 `GET /v1/models` 的官方示例与 2026-08-08 真实请求均只返回上述六个 ID。早期已下线模型、未进入该账号目录的 early-access
 模型和未来新增模型不在“全模型”范围内。
@@ -50,8 +50,8 @@
 - 官方列出 MP3、WAV、FLAC、M4A、OGG；URL 单文件不超过 100 MB，单个 Base64 encoded string 不超过 50 MB；
 - 结果用于回答、总结、分析或推理，不提供专用 transcript fidelity contract，也不输出合成音频。
 
-官方示例当前显示空 `message.content` 与非空 `reasoning_content`。单个示例不足以确定稳定的 JSON/SSE 可见输出分类；本次也尚未用
-本地 credential 实测该模型的真实音频请求。
+官方示例当前显示空 `message.content` 与非空 `reasoning_content`。2026-08-08 使用内存中的短合成 WAV 直连公共 Provider，Chat 请求
+返回 HTTP 200 和与任务相符的文本/推理结果；单个样本仍不足以确定稳定的 JSON/SSE 可见输出分类、完整格式矩阵或质量上界。
 
 ## 3. `mimo-v2.5-asr`：专用语音识别
 
@@ -78,8 +78,9 @@ ASR 仍使用 Chat Completions，而不是 `/v1/audio/transcriptions`：
 | `mimo-v2.5-tts-voiceclone`       | `audio.voice` 接收参考音频 data URL           | 参考音频只支持 WAV/MP3，Base64 encoded string 不超过 10 MB                    | 可用兼容式 stream，但官方明确不是低延迟输出         |
 
 普通 TTS 的非流式真实请求返回 HTTP 200、`chat.completion`、空 text content 与有效 Base64 WAV；流式 `pcm16` 返回多个有序
-audio delta，观察到 24 kHz、16-bit、mono PCM，最终出现 `finish_reason: "stop"` 与 `[DONE]`。这些结果不证明 VoiceDesign 或
-VoiceClone wire 已实测，也不把一次样本的 chunk 数、音频长度或音色映射提升为稳定常量。
+audio delta，观察到 24 kHz、16-bit、mono PCM，最终出现 `finish_reason: "stop"` 与 `[DONE]`。VoiceDesign 与 VoiceClone 的短样本
+非流式请求也返回可解码 RIFF/WAV；这些结果不证明它们的 streaming wire，也不把一次样本的 chunk 数、音频长度或音色映射提升为
+稳定常量。
 
 VoiceClone 的 reference audio 是 voice conditioning，不是待理解或待转写的业务音频；其授权、保留、日志和隐私边界也不能从普通 TTS
 继承。
@@ -95,8 +96,11 @@ OpenAI Audio endpoint 兼容。
 | Probe                                      | 结果                                                                                                      |
 |--------------------------------------------|-----------------------------------------------------------------------------------------------------------|
 | `GET /v1/models`                           | HTTP 200；返回六个 model ID                                                                               |
+| Chat `mimo-v2.5` 音频理解                 | HTTP 200；短 WAV 返回与任务相符的文本/推理结果                                                            |
 | Chat `mimo-v2.5-tts`                       | HTTP 200；返回可解码 RIFF/WAV                                                                             |
 | Chat `mimo-v2.5-asr`                       | HTTP 200；返回非空 transcript、audio tokens 与 seconds                                                    |
+| Chat `mimo-v2.5-tts-voicedesign`           | HTTP 200；返回可解码 RIFF/WAV                                                                             |
+| Chat `mimo-v2.5-tts-voiceclone`            | HTTP 200；返回可解码 RIFF/WAV                                                                             |
 | `POST /v1/audio/speech`                    | HTTP 404、`text/html`、OpenResty `404 Not Found`                                                          |
 | `POST /v1/audio/transcriptions`            | HTTP 404、`text/html`、OpenResty `404 Not Found`                                                          |
 
@@ -106,7 +110,8 @@ JSON model/parameter 校验层。该结论不能证明未来版本、其他 regi
 ## 6. 证据边界
 
 - ASR/TTS 实测只覆盖一个账号、一个短中文样本、`mimo_default`、WAV/PCM16 与 JSON/SSE；
-- 通用音频理解、VoiceDesign、VoiceClone、MP3、英文/方言、其他预置音色、上限与非法输入均未做真实 Provider 验证；
+- 通用音频理解、VoiceDesign 与 VoiceClone 也只覆盖短合成样本和非流式正向路径；remote/multi-audio、MP3、英文/方言、其他预置音色、
+  上限与非法输入仍未做真实 Provider 验证；
 - `/audio/translations` 未探测，因为当前 MiMo model list 和官方文档没有对应的 translation task/model；
 - 未安装外部 OpenAI SDK；Audio endpoint 探测直接发送其标准 HTTP request shape；
 - 没有记录 credential、原始 Base64、完整 transcript、完整请求/响应或 Provider request ID；

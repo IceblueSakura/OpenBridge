@@ -15,7 +15,9 @@ use crate::{
 
 use super::{
     DEFINITION,
-    definition::{ASR_AUDIO, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO},
+    definition::{
+        ASR_AUDIO, AUDIO_UNDERSTANDING, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO,
+    },
 };
 
 const PROVIDER_INSTANCE_ID: &str = "mimo";
@@ -25,8 +27,8 @@ const PROVIDER_INSTANCE_ID: &str = "mimo";
 enum MimoTargetProfile {
     /// Text-only Chat and Responses operations.
     TextOnly,
-    /// Image-capable Chat and Responses operations.
-    ImageUnderstanding,
+    /// Image-capable Chat/Responses plus bounded Chat audio understanding.
+    MultimodalUnderstanding,
     /// One Chat-only audio task.
     Audio(ExecutableAudioProfile),
 }
@@ -55,7 +57,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             xiaomi::mimo_v2_5::ID,
             "mimo-v2.5",
             "mimo-primary",
-            MimoTargetProfile::ImageUnderstanding,
+            MimoTargetProfile::MultimodalUnderstanding,
         ),
         target(
             "mimo-v2-5-asr",
@@ -103,13 +105,14 @@ fn target(
         .chat_completions
         .expect("MiMo targets require Chat Completions capabilities");
     let mut chat_capabilities = chat_ceiling.to_executable(match profile {
-        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => None,
+        MimoTargetProfile::TextOnly => None,
+        MimoTargetProfile::MultimodalUnderstanding => Some(AUDIO_UNDERSTANDING),
         MimoTargetProfile::Audio(audio) => Some(audio),
     });
 
     // Narrow modalities and operation presence according to the closed model-specific profile.
     let responses_capabilities = match profile {
-        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => {
+        MimoTargetProfile::TextOnly | MimoTargetProfile::MultimodalUnderstanding => {
             let mut responses_capabilities = DEFINITION
                 .contract()
                 .capabilities()
@@ -149,7 +152,7 @@ fn target(
     let mut upstream_apis =
         native_upstream_apis(upstream_model, chat_capabilities, responses_capabilities);
     match profile {
-        MimoTargetProfile::TextOnly | MimoTargetProfile::ImageUnderstanding => {
+        MimoTargetProfile::TextOnly | MimoTargetProfile::MultimodalUnderstanding => {
             // Current MiMo Responses rejects top_logprobs even though the Chat API accepts it.
             upstream_apis
                 .iter_mut()

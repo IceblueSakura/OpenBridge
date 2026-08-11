@@ -3,8 +3,8 @@
 ## 范围
 
 本页定义五种不可互换的 Chat Native 音频任务：通用音频理解、ASR/STT、TTS、以文本约束音色的 VoiceDesign，以及以参考音频约束音色的 VoiceClone。
-当前 checkout 已接入 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 与
-`mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface；`mimo-v2.5` 通用音频理解仍未开放。
+当前 checkout 已接入 `mimo-v2.5` 通用音频理解，以及 `mimo-v2.5-asr`、`mimo-v2.5-tts`、
+`mimo-v2.5-tts-voicedesign` 与 `mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface。
 本页不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
 [媒体扩展共同规则](embedding-and-native-multimodal.md)。已实现事实与验证证据见 [Native MiMo 音频专题](../../implementation-status/features/native-mimo-audio.md)。
 
@@ -34,6 +34,8 @@ Canonical Model 使用必填 task union：通用音频理解仍属于 `Generatio
   仍无目标 wire。
 - 官方能力上界包括公网 URL 与 Base64 data URL、MP3/WAV/FLAC/M4A/OGG 和多个音频；Public Model 只能公开固定 Route 已有独立
   证据且具有本地有界校验的 source、media type、part 数和 limits，不能一次性照搬 Provider 上界。
+- 当前 executable profile 只开放一个 WAV data URL，单项与累计 encoded/decoded 上限分别为 10 MiB/8 MiB；remote URL、pure
+  Base64、其他格式和多个 audio part 均保持关闭。部署级 request hard limit 继续独立生效。
 - `multimodal_input.audio` 必须公开业务用途 `content_understanding`、source、inline encoding、可验证 media type、part 数、URL
   长度及单项/累计 encoded/decoded byte 上限。
 - remote source 服从有界 absolute HTTPS 与本地地址拒绝策略；OpenBridge 不下载音频，因此不能把语法检查冒充 Provider-side
@@ -96,10 +98,10 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
   `GeneratedAudioMessageShape::AssistantTextOnly | UserTextThenAssistantText | Other` 与
   `RequestedVoice::Unspecified | Preset | ReferenceVoice`。analyzer 不查询 registry、不选择 Public Model interface/Route，也不把
   user text 提前解释为 TTS style 或 VoiceDesign description。
-- Public Model preflight 解析所选的 concrete audio interface 后，才以双 enum match 解释 ASR/TTS/VoiceDesign/VoiceClone 的 role、text、
-  language、voice 和 conditioning 语义；ASR 只接受 `SingleUserAudioOnly`，VoiceClone 只接受 `AssistantTextOnly`，TTS 接受
-  `AssistantTextOnly` 或 `UserTextThenAssistantText`，VoiceDesign 只接受 `UserTextThenAssistantText`。`Other` 必须 fail closed，
-  不改选模型或候选；AudioUnderstanding 才可接受通用 conversation shape。
+- Public Model preflight 解析所选的 concrete audio interface 后，才以双 enum match 解释 AudioUnderstanding、ASR、TTS、VoiceDesign
+  与 VoiceClone 的 role、text、language、voice 和 conditioning 语义；AudioUnderstanding 接受通用 conversation shape，ASR 只接受
+  `SingleUserAudioOnly`，VoiceClone 只接受 `AssistantTextOnly`，TTS 接受 `AssistantTextOnly` 或
+  `UserTextThenAssistantText`，VoiceDesign 只接受 `UserTextThenAssistantText`。`Other` 必须 fail closed，不改选模型或候选。
 - 启动时先依赖 checked constructors 保证每个 primitive/profile 完整，再验证 executable profile 是 Provider ceiling 中同 variant 的
   payload subset，最后校验 canonical task/profile matrix。专用 canonical task 缺 profile 或绑定不同 variant 必须失败；Generation
   只有在 input modalities 明确含 Audio 且 output modalities 明确含 Text 时才可绑定 AudioUnderstanding，未知 evidence 失败关闭。
@@ -137,8 +139,8 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 
 ## 9. 非目标与参考
 
-非目标包括 `/audio/*`、Responses audio、Realtime、`mimo-v2.5` 通用音频理解、未进入固定 profile 的 remote/multi-audio/格式、
-ASR 方言承诺、未单独验证的 VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
+非目标包括 `/audio/*`、Responses audio、Realtime、未进入固定 profile 的 remote/multi-audio/格式、ASR 方言承诺、未单独验证的
+VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
 
 - [OpenAI Chat 音频输入与输出调研](../../references/openai/audio/chat-input-output.md)
 - [Xiaomi MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/audio.md)

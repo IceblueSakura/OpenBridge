@@ -9,7 +9,7 @@
 | Embeddings    | [Embeddings 能力](embeddings.md)     | [Embeddings 实施状态](../../implementation-status/features/embeddings.md)                       |
 | Native 图片   | [图片能力](native-image.md)          | [`mimo-v2.5` Native 图片输入](../../implementation-status/features/native-image-input.md)        |
 | Native 文件   | [文件能力](native-file.md)           | [当前实现总览](../../implementation-status/current-implementation.md)                           |
-| Native 音频   | [音频能力](native-audio.md)          | [当前实现总览](../../implementation-status/current-implementation.md)                           |
+| Native 音频   | [音频能力](native-audio.md)          | [Native MiMo 音频实施状态](../../implementation-status/features/native-mimo-audio.md)            |
 
 功能需求只定义目标行为、失败语义与安全边界；当前 checkout 已经完成什么、运行过哪些检查，只由 `implementation-status/` 记录。
 任何功能进入实现前仍须遵守[当前开发焦点](../../implementation-plans/current-focus.md)的一次一个可观察行为约束。

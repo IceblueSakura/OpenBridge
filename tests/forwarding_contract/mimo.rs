@@ -185,6 +185,232 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
 }
 
 #[tokio::test]
+async fn mimo_v25_chat_audio_understanding_preserves_bounded_wav_data_url() {
+    const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
+    let cases = [
+        serde_json::json!({
+            "model": "mimo-v2.5",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]
+            }]
+        }),
+        serde_json::json!({
+            "model": "mimo-v2.5",
+            "stream": true,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]
+            }]
+        }),
+    ];
+    let transport = Arc::new(MimoAudioUnderstandingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Exercise the same fixed Chat Native interface through JSON and SSE delivery.
+    for body in &cases {
+        let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(serde_json::to_vec(body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{body}");
+        let response_body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        if streaming {
+            assert_eq!(response_body.as_ref(), MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM);
+            let mut decoder = SseDecoder::new(64 * 1024);
+            let mut events = decoder.push(&response_body).unwrap();
+            events.extend(decoder.finish().unwrap());
+            let mut state = ChatStreamState::new();
+            for event in events {
+                state.ingest(&event).unwrap();
+            }
+            state.finish().unwrap();
+            assert_eq!(state.text(), "understood audio");
+            assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
+        } else {
+            let response: Value = serde_json::from_slice(&response_body).unwrap();
+            assert_eq!(response["object"], "chat.completion");
+            assert_eq!(response["model"], "mimo-v2.5");
+            assert_eq!(
+                response["choices"][0]["message"]["content"],
+                "understood audio"
+            );
+        }
+    }
+
+    // Preserve the complete mixed-part body while applying the one general-generation instruction policy.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), cases.len());
+    for (request, expected) in requests.iter().zip(&cases) {
+        assert_eq!(request.path, "/v1/chat/completions");
+        let mut expected = expected.clone();
+        expected["messages"].as_array_mut().unwrap().insert(
+            0,
+            serde_json::json!({
+                "role": "system",
+                "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
+            }),
+        );
+        assert_eq!(request.body, expected);
+    }
+    drop(requests);
+
+    // Project the exact understanding profile only on Chat; Responses remains audio-closed.
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/mimo-v2.5").await;
+    assert_eq!(
+        model["interfaces"]["chat_completions"]["audio_task"],
+        "content_understanding"
+    );
+    assert_eq!(
+        model["interfaces"]["chat_completions"]["multimodal_input"]["audio"],
+        serde_json::json!({
+            "sources": ["data_url"],
+            "formats": ["wav"],
+            "limits": {
+                "max_parts": 1,
+                "max_url_length": 0,
+                "max_inline_encoded_bytes": (10 * 1024 * 1024),
+                "max_inline_decoded_bytes": (8 * 1024 * 1024),
+                "max_total_inline_encoded_bytes": (10 * 1024 * 1024),
+                "max_total_inline_decoded_bytes": (8 * 1024 * 1024)
+            }
+        })
+    );
+    assert!(model["interfaces"]["responses"]["audio_task"].is_null());
+    assert!(model["interfaces"]["responses"]["multimodal_input"]["audio"].is_null());
+}
+
+#[tokio::test]
+async fn mimo_v25_audio_understanding_rejections_fail_before_egress() {
+    const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
+    const MP3_DATA_URL: &str = "data:audio/mpeg;base64,UklGRg==";
+    let valid_parts = serde_json::json!([
+        {"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}},
+        {"type": "text", "text": "Describe the audio."}
+    ]);
+    let cases = [
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "input": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}}]}]
+            }),
+            "unimplemented_request",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model": "mimo-v2.5-pro", "messages": [{"role": "user", "content": valid_parts.clone()}]}),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "user", "content": [
+                    {"type": "input_audio", "input_audio": {"data": "https://example.com/audio.wav", "format": "wav"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]}]
+            }),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "user", "content": [
+                    {"type": "input_audio", "input_audio": {"data": "UklGRg==", "format": "wav"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]}]
+            }),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "user", "content": [
+                    {"type": "input_audio", "input_audio": {"data": MP3_DATA_URL, "format": "mp3"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]}]
+            }),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "user", "content": [
+                    {"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}},
+                    {"type": "input_audio", "input_audio": {"data": WAV_DATA_URL, "format": "wav"}},
+                    {"type": "text", "text": "Describe the audio."}
+                ]}]
+            }),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "user", "content": valid_parts.clone()}],
+                "asr_options": {"language": "zh"}
+            }),
+            "unsupported_model_capability",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "mimo-v2.5",
+                "messages": [{"role": "assistant", "content": "Speak this text."}],
+                "modalities": ["text", "audio"],
+                "audio": {"format": "wav", "voice": "mimo_default"}
+            }),
+            "unsupported_model_capability",
+        ),
+    ];
+    let transport = Arc::new(MimoAudioUnderstandingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    for (path, body, expected_code) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path} {body}");
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], expected_code, "{path} {body}");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
     const WAV_DATA_URL: &str = "data:audio/wav;base64,UklGRg==";
     const ASR_JSON: &str = r#"{"id":"chat_asr","object":"chat.completion","model":"audio-model","choices":[{"index":0,"message":{"role":"assistant","content":"transcript"},"finish_reason":"stop"}]}"#;

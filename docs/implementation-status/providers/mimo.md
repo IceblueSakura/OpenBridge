@@ -14,7 +14,7 @@
 | Public Model | 当前接口 | 文本输入 | 图片输入 | 音频输入或条件 | 音频输出 | 视频输入 | 当前实现与实测结论 |
 |---|---|---|---|---|---|---|---|
 | `mimo-v2.5-pro` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 未声明 | 未声明 | 未声明 | 未声明 | OpenBridge 按 text-only 编译，两接口公开 none/low/medium/high；未把其他模态外推到 Pro |
-| `mimo-v2.5` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 当前实现 text/image 和统一四档；通用音频理解和 video 尚未进入可执行 interface |
+| `mimo-v2.5` | Chat、Responses Native | 实测支持；Chat/Responses high JSON/SSE 均完成并返回明文 reasoning | 实测支持；64×64 PNG data URL 在两协议均正确识别主色 | Provider 实测支持通用音频理解；短 WAV 被正确理解 | 未声明 | 模型目录声明，未实测 | OpenBridge 两接口实现 text/image 和统一四档；Chat 另实现单个 WAV data URL 音频理解，Responses audio 与 video 仍关闭 |
 | `mimo-v2.5-asr` | Chat Native | 不接受普通文本输入；输出 transcript | 未声明 | 实测支持；单个 WAV + `asr_options` 返回正确 transcript | 未声明 | 未声明 | OpenBridge 已实现单 WAV ASR task profile；真实请求 HTTP 200 |
 | `mimo-v2.5-tts` | Chat Native | 实测支持目标文本与风格文本 | 未声明 | 不接收业务音频输入 | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 preset voice TTS；本次实测非流式 WAV，streaming PCM16 仍只有确定性证据 |
 | `mimo-v2.5-tts-voicedesign` | Chat Native | 实测支持音色描述与目标文本 | 未声明 | 不接收 reference audio | 实测支持；返回可解码 RIFF/WAV | 未声明 | OpenBridge 已实现 VoiceDesign task profile；真实请求 HTTP 200 |

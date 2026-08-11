@@ -114,6 +114,23 @@ const GENERATED_AUDIO_TARGET: GeneratedAudioCapabilities = GeneratedAudioCapabil
     ),
 );
 
+/// Fixed general audio-understanding profile accepted by the MiMo V2.5 Chat target.
+pub(crate) const AUDIO_UNDERSTANDING: ExecutableAudioProfile =
+    ExecutableAudioProfile::AudioUnderstanding(AudioUnderstandingProfile::new(
+        AudioInputCapabilities::new(
+            &[AudioInputSource::DataUrl],
+            &[AudioFormat::Wav],
+            AudioInputLimits::new(
+                1,
+                0,
+                10 * 1024 * 1024,
+                8 * 1024 * 1024,
+                10 * 1024 * 1024,
+                8 * 1024 * 1024,
+            ),
+        ),
+    ));
+
 /// Fixed ASR task profile accepted by the MiMo Chat endpoint.
 pub(crate) const ASR_AUDIO: ExecutableAudioProfile =
     ExecutableAudioProfile::SpeechRecognition(SpeechRecognitionProfile::new(

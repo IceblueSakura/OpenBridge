@@ -745,6 +745,7 @@ impl AudioInterfaceCapabilities {
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum AudioTaskProjection {
+    #[serde(rename = "content_understanding")]
     AudioUnderstanding,
     Asr,
     Tts,

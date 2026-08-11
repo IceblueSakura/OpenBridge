@@ -76,6 +76,9 @@
   同 audio variant 的 payload 交集为空，都会以 typed registry error 拒绝整个 snapshot。
 - MiMo 四个专用语音模型各自绑定一个 Chat Native target/API profile；它们不共享 `mimo-v2.5` 的双协议 surface，也不通过 Bridge 或
   Provider-wide audio bool 互相扩展能力。具体 ASR/TTS/VoiceDesign/VoiceClone 契约见 [Native MiMo 音频专题](native-mimo-audio.md)。
+- `mimo-v2.5` 仍是 Generation canonical/Public Model；它的 Chat Target 从五分支 Provider audio ceiling 中只选择
+  `AudioUnderstanding` profile，并公开一个 WAV data URL、10 MiB encoded/8 MiB decoded 的单项与累计上限。Responses Target 不绑定
+  audio profile，Provider ceiling 不会自动扩大任一 Target。
 - Provider/Target 图片配置使用 checked `ImageInputCapabilities` envelope 与 source-payload 判别联合，不再以 source slice、MIME、detail
   和独立 limit 组合支持状态。MiMo Chat/Responses Provider ceiling 固定为 Both：64 parts、8,192-byte Remote URL、
   JPEG/PNG/GIF/WebP/BMP data URL，inline encoded/decoded 单项与累计预算均为 50 MiB/38 MiB，detail 只允许省略且 default 未知；

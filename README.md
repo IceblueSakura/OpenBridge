@@ -65,7 +65,7 @@ surface 仍保持关闭。
 | `qwen3.8-max` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
 | `qwen3.6-27b` | Chat、Responses | `bailian-primary` | 百炼 Chat Native；Responses 通过 Chat Bridge；公开 none/high，不公开图片、视频或工具能力 |
 | `mimo-v2.5-pro` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；不公开图片输入 |
-| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high；支持受限 URL/Base64 图片 |
+| `mimo-v2.5` | Chat、Responses | `mimo-primary` | 双协议 Native；两接口公开 none/low/medium/high 和受限 URL/Base64 图片；Chat 另支持单个 WAV data URL 音频理解 |
 | `mimo-v2.5-asr` | Chat | `mimo-primary` | MiMo 专用 ASR；单个 WAV `input_audio` + `asr_options`，不提供 Responses 或 `/audio/transcriptions` |
 | `mimo-v2.5-tts` | Chat | `mimo-primary` | MiMo 预置音色 TTS；Chat `audio` 输出，非流式 WAV、流式 PCM16 |
 | `mimo-v2.5-tts-voicedesign` | Chat | `mimo-primary` | MiMo 文本描述音色设计；Chat `audio` 输出，不接收 reference audio |
@@ -273,6 +273,23 @@ curl http://127.0.0.1:8080/v1/responses \
 `data:image/<format>;base64,<payload>`，当前允许 JPEG、PNG、GIF、WebP 和 BMP。OpenBridge 另施加每请求最多 64 个图片 part、
 单 URL 最多 8192 UTF-8 字节及启动配置中的总请求体上限。默认 `max_request_body_bytes` 仅为 1 MiB，因此它会先于 MiMo 文档中的
 50 MB 单图上游上限限制较大的 Base64 请求。
+
+### 4.7 `mimo-v2.5` Chat Native 音频理解
+
+`mimo-v2.5` 的 Chat interface 还公开一个有界的 `content_understanding` 音频契约：一个 user message 中只能放置一个 WAV
+data URL `input_audio`，可与文本指令按原顺序组合。该请求仍走 Chat Native Route，结果是依据音频和指令生成的文本回答，不是专用
+ASR transcript 或合成音频。
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Authorization: Bearer replace-with-a-local-client-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mimo-v2.5","messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"data:audio/wav;base64,REPLACE_WITH_WAV_BASE64","format":"wav"}},{"type":"text","text":"Describe the audio."}]}]}'
+```
+
+当前 profile 最多接受一个音频 part，单项及累计 encoded/decoded 上限分别为 10 MiB/8 MiB；部署级
+`max_request_body_bytes` 仍可能更早拒绝请求。remote URL、pure Base64、MP3/FLAC/M4A/OGG、多音频、`asr_options`、音频输出、
+Responses audio、Realtime 与标准 `/v1/audio/*` endpoint 均不属于该接口。
 
 ## 5. Bootstrap 配置
 

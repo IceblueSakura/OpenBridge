@@ -385,7 +385,7 @@ Native。编译器仍先统计 Native coverage，只为全局缺失的 downstrea
 已有 Native 时保留。`gpt-5.6-sol` 与 `deepseek-v4-flash` 使用 `SourceFirst`；其他当前注册使用 `NativeFirst`。DeepSeek Flash
 按 DeepSeek、Bailian、OpenRouter 顺序绑定三个 source；`minimax-m3` 按 OpenRouter、NVIDIA 顺序绑定两个 source。MiMo
 的两个 target 分别绑定 `mimo-v2.5-pro` 与 `mimo-v2.5`，共享 `mimo-primary` pool、 quota scope 与 fault domain；两者都只注册
-Chat/Responses 同协议 Native Route，后者另外公开图片契约。Bridge
+Chat/Responses 同协议 Native Route，后者另外在两接口公开图片契约，并只在 Chat 公开单 WAV data URL 音频理解。Bridge
 生产路径由编译注册表、记录型 transport 与 canonical wire 确定性验证， 但尚未调用真实异构协议 Provider。
 
 Provider image ceiling 与单 Target executable profile 分层保存。MiMo 与 OpenAI 的 Chat/Responses Provider ceiling 都声明完整

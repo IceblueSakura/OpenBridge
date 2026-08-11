@@ -166,6 +166,14 @@ data: [DONE]
 
 "#;
 
+const MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM: &[u8] = br#"data: {"id":"chat_audio_understanding","object":"chat.completion.chunk","model":"mimo-v2.5","choices":[{"index":0,"delta":{"role":"assistant","content":"understood audio"},"finish_reason":null}]}
+
+data: {"id":"chat_audio_understanding","object":"chat.completion.chunk","model":"mimo-v2.5","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+
 const MIMO_RESPONSES_IMAGE_STREAM: &[u8] = br#"event: response.created
 data: {"type":"response.created","response":{"id":"resp_image","model":"mimo-v2.5","object":"response","output":[],"status":"in_progress"}}
 
@@ -199,6 +207,11 @@ struct MimoResponsesToolStreamTransport {
 
 #[derive(Default)]
 struct MimoImageTransport {
+    requests: Mutex<Vec<RecordedRequest>>,
+}
+
+#[derive(Default)]
+struct MimoAudioUnderstandingTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
@@ -950,6 +963,53 @@ impl UpstreamTransport for MimoImageTransport {
             } else {
                 Body::from(
                     r#"{"id":"chat_image","object":"chat.completion","model":"mimo-v2.5","choices":[{"index":0,"message":{"role":"assistant","content":"red and blue"},"finish_reason":"stop"}]}"#,
+                )
+            };
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                body,
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for MimoAudioUnderstandingTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        // Capture the complete Chat Native body after trusted model and instruction preparation.
+        let body: Value = serde_json::from_slice(request.body()).unwrap();
+        let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
+        self.requests.lock().unwrap().push(RecordedRequest {
+            path: request.relative_uri().path().to_owned(),
+            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
+            user_agent: headers
+                .get(USER_AGENT)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            body,
+        });
+
+        // Return one complete text result through the requested Chat delivery mode.
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static(if streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }),
+            );
+            let body = if streaming {
+                Body::from(MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM)
+            } else {
+                Body::from(
+                    r#"{"id":"chat_audio_understanding","object":"chat.completion","model":"mimo-v2.5","choices":[{"index":0,"message":{"role":"assistant","content":"understood audio"},"finish_reason":"stop"}]}"#,
                 )
             };
             Ok(UpstreamResponse::new(

@@ -19,8 +19,7 @@ pub(crate) fn config() -> ModelConfig {
         id: ID.to_owned(),
         name: "GPT-5.3 Codex Spark".to_owned(),
         description: Some(
-            "Ultra-low-latency real-time coding model for interactive Codex workflows."
-                .to_owned(),
+            "Ultra-low-latency real-time coding model for interactive Codex workflows.".to_owned(),
         ),
         tokenizer: None,
         knowledge_cutoff: None,
