@@ -20,7 +20,21 @@ pub(crate) fn config() -> ModelConfig {
             context_length: ModelContextLength::new(Some(128_000), None, Some(128_000)),
             input_modalities: None,
             output_modalities: None,
-            supported_parameters: Vec::new(),
+            supported_parameters: [
+                "include_reasoning",
+                "max_completion_tokens",
+                "max_tokens",
+                "parallel_tool_calls",
+                "response_format",
+                "seed",
+                "service_tier",
+                "structured_outputs",
+                "tool_choice",
+                "tools",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
             reasoning: ReasoningProfile::supported([
                 ReasoningLevel::XHigh,
                 ReasoningLevel::High,

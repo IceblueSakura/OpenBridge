@@ -16,7 +16,7 @@ use super::super::{
     instructions::{analyze_requested_instructions, validate_stateless_store},
     types::{
         RequestRequirements, RequestedCapabilities, RequestedJsonSchemaStrictness,
-        RequestedReasoning, RequestedStructuredOutput,
+        RequestedReasoning, RequestedReasoningSummary, RequestedStructuredOutput,
     },
 };
 
@@ -93,6 +93,7 @@ pub fn analyze_request(
         structured_output,
         unmodeled_tools: requests_unmodeled_tools,
         reasoning: requested_reasoning(protocol, object),
+        reasoning_summary: requested_reasoning_summary(protocol, object),
         previous_response_id: protocol == ApiProtocol::Responses
             && object
                 .get("previous_response_id")
@@ -429,6 +430,28 @@ fn requested_reasoning(
         .and_then(ReasoningLevel::from_wire)
         .map(RequestedReasoning::Level)
         .unwrap_or(RequestedReasoning::UnknownLevel)
+}
+
+/// Classifies the only Responses summary request values currently preserved or consumed by OpenBridge.
+fn requested_reasoning_summary(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> RequestedReasoningSummary {
+    if protocol != ApiProtocol::Responses {
+        return RequestedReasoningSummary::Absent;
+    }
+    let Some(summary) = object
+        .get("reasoning")
+        .and_then(Value::as_object)
+        .and_then(|reasoning| reasoning.get("summary"))
+    else {
+        return RequestedReasoningSummary::Absent;
+    };
+    match summary {
+        Value::Bool(false) => RequestedReasoningSummary::Disabled,
+        Value::String(value) if value == "auto" => RequestedReasoningSummary::Auto,
+        _ => RequestedReasoningSummary::Invalid,
+    }
 }
 
 /// Extracts the exact function-tool choice mode, defaulting to `auto` when function tools exist.

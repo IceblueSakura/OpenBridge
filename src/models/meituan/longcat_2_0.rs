@@ -38,6 +38,7 @@ pub(crate) fn config() -> ModelConfig {
             "repetition_penalty",
             "seed",
             "stop",
+            "stream_options",
             "temperature",
             "tool_choice",
             "tools",

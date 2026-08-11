@@ -392,7 +392,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
     // Verify that standard Responses reasoning configuration and history items convert to Chat.
     let responses_request = serde_json::json!({
         "model": "public-model",
-        "reasoning": {"effort": "high"},
+        "reasoning": {"effort": "high", "summary": "auto"},
         "input": [
             {"content": [{"text": "lookup weather", "type": "input_text"}], "role": "user", "type": "message"},
             {"content": [{"text": "decide lookup", "type": "reasoning_text"}], "id": "rs_previous", "status": "completed", "summary": [], "type": "reasoning"},
@@ -411,6 +411,8 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
     .expect("Responses reasoning request should convert to Chat");
     let chat_request: Value = serde_json::from_slice(chat_request.body()).unwrap();
     assert_eq!(chat_request["reasoning_effort"], "high");
+    assert!(chat_request.get("reasoning").is_none());
+    assert!(chat_request.get("summary").is_none());
     assert_eq!(
         chat_request["messages"][1]["reasoning_content"],
         "decide lookup"
@@ -432,6 +434,7 @@ fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
         responses["output"][0]["content"][0]["text"],
         "decide lookup"
     );
+    assert_eq!(responses["output"][0]["summary"], serde_json::json!([]));
     assert_eq!(responses["output"][1]["type"], "function_call");
     assert_eq!(
         responses["output"][1]["arguments"],
@@ -707,18 +710,27 @@ fn bridge_rejects_opaque_inputs_or_unsupported_reasoning() {
     )
         .is_err());
 
-    // Unmodeled fields under Responses reasoning must not be silently discarded.
-    assert!(BridgePlan::prepare_with_reasoning_output(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        "public-model",
-        "upstream-model",
-        Bytes::from_static(
-            br#"{"model":"public-model","input":"hello","reasoning":{"effort":"high","summary":false}}"#,
-        ),
-        ReasoningOutput::PlainText,
-    )
-        .is_err());
+    // The Bridge consumes the supported summary hints while preserving reasoning effort.
+    for summary in [serde_json::json!(false), serde_json::json!("auto")] {
+        let request = serde_json::json!({
+            "model": "public-model",
+            "input": "hello",
+            "reasoning": {"effort": "high", "summary": summary}
+        });
+        let (_, request) = BridgePlan::prepare_with_reasoning_output(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            "upstream-model",
+            Bytes::from(serde_json::to_vec(&request).unwrap()),
+            ReasoningOutput::PlainText,
+        )
+        .expect("auto and false summary hints should be consumed by the Chat bridge");
+        let request: Value = serde_json::from_slice(request.body()).unwrap();
+        assert_eq!(request["reasoning_effort"], "high");
+        assert!(request.get("reasoning").is_none());
+        assert!(request.get("summary").is_none());
+    }
 
     // A non-standard boolean reasoning_effort shape must not be silently discarded by the Bridge.
     assert!(BridgePlan::prepare_with_reasoning_output(

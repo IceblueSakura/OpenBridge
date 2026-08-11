@@ -482,54 +482,65 @@ data: [DONE]
 
 "#,
     );
-    let transport = Arc::new(ExpectedTransport {
-        expected_path: "/chat/completions",
-        upstream_body: upstream,
-        content_type: "text/event-stream",
-        requests: Mutex::new(Vec::new()),
-    });
-    let response = app_with_reasoning_output(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        transport.clone(),
-        ReasoningOutput::PlainText,
-    )
+    for summary in [serde_json::json!(false), serde_json::json!("auto")] {
+        let transport = Arc::new(ExpectedTransport {
+            expected_path: "/chat/completions",
+            upstream_body: upstream.clone(),
+            content_type: "text/event-stream",
+            requests: Mutex::new(Vec::new()),
+        });
+        let request = serde_json::json!({
+            "model": "public-model",
+            "input": "hello",
+            "stream": true,
+            "reasoning": {"effort": "high", "summary": summary},
+            "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+        });
+        let response = app_with_reasoning_output(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            transport.clone(),
+            ReasoningOutput::PlainText,
+        )
         .oneshot(
             Request::post("/v1/responses")
                 .header(CONTENT_TYPE, "application/json")
                 .header("authorization", "Bearer downstream-token-0000000000000000")
-                .body(Body::from(
-                    r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}"#,
-                ))
+                .body(Body::from(request.to_string()))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-    assert!(!String::from_utf8_lossy(&body).contains("response.output_text"));
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let wire = String::from_utf8_lossy(&body);
+        assert!(!wire.contains("response.output_text"));
+        assert!(!wire.contains("response.reasoning_summary_"));
 
-    // Use the production HTTP stream state machine to confirm closed reasoning, tool arguments, and terminal state.
-    let mut state = ResponsesStreamState::new();
-    let mut decoder = SseDecoder::new(256 * 1024);
-    let mut events = decoder.push(&body).unwrap();
-    events.extend(decoder.finish().unwrap());
-    for event in events {
-        state.ingest(&event).unwrap();
+        // Confirm that Chat reasoning remains Responses reasoning content for either accepted summary hint.
+        let mut state = ResponsesStreamState::new();
+        let mut decoder = SseDecoder::new(256 * 1024);
+        let mut events = decoder.push(&body).unwrap();
+        events.extend(decoder.finish().unwrap());
+        for event in events {
+            state.ingest(&event).unwrap();
+        }
+        state.finish().unwrap();
+        assert_eq!(state.reasoning_text(), "check args");
+        assert_eq!(state.tool_calls().len(), 1);
+        assert_eq!(
+            state.terminal(),
+            Some(openbridge::bridge::StreamTerminal::Completed)
+        );
+
+        // The Chat wire receives only the mapped effort, never a fabricated summary field.
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, "/chat/completions");
+        assert_eq!(requests[0].1["reasoning_effort"], "high");
+        assert!(requests[0].1.get("reasoning").is_none());
+        assert!(requests[0].1.get("summary").is_none());
     }
-    state.finish().unwrap();
-    assert_eq!(state.reasoning_text(), "check args");
-    assert_eq!(state.tool_calls().len(), 1);
-    assert_eq!(
-        state.terminal(),
-        Some(openbridge::bridge::StreamTerminal::Completed)
-    );
-
-    // The mock upstream must receive the explicit standard Responses reasoning-to-Chat effort mapping.
-    let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].0, "/chat/completions");
-    assert_eq!(requests[0].1["reasoning_effort"], "high");
 }
 
 #[tokio::test]

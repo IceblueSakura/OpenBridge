@@ -79,6 +79,10 @@ Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公�
 MiniMax M3 与 Qwen3.6 27B 当前都只有 thinking 开关证据，因此统一公开 `none/high`，不外推未声明的中间强度档位。
 只有 thinking 开关的 Chat API 将 `none` 编码为关闭、其余该模型已声明档位编码为开启，不因此缩减 Models 契约。
 
+Responses `reasoning.summary` 当前接受标准值 `"auto"` 与 OpenBridge 兼容值 `false`。同协议 Native Route 原样保留该值；
+Responses→Chat Bridge 消费它而不向 Chat 上游伪造字段，并把上游真实 `reasoning_content` 返回为 Responses
+`reasoning.content`/`reasoning_text`，不会合成 summary 事件。`false` 不关闭 reasoning；reasoning 是否关闭仍由 level `none` 决定。
+
 扩展 Models 的 generation interface 以 `response_includes` 公开全部固定候选共同接受的 Responses `include` 值；公开某个值只表示请求
 可执行，不保证响应一定出现对应 item，也不把它解释为 reasoning 输出开关。当前 `reasoning.encrypted_content` 已在 `glm-5.2` 的
 Responses-via-Chat Bridge、`deepseek-v4-flash`、`mimo-v2.5` 和仅由 ChatGPT 提供的 Responses interface 上开放：Native 原样转发，

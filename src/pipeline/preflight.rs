@@ -21,8 +21,8 @@ use super::{
         AudioInputRequirements, EmbeddingRequestRequirements, GeneratedAudioMessageShape,
         InputAudioMessageShape, RequestRequirements, RequestedAsrLanguage, RequestedAsrOptions,
         RequestedAudio, RequestedAudioDelivery, RequestedCapabilities,
-        RequestedJsonSchemaStrictness, RequestedReasoning, RequestedStructuredOutput,
-        RequestedVoice,
+        RequestedJsonSchemaStrictness, RequestedReasoning, RequestedReasoningSummary,
+        RequestedStructuredOutput, RequestedVoice,
     },
 };
 
@@ -251,6 +251,24 @@ fn validate_interface_request(
         }
         RequestedReasoning::Unspecified => None,
     };
+
+    // Validate summary syntax independently from effort and reject a summary request when reasoning is explicitly disabled.
+    match requested_features.reasoning_summary {
+        RequestedReasoningSummary::Invalid => {
+            return Err(RequestPlanningError::InvalidReasoningConfiguration);
+        }
+        RequestedReasoningSummary::Auto
+            if matches!(
+                requested_features.reasoning,
+                RequestedReasoning::Level(ReasoningLevel::None)
+            ) =>
+        {
+            return Err(RequestPlanningError::InvalidReasoningConfiguration);
+        }
+        RequestedReasoningSummary::Absent
+        | RequestedReasoningSummary::Disabled
+        | RequestedReasoningSummary::Auto => {}
+    }
     Ok(normalized_reasoning_level)
 }
 

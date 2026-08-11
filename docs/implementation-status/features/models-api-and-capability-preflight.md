@@ -189,8 +189,8 @@ instructions/store 错误与规范化入口。实现后：
   `src/providers/openrouter/definition.rs` 的既有格式差异；M5 Rust 文件已用同版 rustfmt 单独检查。
 
 以上确定性证据证明本地配置、analysis/planning、Models 投影、Native/Bridge wire、retry body 复用和 canonical fixture，不证明真实
-Provider、Hermes、外部 SDK、强制多 Provider fallback、负载或长期运行。M5 未实现或验证 `previous_response_id`；
-`reasoning.summary` 仍是独立后续边界。
+Provider、Hermes、外部 SDK、强制多 Provider fallback、负载或长期运行。M5 未实现或验证 `previous_response_id`；后续完成的
+`reasoning.summary` 请求分类和 Bridge 映射规则见 [Chat 与 Responses 的显式 Protocol Bridge](protocol-bridge.md)。
 
 ## 相关文档
 

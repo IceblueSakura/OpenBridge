@@ -33,7 +33,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "chatgpt-gpt-5-3-codex-spark",
                 upstream_target: "chatgpt-gpt-5-3-codex-spark",
-                surface: PublicModelSurface::ResponsesNativeOnly,
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
         PublicModelRegistration {
@@ -299,7 +299,15 @@ pub(super) struct ProviderRouteRegistration {
 }
 
 /// Native and Bridge surfaces that a Provider Target contributes to one Public Model.
+///
+/// Every variant is a valid reserved protocol-surface contract. Chat and Responses Native support,
+/// together with either Bridge direction, must remain expressible even when the current catalog has
+/// no registration using a particular combination; do not remove variants only because they are dead code.
 #[derive(Clone, Copy)]
+#[allow(
+    dead_code,
+    reason = "all Native and bidirectional Bridge surface combinations are reserved catalog semantics"
+)]
 pub(super) enum PublicModelSurface {
     /// Provides both Native protocols plus both reverse Bridge paths.
     DualProtocolWithBridges,

@@ -87,6 +87,69 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
 }
 
 #[tokio::test]
+async fn responses_native_preserves_supported_reasoning_summary_values() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    for summary in [serde_json::json!(false), serde_json::json!("auto")] {
+        let request = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "input": "hello",
+            "stream": true,
+            "reasoning": {"effort": "high", "summary": summary}
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 4096).await.unwrap();
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].body["reasoning"]["summary"], false);
+    assert_eq!(requests[1].body["reasoning"]["summary"], "auto");
+}
+
+#[tokio::test]
+async fn responses_native_reuses_reasoning_summary_during_credential_rotation() {
+    let transport = Arc::new(CredentialRotationTransport::default());
+    let (app, metrics) =
+        app_with_compiled_registry_and_pool(transport.clone(), &["key-a", "key-b"]);
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            "Bearer downstream-token-00000000000000000000000000000000",
+        )
+        .body(Body::from(
+            r#"{"model":"deepseek-v4-flash","input":"hello","stream":true,"reasoning":{"summary":"auto"}}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bodies = transport.bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[0]["reasoning"]["summary"], "auto");
+    assert_eq!(bodies[1], bodies[0]);
+    assert_eq!(metrics.snapshot().credential_rotations, 1);
+    assert_eq!(metrics.snapshot().upstream_retries, 1);
+}
+
+#[tokio::test]
 async fn longcat_responses_native_forwards_prompt_cache_key_and_removes_empty_include() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());

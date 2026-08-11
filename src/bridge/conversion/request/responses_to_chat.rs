@@ -281,25 +281,34 @@ fn responses_message_to_chat(
 
 /// Parses Responses reasoning configuration and converts it to Chat `reasoning_effort`.
 fn responses_reasoning_effort(source: &Map<String, Value>) -> Result<Option<String>, BridgeError> {
-    // Read only the standard Responses reasoning object and reject unmodeled child fields.
+    // Read the supported Responses reasoning object and consume its summary hint before Chat egress.
     let object_effort = source
         .get("reasoning")
         .filter(|value| !value.is_null())
         .map(|value| {
             let object = value.as_object().ok_or(BridgeError::InvalidShape)?;
-            if object.keys().any(|key| key != "effort") {
+            if object
+                .keys()
+                .any(|key| !matches!(key.as_str(), "effort" | "summary"))
+            {
                 return Err(BridgeError::UnsupportedSemantics);
             }
-            object
+            let effort = object
                 .get("effort")
                 .filter(|value| !value.is_null())
-                .map(|value| {
-                    value
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .ok_or(BridgeError::InvalidShape)
-                })
-                .transpose()
+                .map(|value| value.as_str().ok_or(BridgeError::InvalidShape))
+                .transpose()?;
+            if let Some(summary) = object.get("summary") {
+                match summary {
+                    Value::Bool(false) => {}
+                    Value::String(value) if value == "auto" && effort != Some("none") => {}
+                    Value::String(value) if value == "auto" => {
+                        return Err(BridgeError::UnsupportedSemantics);
+                    }
+                    _ => return Err(BridgeError::InvalidShape),
+                }
+            }
+            Ok(effort.map(ToOwned::to_owned))
         })
         .transpose()?
         .flatten();

@@ -108,6 +108,7 @@ pub(super) struct RequestedCapabilities {
     pub(super) structured_output: RequestedStructuredOutput,
     pub(super) unmodeled_tools: bool,
     pub(super) reasoning: RequestedReasoning,
+    pub(super) reasoning_summary: RequestedReasoningSummary,
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
     pub(super) response_includes: BTreeSet<ResponseInclude>,
@@ -251,6 +252,19 @@ pub(super) enum RequestedReasoning {
     Level(ReasoningLevel),
     UnknownLevel,
     Conflicting,
+}
+
+/// Closed Responses reasoning-summary request shape accepted by the gateway.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedReasoningSummary {
+    /// The request omits the summary child field.
+    Absent,
+    /// The compatibility boolean explicitly declines a summary without disabling reasoning.
+    Disabled,
+    /// The request asks the upstream Responses API to choose an automatic summary.
+    Auto,
+    /// The request uses an unsupported string or malformed value.
+    Invalid,
 }
 
 impl RequestRequirements {

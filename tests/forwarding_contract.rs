@@ -229,6 +229,7 @@ struct RateLimitedTransport {
 #[derive(Default)]
 struct CredentialRotationTransport {
     authorizations: Mutex<Vec<String>>,
+    bodies: Mutex<Vec<Value>>,
 }
 
 struct FixedStatusCredentialTransport {
@@ -633,6 +634,10 @@ impl UpstreamTransport for CredentialRotationTransport {
         let is_streaming = serde_json::from_slice::<Value>(request.body()).unwrap()["stream"]
             .as_bool()
             == Some(true);
+        self.bodies
+            .lock()
+            .unwrap()
+            .push(serde_json::from_slice(request.body()).unwrap());
         self.authorizations
             .lock()
             .unwrap()
@@ -1220,6 +1225,24 @@ fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Ro
     );
     let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
     build_router(state)
+}
+
+fn app_with_compiled_registry_and_pool(
+    transport: Arc<dyn UpstreamTransport>,
+    upstream_secrets: &[&str],
+) -> (axum::Router, TestMetrics) {
+    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
+        .expect("checked-in bootstrap must be valid");
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
+    let (users, credentials) = support::users_and_credential_pool(
+        "downstream-token-00000000000000000000000000000000",
+        &registry,
+        upstream_secrets,
+    );
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
+        .with_metrics(metrics.instruments());
+    (build_router(state), metrics)
 }
 
 fn app_with_chatgpt_oauth(

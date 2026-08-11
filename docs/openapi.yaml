@@ -268,6 +268,9 @@ paths:
         and background capability rules remain separate. When stream is true, successful responses use
         text/event-stream. Image parts require a model whose fixed Responses interface exposes
         multimodal_input.image and are supported only on a same-protocol Native route.
+        reasoning.summary accepts the standard value "auto" and the OpenBridge compatibility value
+        false. Native Responses preserves the value. Responses-to-Chat consumes it and returns any
+        actual Chat reasoning_content as Responses reasoning_text content rather than fabricating a summary.
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -288,7 +291,7 @@ paths:
                     - reasoning.encrypted_content
                   reasoning:
                     effort: medium
-                    summary: auto
+                    summary: false
                   store: false
               streaming:
                 summary: Streaming text request
@@ -1398,6 +1401,17 @@ components:
           properties:
             effort:
               $ref: '#/components/schemas/ReasoningEffort'
+            summary:
+              description: |
+                "auto" is the standard automatic-summary request. false is an OpenBridge compatibility
+                value that declines a summary without disabling reasoning. Native Responses preserves the
+                exact value; Responses-to-Chat consumes it and represents actual Chat reasoning_content as
+                reasoning_text with an empty summary array.
+              oneOf:
+                - type: string
+                  enum: [ auto ]
+                - type: boolean
+                  enum: [ false ]
         reasoning_effort:
           $ref: '#/components/schemas/ReasoningEffort'
         max_output_tokens:

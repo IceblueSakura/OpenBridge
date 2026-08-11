@@ -84,6 +84,46 @@ async fn unknown_generation_parameters_fail_consistently_before_upstream() {
 }
 
 #[tokio::test]
+async fn invalid_reasoning_summary_requests_fail_before_upstream() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    for reasoning in [
+        serde_json::json!({"effort": "high", "summary": "detailed"}),
+        serde_json::json!({"effort": "high", "summary": true}),
+        serde_json::json!({"effort": "high", "summary": null}),
+        serde_json::json!({"effort": "high", "summary": {"mode": "auto"}}),
+        serde_json::json!({"effort": "none", "summary": "auto"}),
+    ] {
+        let request = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "input": "hello",
+            "reasoning": reasoning
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["type"], "invalid_request_error");
+        assert_eq!(error["error"]["code"], "invalid_request_error");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn unsupported_public_model_capability_fails_before_any_upstream_attempt() {
     // Build a preferred Route with weaker tool capability and a later Route with stronger capability.
     let mut definition = support::definition("forward-test", "public-model", "upstream-model");
