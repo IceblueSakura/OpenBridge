@@ -98,7 +98,7 @@ pub fn build_router(state: GatewayState) -> Router {
 
     // Expose the originless MCP service behind the same static downstream identity boundary.
     let mcp = Router::new()
-        .route("/mcp", post(mcp::endpoint))
+        .nest_service("/mcp", mcp::service())
         .route_layer(middleware::from_fn_with_state(
             downstream_auth,
             require_user,

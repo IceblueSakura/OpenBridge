@@ -1,10 +1,12 @@
 //! Model Context Protocol server facade and local tool extension boundary.
 //!
-//! Streamable HTTP protocol handling is isolated from the static tool registry. Each tool owns a
-//! leaf module so new tools can be added without coupling their schemas or execution logic to the
-//! transport, OpenAI-compatible ingress, registry, pipeline, or Provider adapters.
+//! The official `rmcp` SDK owns JSON-RPC encoding, protocol version negotiation
+//! (stateless `2026-07-28` plus legacy `initialize` sessions), Streamable HTTP
+//! transport, and tool dispatch. This module only wires the local `hello` tool
+//! into a Tower service mounted by the ingress router behind the same static
+//! downstream Bearer boundary.
 
 mod tools;
 mod transport;
 
-pub(crate) use transport::{endpoint, reject_origin};
+pub(crate) use transport::{reject_origin, service};

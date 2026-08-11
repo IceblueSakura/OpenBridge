@@ -21,6 +21,8 @@ opentelemetry-http = { version = "0.32", default-features = false }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "metrics", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.32", default-features = false, features = ["metrics", "trace"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls", "stream", "http2"] }
+rmcp = { version = "3.1.2", features = ["transport-streamable-http-server"] }
+schemars = "1.1"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -42,3 +44,4 @@ zeroize = "1.9"
 opentelemetry-proto = { version = "0.32", default-features = false, features = ["gen-tonic-messages", "metrics", "trace"] }
 opentelemetry_sdk = { version = "0.32", default-features = false, features = ["metrics", "testing"] }
 prost = "0.14"
+rmcp = { version = "3.1.2", features = ["client", "transport-streamable-http-client-reqwest"] }

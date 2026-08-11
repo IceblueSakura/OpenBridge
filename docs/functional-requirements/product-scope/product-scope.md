@@ -18,7 +18,7 @@ Route。
 当前核心结果：
 
 - 下游通过 Public Model 调用 `POST /v1/responses`、`POST /v1/chat/completions` 或独立的 `POST /v1/embeddings`；
-- 已认证本地客户端可以通过 `POST /mcp` 发现 MCP `2026-07-28` 本地服务，并调用唯一的无副作用
+- 已认证本地客户端可以通过 `POST /mcp` 发现 MCP 本地服务（dual-era：`2026-07-28` 无状态 + legacy `initialize` 握手），并调用唯一的无副作用
   `hello(name: string)` 测试工具取得 `Hi, {name}!`；该路径不访问 Provider；
 - Responses 以客户端携带完整历史、`store` 省略或为 `false`、`previous_response_id` 省略或为 `null`、`background` 省略或为
   `false` 的无状态调用作为核心兼容面、默认使用方式和当前验收基线；
@@ -105,7 +105,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 | `POST /v1/chat/completions`                                      | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                          |
 | `POST /v1/responses`                                             | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                     |
 | `POST /v1/embeddings`                                            | 在独立 Embedding Public Model 的固定契约内按唯一 Native Route 提供有界 JSON 向量结果。                        |
-| `POST /mcp`                                                      | 提供 Bearer 保护的 MCP `2026-07-28` discovery、静态 `hello` 列表与调用入口。                                  |
+| `POST /mcp`                                                      | 提供 Bearer 保护的 MCP dual-era discovery（`2026-07-28` 无状态 + legacy `initialize` 握手）、静态 `hello` 列表与调用入口。 |
 
 ## 扩展接口状态
 

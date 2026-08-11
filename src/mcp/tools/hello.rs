@@ -1,65 +1,45 @@
 //! Definition, input validation, and side-effect-free execution for the `hello` test tool.
 //!
 //! This tool may use only its bounded request arguments. It must not read private configuration,
-//! inspect the registry, access files, perform network egress, or call Providers.
+//! inspect the registry, access files, perform network egress, or call Providers. `rmcp` macros
+//! derive the JSON Schema from the parameter struct and reject unknown fields at dispatch time.
 
-use serde_json::{Map, Value, json};
+use rmcp::{ServerHandler, handler::server::wrapper::Parameters, model::ServerCapabilities};
+use schemars::JsonSchema;
 
-pub(super) const NAME: &str = "hello";
-const INVALID_HELLO_ARGUMENTS: &str =
-    "Invalid arguments: `name` must be a string and no other arguments are allowed.";
-
-/// Returns the deterministic MCP definition for the hello tool.
-pub(super) fn definition() -> Value {
-    json!({
-        "name": NAME,
-        "description": "Returns a greeting for the provided name.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Name to greet."
-                }
-            },
-            "required": ["name"],
-            "additionalProperties": false
-        }
-    })
+/// Bounded request arguments for the hello tool.
+#[derive(Debug, serde::Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct HelloParams {
+    /// Name to greet.
+    name: String,
 }
 
-/// Executes the hello tool without performing external side effects.
-pub(super) fn call(arguments: Option<&Map<String, Value>>) -> Value {
-    // Validate the advertised closed input schema before formatting the greeting.
-    let Some(arguments) = arguments else {
-        return invalid_hello_arguments_result();
-    };
-    let Some(name) = arguments.get("name").and_then(Value::as_str) else {
-        return invalid_hello_arguments_result();
-    };
-    if arguments.len() != 1 {
-        return invalid_hello_arguments_result();
+/// The local hello tool server. Owns no state and performs no external side effects.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct HelloServer;
+
+#[rmcp::tool_router]
+impl HelloServer {
+    /// Returns a greeting for the provided name.
+    #[rmcp::tool(description = "Returns a greeting for the provided name.")]
+    fn hello(&self, Parameters(params): Parameters<HelloParams>) -> String {
+        format!("Hi, {}!", params.name)
     }
-
-    // Return the exact user-visible greeting as one MCP text content block.
-    json!({
-        "resultType": "complete",
-        "content": [{
-            "type": "text",
-            "text": format!("Hi, {name}!")
-        }],
-        "isError": false
-    })
 }
 
-/// Builds the actionable MCP tool result for invalid hello arguments.
-fn invalid_hello_arguments_result() -> Value {
-    json!({
-        "resultType": "complete",
-        "content": [{
-            "type": "text",
-            "text": INVALID_HELLO_ARGUMENTS
-        }],
-        "isError": true
-    })
+#[rmcp::tool_handler]
+impl ServerHandler for HelloServer {
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        rmcp::model::ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_tool_list_changed()
+                .build(),
+        )
+        .with_server_info(rmcp::model::Implementation::new(
+            "openbridge",
+            env!("CARGO_PKG_VERSION"),
+        ))
+    }
 }
