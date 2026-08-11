@@ -1,6 +1,7 @@
 //! Verifies checked-in Provider boundaries through registry compilation and request planning.
 
 use super::*;
+use openbridge::registry::{InputModality, OutputModality};
 
 #[test]
 fn unverified_bailian_qwen_audio_remains_canonical_without_an_executable_target() {
@@ -586,6 +587,72 @@ fn deepseek_public_interfaces_expose_json_object_across_fixed_candidates() {
             };
             assert!(structured_outputs.is_none(), "{target_id}");
         }
+    }
+}
+
+#[test]
+fn gemma_4_31b_it_compiles_as_one_conservative_openrouter_dual_native_model() {
+    let bootstrap = parse_bootstrap_config(include_str!("../../config/bootstrap.toml")).unwrap();
+    let registry = build_compiled_registry(bootstrap).expect("compiled registry should be valid");
+
+    // Preserve the directly observed canonical context, modalities, and reasoning-off profile.
+    let model = registry
+        .model("google/gemma-4-31b-it")
+        .expect("Gemma 4 31B canonical model must compile");
+    assert_eq!(model.context_length().context_tokens(), Some(262_144));
+    assert_eq!(
+        model.input_modalities(),
+        Some(&[InputModality::Text, InputModality::Image][..])
+    );
+    assert_eq!(model.output_modalities(), Some(&[OutputModality::Text][..]));
+    assert_eq!(model.reasoning_levels(), &[ReasoningLevel::None]);
+
+    // Keep strict schema disabled while exposing only the confirmed JSON-object mode on both APIs.
+    let public = registry
+        .public_model("gemma-4-31b-it")
+        .expect("Gemma 4 31B Public Model must compile");
+    let info = serde_json::to_value(public.info()).unwrap();
+    let json_object = serde_json::json!({
+        "support": "supported",
+        "modes": ["json_object"],
+        "strict_schema": "unsupported"
+    });
+    for interface in ["chat_completions", "responses"] {
+        assert_eq!(
+            info["interfaces"][interface]["structured_outputs"],
+            json_object
+        );
+        assert_eq!(
+            info["interfaces"][interface]["tools"]["strict_schema"],
+            "unsupported"
+        );
+        assert_eq!(
+            info["interfaces"][interface]["tools"]["parallel_calls"],
+            "supported"
+        );
+    }
+
+    // Bind each downstream protocol directly to the same trusted OpenRouter target.
+    for (protocol, body) in [
+        (
+            ApiProtocol::ChatCompletions,
+            bytes::Bytes::from_static(
+                br#"{"model":"gemma-4-31b-it","messages":[{"role":"user","content":"hello"}]}"#,
+            ),
+        ),
+        (
+            ApiProtocol::Responses,
+            bytes::Bytes::from_static(br#"{"model":"gemma-4-31b-it","input":"hello"}"#),
+        ),
+    ] {
+        let requirements = analyze_request(protocol, &body).unwrap();
+        let plan = plan_request(&registry, &requirements, body).unwrap();
+        let [candidate] = plan.candidates() else {
+            panic!("Gemma 4 31B {protocol:?} must have one candidate");
+        };
+        assert_eq!(candidate.upstream_target_id(), "openrouter-gemma-4-31b-it");
+        assert_eq!(candidate.upstream_operation(), protocol.operation());
+        assert!(candidate.bridge().is_none());
     }
 }
 

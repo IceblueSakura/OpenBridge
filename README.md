@@ -57,6 +57,7 @@ surface 仍保持关闭。
 | `deepseek-v4-pro` | Chat、Responses | `deepseek-primary`、`bailian-primary` | DeepSeek/Bailian Chat Native；Responses 自动走 Chat Bridge；公开 none/high/max、明文 reasoning 与 `json_object` |
 | `deepseek-v4-flash` | Chat、Responses | `deepseek-primary`、`bailian-primary`、`openrouter-primary` | `SourceFirst`；Chat 按 DeepSeek、Bailian、OpenRouter，Responses 按 DeepSeek、OpenRouter；公开 none/low/high/max 与 `json_object` |
 | `minimax-m3` | Chat、Responses | `openrouter-primary`、`nvidia-primary` | OpenRouter Chat/Responses Native 优先、NVIDIA Chat Native 后备；两接口公开 none/high |
+| `gemma-4-31b-it` | Chat、Responses | `openrouter-primary` | OpenRouter 双协议 Native；支持文本与图片输入、并行工具调用和 `json_object`，不公开 reasoning 或 strict JSON Schema |
 | `kimi-k3` | Chat、Responses | `kimi-primary` | Moonshot 中国区 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/low/high/max |
 | `glm-5.2` | Chat、Responses | `bailian-primary` | 阿里云百炼北京 endpoint Chat Native；Responses 自动通过 Chat Bridge，公开 none/high/xhigh |
 | `qwen3.7-plus` | Chat、Responses | `bailian-primary` | 百炼双协议 Native；两接口公开七档；Chat plain_text、Responses summary reasoning |
@@ -71,6 +72,7 @@ surface 仍保持关闭。
 | `mimo-v2.5-tts-voiceclone` | Chat | `mimo-primary` | MiMo reference-voice cloning；Chat `audio.voice` conditioning + audio 输出 |
 | `text-embedding-3-small` | Embeddings | `openai-primary` | 独立 Embeddings Native Route；不支持 streaming 或 Bridge |
 | `qwen3.7-text-embedding` | Embeddings | `bailian-primary` | 百炼 Embeddings Native；支持固定维度集合；不支持 streaming 或 Bridge |
+| `nemotron-3-embed-1b` | Embeddings | `nvidia-primary` | NVIDIA Embeddings Native；固定 2048 维 float 输出、批量上限 20；不支持 streaming 或 Bridge |
 
 Reasoning level 是 Model 能力，同一模型的 Chat/Responses interface 公开同一集合。MiMo 官方当前把 `low`、`medium`、`high`
 都解释为开启 reasoning，但 OpenBridge 仍在 Native Responses 中原样传递每个已声明值；Qwen3.7 与 Qwen3.8 同理保留官方七档。
@@ -89,6 +91,8 @@ GLM Bridge 显式消费且不伪造 opaque 内容。其他非空值仍在上游�
 `text-embedding-3-small` 当前公开 `encoding_format`、`user` 和固定的 Embeddings 输入契约；显式 `dimensions` 不公开。
 `qwen3.7-text-embedding` 当前公开 string/string-array 输入、float `encoding_format`、`dimensions` 及其固定允许值，默认维度为
 1024，批量上限为 20，单输入 token 上限为 128000；不公开 `user`，也不支持 streaming 或 Bridge。
+`nemotron-3-embed-1b` 当前公开 string/string-array 输入、float `encoding_format` 与固定 2048 维 `dimensions`，批量上限为 20；
+不公开 token 上限或 `user`，也不支持 streaming 或 Bridge。
 代码中已绑定 Provider Target 但未加入 Public Model/Route 的 canonical profile 仍不代表可调用模型。当前
 `openai/gpt-5.5`、`openai/gpt-5.6-luna` 和 `openai/gpt-5.6-terra` 已分别绑定 OpenAI Target，但尚未加入独立 OpenAI source 的
 Public Model/Route；其中 `gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra` 当前由 ChatGPT source 提供。
@@ -159,8 +163,9 @@ credential rotation；这不等于账号级负载均衡。
 OpenAI generation Target 以及 `openai-text-embedding-3-small`，但不会删除这些代码绑定；ChatGPT Public Model 使用独立的
 `chatgpt-codex` OAuth2 pool，不受此设置影响。
 
-`openrouter-primary` 激活 `deepseek-v4-flash` 的 OpenRouter 后备和 `minimax-m3` 的第一双协议 source；`nvidia-primary` 激活
-`minimax-m3` 的 NVIDIA Chat 后备。`kimi-primary` 激活 `kimi-k3`；`bailian-primary` 激活两个 DeepSeek 的 Bailian Chat source、
+`openrouter-primary` 激活 `deepseek-v4-flash` 的 OpenRouter 后备、`minimax-m3` 的第一双协议 source 和 `gemma-4-31b-it`；
+`nvidia-primary` 激活 `minimax-m3` 的 NVIDIA Chat 后备与 `nemotron-3-embed-1b`。`kimi-primary` 激活 `kimi-k3`；
+`bailian-primary` 激活两个 DeepSeek 的 Bailian Chat source、
 `glm-5.2`、`qwen3.7-plus`、`qwen3.7-max`、`qwen3.8-max` 与 `qwen3.7-text-embedding`。填入相应 key 并重启后，启动编译器才会保留
 引用该 pool 的 Target 与 Public Model；空数组仍保持这些入口不可用。
 
@@ -405,6 +410,9 @@ curl http://127.0.0.1:8080/openbridge/v1/models/text-embedding-3-small \
 
 curl http://127.0.0.1:8080/openbridge/v1/models/qwen3.7-text-embedding \
   -H 'Authorization: Bearer replace-with-a-local-client-token'
+
+curl http://127.0.0.1:8080/openbridge/v1/models/nemotron-3-embed-1b \
+  -H 'Authorization: Bearer replace-with-a-local-client-token'
 ```
 
 ### 7.2 Chat Completions
@@ -568,8 +576,10 @@ openai-gpt-5-6-luna
 openai-gpt-5-6-terra
 openai-text-embedding-3-small
 bailian-qwen3-7-text-embedding
+nvidia-nemotron-3-embed-1b
 longcat-2
 openrouter-deepseek-v4-flash
+openrouter-gemma-4-31b-it
 deepseek-v4-pro
 deepseek-v4-flash
 mimo-v2-5-pro
@@ -594,6 +604,7 @@ cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --list
 cargo run --locked --bin openbridge-probe -- --target openai-main --chat --responses
 cargo run --locked --bin openbridge-probe -- --target openai-text-embedding-3-small --embeddings
 cargo run --locked --bin openbridge-probe -- --target bailian-qwen3-7-text-embedding --embeddings
+cargo run --locked --bin openbridge-probe -- --target nvidia-nemotron-3-embed-1b --embeddings
 cargo run --locked --bin openbridge-probe -- --target chatgpt-gpt-5-6-sol --responses
 ```
 

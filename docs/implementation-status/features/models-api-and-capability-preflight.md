@@ -137,7 +137,7 @@
   Bridge 回归保持通过。
 - [`tests/embedding_definition_contract.rs`](../../../tests/embedding_definition_contract.rs) 和 [`tests/embedding_registry_contract.rs`](../../../tests/embedding_registry_contract.rs)
   覆盖 Embeddings interface 的独立编译和公开契约。
-- [`tests/example_config/configuration.rs`](../../../tests/example_config/configuration.rs) 覆盖 31 个 canonical leaf 的 task 表、
+- [`tests/example_config/configuration.rs`](../../../tests/example_config/configuration.rs) 覆盖 33 个 canonical leaf 的 task 表、
   canonical/audio mismatch、Provider ceiling miss、Generation AudioUnderstanding modality matrix、Public Model 跨 operation task gate 和
   same-variant 空 payload 交集；[`tests/forwarding_contract/models.rs`](../../../tests/forwarding_contract/models.rs) 覆盖标准/扩展
   Models 的 Generation/Embedding task 投影和 list/retrieve equality，

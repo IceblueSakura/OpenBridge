@@ -2,14 +2,14 @@
 
 ## 状态
 
-**已完成（当前 checkout）。** Provider、31 个 canonical Model leaf、34 个固定 Upstream Target 和 23 个 Public Model 由 Rust
+**已完成（当前 checkout）。** Provider、33 个 canonical Model leaf、36 个固定 Upstream Target 和 25 个 Public Model 由 Rust
 代码显式编译为不可变 `RuntimeRegistry`；每个 Model 必须选择一个闭合 canonical task variant。当前没有动态 Provider DSL、自动发现
 或按名称隐式聚合，Provider 池只来自显式 source 注册。
 
 ## 已完成内容
 
 - 注册表分离 canonical Model、Provider instance、credential pool、Upstream Target、Upstream API、Route 和 Public Model 的所有权。
-- 31 个 canonical Model leaf 全部使用必填 `CanonicalModelTask`：24 个 `Generation`、2 个 `Embedding`、2 个
+- 33 个 canonical Model leaf 全部使用必填 `CanonicalModelTask`：25 个 `Generation`、3 个 `Embedding`、2 个
   `SpeechRecognition`，以及各 1 个 `SpeechSynthesis`、`VoiceDesign`、`VoiceClone`。`ModelConfig` 与运行期 `ModelInfo`
   都只在公共 identity envelope 外保存这一 task union；context、modalities、普通参数和 reasoning 位于对应 payload，运行实体不保留
   `ModelMode`、flat shadow fields 或第二套可漂移 task 状态。
@@ -28,7 +28,9 @@
   Target 只绑定 canonical profile，不新增下游 Public Model 或 Route；`openai-primary` 缺失或为空时这些 Target 保留在注册表中但配置态禁用。
 - OpenRouter、NVIDIA 与百炼分别固定到 `https://openrouter.ai/api/v1`、`https://integrate.api.nvidia.com/v1` 和
   `https://dashscope.aliyuncs.com/compatible-mode/v1`，使用独立 API-key pool。OpenRouter 将 `minimax/minimax-m3` 绑定为
-  Chat/Responses Native，NVIDIA 保留同一 Public Model 的 Chat Native 后备；百炼将 `z-ai/glm-5.2` 绑定为 Chat Native +
+  Chat/Responses Native，NVIDIA 保留同一 Public Model 的 Chat Native 后备；OpenRouter 另将 `google/gemma-4-31b-it` 绑定为
+  双协议 Native `gemma-4-31b-it` Public Model。NVIDIA 将 `nvidia/nemotron-3-embed-1b` 绑定为独立 Embeddings Public Model；
+  百炼将 `z-ai/glm-5.2` 绑定为 Chat Native +
   Responses Bridge，并将 `qwen/qwen3.7-plus`、`qwen/qwen3.7-max` 与 `qwen/qwen3.8-max` 绑定为双协议 Native Public Model。
   百炼另外将 `qwen/qwen-image-3.0`、`qwen/qwen-image-3.0-pro`、
   `qwen/qwen3.5-livetranslate-flash-realtime` 与 `qwen/qwen3.6-27b` 编译为固定 Chat Upstream Target，并将
@@ -46,7 +48,8 @@
   `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna` 和 `gpt-5.6-terra`；
   `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign`、`mimo-v2.5-tts-voiceclone` 分别是
   `SpeechRecognition`、`SpeechSynthesis`、`VoiceDesign`、`VoiceClone` Public Model；
-  `text-embedding-3-small` 与 `qwen3.7-text-embedding` 是独立 Embeddings Public Model。
+  `text-embedding-3-small`、`qwen3.7-text-embedding` 与 `nemotron-3-embed-1b` 是独立 Embeddings Public Model；
+  `gemma-4-31b-it` 是 OpenRouter 双协议 Native Generation Public Model。
 - `gpt-5.6-sol` 显式绑定 ChatGPT 与 OpenAI 两个 source，并使用 `SourceFirst` 让两个下游协议都优先 ChatGPT、再回落 OpenAI；
   固定接口仍按全部可执行候选的最小公共契约公开；
 - `deepseek-v4-pro` 显式绑定 DeepSeek 与 Bailian 两个 Chat Native source，并在 Responses 缺少 Native coverage 时按相同顺序补充 Bridge；
@@ -91,8 +94,8 @@
 ### 当前实际接入清单与 2026-08-09 文字复测
 
 “实际接入”在本页指已经进入 Public Model、至少拥有一条固定 Route，且能由启动期 registry 编译为下游接口；它不包括只有 canonical
-Model 或 Upstream Target 的条目。静态目录共有 23 个 Public Model，其中 17 个是同时提供 Chat/Responses 的文本 Generation 模型，
-4 个是 Chat-only MiMo 专用音频模型，2 个是 Embeddings 模型。运行时还会依据 active credential pool 收窄该集合。
+Model 或 Upstream Target 的条目。静态目录共有 25 个 Public Model，其中 18 个是同时提供 Chat/Responses 的文本 Generation 模型，
+4 个是 Chat-only MiMo 专用音频模型，3 个是 Embeddings 模型。运行时还会依据 active credential pool 收窄该集合。
 
 2026-08-09 在 `main@ed515cc` 启动当前服务后，`GET /openbridge/v1/models` 返回 21 个可执行模型：16 个文本模型全部进入
 `reasoning=none/high × Chat/Responses × stream=false/true` 八项矩阵，5 个非通用文字模型单列；静态
@@ -466,6 +469,18 @@ payload。
   OpenRouter 排列；Provider Target、能力、Bridge surface、credential pool 和 fallback 失败分类均未改变；
 - route compiler 与 example-config 的相关断言已同步修改；按用户要求未执行 `cargo test`，因此本轮没有运行时测试通过证据；
 - `cargo fmt -- --check` 与 `git diff --check`：通过；未运行 build、clippy、真实 Provider、外部 SDK、强制 fallback、负载或长期验收。
+
+2026-08-11 Gemma 4 31B OpenRouter 接入确认：
+
+- 新增 `google/gemma-4-31b-it` canonical Generation Model、`openrouter-gemma-4-31b-it` 固定 Target 和同名 Public Model；
+  Chat 与 Responses 都只有 OpenRouter Native candidate，上游模型固定为 `google/gemma-4-31b-it:free`；
+- 根据 2026-08-10 定向实测只公开文本/PNG 图片输入、parallel tool calls 与 `json_object`；未确认 reasoning，strict JSON Schema
+  因返回 markdown 包裹内容而不公开；
+- `cargo test --locked --test example_config`：通过（29 项）；provider/native routing 聚焦契约：通过（41 + 8 + 9 项）；
+  `cargo test --locked` 与 `cargo clippy --locked -- -D warnings`：通过；本次变更文件的 `rustfmt --check` 与 `git diff --check`：通过；
+- 仓库级 `cargo fmt -- --check` 仍报告未纳入本次修改的 `src/providers/kimi_cn/definition.rs` 与
+  `src/providers/openrouter/definition.rs` 两处既有 import 排版差异；本轮没有为提交 Gemma 而扩大修改范围；
+- 本轮没有重复运行真实 OpenRouter、外部 SDK、fallback、负载或长期验收；上游行为边界仍以 2026-08-10 定向请求为准。
 
 ## 相关文档
 

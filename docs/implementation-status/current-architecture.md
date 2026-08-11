@@ -168,12 +168,13 @@ RegistryConfig
 | `PublicModelConfig`    | 下游稳定 id、创建时间、展示元数据、生命周期、reasoning input policy 与私有有序 Route ID                              |
 | `PublicModelInfo`      | 标准身份、模型事实及每 operation 唯一固定能力契约；不包含任何部署字段                                                |
 
-当前编译目录包含 31 个 `ModelConfig`：24 个 Generation、2 个 Embedding、2 个 SpeechRecognition，以及各 1 个
+当前编译目录包含 33 个 `ModelConfig`：25 个 Generation、3 个 Embedding、2 个 SpeechRecognition，以及各 1 个
 SpeechSynthesis、VoiceDesign、VoiceClone 模型。通常同一研发者命名空间由 `src/models/<developer>.rs` 聚合；ChatGPT subscription
 侧因已核实 context profile 不同，使用独立的 `src/models/chatgpt.rs` namespace，当前包含 Spark、GPT-5.5 以及 GPT-5.6
 Luna/Terra/Sol 共 5 个 profile。目录下每个扁平叶模块只定义一个具体模型。版本、
 checkpoint 和命名变体直接组成 snake_case 模块名：例如 `openai/gpt_5_6_sol.rs`、`chatgpt/gpt_5_3_codex_spark.rs`、
-`deepseek/deepseek_v4_flash.rs`、`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。各根模块直接维持
+`deepseek/deepseek_v4_flash.rs`、`google/gemma_4_31b_it.rs`、`nvidia/nemotron_3_embed_1b.rs`、
+`xiaomi/mimo_v2_5_pro.rs` 与 `qwen/qwen3_7_max.rs`；不增加版本聚合层。各根模块直接维持
 目录顺序，源码使用 `openai::gpt_5_6_sol::ID` 或 `chatgpt::gpt_5_3_codex_spark::ID` 这类扁平作用域名称。OpenRouter 的 `z-ai` slug 在 Rust 路径中使用
 `z_ai`，其他点号与连字符同样规范化为下划线。每个具体模型仍完整拥有 id、名称、可选描述/tokenizer/knowledge cutoff 与一个必填
 `CanonicalModelTask` payload，不从共享默认值拼装模型字段。Generation variant 拥有 context、可选输入/输出模态、参数与 reasoning；
@@ -349,9 +350,10 @@ capability `enabled` 或 disabled placeholder。
 `ProviderAdapter::for_kind` 都委托给它。OpenAI、LongCat、OpenRouter、DeepSeek、MiMo、ChatGPT、NVIDIA、百炼与 Kimi CN 的独立静态定义拥有
 Provider 契约、endpoint path、`ProviderRequestHeaders`、request header/body hook 与 Responses terminal discriminator；共享
 `openai_compatible` 机制负责模型字段、reasoning level wire 映射与 Chat thinking switch、认证 header、响应/SSE terminal、错误分类和 generation Upstream API
-pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 只声明基础 `/chat/completions` adapter；百炼声明
-`/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定一个 MiniMax M3 Chat target；
-OpenRouter 为 MiniMax M3 与 DeepSeek V4 Flash 各绑定一个双协议 Native target。百炼的 Qwen3.7 Max/Plus 与 Qwen3.8 Max target 注册双协议 Native API，
+pair 构造；OpenAI adapter 另注册固定 `/v1/embeddings` path。NVIDIA 声明 `/chat/completions` 与 `/embeddings`；百炼声明
+`/chat/completions`、`/responses` 与 `/embeddings`，两者都使用 API-key credential。NVIDIA 绑定 MiniMax M3 Chat target 和
+Nemotron 3 Embed 1B Embeddings target；OpenRouter 为 MiniMax M3、DeepSeek V4 Flash 与 Gemma 4 31B 各绑定一个双协议 Native target。
+百炼的 Qwen3.7 Max/Plus 与 Qwen3.8 Max target 注册双协议 Native API，
 其他 generation target 保持 Chat-only。Kimi CN 固定到 `https://api.moonshot.cn`，通过 `/v1/chat/completions` adapter 将
 `moonshotai/kimi-k3` 绑定为 `kimi-k3` Public Model；Target 只声明 Chat Native 文本与 streaming 基线，Public Model 编译器在
 Responses Native 缺失时自动补充一个 Responses-via-Chat Bridge。
@@ -439,13 +441,15 @@ fail closed。`prompt_cache_key` 独立表示 exact request forwarding：只在�
 `supported_parameters`，Native 与 Bridge 原样复制，但不再公开旧的 `prompt_caching` 效果字段，也不承诺 cache hit；options、retention 和
 breakpoint 仍属于未实现边界。
 
-OpenRouter 当前注册 `openrouter-deepseek-v4-flash` 与 `openrouter-minimax-m3` 两个固定 target；每个 target 都提供 Chat/Responses
-Upstream API、`ResponsesAffinity::Unbound` executable state 和同协议 Native route，分别使用 upstream model `deepseek/deepseek-v4-flash` 与
-`minimax/minimax-m3`。DeepSeek Public Model 中 OpenRouter 是第三个 Chat source、第二个 Responses source；MiniMax Public Model 中
+OpenRouter 当前注册 `openrouter-deepseek-v4-flash`、`openrouter-minimax-m3` 与 `openrouter-gemma-4-31b-it` 三个固定 target；
+每个 target 都提供 Chat/Responses Upstream API、`ResponsesAffinity::Unbound` executable state 和同协议 Native route，分别使用
+upstream model `deepseek/deepseek-v4-flash`、`minimax/minimax-m3` 与 `google/gemma-4-31b-it:free`。DeepSeek Public Model 中
+OpenRouter 是第三个 Chat source、第二个 Responses source；MiniMax Public Model 中
 OpenRouter 是第一 source，Chat 按 OpenRouter、NVIDIA 排序，Responses 只保留 OpenRouter Native，不为 NVIDIA Chat source 生成冗余
-Bridge。两个 target 的 `store`、
-`previous_response_id` 与 `background` 都在 capability gate 关闭，也不注册显式 Bridged route 或 `:free` 变体；只有 DeepSeek Flash
-target 从 OpenRouter ceiling 保留 `json_object`，MiniMax target 显式收窄为不支持 structured output。
+Bridge。三个 target 的 `store`、
+`previous_response_id` 与 `background` 都在 capability gate 关闭，也不注册显式 Bridged route；DeepSeek/MiniMax 保持稳定模型 ID，
+Gemma 精确绑定已验证的 `:free` 变体。DeepSeek Flash target 从 OpenRouter ceiling 保留 `json_object`，MiniMax target 显式收窄为不支持 structured output；Gemma target 只保留
+`json_object` 并关闭 function-tool strict schema，不把实测不可靠的 strict JSON Schema 公开为能力。
 
 DeepSeek 的两个 target 分别绑定 `deepseek-v4-pro` 与 `deepseek-v4-flash`，共享 `deepseek-primary` pool、 quota scope 与
 fault domain。`deepseek-v4-pro` target 仅保留 Chat Native，Public Model 在缺少 Responses Native 时自动补充 Responses-via-Chat

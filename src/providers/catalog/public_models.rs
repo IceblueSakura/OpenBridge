@@ -133,6 +133,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
+            public_name: "gemma-4-31b-it",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "gemma-4-31b-it-openrouter",
+                upstream_target: "openrouter-gemma-4-31b-it",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "kimi-k3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,

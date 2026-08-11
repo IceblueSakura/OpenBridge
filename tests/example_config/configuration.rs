@@ -32,6 +32,7 @@ fn canonical_catalog_assigns_every_model_to_one_expected_task() {
         ("chatgpt/gpt-5.6-terra", Generation),
         ("deepseek/deepseek-v4-flash", Generation),
         ("deepseek/deepseek-v4-pro", Generation),
+        ("google/gemma-4-31b-it", Generation),
         ("meituan/longcat-2.0", Generation),
         ("minimax/minimax-m3", Generation),
         ("moonshotai/kimi-k3", Generation),
@@ -59,20 +60,20 @@ fn canonical_catalog_assigns_every_model_to_one_expected_task() {
         ("z-ai/glm-5.2", Generation),
     ]);
 
-    // Compare both identity and task payload variant for all 32 catalog entries.
+    // Compare both identity and task payload variant for all 33 catalog entries.
     let actual = compiled_config()
         .models
         .into_iter()
         .map(|model| (model.id, model.task.kind()))
         .collect::<BTreeMap<_, _>>();
-    assert_eq!(actual.len(), 32);
+    assert_eq!(actual.len(), 33);
     assert_eq!(
         actual.values().fold(BTreeMap::new(), |mut counts, task| {
             *counts.entry(*task).or_insert(0_usize) += 1;
             counts
         }),
         BTreeMap::from([
-            (Generation, 24),
+            (Generation, 25),
             (Embedding, 3),
             (SpeechRecognition, 2),
             (SpeechSynthesis, 1),

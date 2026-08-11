@@ -115,3 +115,12 @@ Qwen3.6 27B 因而按 `none/high` 二态模型契约解释：`none` 表示关闭
 Qwen3.6 27B 的当前模型级 `supported_parameters` 与本地集合逐项一致；OpenRouter 的 Alibaba endpoint 仍明确给出 262,144 context
 和 65,536 最大输出。Qwen 官方模型卡同样声明 262,144 原生 context；依据 OpenBridge 对 OpenRouter `context_length` 同时投影为
 context/input 上限的既有契约，本地不再保留没有来源的 260,096 input 值。
+
+## 2026-08-10 Gemma 4 31B 定向观察
+
+对 `google/gemma-4-31b-it:free` 的独立定向请求观察到 Chat、流式 usage 尾块、parallel tool calls、PNG data URL 图片输入和
+Responses endpoint 均可完成。reasoning 默认关闭；本次没有建立其他离散 reasoning effort 语义。
+
+同一轮 strict JSON Schema 请求返回 markdown 包裹的 JSON，未可靠遵循 strict schema。因此该结果只支持保守的
+`json_object` 结论，不支持 strict JSON Schema。以上观察仅适用于当时的 OpenRouter free endpoint、账户、网络和精确 payload；
+不证明其他图片 MIME、remote URL、Provider 路由、额度、语义质量、负载或长期可用性。

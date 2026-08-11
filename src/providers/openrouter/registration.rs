@@ -7,7 +7,7 @@ use crate::{
         ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
         StructuredOutputProfile,
     },
-    models::{deepseek, minimax},
+    models::{deepseek, google, minimax},
     provider::ProviderKind,
     registry::{
         ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
@@ -20,6 +20,9 @@ use super::DEFINITION;
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
 const STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+/// Gemma 4 31B returns markdown-wrapped JSON for strict schema requests, so its
+/// executable targets keep the reliable JSON-object profile only.
+const GEMMA_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted OpenRouter API deployment used by the checked-in target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -42,6 +45,11 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "openrouter-minimax-m3",
             minimax::minimax_m3::ID,
             "minimax/minimax-m3",
+        ),
+        dual_protocol_target(
+            "openrouter-gemma-4-31b-it",
+            google::gemma_4_31b_it::ID,
+            "google/gemma-4-31b-it:free",
         ),
     ]
 }
@@ -73,6 +81,20 @@ fn dual_protocol_target(
     // DeepSeek V4 Flash is text-only; MiniMax M3 keeps the Chat family image ceiling.
     if canonical_model == deepseek::deepseek_v4_flash::ID {
         chat_capabilities.image_input = None;
+    }
+    // Gemma 4 31B keeps JSON-object output and does not guarantee strict schema.
+    if canonical_model == google::gemma_4_31b_it::ID {
+        chat_capabilities.structured_outputs = Some(GEMMA_STRUCTURED_OUTPUTS);
+        responses_capabilities.structured_outputs = Some(GEMMA_STRUCTURED_OUTPUTS);
+        for profile in [
+            chat_capabilities.function_tools.as_mut(),
+            responses_capabilities.function_tools.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            profile.strict_schema = false;
+        }
     }
 
     // Bind the model-specific capabilities to both stateless Native protocol endpoints.
