@@ -98,8 +98,8 @@
 
 ## 相关文档
 
-- [功能需求：Native 图片能力](../../functional-requirements/native-image.md)
-- [扩展共同规则](../../functional-requirements/embedding-and-native-multimodal.md)
+- [功能需求：Native 图片能力](../../functional-requirements/extended-capabilities/native-image.md)
+- [扩展共同规则](../../functional-requirements/extended-capabilities/embedding-and-native-multimodal.md)
 - [MiMo 图片协议与真实观察](../../references/providers/xiaomi/image.md)
 - [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [Chat/Responses Native 转发](native-generation-forwarding.md)

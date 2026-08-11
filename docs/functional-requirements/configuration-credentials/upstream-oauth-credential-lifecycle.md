@@ -17,9 +17,9 @@ OpenBridge 不搜索或导入 Codex 用户目录，也不调用 Codex executable
 
 外部 OAuth 行为仍应在实现前重新核对 Provider 官方资料和届时的参考实现，不能把历史快照或一次成功调用视为长期稳定协议。
 
-- [Codex 设备登录与 token 刷新调研](../references/codex/codex-device-auth-token-refresh-analysis.md)
-- [Codex 浏览器 OAuth 调研](../references/codex/codex-oauth-and-tool-call-analysis.md)
-- [OAuth 设备登录与 token 刷新综合调研](../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)
+- [Codex 设备登录与 token 刷新调研](../../references/codex/codex-device-auth-token-refresh-analysis.md)
+- [Codex 浏览器 OAuth 调研](../../references/codex/codex-oauth-and-tool-call-analysis.md)
+- [OAuth 设备登录与 token 刷新综合调研](../../references/cross-project/upstream-oauth-device-code-token-refresh-analysis.md)
 
 ## 1. 当前边界与后续范围
 

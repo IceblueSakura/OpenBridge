@@ -6,13 +6,13 @@
 
 | 功能          | 唯一需求入口                         | 实施证据入口                                                                                 |
 |---------------|--------------------------------------|----------------------------------------------------------------------------------------------|
-| Embeddings    | [Embeddings 能力](embeddings.md)     | [Embeddings 实施状态](../implementation-status/features/embeddings.md)                       |
-| Native 图片   | [图片能力](native-image.md)          | [`mimo-v2.5` Native 图片输入](../implementation-status/features/native-image-input.md)        |
-| Native 文件   | [文件能力](native-file.md)           | [当前实现总览](../implementation-status/current-implementation.md)                           |
-| Native 音频   | [音频能力](native-audio.md)          | [当前实现总览](../implementation-status/current-implementation.md)                           |
+| Embeddings    | [Embeddings 能力](embeddings.md)     | [Embeddings 实施状态](../../implementation-status/features/embeddings.md)                       |
+| Native 图片   | [图片能力](native-image.md)          | [`mimo-v2.5` Native 图片输入](../../implementation-status/features/native-image-input.md)        |
+| Native 文件   | [文件能力](native-file.md)           | [当前实现总览](../../implementation-status/current-implementation.md)                           |
+| Native 音频   | [音频能力](native-audio.md)          | [当前实现总览](../../implementation-status/current-implementation.md)                           |
 
 功能需求只定义目标行为、失败语义与安全边界；当前 checkout 已经完成什么、运行过哪些检查，只由 `implementation-status/` 记录。
-任何功能进入实现前仍须遵守[当前开发焦点](../implementation-plans/current-focus.md)的一次一个可观察行为约束。
+任何功能进入实现前仍须遵守[当前开发焦点](../../implementation-plans/current-focus.md)的一次一个可观察行为约束。
 
 扩展 schema 尚未发布，因此继续使用首版最佳实践：保持 `schema_version: "1"` 并直接同步 DTO、parser、registry、OpenAPI、配置与
 测试，不提供旧字段镜像、兼容 alias、双读写、默认回退或无意义版本迁移。
@@ -82,4 +82,4 @@ Chat ↔ Responses Bridge 对本阶段媒体请求保持 fail closed。只有未
 - 媒体下载代理、格式转换、OCR、通用转写、内容托管、向量检索或通用安全扫描服务；
 - Provider-issued resource identity 的跨账户、跨 Target 或跨 Provider 猜测与迁移。
 
-外部协议入口见[OpenAI 细粒度协议调研索引](../references/openai/README.md)。
+外部协议入口见[OpenAI 细粒度协议调研索引](../../references/openai/README.md)。

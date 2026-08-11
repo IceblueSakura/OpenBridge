@@ -163,7 +163,7 @@ egress 和不支持该能力时 no-op 仍可执行且不出现在 upstream body�
 
 ## 相关文档
 
-- [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api-compatibility.md)
+- [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api/README.md)
 - [协议 Bridge](protocol-bridge.md)
 - [`mimo-v2.5` Native 图片输入](native-image-input.md)
 - [DeepSeek API 协议入口快照](../../references/providers/deepseek/api.md)

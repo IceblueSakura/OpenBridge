@@ -2,12 +2,12 @@
 
 ## 状态
 
-本文定义当前产品范围。已实现行为和最近验证结果以[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题
+本文定义当前产品范围。已实现行为和最近验证结果以[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题
 为准；尚未实现的方向只列为边界，不在这里展开设计。
 
 OpenBridge 尚未发布任何版本，也没有受支持的外部兼容基线。当前功能需求描述准备形成的首个一致契约；在单一当前焦点内，可以直接
 删除或替换原型 API、bootstrap 字段、内部模块、fixture 和测试，不为未发布形态保留 alias、双读写、兼容垫片、弃用窗口或无意义的
-schema 版本迁移。破坏性变更仍须遵守[交付与证据要求](delivery-and-evidence.md)，同步更新所有受影响契约，并保持安全和信任边界。
+schema 版本迁移。破坏性变更仍须遵守[交付与证据要求](../delivery-evidence/delivery-and-evidence.md)，同步更新所有受影响契约，并保持安全和信任边界。
 
 ## 产品目标
 
@@ -51,9 +51,9 @@ Route。
 现阶段扩展状态分为：
 
 - 已实现并由确定性 contract/独立 Python loopback 证明：通过独立 Embedding Public Model 调用
-  `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；目标边界见[Embeddings 能力](embeddings.md)；
+  `POST /v1/embeddings`，保持向量身份、编码、维度、顺序与 usage；目标边界见[Embeddings 能力](../extended-capabilities/embeddings.md)；
 - 已实现首个切片：`mimo-v2.5` 在 Chat/Responses 同协议 Native Route 中支持已声明的 URL/Base64 image，并在无资源归属时拒绝
-  `file_id`；目标边界见[图片能力](native-image.md)；[文件](native-file.md)与[音频](native-audio.md)仍未实施。音频目标按
+  `file_id`；目标边界见[图片能力](../extended-capabilities/native-image.md)；[文件](../extended-capabilities/native-file.md)与[音频](../extended-capabilities/native-audio.md)仍未实施。音频目标按
   `mimo-v2.5` 通用理解、`mimo-v2.5-asr`、`mimo-v2.5-tts` 及音色条件任务分离，其中只有 ASR/TTS 最小组合具有
   2026-08-08 真实 Provider 观察。
 - 已实现 ChatGPT subscription OAuth 与受限数据面：独立 Provider、OpenBridge-owned 配置、显式 private device interaction + PKCE
@@ -61,16 +61,16 @@ Route。
   manager credential lease 和一次有界 `401` recovery；不提供本机 Codex auth、environment、terminal 或 executable selector。管理员
   可以显式运行固定 ChatGPT Models 与 streaming Responses 基础 probe，但它不读取本机状态，也不扩大 Public Model 能力。
 - 已批准的观测目标：使用默认禁用的 OTLP/HTTP exporter 交付 traces、metrics 和 logs，把历史分析与聚合移到外部系统；
-  traces 与 metrics 导出闭环已完成，logs 仍须另立[当前开发焦点](../implementation-plans/current-focus.md)。
+  traces 与 metrics 导出闭环已完成，logs 仍须另立[当前开发焦点](../../implementation-plans/current-focus.md)。
 
-Embeddings 与 Native 媒体的共同边界以[扩展导航及共同规则](embedding-and-native-multimodal.md)为准；具体行为分别由
-[Embeddings](embeddings.md)、[图片](native-image.md)、[文件](native-file.md)和[音频](native-audio.md)功能页拥有。这些扩展目标不改变
+Embeddings 与 Native 媒体的共同边界以[扩展导航及共同规则](../extended-capabilities/embedding-and-native-multimodal.md)为准；具体行为分别由
+[Embeddings](../extended-capabilities/embeddings.md)、[图片](../extended-capabilities/native-image.md)、[文件](../extended-capabilities/native-file.md)和[音频](../extended-capabilities/native-audio.md)功能页拥有。这些扩展目标不改变
 “每次只实施一个可观察行为”的约束；当前 checkout 只提供已在 implementation status 明确记录的能力。
 
 ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
-[ChatGPT subscription OAuth credential lifecycle](upstream-oauth-credential-lifecycle.md)为准；扩展模型、协议、工具或账户策略仍须另行批准。
+[ChatGPT subscription OAuth credential lifecycle](../configuration-credentials/upstream-oauth-credential-lifecycle.md)为准；扩展模型、协议、工具或账户策略仍须另行批准。
 
-[Model 目录与 Provider 接入配置](model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
+[Model 目录与 Provider 接入配置](../pending/model-catalog-configuration.md)已经降级为待定方案，暂不形成产品承诺或实施任务。
 在它重新获得明确批准前，当前 Rust 代码注册方式保持不变。
 
 ## 静态装配原则
@@ -101,7 +101,7 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 |------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | `GET /healthz`                                                   | 返回最小本地存活状态和注册表版本。                                                                            |
 | `GET /v1/models`、`GET /v1/models/{model}`                       | 返回代码注册 Public Model 的 OpenAI 标准四字段 list/retrieve。                                                |
-| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 按[模型能力契约](model-information-and-capability-contract.md)返回同一目录的模型事实与每 operation 固定能力。 |
+| `GET /openbridge/v1/models`、`GET /openbridge/v1/models/{model}` | 按[模型能力契约](../model-capability/README.md)返回同一目录的模型事实与每 operation 固定能力。 |
 | `POST /v1/chat/completions`                                      | 在所选 Public Model 的固定 Chat 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                          |
 | `POST /v1/responses`                                             | 在所选 Public Model 的固定 Responses 契约内按完整 Route 提供 OpenAI-compatible JSON/SSE。                     |
 | `POST /v1/embeddings`                                            | 在独立 Embedding Public Model 的固定契约内按唯一 Native Route 提供有界 JSON 向量结果。                        |
@@ -111,16 +111,16 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 
 | 接口                         | 目标用途                                                               | 当前证据入口                                                                                   |
 |------------------------------|------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。       |
+| `POST /v1/embeddings`        | 使用独立 Embedding Public Model 提供 OpenAI-compatible JSON 向量结果。 | 当前实现与验证边界见[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题。       |
 | 现有 Chat/Responses endpoint | 按图片、文件和音频功能页扩展同协议 Native 能力，不扩大 Bridge 或专用媒体 API。 | `mimo-v2.5` 图片切片已实现；file、通用音频理解与 MiMo ASR/TTS 仍未实施，证据见 implementation status。 |
-| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、SDK 聚合 metrics 与安全 logs。 | traces/metrics 已实现；logs 仍未实施，证据见[当前实现总览](../implementation-status/current-implementation.md)和遥测专题。 |
+| OTLP/HTTP 出站               | 向配置所有者选择的 collector 导出脱敏 traces、SDK 聚合 metrics 与安全 logs。 | traces/metrics 已实现；logs 仍未实施，证据见[当前实现总览](../../implementation-status/current-implementation.md)和遥测专题。 |
 
 ## 暂不纳入当前产品承诺
 
 - image、opaque/未建模 reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、跨 Provider/Target 迁移和 continuation ledger；
 - Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
-- 除[ChatGPT subscription OAuth 两阶段范围](upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret
+- 除[ChatGPT subscription OAuth 两阶段范围](../configuration-credentials/upstream-oauth-credential-lifecycle.md)外的 OAuth Provider、keyring、加密 secret
   文件、远程 secret manager、subscription/OAuth 多账号池、账号级负载均衡和动态 credential 控制面；
 - 动态权重、持久化/分布式健康、后台探测和多进程协调；
 - OpenBridge 内置 Prometheus exporter、指标持久化、历史查询、重置或分布式聚合；
@@ -128,8 +128,8 @@ ChatGPT credential 与当前四个 Responses-only Public Model 的边界以
 - 多租户、用户管理、配额、计费、审计、GUI 或独立控制面。
 
 本节只限定产品范围，不声明代码缺口。当前实现是否已经覆盖某项核心结果，以
-[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题为准；新增承诺只有在功能需求先明确、再进入
-[当前开发焦点](../implementation-plans/current-focus.md)后才形成实施任务。
+[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题为准；新增承诺只有在功能需求先明确、再进入
+[当前开发焦点](../../implementation-plans/current-focus.md)后才形成实施任务。
 
 ## 术语
 

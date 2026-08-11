@@ -143,6 +143,6 @@ Responses envelope（stream、input array、store false）、header/OAuth 与输
 
 ## 相关文档
 
-- [功能需求：ChatGPT subscription OAuth credential lifecycle](../../functional-requirements/upstream-oauth-credential-lifecycle.md)
-- [功能需求：Bootstrap、代码注册表、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
+- [功能需求：ChatGPT subscription OAuth credential lifecycle](../../functional-requirements/configuration-credentials/upstream-oauth-credential-lifecycle.md)
+- [功能需求：Bootstrap、代码注册表、凭证与受信边界](../../functional-requirements/configuration-credentials/README.md)
 - [Provider 注册表与模型目录](provider-registry-and-model-catalog.md)

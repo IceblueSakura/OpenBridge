@@ -100,4 +100,4 @@ Codex、Hermes、真实 Provider、负载或长期运行验收。
 
 - [实施现状目录](README.md)
 - [协议测试语料与工具](protocol-test-corpus.md)
-- [TDD 与证据要求](../functional-requirements/delivery-and-evidence.md)
+- [TDD 与证据要求](../functional-requirements/delivery-evidence/delivery-and-evidence.md)

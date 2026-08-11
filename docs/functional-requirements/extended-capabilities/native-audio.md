@@ -6,7 +6,7 @@
 当前 checkout 已接入 `mimo-v2.5-asr`、`mimo-v2.5-tts`、`mimo-v2.5-tts-voicedesign` 与
 `mimo-v2.5-tts-voiceclone` 的固定 Chat Native surface；`mimo-v2.5` 通用音频理解仍未开放。
 本页不实现 OpenAI `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、Responses audio 或 Realtime；共同规则见
-[媒体扩展共同规则](embedding-and-native-multimodal.md)。已实现事实与验证证据见 [Native MiMo 音频专题](../implementation-status/features/native-mimo-audio.md)。
+[媒体扩展共同规则](embedding-and-native-multimodal.md)。已实现事实与验证证据见 [Native MiMo 音频专题](../../implementation-status/features/native-mimo-audio.md)。
 
 ## 1. 任务身份与不可替代性
 
@@ -140,5 +140,5 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 非目标包括 `/audio/*`、Responses audio、Realtime、`mimo-v2.5` 通用音频理解、未进入固定 profile 的 remote/multi-audio/格式、
 ASR 方言承诺、未单独验证的 VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
 
-- [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
-- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/audio.md)
+- [OpenAI Chat 音频输入与输出调研](../../references/openai/audio/chat-input-output.md)
+- [Xiaomi MiMo 全模型语音能力与调用途径](../../references/providers/xiaomi/audio.md)

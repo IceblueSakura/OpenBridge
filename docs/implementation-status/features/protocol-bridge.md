@@ -91,6 +91,6 @@ OpenAI API 或任意 Provider 私有语义可转换。
 
 ## 相关文档
 
-- [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api-compatibility.md)
+- [功能需求：网关 API 与客户端兼容](../../functional-requirements/gateway-api/README.md)
 - [Native Chat/Responses 转发](native-generation-forwarding.md)
 - [协议测试语料与工具](../protocol-test-corpus.md)

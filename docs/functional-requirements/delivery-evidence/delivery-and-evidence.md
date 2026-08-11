@@ -8,13 +8,13 @@
 
 对每个当前焦点，按以下循环工作：
 
-1. 从[产品范围](product-scope.md)或一个已知缺陷中选择一个可观察行为，写清楚输入、预期输出和不覆盖的边界。
+1. 从[产品范围](../product-scope/product-scope.md)或一个已知缺陷中选择一个可观察行为，写清楚输入、预期输出和不覆盖的边界。
 2. 先添加或调整一个会失败的自动化测试、fixture 或最小客户端复现。
 3. 只实现足以让该测试通过的最小代码；不为尚未有测试的未来方向预建抽象。
 4. 运行与该行为相称的回归：先运行本地单元/契约测试，再使用 OpenAI SDK、独立 Python 脚本或 curl
    复核实际客户端可见行为；只有明确的目标客户端兼容行为才使用对应客户端 runtime。
 5. 在测试保持通过的前提下重构；若发现新语义，先补失败测试而不是扩展原实现。
-6. 更新[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题中的已证明事实。当前开发焦点完成后替换或清空，不在原文档累积下一批工作包。
+6. 更新[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题中的已证明事实。当前开发焦点完成后替换或清空，不在原文档累积下一批工作包。
 
 如果某项工作会改变产品目标、信任边界或非目标，先修改基础目标并说明取舍；否则不需要先设计新的 phase 或验收门。
 
@@ -85,7 +85,7 @@ synthetic model，也不得声称任何真实 Provider、model、media quality�
 
 ## 当前焦点的最小记录
 
-[当前开发焦点](../implementation-plans/current-focus.md)最多描述一个行为，建议仅包含：
+[当前开发焦点](../../implementation-plans/current-focus.md)最多描述一个行为，建议仅包含：
 
 - 行为与用户可见结果；
 - 先失败的测试或复现；
@@ -99,5 +99,5 @@ synthetic model，也不得声称任何真实 Provider、model、media quality�
 
 - 区分“测试已通过”“SDK/独立客户端已观察到”“目标 Agent 已观察到”“真实 Provider 已观察到”和“尚未验证”；不要把任一项写成整体兼容结论。
 - 记录失败时优先保留 request id、脱敏配置、错误分类、是否已收到首个可见输出以及可重跑步骤；不得保存 credential、cookie 或私人内容。
-- Provider 限流、429、超时和临时网络失败的行为以[Provider 韧性需求](provider-resilience.md)为设计参照；每次实现都为对应分支先写测试。
+- Provider 限流、429、超时和临时网络失败的行为以[Provider 韧性需求](../routing-resilience/provider-resilience.md)为设计参照；每次实现都为对应分支先写测试。
 - 需要研究的协议或客户端事实，记录来源和适用边界；研究结论不是实现完成的替代品。

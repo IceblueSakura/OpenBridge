@@ -16,7 +16,7 @@ Provider API-key pool 的目标行为。实现事实仍以实施现状为准；�
   该结果就是 RoutePlan 消费的固定配置顺序，不在运行期重新比较 Native/Bridge 或 Provider；
 - `deepseek-v4-flash` 使用 `SourceFirst`，source 声明顺序为 DeepSeek、Bailian、OpenRouter；Chat 保留三个 Native 候选，Responses
   因 Bailian 只有 Chat Native surface 而保持 DeepSeek、OpenRouter 两个 Native 候选；
-- Public Model 的固定能力计算与请求预检统一由[模型能力契约](model-information-and-capability-contract.md)
+- Public Model 的固定能力计算与请求预检统一由[模型能力契约](../model-capability/README.md)
   定义；本页不再为单个候选计算能力；
 - 进入本层的请求已经完成一次能力预检；请求能力不得跳过、筛选、截断或重排 Route，所有静态可执行候选保持配置顺序；
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model；
@@ -59,7 +59,7 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 ## API-key pool 的错误、轮转与退避策略
 
 本节描述当前必须保持的行为要求。外部项目对照与不采用范围见
-[Credential Pool、冷却与有限重试对照](../references/cross-project/credential-pool-retry-analysis.md)。
+[Credential Pool、冷却与有限重试对照](../../references/cross-project/credential-pool-retry-analysis.md)。
 
 ### 失败分类与作用域
 
@@ -141,12 +141,12 @@ retry/fallback 与短时 cooldown 不能被描述成完整的 Provider 韧性系
 - 两个 synthetic credential 的 target 在首个 member 返回 429 后只等待统一 backoff，并以第二个 member 成功； 后续请求在
   cooldown 到期前跳过首个 member，且任何路径都不突破请求/candidate attempt 上限。
 
-已覆盖的测试源码与最近实际运行的验证范围见[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题。
+已覆盖的测试源码与最近实际运行的验证范围见[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题。
 
 ## 关联文档
 
-- [网关 API 与客户端兼容](gateway-api-compatibility.md)
-- [Public Model 与模型能力契约](model-information-and-capability-contract.md)
-- [配置、凭证与受信边界](configuration-and-credentials.md)
-- [当前代码架构](../implementation-status/current-architecture.md)
-- [当前实现总览](../implementation-status/current-implementation.md)
+- [网关 API 与客户端兼容](../gateway-api/README.md)
+- [Public Model 与模型能力契约](../model-capability/README.md)
+- [配置、凭证与受信边界](../configuration-credentials/README.md)
+- [当前代码架构](../../implementation-status/current-architecture.md)
+- [当前实现总览](../../implementation-status/current-implementation.md)

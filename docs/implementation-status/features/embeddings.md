@@ -41,7 +41,7 @@ Native Route 提供受限的 `POST /v1/embeddings` JSON 链路。
 
 ## 相关文档
 
-- [功能需求：Embeddings 能力](../../functional-requirements/embeddings.md)
-- [扩展共同规则](../../functional-requirements/embedding-and-native-multimodal.md)
+- [功能需求：Embeddings 能力](../../functional-requirements/extended-capabilities/embeddings.md)
+- [扩展共同规则](../../functional-requirements/extended-capabilities/embedding-and-native-multimodal.md)
 - [Models 接口与能力预检](models-api-and-capability-preflight.md)
 - [运行时指标与遥测](../telemetry-metrics.md)

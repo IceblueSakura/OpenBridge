@@ -224,7 +224,7 @@ OpenAPI 的参数/响应引用和定义完成静态结构检查，完整测试�
 
 ## 相关文档
 
-- [功能需求：Public Model 与模型能力契约](../../functional-requirements/model-information-and-capability-contract.md)
+- [功能需求：Public Model 与模型能力契约](../../functional-requirements/model-capability/README.md)
 - [Provider 注册表与模型目录](provider-registry-and-model-catalog.md)
 - [MiMo Provider 多模态与工具调用状态](../providers/mimo.md)
 - [`mimo-v2.5` Native 图片输入](native-image-input.md)

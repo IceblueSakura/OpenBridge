@@ -35,11 +35,11 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 按顺序阅读：
 
 1. [根 README](../README.md)：了解项目定位、运行入口、当前 Native Path、验证基线和非目标。
-2. [产品范围](functional-requirements/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
-3. [扩展导航及共同规则](functional-requirements/embedding-and-native-multimodal.md)：先确认共同的能力分层和 Native/Bridge 边界，再按
-   [Embeddings](functional-requirements/embeddings.md)、[图片](functional-requirements/native-image.md)、
-   [文件](functional-requirements/native-file.md)或[音频](functional-requirements/native-audio.md)进入具体功能。
-4. [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md)
+2. [产品范围](functional-requirements/product-scope/product-scope.md)：确认服务对象、部署边界和不属于本项目的问题。
+3. [扩展导航及共同规则](functional-requirements/extended-capabilities/embedding-and-native-multimodal.md)：先确认共同的能力分层和 Native/Bridge 边界，再按
+   [Embeddings](functional-requirements/extended-capabilities/embeddings.md)、[图片](functional-requirements/extended-capabilities/native-image.md)、
+   [文件](functional-requirements/extended-capabilities/native-file.md)或[音频](functional-requirements/extended-capabilities/native-audio.md)进入具体功能。
+4. [Public Model 与模型能力契约](functional-requirements/model-capability/README.md)
    ：确认模型信息、固定能力预检和禁止能力路由边界。
 5. [实施现状目录](implementation-status/README.md)：按功能点阅读已经完成的实现事实和验证边界。
 6. [当前实现总览](implementation-status/current-implementation.md)：查看功能专题导航、证据层级和未完成范围。
@@ -55,7 +55,7 @@ Rust/Axum、headless、OpenAI-compatible 多 Provider 网关；阅读时应以�
 
 ## 4. 第二阶段：看懂启动与装配
 
-先读[配置、凭证与受信运行边界](functional-requirements/configuration-and-credentials.md)，再按以下顺序进入源码：
+先读[配置、凭证与受信运行边界](functional-requirements/configuration-credentials/README.md)，再按以下顺序进入源码：
 
 | 顺序 | 文件                                                                                                        | 重点                                                                |
 |-----:|-------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
@@ -127,11 +127,11 @@ HTTP request
 | 问题                              | 先读文档                                                                                            | 再读源码                                                                                |
 |-----------------------------------|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
 | 模型事实放在哪里                  | [当前代码架构第 3 节](implementation-status/current-architecture.md#3-注册表层)                     | [`src/models/`](../src/models)、`ModelConfig`、`ModelInfo`                              |
-| Public Model 能力如何形成         | [Public Model 与模型能力契约](functional-requirements/model-information-and-capability-contract.md) | [`src/registry/public_model.rs`](../src/registry/public_model.rs)、`PublicModelInfo`    |
-| Provider 能力上界是谁定义         | [网关 API 与兼容](functional-requirements/gateway-api-compatibility.md)                             | [`src/provider/kind.rs`](../src/provider/kind.rs)、[`src/providers/`](../src/providers) |
+| Public Model 能力如何形成         | [Public Model 与模型能力契约](functional-requirements/model-capability/README.md) | [`src/registry/public_model.rs`](../src/registry/public_model.rs)、`PublicModelInfo`    |
+| Provider 能力上界是谁定义         | [网关 API 与兼容](functional-requirements/gateway-api/README.md)                             | [`src/provider/kind.rs`](../src/provider/kind.rs)、[`src/providers/`](../src/providers) |
 | target 与 upstream API 为什么分开 | [当前代码架构](implementation-status/current-architecture.md)                                       | `UpstreamTargetConfig`、`UpstreamApiConfig`                                             |
-| Route 如何保持配置顺序            | [路由与 Provider 韧性](functional-requirements/provider-resilience.md)                              | `PublicModelConfig`、`RouteConfig`、`plan_request`                                      |
-| capability 为什么只能收窄         | [配置与凭证边界](functional-requirements/configuration-and-credentials.md)                          | [`src/core/capability.rs`](../src/core/capability.rs)、`build_registry`                 |
+| Route 如何保持配置顺序            | [路由与 Provider 韧性](functional-requirements/routing-resilience/provider-resilience.md)                              | `PublicModelConfig`、`RouteConfig`、`plan_request`                                      |
+| capability 为什么只能收窄         | [配置与凭证边界](functional-requirements/configuration-credentials/README.md)                          | [`src/core/capability.rs`](../src/core/capability.rs)、`build_registry`                 |
 
 建议自己画一条具体映射：
 
@@ -151,8 +151,9 @@ public model name
 
 这部分是当前实现中最需要结合测试阅读的区域：
 
-1. 读[网关 API 与兼容需求第 4、6 节](functional-requirements/gateway-api-compatibility.md)。
-2. 读[路由与 Provider 韧性](functional-requirements/provider-resilience.md)。
+1. 读[Native Path 与流式语义](functional-requirements/gateway-api/native-path-and-streaming.md)与
+   [错误与客户端可见结果](functional-requirements/gateway-api/errors-and-client-results.md)。
+2. 读[路由与 Provider 韧性](functional-requirements/routing-resilience/provider-resilience.md)。
 3. 读 [`src/transport/sse.rs`](../src/transport/sse.rs)：SSE framing、UTF-8、event 大小和 terminal 观察。
 4. 读 [`ingress/forwarding.rs`](../src/ingress/forwarding.rs) 与 [`ingress/streaming.rs`](../src/ingress/streaming.rs)
    ：首输出 commit point、EOF、取消与 retry/fallback 边界。
@@ -198,7 +199,7 @@ credential。管理员可以对已激活 target 显式执行受信 probe，但�
 
 ## 9. 第七阶段：用测试理解“已经证明什么”
 
-先读 [TDD 与证据要求](functional-requirements/delivery-and-evidence.md)，再使用下表定位证据：
+先读 [TDD 与证据要求](functional-requirements/delivery-evidence/delivery-and-evidence.md)，再使用下表定位证据：
 
 | 测试资产                                                          | 主要保护内容                                                            | 不证明什么                                           |
 |-------------------------------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------|
@@ -223,9 +224,9 @@ credential。管理员可以对已激活 target 显式执行受信 probe，但�
 | 比较 Provider 性能、usage、cache 或检查 trace | [遥测指标](implementation-status/telemetry-metrics.md) → `src/observability/{provider,otlp}.rs` → observability/OTLP contract tests                                                                   |
 | credential/header 泄露风险                  | 配置与凭证需求 → `identity.rs` → `provider/contracts.rs` → provider boundary tests                                                                                                                    |
 | 新增 Provider                               | Provider contract → canonical model → compiled registry → adapter → probe → contract tests                                                                                                            |
-| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
-| 实现 Embeddings、图片或文件                 | [扩展共同规则](functional-requirements/embedding-and-native-multimodal.md) → 对应功能需求 → [OpenAI 细粒度协议索引](references/openai/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
-| 实现音频能力                               | [音频需求](functional-requirements/native-audio.md) → [OpenAI 音频协议索引](references/openai/README.md#6-音频与语音) → [MiMo 六模型能力矩阵](references/providers/xiaomi/audio.md) → 当前焦点 → contract tests |
+| 实现 ChatGPT subscription OAuth             | [OAuth 生命周期需求](functional-requirements/configuration-credentials/upstream-oauth-credential-lifecycle.md) → [Codex 调研](references/codex/codex-device-auth-token-refresh-analysis.md) → 当前焦点 → Provider/credential/startup contract tests           |
+| 实现 Embeddings、图片或文件                 | [扩展共同规则](functional-requirements/extended-capabilities/embedding-and-native-multimodal.md) → 对应功能需求 → [OpenAI 细粒度协议索引](references/openai/README.md) → 当前焦点 → registry/ingress/provider/transport contract tests |
+| 实现音频能力                               | [音频需求](functional-requirements/extended-capabilities/native-audio.md) → [OpenAI 音频协议索引](references/openai/README.md#6-音频与语音) → [MiMo 六模型能力矩阵](references/providers/xiaomi/audio.md) → 当前焦点 → contract tests |
 | 扩充协议测试                                | [Corpus 指南](../testdata/README.md) → [Testkit 指南](../tools/corpus/README.md) → Python tests                                                                                                       |
 
 只有需要核验外部协议或比较实现取舍时，才进入[参考文档](references/README.md)：

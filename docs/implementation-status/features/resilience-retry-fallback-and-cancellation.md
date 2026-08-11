@@ -31,6 +31,6 @@
 
 ## 相关文档
 
-- [功能需求：路由与 Provider 韧性](../../functional-requirements/provider-resilience.md)
+- [功能需求：路由与 Provider 韧性](../../functional-requirements/routing-resilience/provider-resilience.md)
 - [Native Chat/Responses 转发](native-generation-forwarding.md)
 - [运行时指标与遥测](../telemetry-metrics.md)

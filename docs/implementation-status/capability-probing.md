@@ -89,6 +89,6 @@ Chat/Responses、Embeddings、ChatGPT completed SSE、响应超限以及 transpo
 
 ## 关联文档
 
-- [产品范围](../functional-requirements/product-scope.md)
+- [产品范围](../functional-requirements/product-scope/product-scope.md)
 - [当前代码架构](current-architecture.md)
-- [交付与证据要求](../functional-requirements/delivery-and-evidence.md)
+- [交付与证据要求](../functional-requirements/delivery-evidence/delivery-and-evidence.md)

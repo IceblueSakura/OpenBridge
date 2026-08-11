@@ -99,6 +99,6 @@ refresh 稳定性。配置了 OAuth2 auth-file locator 仍可能处于待登录�
 
 ## 相关文档
 
-- [功能需求：Bootstrap、代码注册表、凭证与受信边界](../../functional-requirements/configuration-and-credentials.md)
+- [功能需求：Bootstrap、代码注册表、凭证与受信边界](../../functional-requirements/configuration-credentials/README.md)
 - [ChatGPT OAuth2 生命周期与 Responses 数据面](chatgpt-oauth-startup.md)
 - [当前代码架构](../current-architecture.md)

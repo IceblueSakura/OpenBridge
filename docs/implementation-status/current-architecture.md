@@ -202,7 +202,7 @@ BaseURL 只属于 Provider instance；credential、Model、timeout 与故障边�
 Upstream API operation 唯一性与能力、model
 rules 只收窄、普通参数忽略集合合法性、三段 context 关系、Native/Bridged route 方向、Embeddings 单 Native candidate 与闭合 capability、Public Model
 身份/生命周期及 route 顺序。公共对象与请求预检必须保持的需求见
-[Public Model 与模型能力契约](../functional-requirements/model-information-and-capability-contract.md)。随后按 operation
+[Public Model 与模型能力契约](../functional-requirements/model-capability/README.md)。随后按 operation
 对 所有静态可执行 Route 做保守交集，预编译 `PublicModelInfo`；成功后生成：
 
 ```text
@@ -543,6 +543,6 @@ SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运�
 
 - [当前实现总览](current-implementation.md)
 - [遥测指标](telemetry-metrics.md)
-- [配置、凭证与受信边界](../functional-requirements/configuration-and-credentials.md)
-- [Native 图片输入](../functional-requirements/native-image.md)
-- [路由与 Provider 韧性](../functional-requirements/provider-resilience.md)
+- [配置、凭证与受信边界](../functional-requirements/configuration-credentials/README.md)
+- [Native 图片输入](../functional-requirements/extended-capabilities/native-image.md)
+- [路由与 Provider 韧性](../functional-requirements/routing-resilience/provider-resilience.md)

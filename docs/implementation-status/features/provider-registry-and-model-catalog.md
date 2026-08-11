@@ -466,8 +466,8 @@ payload。
 
 ## 相关文档
 
-- [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/model-catalog-configuration.md)
-- [Native 图片输入](../../functional-requirements/native-image.md)
+- [功能需求：Model 目录与 Provider 接入配置](../../functional-requirements/pending/model-catalog-configuration.md)
+- [Native 图片输入](../../functional-requirements/extended-capabilities/native-image.md)
 - [Public Model 与能力预检](models-api-and-capability-preflight.md)
 - [Provider 实施与实测状态](../providers/README.md)
 - [当前代码架构](../current-architecture.md)

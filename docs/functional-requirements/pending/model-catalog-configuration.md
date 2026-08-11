@@ -5,8 +5,8 @@
 **待定方案，暂不实施。** 本文保留 `config/models.toml`、Canonical Model 目录、Provider-Model 接入和 Public Model
 暴露的候选契约，供以后重新评估；它不构成当前产品承诺、功能验收要求或实施任务。除非配置所有者
 再次明确批准，否则不得据此修改代码、配置文件、OpenAPI、实施现状或
-[当前开发焦点](../implementation-plans/current-focus.md)。当前 checkout 的真实行为和验证结果仍以
-[当前实现总览](../implementation-status/current-implementation.md)链接的功能专题为准。
+[当前开发焦点](../../implementation-plans/current-focus.md)。当前 checkout 的真实行为和验证结果仍以
+[当前实现总览](../../implementation-status/current-implementation.md)链接的功能专题为准。
 
 本文后续“必须”“不得”“只允许”均描述该方案若重新获批时的候选边界，不适用于当前实现。当前继续采用 Rust 代码显式注册
 Model、Provider Target/API、Route 与 Public Model 的方式。
@@ -298,8 +298,8 @@ Provider 证据。
 
 ## 关联文档
 
-- [产品范围](product-scope.md)
-- [Public Model 与模型能力契约](model-information-and-capability-contract.md)
-- [配置、凭证与受信运行边界](configuration-and-credentials.md)
-- [扩展能力导航及共同规则](embedding-and-native-multimodal.md)
-- [当前实现总览](../implementation-status/current-implementation.md)
+- [产品范围](../product-scope/product-scope.md)
+- [Public Model 与模型能力契约](../model-capability/README.md)
+- [配置、凭证与受信运行边界](../configuration-credentials/README.md)
+- [扩展能力导航及共同规则](../extended-capabilities/embedding-and-native-multimodal.md)
+- [当前实现总览](../../implementation-status/current-implementation.md)

@@ -5,7 +5,7 @@
 本页只定义 OpenAI-compatible `POST /v1/embeddings` 的输入、输出、能力、资源和失败边界。它不定义图片、文件、音频或其他
 Chat/Responses 媒体能力；共同的能力分层、固定 Route 与证据规则见
 [媒体扩展共同规则](embedding-and-native-multimodal.md)。当前实现事实与实际验证见
-[Embeddings 实施状态](../implementation-status/features/embeddings.md)。
+[Embeddings 实施状态](../../implementation-status/features/embeddings.md)。
 
 ## 1. 用户结果
 
@@ -76,4 +76,4 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
 
 非目标包括 embedding Bridge、向量归一化、降维、缓存、索引、检索和根据向量能力动态选路。
 
-- [OpenAI Embeddings Create 调研](../references/openai/embeddings/create.md)
+- [OpenAI Embeddings Create 调研](../../references/openai/embeddings/create.md)

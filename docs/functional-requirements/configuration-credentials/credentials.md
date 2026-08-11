@@ -1,0 +1,96 @@
+# 凭证
+
+## 状态
+
+本文是[配置与凭证域](README.md)的凭证模块：定义下游用户表、上游 API-key pool、ChatGPT 本地状态隔离与
+OpenBridge-owned OAuth2 auth 文件的受信管理边界。其他模块见[配置与凭证域](README.md)导航。
+
+## 1. 凭证总则
+
+- 下游用户表只在启动时读取；用户增删、启停和 API Key 轮换都需要重启；
+- 用户 ID 和 API Key 必须唯一，至少有一个启用用户，API Key 不得少于 32 bytes；
+- 认证成功后只把不含 Key 的 `Arc<User>` 放入请求上下文；
+- 代码注册表只保存非敏感 pool/member id、Provider 和 credential kind，不保存 secret 或 secret locator；
+- 服务与常规 API-key probe 只从 bootstrap 指定的私有 upstream credential TOML 读取上游 API key，不读取 `*_API_KEYS`、旧单值
+  环境变量或 `.env`；任何 probe 都不得发现或导入本机 Codex credential、环境或 terminal 状态；
+- TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且可以选择有序 `api_keys` 数组、单一
+  `auth_json_file` locator 或不提供 source（未激活），不能配置 Provider、credential kind、endpoint、route 或 member id；
+- 未由代码注册的 pool、重复 pool、空白成员或 pool 内重复 secret 必须在 listener 绑定或网络 probe 前失败；缺少已注册 pool、无 source
+  的已知 pool 或空 API-key 数组表示该 pool 本次启动未激活，不构成动态 Provider 注册；
+- 服务在监听前把已启用用户 Key 与所有已激活 API-key Target 引用的 pool 一次性装入不可变 `CredentialStore`，并把所有显式配置的
+  OAuth2 auth 文件装入内部可变、对外 snapshot 化的 `OAuth2CredentialManager`；完整过期 bundle 作为立即 refresh 输入而不是损坏文档；
+- `CredentialId` 必须区分 `DownstreamUser` 与带 `ProviderKind` 的 `UpstreamPoolMember`，上下游同名 ID 不得造成命名冲突；
+- 每个 credential 条目必须冻结受控的 type、source、从 1 开始的 generation 与可选过期时间；source 只保存
+  `UserConfiguration`、`UpstreamConfiguration`、`OAuth2AuthJsonFile` 或 `Programmatic` 类别，不能把文件路径、
+  issuer URL 或任意业务字符串作为诊断元数据；
+- `RuntimeRegistry` 与 `UserRegistry` 不保存 secret；`CredentialStore`、两类注册表、日志、错误响应和 probe report 的
+  Debug/输出都不得包含 secret；
+- 下游认证只能经 Store 的 constant-time 匹配返回用户 ID；上游只能按完整
+  `pool_id + member_id + ProviderKind + CredentialKind` 借用短时 credential 视图，不提供通用明文查询；
+- 缺失、空值、零 generation、重复下游 Key 或 binding/Provider/credential kind 不匹配时 fail closed；已注册但未激活的 pool 只会让其
+  引用的 Target 在本次启动中不可执行；显式配置但不存在的 OAuth2 `auth_json_file` 在启动时创建为空文件并保持待登录，不构造
+  credential snapshot；
+- 运行时不得重新读取 `users.toml` 或 `upstream-credentials.toml`；改变用户、API Key 或 locator 必须重启。OAuth2 manager 只可在
+  expiry-driven refresh 或首个预提交 `401` recovery transaction 中通过同主机 advisory lock guarded reload 自有 auth 文件，并将完整
+  rotation 原子写回后发布新 generation；普通成功路径不读文件，任何请求都不得触发交互式登录。当前不支持通用热更新；
+- 业务请求不能提供或覆盖 Authorization、cookie、Host、proxy header 或上游 credential；Provider 的受信代码可声明固定的非敏感
+  `User-Agent` 与普通 header，也可通过 hook 按编译期规则增添、替换、转换或删除普通 header。固定 header 在 hook 后应用，业务请求
+  不能覆盖；authentication header 最后从 purpose-bound credential 生成。共享层不维护普通 header allowlist，具体 Provider 的 header
+  值属于实现事实，不应在本需求文档中固化。
+
+## 2. 上游 API-key pool
+
+- pool 与 member 都使用稳定、非敏感 ID；member secret 只来自私有 upstream credential TOML，业务请求 不能提供
+  pool/member、改变顺序或扩大候选集合；member ID 只能由 pool id 与数组顺序派生，不能 由 secret 内容派生；
+- 一个激活的 API-key pool 至少包含一个 member；member ID 必须唯一，所有 member 必须属于同一 Provider 和 credential kind，重复
+  secret 必须拒绝；单 member pool 与现有单 key 行为等价；未激活 pool 可以没有 member；
+- 同一个 pool 可由同 Provider 的多个 Target 引用，使 key cooldown 与 round-robin cursor 跨模型共享；不得 为每个模型复制同一组
+  key 后形成互不知晓的健康状态；
+- 每个 API-key pool 只有一个 TOML `api_keys` 数组；未知或重复 pool、空白或重复 member 必须在 listener 绑定前 fail closed；缺少
+  pool、source-less pool 或空数组只表示该 pool 未激活。本阶段不提供环境变量 fallback、member 级 enabled 或热增删；
+- `CredentialStore` 继续不可变地持有 secret。运行时可变状态只保存 pool cursor、member binding ID、 generation 与 cooldown
+  deadline，不保存、复制或重新读取 secret；
+- pool 选择只返回短时 credential 借用视图；每次 attempt 必须重新构造敏感认证 header，不能缓存或复用 上一次 member 的
+  header；
+- 只有 `TargetBoundContinuation` Responses executable profile 可以接受 `previous_response_id`；在没有 credential affinity ledger
+  时，其启用 Target 不得引用多 member pool，避免 continuation 在不同账号/key 间漂移；普通 `TargetBound` 不虚构该限制；
+- 更换 API key、改变 pool member 或顺序仍需重启。API-key pool 不承担 OAuth、余额查询、keyring、加密 secret 文件、远程 secret
+  manager、动态 reload 或跨进程 pool 状态；ChatGPT OAuth 使用独立 credential kind 和生命周期要求。
+
+## 3. ChatGPT 本地状态隔离
+
+- 四个 ChatGPT target 使用同一个独立 `OAuth2BearerAccessToken` pool，并各自只加入一个 Responses-native Route/Public Model；
+  通用 probe 只允许选择已启用 target，ChatGPT Models probe 可显式借用该 pool 的 OAuth manager lease；
+- OpenBridge 不搜索 `$CODEX_HOME`、Codex auth cache 或其他本机 Agent 状态，不接受 probe 专用 Codex auth file 或 executable selector；
+- OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS、architecture 或 terminal 构造 Codex-compatible 请求身份，也不启动 Codex
+  CLI 或 app-server；
+- ChatGPT credential 只能来自下节定义的 OpenBridge-owned OAuth2 auth 文件；服务数据面和显式 ChatGPT Models probe 只可通过 manager 的短生命周期
+  lease 借用当前 generation，不能通过 CLI 参数或本机 Agent 状态隐式获取 credential；
+- 显式登录、可刷新 bundle、持久化、数据面借用和 guarded reload/refresh/401 recovery 以
+  [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)为准。
+
+## 4. OpenBridge-owned OAuth2 auth 文件
+
+- OAuth2 auth 文件路径只来自 private upstream credential TOML 的 `auth_json_file`；相对路径以该 TOML 所在目录为基准，业务请求、
+  Provider response 和 probe 参数不能覆盖；
+- 配置项仍使用编译期 credential binding id，loader 必须从 `RuntimeRegistry` 解析唯一 Provider 与
+  `OAuth2BearerAccessToken` kind；TOML 不获得动态 Provider 选择权；
+- 每个 OAuth2 Provider 最多配置一个 auth 文件，并派生一个稳定的内部 member id；本阶段不提供 auth 文件数组、账号 pool、轮转、
+  cooldown 或负载均衡；
+- ChatGPT 文件使用当前兼容的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索、导入或回退到
+  `$CODEX_HOME/auth.json`；
+- 文件在 listener 绑定前完成首次读取；不存在时在 advisory lock 内以排他方式创建空的 OpenBridge-owned 文件并保持待登录，非空文件仍须通过
+  完整校验；之后只允许显式登录事务、expiry-driven refresh 或首个预提交 `401` recovery transaction 在 advisory lock 内 guarded reload，
+  rotation 只能原子替换。错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；
+- `OAuth2CredentialManager` 对外只发布脱敏 snapshot，对内维护 guarded reload、single-flight、refresh、generation 与后台调度；
+  数据面只能取得不暴露 locator/完整 bundle 的短生命周期 credential lease，并按同一账户/Provider 边界执行一次有界 `401` recovery。
+- 当前不提供运行中换账户 API 或热重载。换账户必须先停止服务，手动删除该 binding 的 OpenBridge-owned `auth_json_file` 及同一登录流程明确
+  创建的其他 OpenBridge-owned 授权文件（如有），再显式登录并重启；不得借此搜索、导入或删除本机 Codex auth cache。
+
+## 关联文档
+
+- [配置与凭证域导航](README.md)
+- [所有权划分与代码注册表](ownership-and-registry.md)
+- [ChatGPT subscription OAuth lifecycle](upstream-oauth-credential-lifecycle.md)
+- [路由与 Provider 韧性](../routing-resilience/provider-resilience.md)
+- [当前实现总览](../../implementation-status/current-implementation.md)

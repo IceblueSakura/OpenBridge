@@ -675,9 +675,9 @@ uv run --project tools/corpus corpus --root testdata lint
 ## 12. 进一步阅读
 
 - [文档总索引](docs/README.md)：功能需求、实施现状、实施计划和参考文档的分类入口；
-- [产品范围](docs/functional-requirements/product-scope.md)：单配置所有者部署、支持边界和非目标；
-- [网关 API 与客户端兼容](docs/functional-requirements/gateway-api-compatibility.md)：下游 endpoint、JSON/SSE、tool 和 state 边界；
-- [配置与凭证边界](docs/functional-requirements/configuration-and-credentials.md)：bootstrap、代码注册表和 secret trust boundary；
+- [产品范围](docs/functional-requirements/product-scope/product-scope.md)：单配置所有者部署、支持边界和非目标；
+- [网关 API 与客户端兼容](docs/functional-requirements/gateway-api/README.md)：下游 endpoint、JSON/SSE、tool 和 state 边界；
+- [配置与凭证边界](docs/functional-requirements/configuration-credentials/README.md)：bootstrap、代码注册表和 secret trust boundary；
 - [当前实现总览](docs/implementation-status/current-implementation.md)：已完成行为、横向能力和证据层级；
 - [Provider 与模型注册表](docs/implementation-status/features/provider-registry-and-model-catalog.md)：Public Model、Target 和 active pool 行为；
 - [ChatGPT OAuth2](docs/implementation-status/features/chatgpt-oauth-startup.md)：登录、refresh、Responses 数据面和固定 Models probe；

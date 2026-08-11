@@ -4,7 +4,7 @@
 
 本页只定义 Chat `image_url` 与 Responses `input_image` 的同协议 Native 输入能力。它不定义 Images generation/edit/variation、
 文件、音频、视频或跨协议媒体转换；共同规则见[媒体扩展共同规则](embedding-and-native-multimodal.md)。当前已完成切片与实际证据见
-[`mimo-v2.5` Native 图片输入](../implementation-status/features/native-image-input.md)。
+[`mimo-v2.5` Native 图片输入](../../implementation-status/features/native-image-input.md)。
 
 ## 1. 用户结果与 wire
 
@@ -82,6 +82,6 @@ Data-only 的 URL limit 投影为 `0`，Both 投影两组正数。`0` 不是 cor
 
 非目标包括 Images API、图片生成/编辑/variation、file-backed resource、媒体下载代理、OCR、格式转换和多模态 Bridge。
 
-- [OpenAI Chat 图片输入调研](../references/openai/images/chat-input.md)
-- [OpenAI Responses 图片输入调研](../references/openai/images/responses-input.md)
-- [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi/image.md)
+- [OpenAI Chat 图片输入调研](../../references/openai/images/chat-input.md)
+- [OpenAI Responses 图片输入调研](../../references/openai/images/responses-input.md)
+- [Xiaomi MiMo 图片协议与真实观察](../../references/providers/xiaomi/image.md)
