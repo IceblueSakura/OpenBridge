@@ -88,6 +88,28 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
     // Convert the optional local logging switches into a default-off immutable policy.
     let logging = raw.logging.unwrap_or_default();
 
+    // Validate the JSONL directory conditionally: required when any snapshot switch is enabled,
+    // and must be an absolute path so startup owns only a predictable filesystem boundary.
+    let http_jsonl_directory = if logging.http_jsonl_directory.is_none()
+        && (logging.request_headers
+            || logging.request_body
+            || logging.response_headers
+            || logging.response_body)
+    {
+        return Err(BootstrapConfigError::MissingHttpJsonlDirectory);
+    } else {
+        logging
+            .http_jsonl_directory
+            .map(|path| {
+                if path.is_absolute() {
+                    Ok(path)
+                } else {
+                    Err(BootstrapConfigError::RelativeHttpJsonlDirectory)
+                }
+            })
+            .transpose()?
+    };
+
     // Convert raw fields into runtime value objects.
     Ok(BootstrapConfig {
         listen,
@@ -106,6 +128,7 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
         },
         http_logging: HttpLoggingConfig {
+            http_jsonl_directory,
             request_headers: logging.request_headers,
             request_body: logging.request_body,
             response_headers: logging.response_headers,

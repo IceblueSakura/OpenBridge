@@ -30,7 +30,7 @@ request；它不是 Provider-owned hook，也不要求 canonical Model 重复声
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
 
-`[logging]` 只拥有 `request_headers`、`request_body`、`response_headers` 与 `response_body` 四个彼此独立的布尔值。仓库随附的
+`[logging]` 拥有条件必填的绝对 `http_jsonl_directory`，以及 `request_headers`、`request_body`、`response_headers` 与 `response_body` 四个彼此独立的布尔值。仓库随附的
 活动开发配置和示例配置显式将四项全部设为 `true`；自定义文档省略整个表或任一字段时，对应解析回退为 `false`。
 它们只控制认证成功后的下游客户端 HTTP 边界：header snapshot 在进入 tracing 字段前必须强制脱敏认证、Cookie 与
 token/key/secret/password-like header；request body 只能在现有 request limit 内保留，response body 只能在现有 JSON response

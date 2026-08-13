@@ -47,4 +47,12 @@ pub enum BootstrapConfigError {
         /// Configured downstream request hard limit in bytes.
         request: usize,
     },
+    /// An HTTP content snapshot switch is enabled but no JSONL directory was provided.
+    #[error(
+        "http_jsonl_directory is required in [logging] when any content snapshot switch is enabled"
+    )]
+    MissingHttpJsonlDirectory,
+    /// The configured JSONL directory is not an absolute filesystem path.
+    #[error("http_jsonl_directory must be an absolute path")]
+    RelativeHttpJsonlDirectory,
 }

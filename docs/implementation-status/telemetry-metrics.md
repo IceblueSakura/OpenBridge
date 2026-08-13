@@ -14,7 +14,7 @@ collector base 才创建 exporter。当前随附的 `config/bootstrap.toml` 与 
 - `observability/usage.rs` 解析明确的协议 usage；
 - `observability/metrics.rs` 定义固定 SDK instruments；
 - `observability/otlp.rs` 拥有 resource、exporter、reader/processor 与 shutdown；
-- `observability/http_logging.rs` 只渲染 Bootstrap 显式启用的本地下游 snapshot。
+- `observability/http_jsonl/` 使用专用有界 writer 将 Bootstrap 显式启用的本地下游 snapshot 写入按 UTC 日期滚动的 JSONL。
 
 旧进程内 atomic/BTreeMap snapshot 与 JSON metrics handler 已删除，`GET /openbridge/v1/metrics*` 不存在。Metrics 使用 SDK 原生
 cumulative Counter/Histogram、固定周期 reader 与 attribute-set overflow；collector 不可用或背压不进入业务路径，进程关闭时执行
@@ -39,7 +39,7 @@ Output speed 仅在成功且同时具有 output tokens、TTFT 与 terminal 时�
 ## 安全与本地内容日志
 
 OTLP client 禁止 redirect，限制 timeout，并剥离环境注入的 Authorization/租户 header。四个本地内容日志开关只在认证后观察最终
-下游边界，header 强制 redaction，body 有界且每方向至多一个终态 snapshot；不记录每个 SSE chunk，也不进入 span-only OTLP。
+下游边界，header 强制 redaction，body 有界且每方向至多一个终态 snapshot；不记录每个 SSE chunk，也不进入 stdout 或 span-only OTLP。
 
 ## 确定性证据
 

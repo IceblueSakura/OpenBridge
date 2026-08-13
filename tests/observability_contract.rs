@@ -398,11 +398,23 @@ fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, T
 fn app_with_transport_and_bootstrap(
     transport: Arc<dyn UpstreamTransport>,
     bootstrap: &str,
-) -> (axum::Router, TestMetrics) {
+) -> (
+    axum::Router,
+    TestMetrics,
+    openbridge::observability::HttpJsonlWriter,
+) {
     // Compile the ordinary synthetic registry under the caller-selected startup logging policy.
     let registry = build_registry(
         parse_bootstrap_config(bootstrap).unwrap(),
         support::definition("observability-test", "code-primary", "test-model"),
+    )
+    .unwrap();
+    let writer = openbridge::observability::HttpJsonlWriter::new(
+        registry
+            .http_logging()
+            .http_jsonl_directory()
+            .unwrap()
+            .to_path_buf(),
     )
     .unwrap();
     let (users, credentials) = support::users_and_credentials(
@@ -412,8 +424,9 @@ fn app_with_transport_and_bootstrap(
     );
     let metrics = TestMetrics::new();
     let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
-        .with_metrics(metrics.instruments());
-    (build_router(state), metrics)
+        .with_metrics(metrics.instruments())
+        .with_http_jsonl_writer(Some(writer.clone()));
+    (build_router(state), metrics, writer)
 }
 
 fn embedding_observability_app(
@@ -665,11 +678,16 @@ async fn bootstrap_switches_emit_complete_local_http_boundaries_with_sensitive_h
         .with_writer(logs.clone())
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
+    let directory =
+        std::env::temp_dir().join(format!("openbridge-http-jsonl-full-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
     let bootstrap = format!(
-        "{}\n[logging]\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n",
-        support::BOOTSTRAP
+        "{}\n[logging]\nhttp_jsonl_directory = {:?}\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n",
+        support::BOOTSTRAP,
+        directory
     );
-    let (app, _) = app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
+    let (app, _, writer) =
+        app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
 
     // Complete one request so both transparent body observers reach EOF and emit one snapshot each.
     let response = app
@@ -693,22 +711,26 @@ async fn bootstrap_switches_emit_complete_local_http_boundaries_with_sensitive_h
     assert_eq!(response.status(), StatusCode::OK);
     let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
 
-    // Preserve opted-in safe values and both bodies while keeping authentication material absent.
+    writer.shutdown().unwrap();
+    // Content is absent from stdout and present in four parseable JSONL rows.
     let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
-    assert!(output.contains("downstream_request_headers"));
-    assert!(output.contains("REQUEST_HEADER_SENTINEL_4A19"));
-    assert!(output.contains("downstream_request_body"));
-    assert!(output.contains("REQUEST_BODY_SENTINEL_5C20"));
-    let response_headers = output
-        .lines()
-        .find(|line| line.contains("downstream_response_headers"))
-        .expect("response header snapshot must be emitted");
-    assert!(response_headers.contains("RESPONSE_HEADER_SENTINEL_7D41"));
-    assert!(response_headers.contains("x-request-id"));
-    assert!(output.contains("downstream_response_body"));
-    assert!(output.contains("RESPONSE_BODY_SENTINEL_6B32"));
-    assert!(output.contains("[REDACTED]"));
+    assert!(!output.contains("REQUEST_BODY_SENTINEL_5C20"));
     assert!(!output.contains("downstream-test-token-00000000000"));
+    let path = std::fs::read_dir(&directory)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let jsonl = std::fs::read_to_string(path).unwrap();
+    assert_eq!(jsonl.lines().count(), 4);
+    assert!(jsonl.contains("REQUEST_HEADER_SENTINEL_4A19"));
+    assert!(jsonl.contains("REQUEST_BODY_SENTINEL_5C20"));
+    assert!(jsonl.contains("RESPONSE_HEADER_SENTINEL_7D41"));
+    assert!(jsonl.contains("RESPONSE_BODY_SENTINEL_6B32"));
+    assert!(jsonl.contains("[REDACTED]"));
+    assert!(!jsonl.contains("downstream-test-token-00000000000"));
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[tokio::test]
@@ -720,11 +742,18 @@ async fn local_http_logging_switches_do_not_enable_adjacent_dimensions() {
         .with_writer(logs.clone())
         .finish();
     let _guard = tracing::subscriber::set_default(subscriber);
+    let directory = std::env::temp_dir().join(format!(
+        "openbridge-http-jsonl-mixed-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
     let bootstrap = format!(
-        "{}\n[logging]\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = true\n",
-        support::BOOTSTRAP
+        "{}\n[logging]\nhttp_jsonl_directory = {:?}\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = true\n",
+        support::BOOTSTRAP,
+        directory
     );
-    let (app, _) = app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
+    let (app, _, writer) =
+        app_with_transport_and_bootstrap(Arc::new(ContentLoggingTransport), &bootstrap);
 
     // Exercise one mixed policy so the runtime wiring cannot couple adjacent header/body switches.
     let response = app
@@ -747,14 +776,23 @@ async fn local_http_logging_switches_do_not_enable_adjacent_dimensions() {
         .unwrap();
     let _ = to_bytes(response.into_body(), 4_096).await.unwrap();
 
-    let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
-    assert!(output.contains("downstream_request_headers"));
-    assert!(output.contains("REQUEST_HEADER_SENTINEL_4A19"));
-    assert!(!output.contains("downstream_request_body"));
-    assert!(!output.contains("REQUEST_BODY_SENTINEL_5C20"));
-    assert!(!output.contains("downstream_response_headers"));
-    assert!(output.contains("downstream_response_body"));
-    assert!(output.contains("RESPONSE_BODY_SENTINEL_6B32"));
+    writer.shutdown().unwrap();
+    let path = std::fs::read_dir(&directory)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let jsonl = std::fs::read_to_string(path).unwrap();
+    let rows = jsonl
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["kind"], "request_headers");
+    assert_eq!(rows[1]["kind"], "response_body");
+    assert!(!jsonl.contains("REQUEST_BODY_SENTINEL_5C20"));
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[tokio::test]

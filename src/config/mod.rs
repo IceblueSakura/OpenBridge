@@ -73,6 +73,11 @@ impl BootstrapConfig {
         &self.http_logging
     }
 
+    /// Returns the validated absolute JSONL directory when any content snapshot is enabled.
+    pub fn http_jsonl_directory(&self) -> Option<&Path> {
+        self.http_logging.http_jsonl_directory.as_deref()
+    }
+
     /// Returns the optional startup-only OTLP/HTTP trace exporter policy.
     pub fn otlp_http_trace_export(&self) -> Option<&OtlpHttpExportConfig> {
         self.otlp_http_trace_export.as_ref()
@@ -85,8 +90,9 @@ impl BootstrapConfig {
 }
 
 /// Independent local logging switches for authenticated downstream HTTP messages.
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct HttpLoggingConfig {
+    http_jsonl_directory: Option<PathBuf>,
     request_headers: bool,
     request_body: bool,
     response_headers: bool,
@@ -94,23 +100,33 @@ pub struct HttpLoggingConfig {
 }
 
 impl HttpLoggingConfig {
+    /// Returns whether any content snapshot switch is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.request_headers || self.request_body || self.response_headers || self.response_body
+    }
+
+    /// Returns the validated absolute JSONL directory path when content snapshots are enabled.
+    pub fn http_jsonl_directory(&self) -> Option<&Path> {
+        self.http_jsonl_directory.as_deref()
+    }
+
     /// Returns whether authenticated downstream request headers are logged locally.
-    pub const fn request_headers(self) -> bool {
+    pub fn request_headers(&self) -> bool {
         self.request_headers
     }
 
     /// Returns whether authenticated downstream request bodies are logged locally.
-    pub const fn request_body(self) -> bool {
+    pub fn request_body(&self) -> bool {
         self.request_body
     }
 
     /// Returns whether downstream response headers are logged locally.
-    pub const fn response_headers(self) -> bool {
+    pub fn response_headers(&self) -> bool {
         self.response_headers
     }
 
     /// Returns whether downstream response bodies are logged locally.
-    pub const fn response_body(self) -> bool {
+    pub fn response_body(&self) -> bool {
         self.response_body
     }
 }

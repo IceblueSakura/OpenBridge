@@ -3,9 +3,12 @@
 use std::sync::Arc;
 
 use crate::{
-    credential::CredentialStore, identity::UserRegistry,
-    oauth2_credentials::OAuth2CredentialManager, observability::GatewayMetrics,
-    registry::RuntimeRegistry, transport::upstream::UpstreamTransport,
+    credential::CredentialStore,
+    identity::UserRegistry,
+    oauth2_credentials::OAuth2CredentialManager,
+    observability::{GatewayMetrics, HttpJsonlWriter},
+    registry::RuntimeRegistry,
+    transport::upstream::UpstreamTransport,
 };
 
 use super::{credential_health::CredentialHealth, health::TargetHealth};
@@ -25,6 +28,7 @@ pub struct GatewayState {
     pub(super) health: Arc<TargetHealth>,
     pub(super) credential_health: Arc<CredentialHealth>,
     pub(super) metrics: GatewayMetrics,
+    pub(super) http_jsonl_writer: Option<HttpJsonlWriter>,
 }
 
 impl GatewayState {
@@ -61,6 +65,7 @@ impl GatewayState {
             health: Arc::new(TargetHealth::default()),
             credential_health: Arc::new(CredentialHealth::default()),
             metrics: GatewayMetrics::default(),
+            http_jsonl_writer: None,
         }
     }
 
@@ -72,6 +77,12 @@ impl GatewayState {
     /// Replaces no-op instruments with the startup-owned OpenTelemetry meter instruments.
     pub fn with_metrics(mut self, metrics: GatewayMetrics) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// Attaches the startup-owned local HTTP JSONL writer.
+    pub fn with_http_jsonl_writer(mut self, writer: Option<HttpJsonlWriter>) -> Self {
+        self.http_jsonl_writer = writer;
         self
     }
 }

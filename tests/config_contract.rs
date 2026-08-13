@@ -2,7 +2,7 @@
 
 mod support;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, path::Path};
 
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
@@ -60,16 +60,23 @@ fn bootstrap_http_logging_switches_fallback_off_and_enable_independently() {
     assert!(!disabled.http_logging().response_body());
 
     // Enable an arbitrary subset without coupling header and body decisions.
-    let enabled = format!("{BOOTSTRAP}\n[logging]\nrequest_headers = true\nresponse_body = true\n");
+    let enabled = format!(
+        "{BOOTSTRAP}\n[logging]\nhttp_jsonl_directory = \"/var/lib/openbridge/http-logs\"\nrequest_headers = true\nresponse_body = true\n"
+    );
     let enabled = parse_bootstrap_config(&enabled).unwrap();
     assert!(enabled.http_logging().request_headers());
     assert!(!enabled.http_logging().request_body());
     assert!(!enabled.http_logging().response_headers());
     assert!(enabled.http_logging().response_body());
+    assert!(enabled.http_logging().is_enabled());
+    assert_eq!(
+        enabled.http_logging().http_jsonl_directory(),
+        Some(Path::new("/var/lib/openbridge/http-logs"))
+    );
 
     // Reject misspelled or future logging policy instead of silently ignoring it.
     let unknown = format!(
-        "{BOOTSTRAP}\n[logging]\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = false\ninclude_credentials = true\n"
+        "{BOOTSTRAP}\n[logging]\nhttp_jsonl_directory = \"/var/lib/openbridge/http-logs\"\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = false\ninclude_credentials = true\n"
     );
     assert!(matches!(
         parse_bootstrap_config(&unknown),
@@ -679,6 +686,37 @@ fn provider_instance_registration_owns_and_validates_endpoint_bases() {
             Err(RegistryError::InvalidProviderBaseUrl { .. })
         ));
     }
+}
+
+#[test]
+fn enabled_http_content_logging_requires_an_absolute_jsonl_directory() {
+    for switch in [
+        "request_headers",
+        "request_body",
+        "response_headers",
+        "response_body",
+    ] {
+        let missing = format!("{BOOTSTRAP}\n[logging]\n{switch} = true\n");
+        assert!(matches!(
+            parse_bootstrap_config(&missing),
+            Err(BootstrapConfigError::MissingHttpJsonlDirectory)
+        ));
+    }
+
+    let relative = format!(
+        "{BOOTSTRAP}\n[logging]\nhttp_jsonl_directory = \"relative/http-logs\"\nrequest_headers = true\nrequest_body = false\nresponse_headers = false\nresponse_body = false\n"
+    );
+    assert!(matches!(
+        parse_bootstrap_config(&relative),
+        Err(BootstrapConfigError::RelativeHttpJsonlDirectory)
+    ));
+
+    let disabled = format!(
+        "{BOOTSTRAP}\n[logging]\nrequest_headers = false\nrequest_body = false\nresponse_headers = false\nresponse_body = false\n"
+    );
+    let disabled = parse_bootstrap_config(&disabled).unwrap();
+    assert!(!disabled.http_logging().is_enabled());
+    assert_eq!(disabled.http_logging().http_jsonl_directory(), None);
 }
 
 #[test]

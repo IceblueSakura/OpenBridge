@@ -124,10 +124,11 @@ OTLP/HTTP exporter 配置。完整字段与注释以 [config/bootstrap.example.t
 
 ### 本地下游内容日志
 
-`[logging]` 只包含四个彼此独立的布尔字段：
+`[logging]` 包含 JSONL 目录和四个彼此独立的布尔字段：
 
 ```toml
 [logging]
+http_jsonl_directory = "/var/lib/openbridge/http-logs"
 request_headers = true
 request_body = true
 response_headers = true
@@ -135,7 +136,9 @@ response_body = true
 ```
 
 随附的 `config/bootstrap.toml` 和 `config/bootstrap.example.toml` 是受控开发 profile，显式把四项全部设为 `true`；自定义配置省略
-整个表或任一字段时，对应值解析为 `false`。这些开关只观察通过 Bearer 认证后的最终下游客户端边界，不是原始 Provider wire dump。
+整个表或任一布尔字段时，对应值解析为 `false`。启用任一开关时目录必须是绝对路径，OpenBridge 会在监听前创建并验证按 UTC 日期滚动的
+`http-YYYY-MM-DD.jsonl`；普通运行日志仍写 stdout/journald，历史内容文件不自动删除。这些开关只观察通过 Bearer 认证后的最终下游
+客户端边界，不是原始 Provider wire dump。
 
 认证、Cookie、token、key、secret、password、session、credential 和 signature header 值始终脱敏。请求和响应正文捕获有界，
 每个方向最多产生一个终态 snapshot，SSE 不按 chunk 记录。正文仍可能包含敏感业务内容，生产所有者必须在接入敏感流量前关闭或收窄

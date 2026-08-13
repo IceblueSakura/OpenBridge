@@ -21,9 +21,9 @@ Model 比较和可视化。缺失的 usage、cache 或 upstream timing 保持“
   URL 不得成为 attribute。
 - **Logs**：只导出启动、关闭、exporter 状态与需要人工诊断的安全结构化事件，并通过 trace/span id 关联。
   不为每个 SSE chunk/delta 记录日志，也不重复复制 request/attempt terminal。
-- **本地开发内容日志**：四个独立开关分别控制认证后下游 request header/body 与最终 response header/body。
+- **本地开发内容日志**：四个独立开关分别控制认证后下游 request header/body 与最终 response header/body，并写入按 UTC 日期滚动的独立 JSONL 文件。
   header 强制脱敏；body 只保留既有 request/JSON-response budget 内的有界 snapshot，一个方向最多一个 terminal
-  event。该事件不进入 span-only OTLP layer，也不是原始 Provider wire dump。
+  event。该事件不进入 stdout 或 span-only OTLP layer，也不是原始 Provider wire dump。
 
 OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本或下一轮 prompt 推断 tool 是否执行成功；
 没有显式低基数客户端 outcome contract 时，不统计业务 tool error rate。

@@ -162,7 +162,7 @@ fn bootstrap_with_trace_export(endpoint: &str) -> BootstrapConfig {
 fn bootstrap_with_trace_export_and_local_content(endpoint: &str) -> BootstrapConfig {
     // Enable every local content event alongside traces so OTLP exclusion is exercised explicitly.
     parse_bootstrap_config(&format!(
-        "{}\n[logging]\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n\n[telemetry.traces]\notlp_http_endpoint = \"{endpoint}\"\n",
+        "{}\n[logging]\nhttp_jsonl_directory = \"/tmp/openbridge-otlp-content-test\"\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n\n[telemetry.traces]\notlp_http_endpoint = \"{endpoint}\"\n",
         support::BOOTSTRAP
     ))
     .unwrap()

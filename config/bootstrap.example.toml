@@ -25,6 +25,8 @@ upstream_pool_max_idle_per_host = 16
 
 # Controls authenticated downstream HTTP diagnostics for the checked-in development profile.
 [logging]
+# Writes enabled authenticated HTTP snapshots to this absolute development JSONL directory.
+http_jsonl_directory = "/var/lib/openbridge/http-logs"
 # Logs sanitized downstream request-header snapshots at the info level.
 request_headers = true
 # Logs downstream request bodies up to the configured request-body limit.

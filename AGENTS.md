@@ -34,7 +34,7 @@ See `docs/implementation-status/current-architecture.md` for the current module 
   startup compilation, contribution, aggregation, and Embeddings response-budget narrowing remain in their existing
   `public_model/*` owners. Never serialize execution topology or move request-time routing into compiler modules.
 - `observability.rs` is a facade. `request.rs` owns downstream lifecycle, `provider.rs` attempt observation,
-  `metrics.rs`/`otlp.rs` SDK export, and `http_logging.rs` sanitized local snapshots. Authentication/wiring remains in
+  `metrics.rs`/`otlp.rs` SDK export, and `http_jsonl/` sanitized local snapshots. Authentication/wiring remains in
   `ingress/router.rs`; bounded body capture remains in `ingress/lifecycle.rs`.
 - Provider family roots aggregate trusted registration modules; developer roots aggregate explicit per-model leaves.
 
@@ -68,7 +68,7 @@ rules.
 - `config/bootstrap.toml` and `config/bootstrap.example.toml` are checked-in development profiles. They must parse to
   the same `BootstrapConfig`, and every assignment in both files must have an immediately preceding concise English
   comment describing its runtime effect.
-- `[logging]` owns exactly `request_headers`, `request_body`, `response_headers`, and `response_body`. Checked-in
+- `[logging]` owns `http_jsonl_directory`, `request_headers`, `request_body`, `response_headers`, and `response_body`. Checked-in
   development profiles explicitly set all four to `true`; an omitted table or field parses as `false`. Keep this
   distinction explicit in README, requirements, status docs, and tests.
 - Content logging starts only after downstream Bearer authentication and observes the final downstream client boundary;
@@ -78,8 +78,8 @@ rules.
 - Request and response captures are bounded by `max_request_body_bytes` and `max_json_response_body_bytes`. Emit at most
   one terminal snapshot per direction with captured/observed bytes, completeness, and truncation; never buffer without
   bounds or log per SSE chunk.
-- Content snapshots are synchronous local `info` events under the request span and must remain excluded from the
-  span-only OTLP layer. Correctness tests do not prove logging throughput, latency, memory, volume, or sink behavior.
+- Content snapshots use a bounded dedicated JSONL writer and must remain absent from stdout and the span-only OTLP layer.
+  Writer failure may drop snapshots with diagnostics but must not change business responses.
 
 ## Security, Private Data, and Generated Files
 

@@ -28,6 +28,7 @@ pub(super) struct RawBootstrap {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct RawHttpLogging {
+    pub(super) http_jsonl_directory: Option<std::path::PathBuf>,
     pub(super) request_headers: bool,
     pub(super) request_body: bool,
     pub(super) response_headers: bool,

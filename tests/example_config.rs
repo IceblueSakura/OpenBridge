@@ -4,12 +4,18 @@ use openbridge::{config::parse_bootstrap_config, providers::build_compiled_regis
 
 #[test]
 fn checked_in_bootstrap_profiles_compile_into_the_runtime_registry() {
-    for document in [
+    let profiles = [
         include_str!("../config/bootstrap.toml"),
         include_str!("../config/bootstrap.example.toml"),
-    ] {
-        let bootstrap = parse_bootstrap_config(document)
-            .expect("the checked-in Bootstrap profile must remain parseable");
+    ]
+    .map(|document| {
+        parse_bootstrap_config(document)
+            .expect("the checked-in Bootstrap profile must remain parseable")
+    });
+
+    assert_eq!(profiles[0], profiles[1]);
+
+    for bootstrap in profiles {
         build_compiled_registry(bootstrap)
             .expect("the checked-in Bootstrap profile must compile into a runtime registry");
     }

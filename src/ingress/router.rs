@@ -26,7 +26,7 @@ use crate::{
     credential::CredentialStore,
     identity::UserRegistry,
     mcp,
-    observability::{GatewayMetrics, RequestObservation},
+    observability::{GatewayMetrics, HttpJsonlWriter, RequestObservation},
 };
 
 use super::{
@@ -47,6 +47,7 @@ struct DownstreamAuthState {
     credentials: Arc<CredentialStore>,
     metrics: GatewayMetrics,
     http_logging: HttpLoggingConfig,
+    jsonl_writer: Option<HttpJsonlWriter>,
     max_request_body_bytes: usize,
     max_response_body_bytes: usize,
     max_sse_event_bytes: usize,
@@ -76,7 +77,8 @@ pub fn build_router(state: GatewayState) -> Router {
         users: state.users.clone(),
         credentials: state.credentials.clone(),
         metrics: state.metrics.clone(),
-        http_logging: *state.registry.http_logging(),
+        http_logging: state.registry.http_logging().clone(),
+        jsonl_writer: state.http_jsonl_writer.clone(),
         max_request_body_bytes,
         max_response_body_bytes: state.registry.limits().max_json_response_body_bytes(),
         max_sse_event_bytes: state.registry.limits().max_sse_event_bytes(),
@@ -171,7 +173,9 @@ async fn require_user(
     let observation = RequestObservation::new_with_http_logging(
         auth.metrics.clone(),
         span.clone(),
+        request_id.clone(),
         auth.http_logging,
+        auth.jsonl_writer.clone(),
     );
     let mut lifecycle = RequestLifecycleGuard::new(observation.clone());
 

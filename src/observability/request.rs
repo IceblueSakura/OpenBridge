@@ -20,7 +20,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::{config::HttpLoggingConfig, core::OperationKind};
 
 use super::{
-    http_logging,
+    http_jsonl::{HttpJsonlWriter, JsonlRecord},
     metrics::GatewayMetrics,
     provider::{
         AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
@@ -38,7 +38,9 @@ pub(crate) struct RequestObservation {
 struct RequestObservationInner {
     metrics: GatewayMetrics,
     span: Span,
+    request_id: String,
     http_logging: HttpLoggingConfig,
+    jsonl_writer: Option<HttpJsonlWriter>,
     started: Instant,
     first_body_byte_recorded: AtomicBool,
     first_output_recorded: AtomicBool,
@@ -71,21 +73,31 @@ impl RequestObservation {
     /// Creates request observation and immediately increments started requests.
     #[cfg(test)]
     pub(crate) fn new(metrics: GatewayMetrics, span: Span) -> Self {
-        Self::new_with_http_logging(metrics, span, HttpLoggingConfig::default())
+        Self::new_with_http_logging(
+            metrics,
+            span,
+            "test-request".to_owned(),
+            HttpLoggingConfig::default(),
+            None,
+        )
     }
 
     /// Creates request observation with one startup-frozen local HTTP logging policy.
     pub(crate) fn new_with_http_logging(
         metrics: GatewayMetrics,
         span: Span,
+        request_id: String,
         http_logging: HttpLoggingConfig,
+        jsonl_writer: Option<HttpJsonlWriter>,
     ) -> Self {
         metrics.record_request_started();
         Self {
             inner: Arc::new(RequestObservationInner {
                 metrics,
                 span,
+                request_id,
                 http_logging,
+                jsonl_writer,
                 started: Instant::now(),
                 first_body_byte_recorded: AtomicBool::new(false),
                 first_output_recorded: AtomicBool::new(false),
@@ -98,8 +110,16 @@ impl RequestObservation {
 
     /// Emits authenticated downstream request headers when their independent switch is enabled.
     pub(crate) fn log_request_headers(&self, method: &Method, path: &str, headers: &HeaderMap) {
-        if self.inner.http_logging.request_headers() {
-            http_logging::emit_request_headers(&self.inner.span, method, path, headers);
+        if self.inner.http_logging.request_headers()
+            && let Some(writer) = &self.inner.jsonl_writer
+        {
+            let record = JsonlRecord::request_headers(
+                &self.inner.request_id,
+                method.as_str(),
+                path,
+                headers,
+            );
+            writer.try_enqueue(record);
         }
     }
 
@@ -116,21 +136,28 @@ impl RequestObservation {
         complete: bool,
         truncated: bool,
     ) {
-        if self.inner.http_logging.request_body() {
-            http_logging::emit_request_body(
-                &self.inner.span,
+        if self.inner.http_logging.request_body()
+            && let Some(writer) = &self.inner.jsonl_writer
+        {
+            let record = JsonlRecord::request_body(
+                &self.inner.request_id,
                 bytes,
                 total_bytes,
                 complete,
                 truncated,
             );
+            writer.try_enqueue(record);
         }
     }
 
     /// Emits downstream response headers when their independent switch is enabled.
     pub(crate) fn log_response_headers(&self, status: StatusCode, headers: &HeaderMap) {
-        if self.inner.http_logging.response_headers() {
-            http_logging::emit_response_headers(&self.inner.span, status, headers);
+        if self.inner.http_logging.response_headers()
+            && let Some(writer) = &self.inner.jsonl_writer
+        {
+            let record =
+                JsonlRecord::response_headers(&self.inner.request_id, status.as_u16(), headers);
+            writer.try_enqueue(record);
         }
     }
 
@@ -147,14 +174,17 @@ impl RequestObservation {
         complete: bool,
         truncated: bool,
     ) {
-        if self.inner.http_logging.response_body() {
-            http_logging::emit_response_body(
-                &self.inner.span,
+        if self.inner.http_logging.response_body()
+            && let Some(writer) = &self.inner.jsonl_writer
+        {
+            let record = JsonlRecord::response_body(
+                &self.inner.request_id,
                 bytes,
                 total_bytes,
                 complete,
                 truncated,
             );
+            writer.try_enqueue(record);
         }
     }
 

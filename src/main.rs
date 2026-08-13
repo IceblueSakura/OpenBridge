@@ -11,7 +11,7 @@ use openbridge::{
     config::{BootstrapConfig, BootstrapConfigPath, HttpLoggingConfig},
     identity::UserConfigPath,
     ingress::{GatewayState, build_router},
-    observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
+    observability::{GatewayMetrics, HttpJsonlWriter, TelemetryRuntime, otlp_trace_layer},
     providers::build_compiled_registry_with_active_pools,
     transport::upstream::UpstreamClient,
     upstream_credentials::UpstreamCredentialConfigPath,
@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     init_tracing(&telemetry)?;
 
     // Warn once when the operator explicitly enables local HTTP content diagnostics.
-    warn_if_http_logging_enabled(*bootstrap.http_logging());
+    warn_if_http_logging_enabled(bootstrap.http_logging());
 
     // Inject the runtime meter, retain both providers, and perform one bounded shutdown flush.
     let server_result = run_service(bootstrap, telemetry.metrics()).await;
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
 }
 
 /// Warns that opted-in local HTTP snapshots can contain owner-controlled business content.
-fn warn_if_http_logging_enabled(logging: HttpLoggingConfig) {
+fn warn_if_http_logging_enabled(logging: &HttpLoggingConfig) {
     // Keep the default path silent and report the exact enabled dimensions without any HTTP data.
     if logging.request_headers()
         || logging.request_body()
@@ -116,6 +116,17 @@ async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Res
     // Display the redacted configuration snapshot only after every private source passes validation.
     tracing::info!("\n{availability_report}");
 
+    // Initialize the content writer before binding the listener so an unusable sink fails startup.
+    let http_jsonl_writer = registry
+        .http_logging()
+        .http_jsonl_directory()
+        .map(|directory| {
+            HttpJsonlWriter::new(directory.to_path_buf())
+                .map_err(anyhow::Error::msg)
+                .context("failed to initialize HTTP JSONL logging")
+        })
+        .transpose()?;
+
     // Create the shared upstream client and read-only request state.
     let listen = registry.listen();
     let registry_version = registry.version().as_str().to_owned();
@@ -133,7 +144,8 @@ async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Res
         credentials,
         Arc::clone(&oauth2_credentials),
     )
-    .with_metrics(metrics);
+    .with_metrics(metrics)
+    .with_http_jsonl_writer(http_jsonl_writer.clone());
     // Bind the loopback listener and start the HTTP service with graceful shutdown.
     let listener = TcpListener::bind(listen)
         .await
@@ -150,6 +162,11 @@ async fn run_service(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Res
     if let Some(refresh_worker) = refresh_worker {
         refresh_worker.abort();
         let _ = refresh_worker.await;
+    }
+    if let Some(writer) = http_jsonl_writer
+        && let Err(error) = writer.shutdown()
+    {
+        tracing::warn!(%error, "OpenBridge HTTP JSONL shutdown was incomplete");
     }
     server_result.context("OpenBridge server stopped unexpectedly")
 }
