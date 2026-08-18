@@ -280,13 +280,13 @@ impl DownstreamResponseBodyObserver {
     }
 
     /// Records a failure category and submits one terminal at the body-error boundary.
-    fn fail(&mut self, kind: &'static str) {
+    fn fail(&mut self) {
         // A body error is the final visible boundary; do not wait for another poll to record it.
         if self.finished {
             return;
         }
         self.log_body(false);
-        self.observation.record_stream_failure(kind);
+        self.observation.record_downstream_failure();
         self.observation.finish();
         self.finished = true;
     }
@@ -323,7 +323,7 @@ impl HttpBody for DownstreamResponseBodyObserver {
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
-                observer.fail("body_error");
+                observer.fail();
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) => {

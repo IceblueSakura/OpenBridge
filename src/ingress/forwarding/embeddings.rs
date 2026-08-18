@@ -13,7 +13,9 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::OperationKind,
-    observability::{ProviderAttemptContext, RequestObservation},
+    observability::{
+        ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
+    },
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
 };
@@ -21,11 +23,12 @@ use crate::{
 use super::super::{
     attempt::{AttemptManager, AttemptStep},
     response::{
-        embedding_route_error, embedding_server_error, embedding_upstream_error,
-        normalized_embedding_upstream_error,
+        embedding_request_error_type, embedding_route_error, embedding_server_error,
+        embedding_upstream_error, normalized_embedding_upstream_error,
     },
     state::GatewayState,
 };
+use super::policy::{http_attempt_failure, transport_attempt_failure};
 use super::{
     embedding_response::validated_embedding_response, should_retry_error, should_retry_status,
 };
@@ -41,29 +44,46 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     let registry = state.registry.clone();
     let requirements = match analyze_embedding_request(&body) {
         Ok(requirements) => requirements,
-        Err(error) => return embedding_route_error(error),
+        Err(error) => {
+            observation.record_request_failure(
+                embedding_request_error_type(&error),
+                FailureStage::Analysis,
+                false,
+            );
+            return embedding_route_error(error);
+        }
     };
-    observation.record_request(
+    let replayable = body.len() <= registry.limits().max_replay_body_bytes();
+    let plan = match plan_embedding_request(&registry, &requirements, body) {
+        Ok(plan) => plan,
+        Err(error) => {
+            observation.record_request_failure(
+                embedding_request_error_type(&error),
+                FailureStage::Planning,
+                false,
+            );
+            return embedding_route_error(error);
+        }
+    };
+    observation.record_planned_request(
         OperationKind::EmbeddingsCreate,
         requirements.public_model(),
         false,
     );
-    let replayable = body.len() <= registry.limits().max_replay_body_bytes();
-    let plan = match plan_embedding_request(&registry, &requirements, body) {
-        Ok(plan) => plan,
-        Err(error) => return embedding_route_error(error),
-    };
     let candidate = plan.candidate();
 
     // Resolve only compiler-bound target, API, and credential-pool identities.
     let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
-        return configuration_error("Configured upstream target is unavailable");
+        return configuration_error(&observation, "Configured upstream target is unavailable");
     };
     let Some(upstream_api) = target.upstream_api(candidate.upstream_operation()) else {
-        return configuration_error("Configured native upstream API is unavailable");
+        return configuration_error(
+            &observation,
+            "Configured native upstream API is unavailable",
+        );
     };
     let Some(credential_pool) = registry.credential_pool(target.credential_pool_id()) else {
-        return configuration_error("Configured credential pool is unavailable");
+        return configuration_error(&observation, "Configured credential pool is unavailable");
     };
     let credentials = match state.credentials.upstream_pool(
         target.kind(),
@@ -72,6 +92,11 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     ) {
         Ok(credentials) => credentials,
         Err(_) => {
+            observation.record_request_failure(
+                ErrorType::UpstreamAuthentication,
+                FailureStage::Credential,
+                false,
+            );
             return embedding_server_error(
                 StatusCode::BAD_GATEWAY,
                 "upstream_authentication_error",
@@ -86,7 +111,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     {
         Ok(request) => request,
         Err(_) => {
-            return configuration_error("Provider request preparation failed");
+            return configuration_error(&observation, "Provider request preparation failed");
         }
     };
     let mut attempts = AttemptManager::new();
@@ -112,6 +137,11 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     index
                 }
                 None => {
+                    observation.record_request_failure(
+                        ErrorType::UpstreamUnavailable,
+                        FailureStage::Credential,
+                        true,
+                    );
                     return embedding_server_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "upstream_cooldown",
@@ -124,9 +154,19 @@ pub(in crate::ingress) async fn forward_embeddings_request(
         let credential = &credentials[member_index];
         let headers = match adapter.build_outbound_headers(credential, &downstream_headers) {
             Ok(headers) => headers,
-            Err(_) => return configuration_error("Provider authentication could not be prepared"),
+            Err(_) => {
+                return configuration_error(
+                    &observation,
+                    "Provider authentication could not be prepared",
+                );
+            }
         };
         if !attempts.start_attempt() {
+            observation.record_request_failure(
+                ErrorType::UpstreamFailure,
+                FailureStage::Upstream,
+                false,
+            );
             return embedding_server_error(
                 StatusCode::BAD_GATEWAY,
                 "upstream_attempts_exhausted",
@@ -147,10 +187,6 @@ pub(in crate::ingress) async fn forward_embeddings_request(
         match state.upstream.send(target, request.clone(), headers).await {
             Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
                 // Classify retryable HTTP failures without reading or exposing their response bodies.
-                observation.record_attempt_http_result(
-                    attempts.attempts_started() as u64,
-                    upstream.status(),
-                );
                 let classification = adapter.classify_status(upstream.status());
                 let rate_limited =
                     classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
@@ -173,23 +209,40 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                         &rejected_members,
                         std::time::Instant::now(),
                     );
-                if replayable
+                let step = if replayable
                     && has_retry_credential
                     && attempts.next_step(0) == AttemptStep::RetryCandidate
                 {
-                    attempts.wait_before_next_attempt().await;
-                    observation.record_retry();
+                    AttemptStep::RetryCandidate
+                } else {
+                    AttemptStep::Finish
+                };
+                let attempt_failure =
+                    http_attempt_failure(&adapter, upstream.status(), step.next_action());
+                observation.record_attempt_http_result(
+                    attempts.attempts_started() as u64,
+                    upstream.status(),
+                    Some(attempt_failure),
+                );
+                if step == AttemptStep::RetryCandidate {
+                    let backoff = attempts.schedule_backoff();
+                    observation.record_retry(attempt_failure.error_type, backoff);
+                    AttemptManager::wait_before_next_attempt(backoff).await;
                     continue;
                 }
                 return normalized_embedding_upstream_error(upstream);
             }
             Ok(upstream) => {
                 // Record the HTTP outcome before consuming a bounded success body or returning an error.
+                let status = upstream.status();
+                let failure = (!status.is_success())
+                    .then(|| http_attempt_failure(&adapter, status, NextAction::Finish));
                 observation.record_attempt_http_result(
                     attempts.attempts_started() as u64,
-                    upstream.status(),
+                    status,
+                    failure,
                 );
-                if !upstream.status().is_success() {
+                if !status.is_success() {
                     return normalized_embedding_upstream_error(upstream);
                 }
 
@@ -208,7 +261,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 {
                     Ok(response) => response,
                     Err(_) => {
-                        observation.record_stream_failure("invalid_upstream_response");
+                        observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
                         return embedding_server_error(
                             StatusCode::BAD_GATEWAY,
                             "invalid_upstream_response",
@@ -228,15 +281,22 @@ pub(in crate::ingress) async fn forward_embeddings_request(
             }
             Err(error) if should_retry_error(&error) => {
                 // Record a low-cardinality transport outcome without retaining its underlying message.
+                let step = if replayable && attempts.next_step(0) == AttemptStep::RetryCandidate {
+                    AttemptStep::RetryCandidate
+                } else {
+                    AttemptStep::Finish
+                };
+                let attempt_failure = transport_attempt_failure(&error, step.next_action());
                 observation.record_attempt_transport_failure(
                     attempts.attempts_started() as u64,
-                    transport_error_kind(&error),
+                    attempt_failure,
                 );
 
                 // Retry only replayable bodies and let handler cancellation own the backoff timer.
-                if replayable && attempts.next_step(0) == AttemptStep::RetryCandidate {
-                    attempts.wait_before_next_attempt().await;
-                    observation.record_retry();
+                if step == AttemptStep::RetryCandidate {
+                    let backoff = attempts.schedule_backoff();
+                    observation.record_retry(attempt_failure.error_type, backoff);
+                    AttemptManager::wait_before_next_attempt(backoff).await;
                     continue;
                 }
                 return embedding_upstream_error(error);
@@ -245,7 +305,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 // Fail immediately for non-retryable local transport construction or target errors.
                 observation.record_attempt_transport_failure(
                     attempts.attempts_started() as u64,
-                    transport_error_kind(&error),
+                    transport_attempt_failure(&error, NextAction::Finish),
                 );
                 return embedding_upstream_error(error);
             }
@@ -254,20 +314,15 @@ pub(in crate::ingress) async fn forward_embeddings_request(
 }
 
 /// Builds one stable internal configuration error without exposing registry topology.
-fn configuration_error(message: &'static str) -> Response {
+fn configuration_error(observation: &RequestObservation, message: &'static str) -> Response {
+    observation.record_request_failure(
+        ErrorType::ConfigurationError,
+        FailureStage::Credential,
+        false,
+    );
     embedding_server_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "configuration_error",
         message,
     )
-}
-
-/// Maps transport errors to the existing low-cardinality observation categories.
-fn transport_error_kind(error: &crate::transport::upstream::TransportError) -> &'static str {
-    match error {
-        crate::transport::upstream::TransportError::ClientBuild(_) => "client_build",
-        crate::transport::upstream::TransportError::Request(_) => "request",
-        crate::transport::upstream::TransportError::Timeout => "timeout",
-        crate::transport::upstream::TransportError::InvalidTarget => "invalid_target",
-    }
 }

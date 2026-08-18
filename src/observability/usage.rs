@@ -14,6 +14,7 @@ use super::request::RequestObservation;
 pub(super) struct TokenUsage {
     pub(super) input_tokens: Option<u64>,
     pub(super) output_tokens: Option<u64>,
+    pub(super) reasoning_output_tokens: Option<u64>,
     pub(super) total_tokens: Option<u64>,
     pub(super) cached_input_tokens: Option<u64>,
     pub(super) cache_write_input_tokens: Option<u64>,
@@ -24,6 +25,9 @@ impl TokenUsage {
     pub(super) fn merge(&mut self, other: Self) {
         self.input_tokens = self.input_tokens.or(other.input_tokens);
         self.output_tokens = self.output_tokens.or(other.output_tokens);
+        self.reasoning_output_tokens = self
+            .reasoning_output_tokens
+            .or(other.reasoning_output_tokens);
         self.total_tokens = self.total_tokens.or(other.total_tokens);
         self.cached_input_tokens = self.cached_input_tokens.or(other.cached_input_tokens);
         self.cache_write_input_tokens = self
@@ -182,6 +186,12 @@ pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
         .get("output_tokens")
         .or_else(|| usage.get("completion_tokens"))
         .and_then(Value::as_u64);
+    let reasoning_output_tokens = usage
+        .get("reasoning_output_tokens")
+        .or_else(|| usage.get("reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .or_else(|| nested_usage_token(usage, "output_tokens_details", "reasoning_tokens"))
+        .or_else(|| nested_usage_token(usage, "completion_tokens_details", "reasoning_tokens"));
     let total_tokens = usage
         .get("total_tokens")
         .and_then(Value::as_u64)
@@ -205,6 +215,7 @@ pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
         .or_else(|| nested_usage_token(usage, "input_tokens_details", "cache_creation_tokens"));
     if input_tokens.is_none()
         && output_tokens.is_none()
+        && reasoning_output_tokens.is_none()
         && total_tokens.is_none()
         && cached_input_tokens.is_none()
         && cache_write_input_tokens.is_none()
@@ -214,6 +225,7 @@ pub(super) fn extract_usage(value: &Value) -> Option<TokenUsage> {
         Some(TokenUsage {
             input_tokens,
             output_tokens,
+            reasoning_output_tokens,
             total_tokens,
             cached_input_tokens,
             cache_write_input_tokens,

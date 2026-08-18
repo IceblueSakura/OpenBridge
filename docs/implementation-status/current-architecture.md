@@ -188,9 +188,11 @@ API 在下游 commit 前完整校验上游 SSE，并生成非流式 JSON。非�
 request analysis 把状态要求建模为 typed facts；Public Model compiler 只在所有固定 candidate 对 issuing Target/API/credential
 affinity 有共同保证时公开相应 state。opaque continuation 无安全投影时在 egress 前拒绝。
 
-Observability 使用 downstream request root span、Provider attempt child span 和 SDK Counter/Histogram。attributes 只来自固定
-allowlist；request body、credential、endpoint URL 和高基数 identity 不进入 OTLP。metrics 通过 startup-owned OTLP/HTTP exporter
-输出，不存在进程内 JSON metrics 查询 API。内容日志只产生本地有界 snapshot，不进入 span-only OTLP layer。
+Observability 使用 downstream request root span、Provider attempt child span、固定 routing event allowlist 和 SDK
+Counter/Histogram。attributes 只来自固定 allowlist；Public Model 只在 registry planning 后使用，未验证的请求 model、request body、
+credential、endpoint URL 和高基数 identity 不进入 OTLP。
+metrics 通过 startup-owned OTLP/HTTP exporter 输出，不存在进程内 JSON metrics 查询 API。内容日志只产生本地有界
+snapshot，不进入 reviewed OTLP trace layer。
 
 ## 8. Probe 与证据边界
 

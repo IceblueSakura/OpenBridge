@@ -13,7 +13,11 @@ use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::ProviderMetricAttributes;
-use crate::observability::{metrics::GatewayMetrics, usage::TokenUsage};
+use crate::observability::{
+    classification::{AttemptFailure, ErrorType, NextAction},
+    metrics::GatewayMetrics,
+    usage::TokenUsage,
+};
 
 /// Final result category for a Provider attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,12 +59,13 @@ pub(crate) struct ProviderAttemptObservation {
 
 #[derive(Default)]
 struct ProviderAttemptState {
+    http_status: Option<u16>,
     response_ready_ms: Option<u64>,
     upstream_first_byte_ms: Option<u64>,
     upstream_ttft_ms: Option<u64>,
-    gateway_ttft_ms: Option<u64>,
     upstream_completed_ms: Option<u64>,
     usage: Option<TokenUsage>,
+    failure: Option<AttemptFailure>,
     stream_failed: bool,
     finished: bool,
 }
@@ -68,14 +73,15 @@ struct ProviderAttemptState {
 #[derive(Clone, Copy)]
 pub(crate) struct AttemptSummary {
     pub(crate) outcome: AttemptOutcome,
+    pub(crate) http_status: Option<u16>,
     pub(crate) response_ready_ms: Option<u64>,
     pub(crate) upstream_first_byte_ms: Option<u64>,
     pub(crate) upstream_ttft_ms: Option<u64>,
-    pub(crate) gateway_ttft_ms: Option<u64>,
     pub(crate) duration_ms: u64,
     pub(crate) generation_duration_ms: Option<u64>,
     pub(crate) output_tokens_per_second: Option<f64>,
     pub(crate) usage: Option<TokenUsage>,
+    pub(crate) failure: Option<AttemptFailure>,
 }
 
 impl ProviderAttemptObservation {
@@ -92,6 +98,11 @@ impl ProviderAttemptObservation {
             started: Instant::now(),
             state: Arc::new(Mutex::new(ProviderAttemptState::default())),
         }
+    }
+
+    /// Records the exact upstream HTTP status whenever response headers exist.
+    pub(crate) fn record_http_status(&self, status: u16) {
+        self.with_state(|state| state.http_status = Some(status));
     }
 
     /// Records the attempt-relative time when upstream response headers are ready.
@@ -121,13 +132,6 @@ impl ProviderAttemptObservation {
         });
     }
 
-    /// Records when downstream observes the first streaming delta or non-streaming JSON body.
-    pub(crate) fn record_gateway_ttft(&self, elapsed_ms: u64) {
-        self.with_state(|state| {
-            state.gateway_ttft_ms.get_or_insert(elapsed_ms);
-        });
-    }
-
     /// Records normal EOF of the raw upstream body.
     pub(crate) fn record_upstream_complete(&self) {
         self.with_state(|state| {
@@ -138,8 +142,16 @@ impl ProviderAttemptObservation {
     }
 
     /// Records an upstream body/SSE/protocol failure while leaving finalization to the request lifecycle.
-    pub(crate) fn record_stream_failure(&self) {
-        self.with_state(|state| state.stream_failed = true);
+    pub(crate) fn record_stream_failure(&self, error_type: ErrorType) {
+        self.with_state(|state| {
+            state.stream_failed = true;
+            state.failure = Some(AttemptFailure::new(error_type, false, NextAction::Finish));
+        });
+    }
+
+    /// Records the closed cause and action before finalizing a failed attempt.
+    pub(crate) fn record_failure(&self, failure: AttemptFailure) {
+        self.with_state(|state| state.failure = Some(failure));
     }
 
     /// Merges explicit usage while preserving cache fields already collected.
@@ -185,21 +197,36 @@ impl ProviderAttemptObservation {
                     (generation_ms > 0)
                         .then(|| output_tokens as f64 * 1_000.0 / generation_ms as f64)
                 });
+            let failure = if outcome == AttemptOutcome::Completed {
+                None
+            } else {
+                state.failure.or_else(|| {
+                    (outcome == AttemptOutcome::Cancelled).then(|| {
+                        AttemptFailure::new(ErrorType::ClientCancelled, false, NextAction::Finish)
+                    })
+                })
+            };
             AttemptSummary {
                 outcome,
+                http_status: state.http_status,
                 response_ready_ms: state.response_ready_ms,
                 upstream_first_byte_ms: state.upstream_first_byte_ms,
                 upstream_ttft_ms: state.upstream_ttft_ms,
-                gateway_ttft_ms: state.gateway_ttft_ms,
                 duration_ms,
                 generation_duration_ms,
                 output_tokens_per_second,
                 usage: state.usage,
+                failure,
             }
         };
 
         // Record only the reviewed terminal, timing, and explicit usage fields on the attempt span.
         self.span.set_attribute("outcome", summary.outcome.as_str());
+        record_optional_u64(
+            &self.span,
+            "http.response.status_code",
+            summary.http_status.map(u64::from),
+        );
         record_optional_u64(&self.span, "response_ready_ms", summary.response_ready_ms);
         record_optional_u64(
             &self.span,
@@ -207,7 +234,6 @@ impl ProviderAttemptObservation {
             summary.upstream_first_byte_ms,
         );
         record_optional_u64(&self.span, "upstream_ttft_ms", summary.upstream_ttft_ms);
-        record_optional_u64(&self.span, "gateway_ttft_ms", summary.gateway_ttft_ms);
         set_u64_attribute(&self.span, "duration_ms", summary.duration_ms);
         record_optional_u64(
             &self.span,
@@ -217,6 +243,11 @@ impl ProviderAttemptObservation {
         let usage = summary.usage.unwrap_or_default();
         record_optional_u64(&self.span, "input_tokens", usage.input_tokens);
         record_optional_u64(&self.span, "output_tokens", usage.output_tokens);
+        record_optional_u64(
+            &self.span,
+            "reasoning_output_tokens",
+            usage.reasoning_output_tokens,
+        );
         record_optional_u64(&self.span, "total_tokens", usage.total_tokens);
         record_optional_u64(&self.span, "cached_input_tokens", usage.cached_input_tokens);
         record_optional_u64(
@@ -224,6 +255,13 @@ impl ProviderAttemptObservation {
             "cache_write_input_tokens",
             usage.cache_write_input_tokens,
         );
+        if let Some(failure) = summary.failure {
+            self.span
+                .set_attribute("error.type", failure.error_type.as_str());
+            self.span.set_attribute("retryable", failure.retryable);
+            self.span
+                .set_attribute("next_action", failure.next_action.as_str());
+        }
 
         // Submit the terminal directly to OpenTelemetry and preserve the content-free local event.
         self.metrics
@@ -242,10 +280,12 @@ impl ProviderAttemptObservation {
                 response_ready_ms = summary.response_ready_ms,
                 upstream_first_byte_ms = summary.upstream_first_byte_ms,
                 upstream_ttft_ms = summary.upstream_ttft_ms,
-                gateway_ttft_ms = summary.gateway_ttft_ms,
                 duration_ms = summary.duration_ms,
                 input_tokens = summary.usage.and_then(|usage| usage.input_tokens),
                 output_tokens = summary.usage.and_then(|usage| usage.output_tokens),
+                reasoning_output_tokens = summary
+                    .usage
+                    .and_then(|usage| usage.reasoning_output_tokens),
                 total_tokens = summary.usage.and_then(|usage| usage.total_tokens),
                 cached_input_tokens = summary
                     .usage

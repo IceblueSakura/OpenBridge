@@ -1,27 +1,29 @@
 //! Tracing, terminal-state, and OpenTelemetry submission for one authenticated request.
 //!
-//! Request, user, credential, and endpoint facts enter only the current span. Validated Route,
-//! target, upstream operation, Provider, and Public Model dimensions are used separately by Provider
-//! attempt instruments. Shared state stores only pending lifecycle diagnostics and usage, and
-//! guarantees that finish/cancel is submitted at most once.
+//! Request content, user, credential, and endpoint values never enter telemetry. Validated Route,
+//! target, upstream operation, Provider, and Public Model dimensions are used only by Provider
+//! attempt instruments. Shared state stores pending lifecycle diagnostics and usage, and guarantees
+//! that finish/cancel is submitted at most once.
 
 use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use http::{HeaderMap, Method, StatusCode};
+use opentelemetry::KeyValue;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{config::HttpLoggingConfig, core::OperationKind};
 
 use super::{
+    classification::{AttemptFailure, ErrorType, FailureStage, RequestFailure, RequestKind},
     http_jsonl::{HttpJsonlWriter, JsonlRecord},
-    metrics::GatewayMetrics,
+    metrics::{GatewayMetrics, RequestMetricTerminal},
     provider::{
         AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
         ProviderMetricAttributes, observe_json_body,
@@ -38,6 +40,7 @@ pub(crate) struct RequestObservation {
 struct RequestObservationInner {
     metrics: GatewayMetrics,
     span: Span,
+    request_kind: RequestKind,
     request_id: String,
     http_logging: HttpLoggingConfig,
     jsonl_writer: Option<HttpJsonlWriter>,
@@ -65,6 +68,7 @@ struct RequestState {
     cooldown_skips: u64,
     usage: Option<TokenUsage>,
     active_attempt: Option<ProviderAttemptObservation>,
+    failure: Option<RequestFailure>,
     failure_kind: Option<&'static str>,
     finished: bool,
 }
@@ -76,6 +80,7 @@ impl RequestObservation {
         Self::new_with_http_logging(
             metrics,
             span,
+            RequestKind::Generation,
             "test-request".to_owned(),
             HttpLoggingConfig::default(),
             None,
@@ -86,15 +91,17 @@ impl RequestObservation {
     pub(crate) fn new_with_http_logging(
         metrics: GatewayMetrics,
         span: Span,
+        request_kind: RequestKind,
         request_id: String,
         http_logging: HttpLoggingConfig,
         jsonl_writer: Option<HttpJsonlWriter>,
     ) -> Self {
-        metrics.record_request_started();
+        metrics.record_request_started(request_kind);
         Self {
             inner: Arc::new(RequestObservationInner {
                 metrics,
                 span,
+                request_kind,
                 request_id,
                 http_logging,
                 jsonl_writer,
@@ -188,8 +195,8 @@ impl RequestObservation {
         }
     }
 
-    /// Records the downstream operation and Public Model in the request span.
-    pub(crate) fn record_request(
+    /// Records the downstream operation and registry-validated Public Model after planning.
+    pub(crate) fn record_planned_request(
         &self,
         operation: OperationKind,
         public_model: &str,
@@ -207,6 +214,18 @@ impl RequestObservation {
             .span
             .set_attribute("public_model", public_model.to_owned());
         self.inner.span.set_attribute("streaming", streaming);
+    }
+
+    /// Retains the latest bounded request-level cause without changing the public response.
+    pub(crate) fn record_request_failure(
+        &self,
+        error_type: ErrorType,
+        stage: FailureStage,
+        retryable: bool,
+    ) {
+        self.with_state(|state| {
+            state.failure = Some(RequestFailure::terminal(error_type, stage, retryable));
+        });
     }
 
     /// Records one actual upstream attempt and its compiled Route facts.
@@ -266,15 +285,27 @@ impl RequestObservation {
     }
 
     /// Records a redacted HTTP result for an attempt and counts non-success statuses.
-    pub(crate) fn record_attempt_http_result(&self, attempt: u64, status: StatusCode) {
+    pub(crate) fn record_attempt_http_result(
+        &self,
+        attempt: u64,
+        status: StatusCode,
+        failure: Option<AttemptFailure>,
+    ) {
         // A successful status records response-ready; a non-success status finalizes the attempt at the headers boundary.
         if status.is_success() {
             if let Some(provider_attempt) = self.active_attempt() {
+                provider_attempt.record_http_status(status.as_u16());
                 provider_attempt.record_response_ready();
             }
         } else if let Some(provider_attempt) = self.take_active_attempt() {
+            let failure = failure.expect("failed HTTP attempt requires diagnostic context");
+            provider_attempt.record_http_status(status.as_u16());
             provider_attempt.record_response_ready();
+            provider_attempt.record_failure(failure);
             provider_attempt.finish(AttemptOutcome::HttpFailed);
+            self.with_state(|state| {
+                state.failure = Some(failure.request_failure(FailureStage::Upstream));
+            });
         }
         self.inner.span.in_scope(|| {
             tracing::info!(
@@ -286,56 +317,102 @@ impl RequestObservation {
     }
 
     /// Records a safe transport-failure category without an HTTP response.
-    pub(crate) fn record_attempt_transport_failure(&self, attempt: u64, kind: &'static str) {
+    pub(crate) fn record_attempt_transport_failure(&self, attempt: u64, failure: AttemptFailure) {
         // Finalize the Provider attempt at the boundary where no HTTP headers exist.
         if let Some(provider_attempt) = self.take_active_attempt() {
+            provider_attempt.record_failure(failure);
             provider_attempt.finish(AttemptOutcome::TransportFailed);
         }
+        self.with_state(|state| {
+            state.failure = Some(failure.request_failure(FailureStage::Upstream));
+        });
         self.inner.span.in_scope(|| {
             tracing::info!(
                 attempt,
-                failure_kind = kind,
+                failure_kind = failure.error_type.as_str(),
                 "upstream_attempt_transport_failure"
             );
         });
     }
 
-    /// Records one retry within the same candidate.
-    pub(crate) fn record_retry(&self) {
-        self.inner.metrics.record_routing_event("retry");
+    /// Records one scheduled retry within the same candidate.
+    pub(crate) fn record_retry(&self, reason: ErrorType, backoff: Duration) {
+        self.inner.metrics.record_routing_event("retry", reason);
         self.with_state(|state| state.retries += 1);
-        self.inner
-            .span
-            .in_scope(|| tracing::info!("upstream_retry"));
+        let scheduled_backoff_ms = backoff.as_millis().min(i64::MAX as u128) as i64;
+        self.inner.span.add_event(
+            "openbridge.retry",
+            vec![
+                KeyValue::new("reason", reason.as_str()),
+                KeyValue::new("scheduled_backoff_ms", scheduled_backoff_ms),
+            ],
+        );
+        self.inner.span.in_scope(|| {
+            tracing::info!(
+                reason = reason.as_str(),
+                scheduled_backoff_ms,
+                "upstream_retry"
+            );
+        });
     }
 
     /// Records rotation to another member in the same Provider pool after 429.
     pub(crate) fn record_credential_rotation(&self) {
         self.inner
             .metrics
-            .record_routing_event("credential_rotation");
+            .record_routing_event("credential_rotation", ErrorType::UpstreamRateLimited);
         self.with_state(|state| state.credential_rotations += 1);
+        self.inner.span.add_event(
+            "openbridge.credential_rotation",
+            vec![KeyValue::new(
+                "reason",
+                ErrorType::UpstreamRateLimited.as_str(),
+            )],
+        );
         self.inner
             .span
             .in_scope(|| tracing::info!("credential_rotated"));
     }
 
-    /// Records one fallback to the next Route candidate.
-    pub(crate) fn record_fallback(&self) {
-        self.inner.metrics.record_routing_event("route_fallback");
-        self.with_state(|state| state.fallbacks += 1);
+    /// Records one scheduled fallback to the next Route candidate.
+    pub(crate) fn record_fallback(&self, reason: ErrorType, backoff: Duration) {
         self.inner
-            .span
-            .in_scope(|| tracing::info!("route_fallback"));
+            .metrics
+            .record_routing_event("route_fallback", reason);
+        self.with_state(|state| state.fallbacks += 1);
+        let scheduled_backoff_ms = backoff.as_millis().min(i64::MAX as u128) as i64;
+        self.inner.span.add_event(
+            "openbridge.fallback",
+            vec![
+                KeyValue::new("reason", reason.as_str()),
+                KeyValue::new("scheduled_backoff_ms", scheduled_backoff_ms),
+            ],
+        );
+        self.inner.span.in_scope(|| {
+            tracing::info!(
+                reason = reason.as_str(),
+                scheduled_backoff_ms,
+                "route_fallback"
+            );
+        });
     }
 
     /// Records a candidate skipped because of cooldown.
     pub(crate) fn record_cooldown_skip(&self, upstream_target: &str) {
-        self.inner.metrics.record_routing_event("cooldown_skip");
+        self.inner
+            .metrics
+            .record_routing_event("cooldown_skip", ErrorType::UpstreamUnavailable);
         self.with_state(|state| state.cooldown_skips += 1);
-        self.inner.span.in_scope(|| {
-            tracing::info!(upstream_target, "cooldown_skip");
-        });
+        self.inner.span.add_event(
+            "openbridge.cooldown_skip",
+            vec![
+                KeyValue::new("reason", ErrorType::UpstreamUnavailable.as_str()),
+                KeyValue::new("upstream_target", upstream_target.to_owned()),
+            ],
+        );
+        self.inner
+            .span
+            .in_scope(|| tracing::info!(upstream_target, "cooldown_skip"));
     }
 
     /// Marks that the handler generated response headers but has not completed the body.
@@ -373,9 +450,6 @@ impl RequestObservation {
         }
         let elapsed = self.elapsed_ms();
         self.with_state(|state| state.first_output_ms = Some(elapsed));
-        if let Some(provider_attempt) = self.active_attempt() {
-            provider_attempt.record_gateway_ttft(elapsed);
-        }
     }
 
     /// Marks a non-streaming JSON body unless its terminal was already classified as failed.
@@ -405,12 +479,44 @@ impl RequestObservation {
     }
 
     /// Records a body/SSE failure; one request retains only its first failure category.
-    pub(crate) fn record_stream_failure(&self, kind: &'static str) {
-        self.with_state(|state| {
-            state.failure_kind.get_or_insert(kind);
+    pub(crate) fn record_stream_failure(&self, error_type: ErrorType) {
+        self.record_body_failure(error_type, FailureStage::Stream, true);
+    }
+
+    /// Records a gateway-owned Bridge failure without changing a completed Provider terminal.
+    pub(crate) fn record_bridge_failure(&self) {
+        self.record_body_failure(
+            ErrorType::InvalidUpstreamResponse,
+            FailureStage::Bridge,
+            false,
+        );
+    }
+
+    /// Records an error observed while delivering the downstream response body.
+    pub(crate) fn record_downstream_failure(&self) {
+        self.record_body_failure(
+            ErrorType::DownstreamBodyError,
+            FailureStage::DownstreamDelivery,
+            true,
+        );
+    }
+
+    /// Retains the first request cause and only then marks the Provider side when applicable.
+    fn record_body_failure(&self, error_type: ErrorType, stage: FailureStage, mark_provider: bool) {
+        let inserted = self.with_state_return(|state| {
+            state.failure_kind.get_or_insert(error_type.as_str());
+            if state.failure.is_some() {
+                false
+            } else {
+                state.failure = Some(RequestFailure::terminal(error_type, stage, false));
+                true
+            }
         });
-        if let Some(provider_attempt) = self.active_attempt() {
-            provider_attempt.record_stream_failure();
+        if inserted
+            && mark_provider
+            && let Some(provider_attempt) = self.active_attempt()
+        {
+            provider_attempt.record_stream_failure(error_type);
         }
     }
 
@@ -433,6 +539,7 @@ impl RequestObservation {
         self.record_usage(TokenUsage {
             input_tokens: Some(input_tokens),
             output_tokens: None,
+            reasoning_output_tokens: None,
             total_tokens: Some(total_tokens),
             cached_input_tokens: None,
             cache_write_input_tokens: None,
@@ -470,7 +577,7 @@ impl RequestObservation {
             provider_attempt.record_upstream_ttft();
         }
         if is_failed_terminal(value) {
-            self.record_stream_failure("provider_terminal_failed");
+            self.record_stream_failure(ErrorType::ProviderTerminalFailed);
         }
         if let Some(usage) = super::usage::extract_usage(value) {
             self.record_usage(usage);
@@ -498,9 +605,7 @@ impl RequestObservation {
 
     /// Records raw upstream body or framing failure.
     pub(crate) fn record_upstream_failure(&self) {
-        if let Some(provider_attempt) = self.active_attempt() {
-            provider_attempt.record_stream_failure();
-        }
+        self.record_stream_failure(ErrorType::InvalidUpstreamResponse);
     }
 
     /// Observes a successful non-SSE upstream body through a transparent wrapper.
@@ -550,40 +655,56 @@ impl RequestObservation {
                 fallbacks: state.fallbacks,
                 cooldown_skips: state.cooldown_skips,
                 usage: state.usage,
+                failure: state.failure,
                 failure_kind: state.failure_kind,
                 cancelled,
                 active_attempt: state.active_attempt.take(),
             }
         };
 
+        let outcome = request_outcome(&summary);
+        let failure = terminal_failure(&summary, outcome, self.inner.request_kind);
+        let recovery = request_recovery(&summary);
+
         // Submit the terminal directly to OpenTelemetry before closing its active Provider attempt.
-        self.inner.metrics.record_request_completed(
-            request_outcome(&summary),
-            summary.duration_ms,
-            summary.operation,
-            summary.public_model.as_deref(),
-            summary.streaming,
-        );
+        self.inner
+            .metrics
+            .record_request_terminal(RequestMetricTerminal {
+                outcome,
+                duration_ms: summary.duration_ms,
+                response_ready_ms: summary.response_ready_ms,
+                first_output_ms: summary.first_output_ms,
+                request_kind: self.inner.request_kind,
+                status: summary.status,
+                failure,
+                recovery,
+                operation: summary.operation,
+                public_model: summary.public_model.as_deref(),
+                streaming: summary.streaming,
+            });
         if let Some(provider_attempt) = summary.active_attempt.as_ref() {
-            let outcome = if summary.cancelled {
-                AttemptOutcome::Cancelled
-            } else if summary.failure_kind.is_some() {
-                AttemptOutcome::StreamFailed
-            } else {
-                AttemptOutcome::Completed
-            };
+            let outcome = provider_outcome_for_request(
+                summary.cancelled,
+                summary.failure.map(|failure| failure.stage),
+            );
             provider_attempt.finish(outcome);
         }
-        self.emit_completion(&summary);
+        self.emit_completion(&summary, outcome, failure);
     }
 
     /// Emits a terminal event in the request span without business bodies or credentials.
-    fn emit_completion(&self, summary: &CompletionSummary) {
-        // Collapse internal state into a stable outcome name without writing underlying error text to the event.
-        let outcome = request_outcome(summary);
+    fn emit_completion(
+        &self,
+        summary: &CompletionSummary,
+        outcome: &'static str,
+        failure: Option<RequestFailure>,
+    ) {
         // Emit only timing, attempt counts, terminal category, and structured usage counters.
         let usage = summary.usage.unwrap_or_default();
         self.inner.span.set_attribute("outcome", outcome);
+        self.inner
+            .span
+            .set_attribute("recovery", request_recovery(summary));
         record_optional_u64(
             &self.inner.span,
             "response_ready_ms",
@@ -607,7 +728,33 @@ impl RequestObservation {
         set_u64_attribute(&self.inner.span, "cooldown_skips", summary.cooldown_skips);
         record_optional_u64(&self.inner.span, "input_tokens", usage.input_tokens);
         record_optional_u64(&self.inner.span, "output_tokens", usage.output_tokens);
+        record_optional_u64(
+            &self.inner.span,
+            "reasoning_output_tokens",
+            usage.reasoning_output_tokens,
+        );
         record_optional_u64(&self.inner.span, "total_tokens", usage.total_tokens);
+        if let Some(status) = summary.status {
+            set_u64_attribute(
+                &self.inner.span,
+                "http.response.status_code",
+                u64::from(status),
+            );
+        }
+        if let Some(failure) = failure {
+            self.inner
+                .span
+                .set_attribute("error.type", failure.error_type.as_str());
+            self.inner
+                .span
+                .set_attribute("openbridge.failure.stage", failure.stage.as_str());
+            self.inner
+                .span
+                .set_attribute("retryable", failure.retryable);
+            self.inner
+                .span
+                .set_attribute("next_action", failure.next_action.as_str());
+        }
         self.inner.span.in_scope(|| {
             tracing::info!(
                 outcome,
@@ -624,6 +771,7 @@ impl RequestObservation {
                 failure_kind = summary.failure_kind,
                 input_tokens = usage.input_tokens,
                 output_tokens = usage.output_tokens,
+                reasoning_output_tokens = usage.reasoning_output_tokens,
                 total_tokens = usage.total_tokens,
                 "downstream_request_completed"
             );
@@ -665,6 +813,7 @@ struct CompletionSummary {
     fallbacks: u64,
     cooldown_skips: u64,
     usage: Option<TokenUsage>,
+    failure: Option<RequestFailure>,
     failure_kind: Option<&'static str>,
     cancelled: bool,
     active_attempt: Option<ProviderAttemptObservation>,
@@ -683,6 +832,86 @@ fn request_outcome(summary: &CompletionSummary) -> &'static str {
         "completed"
     } else {
         "http_failed"
+    }
+}
+
+/// Cancels an incomplete Bridge attempt while allowing its owner to preserve an observed upstream EOF.
+fn provider_outcome_for_request(
+    cancelled: bool,
+    failure_stage: Option<FailureStage>,
+) -> AttemptOutcome {
+    if cancelled || failure_stage == Some(FailureStage::Bridge) {
+        AttemptOutcome::Cancelled
+    } else if matches!(
+        failure_stage,
+        Some(FailureStage::Stream | FailureStage::DownstreamDelivery)
+    ) {
+        AttemptOutcome::StreamFailed
+    } else {
+        AttemptOutcome::Completed
+    }
+}
+
+/// Selects one terminal diagnostic only for a failed or cancelled observed request.
+fn terminal_failure(
+    summary: &CompletionSummary,
+    outcome: &'static str,
+    request_kind: RequestKind,
+) -> Option<RequestFailure> {
+    if outcome == "completed" {
+        None
+    } else {
+        summary
+            .failure
+            .or_else(|| {
+                summary.cancelled.then(|| {
+                    RequestFailure::terminal(
+                        ErrorType::ClientCancelled,
+                        FailureStage::DownstreamDelivery,
+                        false,
+                    )
+                })
+            })
+            .or_else(|| {
+                summary.status.map(|status| {
+                    if request_kind == RequestKind::Models && status == 404 {
+                        RequestFailure::terminal(
+                            ErrorType::UnknownModel,
+                            FailureStage::Planning,
+                            false,
+                        )
+                    } else if (400..500).contains(&status) {
+                        RequestFailure::terminal(
+                            ErrorType::InvalidRequest,
+                            FailureStage::Analysis,
+                            false,
+                        )
+                    } else {
+                        // Any unclassified observed 5xx is gateway-owned; do not invent an upstream cause.
+                        RequestFailure::terminal(
+                            ErrorType::ConfigurationError,
+                            FailureStage::Planning,
+                            false,
+                        )
+                    }
+                })
+            })
+    }
+}
+
+/// Collapses bounded routing counters into one low-cardinality recovery category.
+fn request_recovery(summary: &CompletionSummary) -> &'static str {
+    let used = [
+        summary.retries > 0,
+        summary.credential_rotations > 0,
+        summary.fallbacks > 0,
+    ];
+    match used.into_iter().filter(|used| *used).count() {
+        0 => "none",
+        1 if used[0] => "retry",
+        1 if used[1] => "credential_rotation",
+        1 => "fallback",
+        _ => "multiple",
     }
 }
 
@@ -712,5 +941,30 @@ impl RequestObservation {
     /// Applies an update under the state lock and returns its result.
     fn with_state_return<T>(&self, update: impl FnOnce(&mut RequestState) -> T) -> T {
         update(&mut self.lock_state())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AttemptOutcome, FailureStage, provider_outcome_for_request};
+
+    #[test]
+    fn bridge_failure_cancels_only_an_incomplete_provider_attempt() {
+        assert_eq!(
+            provider_outcome_for_request(false, Some(FailureStage::Bridge)),
+            AttemptOutcome::Cancelled
+        );
+        assert_eq!(
+            provider_outcome_for_request(false, Some(FailureStage::Stream)),
+            AttemptOutcome::StreamFailed
+        );
+        assert_eq!(
+            provider_outcome_for_request(false, Some(FailureStage::DownstreamDelivery)),
+            AttemptOutcome::StreamFailed
+        );
+        assert_eq!(
+            provider_outcome_for_request(true, Some(FailureStage::Bridge)),
+            AttemptOutcome::Cancelled
+        );
     }
 }

@@ -78,7 +78,7 @@ rules.
 - Request and response captures are bounded by `max_request_body_bytes` and `max_json_response_body_bytes`. Emit at most
   one terminal snapshot per direction with captured/observed bytes, completeness, and truncation; never buffer without
   bounds or log per SSE chunk.
-- Content snapshots use a bounded dedicated JSONL writer and must remain absent from stdout and the span-only OTLP layer.
+- Content snapshots use a bounded dedicated JSONL writer and must remain absent from stdout and the reviewed OTLP trace layer.
   Writer failure may drop snapshots with diagnostics but must not change business responses.
 
 ## Security, Private Data, and Generated Files

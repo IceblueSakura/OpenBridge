@@ -11,6 +11,7 @@ use http::{
 use serde::Serialize;
 
 use crate::{
+    observability::ErrorType,
     pipeline::{EmbeddingRequestError, RequestPlanningError},
     transport::upstream::{TransportError, UpstreamResponse},
 };
@@ -34,6 +35,38 @@ pub(super) fn filtered_upstream_headers(upstream: &HeaderMap) -> HeaderMap {
         }
     }
     filtered
+}
+
+/// Maps one generation analysis/preflight error to the closed observability taxonomy.
+pub(super) fn request_planning_error_type(error: &RequestPlanningError) -> ErrorType {
+    match error {
+        RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => {
+            ErrorType::UnknownModel
+        }
+        RequestPlanningError::UnimplementedCapabilities => ErrorType::UnimplementedCapability,
+        RequestPlanningError::UnsupportedProtocol
+        | RequestPlanningError::StreamingUnsupported
+        | RequestPlanningError::NonStreamingUnsupported
+        | RequestPlanningError::UnsupportedCapabilities
+        | RequestPlanningError::OutputLimitExceeded
+        | RequestPlanningError::MultimodalInputLimitExceeded
+        | RequestPlanningError::ReasoningUnsupported
+        | RequestPlanningError::ReasoningLevelUnsupported
+        | RequestPlanningError::UnsupportedParameter(_) => ErrorType::UnsupportedCapability,
+        _ => ErrorType::InvalidRequest,
+    }
+}
+
+/// Maps one Embeddings analysis/preflight error to the closed observability taxonomy.
+pub(super) fn embedding_request_error_type(error: &EmbeddingRequestError) -> ErrorType {
+    match error {
+        EmbeddingRequestError::InvalidRequest { .. } => ErrorType::InvalidRequest,
+        EmbeddingRequestError::ModelNotFound => ErrorType::UnknownModel,
+        EmbeddingRequestError::UnsupportedModelCapability { .. } => {
+            ErrorType::UnsupportedCapability
+        }
+        EmbeddingRequestError::RouteUnavailable => ErrorType::ConfigurationError,
+    }
 }
 
 /// Maps request-planning errors to stable downstream HTTP errors without exposing Route details.

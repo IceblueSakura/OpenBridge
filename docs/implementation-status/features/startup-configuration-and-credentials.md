@@ -12,7 +12,7 @@
 - API-key Store 与用户表不热重载。独立 `openbridge-auth login chatgpt` 可以把完整登录结果事务写入尚不存在的目标文件；常驻服务的
   OAuth manager 只在到期 refresh 或首个预提交 401 recovery 内 guarded reload/atomic rotate 自己的 OpenBridge-owned 文件。
 - 启动在 listener 前输出脱敏的 Provider/Public Model 配置态 available/unavailable 摘要；它不执行 network probe。
-- 本地 request/response header/body snapshot 只在认证后和显式开关下采集，受 body budget 限制并强制脱敏；不进入 span-only OTLP。
+- 本地 request/response header/body snapshot 只在认证后和显式开关下采集，受 body budget 限制并强制脱敏；不进入 reviewed OTLP trace layer。
 - 上游 endpoint、credential、认证 header 与 purpose 由注册表/adapter 固定；不从环境、`.env` 或本机 Codex 状态读取上游 secret。
 
 ## 所有权

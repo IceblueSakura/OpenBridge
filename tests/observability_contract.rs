@@ -258,7 +258,7 @@ impl UpstreamTransport for ProviderMetricsStreamingTransport {
                     b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"delta\":{\"reasoning_content\":\"reasoning\"}}]}\n\n",
                 )),
                 Ok(bytes::Bytes::from_static(
-                    b"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2}}}\n\n",
+                    b"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n",
                 )),
                 Ok(bytes::Bytes::from_static(b"data: [DONE]\n\n")),
             ]);
@@ -856,7 +856,9 @@ async fn non_streaming_provider_snapshot_records_only_observable_generation_late
     assert_eq!(snapshot.cache_hit_requests, 1);
     assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
     assert_eq!(snapshot.upstream_ttft_ms.count, 0);
-    assert_eq!(snapshot.gateway_ttft_ms.count, 1);
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.response_ready_ms.count, 1);
+    assert_eq!(gateway.time_to_first_output_ms.count, 1);
     assert_eq!(snapshot.duration_ms.count, 1);
     assert_eq!(snapshot.generation_duration_ms.count, 0);
     assert_eq!(snapshot.output_speed.count, 0);
@@ -932,7 +934,7 @@ async fn embeddings_use_operation_usage_without_output_or_sensitive_telemetry() 
     assert_eq!(snapshot.output_tokens, 0);
     assert_eq!(snapshot.total_tokens, 8);
     assert_eq!(snapshot.upstream_ttft_ms.count, 0);
-    assert_eq!(snapshot.gateway_ttft_ms.count, 0);
+    assert_eq!(metrics.snapshot().time_to_first_output_ms.count, 0);
     assert_eq!(snapshot.generation_duration_ms.count, 0);
     assert_eq!(snapshot.output_speed.count, 0);
     assert_eq!(transport.attempts.load(Ordering::SeqCst), 2);
@@ -1014,13 +1016,15 @@ async fn provider_snapshot_starts_ttft_on_reasoning_stream_output() {
     assert_eq!(snapshot.attempts_completed, 1);
     assert_eq!(snapshot.upstream_first_byte_ms.count, 1);
     assert_eq!(snapshot.upstream_ttft_ms.count, 1);
-    assert_eq!(snapshot.gateway_ttft_ms.count, 1);
+    assert_eq!(metrics.snapshot().time_to_first_output_ms.count, 1);
     assert_eq!(snapshot.usage_observations, 1);
     assert_eq!(snapshot.input_token_observations, 1);
     assert_eq!(snapshot.output_token_observations, 1);
+    assert_eq!(snapshot.reasoning_output_token_observations, 1);
     assert_eq!(snapshot.total_token_observations, 1);
     assert_eq!(snapshot.input_tokens, 8);
     assert_eq!(snapshot.output_tokens, 5);
+    assert_eq!(snapshot.reasoning_output_tokens, 3);
     assert_eq!(snapshot.cached_input_tokens, 2);
     assert_eq!(snapshot.cache_read_observations, 1);
     assert_eq!(snapshot.cache_hit_requests, 1);
@@ -1102,9 +1106,9 @@ async fn failed_sse_terminal_is_not_counted_as_a_successful_request() {
     let snapshot = metrics.snapshot();
     assert_eq!(snapshot.requests_completed, 0);
     assert_eq!(snapshot.requests_failed, 1);
+    assert_eq!(snapshot.time_to_first_output_ms.count, 0);
     let provider = &metrics.provider_snapshots()[0];
     assert_eq!(provider.attempts_stream_failed, 1);
-    assert_eq!(provider.gateway_ttft_ms.count, 0);
 }
 
 #[tokio::test]
@@ -1121,7 +1125,7 @@ async fn failed_json_terminal_is_not_counted_as_a_successful_request() {
     let snapshot = metrics.snapshot();
     assert_eq!(snapshot.requests_completed, 0);
     assert_eq!(snapshot.requests_failed, 1);
+    assert_eq!(snapshot.time_to_first_output_ms.count, 0);
     let provider = &metrics.provider_snapshots()[0];
     assert_eq!(provider.attempts_stream_failed, 1);
-    assert_eq!(provider.gateway_ttft_ms.count, 0);
 }

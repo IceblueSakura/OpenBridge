@@ -61,6 +61,10 @@ const TOKEN_BOUNDARIES: &[f64] = &[
 
 struct SuccessfulTransport;
 
+struct RetryThenSuccessTransport {
+    attempts: AtomicUsize,
+}
+
 impl UpstreamTransport for SuccessfulTransport {
     fn send<'a>(
         &'a self,
@@ -75,8 +79,37 @@ impl UpstreamTransport for SuccessfulTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(format!(
-                    r#"{{"id":"chatcmpl-otlp-metrics","choices":[{{"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}}}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{{"cached_tokens":1}}}}}}"#
+                    r#"{{"id":"chatcmpl-otlp-metrics","choices":[{{"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}}}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{{"cached_tokens":1}},"completion_tokens_details":{{"reasoning_tokens":1}}}}}}"#
                 )),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for RetryThenSuccessTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            if attempt == 0 {
+                return Ok(UpstreamResponse::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    headers,
+                    Body::from(r#"{"error":{"message":"retry"}}"#),
+                ));
+            }
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(
+                    r#"{"id":"chatcmpl-retry-metrics","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+                ),
             ))
         })
     }
@@ -164,17 +197,19 @@ fn bootstrap_with_metrics_export(endpoint: &str) -> BootstrapConfig {
 }
 
 fn app_with_metrics(metrics: openbridge::observability::GatewayMetrics) -> Router {
+    app_with_transport(metrics, Arc::new(SuccessfulTransport))
+}
+
+fn app_with_transport(
+    metrics: openbridge::observability::GatewayMetrics,
+    transport: Arc<dyn UpstreamTransport>,
+) -> Router {
     // Build the ordinary synthetic registry and bind only synthetic credentials.
     let registry = support::registry("otlp-metrics-test", "code-primary", "test-model");
     let (users, credentials) =
         support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
-    let state = GatewayState::new(
-        Arc::new(registry),
-        Arc::new(SuccessfulTransport),
-        users,
-        credentials,
-    )
-    .with_metrics(metrics);
+    let state =
+        GatewayState::new(Arc::new(registry), transport, users, credentials).with_metrics(metrics);
     build_router(state)
 }
 
@@ -326,25 +361,36 @@ async fn otlp_http_exports_native_gateway_and_gen_ai_metrics() {
         assert!(string_value(&resource.attributes, "service.instance.id").is_some());
     }
 
-    // Verify downstream and Provider attempts use monotonic SDK sums instead of custom snapshots.
+    // Verify started counters remain while terminal counts come from their duration histograms.
     let request_started = metric_named(&metrics, "openbridge.downstream.request.started");
     assert_eq!(request_started.unit, "{request}");
     assert_eq!(sum_points(request_started).len(), 1);
     assert_eq!(point_integer(&sum_points(request_started)[0]), 1);
-    let request_completed = metric_named(&metrics, "openbridge.downstream.request.completed");
-    let completed_point = &sum_points(request_completed)[0];
-    assert_eq!(point_integer(completed_point), 1);
+    assert_eq!(
+        string_value(
+            &sum_points(request_started)[0].attributes,
+            "openbridge.request.kind"
+        ),
+        Some("generation")
+    );
+    let request_duration = metric_named(&metrics, "openbridge.downstream.request.duration");
+    let completed_point = &histogram_points(request_duration)[0];
+    assert_eq!(completed_point.count, 1);
     assert_eq!(
         string_value(&completed_point.attributes, "openbridge.request.outcome"),
         Some("completed")
+    );
+    assert_eq!(
+        string_value(&completed_point.attributes, "openbridge.request.kind"),
+        Some("generation")
     );
 
     let attempt_started = metric_named(&metrics, "openbridge.provider.attempt.started");
     assert_eq!(attempt_started.unit, "{attempt}");
     assert_eq!(point_integer(&sum_points(attempt_started)[0]), 1);
-    let attempt_completed = metric_named(&metrics, "openbridge.provider.attempt.completed");
-    let attempt_point = &sum_points(attempt_completed)[0];
-    assert_eq!(point_integer(attempt_point), 1);
+    let attempt_duration = metric_named(&metrics, "openbridge.provider.attempt.duration");
+    let attempt_point = &histogram_points(attempt_duration)[0];
+    assert_eq!(attempt_point.count, 1);
     for (key, value) in [
         ("gen_ai.provider.name", "openai"),
         ("gen_ai.operation.name", "chat"),
@@ -364,10 +410,19 @@ async fn otlp_http_exports_native_gateway_and_gen_ai_metrics() {
         Some(false)
     );
 
-    // Verify standard GenAI duration/token histograms and their recommended token boundaries.
-    let duration = metric_named(&metrics, "gen_ai.client.operation.duration");
-    assert_eq!(duration.unit, "s");
-    assert_eq!(histogram_points(duration)[0].count, 1);
+    for removed in [
+        "openbridge.downstream.request.completed",
+        "openbridge.provider.attempt.completed",
+        "gen_ai.client.operation.duration",
+        "openbridge.gateway.time_to_first_output",
+    ] {
+        assert!(
+            metrics.iter().all(|(_, metric)| metric.name != removed),
+            "removed metric {removed} was still exported"
+        );
+    }
+
+    // Verify standard token usage and the explicit reasoning subset use token histograms.
     let token_usage = metric_named(&metrics, "gen_ai.client.token.usage");
     assert_eq!(token_usage.unit, "{token}");
     assert_eq!(histogram_points(token_usage).len(), 2);
@@ -380,6 +435,10 @@ async fn otlp_http_exports_native_gateway_and_gen_ai_metrics() {
         assert_eq!(point.sum, Some(expected));
         assert_eq!(point.explicit_bounds, TOKEN_BOUNDARIES);
     }
+    let reasoning_usage =
+        metric_named(&metrics, "openbridge.provider.reasoning.output.token.usage");
+    assert_eq!(reasoning_usage.unit, "{token}");
+    assert_eq!(histogram_points(reasoning_usage)[0].sum, Some(1.0));
 
     // Verify cache and gateway timing observations are delegated to native histogram/counter aggregation.
     let cache_read = metric_named(&metrics, "openbridge.provider.cache.read.token.usage");
@@ -393,9 +452,10 @@ async fn otlp_http_exports_native_gateway_and_gen_ai_metrics() {
         Some("hit")
     );
     for name in [
+        "openbridge.downstream.response_ready.duration",
+        "openbridge.downstream.time_to_first_output",
         "openbridge.provider.response_ready.duration",
         "openbridge.provider.first_byte.duration",
-        "openbridge.gateway.time_to_first_output",
     ] {
         let metric = metric_named(&metrics, name);
         assert_eq!(metric.unit, "s");
@@ -421,6 +481,89 @@ async fn otlp_http_exports_native_gateway_and_gen_ai_metrics() {
             "metrics export leaked {forbidden}"
         );
     }
+}
+
+#[tokio::test]
+async fn retry_metrics_retain_cause_action_and_recovery_without_duplicate_counters() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_metrics_export(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let app = app_with_transport(
+        runtime.metrics(),
+        Arc::new(RetryThenSuccessTransport {
+            attempts: AtomicUsize::new(0),
+        }),
+    );
+
+    let (status, _) = execute_business_request(app).await;
+    assert_eq!(status, StatusCode::OK);
+    runtime.shutdown().await.unwrap();
+    server.abort();
+    let _ = server.await;
+    let payloads = collector.payloads.lock().unwrap().clone();
+    let (_, metrics) = decode_exports(&payloads);
+
+    let request_duration = metric_named(&metrics, "openbridge.downstream.request.duration");
+    let request_point = histogram_points(request_duration)
+        .iter()
+        .find(|point| {
+            string_value(&point.attributes, "openbridge.request.outcome") == Some("completed")
+        })
+        .unwrap();
+    assert_eq!(
+        string_value(&request_point.attributes, "openbridge.request.recovery"),
+        Some("retry")
+    );
+    assert_eq!(
+        string_value(&request_point.attributes, "openbridge.http.status_class"),
+        Some("2xx")
+    );
+
+    let attempt_duration = metric_named(&metrics, "openbridge.provider.attempt.duration");
+    let failed = histogram_points(attempt_duration)
+        .iter()
+        .find(|point| {
+            string_value(&point.attributes, "openbridge.attempt.outcome") == Some("http_failed")
+        })
+        .unwrap();
+    assert_eq!(
+        string_value(&failed.attributes, "error.type"),
+        Some("upstream_unavailable")
+    );
+    assert_eq!(
+        string_value(&failed.attributes, "openbridge.http.status_class"),
+        Some("5xx")
+    );
+    assert_eq!(
+        bool_value(&failed.attributes, "openbridge.retryable"),
+        Some(true)
+    );
+    assert_eq!(
+        string_value(&failed.attributes, "openbridge.next_action"),
+        Some("retry_candidate")
+    );
+    let completed = histogram_points(attempt_duration)
+        .iter()
+        .find(|point| {
+            string_value(&point.attributes, "openbridge.attempt.outcome") == Some("completed")
+        })
+        .unwrap();
+    assert_eq!(
+        string_value(&completed.attributes, "openbridge.http.status_class"),
+        Some("2xx")
+    );
+    assert!(string_value(&completed.attributes, "error.type").is_none());
+
+    let routing = metric_named(&metrics, "openbridge.routing.events");
+    let retry = sum_points(routing)
+        .iter()
+        .find(|point| string_value(&point.attributes, "openbridge.routing.event") == Some("retry"))
+        .unwrap();
+    assert_eq!(point_integer(retry), 1);
+    assert_eq!(
+        string_value(&retry.attributes, "openbridge.routing.reason"),
+        Some("upstream_unavailable")
+    );
 }
 
 #[tokio::test]

@@ -9,7 +9,9 @@ use http::{HeaderMap, StatusCode};
 use crate::{
     bridge::BridgePlan,
     core::ApiProtocol,
-    observability::{ProviderAttemptContext, RequestObservation},
+    observability::{
+        ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
+    },
     pipeline::{analyze_request, plan_request},
     provider::ProviderAdapter,
     transport::upstream::UpstreamResponse,
@@ -17,7 +19,7 @@ use crate::{
 
 use super::{
     attempt::{AttemptManager, AttemptStep},
-    response::{api_error, route_error, upstream_error},
+    response::{api_error, request_planning_error_type, route_error, upstream_error},
     state::GatewayState,
 };
 
@@ -34,7 +36,9 @@ pub(super) use embeddings::forward_embeddings_request;
 
 use candidate::prepare_candidate;
 use oauth::{oauth2_authentication_error, recover_after_unauthorized};
-use policy::{should_retry_error, should_retry_status, transport_error_kind};
+use policy::{
+    http_attempt_failure, should_retry_error, should_retry_status, transport_attempt_failure,
+};
 
 struct StoredHttpFailure {
     upstream: UpstreamResponse,
@@ -61,17 +65,31 @@ pub(super) async fn forward_request(
     let registry = state.registry.clone();
     let requirements = match analyze_request(protocol, &body) {
         Ok(requirements) => requirements,
-        Err(error) => return route_error(error),
+        Err(error) => {
+            observation.record_request_failure(
+                request_planning_error_type(&error),
+                FailureStage::Analysis,
+                false,
+            );
+            return route_error(error);
+        }
     };
-    observation.record_request(
+    let plan = match plan_request(&registry, &requirements, body) {
+        Ok(plan) => plan,
+        Err(error) => {
+            observation.record_request_failure(
+                request_planning_error_type(&error),
+                FailureStage::Planning,
+                false,
+            );
+            return route_error(error);
+        }
+    };
+    observation.record_planned_request(
         protocol.operation(),
         requirements.public_model(),
         requirements.is_streaming(),
     );
-    let plan = match plan_request(&registry, &requirements, body) {
-        Ok(plan) => plan,
-        Err(error) => return route_error(error),
-    };
     let candidate_count = if plan.allows_fallback() {
         plan.candidates().len()
     } else {
@@ -88,11 +106,7 @@ pub(super) async fn forward_request(
     {
         attempts.begin_candidate();
         let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "configuration_error",
-                "Configured upstream target is unavailable",
-            );
+            return configuration_error(&observation, "Configured upstream target is unavailable");
         };
         // New stateless requests skip scopes still cooling down; target-bound continuations always try the original target.
         if observe_cross_request_health
@@ -109,7 +123,14 @@ pub(super) async fn forward_request(
         // Prepare the selected target's typed API, credential source, adapter, and wire request.
         let prepared = match prepare_candidate(&state, &registry, target, candidate).await {
             Ok(prepared) => prepared,
-            Err(response) => return response,
+            Err(response) => {
+                observation.record_request_failure(
+                    ErrorType::ConfigurationError,
+                    FailureStage::Credential,
+                    false,
+                );
+                return response;
+            }
         };
         let upstream_api = prepared.upstream_api;
         let credential_pool = prepared.credential_pool;
@@ -137,9 +158,8 @@ pub(super) async fn forward_request(
                     None => {
                         if !plan.allows_fallback() {
                             if credentials.len() != 1 {
-                                return api_error(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    "configuration_error",
+                                return configuration_error(
+                                    &observation,
                                     "State-bound routes require exactly one credential member",
                                 );
                             }
@@ -173,7 +193,14 @@ pub(super) async fn forward_request(
                 let credential = match oauth2_lease.as_ref() {
                     Some(lease) => match lease.credential() {
                         Ok(credential) => credential,
-                        Err(_) => return oauth2_authentication_error(),
+                        Err(_) => {
+                            observation.record_request_failure(
+                                ErrorType::UpstreamAuthentication,
+                                FailureStage::Credential,
+                                false,
+                            );
+                            return oauth2_authentication_error();
+                        }
                     },
                     None => static_credentials
                         .as_ref()
@@ -183,9 +210,8 @@ pub(super) async fn forward_request(
                 {
                     Ok(headers) => headers,
                     Err(_) => {
-                        return api_error(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "configuration_error",
+                        return configuration_error(
+                            &observation,
                             "Provider authentication could not be prepared",
                         );
                     }
@@ -193,6 +219,11 @@ pub(super) async fn forward_request(
                 (credential.member_id().to_owned(), headers)
             };
             if !attempts.start_attempt() {
+                observation.record_request_failure(
+                    ErrorType::UpstreamFailure,
+                    FailureStage::Upstream,
+                    false,
+                );
                 return api_error(
                     StatusCode::BAD_GATEWAY,
                     "upstream_attempts_exhausted",
@@ -222,10 +253,6 @@ pub(super) async fn forward_request(
             {
                 Ok(upstream) if uses_oauth2 && upstream.status() == StatusCode::UNAUTHORIZED => {
                     // Recover only before response takeover and never replay one rejected generation twice.
-                    observation.record_attempt_http_result(
-                        attempts.attempts_started() as u64,
-                        upstream.status(),
-                    );
                     let current_lease = oauth2_lease
                         .as_ref()
                         .expect("OAuth2 target must retain a request lease");
@@ -239,18 +266,40 @@ pub(super) async fn forward_request(
                     .await
                     {
                         Ok(lease) => lease,
-                        Err(response) => return response,
+                        Err(response) => {
+                            observation.record_attempt_http_result(
+                                attempts.attempts_started() as u64,
+                                upstream.status(),
+                                Some(http_attempt_failure(
+                                    &adapter,
+                                    upstream.status(),
+                                    NextAction::Finish,
+                                )),
+                            );
+                            observation.record_request_failure(
+                                ErrorType::UpstreamAuthentication,
+                                FailureStage::Credential,
+                                false,
+                            );
+                            return response;
+                        }
                     };
+                    observation.record_attempt_http_result(
+                        attempts.attempts_started() as u64,
+                        upstream.status(),
+                        Some(http_attempt_failure(
+                            &adapter,
+                            upstream.status(),
+                            NextAction::RetryCandidate,
+                        )),
+                    );
                     oauth2_lease = Some(next_lease);
-                    observation.record_retry();
+                    observation
+                        .record_retry(ErrorType::UpstreamAuthentication, std::time::Duration::ZERO);
                     continue;
                 }
                 Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
                     // Record member-level 429 or target-level temporary unavailability by HTTP category.
-                    observation.record_attempt_http_result(
-                        attempts.attempts_started() as u64,
-                        upstream.status(),
-                    );
                     let classification = adapter.classify_status(upstream.status());
                     let rate_limited =
                         classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
@@ -305,10 +354,18 @@ pub(super) async fn forward_request(
                             other => other,
                         };
                     }
+                    let attempt_failure =
+                        http_attempt_failure(&adapter, upstream.status(), step.next_action());
+                    observation.record_attempt_http_result(
+                        attempts.attempts_started() as u64,
+                        upstream.status(),
+                        Some(attempt_failure),
+                    );
                     match step {
                         AttemptStep::RetryCandidate => {
-                            attempts.wait_before_next_attempt().await;
-                            observation.record_retry();
+                            let backoff = attempts.schedule_backoff();
+                            observation.record_retry(attempt_failure.error_type, backoff);
+                            AttemptManager::wait_before_next_attempt(backoff).await;
                             continue;
                         }
                         AttemptStep::NextCandidate => {
@@ -318,8 +375,9 @@ pub(super) async fn forward_request(
                                 upstream_protocol: candidate.request().protocol(),
                                 bridge: candidate.bridge().cloned(),
                             });
-                            attempts.wait_before_next_attempt().await;
-                            observation.record_fallback();
+                            let backoff = attempts.schedule_backoff();
+                            observation.record_fallback(attempt_failure.error_type, backoff);
+                            AttemptManager::wait_before_next_attempt(backoff).await;
                             continue 'candidates;
                         }
                         AttemptStep::Finish => {
@@ -345,11 +403,15 @@ pub(super) async fn forward_request(
                 }
                 Ok(upstream) => {
                     // Clear the target's known cooldown only after a successful HTTP response.
+                    let status = upstream.status();
+                    let failure = (!status.is_success())
+                        .then(|| http_attempt_failure(&adapter, status, NextAction::Finish));
                     observation.record_attempt_http_result(
                         attempts.attempts_started() as u64,
-                        upstream.status(),
+                        status,
+                        failure,
                     );
-                    if upstream.status().is_success() {
+                    if status.is_success() {
                         if let Some(credentials) = static_credentials.as_ref() {
                             state
                                 .credential_health
@@ -376,25 +438,29 @@ pub(super) async fn forward_request(
                 }
                 Err(error) if should_retry_error(&error) => {
                     // Timeout/transport failure isolates only the fault domain and does not affect the quota scope.
-                    observation.record_attempt_transport_failure(
-                        attempts.attempts_started() as u64,
-                        transport_error_kind(&error),
-                    );
                     state.health.record_transport_failure(
                         candidate.upstream_target_id(),
                         target,
                         std::time::Instant::now(),
                     );
                     let untried_candidates = candidate_count - candidate_index - 1;
-                    match attempts.next_step(untried_candidates) {
+                    let step = attempts.next_step(untried_candidates);
+                    let attempt_failure = transport_attempt_failure(&error, step.next_action());
+                    observation.record_attempt_transport_failure(
+                        attempts.attempts_started() as u64,
+                        attempt_failure,
+                    );
+                    match step {
                         AttemptStep::RetryCandidate => {
-                            attempts.wait_before_next_attempt().await;
-                            observation.record_retry();
+                            let backoff = attempts.schedule_backoff();
+                            observation.record_retry(attempt_failure.error_type, backoff);
+                            AttemptManager::wait_before_next_attempt(backoff).await;
                             continue;
                         }
                         AttemptStep::NextCandidate => {
-                            attempts.wait_before_next_attempt().await;
-                            observation.record_fallback();
+                            let backoff = attempts.schedule_backoff();
+                            observation.record_fallback(attempt_failure.error_type, backoff);
+                            AttemptManager::wait_before_next_attempt(backoff).await;
                             continue 'candidates;
                         }
                         AttemptStep::Finish => return upstream_error(error),
@@ -403,7 +469,7 @@ pub(super) async fn forward_request(
                 Err(error) => {
                     observation.record_attempt_transport_failure(
                         attempts.attempts_started() as u64,
-                        transport_error_kind(&error),
+                        transport_attempt_failure(&error, NextAction::Finish),
                     );
                     return upstream_error(error);
                 }
@@ -427,16 +493,40 @@ pub(super) async fn forward_request(
         )
         .await
     } else if cooldown_skipped {
+        observation.record_request_failure(
+            ErrorType::UpstreamUnavailable,
+            FailureStage::Upstream,
+            true,
+        );
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "upstream_cooldown",
             "All configured upstream targets are temporarily unavailable",
         )
     } else {
+        observation.record_request_failure(
+            ErrorType::UpstreamFailure,
+            FailureStage::Upstream,
+            false,
+        );
         api_error(
             StatusCode::BAD_GATEWAY,
             "upstream_error",
             "The upstream request failed",
         )
     }
+}
+
+/// Records one credential/preparation failure before returning a stable configuration response.
+fn configuration_error(observation: &RequestObservation, message: &'static str) -> Response {
+    observation.record_request_failure(
+        ErrorType::ConfigurationError,
+        FailureStage::Credential,
+        false,
+    );
+    api_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "configuration_error",
+        message,
+    )
 }

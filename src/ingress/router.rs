@@ -26,7 +26,7 @@ use crate::{
     credential::CredentialStore,
     identity::UserRegistry,
     mcp,
-    observability::{GatewayMetrics, HttpJsonlWriter, RequestObservation},
+    observability::{GatewayMetrics, HttpJsonlWriter, RequestKind, RequestObservation},
 };
 
 use super::{
@@ -168,11 +168,18 @@ async fn require_user(
     // Bind the authenticated user before invoking any protected handler.
     request.extensions_mut().insert(user.clone());
 
-    // Bind the observed request to a span and freeze its startup-owned local logging policy.
-    let span = tracing::info_span!("downstream_request", %request_id);
+    // Bind the observed request to one closed endpoint family before invoking any protected handler.
+    let request_kind = RequestKind::from_http(&method, &path)
+        .expect("authenticated middleware must wrap only classified protected routes");
+    let span = tracing::info_span!(
+        "downstream_request",
+        %request_id,
+        request_kind = request_kind.as_str()
+    );
     let observation = RequestObservation::new_with_http_logging(
         auth.metrics.clone(),
         span.clone(),
+        request_kind,
         request_id.clone(),
         auth.http_logging,
         auth.jsonl_writer.clone(),

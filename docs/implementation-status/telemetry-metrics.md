@@ -10,6 +10,7 @@ collector base 才创建 exporter。当前随附的 `config/bootstrap.toml` 与 
 实现门面为 [`src/observability.rs`](../../src/observability.rs)：
 
 - `observability/request.rs` 拥有 downstream lifecycle；
+- `observability/classification.rs` 拥有有界 request kind、failure stage、error type 与 next action；
 - `observability/provider.rs` 拥有 attempt observation；
 - `observability/usage.rs` 解析明确的协议 usage；
 - `observability/metrics.rs` 定义固定 SDK instruments；
@@ -24,22 +25,44 @@ cumulative Counter/Histogram、固定周期 reader 与 attribute-set overflow；
 
 固定 instruments 覆盖：
 
-- downstream request started/completed、duration、time-to-response 与 stream first output；
-- Provider attempt started/completed、duration、time-to-headers/first token、generation duration 与 output speed；
-- retry、fallback、credential rotation、member/target cooldown；
-- input/output/total、cached/cache-write/reasoning token usage 与 cache event。
+- `openbridge.downstream.request.started` Counter，以及 terminal 唯一写入的
+  `openbridge.downstream.request.duration`、`openbridge.downstream.response_ready.duration` 与
+  `openbridge.downstream.time_to_first_output` histograms；
+- `openbridge.provider.attempt.started` Counter，以及物理 attempt 的
+  `openbridge.provider.attempt.duration`、response-ready、first-byte、TTFT、generation duration 与成功 output speed
+  histograms；不再把物理 attempt 冒充 `gen_ai.client.operation.duration`；
+- `openbridge.routing.events` Counter，使用固定 event/reason；request terminal 另带
+  `openbridge.request.recovery = none | retry | credential_rotation | fallback | multiple`；
+- `gen_ai.client.token.usage` 的 input/output，以及 cached/cache-write/reasoning-output token histograms 和 cache
+  hit/miss Counter。total token 仅保留在明确 trace usage 中，不设置重复 metric。
 
-Attributes 只使用低基数、受信字段，如 operation、protocol、Provider、outcome、retryable、status class 与 terminal。request/user/
-credential/endpoint URL、body 和错误正文不进入 metrics。OpenAI GenAI semantic-convention name 与 OpenBridge Provider/operation 维度
-分开，避免把 ChatGPT subscription 伪装成 OpenAI API-key Provider。
+不存在 request/attempt completed、failure 或 active instrument。terminal/failure 由对应 duration histogram 的
+count/outcome 得到；当前 cumulative temporality 下，active 由 `started - terminal_duration_count` 得到。
+
+Attributes 只使用低基数、受信字段，如 request kind、operation、protocol、Provider、outcome、status class、规范化
+`error.type`、failure stage、retryable、next action 与 recovery。request/user/credential/endpoint URL、body、精确 HTTP status
+和错误正文不进入 metrics。OpenAI GenAI semantic-convention name 与 OpenBridge Provider/operation 维度分开，避免把
+ChatGPT subscription 伪装成 OpenAI API-key Provider。
 
 Output speed 仅在成功且同时具有 output tokens、TTFT 与 terminal 时间时记录，使用 generation duration（TTFT 后至 terminal），
 不是 total attempt latency。缺失/非法 usage、取消、失败或零 duration 不猜测数值。
 
+## Trace 范围
+
+认证后 middleware 按 method 与固定 endpoint 记录 `generation | embeddings | models | mcp` request kind。失败 request/attempt
+使用固定 `error.type`、retryable 与实际 next action；request 另带 failure stage，存在 HTTP 响应时 trace 保存精确 status。
+`request_id` 保留为 root trace correlation attribute，但不进入任何 metric attribute。
+Public Model 只在 registry planning 成功后进入 trace/metrics，未知或无效的请求 `model` 不作为 attribute 导出；Models handler 的
+404/4xx 由 request terminal owner 归一为有界 `unknown_model`/`invalid_request`，不导出 path 参数。
+retry、credential rotation、fallback 与 cooldown skip 使用四个固定名称、固定低基数字段的 allowlisted routing events；普通
+tracing events、正文、header 和原始错误继续排除。Bridge 转换失败归于 request `bridge` 阶段：已观察 upstream EOF 的
+Provider attempt 保持 completed，否则因网关终止读取而归为 cancelled，二者都不误记为 Provider stream failure。
+
 ## 安全与本地内容日志
 
 OTLP client 禁止 redirect，限制 timeout，并剥离环境注入的 Authorization/租户 header。四个本地内容日志开关只在认证后观察最终
-下游边界，header 强制 redaction，body 有界且每方向至多一个终态 snapshot；不记录每个 SSE chunk，也不进入 stdout 或 span-only OTLP。
+下游边界，header 强制 redaction，body 有界且每方向至多一个终态 snapshot；不记录每个 SSE chunk，也不进入 stdout 或 reviewed
+OTLP trace layer。
 
 ## 确定性证据
 
@@ -47,6 +70,16 @@ OTLP client 禁止 redirect，限制 timeout，并剥离环境注入的 Authoriz
 - `tests/otlp_trace_contract.rs`：span hierarchy、attribute allowlist、内容 snapshot 排除和 shutdown。
 - `tests/otlp_metrics_contract.rs`：OTLP request/resource、instrument/aggregation、overflow 与无 credential header。
 - forwarding/SSE/Embeddings tests：success/failure/EOF/cancel/retry/fallback 的唯一 observation。
+
+2026-08-18 在当前 checkout 执行：
+
+- `rustfmt --edition 2024 --check $(git diff --name-only -- '*.rs')`：通过；
+- `cargo test --locked`：通过；
+- `cargo clippy --locked -- -D warnings`：通过；
+- `git diff --check`：通过。
+
+全局 `cargo fmt -- --check` 仍会报告两个未由本轮修改的既存文件
+`src/providers/developer/openai/gpt_5_6_luna.rs` 与 `src/providers/developer/openai/gpt_5_6_terra.rs`；本轮未吸收该无关格式清理。
 
 ## 未证明范围
 

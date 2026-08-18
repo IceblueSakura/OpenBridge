@@ -80,6 +80,7 @@ fn extracts_chat_and_responses_usage_without_business_content() {
         Some(TokenUsage {
             input_tokens: Some(2),
             output_tokens: Some(3),
+            reasoning_output_tokens: None,
             total_tokens: Some(5),
             cached_input_tokens: Some(1),
             cache_write_input_tokens: None,
@@ -92,10 +93,22 @@ fn extracts_chat_and_responses_usage_without_business_content() {
         Some(TokenUsage {
             input_tokens: Some(7),
             output_tokens: Some(11),
+            reasoning_output_tokens: None,
             total_tokens: Some(18),
             cached_input_tokens: None,
             cache_write_input_tokens: None,
         })
+    );
+    assert_eq!(
+        extract_usage(&json!({
+            "usage": {
+                "completion_tokens": 13,
+                "completion_tokens_details": {"reasoning_tokens": 8}
+            }
+        }))
+        .unwrap()
+        .reasoning_output_tokens,
+        Some(8)
     );
     assert_eq!(
         extract_usage(&json!({
@@ -149,6 +162,7 @@ fn completion_event_contains_diagnostics_but_no_body_or_credentials() {
         observation.record_usage(TokenUsage {
             input_tokens: Some(2),
             output_tokens: Some(3),
+            reasoning_output_tokens: None,
             total_tokens: Some(5),
             cached_input_tokens: None,
             cache_write_input_tokens: None,

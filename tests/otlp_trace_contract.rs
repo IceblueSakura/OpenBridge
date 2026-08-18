@@ -24,10 +24,11 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
+    core::ApiProtocol,
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     provider::PreparedUpstreamRequest,
-    registry::{UpstreamTarget, build_registry},
+    registry::{RouteMode, UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use opentelemetry_proto::tonic::{
@@ -51,6 +52,12 @@ const RESPONSE_MARKER: &str = "sensitive-business-response-marker";
 
 struct SuccessfulTransport;
 
+struct InvalidBridgedResponseTransport;
+
+struct RetryThenSuccessTransport {
+    attempts: AtomicUsize,
+}
+
 impl UpstreamTransport for SuccessfulTransport {
     fn send<'a>(
         &'a self,
@@ -69,8 +76,56 @@ impl UpstreamTransport for SuccessfulTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(format!(
-                    r#"{{"id":"chatcmpl-otlp","choices":[{{"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}}}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}}}"#
+                    r#"{{"id":"chatcmpl-otlp","choices":[{{"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}}}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"completion_tokens_details":{{"reasoning_tokens":1}}}}}}"#
                 )),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for InvalidBridgedResponseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(r#"{"not":"a-responses-object"}"#),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for RetryThenSuccessTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async move {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            if attempt == 0 {
+                return Ok(UpstreamResponse::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    headers,
+                    Body::from(r#"{"error":{"message":"retry"}}"#),
+                ));
+            }
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(
+                    r#"{"id":"chatcmpl-retry-trace","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+                ),
             ))
         })
     }
@@ -184,6 +239,14 @@ fn app_with_metrics(metrics: GatewayMetrics) -> Router {
 }
 
 fn app_with_bootstrap_and_metrics(bootstrap: BootstrapConfig, metrics: GatewayMetrics) -> Router {
+    app_with_transport(bootstrap, metrics, Arc::new(SuccessfulTransport))
+}
+
+fn app_with_transport(
+    bootstrap: BootstrapConfig,
+    metrics: GatewayMetrics,
+    transport: Arc<dyn UpstreamTransport>,
+) -> Router {
     // Compile the ordinary synthetic registry with the exact logging policy under test.
     let registry = build_registry(
         bootstrap,
@@ -192,9 +255,29 @@ fn app_with_bootstrap_and_metrics(bootstrap: BootstrapConfig, metrics: GatewayMe
     .unwrap();
     let (users, credentials) =
         support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
+    let state =
+        GatewayState::new(Arc::new(registry), transport, users, credentials).with_metrics(metrics);
+    build_router(state)
+}
+
+fn app_with_invalid_bridged_response(
+    bootstrap: BootstrapConfig,
+    metrics: GatewayMetrics,
+) -> Router {
+    let mut definition = support::definition("otlp-test", "code-primary", "test-model");
+    let route = definition
+        .routes
+        .iter_mut()
+        .find(|route| route.downstream_operation == ApiProtocol::ChatCompletions.operation())
+        .unwrap();
+    route.upstream_operation = ApiProtocol::Responses.operation();
+    route.mode = RouteMode::Bridged;
+    let registry = build_registry(bootstrap, definition).unwrap();
+    let (users, credentials) =
+        support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
     let state = GatewayState::new(
         Arc::new(registry),
-        Arc::new(SuccessfulTransport),
+        Arc::new(InvalidBridgedResponseTransport),
         users,
         credentials,
     )
@@ -222,6 +305,39 @@ async fn execute_business_request(app: Router) -> (StatusCode, Bytes) {
     // Consume the full body so request and attempt observations reach their unique terminal boundaries.
     let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     (status, body)
+}
+
+async fn execute_unknown_model_request(app: Router) -> StatusCode {
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {DOWNSTREAM_TOKEN}"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"model":"untrusted-unique-model","messages":[{"role":"user","content":"test"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let _ = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    status
+}
+
+async fn execute_unknown_catalog_model_request(app: Router) -> StatusCode {
+    let response = app
+        .oneshot(
+            Request::get("/v1/models/untrusted-unique-model")
+                .header("authorization", format!("Bearer {DOWNSTREAM_TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let _ = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    status
 }
 
 fn decode_exports(payloads: &[CapturedPayload]) -> (Vec<Resource>, Vec<OtlpSpan>) {
@@ -402,10 +518,19 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
         Some("chat_completions")
     );
     assert_eq!(
+        string_value(&root.attributes, "request_kind"),
+        Some("generation")
+    );
+    assert_eq!(
         string_value(&root.attributes, "public_model"),
         Some("code-primary")
     );
     assert_eq!(string_value(&root.attributes, "outcome"), Some("completed"));
+    assert_eq!(string_value(&root.attributes, "recovery"), Some("none"));
+    assert_eq!(
+        integer_value(&root.attributes, "http.response.status_code"),
+        Some(200)
+    );
     assert_eq!(bool_value(&root.attributes, "streaming"), Some(false));
     assert!(string_value(&root.attributes, "request_id").is_some());
     assert_eq!(
@@ -414,6 +539,10 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
     );
     assert_eq!(integer_value(&root.attributes, "input_tokens"), Some(3));
     assert_eq!(integer_value(&root.attributes, "output_tokens"), Some(2));
+    assert_eq!(
+        integer_value(&root.attributes, "reasoning_output_tokens"),
+        Some(1)
+    );
     assert_eq!(integer_value(&root.attributes, "total_tokens"), Some(5));
 
     assert_eq!(integer_value(&attempt.attributes, "attempt"), Some(1));
@@ -441,19 +570,31 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
         string_value(&attempt.attributes, "outcome"),
         Some("completed")
     );
+    assert_eq!(
+        integer_value(&attempt.attributes, "http.response.status_code"),
+        Some(200)
+    );
+    assert!(string_value(&attempt.attributes, "error.type").is_none());
     assert_eq!(bool_value(&attempt.attributes, "streaming"), Some(false));
     assert_eq!(integer_value(&attempt.attributes, "input_tokens"), Some(3));
     assert_eq!(integer_value(&attempt.attributes, "output_tokens"), Some(2));
+    assert_eq!(
+        integer_value(&attempt.attributes, "reasoning_output_tokens"),
+        Some(1)
+    );
 
     // Keep both span types within their reviewed attribute sets and fixed process resource identity.
     assert_attribute_allowlist(
         root,
         &[
             "request_id",
+            "request_kind",
             "operation",
             "public_model",
             "streaming",
             "outcome",
+            "recovery",
+            "http.response.status_code",
             "response_ready_ms",
             "first_body_byte_ms",
             "first_output_ms",
@@ -465,6 +606,7 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
             "cooldown_skips",
             "input_tokens",
             "output_tokens",
+            "reasoning_output_tokens",
             "total_tokens",
         ],
     );
@@ -481,14 +623,15 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
             "route_mode",
             "streaming",
             "outcome",
+            "http.response.status_code",
             "response_ready_ms",
             "upstream_first_byte_ms",
             "upstream_ttft_ms",
-            "gateway_ttft_ms",
             "duration_ms",
             "generation_duration_ms",
             "input_tokens",
             "output_tokens",
+            "reasoning_output_tokens",
             "total_tokens",
             "cached_input_tokens",
             "cache_write_input_tokens",
@@ -530,6 +673,267 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
             "export leaked {forbidden}"
         );
     }
+}
+
+#[tokio::test]
+async fn otlp_trace_classifies_an_authenticated_analysis_failure() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_trace_export_and_local_content(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
+        runtime.tracer().expect("trace exporter should be enabled"),
+    ));
+    let app = app_with_bootstrap_and_metrics(bootstrap, runtime.metrics());
+
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {DOWNSTREAM_TOKEN}"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{"))
+                .unwrap(),
+        )
+        .with_subscriber(subscriber)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let _ = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+
+    runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 1).await;
+    server.abort();
+    let _ = server.await;
+    let (_, spans) = decode_exports(&payloads);
+    assert_eq!(spans.len(), 1);
+    let root = &spans[0];
+    assert_eq!(root.name, "downstream_request");
+    assert_eq!(
+        string_value(&root.attributes, "request_kind"),
+        Some("generation")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "outcome"),
+        Some("http_failed")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "error.type"),
+        Some("invalid_request")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "openbridge.failure.stage"),
+        Some("analysis")
+    );
+    assert_eq!(bool_value(&root.attributes, "retryable"), Some(false));
+    assert_eq!(
+        string_value(&root.attributes, "next_action"),
+        Some("finish")
+    );
+    assert_eq!(
+        integer_value(&root.attributes, "http.response.status_code"),
+        Some(400)
+    );
+}
+
+#[tokio::test]
+async fn unvalidated_public_model_does_not_enter_otlp() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_trace_export(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
+        runtime.tracer().expect("trace exporter should be enabled"),
+    ));
+    let app = app_with_bootstrap_and_metrics(bootstrap, runtime.metrics());
+
+    let status = execute_unknown_model_request(app)
+        .with_subscriber(subscriber)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 1).await;
+    assert!(
+        payloads
+            .iter()
+            .all(|payload| !contains_bytes(&payload.body, b"untrusted-unique-model"))
+    );
+    server.abort();
+    let _ = server.await;
+    let (_, spans) = decode_exports(&payloads);
+    assert_eq!(spans.len(), 1);
+    let root = &spans[0];
+    assert_eq!(
+        string_value(&root.attributes, "outcome"),
+        Some("http_failed")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "error.type"),
+        Some("unknown_model")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "openbridge.failure.stage"),
+        Some("planning")
+    );
+    assert!(string_value(&root.attributes, "public_model").is_none());
+}
+
+#[tokio::test]
+async fn authenticated_models_404_has_a_bounded_terminal_failure() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_trace_export(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
+        runtime.tracer().expect("trace exporter should be enabled"),
+    ));
+    let app = app_with_bootstrap_and_metrics(bootstrap, runtime.metrics());
+
+    let status = execute_unknown_catalog_model_request(app)
+        .with_subscriber(subscriber)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 1).await;
+    assert!(
+        payloads
+            .iter()
+            .all(|payload| !contains_bytes(&payload.body, b"missing-catalog-model"))
+    );
+    server.abort();
+    let _ = server.await;
+    let (_, spans) = decode_exports(&payloads);
+    let root = spans
+        .iter()
+        .find(|span| span.name == "downstream_request")
+        .unwrap();
+    assert_eq!(
+        string_value(&root.attributes, "request_kind"),
+        Some("models")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "error.type"),
+        Some("unknown_model")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "openbridge.failure.stage"),
+        Some("planning")
+    );
+    assert!(string_value(&root.attributes, "public_model").is_none());
+}
+
+#[tokio::test]
+async fn invalid_non_stream_bridge_response_is_classified_without_provider_blame() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_trace_export(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
+        runtime.tracer().expect("trace exporter should be enabled"),
+    ));
+    let app = app_with_invalid_bridged_response(bootstrap, runtime.metrics());
+
+    let (status, _) = execute_business_request(app)
+        .with_subscriber(subscriber)
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+    runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 2).await;
+    server.abort();
+    let _ = server.await;
+    let (_, spans) = decode_exports(&payloads);
+    let root = spans
+        .iter()
+        .find(|span| span.name == "downstream_request")
+        .unwrap();
+    assert_eq!(
+        string_value(&root.attributes, "error.type"),
+        Some("invalid_upstream_response")
+    );
+    assert_eq!(
+        string_value(&root.attributes, "openbridge.failure.stage"),
+        Some("bridge")
+    );
+    let attempt = spans
+        .iter()
+        .find(|span| span.name == "provider_attempt")
+        .unwrap();
+    assert_eq!(
+        string_value(&attempt.attributes, "outcome"),
+        Some("completed")
+    );
+    assert!(string_value(&attempt.attributes, "error.type").is_none());
+}
+
+#[tokio::test]
+async fn otlp_trace_explains_a_retry_and_the_failed_physical_attempt() {
+    let (endpoint, collector, server) = start_capturing_collector().await;
+    let bootstrap = bootstrap_with_trace_export(&endpoint);
+    let runtime = TelemetryRuntime::from_bootstrap(&bootstrap).unwrap();
+    let subscriber = tracing_subscriber::registry().with(otlp_trace_layer(
+        runtime.tracer().expect("trace exporter should be enabled"),
+    ));
+    let transport = Arc::new(RetryThenSuccessTransport {
+        attempts: AtomicUsize::new(0),
+    });
+    let app = app_with_transport(bootstrap, runtime.metrics(), transport.clone());
+
+    let (status, _) = execute_business_request(app)
+        .with_subscriber(subscriber)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 2);
+
+    runtime.shutdown().await.unwrap();
+    let payloads = wait_for_exported_spans(&collector, 3).await;
+    server.abort();
+    let _ = server.await;
+    let (_, spans) = decode_exports(&payloads);
+    assert_eq!(spans.len(), 3);
+    let root = spans
+        .iter()
+        .find(|span| span.name == "downstream_request")
+        .unwrap();
+    assert_eq!(string_value(&root.attributes, "outcome"), Some("completed"));
+    assert_eq!(string_value(&root.attributes, "recovery"), Some("retry"));
+    assert_eq!(root.events.len(), 1);
+    assert_eq!(root.events[0].name, "openbridge.retry");
+    assert_eq!(
+        string_value(&root.events[0].attributes, "reason"),
+        Some("upstream_unavailable")
+    );
+    assert_eq!(
+        integer_value(&root.events[0].attributes, "scheduled_backoff_ms"),
+        Some(50)
+    );
+    assert_eq!(
+        root.events[0]
+            .attributes
+            .iter()
+            .map(|attribute| attribute.key.as_str())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["reason", "scheduled_backoff_ms"]),
+    );
+
+    let failed = spans
+        .iter()
+        .find(|span| integer_value(&span.attributes, "attempt") == Some(1))
+        .unwrap();
+    assert_eq!(
+        string_value(&failed.attributes, "outcome"),
+        Some("http_failed")
+    );
+    assert_eq!(
+        integer_value(&failed.attributes, "http.response.status_code"),
+        Some(503)
+    );
+    assert_eq!(
+        string_value(&failed.attributes, "error.type"),
+        Some("upstream_unavailable")
+    );
+    assert_eq!(bool_value(&failed.attributes, "retryable"), Some(true));
+    assert_eq!(
+        string_value(&failed.attributes, "next_action"),
+        Some("retry_candidate")
+    );
 }
 
 #[tokio::test]

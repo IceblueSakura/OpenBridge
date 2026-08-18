@@ -7,12 +7,14 @@
 
 mod http_jsonl;
 
+mod classification;
 mod metrics;
 mod otlp;
 mod provider;
 mod request;
 mod usage;
 
+pub(crate) use classification::{AttemptFailure, ErrorType, FailureStage, NextAction, RequestKind};
 pub use http_jsonl::HttpJsonlWriter;
 pub use metrics::GatewayMetrics;
 pub use otlp::{TelemetryError, TelemetryRuntime, otlp_trace_layer};

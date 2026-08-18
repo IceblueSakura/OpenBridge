@@ -8,8 +8,11 @@ use axum::{body::to_bytes, response::Response};
 use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 
 use crate::{
-    bridge::BridgePlan, core::ApiProtocol, observability::RequestObservation,
-    pipeline::StreamResponseConversion, provider::ProviderAdapter,
+    bridge::BridgePlan,
+    core::ApiProtocol,
+    observability::{ErrorType, RequestObservation},
+    pipeline::StreamResponseConversion,
+    provider::ProviderAdapter,
     transport::upstream::UpstreamResponse,
 };
 
@@ -60,7 +63,7 @@ pub(super) async fn upstream_response(
 
     // Reject every successful native or Bridged streaming response that violates its media profile.
     if validate_sse && status.is_success() && !is_sse {
-        observation.record_stream_failure("invalid_upstream_response");
+        observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
         return api_error(
             StatusCode::BAD_GATEWAY,
             "invalid_upstream_response",
@@ -70,7 +73,7 @@ pub(super) async fn upstream_response(
 
     // A planned streaming-to-JSON takeover accepts only a successful Responses SSE body.
     if stream_response_conversion.is_some() && status.is_success() && !is_sse {
-        observation.record_stream_failure("invalid_upstream_response");
+        observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
         return api_error(
             StatusCode::BAD_GATEWAY,
             "invalid_upstream_response",
@@ -105,7 +108,7 @@ pub(super) async fn upstream_response(
         {
             Ok(body) => body,
             Err(()) => {
-                observation.record_stream_failure("invalid_upstream_response");
+                observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
                 return api_error(
                     StatusCode::BAD_GATEWAY,
                     "invalid_upstream_response",
@@ -117,7 +120,7 @@ pub(super) async fn upstream_response(
             match bridge.render_non_stream(upstream_body) {
                 Ok(body) => body,
                 Err(_) => {
-                    observation.record_stream_failure("invalid_upstream_response");
+                    observation.record_bridge_failure();
                     return api_error(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
@@ -152,6 +155,7 @@ pub(super) async fn upstream_response(
             let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {
                 Ok(body) => body,
                 Err(_) => {
+                    observation.record_upstream_failure();
                     return api_error(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
@@ -162,6 +166,7 @@ pub(super) async fn upstream_response(
             match bridge.render_non_stream(upstream_body) {
                 Ok(body) => axum::body::Body::from(body),
                 Err(_) => {
+                    observation.record_bridge_failure();
                     return api_error(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",

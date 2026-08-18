@@ -71,7 +71,7 @@ ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3
 - `RuntimeRegistry` 与 `UserRegistry` 不保存 secret。日志、错误、probe report、trace 和 metric 不得暴露
   credential、完整私人正文或真实 endpoint URL。
 - 本地下游 HTTP 内容日志只覆盖认证后的最终客户端边界，强制脱敏 header 并有界捕获正文；它不是原始上游
-  Provider wire dump，也不进入 span-only OTLP layer。
+  Provider wire dump，也不进入 reviewed OTLP trace layer。
 - OpenBridge 不提供进程内 metrics snapshot 查询 API。metrics 只通过启动时配置的 OTLP/HTTP 出站；持久化、
   时间窗口、比例、排名、告警与可视化由外部 collector/backend 负责。
 

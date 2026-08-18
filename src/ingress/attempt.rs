@@ -6,6 +6,8 @@
 
 use std::time::Duration;
 
+use crate::observability::NextAction;
+
 const MAX_REQUEST_ATTEMPTS: usize = 6;
 const MAX_CANDIDATE_ATTEMPTS: usize = 2;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(50);
@@ -20,6 +22,17 @@ pub(super) enum AttemptStep {
     NextCandidate,
     /// The total budget or candidates are exhausted; return the current failure.
     Finish,
+}
+
+impl AttemptStep {
+    /// Converts the execution step into the stable observability action.
+    pub(super) const fn next_action(self) -> NextAction {
+        match self {
+            Self::RetryCandidate => NextAction::RetryCandidate,
+            Self::NextCandidate => NextAction::NextCandidate,
+            Self::Finish => NextAction::Finish,
+        }
+    }
 }
 
 /// Shared attempt budget and capped exponential-backoff state for one downstream request.
@@ -85,23 +98,16 @@ impl AttemptManager {
         }
     }
 
-    /// Waits for the next attempt and advances capped exponential backoff.
-    ///
-    /// When the downstream task is cancelled, the `sleep` future and manager are dropped together;
-    /// no background wake-up can continue the request.
-    pub(super) async fn wait_before_next_attempt(&mut self) {
-        // Fix this delay and compute the next capped exponential-backoff value.
-        let delay = self.take_backoff_delay();
-
-        // Wait for a cancellable Tokio timer before allowing the next upstream call.
-        tokio::time::sleep(delay).await;
-    }
-
-    /// Returns the current attempt backoff and advances to the next capped value.
-    fn take_backoff_delay(&mut self) -> Duration {
+    /// Returns the scheduled backoff and advances the capped exponential policy.
+    pub(super) fn schedule_backoff(&mut self) -> Duration {
         let delay = self.next_backoff;
         self.next_backoff = self.next_backoff.saturating_mul(2).min(MAX_BACKOFF);
         delay
+    }
+
+    /// Waits for one previously scheduled delay without creating background work.
+    pub(super) async fn wait_before_next_attempt(delay: Duration) {
+        tokio::time::sleep(delay).await;
     }
 }
 
@@ -134,20 +140,20 @@ mod tests {
         let mut attempts = AttemptManager::new();
 
         // Verify that the delay doubles and remains capped at 500 ms.
-        assert_eq!(attempts.take_backoff_delay(), INITIAL_BACKOFF);
+        assert_eq!(attempts.schedule_backoff(), INITIAL_BACKOFF);
         assert_eq!(
-            attempts.take_backoff_delay(),
+            attempts.schedule_backoff(),
             INITIAL_BACKOFF.saturating_mul(2)
         );
         assert_eq!(
-            attempts.take_backoff_delay(),
+            attempts.schedule_backoff(),
             INITIAL_BACKOFF.saturating_mul(4)
         );
         assert_eq!(
-            attempts.take_backoff_delay(),
+            attempts.schedule_backoff(),
             INITIAL_BACKOFF.saturating_mul(8)
         );
-        assert_eq!(attempts.take_backoff_delay(), MAX_BACKOFF);
-        assert_eq!(attempts.take_backoff_delay(), MAX_BACKOFF);
+        assert_eq!(attempts.schedule_backoff(), MAX_BACKOFF);
+        assert_eq!(attempts.schedule_backoff(), MAX_BACKOFF);
     }
 }

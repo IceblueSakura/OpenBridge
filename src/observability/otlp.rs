@@ -277,7 +277,7 @@ pub fn otlp_trace_layer<S>(tracer: SdkTracer) -> impl Layer<S> + Send + Sync
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup> + Send + Sync,
 {
-    // Export only explicitly reviewed lifecycle spans and no tracing events or implicit metadata.
+    // Export only reviewed lifecycle spans; request observation attaches fixed routing events directly.
     tracing_opentelemetry::layer()
         .with_tracer(tracer)
         .with_location(false)

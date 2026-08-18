@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use crate::{
     bridge::{BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
     core::ApiProtocol,
-    observability::RequestObservation,
+    observability::{ErrorType, RequestObservation},
     provider::{ProviderAdapter, StreamEventStatus},
     transport::sse::SseDecoder,
 };
@@ -238,7 +238,7 @@ pub(super) fn bridge_sse_body(
                         match renderer.render(event) {
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
-                                observation.record_upstream_failure();
+                                observation.record_bridge_failure();
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
                                     (source, decoder, renderer, true, observation),
@@ -277,7 +277,7 @@ pub(super) fn bridge_sse_body(
                         match renderer.render(event) {
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
-                                observation.record_upstream_failure();
+                                observation.record_bridge_failure();
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
                                     (source, decoder, renderer, true, observation),
@@ -288,7 +288,7 @@ pub(super) fn bridge_sse_body(
                     match renderer.finish() {
                         Ok(bytes) => output.extend_from_slice(&bytes),
                         Err(_) => {
-                            observation.record_upstream_failure();
+                            observation.record_bridge_failure();
                             return Some((
                                 Err(io::Error::other("upstream bridge stream is invalid")),
                                 (source, decoder, renderer, true, observation),
@@ -402,7 +402,7 @@ pub(super) fn validate_sse_body(
                         }
                         observation.record_upstream_complete();
                         if !terminal_seen {
-                            observation.record_stream_failure("sse_eof_before_terminal");
+                            observation.record_stream_failure(ErrorType::SseEofBeforeTerminal);
                             tracing::warn!(
                                 ?protocol,
                                 "upstream SSE stream ended before a terminal event"
@@ -442,7 +442,7 @@ fn observe_sse_events(
             StreamEventStatus::Completed => *terminal_seen = true,
             StreamEventStatus::Failed => {
                 *terminal_seen = true;
-                observation.record_stream_failure("provider_terminal_failed");
+                observation.record_stream_failure(ErrorType::ProviderTerminalFailed);
             }
         }
     }

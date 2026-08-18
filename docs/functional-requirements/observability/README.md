@@ -11,19 +11,23 @@ Model 比较和可视化。缺失的 usage、cache 或 upstream timing 保持“
 ## 1. Signal 所有权
 
 - **Traces**：每个已认证业务请求形成一个 `downstream_request` root span；每个实际 Provider attempt 形成一个
-  有序 child span。span 只记录稳定 operation、Public Model、编译期 Provider/Target/Route、Native/Bridged、
-  streaming、低基数 outcome、直接观测的 timing 与 Provider 明确返回的 usage。retry、fallback、取消和 terminal
-  保持实际因果关系，每个 span 只结束一次。
-- **Metrics**：只提交供外部计算的 SDK counter/histogram，包括 request/attempt outcome、TTFT、response-ready、
-  duration、generation duration、input/output/cache token，以及仅在 output usage 与 generation duration 都存在时
-  计算的单 attempt output speed。metric attributes 只允许有界 Provider、Public Model、upstream model、typed
-  operation、Route/Target、mode、streaming 与 outcome；request id、trace id、user、原始 status/error 或 endpoint
-  URL 不得成为 attribute。
-- **Logs**：只导出启动、关闭、exporter 状态与需要人工诊断的安全结构化事件，并通过 trace/span id 关联。
-  不为每个 SSE chunk/delta 记录日志，也不重复复制 request/attempt terminal。
+  有序 child span。span 记录 request kind、稳定 operation、Public Model、编译期 Provider/Target/Route、Native/Bridged、
+  streaming、低基数 outcome、直接观测的 timing/status 与 Provider 明确返回的 usage；`request_id` 只用于 trace
+  correlation，不进入 metrics。失败 terminal 使用固定
+  `error.type`、failure stage、retryable 与实际 next action；retry、credential rotation、fallback、cooldown skip 只以
+  固定名称和字段的 allowlisted routing event 进入 OTLP，普通 tracing event 继续排除。
+- **Metrics**：request/attempt started 使用 Counter；每个 terminal 恰好进入对应 duration Histogram，terminal count、
+  failure count 与 active 数分别由 histogram count/outcome 和 `started - terminal_count` 得到，不重复设置 completed、
+  failure 或 active instrument。独立 histograms 覆盖 downstream response-ready/TTFO、Provider response-ready/first-byte/
+  TTFT/generation/attempt duration、input/output/cache/reasoning token 与成功 attempt 的 output speed。metric attributes
+  只允许有界 Provider、经 registry planning 验证的 Public Model、upstream model、typed operation、Route/Target、mode、
+  request kind、streaming、outcome、status class、规范化 error/stage/action/recovery；request id、trace id、user、
+  未验证的请求 `model`、原始 status/error 或 endpoint URL 不得成为 attribute。
+- **Logs**：普通进程日志只记录启动、关闭、exporter 状态与需要人工诊断的安全结构化事件；当前不配置 OTLP logs
+  exporter。不为每个 SSE chunk/delta 记录日志，也不重复复制 request/attempt terminal。
 - **本地开发内容日志**：四个独立开关分别控制认证后下游 request header/body 与最终 response header/body，并写入按 UTC 日期滚动的独立 JSONL 文件。
   header 强制脱敏；body 只保留既有 request/JSON-response budget 内的有界 snapshot，一个方向最多一个 terminal
-  event。该事件不进入 stdout 或 span-only OTLP layer，也不是原始 Provider wire dump。
+  event。该事件不进入 stdout 或 reviewed OTLP trace layer，也不是原始 Provider wire dump。
 
 OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本或下一轮 prompt 推断 tool 是否执行成功；
 没有显式低基数客户端 outcome contract 时，不统计业务 tool error rate。
@@ -48,25 +52,27 @@ OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本�
 
 ## 3. Timing 与 usage
 
-- response headers ready、首 body byte、首个 token-bearing text/tool/reasoning delta 与 terminal 分别计时，不能
-  互相冒充。
+- downstream response headers ready、request-relative 首输出、Provider response headers ready、首 body byte、
+  首个 token-bearing text/tool/reasoning delta 与 terminal 分别计时，不能互相冒充。
 - TTFT 与 generation window 只由首个 token-bearing SSE delta 触发一次；metadata、tool item start、空 delta
   或仅有 response snapshot 不构成生成输出。
 - 非流式 Chat/Responses 可以记录首个非空下游 JSON body chunk 的 gateway-visible timing，但不能据此制造
   upstream TTFT、generation duration 或 output speed。
-- output speed 只在明确 output token usage 与 generation duration 同时存在时计算；平均值、分位数、error rate、
-  cache ratio 与排名由外部系统计算。
+- output speed 只在 attempt 成功且明确 output token usage 与 generation duration 同时存在时计算；平均值、分位数、
+  error rate、cache ratio 与排名由外部系统计算。
 - usage 只来自通过 endpoint 成功响应校验的 Provider 事实；不能估算缺失 token，也不能把 audio bytes、embedding
   vector 或 chunk count 当作 generation token。
+- reasoning output token 只从 Provider 明确 usage 字段单独记录；它是 output token 的子集。total token 不设置独立
+  metric，trace 可以保留 Provider 明确 total，外部系统只在口径允许时由 input/output 聚合。
 
 ## 4. 功能验收要求
 
 | ID | 行为 |
 |---|---|
 | OBS-01 | Bootstrap 省略对应 table 时 OTLP exporter 禁用；只有合法的 startup-only OTLP/HTTP 配置能启用 signal，业务请求不能覆盖 collector 或安全策略。 |
-| OBS-02 | 一个已认证业务请求产生一个脱敏 root span，每个实际 Provider attempt 产生一个有序 child span；terminal、retry、fallback、失败与取消不重复且保持因果关系。 |
-| OBS-03 | metrics 使用 SDK counter/histogram 与有界维度；output speed 只由明确 usage 和 generation duration 计算，未知值不补零，聚合指标由外部系统计算。 |
-| OBS-04 | OTLP logs 只导出安全、限频且可关联的运行诊断；不记录逐 chunk/delta，也不重复 request/attempt terminal。 |
+| OBS-02 | 一个已认证业务请求产生一个脱敏 root span，每个实际 Provider attempt 产生一个有序 child span；失败使用固定 taxonomy，routing timeline 只允许固定名称/字段的 event，terminal、retry、fallback、失败与取消不重复且保持因果关系。 |
+| OBS-03 | metrics 使用 SDK counter/histogram 与有界维度；terminal/failure/active 不设置可推导的重复 instrument；output speed 只由成功 attempt 的明确 usage 和 generation duration 计算，未知值不补零，聚合指标由外部系统计算。 |
+| OBS-04 | 普通进程日志只保留安全、限频的运行诊断；当前不启用 OTLP logs，不记录逐 chunk/delta，也不重复 request/attempt terminal。 |
 | OBS-05 | export 队列、timeout 与关闭有界；collector 故障或背压不阻塞请求、不改变协议或 Provider 行为。 |
 | OBS-06 | signals 不包含 credential、Authorization、用户身份、业务正文、tool/reasoning 内容、原始 error body、query 或真实 endpoint URL；metric attributes 不含高基数身份。 |
 | OBS-07 | metrics snapshot HTTP endpoint 和自定义进程内聚合保持删除，不为未发布原型保留兼容垫片。 |

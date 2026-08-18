@@ -57,8 +57,11 @@ impl TestMetrics {
                 "openbridge.downstream.request.started" => {
                     snapshot.requests_started = sum_u64(metric)
                 }
-                "openbridge.downstream.request.completed" => {
-                    for (attributes, value) in sum_u64_points(metric) {
+                "openbridge.downstream.request.duration" => {
+                    for point in histogram_f64_points(metric) {
+                        let attributes = attributes(point);
+                        let value = point.count();
+                        merge_timing(&mut snapshot.request_duration_ms, point);
                         match string_attribute(&attributes, "openbridge.request.outcome") {
                             Some("completed") => snapshot.requests_completed += value,
                             Some("http_failed") => snapshot.requests_http_failed += value,
@@ -66,6 +69,16 @@ impl TestMetrics {
                             Some("cancelled") => snapshot.requests_cancelled += value,
                             _ => {}
                         }
+                    }
+                }
+                "openbridge.downstream.response_ready.duration" => {
+                    for point in histogram_f64_points(metric) {
+                        merge_timing(&mut snapshot.response_ready_ms, point);
+                    }
+                }
+                "openbridge.downstream.time_to_first_output" => {
+                    for point in histogram_f64_points(metric) {
+                        merge_timing(&mut snapshot.time_to_first_output_ms, point);
                     }
                 }
                 "openbridge.routing.events" => {
@@ -126,6 +139,9 @@ pub struct GatewayMetricsSnapshot {
     pub requests_http_failed: u64,
     pub requests_failed: u64,
     pub requests_cancelled: u64,
+    pub request_duration_ms: TimingSnapshot,
+    pub response_ready_ms: TimingSnapshot,
+    pub time_to_first_output_ms: TimingSnapshot,
     pub upstream_attempts: u64,
     pub upstream_http_failures: u64,
     pub upstream_transport_failures: u64,
@@ -183,16 +199,17 @@ pub struct ProviderMetricSnapshot {
     pub response_ready_ms: TimingSnapshot,
     pub upstream_first_byte_ms: TimingSnapshot,
     pub upstream_ttft_ms: TimingSnapshot,
-    pub gateway_ttft_ms: TimingSnapshot,
     pub duration_ms: TimingSnapshot,
     pub generation_duration_ms: TimingSnapshot,
     pub output_speed: RateSnapshot,
     pub usage_observations: u64,
     pub input_token_observations: u64,
     pub output_token_observations: u64,
+    pub reasoning_output_token_observations: u64,
     pub total_token_observations: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
     pub cache_observations: u64,
     pub cache_read_observations: u64,
@@ -213,19 +230,7 @@ fn provider_snapshots_from(metrics: &ResourceMetrics) -> Vec<ProviderMetricSnaps
                     snapshot_for(&mut snapshots, &attributes).attempts_started += value;
                 }
             }
-            "openbridge.provider.attempt.completed" => {
-                for (attributes, value) in sum_u64_points(metric) {
-                    let snapshot = snapshot_for(&mut snapshots, &attributes);
-                    match string_attribute(&attributes, "openbridge.attempt.outcome") {
-                        Some("completed") => snapshot.attempts_completed += value,
-                        Some("http_failed") => snapshot.attempts_http_failed += value,
-                        Some("transport_failed") => snapshot.attempts_transport_failed += value,
-                        Some("stream_failed") => snapshot.attempts_stream_failed += value,
-                        Some("cancelled") => snapshot.attempts_cancelled += value,
-                        _ => {}
-                    }
-                }
-            }
+
             "openbridge.provider.response_ready.duration" => {
                 merge_duration_metric(&mut snapshots, metric, |snapshot| {
                     &mut snapshot.response_ready_ms
@@ -241,13 +246,21 @@ fn provider_snapshots_from(metrics: &ResourceMetrics) -> Vec<ProviderMetricSnaps
                     &mut snapshot.upstream_ttft_ms
                 })
             }
-            "openbridge.gateway.time_to_first_output" => {
-                merge_duration_metric(&mut snapshots, metric, |snapshot| {
-                    &mut snapshot.gateway_ttft_ms
-                })
-            }
-            "gen_ai.client.operation.duration" => {
-                merge_duration_metric(&mut snapshots, metric, |snapshot| &mut snapshot.duration_ms)
+            "openbridge.provider.attempt.duration" => {
+                for point in histogram_f64_points(metric) {
+                    let point_attributes = attributes(point);
+                    let snapshot = snapshot_for(&mut snapshots, &point_attributes);
+                    let count = point.count();
+                    match string_attribute(&point_attributes, "openbridge.attempt.outcome") {
+                        Some("completed") => snapshot.attempts_completed += count,
+                        Some("http_failed") => snapshot.attempts_http_failed += count,
+                        Some("transport_failed") => snapshot.attempts_transport_failed += count,
+                        Some("stream_failed") => snapshot.attempts_stream_failed += count,
+                        Some("cancelled") => snapshot.attempts_cancelled += count,
+                        _ => {}
+                    }
+                    merge_timing(&mut snapshot.duration_ms, point);
+                }
             }
             "openbridge.provider.generation.duration" => {
                 merge_duration_metric(&mut snapshots, metric, |snapshot| {
@@ -275,6 +288,14 @@ fn provider_snapshots_from(metrics: &ResourceMetrics) -> Vec<ProviderMetricSnaps
                         }
                         _ => {}
                     }
+                }
+            }
+            "openbridge.provider.reasoning.output.token.usage" => {
+                for point in histogram_u64_points(metric) {
+                    let point_attributes = attributes(point);
+                    let snapshot = snapshot_for(&mut snapshots, &point_attributes);
+                    snapshot.reasoning_output_token_observations += point.count();
+                    snapshot.reasoning_output_tokens += point.sum();
                 }
             }
             "openbridge.provider.cache.read.token.usage" => {
