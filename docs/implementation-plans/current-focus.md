@@ -2,8 +2,8 @@
 
 ## 状态
 
-**无进行中的行为。** 可观测性指标去重、失败分类、计时归属和固定 routing trace events 已完成；实现事实、验证命令与未覆盖边界已转入
-[Telemetry Metrics 实施状态](../implementation-status/telemetry-metrics.md)。选择下一项前必须重新建立单一、已批准的当前焦点。
+**无进行中的行为。** ChatGPT Codex Responses 的保守 inline 图片输入契约已实现；确认事实与验证边界已转入
+[ChatGPT Provider 状态](../implementation-status/providers/chatgpt.md)。选择下一项前必须重新建立单一、已批准的当前焦点。
 
 ## 当前焦点
 
