@@ -146,6 +146,36 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
 }
 
 #[tokio::test]
+async fn kimi_k3_models_contract_excludes_unsupported_reasoning_none() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
+    let expected_levels = serde_json::json!(["low", "high", "max"]);
+    let expected_accepted_levels =
+        serde_json::json!(["minimal", "low", "medium", "high", "xhigh", "max"]);
+
+    // Kimi K3 always reasons; positive input levels may clamp, but none remains unavailable.
+    for interface in ["chat_completions", "responses"] {
+        let reasoning = &model["interfaces"][interface]["reasoning"];
+        assert_eq!(reasoning["levels"], expected_levels, "{interface}");
+        assert_eq!(
+            reasoning["accepted_levels"], expected_accepted_levels,
+            "{interface}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn longcat_models_contract_uses_the_confirmed_context_window() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+    let model = compiled_authenticated_get(&app, "/openbridge/v1/models/LongCat-2.0").await;
+    let context = &model["capabilities"]["context_window"];
+
+    // Preserve the official total context value without propagating a transposed catalog digit.
+    assert_eq!(context["max_context_tokens"], 1_048_576);
+    assert_eq!(context["max_input_tokens"], 1_048_576);
+}
+
+#[tokio::test]
 async fn extended_models_filter_by_executable_native_generation_protocol() {
     // Give each Public Model one Native protocol and one opposite-direction Bridge surface.
     let mut definition = support::definition("native-filter-test", "template", "upstream-model");

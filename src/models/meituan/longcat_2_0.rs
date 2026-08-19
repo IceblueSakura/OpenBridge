@@ -22,8 +22,8 @@ pub(crate) fn config() -> ModelConfig {
         task: CanonicalModelTask::Generation(GenerationModelProfile {
         // The catalog publishes the total context window; routing validates only the declared output limit, while the upstream enforces the combined limit.
         context_length: ModelContextLength::new(
-            Some(1_048_756),
-            Some(1_048_756),
+            Some(1_048_576),
+            Some(1_048_576),
             Some(262_144),
         ),
         input_modalities: Some(vec![InputModality::Text]),

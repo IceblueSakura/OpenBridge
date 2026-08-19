@@ -39,7 +39,7 @@ reasoning effort。价格、排行、吞吐、数据策略和动态可用性属�
 | `deepseek/deepseek-v4-flash` | 1,048,576 | 393,216 | `text` | `DeepSeek` | 未声明 | `xhigh, high` |
 | `xiaomi/mimo-v2.5-pro` | 1,050,000 | 131,072 | `text` | `Other` | 未声明 | 未声明离散 effort |
 | `xiaomi/mimo-v2.5` | 1,050,000 | 131,072 | `text, audio, image, video` | `Other` | 未声明 | 未声明离散 effort |
-| `meituan/longcat-2.0` | 1,048,756 | 262,144 | `text` | `Other` | 未声明 | 支持 token budget，未声明离散 effort |
+| `meituan/longcat-2.0` | 1,048,576 | 262,144 | `text` | `Other` | 未声明 | 支持 token budget，未声明离散 effort |
 | `qwen/qwen3.6-27b` | 262,144 | 262,144 | `text, image, video` | `Qwen3` | 未声明 | 未声明离散 effort |
 | `qwen/qwen3.7-max` | 1,000,000 | 131,072 | `text` | `Qwen` | 未声明 | 未声明离散 effort |
 | `qwen/qwen3.7-plus` | 1,000,000 | 131,072 | `text, image` | `Qwen` | 未声明 | 未声明离散 effort |

@@ -2,8 +2,9 @@
 
 ## 状态
 
-**无进行中的行为。** ChatGPT Codex Responses 的保守 inline 图片输入契约已实现；确认事实与验证边界已转入
-[ChatGPT Provider 状态](../implementation-status/providers/chatgpt.md)。选择下一项前必须重新建立单一、已批准的当前焦点。
+**无进行中的行为。** Kimi K3 reasoning 与 LongCat 2.0 context 的确定性 Model fact 修订已完成；确认事实与验证边界已转入
+[Kimi CN Provider 状态](../implementation-status/providers/kimi-cn.md)及对应模型 reference。选择下一项前必须重新建立单一、已批准的
+当前焦点。
 
 ## 当前焦点
 
