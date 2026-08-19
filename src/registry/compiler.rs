@@ -568,7 +568,7 @@ fn build_registry_internal(
     // Require one usable project fallback only when compilation retained a general Generation interface.
     if public_models
         .values()
-        .any(|model| model.is_available() && model.is_general_generation())
+        .any(|model| model.is_available() && model.has_general_generation_interface())
         && bootstrap
             .default_instructions()
             .is_none_or(|instructions| instructions.trim().is_empty())

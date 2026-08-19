@@ -40,10 +40,7 @@ pub fn plan_request(
     }
 
     // Resolve the project fallback once after Public Model preflight and before candidate expansion.
-    let normalized_body = if registry
-        .public_model(requirements.public_model())
-        .is_some_and(|model| model.is_general_generation())
-    {
+    let normalized_body = if interface.task() == crate::registry::CanonicalTaskKind::Generation {
         let default_instructions = registry
             .default_instructions()
             .expect("general Generation registries validate default instructions at startup");
@@ -109,7 +106,7 @@ pub fn plan_request(
         prepared_candidates.push(RouteCandidate {
             route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
-            upstream_operation: candidate.upstream_operation(),
+            upstream_api_key: candidate.upstream_api_key(),
             request,
             bridge,
             stream_response_conversion,
@@ -316,7 +313,7 @@ pub fn plan_embedding_request(
         candidate: EmbeddingRouteCandidate {
             route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
-            upstream_operation: candidate.upstream_operation(),
+            upstream_api_key: candidate.upstream_api_key(),
             request: EmbeddingRequest::new(body),
         },
         input_count: requirements.input_count,

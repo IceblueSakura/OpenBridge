@@ -10,7 +10,7 @@ use crate::{
         ImageDetail, ImageInputSource, ImageMediaType, OperationKind, ResponseInclude,
         ToolChoiceMode,
     },
-    registry::ReasoningLevel,
+    registry::{ReasoningLevel, UpstreamApiKey},
 };
 
 /// Registry-independent request facts extracted from a downstream request.
@@ -61,7 +61,7 @@ pub struct EmbeddingRoutePlan {
 pub struct EmbeddingRouteCandidate {
     pub(super) route_id: String,
     pub(super) upstream_target_id: String,
-    pub(super) upstream_operation: OperationKind,
+    pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: EmbeddingRequest,
 }
 
@@ -81,7 +81,7 @@ pub struct RoutePlan {
 pub struct RouteCandidate {
     pub(super) route_id: String,
     pub(super) upstream_target_id: String,
-    pub(super) upstream_operation: OperationKind,
+    pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: ApiRequest,
     pub(super) bridge: Option<BridgePlan>,
     pub(super) stream_response_conversion: Option<StreamResponseConversion>,
@@ -338,7 +338,12 @@ impl EmbeddingRouteCandidate {
 
     /// Returns the trusted typed Upstream API operation.
     pub fn upstream_operation(&self) -> OperationKind {
-        self.upstream_operation
+        self.upstream_api_key.operation()
+    }
+
+    /// Returns the complete trusted Upstream API identity.
+    pub fn upstream_api_key(&self) -> UpstreamApiKey {
+        self.upstream_api_key
     }
 
     /// Returns the preserved Native Embeddings request.
@@ -403,7 +408,12 @@ impl RouteCandidate {
 
     /// Returns the typed Upstream API operation bound to the candidate.
     pub fn upstream_operation(&self) -> OperationKind {
-        self.upstream_operation
+        self.upstream_api_key.operation()
+    }
+
+    /// Returns the complete typed Upstream API identity bound to the candidate.
+    pub fn upstream_api_key(&self) -> UpstreamApiKey {
+        self.upstream_api_key
     }
 
     /// Returns the Native request for the candidate.

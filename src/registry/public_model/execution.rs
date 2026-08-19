@@ -10,28 +10,29 @@ use super::{
     StandardModel,
 };
 use crate::registry::{
-    IgnorableGenerationParameter, ModelLifecycleStatus, RouteMode, UpstreamStreamingPolicy,
+    CanonicalTaskKind, IgnorableGenerationParameter, ModelLifecycleStatus, RouteMode,
+    UpstreamApiKey, UpstreamStreamingPolicy,
 };
 
 /// Private identity of the one Target/API allowed to receive an opaque continuation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ContinuationIssuer {
     upstream_target: String,
-    upstream_operation: OperationKind,
+    upstream_api_key: UpstreamApiKey,
 }
 
 impl ContinuationIssuer {
     /// Freezes one validated Target/API identity for Public Model continuation aggregation.
-    pub(super) fn new(upstream_target: String, upstream_operation: OperationKind) -> Self {
+    pub(super) fn new(upstream_target: String, upstream_api_key: UpstreamApiKey) -> Self {
         Self {
             upstream_target,
-            upstream_operation,
+            upstream_api_key,
         }
     }
 
     /// Returns whether a planning candidate belongs to this exact issuing Target/API.
-    fn matches(&self, upstream_target: &str, upstream_operation: OperationKind) -> bool {
-        self.upstream_target == upstream_target && self.upstream_operation == upstream_operation
+    fn matches(&self, upstream_target: &str, upstream_api_key: UpstreamApiKey) -> bool {
+        self.upstream_target == upstream_target && self.upstream_api_key == upstream_api_key
     }
 }
 
@@ -63,10 +64,9 @@ impl PublicContinuationContract {
     fn candidate_matches(&self, candidate: &RouteExecutionCandidate) -> bool {
         match self {
             Self::Unsupported => false,
-            Self::Supported { issuer } => issuer.matches(
-                candidate.upstream_target_id(),
-                candidate.upstream_operation(),
-            ),
+            Self::Supported { issuer } => {
+                issuer.matches(candidate.upstream_target_id(), candidate.upstream_api_key())
+            }
         }
     }
 }
@@ -81,7 +81,7 @@ pub(crate) struct RouteExecutionCandidate {
     pub(super) route_id: String,
     pub(super) upstream_target_id: String,
     pub(super) downstream_operation: OperationKind,
-    pub(super) upstream_operation: OperationKind,
+    pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) mode: RouteMode,
     pub(super) upstream_model: String,
     pub(super) reasoning_output: ReasoningOutput,
@@ -107,7 +107,12 @@ impl RouteExecutionCandidate {
 
     /// Returns the upstream operation represented by this interface candidate.
     pub(crate) const fn upstream_operation(&self) -> OperationKind {
-        self.upstream_operation
+        self.upstream_api_key.operation()
+    }
+
+    /// Returns the complete validated Upstream API identity.
+    pub(crate) const fn upstream_api_key(&self) -> UpstreamApiKey {
+        self.upstream_api_key
     }
 
     /// Returns the downstream generation protocol guaranteed by a generation execution interface.
@@ -146,6 +151,7 @@ impl RouteExecutionCandidate {
 /// One immutable executable interface shared by request preflight and Route planning.
 #[derive(Debug)]
 pub(crate) struct ModelExecutionInterface {
+    pub(super) task: CanonicalTaskKind,
     pub(super) generation_capabilities: Option<ModelInterfaceCapabilities>,
     pub(super) embedding_capabilities: Option<EmbeddingInterfaceCapabilities>,
     pub(super) continuation: PublicContinuationContract,
@@ -153,6 +159,11 @@ pub(crate) struct ModelExecutionInterface {
 }
 
 impl ModelExecutionInterface {
+    /// Returns the single canonical task selected at startup for this interface.
+    pub(crate) const fn task(&self) -> CanonicalTaskKind {
+        self.task
+    }
+
     /// Returns the fixed capability contract derived from exactly these static candidates.
     pub(crate) const fn capabilities(&self) -> &ModelInterfaceCapabilities {
         self.generation_capabilities
@@ -203,6 +214,18 @@ impl ModelExecutionInterfaces {
         }
     }
 
+    /// Returns whether any executable operation interface selects the requested task.
+    fn has_task(&self, task: CanonicalTaskKind) -> bool {
+        [
+            self.chat_completions.as_ref(),
+            self.responses.as_ref(),
+            self.embeddings.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|interface| interface.task() == task)
+    }
+
     /// Returns whether this Public Model has any statically executable downstream protocol.
     const fn is_available(&self) -> bool {
         self.chat_completions.is_some() || self.responses.is_some() || self.embeddings.is_some()
@@ -233,7 +256,6 @@ pub struct PublicModel {
     pub(super) routes: Vec<String>,
     pub(super) execution_interfaces: ModelExecutionInterfaces,
     pub(super) info: PublicModelInfo,
-    pub(super) general_generation: bool,
 }
 
 impl PublicModel {
@@ -283,8 +305,9 @@ impl PublicModel {
             && self.execution_interfaces.is_available()
     }
 
-    /// Returns whether the executable Public Model is a general Generation surface.
-    pub(crate) fn is_general_generation(&self) -> bool {
-        self.general_generation
+    /// Returns whether any executable operation interface selects general Generation.
+    pub(crate) fn has_general_generation_interface(&self) -> bool {
+        self.execution_interfaces
+            .has_task(CanonicalTaskKind::Generation)
     }
 }

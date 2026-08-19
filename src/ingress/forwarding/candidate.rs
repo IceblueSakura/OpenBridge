@@ -12,9 +12,7 @@ use crate::{
     oauth2_credentials::OAuth2CredentialLease,
     pipeline::RouteCandidate,
     provider::{CredentialKind, PreparedUpstreamRequest, ProviderAdapter},
-    registry::{
-        CredentialPoolBinding, RuntimeRegistry, UpstreamApi, UpstreamApiKey, UpstreamTarget,
-    },
+    registry::{CredentialPoolBinding, RuntimeRegistry, UpstreamApi, UpstreamTarget},
 };
 
 /// All trusted data needed to execute one planned generation candidate.
@@ -37,10 +35,7 @@ pub(super) async fn prepare_candidate<'a>(
 ) -> Result<PreparedCandidate<'a>, Response> {
     // Resolve only the typed upstream API and credential-pool references under the selected target.
     let upstream_api = target
-        .upstream_api(UpstreamApiKey::new(
-            candidate.upstream_operation(),
-            target.canonical_task(),
-        ))
+        .upstream_api(candidate.upstream_api_key())
         .ok_or_else(|| {
             api_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,

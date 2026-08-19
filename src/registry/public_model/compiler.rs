@@ -97,7 +97,6 @@ pub(in crate::registry) fn compile_public_model(
         routes: config.routes,
         execution_interfaces,
         info,
-        general_generation: canonical_task == Some(CanonicalTaskKind::Generation),
     })
 }
 
@@ -148,6 +147,12 @@ fn compile_execution_interface<'a>(
     if candidates.is_empty() {
         return Ok(None);
     }
+    let task = candidates[0].contribution.canonical_task;
+    debug_assert!(
+        candidates
+            .iter()
+            .all(|candidate| candidate.contribution.canonical_task == task)
+    );
     let contributions = candidates
         .iter()
         .map(|candidate| candidate.contribution.clone())
@@ -172,6 +177,7 @@ fn compile_execution_interface<'a>(
 
     // Freeze the matching planning data beside the contract that was derived from it.
     Ok(Some(ModelExecutionInterface {
+        task,
         generation_capabilities,
         embedding_capabilities,
         continuation,
@@ -248,7 +254,7 @@ impl PrecompiledRouteCandidate {
                 route_id: binding.route_id.clone(),
                 upstream_target_id: binding.route.upstream_target().to_owned(),
                 downstream_operation: binding.route.downstream_operation(),
-                upstream_operation: binding.route.upstream_operation(),
+                upstream_api_key: binding.upstream_api.key(),
                 mode: binding.route.mode(),
                 upstream_model: binding.upstream_api.upstream_model().to_owned(),
                 reasoning_output: binding.upstream_api.reasoning_output(),

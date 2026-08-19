@@ -390,7 +390,7 @@ fn protocol_specific_capabilities(
                 RouteContinuationContract::Supported {
                     issuer: ContinuationIssuer::new(
                         route.upstream_target().to_owned(),
-                        route.upstream_operation(),
+                        upstream_api.key(),
                     ),
                 }
             } else {
