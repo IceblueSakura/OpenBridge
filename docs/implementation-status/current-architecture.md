@@ -113,17 +113,19 @@ immutable RuntimeRegistry
 
 | 实体 | 所有事实 |
 |---|---|
-| `ProviderContract` | adapter 能力上界与允许的 credential kind |
+| `ProviderContract` | operation-indexed adapter 能力上界与允许的 credential kind |
 | `ProviderInstanceConfig` | 稳定实例 ID、闭合 `ProviderKind` 与唯一受信 base URL |
 | `ModelConfig` | canonical identity 与必填 task variant；task payload 独占相关 limits/modalities/parameters/reasoning |
 | `CredentialPoolConfig` | 非敏感 pool identity、Provider 与 credential kind |
 | `UpstreamTargetConfig` | Provider instance、canonical/provider model、credential pool、timeout、quota/fault domain 与 API 列表 |
-| `UpstreamApiConfig` | 单一 operation、upstream model、executable capability、streaming policy 和模型级收窄 |
-| `RouteConfig` | Target/API、下游 operation 与 `Native`/`Bridged` mode |
+| `UpstreamApiConfig` | typed `(operation, task)` key、upstream model、executable capability、streaming policy 和模型级收窄 |
+| `RouteConfig` | Target/API、下游 operation 与 `Native`/`GenerationBridge(direction)` mode |
 | `PublicModelConfig` | 下游 identity、reasoning input policy、routing strategy 与有序 source registration |
 | `PublicModelInfo` | 下游可序列化模型事实和每 operation 固定 interface；不含执行拓扑 |
 
-编译先验证引用、Provider ceiling、canonical task 与 executable operation，再从每个固定候选生成 contribution 并保守聚合。
+编译先验证引用、operation-indexed Provider ceiling、canonical task 与 typed Upstream API key，再验证显式 Generation Bridge direction，
+然后从每个固定候选生成 contribution 并保守聚合。每个 private operation interface 保存 selected task；其 planning candidate 携带完整
+`UpstreamApiKey`，forwarding 不再从 Target 与 operation 重建 API identity。
 Public Model 只公开全部固定候选共同保证的能力；请求期不会因能力筛选、跳过或重排 candidate。
 
 Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`。前者在同一协议先排列所有 Native，再排列 Bridge；后者先
