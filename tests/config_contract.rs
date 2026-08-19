@@ -51,6 +51,28 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
 }
 
 #[test]
+fn shared_generation_fixture_denies_optional_api_capabilities_by_default() {
+    let definition = definition("minimal-fixture", "public-model", "upstream-model");
+    let UpstreamApiCapabilities::ChatCompletions(chat) =
+        definition.upstream_targets[0].upstream_apis[0].capabilities
+    else {
+        panic!("the shared fixture must keep one minimal Chat API");
+    };
+    let UpstreamApiCapabilities::Responses(responses) =
+        definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("the shared fixture must keep one minimal Responses API");
+    };
+
+    assert!(!chat.streaming);
+    assert!(!chat.stream_usage);
+    assert!(chat.function_tools.is_none());
+    assert!(!responses.streaming);
+    assert!(!responses.terminal_usage);
+    assert!(responses.function_tools.is_none());
+}
+
+#[test]
 fn bootstrap_http_logging_switches_fallback_off_and_enable_independently() {
     // Keep every content-bearing local HTTP event disabled when the optional table is absent.
     let disabled = parse_bootstrap_config(BOOTSTRAP).unwrap();

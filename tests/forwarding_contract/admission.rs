@@ -131,6 +131,7 @@ async fn chat_stream_usage_admission_keeps_noops_but_rejects_invalid_or_unsuppor
     if let UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
+        capabilities.streaming = true;
         capabilities.stream_usage = false;
     }
     let transport = Arc::new(DeepSeekUsageStreamTransport::default());

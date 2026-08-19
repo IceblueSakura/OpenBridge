@@ -106,11 +106,16 @@ impl UpstreamTransport for LoopbackReplayTransport {
 /// Starts the production Router against one test-owned loopback upstream origin.
 async fn start_gateway(upstream_address: SocketAddr) -> GatewayHarness {
     // Build the fixed registry, synthetic credentials, and observed test transport.
-    let registry = openbridge::registry::build_registry(
-        super::bootstrap(super::BOOTSTRAP),
-        super::definition("process-replay", "public-model", "upstream-model"),
-    )
-    .expect("replay registry must be valid");
+    let mut definition = super::definition("process-replay", "public-model", "upstream-model");
+    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    {
+        capabilities.streaming = true;
+        capabilities.terminal_usage = true;
+    }
+    let registry =
+        openbridge::registry::build_registry(super::bootstrap(super::BOOTSTRAP), definition)
+            .expect("replay registry must be valid");
     let transport = LoopbackReplayTransport {
         base_url: format!("http://{upstream_address}"),
         client: reqwest::Client::new(),

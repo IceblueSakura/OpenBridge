@@ -5,10 +5,9 @@ use std::{path::Path, sync::Arc, time::Duration};
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiCapabilities, ApiProtocol, ExecutableResponsesState,
-        FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
-        ResponsesAffinity, StorageSupport,
+        ApiCapabilities, ApiProtocol, ExecutableResponsesState,
+        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, ResponsesAffinity, StorageSupport,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
@@ -159,13 +158,9 @@ auth_json_file = "{locator}"
 pub fn capabilities() -> ApiCapabilities {
     ApiCapabilities {
         chat_completions: Some(ProviderChatCompletionsCapabilities {
-            streaming: true,
-            stream_usage: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
-            }),
+            streaming: false,
+            stream_usage: false,
+            function_tools: None,
             image_input: None,
             structured_outputs: None,
             store: false,
@@ -181,13 +176,9 @@ pub fn capabilities() -> ApiCapabilities {
             multiple_choices: false,
         }),
         responses: Some(ProviderResponsesCapabilities {
-            streaming: true,
-            terminal_usage: true,
-            function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: false,
-                strict_schema: false,
-            }),
+            streaming: false,
+            terminal_usage: false,
+            function_tools: None,
             image_input: None,
             structured_outputs: None,
             state: ProviderResponsesStateCeiling::Stateless,

@@ -41,7 +41,7 @@ async fn provider_request_header_hook_overrides_user_agent_for_upstream() {
 #[tokio::test]
 async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() {
     let transport = Arc::new(RecordingTransport::default());
-    let app = app_with_transport(transport.clone());
+    let app = app_with_streaming_transport(transport.clone());
     let cases = [
         (
             "/v1/chat/completions",
@@ -402,7 +402,7 @@ async fn deepseek_json_object_is_preserved_by_native_egress() {
 
 #[tokio::test]
 async fn egress_preparation_applies_the_selected_api_reasoning_level_mapping() {
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     support::generation_profile_mut(&mut definition.models[0]).reasoning =
         ReasoningProfile::supported([ReasoningLevel::XHigh]);
     for upstream_api in &mut definition.upstream_targets[0].upstream_apis {

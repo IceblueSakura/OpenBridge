@@ -1225,10 +1225,35 @@ impl UpstreamTransport for FailoverTransport {
     }
 }
 
+fn streaming_definition(version: &str, alias: &str, upstream_model: &str) -> RegistryConfig {
+    let mut definition = support::definition(version, alias, upstream_model);
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.streaming = true;
+                capabilities.stream_usage = true;
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.streaming = true;
+                capabilities.terminal_usage = true;
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    definition
+}
+
 fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
     app_with_transport_and_definition(
         transport,
         support::definition("forward-test", "public-model", "upstream-model"),
+    )
+}
+
+fn app_with_streaming_transport(transport: Arc<dyn UpstreamTransport>) -> axum::Router {
+    app_with_transport_and_definition(
+        transport,
+        streaming_definition("forward-test", "public-model", "upstream-model"),
     )
 }
 
@@ -1356,7 +1381,7 @@ fn app_with_streaming_only_responses_transport(
     max_json_response_body_bytes: usize,
 ) -> axum::Router {
     // Enable the trusted Responses SSE takeover on the synthetic Responses Upstream API.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].upstream_apis[1].streaming_policy =
         UpstreamStreamingPolicy::Required {
             non_streaming: NonStreamingConversion::BufferResponsesSse,
@@ -1383,7 +1408,7 @@ fn app_with_transport_and_pool(
 ) -> (axum::Router, TestMetrics) {
     let registry = build_registry(
         support::bootstrap(support::BOOTSTRAP),
-        support::definition("forward-test", "public-model", "upstream-model"),
+        streaming_definition("forward-test", "public-model", "upstream-model"),
     )
     .unwrap();
     let (users, credentials) = support::users_and_credential_pool(

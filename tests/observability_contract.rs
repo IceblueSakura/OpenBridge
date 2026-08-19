@@ -382,8 +382,34 @@ impl UpstreamTransport for ContentLoggingTransport {
     }
 }
 
+fn observability_definition(
+    version: &str,
+    alias: &str,
+    upstream_model: &str,
+) -> openbridge::registry::RegistryConfig {
+    let mut definition = support::definition(version, alias, upstream_model);
+    for api in &mut definition.upstream_targets[0].upstream_apis {
+        match &mut api.capabilities {
+            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                capabilities.streaming = true;
+                capabilities.stream_usage = true;
+            }
+            UpstreamApiCapabilities::Responses(capabilities) => {
+                capabilities.streaming = true;
+                capabilities.terminal_usage = true;
+            }
+            UpstreamApiCapabilities::Embeddings(_) => {}
+        }
+    }
+    definition
+}
+
 fn app_with_transport(transport: Arc<dyn UpstreamTransport>) -> (axum::Router, TestMetrics) {
-    let registry = support::registry("observability-test", "code-primary", "test-model");
+    let registry = build_registry(
+        support::bootstrap(support::BOOTSTRAP),
+        observability_definition("observability-test", "code-primary", "test-model"),
+    )
+    .unwrap();
     let (users, credentials) = support::users_and_credentials(
         "downstream-test-token-00000000000",
         &registry,
@@ -406,7 +432,7 @@ fn app_with_transport_and_bootstrap(
     // Compile the ordinary synthetic registry under the caller-selected startup logging policy.
     let registry = build_registry(
         parse_bootstrap_config(bootstrap).unwrap(),
-        support::definition("observability-test", "code-primary", "test-model"),
+        observability_definition("observability-test", "code-primary", "test-model"),
     )
     .unwrap();
     let writer = openbridge::observability::HttpJsonlWriter::new(
@@ -433,7 +459,7 @@ fn embedding_observability_app(
     transport: Arc<dyn UpstreamTransport>,
 ) -> (axum::Router, TestMetrics) {
     // Extend the ordinary synthetic registry with one independent Embeddings model and target.
-    let mut definition = support::definition(
+    let mut definition = observability_definition(
         "embedding-observability",
         "generation-observed",
         "generation-observed-upstream",

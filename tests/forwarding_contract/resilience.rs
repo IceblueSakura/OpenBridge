@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test]
 async fn stateless_requests_keep_fallback_across_continuation_capable_targets() {
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     let UpstreamApiCapabilities::Responses(primary_capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     else {
@@ -54,7 +54,7 @@ async fn stateless_requests_keep_fallback_across_continuation_capable_targets() 
 #[tokio::test]
 async fn transient_failures_back_off_and_fall_back_to_another_provider_with_final_error() {
     // Build an OpenAI primary target and LongCat fallback, then make both return transient failures.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     add_responses_fallback(&mut definition, "longcat-fallback", ProviderKind::LongCat);
     let transport = Arc::new(BoundedFailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
@@ -93,7 +93,7 @@ async fn transient_failures_back_off_and_fall_back_to_another_provider_with_fina
 #[tokio::test]
 async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_pool() {
     // Build three targets sharing a single-member pool and verify member cooldown across targets.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].quota_scope = Some("shared-quota".to_owned());
     add_responses_fallback(&mut definition, "shared-quota-peer", ProviderKind::OpenAi);
     definition.upstream_targets[1].quota_scope = Some("shared-quota".to_owned());
@@ -126,7 +126,7 @@ async fn cross_request_credential_cooldown_skips_targets_sharing_the_exhausted_p
 #[tokio::test]
 async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
     // Build two targets sharing a fault domain and one independent failure boundary.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     definition.upstream_targets[0].fault_domain = Some("shared-fault".to_owned());
     add_responses_fallback(&mut definition, "shared-fault-peer", ProviderKind::OpenAi);
     definition.upstream_targets[1].fault_domain = Some("shared-fault".to_owned());
@@ -160,7 +160,7 @@ async fn cross_request_health_skips_all_targets_in_the_cooled_fault_domain() {
 #[tokio::test]
 async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallback() {
     // Enable continuation on one uniquely identifiable Responses API and put its target into cooldown first.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
@@ -219,7 +219,7 @@ async fn target_bound_continuation_ignores_cooldown_without_cross_target_fallbac
 #[tokio::test]
 async fn ambiguous_target_bound_continuation_is_rejected_before_upstream() {
     // Enable continuation on two different targets without an issuer ledger.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
@@ -298,7 +298,7 @@ async fn non_streaming_transient_failures_use_the_same_finite_retry_policy() {
 #[tokio::test]
 async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
     // Build four ordered candidates that all fail and exceed the request budget for two attempts each.
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     add_responses_fallback(&mut definition, "longcat-second", ProviderKind::LongCat);
     add_responses_fallback(&mut definition, "openai-third", ProviderKind::OpenAi);
     add_responses_fallback(&mut definition, "longcat-fourth", ProviderKind::LongCat);
@@ -338,7 +338,7 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
 
 #[tokio::test]
 async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() {
-    let mut definition = support::definition("forward-test", "public-model", "upstream-model");
+    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
@@ -379,7 +379,7 @@ async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() 
 #[tokio::test]
 async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
     let dropped = Arc::new(AtomicBool::new(false));
-    let app = app_with_transport(Arc::new(PendingSseTransport {
+    let app = app_with_streaming_transport(Arc::new(PendingSseTransport {
         dropped: dropped.clone(),
     }));
     let request = Request::post("/v1/responses")
@@ -406,7 +406,7 @@ async fn aborting_downstream_before_response_cancels_the_pending_upstream_reques
         started: tokio::sync::Notify::new(),
         dropped: dropped.clone(),
     });
-    let app = app_with_transport(transport.clone());
+    let app = app_with_streaming_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -434,7 +434,7 @@ async fn aborting_downstream_during_backoff_prevents_the_next_attempt() {
         attempts: AtomicUsize::new(0),
         first_attempt: tokio::sync::Notify::new(),
     });
-    let app = app_with_transport(transport.clone());
+    let app = app_with_streaming_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -457,7 +457,7 @@ async fn aborting_downstream_during_backoff_prevents_the_next_attempt() {
 
 #[tokio::test]
 async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
-    let app = app_with_transport(Arc::new(EofWithoutTerminalTransport));
+    let app = app_with_streaming_transport(Arc::new(EofWithoutTerminalTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -542,7 +542,7 @@ async fn buffered_non_streaming_responses_require_sse_content_type() {
 
 #[tokio::test]
 async fn native_streaming_responses_require_sse_content_type() {
-    let app = app_with_transport(Arc::new(SuccessfulJsonTransport));
+    let app = app_with_streaming_transport(Arc::new(SuccessfulJsonTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -582,7 +582,7 @@ async fn partial_upstream_stream_failures_close_without_a_retry() {
     let transport = Arc::new(PartialStreamFailureTransport {
         attempts: AtomicUsize::new(0),
     });
-    let app = app_with_transport(transport.clone());
+    let app = app_with_streaming_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -600,7 +600,7 @@ async fn partial_upstream_stream_failures_close_without_a_retry() {
 
 #[tokio::test]
 async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
-    let app = app_with_transport(Arc::new(InvalidSseTransport));
+    let app = app_with_streaming_transport(Arc::new(InvalidSseTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -617,7 +617,7 @@ async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
 
 #[tokio::test]
 async fn streaming_requests_preserve_non_sse_error_bodies() {
-    let app = app_with_transport(Arc::new(NonSseErrorTransport));
+    let app = app_with_streaming_transport(Arc::new(NonSseErrorTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
@@ -799,7 +799,7 @@ async fn non_429_client_errors_do_not_retry_or_rotate_credentials() {
 #[tokio::test]
 async fn streaming_rate_limits_retry_before_output_and_preserve_retry_headers() {
     let transport = Arc::new(RateLimitedTransport::default());
-    let app = app_with_transport(transport.clone());
+    let app = app_with_streaming_transport(transport.clone());
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")

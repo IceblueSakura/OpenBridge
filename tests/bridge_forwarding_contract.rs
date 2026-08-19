@@ -18,7 +18,10 @@ use futures_util::future::BoxFuture;
 use http::{HeaderMap, Request, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState},
-    core::{ApiProtocol, OperationKind, ReasoningOutput},
+    core::{
+        ALL_TOOL_CHOICE_MODES, ApiProtocol, FunctionToolCapabilities, OperationKind,
+        ReasoningOutput,
+    },
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
     registry::{
@@ -217,9 +220,12 @@ fn app_with_protocol_capabilities(
     if let openbridge::registry::UpstreamApiCapabilities::ChatCompletions(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[0].capabilities
     {
-        capabilities.function_tools = capabilities.function_tools.map(|mut profile| {
-            profile.parallel_calls = !use_deepseek_chat;
-            profile
+        capabilities.streaming = true;
+        capabilities.stream_usage = true;
+        capabilities.function_tools = Some(FunctionToolCapabilities {
+            choice_modes: ALL_TOOL_CHOICE_MODES,
+            parallel_calls: !use_deepseek_chat,
+            strict_schema: false,
         });
         capabilities.reasoning_output = reasoning_output;
         capabilities.prompt_cache_key = false;
@@ -228,9 +234,11 @@ fn app_with_protocol_capabilities(
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
             &mut definition.upstream_targets[0].upstream_apis[1].capabilities
     {
-        capabilities.function_tools = capabilities.function_tools.map(|mut profile| {
-            profile.parallel_calls = true;
-            profile
+        capabilities.streaming = true;
+        capabilities.function_tools = Some(FunctionToolCapabilities {
+            choice_modes: ALL_TOOL_CHOICE_MODES,
+            parallel_calls: true,
+            strict_schema: false,
         });
         capabilities.reasoning_output = reasoning_output;
         capabilities.terminal_usage = responses_terminal_usage;
