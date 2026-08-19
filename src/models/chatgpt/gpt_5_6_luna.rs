@@ -20,7 +20,11 @@ pub(crate) fn config() -> ModelConfig {
         tokenizer: Some("GPT".to_owned()),
         knowledge_cutoff: Some("2026-02-16".to_owned()),
         task: CanonicalModelTask::Generation(GenerationModelProfile {
-            context_length: ModelContextLength::new(Some(1_000_000), Some(1_000_000), Some(128_000)),
+            context_length: ModelContextLength::new(
+                Some(1_000_000),
+                Some(1_000_000),
+                Some(128_000),
+            ),
             input_modalities: Some(vec![
                 InputModality::Text,
                 InputModality::Image,
