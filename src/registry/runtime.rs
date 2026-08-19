@@ -17,7 +17,7 @@ use crate::{
 use super::{
     CanonicalModelTask, CanonicalTaskKind, IgnorableGenerationParameter, InputModality,
     ModelContextLength, OutputModality, PublicModel, ReasoningLevel, ReasoningSupport, RouteMode,
-    UpstreamApiCapabilities,
+    UpstreamApiCapabilities, UpstreamApiKey,
 };
 
 /// Model metadata read by the request path after startup.
@@ -277,12 +277,13 @@ pub struct UpstreamTarget {
     pub(super) provider_instance: Arc<ProviderInstance>,
     pub(super) credential_pool: String,
     pub(super) canonical_model_id: String,
+    pub(super) canonical_task: CanonicalTaskKind,
     pub(super) provider_model_id: String,
     pub(super) quota_scope: Option<String>,
     pub(super) fault_domain: Option<String>,
     pub(super) request_timeout: Duration,
     pub(super) enabled: bool,
-    pub(super) upstream_apis: BTreeMap<OperationKind, UpstreamApi>,
+    pub(super) upstream_apis: BTreeMap<UpstreamApiKey, UpstreamApi>,
 }
 
 impl UpstreamTarget {
@@ -346,22 +347,28 @@ impl UpstreamTarget {
         self.enabled
     }
 
-    /// Looks up a resolved API by its typed operation.
-    pub fn upstream_api(&self, operation: OperationKind) -> Option<&UpstreamApi> {
-        self.upstream_apis.get(&operation)
+    /// Returns the canonical task selected by every API on this target.
+    pub fn canonical_task(&self) -> CanonicalTaskKind {
+        self.canonical_task
     }
 
-    /// Enumerates all typed Upstream API operations under the target.
-    pub fn upstream_apis(&self) -> impl Iterator<Item = (OperationKind, &UpstreamApi)> {
+    /// Looks up a resolved API by its typed operation/task key.
+    pub fn upstream_api(&self, key: UpstreamApiKey) -> Option<&UpstreamApi> {
+        self.upstream_apis.get(&key)
+    }
+
+    /// Enumerates all typed Upstream API keys under the target.
+    pub fn upstream_apis(&self) -> impl Iterator<Item = (UpstreamApiKey, &UpstreamApi)> {
         self.upstream_apis
             .iter()
-            .map(|(operation, upstream_api)| (*operation, upstream_api))
+            .map(|(key, upstream_api)| (*key, upstream_api))
     }
 }
 
 /// Upstream API with model rules resolved and applied.
 #[derive(Debug)]
 pub struct UpstreamApi {
+    pub(super) key: UpstreamApiKey,
     pub(super) model: ModelInfo,
     pub(super) upstream_model: String,
     pub(super) capabilities: UpstreamApiCapabilities,
@@ -373,12 +380,22 @@ pub struct UpstreamApi {
 impl UpstreamApi {
     /// Returns the Upstream API's native operation.
     pub fn operation(&self) -> OperationKind {
-        self.capabilities.operation()
+        self.key.operation()
+    }
+
+    /// Returns the canonical task selected for this API.
+    pub fn task(&self) -> CanonicalTaskKind {
+        self.key.task()
+    }
+
+    /// Returns the complete typed operation/task identity.
+    pub fn key(&self) -> UpstreamApiKey {
+        self.key
     }
 
     /// Returns the generation protocol when this API can participate in the Protocol Bridge.
     pub fn api_protocol(&self) -> Option<ApiProtocol> {
-        self.capabilities.api_protocol()
+        self.operation().api_protocol()
     }
 
     /// Returns model metadata after applying rules.

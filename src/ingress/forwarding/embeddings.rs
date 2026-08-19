@@ -18,6 +18,7 @@ use crate::{
     },
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
+    registry::UpstreamApiKey,
 };
 
 use super::super::{
@@ -76,7 +77,10 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
         return configuration_error(&observation, "Configured upstream target is unavailable");
     };
-    let Some(upstream_api) = target.upstream_api(candidate.upstream_operation()) else {
+    let Some(upstream_api) = target.upstream_api(UpstreamApiKey::new(
+        candidate.upstream_operation(),
+        target.canonical_task(),
+    )) else {
         return configuration_error(
             &observation,
             "Configured native upstream API is unavailable",

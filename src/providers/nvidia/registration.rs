@@ -6,8 +6,8 @@ use crate::{
     models::{minimax, nvidia},
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig,
+        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
@@ -50,6 +50,10 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::ChatCompletions,
+                CanonicalTaskKind::Generation,
+            ),
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::ChatCompletions(
@@ -78,6 +82,10 @@ fn embedding_target() -> UpstreamTargetConfig {
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::EmbeddingsCreate,
+                CanonicalTaskKind::Embedding,
+            ),
             upstream_model: "nvidia/nemotron-3-embed-1b".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(

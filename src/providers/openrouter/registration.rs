@@ -10,8 +10,8 @@ use crate::{
     models::{deepseek, google, minimax},
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig,
+        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
@@ -110,12 +110,20 @@ fn dual_protocol_target(
         enabled: true,
         upstream_apis: vec![
             UpstreamApiConfig {
+                key: UpstreamApiKey::new(
+                    crate::core::OperationKind::ChatCompletions,
+                    CanonicalTaskKind::Generation,
+                ),
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
                 capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             },
             UpstreamApiConfig {
+                key: UpstreamApiKey::new(
+                    crate::core::OperationKind::Responses,
+                    CanonicalTaskKind::Generation,
+                ),
                 upstream_model: upstream_model.to_owned(),
                 model_rules: UpstreamApiModelRules::default(),
                 capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),

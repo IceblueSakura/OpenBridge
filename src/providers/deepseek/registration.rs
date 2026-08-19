@@ -7,8 +7,9 @@ use crate::{
     models::deepseek,
     provider::ProviderKind,
     registry::{
-        IgnorableGenerationParameter, ProviderInstanceConfig, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
+        CanonicalTaskKind, IgnorableGenerationParameter, ProviderInstanceConfig,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
@@ -75,6 +76,10 @@ fn target(
 
     // Build the confirmed Native Chat API and drop fields absent from DeepSeek's direct contract.
     let mut upstream_apis = vec![UpstreamApiConfig {
+        key: UpstreamApiKey::new(
+            crate::core::OperationKind::ChatCompletions,
+            CanonicalTaskKind::Generation,
+        ),
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules {
             disabled_parameters: unsupported_parameters
@@ -98,6 +103,10 @@ fn target(
             ResponsesAffinity::Unbound,
         ));
     upstream_apis.push(UpstreamApiConfig {
+        key: UpstreamApiKey::new(
+            crate::core::OperationKind::Responses,
+            CanonicalTaskKind::Generation,
+        ),
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules {
             disabled_parameters: unsupported_parameters

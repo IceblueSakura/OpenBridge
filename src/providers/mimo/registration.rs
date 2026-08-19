@@ -10,7 +10,9 @@ use crate::{
     models::xiaomi,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamTargetConfig},
+    registry::{
+        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamTargetConfig,
+    },
 };
 
 use super::{
@@ -31,6 +33,26 @@ enum MimoTargetProfile {
     MultimodalUnderstanding,
     /// One Chat-only audio task.
     Audio(ExecutableAudioProfile),
+}
+
+impl MimoTargetProfile {
+    /// Returns the canonical task selected by this closed target profile.
+    const fn task(self) -> CanonicalTaskKind {
+        match self {
+            Self::TextOnly | Self::MultimodalUnderstanding => CanonicalTaskKind::Generation,
+            Self::Audio(ExecutableAudioProfile::AudioUnderstanding(_)) => {
+                CanonicalTaskKind::Generation
+            }
+            Self::Audio(ExecutableAudioProfile::SpeechRecognition(_)) => {
+                CanonicalTaskKind::SpeechRecognition
+            }
+            Self::Audio(ExecutableAudioProfile::SpeechSynthesis(_)) => {
+                CanonicalTaskKind::SpeechSynthesis
+            }
+            Self::Audio(ExecutableAudioProfile::VoiceDesign(_)) => CanonicalTaskKind::VoiceDesign,
+            Self::Audio(ExecutableAudioProfile::VoiceClone(_)) => CanonicalTaskKind::VoiceClone,
+        }
+    }
 }
 
 /// Builds the trusted MiMo API deployment used by the checked-in targets.
@@ -149,8 +171,12 @@ fn target(
     };
 
     // Build only the operations selected by the typed target profile.
-    let mut upstream_apis =
-        native_upstream_apis(upstream_model, chat_capabilities, responses_capabilities);
+    let mut upstream_apis = native_upstream_apis(
+        upstream_model,
+        profile.task(),
+        chat_capabilities,
+        responses_capabilities,
+    );
     match profile {
         MimoTargetProfile::TextOnly | MimoTargetProfile::MultimodalUnderstanding => {
             // Current MiMo Responses rejects top_logprobs even though the Chat API accepts it.

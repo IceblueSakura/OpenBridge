@@ -6,7 +6,7 @@ use crate::{
     core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport},
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{ProviderInstanceConfig, UpstreamTargetConfig},
+    registry::{CanonicalTaskKind, ProviderInstanceConfig, UpstreamTargetConfig},
 };
 
 use super::DEFINITION;
@@ -51,6 +51,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         enabled: true,
         upstream_apis: native_upstream_apis(
             "LongCat-2.0",
+            CanonicalTaskKind::Generation,
             chat_capabilities,
             Some(responses_capabilities),
         ),

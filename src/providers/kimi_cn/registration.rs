@@ -6,8 +6,9 @@ use crate::{
     models::moonshotai,
     provider::ProviderKind,
     registry::{
-        IgnorableGenerationParameter, ProviderInstanceConfig, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
+        CanonicalTaskKind, IgnorableGenerationParameter, ProviderInstanceConfig,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
@@ -47,6 +48,10 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::ChatCompletions,
+                CanonicalTaskKind::Generation,
+            ),
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules {
                 disabled_parameters: vec![

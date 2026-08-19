@@ -10,8 +10,8 @@ use crate::{
     models::{deepseek, qwen, z_ai},
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig,
+        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
@@ -113,6 +113,10 @@ fn embedding_target() -> UpstreamTargetConfig {
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::EmbeddingsCreate,
+                CanonicalTaskKind::Embedding,
+            ),
             upstream_model: "qwen3.7-text-embedding".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(
@@ -163,6 +167,10 @@ fn chat_target(
     };
     // Bind Chat for every target and Responses only for the documented stable Qwen models.
     let mut upstream_apis = vec![UpstreamApiConfig {
+        key: UpstreamApiKey::new(
+            crate::core::OperationKind::ChatCompletions,
+            CanonicalTaskKind::Generation,
+        ),
         upstream_model: upstream_model.to_owned(),
         model_rules: UpstreamApiModelRules::default(),
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
@@ -196,6 +204,10 @@ fn chat_target(
             None
         };
         upstream_apis.push(UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::Responses,
+                CanonicalTaskKind::Generation,
+            ),
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),

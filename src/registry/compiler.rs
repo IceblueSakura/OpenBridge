@@ -16,7 +16,7 @@ use crate::{config::BootstrapConfig, core::ExecutableAudioProfile};
 use super::{
     CanonicalTaskKind, CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryConfig,
     RegistryError, RegistryVersion, Route, RouteMode, RuntimeRegistry, UpstreamApi,
-    UpstreamApiCapabilities, UpstreamTarget,
+    UpstreamApiCapabilities, UpstreamApiKey, UpstreamTarget,
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
         apply_model_rules, normalize_endpoint_base, validate_model_config,
@@ -237,7 +237,16 @@ fn build_registry_internal(
 
         let mut upstream_apis = BTreeMap::new();
         for upstream_api in target.upstream_apis {
-            let upstream_operation = upstream_api.capabilities.operation();
+            let upstream_key = upstream_api.key;
+            let upstream_operation = upstream_key.operation();
+
+            // Establish one authoritative operation/task identity before any operation-specific validation.
+            validate_upstream_api_identity(
+                &target.id,
+                &model,
+                upstream_key,
+                upstream_api.capabilities,
+            )?;
 
             // Validate streaming-only declarations before they can affect public contracts or request planning.
             let generation_streaming = upstream_api
@@ -293,8 +302,13 @@ fn build_registry_internal(
                 });
             }
 
-            // Reject operation/task/profile mismatches only after Provider ceiling validation.
-            validate_upstream_api_model_task(&target.id, &model, upstream_api.capabilities)?;
+            // Validate task-specific profile details after Provider ceiling containment.
+            validate_upstream_api_model_task(
+                &target.id,
+                &model,
+                upstream_key,
+                upstream_api.capabilities,
+            )?;
 
             // Build the model-rule validation context from the target/operation identity; this string is not a credential key.
             let api_key = format!("{}/{upstream_operation}", target.id);
@@ -350,6 +364,7 @@ fn build_registry_internal(
 
             // Assemble the validated model, capability, and state-affinity facts into the runtime API.
             let resolved = UpstreamApi {
+                key: upstream_key,
                 model: effective_model,
                 upstream_model: upstream_api.upstream_model,
                 capabilities: upstream_api.capabilities,
@@ -358,8 +373,8 @@ fn build_registry_internal(
                 ignored_parameters,
             };
 
-            // Build a unique typed operation index within the target.
-            if upstream_apis.insert(upstream_operation, resolved).is_some() {
+            // Build a unique typed operation/task index within the target.
+            if upstream_apis.insert(upstream_key, resolved).is_some() {
                 return Err(RegistryError::DuplicateUpstreamOperation {
                     upstream_target: target.id,
                     upstream_operation,
@@ -373,6 +388,7 @@ fn build_registry_internal(
             provider_instance,
             credential_pool: target.credential_pool,
             canonical_model_id: target.canonical_model,
+            canonical_task: model.task_kind(),
             provider_model_id: target.provider_model,
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
@@ -406,7 +422,10 @@ fn build_registry_internal(
                 reference: route.upstream_target.clone(),
             })?;
         let upstream_api = target
-            .upstream_api(route.upstream_operation)
+            .upstream_api(UpstreamApiKey::new(
+                route.upstream_operation,
+                target.canonical_task(),
+            ))
             .ok_or_else(|| RegistryError::UnknownReference {
                 entity: "route",
                 id: route.id.clone(),
@@ -493,19 +512,21 @@ fn build_registry_internal(
                 })?;
 
             // Resolve the Upstream API within that target to provide complete upstream facts for the Public Model capability intersection.
-            let upstream_api =
-                target
-                    .upstream_api(route.upstream_operation())
-                    .ok_or_else(|| RegistryError::UnknownReference {
-                        entity: "public model",
-                        id: public_model.id.clone(),
-                        target: "upstream operation",
-                        reference: format!(
-                            "{}/{}",
-                            route.upstream_target(),
-                            route.upstream_operation()
-                        ),
-                    })?;
+            let upstream_api = target
+                .upstream_api(UpstreamApiKey::new(
+                    route.upstream_operation(),
+                    target.canonical_task(),
+                ))
+                .ok_or_else(|| RegistryError::UnknownReference {
+                    entity: "public model",
+                    id: public_model.id.clone(),
+                    target: "upstream operation",
+                    reference: format!(
+                        "{}/{}",
+                        route.upstream_target(),
+                        route.upstream_operation()
+                    ),
+                })?;
 
             // Keep the initial Embeddings execution interface to one statically selectable Native candidate.
             if target.enabled()
@@ -573,13 +594,14 @@ fn build_registry_internal(
 fn validate_upstream_api_model_task(
     upstream_target: &str,
     model: &ModelInfo,
+    key: UpstreamApiKey,
     capabilities: UpstreamApiCapabilities,
 ) -> Result<(), RegistryError> {
     let compatible = match capabilities {
-        UpstreamApiCapabilities::Embeddings(_) => model.task_kind() == CanonicalTaskKind::Embedding,
-        UpstreamApiCapabilities::Responses(_) => model.task_kind() == CanonicalTaskKind::Generation,
+        UpstreamApiCapabilities::Embeddings(_) => key.task() == CanonicalTaskKind::Embedding,
+        UpstreamApiCapabilities::Responses(_) => key.task() == CanonicalTaskKind::Generation,
         UpstreamApiCapabilities::ChatCompletions(capabilities) => {
-            match (model.task_kind(), capabilities.audio) {
+            match (key.task(), capabilities.audio) {
                 (CanonicalTaskKind::Generation, None) => true,
                 (
                     CanonicalTaskKind::Generation,
@@ -613,7 +635,25 @@ fn validate_upstream_api_model_task(
     }
     Err(RegistryError::UpstreamApiModelTaskMismatch {
         upstream_target: upstream_target.to_owned(),
-        upstream_operation: capabilities.operation(),
+        upstream_operation: key.operation(),
         canonical_model: model.id().to_owned(),
+    })
+}
+
+/// Validates the explicit API key before its operation-specific payload is interpreted.
+fn validate_upstream_api_identity(
+    upstream_target: &str,
+    model: &ModelInfo,
+    key: UpstreamApiKey,
+    capabilities: UpstreamApiCapabilities,
+) -> Result<(), RegistryError> {
+    if key.operation() == capabilities.operation() && key.task() == model.task_kind() {
+        return Ok(());
+    }
+    Err(RegistryError::UpstreamApiIdentityMismatch {
+        upstream_target: upstream_target.to_owned(),
+        key,
+        profile_operation: capabilities.operation(),
+        canonical_task: model.task_kind(),
     })
 }

@@ -373,6 +373,30 @@ pub enum CanonicalTaskKind {
     VoiceClone,
 }
 
+/// Typed identity of one model-bound Upstream API.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct UpstreamApiKey {
+    operation: OperationKind,
+    task: CanonicalTaskKind,
+}
+
+impl UpstreamApiKey {
+    /// Binds one closed operation to the canonical task selected by its Target.
+    pub const fn new(operation: OperationKind, task: CanonicalTaskKind) -> Self {
+        Self { operation, task }
+    }
+
+    /// Returns the callable operation.
+    pub const fn operation(self) -> OperationKind {
+        self.operation
+    }
+
+    /// Returns the selected canonical task.
+    pub const fn task(self) -> CanonicalTaskKind {
+        self.task
+    }
+}
+
 /// Canonical facts owned only by a general generation task.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationModelProfile {
@@ -751,6 +775,8 @@ impl UpstreamStreamingPolicy {
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Native Upstream API exposed by a target.
 pub struct UpstreamApiConfig {
+    /// Typed operation/task identity selected for this concrete API.
+    pub key: UpstreamApiKey,
     /// Actual model ID sent upstream.
     pub upstream_model: String,
     /// Upstream API-level narrowing rules for Model facts.

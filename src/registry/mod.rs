@@ -20,8 +20,9 @@ pub use definition::{
     OutputModality, ProviderInstanceConfig, PublicModelConfig, ReasoningLevel,
     ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
     ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, SpeechRecognitionModelProfile,
-    SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-    UpstreamStreamingPolicy, UpstreamTargetConfig, VoiceCloneModelProfile, VoiceDesignModelProfile,
+    SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
+    UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig, VoiceCloneModelProfile,
+    VoiceDesignModelProfile,
 };
 pub use error::RegistryError;
 pub(crate) use public_model::ModelExecutionInterface;

@@ -4,6 +4,8 @@ use thiserror::Error;
 
 use crate::core::OperationKind;
 
+use super::{CanonicalTaskKind, UpstreamApiKey};
+
 /// Error returned when a compile-time registry definition is incomplete, inconsistent, or attempts to exceed its authority.
 #[derive(Debug, Error)]
 pub enum RegistryError {
@@ -130,6 +132,20 @@ pub enum RegistryError {
         upstream_operation: OperationKind,
         /// Canonical Model ID whose task does not match the operation profile.
         canonical_model: String,
+    },
+    /// The explicit API key conflicts with its capability profile or canonical Model task.
+    #[error(
+        "upstream API key '{key:?}' on target '{upstream_target}' conflicts with profile operation '{profile_operation}' or canonical task '{canonical_task:?}'"
+    )]
+    UpstreamApiIdentityMismatch {
+        /// Owning target ID.
+        upstream_target: String,
+        /// Explicit operation/task key declared by the API.
+        key: UpstreamApiKey,
+        /// Operation encoded by the executable capability profile.
+        profile_operation: OperationKind,
+        /// Task owned by the canonical Model.
+        canonical_task: CanonicalTaskKind,
     },
     /// A required canonical-model string is blank.
     #[error("model '{model}' field '{field}' must not be blank")]

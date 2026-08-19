@@ -10,9 +10,9 @@ use crate::{
     models::chatgpt,
     provider::ProviderKind,
     registry::{
-        IgnorableGenerationParameter, NonStreamingConversion, ProviderInstanceConfig,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamStreamingPolicy,
-        UpstreamTargetConfig,
+        CanonicalTaskKind, IgnorableGenerationParameter, NonStreamingConversion,
+        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
+        UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig,
     },
 };
 
@@ -99,6 +99,10 @@ fn upstream_target(
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::Responses,
+                CanonicalTaskKind::Generation,
+            ),
             upstream_model: upstream_model.to_owned(),
             model_rules: UpstreamApiModelRules {
                 disabled_parameters,

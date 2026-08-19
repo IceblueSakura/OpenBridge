@@ -30,10 +30,10 @@ use openbridge::{
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::{PreparedUpstreamRequest, ProviderKind},
     registry::{
-        CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig, ModelLifecycle,
-        PublicModelConfig, RegistryConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig,
-        build_registry,
+        CanonicalModelTask, CanonicalTaskKind, EmbeddingModelProfile, InputModality, ModelConfig,
+        ModelLifecycle, PublicModelConfig, RegistryConfig, RouteConfig, RouteMode,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
+        UpstreamTarget, UpstreamTargetConfig, build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -453,6 +453,10 @@ fn embedding_registry_definition() -> RegistryConfig {
         request_timeout: Duration::from_secs(30),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                OperationKind::EmbeddingsCreate,
+                CanonicalTaskKind::Embedding,
+            ),
             upstream_model: "embedding-upstream".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(embedding_capabilities()),

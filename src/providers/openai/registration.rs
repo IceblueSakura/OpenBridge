@@ -11,8 +11,8 @@ use crate::{
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
     registry::{
-        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig,
+        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
@@ -109,6 +109,7 @@ fn generation_target(
         enabled: true,
         upstream_apis: native_upstream_apis(
             upstream_model,
+            CanonicalTaskKind::Generation,
             chat_capabilities,
             Some(responses_capabilities),
         ),
@@ -128,6 +129,10 @@ fn embedding_target() -> UpstreamTargetConfig {
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::EmbeddingsCreate,
+                CanonicalTaskKind::Embedding,
+            ),
             upstream_model: "text-embedding-3-small".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),

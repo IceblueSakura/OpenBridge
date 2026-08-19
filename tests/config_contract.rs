@@ -10,10 +10,10 @@ use openbridge::{
     provider::{CredentialKind, ProviderKind},
     providers::build_compiled_registry_with_active_pools,
     registry::{
-        IgnorableGenerationParameter, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
-        NonStreamingConversion, PublicModelConfig, ReasoningLevel, ReasoningLevelMapping,
-        ReasoningProfile, ReasoningSupport, RegistryError, UpstreamApiCapabilities,
-        UpstreamStreamingPolicy, build_registry,
+        CanonicalTaskKind, IgnorableGenerationParameter, ModelContextLength, ModelLifecycle,
+        ModelLifecycleStatus, NonStreamingConversion, PublicModelConfig, ReasoningLevel,
+        ReasoningLevelMapping, ReasoningProfile, ReasoningSupport, RegistryError,
+        UpstreamApiCapabilities, UpstreamApiKey, UpstreamStreamingPolicy, build_registry,
     },
 };
 
@@ -48,6 +48,16 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
             .is_some()
     );
     assert_eq!(target.endpoint_base().scheme(), "https");
+    assert_eq!(
+        target
+            .upstream_api(UpstreamApiKey::new(
+                OperationKind::ChatCompletions,
+                CanonicalTaskKind::Generation,
+            ))
+            .expect("fixture Chat API must resolve by its typed key")
+            .task(),
+        CanonicalTaskKind::Generation
+    );
 }
 
 #[test]
@@ -107,8 +117,10 @@ fn bootstrap_http_logging_switches_fallback_off_and_enable_independently() {
 }
 
 #[test]
-fn registry_rejects_duplicate_upstream_operations() {
+fn registry_rejects_duplicate_upstream_api_keys() {
     let mut duplicate = definition("test", "code-primary", "test-model");
+    duplicate.upstream_targets[0].upstream_apis[1].key =
+        duplicate.upstream_targets[0].upstream_apis[0].key;
     duplicate.upstream_targets[0].upstream_apis[1].capabilities =
         duplicate.upstream_targets[0].upstream_apis[0].capabilities;
 
@@ -121,6 +133,28 @@ fn registry_rejects_duplicate_upstream_operations() {
             upstream_operation: OperationKind::ChatCompletions,
         } if upstream_target == "openai-main"
     ));
+}
+
+#[test]
+fn registry_rejects_explicit_upstream_api_identity_mismatches() {
+    for key in [
+        UpstreamApiKey::new(OperationKind::ChatCompletions, CanonicalTaskKind::Embedding),
+        UpstreamApiKey::new(OperationKind::Responses, CanonicalTaskKind::Generation),
+    ] {
+        let mut mismatch = definition("test", "code-primary", "test-model");
+        mismatch.upstream_targets[0].upstream_apis[0].key = key;
+
+        let error = build_registry(bootstrap(BOOTSTRAP), mismatch).unwrap_err();
+
+        assert!(matches!(
+            error,
+            RegistryError::UpstreamApiIdentityMismatch {
+                upstream_target,
+                key: actual,
+                ..
+            } if upstream_target == "openai-main" && actual == key
+        ));
+    }
 }
 
 #[test]
@@ -488,7 +522,10 @@ fn upstream_api_rules_only_reduce_model_info() {
     let effective = registry
         .upstream_target("openai-main")
         .unwrap()
-        .upstream_api(OperationKind::ChatCompletions)
+        .upstream_api(UpstreamApiKey::new(
+            OperationKind::ChatCompletions,
+            CanonicalTaskKind::Generation,
+        ))
         .unwrap()
         .model();
 
@@ -512,7 +549,10 @@ fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
     let api = registry
         .upstream_target("openai-main")
         .unwrap()
-        .upstream_api(OperationKind::ChatCompletions)
+        .upstream_api(UpstreamApiKey::new(
+            OperationKind::ChatCompletions,
+            CanonicalTaskKind::Generation,
+        ))
         .unwrap();
     assert_eq!(api.model().supported_parameters(), ["seed", "temperature"]);
     assert!(api.ignores_generation_parameter(IgnorableGenerationParameter::Temperature));

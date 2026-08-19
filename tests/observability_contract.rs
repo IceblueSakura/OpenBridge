@@ -25,9 +25,10 @@ use openbridge::{
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
     registry::{
-        CanonicalModelTask, EmbeddingModelProfile, InputModality, ModelConfig, ModelLifecycle,
-        PublicModelConfig, RouteConfig, RouteMode, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig, build_registry,
+        CanonicalModelTask, CanonicalTaskKind, EmbeddingModelProfile, InputModality, ModelConfig,
+        ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules, UpstreamTarget,
+        UpstreamTargetConfig, build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -490,6 +491,10 @@ fn embedding_observability_app(
         request_timeout: Duration::from_secs(30),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                OperationKind::EmbeddingsCreate,
+                CanonicalTaskKind::Embedding,
+            ),
             upstream_model: "embedding-observed-upstream".to_owned(),
             model_rules: UpstreamApiModelRules::default(),
             capabilities: UpstreamApiCapabilities::Embeddings(EmbeddingsCapabilities {

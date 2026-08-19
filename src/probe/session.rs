@@ -16,7 +16,7 @@ use crate::{
     oauth2_credentials::OAuth2CredentialManager,
     pipeline::normalize_probe_generation_request,
     provider::{PreparedUpstreamRequest, ProviderAdapter, ProviderKind, StreamEventStatus},
-    registry::{CanonicalTaskKind, RuntimeRegistry, UpstreamApi, UpstreamTarget},
+    registry::{CanonicalTaskKind, RuntimeRegistry, UpstreamApi, UpstreamApiKey, UpstreamTarget},
     transport::{
         sse::SseDecoder,
         upstream::{UpstreamResponse, UpstreamTransport},
@@ -242,7 +242,10 @@ impl ProbeSession<'_> {
     /// Executes the target protocol's fixed minimum text request.
     async fn probe_text(&self, protocol: ApiProtocol) -> ProbeResult {
         // Resolve the target API and select the wire mode required by the fixed Provider profile.
-        let Some(upstream_api) = self.target.upstream_api(protocol.operation()) else {
+        let Some(upstream_api) = self.target.upstream_api(UpstreamApiKey::new(
+            protocol.operation(),
+            self.target.canonical_task(),
+        )) else {
             return ProbeResult {
                 state: SupportStatus::Unsupported,
                 http_status: None,
@@ -277,7 +280,10 @@ impl ProbeSession<'_> {
     /// Executes one fixed single-text Embeddings Create request.
     async fn probe_embeddings(&self) -> ProbeResult {
         // Resolve the registered Embeddings API and build its fixed request body.
-        let Some(upstream_api) = self.target.upstream_api(OperationKind::EmbeddingsCreate) else {
+        let Some(upstream_api) = self.target.upstream_api(UpstreamApiKey::new(
+            OperationKind::EmbeddingsCreate,
+            self.target.canonical_task(),
+        )) else {
             return ProbeResult {
                 state: SupportStatus::Unsupported,
                 http_status: None,
@@ -403,7 +409,10 @@ impl ProbeSession<'_> {
         // Resolve the already validated Upstream API registration before normalizing its task envelope.
         let upstream_api = self
             .target
-            .upstream_api(protocol.operation())
+            .upstream_api(UpstreamApiKey::new(
+                protocol.operation(),
+                self.target.canonical_task(),
+            ))
             .expect("probe protocol has a configured upstream API");
         if upstream_api.model().task_kind() == CanonicalTaskKind::Generation {
             let default_instructions = self

@@ -15,11 +15,11 @@ use openbridge::{
     pipeline::{RequestPlanningError, RoutePlan, analyze_request, plan_request},
     provider::{CredentialKind, ProviderKind},
     registry::{
-        CanonicalModelTask, CredentialPoolConfig, GenerationModelProfile, ModelConfig,
-        ModelContextLength, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
+        CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, GenerationModelProfile,
+        ModelConfig, ModelContextLength, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
         ReasoningProfile, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
-        build_registry,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
+        UpstreamTargetConfig, build_registry,
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
@@ -238,6 +238,10 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             enabled: true,
             upstream_apis: vec![
                 UpstreamApiConfig {
+                    key: UpstreamApiKey::new(
+                        openbridge::core::OperationKind::ChatCompletions,
+                        CanonicalTaskKind::Generation,
+                    ),
                     upstream_model: upstream_model.to_owned(),
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::ChatCompletions(
@@ -249,6 +253,10 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
                 },
                 UpstreamApiConfig {
+                    key: UpstreamApiKey::new(
+                        openbridge::core::OperationKind::Responses,
+                        CanonicalTaskKind::Generation,
+                    ),
                     upstream_model: upstream_model.to_owned(),
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::Responses(
