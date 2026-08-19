@@ -32,6 +32,7 @@ pub(crate) fn config() -> ModelConfig {
                 "include_reasoning",
                 "logit_bias",
                 "logprobs",
+                "max_output_tokens",
                 "max_tokens",
                 "min_p",
                 "presence_penalty",
@@ -47,6 +48,7 @@ pub(crate) fn config() -> ModelConfig {
                 "top_k",
                 "top_logprobs",
                 "top_p",
+                "user",
             ]
             .into_iter()
             .map(str::to_owned)

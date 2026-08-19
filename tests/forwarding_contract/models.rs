@@ -176,6 +176,61 @@ async fn longcat_models_contract_uses_the_confirmed_context_window() {
 }
 
 #[tokio::test]
+async fn deepseek_models_contract_matches_confirmed_direct_parameter_boundaries() {
+    let app = app_with_compiled_registry(Arc::new(RecordingTransport::default()));
+    let expected_chat = serde_json::json!([
+        "frequency_penalty",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "stream",
+        "stream_options",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+    ]);
+    let expected_responses = serde_json::json!([
+        "frequency_penalty",
+        "max_output_tokens",
+        "presence_penalty",
+        "reasoning",
+        "stream",
+        "structured_outputs",
+        "temperature",
+        "text",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p",
+        "user"
+    ]);
+
+    for model_id in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model_id}")).await;
+        assert_eq!(
+            model["interfaces"]["chat_completions"]["supported_parameters"], expected_chat,
+            "{model_id} Chat"
+        );
+        assert_eq!(
+            model["interfaces"]["responses"]["supported_parameters"], expected_responses,
+            "{model_id} Responses"
+        );
+        assert_eq!(
+            model["interfaces"]["responses"]["response_includes"],
+            serde_json::json!([]),
+            "{model_id} Responses include"
+        );
+    }
+}
+
+#[tokio::test]
 async fn extended_models_filter_by_executable_native_generation_protocol() {
     // Give each Public Model one Native protocol and one opposite-direction Bridge surface.
     let mut definition = support::definition("native-filter-test", "template", "upstream-model");

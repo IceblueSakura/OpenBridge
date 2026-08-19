@@ -319,8 +319,8 @@ async fn deepseek_v4_flash_responses_native_preserves_typed_reasoning_stream() {
 }
 
 #[tokio::test]
-async fn deepseek_json_object_is_preserved_by_native_and_bridge_egress() {
-    // Exercise both public models across their Native and Responses-via-Chat request shapes.
+async fn deepseek_json_object_is_preserved_by_native_egress() {
+    // Exercise both public models across their Native Chat and Responses request shapes.
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());
     let cases = [
@@ -379,23 +379,25 @@ async fn deepseek_json_object_is_preserved_by_native_and_bridge_egress() {
         let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     }
 
-    // Verify V4 Pro's Bridge maps Responses text.format to Chat response_format while Flash stays Native.
+    // Verify both V4 models keep Chat response_format and send Responses text.format to Native egress.
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 4);
     assert_eq!(requests[0].path, "/chat/completions");
-    assert_eq!(requests[1].path, "/chat/completions");
+    assert_eq!(requests[1].path, "/responses");
     assert_eq!(requests[2].path, "/chat/completions");
     assert_eq!(requests[3].path, "/responses");
-    for request in &requests[..3] {
+    for request in [&requests[0], &requests[2]] {
         assert_eq!(
             request.body["response_format"],
             serde_json::json!({"type": "json_object"})
         );
     }
-    assert_eq!(
-        requests[3].body["text"]["format"],
-        serde_json::json!({"type": "json_object"})
-    );
+    for request in [&requests[1], &requests[3]] {
+        assert_eq!(
+            request.body["text"]["format"],
+            serde_json::json!({"type": "json_object"})
+        );
+    }
 }
 
 #[tokio::test]

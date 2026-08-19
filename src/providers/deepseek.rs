@@ -1,7 +1,6 @@
 //! Compile-time entry point for the DeepSeek Provider.
 //!
-//! Registers Chat Native surfaces for DeepSeek V4 Pro and Flash plus the confirmed Responses Native
-//! surface for Flash.
+//! Registers confirmed Chat and Responses Native surfaces for DeepSeek V4 Pro and Flash.
 
 mod definition;
 mod registration;

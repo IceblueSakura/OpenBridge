@@ -222,7 +222,7 @@ fn app_with_protocol_capabilities(
             profile
         });
         capabilities.reasoning_output = reasoning_output;
-        capabilities.prompt_cache_key = use_deepseek_chat;
+        capabilities.prompt_cache_key = false;
     }
     if !use_deepseek_chat
         && let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
@@ -303,7 +303,7 @@ fn assert_stream_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]
 }
 
 #[tokio::test]
-async fn responses_bridge_forwards_prompt_cache_key_and_removes_empty_include() {
+async fn deepseek_responses_bridge_rejects_prompt_cache_key_without_egress() {
     let transport = Arc::new(ExpectedTransport {
         expected_path: "/chat/completions",
         upstream_body: fixture(
@@ -313,7 +313,7 @@ async fn responses_bridge_forwards_prompt_cache_key_and_removes_empty_include() 
         requests: Mutex::new(Vec::new()),
     });
 
-    // Send the exact request option through the probed DeepSeek Chat-backed Responses Route.
+    // Submit an unsupported cache key through the DeepSeek Chat-backed Responses fixture.
     let response = app_with_reasoning_output(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
@@ -331,15 +331,12 @@ async fn responses_bridge_forwards_prompt_cache_key_and_removes_empty_include() 
     )
     .await
     .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
 
-    // Verify exact egress while keeping the inactive Responses projection out of the Chat body.
+    // Reject before egress rather than silently discarding an exact-forwarding option.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].0, "/chat/completions");
-    assert_eq!(requests[0].1["prompt_cache_key"], "cache-test");
-    assert!(requests[0].1.get("include").is_none());
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]

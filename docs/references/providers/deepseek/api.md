@@ -2,7 +2,7 @@
 
 ## 来源与范围
 
-本文记录 2026-08-09 时 DeepSeek 官方文档公开的 endpoint、认证与 wire 约束，不包含本地接入状态。模型目录与定价见 [models.md](models.md)。
+本文记录 2026-08-19 时 DeepSeek 官方文档公开的 endpoint、认证与 wire 约束，不包含本地接入状态。模型目录与定价见 [models.md](models.md)。
 
 - [Responses API guide](https://api-docs.deepseek.com/guides/responses_api/)
 - [JSON Output guide](https://api-docs.deepseek.com/guides/json_mode/)
@@ -23,8 +23,11 @@
 
 ### Responses 约束
 
-- 当前只有 `deepseek-v4-flash` 声明支持 Responses；`deepseek-v4-pro` 仍不支持该入口（官方页标注预计 2026 年 8 月初支持）。
-- Responses 支持文本 input/message、instructions、streaming、标准输出 token/temperature/top-p 参数、reasoning effort 与 function calling；图片与文件输入、`store`、`previous_response_id`、`conversation` 和 `background` 不受支持。
+- `deepseek-v4-flash` 与 `deepseek-v4-pro` 都被当前 Responses API Reference、兼容性指南和 2026-08-13 更新日志列为支持模型；仍称
+  Pro 不支持的 Codex 集成页是过时材料。
+- Responses 支持文本 input/message、instructions、streaming、`max_output_tokens`、temperature/top-p、reasoning、
+  `top_logprobs`、`user`、function calling 与 server-side web search；图片与文件输入、`store`、`previous_response_id`、
+  `conversation`、`background`、`include`、`prompt_cache_key`、`stop` 和 `logprobs` 不受支持或被忽略。
 - streaming 使用 typed semantic SSE events，以 `response.completed`、`response.incomplete` 或 `response.failed` 终止，不使用 Chat Completions 的 `[DONE]` sentinel。
 
 ### JSON Output
@@ -33,15 +36,16 @@
   `response_format: {"type":"json_object"}` 开启。
 - system 或 user prompt 必须明确包含 `json`，并给出期望 JSON 字段或示例；输出 token 上限应足以容纳完整 JSON。官方同时提示该
   模式仍可能偶发空内容，可通过调整 prompt 缓解。
-- V4 Flash Responses 文档将 `text.format` 标记为完全支持；OpenAI-compatible Responses 的对应请求形状为
-  `text.format: {"type":"json_object"}`。V4 Pro 当前仍不提供官方 Responses endpoint，因此只能通过其 Chat JSON Output 表达该语义。
-- 以上事实只建立 JSON object 模式，不证明 DeepSeek 官方 endpoint 支持 `json_schema` 或 strict schema。
+- V4 Responses 文档将 `text.format` 标记为完全支持；OpenAI-compatible Responses 对应 `text`、`json_object` 和
+  `json_schema`。Chat 仍只公开 `text`/`json_object` 响应格式。
 
 ### 其他协议面
 
-- V4 thinking mode 默认启用并支持模型自主产生 tool call；官方 Oh My Pi 兼容页同时要求 `supportsToolChoice: false`，明确提示 V4
-  thinking mode 会拒绝强制 `tool_choice` 参数。通用 Chat Completion schema 虽列出 `none/auto/required/named`，但不能据此推导
-  Responses 默认 thinking 路径对四档均可执行。
+- V4 thinking mode 默认启用；Chat 与 Responses schema 都列出 `none/auto/required/named` function tool choice。Responses 还支持
+  server-side web search 和 Codex `apply_patch` 特例，但不能泛化为任意 hosted/custom tool。
+- Chat 顶层 schema 包含 `max_tokens`、`stop`、`stream_options`、sampling、function tools、`logprobs`/`top_logprobs` 与
+  `user_id`。penalties 已废弃且无效，thinking 开启时 sampling 参数也无效。
+- Pro `low` 的官方资料仍冲突：2026-08-13 更新日志与 thinking guide 声称支持，Chat API Reference 仍称按 `high` 处理。
 - 官方文档还列出 web search、custom `apply_patch`、`text.format`、Chat Prefix Completion（Beta）、FIM Completion（Beta，仅非思考模式）等能力；这些目录或指南事实不能自动证明任一 consumer/gateway 已公开相同能力，被上游忽略的字段也不能记作可控能力。
 - 模型特性矩阵（JSON Output、Tool Calls、Anthropic API、Chat Prefix、FIM 的逐模型支持）见 [models.md](models.md)。
 

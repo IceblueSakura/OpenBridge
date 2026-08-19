@@ -7,22 +7,14 @@ use crate::{
     models::deepseek,
     provider::ProviderKind,
     registry::{
-        ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiModelRules,
-        UpstreamTargetConfig,
+        IgnorableGenerationParameter, ProviderInstanceConfig, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiModelRules, UpstreamTargetConfig,
     },
 };
 
 use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "deepseek";
-
-/// Native operation set exposed by one DeepSeek model target.
-enum ModelApiSurface {
-    /// Exposes only Chat Completions.
-    ChatOnly,
-    /// Exposes both Chat Completions and Responses.
-    ChatAndResponses,
-}
 
 /// Builds the trusted DeepSeek API deployment used by the checked-in targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -41,14 +33,12 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro",
             "deepseek-primary",
-            ModelApiSurface::ChatOnly,
         ),
         target(
             "deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash",
             "deepseek-primary",
-            ModelApiSurface::ChatAndResponses,
         ),
     ]
 }
@@ -59,44 +49,68 @@ fn target(
     canonical_model: &str,
     upstream_model: &str,
     credential_id: &str,
-    api_surface: ModelApiSurface,
 ) -> UpstreamTargetConfig {
     // Resolve the Chat profile required by every DeepSeek target.
-    let mut chat_capabilities = DEFINITION
+    let chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .chat_completions
         .expect("DeepSeek targets require Chat Completions capabilities")
         .to_executable(None);
-    chat_capabilities.prompt_cache_key = canonical_model == deepseek::deepseek_v4_pro::ID;
+    let mut unsupported_parameters = vec![
+        "include_reasoning",
+        "logit_bias",
+        "min_p",
+        "repetition_penalty",
+        "seed",
+        "top_k",
+    ];
+    if canonical_model == deepseek::deepseek_v4_flash::ID {
+        unsupported_parameters.push("top_a");
+    }
+    let ignored_parameters = vec![
+        IgnorableGenerationParameter::FrequencyPenalty,
+        IgnorableGenerationParameter::PresencePenalty,
+    ];
 
-    // Build the model-specific Native API set without introducing Target-bound state.
+    // Build the confirmed Native Chat API and drop fields absent from DeepSeek's direct contract.
     let mut upstream_apis = vec![UpstreamApiConfig {
         upstream_model: upstream_model.to_owned(),
-        model_rules: UpstreamApiModelRules::default(),
+        model_rules: UpstreamApiModelRules {
+            disabled_parameters: unsupported_parameters
+                .iter()
+                .chain(["user"].iter())
+                .map(|parameter| (*parameter).to_owned())
+                .collect(),
+            ignored_parameters: ignored_parameters.clone(),
+            ..UpstreamApiModelRules::default()
+        },
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
         streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
     }];
-    match api_surface {
-        ModelApiSurface::ChatOnly => {}
-        ModelApiSurface::ChatAndResponses => {
-            let responses_capabilities = DEFINITION
-                .contract()
-                .capabilities()
-                .responses
-                .expect("DeepSeek Responses targets require Responses capabilities")
-                .to_executable(ExecutableResponsesState::new(
-                    StorageSupport::Unsupported,
-                    ResponsesAffinity::Unbound,
-                ));
-            upstream_apis.push(UpstreamApiConfig {
-                upstream_model: upstream_model.to_owned(),
-                model_rules: UpstreamApiModelRules::default(),
-                capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
-                streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-            });
-        }
-    }
+    let responses_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .responses
+        .expect("DeepSeek Responses targets require Responses capabilities")
+        .to_executable(ExecutableResponsesState::new(
+            StorageSupport::Unsupported,
+            ResponsesAffinity::Unbound,
+        ));
+    upstream_apis.push(UpstreamApiConfig {
+        upstream_model: upstream_model.to_owned(),
+        model_rules: UpstreamApiModelRules {
+            disabled_parameters: unsupported_parameters
+                .iter()
+                .chain(["logprobs", "stop"].iter())
+                .map(|parameter| (*parameter).to_owned())
+                .collect(),
+            ignored_parameters,
+            ..UpstreamApiModelRules::default()
+        },
+        capabilities: UpstreamApiCapabilities::Responses(responses_capabilities),
+        streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
+    });
 
     // Bind the immutable API set to the fixed trusted DeepSeek deployment.
     UpstreamTargetConfig {

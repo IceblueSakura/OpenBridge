@@ -818,13 +818,16 @@ async fn probe_rejects_oversized_response_bodies() {
 }
 
 #[tokio::test]
-async fn probe_reports_an_unconfigured_protocol_without_egress() {
-    // Select a compiled Chat-only target while requesting only the Responses probe.
+async fn probe_uses_deepseek_v4_pro_responses_native() {
+    // Select the compiled Pro target while requesting only its registered Responses API.
     let registry = registry();
     let credentials = credentials_for_target(&registry, "deepseek-v4-pro");
-    let transport = StaticTransport::response(StatusCode::OK, b"{}".to_vec());
+    let transport = StaticTransport::response(
+        StatusCode::OK,
+        br#"{"object":"response","output":[]}"#.to_vec(),
+    );
 
-    // Verify the absent protocol is reported locally without issuing a request.
+    // Verify the probe performs direct Responses egress instead of reporting a local absence.
     let report = probe_upstream_target(
         &registry,
         "deepseek-v4-pro",
@@ -839,7 +842,7 @@ async fn probe_reports_an_unconfigured_protocol_without_egress() {
     .unwrap();
 
     let outcome = report.responses.unwrap();
-    assert_eq!(outcome.state, SupportStatus::Unsupported);
-    assert_eq!(outcome.http_status, None);
-    assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
+    assert_eq!(outcome.state, SupportStatus::Supported);
+    assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
+    assert_eq!(transport.requests.load(Ordering::Relaxed), 1);
 }

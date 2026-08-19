@@ -6,8 +6,7 @@ use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
         ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, ResponseInclude, StructuredOutputProfile,
-        ToolChoiceMode,
+        ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -18,9 +17,6 @@ use crate::{
     },
 };
 
-const RESPONSES_TOOL_CHOICE_MODES: &[ToolChoiceMode] =
-    &[ToolChoiceMode::None, ToolChoiceMode::Auto];
-const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
 const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const RESPONSES_STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
@@ -34,8 +30,8 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             stream_usage: true,
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: true,
-                strict_schema: false,
+                parallel_calls: false,
+                strict_schema: true,
             }),
             image_input: None,
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
@@ -46,7 +42,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             file_input: false,
             predicted_outputs: false,
             web_search: false,
-            prompt_cache_key: true,
+            prompt_cache_key: false,
             moderation: false,
             logprobs: false,
             multiple_choices: false,
@@ -58,9 +54,9 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             terminal_usage: true,
             function_tools: Some(FunctionToolCapabilities {
-                choice_modes: RESPONSES_TOOL_CHOICE_MODES,
-                parallel_calls: true,
-                strict_schema: false,
+                choice_modes: ALL_TOOL_CHOICE_MODES,
+                parallel_calls: false,
+                strict_schema: true,
             }),
             image_input: None,
             structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
@@ -72,9 +68,9 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             file_input: false,
             conversation: false,
             prompt_templates: false,
-            prompt_cache_key: true,
+            prompt_cache_key: false,
             context_management: false,
-            include: RESPONSES_INCLUDES,
+            include: &[],
             moderation: false,
             logprobs: false,
         },
@@ -109,6 +105,30 @@ fn transform_request_headers(
 mod tests {
     use super::*;
     use crate::core::{JsonSchemaSupport, StructuredOutputMode};
+
+    #[test]
+    fn direct_generation_contract_matches_confirmed_tool_and_request_option_boundaries() {
+        let capabilities = DEFINITION.contract().capabilities();
+        let chat = capabilities
+            .chat_completions
+            .expect("DeepSeek contract must expose Chat Completions");
+        let responses = capabilities
+            .responses
+            .expect("DeepSeek contract must expose Responses");
+
+        // Both APIs execute strict function schemas and every standard function choice mode.
+        for tools in [chat.function_tools, responses.function_tools] {
+            let tools = tools.expect("DeepSeek generation APIs must expose function tools");
+            assert_eq!(tools.choice_modes, ALL_TOOL_CHOICE_MODES);
+            assert!(tools.strict_schema);
+            assert!(!tools.parallel_calls);
+        }
+
+        // DeepSeek manages caching automatically and does not implement Responses include values.
+        assert!(!chat.prompt_cache_key);
+        assert!(!responses.prompt_cache_key);
+        assert!(responses.include.is_empty());
+    }
 
     #[test]
     fn chat_endpoint_keeps_json_object_only_structured_outputs() {

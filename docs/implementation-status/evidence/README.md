@@ -12,6 +12,7 @@
 |---|---|---|
 | 2026-08-09 | [文字 Generation `none/high` 矩阵](real-provider/2026-08-09-text-generation-none-high-matrix.md) | 16 个当时可见文字 Public Model 的 Chat/Responses × JSON/SSE |
 | 2026-08-10 | [Qwen3.6 27B `none/high` 矩阵](real-provider/2026-08-10-qwen36-none-high-matrix.md) | `qwen3.6-27b` 接入后的 Chat/Responses × JSON/SSE |
+| 2026-08-19 | [DeepSeek V4 Native 与参数组合探测](real-provider/2026-08-19-deepseek-v4-native-and-parameters.md) | Pro/Flash 直连 Chat/Responses、logprobs、strict JSON/tool 组合 |
 
 ## 维护规则
 

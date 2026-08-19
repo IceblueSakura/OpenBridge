@@ -2,15 +2,15 @@
 
 ## 来源与范围
 
-- 官方模型与定价：[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing/)（2026-08-08 抓取）。
+- 官方模型与定价：[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing/)（2026-08-19 复核）。
 - OpenRouter 目录补充：[OpenRouter 模型目录](../openrouter/models.md)（2026-08-02 采集，精确匹配）。
 - 价格单位为每 1M tokens（美元）；本文不构成计费承诺，价格随时可能调整。
 
-## 官方模型表（2026-08-08）
+## 官方模型表（2026-08-19）
 
 | 字段 | `deepseek-v4-flash` | `deepseek-v4-pro` |
 |---|---|---|
-| MODEL VERSION | DeepSeek-V4-Flash-0731 | DeepSeek-V4-Pro |
+| MODEL VERSION | DeepSeek-V4-Flash-0731 | DeepSeek-V4-Pro-0813 |
 | BASE URL (OpenAI) | `https://api.deepseek.com` | 同左 |
 | BASE URL (Anthropic) | `https://api.deepseek.com/anthropic` | 同左 |
 | THINKING MODE | 支持非思考/思考（默认思考）两种模式 | 同左 |
@@ -18,7 +18,7 @@
 | MAX OUTPUT | 最大 384K | 最大 384K |
 | JSON Output | ✓ | ✓ |
 | Tool Calls | ✓ | ✓ |
-| Responses API | ✓ | ✗（预计 2026 年 8 月初支持） |
+| Responses API | ✓ | ✓ |
 | Anthropic API | ✓ | ✓ |
 | Chat Prefix Completion（Beta） | ✓ | ✓ |
 | FIM Completion（Beta） | 仅非思考模式 | 仅非思考模式 |
@@ -36,7 +36,9 @@
 | `deepseek/deepseek-v4-pro` | 1,048,576 | 384,000 | `text` | `xhigh, high` |
 | `deepseek/deepseek-v4-flash` | 1,048,576 | 393,216 | `text` | `xhigh, high` |
 
-该表来源为 OpenRouter 目录而非 DeepSeek 官方页；两处 context 均约 1M，但官方 MAX OUTPUT 384K 与 OpenRouter 的 flash 393,216 并不相同，使用时以各自 endpoint 声明为准。
+该表来源为 OpenRouter 目录而非 DeepSeek 官方页；两处 context 均约 1M，但官方 MAX OUTPUT 384K 与 OpenRouter 的 Flash
+393,216 不同，使用时以各自 endpoint 声明为准。2026-08-19 官方资料未列出两模型的通用 Chat/Responses 参数差异；Pro
+`reasoning_effort=low` 仍存在页面冲突。
 
 ## 证据边界
 
