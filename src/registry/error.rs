@@ -277,10 +277,10 @@ pub enum RegistryError {
         /// Route ID with the operation mismatch.
         route: String,
     },
-    /// A Bridged Route does not connect the two distinct generation protocols.
-    #[error("bridged route '{route}' must connect distinct generation protocol operations")]
-    InvalidBridgedRouteOperations {
-        /// Route ID whose operation direction has no conversion meaning.
+    /// A Generation Bridge Route conflicts with its explicit direction.
+    #[error("generation bridge route '{route}' operations must match its declared direction")]
+    InvalidGenerationBridgeRoute {
+        /// Route ID whose operations conflict with its direction.
         route: String,
     },
     /// The Public Model ID is not a safe single-segment URL resource identifier.

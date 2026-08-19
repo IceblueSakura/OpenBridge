@@ -24,7 +24,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
-    core::ApiProtocol,
+    core::{ApiProtocol, GenerationBridgeDirection},
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     provider::PreparedUpstreamRequest,
@@ -271,7 +271,7 @@ fn app_with_invalid_bridged_response(
         .find(|route| route.downstream_operation == ApiProtocol::ChatCompletions.operation())
         .unwrap();
     route.upstream_operation = ApiProtocol::Responses.operation();
-    route.mode = RouteMode::Bridged;
+    route.mode = RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses);
     let registry = build_registry(bootstrap, definition).unwrap();
     let (users, credentials) =
         support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);

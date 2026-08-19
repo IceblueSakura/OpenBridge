@@ -433,19 +433,18 @@ fn build_registry_internal(
                 reference: format!("{}/{}", route.upstream_target, route.upstream_operation),
             })?;
 
-        // A Native Route must keep the downstream and upstream operations identical.
-        if route.mode == RouteMode::Native && route.downstream_operation != upstream_api.operation()
-        {
-            return Err(RegistryError::NativeRouteOperationMismatch { route: route.id });
-        }
-
-        // A Bridged Route must connect the two distinct generation protocols; Embeddings has no Bridge.
-        if route.mode == RouteMode::Bridged
-            && (route.downstream_operation.api_protocol().is_none()
-                || upstream_api.api_protocol().is_none()
-                || route.downstream_operation == upstream_api.operation())
-        {
-            return Err(RegistryError::InvalidBridgedRouteOperations { route: route.id });
+        // Validate the handling mode against both operation endpoints exactly once at compilation.
+        match route.mode {
+            RouteMode::Native if route.downstream_operation != upstream_api.operation() => {
+                return Err(RegistryError::NativeRouteOperationMismatch { route: route.id });
+            }
+            RouteMode::GenerationBridge(direction)
+                if route.downstream_operation != direction.downstream_protocol().operation()
+                    || upstream_api.operation() != direction.upstream_protocol().operation() =>
+            {
+                return Err(RegistryError::InvalidGenerationBridgeRoute { route: route.id });
+            }
+            RouteMode::Native | RouteMode::GenerationBridge(_) => {}
         }
 
         // Store only stable references, the downstream operation, and the handling mode.

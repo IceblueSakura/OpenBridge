@@ -97,7 +97,7 @@ impl RouteContractContribution {
             .expect("generation operation has generation capabilities");
 
         // The Bridge exposes only the public subset fully supported by the current converter.
-        let bridged = route.mode() == RouteMode::Bridged;
+        let bridged = matches!(route.mode(), RouteMode::GenerationBridge(_));
         let function_tools = generation.function_tools;
         let structured_outputs = generation.structured_outputs;
         let mut image_input = (!bridged)
@@ -455,7 +455,7 @@ fn interface_parameters(
         .iter()
         .filter(|parameter| {
             GenerationRequestField::from_wire(protocol, parameter).is_some()
-                && (mode == RouteMode::Native
+                && (matches!(mode, RouteMode::Native)
                     || bridge_parameter_allowed(protocol, parameter)
                     || ignored_parameters.contains(parameter.as_str()))
         })
@@ -468,7 +468,7 @@ fn interface_parameters(
     }
     if protocol == ApiProtocol::ChatCompletions
         && chat_stream_usage
-        && (mode == RouteMode::Bridged
+        && (matches!(mode, RouteMode::GenerationBridge(_))
             || model_parameters
                 .iter()
                 .any(|parameter| parameter == "stream_options"))

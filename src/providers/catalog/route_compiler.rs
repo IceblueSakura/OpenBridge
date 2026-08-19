@@ -5,7 +5,7 @@
 //! request-time candidate selection.
 
 use crate::{
-    core::{ApiProtocol, OperationKind},
+    core::{ApiProtocol, GenerationBridgeDirection, OperationKind},
     registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
 };
 
@@ -180,7 +180,7 @@ impl ProviderRouteRegistration {
                     "chat-via-responses",
                     OperationKind::Responses,
                     ApiProtocol::ChatCompletions,
-                    RouteMode::Bridged,
+                    RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
                 )
             }
             RoutePhase::ResponsesNative
@@ -208,7 +208,7 @@ impl ProviderRouteRegistration {
                     "responses-via-chat",
                     OperationKind::ChatCompletions,
                     ApiProtocol::Responses,
-                    RouteMode::Bridged,
+                    RouteMode::GenerationBridge(GenerationBridgeDirection::ResponsesToChat),
                 )
             }
             _ => return None,

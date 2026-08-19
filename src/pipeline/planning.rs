@@ -88,9 +88,9 @@ pub fn plan_request(
                 ApiRequest::new(candidate.downstream_protocol(), candidate_body),
                 None,
             ),
-            RouteMode::Bridged => match BridgePlan::prepare_with_request_facts(
-                candidate.downstream_protocol(),
-                candidate.upstream_protocol(),
+            RouteMode::GenerationBridge(direction) => match BridgePlan::prepare_with_request_facts(
+                direction.downstream_protocol(),
+                direction.upstream_protocol(),
                 requirements.public_model(),
                 candidate.upstream_model(),
                 candidate_body,

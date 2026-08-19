@@ -27,4 +27,6 @@ pub use capability::{
 pub(crate) use generation_parameter::{
     ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,
 };
-pub use request::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind};
+pub use request::{
+    ApiProtocol, ApiRequest, EmbeddingRequest, GenerationBridgeDirection, OperationKind,
+};

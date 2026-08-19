@@ -28,8 +28,8 @@ use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
     core::{
-        ApiProtocol, ExecutableResponsesState, JsonSchemaSupport, OperationKind, ResponsesAffinity,
-        StorageSupport, StructuredOutputProfile,
+        ApiProtocol, ExecutableResponsesState, GenerationBridgeDirection, JsonSchemaSupport,
+        OperationKind, ResponsesAffinity, StorageSupport, StructuredOutputProfile,
     },
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},

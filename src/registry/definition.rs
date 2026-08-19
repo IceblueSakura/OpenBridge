@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingsCapabilities,
-        GenerationCapabilities, OperationKind, ResponsesCapabilities,
+        GenerationBridgeDirection, GenerationCapabilities, OperationKind, ResponsesCapabilities,
     },
     provider::{CredentialKind, ProviderKind},
 };
@@ -817,8 +817,8 @@ pub struct UpstreamTargetConfig {
 pub enum RouteMode {
     /// Keeps downstream and upstream protocols natively identical.
     Native,
-    /// Performs an explicit restricted conversion between the two OpenAI-compatible protocols.
-    Bridged,
+    /// Performs the declared restricted conversion between Generation protocols.
+    GenerationBridge(GenerationBridgeDirection),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

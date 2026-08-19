@@ -84,14 +84,14 @@ async fn extended_models_filter_by_executable_native_generation_protocol() {
             upstream_target: "openai-main".to_owned(),
             upstream_operation: OperationKind::ChatCompletions,
             downstream_operation: OperationKind::Responses,
-            mode: RouteMode::Bridged,
+            mode: RouteMode::GenerationBridge(GenerationBridgeDirection::ResponsesToChat),
         },
         RouteConfig {
             id: "responses-native-chat-bridge".to_owned(),
             upstream_target: "openai-main".to_owned(),
             upstream_operation: OperationKind::Responses,
             downstream_operation: OperationKind::ChatCompletions,
-            mode: RouteMode::Bridged,
+            mode: RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
         },
         RouteConfig {
             id: "responses-native-responses".to_owned(),

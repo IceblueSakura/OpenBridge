@@ -1,7 +1,7 @@
 //! Downstream native protocols and request value objects that passed basic HTTP checks.
 //!
 //! `ApiRequest` stores JSON bytes for the protocol fixed by RoutePlan: a Native Route preserves the
-//! canonical downstream body, while a Bridged Route stores the target-protocol body produced by
+//! canonical downstream body, while a Generation Bridge Route stores the target-protocol body produced by
 //! `BridgePlan`. The Provider adapter then supplies the real model, applies target wire mappings,
 //! and binds the upstream relative request.
 
@@ -65,6 +65,42 @@ impl ApiProtocol {
         match self {
             Self::ChatCompletions => OperationKind::ChatCompletions,
             Self::Responses => OperationKind::Responses,
+        }
+    }
+}
+
+/// Closed conversion direction supported by the Generation Protocol Bridge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenerationBridgeDirection {
+    /// Converts a downstream Chat Completions request into an upstream Responses request.
+    ChatToResponses,
+    /// Converts a downstream Responses request into an upstream Chat Completions request.
+    ResponsesToChat,
+}
+
+impl GenerationBridgeDirection {
+    /// Returns the downstream protocol accepted by this direction.
+    pub const fn downstream_protocol(self) -> ApiProtocol {
+        match self {
+            Self::ChatToResponses => ApiProtocol::ChatCompletions,
+            Self::ResponsesToChat => ApiProtocol::Responses,
+        }
+    }
+
+    /// Returns the upstream protocol produced by this direction.
+    pub const fn upstream_protocol(self) -> ApiProtocol {
+        match self {
+            Self::ChatToResponses => ApiProtocol::Responses,
+            Self::ResponsesToChat => ApiProtocol::ChatCompletions,
+        }
+    }
+
+    /// Resolves one supported direction from distinct generation protocols.
+    pub const fn from_protocols(downstream: ApiProtocol, upstream: ApiProtocol) -> Option<Self> {
+        match (downstream, upstream) {
+            (ApiProtocol::ChatCompletions, ApiProtocol::Responses) => Some(Self::ChatToResponses),
+            (ApiProtocol::Responses, ApiProtocol::ChatCompletions) => Some(Self::ResponsesToChat),
+            _ => None,
         }
     }
 }

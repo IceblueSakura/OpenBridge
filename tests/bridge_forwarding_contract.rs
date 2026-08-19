@@ -19,8 +19,8 @@ use http::{HeaderMap, Request, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState},
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiProtocol, FunctionToolCapabilities, OperationKind,
-        ReasoningOutput,
+        ALL_TOOL_CHOICE_MODES, ApiProtocol, FunctionToolCapabilities, GenerationBridgeDirection,
+        OperationKind, ReasoningOutput,
     },
     ingress::{GatewayState, build_router},
     provider::PreparedUpstreamRequest,
@@ -248,7 +248,10 @@ fn app_with_protocol_capabilities(
         upstream_target: "openai-main".to_owned(),
         upstream_operation: upstream.operation(),
         downstream_operation: downstream.operation(),
-        mode: RouteMode::Bridged,
+        mode: RouteMode::GenerationBridge(
+            GenerationBridgeDirection::from_protocols(downstream, upstream)
+                .expect("bridge harness requires distinct generation protocols"),
+        ),
     }];
     definition.public_models[0].routes = vec!["bridge-route".to_owned()];
     let registry = Arc::new(
@@ -959,15 +962,16 @@ async fn production_router_rejects_unbridgeable_requests_before_egress() {
 }
 
 #[test]
-fn registry_requires_bridged_routes_to_target_the_opposite_protocol() {
+fn registry_requires_bridge_operations_to_match_the_declared_direction() {
     let mut definition = support::definition("bridge-invalid", "public-model", "upstream-model");
-    definition.routes[0].mode = RouteMode::Bridged;
+    definition.routes[0].mode =
+        RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses);
 
     let error = build_registry(support::bootstrap(support::BOOTSTRAP), definition)
-        .expect_err("same-protocol Bridged Route must fail at startup");
+        .expect_err("direction-mismatched Generation Bridge Route must fail at startup");
     assert!(matches!(
         error,
-        RegistryError::InvalidBridgedRouteOperations { route } if route == "public-chat"
+        RegistryError::InvalidGenerationBridgeRoute { route } if route == "public-chat"
     ));
 }
 

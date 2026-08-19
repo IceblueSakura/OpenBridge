@@ -117,14 +117,7 @@ impl RouteExecutionCandidate {
             .expect("generation candidates have a downstream API protocol")
     }
 
-    /// Returns the upstream generation protocol guaranteed by a generation execution interface.
-    pub(crate) fn upstream_protocol(&self) -> ApiProtocol {
-        self.upstream_operation
-            .api_protocol()
-            .expect("generation candidates have an upstream API protocol")
-    }
-
-    /// Returns whether forwarding is Native or must use the restricted protocol bridge.
+    /// Returns the compiled Native or explicitly directed Generation Bridge mode.
     pub(crate) const fn mode(&self) -> RouteMode {
         self.mode
     }
