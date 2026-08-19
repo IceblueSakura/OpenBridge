@@ -25,6 +25,18 @@ pub enum OperationKind {
 }
 
 impl OperationKind {
+    /// Number of variants in the closed operation kernel.
+    pub(crate) const COUNT: usize = 3;
+
+    /// Returns the deterministic slot used by operation-indexed internal sets.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::ChatCompletions => 0,
+            Self::Responses => 1,
+            Self::EmbeddingsCreate => 2,
+        }
+    }
+
     /// Returns the generation protocol for operations that can participate in the Protocol Bridge.
     pub const fn api_protocol(self) -> Option<ApiProtocol> {
         match self {

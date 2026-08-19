@@ -17,12 +17,12 @@ pub use capability::{
     ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
     ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
     JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
-    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-    ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-    ResponsesAffinity, ResponsesCapabilities, ResponsesProfile, SpeechRecognitionProfile,
-    SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming, StorageSupport,
-    StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
-    VoiceDesignProfile,
+    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
+    ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+    RemoteImageInputLimits, ResponseInclude, ResponsesAffinity, ResponsesCapabilities,
+    ResponsesProfile, SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery,
+    SseAudioFraming, StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    VoiceCloneProfile, VoiceDesignProfile,
 };
 pub(crate) use generation_parameter::{
     ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,

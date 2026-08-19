@@ -124,7 +124,8 @@ fn target(
     let chat_ceiling = DEFINITION
         .contract()
         .capabilities()
-        .chat_completions
+        .operation(crate::core::OperationKind::ChatCompletions)
+        .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("MiMo targets require Chat Completions capabilities");
     let mut chat_capabilities = chat_ceiling.to_executable(match profile {
         MimoTargetProfile::TextOnly => None,
@@ -138,7 +139,8 @@ fn target(
             let mut responses_capabilities = DEFINITION
                 .contract()
                 .capabilities()
-                .responses
+                .operation(crate::core::OperationKind::Responses)
+                .and_then(crate::core::ProviderOperationCapabilities::responses)
                 .expect("MiMo text targets require Responses capabilities")
                 .to_executable(ExecutableResponsesState::new(
                     StorageSupport::Unsupported,

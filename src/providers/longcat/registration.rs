@@ -27,11 +27,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     // Resolve both operations guaranteed by the compiled LongCat Provider contract.
     let capabilities = DEFINITION.contract().capabilities();
     let chat_capabilities = capabilities
-        .chat_completions
+        .operation(crate::core::OperationKind::ChatCompletions)
+        .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("LongCat targets require Chat Completions capabilities")
         .to_executable(None);
     let responses_capabilities = capabilities
-        .responses
+        .operation(crate::core::OperationKind::Responses)
+        .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("LongCat targets require Responses capabilities")
         .to_executable(ExecutableResponsesState::new(
             StorageSupport::Unsupported,

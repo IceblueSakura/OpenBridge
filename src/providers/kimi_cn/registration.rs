@@ -71,7 +71,8 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
                 DEFINITION
                     .contract()
                     .capabilities()
-                    .chat_completions
+                    .operation(crate::core::OperationKind::ChatCompletions)
+                    .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
                     .expect("Kimi China targets require Chat Completions capabilities")
                     .to_executable(None),
             ),

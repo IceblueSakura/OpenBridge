@@ -64,13 +64,15 @@ fn dual_protocol_target(
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
-        .chat_completions
+        .operation(crate::core::OperationKind::ChatCompletions)
+        .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenRouter targets require Chat Completions capabilities")
         .to_executable(None);
     let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()
-        .responses
+        .operation(crate::core::OperationKind::Responses)
+        .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("OpenRouter targets require Responses capabilities")
         .to_executable(ExecutableResponsesState::new(
             StorageSupport::Unsupported,

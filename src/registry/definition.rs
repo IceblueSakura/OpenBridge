@@ -711,13 +711,16 @@ impl UpstreamApiCapabilities {
     pub(super) fn is_subset_of(self, upper: ApiCapabilities) -> bool {
         match self {
             Self::ChatCompletions(capabilities) => upper
-                .chat_completions
+                .operation(OperationKind::ChatCompletions)
+                .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
                 .is_some_and(|upper| capabilities.is_subset_of(upper)),
             Self::Responses(capabilities) => upper
-                .responses
+                .operation(OperationKind::Responses)
+                .and_then(crate::core::ProviderOperationCapabilities::responses)
                 .is_some_and(|upper| capabilities.is_subset_of(upper)),
             Self::Embeddings(capabilities) => upper
-                .embeddings
+                .operation(OperationKind::EmbeddingsCreate)
+                .and_then(crate::core::ProviderOperationCapabilities::embeddings)
                 .is_some_and(|upper| capabilities.is_subset_of(upper)),
         }
     }

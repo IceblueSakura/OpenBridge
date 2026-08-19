@@ -27,7 +27,53 @@ pub use generation::{
     VoiceDesignProfile,
 };
 
-/// Protocol-specific capability ceilings for a Provider contract.
+/// One operation-tagged capability ceiling in a Provider contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderOperationCapabilities {
+    /// Chat Completions ceiling.
+    ChatCompletions(&'static ProviderChatCompletionsCapabilities),
+    /// Responses ceiling.
+    Responses(&'static ProviderResponsesCapabilities),
+    /// Embeddings Create ceiling.
+    Embeddings(&'static EmbeddingsCapabilities),
+}
+
+impl ProviderOperationCapabilities {
+    /// Returns the operation owned by this profile.
+    pub const fn operation(self) -> crate::core::OperationKind {
+        match self {
+            Self::ChatCompletions(_) => crate::core::OperationKind::ChatCompletions,
+            Self::Responses(_) => crate::core::OperationKind::Responses,
+            Self::Embeddings(_) => crate::core::OperationKind::EmbeddingsCreate,
+        }
+    }
+
+    /// Extracts a Chat Completions ceiling.
+    pub const fn chat_completions(self) -> Option<ProviderChatCompletionsCapabilities> {
+        match self {
+            Self::ChatCompletions(capabilities) => Some(*capabilities),
+            Self::Responses(_) | Self::Embeddings(_) => None,
+        }
+    }
+
+    /// Extracts a Responses ceiling.
+    pub const fn responses(self) -> Option<ProviderResponsesCapabilities> {
+        match self {
+            Self::Responses(capabilities) => Some(*capabilities),
+            Self::ChatCompletions(_) | Self::Embeddings(_) => None,
+        }
+    }
+
+    /// Extracts an Embeddings Create ceiling.
+    pub const fn embeddings(self) -> Option<EmbeddingsCapabilities> {
+        match self {
+            Self::Embeddings(capabilities) => Some(*capabilities),
+            Self::ChatCompletions(_) | Self::Responses(_) => None,
+        }
+    }
+}
+
+/// Operation-indexed capability ceilings for a Provider contract.
 ///
 /// A Provider contract omits an unsupported operation profile. A present Upstream API may narrow
 /// capabilities supported by its Provider contract but cannot enable unimplemented capabilities.
@@ -36,10 +82,53 @@ pub use generation::{
 /// incorrectly applied to another.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ApiCapabilities {
-    /// Capability ceiling for Chat Completions, or `None` when the operation is unsupported.
-    pub chat_completions: Option<ProviderChatCompletionsCapabilities>,
-    /// Capability ceiling for Responses, or `None` when the operation is unsupported.
-    pub responses: Option<ProviderResponsesCapabilities>,
-    /// Capability ceiling for Embeddings Create, or `None` when the operation is unsupported.
-    pub embeddings: Option<EmbeddingsCapabilities>,
+    operations: [Option<ProviderOperationCapabilities>; crate::core::OperationKind::COUNT],
+}
+
+impl ApiCapabilities {
+    /// Builds a validated set from unique operation-tagged profiles.
+    pub const fn from_operations<const N: usize>(
+        operations: [ProviderOperationCapabilities; N],
+    ) -> Self {
+        let mut indexed = [None; crate::core::OperationKind::COUNT];
+        let mut position = 0;
+        while position < N {
+            let capabilities = operations[position];
+            let index = capabilities.operation().index();
+            assert!(
+                indexed[index].is_none(),
+                "duplicate Provider operation capability"
+            );
+            indexed[index] = Some(capabilities);
+            position += 1;
+        }
+        Self {
+            operations: indexed,
+        }
+    }
+
+    /// Builds an already indexed set for const endpoint-surface projection.
+    pub(crate) const fn from_indexed_operations(
+        operations: [Option<ProviderOperationCapabilities>; crate::core::OperationKind::COUNT],
+    ) -> Self {
+        let mut index = 0;
+        while index < crate::core::OperationKind::COUNT {
+            if let Some(capabilities) = operations[index] {
+                assert!(
+                    capabilities.operation().index() == index,
+                    "misindexed Provider operation capability"
+                );
+            }
+            index += 1;
+        }
+        Self { operations }
+    }
+
+    /// Returns the ceiling for one typed operation.
+    pub const fn operation(
+        self,
+        operation: crate::core::OperationKind,
+    ) -> Option<ProviderOperationCapabilities> {
+        self.operations[operation.index()]
+    }
 }

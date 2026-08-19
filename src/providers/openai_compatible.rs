@@ -15,7 +15,7 @@ use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ApiRequest, ChatCompletionsCapabilities, EmbeddingRequest,
         EmbeddingsCapabilities, OperationKind, ProviderChatCompletionsCapabilities,
-        ProviderResponsesCapabilities, ResponsesCapabilities,
+        ProviderOperationCapabilities, ProviderResponsesCapabilities, ResponsesCapabilities,
     },
     credential::CredentialType,
     provider::{
@@ -78,21 +78,27 @@ impl OpenAiCompatibleApiSurface {
     }
 
     /// Projects the Provider capability contract from the same typed endpoint descriptors.
-    pub(crate) const fn capabilities(self) -> ApiCapabilities {
-        ApiCapabilities {
-            chat_completions: match self.chat_completions {
-                Some(endpoint) => Some(endpoint.capabilities),
+    pub(crate) const fn capabilities(&'static self) -> ApiCapabilities {
+        ApiCapabilities::from_indexed_operations([
+            match &self.chat_completions {
+                Some(endpoint) => Some(ProviderOperationCapabilities::ChatCompletions(
+                    &endpoint.capabilities,
+                )),
                 None => None,
             },
-            responses: match self.responses {
-                Some(endpoint) => Some(endpoint.capabilities),
+            match &self.responses {
+                Some(endpoint) => Some(ProviderOperationCapabilities::Responses(
+                    &endpoint.capabilities,
+                )),
                 None => None,
             },
-            embeddings: match self.embeddings {
-                Some(endpoint) => Some(endpoint.capabilities),
+            match &self.embeddings {
+                Some(endpoint) => Some(ProviderOperationCapabilities::Embeddings(
+                    &endpoint.capabilities,
+                )),
                 None => None,
             },
-        }
+        ])
     }
 
     /// Returns the trusted Chat Completions path when that operation is present.

@@ -6,8 +6,9 @@ use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
     core::{
         ApiCapabilities, ApiProtocol, ExecutableResponsesState,
-        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, ResponsesAffinity, StorageSupport,
+        ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        ResponsesAffinity, StorageSupport,
     },
     credential::{CredentialMetadata, CredentialSource, CredentialStore},
     identity::{UserConfiguration, UserRegistry},
@@ -156,8 +157,8 @@ auth_json_file = "{locator}"
 }
 
 pub fn capabilities() -> ApiCapabilities {
-    ApiCapabilities {
-        chat_completions: Some(ProviderChatCompletionsCapabilities {
+    ApiCapabilities::from_operations([
+        ProviderOperationCapabilities::ChatCompletions(&ProviderChatCompletionsCapabilities {
             streaming: false,
             stream_usage: false,
             function_tools: None,
@@ -175,7 +176,7 @@ pub fn capabilities() -> ApiCapabilities {
             logprobs: false,
             multiple_choices: false,
         }),
-        responses: Some(ProviderResponsesCapabilities {
+        ProviderOperationCapabilities::Responses(&ProviderResponsesCapabilities {
             streaming: false,
             terminal_usage: false,
             function_tools: None,
@@ -195,8 +196,7 @@ pub fn capabilities() -> ApiCapabilities {
             moderation: false,
             logprobs: false,
         }),
-        embeddings: None,
-    }
+    ])
 }
 
 pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryConfig {
@@ -246,7 +246,10 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::ChatCompletions(
                         capabilities()
-                            .chat_completions
+                            .operation(openbridge::core::OperationKind::ChatCompletions)
+                            .and_then(
+                                openbridge::core::ProviderOperationCapabilities::chat_completions,
+                            )
                             .expect("the synthetic Provider must expose Chat Completions")
                             .to_executable(None),
                     ),
@@ -261,7 +264,8 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                     model_rules: UpstreamApiModelRules::default(),
                     capabilities: UpstreamApiCapabilities::Responses(
                         capabilities()
-                            .responses
+                            .operation(openbridge::core::OperationKind::Responses)
+                            .and_then(openbridge::core::ProviderOperationCapabilities::responses)
                             .expect("the synthetic Provider must expose Responses")
                             .to_executable(ExecutableResponsesState::new(
                                 StorageSupport::Unsupported,

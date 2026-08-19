@@ -123,7 +123,8 @@ fn embedding_target() -> UpstreamTargetConfig {
                 DEFINITION
                     .contract()
                     .capabilities()
-                    .embeddings
+                    .operation(crate::core::OperationKind::EmbeddingsCreate)
+                    .and_then(crate::core::ProviderOperationCapabilities::embeddings)
                     .expect("Bailian embedding targets require Embeddings capabilities"),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
@@ -142,7 +143,8 @@ fn chat_target(
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
-        .chat_completions
+        .operation(crate::core::OperationKind::ChatCompletions)
+        .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("Bailian generation targets require Chat Completions capabilities")
         .to_executable(None);
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
@@ -183,7 +185,8 @@ fn chat_target(
         let mut responses_capabilities = DEFINITION
             .contract()
             .capabilities()
-            .responses
+            .operation(crate::core::OperationKind::Responses)
+            .and_then(crate::core::ProviderOperationCapabilities::responses)
             .expect("Bailian Qwen targets require Responses capabilities")
             .to_executable(ExecutableResponsesState::new(
                 StorageSupport::Unsupported,

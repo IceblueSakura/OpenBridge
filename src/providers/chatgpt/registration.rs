@@ -126,7 +126,8 @@ fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilitie
     let mut capabilities = DEFINITION
         .contract()
         .capabilities()
-        .responses
+        .operation(crate::core::OperationKind::Responses)
+        .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("ChatGPT targets require Responses capabilities");
     if !advanced_capabilities {
         capabilities.function_tools = None;

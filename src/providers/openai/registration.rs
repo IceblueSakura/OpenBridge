@@ -76,11 +76,13 @@ fn generation_target(
     // Resolve both operation profiles required by every checked-in OpenAI generation target.
     let capabilities = DEFINITION.contract().capabilities();
     let mut chat_capabilities = capabilities
-        .chat_completions
+        .operation(crate::core::OperationKind::ChatCompletions)
+        .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenAI generation targets require Chat Completions capabilities")
         .to_executable(None);
     let mut responses_capabilities = capabilities
-        .responses
+        .operation(crate::core::OperationKind::Responses)
+        .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("OpenAI generation targets require Responses capabilities")
         .to_executable(ExecutableResponsesState::new(
             StorageSupport::Unsupported,
