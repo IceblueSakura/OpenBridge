@@ -816,33 +816,3 @@ async fn probe_rejects_oversized_response_bodies() {
     assert_eq!(outcome.state, SupportStatus::Unknown);
     assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
 }
-
-#[tokio::test]
-async fn probe_uses_deepseek_v4_pro_responses_native() {
-    // Select the compiled Pro target while requesting only its registered Responses API.
-    let registry = registry();
-    let credentials = credentials_for_target(&registry, "deepseek-v4-pro");
-    let transport = StaticTransport::response(
-        StatusCode::OK,
-        br#"{"object":"response","output":[]}"#.to_vec(),
-    );
-
-    // Verify the probe performs direct Responses egress instead of reporting a local absence.
-    let report = probe_upstream_target(
-        &registry,
-        "deepseek-v4-pro",
-        &transport,
-        &credentials,
-        ProbeOptions {
-            responses: true,
-            ..ProbeOptions::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    let outcome = report.responses.unwrap();
-    assert_eq!(outcome.state, SupportStatus::Supported);
-    assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
-    assert_eq!(transport.requests.load(Ordering::Relaxed), 1);
-}

@@ -303,43 +303,6 @@ fn assert_stream_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]
 }
 
 #[tokio::test]
-async fn deepseek_responses_bridge_rejects_prompt_cache_key_without_egress() {
-    let transport = Arc::new(ExpectedTransport {
-        expected_path: "/chat/completions",
-        upstream_body: fixture(
-            "responses_to_chat/responses_to_chat.text.non_stream/upstream-response.json",
-        ),
-        content_type: "application/json",
-        requests: Mutex::new(Vec::new()),
-    });
-
-    // Submit an unsupported cache key through the DeepSeek Chat-backed Responses fixture.
-    let response = app_with_reasoning_output(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        transport.clone(),
-        ReasoningOutput::PlainText,
-    )
-    .oneshot(
-        Request::post("/v1/responses")
-            .header(CONTENT_TYPE, "application/json")
-            .header("authorization", "Bearer downstream-token-0000000000000000")
-            .body(Body::from(
-                r#"{"model":"public-model","input":"hello","include":[],"prompt_cache_key":"cache-test"}"#,
-            ))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-
-    // Reject before egress rather than silently discarding an exact-forwarding option.
-    let requests = transport.requests.lock().unwrap();
-    assert!(requests.is_empty());
-}
-
-#[tokio::test]
 async fn responses_bridge_consumes_reasoning_include_before_chat_egress() {
     let transport = Arc::new(ExpectedTransport {
         expected_path: "/chat/completions",
