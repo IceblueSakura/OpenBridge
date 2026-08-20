@@ -170,8 +170,10 @@ JSON admission
 → Native passthrough or Bridge response renderer
 ```
 
-Embeddings 路径使用 `EmbeddingRequestRequirements` 与 `EmbeddingRoutePlan`。成功 JSON 在首次下游 commit 前完整、有界地验证
-object/index/vector/usage；没有 Bridge、多 candidate、跨模型 fallback、向量转换、缓存、索引或 tokenizer 估算。
+Embeddings 的 pure analysis、fixed-interface preflight 与 Native planning 由 `pipeline/embeddings/` 拥有，并继续通过 pipeline
+facade 暴露原有 API；该 family 不执行 credential、transport 或 downstream commit I/O。运行路径使用
+`EmbeddingRequestRequirements` 与 `EmbeddingRoutePlan`。成功 JSON 在首次下游 commit 前完整、有界地验证 object/index/vector/usage；
+没有 Bridge、多 candidate、跨模型 fallback、向量转换、缓存、索引或 tokenizer 估算。
 
 Models list/retrieve 读取同一 immutable Public Model snapshot：标准接口只输出 OpenAI-compatible identity，扩展接口输出下游安全
 task/interface/limit/capability。preflight 读取私有 typed contract，不反向解析 Models JSON sentinel。

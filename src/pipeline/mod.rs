@@ -4,16 +4,18 @@
 //! and registry Route planning; this file only declares modules and preserves public API paths.
 
 mod analysis;
+mod embeddings;
 mod error;
 mod instructions;
 mod planning;
 mod preflight;
 mod types;
 
-pub use analysis::{analyze_embedding_request, analyze_request};
+pub use analysis::analyze_request;
+pub use embeddings::{analyze_embedding_request, plan_embedding_request};
 pub use error::{EmbeddingRequestError, RequestPlanningError};
 pub(crate) use instructions::normalize_probe_generation_request;
-pub use planning::{plan_embedding_request, plan_request};
+pub use planning::plan_request;
 pub(crate) use types::StreamResponseConversion;
 pub use types::{
     EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan, RequestRequirements,

@@ -4,8 +4,6 @@
 //! types. This facade keeps the public pipeline API stable without coupling either analyzer to
 //! registry lookup, Route selection, or request rewriting.
 
-mod embeddings;
 mod generation;
 
-pub use embeddings::analyze_embedding_request;
 pub use generation::analyze_request;

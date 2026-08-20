@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest, ChatStreamUsage, EmbeddingRequest, OperationKind},
+    core::{ApiProtocol, ApiRequest, ChatStreamUsage},
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel, RouteMode,
         RuntimeRegistry, UpstreamStreamingPolicy,
@@ -13,13 +13,10 @@ use crate::{
 };
 
 use super::{
-    error::{EmbeddingRequestError, RequestPlanningError},
+    error::RequestPlanningError,
     instructions::normalize_generation_request,
-    preflight::{preflight_embedding_public_model, preflight_public_model},
-    types::{
-        EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
-        RequestRequirements, RouteCandidate, RoutePlan, StreamResponseConversion,
-    },
+    preflight::preflight_public_model,
+    types::{RequestRequirements, RouteCandidate, RoutePlan, StreamResponseConversion},
 };
 
 /// Generates a Native or Bridged execution plan from one Public Model's precompiled interface.
@@ -286,40 +283,4 @@ fn apply_streaming_policy(
         ApiRequest::new(request.protocol(), Bytes::from(body)),
         conversion,
     ))
-}
-
-/// Generates the single Native Embeddings candidate from its precompiled execution interface.
-pub fn plan_embedding_request(
-    registry: &RuntimeRegistry,
-    requirements: &EmbeddingRequestRequirements,
-    body: Bytes,
-) -> Result<EmbeddingRoutePlan, EmbeddingRequestError> {
-    // Complete fixed-interface preflight and retain its resolved response expectations.
-    let (interface, encoding, dimensions) =
-        preflight_embedding_public_model(registry, requirements)?;
-    let [candidate] = interface.candidates() else {
-        return Err(EmbeddingRequestError::RouteUnavailable);
-    };
-
-    // Enforce the compiler invariant again without interpreting request facts or selecting another Route.
-    if candidate.mode() != RouteMode::Native
-        || candidate.downstream_operation() != OperationKind::EmbeddingsCreate
-        || candidate.upstream_operation() != OperationKind::EmbeddingsCreate
-    {
-        return Err(EmbeddingRequestError::RouteUnavailable);
-    }
-
-    // Bind the preserved body to the one trusted target/API identity owned by the interface.
-    Ok(EmbeddingRoutePlan {
-        candidate: EmbeddingRouteCandidate {
-            route_id: candidate.route_id().to_owned(),
-            upstream_target_id: candidate.upstream_target_id().to_owned(),
-            upstream_api_key: candidate.upstream_api_key(),
-            request: EmbeddingRequest::new(body),
-        },
-        input_count: requirements.input_count,
-        encoding,
-        dimensions,
-        response_budget: interface.response_budget(),
-    })
 }
