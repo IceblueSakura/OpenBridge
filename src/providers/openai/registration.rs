@@ -79,7 +79,7 @@ fn generation_target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenAI generation targets require Chat Completions capabilities")
-        .to_executable(None, None);
+        .to_executable(crate::core::ChatMediaProfile::default());
     let mut responses_capabilities = capabilities
         .operation(crate::core::OperationKind::Responses)
         .and_then(crate::core::ProviderOperationCapabilities::responses)
@@ -89,16 +89,14 @@ fn generation_target(
                 StorageSupport::Unsupported,
                 ResponsesAffinity::TargetBound,
             ),
-            None,
+            crate::core::ResponsesMediaProfile::default(),
         );
 
-    // Narrow unverified multimodal, strict-tool, structured-output, and persistent-state features.
+    // Narrow unverified strict-tool, structured-output, and persistent-state features.
     chat_capabilities.function_tools = Some(CONSERVATIVE_FUNCTION_TOOLS);
-    chat_capabilities.image_input = None;
     chat_capabilities.structured_outputs = None;
     chat_capabilities.store = false;
     responses_capabilities.function_tools = Some(CONSERVATIVE_FUNCTION_TOOLS);
-    responses_capabilities.image_input = None;
     responses_capabilities.structured_outputs = None;
 
     // Bind the concrete operation profiles to the trusted OpenAI deployment.

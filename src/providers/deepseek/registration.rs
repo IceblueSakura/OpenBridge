@@ -58,7 +58,7 @@ fn target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("DeepSeek targets require Chat Completions capabilities")
-        .to_executable(None, None);
+        .to_executable(crate::core::ChatMediaProfile::default());
     let mut unsupported_parameters = vec![
         "include_reasoning",
         "logit_bias",
@@ -102,7 +102,7 @@ fn target(
         .expect("DeepSeek Responses targets require Responses capabilities")
         .to_executable(
             ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
-            None,
+            crate::core::ResponsesMediaProfile::default(),
         );
     upstream_apis.push(UpstreamApiConfig {
         key: UpstreamApiKey::new(

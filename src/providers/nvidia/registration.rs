@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use super::DEFINITION;
+use super::{DEFINITION, definition::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "nvidia";
 const CREDENTIAL_POOL_ID: &str = "nvidia-primary";
@@ -63,7 +63,11 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
                     .operation(crate::core::OperationKind::ChatCompletions)
                     .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
                     .expect("NVIDIA targets require Chat Completions capabilities")
-                    .to_executable(None, None),
+                    .to_executable(crate::core::ChatMediaProfile::new(
+                        Some(IMAGE_INPUT),
+                        None,
+                        None,
+                    )),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         }],

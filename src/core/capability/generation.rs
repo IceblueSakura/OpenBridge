@@ -1661,6 +1661,62 @@ pub struct ResponsesFileInputProfile {
     _reserved: (),
 }
 
+/// Complete Chat Completions media contract selected by a Provider ceiling or executable Target.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChatMediaProfile<A> {
+    /// Typed `image_url` input profile, or `None` when images are unsupported.
+    pub image: Option<ImageInputCapabilities>,
+    /// Layer-specific Provider audio ceiling or executable audio profile.
+    pub audio: A,
+    /// Typed `file` input profile, or `None` while file input is unsupported.
+    pub file: Option<ChatFileInputProfile>,
+}
+
+impl<A> ChatMediaProfile<A> {
+    /// Creates one complete Chat media contract without inheriting another layer's fields.
+    pub const fn new(
+        image: Option<ImageInputCapabilities>,
+        audio: A,
+        file: Option<ChatFileInputProfile>,
+    ) -> Self {
+        Self { image, audio, file }
+    }
+}
+
+impl ChatMediaProfile<Option<ExecutableAudioProfile>> {
+    /// Returns whether one executable Target media contract stays within the Provider ceiling.
+    fn is_subset_of(self, upper: ChatMediaProfile<Option<ProviderAudioCeiling>>) -> bool {
+        image_input_is_subset_of(self.image, upper.image)
+            && optional_executable_audio_is_subset_of(self.audio, upper.audio)
+            && optional_chat_file_input_is_subset_of(self.file, upper.file)
+    }
+}
+
+/// Complete Responses media contract selected by a Provider ceiling or executable Target.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ResponsesMediaProfile {
+    /// Typed `input_image` profile, or `None` when images are unsupported.
+    pub image: Option<ImageInputCapabilities>,
+    /// Typed `input_file` profile, or `None` while file input is unsupported.
+    pub file: Option<ResponsesFileInputProfile>,
+}
+
+impl ResponsesMediaProfile {
+    /// Creates one complete Responses media contract without inheriting Provider fields.
+    pub const fn new(
+        image: Option<ImageInputCapabilities>,
+        file: Option<ResponsesFileInputProfile>,
+    ) -> Self {
+        Self { image, file }
+    }
+
+    /// Returns whether one executable Target media contract stays within the Provider ceiling.
+    fn is_subset_of(self, upper: Self) -> bool {
+        image_input_is_subset_of(self.image, upper.image)
+            && optional_responses_file_input_is_subset_of(self.file, upper.file)
+    }
+}
+
 fn optional_chat_file_input_is_subset_of(
     value: Option<ChatFileInputProfile>,
     upper: Option<ChatFileInputProfile>,
@@ -1726,8 +1782,8 @@ pub struct ChatCompletionsProfile<A> {
     pub stream_usage: bool,
     /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
     pub function_tools: Option<FunctionToolCapabilities>,
-    /// Typed `image_url` input profile, or `None` when images are unsupported.
-    pub image_input: Option<ImageInputCapabilities>,
+    /// Complete operation-specific media profile.
+    pub media: ChatMediaProfile<A>,
     /// Fine-grained structured-output profile, or `None` when structured output is unsupported.
     pub structured_outputs: Option<StructuredOutputProfile>,
     /// Whether the request wire field `store: true` is supported.
@@ -1736,10 +1792,7 @@ pub struct ChatCompletionsProfile<A> {
     pub reasoning_output: ReasoningOutput,
     /// Whether `type: "custom"` tools are supported.
     pub custom_tool_calling: bool,
-    /// Layer-specific Provider ceiling or executable audio profile.
-    pub audio: A,
-    /// Typed `file` input profile, or `None` while file input is unsupported.
-    pub file_input: Option<ChatFileInputProfile>,
+
     /// Whether `prediction` predicted outputs are supported.
     pub predicted_outputs: bool,
     /// Whether `web_search_options` is supported.
@@ -1766,7 +1819,7 @@ impl<A: Copy> ChatCompletionsProfile<A> {
         GenerationCapabilities {
             streaming: self.streaming,
             function_tools: self.function_tools,
-            image_input: self.image_input,
+            image_input: self.media.image,
             structured_outputs: self.structured_outputs,
             store: self.store,
             reasoning_output: self.reasoning_output,
@@ -1776,7 +1829,7 @@ impl<A: Copy> ChatCompletionsProfile<A> {
     /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
-            || self.file_input.is_some()
+            || self.media.file.is_some()
             || self.predicted_outputs
             || self.web_search
             || self.moderation
@@ -1795,23 +1848,20 @@ impl<A: Copy> ChatCompletionsProfile<A> {
 }
 
 impl ChatCompletionsProfile<Option<ProviderAudioCeiling>> {
-    /// Projects the shared Provider ceiling into a concrete Target profile and replaces only audio.
+    /// Projects non-media fields and requires one complete executable Target media profile.
     pub const fn to_executable(
         self,
-        audio: Option<ExecutableAudioProfile>,
-        file_input: Option<ChatFileInputProfile>,
+        media: ChatMediaProfile<Option<ExecutableAudioProfile>>,
     ) -> ChatCompletionsCapabilities {
         ChatCompletionsProfile {
             streaming: self.streaming,
             stream_usage: self.stream_usage,
             function_tools: self.function_tools,
-            image_input: self.image_input,
+            media,
             structured_outputs: self.structured_outputs,
             store: self.store,
             reasoning_output: self.reasoning_output,
             custom_tool_calling: self.custom_tool_calling,
-            audio,
-            file_input,
             predicted_outputs: self.predicted_outputs,
             web_search: self.web_search,
             prompt_cache_key: self.prompt_cache_key,
@@ -1829,18 +1879,17 @@ impl ChatCompletionsProfile<Option<ExecutableAudioProfile>> {
         self.assert_reserved_unimplemented();
         upper.assert_reserved_unimplemented();
 
-        // Compare common fields and require any executable audio profile to fit the same-task slot.
+        // Compare common fields and require the complete executable media profile to fit the ceiling.
         self.generation_capabilities()
             .is_subset_of(upper.generation_capabilities())
             && (!self.stream_usage || upper.stream_usage)
-            && optional_executable_audio_is_subset_of(self.audio, upper.audio)
-            && optional_chat_file_input_is_subset_of(self.file_input, upper.file_input)
+            && self.media.is_subset_of(upper.media)
             && (!self.prompt_cache_key || upper.prompt_cache_key)
     }
 
     /// Returns whether the typed audio profile contains any input capability.
     pub const fn has_audio_input(self) -> bool {
-        match self.audio {
+        match self.media.audio {
             Some(audio) => audio.has_input(),
             None => false,
         }
@@ -1848,7 +1897,7 @@ impl ChatCompletionsProfile<Option<ExecutableAudioProfile>> {
 
     /// Returns whether the typed audio profile contains generated-audio output.
     pub const fn has_audio_output(self) -> bool {
-        match self.audio {
+        match self.media.audio {
             Some(audio) => audio.has_output(),
             None => false,
         }
@@ -2009,8 +2058,8 @@ pub struct ResponsesProfile<S> {
     pub terminal_usage: bool,
     /// Fine-grained function-tool capability profile, or `None` when tools are unsupported.
     pub function_tools: Option<FunctionToolCapabilities>,
-    /// Typed `input_image` profile, or `None` when images are unsupported.
-    pub image_input: Option<ImageInputCapabilities>,
+    /// Complete operation-specific media profile.
+    pub media: ResponsesMediaProfile,
     /// Fine-grained structured-output profile, or `None` when structured output is unsupported.
     pub structured_outputs: Option<StructuredOutputProfile>,
     /// Layer-specific Provider ceiling or executable Responses state.
@@ -2023,8 +2072,7 @@ pub struct ResponsesProfile<S> {
     pub custom_tool_calling: bool,
     /// Declared OpenAI-hosted tool kinds.
     pub hosted_tools: &'static [HostedToolKind],
-    /// Typed `input_file` profile, or `None` while file input is unsupported.
-    pub file_input: Option<ResponsesFileInputProfile>,
+
     /// Whether persistent `conversation` state is supported.
     pub conversation: bool,
     /// Whether `prompt` template references are supported.
@@ -2063,24 +2111,23 @@ impl ProviderResponsesCapabilities {
         self.state.supports_previous_response_id()
     }
 
-    /// Projects the Provider ceiling into one concrete Target profile and replaces only state.
+    /// Projects non-media fields and requires one complete executable Target media profile.
     pub const fn to_executable(
         self,
         state: ExecutableResponsesState,
-        file_input: Option<ResponsesFileInputProfile>,
+        media: ResponsesMediaProfile,
     ) -> ResponsesCapabilities {
         ResponsesProfile {
             streaming: self.streaming,
             terminal_usage: self.terminal_usage,
             function_tools: self.function_tools,
-            image_input: self.image_input,
+            media,
             structured_outputs: self.structured_outputs,
             state,
             background: self.background,
             reasoning_output: self.reasoning_output,
             custom_tool_calling: self.custom_tool_calling,
             hosted_tools: self.hosted_tools,
-            file_input,
             conversation: self.conversation,
             prompt_templates: self.prompt_templates,
             prompt_cache_key: self.prompt_cache_key,
@@ -2096,7 +2143,7 @@ impl ProviderResponsesCapabilities {
         GenerationCapabilities {
             streaming: self.streaming,
             function_tools: self.function_tools,
-            image_input: self.image_input,
+            image_input: self.media.image,
             structured_outputs: self.structured_outputs,
             store: self.state.supports_store(),
             reasoning_output: self.reasoning_output,
@@ -2110,7 +2157,7 @@ impl ResponsesCapabilities {
         GenerationCapabilities {
             streaming: self.streaming,
             function_tools: self.function_tools,
-            image_input: self.image_input,
+            image_input: self.media.image,
             structured_outputs: self.structured_outputs,
             store: self.state.supports_store(),
             reasoning_output: self.reasoning_output,
@@ -2154,7 +2201,7 @@ impl ResponsesCapabilities {
             && (!self.terminal_usage || upper.terminal_usage)
             && self.state.is_subset_of(upper.state)
             && (!self.background || upper.background)
-            && optional_responses_file_input_is_subset_of(self.file_input, upper.file_input)
+            && self.media.is_subset_of(upper.media)
             && (!self.prompt_cache_key || upper.prompt_cache_key)
             && response_includes_are_subset_of(self.include, upper.include)
     }
@@ -2165,7 +2212,7 @@ impl<S: Copy> ResponsesProfile<S> {
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
             || !self.hosted_tools.is_empty()
-            || self.file_input.is_some()
+            || self.media.file.is_some()
             || self.conversation
             || self.prompt_templates
             || self.context_management

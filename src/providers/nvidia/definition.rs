@@ -29,7 +29,7 @@ const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 ///
 /// One PNG data-URL image is proven upstream (2026-08-10); JPEG is declared by
 /// OpenAI-compatible endpoint convention, no other media type was exercised.
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     4,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {
         remote: RemoteImageInputLimits::new(8_192),
@@ -58,15 +58,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(IMAGE_INPUT),
+            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
                 JsonSchemaSupport::StrictSupported,
             )),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
-            audio: None,
-            file_input: None,
             predicted_outputs: false,
             web_search: false,
             prompt_cache_key: false,

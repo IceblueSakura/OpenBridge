@@ -14,16 +14,16 @@ pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
     ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits,
     AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
-    ChatCompletionsProfile, ChatFileInputProfile, ExecutableAudioProfile, ExecutableResponsesState,
-    FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
-    ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
+    ChatCompletionsProfile, ChatFileInputProfile, ChatMediaProfile, ExecutableAudioProfile,
+    ExecutableResponsesState, FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind,
+    ImageDetail, ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
     ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
     JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
     ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
     ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-    ResponsesAffinity, ResponsesCapabilities, ResponsesFileInputProfile, ResponsesProfile,
-    SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming,
-    StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    ResponsesAffinity, ResponsesCapabilities, ResponsesFileInputProfile, ResponsesMediaProfile,
+    ResponsesProfile, SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery,
+    SseAudioFraming, StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
     VoiceCloneProfile, VoiceDesignProfile,
 };
 

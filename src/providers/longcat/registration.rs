@@ -30,7 +30,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("LongCat targets require Chat Completions capabilities")
-        .to_executable(None, None);
+        .to_executable(crate::core::ChatMediaProfile::default());
     let responses_capabilities = capabilities
         .operation(crate::core::OperationKind::Responses)
         .and_then(crate::core::ProviderOperationCapabilities::responses)
@@ -40,7 +40,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
                 StorageSupport::Unsupported,
                 ResponsesAffinity::TargetBound,
             ),
-            None,
+            crate::core::ResponsesMediaProfile::default(),
         );
 
     // Bind the fixed dual-operation surface to the trusted LongCat deployment.

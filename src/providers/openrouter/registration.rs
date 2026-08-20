@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::DEFINITION;
+use super::{DEFINITION, definition::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
 const STRUCTURED_OUTPUTS: StructuredOutputProfile =
@@ -61,13 +61,18 @@ fn dual_protocol_target(
     upstream_model: &str,
 ) -> UpstreamTargetConfig {
     // Narrow the generic OpenRouter ceiling to model-specific DeepSeek JSON Output evidence.
+    let chat_media = crate::core::ChatMediaProfile::new(
+        (canonical_model != deepseek::deepseek_v4_flash::ID).then_some(IMAGE_INPUT),
+        None,
+        None,
+    );
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenRouter targets require Chat Completions capabilities")
-        .to_executable(None, None);
+        .to_executable(chat_media);
     let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()
@@ -76,14 +81,10 @@ fn dual_protocol_target(
         .expect("OpenRouter targets require Responses capabilities")
         .to_executable(
             ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
-            None,
+            crate::core::ResponsesMediaProfile::default(),
         );
     chat_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
-    // DeepSeek V4 Flash is text-only; MiniMax M3 keeps the Chat family image ceiling.
-    if canonical_model == deepseek::deepseek_v4_flash::ID {
-        chat_capabilities.image_input = None;
-    }
     // Gemma 4 31B keeps JSON-object output and does not guarantee strict schema.
     if canonical_model == google::gemma_4_31b_it::ID {
         chat_capabilities.structured_outputs = Some(GEMMA_STRUCTURED_OUTPUTS);

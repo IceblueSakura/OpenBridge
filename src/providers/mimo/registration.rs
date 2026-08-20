@@ -18,7 +18,8 @@ use crate::{
 use super::{
     DEFINITION,
     definition::{
-        ASR_AUDIO, AUDIO_UNDERSTANDING, TTS_AUDIO, VOICE_CLONE_AUDIO, VOICE_DESIGN_AUDIO,
+        ASR_AUDIO, AUDIO_UNDERSTANDING, IMAGE_INPUT, TTS_AUDIO, VOICE_CLONE_AUDIO,
+        VOICE_DESIGN_AUDIO,
     },
 };
 
@@ -127,18 +128,27 @@ fn target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("MiMo targets require Chat Completions capabilities");
-    let mut chat_capabilities = chat_ceiling.to_executable(
-        match profile {
-            MimoTargetProfile::TextOnly => None,
-            MimoTargetProfile::MultimodalUnderstanding => Some(AUDIO_UNDERSTANDING),
-            MimoTargetProfile::Audio(audio) => Some(audio),
-        },
-        None,
-    );
+    let chat_media = match profile {
+        MimoTargetProfile::TextOnly => crate::core::ChatMediaProfile::default(),
+        MimoTargetProfile::MultimodalUnderstanding => {
+            crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), Some(AUDIO_UNDERSTANDING), None)
+        }
+        MimoTargetProfile::Audio(audio) => {
+            crate::core::ChatMediaProfile::new(None, Some(audio), None)
+        }
+    };
+    let mut chat_capabilities = chat_ceiling.to_executable(chat_media);
 
     // Narrow modalities and operation presence according to the closed model-specific profile.
     let responses_capabilities = match profile {
         MimoTargetProfile::TextOnly | MimoTargetProfile::MultimodalUnderstanding => {
+            let responses_media = match profile {
+                MimoTargetProfile::TextOnly => crate::core::ResponsesMediaProfile::default(),
+                MimoTargetProfile::MultimodalUnderstanding => {
+                    crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None)
+                }
+                MimoTargetProfile::Audio(_) => unreachable!("audio targets omit Responses"),
+            };
             let mut responses_capabilities = DEFINITION
                 .contract()
                 .capabilities()
@@ -150,16 +160,14 @@ fn target(
                         StorageSupport::Unsupported,
                         ResponsesAffinity::TargetBound,
                     ),
-                    None,
+                    responses_media,
                 );
             if matches!(profile, MimoTargetProfile::TextOnly) {
-                chat_capabilities.image_input = None;
                 chat_capabilities.function_tools =
                     chat_capabilities.function_tools.map(|mut profile| {
                         profile.parallel_calls = false;
                         profile
                     });
-                responses_capabilities.image_input = None;
                 responses_capabilities.function_tools =
                     responses_capabilities.function_tools.map(|mut profile| {
                         profile.parallel_calls = false;
@@ -170,7 +178,6 @@ fn target(
             Some(responses_capabilities)
         }
         MimoTargetProfile::Audio(_) => {
-            chat_capabilities.image_input = None;
             chat_capabilities.reasoning_output = ReasoningOutput::Unknown;
             chat_capabilities.function_tools = None;
             chat_capabilities.structured_outputs = None;

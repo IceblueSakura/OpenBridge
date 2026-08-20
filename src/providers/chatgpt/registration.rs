@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::DEFINITION;
+use super::{DEFINITION, definition::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "chatgpt";
 
@@ -135,6 +135,6 @@ fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilitie
     }
     UpstreamApiCapabilities::Responses(capabilities.to_executable(
         ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::TargetBound),
-        None,
+        crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
     ))
 }

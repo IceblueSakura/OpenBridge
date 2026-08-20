@@ -600,7 +600,7 @@ fn validate_upstream_api_model_task(
         UpstreamApiCapabilities::Embeddings(_) => key.task() == CanonicalTaskKind::Embedding,
         UpstreamApiCapabilities::Responses(_) => key.task() == CanonicalTaskKind::Generation,
         UpstreamApiCapabilities::ChatCompletions(capabilities) => {
-            match (key.task(), capabilities.audio) {
+            match (key.task(), capabilities.media.audio) {
                 (CanonicalTaskKind::Generation, None) => true,
                 (
                     CanonicalTaskKind::Generation,

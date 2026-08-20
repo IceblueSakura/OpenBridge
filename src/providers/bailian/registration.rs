@@ -146,7 +146,7 @@ fn chat_target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("Bailian generation targets require Chat Completions capabilities")
-        .to_executable(None, None);
+        .to_executable(crate::core::ChatMediaProfile::default());
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
         profile.parallel_calls = matches!(
             canonical_model,
@@ -193,7 +193,7 @@ fn chat_target(
                     StorageSupport::Unsupported,
                     ResponsesAffinity::TargetBound,
                 ),
-                None,
+                crate::core::ResponsesMediaProfile::default(),
             );
         responses_capabilities.function_tools =
             responses_capabilities.function_tools.map(|mut profile| {

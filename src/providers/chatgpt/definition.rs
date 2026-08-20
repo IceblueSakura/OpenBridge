@@ -38,7 +38,7 @@ const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
     ImageMediaType::Webp,
 ];
 /// Conservative Codex Responses profile for one inline image without explicit detail controls.
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     1,
     ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(
         IMAGE_MEDIA_TYPES,
@@ -65,7 +65,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(IMAGE_INPUT),
+            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
                 JsonSchemaSupport::StrictSupported,
             )),
@@ -74,7 +74,6 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             reasoning_output: ReasoningOutput::Summary,
             custom_tool_calling: false,
             hosted_tools: &[],
-            file_input: None,
             conversation: false,
             prompt_templates: false,
             prompt_cache_key: true,

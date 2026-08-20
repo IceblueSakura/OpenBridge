@@ -24,7 +24,7 @@ use crate::{
     },
 };
 
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     64,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {
         remote: RemoteImageInputLimits::new(8_192),
@@ -198,13 +198,11 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(IMAGE_INPUT),
+            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), Some(AUDIO_CEILING), None),
             structured_outputs: Some(StructuredOutputProfile::JsonObject),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
-            audio: Some(AUDIO_CEILING),
-            file_input: None,
             predicted_outputs: false,
             web_search: false,
             prompt_cache_key: false,
@@ -223,14 +221,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(IMAGE_INPUT),
+            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(StructuredOutputProfile::JsonObject),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
-            file_input: None,
             conversation: false,
             prompt_templates: false,
             prompt_cache_key: true,

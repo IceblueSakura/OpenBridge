@@ -6,7 +6,11 @@ use std::{collections::BTreeSet, path::Path};
 
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
-    core::{ExecutableResponsesState, OperationKind, ResponsesAffinity, StorageSupport},
+    core::{
+        ChatMediaProfile, ExecutableResponsesState, ImageDetailPolicy, ImageInputCapabilities,
+        ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
+        OperationKind, ResponsesAffinity, StorageSupport,
+    },
     provider::{CredentialKind, ProviderKind},
     providers::build_compiled_registry_with_active_pools,
     registry::{
@@ -80,6 +84,26 @@ fn shared_generation_fixture_denies_optional_api_capabilities_by_default() {
     assert!(!responses.streaming);
     assert!(!responses.terminal_usage);
     assert!(responses.function_tools.is_none());
+}
+
+#[test]
+fn default_target_media_does_not_inherit_the_provider_image_ceiling() {
+    let mut ceiling = support::capabilities()
+        .operation(OperationKind::ChatCompletions)
+        .and_then(openbridge::core::ProviderOperationCapabilities::chat_completions)
+        .unwrap();
+    ceiling.media.image = Some(ImageInputCapabilities::new(
+        1,
+        ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(
+            &[ImageMediaType::Png],
+            InlineImageInputLimits::new(4, 1, 4, 1),
+        )),
+        ImageDetailPolicy::OmittedOnly { default: None },
+    ));
+
+    let executable = ceiling.to_executable(ChatMediaProfile::default());
+
+    assert_eq!(executable.media, ChatMediaProfile::default());
 }
 
 #[test]

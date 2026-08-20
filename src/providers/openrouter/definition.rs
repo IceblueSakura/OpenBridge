@@ -27,7 +27,7 @@ const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncry
 ///
 /// One PNG data-URL image is proven upstream on MiniMax M3 (2026-08-10); JPEG is
 /// declared by OpenAI-compatible endpoint convention, no other media type was exercised.
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     4,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {
         remote: RemoteImageInputLimits::new(8_192),
@@ -56,13 +56,11 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: Some(IMAGE_INPUT),
+            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
-            audio: None,
-            file_input: None,
             predicted_outputs: false,
             web_search: false,
             prompt_cache_key: true,
@@ -81,14 +79,13 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            image_input: None,
+            media: crate::core::ResponsesMediaProfile::new(None, None),
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
             reasoning_output: ReasoningOutput::PlainText,
             custom_tool_calling: false,
             hosted_tools: &[],
-            file_input: None,
             conversation: false,
             prompt_templates: false,
             prompt_cache_key: true,
