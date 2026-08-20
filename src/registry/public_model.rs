@@ -11,9 +11,9 @@ use crate::core::{
     ChatCompletionsCapabilities, ChatFileInputProfile, EmbeddingDimensionDomain, EmbeddingEncoding,
     EmbeddingInputForm, ExecutableAudioProfile, GeneratedAudioCapabilities, ImageDetail,
     ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
-    ImageSourceCapabilities, InlineImageInputProfile, JsonAudioFraming, ReasoningOutput,
-    ResponseInclude, ResponsesCapabilities, ResponsesFileInputProfile, SseAudioFraming,
-    StructuredOutputProfile,
+    ImageSourceCapabilities, InlineAudioInputProfile, InlineImageInputProfile, JsonAudioFraming,
+    ReasoningOutput, RemoteAudioInputProfile, ResponseInclude, ResponsesCapabilities,
+    ResponsesFileInputProfile, SseAudioFraming, StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -326,7 +326,7 @@ struct ImageInputInterfaceCapabilitiesWire {
     limits: ImageInputLimits,
 }
 
-/// Public source and size limits for one typed audio input profile.
+/// Flat Models v1 wire projection of source-owned audio limits.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct AudioInputLimits {
     max_parts: u32,
@@ -337,104 +337,284 @@ pub struct AudioInputLimits {
     max_total_inline_decoded_bytes: u32,
 }
 
-/// Typed audio source and format contract for one Native Chat interface.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OwnedRemoteAudioInputProfile {
+    formats: Vec<AudioFormat>,
+    max_url_length: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OwnedInlineAudioInputProfile {
+    formats: Vec<AudioFormat>,
+    max_inline_encoded_bytes: u32,
+    max_inline_decoded_bytes: u32,
+    max_total_inline_encoded_bytes: u32,
+    max_total_inline_decoded_bytes: u32,
+}
+
+/// Typed source-owned audio contract for one Native Chat interface.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AudioInputInterfaceCapabilities {
+    max_parts: u32,
+    remote_url: Option<OwnedRemoteAudioInputProfile>,
+    data_url: Option<OwnedInlineAudioInputProfile>,
+    base64: Option<OwnedInlineAudioInputProfile>,
+}
+
+#[derive(Serialize)]
+struct AudioInputInterfaceCapabilitiesWire {
     sources: Vec<AudioInputSource>,
     formats: Vec<AudioFormat>,
     limits: AudioInputLimits,
+}
+
+impl OwnedRemoteAudioInputProfile {
+    fn from_capabilities(value: RemoteAudioInputProfile) -> Self {
+        Self {
+            formats: value.formats().to_vec(),
+            max_url_length: value.max_url_length(),
+        }
+    }
+
+    fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
+        let values = values.collect::<Option<Vec<_>>>()?;
+        let mut result = values.first()?.to_owned().clone();
+        result
+            .formats
+            .retain(|format| values.iter().all(|value| value.formats.contains(format)));
+        result.max_url_length = values.iter().map(|value| value.max_url_length).min()?;
+        (!result.formats.is_empty()).then_some(result)
+    }
+}
+
+impl OwnedInlineAudioInputProfile {
+    fn from_capabilities(value: InlineAudioInputProfile) -> Self {
+        let limits = value.limits();
+        Self {
+            formats: value.formats().to_vec(),
+            max_inline_encoded_bytes: limits.max_inline_encoded_bytes(),
+            max_inline_decoded_bytes: limits.max_inline_decoded_bytes(),
+            max_total_inline_encoded_bytes: limits.max_total_inline_encoded_bytes(),
+            max_total_inline_decoded_bytes: limits.max_total_inline_decoded_bytes(),
+        }
+    }
+
+    fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
+        let values = values.collect::<Option<Vec<_>>>()?;
+        let mut result = values.first()?.to_owned().clone();
+        result
+            .formats
+            .retain(|format| values.iter().all(|value| value.formats.contains(format)));
+        result.max_inline_encoded_bytes = values
+            .iter()
+            .map(|value| value.max_inline_encoded_bytes)
+            .min()?;
+        result.max_inline_decoded_bytes = values
+            .iter()
+            .map(|value| value.max_inline_decoded_bytes)
+            .min()?;
+        result.max_total_inline_encoded_bytes = values
+            .iter()
+            .map(|value| value.max_total_inline_encoded_bytes)
+            .min()?;
+        result.max_total_inline_decoded_bytes = values
+            .iter()
+            .map(|value| value.max_total_inline_decoded_bytes)
+            .min()?;
+        (!result.formats.is_empty()).then_some(result)
+    }
+
+    fn narrow_to_parts(&mut self, max_parts: u32) {
+        self.max_total_inline_encoded_bytes = self
+            .max_total_inline_encoded_bytes
+            .min(self.max_inline_encoded_bytes.saturating_mul(max_parts));
+        self.max_total_inline_decoded_bytes = self
+            .max_total_inline_decoded_bytes
+            .min(self.max_inline_decoded_bytes.saturating_mul(max_parts));
+    }
 }
 
 impl AudioInputInterfaceCapabilities {
     /// Converts one static audio input profile into a downstream-safe owned contract.
     fn from_capabilities(value: AudioInputCapabilities) -> Self {
         Self {
-            sources: value.sources().to_vec(),
-            formats: value.formats().to_vec(),
-            limits: AudioInputLimits {
-                max_parts: value.max_parts(),
-                max_url_length: value.max_url_length(),
-                max_inline_encoded_bytes: value.max_inline_encoded_bytes(),
-                max_inline_decoded_bytes: value.max_inline_decoded_bytes(),
-                max_total_inline_encoded_bytes: value.max_total_inline_encoded_bytes(),
-                max_total_inline_decoded_bytes: value.max_total_inline_decoded_bytes(),
-            },
+            max_parts: value.max_parts(),
+            remote_url: value
+                .remote_url()
+                .map(OwnedRemoteAudioInputProfile::from_capabilities),
+            data_url: value
+                .data_url()
+                .map(OwnedInlineAudioInputProfile::from_capabilities),
+            base64: value
+                .base64()
+                .map(OwnedInlineAudioInputProfile::from_capabilities),
         }
     }
 
     /// Intersects all candidate profiles without exposing Route or Provider identity.
     fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
         let values = values.collect::<Option<Vec<_>>>()?;
-        let first = values.first()?.to_owned().clone();
-        let mut result = first;
-        result
-            .sources
-            .retain(|source| values.iter().all(|value| value.sources.contains(source)));
-        result
-            .formats
-            .retain(|format| values.iter().all(|value| value.formats.contains(format)));
-        result.limits.max_parts = values.iter().map(|value| value.limits.max_parts).min()?;
-        result.limits.max_url_length = values
-            .iter()
-            .map(|value| value.limits.max_url_length)
-            .min()?;
-        result.limits.max_inline_encoded_bytes = values
-            .iter()
-            .map(|value| value.limits.max_inline_encoded_bytes)
-            .min()?;
-        result.limits.max_inline_decoded_bytes = values
-            .iter()
-            .map(|value| value.limits.max_inline_decoded_bytes)
-            .min()?;
-        result.limits.max_total_inline_encoded_bytes = values
-            .iter()
-            .map(|value| value.limits.max_total_inline_encoded_bytes)
-            .min()?;
-        result.limits.max_total_inline_decoded_bytes = values
-            .iter()
-            .map(|value| value.limits.max_total_inline_decoded_bytes)
-            .min()?;
-        (!result.sources.is_empty() && !result.formats.is_empty()).then_some(result)
+        let max_parts = values.iter().map(|value| value.max_parts).min()?;
+        let remote_url = OwnedRemoteAudioInputProfile::intersection(
+            values.iter().map(|value| value.remote_url.as_ref()),
+        );
+        let mut data_url = OwnedInlineAudioInputProfile::intersection(
+            values.iter().map(|value| value.data_url.as_ref()),
+        );
+        let mut base64 = OwnedInlineAudioInputProfile::intersection(
+            values.iter().map(|value| value.base64.as_ref()),
+        );
+        if let Some(profile) = data_url.as_mut() {
+            profile.narrow_to_parts(max_parts);
+        }
+        if let Some(profile) = base64.as_mut() {
+            profile.narrow_to_parts(max_parts);
+        }
+        (remote_url.is_some() || data_url.is_some() || base64.is_some()).then_some(Self {
+            max_parts,
+            remote_url,
+            data_url,
+            base64,
+        })
     }
 
     /// Returns whether this interface accepts one audio source.
     pub(crate) fn supports_source(&self, source: AudioInputSource) -> bool {
-        self.sources.contains(&source)
+        match source {
+            AudioInputSource::RemoteUrl => self.remote_url.is_some(),
+            AudioInputSource::DataUrl => self.data_url.is_some(),
+            AudioInputSource::Base64 => self.base64.is_some(),
+        }
     }
 
-    /// Returns whether this interface accepts one audio format.
-    pub(crate) fn supports_format(&self, format: AudioFormat) -> bool {
-        self.formats.contains(&format)
+    /// Returns whether one source accepts one audio format.
+    pub(crate) fn supports_format(&self, source: AudioInputSource, format: AudioFormat) -> bool {
+        match source {
+            AudioInputSource::RemoteUrl => self
+                .remote_url
+                .as_ref()
+                .is_some_and(|profile| profile.formats.contains(&format)),
+            AudioInputSource::DataUrl => self
+                .data_url
+                .as_ref()
+                .is_some_and(|profile| profile.formats.contains(&format)),
+            AudioInputSource::Base64 => self
+                .base64
+                .as_ref()
+                .is_some_and(|profile| profile.formats.contains(&format)),
+        }
     }
 
     /// Returns the maximum number of audio parts accepted by one request.
     pub(crate) const fn max_parts(&self) -> u32 {
-        self.limits.max_parts
+        self.max_parts
     }
 
-    /// Returns the maximum URL length accepted by this interface.
-    pub(crate) const fn max_url_length(&self) -> u32 {
-        self.limits.max_url_length
+    /// Returns the maximum URL length when the remote source is present.
+    pub(crate) fn max_url_length(&self) -> Option<u32> {
+        self.remote_url
+            .as_ref()
+            .map(|profile| profile.max_url_length)
     }
 
-    /// Returns the maximum encoded inline input size.
-    pub(crate) const fn max_inline_encoded_bytes(&self) -> u32 {
-        self.limits.max_inline_encoded_bytes
+    fn inline_profile(&self, source: AudioInputSource) -> Option<&OwnedInlineAudioInputProfile> {
+        match source {
+            AudioInputSource::DataUrl => self.data_url.as_ref(),
+            AudioInputSource::Base64 => self.base64.as_ref(),
+            AudioInputSource::RemoteUrl => None,
+        }
     }
 
-    /// Returns the maximum decoded inline input size.
-    pub(crate) const fn max_inline_decoded_bytes(&self) -> u32 {
-        self.limits.max_inline_decoded_bytes
+    pub(crate) fn max_inline_encoded_bytes(&self, source: AudioInputSource) -> Option<u32> {
+        self.inline_profile(source)
+            .map(|profile| profile.max_inline_encoded_bytes)
     }
 
-    /// Returns the cumulative encoded inline input limit.
-    pub(crate) const fn max_total_inline_encoded_bytes(&self) -> u32 {
-        self.limits.max_total_inline_encoded_bytes
+    pub(crate) fn max_inline_decoded_bytes(&self, source: AudioInputSource) -> Option<u32> {
+        self.inline_profile(source)
+            .map(|profile| profile.max_inline_decoded_bytes)
     }
 
-    /// Returns the cumulative decoded inline input limit.
-    pub(crate) const fn max_total_inline_decoded_bytes(&self) -> u32 {
-        self.limits.max_total_inline_decoded_bytes
+    pub(crate) fn max_total_inline_encoded_bytes(&self, source: AudioInputSource) -> Option<u32> {
+        self.inline_profile(source)
+            .map(|profile| profile.max_total_inline_encoded_bytes)
+    }
+
+    pub(crate) fn max_total_inline_decoded_bytes(&self, source: AudioInputSource) -> Option<u32> {
+        self.inline_profile(source)
+            .map(|profile| profile.max_total_inline_decoded_bytes)
+    }
+
+    /// Projects source-owned profiles into the stable flat Models v1 representation.
+    fn wire_projection(&self) -> AudioInputInterfaceCapabilitiesWire {
+        let source_profiles = [
+            self.remote_url
+                .as_ref()
+                .map(|profile| (AudioInputSource::RemoteUrl, profile.formats.as_slice())),
+            self.data_url
+                .as_ref()
+                .map(|profile| (AudioInputSource::DataUrl, profile.formats.as_slice())),
+            self.base64
+                .as_ref()
+                .map(|profile| (AudioInputSource::Base64, profile.formats.as_slice())),
+        ];
+        let sources = source_profiles
+            .iter()
+            .flatten()
+            .map(|(source, _)| *source)
+            .collect::<Vec<_>>();
+        let mut format_domains = source_profiles
+            .iter()
+            .flatten()
+            .map(|(_, formats)| *formats);
+        let mut formats = format_domains.next().unwrap_or_default().to_vec();
+        for domain in format_domains {
+            formats.retain(|format| domain.contains(format));
+        }
+
+        let inline_profiles = [self.data_url.as_ref(), self.base64.as_ref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let minimum_inline = |value: fn(&OwnedInlineAudioInputProfile) -> u32| {
+            inline_profiles.iter().map(|profile| value(profile)).min()
+        };
+        AudioInputInterfaceCapabilitiesWire {
+            sources,
+            formats,
+            limits: AudioInputLimits {
+                max_parts: self.max_parts,
+                max_url_length: self
+                    .remote_url
+                    .as_ref()
+                    .map_or(0, |profile| profile.max_url_length),
+                max_inline_encoded_bytes: minimum_inline(|profile| {
+                    profile.max_inline_encoded_bytes
+                })
+                .unwrap_or(0),
+                max_inline_decoded_bytes: minimum_inline(|profile| {
+                    profile.max_inline_decoded_bytes
+                })
+                .unwrap_or(0),
+                max_total_inline_encoded_bytes: minimum_inline(|profile| {
+                    profile.max_total_inline_encoded_bytes
+                })
+                .unwrap_or(0),
+                max_total_inline_decoded_bytes: minimum_inline(|profile| {
+                    profile.max_total_inline_decoded_bytes
+                })
+                .unwrap_or(0),
+            },
+        }
+    }
+}
+
+impl Serialize for AudioInputInterfaceCapabilities {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.wire_projection().serialize(serializer)
     }
 }
 

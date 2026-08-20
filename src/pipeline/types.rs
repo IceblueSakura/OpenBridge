@@ -1,6 +1,6 @@
 //! Request facts and Route execution-plan data types.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     bridge::BridgePlan,
@@ -222,9 +222,16 @@ pub(super) enum RequestedVoice {
 /// Frozen source, format, and size facts for one audio resource set.
 #[derive(Debug, Default)]
 pub(super) struct AudioInputRequirements {
-    pub(super) sources: BTreeSet<AudioInputSource>,
-    pub(super) formats: BTreeSet<AudioFormat>,
+    pub(super) sources: BTreeMap<AudioInputSource, AudioInputSourceRequirements>,
     pub(super) part_count: u32,
+    pub(super) total_inline_encoded_bytes: u32,
+    pub(super) total_inline_decoded_bytes: u32,
+}
+
+/// Source-owned request facts retained without media bytes or URLs.
+#[derive(Debug, Default)]
+pub(super) struct AudioInputSourceRequirements {
+    pub(super) formats: BTreeSet<AudioFormat>,
     pub(super) max_url_length: u32,
     pub(super) max_inline_encoded_bytes: u32,
     pub(super) max_inline_decoded_bytes: u32,

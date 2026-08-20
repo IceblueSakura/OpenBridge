@@ -226,38 +226,6 @@ impl AudioFormat {
     }
 }
 
-/// Returns whether a source set contains one source without relying on non-const slice helpers.
-const fn contains_audio_input_source(
-    sources: &[AudioInputSource],
-    expected: AudioInputSource,
-) -> bool {
-    let mut index = 0;
-    while index < sources.len() {
-        if sources[index] as usize == expected as usize {
-            return true;
-        }
-        index += 1;
-    }
-    false
-}
-
-/// Rejects empty or duplicate source sets during const profile construction.
-const fn assert_unique_audio_input_sources(sources: &[AudioInputSource]) {
-    assert!(!sources.is_empty(), "audio input sources must not be empty");
-    let mut left = 0;
-    while left < sources.len() {
-        let mut right = left + 1;
-        while right < sources.len() {
-            assert!(
-                sources[left] as usize != sources[right] as usize,
-                "audio input sources must not contain duplicates"
-            );
-            right += 1;
-        }
-        left += 1;
-    }
-}
-
 /// Rejects duplicate audio-format entries during const profile construction.
 const fn assert_unique_audio_formats(formats: &[AudioFormat]) {
     let mut left = 0;
@@ -308,77 +276,83 @@ const fn static_str_eq(left: &str, right: &str) -> bool {
     true
 }
 
-/// Coherent cardinality and byte limits used to construct one audio-input profile.
+/// Remote-URL audio source payload with its own format domain and URL limit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AudioInputLimits {
-    max_parts: u32,
+pub struct RemoteAudioInputProfile {
+    formats: &'static [AudioFormat],
     max_url_length: u32,
+}
+
+impl RemoteAudioInputProfile {
+    /// Creates a checked remote-URL profile.
+    pub const fn new(formats: &'static [AudioFormat], max_url_length: u32) -> Self {
+        assert!(
+            !formats.is_empty(),
+            "remote audio formats must not be empty"
+        );
+        assert_unique_audio_formats(formats);
+        assert!(
+            max_url_length > 0,
+            "remote audio URL limit must be positive"
+        );
+        Self {
+            formats,
+            max_url_length,
+        }
+    }
+
+    /// Returns formats accepted for this remote source.
+    pub const fn formats(self) -> &'static [AudioFormat] {
+        self.formats
+    }
+
+    /// Returns the maximum UTF-8 URL length.
+    pub const fn max_url_length(self) -> u32 {
+        self.max_url_length
+    }
+
+    fn is_subset_of(self, upper: Self) -> bool {
+        self.formats
+            .iter()
+            .all(|format| upper.formats.contains(format))
+            && self.max_url_length <= upper.max_url_length
+    }
+}
+
+/// Per-item and cumulative byte budgets owned by one inline audio source.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InlineAudioInputLimits {
     max_inline_encoded_bytes: u32,
     max_inline_decoded_bytes: u32,
     max_total_inline_encoded_bytes: u32,
     max_total_inline_decoded_bytes: u32,
 }
 
-impl AudioInputLimits {
-    /// Creates source-agnostic limits whose nonzero groups are internally coherent.
-    ///
-    /// `max_url_length` is zero when remote URLs are absent. All four inline limits are zero when
-    /// data URLs and pure Base64 are absent. [`AudioInputCapabilities::new`] binds those groups to
-    /// the exact declared source set.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `max_parts` is zero, an inline group is partial, or an aggregate inline budget
-    /// is outside the reachable per-part capacity.
+impl InlineAudioInputLimits {
+    /// Creates coherent positive inline audio budgets.
     pub const fn new(
-        max_parts: u32,
-        max_url_length: u32,
         max_inline_encoded_bytes: u32,
         max_inline_decoded_bytes: u32,
         max_total_inline_encoded_bytes: u32,
         max_total_inline_decoded_bytes: u32,
     ) -> Self {
-        // Validate request cardinality independently of the source set that will consume it.
-        assert!(max_parts > 0, "audio input max_parts must be positive");
-        let has_any_inline_limit = max_inline_encoded_bytes > 0
-            || max_inline_decoded_bytes > 0
-            || max_total_inline_encoded_bytes > 0
-            || max_total_inline_decoded_bytes > 0;
-
-        // Validate inline limits as an all-or-nothing bounded group.
-        if has_any_inline_limit {
-            assert!(
-                max_inline_encoded_bytes > 0,
-                "inline audio input requires a positive encoded-byte limit"
-            );
-            assert!(
-                max_inline_decoded_bytes > 0,
-                "inline audio input requires a positive decoded-byte limit"
-            );
-            assert!(
-                max_total_inline_encoded_bytes >= max_inline_encoded_bytes,
-                "total encoded-byte limit must cover one inline audio resource"
-            );
-            assert!(
-                max_total_inline_decoded_bytes >= max_inline_decoded_bytes,
-                "total decoded-byte limit must cover one inline audio resource"
-            );
-            assert!(
-                max_total_inline_encoded_bytes as u64
-                    <= max_inline_encoded_bytes as u64 * max_parts as u64,
-                "total encoded-byte limit exceeds the declared per-part capacity"
-            );
-            assert!(
-                max_total_inline_decoded_bytes as u64
-                    <= max_inline_decoded_bytes as u64 * max_parts as u64,
-                "total decoded-byte limit exceeds the declared per-part capacity"
-            );
-        }
-
-        // Construct the reusable limit group after all numeric invariants hold.
+        assert!(
+            max_inline_encoded_bytes > 0,
+            "inline audio encoded-byte limit must be positive"
+        );
+        assert!(
+            max_inline_decoded_bytes > 0,
+            "inline audio decoded-byte limit must be positive"
+        );
+        assert!(
+            max_total_inline_encoded_bytes >= max_inline_encoded_bytes,
+            "total encoded-byte limit must cover one inline audio resource"
+        );
+        assert!(
+            max_total_inline_decoded_bytes >= max_inline_decoded_bytes,
+            "total decoded-byte limit must cover one inline audio resource"
+        );
         Self {
-            max_parts,
-            max_url_length,
             max_inline_encoded_bytes,
             max_inline_decoded_bytes,
             max_total_inline_encoded_bytes,
@@ -386,131 +360,196 @@ impl AudioInputLimits {
         }
     }
 
-    /// Returns whether the complete inline limit group is present.
-    const fn has_inline_limits(self) -> bool {
-        self.max_inline_encoded_bytes > 0
+    /// Returns the per-resource encoded-byte limit.
+    pub const fn max_inline_encoded_bytes(self) -> u32 {
+        self.max_inline_encoded_bytes
+    }
+
+    /// Returns the per-resource decoded-byte limit.
+    pub const fn max_inline_decoded_bytes(self) -> u32 {
+        self.max_inline_decoded_bytes
+    }
+
+    /// Returns the cumulative encoded-byte limit.
+    pub const fn max_total_inline_encoded_bytes(self) -> u32 {
+        self.max_total_inline_encoded_bytes
+    }
+
+    /// Returns the cumulative decoded-byte limit.
+    pub const fn max_total_inline_decoded_bytes(self) -> u32 {
+        self.max_total_inline_decoded_bytes
+    }
+
+    fn is_subset_of(self, upper: Self) -> bool {
+        self.max_inline_encoded_bytes <= upper.max_inline_encoded_bytes
+            && self.max_inline_decoded_bytes <= upper.max_inline_decoded_bytes
+            && self.max_total_inline_encoded_bytes <= upper.max_total_inline_encoded_bytes
+            && self.max_total_inline_decoded_bytes <= upper.max_total_inline_decoded_bytes
+    }
+
+    const fn is_reachable_for(self, max_parts: u32) -> bool {
+        self.max_total_inline_encoded_bytes as u64
+            <= self.max_inline_encoded_bytes as u64 * max_parts as u64
+            && self.max_total_inline_decoded_bytes as u64
+                <= self.max_inline_decoded_bytes as u64 * max_parts as u64
+    }
+}
+
+/// Data-URL or pure-Base64 source payload with its own formats and inline budgets.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InlineAudioInputProfile {
+    formats: &'static [AudioFormat],
+    limits: InlineAudioInputLimits,
+}
+
+impl InlineAudioInputProfile {
+    /// Creates one checked inline source profile.
+    pub const fn new(formats: &'static [AudioFormat], limits: InlineAudioInputLimits) -> Self {
+        assert!(
+            !formats.is_empty(),
+            "inline audio formats must not be empty"
+        );
+        assert_unique_audio_formats(formats);
+        Self { formats, limits }
+    }
+
+    /// Returns formats accepted by this inline source.
+    pub const fn formats(self) -> &'static [AudioFormat] {
+        self.formats
+    }
+
+    /// Returns the complete byte-budget payload for this inline source.
+    pub const fn limits(self) -> InlineAudioInputLimits {
+        self.limits
+    }
+
+    fn is_subset_of(self, upper: Self) -> bool {
+        self.formats
+            .iter()
+            .all(|format| upper.formats.contains(format))
+            && self.limits.is_subset_of(upper.limits)
     }
 }
 
 /// Typed limits and sources for inbound audio resources in one task request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AudioInputCapabilities {
-    sources: &'static [AudioInputSource],
-    formats: &'static [AudioFormat],
-    limits: AudioInputLimits,
+    max_parts: u32,
+    remote_url: Option<RemoteAudioInputProfile>,
+    data_url: Option<InlineAudioInputProfile>,
+    base64: Option<InlineAudioInputProfile>,
 }
 
 impl AudioInputCapabilities {
-    /// Creates a complete audio-input profile with coherent source-specific limits.
+    /// Creates a complete audio-input profile whose present sources own their formats and limits.
     ///
     /// # Panics
     ///
-    /// Panics when a set is empty or contains duplicates, or when the declared sources do not
-    /// exactly match the remote and inline groups represented by `limits`.
+    /// Panics when `max_parts` is zero, no source is present, or an inline cumulative budget is not
+    /// reachable under the request cardinality.
     pub const fn new(
-        sources: &'static [AudioInputSource],
-        formats: &'static [AudioFormat],
-        limits: AudioInputLimits,
+        max_parts: u32,
+        remote_url: Option<RemoteAudioInputProfile>,
+        data_url: Option<InlineAudioInputProfile>,
+        base64: Option<InlineAudioInputProfile>,
     ) -> Self {
-        // Validate the set-valued input dimensions.
-        assert_unique_audio_input_sources(sources);
-        assert!(!formats.is_empty(), "audio input formats must not be empty");
-        assert_unique_audio_formats(formats);
-
-        // Bind remote-URL source presence to the checked URL limit group.
-        let accepts_remote = contains_audio_input_source(sources, AudioInputSource::RemoteUrl);
-        if accepts_remote {
+        assert!(max_parts > 0, "audio input max_parts must be positive");
+        assert!(
+            remote_url.is_some() || data_url.is_some() || base64.is_some(),
+            "audio input requires at least one source profile"
+        );
+        if let Some(profile) = data_url {
             assert!(
-                limits.max_url_length > 0,
-                "remote audio input requires a positive URL length limit"
-            );
-        } else {
-            assert!(
-                limits.max_url_length == 0,
-                "audio input without remote URLs must have a zero URL length limit"
+                profile.limits.is_reachable_for(max_parts),
+                "data-URL audio total limits must be reachable"
             );
         }
-
-        // Bind inline source presence to the checked inline limit group.
-        let accepts_inline = contains_audio_input_source(sources, AudioInputSource::DataUrl)
-            || contains_audio_input_source(sources, AudioInputSource::Base64);
-        if accepts_inline {
+        if let Some(profile) = base64 {
             assert!(
-                limits.has_inline_limits(),
-                "inline audio input requires inline byte limits"
-            );
-        } else {
-            assert!(
-                !limits.has_inline_limits(),
-                "audio input without inline sources must have zero inline limits"
+                profile.limits.is_reachable_for(max_parts),
+                "Base64 audio total limits must be reachable"
             );
         }
-
-        // Construct a profile whose private fields now satisfy all primitive invariants.
         Self {
-            sources,
-            formats,
-            limits,
+            max_parts,
+            remote_url,
+            data_url,
+            base64,
         }
     }
 
-    /// Returns the accepted URL, data-URL, or pure-Base64 source forms.
-    pub const fn sources(self) -> &'static [AudioInputSource] {
-        self.sources
+    /// Returns whether the profile includes one source-owned payload.
+    pub const fn supports_source(self, source: AudioInputSource) -> bool {
+        match source {
+            AudioInputSource::RemoteUrl => self.remote_url.is_some(),
+            AudioInputSource::DataUrl => self.data_url.is_some(),
+            AudioInputSource::Base64 => self.base64.is_some(),
+        }
     }
 
-    /// Returns the accepted audio formats.
-    pub const fn formats(self) -> &'static [AudioFormat] {
-        self.formats
+    /// Returns whether one source accepts the requested format.
+    pub fn supports_format(self, source: AudioInputSource, format: AudioFormat) -> bool {
+        match source {
+            AudioInputSource::RemoteUrl => self
+                .remote_url
+                .is_some_and(|profile| profile.formats.contains(&format)),
+            AudioInputSource::DataUrl => self
+                .data_url
+                .is_some_and(|profile| profile.formats.contains(&format)),
+            AudioInputSource::Base64 => self
+                .base64
+                .is_some_and(|profile| profile.formats.contains(&format)),
+        }
+    }
+
+    /// Returns the remote-URL source payload when enabled.
+    pub const fn remote_url(self) -> Option<RemoteAudioInputProfile> {
+        self.remote_url
+    }
+
+    /// Returns the data-URL source payload when enabled.
+    pub const fn data_url(self) -> Option<InlineAudioInputProfile> {
+        self.data_url
+    }
+
+    /// Returns the pure-Base64 source payload when enabled.
+    pub const fn base64(self) -> Option<InlineAudioInputProfile> {
+        self.base64
     }
 
     /// Returns the maximum number of audio resources in one task request.
     pub const fn max_parts(self) -> u32 {
-        self.limits.max_parts
-    }
-
-    /// Returns the maximum UTF-8 byte length of one remote URL.
-    pub const fn max_url_length(self) -> u32 {
-        self.limits.max_url_length
-    }
-
-    /// Returns the maximum encoded size of one inline resource.
-    pub const fn max_inline_encoded_bytes(self) -> u32 {
-        self.limits.max_inline_encoded_bytes
-    }
-
-    /// Returns the maximum decoded size of one inline resource.
-    pub const fn max_inline_decoded_bytes(self) -> u32 {
-        self.limits.max_inline_decoded_bytes
-    }
-
-    /// Returns the maximum encoded size of all inline resources.
-    pub const fn max_total_inline_encoded_bytes(self) -> u32 {
-        self.limits.max_total_inline_encoded_bytes
-    }
-
-    /// Returns the maximum decoded size of all inline resources.
-    pub const fn max_total_inline_decoded_bytes(self) -> u32 {
-        self.limits.max_total_inline_decoded_bytes
+        self.max_parts
     }
 
     /// Returns whether one profile is no broader than this profile.
     pub(crate) fn is_subset_of(self, upper: Self) -> bool {
-        self.sources
-            .iter()
-            .all(|source| upper.sources.contains(source))
-            && self
-                .formats
-                .iter()
-                .all(|format| upper.formats.contains(format))
-            && self.limits.max_parts <= upper.limits.max_parts
-            && self.limits.max_url_length <= upper.limits.max_url_length
-            && self.limits.max_inline_encoded_bytes <= upper.limits.max_inline_encoded_bytes
-            && self.limits.max_inline_decoded_bytes <= upper.limits.max_inline_decoded_bytes
-            && self.limits.max_total_inline_encoded_bytes
-                <= upper.limits.max_total_inline_encoded_bytes
-            && self.limits.max_total_inline_decoded_bytes
-                <= upper.limits.max_total_inline_decoded_bytes
+        self.max_parts <= upper.max_parts
+            && optional_remote_audio_is_subset_of(self.remote_url, upper.remote_url)
+            && optional_inline_audio_is_subset_of(self.data_url, upper.data_url)
+            && optional_inline_audio_is_subset_of(self.base64, upper.base64)
+    }
+}
+
+fn optional_remote_audio_is_subset_of(
+    value: Option<RemoteAudioInputProfile>,
+    upper: Option<RemoteAudioInputProfile>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
+    }
+}
+
+fn optional_inline_audio_is_subset_of(
+    value: Option<InlineAudioInputProfile>,
+    upper: Option<InlineAudioInputProfile>,
+) -> bool {
+    match (value, upper) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(value), Some(upper)) => value.is_subset_of(upper),
     }
 }
 
@@ -2242,4 +2281,39 @@ fn response_includes_are_subset_of(values: &[ResponseInclude], upper: &[Response
 
     // Require every executable projection to be explicitly present in the Provider ceiling.
     unique(values) && unique(upper) && values.iter().all(|value| upper.contains(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_input_sources_own_formats_and_limits_without_zero_sentinels() {
+        let remote = RemoteAudioInputProfile::new(&[AudioFormat::Mp3], 4_096);
+        let data = InlineAudioInputProfile::new(
+            &[AudioFormat::Wav],
+            InlineAudioInputLimits::new(1_024, 768, 2_048, 1_536),
+        );
+        let profile = AudioInputCapabilities::new(2, Some(remote), Some(data), None);
+
+        assert!(profile.supports_format(AudioInputSource::RemoteUrl, AudioFormat::Mp3));
+        assert!(!profile.supports_format(AudioInputSource::RemoteUrl, AudioFormat::Wav));
+        assert!(profile.supports_format(AudioInputSource::DataUrl, AudioFormat::Wav));
+        assert_eq!(profile.remote_url().unwrap().max_url_length(), 4_096);
+        assert_eq!(
+            profile
+                .data_url()
+                .unwrap()
+                .limits()
+                .max_inline_decoded_bytes(),
+            768
+        );
+        let narrow_data = InlineAudioInputProfile::new(
+            &[AudioFormat::Wav],
+            InlineAudioInputLimits::new(1_024, 768, 1_024, 768),
+        );
+        assert!(
+            AudioInputCapabilities::new(1, None, Some(narrow_data), None).is_subset_of(profile)
+        );
+    }
 }

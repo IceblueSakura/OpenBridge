@@ -270,10 +270,13 @@ fn ingest_audio_reference(
         validate_remote_audio_url(value)?;
         let length = u32::try_from(value.len())
             .map_err(|_| RequestPlanningError::MultimodalInputLimitExceeded)?;
-        requirements.sources.insert(AudioInputSource::RemoteUrl);
-        requirements.max_url_length = requirements.max_url_length.max(length);
+        let source = requirements
+            .sources
+            .entry(AudioInputSource::RemoteUrl)
+            .or_default();
+        source.max_url_length = source.max_url_length.max(length);
         if let Some(format) = declared_format {
-            requirements.formats.insert(format);
+            source.formats.insert(format);
         }
         return Ok(());
     }
@@ -281,9 +284,13 @@ fn ingest_audio_reference(
     let encoded = u32::try_from(value.len())
         .map_err(|_| RequestPlanningError::MultimodalInputLimitExceeded)?;
     let decoded = canonical_base64_decoded_bytes(value)?;
-    requirements.sources.insert(AudioInputSource::Base64);
-    requirements.formats.insert(format);
-    record_inline_size(requirements, encoded, decoded)
+    record_inline_size(
+        requirements,
+        AudioInputSource::Base64,
+        format,
+        encoded,
+        decoded,
+    )
 }
 
 /// Validates one canonical Base64 data URL and records its inferred media format.
@@ -317,21 +324,38 @@ fn ingest_data_url(
     let encoded = u32::try_from(payload.len())
         .map_err(|_| RequestPlanningError::MultimodalInputLimitExceeded)?;
     let decoded = canonical_base64_decoded_bytes(payload)?;
-    requirements.sources.insert(AudioInputSource::DataUrl);
-    requirements
-        .formats
-        .insert(declared_format.unwrap_or(inferred));
-    record_inline_size(requirements, encoded, decoded)
+    let format = declared_format.unwrap_or(inferred);
+    record_inline_size(
+        requirements,
+        AudioInputSource::DataUrl,
+        format,
+        encoded,
+        decoded,
+    )
 }
 
 /// Accumulates checked inline encoded and decoded sizes without retaining the payload.
 fn record_inline_size(
     requirements: &mut AudioInputRequirements,
+    source: AudioInputSource,
+    format: AudioFormat,
     encoded: u32,
     decoded: u32,
 ) -> Result<(), RequestPlanningError> {
-    requirements.max_inline_encoded_bytes = requirements.max_inline_encoded_bytes.max(encoded);
-    requirements.max_inline_decoded_bytes = requirements.max_inline_decoded_bytes.max(decoded);
+    let source_requirements = requirements.sources.entry(source).or_default();
+    source_requirements.formats.insert(format);
+    source_requirements.max_inline_encoded_bytes =
+        source_requirements.max_inline_encoded_bytes.max(encoded);
+    source_requirements.max_inline_decoded_bytes =
+        source_requirements.max_inline_decoded_bytes.max(decoded);
+    source_requirements.total_inline_encoded_bytes = source_requirements
+        .total_inline_encoded_bytes
+        .checked_add(encoded)
+        .ok_or(RequestPlanningError::MultimodalInputLimitExceeded)?;
+    source_requirements.total_inline_decoded_bytes = source_requirements
+        .total_inline_decoded_bytes
+        .checked_add(decoded)
+        .ok_or(RequestPlanningError::MultimodalInputLimitExceeded)?;
     requirements.total_inline_encoded_bytes = requirements
         .total_inline_encoded_bytes
         .checked_add(encoded)
@@ -442,4 +466,41 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
         || segments[0] & 0xfe00 == 0xfc00
         || segments[0] & 0xffc0 == 0xfe80
         || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mixed_inline_sources_share_one_cumulative_budget() {
+        let mut requirements = AudioInputRequirements::default();
+        record_inline_size(
+            &mut requirements,
+            AudioInputSource::DataUrl,
+            AudioFormat::Wav,
+            6,
+            4,
+        )
+        .unwrap();
+        record_inline_size(
+            &mut requirements,
+            AudioInputSource::Base64,
+            AudioFormat::Wav,
+            6,
+            4,
+        )
+        .unwrap();
+
+        assert_eq!(requirements.total_inline_encoded_bytes, 12);
+        assert_eq!(requirements.total_inline_decoded_bytes, 8);
+        assert_eq!(
+            requirements.sources[&AudioInputSource::DataUrl].total_inline_encoded_bytes,
+            6
+        );
+        assert_eq!(
+            requirements.sources[&AudioInputSource::Base64].total_inline_encoded_bytes,
+            6
+        );
+    }
 }

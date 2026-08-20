@@ -12,19 +12,21 @@ pub use embeddings::{
 };
 pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
-    ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits,
-    AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
-    ChatCompletionsProfile, ChatFileInputProfile, ChatMediaProfile, ExecutableAudioProfile,
-    ExecutableResponsesState, FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind,
-    ImageDetail, ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
-    ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
-    JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
-    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-    ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-    ResponsesAffinity, ResponsesCapabilities, ResponsesFileInputProfile, ResponsesMediaProfile,
-    ResponsesProfile, SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery,
-    SseAudioFraming, StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
-    VoiceCloneProfile, VoiceDesignProfile,
+    ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,
+    AudioUnderstandingProfile, ChatCompletionsCapabilities, ChatCompletionsProfile,
+    ChatFileInputProfile, ChatMediaProfile, ExecutableAudioProfile, ExecutableResponsesState,
+    FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
+    ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
+    ImageMediaType, ImageSourceCapabilities, InlineAudioInputLimits, InlineAudioInputProfile,
+    InlineImageInputLimits, InlineImageInputProfile, JsonAudioDelivery, JsonAudioFraming,
+    JsonSchemaSupport, PresetVoiceCapabilities, ProviderAudioCeiling,
+    ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+    ProviderResponsesStateCeiling, ReasoningOutput, RemoteAudioInputProfile,
+    RemoteImageInputLimits, ResponseInclude, ResponsesAffinity, ResponsesCapabilities,
+    ResponsesFileInputProfile, ResponsesMediaProfile, ResponsesProfile, SpeechRecognitionProfile,
+    SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming, StorageSupport,
+    StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
+    VoiceDesignProfile,
 };
 
 /// One operation-tagged capability ceiling in a Provider contract.

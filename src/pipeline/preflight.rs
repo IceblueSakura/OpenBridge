@@ -317,25 +317,59 @@ fn validate_audio_input(
     requested: &AudioInputRequirements,
     profile: &AudioInputInterfaceCapabilities,
 ) -> Result<(), RequestPlanningError> {
-    if requested.part_count > profile.max_parts()
-        || requested.max_url_length > profile.max_url_length()
-        || requested.max_inline_encoded_bytes > profile.max_inline_encoded_bytes()
-        || requested.max_inline_decoded_bytes > profile.max_inline_decoded_bytes()
-        || requested.total_inline_encoded_bytes > profile.max_total_inline_encoded_bytes()
-        || requested.total_inline_decoded_bytes > profile.max_total_inline_decoded_bytes()
-    {
+    // Reject unsupported source/format pairs before evaluating their source-owned limits.
+    if requested.sources.iter().any(|(source, requirements)| {
+        !profile.supports_source(*source)
+            || requirements
+                .formats
+                .iter()
+                .any(|format| !profile.supports_format(*source, *format))
+    }) {
+        return Err(RequestPlanningError::UnsupportedCapabilities);
+    }
+
+    // Apply global cardinality and then the limits owned by each requested source.
+    if requested.part_count > profile.max_parts() {
         return Err(RequestPlanningError::MultimodalInputLimitExceeded);
     }
-    if requested
-        .sources
-        .iter()
-        .any(|source| !profile.supports_source(*source))
-        || requested
-            .formats
-            .iter()
-            .any(|format| !profile.supports_format(*format))
-    {
-        return Err(RequestPlanningError::UnsupportedCapabilities);
+    for (source, requirements) in &requested.sources {
+        let exceeds = match source {
+            crate::core::AudioInputSource::RemoteUrl => {
+                requirements.max_url_length
+                    > profile
+                        .max_url_length()
+                        .expect("supported remote audio source has a URL limit")
+            }
+            crate::core::AudioInputSource::DataUrl | crate::core::AudioInputSource::Base64 => {
+                requirements.max_inline_encoded_bytes
+                    > profile
+                        .max_inline_encoded_bytes(*source)
+                        .expect("supported inline audio source has encoded limits")
+                    || requirements.max_inline_decoded_bytes
+                        > profile
+                            .max_inline_decoded_bytes(*source)
+                            .expect("supported inline audio source has decoded limits")
+                    || requirements.total_inline_encoded_bytes
+                        > profile
+                            .max_total_inline_encoded_bytes(*source)
+                            .expect("supported inline audio source has total encoded limits")
+                    || requested.total_inline_encoded_bytes
+                        > profile
+                            .max_total_inline_encoded_bytes(*source)
+                            .expect("supported inline audio source has aggregate encoded limits")
+                    || requirements.total_inline_decoded_bytes
+                        > profile
+                            .max_total_inline_decoded_bytes(*source)
+                            .expect("supported inline audio source has total decoded limits")
+                    || requested.total_inline_decoded_bytes
+                        > profile
+                            .max_total_inline_decoded_bytes(*source)
+                            .expect("supported inline audio source has aggregate decoded limits")
+            }
+        };
+        if exceeds {
+            return Err(RequestPlanningError::MultimodalInputLimitExceeded);
+        }
     }
     Ok(())
 }

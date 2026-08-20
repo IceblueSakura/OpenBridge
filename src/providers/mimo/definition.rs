@@ -4,15 +4,16 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits, AudioInputSource,
-        AudioUnderstandingProfile, ExecutableAudioProfile, FunctionToolCapabilities,
-        GeneratedAudioCapabilities, ImageDetailPolicy, ImageInputCapabilities, ImageMediaType,
-        ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
-        JsonAudioDelivery, JsonAudioFraming, PresetVoiceCapabilities, ProviderAudioCeiling,
-        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-        SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming,
-        StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile, VoiceDesignProfile,
+        AsrLanguage, AudioFormat, AudioInputCapabilities, AudioUnderstandingProfile,
+        ExecutableAudioProfile, FunctionToolCapabilities, GeneratedAudioCapabilities,
+        ImageDetailPolicy, ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
+        InlineAudioInputLimits, InlineAudioInputProfile, InlineImageInputLimits,
+        InlineImageInputProfile, JsonAudioDelivery, JsonAudioFraming, PresetVoiceCapabilities,
+        ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
+        ProviderResponsesStateCeiling, ReasoningOutput, RemoteAudioInputProfile,
+        RemoteImageInputLimits, ResponseInclude, SpeechRecognitionProfile, SpeechSynthesisProfile,
+        SseAudioDelivery, SseAudioFraming, StructuredOutputProfile, ToolChoiceMode,
+        VoiceCloneProfile, VoiceDesignProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -50,41 +51,40 @@ pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::n
 const AUDIO_STREAMING_FORMATS: &[AudioFormat] = &[AudioFormat::Pcm16];
 const AUDIO_VOICES: &[&str] = &["mimo_default"];
 const ASR_LANGUAGES: &[AsrLanguage] = &[AsrLanguage::Auto, AsrLanguage::Zh, AsrLanguage::En];
-const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities::new(
-    &[
-        AudioInputSource::RemoteUrl,
-        AudioInputSource::DataUrl,
-        AudioInputSource::Base64,
-    ],
-    &[
-        AudioFormat::Wav,
-        AudioFormat::Mp3,
-        AudioFormat::Flac,
-        AudioFormat::M4a,
-        AudioFormat::Ogg,
-    ],
-    AudioInputLimits::new(
-        64,
-        8_192,
+const AUDIO_INPUT_FORMATS: &[AudioFormat] = &[
+    AudioFormat::Wav,
+    AudioFormat::Mp3,
+    AudioFormat::Flac,
+    AudioFormat::M4a,
+    AudioFormat::Ogg,
+];
+const AUDIO_INPUT_INLINE: InlineAudioInputProfile = InlineAudioInputProfile::new(
+    AUDIO_INPUT_FORMATS,
+    InlineAudioInputLimits::new(
         10 * 1024 * 1024,
         8 * 1024 * 1024,
         10 * 1024 * 1024,
         8 * 1024 * 1024,
     ),
+);
+const AUDIO_INPUT: AudioInputCapabilities = AudioInputCapabilities::new(
+    64,
+    Some(RemoteAudioInputProfile::new(AUDIO_INPUT_FORMATS, 8_192)),
+    Some(AUDIO_INPUT_INLINE),
+    Some(AUDIO_INPUT_INLINE),
 );
 
-const VOICE_CONDITIONING: AudioInputCapabilities = AudioInputCapabilities::new(
-    &[AudioInputSource::DataUrl],
+const VOICE_CONDITIONING_INLINE: InlineAudioInputProfile = InlineAudioInputProfile::new(
     &[AudioFormat::Wav, AudioFormat::Mp3],
-    AudioInputLimits::new(
-        1,
-        0,
+    InlineAudioInputLimits::new(
         10 * 1024 * 1024,
         8 * 1024 * 1024,
         10 * 1024 * 1024,
         8 * 1024 * 1024,
     ),
 );
+const VOICE_CONDITIONING: AudioInputCapabilities =
+    AudioInputCapabilities::new(1, None, Some(VOICE_CONDITIONING_INLINE), None);
 
 const GENERATED_AUDIO_CEILING: GeneratedAudioCapabilities = GeneratedAudioCapabilities::new(
     JsonAudioDelivery::new(
@@ -118,34 +118,35 @@ const GENERATED_AUDIO_TARGET: GeneratedAudioCapabilities = GeneratedAudioCapabil
 pub(crate) const AUDIO_UNDERSTANDING: ExecutableAudioProfile =
     ExecutableAudioProfile::AudioUnderstanding(AudioUnderstandingProfile::new(
         AudioInputCapabilities::new(
-            &[AudioInputSource::DataUrl],
-            &[AudioFormat::Wav],
-            AudioInputLimits::new(
-                1,
-                0,
-                10 * 1024 * 1024,
-                8 * 1024 * 1024,
-                10 * 1024 * 1024,
-                8 * 1024 * 1024,
-            ),
+            1,
+            None,
+            Some(InlineAudioInputProfile::new(
+                &[AudioFormat::Wav],
+                InlineAudioInputLimits::new(
+                    10 * 1024 * 1024,
+                    8 * 1024 * 1024,
+                    10 * 1024 * 1024,
+                    8 * 1024 * 1024,
+                ),
+            )),
+            None,
         ),
     ));
+
+const ASR_INLINE_AUDIO: InlineAudioInputProfile = InlineAudioInputProfile::new(
+    &[AudioFormat::Wav],
+    InlineAudioInputLimits::new(
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+        10 * 1024 * 1024,
+        8 * 1024 * 1024,
+    ),
+);
 
 /// Fixed ASR task profile accepted by the MiMo Chat endpoint.
 pub(crate) const ASR_AUDIO: ExecutableAudioProfile =
     ExecutableAudioProfile::SpeechRecognition(SpeechRecognitionProfile::new(
-        AudioInputCapabilities::new(
-            &[AudioInputSource::DataUrl, AudioInputSource::Base64],
-            &[AudioFormat::Wav],
-            AudioInputLimits::new(
-                1,
-                0,
-                10 * 1024 * 1024,
-                8 * 1024 * 1024,
-                10 * 1024 * 1024,
-                8 * 1024 * 1024,
-            ),
-        ),
+        AudioInputCapabilities::new(1, None, Some(ASR_INLINE_AUDIO), Some(ASR_INLINE_AUDIO)),
         ASR_LANGUAGES,
     ));
 
