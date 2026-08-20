@@ -3,7 +3,10 @@
 //! Compilation includes only statically executable Route bindings, derives each operation contract
 //! from the same candidates used by planning, and freezes a topology-free public projection.
 
+use std::collections::BTreeSet;
+
 use crate::{
+    config::RuntimeLimits,
     core::OperationKind,
     registry::{
         CanonicalTaskKind, PublicModelConfig, ReasoningLevelPolicy, RegistryError, Route,
@@ -14,8 +17,9 @@ use crate::{
 use super::{
     MODEL_INFO_SCHEMA_VERSION, PublicModelInfo, StandardModel,
     execution::{
-        ModelExecutionInterface, ModelExecutionInterfaces, PublicContinuationContract, PublicModel,
-        RouteExecutionCandidate,
+        ModelExecutionInterface, ModelExecutionInterfaces, OperationExecutionContract,
+        OperationInterfaceIndexError, OperationResponseBudget, PublicContinuationContract,
+        PublicModel, RouteExecutionCandidate,
     },
 };
 
@@ -45,7 +49,7 @@ pub(in crate::registry) struct PublicRouteBinding<'a> {
 pub(in crate::registry) fn compile_public_model(
     config: PublicModelConfig,
     bindings: &[PublicRouteBinding<'_>],
-    max_json_response_body_bytes: usize,
+    limits: &RuntimeLimits,
 ) -> Result<PublicModel, RegistryError> {
     // Compile static eligibility once so every protocol contract and request plan shares the same candidates.
     let mut candidates = bindings
@@ -60,15 +64,23 @@ pub(in crate::registry) fn compile_public_model(
     validate_reasoning_level_policy(&config.id, config.reasoning_level_policy, bindings)?;
 
     // Narrow an Embeddings batch contract to what one bounded validated response can always contain.
-    constrain_embedding_response_budget(&config.id, max_json_response_body_bytes, &mut candidates)?;
+    constrain_embedding_response_budget(
+        &config.id,
+        limits.max_json_response_body_bytes(),
+        &mut candidates,
+    )?;
 
     // Derive protocol contracts and model facts exclusively from the compiled static candidates.
     let contributions = candidates
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let execution_interfaces =
-        compile_execution_interfaces(&config.id, config.reasoning_level_policy, &candidates)?;
+    let execution_interfaces = compile_execution_interfaces(
+        &config.id,
+        config.reasoning_level_policy,
+        limits,
+        &candidates,
+    )?;
     let capabilities = aggregate_model_capabilities(&contributions, canonical_task);
     let description = config.description.or_else(|| {
         intersect_optional_string(
@@ -104,34 +116,41 @@ pub(in crate::registry) fn compile_public_model(
 fn compile_execution_interfaces(
     public_model: &str,
     reasoning_level_policy: ReasoningLevelPolicy,
+    limits: &RuntimeLimits,
     candidates: &[PrecompiledRouteCandidate],
 ) -> Result<ModelExecutionInterfaces, RegistryError> {
-    // Partition the already ordered candidates by their fixed downstream operation.
-    Ok(ModelExecutionInterfaces {
-        chat_completions: compile_execution_interface(
+    // Derive deterministic operation coverage from the candidates so a future closed variant cannot be omitted from a manual list.
+    let operations = candidates
+        .iter()
+        .map(|candidate| candidate.execution.downstream_operation())
+        .collect::<BTreeSet<_>>();
+    let mut interfaces = Vec::new();
+    for operation in operations {
+        if let Some(interface) = compile_execution_interface(
             public_model,
-            OperationKind::ChatCompletions,
+            operation,
             reasoning_level_policy,
-            candidates.iter().filter(|candidate| {
-                candidate.execution.downstream_operation() == OperationKind::ChatCompletions
-            }),
-        )?,
-        responses: compile_execution_interface(
-            public_model,
-            OperationKind::Responses,
-            reasoning_level_policy,
-            candidates.iter().filter(|candidate| {
-                candidate.execution.downstream_operation() == OperationKind::Responses
-            }),
-        )?,
-        embeddings: compile_execution_interface(
-            public_model,
-            OperationKind::EmbeddingsCreate,
-            reasoning_level_policy,
-            candidates.iter().filter(|candidate| {
-                candidate.execution.downstream_operation() == OperationKind::EmbeddingsCreate
-            }),
-        )?,
+            limits,
+            candidates
+                .iter()
+                .filter(|candidate| candidate.execution.downstream_operation() == operation),
+        )? {
+            interfaces.push(interface);
+        }
+    }
+    ModelExecutionInterfaces::try_from_iter(interfaces).map_err(|error| match error {
+        OperationInterfaceIndexError::Duplicate(downstream_operation) => {
+            RegistryError::DuplicatePublicModelOperationInterface {
+                public_model: public_model.to_owned(),
+                downstream_operation,
+            }
+        }
+        OperationInterfaceIndexError::Inconsistent(downstream_operation) => {
+            RegistryError::PublicModelInterfaceProfileMismatch {
+                public_model: public_model.to_owned(),
+                downstream_operation,
+            }
+        }
     })
 }
 
@@ -140,6 +159,7 @@ fn compile_execution_interface<'a>(
     public_model: &str,
     operation: OperationKind,
     reasoning_level_policy: ReasoningLevelPolicy,
+    limits: &RuntimeLimits,
     candidates: impl Iterator<Item = &'a PrecompiledRouteCandidate>,
 ) -> Result<Option<ModelExecutionInterface>, RegistryError> {
     // Materialize one operation's static candidates without changing their configuration order.
@@ -157,7 +177,7 @@ fn compile_execution_interface<'a>(
         .iter()
         .map(|candidate| candidate.contribution.clone())
         .collect::<Vec<_>>();
-    let (generation_capabilities, embedding_capabilities, continuation) = match operation {
+    let (contract, continuation, response_budget) = match operation {
         OperationKind::ChatCompletions | OperationKind::Responses => {
             let (capabilities, continuation) =
                 aggregate_interface(contributions.iter(), reasoning_level_policy).map_err(
@@ -166,21 +186,45 @@ fn compile_execution_interface<'a>(
                         downstream_operation: operation,
                     },
                 )?;
-            (capabilities, None, continuation)
+            let capabilities =
+                capabilities.ok_or_else(|| RegistryError::PublicModelInterfaceProfileMismatch {
+                    public_model: public_model.to_owned(),
+                    downstream_operation: operation,
+                })?;
+            (
+                OperationExecutionContract::Generation(Box::new(capabilities)),
+                continuation,
+                OperationResponseBudget::Generation {
+                    max_json_body_bytes: limits.max_json_response_body_bytes(),
+                    max_sse_event_bytes: limits.max_sse_event_bytes(),
+                },
+            )
         }
-        OperationKind::EmbeddingsCreate => (
-            None,
-            aggregate_embedding_interface(contributions.iter()),
-            PublicContinuationContract::Unsupported,
-        ),
+        OperationKind::EmbeddingsCreate => {
+            let capabilities =
+                aggregate_embedding_interface(contributions.iter()).ok_or_else(|| {
+                    RegistryError::PublicModelInterfaceProfileMismatch {
+                        public_model: public_model.to_owned(),
+                        downstream_operation: operation,
+                    }
+                })?;
+            (
+                OperationExecutionContract::Embeddings(capabilities),
+                PublicContinuationContract::Unsupported,
+                OperationResponseBudget::Embeddings {
+                    max_json_body_bytes: limits.max_json_response_body_bytes(),
+                },
+            )
+        }
     };
 
     // Freeze the matching planning data beside the contract that was derived from it.
     Ok(Some(ModelExecutionInterface {
+        operation,
         task,
-        generation_capabilities,
-        embedding_capabilities,
+        contract,
         continuation,
+        response_budget,
         candidates: candidates
             .into_iter()
             .map(|candidate| candidate.execution.clone())

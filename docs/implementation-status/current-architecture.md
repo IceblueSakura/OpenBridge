@@ -124,9 +124,11 @@ immutable RuntimeRegistry
 | `PublicModelInfo` | 下游可序列化模型事实和每 operation 固定 interface；不含执行拓扑 |
 
 编译先验证引用、operation-indexed Provider ceiling、canonical task 与 typed Upstream API key，再验证显式 Generation Bridge direction，
-然后从每个固定候选生成 contribution 并保守聚合。每个 private operation interface 保存 selected task；其 planning candidate 携带完整
-`UpstreamApiKey`，forwarding 不再从 Target 与 operation 重建 API identity。
-Public Model 只公开全部固定候选共同保证的能力；请求期不会因能力筛选、跳过或重排 candidate。
+然后从每个固定候选生成 contribution 并保守聚合。Private execution snapshot 由 deterministic
+`BTreeMap<OperationKind, ModelExecutionInterface>` 索引；每项同时保存 selected task、typed executable contract、continuation
+affinity、operation response budget 与固定顺序 candidates。Candidate 携带完整 `UpstreamApiKey`，forwarding 不再从 Target 与
+operation 重建 API identity；JSON/SSE success budget 也从同一个 interface 进入 generation/Embeddings plan。
+Public Model 只从 private map 投影固定 Models v1 DTO，并公开全部候选共同保证的能力；请求期不会因能力筛选、跳过或重排 candidate。
 
 Chat 与 Responses 分别使用完整的 operation-specific media envelope。Provider contract 声明 family ceiling，每个 executable Target
 必须一次性显式选择 image/audio/file profile；全关闭 default 不复制 ceiling，registration 也不再通过事后清空媒体字段收窄 Target。
@@ -218,6 +220,9 @@ snapshot，不进入 reviewed OTLP trace layer。
 确定性 tests 保护 registry、HTTP/SSE、Provider wire、Bridge、retry/fallback/cooldown、取消和 observability，但不自动升级为外部
 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。测试资产与实际外部记录分别见
 [test-assets](test-assets/inventory.md)和 [evidence](evidence/README.md)。
+
+Operation-indexed private execution registry 完成时通过 `cargo fmt -- --check`、`cargo check --locked --all-targets`、
+`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
 
 ## 9. 未实现或未证明
 

@@ -121,6 +121,7 @@ pub fn plan_request(
         candidates: prepared_candidates,
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
+        response_budget: interface.response_budget(),
     })
 }
 
@@ -319,5 +320,6 @@ pub fn plan_embedding_request(
         input_count: requirements.input_count,
         encoding,
         dimensions,
+        response_budget: interface.response_budget(),
     })
 }

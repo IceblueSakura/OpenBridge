@@ -3,6 +3,8 @@
 //! Each operation keeps one conservative capability contract beside the exact static candidates
 //! that produced it. Only the capability copy is projected into downstream Models responses.
 
+use std::collections::BTreeMap;
+
 use crate::core::{ApiProtocol, OperationKind, ReasoningOutput};
 
 use super::{
@@ -148,32 +150,131 @@ impl RouteExecutionCandidate {
     }
 }
 
+/// Private executable contract selected by one closed downstream operation.
+#[derive(Clone, Debug)]
+pub(super) enum OperationExecutionContract {
+    /// Chat Completions or Responses generation contract.
+    Generation(Box<ModelInterfaceCapabilities>),
+    /// Embeddings create contract.
+    Embeddings(EmbeddingInterfaceCapabilities),
+}
+
+impl OperationExecutionContract {
+    fn supports_operation(&self, operation: OperationKind) -> bool {
+        matches!(
+            (self, operation),
+            (
+                Self::Generation(_),
+                OperationKind::ChatCompletions | OperationKind::Responses
+            ) | (Self::Embeddings(_), OperationKind::EmbeddingsCreate)
+        )
+    }
+
+    fn generation(&self) -> Option<&ModelInterfaceCapabilities> {
+        match self {
+            Self::Generation(capabilities) => Some(capabilities.as_ref()),
+            Self::Embeddings(_) => None,
+        }
+    }
+
+    fn embeddings(&self) -> Option<&EmbeddingInterfaceCapabilities> {
+        match self {
+            Self::Generation(_) => None,
+            Self::Embeddings(capabilities) => Some(capabilities),
+        }
+    }
+}
+
+/// Response buffering and SSE limits owned by one operation interface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OperationResponseBudget {
+    /// Generation may return bounded JSON or per-event bounded SSE.
+    Generation {
+        /// Maximum successful JSON response body size.
+        max_json_body_bytes: usize,
+        /// Maximum size of one SSE event.
+        max_sse_event_bytes: usize,
+    },
+    /// Embeddings returns bounded JSON and never SSE.
+    Embeddings {
+        /// Maximum successful JSON response body size.
+        max_json_body_bytes: usize,
+    },
+}
+
+impl OperationResponseBudget {
+    fn supports_operation(self, operation: OperationKind) -> bool {
+        matches!(
+            (self, operation),
+            (
+                Self::Generation { .. },
+                OperationKind::ChatCompletions | OperationKind::Responses
+            ) | (Self::Embeddings { .. }, OperationKind::EmbeddingsCreate)
+        )
+    }
+
+    /// Returns the operation's successful JSON response body limit.
+    pub(crate) const fn max_json_body_bytes(self) -> usize {
+        match self {
+            Self::Generation {
+                max_json_body_bytes,
+                ..
+            }
+            | Self::Embeddings {
+                max_json_body_bytes,
+            } => max_json_body_bytes,
+        }
+    }
+
+    /// Returns the per-event SSE limit only for generation operations.
+    pub(crate) const fn max_sse_event_bytes(self) -> Option<usize> {
+        match self {
+            Self::Generation {
+                max_sse_event_bytes,
+                ..
+            } => Some(max_sse_event_bytes),
+            Self::Embeddings { .. } => None,
+        }
+    }
+}
+
 /// One immutable executable interface shared by request preflight and Route planning.
 #[derive(Debug)]
 pub(crate) struct ModelExecutionInterface {
+    pub(super) operation: OperationKind,
     pub(super) task: CanonicalTaskKind,
-    pub(super) generation_capabilities: Option<ModelInterfaceCapabilities>,
-    pub(super) embedding_capabilities: Option<EmbeddingInterfaceCapabilities>,
+    pub(super) contract: OperationExecutionContract,
     pub(super) continuation: PublicContinuationContract,
+    pub(super) response_budget: OperationResponseBudget,
     pub(super) candidates: Vec<RouteExecutionCandidate>,
 }
 
 impl ModelExecutionInterface {
+    /// Returns the single downstream operation indexing this interface.
+    pub(crate) const fn operation(&self) -> OperationKind {
+        self.operation
+    }
+
     /// Returns the single canonical task selected at startup for this interface.
     pub(crate) const fn task(&self) -> CanonicalTaskKind {
         self.task
     }
 
     /// Returns the fixed capability contract derived from exactly these static candidates.
-    pub(crate) const fn capabilities(&self) -> &ModelInterfaceCapabilities {
-        self.generation_capabilities
-            .as_ref()
+    pub(crate) fn capabilities(&self) -> &ModelInterfaceCapabilities {
+        self.contract
+            .generation()
             .expect("generation preflight selected a generation execution interface")
     }
 
     /// Returns the fixed Embeddings contract derived from this interface's single Native candidate.
-    pub(crate) const fn embedding_capabilities(&self) -> Option<&EmbeddingInterfaceCapabilities> {
-        self.embedding_capabilities.as_ref()
+    pub(crate) fn embedding_capabilities(&self) -> Option<&EmbeddingInterfaceCapabilities> {
+        self.contract.embeddings()
+    }
+
+    /// Returns the response limits compiled beside this operation contract.
+    pub(crate) const fn response_budget(&self) -> OperationResponseBudget {
+        self.response_budget
     }
 
     /// Returns whether the private compiled contract admits `previous_response_id`.
@@ -197,57 +298,91 @@ impl ModelExecutionInterface {
 }
 
 /// Operation execution interfaces compiled from one Public Model's static Route bindings.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum OperationInterfaceIndexError {
+    /// More than one interface declared the same downstream operation.
+    Duplicate(OperationKind),
+    /// Operation, contract, budget, task, or candidate identities diverged.
+    Inconsistent(OperationKind),
+}
+
 #[derive(Debug)]
 pub(super) struct ModelExecutionInterfaces {
-    pub(super) chat_completions: Option<ModelExecutionInterface>,
-    pub(super) responses: Option<ModelExecutionInterface>,
-    pub(super) embeddings: Option<ModelExecutionInterface>,
+    by_operation: BTreeMap<OperationKind, ModelExecutionInterface>,
 }
 
 impl ModelExecutionInterfaces {
-    /// Returns the interface that owns both preflight capabilities and planning candidates.
-    const fn for_operation(&self, operation: OperationKind) -> Option<&ModelExecutionInterface> {
-        match operation {
-            OperationKind::ChatCompletions => self.chat_completions.as_ref(),
-            OperationKind::Responses => self.responses.as_ref(),
-            OperationKind::EmbeddingsCreate => self.embeddings.as_ref(),
+    /// Builds one deterministic operation index and rejects duplicate or mismatched interfaces.
+    pub(super) fn try_from_iter(
+        interfaces: impl IntoIterator<Item = ModelExecutionInterface>,
+    ) -> Result<Self, OperationInterfaceIndexError> {
+        let by_operation = collect_unique_operations(
+            interfaces
+                .into_iter()
+                .map(|interface| (interface.operation(), interface)),
+        )?;
+        if let Some((operation, _)) = by_operation.iter().find(|(operation, interface)| {
+            interface.operation() != **operation
+                || !interface.contract.supports_operation(**operation)
+                || !interface.response_budget.supports_operation(**operation)
+                || interface.candidates().is_empty()
+                || (**operation == OperationKind::EmbeddingsCreate
+                    && interface.continuation.is_supported())
+                || (interface.continuation.is_supported()
+                    && !interface.continuation_candidates_match_issuer())
+                || interface.candidates().iter().any(|candidate| {
+                    candidate.downstream_operation() != **operation
+                        || candidate.upstream_api_key().task() != interface.task()
+                })
+        }) {
+            return Err(OperationInterfaceIndexError::Inconsistent(*operation));
         }
+        Ok(Self { by_operation })
+    }
+
+    /// Returns the interface that owns both preflight capabilities and planning candidates.
+    fn for_operation(&self, operation: OperationKind) -> Option<&ModelExecutionInterface> {
+        self.by_operation.get(&operation)
     }
 
     /// Returns whether any executable operation interface selects the requested task.
     fn has_task(&self, task: CanonicalTaskKind) -> bool {
-        [
-            self.chat_completions.as_ref(),
-            self.responses.as_ref(),
-            self.embeddings.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        .any(|interface| interface.task() == task)
+        self.by_operation
+            .values()
+            .any(|interface| interface.task() == task)
     }
 
     /// Returns whether this Public Model has any statically executable downstream protocol.
-    const fn is_available(&self) -> bool {
-        self.chat_completions.is_some() || self.responses.is_some() || self.embeddings.is_some()
+    fn is_available(&self) -> bool {
+        !self.by_operation.is_empty()
     }
 
     /// Projects capability copies into the safe Models response without candidate topology.
     pub(super) fn public_projection(&self) -> ModelInterfaces {
         ModelInterfaces {
             chat_completions: self
-                .chat_completions
-                .as_ref()
-                .and_then(|interface| interface.generation_capabilities.clone()),
+                .for_operation(OperationKind::ChatCompletions)
+                .and_then(|interface| interface.contract.generation().cloned()),
             responses: self
-                .responses
-                .as_ref()
-                .and_then(|interface| interface.generation_capabilities.clone()),
+                .for_operation(OperationKind::Responses)
+                .and_then(|interface| interface.contract.generation().cloned()),
             embeddings: self
-                .embeddings
-                .as_ref()
-                .and_then(|interface| interface.embedding_capabilities.clone()),
+                .for_operation(OperationKind::EmbeddingsCreate)
+                .and_then(|interface| interface.contract.embeddings().cloned()),
         }
     }
+}
+
+fn collect_unique_operations<T>(
+    entries: impl IntoIterator<Item = (OperationKind, T)>,
+) -> Result<BTreeMap<OperationKind, T>, OperationInterfaceIndexError> {
+    let mut by_operation = BTreeMap::new();
+    for (operation, value) in entries {
+        if by_operation.insert(operation, value).is_some() {
+            return Err(OperationInterfaceIndexError::Duplicate(operation));
+        }
+    }
+    Ok(by_operation)
 }
 
 /// Resolved downstream Public Model, fixed information object, diagnostic Route IDs, and execution interfaces.
@@ -278,7 +413,7 @@ impl PublicModel {
     }
 
     /// Returns the precompiled interface used by both request preflight and Route planning.
-    pub(crate) const fn execution_interface(
+    pub(crate) fn execution_interface(
         &self,
         operation: OperationKind,
     ) -> Option<&ModelExecutionInterface> {
@@ -309,5 +444,84 @@ impl PublicModel {
     pub(crate) fn has_general_generation_interface(&self) -> bool {
         self.execution_interfaces
             .has_task(CanonicalTaskKind::Generation)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities, EmbeddingLimits,
+    };
+    use super::*;
+    use crate::core::EmbeddingEncoding;
+
+    fn embedding_interface(response_budget: OperationResponseBudget) -> ModelExecutionInterface {
+        ModelExecutionInterface {
+            operation: OperationKind::EmbeddingsCreate,
+            task: CanonicalTaskKind::Embedding,
+            contract: OperationExecutionContract::Embeddings(EmbeddingInterfaceCapabilities {
+                input_forms: Vec::new(),
+                encoding: EmbeddingEncodingCapabilities {
+                    default: EmbeddingEncoding::Float,
+                    allowed: None,
+                },
+                dimensions: EmbeddingDimensionCapabilities {
+                    default: 1,
+                    allowed: None,
+                },
+                limits: EmbeddingLimits {
+                    max_inputs: 1,
+                    max_tokens_per_input: None,
+                    max_total_tokens: None,
+                    locally_counted_input_forms: Vec::new(),
+                },
+                supported_parameters: Vec::new(),
+            }),
+            continuation: PublicContinuationContract::Unsupported,
+            response_budget,
+            candidates: vec![RouteExecutionCandidate {
+                route_id: "route".to_owned(),
+                upstream_target_id: "target".to_owned(),
+                downstream_operation: OperationKind::EmbeddingsCreate,
+                upstream_api_key: UpstreamApiKey::new(
+                    OperationKind::EmbeddingsCreate,
+                    CanonicalTaskKind::Embedding,
+                ),
+                mode: RouteMode::Native,
+                upstream_model: "model".to_owned(),
+                reasoning_output: ReasoningOutput::Unknown,
+                streaming_policy: UpstreamStreamingPolicy::Optional,
+                ignored_parameters: Vec::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn operation_index_rejects_duplicate_and_inconsistent_interfaces() {
+        let duplicate = ModelExecutionInterfaces::try_from_iter([
+            embedding_interface(OperationResponseBudget::Embeddings {
+                max_json_body_bytes: 1,
+            }),
+            embedding_interface(OperationResponseBudget::Embeddings {
+                max_json_body_bytes: 1,
+            }),
+        ])
+        .unwrap_err();
+        assert_eq!(
+            duplicate,
+            OperationInterfaceIndexError::Duplicate(OperationKind::EmbeddingsCreate)
+        );
+
+        let inconsistent = ModelExecutionInterfaces::try_from_iter([embedding_interface(
+            OperationResponseBudget::Generation {
+                max_json_body_bytes: 1,
+                max_sse_event_bytes: 1,
+            },
+        )])
+        .unwrap_err();
+        assert_eq!(
+            inconsistent,
+            OperationInterfaceIndexError::Inconsistent(OperationKind::EmbeddingsCreate)
+        );
     }
 }

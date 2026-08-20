@@ -337,6 +337,16 @@ pub enum RegistryError {
         /// Public Model name containing the incompatible reasoning policy.
         public_model: String,
     },
+    /// Startup compilation attempted to install the same downstream operation interface twice.
+    #[error(
+        "public model '{public_model}' contains duplicate interface for downstream operation '{downstream_operation}'"
+    )]
+    DuplicatePublicModelOperationInterface {
+        /// Public Model name containing the duplicate interface.
+        public_model: String,
+        /// Duplicated downstream operation.
+        downstream_operation: OperationKind,
+    },
     /// Same-task Route profiles have no valid common interface payload.
     #[error(
         "public model '{public_model}' has no common profile for downstream operation '{downstream_operation}'"

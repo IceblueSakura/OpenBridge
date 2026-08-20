@@ -25,7 +25,6 @@ pub use definition::{
     VoiceDesignModelProfile,
 };
 pub use error::RegistryError;
-pub(crate) use public_model::ModelExecutionInterface;
 pub use public_model::{
     AudioInputInterfaceCapabilities, AudioInputLimits, AudioInterfaceCapabilities,
     AudioOutputInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
@@ -37,6 +36,7 @@ pub use public_model::{
     StateCapabilities, StructuredOutputMode, SupportState, ToolCapabilities, ToolChoiceMode,
     ToolType,
 };
+pub(crate) use public_model::{ModelExecutionInterface, OperationResponseBudget};
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,
     UpstreamApi, UpstreamTarget,

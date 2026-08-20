@@ -255,7 +255,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                     plan.input_count(),
                     plan.encoding(),
                     plan.dimensions(),
-                    registry.limits().max_json_response_body_bytes(),
+                    plan.max_json_response_body_bytes(),
                 )
                 .await
                 {

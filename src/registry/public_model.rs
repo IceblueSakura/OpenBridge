@@ -27,8 +27,8 @@ mod compiler;
 mod execution;
 
 pub(super) use compiler::{PublicRouteBinding, compile_public_model};
-pub(crate) use execution::ModelExecutionInterface;
 pub use execution::PublicModel;
+pub(crate) use execution::{ModelExecutionInterface, OperationResponseBudget};
 
 /// Stable schema version for the extended model-information object.
 pub const MODEL_INFO_SCHEMA_VERSION: &str = "1";

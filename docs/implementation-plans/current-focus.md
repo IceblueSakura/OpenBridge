@@ -2,8 +2,8 @@
 
 ## 状态
 
-**无进行中的行为。** Operation/capability 重构阶段 2 已完成；确认事实已写入
-[当前架构](../implementation-status/current-architecture.md)。进入阶段 3 前需重新建立单一可观察切片。
+**无进行中的行为。** Operation/capability 重构阶段 3 已完成；确认事实与验证边界已写入
+[当前架构](../implementation-status/current-architecture.md)。进入阶段 4 前需重新建立单一可观察切片。
 
 ## 当前焦点
 

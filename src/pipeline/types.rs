@@ -10,7 +10,7 @@ use crate::{
         ImageDetail, ImageInputSource, ImageMediaType, OperationKind, ResponseInclude,
         ToolChoiceMode,
     },
-    registry::{ReasoningLevel, UpstreamApiKey},
+    registry::{OperationResponseBudget, ReasoningLevel, UpstreamApiKey},
 };
 
 /// Registry-independent request facts extracted from a downstream request.
@@ -54,6 +54,7 @@ pub struct EmbeddingRoutePlan {
     pub(super) input_count: u32,
     pub(super) encoding: EmbeddingEncoding,
     pub(super) dimensions: u32,
+    pub(super) response_budget: OperationResponseBudget,
 }
 
 /// Trusted Native Embeddings Route candidate bound to one target and Upstream API.
@@ -74,6 +75,7 @@ pub struct RoutePlan {
     pub(super) candidates: Vec<RouteCandidate>,
     pub(super) is_streaming: bool,
     pub(super) allows_fallback: bool,
+    pub(super) response_budget: OperationResponseBudget,
 }
 
 /// Execution candidate inheriting Public Model preflight and bound to one target/Upstream API.
@@ -330,6 +332,11 @@ impl EmbeddingRoutePlan {
     pub fn dimensions(&self) -> u32 {
         self.dimensions
     }
+
+    /// Returns the JSON response limit compiled with the Embeddings interface.
+    pub(crate) const fn max_json_response_body_bytes(&self) -> usize {
+        self.response_budget.max_json_body_bytes()
+    }
 }
 
 impl EmbeddingRouteCandidate {
@@ -378,6 +385,19 @@ impl RoutePlan {
     /// Returns whether the original request requires streaming.
     pub fn is_streaming(&self) -> bool {
         self.is_streaming
+    }
+
+    /// Returns the JSON response limit compiled with this generation interface.
+    pub(crate) const fn max_json_response_body_bytes(&self) -> usize {
+        self.response_budget.max_json_body_bytes()
+    }
+
+    /// Returns the SSE event limit compiled with this generation interface.
+    pub(crate) fn max_sse_event_bytes(&self) -> usize {
+        match self.response_budget.max_sse_event_bytes() {
+            Some(limit) => limit,
+            None => unreachable!("generation plans always own an SSE response budget"),
+        }
     }
 
     /// Returns whether cross-target fallback is allowed.
