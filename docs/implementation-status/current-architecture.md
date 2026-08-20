@@ -133,6 +133,14 @@ Chat 与 Responses 分别使用完整的 operation-specific media envelope。Pro
 Chat `file` 与 Responses `input_file` 使用彼此独立的 typed profile；未实现的 profile 没有公开 constructor，当前所有 Target 均为
 `None`。两种 file wire 仍在 analysis 阶段失败关闭，不进入 preflight、Route planning 或 egress。
 
+Route contribution、aggregate 与 private preflight snapshot 通过一个完整 media contract 处理 image/audio/file；Bridge 只贡献
+empty media profile。Audio remote URL、data URL 与 pure Base64 source 分别拥有 format/limit payload；request facts 同时保留
+per-source 与全 operation cumulative inline budgets。Models v1 继续输出原有 flat audio wire；格式取所有可达 source 的保守交集，
+因此不会比 private executable contract 更宽。
+
+Generation media algebra 位于 `core/capability/generation/media.rs`，generation envelope 通过 facade 保持原 crate path。Provider
+media ceiling 与 named Target profile 位于同 Provider 的 `media.rs`，不由 model catalog 或 registration 重新定义。
+
 Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`。前者在同一协议先排列所有 Native，再排列 Bridge；后者先
 保持 source priority，再在 source 内优先 Native。只有整个 Public Model 缺少某一 downstream protocol Native coverage 时，
 compiler 才为允许的单协议 source 自动补充 Bridge；显式 Bridge surface 可独立保留。
