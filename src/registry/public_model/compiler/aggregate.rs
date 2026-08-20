@@ -14,11 +14,11 @@ use crate::{
 use super::contribution::RouteContractContribution;
 use crate::registry::public_model::execution::PublicContinuationContract;
 use crate::registry::public_model::{
-    AudioInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
-    EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities, EmbeddingLimits,
-    ImageInputInterfaceCapabilities, InterfaceReasoningCapabilities, ModelCapabilities,
-    ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities, ModelTask,
-    ReasoningOutputMode, StateCapabilities, SupportState, ToolCapabilities, ToolType,
+    ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
+    EmbeddingInterfaceCapabilities, EmbeddingLimits, InterfaceMediaCapabilities,
+    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelModalities,
+    ModelReasoningCapabilities, ModelTask, ReasoningOutputMode, StateCapabilities, SupportState,
+    ToolCapabilities, ToolType,
 };
 
 impl ContextWindow {
@@ -123,12 +123,8 @@ pub(super) fn aggregate_interface<'a>(
         ContextWindow::intersection(contributions.iter().map(|value| &value.context_window));
     let modalities =
         ModelModalities::intersection(contributions.iter().map(|value| &value.modalities));
-    let image_input = ImageInputInterfaceCapabilities::intersection(
-        contributions.iter().map(|value| value.image_input.as_ref()),
-    );
-    let audio = AudioInterfaceCapabilities::intersection(
-        contributions.iter().map(|value| value.audio.as_ref()),
-    )?;
+    let media =
+        InterfaceMediaCapabilities::intersection(contributions.iter().map(|value| &value.media))?;
     let continuation = aggregate_continuation(&contributions);
     let structured_outputs =
         intersect_structured_outputs(contributions.iter().map(|value| value.structured_outputs));
@@ -188,8 +184,7 @@ pub(super) fn aggregate_interface<'a>(
     let capabilities = ModelInterfaceCapabilities {
         context_window,
         modalities,
-        image_input,
-        audio,
+        media,
         supported_parameters,
         streaming,
         non_streaming,

@@ -7,11 +7,13 @@
 use serde::{Serialize, Serializer};
 
 use crate::core::{
-    AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource, EmbeddingDimensionDomain,
-    EmbeddingEncoding, EmbeddingInputForm, ExecutableAudioProfile, GeneratedAudioCapabilities,
-    ImageDetail, ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
+    AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,
+    ChatCompletionsCapabilities, ChatFileInputProfile, EmbeddingDimensionDomain, EmbeddingEncoding,
+    EmbeddingInputForm, ExecutableAudioProfile, GeneratedAudioCapabilities, ImageDetail,
+    ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
     ImageSourceCapabilities, InlineImageInputProfile, JsonAudioFraming, ReasoningOutput,
-    ResponseInclude, SseAudioFraming, StructuredOutputProfile,
+    ResponseInclude, ResponsesCapabilities, ResponsesFileInputProfile, SseAudioFraming,
+    StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -1212,6 +1214,118 @@ impl Serialize for ImageInputInterfaceCapabilities {
     }
 }
 
+/// Operation-specific file-input marker retained only in the private interface contract.
+///
+/// No current executable Target can construct either source profile, so this remains absent from
+/// Models v1 until the typed downstream file wire is implemented.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FileInputInterfaceCapabilities {
+    /// Chat Completions `file` content parts.
+    Chat,
+    /// Responses `input_file` items and content parts.
+    Responses,
+}
+
+impl FileInputInterfaceCapabilities {
+    fn from_chat(_profile: ChatFileInputProfile) -> Self {
+        Self::Chat
+    }
+
+    fn from_responses(_profile: ResponsesFileInputProfile) -> Self {
+        Self::Responses
+    }
+
+    fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
+        let values = values.collect::<Option<Vec<_>>>()?;
+        let first = **values.first()?;
+        values.iter().all(|value| **value == first).then_some(first)
+    }
+}
+
+/// One complete private media contract shared by contribution, aggregation, and request preflight.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct InterfaceMediaCapabilities {
+    image: Option<ImageInputInterfaceCapabilities>,
+    audio: Option<AudioInterfaceCapabilities>,
+    file: Option<FileInputInterfaceCapabilities>,
+}
+
+impl InterfaceMediaCapabilities {
+    /// Copies one checked Native Chat Target profile into the private interface contract.
+    pub(super) fn from_chat(capabilities: ChatCompletionsCapabilities) -> Self {
+        Self {
+            image: capabilities
+                .media
+                .image
+                .map(ImageInputInterfaceCapabilities::from_capabilities),
+            audio: capabilities
+                .media
+                .audio
+                .map(AudioInterfaceCapabilities::from_capabilities),
+            file: capabilities
+                .media
+                .file
+                .map(FileInputInterfaceCapabilities::from_chat),
+        }
+    }
+
+    /// Copies one checked Native Responses Target profile into the private interface contract.
+    pub(super) fn from_responses(capabilities: ResponsesCapabilities) -> Self {
+        Self {
+            image: capabilities
+                .media
+                .image
+                .map(ImageInputInterfaceCapabilities::from_capabilities),
+            audio: None,
+            file: capabilities
+                .media
+                .file
+                .map(FileInputInterfaceCapabilities::from_responses),
+        }
+    }
+
+    /// Intersects complete Route media contracts and rejects incompatible audio task variants.
+    pub(super) fn intersection<'a>(
+        values: impl Iterator<Item = &'a Self> + Clone,
+    ) -> Result<Self, ()> {
+        Ok(Self {
+            image: ImageInputInterfaceCapabilities::intersection(
+                values.clone().map(|value| value.image.as_ref()),
+            ),
+            audio: AudioInterfaceCapabilities::intersection(
+                values.clone().map(|value| value.audio.as_ref()),
+            )?,
+            file: FileInputInterfaceCapabilities::intersection(
+                values.map(|value| value.file.as_ref()),
+            ),
+        })
+    }
+
+    const fn has_image(&self) -> bool {
+        self.image.is_some()
+    }
+
+    fn has_audio_input(&self) -> bool {
+        self.audio
+            .as_ref()
+            .is_some_and(AudioInterfaceCapabilities::has_input)
+    }
+
+    fn has_audio_output(&self) -> bool {
+        self.audio
+            .as_ref()
+            .is_some_and(AudioInterfaceCapabilities::has_output)
+    }
+
+    const fn has_file(&self) -> bool {
+        self.file.is_some()
+    }
+
+    fn clear_image(&mut self) {
+        self.image = None;
+    }
+}
+
 /// Returns whether a slice is non-empty and duplicate-free without changing its stable order.
 fn is_nonempty_unique<T: Eq>(values: &[T]) -> bool {
     !values.is_empty()
@@ -1240,8 +1354,7 @@ pub struct MultimodalOutputCapabilities {
 pub struct ModelInterfaceCapabilities {
     context_window: ContextWindow,
     modalities: ModelModalities,
-    image_input: Option<ImageInputInterfaceCapabilities>,
-    audio: Option<AudioInterfaceCapabilities>,
+    media: InterfaceMediaCapabilities,
     supported_parameters: Vec<String>,
     streaming: SupportState,
     non_streaming: SupportState,
@@ -1305,18 +1418,19 @@ impl Serialize for ModelInterfaceCapabilities {
         S: Serializer,
     {
         // Derive private execution unions into transient downstream-safe wire projections.
-        let (audio, voice_conditioning, audio_output, audio_task) =
-            self.audio
-                .as_ref()
-                .map_or((None, None, None, None), |audio| {
-                    let (input, conditioning) = audio.multimodal_input();
-                    (
-                        input,
-                        conditioning,
-                        audio.multimodal_output(),
-                        Some(audio.task_projection()),
-                    )
-                });
+        let (audio, voice_conditioning, audio_output, audio_task) = self
+            .media
+            .audio
+            .as_ref()
+            .map_or((None, None, None, None), |audio| {
+                let (input, conditioning) = audio.multimodal_input();
+                (
+                    input,
+                    conditioning,
+                    audio.multimodal_output(),
+                    Some(audio.task_projection()),
+                )
+            });
         let structured_outputs = StructuredOutputCapabilitiesWire::from(self.structured_outputs);
 
         // Build the stable wire object only after deriving every transient capability projection.
@@ -1324,7 +1438,7 @@ impl Serialize for ModelInterfaceCapabilities {
             context_window: &self.context_window,
             modalities: &self.modalities,
             multimodal_input: MultimodalInputCapabilities {
-                image: self.image_input.clone(),
+                image: self.media.image.clone(),
                 audio,
                 voice_conditioning,
             },
@@ -1491,12 +1605,12 @@ impl ModelInterfaceCapabilities {
 
     /// Returns the typed image-input profile guaranteed by every interface candidate.
     pub(crate) fn image_input(&self) -> Option<&ImageInputInterfaceCapabilities> {
-        self.image_input.as_ref()
+        self.media.image.as_ref()
     }
 
     /// Returns the closed audio contract guaranteed by every interface candidate.
     pub(crate) const fn audio(&self) -> Option<&AudioInterfaceCapabilities> {
-        self.audio.as_ref()
+        self.media.audio.as_ref()
     }
 
     /// Returns the closed structured-output profile guaranteed by every interface candidate.

@@ -18,8 +18,7 @@ use crate::{
 };
 
 use super::super::{
-    AudioInterfaceCapabilities, ContextWindow, ImageInputInterfaceCapabilities, ModelModalities,
-    ReasoningOutputMode, SupportState,
+    ContextWindow, InterfaceMediaCapabilities, ModelModalities, ReasoningOutputMode, SupportState,
 };
 use super::{super::execution::ContinuationIssuer, PublicRouteBinding};
 
@@ -30,8 +29,7 @@ pub(super) struct RouteContractContribution {
     pub(super) continuation: RouteContinuationContract,
     pub(super) context_window: ContextWindow,
     pub(super) modalities: ModelModalities,
-    pub(super) image_input: Option<ImageInputInterfaceCapabilities>,
-    pub(super) audio: Option<AudioInterfaceCapabilities>,
+    pub(super) media: InterfaceMediaCapabilities,
     pub(super) model_modalities: Option<ModelModalities>,
     pub(super) model_description: Option<String>,
     pub(super) model_tokenizer: Option<String>,
@@ -100,10 +98,6 @@ impl RouteContractContribution {
         let bridged = matches!(route.mode(), RouteMode::GenerationBridge(_));
         let function_tools = generation.function_tools;
         let structured_outputs = generation.structured_outputs;
-        let mut image_input = (!bridged)
-            .then_some(generation.image_input)
-            .flatten()
-            .map(ImageInputInterfaceCapabilities::from_capabilities);
         // The gateway exposes only stateless generation even when a Native Provider can persist state.
         let store = false;
         let reasoning = route_reasoning_support(upstream_api, bridged);
@@ -118,8 +112,7 @@ impl RouteContractContribution {
             prompt_cache_key,
             chat_stream_usage,
             response_includes,
-            audio,
-            file_input,
+            mut media,
         } = protocol_specific_capabilities(route, upstream_api, bridged, reasoning);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
@@ -149,29 +142,23 @@ impl RouteContractContribution {
             &response_includes,
         );
         let mut input = vec![InputModality::Text];
-        if image_input.is_some() {
+        if media.has_image() {
             input.push(InputModality::Image);
         }
-        if audio
-            .as_ref()
-            .is_some_and(AudioInterfaceCapabilities::has_input)
-        {
+        if media.has_audio_input() {
             input.push(InputModality::Audio);
         }
-        if file_input {
+        if media.has_file() {
             input.push(InputModality::File);
         }
         let mut output = vec![OutputModality::Text];
-        if audio
-            .as_ref()
-            .is_some_and(AudioInterfaceCapabilities::has_output)
-        {
+        if media.has_audio_output() {
             output.push(OutputModality::Audio);
         }
         if let Some(model_input) = upstream_api.model().input_modalities() {
             input.retain(|modality| model_input.contains(modality));
             if !model_input.contains(&InputModality::Image) {
-                image_input = None;
+                media.clear_image();
             }
         }
         if let Some(model_output) = upstream_api.model().output_modalities() {
@@ -198,8 +185,7 @@ impl RouteContractContribution {
             continuation,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
-            image_input,
-            audio,
+            media,
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -264,8 +250,7 @@ impl RouteContractContribution {
             continuation: RouteContinuationContract::Unsupported,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
-            image_input: None,
-            audio: None,
+            media: InterfaceMediaCapabilities::default(),
             model_modalities,
             model_description: upstream_api.model().description().map(str::to_owned),
             model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
@@ -323,8 +308,7 @@ struct ProtocolCapabilities {
     prompt_cache_key: bool,
     chat_stream_usage: bool,
     response_includes: Vec<ResponseInclude>,
-    audio: Option<AudioInterfaceCapabilities>,
-    file_input: bool,
+    media: InterfaceMediaCapabilities,
 }
 
 /// Reads protocol-specific Native endpoint capabilities; the Bridge always narrows state and extra modalities.
@@ -365,8 +349,7 @@ fn protocol_specific_capabilities(
             prompt_cache_key,
             chat_stream_usage,
             response_includes,
-            audio: None,
-            file_input: false,
+            media: InterfaceMediaCapabilities::default(),
         };
     }
     match upstream_api.capabilities() {
@@ -378,11 +361,7 @@ fn protocol_specific_capabilities(
                 && capabilities.streaming
                 && capabilities.stream_usage,
             response_includes: Vec::new(),
-            audio: capabilities
-                .media
-                .audio
-                .map(AudioInterfaceCapabilities::from_capabilities),
-            file_input: capabilities.media.file.is_some(),
+            media: InterfaceMediaCapabilities::from_chat(capabilities),
         },
         UpstreamApiCapabilities::Responses(capabilities) => ProtocolCapabilities {
             continuation: if route.downstream_operation() == OperationKind::Responses
@@ -402,8 +381,7 @@ fn protocol_specific_capabilities(
             prompt_cache_key: capabilities.prompt_cache_key,
             chat_stream_usage: false,
             response_includes: capabilities.include.to_vec(),
-            audio: None,
-            file_input: capabilities.media.file.is_some(),
+            media: InterfaceMediaCapabilities::from_responses(capabilities),
         },
         UpstreamApiCapabilities::Embeddings(_) => {
             unreachable!("Embeddings does not use generation protocol capabilities")
