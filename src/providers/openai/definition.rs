@@ -5,12 +5,9 @@ use http::{HeaderMap, header::USER_AGENT};
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, FunctionToolCapabilities, ImageDetail, ImageDetailPolicy,
-        ImageDetailProfile, ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
-        InlineImageInputLimits, InlineImageInputProfile, JsonSchemaSupport,
+        EmbeddingsCapabilities, FunctionToolCapabilities, JsonSchemaSupport,
         ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-        StructuredOutputProfile,
+        ProviderResponsesStateCeiling, ReasoningOutput, ResponseInclude, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -34,37 +31,7 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
-const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
-    ImageMediaType::Jpeg,
-    ImageMediaType::Png,
-    ImageMediaType::Gif,
-    ImageMediaType::Webp,
-];
-const IMAGE_DETAILS: &[ImageDetail] = &[
-    ImageDetail::Auto,
-    ImageDetail::Low,
-    ImageDetail::High,
-    ImageDetail::Original,
-];
-const IMAGE_REMOTE_LIMITS: RemoteImageInputLimits = RemoteImageInputLimits::new(8_192);
-const IMAGE_INLINE_LIMITS: InlineImageInputLimits = InlineImageInputLimits::new(
-    20 * 1024 * 1024,
-    15 * 1024 * 1024,
-    50 * 1024 * 1024,
-    38 * 1024 * 1024,
-);
-const IMAGE_INLINE_PROFILE: InlineImageInputProfile =
-    InlineImageInputProfile::new(IMAGE_MEDIA_TYPES, IMAGE_INLINE_LIMITS);
-const IMAGE_DETAIL_PROFILE: ImageDetailProfile =
-    ImageDetailProfile::new(Some(ImageDetail::Auto), IMAGE_DETAILS);
-const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
-    500,
-    ImageSourceCapabilities::RemoteUrlAndDataUrl {
-        remote: IMAGE_REMOTE_LIMITS,
-        data: IMAGE_INLINE_PROFILE,
-    },
-    ImageDetailPolicy::Explicit(IMAGE_DETAIL_PROFILE),
-);
+use super::media::IMAGE_INPUT;
 
 /// Single OpenAI operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(

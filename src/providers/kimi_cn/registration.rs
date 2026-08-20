@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::{DEFINITION, definition::IMAGE_INPUT};
+use super::{DEFINITION, media::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "kimi-cn";
 const CREDENTIAL_POOL_ID: &str = "kimi-primary";

@@ -5,10 +5,8 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, FunctionToolCapabilities, ImageDetailPolicy,
-        ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits,
-        InlineImageInputProfile, JsonSchemaSupport, ProviderChatCompletionsCapabilities,
-        ReasoningOutput, RemoteImageInputLimits, StructuredOutputProfile,
+        EmbeddingsCapabilities, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderChatCompletionsCapabilities, ReasoningOutput, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -25,26 +23,7 @@ const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
 const EMBEDDING_DIMENSIONS: &[u32] = &[2_048];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 
-/// Image surface confirmed for the NVIDIA API Catalog generation family.
-///
-/// One PNG data-URL image is proven upstream (2026-08-10); JPEG is declared by
-/// OpenAI-compatible endpoint convention, no other media type was exercised.
-pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
-    4,
-    ImageSourceCapabilities::RemoteUrlAndDataUrl {
-        remote: RemoteImageInputLimits::new(8_192),
-        data: InlineImageInputProfile::new(
-            &[ImageMediaType::Jpeg, ImageMediaType::Png],
-            InlineImageInputLimits::new(
-                20 * 1024 * 1024,
-                15 * 1024 * 1024,
-                20 * 1024 * 1024,
-                15 * 1024 * 1024,
-            ),
-        ),
-    },
-    ImageDetailPolicy::OmittedOnly { default: None },
-);
+use super::media::IMAGE_INPUT;
 
 /// Basic NVIDIA Chat-only operation surface confirmed independently of any model-specific target.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(

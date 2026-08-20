@@ -4,6 +4,7 @@
 //! approved model Targets. Model registration cannot supply a request-selected endpoint or key.
 
 mod definition;
+mod media;
 mod registration;
 
 pub(crate) use definition::DEFINITION;

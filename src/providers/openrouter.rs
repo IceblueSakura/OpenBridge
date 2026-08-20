@@ -5,6 +5,7 @@
 //! the committed boundary.
 
 mod definition;
+mod media;
 mod registration;
 
 pub(crate) use definition::DEFINITION;

@@ -5,6 +5,7 @@
 //! configuration or requests.
 
 mod definition;
+mod media;
 pub(crate) mod oauth;
 mod registration;
 

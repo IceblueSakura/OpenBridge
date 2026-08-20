@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     DEFINITION,
-    definition::{
+    media::{
         ASR_AUDIO, AUDIO_UNDERSTANDING, IMAGE_INPUT, TTS_AUDIO, VOICE_CLONE_AUDIO,
         VOICE_DESIGN_AUDIO,
     },

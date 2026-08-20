@@ -3,6 +3,7 @@
 //! Static Provider definitions and target/Upstream API registrations are owned by separate submodules.
 
 mod definition;
+mod media;
 mod registration;
 
 pub(crate) use definition::DEFINITION;

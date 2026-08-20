@@ -7,10 +7,9 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ImageDetailPolicy, ImageInputCapabilities,
-        ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
-        JsonSchemaSupport, ProviderResponsesCapabilities, ProviderResponsesStateCeiling,
-        ReasoningOutput, ResponseInclude, StructuredOutputProfile,
+        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, JsonSchemaSupport,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        ResponseInclude, StructuredOutputProfile,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -31,26 +30,7 @@ const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::
     .with_user_agent(CODEX_CLI_LINUX_USER_AGENT)
     .with_headers(CHATGPT_IDENTITY_HEADERS);
 const RESPONSES_INCLUDES: &[ResponseInclude] = &[ResponseInclude::ReasoningEncryptedContent];
-const IMAGE_MEDIA_TYPES: &[ImageMediaType] = &[
-    ImageMediaType::Jpeg,
-    ImageMediaType::Png,
-    ImageMediaType::Gif,
-    ImageMediaType::Webp,
-];
-/// Conservative Codex Responses profile for one inline image without explicit detail controls.
-pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
-    1,
-    ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(
-        IMAGE_MEDIA_TYPES,
-        InlineImageInputLimits::new(
-            20 * 1024 * 1024,
-            15 * 1024 * 1024,
-            20 * 1024 * 1024,
-            15 * 1024 * 1024,
-        ),
-    )),
-    ImageDetailPolicy::OmittedOnly { default: None },
-);
+use super::media::IMAGE_INPUT;
 
 /// Single ChatGPT operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
