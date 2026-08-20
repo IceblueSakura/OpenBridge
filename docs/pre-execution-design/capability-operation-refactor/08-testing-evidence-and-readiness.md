@@ -5,7 +5,7 @@
 | 层 | 负责证明 | 不负责证明 |
 |---|---|---|
 | Pure profile tests | validate、subset、intersection、reachability、projection | Router、Provider wire |
-| Registry contract | reference、task/operation、ceiling/narrowing、fixed candidates | 真实 upstream |
+| Registry contract | `(operation, task)` key、selected profile、ceiling/narrowing、fixed candidates | 真实 upstream |
 | In-process forwarding | auth、analysis、preflight、planning、exact egress、zero egress、terminal | 真实 Provider 质量 |
 | Replay/lifecycle | HTTP error、retry/fallback、commit、cancel、EOF/SSE | capability facts 正确性 |
 | Python corpus/testkit | canonical wire、fragmentation、fixture/schema/provenance | Route/credential/retry 实现 |
@@ -22,6 +22,8 @@
 - `x ⊆ ceiling`，Target 不能提升 Provider；
 - `intersection(x, x) == x`；
 - `intersection(x, y) == intersection(y, x)`；
+- `intersection(intersection(x, y), z) == intersection(x, intersection(y, z))`；
+- `intersection(x, y) ⊆ x` 且 `intersection(x, y) ⊆ y`；
 - candidate 顺序不改变能力交集；
 - 任一 candidate 缺少能力时，公共能力按规则关闭；
 - 集合、default、limits 分别求交后，完整组合仍可达；
@@ -33,7 +35,7 @@
 
 每个新增 Provider/Target 至少需要：
 
-1. Provider ceiling 与 Target subset compile test；
+1. Provider ceiling、Target subset 与 `(operation, task)` binding compile test；
 2. compiled Models projection；
 3. 一个合法 request exact egress；
 4. 一个关键 unsupported capability zero egress；
@@ -48,6 +50,7 @@ Provider profile 常量必须 deny-by-default；新增 ceiling 不能提升未�
 每个新增 operation 必须覆盖：
 
 - endpoint/method/auth/content type；
+- canonical task binding 与 operation/profile compatibility；
 - strict request field catalog；
 - body、part、inline/remote 和 response budget；
 - Native request/response fidelity；
@@ -96,7 +99,11 @@ uv run --project tools/corpus pytest tools/corpus/tests
 uv run --project tools/corpus corpus --root testdata lint
 ```
 
-涉及 OpenAPI/Models schema：追加 standard/extended list/retrieve、OpenAPI delivery、example fixture 和 topology privacy tests。
+Private registry 重构必须保护当前 Models v1 fixture。只有独立 current focus 明确触发公共 schema 替换时，才更新 version、OpenAPI、
+standard/extended list/retrieve、examples、fixtures 与 topology privacy tests。
+
+在 schema v1 现有容器内增加 typed capability 仍属于公共行为变更，必须原子更新 OpenAPI、fixtures、requirements 和 list/retrieve tests；
+只有容器无法准确表达已批准合同时才升级 Models v2。
 
 ## 7. 执行准备清单
 
@@ -108,7 +115,7 @@ uv run --project tools/corpus corpus --root testdata lint
 - [ ] 需求、失败语义、安全/资源边界和非目标已明确；
 - [ ] RED 在旧代码上按预期失败；
 - [ ] direct replacement 的删除清单已列出；
-- [ ] OpenAPI/DTO/fixture 影响已识别；
+- [ ] Models v1、OpenAPI、DTO 与 fixture 的保持或变更边界已识别；
 - [ ] 不读取或修改私有 credential/config；
 - [ ] 外部 SDK、真实 Provider、负载和长期验收边界已分层；
 - [ ] 回滚方式是阶段 commit/revert，不依赖 runtime dual path。

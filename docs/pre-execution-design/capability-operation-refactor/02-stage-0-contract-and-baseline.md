@@ -9,7 +9,7 @@
 ## 前置条件
 
 - live checkout、功能需求、实施现状和工作树重新核对；
-- 本设计包中的开放问题完成阶段 0 必需决策；
+- 本设计包的固定边界与阶段 0 范围已确认；
 - 只把一个可观察准备切片写入 `implementation-plans/current-focus.md`。
 
 ## 工作项
@@ -24,7 +24,7 @@
    - response terminal、commit、retry、cancel；
    - operation telemetry allowlist。
 3. 整理 synthetic Provider 和 loopback upstream builders；默认能力必须是 deny-all，所有能力显式开启。
-4. 记录当前扩展 Models JSON 的 canonical fixture，作为未来 v2 破坏性变更的 RED 对照，而不是永久兼容承诺。
+4. 记录当前扩展 Models schema v1 的 canonical fixture，保护后续 private registry 重构期间的唯一公共投影。
 5. 为 capability profile 增加纯函数测试入口：validate、subset、intersection、public projection。
 
 ## 先失败测试
@@ -34,7 +34,8 @@
 - Provider ceiling 新增媒体时，未显式选择的 Target 不得自动提升；
 - Bridge candidate 必须对媒体贡献空能力；
 - Models 声称支持的 capability 必须能够通过相同 private contract 完成 preflight；
-- mixed candidates 的交集必须重新通过 profile reachability validation。
+- mixed candidates 的交集必须重新通过 profile reachability validation；
+- duplicate `(operation, task)` key、API task 与 canonical profile 不一致必须在启动前失败。
 
 若测试只能通过预先加入未来空变体、feature flag 或假 handler，应删除该测试并缩小范围。
 

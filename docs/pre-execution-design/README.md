@@ -11,7 +11,7 @@
 
 ## 当前设计包
 
-- [Operation、多 task 与多模态 capability 重构](capability-operation-refactor/README.md)：面向个人多功能 OpenAI-compatible
+- [Operation 与多模态 capability 重构](capability-operation-refactor/README.md)：面向个人多功能 OpenAI-compatible
   网关的破坏性架构迁移分析。
 
 只有在用户明确要求时才新增、替换或删除本目录的设计包。过时包必须标明状态或删除，不能与 live implementation status 并列作为事实来源。

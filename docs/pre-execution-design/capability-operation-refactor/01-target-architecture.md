@@ -3,20 +3,21 @@
 ## 1. 总体数据流
 
 ```text
-models/                         providers/
-Canonical identity + task set  Provider operation ceilings + closed adapters
-              \                 /
-               registry compiler
-        Upstream API executable profile
-                    ↓
-           Route contribution
-                    ↓
- PublicModel OperationInterface { contract, fixed candidates }
-                    ↓
-ingress → analyze → preflight → plan → attempt → adapter → transport → renderer
+models/                                  providers/
+Canonical single-task profiles          operation ceilings + closed adapters
+                    \                    /
+                     registry compiler
+             UpstreamApiKey(operation, task)
+                 + selected task profile
+                            ↓
+                   Route contribution
+                            ↓
+ OperationInterface { task, contract, fixed candidates }
+                            ↓
+ingress → analyze → preflight → plan → execution → adapter → transport → renderer
 ```
 
-同一 `OperationInterface` 必须同时服务扩展 Models 投影、preflight 和 planning，避免三份能力事实漂移。
+同一 private `OperationInterface` 必须同时服务 Models 投影、preflight 和 planning，避免能力、task 与候选事实漂移。
 
 ## 2. Operation kernel
 
@@ -56,33 +57,32 @@ pub enum ExecutableOperationProfile {
 
 只有进入实施范围的 operation 才新增变体，禁止提前放置空 handler 或 feature flag。
 
-## 3. Canonical task set
+## 3. Single-task executable profile
 
-当前单 task 假设应替换为非空、唯一的闭合 task set：
+Canonical profile 继续由一个闭合 task variant 独占 task-specific facts：
 
 ```rust
 pub struct ModelConfig {
-    pub identity: ModelIdentity,
-    pub tasks: Vec<CanonicalTaskProfile>,
+    // Existing canonical identity metadata remains on this profile.
+    pub task: CanonicalModelTask,
 }
 
-pub enum CanonicalTaskProfile {
-    Generation(GenerationModelFacts),
-    Embedding(EmbeddingModelFacts),
-    SpeechRecognition(SpeechRecognitionModelFacts),
-    SpeechSynthesis(SpeechSynthesisModelFacts),
-    VoiceDesign(VoiceDesignModelFacts),
-    VoiceClone(VoiceCloneModelFacts),
+pub struct UpstreamApiKey {
+    pub operation: OperationKind,
+    pub task: CanonicalTaskKind,
 }
 ```
 
 约束：
 
-- 一个 canonical model 可拥有多个不同 task kind；同 kind 不得重复；
-- `UpstreamApiConfig` 必须显式绑定一个 canonical task；
-- 同一 Public Model operation 的全部 candidate 必须绑定可聚合的同一 task kind；
-- 同一 Public Model 可在不同 operation 暴露不同 task；
-- 若两个不兼容 task 共用同一个下游 operation，应使用不同 Public Model identity，不能按请求 shape 动态选择 task。
+- `UpstreamApiConfig` 显式绑定 task，且必须与引用的 canonical profile 一致；
+- compiler 先选择并收窄 task profile，再生成 runtime `UpstreamApi`；请求路径不携带 task set；
+- 每个 Public Model operation interface 显式保存 task，其全部 candidates 必须 task-compatible；
+- task-sensitive policy 属于 operation interface，不能由 Public Model 全局 bool 推断；
+- 同一 operation 下的不兼容 task 使用不同 Public Model identity，不能按 request shape 动态选择。
+
+本轮不引入共享 `ModelIdentity + TaskProfile[]`。只有同一真实模型跨 task 重复注册并产生 identity 漂移、同一 Target 确需多 task，或一个
+Public Model 必须跨 operation 暴露不同 task 时，才单独设计该层；compiled API 仍只保存一个 selected task profile。
 
 ## 4. Media capability layer
 
@@ -131,6 +131,7 @@ Target 必须显式传入完整 executable media profile；`to_executable()` 不
 
 ```rust
 pub struct OperationExecutionInterface {
+    pub task: CanonicalTaskKind,
     pub contract: PublicOperationContract,
     pub candidates: Vec<RouteExecutionCandidate>,
 }
@@ -140,7 +141,7 @@ pub struct ModelExecutionInterfaces {
 }
 ```
 
-每个 operation 独立贡献、验证和聚合。保守交集不能仅逐字段求交；最终 profile 必须重新执行可达性和组合一致性校验。
+每个 operation 独立贡献、验证和聚合。内部 map 不改变 Public Model 当前单 task 合同；保守交集完成后必须重新执行可达性和组合一致性校验。
 
 ## 7. Operation-first pipeline
 
@@ -149,28 +150,21 @@ src/pipeline/
   generation/{analysis,preflight,planning,response}.rs
   embeddings/{analysis,preflight,planning,response}.rs
   <future-operation>/...
-  execution/{attempt,retry,commit,cancellation}.rs
+
+src/execution/
+  coordinator.rs
+  retry.rs
+  commit.rs
+  cancellation.rs
 ```
 
-operation 模块拥有请求 shape、limits、response framing 和错误；共享 execution 层只拥有首输出前 attempt、credential、retry/fallback、commit 和取消生命周期。避免一个万能 pipeline 解释所有 operation。
+`pipeline/` 拥有 operation-specific 的纯 request/response 语义、preflight 与 planning，不执行 I/O。顶层 `execution/` 只拥有 fixed
+candidate traversal、credential、retry/fallback、commit 和取消生命周期。
 
-## 8. Models v2
+## 8. Models projection
 
-标准 `/v1/models` 保持四字段。扩展接口可直接替换为 operation-indexed v2：
+标准 `/v1/models` 保持四字段；扩展 `/openbridge/v1/models` 暂时保持当前唯一 schema v1。Private operation map 通过显式投影生成现有固定
+DTO 字段，preflight 不读取 DTO，也不建立 v1/v2 双输出。
 
-```json
-{
-  "schema_version": 2,
-  "id": "public-model",
-  "model_facts": {
-    "tasks": []
-  },
-  "interfaces": {
-    "chat_completions": {},
-    "responses": {},
-    "embeddings_create": {}
-  }
-}
-```
-
-`model_facts` 只表达聚合后的模型事实；`interfaces` 表达可执行合同。不得复制 execution topology，也不得从 v2 DTO 反向构造 private contract。
+只有 schema v1 无法准确表达已批准客户端合同时，才单独定义并直接替换 Models v2；真实新 operation 或跨 task Public Model 只是
+重新评估时点，不自动触发切换。届时 DTO、OpenAPI、examples、fixtures、tests 和 requirements 必须原子更新，不保留 alias 或 shim。

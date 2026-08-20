@@ -1,28 +1,41 @@
-# 07：阶段 5——纵向证明、清理与收口
+# 07：阶段 5——两次纵向证明与收口
 
 ## 目标
 
-用一个真实需要的新增能力纵向证明目标结构，而不是继续做横向抽象；随后删除全部 legacy 和迁移残留，恢复单一事实 owner。
+先证明 typed media/profile 边界，再用一个真实新 model-bound operation 证明扩展路径；两者通过后删除全部 legacy 和迁移残留。
 
-本阶段的具体功能必须在执行前重新选择。当前推荐默认是 typed file input 的有限 Native slice，因为现有 `file_input: bool` 是最明显结构缺口；若届时用户优先需要标准 Images 或 Audio endpoint，应重新评估并替换证明切片。
+## 5A：Typed file input
 
-## 候选证明切片：Typed file input
-
-首个切片建议只包括：
+范围：
 
 - Chat `file` inline data；
 - Responses `input_file` inline data 与受限 remote HTTPS URL；
-- encoding、media type、filename、part count、URL 和 inline byte limits；
+- encoding、media type、filename、part count、URL 与 inline byte limits；
 - Native wire fidelity；
-- Bridge、resource ID、下载、解析和转换全部 fail closed。
+- Bridge、`file_id`、下载、解析和转换全部 fail closed。
 
-明确排除：
+明确排除 Files/Uploads/Vector Stores/File Search lifecycle、resource ledger、OCR、转码、下载代理和跨 Provider migration。扩展 Models
+保持 `schema_version: "1"` 和现有 interface 容器，但原子增加 typed `multimodal_input.file`，并同步 OpenAPI、fixtures、requirements 与 tests。
 
-- Files/Uploads/Vector Stores/File Search 生命周期；
-- `file_id` issuer/owner/affinity；
-- PDF/text extraction、OCR、病毒扫描、下载代理或跨 Provider migration。
+先失败测试至少覆盖：合法 exact egress；source one-of、encoding、filename、MIME/detail、part、URL、encoded/decoded budget；无 affinity
+`file_id` zero egress；Bridge 关闭 file；replay budget、cancel、commit 和 telemetry 敏感数据排除。
 
-## 纵向证明必须经过
+## 5B：首个真实新 operation
+
+必须基于已批准的客户端需求、当前官方 wire、一个明确 Provider/Target profile 和独立验收边界选择。候选可以是标准 Images 或 Audio
+operation，但不能是 Files lifecycle、异步 resource job 或 Realtime session。
+
+新 operation 必须独立定义：
+
+- endpoint、method、content type 与 strict request catalog；
+- canonical task binding 与 Provider/Target executable profile；
+- request/response budget、JSON/SSE/binary/multipart terminal；
+- retry eligibility、replay、commit、cancel 与 observability units；
+- private registry interface、Public Models 投影及 Bridge/resource 明确允许或拒绝。
+
+只有现有 Models v1 容器无法准确表达该客户端合同时，才为 Models v2 建立独立 current focus；新增 operation 本身不自动触发 v2。
+
+## 共同纵向路径
 
 ```text
 OpenAPI/router/auth/body limit
@@ -30,48 +43,28 @@ OpenAPI/router/auth/body limit
 → typed request facts
 → Public Model preflight
 → fixed RoutePlan
+→ execution coordinator
 → Provider operation adapter
 → loopback upstream
-→ JSON/SSE response contract
-→ attempt/commit/cancel/observability
+→ response driver/terminal
+→ commit/cancel/observability
 ```
 
-不能只测试 profile constructor、adapter body 或 mock compiler。
-
-## 先失败测试
-
-- Models v2 公开 typed file profile；
-- 合法 inline/remote request exact egress；
-- source one-of、encoding、filename、MIME、detail、part、URL、encoded/decoded budget 逐项拒绝；
-- `file_id` 无 affinity 时 zero egress；
-- Bridge candidate 关闭 file capability；
-- 超 replay budget 的合法请求只执行首个 attempt；
-- URL query、filename、Base64 和错误上下文不进入普通 telemetry；
-- cancel 和首输出 commit 边界正确。
+不能只测试 constructor、adapter body 或 mock compiler。
 
 ## Legacy 清理
 
-纵向切片通过后执行全仓库删除审查：
-
-- old capability/module/type names；
-- compatibility conversion 和 unused alias；
-- old Models v1 fixture/schema；
-- registration 手工 media mutation；
-- fixed operation fields；
-- duplicate test builders 和 orphan fixtures；
-- stale architecture/status/requirement links。
-
-禁止以 TODO、feature flag 或 dead branch 保留旧路径。
+两次证明完成后删除：旧 capability/module/type、compatibility conversion、operation-only API key、固定 private operation fields、registration
+media mutation、duplicate builders、orphan fixtures 和 stale links。不得以 TODO、feature flag 或 dead branch 保留旧路径。
 
 ## 退出门
 
-- 当前所有 operation 与新切片的 focused tests 全绿；
+- 当前 operation、typed file 与新 operation 的 focused tests 全绿；
 - full Rust、corpus（若改动）、OpenAPI、link 和 `git diff --check` 全绿；
-- implementation status 记录实际完成事实与命令；
-- requirements 只保留真实产品合同；
-- 本设计包仍标记为设计，不改写成实施历史；
+- requirements 与 implementation status 只记录实际合同、事实和命令；
 - `current-focus.md` 恢复为空。
 
-## 后续扩展规则
+## 后续扩展
 
-完成证明后，每个新 operation 仍按单独 current focus 纵向实施：定义 wire/limits/errors → RED fixture → operation profile → registry interface → pipeline/adapter → provider evidence。不得因为框架存在就批量打开未验证 capability。
+每个后续 operation 仍使用单独 current focus：wire/limits/errors → RED fixture → operation/profile → registry interface → pipeline/adapter →
+Provider evidence。框架存在不授权批量打开未验证 capability。

@@ -1,64 +1,55 @@
-# 03：阶段 1——Operation kernel 与多 task Model
+# 03：阶段 1——Operation kernel 与 task-explicit API
 
 ## 目标
 
-移除“只有 Chat/Responses/Embeddings 三个固定字段”和“每个 canonical model 只有一个 task”的长期扩展瓶颈，同时保持现有三个 operation 的下游 wire 行为不变。
+移除 Provider/runtime 中固定三 operation 字段和 operation→task 隐式推断，同时保留单 task canonical profile 及现有下游 wire 行为。
 
 ## 依赖
 
-- 阶段 0 的格式、测试和 synthetic builders 基线全绿；
-- [目标架构](01-target-architecture.md)中的 Operation/Task/Modality/Capability/Resource 术语已确认；
-- Models v2 的详细 JSON 尚可延后，但 private operation set 形状必须确定。
+- 阶段 0 的格式、测试和 deny-all builders 基线全绿；
+- Operation、task、modality、capability 与 resource affinity 的边界已冻结；
+- private operation set 与 typed API key 形状已确定。
 
 ## Direct replacement
 
-1. `OperationKind` 继续作为 closed enum，但 provider/runtime interface 改为 operation-tagged set，不再由 `ApiCapabilities` 固定字段拥有。
-2. `ApiProtocol` 收缩到 Generation Bridge；Embeddings 和未来 operation 不再借用 generation request 类型。
-3. `CanonicalModelTask` 单 variant 替换为 non-empty unique `CanonicalTaskSet`。
-4. `UpstreamApiConfig` 增加显式 `task_binding`，operation 与 task 分别校验。
-5. Route transform 从笼统 `Native/Bridged` 收紧为 `Native | GenerationBridge(direction)`；非 Generation operation 不能构造 Bridge。
-6. 所有模型、Provider ceiling、Target/API 和 synthetic fixtures 原子迁移到新类型；旧类型当阶段删除。
+1. `OperationKind` 保持 closed enum；Provider ceiling、executable profile 与 runtime API 改为 operation-tagged set。
+2. `ApiProtocol` 只表示可进入 Generation Bridge 的 Chat/Responses 协议对。
+3. `ModelConfig.task: CanonicalModelTask` 保持单值，task-specific facts 继续由 variant 独占。
+4. `UpstreamApiConfig` 使用 typed `(operation, task)` key；task binding 必须与 canonical profile 一致。
+5. Compiler 先应用该 task 的 model rules，再把一个 selected task profile 写入 runtime `UpstreamApi`。
+6. 每个 private operation interface 显式保存 task；task-sensitive policy 不再依赖 Public Model 全局 shortcut。
+7. Route transform 收紧为 `Native | GenerationBridge(direction)`；非 Generation operation 不能构造 Bridge。
+8. 所有 Provider registration、runtime lookup、Route binding、builders 和 fixtures 原子迁移，旧 representation 当阶段删除。
 
 ## 先失败测试
 
-- duplicate operation ceiling 在启动前失败；
-- duplicate canonical task kind 在启动前失败；
-- API 绑定不存在的 model task 失败；
-- operation/profile variant 不一致失败；
+- duplicate Provider operation ceiling 失败；
+- duplicate `(operation, task)` API key 失败；
+- API task 与 canonical profile 不一致失败；
+- operation/profile/task variant 不一致失败；
+- Route 引用缺失 key 或 Native operation 不一致失败；
 - 非 Generation route 使用 Bridge 失败；
-- synthetic multi-task canonical model 可让不同 operation 各自绑定 task；
-- 同一 Public Model operation 混合不兼容 task candidate 失败。
+- 同一 Public operation interface 混合不兼容 task candidate 失败；
+- Generation instructions/reasoning policy 只从当前 interface task 获取。
 
 ## 实施步骤
 
-1. 先新增 pure definition/validation tests；
-2. 替换 core operation/task definitions；
-3. 替换 registry config 与 runtime entity；
-4. 迁移 models/providers catalog；
-5. 更新 compiler validation；
-6. 更新 tests/support builders；
-7. 删除旧 enum、field accessor、conversion helper 和 wildcard match；
-8. 全仓库搜索 legacy symbol。
-
-## 删除清单
-
-- 固定字段式 `ApiCapabilities`；
-- 单值 `CanonicalModelTask` owner 规则；
-- 全局 generation/embedding request 特化中不再需要的 wrapper；
-- 由 downstream/upstream operation 隐式猜测 Bridge direction 的分支；
-- 为迁移保留的 alias、From 转换或双 representation。
+1. 新增 definition、key、compatibility matrix 和 selected-profile RED tests；
+2. 替换 core/provider operation representation；
+3. 替换 registry config、runtime index 与 Route reference；
+4. 迁移 models/providers catalog 和 test builders；
+5. 把 task-sensitive compile facts 下沉到 operation interface；
+6. 删除 operation-only key、固定字段 accessor、宽泛 Bridge mode 和迁移转换；
+7. 全仓库搜索 legacy symbol 后运行完整基线。
 
 ## 退出门
 
-- 当前 Chat、Responses、Embeddings 的 standard wire、Models visibility、preflight 和 Route 顺序不变；
-- 新 validation focused tests 全绿；
-- 所有 exhaustive matches 无 wildcard；
-- 完整 Rust 基线与 `git diff --check` 通过；
-- 文档不宣称任何未来 operation 已实现。
+- Chat、Responses、Embeddings 的 standard wire、Models v1、preflight 和 Route 顺序不变；
+- runtime `UpstreamApi` 只持有一个已选择的 task profile；
+- exhaustive match 不使用掩盖新 operation/task 的 wildcard；
+- focused tests、完整 Rust 基线和 `git diff --check` 通过。
 
 ## 非目标
 
-- 不实施 media profile 重构；
-- 不发布 Models v2；
-- 不拆 operation-first pipeline；
-- 不新增真实 endpoint。
+- 不引入 `CanonicalTaskSet`、共享 `ModelIdentity` 或跨 task Public Model；
+- 不实施 media profile、Models v2、operation-first pipeline 或新 endpoint。

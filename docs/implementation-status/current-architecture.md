@@ -203,6 +203,8 @@ API 在下游 commit 前完整校验上游 SSE，并生成非流式 JSON。非�
 
 顶层 `execution::AttemptCoordinator` 只拥有 request/candidate attempt counts、固定 hard limits、retry/fallback step 与 capped backoff；
 Generation 和 Embeddings forwarding 共用该 state machine，operation pipeline、Provider 分类、credential 选择与 downstream commit 不进入 coordinator。
+Prepared Generation 与 Embeddings candidates 通过 `ingress/forwarding/execution/runner.rs` 的单一 send/retry loop 执行；
+closed `OperationDriver` 只分派 OAuth/replay/health/terminal policy，不读取 Public DTO、Provider 名称或重新选择 Route。
 它只在首个下游业务输出前允许有界 local retry 与固定 Route fallback；提交后不得拼接另一上游响应。429 cooldown 按 credential
 member/generation 隔离，target fault cooldown 按受信 fault domain 隔离；两者只在单进程内存在，
 不持久化、不跨进程，也不执行动态 weight/health probe。
@@ -225,6 +227,10 @@ snapshot，不进入 reviewed OTLP trace layer。
 确定性 tests 保护 registry、HTTP/SSE、Provider wire、Bridge、retry/fallback/cooldown、取消和 observability，但不自动升级为外部
 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。测试资产与实际外部记录分别见
 [test-assets](test-assets/inventory.md)和 [evidence](evidence/README.md)。
+
+Prepared-candidate runner 收敛通过 Embeddings、Generation resilience/OAuth 与 Bridge focused contracts，并通过
+`cargo fmt -- --check`、`cargo check --locked --all-targets`、`cargo test --locked`、
+`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
 
 Operation-indexed private execution registry 完成时通过 `cargo fmt -- --check`、`cargo check --locked --all-targets`、
 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
