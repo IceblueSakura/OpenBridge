@@ -28,6 +28,7 @@ use self::response::{UpstreamResponseContext, upstream_response};
 mod candidate;
 mod embedding_response;
 mod embeddings;
+mod execution;
 mod oauth;
 mod policy;
 mod response;

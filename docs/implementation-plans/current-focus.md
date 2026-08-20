@@ -2,23 +2,23 @@
 
 ## 状态
 
-**进行中：Operation/capability 重构阶段 4B2——pure Embeddings response driver。**
+**进行中：Operation/capability 重构阶段 4B3a——Embeddings prepared-candidate runner。**
 
 ## 当前焦点
 
 ### 可观察行为
 
-- Embeddings success media type、JSON contract、vector shape、model projection 与 usage extraction 由 `pipeline/embeddings/response.rs` 纯函数拥有。
-- ingress 只执行 bounded body read、observation 与 downstream Response commit；response wire 与错误行为不变。
+- Embeddings handler 只拥有 analysis、planning 与 trusted candidate preparation；attempt loop 移入 `ingress/forwarding/execution.rs`。
+- handler 创建并传入 request-wide `AttemptCoordinator`；credential rotation、retry、backoff、commit 与 cancellation 行为不变。
 
 ### 需求与测试
 
-- 需求来源：已批准的 capability-operation-refactor 阶段 4 operation response driver 边界。
-- 不新增测试；先让 ingress 引用尚不存在的 pure response API 并确认 compile RED，再复用完整 Embeddings contracts。
+- 需求来源：已批准的 capability-operation-refactor 阶段 4 Embeddings migration 与 shared execution 顺序。
+- 不新增测试；先声明尚不存在的 forwarding execution owner 并确认 compile RED，再复用完整 Embeddings retry/cancel contracts。
 
 ### 非目标
 
-- 本切片不合并 forwarding loop，不移动 body I/O 或 commit，不改变 retry policy、limits、Provider adapter 或 wire。
+- 本切片不迁移 Generation loop，不泛化 trait/driver，不改变 retry policy、health、limits、Provider adapter 或 wire。
 
 ### 验证边界
 

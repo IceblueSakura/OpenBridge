@@ -1,11 +1,8 @@
-//! Replay-bounded Native Embeddings forwarding with pre-commit success-response validation.
+//! Native Embeddings admission, planning, and trusted candidate preparation.
 //!
-//! Request analysis, fixed-interface preflight, trusted egress, and pre-commit validation are
-//! complete here. A single compiled Route may reuse its finite attempt budget only for request
-//! bodies within the independent replay limit. Errors are gateway-owned and discard upstream
-//! bodies; request and attempt metrics use the independent Embeddings operation identity.
-
-use std::collections::HashSet;
+//! The prepared-candidate attempt lifecycle lives in the sibling execution module. This handler
+//! owns only operation analysis/planning, trusted registry resolution, and the request-wide attempt
+//! coordinator boundary.
 
 use axum::response::Response;
 use bytes::Bytes;
@@ -13,25 +10,17 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::OperationKind,
-    execution::{AttemptCoordinator, AttemptStep},
-    observability::{
-        ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
-    },
+    execution::AttemptCoordinator,
+    observability::{ErrorType, FailureStage, RequestObservation},
     pipeline::{analyze_embedding_request, plan_embedding_request},
     provider::ProviderAdapter,
 };
 
 use super::super::{
-    response::{
-        embedding_request_error_type, embedding_route_error, embedding_server_error,
-        embedding_upstream_error, normalized_embedding_upstream_error,
-    },
+    response::{embedding_request_error_type, embedding_route_error, embedding_server_error},
     state::GatewayState,
 };
-use super::policy::{http_attempt_failure, transport_attempt_failure};
-use super::{
-    embedding_response::validated_embedding_response, should_retry_error, should_retry_status,
-};
+use super::execution::{PreparedEmbeddingExecution, run_embedding_candidate};
 
 /// Sends one preflighted Native Embeddings request through its single trusted candidate.
 pub(in crate::ingress) async fn forward_embeddings_request(
@@ -114,207 +103,35 @@ pub(in crate::ingress) async fn forward_embeddings_request(
             return configuration_error(&observation, "Provider request preparation failed");
         }
     };
+
+    // Preserve one request-wide attempt budget while the runner owns the prepared candidate loop.
     let mut attempts = AttemptCoordinator::new();
     attempts.begin_candidate();
-    let mut rejected_members = HashSet::new();
-    let mut current_member = None;
-
-    // Select credentials and execute the shared finite candidate budget before downstream commit.
-    loop {
-        // Rotate only after 429; 5xx and transport retries retain the current member.
-        let member_index = match current_member {
-            Some(index) => index,
-            None => match state.credential_health.select_member(
-                credential_pool.id(),
-                &credentials,
-                &rejected_members,
-                std::time::Instant::now(),
-            ) {
-                Some(index) => {
-                    if !rejected_members.is_empty() {
-                        observation.record_credential_rotation();
-                    }
-                    index
-                }
-                None => {
-                    observation.record_request_failure(
-                        ErrorType::UpstreamUnavailable,
-                        FailureStage::Credential,
-                        true,
-                    );
-                    return embedding_server_error(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "upstream_cooldown",
-                        "The configured upstream target is temporarily unavailable",
-                    );
-                }
-            },
-        };
-        current_member = Some(member_index);
-        let credential = &credentials[member_index];
-        let headers = match adapter.build_outbound_headers(credential, &downstream_headers) {
-            Ok(headers) => headers,
-            Err(_) => {
-                return configuration_error(
-                    &observation,
-                    "Provider authentication could not be prepared",
-                );
-            }
-        };
-        if !attempts.start_attempt() {
-            observation.record_request_failure(
-                ErrorType::UpstreamFailure,
-                FailureStage::Upstream,
-                false,
-            );
-            return embedding_server_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_attempts_exhausted",
-                "The upstream attempt budget was exhausted",
-            );
-        }
-        observation.record_attempt(ProviderAttemptContext {
-            attempt: attempts.attempts_started() as u64,
-            route_id: candidate.route_id(),
-            upstream_target: candidate.upstream_target_id(),
-            upstream_operation: candidate.upstream_operation(),
-            upstream_model: upstream_api.upstream_model(),
-            provider: target.kind(),
-            bridged: false,
-        });
-
-        // Send one owned adapter request; dropping this handler cancels the in-flight transport future.
-        match state.upstream.send(target, request.clone(), headers).await {
-            Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
-                // Classify retryable HTTP failures without reading or exposing their response bodies.
-                let classification = adapter.classify_status(upstream.status());
-                let rate_limited =
-                    classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
-                if rate_limited {
-                    state.credential_health.record_rate_limited(
-                        credential_pool.id(),
-                        credential,
-                        upstream.headers(),
-                        std::time::Instant::now(),
-                    );
-                    rejected_members.insert(credential.member_id().to_owned());
-                    current_member = None;
-                }
-
-                // Permit one shared-policy retry only when the body is independently replayable.
-                let has_retry_credential = !rate_limited
-                    || state.credential_health.has_available_member(
-                        credential_pool.id(),
-                        &credentials,
-                        &rejected_members,
-                        std::time::Instant::now(),
-                    );
-                let step = if replayable
-                    && has_retry_credential
-                    && attempts.next_step(0) == AttemptStep::RetryCandidate
-                {
-                    AttemptStep::RetryCandidate
-                } else {
-                    AttemptStep::Finish
-                };
-                let attempt_failure =
-                    http_attempt_failure(&adapter, upstream.status(), step.next_action());
-                observation.record_attempt_http_result(
-                    attempts.attempts_started() as u64,
-                    upstream.status(),
-                    Some(attempt_failure),
-                );
-                if step == AttemptStep::RetryCandidate {
-                    let backoff = attempts.schedule_backoff();
-                    observation.record_retry(attempt_failure.error_type, backoff);
-                    AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                    continue;
-                }
-                return normalized_embedding_upstream_error(upstream);
-            }
-            Ok(upstream) => {
-                // Record the HTTP outcome before consuming a bounded success body or returning an error.
-                let status = upstream.status();
-                let failure = (!status.is_success())
-                    .then(|| http_attempt_failure(&adapter, status, NextAction::Finish));
-                observation.record_attempt_http_result(
-                    attempts.attempts_started() as u64,
-                    status,
-                    failure,
-                );
-                if !status.is_success() {
-                    return normalized_embedding_upstream_error(upstream);
-                }
-
-                // Validate the complete bounded success before any downstream response bytes are committed.
-                let response = match validated_embedding_response(
-                    upstream,
-                    &observation,
-                    requirements.public_model(),
-                    upstream_api.upstream_model(),
-                    plan.input_count(),
-                    plan.encoding(),
-                    plan.dimensions(),
-                    plan.max_json_response_body_bytes(),
-                )
-                .await
-                {
-                    Ok(response) => response,
-                    Err(_) => {
-                        observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
-                        return embedding_server_error(
-                            StatusCode::BAD_GATEWAY,
-                            "invalid_upstream_response",
-                            "The upstream response is invalid",
-                        );
-                    }
-                };
-
-                // Clear health state only after the upstream success body passes the endpoint contract.
-                state
-                    .credential_health
-                    .record_success(credential_pool.id(), credential);
-                state
-                    .health
-                    .record_success(candidate.upstream_target_id(), target);
-                return response;
-            }
-            Err(error) if should_retry_error(&error) => {
-                // Record a low-cardinality transport outcome without retaining its underlying message.
-                let step = if replayable && attempts.next_step(0) == AttemptStep::RetryCandidate {
-                    AttemptStep::RetryCandidate
-                } else {
-                    AttemptStep::Finish
-                };
-                let attempt_failure = transport_attempt_failure(&error, step.next_action());
-                observation.record_attempt_transport_failure(
-                    attempts.attempts_started() as u64,
-                    attempt_failure,
-                );
-
-                // Retry only replayable bodies and let handler cancellation own the backoff timer.
-                if step == AttemptStep::RetryCandidate {
-                    let backoff = attempts.schedule_backoff();
-                    observation.record_retry(attempt_failure.error_type, backoff);
-                    AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                    continue;
-                }
-                return embedding_upstream_error(error);
-            }
-            Err(error) => {
-                // Fail immediately for non-retryable local transport construction or target errors.
-                observation.record_attempt_transport_failure(
-                    attempts.attempts_started() as u64,
-                    transport_attempt_failure(&error, NextAction::Finish),
-                );
-                return embedding_upstream_error(error);
-            }
-        }
-    }
+    run_embedding_candidate(
+        &state,
+        &observation,
+        &downstream_headers,
+        &mut attempts,
+        PreparedEmbeddingExecution {
+            requirements: &requirements,
+            plan: &plan,
+            target,
+            upstream_api,
+            credential_pool,
+            credentials,
+            adapter,
+            request,
+            replayable,
+        },
+    )
+    .await
 }
 
 /// Builds one stable internal configuration error without exposing registry topology.
-fn configuration_error(observation: &RequestObservation, message: &'static str) -> Response {
+pub(super) fn configuration_error(
+    observation: &RequestObservation,
+    message: &'static str,
+) -> Response {
     observation.record_request_failure(
         ErrorType::ConfigurationError,
         FailureStage::Credential,
