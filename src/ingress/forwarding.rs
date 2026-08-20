@@ -1,25 +1,18 @@
 //! Credential rotation, bounded retry/fallback, and response takeover for planned Route candidates.
 
-use std::collections::HashSet;
-
 use axum::response::Response;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 
 use crate::{
-    bridge::BridgePlan,
     core::ApiProtocol,
-    execution::{AttemptCoordinator, AttemptStep},
-    observability::{
-        ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
-    },
+    execution::AttemptCoordinator,
+    observability::{ErrorType, FailureStage, RequestObservation},
     pipeline::{analyze_request, plan_request},
-    provider::ProviderAdapter,
-    transport::upstream::UpstreamResponse,
 };
 
 use super::{
-    response::{api_error, request_planning_error_type, route_error, upstream_error},
+    response::{api_error, request_planning_error_type, route_error},
     state::GatewayState,
 };
 
@@ -36,17 +29,10 @@ mod response;
 pub(super) use embeddings::forward_embeddings_request;
 
 use candidate::prepare_candidate;
-use oauth::{oauth2_authentication_error, recover_after_unauthorized};
-use policy::{
-    http_attempt_failure, should_retry_error, should_retry_status, transport_attempt_failure,
+use execution::{
+    GenerationCandidateOutcome, PreparedGenerationExecution, StoredHttpFailure,
+    run_generation_candidate,
 };
-
-struct StoredHttpFailure {
-    upstream: UpstreamResponse,
-    adapter: ProviderAdapter,
-    upstream_protocol: ApiProtocol,
-    bridge: Option<BridgePlan>,
-}
 
 /// Sends a request that passed HTTP input checks through ordered Native/Bridged candidates.
 ///
@@ -99,12 +85,10 @@ pub(super) async fn forward_request(
     let mut attempts = AttemptCoordinator::new();
     let observe_cross_request_health = plan.allows_fallback();
     let mut cooldown_skipped = false;
-    let mut last_http_failure = None;
+    let mut last_http_failure: Option<StoredHttpFailure> = None;
 
     // Resolve the target before health checks so cooling down candidates do not touch credentials.
-    'candidates: for (candidate_index, candidate) in
-        plan.candidates().iter().take(candidate_count).enumerate()
-    {
+    for (candidate_index, candidate) in plan.candidates().iter().take(candidate_count).enumerate() {
         attempts.begin_candidate();
         let Some(target) = registry.upstream_target(candidate.upstream_target_id()) else {
             return configuration_error(&observation, "Configured upstream target is unavailable");
@@ -133,345 +117,31 @@ pub(super) async fn forward_request(
                 return response;
             }
         };
-        let upstream_api = prepared.upstream_api;
-        let credential_pool = prepared.credential_pool;
-        let uses_oauth2 = prepared.uses_oauth2;
-        let mut oauth2_lease = prepared.oauth2_lease;
-        let static_credentials = prepared.static_credentials;
-        let adapter = prepared.adapter;
-        let request = prepared.request;
-
-        let mut rejected_members = HashSet::new();
-        let mut current_member = None;
-        let mut oauth2_replayed = false;
-
-        // Select members and execute bounded request-level attempts before committing a downstream response.
-        loop {
-            // After 429, select the next member from the shared cursor; 5xx and transport retries keep the current member.
-            let member_index = if uses_oauth2 {
-                0
-            } else {
-                let credentials = static_credentials
-                    .as_ref()
-                    .expect("API-key target must retain static credentials");
-                match current_member {
-                    Some(index) => index,
-                    None => {
-                        if !plan.allows_fallback() {
-                            if credentials.len() != 1 {
-                                return configuration_error(
-                                    &observation,
-                                    "State-bound routes require exactly one credential member",
-                                );
-                            }
-                            0
-                        } else {
-                            match state.credential_health.select_member(
-                                credential_pool.id(),
-                                credentials,
-                                &rejected_members,
-                                std::time::Instant::now(),
-                            ) {
-                                Some(index) => {
-                                    if !rejected_members.is_empty() {
-                                        observation.record_credential_rotation();
-                                    }
-                                    index
-                                }
-                                None => {
-                                    cooldown_skipped = true;
-                                    observation
-                                        .record_cooldown_skip(candidate.upstream_target_id());
-                                    continue 'candidates;
-                                }
-                            }
-                        }
-                    }
+        match run_generation_candidate(
+            &state,
+            &observation,
+            &downstream_headers,
+            &mut attempts,
+            PreparedGenerationExecution {
+                plan: &plan,
+                candidate,
+                target,
+                prepared,
+                candidate_index,
+                candidate_count,
+            },
+        )
+        .await
+        {
+            GenerationCandidateOutcome::Response(response) => return response,
+            GenerationCandidateOutcome::NextCandidate {
+                failure,
+                cooldown_skipped: candidate_skipped,
+            } => {
+                if let Some(failure) = failure {
+                    last_http_failure = Some(failure);
                 }
-            };
-            current_member = Some(member_index);
-            let (credential_member_id, headers) = {
-                let credential = match oauth2_lease.as_ref() {
-                    Some(lease) => match lease.credential() {
-                        Ok(credential) => credential,
-                        Err(_) => {
-                            observation.record_request_failure(
-                                ErrorType::UpstreamAuthentication,
-                                FailureStage::Credential,
-                                false,
-                            );
-                            return oauth2_authentication_error();
-                        }
-                    },
-                    None => static_credentials
-                        .as_ref()
-                        .expect("API-key target must retain static credentials")[member_index],
-                };
-                let headers = match adapter.build_outbound_headers(&credential, &downstream_headers)
-                {
-                    Ok(headers) => headers,
-                    Err(_) => {
-                        return configuration_error(
-                            &observation,
-                            "Provider authentication could not be prepared",
-                        );
-                    }
-                };
-                (credential.member_id().to_owned(), headers)
-            };
-            if !attempts.start_attempt() {
-                observation.record_request_failure(
-                    ErrorType::UpstreamFailure,
-                    FailureStage::Upstream,
-                    false,
-                );
-                return api_error(
-                    StatusCode::BAD_GATEWAY,
-                    "upstream_attempts_exhausted",
-                    "The upstream attempt budget was exhausted",
-                );
-            }
-            observation.record_attempt(ProviderAttemptContext {
-                attempt: attempts.attempts_started() as u64,
-                route_id: candidate.route_id(),
-                upstream_target: candidate.upstream_target_id(),
-                upstream_operation: candidate.upstream_operation(),
-                upstream_model: upstream_api.upstream_model(),
-                provider: target.kind(),
-                bridged: candidate.bridge().is_some(),
-            });
-            if let Some(mapping) = request.reasoning_level_mapping() {
-                tracing::info!(
-                    downstream_reasoning_level = mapping.downstream.as_wire(),
-                    upstream_reasoning_level = mapping.upstream,
-                    "reasoning_level_mapped"
-                );
-            }
-            match state
-                .upstream
-                .send(target, request.clone(), headers.clone())
-                .await
-            {
-                Ok(upstream) if uses_oauth2 && upstream.status() == StatusCode::UNAUTHORIZED => {
-                    // Recover only before response takeover and never replay one rejected generation twice.
-                    let current_lease = oauth2_lease
-                        .as_ref()
-                        .expect("OAuth2 target must retain a request lease");
-                    let next_lease = match recover_after_unauthorized(
-                        &state,
-                        target.kind(),
-                        credential_pool.id(),
-                        current_lease,
-                        &mut oauth2_replayed,
-                    )
-                    .await
-                    {
-                        Ok(lease) => lease,
-                        Err(response) => {
-                            observation.record_attempt_http_result(
-                                attempts.attempts_started() as u64,
-                                upstream.status(),
-                                Some(http_attempt_failure(
-                                    &adapter,
-                                    upstream.status(),
-                                    NextAction::Finish,
-                                )),
-                            );
-                            observation.record_request_failure(
-                                ErrorType::UpstreamAuthentication,
-                                FailureStage::Credential,
-                                false,
-                            );
-                            return response;
-                        }
-                    };
-                    observation.record_attempt_http_result(
-                        attempts.attempts_started() as u64,
-                        upstream.status(),
-                        Some(http_attempt_failure(
-                            &adapter,
-                            upstream.status(),
-                            NextAction::RetryCandidate,
-                        )),
-                    );
-                    oauth2_lease = Some(next_lease);
-                    observation
-                        .record_retry(ErrorType::UpstreamAuthentication, std::time::Duration::ZERO);
-                    continue;
-                }
-                Ok(upstream) if should_retry_status(&adapter, upstream.status()) => {
-                    // Record member-level 429 or target-level temporary unavailability by HTTP category.
-                    let classification = adapter.classify_status(upstream.status());
-                    let rate_limited =
-                        classification.kind() == crate::provider::UpstreamErrorKind::RateLimited;
-                    if rate_limited {
-                        if let Some(credentials) = static_credentials.as_ref() {
-                            state.credential_health.record_rate_limited(
-                                credential_pool.id(),
-                                &credentials[member_index],
-                                upstream.headers(),
-                                std::time::Instant::now(),
-                            );
-                            rejected_members.insert(credential_member_id);
-                            current_member = None;
-                        } else {
-                            // A single account-bound OAuth2 credential cannot rotate after 429.
-                            state.health.record_http_failure(
-                                candidate.upstream_target_id(),
-                                target,
-                                classification.kind(),
-                                upstream.headers(),
-                                std::time::Instant::now(),
-                            );
-                        }
-                    } else {
-                        state.health.record_http_failure(
-                            candidate.upstream_target_id(),
-                            target,
-                            classification.kind(),
-                            upstream.headers(),
-                            std::time::Instant::now(),
-                        );
-                    }
-                    let untried_candidates = candidate_count - candidate_index - 1;
-                    let mut step = attempts.next_step(untried_candidates);
-                    if rate_limited
-                        && (uses_oauth2
-                            || !plan.allows_fallback()
-                            || !state.credential_health.has_available_member(
-                                credential_pool.id(),
-                                static_credentials
-                                    .as_ref()
-                                    .expect("API-key target must retain static credentials"),
-                                &rejected_members,
-                                std::time::Instant::now(),
-                            ))
-                    {
-                        step = match step {
-                            AttemptStep::RetryCandidate if untried_candidates > 0 => {
-                                AttemptStep::NextCandidate
-                            }
-                            AttemptStep::RetryCandidate => AttemptStep::Finish,
-                            other => other,
-                        };
-                    }
-                    let attempt_failure =
-                        http_attempt_failure(&adapter, upstream.status(), step.next_action());
-                    observation.record_attempt_http_result(
-                        attempts.attempts_started() as u64,
-                        upstream.status(),
-                        Some(attempt_failure),
-                    );
-                    match step {
-                        AttemptStep::RetryCandidate => {
-                            let backoff = attempts.schedule_backoff();
-                            observation.record_retry(attempt_failure.error_type, backoff);
-                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                            continue;
-                        }
-                        AttemptStep::NextCandidate => {
-                            last_http_failure = Some(StoredHttpFailure {
-                                upstream,
-                                adapter,
-                                upstream_protocol: candidate.request().protocol(),
-                                bridge: candidate.bridge().cloned(),
-                            });
-                            let backoff = attempts.schedule_backoff();
-                            observation.record_fallback(attempt_failure.error_type, backoff);
-                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                            continue 'candidates;
-                        }
-                        AttemptStep::Finish => {
-                            return upstream_response(
-                                upstream,
-                                UpstreamResponseContext {
-                                    validate_sse: plan.is_streaming(),
-                                    upstream_protocol: candidate.request().protocol(),
-                                    adapter,
-                                    max_sse_event_bytes: plan.max_sse_event_bytes(),
-                                    max_json_body_bytes: plan.max_json_response_body_bytes(),
-                                    bridge: candidate.bridge().cloned(),
-                                    stream_response_conversion: candidate
-                                        .stream_response_conversion(),
-                                    observation: observation.clone(),
-                                },
-                            )
-                            .await;
-                        }
-                    }
-                }
-                Ok(upstream) => {
-                    // Clear the target's known cooldown only after a successful HTTP response.
-                    let status = upstream.status();
-                    let failure = (!status.is_success())
-                        .then(|| http_attempt_failure(&adapter, status, NextAction::Finish));
-                    observation.record_attempt_http_result(
-                        attempts.attempts_started() as u64,
-                        status,
-                        failure,
-                    );
-                    if status.is_success() {
-                        if let Some(credentials) = static_credentials.as_ref() {
-                            state
-                                .credential_health
-                                .record_success(credential_pool.id(), &credentials[member_index]);
-                        }
-                        state
-                            .health
-                            .record_success(candidate.upstream_target_id(), target);
-                    }
-                    return upstream_response(
-                        upstream,
-                        UpstreamResponseContext {
-                            validate_sse: plan.is_streaming(),
-                            upstream_protocol: candidate.request().protocol(),
-                            adapter,
-                            max_sse_event_bytes: plan.max_sse_event_bytes(),
-                            max_json_body_bytes: plan.max_json_response_body_bytes(),
-                            bridge: candidate.bridge().cloned(),
-                            stream_response_conversion: candidate.stream_response_conversion(),
-                            observation: observation.clone(),
-                        },
-                    )
-                    .await;
-                }
-                Err(error) if should_retry_error(&error) => {
-                    // Timeout/transport failure isolates only the fault domain and does not affect the quota scope.
-                    state.health.record_transport_failure(
-                        candidate.upstream_target_id(),
-                        target,
-                        std::time::Instant::now(),
-                    );
-                    let untried_candidates = candidate_count - candidate_index - 1;
-                    let step = attempts.next_step(untried_candidates);
-                    let attempt_failure = transport_attempt_failure(&error, step.next_action());
-                    observation.record_attempt_transport_failure(
-                        attempts.attempts_started() as u64,
-                        attempt_failure,
-                    );
-                    match step {
-                        AttemptStep::RetryCandidate => {
-                            let backoff = attempts.schedule_backoff();
-                            observation.record_retry(attempt_failure.error_type, backoff);
-                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                            continue;
-                        }
-                        AttemptStep::NextCandidate => {
-                            let backoff = attempts.schedule_backoff();
-                            observation.record_fallback(attempt_failure.error_type, backoff);
-                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                            continue 'candidates;
-                        }
-                        AttemptStep::Finish => return upstream_error(error),
-                    }
-                }
-                Err(error) => {
-                    observation.record_attempt_transport_failure(
-                        attempts.attempts_started() as u64,
-                        transport_attempt_failure(&error, NextAction::Finish),
-                    );
-                    return upstream_error(error);
-                }
+                cooldown_skipped |= candidate_skipped;
             }
         }
     }
@@ -517,7 +187,10 @@ pub(super) async fn forward_request(
 }
 
 /// Records one credential/preparation failure before returning a stable configuration response.
-fn configuration_error(observation: &RequestObservation, message: &'static str) -> Response {
+pub(super) fn configuration_error(
+    observation: &RequestObservation,
+    message: &'static str,
+) -> Response {
     observation.record_request_failure(
         ErrorType::ConfigurationError,
         FailureStage::Credential,
