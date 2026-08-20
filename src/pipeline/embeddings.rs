@@ -6,6 +6,10 @@
 mod analysis;
 mod planning;
 mod preflight;
+mod response;
 
 pub use analysis::analyze_embedding_request;
 pub use planning::plan_embedding_request;
+pub(crate) use response::{
+    EmbeddingResponseError, validate_embedding_response_body, validate_embedding_response_headers,
+};

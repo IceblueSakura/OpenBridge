@@ -12,6 +12,9 @@ mod preflight;
 mod types;
 
 pub use analysis::analyze_request;
+pub(crate) use embeddings::{
+    EmbeddingResponseError, validate_embedding_response_body, validate_embedding_response_headers,
+};
 pub use embeddings::{analyze_embedding_request, plan_embedding_request};
 pub use error::{EmbeddingRequestError, RequestPlanningError};
 pub(crate) use instructions::normalize_probe_generation_request;

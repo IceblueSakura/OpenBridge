@@ -2,23 +2,23 @@
 
 ## 状态
 
-**进行中：Operation/capability 重构阶段 4B1——operation-owned Embeddings pipeline。**
+**进行中：Operation/capability 重构阶段 4B2——pure Embeddings response driver。**
 
 ## 当前焦点
 
 ### 可观察行为
 
-- Embeddings analysis、preflight 与 planning 由 `pipeline/embeddings/` 唯一拥有；crate-level pipeline facade API 保持不变。
-- 本切片不移动 I/O response commit；request wire、preflight error、Route plan 与 response behavior 不变。
+- Embeddings success media type、JSON contract、vector shape、model projection 与 usage extraction 由 `pipeline/embeddings/response.rs` 纯函数拥有。
+- ingress 只执行 bounded body read、observation 与 downstream Response commit；response wire 与错误行为不变。
 
 ### 需求与测试
 
-- 需求来源：已批准的 capability-operation-refactor 阶段 4 实施顺序第 2 项。
-- 不新增测试；先让 pipeline facade 指向尚不存在的 operation owner 并确认 compile RED，再复用完整 Embeddings contracts。
+- 需求来源：已批准的 capability-operation-refactor 阶段 4 operation response driver 边界。
+- 不新增测试；先让 ingress 引用尚不存在的 pure response API 并确认 compile RED，再复用完整 Embeddings contracts。
 
 ### 非目标
 
-- 本切片不合并 forwarding loop，不移动 response/commit I/O，不改变 types、retry policy、limits、Provider adapter 或 wire。
+- 本切片不合并 forwarding loop，不移动 body I/O 或 commit，不改变 retry policy、limits、Provider adapter 或 wire。
 
 ### 验证边界
 
