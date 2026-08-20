@@ -14,8 +14,9 @@
 
 ## 所有权
 
-Capability/analyzer 位于 `src/core/capability/embeddings.rs` 与 `src/pipeline/analysis/embeddings.rs`；registration 位于
-`src/providers/catalog/embeddings.rs`，转发/校验位于 `src/ingress/forwarding/embeddings.rs`。
+Capability 与 pure analyzer/preflight/planning/response validation 位于 `src/core/capability/embeddings.rs` 与
+`src/pipeline/embeddings/`；registration 位于 `src/providers/catalog/embeddings.rs`，transport lifecycle 位于
+`src/ingress/forwarding/embeddings.rs`。
 
 ## 确定性与真实证据
 

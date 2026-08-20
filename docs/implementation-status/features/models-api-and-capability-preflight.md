@@ -24,8 +24,8 @@
 
 ## 所有权
 
-下游 DTO/accessor 位于 `src/registry/public_model.rs`，私有 execution/compile/aggregate 位于同名子模块；generation 与 Embeddings
-analysis 分域于 `src/pipeline/analysis/`，preflight/planning 位于 `src/pipeline/`。Analyzer 不解析 registry entity 或选择 Route。
+下游 DTO/accessor 位于 `src/registry/public_model.rs`，私有 execution/compile/aggregate 位于同名子模块；Generation 与 Embeddings
+的 analysis/preflight/planning 分别位于 `src/pipeline/generation/` 与 `src/pipeline/embeddings/`。Analyzer 不解析 registry entity 或选择 Route。
 
 ## 确定性证据
 

@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::{
+use super::super::{
     error::RequestPlanningError,
     types::{
         AudioInputRequirements, GeneratedAudioMessageShape, InputAudioMessageShape,

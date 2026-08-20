@@ -14,8 +14,8 @@
 ## 所有权
 
 Canonical facts/registration 位于 `src/models/xiaomi/`、`src/providers/mimo/` 和 `src/providers/catalog/public_models.rs`；audio
-capability 位于 `src/core/capability/generation.rs`；shape analysis/preflight 位于 `src/pipeline/analysis/generation/audio.rs` 与
-`src/pipeline/preflight.rs`。
+capability 位于 `src/core/capability/generation.rs`；shape analysis/preflight 位于 `src/pipeline/generation/analysis/audio.rs` 与
+`src/pipeline/generation/preflight.rs`。
 
 ## 确定性与真实证据
 

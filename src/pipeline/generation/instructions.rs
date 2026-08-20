@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::core::ApiProtocol;
 
-use super::{error::RequestPlanningError, types::RequestedInstructions};
+use super::super::{error::RequestPlanningError, types::RequestedInstructions};
 
 /// Extracts the sole client-owned instruction source without consulting the registry.
 pub(super) fn analyze_requested_instructions(

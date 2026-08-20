@@ -64,7 +64,7 @@ downstream response + request/attempt observations
 
 - `core/capability.rs` 只在 `ApiCapabilities` 汇总域；generation 与 Embeddings 规则分别位于
   `core/capability/generation.rs` 和 `core/capability/embeddings.rs`。
-- `pipeline/analysis.rs` 只聚合 operation analyzer；各 analyzer 不解析 registry entity。
+- `pipeline/generation/` 与 `pipeline/embeddings/` 分别拥有 operation analyzer、preflight 和 planner；各 analyzer 不解析 registry entity。
 - `registry/public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；私有 execution snapshot、contribution、aggregation
   与 Embeddings response budget 由同名子模块拥有。
 - `observability.rs` 只作 facade；request/provider/metrics/otlp/http logging 各自拥有对应生命周期。
@@ -170,6 +170,10 @@ JSON admission
 → Native passthrough or Bridge response renderer
 ```
 
+Generation 的 pure Chat/Responses analysis、fixed-interface preflight、request normalization 与 Native/Bridge planning 由
+`pipeline/generation/` 单一 family 拥有，并继续通过 pipeline facade 暴露原有 API；Bridge plan 不能由 Embeddings family 构造。
+该 family 不执行 body read、credential、transport、response-body 或 downstream commit I/O。
+
 Embeddings 的 pure analysis、fixed-interface preflight、Native planning 与 success-response validation 由
 `pipeline/embeddings/` 拥有，并继续通过 pipeline facade 暴露原有 API；该 family 不执行 body read、credential、transport、
 observation 或 downstream commit I/O。运行路径使用 `EmbeddingRequestRequirements` 与 `EmbeddingRoutePlan`；ingress 在 bounded
@@ -227,6 +231,10 @@ snapshot，不进入 reviewed OTLP trace layer。
 确定性 tests 保护 registry、HTTP/SSE、Provider wire、Bridge、retry/fallback/cooldown、取消和 observability，但不自动升级为外部
 SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。测试资产与实际外部记录分别见
 [test-assets](test-assets/inventory.md)和 [evidence](evidence/README.md)。
+
+Generation pure pipeline family 重组通过 Generation ingress/forwarding、Bridge、registry focused contracts，并通过
+`cargo fmt -- --check`、`cargo check --locked --all-targets`、`cargo test --locked`、
+`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
 
 Prepared-candidate runner 收敛通过 Embeddings、Generation resilience/OAuth 与 Bridge focused contracts，并通过
 `cargo fmt -- --check`、`cargo check --locked --all-targets`、`cargo test --locked`、

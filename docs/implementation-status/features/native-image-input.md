@@ -15,7 +15,8 @@
 ## 所有权
 
 类型/invariant 位于 `src/core/capability/generation.rs`；MiMo ceiling/Target 位于 `src/providers/mimo/`；Public Model 聚合位于
-`src/registry/public_model*`；request parsing/preflight 位于 `src/pipeline/analysis/generation/image_input.rs` 与 `src/pipeline/preflight.rs`。
+`src/registry/public_model*`；request parsing/preflight 位于 `src/pipeline/generation/analysis/image_input.rs` 与
+`src/pipeline/generation/preflight.rs`。
 
 ## 确定性与真实证据
 

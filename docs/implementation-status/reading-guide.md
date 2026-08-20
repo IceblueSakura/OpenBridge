@@ -58,9 +58,9 @@ Bootstrap + users + upstream credential bindings
 | Router 与认证 | [`ingress::build_router`](../../src/ingress/router.rs) | 哪些资源公开，哪些需要 Bearer token？ |
 | Body 生命周期 | [`src/ingress/lifecycle.rs`](../../src/ingress/lifecycle.rs) | 请求上限、重放预算和下游取消如何传播？ |
 | 请求编排 | [`src/ingress/forwarding.rs`](../../src/ingress/forwarding.rs) | attempt、retry/fallback 与 commit point 如何连接？ |
-| 事实提取 | [`src/pipeline/analysis.rs`](../../src/pipeline/analysis.rs) | 请求携带了哪些 capability、limit 和 state 事实？ |
-| 固定能力预检 | [`src/pipeline/preflight.rs`](../../src/pipeline/preflight.rs) | 为什么不支持能力会在查看候选前失败？ |
-| Route 计划 | [`src/pipeline/planning.rs`](../../src/pipeline/planning.rs) | 为什么预检后仍保持静态候选顺序？ |
+| 事实提取 | [`src/pipeline/generation/analysis.rs`](../../src/pipeline/generation/analysis.rs) | Generation 请求携带了哪些 capability、limit 和 state 事实？ |
+| 固定能力预检 | [`src/pipeline/generation/preflight.rs`](../../src/pipeline/generation/preflight.rs) | 为什么 Generation 不支持能力会在查看候选前失败？ |
+| Route 计划 | [`src/pipeline/generation/planning.rs`](../../src/pipeline/generation/planning.rs) | 为什么 Generation 预检后仍保持静态候选顺序？ |
 | 运行实体 | [`src/registry/runtime.rs`](../../src/registry/runtime.rs) | Public Model 如何关联 Target、API 与 Route？ |
 | Provider 改写 | [`src/provider/adapter.rs`](../../src/provider/adapter.rs) | 相对 path、真实 model 和认证 header 在哪里产生？ |
 | HTTP 发送 | [`src/transport/upstream.rs`](../../src/transport/upstream.rs) | endpoint、redirect、timeout 和连接池如何受控？ |
@@ -88,7 +88,7 @@ HTTP request
 | Public Model 固定接口 | 同上 | [`src/registry/public_model.rs`](../../src/registry/public_model.rs)及其子模块 |
 | Provider 能力上界 | [网关 API 需求](../functional-requirements/gateway-api/README.md) | [`src/provider/`](../../src/provider)、[`src/providers/`](../../src/providers) |
 | Target 与 Upstream API | [当前架构](current-architecture.md) | 静态注册在 [`src/providers/*/registration.rs`](../../src/providers)，已解析实体在 [`src/registry/runtime.rs`](../../src/registry/runtime.rs)；`definition.rs` 只定义配置类型 |
-| Route ordering | [路由与韧性需求](../functional-requirements/routing-resilience/README.md) | [`src/providers/catalog/route_compiler.rs`](../../src/providers/catalog/route_compiler.rs)、[`src/pipeline/planning.rs`](../../src/pipeline/planning.rs) |
+| Route ordering | [路由与韧性需求](../functional-requirements/routing-resilience/README.md) | [`src/providers/catalog/route_compiler.rs`](../../src/providers/catalog/route_compiler.rs)、[`src/pipeline/generation/planning.rs`](../../src/pipeline/generation/planning.rs)、[`src/pipeline/embeddings/planning.rs`](../../src/pipeline/embeddings/planning.rs) |
 | Attempt 与 cooldown | 同上 | [`src/execution/coordinator.rs`](../../src/execution/coordinator.rs)、[`src/ingress/health.rs`](../../src/ingress/health.rs)、[`src/ingress/credential_health.rs`](../../src/ingress/credential_health.rs) |
 | Bootstrap 与 secret | [配置与凭证需求](../functional-requirements/configuration-credentials/README.md) | config、identity、upstream credentials、credential stores |
 | OTLP 与本地内容日志 | [观测需求](../functional-requirements/observability/README.md) | [`src/observability.rs`](../../src/observability.rs)及其子模块 |
