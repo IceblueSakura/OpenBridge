@@ -1642,6 +1642,39 @@ fn image_input_is_subset_of(
     }
 }
 
+/// Reserved typed contract for Chat Completions `file` content parts.
+///
+/// The type intentionally has no public constructor until the downstream file wire, limits, and
+/// preflight contract are implemented. `Option::None` is therefore the only executable profile in
+/// the current release while preserving an operation-specific expansion point.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChatFileInputProfile {
+    _reserved: (),
+}
+
+/// Reserved typed contract for Responses `input_file` items and content parts.
+///
+/// This remains distinct from [`ChatFileInputProfile`] because the two APIs have different source
+/// unions. It has no public constructor until those wire contracts are implemented.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ResponsesFileInputProfile {
+    _reserved: (),
+}
+
+fn optional_chat_file_input_is_subset_of(
+    value: Option<ChatFileInputProfile>,
+    upper: Option<ChatFileInputProfile>,
+) -> bool {
+    value.is_none() || upper.is_some()
+}
+
+fn optional_responses_file_input_is_subset_of(
+    value: Option<ResponsesFileInputProfile>,
+    upper: Option<ResponsesFileInputProfile>,
+) -> bool {
+    value.is_none() || upper.is_some()
+}
+
 /// Shared generation-capability projection for Chat Completions and Responses.
 ///
 /// This value is used only for common-protocol subset checks; static registrations must use
@@ -1705,8 +1738,8 @@ pub struct ChatCompletionsProfile<A> {
     pub custom_tool_calling: bool,
     /// Layer-specific Provider ceiling or executable audio profile.
     pub audio: A,
-    /// Whether `file` input content parts are supported.
-    pub file_input: bool,
+    /// Typed `file` input profile, or `None` while file input is unsupported.
+    pub file_input: Option<ChatFileInputProfile>,
     /// Whether `prediction` predicted outputs are supported.
     pub predicted_outputs: bool,
     /// Whether `web_search_options` is supported.
@@ -1743,7 +1776,7 @@ impl<A: Copy> ChatCompletionsProfile<A> {
     /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
-            || self.file_input
+            || self.file_input.is_some()
             || self.predicted_outputs
             || self.web_search
             || self.moderation
@@ -1766,6 +1799,7 @@ impl ChatCompletionsProfile<Option<ProviderAudioCeiling>> {
     pub const fn to_executable(
         self,
         audio: Option<ExecutableAudioProfile>,
+        file_input: Option<ChatFileInputProfile>,
     ) -> ChatCompletionsCapabilities {
         ChatCompletionsProfile {
             streaming: self.streaming,
@@ -1777,7 +1811,7 @@ impl ChatCompletionsProfile<Option<ProviderAudioCeiling>> {
             reasoning_output: self.reasoning_output,
             custom_tool_calling: self.custom_tool_calling,
             audio,
-            file_input: self.file_input,
+            file_input,
             predicted_outputs: self.predicted_outputs,
             web_search: self.web_search,
             prompt_cache_key: self.prompt_cache_key,
@@ -1800,6 +1834,7 @@ impl ChatCompletionsProfile<Option<ExecutableAudioProfile>> {
             .is_subset_of(upper.generation_capabilities())
             && (!self.stream_usage || upper.stream_usage)
             && optional_executable_audio_is_subset_of(self.audio, upper.audio)
+            && optional_chat_file_input_is_subset_of(self.file_input, upper.file_input)
             && (!self.prompt_cache_key || upper.prompt_cache_key)
     }
 
@@ -1988,8 +2023,8 @@ pub struct ResponsesProfile<S> {
     pub custom_tool_calling: bool,
     /// Declared OpenAI-hosted tool kinds.
     pub hosted_tools: &'static [HostedToolKind],
-    /// Whether file input items/content parts are supported.
-    pub file_input: bool,
+    /// Typed `input_file` profile, or `None` while file input is unsupported.
+    pub file_input: Option<ResponsesFileInputProfile>,
     /// Whether persistent `conversation` state is supported.
     pub conversation: bool,
     /// Whether `prompt` template references are supported.
@@ -2029,7 +2064,11 @@ impl ProviderResponsesCapabilities {
     }
 
     /// Projects the Provider ceiling into one concrete Target profile and replaces only state.
-    pub const fn to_executable(self, state: ExecutableResponsesState) -> ResponsesCapabilities {
+    pub const fn to_executable(
+        self,
+        state: ExecutableResponsesState,
+        file_input: Option<ResponsesFileInputProfile>,
+    ) -> ResponsesCapabilities {
         ResponsesProfile {
             streaming: self.streaming,
             terminal_usage: self.terminal_usage,
@@ -2041,7 +2080,7 @@ impl ProviderResponsesCapabilities {
             reasoning_output: self.reasoning_output,
             custom_tool_calling: self.custom_tool_calling,
             hosted_tools: self.hosted_tools,
-            file_input: self.file_input,
+            file_input,
             conversation: self.conversation,
             prompt_templates: self.prompt_templates,
             prompt_cache_key: self.prompt_cache_key,
@@ -2115,6 +2154,7 @@ impl ResponsesCapabilities {
             && (!self.terminal_usage || upper.terminal_usage)
             && self.state.is_subset_of(upper.state)
             && (!self.background || upper.background)
+            && optional_responses_file_input_is_subset_of(self.file_input, upper.file_input)
             && (!self.prompt_cache_key || upper.prompt_cache_key)
             && response_includes_are_subset_of(self.include, upper.include)
     }
@@ -2125,7 +2165,7 @@ impl<S: Copy> ResponsesProfile<S> {
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
             || !self.hosted_tools.is_empty()
-            || self.file_input
+            || self.file_input.is_some()
             || self.conversation
             || self.prompt_templates
             || self.context_management

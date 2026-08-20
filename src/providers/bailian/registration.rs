@@ -146,7 +146,7 @@ fn chat_target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("Bailian generation targets require Chat Completions capabilities")
-        .to_executable(None);
+        .to_executable(None, None);
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
         profile.parallel_calls = matches!(
             canonical_model,
@@ -188,10 +188,13 @@ fn chat_target(
             .operation(crate::core::OperationKind::Responses)
             .and_then(crate::core::ProviderOperationCapabilities::responses)
             .expect("Bailian Qwen targets require Responses capabilities")
-            .to_executable(ExecutableResponsesState::new(
-                StorageSupport::Unsupported,
-                ResponsesAffinity::TargetBound,
-            ));
+            .to_executable(
+                ExecutableResponsesState::new(
+                    StorageSupport::Unsupported,
+                    ResponsesAffinity::TargetBound,
+                ),
+                None,
+            );
         responses_capabilities.function_tools =
             responses_capabilities.function_tools.map(|mut profile| {
                 profile.parallel_calls = false;

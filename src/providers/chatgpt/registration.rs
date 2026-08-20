@@ -133,8 +133,8 @@ fn responses_capabilities(advanced_capabilities: bool) -> UpstreamApiCapabilitie
         capabilities.function_tools = None;
         capabilities.structured_outputs = None;
     }
-    UpstreamApiCapabilities::Responses(capabilities.to_executable(ExecutableResponsesState::new(
-        StorageSupport::Unsupported,
-        ResponsesAffinity::TargetBound,
-    )))
+    UpstreamApiCapabilities::Responses(capabilities.to_executable(
+        ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::TargetBound),
+        None,
+    ))
 }

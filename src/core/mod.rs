@@ -11,8 +11,8 @@ pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
     ALL_TOOL_CHOICE_MODES, ApiCapabilities, AsrLanguage, AudioFormat, AudioInputCapabilities,
     AudioInputLimits, AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
-    ChatCompletionsProfile, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-    EmbeddingsCapabilities, ExecutableAudioProfile, ExecutableResponsesState,
+    ChatCompletionsProfile, ChatFileInputProfile, EmbeddingDimensionDomain, EmbeddingEncoding,
+    EmbeddingInputForm, EmbeddingsCapabilities, ExecutableAudioProfile, ExecutableResponsesState,
     FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
     ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
     ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
@@ -20,9 +20,9 @@ pub use capability::{
     ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
     ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
     RemoteImageInputLimits, ResponseInclude, ResponsesAffinity, ResponsesCapabilities,
-    ResponsesProfile, SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery,
-    SseAudioFraming, StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
-    VoiceCloneProfile, VoiceDesignProfile,
+    ResponsesFileInputProfile, ResponsesProfile, SpeechRecognitionProfile, SpeechSynthesisProfile,
+    SseAudioDelivery, SseAudioFraming, StorageSupport, StructuredOutputMode,
+    StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile, VoiceDesignProfile,
 };
 pub(crate) use generation_parameter::{
     ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,

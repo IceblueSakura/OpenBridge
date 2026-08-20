@@ -63,7 +63,7 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
                     .operation(crate::core::OperationKind::ChatCompletions)
                     .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
                     .expect("NVIDIA targets require Chat Completions capabilities")
-                    .to_executable(None),
+                    .to_executable(None, None),
             ),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         }],

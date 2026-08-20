@@ -381,7 +381,7 @@ fn protocol_specific_capabilities(
             audio: capabilities
                 .audio
                 .map(AudioInterfaceCapabilities::from_capabilities),
-            file_input: capabilities.file_input,
+            file_input: capabilities.file_input.is_some(),
         },
         UpstreamApiCapabilities::Responses(capabilities) => ProtocolCapabilities {
             continuation: if route.downstream_operation() == OperationKind::Responses
@@ -402,7 +402,7 @@ fn protocol_specific_capabilities(
             chat_stream_usage: false,
             response_includes: capabilities.include.to_vec(),
             audio: None,
-            file_input: capabilities.file_input,
+            file_input: capabilities.file_input.is_some(),
         },
         UpstreamApiCapabilities::Embeddings(_) => {
             unreachable!("Embeddings does not use generation protocol capabilities")

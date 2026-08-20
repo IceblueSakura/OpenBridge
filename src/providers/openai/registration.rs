@@ -79,15 +79,18 @@ fn generation_target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenAI generation targets require Chat Completions capabilities")
-        .to_executable(None);
+        .to_executable(None, None);
     let mut responses_capabilities = capabilities
         .operation(crate::core::OperationKind::Responses)
         .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("OpenAI generation targets require Responses capabilities")
-        .to_executable(ExecutableResponsesState::new(
-            StorageSupport::Unsupported,
-            ResponsesAffinity::TargetBound,
-        ));
+        .to_executable(
+            ExecutableResponsesState::new(
+                StorageSupport::Unsupported,
+                ResponsesAffinity::TargetBound,
+            ),
+            None,
+        );
 
     // Narrow unverified multimodal, strict-tool, structured-output, and persistent-state features.
     chat_capabilities.function_tools = Some(CONSERVATIVE_FUNCTION_TOOLS);

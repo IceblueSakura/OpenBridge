@@ -168,7 +168,7 @@ pub fn capabilities() -> ApiCapabilities {
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
             audio: None,
-            file_input: false,
+            file_input: None,
             predicted_outputs: false,
             web_search: false,
             prompt_cache_key: false,
@@ -187,7 +187,7 @@ pub fn capabilities() -> ApiCapabilities {
             reasoning_output: ReasoningOutput::Unknown,
             custom_tool_calling: false,
             hosted_tools: &[],
-            file_input: false,
+            file_input: None,
             conversation: false,
             prompt_templates: false,
             prompt_cache_key: false,
@@ -251,7 +251,7 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                                 openbridge::core::ProviderOperationCapabilities::chat_completions,
                             )
                             .expect("the synthetic Provider must expose Chat Completions")
-                            .to_executable(None),
+                            .to_executable(None, None),
                     ),
                     streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
                 },
@@ -267,10 +267,13 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                             .operation(openbridge::core::OperationKind::Responses)
                             .and_then(openbridge::core::ProviderOperationCapabilities::responses)
                             .expect("the synthetic Provider must expose Responses")
-                            .to_executable(ExecutableResponsesState::new(
-                                StorageSupport::Unsupported,
-                                ResponsesAffinity::TargetBound,
-                            )),
+                            .to_executable(
+                                ExecutableResponsesState::new(
+                                    StorageSupport::Unsupported,
+                                    ResponsesAffinity::TargetBound,
+                                ),
+                                None,
+                            ),
                     ),
                     streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
                 },

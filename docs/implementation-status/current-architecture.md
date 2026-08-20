@@ -128,6 +128,10 @@ immutable RuntimeRegistry
 `UpstreamApiKey`，forwarding 不再从 Target 与 operation 重建 API identity。
 Public Model 只公开全部固定候选共同保证的能力；请求期不会因能力筛选、跳过或重排 candidate。
 
+Chat `file` 与 Responses `input_file` 使用彼此独立的 typed capability profile；未实现的 profile 没有公开 constructor。Provider ceiling
+和每个 executable Target 都显式保存 `None`，因此新增 Provider file ceiling 不能通过 `to_executable()` 隐式提升 Target。两种 file
+wire 仍在 analysis 阶段失败关闭，不进入 preflight、Route planning 或 egress。
+
 Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`。前者在同一协议先排列所有 Native，再排列 Bridge；后者先
 保持 source priority，再在 source 内优先 Native。只有整个 Public Model 缺少某一 downstream protocol Native coverage 时，
 compiler 才为允许的单协议 source 自动补充 Bridge；显式 Bridge surface 可独立保留。

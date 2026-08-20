@@ -67,17 +67,17 @@ fn dual_protocol_target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenRouter targets require Chat Completions capabilities")
-        .to_executable(None);
+        .to_executable(None, None);
     let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::Responses)
         .and_then(crate::core::ProviderOperationCapabilities::responses)
         .expect("OpenRouter targets require Responses capabilities")
-        .to_executable(ExecutableResponsesState::new(
-            StorageSupport::Unsupported,
-            ResponsesAffinity::Unbound,
-        ));
+        .to_executable(
+            ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
+            None,
+        );
     chat_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     // DeepSeek V4 Flash is text-only; MiniMax M3 keeps the Chat family image ceiling.

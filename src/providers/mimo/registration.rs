@@ -127,11 +127,14 @@ fn target(
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("MiMo targets require Chat Completions capabilities");
-    let mut chat_capabilities = chat_ceiling.to_executable(match profile {
-        MimoTargetProfile::TextOnly => None,
-        MimoTargetProfile::MultimodalUnderstanding => Some(AUDIO_UNDERSTANDING),
-        MimoTargetProfile::Audio(audio) => Some(audio),
-    });
+    let mut chat_capabilities = chat_ceiling.to_executable(
+        match profile {
+            MimoTargetProfile::TextOnly => None,
+            MimoTargetProfile::MultimodalUnderstanding => Some(AUDIO_UNDERSTANDING),
+            MimoTargetProfile::Audio(audio) => Some(audio),
+        },
+        None,
+    );
 
     // Narrow modalities and operation presence according to the closed model-specific profile.
     let responses_capabilities = match profile {
@@ -142,10 +145,13 @@ fn target(
                 .operation(crate::core::OperationKind::Responses)
                 .and_then(crate::core::ProviderOperationCapabilities::responses)
                 .expect("MiMo text targets require Responses capabilities")
-                .to_executable(ExecutableResponsesState::new(
-                    StorageSupport::Unsupported,
-                    ResponsesAffinity::TargetBound,
-                ));
+                .to_executable(
+                    ExecutableResponsesState::new(
+                        StorageSupport::Unsupported,
+                        ResponsesAffinity::TargetBound,
+                    ),
+                    None,
+                );
             if matches!(profile, MimoTargetProfile::TextOnly) {
                 chat_capabilities.image_input = None;
                 chat_capabilities.function_tools =

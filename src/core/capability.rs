@@ -14,17 +14,17 @@ pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
     ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputLimits,
     AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
-    ChatCompletionsProfile, ExecutableAudioProfile, ExecutableResponsesState,
+    ChatCompletionsProfile, ChatFileInputProfile, ExecutableAudioProfile, ExecutableResponsesState,
     FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
     ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
     ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
     JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
     ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
     ProviderResponsesStateCeiling, ReasoningOutput, RemoteImageInputLimits, ResponseInclude,
-    ResponsesAffinity, ResponsesCapabilities, ResponsesProfile, SpeechRecognitionProfile,
-    SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming, StorageSupport,
-    StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
-    VoiceDesignProfile,
+    ResponsesAffinity, ResponsesCapabilities, ResponsesFileInputProfile, ResponsesProfile,
+    SpeechRecognitionProfile, SpeechSynthesisProfile, SseAudioDelivery, SseAudioFraming,
+    StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
+    VoiceCloneProfile, VoiceDesignProfile,
 };
 
 /// One operation-tagged capability ceiling in a Provider contract.
