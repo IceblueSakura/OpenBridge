@@ -89,7 +89,7 @@ HTTP request
 | Provider 能力上界 | [网关 API 需求](../functional-requirements/gateway-api/README.md) | [`src/provider/`](../../src/provider)、[`src/providers/`](../../src/providers) |
 | Target 与 Upstream API | [当前架构](current-architecture.md) | 静态注册在 [`src/providers/*/registration.rs`](../../src/providers)，已解析实体在 [`src/registry/runtime.rs`](../../src/registry/runtime.rs)；`definition.rs` 只定义配置类型 |
 | Route ordering | [路由与韧性需求](../functional-requirements/routing-resilience/README.md) | [`src/providers/catalog/route_compiler.rs`](../../src/providers/catalog/route_compiler.rs)、[`src/pipeline/planning.rs`](../../src/pipeline/planning.rs) |
-| Attempt 与 cooldown | 同上 | [`src/ingress/attempt.rs`](../../src/ingress/attempt.rs)、[`src/ingress/health.rs`](../../src/ingress/health.rs)、[`src/ingress/credential_health.rs`](../../src/ingress/credential_health.rs) |
+| Attempt 与 cooldown | 同上 | [`src/execution/coordinator.rs`](../../src/execution/coordinator.rs)、[`src/ingress/health.rs`](../../src/ingress/health.rs)、[`src/ingress/credential_health.rs`](../../src/ingress/credential_health.rs) |
 | Bootstrap 与 secret | [配置与凭证需求](../functional-requirements/configuration-credentials/README.md) | config、identity、upstream credentials、credential stores |
 | OTLP 与本地内容日志 | [观测需求](../functional-requirements/observability/README.md) | [`src/observability.rs`](../../src/observability.rs)及其子模块 |
 
@@ -114,7 +114,7 @@ Public Model
 2. [`src/provider/adapter.rs`](../../src/provider/adapter.rs)和 [`src/providers/openai_compatible.rs`](../../src/providers/openai_compatible.rs)：Provider event 的 terminal/error 分类；
 3. [`src/ingress/streaming.rs`](../../src/ingress/streaming.rs)：增量分类、首输出 commit point、EOF、body error 和取消；
 4. [`src/bridge.rs`](../../src/bridge.rs)及 [`src/bridge/`](../../src/bridge)：Chat ↔ Responses 请求/响应转换；
-5. [`src/ingress/attempt.rs`](../../src/ingress/attempt.rs)：请求级 attempt budget；
+5. [`src/execution/coordinator.rs`](../../src/execution/coordinator.rs)：请求级 attempt budget 与 capped backoff；
 6. [`src/ingress/health.rs`](../../src/ingress/health.rs)及 [`src/ingress/credential_health.rs`](../../src/ingress/credential_health.rs)：Target 与 credential member cooldown；
 7. [`src/provider/contracts.rs`](../../src/provider/contracts.rs)：safe/sensitive headers 与错误分类。
 

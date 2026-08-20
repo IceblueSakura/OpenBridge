@@ -4,7 +4,6 @@
 //! integration, bounded attempts/fallback, Native/Bridged streaming, and response normalization.
 //! The independent crate-level `mcp` module owns MCP protocol and tool behavior.
 
-mod attempt;
 mod auth;
 mod credential_health;
 mod forwarding;

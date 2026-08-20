@@ -9,6 +9,7 @@ use http::{HeaderMap, StatusCode};
 use crate::{
     bridge::BridgePlan,
     core::ApiProtocol,
+    execution::{AttemptCoordinator, AttemptStep},
     observability::{
         ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
     },
@@ -18,7 +19,6 @@ use crate::{
 };
 
 use super::{
-    attempt::{AttemptManager, AttemptStep},
     response::{api_error, request_planning_error_type, route_error, upstream_error},
     state::GatewayState,
 };
@@ -95,7 +95,7 @@ pub(super) async fn forward_request(
     } else {
         1
     };
-    let mut attempts = AttemptManager::new();
+    let mut attempts = AttemptCoordinator::new();
     let observe_cross_request_health = plan.allows_fallback();
     let mut cooldown_skipped = false;
     let mut last_http_failure = None;
@@ -365,7 +365,7 @@ pub(super) async fn forward_request(
                         AttemptStep::RetryCandidate => {
                             let backoff = attempts.schedule_backoff();
                             observation.record_retry(attempt_failure.error_type, backoff);
-                            AttemptManager::wait_before_next_attempt(backoff).await;
+                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
                             continue;
                         }
                         AttemptStep::NextCandidate => {
@@ -377,7 +377,7 @@ pub(super) async fn forward_request(
                             });
                             let backoff = attempts.schedule_backoff();
                             observation.record_fallback(attempt_failure.error_type, backoff);
-                            AttemptManager::wait_before_next_attempt(backoff).await;
+                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
                             continue 'candidates;
                         }
                         AttemptStep::Finish => {
@@ -452,13 +452,13 @@ pub(super) async fn forward_request(
                         AttemptStep::RetryCandidate => {
                             let backoff = attempts.schedule_backoff();
                             observation.record_retry(attempt_failure.error_type, backoff);
-                            AttemptManager::wait_before_next_attempt(backoff).await;
+                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
                             continue;
                         }
                         AttemptStep::NextCandidate => {
                             let backoff = attempts.schedule_backoff();
                             observation.record_fallback(attempt_failure.error_type, backoff);
-                            AttemptManager::wait_before_next_attempt(backoff).await;
+                            AttemptCoordinator::wait_before_next_attempt(backoff).await;
                             continue 'candidates;
                         }
                         AttemptStep::Finish => return upstream_error(error),

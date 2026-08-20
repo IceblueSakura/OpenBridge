@@ -198,8 +198,10 @@ API 在下游 commit 前完整校验上游 SSE，并生成非流式 JSON。非�
 
 ## 7. Retry、状态与 Observability
 
-`AttemptManager` 在首个下游业务输出前执行有界 local retry、credential rotation 与固定 Route fallback；提交后不得拼接另一上游
-响应。429 cooldown 按 credential member/generation 隔离，target fault cooldown 按受信 fault domain 隔离；两者只在单进程内存在，
+顶层 `execution::AttemptCoordinator` 只拥有 request/candidate attempt counts、固定 hard limits、retry/fallback step 与 capped backoff；
+Generation 和 Embeddings forwarding 共用该 state machine，operation pipeline、Provider 分类、credential 选择与 downstream commit 不进入 coordinator。
+它只在首个下游业务输出前允许有界 local retry 与固定 Route fallback；提交后不得拼接另一上游响应。429 cooldown 按 credential
+member/generation 隔离，target fault cooldown 按受信 fault domain 隔离；两者只在单进程内存在，
 不持久化、不跨进程，也不执行动态 weight/health probe。
 
 request analysis 把状态要求建模为 typed facts；Public Model compiler 只在所有固定 candidate 对 issuing Target/API/credential

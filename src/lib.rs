@@ -8,6 +8,7 @@ pub mod bridge;
 pub mod config;
 pub mod core;
 pub mod credential;
+pub(crate) mod execution;
 pub mod identity;
 pub mod ingress;
 pub mod mcp;

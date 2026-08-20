@@ -13,6 +13,7 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::OperationKind,
+    execution::{AttemptCoordinator, AttemptStep},
     observability::{
         ErrorType, FailureStage, NextAction, ProviderAttemptContext, RequestObservation,
     },
@@ -21,7 +22,6 @@ use crate::{
 };
 
 use super::super::{
-    attempt::{AttemptManager, AttemptStep},
     response::{
         embedding_request_error_type, embedding_route_error, embedding_server_error,
         embedding_upstream_error, normalized_embedding_upstream_error,
@@ -114,7 +114,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
             return configuration_error(&observation, "Provider request preparation failed");
         }
     };
-    let mut attempts = AttemptManager::new();
+    let mut attempts = AttemptCoordinator::new();
     attempts.begin_candidate();
     let mut rejected_members = HashSet::new();
     let mut current_member = None;
@@ -227,7 +227,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 if step == AttemptStep::RetryCandidate {
                     let backoff = attempts.schedule_backoff();
                     observation.record_retry(attempt_failure.error_type, backoff);
-                    AttemptManager::wait_before_next_attempt(backoff).await;
+                    AttemptCoordinator::wait_before_next_attempt(backoff).await;
                     continue;
                 }
                 return normalized_embedding_upstream_error(upstream);
@@ -296,7 +296,7 @@ pub(in crate::ingress) async fn forward_embeddings_request(
                 if step == AttemptStep::RetryCandidate {
                     let backoff = attempts.schedule_backoff();
                     observation.record_retry(attempt_failure.error_type, backoff);
-                    AttemptManager::wait_before_next_attempt(backoff).await;
+                    AttemptCoordinator::wait_before_next_attempt(backoff).await;
                     continue;
                 }
                 return embedding_upstream_error(error);

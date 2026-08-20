@@ -1,7 +1,7 @@
 //! Bounded upstream attempts, candidate retention, and backoff for one downstream request.
 //!
 //! This module manages request-level counts and time boundaries only; it does not select Routes,
-//! Providers, or error categories. Callers must provide a RoutePlan and adapter classification.
+//! Providers, or error categories. Callers provide a fixed operation plan and adapter classification.
 //! Fixed hard limits ensure that no request can create an infinite upstream loop.
 
 use std::time::Duration;
@@ -15,7 +15,7 @@ const MAX_BACKOFF: Duration = Duration::from_millis(500);
 
 /// Next action allowed after a retryable failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum AttemptStep {
+pub(crate) enum AttemptStep {
     /// Retry the current candidate after backoff.
     RetryCandidate,
     /// Move to the next planned candidate after backoff.
@@ -26,7 +26,7 @@ pub(super) enum AttemptStep {
 
 impl AttemptStep {
     /// Converts the execution step into the stable observability action.
-    pub(super) const fn next_action(self) -> NextAction {
+    pub(crate) const fn next_action(self) -> NextAction {
         match self {
             Self::RetryCandidate => NextAction::RetryCandidate,
             Self::NextCandidate => NextAction::NextCandidate,
@@ -36,15 +36,15 @@ impl AttemptStep {
 }
 
 /// Shared attempt budget and capped exponential-backoff state for one downstream request.
-pub(super) struct AttemptManager {
+pub(crate) struct AttemptCoordinator {
     attempts_started: usize,
     candidate_attempts: usize,
     next_backoff: Duration,
 }
 
-impl AttemptManager {
-    /// Creates a request-level manager before any upstream call starts.
-    pub(super) fn new() -> Self {
+impl AttemptCoordinator {
+    /// Creates request-level coordination before any upstream call starts.
+    pub(crate) fn new() -> Self {
         Self {
             attempts_started: 0,
             candidate_attempts: 0,
@@ -53,12 +53,12 @@ impl AttemptManager {
     }
 
     /// Starts a new candidate and clears its local attempt count.
-    pub(super) fn begin_candidate(&mut self) {
+    pub(crate) fn begin_candidate(&mut self) {
         self.candidate_attempts = 0;
     }
 
     /// Consumes one request-level and candidate-level attempt budget.
-    pub(super) fn start_attempt(&mut self) -> bool {
+    pub(crate) fn start_attempt(&mut self) -> bool {
         // Reject a call that would exceed the request-level hard limit.
         if self.attempts_started >= MAX_REQUEST_ATTEMPTS {
             return false;
@@ -71,7 +71,7 @@ impl AttemptManager {
     }
 
     /// Returns the number of attempts actually started for this request.
-    pub(super) fn attempts_started(&self) -> usize {
+    pub(crate) fn attempts_started(&self) -> usize {
         self.attempts_started
     }
 
@@ -80,7 +80,7 @@ impl AttemptManager {
     /// The current candidate may retry only when the budget can still accommodate remaining
     /// candidates. The request-level hard limit always takes priority, regardless of Route count,
     /// so configuration size cannot multiply upstream calls per request.
-    pub(super) fn next_step(&self, untried_candidates: usize) -> AttemptStep {
+    pub(crate) fn next_step(&self, untried_candidates: usize) -> AttemptStep {
         // Determine whether a retry preserves a chance for every remaining candidate within budget.
         let reserves_untried_candidates =
             self.attempts_started + untried_candidates < MAX_REQUEST_ATTEMPTS;
@@ -99,25 +99,27 @@ impl AttemptManager {
     }
 
     /// Returns the scheduled backoff and advances the capped exponential policy.
-    pub(super) fn schedule_backoff(&mut self) -> Duration {
+    pub(crate) fn schedule_backoff(&mut self) -> Duration {
         let delay = self.next_backoff;
         self.next_backoff = self.next_backoff.saturating_mul(2).min(MAX_BACKOFF);
         delay
     }
 
     /// Waits for one previously scheduled delay without creating background work.
-    pub(super) async fn wait_before_next_attempt(delay: Duration) {
+    pub(crate) async fn wait_before_next_attempt(delay: Duration) {
         tokio::time::sleep(delay).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AttemptManager, AttemptStep, INITIAL_BACKOFF, MAX_BACKOFF, MAX_REQUEST_ATTEMPTS};
+    use super::{
+        AttemptCoordinator, AttemptStep, INITIAL_BACKOFF, MAX_BACKOFF, MAX_REQUEST_ATTEMPTS,
+    };
 
     #[test]
     fn request_budget_reserves_untried_candidates_and_has_a_hard_limit() {
-        let mut attempts = AttemptManager::new();
+        let mut attempts = AttemptCoordinator::new();
         attempts.begin_candidate();
 
         // Verify that a candidate-local retry preserves opportunities for remaining candidates.
@@ -137,7 +139,7 @@ mod tests {
 
     #[test]
     fn backoff_doubles_and_stops_at_the_cap() {
-        let mut attempts = AttemptManager::new();
+        let mut attempts = AttemptCoordinator::new();
 
         // Verify that the delay doubles and remains capped at 500 ms.
         assert_eq!(attempts.schedule_backoff(), INITIAL_BACKOFF);

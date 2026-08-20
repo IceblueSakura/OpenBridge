@@ -56,7 +56,7 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
 | 上游结果 | 是否重试 | 下一 attempt | 跨请求健康作用域 |
 |---|---:|---|---|
 | HTTP `429`，且尚未提交下游 response | 是 | 同 Target 的下一个可用 credential；无可用 member 时进入既有 fallback/finish | 当前 pool member |
-| HTTP `5xx` | 是 | 按 AttemptManager 重试当前 candidate；不因 status 更换 credential | Target 的 `fault_domain` |
+| HTTP `5xx` | 是 | 按 AttemptCoordinator 重试当前 candidate；不因 status 更换 credential | Target 的 `fault_domain` |
 | transport failure 或 timeout | 是 | 按当前 candidate retry/fallback；不更换 credential | Target 的 `fault_domain` |
 | 非 `429` 的 `4xx` | 否 | 立即返回安全错误 | 不记录 cooldown |
 | 已提交下游 response | 否 | 禁止 retry、rotation 或 fallback | 只记录终态 |
@@ -79,7 +79,7 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
   显式配置时只隔离 Target。
 - `Retry-After` 接受 delta-seconds 与 HTTP-date；缺失或非法时使用 1 秒，已过期 HTTP-date 视为 0 秒，单次
   最长 30 秒。
-- 后续无状态请求跳过仍在 cooldown 的 member/fault domain；同一请求的局部 retry 仍受 AttemptManager 上限。
+- 后续无状态请求跳过仍在 cooldown 的 member/fault domain；同一请求的局部 retry 仍受 AttemptCoordinator 上限。
 - member cooldown 由 `pool id + member binding id + generation` 标识；credential generation 改变后旧状态
   不得污染新 secret。deadline 到期后被动恢复，不做后台 probe。
 - 一个 member 成功只清除自身与当前 Target 的 cooldown，不能清除其他 member 或证明共享账号 quota 已恢复。
