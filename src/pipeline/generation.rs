@@ -8,7 +8,11 @@ mod analysis;
 mod instructions;
 mod planning;
 mod preflight;
+mod response;
 
 pub use analysis::analyze_request;
 pub(crate) use instructions::normalize_probe_generation_request;
 pub use planning::plan_request;
+pub(crate) use response::{
+    GenerationResponseFacts, GenerationResponseMode, classify_generation_response,
+};

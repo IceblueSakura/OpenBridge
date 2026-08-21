@@ -64,7 +64,8 @@ downstream response + request/attempt observations
 
 - `core/capability.rs` 只在 `ApiCapabilities` 汇总域；generation 与 Embeddings 规则分别位于
   `core/capability/generation.rs` 和 `core/capability/embeddings.rs`。
-- `pipeline/generation/` 与 `pipeline/embeddings/` 分别拥有 operation analyzer、preflight 和 planner；各 analyzer 不解析 registry entity。
+- `pipeline/generation/` 与 `pipeline/embeddings/` 分别拥有 operation analyzer、preflight、planner 和 pure response policy；
+  各 analyzer 不解析 registry entity，response policy 不执行 body I/O、observation 或 downstream commit。
 - `registry/public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；私有 execution snapshot、contribution、aggregation
   与 Embeddings response budget 由同名子模块拥有。
 - `observability.rs` 只作 facade；request/provider/metrics/otlp/http logging 各自拥有对应生命周期。
@@ -170,8 +171,10 @@ JSON admission
 → Native passthrough or Bridge response renderer
 ```
 
-Generation 的 pure Chat/Responses analysis、fixed-interface preflight、request normalization 与 Native/Bridge planning 由
-`pipeline/generation/` 单一 family 拥有，并继续通过 pipeline facade 暴露原有 API；Bridge plan 不能由 Embeddings family 构造。
+Generation 的 pure Chat/Responses analysis、fixed-interface preflight、request normalization、Native/Bridge planning 与
+response-mode decision 由 `pipeline/generation/` 单一 family 拥有，并继续通过 pipeline facade 暴露；Bridge plan 不能由
+Embeddings family 构造。response driver 根据 success、SSE media、Bridge 和 streaming takeover facts 选择 fail-closed、buffer、
+Native SSE validation、Bridge JSON/SSE conversion 或 passthrough；Ingress 执行对应 body read、decoder、observation 和 commit。
 该 family 不执行 body read、credential、transport、response-body 或 downstream commit I/O。
 
 Embeddings 的 pure analysis、fixed-interface preflight、Native planning 与 success-response validation 由

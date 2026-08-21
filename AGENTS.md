@@ -28,8 +28,9 @@ See `docs/implementation-status/current-architecture.md` for the current module 
 - `core/capability.rs` only combines domains at `ApiCapabilities`; generation rules belong in
   `core/capability/generation.rs`, and Embeddings input/encoding/dimension/limit rules in
   `core/capability/embeddings.rs`.
-- `pipeline/generation/` and `pipeline/embeddings/` each own their operation analyzer, preflight, and planner behind
-  `pipeline/mod.rs` re-exports. Analyzers extract request facts only; they must not resolve registry entities or select Routes.
+- `pipeline/generation/` and `pipeline/embeddings/` each own their operation analyzer, preflight, planner, and pure response
+  policy behind `pipeline/mod.rs` re-exports. Analyzers extract request facts only; they must not resolve registry entities
+  or select Routes. Response policy must not perform body I/O, observation, or downstream commit.
 - `registry/public_model.rs` owns downstream-safe Models DTOs and preflight accessors. Private execution interfaces,
   startup compilation, contribution, aggregation, and Embeddings response-budget narrowing remain in their existing
   `public_model/*` owners. Never serialize execution topology or move request-time routing into compiler modules.

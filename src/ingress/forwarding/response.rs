@@ -11,7 +11,10 @@ use crate::{
     bridge::BridgePlan,
     core::ApiProtocol,
     observability::{ErrorType, RequestObservation},
-    pipeline::StreamResponseConversion,
+    pipeline::{
+        GenerationResponseFacts, GenerationResponseMode, StreamResponseConversion,
+        classify_generation_response,
+    },
     provider::ProviderAdapter,
     transport::upstream::UpstreamResponse,
 };
@@ -61,18 +64,15 @@ pub(super) async fn upstream_response(
     let is_sse = status.is_success()
         && adapter.recognizes_sse_response(upstream_protocol, upstream.headers());
 
-    // Reject every successful native or Bridged streaming response that violates its media profile.
-    if validate_sse && status.is_success() && !is_sse {
-        observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
-        return api_error(
-            StatusCode::BAD_GATEWAY,
-            "invalid_upstream_response",
-            "The upstream response could not be converted",
-        );
-    }
-
-    // A planned streaming-to-JSON takeover accepts only a successful Responses SSE body.
-    if stream_response_conversion.is_some() && status.is_success() && !is_sse {
+    // Select one operation-owned response mode before any body I/O or downstream commit.
+    let response_mode = classify_generation_response(GenerationResponseFacts {
+        status_is_success: status.is_success(),
+        downstream_streaming: validate_sse,
+        recognized_sse: is_sse,
+        has_bridge: bridge.is_some(),
+        stream_response_conversion,
+    });
+    if response_mode == GenerationResponseMode::RejectInvalidMedia {
         observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
         return api_error(
             StatusCode::BAD_GATEWAY,
@@ -94,64 +94,66 @@ pub(super) async fn upstream_response(
         upstream_body
     };
 
-    // Select takeover behavior among successful SSE, successful JSON/Native, and error bodies.
-    let body = if status.is_success()
-        && stream_response_conversion == Some(StreamResponseConversion::BufferResponsesSse)
-    {
-        let upstream_body = match buffer_responses_sse_body(
-            upstream_body,
-            max_sse_event_bytes,
-            max_json_body_bytes,
-            &observation,
-        )
-        .await
-        {
-            Ok(body) => body,
-            Err(()) => {
-                observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
-                return api_error(
-                    StatusCode::BAD_GATEWAY,
-                    "invalid_upstream_response",
-                    "The upstream response could not be converted",
-                );
-            }
-        };
-        let downstream_body = if let Some(bridge) = bridge.as_ref() {
-            match bridge.render_non_stream(upstream_body) {
+    // Execute the selected takeover while retaining body I/O, observation, and commit in ingress.
+    let body = match response_mode {
+        GenerationResponseMode::BufferResponsesSse { render_bridge } => {
+            let upstream_body = match buffer_responses_sse_body(
+                upstream_body,
+                max_sse_event_bytes,
+                max_json_body_bytes,
+                &observation,
+            )
+            .await
+            {
                 Ok(body) => body,
-                Err(_) => {
-                    observation.record_bridge_failure();
+                Err(()) => {
+                    observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
                     return api_error(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
                         "The upstream response could not be converted",
                     );
                 }
-            }
-        } else {
-            upstream_body
-        };
-        response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        axum::body::Body::from(downstream_body)
-    } else if validate_sse && status.is_success() && is_sse {
-        if let Some(bridge) = bridge {
+            };
+            let downstream_body = if render_bridge {
+                let bridge = bridge
+                    .as_ref()
+                    .expect("response decision requires a Generation Bridge");
+                match bridge.render_non_stream(upstream_body) {
+                    Ok(body) => body,
+                    Err(_) => {
+                        observation.record_bridge_failure();
+                        return api_error(
+                            StatusCode::BAD_GATEWAY,
+                            "invalid_upstream_response",
+                            "The upstream response could not be converted",
+                        );
+                    }
+                }
+            } else {
+                upstream_body
+            };
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            axum::body::Body::from(downstream_body)
+        }
+        GenerationResponseMode::BridgeSse => {
+            let bridge = bridge.expect("response decision requires a Generation Bridge");
             bridge_sse_body(
                 upstream_body,
                 bridge.stream_renderer(),
                 max_sse_event_bytes,
                 observation.clone(),
             )
-        } else {
-            validate_sse_body(
-                upstream_body,
-                upstream_protocol,
-                adapter,
-                max_sse_event_bytes,
-                observation,
-            )
         }
-    } else if status.is_success() {
-        if let Some(bridge) = bridge {
+        GenerationResponseMode::ValidateNativeSse => validate_sse_body(
+            upstream_body,
+            upstream_protocol,
+            adapter,
+            max_sse_event_bytes,
+            observation,
+        ),
+        GenerationResponseMode::BridgeJson => {
+            let bridge = bridge.expect("response decision requires a Generation Bridge");
             let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {
                 Ok(body) => body,
                 Err(_) => {
@@ -174,11 +176,11 @@ pub(super) async fn upstream_response(
                     );
                 }
             }
-        } else {
-            upstream_body
         }
-    } else {
-        upstream_body
+        GenerationResponseMode::Passthrough => upstream_body,
+        GenerationResponseMode::RejectInvalidMedia => {
+            unreachable!("invalid media returned before body takeover")
+        }
     };
 
     // Build the final downstream response with safe upstream headers preserved.

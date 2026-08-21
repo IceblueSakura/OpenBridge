@@ -13,7 +13,10 @@ pub(crate) use embeddings::{
 };
 pub use embeddings::{analyze_embedding_request, plan_embedding_request};
 pub use error::{EmbeddingRequestError, RequestPlanningError};
-pub(crate) use generation::normalize_probe_generation_request;
+pub(crate) use generation::{
+    GenerationResponseFacts, GenerationResponseMode, classify_generation_response,
+    normalize_probe_generation_request,
+};
 pub use generation::{analyze_request, plan_request};
 pub(crate) use types::StreamResponseConversion;
 pub use types::{
