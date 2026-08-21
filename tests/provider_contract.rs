@@ -3,9 +3,51 @@
 use bytes::Bytes;
 use http::Method;
 use openbridge::{
-    core::{ApiProtocol, ApiRequest},
-    provider::{AdapterError, CredentialKind, ProviderAdapter, ProviderKind},
+    core::{ApiProtocol, ApiRequest, OperationKind},
+    provider::{
+        AdapterError, CredentialKind, GenerationProviderAdapter, ProviderKind,
+        ProviderOperationAdapter,
+    },
 };
+
+fn generation_adapter(provider: ProviderKind, protocol: ApiProtocol) -> GenerationProviderAdapter {
+    match provider
+        .definition()
+        .operation_adapter(protocol.operation())
+        .expect("test Provider declares the Generation operation")
+    {
+        ProviderOperationAdapter::Generation(adapter) => adapter,
+        ProviderOperationAdapter::Embeddings(_) => {
+            panic!("Generation operation selected an Embeddings adapter")
+        }
+    }
+}
+
+#[test]
+fn provider_definition_selects_one_closed_operation_before_request_preparation() {
+    let operation = ProviderKind::OpenAi
+        .definition()
+        .operation_adapter(OperationKind::Responses)
+        .expect("OpenAI declares Responses");
+    let ProviderOperationAdapter::Generation(adapter) = operation else {
+        panic!("Responses must select a Generation adapter");
+    };
+    let chat = ApiRequest::new(
+        ApiProtocol::ChatCompletions,
+        Bytes::from_static(br#"{"model":"public","messages":[]}"#),
+    );
+
+    assert!(matches!(
+        adapter.prepare_request(&chat, "upstream-model"),
+        Err(AdapterError::UnsupportedProtocol)
+    ));
+    assert!(
+        ProviderKind::ChatGpt
+            .definition()
+            .operation_adapter(OperationKind::ChatCompletions)
+            .is_none()
+    );
+}
 
 #[test]
 fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
@@ -16,7 +58,7 @@ fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
         [CredentialKind::OAuth2BearerAccessToken]
     );
     // Bind Responses to the fixed backend path and reject Chat Completions.
-    let adapter = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+    let adapter = generation_adapter(ProviderKind::ChatGpt, ApiProtocol::Responses);
     let responses = ApiRequest::new(
         ApiProtocol::Responses,
         Bytes::from_static(br#"{"model":"public","input":"hello","stream":true}"#),
@@ -37,7 +79,7 @@ fn chatgpt_provider_uses_the_fixed_responses_path_and_oauth_credential() {
 
 #[test]
 fn native_chat_adapter_builds_only_relative_upstream_request_parts() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
+    let adapter = generation_adapter(ProviderKind::OpenAi, ApiProtocol::ChatCompletions);
     let body = Bytes::from_static(br#"{"model":"code-primary","messages":[]}"#);
     let request = ApiRequest::new(ApiProtocol::ChatCompletions, body.clone());
 
@@ -114,7 +156,7 @@ fn openai_compatible_adapters_build_relative_protocol_requests() {
             ApiProtocol::Responses => Bytes::from_static(br#"{"model":"public","input":"hello"}"#),
         };
         let request = ApiRequest::new(protocol, body);
-        let upstream = ProviderAdapter::for_kind(provider)
+        let upstream = generation_adapter(provider, protocol)
             .prepare_request(&request, upstream_model)
             .unwrap();
         assert_eq!(upstream.method(), Method::POST);
@@ -132,8 +174,6 @@ fn openai_compatible_adapters_build_relative_protocol_requests() {
 
 #[test]
 fn longcat_adapter_directly_encodes_chat_and_responses() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
-
     for (protocol, body, expected_path) in [
         (
             ApiProtocol::ChatCompletions,
@@ -147,7 +187,9 @@ fn longcat_adapter_directly_encodes_chat_and_responses() {
         ),
     ] {
         let request = ApiRequest::new(protocol, body);
-        let upstream = adapter.prepare_request(&request, "LongCat-2.0").unwrap();
+        let upstream = generation_adapter(ProviderKind::LongCat, protocol)
+            .prepare_request(&request, "LongCat-2.0")
+            .unwrap();
 
         assert_eq!(upstream.method(), Method::POST);
         assert_eq!(upstream.relative_uri().to_string(), expected_path);
@@ -160,8 +202,6 @@ fn longcat_adapter_directly_encodes_chat_and_responses() {
 
 #[test]
 fn deepseek_adapter_encodes_chat_and_responses() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::DeepSeek);
-
     for (protocol, body, expected_path) in [
         (
             ApiProtocol::ChatCompletions,
@@ -175,7 +215,7 @@ fn deepseek_adapter_encodes_chat_and_responses() {
         ),
     ] {
         let request = ApiRequest::new(protocol, body);
-        let upstream = adapter
+        let upstream = generation_adapter(ProviderKind::DeepSeek, protocol)
             .prepare_request(&request, "deepseek-v4-flash")
             .unwrap();
 
@@ -223,7 +263,7 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
                     r#"{{"model":"public","messages":[],"reasoning_effort":"{level}"}}"#
                 )),
             );
-            let upstream = ProviderAdapter::for_kind(provider)
+            let upstream = generation_adapter(provider, ApiProtocol::ChatCompletions)
                 .prepare_request(&request, upstream_model)
                 .unwrap();
             let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
@@ -245,7 +285,7 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
         ApiProtocol::ChatCompletions,
         Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"high"}"#),
     );
-    let upstream = ProviderAdapter::for_kind(ProviderKind::Bailian)
+    let upstream = generation_adapter(ProviderKind::Bailian, ApiProtocol::ChatCompletions)
         .prepare_request(&request, "deepseek-v4-pro")
         .unwrap();
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
@@ -255,15 +295,15 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
 
 #[test]
 fn bailian_deepseek_none_uses_boolean_switch_without_collapsing_other_efforts() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::Bailian);
-
     // Convert only the confirmed off level for both fixed Bailian DeepSeek deployments.
     for upstream_model in ["deepseek-v4-pro", "deepseek-v4-flash-0731"] {
         let request = ApiRequest::new(
             ApiProtocol::ChatCompletions,
             Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"none"}"#),
         );
-        let upstream = adapter.prepare_request(&request, upstream_model).unwrap();
+        let upstream = generation_adapter(ProviderKind::Bailian, ApiProtocol::ChatCompletions)
+            .prepare_request(&request, upstream_model)
+            .unwrap();
         let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
         assert!(body.get("reasoning_effort").is_none(), "{upstream_model}");
         assert_eq!(body["enable_thinking"], false, "{upstream_model}");
@@ -275,7 +315,9 @@ fn bailian_deepseek_none_uses_boolean_switch_without_collapsing_other_efforts() 
             ApiProtocol::ChatCompletions,
             Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"high"}"#),
         );
-        let upstream = adapter.prepare_request(&request, upstream_model).unwrap();
+        let upstream = generation_adapter(ProviderKind::Bailian, ApiProtocol::ChatCompletions)
+            .prepare_request(&request, upstream_model)
+            .unwrap();
         let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
         assert_eq!(body["reasoning_effort"], "high", "{upstream_model}");
         assert!(body.get("enable_thinking").is_none(), "{upstream_model}");
@@ -286,7 +328,9 @@ fn bailian_deepseek_none_uses_boolean_switch_without_collapsing_other_efforts() 
         ApiProtocol::ChatCompletions,
         Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"none"}"#),
     );
-    let upstream = adapter.prepare_request(&request, "glm-5.2").unwrap();
+    let upstream = generation_adapter(ProviderKind::Bailian, ApiProtocol::ChatCompletions)
+        .prepare_request(&request, "glm-5.2")
+        .unwrap();
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
     assert_eq!(body["reasoning_effort"], "none");
     assert!(body.get("enable_thinking").is_none());
@@ -322,7 +366,7 @@ fn native_responses_preserve_every_documented_reasoning_level() {
                     r#"{{"model":"public","input":"hello","reasoning":{{"effort":"{level}"}}}}"#
                 )),
             );
-            let upstream = ProviderAdapter::for_kind(provider)
+            let upstream = generation_adapter(provider, ApiProtocol::Responses)
                 .prepare_request(&request, upstream_model)
                 .unwrap();
             assert_eq!(upstream.relative_uri().to_string(), expected_path);

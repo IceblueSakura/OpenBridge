@@ -13,7 +13,7 @@ use crate::{
     execution::AttemptCoordinator,
     observability::{ErrorType, FailureStage, RequestObservation},
     pipeline::{analyze_embedding_request, plan_embedding_request},
-    provider::ProviderAdapter,
+    provider::ProviderOperationAdapter,
 };
 
 use super::super::{
@@ -95,9 +95,20 @@ pub(in crate::ingress) async fn forward_embeddings_request(
     };
 
     // Prepare the one trusted path and upstream model independently of credential rotation.
-    let adapter = ProviderAdapter::for_kind(target.kind());
-    let request = match adapter.prepare_embedding_routed_request(candidate.request(), upstream_api)
+    let adapter = match target
+        .kind()
+        .definition()
+        .operation_adapter(upstream_api.operation())
     {
+        Some(ProviderOperationAdapter::Embeddings(adapter)) => adapter,
+        Some(ProviderOperationAdapter::Generation(_)) | None => {
+            return configuration_error(
+                &observation,
+                "Configured Provider operation is unavailable",
+            );
+        }
+    };
+    let request = match adapter.prepare_routed_request(candidate.request(), upstream_api) {
         Ok(request) => request,
         Err(_) => {
             return configuration_error(&observation, "Provider request preparation failed");

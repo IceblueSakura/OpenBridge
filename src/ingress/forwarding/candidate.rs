@@ -11,7 +11,10 @@ use crate::{
     ingress::{response::api_error, state::GatewayState},
     oauth2_credentials::OAuth2CredentialLease,
     pipeline::RouteCandidate,
-    provider::{CredentialKind, PreparedUpstreamRequest, ProviderAdapter},
+    provider::{
+        CredentialKind, GenerationProviderAdapter, PreparedUpstreamRequest,
+        ProviderOperationAdapter,
+    },
     registry::{CredentialPoolBinding, RuntimeRegistry, UpstreamApi, UpstreamTarget},
 };
 
@@ -22,7 +25,7 @@ pub(super) struct PreparedCandidate<'a> {
     pub(super) uses_oauth2: bool,
     pub(super) oauth2_lease: Option<OAuth2CredentialLease>,
     pub(super) static_credentials: Option<Vec<UpstreamCredential<'a>>>,
-    pub(super) adapter: ProviderAdapter,
+    pub(super) adapter: GenerationProviderAdapter,
     pub(super) request: PreparedUpstreamRequest,
 }
 
@@ -82,7 +85,20 @@ pub(super) async fn prepare_candidate<'a>(
     };
 
     // Prepare the relative Provider request before entering the bounded attempt loop.
-    let adapter = ProviderAdapter::for_kind(target.kind());
+    let adapter = match target
+        .kind()
+        .definition()
+        .operation_adapter(upstream_api.operation())
+    {
+        Some(ProviderOperationAdapter::Generation(adapter)) => adapter,
+        Some(ProviderOperationAdapter::Embeddings(_)) | None => {
+            return Err(api_error(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                "configuration_error",
+                "Configured Provider operation is unavailable",
+            ));
+        }
+    };
     let request = adapter
         .prepare_routed_request(candidate.request(), upstream_api)
         .map_err(|_| {

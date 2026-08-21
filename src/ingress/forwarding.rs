@@ -151,7 +151,6 @@ pub(super) async fn forward_request(
             failure.upstream,
             UpstreamResponseContext {
                 validate_sse: plan.is_streaming(),
-                upstream_protocol: failure.upstream_protocol,
                 adapter: failure.adapter,
                 max_sse_event_bytes: plan.max_sse_event_bytes(),
                 max_json_body_bytes: plan.max_json_response_body_bytes(),

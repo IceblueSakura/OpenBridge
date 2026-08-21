@@ -8,12 +8,25 @@ use openbridge::{
     core::ApiProtocol,
     credential::{CredentialMetadata, CredentialSource, CredentialStoreBuilder},
     provider::{
-        CredentialKind, ProviderAdapter, ProviderKind, RetryHint, StreamEventStatus,
-        UpstreamErrorKind,
+        CredentialKind, GenerationProviderAdapter, ProviderAdapter, ProviderKind,
+        ProviderOperationAdapter, RetryHint, StreamEventStatus, UpstreamErrorKind,
     },
     transport::sse::SseDecoder,
 };
 use secrecy::SecretString;
+
+fn generation_adapter(provider: ProviderKind, protocol: ApiProtocol) -> GenerationProviderAdapter {
+    match provider
+        .definition()
+        .operation_adapter(protocol.operation())
+        .expect("test Provider declares the Generation operation")
+    {
+        ProviderOperationAdapter::Generation(adapter) => adapter,
+        ProviderOperationAdapter::Embeddings(_) => {
+            panic!("Generation operation selected an Embeddings adapter")
+        }
+    }
+}
 
 #[test]
 fn api_key_adapters_keep_safe_and_sensitive_headers_separate() {
@@ -92,7 +105,8 @@ fn provider_request_header_hooks_apply_trusted_regular_header_policy() {
 
 #[test]
 fn response_adapter_classifies_protocol_specific_terminal_events() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenAi);
+    let responses_adapter = generation_adapter(ProviderKind::OpenAi, ApiProtocol::Responses);
+    let chat_adapter = generation_adapter(ProviderKind::OpenAi, ApiProtocol::ChatCompletions);
     let mut decoder = SseDecoder::new(256);
     let responses_event = decoder
         .push(b"event: response.completed\ndata: {}\n\n")
@@ -112,36 +126,34 @@ fn response_adapter_classifies_protocol_specific_terminal_events() {
         .remove(0);
 
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, responses_event)
+        responses_adapter
+            .classify_sse_event(responses_event)
             .unwrap()
             .status(),
         StreamEventStatus::Completed
     );
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::ChatCompletions, chat_event)
+        chat_adapter
+            .classify_sse_event(chat_event)
             .unwrap()
             .status(),
         StreamEventStatus::Completed
     );
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, failed_event)
+        responses_adapter
+            .classify_sse_event(failed_event)
             .unwrap()
             .status(),
         StreamEventStatus::Failed
     );
-    let decoded_unknown = adapter
-        .classify_sse_event(ApiProtocol::Responses, unknown_event)
-        .unwrap();
+    let decoded_unknown = responses_adapter.classify_sse_event(unknown_event).unwrap();
     assert_eq!(decoded_unknown.status(), StreamEventStatus::Continue);
     assert_eq!(decoded_unknown.event().event(), Some("provider.extension"));
 }
 
 #[test]
 fn openrouter_responses_classifies_data_only_openai_terminal() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::OpenRouter);
+    let adapter = generation_adapter(ProviderKind::OpenRouter, ApiProtocol::Responses);
     let mut decoder = SseDecoder::new(256);
     let completed = decoder
         .push(
@@ -161,22 +173,16 @@ fn openrouter_responses_classifies_data_only_openai_terminal() {
         .remove(0);
 
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, completed)
-            .unwrap()
-            .status(),
+        adapter.classify_sse_event(completed).unwrap().status(),
         StreamEventStatus::Completed
     );
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, failed)
-            .unwrap()
-            .status(),
+        adapter.classify_sse_event(failed).unwrap().status(),
         StreamEventStatus::Failed
     );
     assert_eq!(
         adapter
-            .classify_sse_event(ApiProtocol::Responses, unconfigured_done)
+            .classify_sse_event(unconfigured_done)
             .unwrap()
             .status(),
         StreamEventStatus::Continue
@@ -185,7 +191,7 @@ fn openrouter_responses_classifies_data_only_openai_terminal() {
 
 #[test]
 fn longcat_responses_classifies_data_only_type_terminal() {
-    let adapter = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let adapter = generation_adapter(ProviderKind::LongCat, ApiProtocol::Responses);
     let mut decoder = SseDecoder::new(256);
     let completed = decoder
         .push(
@@ -200,24 +206,18 @@ fn longcat_responses_classifies_data_only_type_terminal() {
         .remove(0);
 
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, completed)
-            .unwrap()
-            .status(),
+        adapter.classify_sse_event(completed).unwrap().status(),
         StreamEventStatus::Completed
     );
     assert_eq!(
-        adapter
-            .classify_sse_event(ApiProtocol::Responses, failed)
-            .unwrap()
-            .status(),
+        adapter.classify_sse_event(failed).unwrap().status(),
         StreamEventStatus::Failed
     );
 }
 
 #[test]
 fn openai_event_profiles_fail_closed_on_conflicting_terminal_discriminators() {
-    let openai = ProviderAdapter::for_kind(ProviderKind::OpenAi);
+    let openai = generation_adapter(ProviderKind::OpenAi, ApiProtocol::Responses);
     let mut decoder = SseDecoder::new(256);
     let event_completed_data_failed = decoder
         .push(
@@ -225,7 +225,7 @@ fn openai_event_profiles_fail_closed_on_conflicting_terminal_discriminators() {
         )
         .unwrap()
         .remove(0);
-    let longcat = ProviderAdapter::for_kind(ProviderKind::LongCat);
+    let longcat = generation_adapter(ProviderKind::LongCat, ApiProtocol::Responses);
     let mut decoder = SseDecoder::new(256);
     let event_failed_data_completed = decoder
         .push(
@@ -236,14 +236,14 @@ fn openai_event_profiles_fail_closed_on_conflicting_terminal_discriminators() {
 
     assert_eq!(
         openai
-            .classify_sse_event(ApiProtocol::Responses, event_completed_data_failed)
+            .classify_sse_event(event_completed_data_failed)
             .unwrap()
             .status(),
         StreamEventStatus::Failed
     );
     assert_eq!(
         longcat
-            .classify_sse_event(ApiProtocol::Responses, event_failed_data_completed)
+            .classify_sse_event(event_failed_data_completed)
             .unwrap()
             .status(),
         StreamEventStatus::Failed
@@ -276,29 +276,29 @@ fn responses_terminal_discriminators_reject_unconfigured_wire_shapes() {
 
     // Verify that each Provider accepts only its compile-time terminal discriminator and vocabulary.
     assert_eq!(
-        ProviderAdapter::for_kind(ProviderKind::OpenAi)
-            .classify_sse_event(ApiProtocol::Responses, data_type_completed)
+        generation_adapter(ProviderKind::OpenAi, ApiProtocol::Responses)
+            .classify_sse_event(data_type_completed)
             .unwrap()
             .status(),
         StreamEventStatus::Continue
     );
     assert_eq!(
-        ProviderAdapter::for_kind(ProviderKind::LongCat)
-            .classify_sse_event(ApiProtocol::Responses, event_field_completed)
+        generation_adapter(ProviderKind::LongCat, ApiProtocol::Responses)
+            .classify_sse_event(event_field_completed)
             .unwrap()
             .status(),
         StreamEventStatus::Continue
     );
     assert_eq!(
-        ProviderAdapter::for_kind(ProviderKind::LongCat)
-            .classify_sse_event(ApiProtocol::Responses, open_responses_done)
+        generation_adapter(ProviderKind::LongCat, ApiProtocol::Responses)
+            .classify_sse_event(open_responses_done)
             .unwrap()
             .status(),
         StreamEventStatus::Continue
     );
     assert_eq!(
-        ProviderAdapter::for_kind(ProviderKind::OpenRouter)
-            .classify_sse_event(ApiProtocol::Responses, openrouter_event_field_completed)
+        generation_adapter(ProviderKind::OpenRouter, ApiProtocol::Responses)
+            .classify_sse_event(openrouter_event_field_completed)
             .unwrap()
             .status(),
         StreamEventStatus::Continue

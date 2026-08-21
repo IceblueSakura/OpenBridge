@@ -9,13 +9,12 @@ use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 
 use crate::{
     bridge::BridgePlan,
-    core::ApiProtocol,
     observability::{ErrorType, RequestObservation},
     pipeline::{
         GenerationResponseFacts, GenerationResponseMode, StreamResponseConversion,
         classify_generation_response,
     },
-    provider::ProviderAdapter,
+    provider::GenerationProviderAdapter,
     transport::upstream::UpstreamResponse,
 };
 
@@ -27,8 +26,7 @@ use super::super::{
 /// Response-conversion, SSE, and observation context for one selected candidate.
 pub(super) struct UpstreamResponseContext {
     pub(super) validate_sse: bool,
-    pub(super) upstream_protocol: ApiProtocol,
-    pub(super) adapter: ProviderAdapter,
+    pub(super) adapter: GenerationProviderAdapter,
     pub(super) max_sse_event_bytes: usize,
     pub(super) max_json_body_bytes: usize,
     pub(super) bridge: Option<BridgePlan>,
@@ -49,7 +47,6 @@ pub(super) async fn upstream_response(
     // Split fixed response facts so call sites cannot omit protocol or observation boundaries.
     let UpstreamResponseContext {
         validate_sse,
-        upstream_protocol,
         adapter,
         max_sse_event_bytes,
         max_json_body_bytes,
@@ -61,8 +58,7 @@ pub(super) async fn upstream_response(
     // Extract status and classify successful bodies through the static Provider media profile.
     let status = upstream.status();
     let mut response_headers = filtered_upstream_headers(upstream.headers());
-    let is_sse = status.is_success()
-        && adapter.recognizes_sse_response(upstream_protocol, upstream.headers());
+    let is_sse = status.is_success() && adapter.recognizes_sse_response(upstream.headers());
 
     // Select one operation-owned response mode before any body I/O or downstream commit.
     let response_mode = classify_generation_response(GenerationResponseFacts {
@@ -145,13 +141,9 @@ pub(super) async fn upstream_response(
                 observation.clone(),
             )
         }
-        GenerationResponseMode::ValidateNativeSse => validate_sse_body(
-            upstream_body,
-            upstream_protocol,
-            adapter,
-            max_sse_event_bytes,
-            observation,
-        ),
+        GenerationResponseMode::ValidateNativeSse => {
+            validate_sse_body(upstream_body, adapter, max_sse_event_bytes, observation)
+        }
         GenerationResponseMode::BridgeJson => {
             let bridge = bridge.expect("response decision requires a Generation Bridge");
             let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {

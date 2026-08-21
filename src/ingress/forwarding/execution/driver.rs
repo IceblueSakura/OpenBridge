@@ -14,7 +14,10 @@ use crate::{
         RequestObservation,
     },
     pipeline::{EmbeddingRequestRequirements, EmbeddingRoutePlan, RouteCandidate, RoutePlan},
-    provider::{PreparedUpstreamRequest, ProviderAdapter, UpstreamErrorKind},
+    provider::{
+        EmbeddingsProviderAdapter, GenerationProviderAdapter, PreparedUpstreamRequest,
+        ProviderAdapter, UpstreamErrorKind,
+    },
     registry::{CredentialPoolBinding, UpstreamApi, UpstreamTarget},
     transport::upstream::{TransportError, UpstreamResponse},
 };
@@ -60,7 +63,7 @@ pub(super) enum OperationDriver<'a> {
         uses_oauth2: bool,
         oauth2_lease: Option<OAuth2CredentialLease>,
         static_credentials: Option<Vec<UpstreamCredential<'a>>>,
-        adapter: ProviderAdapter,
+        adapter: GenerationProviderAdapter,
         request: PreparedUpstreamRequest,
         candidate_index: usize,
         candidate_count: usize,
@@ -75,7 +78,7 @@ pub(super) enum OperationDriver<'a> {
         upstream_api: &'a UpstreamApi,
         credential_pool: &'a CredentialPoolBinding,
         credentials: Vec<UpstreamCredential<'a>>,
-        adapter: ProviderAdapter,
+        adapter: EmbeddingsProviderAdapter,
         request: PreparedUpstreamRequest,
         replayable: bool,
         rejected_members: HashSet<String>,
@@ -150,7 +153,8 @@ impl<'a> OperationDriver<'a> {
 
     pub(super) fn adapter(&self) -> ProviderAdapter {
         match self {
-            Self::Generation { adapter, .. } | Self::Embeddings { adapter, .. } => *adapter,
+            Self::Generation { adapter, .. } => adapter.provider(),
+            Self::Embeddings { adapter, .. } => adapter.provider(),
         }
     }
 
@@ -660,7 +664,6 @@ pub(super) async fn finish_http(
                 upstream,
                 UpstreamResponseContext {
                     validate_sse: plan.is_streaming(),
-                    upstream_protocol: candidate.request().protocol(),
                     adapter: *adapter,
                     max_sse_event_bytes: plan.max_sse_event_bytes(),
                     max_json_body_bytes: plan.max_json_response_body_bytes(),
@@ -736,7 +739,6 @@ pub(super) fn stored_http_failure(
     StoredHttpFailure {
         upstream,
         adapter: *adapter,
-        upstream_protocol: candidate.request().protocol(),
         bridge: candidate.bridge().cloned(),
     }
 }

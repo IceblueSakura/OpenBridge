@@ -2,7 +2,7 @@
 //!
 //! Network chunks are not UTF-8, line, or SSE-event boundaries. This decoder only organizes the
 //! byte stream into complete `SseEvent` values with CRLF, comments, multiline `data:`, and event
-//! size-limit support. `ProviderAdapter::classify_sse_event` determines event semantics.
+//! size-limit support. `GenerationProviderAdapter::classify_sse_event` determines event semantics.
 
 use bytes::BytesMut;
 use thiserror::Error;

@@ -8,9 +8,8 @@ use serde_json::{Map, Value};
 
 use crate::{
     bridge::{BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
-    core::ApiProtocol,
     observability::{ErrorType, RequestObservation},
-    provider::{ProviderAdapter, StreamEventStatus},
+    provider::{GenerationProviderAdapter, StreamEventStatus},
     transport::sse::SseDecoder,
 };
 
@@ -319,8 +318,7 @@ pub(super) fn bridge_sse_body(
 /// error. When downstream drops the body, `source` is dropped as well, cancelling the reqwest stream.
 pub(super) fn validate_sse_body(
     body: axum::body::Body,
-    protocol: ApiProtocol,
-    adapter: ProviderAdapter,
+    adapter: GenerationProviderAdapter,
     max_sse_event_bytes: usize,
     observation: RequestObservation,
 ) -> axum::body::Body {
@@ -346,7 +344,6 @@ pub(super) fn validate_sse_body(
                             observation.record_upstream_events(&events);
                             match observe_sse_events(
                                 adapter,
-                                protocol,
                                 events,
                                 &mut terminal_seen,
                                 &observation,
@@ -385,14 +382,8 @@ pub(super) fn validate_sse_body(
                 None => match decoder.finish() {
                     Ok(events) => {
                         observation.record_upstream_events(&events);
-                        if observe_sse_events(
-                            adapter,
-                            protocol,
-                            events,
-                            &mut terminal_seen,
-                            &observation,
-                        )
-                        .is_err()
+                        if observe_sse_events(adapter, events, &mut terminal_seen, &observation)
+                            .is_err()
                         {
                             observation.record_upstream_failure();
                             return Some((
@@ -404,7 +395,7 @@ pub(super) fn validate_sse_body(
                         if !terminal_seen {
                             observation.record_stream_failure(ErrorType::SseEofBeforeTerminal);
                             tracing::warn!(
-                                ?protocol,
+                                protocol = ?adapter.protocol(),
                                 "upstream SSE stream ended before a terminal event"
                             );
                         }
@@ -426,17 +417,14 @@ pub(super) fn validate_sse_body(
 
 /// Classifies one or more fully framed SSE events and updates terminal/failure observation.
 fn observe_sse_events(
-    adapter: ProviderAdapter,
-    protocol: ApiProtocol,
+    adapter: GenerationProviderAdapter,
     events: Vec<crate::transport::sse::SseEvent>,
     terminal_seen: &mut bool,
     observation: &RequestObservation,
 ) -> Result<(), ()> {
     // Classify each event through the Provider adapter; record only terminal/failure state, not event content.
     for event in events {
-        let decoded = adapter
-            .classify_sse_event(protocol, event)
-            .map_err(|_| ())?;
+        let decoded = adapter.classify_sse_event(event).map_err(|_| ())?;
         match decoded.status() {
             StreamEventStatus::Continue => {}
             StreamEventStatus::Completed => *terminal_seen = true,

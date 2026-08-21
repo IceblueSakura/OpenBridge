@@ -11,12 +11,11 @@ mod runner;
 
 use crate::{
     bridge::BridgePlan,
-    core::ApiProtocol,
     credential::UpstreamCredential,
     execution::AttemptCoordinator,
     observability::RequestObservation,
     pipeline::{EmbeddingRequestRequirements, EmbeddingRoutePlan, RouteCandidate, RoutePlan},
-    provider::{PreparedUpstreamRequest, ProviderAdapter},
+    provider::{EmbeddingsProviderAdapter, GenerationProviderAdapter, PreparedUpstreamRequest},
     registry::{CredentialPoolBinding, UpstreamApi, UpstreamTarget},
     transport::upstream::UpstreamResponse,
 };
@@ -27,8 +26,7 @@ use crate::ingress::state::GatewayState;
 /// Retryable HTTP response retained while a later Generation candidate is attempted.
 pub(super) struct StoredHttpFailure {
     pub(super) upstream: UpstreamResponse,
-    pub(super) adapter: ProviderAdapter,
-    pub(super) upstream_protocol: ApiProtocol,
+    pub(super) adapter: GenerationProviderAdapter,
     pub(super) bridge: Option<BridgePlan>,
 }
 
@@ -81,7 +79,7 @@ pub(super) struct PreparedEmbeddingExecution<'a> {
     pub(super) upstream_api: &'a UpstreamApi,
     pub(super) credential_pool: &'a CredentialPoolBinding,
     pub(super) credentials: Vec<UpstreamCredential<'a>>,
-    pub(super) adapter: ProviderAdapter,
+    pub(super) adapter: EmbeddingsProviderAdapter,
     pub(super) request: PreparedUpstreamRequest,
     pub(super) replayable: bool,
 }

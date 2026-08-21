@@ -175,7 +175,7 @@ impl ProviderAdapter {
     }
 
     /// Builds a relative upstream request for a raw upstream model without Route-specific mappings.
-    pub fn prepare_request(
+    pub(super) fn prepare_request(
         &self,
         request: &ApiRequest,
         upstream_model: &str,
@@ -185,7 +185,7 @@ impl ProviderAdapter {
     }
 
     /// Builds the selected Upstream API request and applies its explicit Provider wire mappings.
-    pub(crate) fn prepare_routed_request(
+    pub(super) fn prepare_routed_request(
         &self,
         request: &ApiRequest,
         upstream_api: &UpstreamApi,
@@ -195,7 +195,7 @@ impl ProviderAdapter {
     }
 
     /// Builds the selected Native Embeddings request using the Provider's fixed relative path.
-    pub(crate) fn prepare_embedding_routed_request(
+    pub(super) fn prepare_embedding_routed_request(
         &self,
         request: &EmbeddingRequest,
         upstream_api: &UpstreamApi,
@@ -218,7 +218,7 @@ impl ProviderAdapter {
     }
 
     /// Returns whether a fully framed SSE event is terminal or failed.
-    pub fn classify_sse_event(
+    pub(super) fn classify_sse_event(
         &self,
         protocol: ApiProtocol,
         event: SseEvent,
@@ -227,7 +227,7 @@ impl ProviderAdapter {
     }
 
     /// Returns whether response headers satisfy the Provider's trusted SSE media profile.
-    pub(crate) fn recognizes_sse_response(
+    pub(super) fn recognizes_sse_response(
         &self,
         protocol: ApiProtocol,
         headers: &HeaderMap,

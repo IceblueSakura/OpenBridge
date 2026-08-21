@@ -15,7 +15,10 @@ use crate::{
     credential::CredentialStore,
     oauth2_credentials::OAuth2CredentialManager,
     pipeline::normalize_probe_generation_request,
-    provider::{PreparedUpstreamRequest, ProviderAdapter, ProviderKind, StreamEventStatus},
+    provider::{
+        GenerationProviderAdapter, PreparedUpstreamRequest, ProviderAdapter, ProviderKind,
+        ProviderOperationAdapter, StreamEventStatus,
+    },
     registry::{CanonicalTaskKind, RuntimeRegistry, UpstreamApi, UpstreamApiKey, UpstreamTarget},
     transport::{
         sse::SseDecoder,
@@ -294,10 +297,18 @@ impl ProbeSession<'_> {
         let request = EmbeddingRequest::new(Bytes::from(body));
 
         // Bind the request through the fixed adapter and require a recognizable Embeddings response.
-        let request = match self
-            .adapter
-            .prepare_embedding_routed_request(&request, upstream_api)
+        let operation = match self
+            .target
+            .kind()
+            .definition()
+            .operation_adapter(OperationKind::EmbeddingsCreate)
         {
+            Some(ProviderOperationAdapter::Embeddings(adapter)) => adapter,
+            Some(ProviderOperationAdapter::Generation(_)) | None => {
+                return ProbeResult::unknown(None);
+            }
+        };
+        let request = match operation.prepare_routed_request(&request, upstream_api) {
             Ok(request) => request,
             Err(_) => return ProbeResult::unknown(None),
         };
@@ -389,8 +400,9 @@ impl ProbeSession<'_> {
         events: Vec<crate::transport::sse::SseEvent>,
     ) -> Option<ProbeResult> {
         // Delegate lifecycle semantics to the Provider adapter and stop at the first terminal.
+        let adapter = self.generation_adapter(protocol).ok()?;
         for event in events {
-            let event = self.adapter.classify_sse_event(protocol, event).ok()?;
+            let event = adapter.classify_sse_event(event).ok()?;
             match event.status() {
                 StreamEventStatus::Continue => {}
                 StreamEventStatus::Completed => return Some(ProbeResult::supported(status)),
@@ -425,9 +437,23 @@ impl ProbeSession<'_> {
         let request = ApiRequest::new(protocol, Bytes::from(body));
 
         // Let the compile-time adapter bind the model, wire mappings, and relative path.
-        self.adapter
+        self.generation_adapter(protocol)
+            .map_err(|_| ProbeResult::unknown(None))?
             .prepare_routed_request(&request, upstream_api)
             .map_err(|_| ProbeResult::unknown(None))
+    }
+
+    /// Selects the Provider's one typed Generation operation for this probe protocol.
+    fn generation_adapter(&self, protocol: ApiProtocol) -> Result<GenerationProviderAdapter, ()> {
+        match self
+            .target
+            .kind()
+            .definition()
+            .operation_adapter(protocol.operation())
+        {
+            Some(ProviderOperationAdapter::Generation(adapter)) => Ok(adapter),
+            Some(ProviderOperationAdapter::Embeddings(_)) | None => Err(()),
+        }
     }
 
     /// Sends a prepared request and normalizes transport, HTTP, and JSON failures to a conservative outcome.

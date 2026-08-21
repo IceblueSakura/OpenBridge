@@ -8,6 +8,7 @@ mod adapter;
 mod contracts;
 mod definition;
 mod kind;
+mod operation;
 
 pub use adapter::{AdapterError, PreparedUpstreamRequest, ProviderAdapter};
 pub use contracts::{
@@ -17,3 +18,6 @@ pub use contracts::{
 pub(crate) use contracts::{ProviderRequestHeaders, StaticRequestHeader};
 pub use definition::ProviderDefinition;
 pub use kind::{CredentialKind, ProviderContract, ProviderKind};
+pub use operation::{
+    EmbeddingsProviderAdapter, GenerationProviderAdapter, ProviderOperationAdapter,
+};
