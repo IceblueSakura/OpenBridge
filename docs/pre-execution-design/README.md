@@ -11,6 +11,7 @@
 
 ## 当前设计包
 
-当前没有保留的执行前设计包。
+- [Operation 与多模态 capability 后续扩展](capability-operation-refactor/README.md)：只保留尚未实施的阶段 5B、
+  通用测试/执行准备与后续决策门；已完成阶段不在设计包保存实施历史。
 
 只有在用户明确要求时才新增、替换或删除本目录的设计包。过时包必须标明状态或删除，不能与 live implementation status 并列作为事实来源。
