@@ -4,17 +4,11 @@ use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
 
 use crate::{
-    core::{ApiProtocol, ApiRequest, EmbeddingRequest},
-    credential::UpstreamCredential,
-    providers::openai_compatible::OpenAiCompatibleAdapter,
-    registry::{ReasoningLevelMapping, UpstreamApi},
-    transport::sse::SseEvent,
+    credential::UpstreamCredential, providers::openai_compatible::OpenAiCompatibleAdapter,
+    registry::ReasoningLevelMapping,
 };
 
-use super::{
-    ClassifiedSseEvent, ProviderContract, ProviderKind, SafeHeaders, SensitiveHeaders,
-    StatusClassification,
-};
+use super::{ProviderContract, ProviderKind, SafeHeaders, SensitiveHeaders, StatusClassification};
 
 mod error;
 
@@ -106,7 +100,7 @@ impl ProviderAdapter {
     }
 
     /// Returns the OpenAI-compatible profile held by this closed dispatch.
-    fn openai_compatible(&self) -> OpenAiCompatibleAdapter {
+    pub(super) fn openai_compatible(&self) -> OpenAiCompatibleAdapter {
         match self.implementation {
             ProviderAdapterImplementation::OpenAiCompatible(adapter) => adapter,
         }
@@ -174,36 +168,6 @@ impl ProviderAdapter {
         self.openai_compatible().model_list_ids(response)
     }
 
-    /// Builds a relative upstream request for a raw upstream model without Route-specific mappings.
-    pub(super) fn prepare_request(
-        &self,
-        request: &ApiRequest,
-        upstream_model: &str,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.openai_compatible()
-            .prepare_request(request, upstream_model)
-    }
-
-    /// Builds the selected Upstream API request and applies its explicit Provider wire mappings.
-    pub(super) fn prepare_routed_request(
-        &self,
-        request: &ApiRequest,
-        upstream_api: &UpstreamApi,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.openai_compatible()
-            .prepare_routed_request(request, upstream_api)
-    }
-
-    /// Builds the selected Native Embeddings request using the Provider's fixed relative path.
-    pub(super) fn prepare_embedding_routed_request(
-        &self,
-        request: &EmbeddingRequest,
-        upstream_api: &UpstreamApi,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.openai_compatible()
-            .prepare_embedding_routed_request(request, upstream_api)
-    }
-
     /// Builds safe request headers without authentication material.
     pub fn prepare_headers(&self) -> Result<SafeHeaders, AdapterError> {
         self.openai_compatible().prepare_headers()
@@ -215,25 +179,6 @@ impl ProviderAdapter {
         credential: &UpstreamCredential<'_>,
     ) -> Result<SensitiveHeaders, AdapterError> {
         self.openai_compatible().prepare_auth_headers(credential)
-    }
-
-    /// Returns whether a fully framed SSE event is terminal or failed.
-    pub(super) fn classify_sse_event(
-        &self,
-        protocol: ApiProtocol,
-        event: SseEvent,
-    ) -> Result<ClassifiedSseEvent, AdapterError> {
-        Ok(self.openai_compatible().classify_sse_event(protocol, event))
-    }
-
-    /// Returns whether response headers satisfy the Provider's trusted SSE media profile.
-    pub(super) fn recognizes_sse_response(
-        &self,
-        protocol: ApiProtocol,
-        headers: &HeaderMap,
-    ) -> bool {
-        self.openai_compatible()
-            .recognizes_sse_response(protocol, headers)
     }
 
     /// Maps an upstream HTTP status to a coarse error and retry boundary.
@@ -253,6 +198,26 @@ mod tests {
     use secrecy::SecretString;
 
     use super::*;
+    use crate::{
+        core::{ApiProtocol, OperationKind},
+        provider::{GenerationProviderAdapter, ProviderOperationAdapter},
+    };
+
+    fn generation_adapter(
+        provider: ProviderKind,
+        protocol: ApiProtocol,
+    ) -> GenerationProviderAdapter {
+        match provider
+            .definition()
+            .operation_adapter(protocol.operation())
+            .expect("test Provider declares the Generation operation")
+        {
+            ProviderOperationAdapter::Generation(adapter) => adapter,
+            ProviderOperationAdapter::Embeddings(_) => {
+                panic!("Generation operation selected an Embeddings adapter")
+            }
+        }
+    }
 
     #[test]
     fn safe_header_debug_output_omits_values() {
@@ -280,15 +245,20 @@ mod tests {
 
     #[test]
     fn provider_sse_media_profiles_are_typed_and_fail_closed() {
-        let standard = ProviderAdapter::for_kind(ProviderKind::OpenAi);
-        let chatgpt = ProviderAdapter::for_kind(ProviderKind::ChatGpt);
+        let standard = generation_adapter(ProviderKind::OpenAi, ApiProtocol::Responses);
+        let chatgpt = generation_adapter(ProviderKind::ChatGpt, ApiProtocol::Responses);
 
         // Require an explicit SSE media type for ordinary OpenAI-compatible Providers.
-        assert!(!standard.recognizes_sse_response(ApiProtocol::Responses, &HeaderMap::new()));
+        assert!(!standard.recognizes_sse_response(&HeaderMap::new()));
 
-        // Accept ChatGPT's observed omission only for its Responses wire protocol.
-        assert!(chatgpt.recognizes_sse_response(ApiProtocol::Responses, &HeaderMap::new()));
-        assert!(!chatgpt.recognizes_sse_response(ApiProtocol::ChatCompletions, &HeaderMap::new()));
+        // Accept ChatGPT's observed omission only for its declared Responses operation.
+        assert!(chatgpt.recognizes_sse_response(&HeaderMap::new()));
+        assert!(
+            ProviderKind::ChatGpt
+                .definition()
+                .operation_adapter(OperationKind::ChatCompletions)
+                .is_none()
+        );
 
         // Apply normal media-type semantics to explicit values for every Provider profile.
         for value in [
@@ -299,7 +269,7 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
             assert!(
-                standard.recognizes_sse_response(ApiProtocol::Responses, &headers),
+                standard.recognizes_sse_response(&headers),
                 "rejected {value}"
             );
         }
@@ -309,14 +279,14 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, HeaderValue::from_str(value).unwrap());
             assert!(
-                !chatgpt.recognizes_sse_response(ApiProtocol::Responses, &headers),
+                !chatgpt.recognizes_sse_response(&headers),
                 "accepted {value}"
             );
         }
         let mut duplicate = HeaderMap::new();
         duplicate.append(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
         duplicate.append(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-        assert!(!chatgpt.recognizes_sse_response(ApiProtocol::Responses, &duplicate));
+        assert!(!chatgpt.recognizes_sse_response(&duplicate));
     }
 
     #[test]

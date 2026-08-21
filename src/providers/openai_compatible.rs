@@ -244,37 +244,86 @@ impl OpenAiCompatibleAdapter {
         (self.model_list_parser)(response)
     }
 
-    /// Replaces the upstream model and binds the profile's declared relative endpoint.
-    pub(crate) fn prepare_request(
-        self,
-        request: &ApiRequest,
-        upstream_model: &str,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.prepare_request_with_api(request, upstream_model, None)
+    /// Returns the relative path attached to one declared Generation operation.
+    pub(crate) const fn generation_path(self, protocol: ApiProtocol) -> Option<&'static str> {
+        match protocol {
+            ApiProtocol::ChatCompletions => self.chat_path,
+            ApiProtocol::Responses => self.responses_path,
+        }
+    }
+
+    /// Returns the relative path attached to the declared Embeddings operation.
+    pub(crate) const fn embeddings_path(self) -> Option<&'static str> {
+        self.embeddings_path
     }
 
     /// Replaces target-specific wire values and binds the selected Upstream API endpoint.
     pub(crate) fn prepare_routed_request(
         self,
+        protocol: ApiProtocol,
+        path: &'static str,
         request: &ApiRequest,
         upstream_api: &UpstreamApi,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.prepare_request_with_api(request, upstream_api.upstream_model(), Some(upstream_api))
+        // Reject any mismatch before parsing a body or selecting Provider wire behavior.
+        if request.protocol() != protocol || upstream_api.operation() != protocol.operation() {
+            return Err(AdapterError::UnsupportedProtocol);
+        }
+        let relative_uri = Uri::from_static(path);
+
+        // Parse and replace the upstream model field controlled only by the selected API.
+        let mut document: serde_json::Value =
+            serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
+        document
+            .as_object_mut()
+            .ok_or(AdapterError::InvalidRequestBody)?
+            .insert(
+                "model".to_owned(),
+                serde_json::Value::String(upstream_api.upstream_model().to_owned()),
+            );
+
+        // Apply only the selected operation's trusted Provider wire transformation.
+        (self.request_body_hook)(
+            protocol,
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+        )?;
+        discard_ignored_generation_parameters(
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+            upstream_api,
+        );
+        let reasoning_level_mapping = apply_reasoning_level_mapping(
+            protocol,
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+            upstream_api,
+        );
+
+        // Re-serialize once after all trusted Provider wire transformations.
+        let body = serde_json::to_vec(&document)
+            .map(Bytes::from)
+            .map_err(|_| AdapterError::InvalidRequestBody)?;
+        Ok(
+            PreparedUpstreamRequest::new(Method::POST, relative_uri, body)
+                .with_reasoning_level_mapping(reasoning_level_mapping),
+        )
     }
 
     /// Replaces the Public Model and binds the fixed Native Embeddings endpoint.
     pub(crate) fn prepare_embedding_routed_request(
         self,
+        path: &'static str,
         request: &EmbeddingRequest,
         upstream_api: &UpstreamApi,
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        // Require an Embeddings API and a Provider profile with one trusted relative path.
+        // Require an Embeddings API before parsing a body or binding the selected operation path.
         if upstream_api.operation() != OperationKind::EmbeddingsCreate {
             return Err(AdapterError::UnsupportedProtocol);
         }
-        let path = self
-            .embeddings_path
-            .ok_or(AdapterError::UnsupportedProtocol)?;
 
         // Parse the preflighted object and replace only the registry-owned model field.
         let mut document: serde_json::Value =
@@ -296,69 +345,6 @@ impl OpenAiCompatibleAdapter {
             Uri::from_static(path),
             body,
         ))
-    }
-
-    /// Builds one JSON request and optionally applies mappings from the selected Upstream API.
-    fn prepare_request_with_api(
-        self,
-        request: &ApiRequest,
-        upstream_model: &str,
-        routed: Option<&UpstreamApi>,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        // Select the static relative endpoint for the request protocol.
-        let path = match request.protocol() {
-            ApiProtocol::ChatCompletions => self.chat_path,
-            ApiProtocol::Responses => self.responses_path,
-        }
-        .ok_or(AdapterError::UnsupportedProtocol)?;
-        let relative_uri = Uri::from_static(path);
-
-        // Parse and replace the upstream model field controlled only by the adapter.
-        let mut document: serde_json::Value =
-            serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
-        document
-            .as_object_mut()
-            .ok_or(AdapterError::InvalidRequestBody)?
-            .insert(
-                "model".to_owned(),
-                serde_json::Value::String(upstream_model.to_owned()),
-            );
-
-        // Apply only the concrete Provider's compile-time request-shape narrowing.
-        (self.request_body_hook)(
-            request.protocol(),
-            document
-                .as_object_mut()
-                .ok_or(AdapterError::InvalidRequestBody)?,
-        )?;
-
-        // Remove ordinary fields that the selected API is configured to accept only downstream.
-        if let Some(upstream_api) = routed {
-            discard_ignored_generation_parameters(
-                document
-                    .as_object_mut()
-                    .ok_or(AdapterError::InvalidRequestBody)?,
-                upstream_api,
-            );
-        }
-
-        // Apply only the selected Upstream API's explicit reasoning wire mapping.
-        let reasoning_level_mapping = routed.and_then(|upstream_api| {
-            apply_reasoning_level_mapping(
-                request.protocol(),
-                document.as_object_mut()?,
-                upstream_api,
-            )
-        });
-
-        // Re-serialize once after all trusted Provider wire transformations.
-        let body = serde_json::to_vec(&document)
-            .map(Bytes::from)
-            .map_err(|_| AdapterError::InvalidRequestBody)?;
-        Ok(
-            PreparedUpstreamRequest::new(Method::POST, relative_uri, body)
-                .with_reasoning_level_mapping(reasoning_level_mapping),
-        )
     }
 
     /// Builds the base ordinary headers for an OpenAI-compatible JSON request.

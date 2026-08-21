@@ -7,7 +7,9 @@
 use http::{HeaderMap, StatusCode};
 
 use crate::{
-    core::{ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind},
+    core::{
+        ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind, ProviderOperationCapabilities,
+    },
     credential::UpstreamCredential,
     registry::UpstreamApi,
     transport::sse::SseEvent,
@@ -27,16 +29,107 @@ pub enum ProviderOperationAdapter {
     Embeddings(EmbeddingsProviderAdapter),
 }
 
+impl ProviderAdapter {
+    /// Selects one operation descriptor from the Provider's closed wire surface.
+    pub(super) fn operation_adapter(
+        self,
+        operation: OperationKind,
+        capabilities: ProviderOperationCapabilities,
+    ) -> Option<ProviderOperationAdapter> {
+        match operation {
+            OperationKind::ChatCompletions => Some(ProviderOperationAdapter::Generation(
+                GenerationProviderAdapter::new(
+                    self,
+                    ApiProtocol::ChatCompletions,
+                    self.openai_compatible()
+                        .generation_path(ApiProtocol::ChatCompletions)?,
+                    capabilities,
+                ),
+            )),
+            OperationKind::Responses => Some(ProviderOperationAdapter::Generation(
+                GenerationProviderAdapter::new(
+                    self,
+                    ApiProtocol::Responses,
+                    self.openai_compatible()
+                        .generation_path(ApiProtocol::Responses)?,
+                    capabilities,
+                ),
+            )),
+            OperationKind::EmbeddingsCreate => Some(ProviderOperationAdapter::Embeddings(
+                EmbeddingsProviderAdapter::new(
+                    self,
+                    self.openai_compatible().embeddings_path()?,
+                    capabilities,
+                ),
+            )),
+        }
+    }
+
+    /// Builds one routed Generation request through the selected Provider wire primitive.
+    fn prepare_routed_generation_request(
+        self,
+        protocol: ApiProtocol,
+        path: &'static str,
+        request: &ApiRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_routed_request(protocol, path, request, upstream_api)
+    }
+
+    /// Builds one routed Embeddings request through the selected Provider wire primitive.
+    fn prepare_routed_embeddings_request(
+        self,
+        path: &'static str,
+        request: &EmbeddingRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_embedding_routed_request(path, request, upstream_api)
+    }
+
+    /// Classifies one fully framed Generation SSE event through the selected terminal primitive.
+    fn classify_generation_sse_event(
+        self,
+        protocol: ApiProtocol,
+        event: SseEvent,
+    ) -> ClassifiedSseEvent {
+        self.openai_compatible().classify_sse_event(protocol, event)
+    }
+
+    /// Applies the selected Generation SSE media primitive.
+    fn recognizes_generation_sse_response(
+        self,
+        protocol: ApiProtocol,
+        headers: &HeaderMap,
+    ) -> bool {
+        self.openai_compatible()
+            .recognizes_sse_response(protocol, headers)
+    }
+}
+
 /// Provider adapter bound to exactly one Generation protocol.
 #[derive(Clone, Copy)]
 pub struct GenerationProviderAdapter {
     provider: ProviderAdapter,
     protocol: ApiProtocol,
+    path: &'static str,
+    capabilities: ProviderOperationCapabilities,
 }
 
 impl GenerationProviderAdapter {
-    pub(super) const fn new(provider: ProviderAdapter, protocol: ApiProtocol) -> Self {
-        Self { provider, protocol }
+    pub(super) const fn new(
+        provider: ProviderAdapter,
+        protocol: ApiProtocol,
+        path: &'static str,
+        capabilities: ProviderOperationCapabilities,
+    ) -> Self {
+        Self {
+            provider,
+            protocol,
+            path,
+            capabilities,
+        }
     }
 
     /// Returns the fixed protocol selected from the Provider definition.
@@ -44,18 +137,13 @@ impl GenerationProviderAdapter {
         self.protocol
     }
 
-    /// Builds a relative request only when its protocol matches this selected operation.
-    pub fn prepare_request(
-        self,
-        request: &ApiRequest,
-        upstream_model: &str,
-    ) -> Result<PreparedUpstreamRequest, AdapterError> {
-        self.require_request_protocol(request)?;
-        self.provider.prepare_request(request, upstream_model)
+    /// Returns the capability ceiling co-selected with this operation descriptor.
+    pub const fn capabilities(self) -> ProviderOperationCapabilities {
+        self.capabilities
     }
 
     /// Builds a routed request only when the request and Upstream API match this operation.
-    pub(crate) fn prepare_routed_request(
+    pub fn prepare_routed_request(
         self,
         request: &ApiRequest,
         upstream_api: &UpstreamApi,
@@ -64,7 +152,12 @@ impl GenerationProviderAdapter {
         if upstream_api.operation() != self.protocol.operation() {
             return Err(AdapterError::UnsupportedProtocol);
         }
-        self.provider.prepare_routed_request(request, upstream_api)
+        self.provider.prepare_routed_generation_request(
+            self.protocol,
+            self.path,
+            request,
+            upstream_api,
+        )
     }
 
     /// Assembles shared Provider headers and authentication for this operation.
@@ -85,12 +178,14 @@ impl GenerationProviderAdapter {
     /// Returns whether response headers satisfy this operation's SSE media profile.
     pub(crate) fn recognizes_sse_response(self, headers: &HeaderMap) -> bool {
         self.provider
-            .recognizes_sse_response(self.protocol, headers)
+            .recognizes_generation_sse_response(self.protocol, headers)
     }
 
     /// Classifies one framed SSE event through this operation's terminal profile.
     pub fn classify_sse_event(self, event: SseEvent) -> Result<ClassifiedSseEvent, AdapterError> {
-        self.provider.classify_sse_event(self.protocol, event)
+        Ok(self
+            .provider
+            .classify_generation_sse_event(self.protocol, event))
     }
 
     pub(crate) const fn provider(self) -> ProviderAdapter {
@@ -110,15 +205,30 @@ impl GenerationProviderAdapter {
 #[derive(Clone, Copy)]
 pub struct EmbeddingsProviderAdapter {
     provider: ProviderAdapter,
+    path: &'static str,
+    capabilities: ProviderOperationCapabilities,
 }
 
 impl EmbeddingsProviderAdapter {
-    pub(super) const fn new(provider: ProviderAdapter) -> Self {
-        Self { provider }
+    pub(super) const fn new(
+        provider: ProviderAdapter,
+        path: &'static str,
+        capabilities: ProviderOperationCapabilities,
+    ) -> Self {
+        Self {
+            provider,
+            path,
+            capabilities,
+        }
+    }
+
+    /// Returns the capability ceiling co-selected with this operation descriptor.
+    pub const fn capabilities(self) -> ProviderOperationCapabilities {
+        self.capabilities
     }
 
     /// Builds a routed Embeddings request only for the selected operation.
-    pub(crate) fn prepare_routed_request(
+    pub fn prepare_routed_request(
         self,
         request: &EmbeddingRequest,
         upstream_api: &UpstreamApi,
@@ -127,7 +237,7 @@ impl EmbeddingsProviderAdapter {
             return Err(AdapterError::UnsupportedProtocol);
         }
         self.provider
-            .prepare_embedding_routed_request(request, upstream_api)
+            .prepare_routed_embeddings_request(self.path, request, upstream_api)
     }
 
     /// Assembles shared Provider headers and authentication for this operation.

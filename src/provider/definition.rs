@@ -3,11 +3,10 @@
 //! The descriptor aggregates compiled metadata only; it does not register targets, Routes, or
 //! Public Models and does not read credentials.
 
-use crate::core::{ApiCapabilities, ApiProtocol, OperationKind};
+use crate::core::{ApiCapabilities, OperationKind};
 
 use super::{
-    CredentialKind, EmbeddingsProviderAdapter, GenerationProviderAdapter, ProviderAdapter,
-    ProviderContract, ProviderKind, ProviderOperationAdapter,
+    CredentialKind, ProviderAdapter, ProviderContract, ProviderKind, ProviderOperationAdapter,
 };
 
 /// Binds a Provider's static contract and closed adapter.
@@ -45,17 +44,7 @@ impl ProviderDefinition {
 
     /// Selects one typed operation adapter from the Provider's static capability surface.
     pub fn operation_adapter(&self, operation: OperationKind) -> Option<ProviderOperationAdapter> {
-        self.contract.capabilities().operation(operation)?;
-        Some(match operation {
-            OperationKind::ChatCompletions => ProviderOperationAdapter::Generation(
-                GenerationProviderAdapter::new(self.adapter, ApiProtocol::ChatCompletions),
-            ),
-            OperationKind::Responses => ProviderOperationAdapter::Generation(
-                GenerationProviderAdapter::new(self.adapter, ApiProtocol::Responses),
-            ),
-            OperationKind::EmbeddingsCreate => {
-                ProviderOperationAdapter::Embeddings(EmbeddingsProviderAdapter::new(self.adapter))
-            }
-        })
+        let capabilities = self.contract.capabilities().operation(operation)?;
+        self.adapter.operation_adapter(operation, capabilities)
     }
 }
