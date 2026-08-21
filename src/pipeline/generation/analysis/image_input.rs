@@ -151,7 +151,7 @@ fn ingest_image_reference(
     }
 
     // Validate only the inbound URL syntax; the Provider still owns DNS, redirects, and download limits.
-    validate_remote_image_url(value)?;
+    validate_remote_https_url(value)?;
     let length = u32::try_from(value.len())
         .map_err(|_| RequestPlanningError::MultimodalInputLimitExceeded)?;
     requirements.sources.insert(ImageInputSource::RemoteUrl);
@@ -206,9 +206,10 @@ fn ingest_data_url(
 }
 
 /// Validates canonical padded or unpadded standard Base64 and returns its exact decoded byte count.
-fn canonical_base64_decoded_bytes(payload: &str) -> Result<u32, RequestPlanningError> {
+pub(super) fn canonical_base64_decoded_bytes(payload: &str) -> Result<u32, RequestPlanningError> {
     let bytes = payload.as_bytes();
-    if !bytes.len().is_multiple_of(4) {
+    let remainder = bytes.len() % 4;
+    if remainder == 1 {
         return Err(RequestPlanningError::InvalidMultimodalInput);
     }
 
@@ -222,6 +223,7 @@ fn canonical_base64_decoded_bytes(payload: &str) -> Result<u32, RequestPlanningE
     };
     let content_length = bytes.len() - padding;
     if content_length == 0
+        || (padding > 0 && remainder != 0)
         || bytes[..content_length]
             .iter()
             .any(|value| base64_sextet(*value).is_none())
@@ -233,7 +235,9 @@ fn canonical_base64_decoded_bytes(payload: &str) -> Result<u32, RequestPlanningE
     // Require zero unused bits so alternate encodings of the same bytes cannot pass as canonical.
     let final_sextet = base64_sextet(bytes[content_length - 1])
         .ok_or(RequestPlanningError::InvalidMultimodalInput)?;
-    if (padding == 2 && final_sextet & 0b1111 != 0) || (padding == 1 && final_sextet & 0b11 != 0) {
+    if ((padding == 2 || (padding == 0 && remainder == 2)) && final_sextet & 0b1111 != 0)
+        || ((padding == 1 || (padding == 0 && remainder == 3)) && final_sextet & 0b11 != 0)
+    {
         return Err(RequestPlanningError::InvalidMultimodalInput);
     }
 
@@ -242,6 +246,7 @@ fn canonical_base64_decoded_bytes(payload: &str) -> Result<u32, RequestPlanningE
         .len()
         .checked_div(4)
         .and_then(|groups| groups.checked_mul(3))
+        .and_then(|bytes| bytes.checked_add(remainder.saturating_sub(1)))
         .and_then(|bytes| bytes.checked_sub(padding))
         .ok_or(RequestPlanningError::MultimodalInputLimitExceeded)?;
     u32::try_from(decoded).map_err(|_| RequestPlanningError::MultimodalInputLimitExceeded)
@@ -271,7 +276,7 @@ fn increment_part_count(
 }
 
 /// Applies the inbound absolute-HTTPS and local-address policy without fetching the URL.
-fn validate_remote_image_url(value: &str) -> Result<(), RequestPlanningError> {
+pub(super) fn validate_remote_https_url(value: &str) -> Result<(), RequestPlanningError> {
     let url = Url::parse(value).map_err(|_| RequestPlanningError::InvalidMultimodalInput)?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return Err(RequestPlanningError::InvalidMultimodalInput);
@@ -321,4 +326,31 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
         || segments[0] & 0xfe00 == 0xfc00
         || segments[0] & 0xffc0 == 0xfe80
         || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_base64_decoded_bytes;
+
+    #[test]
+    fn canonical_base64_counts_padded_and_unpadded_payloads() {
+        for (payload, decoded_bytes) in
+            [("Zg==", 1), ("Zg", 1), ("Zm8=", 2), ("Zm8", 2), ("Zm9v", 3)]
+        {
+            assert_eq!(
+                canonical_base64_decoded_bytes(payload).unwrap(),
+                decoded_bytes
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_base64_rejects_invalid_length_padding_and_unused_bits() {
+        for payload in ["A", "Zh", "Zm9", "Zg=", "Z==="] {
+            assert!(
+                canonical_base64_decoded_bytes(payload).is_err(),
+                "{payload}"
+            );
+        }
+    }
 }

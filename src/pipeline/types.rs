@@ -6,9 +6,9 @@ use crate::{
     bridge::BridgePlan,
     core::{
         ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, ChatStreamUsage,
-        EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest, GenerationRequestField,
-        ImageDetail, ImageInputSource, ImageMediaType, OperationKind, ResponseInclude,
-        ToolChoiceMode,
+        EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest, FileDetail, FileInlineEncoding,
+        FileMediaType, GenerationRequestField, ImageDetail, ImageInputSource, ImageMediaType,
+        OperationKind, ResponseInclude, ToolChoiceMode,
     },
     registry::{OperationResponseBudget, ReasoningLevel, UpstreamApiKey},
 };
@@ -108,6 +108,7 @@ pub(super) struct RequestedCapabilities {
     pub(super) function_tool_strict_schema: bool,
     pub(super) parallel_tool_calls: bool,
     pub(super) image_input: Option<ImageInputRequirements>,
+    pub(super) file_input: Option<FileInputRequirements>,
     pub(super) audio: Option<RequestedAudio>,
     pub(super) structured_output: RequestedStructuredOutput,
     pub(super) unmodeled_tools: bool,
@@ -249,6 +250,22 @@ pub(super) struct ImageInputRequirements {
     pub(super) details: BTreeSet<ImageDetail>,
     pub(super) unsupported_media_type: bool,
     pub(super) part_count: u32,
+    pub(super) max_url_length: u32,
+    pub(super) max_inline_encoded_bytes: u32,
+    pub(super) max_inline_decoded_bytes: u32,
+    pub(super) total_inline_encoded_bytes: u32,
+    pub(super) total_inline_decoded_bytes: u32,
+}
+
+/// Frozen file-input facts extracted without retaining filenames, URLs, or media payloads.
+#[derive(Debug, Default)]
+pub(super) struct FileInputRequirements {
+    pub(super) sources: BTreeSet<crate::registry::FileInputSource>,
+    pub(super) encodings: BTreeSet<FileInlineEncoding>,
+    pub(super) media_types: BTreeSet<FileMediaType>,
+    pub(super) details: BTreeSet<FileDetail>,
+    pub(super) part_count: u32,
+    pub(super) max_filename_length: u32,
     pub(super) max_url_length: u32,
     pub(super) max_inline_encoded_bytes: u32,
     pub(super) max_inline_decoded_bytes: u32,

@@ -160,6 +160,9 @@ impl RouteContractContribution {
             if !model_input.contains(&InputModality::Image) {
                 media.clear_image();
             }
+            if !model_input.contains(&InputModality::File) {
+                media.clear_file();
+            }
         }
         if let Some(model_output) = upstream_api.model().output_modalities() {
             output.retain(|modality| model_output.contains(modality));

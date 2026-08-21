@@ -402,7 +402,6 @@ impl<A: Copy> ChatCompletionsProfile<A> {
     /// Stops compilation when reserved fields are registered so they cannot become false runtime capabilities.
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
-            || self.media.file.is_some()
             || self.predicted_outputs
             || self.web_search
             || self.moderation
@@ -774,7 +773,6 @@ impl<S: Copy> ResponsesProfile<S> {
     fn assert_reserved_unimplemented(self) {
         if self.custom_tool_calling
             || !self.hosted_tools.is_empty()
-            || self.media.file.is_some()
             || self.conversation
             || self.prompt_templates
             || self.context_management

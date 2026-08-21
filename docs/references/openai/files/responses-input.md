@@ -6,12 +6,13 @@
 维护。
 
 - 官方来源：[File inputs](https://developers.openai.com/api/docs/guides/file-inputs)、[Create a response](https://developers.openai.com/api/reference/resources/responses/methods/create)
-- 原始资料复核日期：2026-08-04；本次结构整理未重新在线复核 source union、detail 或 model capability。
+- 原始资料复核日期：2026-08-21；本次重新核对当前官方 API reference 与 File inputs guide。
 
 ## 1. Wire position 与 source one-of
 
-`input_file` 位于 Responses ordered item/content 结构。资料快照中的 source 可包括 inline data、remote file URL 与 hosted
-`file_id`；精确 one-of、filename、encoding 与适用文件类别以当期 schema/profile 为准。
+`input_file` 位于 Responses ordered item/content 结构。当前 `input_file` source union 包含 inline `file_data`、external `file_url` 与 hosted `file_id`。
+PDF part 可选 `detail: auto|low|high`，省略时默认 `auto`；该字段只影响 PDF page image 处理，
+Chat file part 不支持它。
 
 同时携带多个互斥 source、丢失 filename/encoding 或把 part 转为 `input_text` 都会改变 wire 语义。
 

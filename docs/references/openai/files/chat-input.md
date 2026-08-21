@@ -5,12 +5,12 @@
 本文只记录 Chat Completions message content 中的 file part。Responses `input_file`、Files API、Uploads 和 File Search 不在本文定义。
 
 - 官方来源：[File inputs](https://developers.openai.com/api/docs/guides/file-inputs)、[Create chat completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
-- 原始资料复核日期：2026-08-04；本次结构整理未重新在线复核 file union 或 model capability。
+- 原始资料复核日期：2026-08-21；本次重新核对当前官方 API reference 与 File inputs guide。
 
 ## 1. Wire position 与 source
 
-Chat file 是 user message 的 typed content part。资料快照中的 source 可涉及 inline file data 与 hosted file id；精确 one-of、filename
-和 encoding 以当期 schema/profile 为准。
+Chat file 是 user message 的 typed content part。当前 API reference 将 Chat `file` 表示为嵌套 `file` object，source 是 `file_data` 或 hosted
+`file_id`；inline `file_data` 需要 `filename`。Chat file part 不接受 `file_url` 或 `detail`。
 
 part type、filename、data/id 与 surrounding content 顺序属于 wire 语义。把文件提取成 text 会丢失 source、格式、结构和 identity。
 

@@ -193,7 +193,8 @@ paths:
         Chat-to-Responses bridge through the complete route. When stream is true, successful
         responses use text/event-stream. Tool calls are forwarded at the wire level only;
         OpenBridge does not execute tools. Image parts require a model whose fixed Chat interface
-        exposes multimodal_input.image and are supported only on a same-protocol Native route.
+        exposes multimodal_input.image and are supported only on a same-protocol Native route. File
+        parts likewise require multimodal_input.file; file_id and Bridge conversion are unsupported.
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -273,7 +274,8 @@ paths:
         instructions value wins; omission uses the project default. Existing previous_response_id
         and background capability rules remain separate. When stream is true, successful responses use
         text/event-stream. Image parts require a model whose fixed Responses interface exposes
-        multimodal_input.image and are supported only on a same-protocol Native route.
+        multimodal_input.image and are supported only on a same-protocol Native route. input_file
+        likewise requires multimodal_input.file; file_id and Bridge conversion are unsupported.
         reasoning.summary accepts the standard value "auto" and the OpenBridge compatibility value
         false. Native Responses preserves the value. Responses-to-Chat consumes it and returns any
         actual Chat reasoning_content as Responses reasoning_text content rather than fabricating a summary.
@@ -1020,12 +1022,111 @@ components:
     MultimodalInputCapabilities:
       type: object
       additionalProperties: false
-      required: [ image ]
+      required: [ image, file ]
       properties:
         image:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/ImageInputInterfaceCapabilities'
+        file:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FileInputInterfaceCapabilities'
+
+    FileInputInterfaceCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ sources, encodings, media_types, detail, limits ]
+      properties:
+        sources:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ inline_data, remote_url ]
+        encodings:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ raw_base64, data_url ]
+        media_types:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ application/pdf ]
+        detail:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FileDetailCapabilities'
+        limits:
+          $ref: '#/components/schemas/FileInputLimits'
+
+    FileDetailCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ default, allowed ]
+      properties:
+        default:
+          type: string
+          enum: [ auto, low, high ]
+        allowed:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ auto, low, high ]
+
+    FileInputLimits:
+      type: object
+      additionalProperties: false
+      required:
+        [ max_parts, max_filename_length, max_url_length, max_inline_encoded_bytes, max_inline_decoded_bytes, max_total_inline_encoded_bytes, max_total_inline_decoded_bytes ]
+      properties:
+        max_parts:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_filename_length:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+        max_url_length:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        max_inline_encoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        max_inline_decoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        max_total_inline_encoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        max_total_inline_decoded_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
 
     ImageInputInterfaceCapabilities:
       type: object

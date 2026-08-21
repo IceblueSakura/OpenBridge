@@ -133,8 +133,9 @@ Public Model 只从 private map 投影固定 Models v1 DTO，并公开全部候�
 
 Chat 与 Responses 分别使用完整的 operation-specific media envelope。Provider contract 声明 family ceiling，每个 executable Target
 必须一次性显式选择 image/audio/file profile；全关闭 default 不复制 ceiling，registration 也不再通过事后清空媒体字段收窄 Target。
-Chat `file` 与 Responses `input_file` 使用彼此独立的 typed profile；未实现的 profile 没有公开 constructor，当前所有 Target 均为
-`None`。两种 file wire 仍在 analysis 阶段失败关闭，不进入 preflight、Route planning 或 egress。
+Chat `file` 与 Responses `input_file` 使用彼此独立的 typed profile；analysis 冻结 source/encoding/PDF detail 与 bounded resource facts，
+private preflight 读取同源 Models interface，Native route 保持 wire，Bridge 与无 affinity `file_id` fail closed。OpenAI family ceiling 描述
+标准 API wire 上限，但当前所有 checked-in executable Target 仍显式选择 `None`，所以生产 Public Models 不公开 file。
 
 Route contribution、aggregate 与 private preflight snapshot 通过一个完整 media contract 处理 image/audio/file；Bridge 只贡献
 empty media profile。Audio remote URL、data URL 与 pure Base64 source 分别拥有 format/limit payload；request facts 同时保留

@@ -1564,6 +1564,8 @@ fn synthetic_jwt(payload: Value) -> String {
 mod admission;
 #[path = "forwarding_contract/chatgpt.rs"]
 mod chatgpt;
+#[path = "forwarding_contract/file_input.rs"]
+mod file_input;
 #[path = "forwarding_contract/mimo.rs"]
 mod mimo;
 #[path = "forwarding_contract/models.rs"]

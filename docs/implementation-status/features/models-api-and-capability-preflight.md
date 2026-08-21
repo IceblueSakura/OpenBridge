@@ -17,7 +17,7 @@
 - Responses `include` 解析为闭合逐值集合并按 candidate 求交集；公开值只表示请求可安全处理，不保证对应 output item。
   空集合是 no-op；未知或不在交集中的值 fail closed。
 - `prompt_cache_key` 只表示 exact forwarding，不承诺 cache hit、成本或延迟；options/retention/breakpoint 未实现。
-- 图片与音频 capability 使用带完整 payload/limit 的判别联合；Models flat JSON 只是只读投影，preflight 直接读取 owned typed contract。
+- 图片、音频与文件 capability 使用带完整 payload/limit 的 typed profile；Models flat JSON 只是只读投影，preflight 直接读取 owned typed contract。
 - Responses 当前只接受省略或 `store:false`；`store:true` 拒绝。continuation/state 只有全部 candidate 对 issuing Target/API/credential
   affinity 有共同保证时才公开；opaque state 不能盲投到另一 Provider。
 - Preflight 对选定 Public Model 只执行一次能力/限制/state 校验；通过后按静态 Route 资格和顺序规划，不做 capability routing。
@@ -47,5 +47,6 @@ Provider 定向证据见 [Provider 状态目录](../providers/README.md)，文�
 - [Public Model 需求](../../functional-requirements/model-capability/README.md)
 - [注册表与模型目录](provider-registry-and-model-catalog.md)
 - [Native 图片](native-image-input.md)
+- [Native 文件](native-file-input.md)
 - [MiMo 音频](native-mimo-audio.md)
 - [HTTP 网关与认证](gateway-http-api-and-auth.md)

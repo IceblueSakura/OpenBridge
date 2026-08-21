@@ -24,9 +24,11 @@ use super::super::{
 use super::instructions::{analyze_requested_instructions, validate_stateless_store};
 
 mod audio;
+mod file_input;
 mod image_input;
 
 use audio::analyze_audio;
+use file_input::analyze_file_input;
 use image_input::analyze_image_input;
 
 /// Parses a downstream request and extracts registry-independent request facts.
@@ -92,6 +94,7 @@ pub fn analyze_request(
         parallel_tool_calls: requests_function_calling
             && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
         image_input: analyze_image_input(protocol, object)?,
+        file_input: analyze_file_input(protocol, object)?,
         audio,
         structured_output,
         unmodeled_tools: requests_unmodeled_tools,
@@ -175,7 +178,6 @@ fn reject_reserved_request_fields(
 /// Returns whether a Chat Completions request uses a capability reserved only in the definition.
 fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) -> bool {
     requests_reserved_tool(ApiProtocol::ChatCompletions, object)
-        || chat_messages_contain_part_type(object, "file")
         || has_non_null_field(object, "prediction")
         || has_non_null_field(object, "web_search_options")
         || requests_reserved_prompt_cache_features(object)
@@ -186,7 +188,6 @@ fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) ->
 fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value>) -> bool {
     requests_reserved_tool(ApiProtocol::Responses, object)
         || responses_input_contains_part_type(object, "input_audio")
-        || responses_input_contains_part_type(object, "input_file")
         || array_field_contains(object, "modalities", "audio")
         || has_non_null_field(object, "audio")
         || has_non_null_field(object, "conversation")
@@ -232,21 +233,6 @@ fn is_responses_hosted_tool_type(tool_type: &str) -> bool {
             | "skills"
             | "programmatic_tool_calling"
     )
-}
-
-/// Returns whether Chat message content contains the requested protocol part type.
-fn chat_messages_contain_part_type(
-    object: &serde_json::Map<String, Value>,
-    expected_type: &str,
-) -> bool {
-    object
-        .get("messages")
-        .and_then(Value::as_array)
-        .is_some_and(|messages| {
-            messages
-                .iter()
-                .any(|message| content_contains_part_type(message.get("content"), expected_type))
-        })
 }
 
 /// Returns whether a Responses input item or its content contains the requested protocol part type.

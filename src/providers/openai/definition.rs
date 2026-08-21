@@ -31,7 +31,7 @@ const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
-use super::media::IMAGE_INPUT;
+use super::media::{CHAT_FILE_INPUT, IMAGE_INPUT, RESPONSES_FILE_INPUT};
 
 /// Single OpenAI operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -45,7 +45,11 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
+            media: crate::core::ChatMediaProfile::new(
+                Some(IMAGE_INPUT),
+                None,
+                Some(CHAT_FILE_INPUT),
+            ),
             structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
                 JsonSchemaSupport::StrictSupported,
             )),
@@ -70,7 +74,10 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
+            media: crate::core::ResponsesMediaProfile::new(
+                Some(IMAGE_INPUT),
+                Some(RESPONSES_FILE_INPUT),
+            ),
             structured_outputs: Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
                 JsonSchemaSupport::StrictSupported,
             )),

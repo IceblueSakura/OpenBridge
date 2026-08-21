@@ -36,7 +36,7 @@ pub use public_model::{
     StateCapabilities, StructuredOutputMode, SupportState, ToolCapabilities, ToolChoiceMode,
     ToolType,
 };
-pub(crate) use public_model::{ModelExecutionInterface, OperationResponseBudget};
+pub(crate) use public_model::{FileInputSource, ModelExecutionInterface, OperationResponseBudget};
 pub use runtime::{
     CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,
     UpstreamApi, UpstreamTarget,

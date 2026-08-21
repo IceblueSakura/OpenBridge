@@ -7,8 +7,8 @@ use crate::{
     core::{ImageInputSource, JsonSchemaSupport, StructuredOutputProfile},
     registry::{
         AudioInputInterfaceCapabilities, AudioInterfaceCapabilities,
-        AudioOutputInterfaceCapabilities, ModelExecutionInterface, ModelInterfaceCapabilities,
-        ReasoningLevel, RuntimeRegistry, SupportState,
+        AudioOutputInterfaceCapabilities, FileInputSource, ModelExecutionInterface,
+        ModelInterfaceCapabilities, ReasoningLevel, RuntimeRegistry, SupportState,
     },
 };
 
@@ -132,6 +132,53 @@ fn validate_interface_request(
                 ) || exceeds_image_limit(
                     requested.total_inline_decoded_bytes,
                     image.max_total_inline_decoded_bytes(),
+                )));
+        if exceeds_limit {
+            return Err(RequestPlanningError::MultimodalInputLimitExceeded);
+        }
+    }
+
+    // Validate file source, encoding, media type, filename, and byte budgets before Route planning.
+    if let Some(requested) = requested_features.file_input.as_ref() {
+        let file = interface
+            .file_input()
+            .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        if requested
+            .sources
+            .iter()
+            .any(|source| !file.supports_source(*source))
+            || requested
+                .encodings
+                .iter()
+                .any(|encoding| !file.supports_encoding(*encoding))
+            || requested
+                .media_types
+                .iter()
+                .any(|media_type| !file.supports_media_type(*media_type))
+            || requested
+                .details
+                .iter()
+                .any(|detail| !file.supports_detail(*detail))
+        {
+            return Err(RequestPlanningError::UnsupportedCapabilities);
+        }
+        let exceeds_limit = requested.part_count > file.max_parts()
+            || requested.max_filename_length > file.max_filename_length()
+            || (requested.sources.contains(&FileInputSource::RemoteUrl)
+                && exceeds_image_limit(requested.max_url_length, file.max_url_length()))
+            || (requested.sources.contains(&FileInputSource::InlineData)
+                && (exceeds_image_limit(
+                    requested.max_inline_encoded_bytes,
+                    file.max_inline_encoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.max_inline_decoded_bytes,
+                    file.max_inline_decoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.total_inline_encoded_bytes,
+                    file.max_total_inline_encoded_bytes(),
+                ) || exceeds_image_limit(
+                    requested.total_inline_decoded_bytes,
+                    file.max_total_inline_decoded_bytes(),
                 )));
         if exceeds_limit {
             return Err(RequestPlanningError::MultimodalInputLimitExceeded);

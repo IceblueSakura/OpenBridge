@@ -17,6 +17,7 @@
 | Models 接口与能力预检 | [Models 与 preflight](features/models-api-and-capability-preflight.md) | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs` |
 | Chat/Responses Native 转发 | [Native generation](features/native-generation-forwarding.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |
 | `mimo-v2.5` Native 图片 | [Native 图片](features/native-image-input.md) | `tests/forwarding_contract.rs` |
+| Typed Native 文件输入 | [Native 文件](features/native-file-input.md) | `tests/forwarding_contract/file_input.rs`、file profile 单元测试 |
 | MiMo 音频理解与专用音频 task | [MiMo 音频](features/native-mimo-audio.md) | `tests/forwarding_contract.rs` |
 | Chat ↔ Responses Protocol Bridge | [Protocol Bridge](features/protocol-bridge.md) | `tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs` |
 | Retry、fallback、cooldown 与取消 | [韧性与取消](features/resilience-retry-fallback-and-cancellation.md) | `tests/forwarding_contract.rs`、`tests/sse_contract.rs` |

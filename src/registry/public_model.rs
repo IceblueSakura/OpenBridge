@@ -9,11 +9,12 @@ use serde::{Serialize, Serializer};
 use crate::core::{
     AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,
     ChatCompletionsCapabilities, ChatFileInputProfile, EmbeddingDimensionDomain, EmbeddingEncoding,
-    EmbeddingInputForm, ExecutableAudioProfile, GeneratedAudioCapabilities, ImageDetail,
-    ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
-    ImageSourceCapabilities, InlineAudioInputProfile, InlineImageInputProfile, JsonAudioFraming,
-    ReasoningOutput, RemoteAudioInputProfile, ResponseInclude, ResponsesCapabilities,
-    ResponsesFileInputProfile, SseAudioFraming, StructuredOutputProfile,
+    EmbeddingInputForm, ExecutableAudioProfile, FileDetail, FileDetailProfile, FileInlineEncoding,
+    FileMediaType, GeneratedAudioCapabilities, ImageDetail, ImageDetailPolicy,
+    ImageInputCapabilities, ImageInputSource, ImageMediaType, ImageSourceCapabilities,
+    InlineAudioInputProfile, InlineImageInputProfile, JsonAudioFraming, ReasoningOutput,
+    RemoteAudioInputProfile, ResponseInclude, ResponsesCapabilities, ResponsesFileInputProfile,
+    SseAudioFraming, StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -1394,32 +1395,227 @@ impl Serialize for ImageInputInterfaceCapabilities {
     }
 }
 
-/// Operation-specific file-input marker retained only in the private interface contract.
-///
-/// No current executable Target can construct either source profile, so this remains absent from
-/// Models v1 until the typed downstream file wire is implemented.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FileInputInterfaceCapabilities {
-    /// Chat Completions `file` content parts.
-    Chat,
-    /// Responses `input_file` items and content parts.
-    Responses,
+/// Normalized file sources exposed by the Models v1 multimodal-input container.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FileInputSource {
+    /// Inline Base64 data, with encoding described separately.
+    InlineData,
+    /// An absolute HTTPS URL fetched by the upstream Provider.
+    RemoteUrl,
+}
+
+/// Public file budgets guaranteed by every fixed Route for one protocol interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct FileInputLimits {
+    max_parts: u32,
+    max_filename_length: u32,
+    max_url_length: Option<u32>,
+    max_inline_encoded_bytes: Option<u32>,
+    max_inline_decoded_bytes: Option<u32>,
+    max_total_inline_encoded_bytes: Option<u32>,
+    max_total_inline_decoded_bytes: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct FileDetailCapabilities {
+    default: FileDetail,
+    allowed: Vec<FileDetail>,
+}
+
+/// Downstream-safe typed file-input contract compiled from executable profiles.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct FileInputInterfaceCapabilities {
+    sources: Vec<FileInputSource>,
+    encodings: Vec<FileInlineEncoding>,
+    media_types: Vec<FileMediaType>,
+    detail: Option<FileDetailCapabilities>,
+    limits: FileInputLimits,
 }
 
 impl FileInputInterfaceCapabilities {
-    fn from_chat(_profile: ChatFileInputProfile) -> Self {
-        Self::Chat
+    pub(crate) fn supports_source(&self, source: FileInputSource) -> bool {
+        self.sources.contains(&source)
     }
 
-    fn from_responses(_profile: ResponsesFileInputProfile) -> Self {
-        Self::Responses
+    pub(crate) fn supports_encoding(&self, encoding: FileInlineEncoding) -> bool {
+        self.encodings.contains(&encoding)
+    }
+
+    pub(crate) fn supports_media_type(&self, media_type: FileMediaType) -> bool {
+        self.media_types.contains(&media_type)
+    }
+
+    pub(crate) fn supports_detail(&self, detail: FileDetail) -> bool {
+        self.detail
+            .as_ref()
+            .is_some_and(|profile| profile.allowed.contains(&detail))
+    }
+
+    pub(crate) const fn max_parts(&self) -> u32 {
+        self.limits.max_parts
+    }
+    pub(crate) const fn max_filename_length(&self) -> u32 {
+        self.limits.max_filename_length
+    }
+    pub(crate) const fn max_url_length(&self) -> Option<u32> {
+        self.limits.max_url_length
+    }
+    pub(crate) const fn max_inline_encoded_bytes(&self) -> Option<u32> {
+        self.limits.max_inline_encoded_bytes
+    }
+    pub(crate) const fn max_inline_decoded_bytes(&self) -> Option<u32> {
+        self.limits.max_inline_decoded_bytes
+    }
+    pub(crate) const fn max_total_inline_encoded_bytes(&self) -> Option<u32> {
+        self.limits.max_total_inline_encoded_bytes
+    }
+    pub(crate) const fn max_total_inline_decoded_bytes(&self) -> Option<u32> {
+        self.limits.max_total_inline_decoded_bytes
+    }
+
+    fn from_chat(profile: ChatFileInputProfile) -> Self {
+        Self::from_parts(
+            profile.max_parts(),
+            profile.max_filename_length(),
+            None,
+            Some(profile.inline()),
+            None,
+        )
+    }
+
+    fn from_responses(profile: ResponsesFileInputProfile) -> Self {
+        Self::from_parts(
+            profile.max_parts(),
+            profile.max_filename_length(),
+            profile.max_url_length(),
+            profile.inline(),
+            Some(profile.detail()),
+        )
+    }
+
+    fn from_parts(
+        max_parts: u32,
+        max_filename_length: u32,
+        max_url_length: Option<u32>,
+        inline: Option<crate::core::InlineFileInputProfile>,
+        detail: Option<FileDetailProfile>,
+    ) -> Self {
+        let mut sources = Vec::new();
+        let (encodings, media_types, inline_limits) = inline.map_or_else(
+            || (Vec::new(), Vec::new(), None),
+            |profile| {
+                sources.push(FileInputSource::InlineData);
+                (
+                    profile.encodings().to_vec(),
+                    profile.media_types().to_vec(),
+                    Some(profile.limits()),
+                )
+            },
+        );
+        if max_url_length.is_some() {
+            sources.push(FileInputSource::RemoteUrl);
+        }
+        Self {
+            sources,
+            encodings,
+            media_types,
+            detail: detail.map(|profile| FileDetailCapabilities {
+                default: profile.default(),
+                allowed: profile.allowed().to_vec(),
+            }),
+            limits: FileInputLimits {
+                max_parts,
+                max_filename_length,
+                max_url_length,
+                max_inline_encoded_bytes: inline_limits
+                    .map(|value| value.max_inline_encoded_bytes()),
+                max_inline_decoded_bytes: inline_limits
+                    .map(|value| value.max_inline_decoded_bytes()),
+                max_total_inline_encoded_bytes: inline_limits
+                    .map(|value| value.max_total_inline_encoded_bytes()),
+                max_total_inline_decoded_bytes: inline_limits
+                    .map(|value| value.max_total_inline_decoded_bytes()),
+            },
+        }
     }
 
     fn intersection<'a>(values: impl Iterator<Item = Option<&'a Self>>) -> Option<Self> {
         let values = values.collect::<Option<Vec<_>>>()?;
-        let first = **values.first()?;
-        values.iter().all(|value| **value == first).then_some(first)
+        let first = (*values.first()?).clone();
+        let retain_all =
+            |candidate: &_| values.iter().all(|value| value.sources.contains(candidate));
+        let mut result = first;
+        let requires_detail = result.detail.is_some();
+        result.sources.retain(retain_all);
+        result.encodings.retain(|candidate| {
+            values
+                .iter()
+                .all(|value| value.encodings.contains(candidate))
+        });
+        result.media_types.retain(|candidate| {
+            values
+                .iter()
+                .all(|value| value.media_types.contains(candidate))
+        });
+        result.detail = intersect_file_detail(values.iter().map(|value| value.detail.as_ref()));
+        result.limits.max_parts = values.iter().map(|value| value.limits.max_parts).min()?;
+        result.limits.max_filename_length = values
+            .iter()
+            .map(|value| value.limits.max_filename_length)
+            .min()?;
+        result.limits.max_url_length =
+            min_optional(values.iter().map(|value| value.limits.max_url_length));
+        result.limits.max_inline_encoded_bytes = min_optional(
+            values
+                .iter()
+                .map(|value| value.limits.max_inline_encoded_bytes),
+        );
+        result.limits.max_inline_decoded_bytes = min_optional(
+            values
+                .iter()
+                .map(|value| value.limits.max_inline_decoded_bytes),
+        );
+        result.limits.max_total_inline_encoded_bytes = min_optional(
+            values
+                .iter()
+                .map(|value| value.limits.max_total_inline_encoded_bytes),
+        );
+        result.limits.max_total_inline_decoded_bytes = min_optional(
+            values
+                .iter()
+                .map(|value| value.limits.max_total_inline_decoded_bytes),
+        );
+        if result.sources.is_empty()
+            || result.media_types.is_empty()
+            || (result.sources.contains(&FileInputSource::InlineData)
+                && result.encodings.is_empty())
+            || (requires_detail && result.detail.is_none())
+        {
+            None
+        } else {
+            Some(result)
+        }
     }
+}
+
+fn intersect_file_detail<'a>(
+    values: impl Iterator<Item = Option<&'a FileDetailCapabilities>>,
+) -> Option<FileDetailCapabilities> {
+    let values = values.collect::<Option<Vec<_>>>()?;
+    let first = (*values.first()?).clone();
+    if values.iter().any(|value| value.default != first.default) {
+        return None;
+    }
+    let mut result = first;
+    result
+        .allowed
+        .retain(|candidate| values.iter().all(|value| value.allowed.contains(candidate)));
+    (!result.allowed.is_empty()).then_some(result)
+}
+
+fn min_optional(values: impl Iterator<Item = Option<u32>>) -> Option<u32> {
+    values.collect::<Option<Vec<_>>>()?.into_iter().min()
 }
 
 /// One complete private media contract shared by contribution, aggregation, and request preflight.
@@ -1504,6 +1700,10 @@ impl InterfaceMediaCapabilities {
     fn clear_image(&mut self) {
         self.image = None;
     }
+
+    fn clear_file(&mut self) {
+        self.file = None;
+    }
 }
 
 /// Returns whether a slice is non-empty and duplicate-free without changing its stable order.
@@ -1521,6 +1721,7 @@ pub struct MultimodalInputCapabilities {
     image: Option<ImageInputInterfaceCapabilities>,
     audio: Option<AudioInputInterfaceCapabilities>,
     voice_conditioning: Option<AudioInputInterfaceCapabilities>,
+    file: Option<FileInputInterfaceCapabilities>,
 }
 
 /// Typed multimodal output profiles guaranteed by one protocol interface.
@@ -1621,6 +1822,7 @@ impl Serialize for ModelInterfaceCapabilities {
                 image: self.media.image.clone(),
                 audio,
                 voice_conditioning,
+                file: self.media.file.clone(),
             },
             multimodal_output: MultimodalOutputCapabilities {
                 audio: audio_output,
@@ -1746,6 +1948,11 @@ impl EmbeddingInterfaceCapabilities {
 }
 
 impl ModelInterfaceCapabilities {
+    /// Returns the fixed typed file contract used by request preflight.
+    pub(crate) const fn file_input(&self) -> Option<&FileInputInterfaceCapabilities> {
+        self.media.file.as_ref()
+    }
+
     /// Returns whether this generation interface accepts one optional top-level request parameter.
     pub(crate) fn supports_parameter(&self, parameter: &str) -> bool {
         self.supported_parameters
