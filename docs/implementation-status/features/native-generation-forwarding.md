@@ -17,8 +17,9 @@
 ## 所有权
 
 入口与生命周期位于 [`src/ingress/`](../../../src/ingress/)，analysis/planning 位于 [`src/pipeline/`](../../../src/pipeline/)，
-Provider adapter 位于 `src/provider/adapter.rs`，HTTP/SSE 发送位于 [`src/transport/`](../../../src/transport/)。图片、音频和 Bridge
-分别由独立专题拥有。
+typed request/SSE policy 位于 [`src/provider/operation.rs`](../../../src/provider/operation.rs)，common header/auth/status policy 位于
+[`src/provider/adapter.rs`](../../../src/provider/adapter.rs)，HTTP/SSE 发送位于 [`src/transport/`](../../../src/transport/)。图片、音频和
+Bridge 分别由独立专题拥有。
 
 ## 确定性证据
 

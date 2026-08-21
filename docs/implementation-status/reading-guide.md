@@ -62,7 +62,7 @@ Bootstrap + users + upstream credential bindings
 | 固定能力预检 | [`src/pipeline/generation/preflight.rs`](../../src/pipeline/generation/preflight.rs) | 为什么 Generation 不支持能力会在查看候选前失败？ |
 | Route 计划 | [`src/pipeline/generation/planning.rs`](../../src/pipeline/generation/planning.rs) | 为什么 Generation 预检后仍保持静态候选顺序？ |
 | 运行实体 | [`src/registry/runtime.rs`](../../src/registry/runtime.rs) | Public Model 如何关联 Target、API 与 Route？ |
-| Provider 改写 | [`src/provider/adapter.rs`](../../src/provider/adapter.rs) | 相对 path、真实 model 和认证 header 在哪里产生？ |
+| Provider 改写 | [`src/provider/operation.rs`](../../src/provider/operation.rs)、[`src/provider/adapter.rs`](../../src/provider/adapter.rs) | typed operation 如何绑定相对 path/真实 model，common adapter 如何加入认证 header？ |
 | HTTP 发送 | [`src/transport/upstream.rs`](../../src/transport/upstream.rs) | endpoint、redirect、timeout 和连接池如何受控？ |
 | 响应与错误 | [`src/ingress/response.rs`](../../src/ingress/response.rs) | safe headers、JSON/SSE、错误与 request id 如何返回？ |
 
@@ -111,7 +111,7 @@ Public Model
 结合[网关 API 需求](../functional-requirements/gateway-api/README.md)和[路由与韧性需求](../functional-requirements/routing-resilience/README.md)，按顺序阅读：
 
 1. [`src/transport/sse.rs`](../../src/transport/sse.rs)：SSE framing、UTF-8 与单 event 上限；
-2. [`src/provider/adapter.rs`](../../src/provider/adapter.rs)和 [`src/providers/openai_compatible.rs`](../../src/providers/openai_compatible.rs)：Provider event 的 terminal/error 分类；
+2. [`src/provider/operation.rs`](../../src/provider/operation.rs)和 [`src/providers/openai_compatible.rs`](../../src/providers/openai_compatible.rs)：typed operation 如何绑定 Provider SSE media 与 terminal profile；
 3. [`src/ingress/streaming.rs`](../../src/ingress/streaming.rs)：增量分类、首输出 commit point、EOF、body error 和取消；
 4. [`src/bridge.rs`](../../src/bridge.rs)及 [`src/bridge/`](../../src/bridge)：Chat ↔ Responses 请求/响应转换；
 5. [`src/execution/coordinator.rs`](../../src/execution/coordinator.rs)：请求级 attempt budget 与 capped backoff；

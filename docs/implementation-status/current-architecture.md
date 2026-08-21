@@ -166,7 +166,7 @@ JSON admission
 → normalize shared request policy once
 → expand fixed RouteCandidate list
 → optional Bridge request conversion
-→ ProviderAdapter.prepare_request
+→ GenerationProviderAdapter.prepare_routed_request
 → attempt loop / UpstreamTransport
 → Native passthrough or Bridge response renderer
 ```
