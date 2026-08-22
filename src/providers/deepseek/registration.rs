@@ -132,7 +132,7 @@ fn target(
         credential_pool: credential_id.to_owned(),
         quota_scope: Some("deepseek-primary".to_owned()),
         fault_domain: Some("deepseek-api".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis,
     }

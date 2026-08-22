@@ -3,7 +3,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-    time::Duration,
 };
 
 use url::Url;
@@ -17,7 +16,7 @@ use crate::{
 use super::{
     CanonicalModelTask, CanonicalTaskKind, IgnorableGenerationParameter, InputModality,
     ModelContextLength, OutputModality, PublicModel, ReasoningLevel, ReasoningSupport, RouteMode,
-    UpstreamApiCapabilities, UpstreamApiKey,
+    UpstreamApiCapabilities, UpstreamApiKey, UpstreamTimeoutPolicy,
 };
 
 /// Model metadata read by the request path after startup.
@@ -281,7 +280,7 @@ pub struct UpstreamTarget {
     pub(super) provider_model_id: String,
     pub(super) quota_scope: Option<String>,
     pub(super) fault_domain: Option<String>,
-    pub(super) request_timeout: Duration,
+    pub(super) timeout_policy: UpstreamTimeoutPolicy,
     pub(super) enabled: bool,
     pub(super) upstream_apis: BTreeMap<UpstreamApiKey, UpstreamApi>,
 }
@@ -337,9 +336,9 @@ impl UpstreamTarget {
         self.fault_domain.as_deref()
     }
 
-    /// Returns the timeout for one upstream request.
-    pub fn request_timeout(&self) -> Duration {
-        self.request_timeout
+    /// Returns the validated timeout phases for this target.
+    pub fn timeout_policy(&self) -> UpstreamTimeoutPolicy {
+        self.timeout_policy
     }
 
     /// Returns whether new stateless requests may select the target.

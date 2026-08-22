@@ -191,6 +191,7 @@ pub struct RouteCandidate {
     pub(super) upstream_target_id: String,
     pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: ApiRequest,
+    pub(super) upstream_streaming: bool,
     pub(super) bridge: Option<BridgePlan>,
     pub(super) stream_response_conversion: Option<StreamResponseConversion>,
 }
@@ -663,6 +664,11 @@ impl RouteCandidate {
     /// Returns the Native request for the candidate.
     pub fn request(&self) -> &ApiRequest {
         &self.request
+    }
+
+    /// Returns whether trusted planning requires an upstream SSE response.
+    pub(crate) const fn upstream_streaming(&self) -> bool {
+        self.upstream_streaming
     }
 
     /// Returns the response conversion plan for a Bridged Route; a Native candidate returns `None`.

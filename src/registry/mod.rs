@@ -21,8 +21,8 @@ pub use definition::{
     ReasoningLevel, ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
     ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, SpeechRecognitionModelProfile,
     SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
-    UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig, VoiceCloneModelProfile,
-    VoiceDesignModelProfile,
+    UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig, UpstreamTimeoutPolicy,
+    VoiceCloneModelProfile, VoiceDesignModelProfile,
 };
 pub use error::RegistryError;
 pub use public_model::{

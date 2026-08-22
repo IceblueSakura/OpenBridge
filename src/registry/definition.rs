@@ -813,6 +813,69 @@ impl UpstreamStreamingPolicy {
     }
 }
 
+/// Trusted timeout phases applied according to the prepared upstream response delivery mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UpstreamTimeoutPolicy {
+    response_headers: Duration,
+    first_stream_event: Duration,
+    stream_event_idle: Duration,
+    stream_total: Option<Duration>,
+    non_stream_total: Duration,
+}
+
+impl UpstreamTimeoutPolicy {
+    /// Creates the initial migration policy from one target-owned finite timeout.
+    ///
+    /// Streaming keeps the same bound for headers, first event, and event idle while deliberately
+    /// omitting a wall-clock total. Non-streaming preserves the existing complete-response bound.
+    pub const fn new(timeout: Duration) -> Self {
+        Self {
+            response_headers: timeout,
+            first_stream_event: timeout,
+            stream_event_idle: timeout,
+            stream_total: None,
+            non_stream_total: timeout,
+        }
+    }
+
+    /// Returns whether every mandatory phase and any configured stream total are non-zero.
+    pub const fn is_valid(self) -> bool {
+        !self.response_headers.is_zero()
+            && !self.first_stream_event.is_zero()
+            && !self.stream_event_idle.is_zero()
+            && !self.non_stream_total.is_zero()
+            && match self.stream_total {
+                Some(timeout) => !timeout.is_zero(),
+                None => true,
+            }
+    }
+
+    /// Returns the upper bound for connect, TLS, and response headers.
+    pub const fn response_headers(self) -> Duration {
+        self.response_headers
+    }
+
+    /// Returns the maximum wait for the first complete valid SSE event.
+    pub const fn first_stream_event(self) -> Duration {
+        self.first_stream_event
+    }
+
+    /// Returns the maximum idle period between complete valid SSE events.
+    pub const fn stream_event_idle(self) -> Duration {
+        self.stream_event_idle
+    }
+
+    /// Returns the optional full streaming lifecycle safety deadline.
+    pub const fn stream_total(self) -> Option<Duration> {
+        self.stream_total
+    }
+
+    /// Returns the total deadline for a complete non-streaming response body.
+    pub const fn non_stream_total(self) -> Duration {
+        self.non_stream_total
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Native Upstream API exposed by a target.
 pub struct UpstreamApiConfig {
@@ -845,8 +908,8 @@ pub struct UpstreamTargetConfig {
     pub quota_scope: Option<String>,
     /// Optional fault/cooldown domain.
     pub fault_domain: Option<String>,
-    /// Timeout for one upstream request.
-    pub request_timeout: Duration,
+    /// Trusted timeout phases selected by the prepared upstream response delivery mode.
+    pub timeout_policy: UpstreamTimeoutPolicy,
     /// Whether new stateless requests may select this target.
     pub enabled: bool,
     /// Protocol-level Native supplies provided by the target.

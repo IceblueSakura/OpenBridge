@@ -65,10 +65,10 @@ pub enum RegistryError {
         /// Provider instance ID with the invalid URL.
         provider_instance: String,
     },
-    /// The target request timeout is zero.
-    #[error("upstream target '{upstream_target}' request timeout must be greater than zero")]
-    InvalidRequestTimeout {
-        /// Target ID with the invalid timeout.
+    /// The target timeout policy contains a zero phase.
+    #[error("upstream target '{upstream_target}' timeout policy contains a zero duration")]
+    InvalidTimeoutPolicy {
+        /// Target ID with the invalid timeout policy.
         upstream_target: String,
     },
     /// The target declares no Upstream API.

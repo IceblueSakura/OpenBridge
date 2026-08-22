@@ -96,7 +96,7 @@ fn upstream_target(
         credential_pool: "chatgpt-codex".to_owned(),
         quota_scope: Some("chatgpt-codex".to_owned()),
         fault_domain: Some("chatgpt-codex-backend".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             key: UpstreamApiKey::new(

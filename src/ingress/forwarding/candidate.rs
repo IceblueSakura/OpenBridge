@@ -109,7 +109,8 @@ pub(super) async fn prepare_candidate<'a>(
                 "unsupported_request",
                 "Request is not supported by the selected provider",
             )
-        })?;
+        })?
+        .with_streaming_response(candidate.upstream_streaming());
 
     Ok(PreparedCandidate {
         upstream_api,

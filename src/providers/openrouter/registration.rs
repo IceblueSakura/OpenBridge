@@ -109,7 +109,7 @@ fn dual_protocol_target(
         credential_pool: "openrouter-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis: vec![
             UpstreamApiConfig {

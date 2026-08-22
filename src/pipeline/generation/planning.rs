@@ -94,7 +94,7 @@ pub fn plan_request(
                 Err(_) => return Err(RequestPlanningError::UnsupportedCapabilities),
             },
         };
-        let (request, stream_response_conversion) = apply_streaming_policy(
+        let (request, upstream_streaming, stream_response_conversion) = apply_streaming_policy(
             request,
             candidate.streaming_policy(),
             requirements.is_streaming,
@@ -104,6 +104,7 @@ pub fn plan_request(
             upstream_target_id: candidate.upstream_target_id().to_owned(),
             upstream_api_key: candidate.upstream_api_key(),
             request,
+            upstream_streaming,
             bridge,
             stream_response_conversion,
         });
@@ -246,10 +247,10 @@ fn apply_streaming_policy(
     request: ApiRequest,
     policy: UpstreamStreamingPolicy,
     downstream_streaming: bool,
-) -> Result<(ApiRequest, Option<StreamResponseConversion>), RequestPlanningError> {
+) -> Result<(ApiRequest, bool, Option<StreamResponseConversion>), RequestPlanningError> {
     // Preserve requests for APIs that natively accept both streaming modes.
     if policy == UpstreamStreamingPolicy::Optional {
-        return Ok((request, None));
+        return Ok((request, downstream_streaming, None));
     }
 
     // Reject a disabled non-streaming conversion even if a compiler invariant were bypassed.
@@ -280,6 +281,7 @@ fn apply_streaming_policy(
     let body = serde_json::to_vec(&value).map_err(|_| RequestPlanningError::InvalidJson)?;
     Ok((
         ApiRequest::new(request.protocol(), Bytes::from(body)),
+        true,
         conversion,
     ))
 }

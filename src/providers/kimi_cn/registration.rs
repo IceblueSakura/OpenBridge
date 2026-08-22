@@ -45,7 +45,7 @@ fn chat_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstrea
         credential_pool: CREDENTIAL_POOL_ID.to_owned(),
         quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
         fault_domain: Some("kimi-cn-api".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             key: UpstreamApiKey::new(

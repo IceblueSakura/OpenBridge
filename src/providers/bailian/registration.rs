@@ -118,7 +118,7 @@ fn embedding_target() -> UpstreamTargetConfig {
         credential_pool: CREDENTIAL_POOL_ID.to_owned(),
         quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
         fault_domain: Some("bailian-api".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             key: UpstreamApiKey::new(
@@ -238,7 +238,7 @@ fn chat_target(
         credential_pool: CREDENTIAL_POOL_ID.to_owned(),
         quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
         fault_domain: Some("bailian-api".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis,
     }
@@ -261,7 +261,7 @@ fn image_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstre
         credential_pool: CREDENTIAL_POOL_ID.to_owned(),
         quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
         fault_domain: Some("bailian-native-api".to_owned()),
-        request_timeout: Duration::from_secs(180),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(180)),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             key: UpstreamApiKey::new(

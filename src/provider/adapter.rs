@@ -24,7 +24,17 @@ pub struct PreparedUpstreamRequest {
     method: Method,
     relative_uri: Uri,
     body: Bytes,
+    response_delivery: UpstreamResponseDelivery,
     reasoning_level_mapping: Option<ReasoningLevelMapping>,
+}
+
+/// Trusted response delivery expected from one prepared upstream request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UpstreamResponseDelivery {
+    /// One complete non-SSE response body.
+    NonStreaming,
+    /// A server-sent event lifecycle whose liveness is measured by complete events.
+    ServerSentEvents,
 }
 
 impl PreparedUpstreamRequest {
@@ -34,8 +44,19 @@ impl PreparedUpstreamRequest {
             method,
             relative_uri,
             body,
+            response_delivery: UpstreamResponseDelivery::NonStreaming,
             reasoning_level_mapping: None,
         }
+    }
+
+    /// Binds the response delivery already selected by trusted Route planning.
+    pub(crate) fn with_streaming_response(mut self, streaming: bool) -> Self {
+        self.response_delivery = if streaming {
+            UpstreamResponseDelivery::ServerSentEvents
+        } else {
+            UpstreamResponseDelivery::NonStreaming
+        };
+        self
     }
 
     /// Attaches the reasoning-level mapping applied while preparing the Provider wire request.
@@ -60,6 +81,11 @@ impl PreparedUpstreamRequest {
     /// Returns the rewritten request body.
     pub fn body(&self) -> &Bytes {
         &self.body
+    }
+
+    /// Returns the trusted upstream response delivery selected before transport.
+    pub(crate) const fn response_delivery(&self) -> UpstreamResponseDelivery {
+        self.response_delivery
     }
 
     /// Returns the reasoning-level mapping applied to this prepared wire request.

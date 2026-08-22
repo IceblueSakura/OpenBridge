@@ -221,9 +221,9 @@ fn build_registry_internal(
                 reference: target.canonical_model.clone(),
             })?;
 
-        // Require a finite, non-zero timeout for each upstream request on this target.
-        if target.request_timeout.is_zero() {
-            return Err(RegistryError::InvalidRequestTimeout {
+        // Require every mandatory timeout phase and any optional stream total to be non-zero.
+        if !target.timeout_policy.is_valid() {
+            return Err(RegistryError::InvalidTimeoutPolicy {
                 upstream_target: target.id,
             });
         }
@@ -401,7 +401,7 @@ fn build_registry_internal(
             provider_model_id: target.provider_model,
             quota_scope: target.quota_scope,
             fault_domain: target.fault_domain,
-            request_timeout: target.request_timeout,
+            timeout_policy: target.timeout_policy,
             enabled: target_enabled,
             upstream_apis,
         };

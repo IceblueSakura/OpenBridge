@@ -69,7 +69,9 @@ fn images_definition() -> RegistryConfig {
             credential_pool: "synthetic-images-primary".to_owned(),
             quota_scope: None,
             fault_domain: None,
-            request_timeout: std::time::Duration::from_secs(120),
+            timeout_policy: openbridge::registry::UpstreamTimeoutPolicy::new(
+                std::time::Duration::from_secs(120),
+            ),
             enabled: true,
             upstream_apis: vec![UpstreamApiConfig {
                 key: UpstreamApiKey::new(

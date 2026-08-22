@@ -2,7 +2,7 @@
 
 mod support;
 
-use std::{collections::BTreeSet, path::Path};
+use std::{collections::BTreeSet, path::Path, time::Duration};
 
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
@@ -17,7 +17,8 @@ use openbridge::{
         CanonicalTaskKind, IgnorableGenerationParameter, ModelContextLength, ModelLifecycle,
         ModelLifecycleStatus, NonStreamingConversion, PublicModelConfig, ReasoningLevel,
         ReasoningLevelMapping, ReasoningProfile, ReasoningSupport, RegistryError,
-        UpstreamApiCapabilities, UpstreamApiKey, UpstreamStreamingPolicy, build_registry,
+        UpstreamApiCapabilities, UpstreamApiKey, UpstreamStreamingPolicy, UpstreamTimeoutPolicy,
+        build_registry,
     },
 };
 
@@ -62,6 +63,16 @@ fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
             .task(),
         CanonicalTaskKind::Generation
     );
+}
+
+#[test]
+fn registry_rejects_zero_timeout_policy_phases() {
+    let mut invalid = definition("timeout-test", "code-primary", "test-model");
+    invalid.upstream_targets[0].timeout_policy = UpstreamTimeoutPolicy::new(Duration::ZERO);
+
+    let error = build_registry(bootstrap(BOOTSTRAP), invalid).unwrap_err();
+
+    assert!(matches!(error, RegistryError::InvalidTimeoutPolicy { .. }));
 }
 
 #[test]

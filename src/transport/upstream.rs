@@ -12,7 +12,10 @@ use futures_util::future::BoxFuture;
 use http::{HeaderMap, Method, StatusCode, Uri};
 use url::Url;
 
-use crate::{provider::PreparedUpstreamRequest, registry::UpstreamTarget};
+use crate::{
+    provider::{PreparedUpstreamRequest, UpstreamResponseDelivery},
+    registry::{UpstreamTarget, UpstreamTimeoutPolicy},
+};
 
 pub use crate::transport::error::TransportError;
 
@@ -62,13 +65,15 @@ impl UpstreamClient {
     ) -> Result<UpstreamResponse, TransportError> {
         // Combine the adapter relative URI with the validated endpoint base into a trusted URL.
         let url = resolve_upstream_url(target.endpoint_base(), request.relative_uri())?;
+        let response_delivery = request.response_delivery();
         // Send through the shared client and preserve the streaming response body.
         self.send_request(UpstreamRequest::new(
             url,
             request.method().clone(),
             headers,
             request.body().clone(),
-            target.request_timeout(),
+            target.timeout_policy(),
+            response_delivery,
         ))
         .await
     }
@@ -84,7 +89,7 @@ impl UpstreamClient {
             .request(request.method, request.url)
             .headers(request.headers)
             .body(request.body)
-            .timeout(request.timeout)
+            .timeout(request.timeout_policy.non_stream_total())
             .send()
             .await
             .map_err(|error| {
@@ -138,18 +143,27 @@ struct UpstreamRequest {
     method: Method,
     headers: HeaderMap,
     body: Bytes,
-    timeout: Duration,
+    timeout_policy: UpstreamTimeoutPolicy,
+    response_delivery: UpstreamResponseDelivery,
 }
 
 impl UpstreamRequest {
-    /// Creates an internal request value with bound URL, method, headers, body, and timeout.
-    fn new(url: Url, method: Method, headers: HeaderMap, body: Bytes, timeout: Duration) -> Self {
+    /// Creates an internal request with a bound target policy and trusted response delivery.
+    fn new(
+        url: Url,
+        method: Method,
+        headers: HeaderMap,
+        body: Bytes,
+        timeout_policy: UpstreamTimeoutPolicy,
+        response_delivery: UpstreamResponseDelivery,
+    ) -> Self {
         Self {
             url,
             method,
             headers,
             body,
-            timeout,
+            timeout_policy,
+            response_delivery,
         }
     }
 }
@@ -162,7 +176,8 @@ impl fmt::Debug for UpstreamRequest {
             .field("origin", &self.url.origin().ascii_serialization())
             .field("headers", &"[REDACTED]")
             .field("body", &"[OMITTED]")
-            .field("timeout", &self.timeout)
+            .field("timeout_policy", &self.timeout_policy)
+            .field("response_delivery", &self.response_delivery)
             .finish()
     }
 }
@@ -229,7 +244,10 @@ mod tests {
     use tokio::net::TcpListener;
     use url::Url;
 
-    use super::{TransportError, UpstreamClient, UpstreamRequest, resolve_upstream_url};
+    use super::{
+        TransportError, UpstreamClient, UpstreamRequest, UpstreamResponseDelivery,
+        UpstreamTimeoutPolicy, resolve_upstream_url,
+    };
 
     type ObservedRequest = Arc<Mutex<Option<(Method, String, Bytes)>>>;
 
@@ -334,7 +352,8 @@ mod tests {
                 Method::GET,
                 HeaderMap::new(),
                 Bytes::new(),
-                Duration::from_secs(2),
+                UpstreamTimeoutPolicy::new(Duration::from_secs(2)),
+                UpstreamResponseDelivery::NonStreaming,
             );
             let response = client.send_request(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
@@ -372,7 +391,8 @@ mod tests {
             Method::POST,
             headers,
             Bytes::from_static(b"request-body"),
-            Duration::from_secs(2),
+            UpstreamTimeoutPolicy::new(Duration::from_secs(2)),
+            UpstreamResponseDelivery::NonStreaming,
         );
         let response = client.send_request(request).await.unwrap();
 
@@ -425,7 +445,8 @@ mod tests {
             Method::GET,
             HeaderMap::new(),
             Bytes::new(),
-            Duration::from_secs(2),
+            UpstreamTimeoutPolicy::new(Duration::from_secs(2)),
+            UpstreamResponseDelivery::NonStreaming,
         );
         let response = client.send_request(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::FOUND);
@@ -448,7 +469,8 @@ mod tests {
             Method::GET,
             HeaderMap::new(),
             Bytes::new(),
-            Duration::from_millis(50),
+            UpstreamTimeoutPolicy::new(Duration::from_millis(50)),
+            UpstreamResponseDelivery::NonStreaming,
         );
 
         let error = client
@@ -475,7 +497,8 @@ mod tests {
             Method::POST,
             HeaderMap::new(),
             Bytes::new(),
-            Duration::from_millis(250),
+            UpstreamTimeoutPolicy::new(Duration::from_millis(250)),
+            UpstreamResponseDelivery::ServerSentEvents,
         );
 
         let response = client.send_request(request).await.unwrap();
@@ -502,7 +525,8 @@ mod tests {
             Method::GET,
             HeaderMap::new(),
             Bytes::new(),
-            Duration::from_secs(2),
+            UpstreamTimeoutPolicy::new(Duration::from_secs(2)),
+            UpstreamResponseDelivery::NonStreaming,
         );
 
         // Keep non-timeout client failures distinct from the target timeout classification.

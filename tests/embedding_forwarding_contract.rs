@@ -450,7 +450,7 @@ fn embedding_registry_definition() -> RegistryConfig {
         credential_pool: "openai-primary".to_owned(),
         quota_scope: None,
         fault_domain: None,
-        request_timeout: Duration::from_secs(30),
+        timeout_policy: openbridge::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(30)),
         enabled: true,
         upstream_apis: vec![UpstreamApiConfig {
             key: UpstreamApiKey::new(

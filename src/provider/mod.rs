@@ -10,6 +10,7 @@ mod definition;
 mod kind;
 mod operation;
 
+pub(crate) use adapter::UpstreamResponseDelivery;
 pub use adapter::{AdapterError, PreparedUpstreamRequest, ProviderAdapter};
 pub use contracts::{
     ClassifiedSseEvent, RetryHint, SafeHeaders, SensitiveHeaders, StatusClassification,

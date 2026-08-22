@@ -214,7 +214,7 @@ fn target(
         credential_pool: credential_id.to_owned(),
         quota_scope: Some("mimo-primary".to_owned()),
         fault_domain: Some("mimo-api".to_owned()),
-        request_timeout: Duration::from_secs(120),
+        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
         enabled: true,
         upstream_apis,
     }
