@@ -56,6 +56,10 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
 - `output_item.done`、tool input delta、metadata/header 到达或任意首字节都不等于请求成功。已写出首个业务 body byte 后，不得
   retry、fallback 或将其他 Upstream Target 的内容拼入当前 stream。
 - 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法但无 terminal 的 EOF 不得伪造成 completed。
+- 上游非流式响应的 total deadline 与 SSE 生命周期必须分开表达。SSE 必须分别约束等待 response headers、等待首个有效 event、
+  event 间 idle 与可选的 stream total safety deadline；普通非流式 total deadline 不得从连接开始持续覆盖一条仍在合法产生 event 的 stream。
+- timeout policy 只能来自受信 Target/API 与实际 upstream delivery mode，客户端不得覆盖。关闭 streaming total deadline 时仍必须保留
+  bounded headers/first-event/idle policy；不得以修复长流截断为由把所有等待改成无限。
 - response headers 和 SSE bytes 的处理必须受大小、UTF-8、event 数量/长度与慢消费者资源上限保护。
 
 上游 API 可以通过可信类型化策略声明自己强制 `stream: true`。这种 API 面对下游非流式请求时只能选择以下一种固定行为：

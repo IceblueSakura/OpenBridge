@@ -1,6 +1,6 @@
 # Generation capability 错误定位设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文记录 Generation 请求在 analysis/preflight 阶段返回字段级错误的目标合同、当前差距、候选结构和验证矩阵。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中计划 3 的详细设计 owner，记录 Generation 请求在 analysis/preflight 阶段返回字段级错误的目标合同、当前差距、候选结构和验证矩阵。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
 
 ## 1. 背景与目标
 
@@ -86,7 +86,7 @@ UnsupportedModelCapability {
 HTTP 400
 error.type = invalid_request_error
 error.code = unsupported_model_capability
-error.param = null / omitted
+error.param = null
 ```
 
 只有 `UnsupportedParameter(parameter)` 使用 `typed_api_error(..., Some(parameter))`。因此当前问题不是 OpenAI-compatible error envelope 不支持 `param`，而是 Generation pipeline 没有保留足够的 typed location。
@@ -97,7 +97,7 @@ error.param = null / omitted
 
 - unknown top-level parameter 返回 `param`；
 - `stream_options` unsupported 返回 `param="stream_options"`；
-- output limit 测试返回 `param="max_output_tokens"`；
+- ChatGPT 的 ordinary unsupported-parameter 测试已为 `max_output_tokens` 返回 `param`，但通用 `OutputLimitExceeded` 仍未字段化；
 - Images/Embeddings unsupported capability 返回对应字段；
 - Provider-specific unsupported ordinary parameter 返回参数名且零 egress。
 

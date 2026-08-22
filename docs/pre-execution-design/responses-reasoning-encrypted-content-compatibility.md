@@ -1,6 +1,6 @@
 # Responses `reasoning.encrypted_content` 兼容提示设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中计划 2 的详细设计 owner，记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
 
 ## 1. 目标
 
@@ -20,7 +20,7 @@ OpenBridge 是严格、固定契约、fail-closed 的多 Provider OpenAI-compati
 }
 ```
 
-相关 P1 设计：
+相关后续计划：
 
 - [`Generation capability 错误定位设计`](generation-capability-error-diagnostics.md)定义 unsupported 请求在保留严格门禁时如何返回字段级错误；
 - [`Responses 流提前终止与 timeout 边界设计`](responses-stream-premature-termination-and-timeouts.md)独立处理 streaming total deadline、EOF 和 commit 后失败，不与 include capability 混合。

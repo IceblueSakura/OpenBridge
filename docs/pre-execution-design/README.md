@@ -9,16 +9,21 @@
 - 实施完成后的确认事实进入 [`implementation-status/`](../implementation-status/)，而不是回写成设计完成历史；
 - 功能行为与安全边界仍只由 [`functional-requirements/`](../functional-requirements/) 拥有。
 
-## 当前设计包
+## 待执行顺序
 
-- P1：Hermes/OpenBridge Generation 兼容性与可靠性
-  - [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：保留 fail-closed 与零 egress，
-    将泛化 capability 400 收敛为确定性的字段级错误。
-  - [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：区分下游安全接受与
-    candidate 原生转发，定义该精确 hint 的条件转发/删除、opaque replay 边界和执行前验证矩阵。
-  - [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：记录 120 秒 total deadline、
-    incomplete chunked read、precommit/commit 生命周期、EOF 与可观测性边界。
-- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：只保留 Native Images 落地后尚未关闭的
-  执行证明、legacy 清理、通用测试/执行准备与后续决策门；已完成阶段不在设计包保存实施历史。
+[Generation 与 operation 剩余实现计划顺序](implementation-sequence.md)是本目录唯一的顺序与依赖 owner。它把下面的详细设计拆成
+一次只可提升一个的可观察切片；实际获准项仍只以
+[`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)为准，前一项完成不自动授权后一项。
+
+## 详细设计包
+
+- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：计划 1 修正 streaming timeout
+  policy 与归因；计划 4 另行改变 precommit、EOF 和 retry/fallback 语义。
+- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：计划 2 区分下游安全接受与
+  candidate 原生转发，只为该精确 hint 定义条件转发/删除。
+- [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：计划 3 保留 fail-closed 与零 egress，将泛化
+  capability 400 收敛为确定性的字段级错误。
+- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：计划 5A–5D 只保留 Native Images 落地后尚未关闭的
+  timeout/lifecycle、测试证明、profile algebra 和 legacy 清理；已完成阶段不在设计包保存实施历史。
 
 只有在用户明确要求时才新增、替换或删除本目录的设计包。过时包必须标明状态或删除，不能与 live implementation status 并列作为事实来源。

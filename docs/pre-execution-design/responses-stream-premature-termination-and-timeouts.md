@@ -1,6 +1,6 @@
 # Responses 流提前终止与 timeout 边界设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文记录 Hermes 经 OpenBridge 调用 Responses 时出现 premature termination / incomplete chunked read 的证据、已确认机制、未决根因、目标生命周期和验证矩阵。真正实施前必须重新读取 live source、部署配置、反向代理配置与工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中计划 1 与计划 4 的详细设计 owner，记录 Hermes 经 OpenBridge 调用 Responses 时出现 premature termination / incomplete chunked read 的证据、已确认机制、未决根因、目标生命周期和验证矩阵。真正实施前必须重新读取 live source、部署配置、反向代理配置与工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
 
 ## 1. 问题摘要
 
