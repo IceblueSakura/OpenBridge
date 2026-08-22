@@ -1237,7 +1237,8 @@ fn streaming_definition(version: &str, alias: &str, upstream_model: &str) -> Reg
                 capabilities.streaming = true;
                 capabilities.terminal_usage = true;
             }
-            UpstreamApiCapabilities::Embeddings(_) => {}
+            UpstreamApiCapabilities::Embeddings(_)
+            | UpstreamApiCapabilities::ImagesGenerations(_) => {}
         }
     }
     definition

@@ -37,7 +37,7 @@ pub(super) enum GenerationCandidateOutcome {
     /// The selected candidate yielded to the next configured candidate.
     NextCandidate {
         /// Retryable HTTP response preserved for final fallback rendering.
-        failure: Option<StoredHttpFailure>,
+        failure: Option<Box<StoredHttpFailure>>,
         /// Whether this candidate was unavailable before an upstream attempt began.
         cooldown_skipped: bool,
     },

@@ -88,6 +88,7 @@ impl RuntimeRegistry {
                 (OperationKind::ChatCompletions, "chat"),
                 (OperationKind::Responses, "responses"),
                 (OperationKind::EmbeddingsCreate, "embeddings"),
+                (OperationKind::ImagesGenerations, "images"),
             ]
             .into_iter()
             .filter_map(|(operation, label)| {

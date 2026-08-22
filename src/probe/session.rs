@@ -304,7 +304,9 @@ impl ProbeSession<'_> {
             .operation_adapter(OperationKind::EmbeddingsCreate)
         {
             Some(ProviderOperationAdapter::Embeddings(adapter)) => adapter,
-            Some(ProviderOperationAdapter::Generation(_)) | None => {
+            Some(ProviderOperationAdapter::Generation(_))
+            | Some(ProviderOperationAdapter::ImagesGenerations(_))
+            | None => {
                 return ProbeResult::unknown(None);
             }
         };
@@ -452,7 +454,9 @@ impl ProbeSession<'_> {
             .operation_adapter(protocol.operation())
         {
             Some(ProviderOperationAdapter::Generation(adapter)) => Ok(adapter),
-            Some(ProviderOperationAdapter::Embeddings(_)) | None => Err(()),
+            Some(ProviderOperationAdapter::Embeddings(_))
+            | Some(ProviderOperationAdapter::ImagesGenerations(_))
+            | None => Err(()),
         }
     }
 

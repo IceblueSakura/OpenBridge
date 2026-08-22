@@ -15,10 +15,10 @@ pub use availability::ConfigurationAvailabilityReport;
 pub use compiler::{build_registry, build_registry_with_active_pools};
 pub use definition::{
     CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, EmbeddingModelProfile,
-    GenerationModelProfile, IgnorableGenerationParameter, InputModality, ModelConfig,
-    ModelContextLength, ModelLifecycle, ModelLifecycleStatus, NonStreamingConversion,
-    OutputModality, ProviderInstanceConfig, PublicModelConfig, ReasoningLevel,
-    ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
+    GenerationModelProfile, IgnorableGenerationParameter, ImageGenerationModelProfile,
+    InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
+    NonStreamingConversion, OutputModality, ProviderInstanceConfig, PublicModelConfig,
+    ReasoningLevel, ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
     ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, SpeechRecognitionModelProfile,
     SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
     UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig, VoiceCloneModelProfile,
@@ -30,11 +30,11 @@ pub use public_model::{
     AudioOutputInterfaceCapabilities, ContextWindow, EmbeddingDimensionCapabilities,
     EmbeddingEncodingCapabilities, EmbeddingInterfaceCapabilities, EmbeddingLimits,
     ImageDetailCapabilities, ImageInputInterfaceCapabilities, ImageInputLimits,
-    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelInterfaces,
-    ModelModalities, ModelReasoningCapabilities, ModelTask, MultimodalInputCapabilities,
-    MultimodalOutputCapabilities, PublicModel, PublicModelInfo, ReasoningOutputMode, StandardModel,
-    StateCapabilities, StructuredOutputMode, SupportState, ToolCapabilities, ToolChoiceMode,
-    ToolType,
+    ImagesInterfaceCapabilities, InterfaceReasoningCapabilities, ModelCapabilities,
+    ModelInterfaceCapabilities, ModelInterfaces, ModelModalities, ModelReasoningCapabilities,
+    ModelTask, MultimodalInputCapabilities, MultimodalOutputCapabilities, PublicModel,
+    PublicModelInfo, ReasoningOutputMode, StandardModel, StateCapabilities, StructuredOutputMode,
+    SupportState, ToolCapabilities, ToolChoiceMode, ToolType,
 };
 pub(crate) use public_model::{FileInputSource, ModelExecutionInterface, OperationResponseBudget};
 pub use runtime::{

@@ -213,8 +213,9 @@ mod tests {
             .expect("test Provider declares the Generation operation")
         {
             ProviderOperationAdapter::Generation(adapter) => adapter,
-            ProviderOperationAdapter::Embeddings(_) => {
-                panic!("Generation operation selected an Embeddings adapter")
+            ProviderOperationAdapter::Embeddings(_)
+            | ProviderOperationAdapter::ImagesGenerations(_) => {
+                panic!("Generation operation selected a non-Generation adapter")
             }
         }
     }

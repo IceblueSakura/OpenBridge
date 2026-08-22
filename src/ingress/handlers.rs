@@ -16,10 +16,10 @@ use crate::{
 };
 
 use super::{
-    forwarding::{forward_embeddings_request, forward_request},
+    forwarding::{forward_embeddings_request, forward_images_request, forward_request},
     response::{
-        api_error, embedding_unsupported_media_type, invalid_query_parameter, model_not_found,
-        unknown_query_parameter,
+        api_error, embedding_unsupported_media_type, images_unsupported_media_type,
+        invalid_query_parameter, model_not_found, unknown_query_parameter,
     },
     state::GatewayState,
 };
@@ -181,6 +181,20 @@ pub(super) async fn embeddings(
         return embedding_unsupported_media_type();
     }
     forward_embeddings_request(state, observation, headers, body).await
+}
+
+/// Accepts an Images Generations JSON request and sends it through the independent Native pipeline.
+pub(super) async fn images(
+    State(state): State<GatewayState>,
+    Extension(observation): Extension<RequestObservation>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    // Validate the JSON-only media type before endpoint-specific analysis or egress.
+    if !has_json_content_type(&headers) {
+        return images_unsupported_media_type();
+    }
+    forward_images_request(state, observation, headers, body).await
 }
 
 /// Returns whether the request carries exactly the application/json media type.

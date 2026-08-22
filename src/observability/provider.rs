@@ -142,5 +142,6 @@ fn gen_ai_operation_name(operation: OperationKind) -> &'static str {
     match operation {
         OperationKind::ChatCompletions | OperationKind::Responses => "chat",
         OperationKind::EmbeddingsCreate => "embeddings",
+        OperationKind::ImagesGenerations => "images_generations",
     }
 }

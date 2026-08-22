@@ -32,12 +32,12 @@ use crate::{
 use super::{
     auth,
     handlers::{
-        chat_completions, embeddings, extended_model, extended_models, health, model, models,
-        responses,
+        chat_completions, embeddings, extended_model, extended_models, health, images, model,
+        models, responses,
     },
     lifecycle::{RequestLifecycleGuard, observe_request_body, observe_response_body},
     openapi::{openapi_spec, swagger_ui},
-    response::{api_error, embedding_request_too_large},
+    response::{api_error, embedding_request_too_large, images_request_too_large},
     state::GatewayState,
 };
 
@@ -89,6 +89,7 @@ pub fn build_router(state: GatewayState) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
+        .route("/v1/images/generations", post(images))
         .route("/v1/models", get(models))
         .route("/v1/models/{model}", get(model))
         .route("/openbridge/v1/models", get(extended_models))
@@ -124,11 +125,15 @@ async fn normalize_embedding_request_limit(request: Request, next: Next) -> Resp
     // Capture endpoint identity before the body-limit service consumes the request.
     let is_embeddings =
         request.method() == Method::POST && request.uri().path() == "/v1/embeddings";
+    let is_images =
+        request.method() == Method::POST && request.uri().path() == "/v1/images/generations";
 
     // Run the configured hard-limit service and retain all non-limit responses unchanged.
     let response = next.run(request).await;
     if is_embeddings && response.status() == StatusCode::PAYLOAD_TOO_LARGE {
         embedding_request_too_large()
+    } else if is_images && response.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        images_request_too_large()
     } else {
         response
     }

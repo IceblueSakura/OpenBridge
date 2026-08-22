@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     core::{
-        ApiProtocol, EmbeddingsCapabilities, GenerationRequestField, OperationKind,
-        ReasoningOutput, ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
+        ApiProtocol, EmbeddingsCapabilities, GenerationRequestField, ImagesGenerationsCapabilities,
+        OperationKind, ReasoningOutput, ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
     },
     registry::{
         CanonicalTaskKind, InputModality, OutputModality, ReasoningLevel, Route, RouteMode,
@@ -26,6 +26,7 @@ use super::{super::execution::ContinuationIssuer, PublicRouteBinding};
 pub(super) struct RouteContractContribution {
     pub(super) canonical_task: CanonicalTaskKind,
     pub(super) embedding_capabilities: Option<EmbeddingsCapabilities>,
+    pub(super) images_capabilities: Option<ImagesGenerationsCapabilities>,
     pub(super) continuation: RouteContinuationContract,
     pub(super) context_window: ContextWindow,
     pub(super) modalities: ModelModalities,
@@ -89,6 +90,9 @@ impl RouteContractContribution {
         let capabilities = upstream_api.capabilities();
         if let Some(embeddings) = capabilities.embeddings() {
             return Self::from_embedding_binding(binding, embeddings);
+        }
+        if let Some(images) = capabilities.images_generations() {
+            return Self::from_images_binding(binding, images);
         }
         let generation = capabilities
             .generation_capabilities()
@@ -185,6 +189,7 @@ impl RouteContractContribution {
         Self {
             canonical_task: upstream_api.model().task_kind(),
             embedding_capabilities: None,
+            images_capabilities: None,
             continuation,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
@@ -250,6 +255,70 @@ impl RouteContractContribution {
         Self {
             canonical_task: upstream_api.model().task_kind(),
             embedding_capabilities: Some(capabilities),
+            images_capabilities: None,
+            continuation: RouteContinuationContract::Unsupported,
+            context_window: ContextWindow::from_model(upstream_api.model().context_length()),
+            modalities: ModelModalities { input, output },
+            media: InterfaceMediaCapabilities::default(),
+            model_modalities,
+            model_description: upstream_api.model().description().map(str::to_owned),
+            model_tokenizer: upstream_api.model().tokenizer().map(str::to_owned),
+            model_knowledge_cutoff: upstream_api.model().knowledge_cutoff().map(str::to_owned),
+            model_reasoning,
+            model_reasoning_levels: if model_reasoning.is_supported() {
+                upstream_api.model().reasoning_levels().to_vec()
+            } else {
+                Vec::new()
+            },
+            interface_parameters: Vec::new(),
+            streaming: SupportState::Unsupported,
+            non_streaming: SupportState::Unsupported,
+            system_messages: SupportState::Unsupported,
+            function_tools: SupportState::Unsupported,
+            function_tool_choice_modes: Vec::new(),
+            tool_strict_schema: SupportState::Unsupported,
+            parallel_tool_calls: SupportState::Unsupported,
+            structured_outputs: None,
+            reasoning: SupportState::Unsupported,
+            reasoning_levels: Vec::new(),
+            reasoning_output: ReasoningOutputMode::Unsupported,
+            response_includes: Vec::new(),
+            store: SupportState::Unsupported,
+            background: SupportState::Unsupported,
+        }
+    }
+
+    /// Converts one Native Images Generations Route into public model facts and its typed interface profile.
+    fn from_images_binding(
+        binding: &PublicRouteBinding<'_>,
+        capabilities: ImagesGenerationsCapabilities,
+    ) -> Self {
+        let upstream_api = binding.upstream_api;
+
+        // Derive safe model facts without projecting target, API, or upstream-model identity.
+        let mut input = vec![InputModality::Text];
+        let mut output = vec![OutputModality::Image];
+        if let Some(model_input) = upstream_api.model().input_modalities() {
+            input.retain(|modality| model_input.contains(modality));
+        }
+        if let Some(model_output) = upstream_api.model().output_modalities() {
+            output.retain(|modality| model_output.contains(modality));
+        }
+        let model_modalities = upstream_api
+            .model()
+            .input_modalities()
+            .zip(upstream_api.model().output_modalities())
+            .map(|(input, output)| ModelModalities {
+                input: sorted_values(input),
+                output: sorted_values(output),
+            });
+        let model_reasoning = SupportState::from(upstream_api.model().reasoning_support());
+
+        // Populate generation-only fields with explicit unsupported values; they are never projected into this operation.
+        Self {
+            canonical_task: upstream_api.model().task_kind(),
+            embedding_capabilities: None,
+            images_capabilities: Some(capabilities),
             continuation: RouteContinuationContract::Unsupported,
             context_window: ContextWindow::from_model(upstream_api.model().context_length()),
             modalities: ModelModalities { input, output },
@@ -335,6 +404,9 @@ fn protocol_specific_capabilities(
             UpstreamApiCapabilities::Embeddings(_) => {
                 unreachable!("Embeddings does not use generation protocol capabilities")
             }
+            UpstreamApiCapabilities::ImagesGenerations(_) => {
+                unreachable!("Images Generations does not use generation protocol capabilities")
+            }
         };
         // A readable Responses-to-Chat Bridge can consume the conditional encrypted-content hint
         // without forwarding it or fabricating an opaque output item.
@@ -388,6 +460,9 @@ fn protocol_specific_capabilities(
         },
         UpstreamApiCapabilities::Embeddings(_) => {
             unreachable!("Embeddings does not use generation protocol capabilities")
+        }
+        UpstreamApiCapabilities::ImagesGenerations(_) => {
+            unreachable!("Images Generations does not use generation protocol capabilities")
         }
     }
 }

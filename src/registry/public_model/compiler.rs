@@ -28,8 +28,8 @@ mod contribution;
 mod embedding_budget;
 
 use aggregate::{
-    aggregate_embedding_interface, aggregate_interface, aggregate_model_capabilities,
-    intersect_optional_string,
+    aggregate_embedding_interface, aggregate_images_interface, aggregate_interface,
+    aggregate_model_capabilities, intersect_optional_string,
 };
 use contribution::RouteContractContribution;
 use embedding_budget::constrain_embedding_response_budget;
@@ -212,6 +212,22 @@ fn compile_execution_interface<'a>(
                 OperationExecutionContract::Embeddings(capabilities),
                 PublicContinuationContract::Unsupported,
                 OperationResponseBudget::Embeddings {
+                    max_json_body_bytes: limits.max_json_response_body_bytes(),
+                },
+            )
+        }
+        OperationKind::ImagesGenerations => {
+            let capabilities =
+                aggregate_images_interface(contributions.iter()).ok_or_else(|| {
+                    RegistryError::PublicModelInterfaceProfileMismatch {
+                        public_model: public_model.to_owned(),
+                        downstream_operation: operation,
+                    }
+                })?;
+            (
+                OperationExecutionContract::ImagesGenerations(Box::new(capabilities)),
+                PublicContinuationContract::Unsupported,
+                OperationResponseBudget::ImagesGenerations {
                     max_json_body_bytes: limits.max_json_response_body_bytes(),
                 },
             )

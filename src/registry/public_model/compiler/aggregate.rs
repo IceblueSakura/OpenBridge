@@ -15,10 +15,10 @@ use super::contribution::RouteContractContribution;
 use crate::registry::public_model::execution::PublicContinuationContract;
 use crate::registry::public_model::{
     ContextWindow, EmbeddingDimensionCapabilities, EmbeddingEncodingCapabilities,
-    EmbeddingInterfaceCapabilities, EmbeddingLimits, InterfaceMediaCapabilities,
-    InterfaceReasoningCapabilities, ModelCapabilities, ModelInterfaceCapabilities, ModelModalities,
-    ModelReasoningCapabilities, ModelTask, ReasoningOutputMode, StateCapabilities, SupportState,
-    ToolCapabilities, ToolType,
+    EmbeddingInterfaceCapabilities, EmbeddingLimits, ImagesInterfaceCapabilities,
+    InterfaceMediaCapabilities, InterfaceReasoningCapabilities, ModelCapabilities,
+    ModelInterfaceCapabilities, ModelModalities, ModelReasoningCapabilities, ModelTask,
+    ReasoningOutputMode, StateCapabilities, SupportState, ToolCapabilities, ToolType,
 };
 
 impl ContextWindow {
@@ -100,6 +100,61 @@ pub(super) fn aggregate_embedding_interface<'a>(
         .first()
         .copied()
         .map(EmbeddingInterfaceCapabilities::from_capabilities)
+}
+
+/// Aggregates one or more Images Generations profiles into one conservative public contract.
+pub(super) fn aggregate_images_interface<'a>(
+    contributions: impl Iterator<Item = &'a RouteContractContribution>,
+) -> Option<ImagesInterfaceCapabilities> {
+    let capabilities = contributions
+        .filter_map(|contribution| contribution.images_capabilities)
+        .collect::<Vec<_>>();
+    let first = *capabilities.first()?;
+
+    // Defaults must agree; every numeric or set domain takes the most conservative intersection.
+    if capabilities.iter().any(|capability| {
+        capability.default_outputs != first.default_outputs
+            || capability.default_response_format != first.default_response_format
+    }) {
+        return None;
+    }
+    let max_outputs = capabilities
+        .iter()
+        .map(|capability| capability.max_outputs)
+        .min()?;
+    let allowed_sizes = capabilities
+        .iter()
+        .map(|capability| capability.allowed_sizes)
+        .collect::<Option<Vec<_>>>()
+        .and_then(|domains| {
+            let mut domains = domains.into_iter();
+            let mut intersection = domains.next()?;
+            for domain in domains {
+                intersection = intersection.intersection(domain)?;
+            }
+            Some(intersection)
+        });
+    let allowed_response_formats = capabilities
+        .iter()
+        .map(|capability| capability.allowed_response_formats.map(<[_]>::to_vec))
+        .collect::<Option<Vec<_>>>()
+        .map(|sets| intersect_sets(sets.iter().map(|set| set.as_slice())));
+    let supported_parameters = intersect_sets(
+        capabilities
+            .iter()
+            .map(|capability| capability.supported_parameters),
+    )
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    Some(ImagesInterfaceCapabilities {
+        max_outputs,
+        default_outputs: first.default_outputs,
+        allowed_sizes,
+        default_response_format: first.default_response_format,
+        allowed_response_formats,
+        supported_parameters,
+    })
 }
 
 /// Reduces all Route contract inputs for one protocol to a unique interface contract.

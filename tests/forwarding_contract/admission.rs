@@ -331,7 +331,8 @@ async fn disjoint_structured_output_routes_fail_with_zero_egress() {
             UpstreamApiCapabilities::Responses(capabilities) => {
                 capabilities.structured_outputs = Some(StructuredOutputProfile::JsonObject);
             }
-            UpstreamApiCapabilities::Embeddings(_) => {}
+            UpstreamApiCapabilities::Embeddings(_)
+            | UpstreamApiCapabilities::ImagesGenerations(_) => {}
         }
     }
     let mut schema_target = definition.upstream_targets[0].clone();
@@ -348,7 +349,8 @@ async fn disjoint_structured_output_routes_fail_with_zero_egress() {
                     JsonSchemaSupport::NonStrictOnly,
                 ));
             }
-            UpstreamApiCapabilities::Embeddings(_) => {}
+            UpstreamApiCapabilities::Embeddings(_)
+            | UpstreamApiCapabilities::ImagesGenerations(_) => {}
         }
     }
     definition.upstream_targets.push(schema_target);

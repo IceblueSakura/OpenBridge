@@ -282,6 +282,15 @@ fn build_registry_internal(
                     }
                 })?;
             }
+            if let Some(capabilities) = upstream_api.capabilities.images_generations() {
+                capabilities.validate().map_err(|detail| {
+                    RegistryError::InvalidImagesCapabilities {
+                        upstream_target: target.id.clone(),
+                        upstream_operation,
+                        detail,
+                    }
+                })?;
+            }
 
             // Require a non-blank model ID for the upstream request; the Provider adapter writes this value into the egress request.
             if upstream_api.upstream_model.trim().is_empty() {
@@ -594,6 +603,9 @@ fn validate_upstream_api_model_task(
 ) -> Result<(), RegistryError> {
     let compatible = match capabilities {
         UpstreamApiCapabilities::Embeddings(_) => key.task() == CanonicalTaskKind::Embedding,
+        UpstreamApiCapabilities::ImagesGenerations(_) => {
+            key.task() == CanonicalTaskKind::ImageGeneration
+        }
         UpstreamApiCapabilities::Responses(_) => key.task() == CanonicalTaskKind::Generation,
         UpstreamApiCapabilities::ChatCompletions(capabilities) => {
             match (key.task(), capabilities.media.audio) {

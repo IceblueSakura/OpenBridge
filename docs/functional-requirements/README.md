@@ -14,9 +14,9 @@
 | 扩展能力 | [扩展能力域](extended-capabilities/README.md) | Embeddings 与 Native image/file/audio 如何分层、编译与预检 |
 
 扩展能力的具体 contract 分别见 [Embeddings](extended-capabilities/embeddings.md)、
-[图片](extended-capabilities/native-image.md)、[文件](extended-capabilities/native-file.md)与
-[音频](extended-capabilities/native-audio.md)。ChatGPT subscription credential 见
-[OAuth lifecycle](configuration-credentials/upstream-oauth-credential-lifecycle.md)。
+[图片](extended-capabilities/native-image.md)、[文件](extended-capabilities/native-file.md)、
+[音频](extended-capabilities/native-audio.md)与 [Images 生成](extended-capabilities/native-image-generation.md)。
+ChatGPT subscription credential 见 [OAuth lifecycle](configuration-credentials/upstream-oauth-credential-lifecycle.md)。
 
 ChatGPT 当前边界必须使用三个不同数量描述：五个固定 Responses-native Target；其中四个 Public Model 只有
 ChatGPT source；第五个 Target 属于还包含 OpenAI source 的 `gpt-5.6-sol` Public Model。不得再用“四个 target”或

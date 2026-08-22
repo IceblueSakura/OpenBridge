@@ -1,6 +1,7 @@
 //! Assembles the built-in Model, Provider instance, Upstream Target, Route, and Public Model catalog.
 
 mod embeddings;
+mod images;
 mod public_models;
 mod route_compiler;
 mod routing;
@@ -38,6 +39,7 @@ pub fn compiled_config() -> RegistryConfig {
             chatgpt::provider_instance(),
             nvidia::provider_instance(),
             bailian::provider_instance(),
+            bailian::native_provider_instance(),
             kimi_cn::provider_instance(),
         ],
         credential_pools: vec![

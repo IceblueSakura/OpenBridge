@@ -8,7 +8,8 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::{
-        ApiProtocol, ApiRequest, EmbeddingRequest, OperationKind, ProviderOperationCapabilities,
+        ApiProtocol, ApiRequest, EmbeddingRequest, ImagesRequest, OperationKind,
+        ProviderOperationCapabilities,
     },
     credential::UpstreamCredential,
     registry::UpstreamApi,
@@ -27,6 +28,8 @@ pub enum ProviderOperationAdapter {
     Generation(GenerationProviderAdapter),
     /// Native Embeddings Create wire policy.
     Embeddings(EmbeddingsProviderAdapter),
+    /// Native Images Generations wire policy.
+    ImagesGenerations(ImagesProviderAdapter),
 }
 
 impl ProviderAdapter {
@@ -62,6 +65,13 @@ impl ProviderAdapter {
                     capabilities,
                 ),
             )),
+            OperationKind::ImagesGenerations => Some(ProviderOperationAdapter::ImagesGenerations(
+                ImagesProviderAdapter::new(
+                    self,
+                    self.openai_compatible().images_path()?,
+                    capabilities,
+                ),
+            )),
         }
     }
 
@@ -86,6 +96,17 @@ impl ProviderAdapter {
     ) -> Result<PreparedUpstreamRequest, AdapterError> {
         self.openai_compatible()
             .prepare_embedding_routed_request(path, request, upstream_api)
+    }
+
+    /// Builds one routed Images request through the selected Provider wire primitive.
+    fn prepare_routed_images_request(
+        self,
+        path: &'static str,
+        request: &ImagesRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.openai_compatible()
+            .prepare_images_routed_request(path, request, upstream_api)
     }
 
     /// Classifies one fully framed Generation SSE event through the selected terminal primitive.
@@ -257,5 +278,60 @@ impl EmbeddingsProviderAdapter {
 
     pub(crate) const fn provider(self) -> ProviderAdapter {
         self.provider
+    }
+}
+
+/// Provider adapter bound to the Native Images Generations operation.
+#[derive(Clone, Copy)]
+pub struct ImagesProviderAdapter {
+    provider: ProviderAdapter,
+    path: &'static str,
+    capabilities: ProviderOperationCapabilities,
+}
+
+impl ImagesProviderAdapter {
+    pub(super) const fn new(
+        provider: ProviderAdapter,
+        path: &'static str,
+        capabilities: ProviderOperationCapabilities,
+    ) -> Self {
+        Self {
+            provider,
+            path,
+            capabilities,
+        }
+    }
+
+    /// Returns the capability ceiling co-selected with this operation descriptor.
+    pub const fn capabilities(self) -> ProviderOperationCapabilities {
+        self.capabilities
+    }
+
+    /// Builds a routed Images request only for the selected operation.
+    pub fn prepare_routed_request(
+        self,
+        request: &ImagesRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        if upstream_api.operation() != OperationKind::ImagesGenerations {
+            return Err(AdapterError::UnsupportedProtocol);
+        }
+        self.provider
+            .prepare_routed_images_request(self.path, request, upstream_api)
+    }
+
+    /// Assembles shared Provider headers and authentication for this operation.
+    pub(crate) fn build_outbound_headers(
+        self,
+        credential: &UpstreamCredential<'_>,
+        downstream_headers: &HeaderMap,
+    ) -> Result<HeaderMap, AdapterError> {
+        self.provider
+            .build_outbound_headers(credential, downstream_headers)
+    }
+
+    /// Maps an upstream status through the shared Provider policy.
+    pub fn classify_status(self, status: StatusCode) -> StatusClassification {
+        self.provider.classify_status(status)
     }
 }

@@ -9,6 +9,7 @@
 | Native 图片 | [图片能力](native-image.md) |
 | Native 文件 | [文件能力](native-file.md) |
 | Native 音频 | [音频能力](native-audio.md) |
+| Images 生成 | [Images 生成](native-image-generation.md) |
 
 ## 1. 能力事实分层
 
@@ -70,7 +71,7 @@ Chat-to-Responses 与 Responses-to-Chat Bridge 对媒体请求保持 fail closed
 ## 6. 共同非目标
 
 - 请求期 capability routing、动态 Provider discovery 或未知字段 passthrough；
-- 未经功能页明确授权的 Images/Files/Uploads/Vector Stores/Videos/Realtime 资源或会话 API；
+- 未经功能页明确授权的 Images edit/variation、Files/Uploads/Vector Stores/Videos/Realtime 资源或会话 API；
 - 媒体下载代理、格式转换、OCR、通用转写、内容托管、向量检索或通用安全扫描；
 - Provider-issued resource identity 的跨账户、跨 Target 或跨 Provider 猜测与迁移。
 

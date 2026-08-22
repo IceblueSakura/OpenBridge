@@ -409,6 +409,65 @@ paths:
         '504':
           $ref: '#/components/responses/EmbeddingGatewayTimeout'
 
+  /v1/images/generations:
+    post:
+      tags: [ images ]
+      summary: Generate images
+      operationId: createImage
+      description: |
+        Accepts one strict OpenAI-compatible Images Generations JSON request and executes the single
+        Native candidate owned by the selected Public Model's fixed `interfaces.images` contract.
+        Only text-to-image prompts, `n`, `size`, and `response_format: url` are admitted; the model
+        interface is authoritative for accepted values and effective limits. The response is read
+        and validated under a bounded JSON budget before any bytes are committed downstream.
+        Streaming, edits, variations, and `b64_json` responses are not supported.
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImagesRequest'
+            examples:
+              singleUrl:
+                summary: One 1024x1024 image as a URL
+                value:
+                  model: qwen-image-3.0
+                  prompt: A lighthouse at sunset
+                  n: 1
+                  size: 1024x1024
+      responses:
+        '200':
+          description: Fully validated Images Generations JSON response
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagesResponse'
+        '400':
+          $ref: '#/components/responses/ImagesBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/ModelNotFound'
+        '413':
+          $ref: '#/components/responses/ImagesRequestTooLarge'
+        '415':
+          $ref: '#/components/responses/ImagesUnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/ImagesUpstreamError'
+        '500':
+          $ref: '#/components/responses/ImagesConfigurationError'
+        '502':
+          $ref: '#/components/responses/ImagesUpstreamError'
+        '503':
+          $ref: '#/components/responses/ImagesUpstreamError'
+        '504':
+          $ref: '#/components/responses/ImagesGatewayTimeout'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -631,6 +690,96 @@ components:
               code: upstream_error
     EmbeddingGatewayTimeout:
       description: The Embeddings upstream request timed out before downstream commit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request timed out
+              type: server_error
+              param: null
+              code: upstream_timeout
+    ImagesBadRequest:
+      description: The strict request shape is invalid, or the selected model's fixed Images interface does not support the requested field or limit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The selected model does not support the requested Images capability
+              type: invalid_request_error
+              param: size
+              code: unsupported_model_capability
+    ImagesRequestTooLarge:
+      description: The request body exceeds the configured ingress limit before any upstream attempt.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The request body exceeds the configured limit
+              type: invalid_request_error
+              param: null
+              code: request_too_large
+    ImagesUnsupportedMediaType:
+      description: The Images request must use application/json.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: Content-Type must be application/json
+              type: invalid_request_error
+              param: null
+              code: unsupported_media_type
+    ImagesConfigurationError:
+      description: The compiled Images route cannot be resolved at runtime.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The configured Images route is unavailable
+              type: server_error
+              param: null
+              code: configuration_error
+    ImagesUpstreamError:
+      description: The upstream attempt failed, rejected the request, or returned an invalid success body. Upstream bodies and private headers are not exposed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              message: The upstream request failed
+              type: server_error
+              param: null
+              code: upstream_error
+    ImagesGatewayTimeout:
+      description: The Images upstream request timed out before downstream commit.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -1619,6 +1768,37 @@ components:
           type: integer
           minimum: 1
 
+    ImagesRequest:
+      type: object
+      additionalProperties: false
+      required: [ model, prompt ]
+      description: Strict Images Generations request; the selected model interface may narrow every optional field and limit further.
+      properties:
+        model:
+          type: string
+          minLength: 1
+          description: OpenBridge Images Public Model name.
+          example: qwen-image-3.0
+        prompt:
+          type: string
+          minLength: 1
+          description: Text prompt describing the image to generate.
+        n:
+          type: integer
+          minimum: 1
+          maximum: 6
+          description: Number of images to generate.
+        size:
+          type: string
+          pattern: '^[0-9]+x[0-9]+$'
+          description: Output resolution as WxH pixels; accepted values are fixed by the model interface.
+          example: 1024x1024
+        response_format:
+          type: string
+          enum: [ url ]
+          description: Response format; only url is admitted by the current contract.
+        user:
+          type: string
     EmbeddingRequest:
       type: object
       additionalProperties: false
@@ -1939,6 +2119,27 @@ components:
           format: int64
           minimum: 0
 
+    ImagesResponse:
+      type: object
+      additionalProperties: false
+      required: [ created, data ]
+      description: Fully validated Images Generations response with short-lived upstream URLs.
+      properties:
+        created:
+          type: integer
+          format: int64
+          description: Gateway commit timestamp in Unix seconds.
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ url ]
+            properties:
+              url:
+                type: string
+                format: uri
+                description: Short-lived upstream image URL.
     EmbeddingResponse:
       type: object
       additionalProperties: false

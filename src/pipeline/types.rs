@@ -8,7 +8,7 @@ use crate::{
         ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, ChatStreamUsage,
         EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest, FileDetail, FileInlineEncoding,
         FileMediaType, GenerationRequestField, ImageDetail, ImageInputSource, ImageMediaType,
-        OperationKind, ResponseInclude, ToolChoiceMode,
+        ImagesRequest, ImagesResponseFormat, OperationKind, ResponseInclude, ToolChoiceMode,
     },
     registry::{OperationResponseBudget, ReasoningLevel, UpstreamApiKey},
 };
@@ -64,6 +64,43 @@ pub struct EmbeddingRouteCandidate {
     pub(super) upstream_target_id: String,
     pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: EmbeddingRequest,
+}
+
+/// Registry-independent facts extracted from one strict Images Generations request.
+#[derive(Debug)]
+pub struct ImagesRequestRequirements {
+    pub(super) public_model: String,
+    pub(super) prompt_length: u32,
+    pub(super) requested_outputs: Option<u32>,
+    pub(super) requested_size: Option<ImagesRequestedSize>,
+    pub(super) requested_response_format: Option<ImagesResponseFormat>,
+    pub(super) user_present: bool,
+}
+
+/// One parsed OpenAI `WxH` size request with both dimensions in pixels.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImagesRequestedSize {
+    pub(super) width: u32,
+    pub(super) height: u32,
+}
+
+/// Single-candidate Native execution plan for an Images Generations request.
+#[derive(Debug)]
+pub struct ImagesRoutePlan {
+    pub(super) candidate: ImagesRouteCandidate,
+    pub(super) outputs: u32,
+    pub(super) size: Option<ImagesRequestedSize>,
+    pub(super) response_format: ImagesResponseFormat,
+    pub(super) response_budget: OperationResponseBudget,
+}
+
+/// Trusted Native Images Route candidate bound to one target and Upstream API.
+#[derive(Debug)]
+pub struct ImagesRouteCandidate {
+    pub(super) route_id: String,
+    pub(super) upstream_target_id: String,
+    pub(super) upstream_api_key: UpstreamApiKey,
+    pub(super) request: ImagesRequest,
 }
 
 /// Execution plan that passed the Public Model fixed contract and binds ordered Routes.
@@ -379,6 +416,94 @@ impl EmbeddingRouteCandidate {
 
     /// Returns the preserved Native Embeddings request.
     pub fn request(&self) -> &EmbeddingRequest {
+        &self.request
+    }
+}
+
+impl ImagesRequestRequirements {
+    /// Returns the Public Model selected by the downstream Images request.
+    pub fn public_model(&self) -> &str {
+        &self.public_model
+    }
+
+    /// Returns the non-blank prompt length frozen by strict analysis.
+    pub fn prompt_length(&self) -> u32 {
+        self.prompt_length
+    }
+
+    /// Returns the explicit requested output count when present.
+    pub fn requested_outputs(&self) -> Option<u32> {
+        self.requested_outputs
+    }
+
+    /// Returns the explicit requested `WxH` size when present.
+    pub fn requested_size(&self) -> Option<ImagesRequestedSize> {
+        self.requested_size
+    }
+
+    /// Returns the explicit requested response format when present.
+    pub fn requested_response_format(&self) -> Option<ImagesResponseFormat> {
+        self.requested_response_format
+    }
+}
+
+impl ImagesRequestedSize {
+    /// Returns the width component in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Returns the height component in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+impl ImagesRoutePlan {
+    /// Returns the single trusted Images candidate.
+    pub fn candidate(&self) -> &ImagesRouteCandidate {
+        &self.candidate
+    }
+
+    /// Returns the resolved output count after fixed-interface preflight.
+    pub fn outputs(&self) -> u32 {
+        self.outputs
+    }
+
+    /// Returns the resolved effective size after fixed-interface preflight.
+    pub fn size(&self) -> Option<ImagesRequestedSize> {
+        self.size
+    }
+
+    /// Returns the resolved response format after fixed-interface preflight.
+    pub fn response_format(&self) -> ImagesResponseFormat {
+        self.response_format
+    }
+
+    /// Returns the JSON response limit compiled with the Images interface.
+    pub(crate) const fn max_json_response_body_bytes(&self) -> usize {
+        self.response_budget.max_json_body_bytes()
+    }
+}
+
+impl ImagesRouteCandidate {
+    /// Returns the candidate Route ID.
+    pub fn route_id(&self) -> &str {
+        &self.route_id
+    }
+
+    /// Returns the trusted Upstream Target ID.
+    pub fn upstream_target_id(&self) -> &str {
+        &self.upstream_target_id
+    }
+
+    /// Returns the complete trusted Upstream API identity.
+    pub fn upstream_api_key(&self) -> UpstreamApiKey {
+        self.upstream_api_key
+    }
+
+    /// Returns the preserved Native Images request.
+    pub fn request(&self) -> &ImagesRequest {
         &self.request
     }
 }

@@ -14,8 +14,9 @@ use zeroize::Zeroizing;
 use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ApiRequest, ChatCompletionsCapabilities, EmbeddingRequest,
-        EmbeddingsCapabilities, OperationKind, ProviderChatCompletionsCapabilities,
-        ProviderOperationCapabilities, ProviderResponsesCapabilities, ResponsesCapabilities,
+        EmbeddingsCapabilities, ImagesGenerationsCapabilities, ImagesRequest, OperationKind,
+        ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
+        ProviderResponsesCapabilities, ResponsesCapabilities,
     },
     credential::CredentialType,
     provider::{
@@ -35,6 +36,9 @@ pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(
 /// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
 pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
+/// Compile-time Provider hook for converting one preflighted Images request to its native wire.
+pub(crate) type ImagesRequestBodyHook =
+    fn(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
 /// Compile-time Provider hook for extracting model identifiers from a model-list response.
 pub(crate) type ModelListParser = fn(&serde_json::Value) -> Option<Vec<String>>;
 
@@ -61,6 +65,7 @@ pub(crate) struct OpenAiCompatibleApiSurface {
     chat_completions: Option<OpenAiCompatibleEndpoint<ProviderChatCompletionsCapabilities>>,
     responses: Option<OpenAiCompatibleEndpoint<ProviderResponsesCapabilities>>,
     embeddings: Option<OpenAiCompatibleEndpoint<EmbeddingsCapabilities>>,
+    images: Option<OpenAiCompatibleEndpoint<ImagesGenerationsCapabilities>>,
 }
 
 impl OpenAiCompatibleApiSurface {
@@ -74,7 +79,17 @@ impl OpenAiCompatibleApiSurface {
             chat_completions,
             responses,
             embeddings,
+            images: None,
         }
+    }
+
+    /// Attaches an Images Generations endpoint to an otherwise OpenAI-compatible surface.
+    pub(crate) const fn with_images(
+        mut self,
+        images: Option<OpenAiCompatibleEndpoint<ImagesGenerationsCapabilities>>,
+    ) -> Self {
+        self.images = images;
+        self
     }
 
     /// Projects the Provider capability contract from the same typed endpoint descriptors.
@@ -94,6 +109,12 @@ impl OpenAiCompatibleApiSurface {
             },
             match &self.embeddings {
                 Some(endpoint) => Some(ProviderOperationCapabilities::Embeddings(
+                    &endpoint.capabilities,
+                )),
+                None => None,
+            },
+            match &self.images {
+                Some(endpoint) => Some(ProviderOperationCapabilities::ImagesGenerations(
                     &endpoint.capabilities,
                 )),
                 None => None,
@@ -120,6 +141,14 @@ impl OpenAiCompatibleApiSurface {
     /// Returns the trusted Embeddings path when that operation is present.
     const fn embeddings_path(self) -> Option<&'static str> {
         match self.embeddings {
+            Some(endpoint) => Some(endpoint.relative_path),
+            None => None,
+        }
+    }
+
+    /// Returns the trusted Images Generations path when that operation is present.
+    const fn images_path(self) -> Option<&'static str> {
+        match self.images {
             Some(endpoint) => Some(endpoint.relative_path),
             None => None,
         }
@@ -151,10 +180,12 @@ pub(crate) struct OpenAiCompatibleAdapter {
     chat_path: Option<&'static str>,
     responses_path: Option<&'static str>,
     embeddings_path: Option<&'static str>,
+    images_path: Option<&'static str>,
     model_list_path: &'static str,
     model_list_parser: ModelListParser,
     request_header_hook: RequestHeaderHook,
     request_body_hook: RequestBodyHook,
+    images_request_body_hook: ImagesRequestBodyHook,
     request_headers: ProviderRequestHeaders,
     responses_terminal_discriminator: OpenAiTerminalDiscriminator,
     streaming_response_media_type_policy: StreamingResponseMediaTypePolicy,
@@ -173,10 +204,12 @@ impl OpenAiCompatibleAdapter {
             chat_path: api_surface.chat_path(),
             responses_path: api_surface.responses_path(),
             embeddings_path: api_surface.embeddings_path(),
+            images_path: api_surface.images_path(),
             model_list_path,
             model_list_parser: parse_openai_model_list_ids,
             request_header_hook,
             request_body_hook: preserve_request_body,
+            images_request_body_hook: convert_images_to_openai_compatible_shape,
             request_headers: ProviderRequestHeaders::new(),
             responses_terminal_discriminator: OpenAiTerminalDiscriminator::SseEventField,
             streaming_response_media_type_policy:
@@ -190,6 +223,15 @@ impl OpenAiCompatibleAdapter {
         request_body_hook: RequestBodyHook,
     ) -> Self {
         self.request_body_hook = request_body_hook;
+        self
+    }
+
+    /// Attaches the concrete Provider's Images request-body wire conversion.
+    pub(crate) const fn with_images_request_body_hook(
+        mut self,
+        images_request_body_hook: ImagesRequestBodyHook,
+    ) -> Self {
+        self.images_request_body_hook = images_request_body_hook;
         self
     }
 
@@ -219,6 +261,11 @@ impl OpenAiCompatibleAdapter {
         self.streaming_response_media_type_policy =
             StreamingResponseMediaTypePolicy::AllowMissingForResponses;
         self
+    }
+
+    /// Returns the trusted Images Generations path when that operation is present.
+    pub(crate) const fn images_path(self) -> Option<&'static str> {
+        self.images_path
     }
 
     /// Returns the Provider kind that owns this closed wire profile.
@@ -337,6 +384,47 @@ impl OpenAiCompatibleAdapter {
             );
 
         // Re-serialize once without converting input, encoding, dimensions, or user fields.
+        let body = serde_json::to_vec(&document)
+            .map(Bytes::from)
+            .map_err(|_| AdapterError::InvalidRequestBody)?;
+        Ok(PreparedUpstreamRequest::new(
+            Method::POST,
+            Uri::from_static(path),
+            body,
+        ))
+    }
+
+    /// Replaces the Public Model, applies the Provider wire conversion, and binds the Images endpoint.
+    pub(crate) fn prepare_images_routed_request(
+        self,
+        path: &'static str,
+        request: &ImagesRequest,
+        upstream_api: &UpstreamApi,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        // Require an Images Generations API before parsing a body or binding the operation path.
+        if upstream_api.operation() != OperationKind::ImagesGenerations {
+            return Err(AdapterError::UnsupportedProtocol);
+        }
+
+        // Parse the preflighted object and replace only the registry-owned model field.
+        let mut document: serde_json::Value =
+            serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
+        document
+            .as_object_mut()
+            .ok_or(AdapterError::InvalidRequestBody)?
+            .insert(
+                "model".to_owned(),
+                serde_json::Value::String(upstream_api.upstream_model().to_owned()),
+            );
+
+        // Apply only the selected operation's trusted Provider wire transformation.
+        (self.images_request_body_hook)(
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+        )?;
+
+        // Re-serialize once without converting prompt, n, size, or user fields.
         let body = serde_json::to_vec(&document)
             .map(Bytes::from)
             .map_err(|_| AdapterError::InvalidRequestBody)?;
@@ -510,6 +598,13 @@ fn discard_ignored_generation_parameters(
 /// Keeps ordinary OpenAI-compatible request bodies unchanged after model replacement.
 fn preserve_request_body(
     _protocol: ApiProtocol,
+    _document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Keeps already OpenAI-compatible Images request bodies unchanged after model replacement.
+fn convert_images_to_openai_compatible_shape(
     _document: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), AdapterError> {
     Ok(())

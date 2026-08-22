@@ -101,7 +101,9 @@ pub(in crate::ingress) async fn forward_embeddings_request(
         .operation_adapter(upstream_api.operation())
     {
         Some(ProviderOperationAdapter::Embeddings(adapter)) => adapter,
-        Some(ProviderOperationAdapter::Generation(_)) | None => {
+        Some(ProviderOperationAdapter::Generation(_))
+        | Some(ProviderOperationAdapter::ImagesGenerations(_))
+        | None => {
             return configuration_error(
                 &observation,
                 "Configured Provider operation is unavailable",

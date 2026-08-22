@@ -4,8 +4,7 @@
 //! The profile records only modalities confirmed by the model catalog.
 
 use crate::registry::{
-    CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
-    OutputModality, ReasoningProfile,
+    CanonicalModelTask, ImageGenerationModelProfile, ModelConfig, ModelContextLength,
 };
 
 /// Stable OpenBridge catalog ID for Qwen Image 3.0 Pro.
@@ -22,12 +21,9 @@ pub(crate) fn config() -> ModelConfig {
         ),
         tokenizer: None,
         knowledge_cutoff: None,
-        task: CanonicalModelTask::Generation(GenerationModelProfile {
+        task: CanonicalModelTask::ImageGeneration(ImageGenerationModelProfile {
             context_length: ModelContextLength::new(None, None, None),
-            input_modalities: Some(vec![InputModality::Text, InputModality::Image]),
-            output_modalities: Some(vec![OutputModality::Image]),
             supported_parameters: Vec::new(),
-            reasoning: ReasoningProfile::Unknown,
         }),
     }
 }

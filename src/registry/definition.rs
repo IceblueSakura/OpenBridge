@@ -7,7 +7,8 @@ use serde::Serialize;
 use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingsCapabilities,
-        GenerationBridgeDirection, GenerationCapabilities, OperationKind, ResponsesCapabilities,
+        GenerationBridgeDirection, GenerationCapabilities, ImagesGenerationsCapabilities,
+        OperationKind, ResponsesCapabilities,
     },
     provider::{CredentialKind, ProviderKind},
 };
@@ -363,6 +364,8 @@ pub enum CanonicalTaskKind {
     Generation,
     /// Embedding-vector generation.
     Embedding,
+    /// Image generation.
+    ImageGeneration,
     /// Speech audio transcription.
     SpeechRecognition,
     /// Ordinary text-to-speech synthesis.
@@ -423,6 +426,15 @@ pub struct EmbeddingModelProfile {
     pub supported_parameters: Vec<String>,
 }
 
+/// Canonical facts owned only by an image-generation task.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImageGenerationModelProfile {
+    /// Token limits published for the Images-native generation envelope.
+    pub context_length: ModelContextLength,
+    /// Images-specific request parameters declared by the model.
+    pub supported_parameters: Vec<String>,
+}
+
 /// Canonical facts owned only by a speech-recognition task.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SpeechRecognitionModelProfile {
@@ -466,6 +478,8 @@ pub enum CanonicalModelTask {
     Generation(GenerationModelProfile),
     /// Embedding-vector generation facts.
     Embedding(EmbeddingModelProfile),
+    /// Image-generation facts.
+    ImageGeneration(ImageGenerationModelProfile),
     /// Speech-recognition facts.
     SpeechRecognition(SpeechRecognitionModelProfile),
     /// Ordinary speech-synthesis facts.
@@ -482,6 +496,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(_) => CanonicalTaskKind::Generation,
             Self::Embedding(_) => CanonicalTaskKind::Embedding,
+            Self::ImageGeneration(_) => CanonicalTaskKind::ImageGeneration,
             Self::SpeechRecognition(_) => CanonicalTaskKind::SpeechRecognition,
             Self::SpeechSynthesis(_) => CanonicalTaskKind::SpeechSynthesis,
             Self::VoiceDesign(_) => CanonicalTaskKind::VoiceDesign,
@@ -496,6 +511,7 @@ impl CanonicalModelTask {
             Self::Embedding(profile) => {
                 ModelContextLength::new(profile.max_input_tokens, profile.max_input_tokens, None)
             }
+            Self::ImageGeneration(profile) => profile.context_length,
             Self::SpeechRecognition(profile) => profile.context_length,
             Self::SpeechSynthesis(profile) => profile.context_length,
             Self::VoiceDesign(profile) => profile.context_length,
@@ -508,6 +524,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => profile.input_modalities.as_deref(),
             Self::Embedding(profile) => profile.input_modalities.as_deref(),
+            Self::ImageGeneration(_) => Some(&[InputModality::Text]),
             Self::SpeechRecognition(_) => Some(&[InputModality::Audio]),
             Self::SpeechSynthesis(_) | Self::VoiceDesign(_) => Some(&[InputModality::Text]),
             Self::VoiceClone(_) => Some(&[InputModality::Audio, InputModality::Text]),
@@ -519,6 +536,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => profile.output_modalities.as_deref(),
             Self::Embedding(_) => Some(&[OutputModality::Embedding]),
+            Self::ImageGeneration(_) => Some(&[OutputModality::Image]),
             Self::SpeechRecognition(_) => Some(&[OutputModality::Text]),
             Self::SpeechSynthesis(_) | Self::VoiceDesign(_) | Self::VoiceClone(_) => {
                 Some(&[OutputModality::Audio])
@@ -531,6 +549,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => &profile.supported_parameters,
             Self::Embedding(profile) => &profile.supported_parameters,
+            Self::ImageGeneration(profile) => &profile.supported_parameters,
             Self::SpeechRecognition(profile) => &profile.supported_parameters,
             Self::SpeechSynthesis(profile) => &profile.supported_parameters,
             Self::VoiceDesign(profile) => &profile.supported_parameters,
@@ -543,6 +562,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => profile.reasoning.support(),
             Self::Embedding(_)
+            | Self::ImageGeneration(_)
             | Self::SpeechRecognition(_)
             | Self::SpeechSynthesis(_)
             | Self::VoiceDesign(_)
@@ -555,6 +575,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => profile.reasoning.levels(),
             Self::Embedding(_)
+            | Self::ImageGeneration(_)
             | Self::SpeechRecognition(_)
             | Self::SpeechSynthesis(_)
             | Self::VoiceDesign(_)
@@ -656,6 +677,8 @@ pub enum UpstreamApiCapabilities {
     Responses(ResponsesCapabilities),
     /// Embeddings Create operation capabilities.
     Embeddings(EmbeddingsCapabilities),
+    /// Images Generations operation capabilities.
+    ImagesGenerations(ImagesGenerationsCapabilities),
 }
 
 impl UpstreamApiCapabilities {
@@ -665,6 +688,7 @@ impl UpstreamApiCapabilities {
             Self::ChatCompletions(_) => OperationKind::ChatCompletions,
             Self::Responses(_) => OperationKind::Responses,
             Self::Embeddings(_) => OperationKind::EmbeddingsCreate,
+            Self::ImagesGenerations(_) => OperationKind::ImagesGenerations,
         }
     }
 
@@ -678,7 +702,7 @@ impl UpstreamApiCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => Some(capabilities.generation_capabilities()),
             Self::Responses(capabilities) => Some(capabilities.generation_capabilities()),
-            Self::Embeddings(_) => None,
+            Self::Embeddings(_) | Self::ImagesGenerations(_) => None,
         }
     }
 
@@ -686,7 +710,7 @@ impl UpstreamApiCapabilities {
     pub const fn embeddings(self) -> Option<EmbeddingsCapabilities> {
         match self {
             Self::Embeddings(capabilities) => Some(capabilities),
-            Self::ChatCompletions(_) | Self::Responses(_) => None,
+            Self::ChatCompletions(_) | Self::Responses(_) | Self::ImagesGenerations(_) => None,
         }
     }
 
@@ -695,7 +719,15 @@ impl UpstreamApiCapabilities {
         match self {
             Self::ChatCompletions(_) => None,
             Self::Responses(capabilities) => Some(capabilities),
-            Self::Embeddings(_) => None,
+            Self::Embeddings(_) | Self::ImagesGenerations(_) => None,
+        }
+    }
+
+    /// Returns the complete capability set when this is an Images Generations configuration.
+    pub const fn images_generations(self) -> Option<ImagesGenerationsCapabilities> {
+        match self {
+            Self::ImagesGenerations(capabilities) => Some(capabilities),
+            Self::ChatCompletions(_) | Self::Responses(_) | Self::Embeddings(_) => None,
         }
     }
 
@@ -704,7 +736,9 @@ impl UpstreamApiCapabilities {
         match self {
             Self::ChatCompletions(capabilities) => capabilities.reasoning_output,
             Self::Responses(capabilities) => capabilities.reasoning_output,
-            Self::Embeddings(_) => crate::core::ReasoningOutput::Unsupported,
+            Self::Embeddings(_) | Self::ImagesGenerations(_) => {
+                crate::core::ReasoningOutput::Unsupported
+            }
         }
     }
 
@@ -721,6 +755,10 @@ impl UpstreamApiCapabilities {
             Self::Embeddings(capabilities) => upper
                 .operation(OperationKind::EmbeddingsCreate)
                 .and_then(crate::core::ProviderOperationCapabilities::embeddings)
+                .is_some_and(|upper| capabilities.is_subset_of(upper)),
+            Self::ImagesGenerations(capabilities) => upper
+                .operation(OperationKind::ImagesGenerations)
+                .and_then(crate::core::ProviderOperationCapabilities::images_generations)
                 .is_some_and(|upper| capabilities.is_subset_of(upper)),
         }
     }

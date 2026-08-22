@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::{
     observability::ErrorType,
-    pipeline::{EmbeddingRequestError, RequestPlanningError},
+    pipeline::{EmbeddingRequestError, ImagesRequestError, RequestPlanningError},
     transport::upstream::{TransportError, UpstreamResponse},
 };
 
@@ -66,6 +66,16 @@ pub(super) fn embedding_request_error_type(error: &EmbeddingRequestError) -> Err
             ErrorType::UnsupportedCapability
         }
         EmbeddingRequestError::RouteUnavailable => ErrorType::ConfigurationError,
+    }
+}
+
+/// Maps one Images analysis/preflight error to the closed observability taxonomy.
+pub(super) fn images_request_error_type(error: &ImagesRequestError) -> ErrorType {
+    match error {
+        ImagesRequestError::InvalidRequest { .. } => ErrorType::InvalidRequest,
+        ImagesRequestError::ModelNotFound => ErrorType::UnknownModel,
+        ImagesRequestError::UnsupportedModelCapability { .. } => ErrorType::UnsupportedCapability,
+        ImagesRequestError::RouteUnavailable => ErrorType::ConfigurationError,
     }
 }
 
@@ -183,6 +193,69 @@ pub(super) fn embedding_request_too_large() -> Response {
         "The request body exceeds the configured limit",
         None,
     )
+}
+
+/// Maps Images analysis and preflight failures to the endpoint's exact public error matrix.
+pub(super) fn images_route_error(error: ImagesRequestError) -> Response {
+    match error {
+        ImagesRequestError::InvalidRequest { param } => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "The Images request is invalid",
+            param,
+        ),
+        ImagesRequestError::ModelNotFound => typed_api_error(
+            StatusCode::NOT_FOUND,
+            "invalid_request_error",
+            "model_not_found",
+            "The requested model does not exist or is not available",
+            Some("model"),
+        ),
+        ImagesRequestError::UnsupportedModelCapability { param } => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "unsupported_model_capability",
+            "The selected model does not support the requested Images capability",
+            Some(param),
+        ),
+        ImagesRequestError::RouteUnavailable => images_server_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "configuration_error",
+            "The configured Images route is unavailable",
+        ),
+    }
+}
+
+/// Builds the Images JSON-only media-type rejection before request analysis or egress.
+pub(super) fn images_unsupported_media_type() -> Response {
+    typed_api_error(
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "invalid_request_error",
+        "unsupported_media_type",
+        "Content-Type must be application/json",
+        None,
+    )
+}
+
+/// Builds the Images request hard-limit rejection before any upstream attempt.
+pub(super) fn images_request_too_large() -> Response {
+    typed_api_error(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "invalid_request_error",
+        "request_too_large",
+        "The request body exceeds the configured limit",
+        None,
+    )
+}
+
+/// Builds one endpoint-owned server error without an upstream body or internal topology.
+pub(super) fn images_server_error(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+) -> Response {
+    typed_api_error(status, "server_error", code, message, None)
 }
 
 /// Builds one endpoint-owned server error without an upstream body or internal topology.

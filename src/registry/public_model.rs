@@ -12,9 +12,9 @@ use crate::core::{
     EmbeddingInputForm, ExecutableAudioProfile, FileDetail, FileDetailProfile, FileInlineEncoding,
     FileMediaType, GeneratedAudioCapabilities, ImageDetail, ImageDetailPolicy,
     ImageInputCapabilities, ImageInputSource, ImageMediaType, ImageSourceCapabilities,
-    InlineAudioInputProfile, InlineImageInputProfile, JsonAudioFraming, ReasoningOutput,
-    RemoteAudioInputProfile, ResponseInclude, ResponsesCapabilities, ResponsesFileInputProfile,
-    SseAudioFraming, StructuredOutputProfile,
+    ImagesResponseFormat, ImagesSizeDomain, InlineAudioInputProfile, InlineImageInputProfile,
+    JsonAudioFraming, ReasoningOutput, RemoteAudioInputProfile, ResponseInclude,
+    ResponsesCapabilities, ResponsesFileInputProfile, SseAudioFraming, StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -101,6 +101,8 @@ pub enum ModelTask {
     TextGeneration,
     /// Embedding-vector generation.
     Embedding,
+    /// Image generation.
+    ImageGeneration,
     /// Speech audio transcription.
     SpeechRecognition,
     /// Ordinary text-to-speech synthesis.
@@ -117,6 +119,7 @@ impl ModelTask {
         match task {
             CanonicalTaskKind::Generation => vec![Self::Chat, Self::TextGeneration],
             CanonicalTaskKind::Embedding => vec![Self::Embedding],
+            CanonicalTaskKind::ImageGeneration => vec![Self::ImageGeneration],
             CanonicalTaskKind::SpeechRecognition => vec![Self::SpeechRecognition],
             CanonicalTaskKind::SpeechSynthesis => vec![Self::SpeechSynthesis],
             CanonicalTaskKind::VoiceDesign => vec![Self::VoiceDesign],
@@ -2037,12 +2040,67 @@ impl ModelInterfaceCapabilities {
     }
 }
 
+/// Unique fixed capability contract for the Images Generations operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ImagesInterfaceCapabilities {
+    max_outputs: u32,
+    default_outputs: u32,
+    allowed_sizes: Option<ImagesSizeDomain>,
+    default_response_format: ImagesResponseFormat,
+    allowed_response_formats: Option<Vec<ImagesResponseFormat>>,
+    supported_parameters: Vec<String>,
+}
+
+impl ImagesInterfaceCapabilities {
+    /// Resolves an omitted or explicit output count against the fixed domain.
+    pub(crate) fn resolve_outputs(&self, requested: Option<u32>) -> Option<u32> {
+        match requested {
+            None => Some(self.default_outputs),
+            Some(requested) if (1..=self.max_outputs).contains(&requested) => Some(requested),
+            Some(_) => None,
+        }
+    }
+
+    /// Returns whether one explicit `WxH` pair stays inside the fixed size domain.
+    pub(crate) fn supports_size(&self, width: u32, height: u32) -> bool {
+        self.allowed_sizes
+            .is_some_and(|domain| domain.contains(width, height))
+    }
+
+    /// Resolves an omitted or explicit response format against the fixed domain.
+    pub(crate) fn resolve_response_format(
+        &self,
+        requested: Option<ImagesResponseFormat>,
+    ) -> Option<ImagesResponseFormat> {
+        match requested {
+            None => Some(self.default_response_format),
+            Some(requested)
+                if self
+                    .allowed_response_formats
+                    .as_ref()
+                    .is_some_and(|allowed| allowed.contains(&requested)) =>
+            {
+                Some(requested)
+            }
+            Some(_) => None,
+        }
+    }
+
+    /// Returns whether this interface exposes an optional top-level request parameter.
+    pub(crate) fn supports_parameter(&self, parameter: &str) -> bool {
+        self.supported_parameters
+            .iter()
+            .any(|supported| supported == parameter)
+    }
+}
+
 /// Typed OpenAI-compatible operation contracts of a Public Model.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ModelInterfaces {
     chat_completions: Option<ModelInterfaceCapabilities>,
     responses: Option<ModelInterfaceCapabilities>,
     embeddings: Option<EmbeddingInterfaceCapabilities>,
+    images: Option<ImagesInterfaceCapabilities>,
 }
 
 /// Strict four-field projection of the standard OpenAI Models resource.

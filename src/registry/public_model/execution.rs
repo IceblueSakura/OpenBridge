@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use crate::core::{ApiProtocol, OperationKind, ReasoningOutput};
 
 use super::{
-    EmbeddingInterfaceCapabilities, ModelInterfaceCapabilities, ModelInterfaces, PublicModelInfo,
-    StandardModel,
+    EmbeddingInterfaceCapabilities, ImagesInterfaceCapabilities, ModelInterfaceCapabilities,
+    ModelInterfaces, PublicModelInfo, StandardModel,
 };
 use crate::registry::{
     CanonicalTaskKind, IgnorableGenerationParameter, ModelLifecycleStatus, RouteMode,
@@ -157,6 +157,8 @@ pub(super) enum OperationExecutionContract {
     Generation(Box<ModelInterfaceCapabilities>),
     /// Embeddings create contract.
     Embeddings(EmbeddingInterfaceCapabilities),
+    /// Images generations contract.
+    ImagesGenerations(Box<ImagesInterfaceCapabilities>),
 }
 
 impl OperationExecutionContract {
@@ -167,20 +169,28 @@ impl OperationExecutionContract {
                 Self::Generation(_),
                 OperationKind::ChatCompletions | OperationKind::Responses
             ) | (Self::Embeddings(_), OperationKind::EmbeddingsCreate)
+                | (Self::ImagesGenerations(_), OperationKind::ImagesGenerations)
         )
     }
 
     fn generation(&self) -> Option<&ModelInterfaceCapabilities> {
         match self {
             Self::Generation(capabilities) => Some(capabilities.as_ref()),
-            Self::Embeddings(_) => None,
+            Self::Embeddings(_) | Self::ImagesGenerations(_) => None,
         }
     }
 
     fn embeddings(&self) -> Option<&EmbeddingInterfaceCapabilities> {
         match self {
-            Self::Generation(_) => None,
+            Self::Generation(_) | Self::ImagesGenerations(_) => None,
             Self::Embeddings(capabilities) => Some(capabilities),
+        }
+    }
+
+    fn images(&self) -> Option<&ImagesInterfaceCapabilities> {
+        match self {
+            Self::Generation(_) | Self::Embeddings(_) => None,
+            Self::ImagesGenerations(capabilities) => Some(capabilities.as_ref()),
         }
     }
 }
@@ -200,6 +210,11 @@ pub(crate) enum OperationResponseBudget {
         /// Maximum successful JSON response body size.
         max_json_body_bytes: usize,
     },
+    /// Images Generations returns bounded JSON and never SSE.
+    ImagesGenerations {
+        /// Maximum successful JSON response body size.
+        max_json_body_bytes: usize,
+    },
 }
 
 impl OperationResponseBudget {
@@ -210,6 +225,10 @@ impl OperationResponseBudget {
                 Self::Generation { .. },
                 OperationKind::ChatCompletions | OperationKind::Responses
             ) | (Self::Embeddings { .. }, OperationKind::EmbeddingsCreate)
+                | (
+                    Self::ImagesGenerations { .. },
+                    OperationKind::ImagesGenerations
+                )
         )
     }
 
@@ -222,6 +241,9 @@ impl OperationResponseBudget {
             }
             | Self::Embeddings {
                 max_json_body_bytes,
+            }
+            | Self::ImagesGenerations {
+                max_json_body_bytes,
             } => max_json_body_bytes,
         }
     }
@@ -233,7 +255,7 @@ impl OperationResponseBudget {
                 max_sse_event_bytes,
                 ..
             } => Some(max_sse_event_bytes),
-            Self::Embeddings { .. } => None,
+            Self::Embeddings { .. } | Self::ImagesGenerations { .. } => None,
         }
     }
 }
@@ -270,6 +292,11 @@ impl ModelExecutionInterface {
     /// Returns the fixed Embeddings contract derived from this interface's single Native candidate.
     pub(crate) fn embedding_capabilities(&self) -> Option<&EmbeddingInterfaceCapabilities> {
         self.contract.embeddings()
+    }
+
+    /// Returns the fixed Images Generations contract derived from this interface's candidates.
+    pub(crate) fn images_capabilities(&self) -> Option<&ImagesInterfaceCapabilities> {
+        self.contract.images()
     }
 
     /// Returns the response limits compiled beside this operation contract.
@@ -369,6 +396,9 @@ impl ModelExecutionInterfaces {
             embeddings: self
                 .for_operation(OperationKind::EmbeddingsCreate)
                 .and_then(|interface| interface.contract.embeddings().cloned()),
+            images: self
+                .for_operation(OperationKind::ImagesGenerations)
+                .and_then(|interface| interface.contract.images().cloned()),
         }
     }
 }

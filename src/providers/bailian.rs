@@ -8,4 +8,4 @@ mod definition;
 mod registration;
 
 pub(crate) use definition::DEFINITION;
-pub(crate) use registration::{provider_instance, upstream_targets};
+pub(crate) use registration::{native_provider_instance, provider_instance, upstream_targets};

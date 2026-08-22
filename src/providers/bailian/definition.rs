@@ -5,7 +5,8 @@ use http::HeaderMap;
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, FunctionToolCapabilities, JsonSchemaSupport,
+        EmbeddingsCapabilities, FunctionToolCapabilities, ImagesGenerationsCapabilities,
+        ImagesResponseFormat, ImagesSizeDomain, JsonSchemaSupport,
         ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
         ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
     },
@@ -33,6 +34,21 @@ const FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
     choice_modes: ALL_TOOL_CHOICE_MODES,
     parallel_calls: true,
     strict_schema: false,
+};
+
+/// DashScope-native image generation ceiling confirmed for the qwen-image 3.0 family.
+const IMAGES_CAPABILITIES: ImagesGenerationsCapabilities = ImagesGenerationsCapabilities {
+    default_outputs: 1,
+    max_outputs: 6,
+    allowed_sizes: Some(ImagesSizeDomain {
+        minimum_side: 512,
+        maximum_side: 2_048,
+        minimum_area: 512 * 512,
+        maximum_area: 2_048 * 2_048,
+    }),
+    default_response_format: ImagesResponseFormat::Url,
+    allowed_response_formats: Some(&[ImagesResponseFormat::Url]),
+    supported_parameters: &["n", "response_format", "size", "user"],
 };
 
 /// Bounded Model Studio operation surface confirmed independently of any model-specific target.
@@ -99,7 +115,11 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             supported_parameters: EMBEDDING_PARAMETERS,
         },
     )),
-);
+)
+.with_images(Some(OpenAiCompatibleEndpoint::new(
+    "/services/aigc/multimodal-generation/generation",
+    IMAGES_CAPABILITIES,
+)));
 
 /// OpenAI-compatible generation and Embeddings wire profile used by the Model Studio Beijing endpoint.
 const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
@@ -108,7 +128,8 @@ const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
-.with_request_body_hook(transform_request_body);
+.with_request_body_hook(transform_request_body)
+.with_images_request_body_hook(transform_images_request_body);
 
 /// Single static descriptor for the Model Studio contract and adapter.
 pub(crate) static DEFINITION: ProviderDefinition = ProviderDefinition::new(
@@ -122,6 +143,52 @@ fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Converts one preflighted OpenAI Images request to the DashScope native multimodal-generation shape.
+fn transform_images_request_body(
+    document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    // Take the trusted non-blank prompt captured by strict request analysis.
+    let prompt = document
+        .remove("prompt")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or(AdapterError::InvalidRequestBody)?;
+
+    // Collect optional parameters that the fixed interface already validated.
+    let mut parameters = serde_json::Map::new();
+    if let Some(n) = document.remove("n") {
+        parameters.insert("n".to_owned(), n);
+    }
+    if let Some(size) = document
+        .remove("size")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        // DashScope uses `*` between width and height instead of the OpenAI `x` separator.
+        parameters.insert(
+            "size".to_owned(),
+            serde_json::Value::String(size.replace('x', "*")),
+        );
+    }
+    // `response_format` and `user` are never part of the DashScope native wire.
+    document.remove("response_format");
+    document.remove("user");
+
+    // Rebuild the trusted DashScope envelope; `user` and `response_format` never leave the gateway.
+    document.insert(
+        "input".to_owned(),
+        serde_json::json!({
+            "messages": [{
+                "role": "user",
+                "content": [{ "text": prompt }],
+            }]
+        }),
+    );
+    document.insert(
+        "parameters".to_owned(),
+        serde_json::Value::Object(parameters),
+    );
     Ok(())
 }
 

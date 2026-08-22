@@ -22,11 +22,14 @@ mod candidate;
 mod embedding_response;
 mod embeddings;
 mod execution;
+mod image_response;
+mod images;
 mod oauth;
 mod policy;
 mod response;
 
 pub(super) use embeddings::forward_embeddings_request;
+pub(super) use images::forward_images_request;
 
 use candidate::prepare_candidate;
 use execution::{
@@ -139,7 +142,7 @@ pub(super) async fn forward_request(
                 cooldown_skipped: candidate_skipped,
             } => {
                 if let Some(failure) = failure {
-                    last_http_failure = Some(failure);
+                    last_http_failure = Some(*failure);
                 }
                 cooldown_skipped |= candidate_skipped;
             }

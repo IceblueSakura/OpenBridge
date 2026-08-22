@@ -7,6 +7,7 @@ use http::Method;
 pub(crate) enum RequestKind {
     Generation,
     Embeddings,
+    Images,
     Models,
     Mcp,
 }
@@ -17,6 +18,7 @@ impl RequestKind {
         match (method, path) {
             (&Method::POST, "/v1/chat/completions" | "/v1/responses") => Some(Self::Generation),
             (&Method::POST, "/v1/embeddings") => Some(Self::Embeddings),
+            (&Method::POST, "/v1/images/generations") => Some(Self::Images),
             (&Method::GET, path)
                 if path == "/v1/models"
                     || path.starts_with("/v1/models/")
@@ -35,6 +37,7 @@ impl RequestKind {
         match self {
             Self::Generation => "generation",
             Self::Embeddings => "embeddings",
+            Self::Images => "images",
             Self::Models => "models",
             Self::Mcp => "mcp",
         }

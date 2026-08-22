@@ -16,10 +16,11 @@ pub use capability::{
     ExecutableResponsesState, FileDetail, FileDetailProfile, FileInlineEncoding, FileMediaType,
     FunctionToolCapabilities, GeneratedAudioCapabilities, HostedToolKind, ImageDetail,
     ImageDetailPolicy, ImageDetailProfile, ImageInputCapabilities, ImageInputSource,
-    ImageMediaType, ImageSourceCapabilities, InlineAudioInputLimits, InlineAudioInputProfile,
-    InlineFileInputLimits, InlineFileInputProfile, InlineImageInputLimits, InlineImageInputProfile,
-    JsonAudioDelivery, JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities,
-    ProviderAudioCeiling, ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
+    ImageMediaType, ImageSourceCapabilities, ImagesGenerationsCapabilities, ImagesResponseFormat,
+    ImagesSizeDomain, InlineAudioInputLimits, InlineAudioInputProfile, InlineFileInputLimits,
+    InlineFileInputProfile, InlineImageInputLimits, InlineImageInputProfile, JsonAudioDelivery,
+    JsonAudioFraming, JsonSchemaSupport, PresetVoiceCapabilities, ProviderAudioCeiling,
+    ProviderChatCompletionsCapabilities, ProviderOperationCapabilities,
     ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
     RemoteAudioInputProfile, RemoteImageInputLimits, ResponseInclude, ResponsesAffinity,
     ResponsesCapabilities, ResponsesFileInputProfile, ResponsesMediaProfile, ResponsesProfile,
@@ -31,5 +32,6 @@ pub(crate) use generation_parameter::{
     ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,
 };
 pub use request::{
-    ApiProtocol, ApiRequest, EmbeddingRequest, GenerationBridgeDirection, OperationKind,
+    ApiProtocol, ApiRequest, EmbeddingRequest, GenerationBridgeDirection, ImagesRequest,
+    OperationKind,
 };

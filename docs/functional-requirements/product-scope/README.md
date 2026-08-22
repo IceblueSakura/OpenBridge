@@ -85,13 +85,14 @@ ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3
 | `POST /v1/chat/completions` | 在所选 Public Model 的固定 Chat 契约内提供 JSON/SSE。 |
 | `POST /v1/responses` | 在所选 Public Model 的固定 Responses 契约内提供 JSON/SSE。 |
 | `POST /v1/embeddings` | 在独立 Embedding Public Model 契约内提供有界 JSON 向量结果。 |
+| `POST /v1/images/generations` | 在独立 Images Public Model 契约内提供文本到图像的同步 JSON URL 结果；不提供 edit/variation、异步任务或 b64_json。 |
 | `/mcp` | 按 [MCP 本地服务](../gateway-api/mcp.md)提供 dual-era Streamable HTTP 生命周期。 |
 
 ## 6. 暂不纳入产品承诺
 
 - image、file、audio、opaque reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、后台 job、跨 Provider/Target 迁移和 continuation ledger；
-- Responses WebSocket、Realtime、Files、Images、Videos、Conversations 等专用媒体或资源 API；
+- Responses WebSocket、Realtime、Files、Images edit/variation、Videos、Conversations 等专用媒体或资源 API；
 - ChatGPT 范围之外的 OAuth Provider、subscription 多账号池、账号级负载均衡、动态 credential 控制面、
   keyring 或远程 secret manager；
 - 动态权重、持久化或分布式健康、后台探测和多进程协调；

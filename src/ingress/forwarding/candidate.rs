@@ -91,7 +91,9 @@ pub(super) async fn prepare_candidate<'a>(
         .operation_adapter(upstream_api.operation())
     {
         Some(ProviderOperationAdapter::Generation(adapter)) => adapter,
-        Some(ProviderOperationAdapter::Embeddings(_)) | None => {
+        Some(ProviderOperationAdapter::Embeddings(_))
+        | Some(ProviderOperationAdapter::ImagesGenerations(_))
+        | None => {
             return Err(api_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration_error",

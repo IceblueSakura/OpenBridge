@@ -19,5 +19,6 @@ pub(crate) use contracts::{ProviderRequestHeaders, StaticRequestHeader};
 pub use definition::ProviderDefinition;
 pub use kind::{CredentialKind, ProviderContract, ProviderKind};
 pub use operation::{
-    EmbeddingsProviderAdapter, GenerationProviderAdapter, ProviderOperationAdapter,
+    EmbeddingsProviderAdapter, GenerationProviderAdapter, ImagesProviderAdapter,
+    ProviderOperationAdapter,
 };

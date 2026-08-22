@@ -372,6 +372,10 @@ pub(super) fn apply_model_rules(
             );
             profile.supported_parameters = supported_parameters;
         }
+        CanonicalModelTask::ImageGeneration(profile) => {
+            profile.context_length = context_length;
+            profile.supported_parameters = supported_parameters;
+        }
         CanonicalModelTask::SpeechRecognition(profile) => {
             profile.context_length = context_length;
             profile.supported_parameters = supported_parameters;

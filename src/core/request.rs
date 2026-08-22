@@ -22,11 +22,13 @@ pub enum OperationKind {
     Responses,
     /// Creates one or more embedding vectors.
     EmbeddingsCreate,
+    /// Creates one or more generated images.
+    ImagesGenerations,
 }
 
 impl OperationKind {
     /// Number of variants in the closed operation kernel.
-    pub(crate) const COUNT: usize = 3;
+    pub(crate) const COUNT: usize = 4;
 
     /// Returns the deterministic slot used by operation-indexed internal sets.
     pub(crate) const fn index(self) -> usize {
@@ -34,6 +36,7 @@ impl OperationKind {
             Self::ChatCompletions => 0,
             Self::Responses => 1,
             Self::EmbeddingsCreate => 2,
+            Self::ImagesGenerations => 3,
         }
     }
 
@@ -42,7 +45,7 @@ impl OperationKind {
         match self {
             Self::ChatCompletions => Some(ApiProtocol::ChatCompletions),
             Self::Responses => Some(ApiProtocol::Responses),
-            Self::EmbeddingsCreate => None,
+            Self::EmbeddingsCreate | Self::ImagesGenerations => None,
         }
     }
 
@@ -52,6 +55,7 @@ impl OperationKind {
             Self::ChatCompletions => "chat_completions",
             Self::Responses => "responses",
             Self::EmbeddingsCreate => "embeddings_create",
+            Self::ImagesGenerations => "images_generations",
         }
     }
 }
@@ -140,6 +144,27 @@ impl EmbeddingRequest {
     }
 
     /// Returns the original downstream JSON bytes before trusted model rewriting.
+    pub fn body(&self) -> &Bytes {
+        &self.body
+    }
+}
+
+/// Images Generations request that passed endpoint-specific analysis and fixed-interface preflight.
+///
+/// This type remains separate from [`ApiRequest`] because Images cannot enter the generation
+/// Protocol Bridge or inherit Chat/Responses semantics.
+#[derive(Clone, Debug)]
+pub struct ImagesRequest {
+    body: Bytes,
+}
+
+impl ImagesRequest {
+    /// Creates a preflighted Native Images request from its preserved JSON bytes.
+    pub(crate) fn new(body: Bytes) -> Self {
+        Self { body }
+    }
+
+    /// Returns the original downstream JSON bytes before trusted wire rewriting.
     pub fn body(&self) -> &Bytes {
         &self.body
     }

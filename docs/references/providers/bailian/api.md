@@ -9,6 +9,7 @@
 - [深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)
 - [文本生成模型 API 参考](https://help.aliyun.com/zh/model-studio/qwen-api-reference)
 - [OpenAI 兼容-Batch Chat](https://help.aliyun.com/zh/model-studio/openai-compatible-batch-chat)
+- [千问-图像生成与编辑 3.0](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)（2026-08-22 抓取）
 
 ## 协议面总览
 
@@ -61,6 +62,23 @@ Chat 请求地址：`POST {base_url}/chat/completions`。
   summary channel，不是 Chat `reasoning_content` 的 plain-text wire。
 - 官方资料对同一稳定 Qwen 模型在 Responses 中列出七档，在 Chat 中只提供开关 wire；资料没有说明这是两个不同 checkpoint，
   也没有证明 Chat 能区分七种强度。`thinking_budget` 仍不能作为额外离散档位的依据。
+
+### Qwen Image 3.0 图像生成（DashScope 原生）
+
+- qwen-image 系列图像生成**只支持 DashScope 原生接口，不支持 OpenAI compatible-mode**；与文本生成是两套 base。
+- 同步接口（推荐）：`POST {base_url}/api/v1/services/aigc/multimodal-generation/generation`，其中 base_url 为
+  `https://dashscope.aliyuncs.com`（旧域名）或 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com`（新专属域名）。
+  模型、endpoint 与 API key 必须属于同一地域，跨地域调用失败。
+- 认证：`Authorization: Bearer $DASHSCOPE_API_KEY`，`Content-Type: application/json`。
+- T2I 请求体：`model`（如 `qwen-image-3.0`）、`input.messages[0]` 为唯一 user message，其 `content` 至少含一个 `text`；
+  可选 `parameters`：`prompt_extend`（默认 true）、`prompt_extend_mode`（direct/agent）、`enable_thinking`（默认 true）、
+  `n`（1–6，默认 1）、`size`（格式 `宽*高`，T2I/I2I 像素面积 512*512–2048*2048，宽高比 1:8–8:1；未指定时模型自动推荐）、
+  `negative_prompt`、`seed`（[0, 2147483647]）、`watermark`（默认 false）。
+- 同步成功响应：`output.choices[].message.content[].image` 为 24 小时有效的临时图片 URL；任务数据超时自动清除，无永久
+  resource identity。`usage` 含输出宽高与图片数量，不返回 token。
+- 错误 envelope：`{request_id, code, message}`（如 `code: "InvalidApiKey"`），可出现在非 2xx 响应或 200 body 中，必须按
+  body `code` 字段而非仅 HTTP 状态判断业务失败。
+- 异步调用为同参数结构加 `X-DashScope-Async: enable`，返回 `task_id` 后另行轮询；endpoint 与同步不同。
 
 ## 证据边界
 

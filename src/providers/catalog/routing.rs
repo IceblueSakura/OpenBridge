@@ -6,7 +6,7 @@
 
 use crate::registry::{PublicModelConfig, RouteConfig};
 
-use super::{embeddings, public_models, route_compiler};
+use super::{embeddings, images, public_models, route_compiler};
 
 /// Aggregated Route and Public Model definitions used by the compiled catalog.
 pub(super) struct CompiledRouting {
@@ -30,6 +30,12 @@ pub(super) fn compiled_routing() -> CompiledRouting {
     for embedding in embeddings::compiled_registrations() {
         routing.routes.extend(embedding.routes);
         routing.public_models.push(embedding.public_model);
+    }
+
+    // Append each independent Images Generations registration after all Embeddings Public Models.
+    for images in images::compiled_registrations() {
+        routing.routes.extend(images.routes);
+        routing.public_models.push(images.public_model);
     }
     routing
 }

@@ -6,6 +6,7 @@
 
 mod embeddings;
 mod generation;
+mod images;
 
 pub use embeddings::{
     EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
@@ -29,6 +30,7 @@ pub use generation::{
     StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
     VoiceDesignProfile,
 };
+pub use images::{ImagesGenerationsCapabilities, ImagesResponseFormat, ImagesSizeDomain};
 
 /// One operation-tagged capability ceiling in a Provider contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,6 +41,8 @@ pub enum ProviderOperationCapabilities {
     Responses(&'static ProviderResponsesCapabilities),
     /// Embeddings Create ceiling.
     Embeddings(&'static EmbeddingsCapabilities),
+    /// Images Generations ceiling.
+    ImagesGenerations(&'static ImagesGenerationsCapabilities),
 }
 
 impl ProviderOperationCapabilities {
@@ -48,6 +52,7 @@ impl ProviderOperationCapabilities {
             Self::ChatCompletions(_) => crate::core::OperationKind::ChatCompletions,
             Self::Responses(_) => crate::core::OperationKind::Responses,
             Self::Embeddings(_) => crate::core::OperationKind::EmbeddingsCreate,
+            Self::ImagesGenerations(_) => crate::core::OperationKind::ImagesGenerations,
         }
     }
 
@@ -55,7 +60,7 @@ impl ProviderOperationCapabilities {
     pub const fn chat_completions(self) -> Option<ProviderChatCompletionsCapabilities> {
         match self {
             Self::ChatCompletions(capabilities) => Some(*capabilities),
-            Self::Responses(_) | Self::Embeddings(_) => None,
+            Self::Responses(_) | Self::Embeddings(_) | Self::ImagesGenerations(_) => None,
         }
     }
 
@@ -63,7 +68,7 @@ impl ProviderOperationCapabilities {
     pub const fn responses(self) -> Option<ProviderResponsesCapabilities> {
         match self {
             Self::Responses(capabilities) => Some(*capabilities),
-            Self::ChatCompletions(_) | Self::Embeddings(_) => None,
+            Self::ChatCompletions(_) | Self::Embeddings(_) | Self::ImagesGenerations(_) => None,
         }
     }
 
@@ -71,7 +76,15 @@ impl ProviderOperationCapabilities {
     pub const fn embeddings(self) -> Option<EmbeddingsCapabilities> {
         match self {
             Self::Embeddings(capabilities) => Some(*capabilities),
-            Self::ChatCompletions(_) | Self::Responses(_) => None,
+            Self::ChatCompletions(_) | Self::Responses(_) | Self::ImagesGenerations(_) => None,
+        }
+    }
+
+    /// Extracts an Images Generations ceiling.
+    pub const fn images_generations(self) -> Option<ImagesGenerationsCapabilities> {
+        match self {
+            Self::ImagesGenerations(capabilities) => Some(*capabilities),
+            Self::ChatCompletions(_) | Self::Responses(_) | Self::Embeddings(_) => None,
         }
     }
 }

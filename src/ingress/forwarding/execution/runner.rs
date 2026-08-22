@@ -98,7 +98,7 @@ pub(super) async fn run(
                         observation.record_fallback(attempt_failure.error_type, backoff);
                         AttemptCoordinator::wait_before_next_attempt(backoff).await;
                         return GenerationCandidateOutcome::NextCandidate {
-                            failure: Some(failure),
+                            failure: Some(Box::new(failure)),
                             cooldown_skipped: false,
                         };
                     }

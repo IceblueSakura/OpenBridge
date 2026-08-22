@@ -18,6 +18,7 @@ use crate::{
 use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "bailian";
+const NATIVE_PROVIDER_INSTANCE_ID: &str = "bailian-native";
 const CREDENTIAL_POOL_ID: &str = "bailian-primary";
 const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const QWEN3_7_PLUS_STRUCTURED_OUTPUTS: StructuredOutputProfile =
@@ -30,6 +31,15 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
         id: PROVIDER_INSTANCE_ID.to_owned(),
         kind: ProviderKind::Bailian,
         base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_owned(),
+    }
+}
+
+/// Builds the trusted DashScope-native Beijing deployment used by Images generation Targets.
+pub(crate) fn native_provider_instance() -> ProviderInstanceConfig {
+    ProviderInstanceConfig {
+        id: NATIVE_PROVIDER_INSTANCE_ID.to_owned(),
+        kind: ProviderKind::Bailian,
+        base_url: "https://dashscope.aliyuncs.com/api/v1".to_owned(),
     }
 }
 
@@ -60,17 +70,15 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "qwen3.8-max",
             ReasoningOutput::PlainText,
         ),
-        chat_target(
+        image_target(
             "bailian-qwen-image-3-0",
             qwen::qwen_image_3_0::ID,
             "qwen-image-3.0",
-            ReasoningOutput::Unknown,
         ),
-        chat_target(
+        image_target(
             "bailian-qwen-image-3-0-pro",
             qwen::qwen_image_3_0_pro::ID,
             "qwen-image-3.0-pro",
-            ReasoningOutput::Unknown,
         ),
         chat_target(
             "bailian-qwen3-5-livetranslate-flash-realtime",
@@ -233,5 +241,37 @@ fn chat_target(
         request_timeout: Duration::from_secs(120),
         enabled: true,
         upstream_apis,
+    }
+}
+
+/// Binds one image model to the DashScope-native multimodal-generation endpoint and credential pool.
+fn image_target(id: &str, canonical_model: &str, upstream_model: &str) -> UpstreamTargetConfig {
+    // Narrow the Provider Images ceiling exactly to the one trusted native operation.
+    let images_capabilities = DEFINITION
+        .contract()
+        .capabilities()
+        .operation(crate::core::OperationKind::ImagesGenerations)
+        .and_then(crate::core::ProviderOperationCapabilities::images_generations)
+        .expect("Bailian image targets require Images Generations capabilities");
+    UpstreamTargetConfig {
+        id: id.to_owned(),
+        provider_instance: NATIVE_PROVIDER_INSTANCE_ID.to_owned(),
+        canonical_model: canonical_model.to_owned(),
+        provider_model: ProviderKind::Bailian.routing_model_id(canonical_model),
+        credential_pool: CREDENTIAL_POOL_ID.to_owned(),
+        quota_scope: Some(CREDENTIAL_POOL_ID.to_owned()),
+        fault_domain: Some("bailian-native-api".to_owned()),
+        request_timeout: Duration::from_secs(180),
+        enabled: true,
+        upstream_apis: vec![UpstreamApiConfig {
+            key: UpstreamApiKey::new(
+                crate::core::OperationKind::ImagesGenerations,
+                CanonicalTaskKind::ImageGeneration,
+            ),
+            upstream_model: upstream_model.to_owned(),
+            model_rules: UpstreamApiModelRules::default(),
+            capabilities: UpstreamApiCapabilities::ImagesGenerations(images_capabilities),
+            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
+        }],
     }
 }
