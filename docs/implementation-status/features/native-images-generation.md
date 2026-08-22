@@ -4,14 +4,15 @@
 
 下游 `POST /v1/images/generations` 作为独立 Images operation 实现，当前只绑定 Bailian/DashScope `qwen-image-3.0` 与 `qwen-image-3.0-pro` 两个 Native target：
 
-- **下游契约**（OpenAI 兼容）：严格字段目录 `model`、`prompt`、`n`、`size`、`response_format`、`user`；未知顶层字段在 egress 前以 `invalid_request_error` 拒绝。
-- **请求转换**：OpenAI `{prompt, n, size, response_format}` 在 Provider adapter 内转换为 DashScope 原生
-  `{input: {messages: [{role: "user", content: [{text}]}]}, parameters: {n, size}}`；`size` 分隔符由 `x` 改写为 `*`，
-  `user` 与 `response_format` 不出网关。
-- **能力契约**：Provider ceiling `n` 1–6、size 每边 512–2048 且面积 512²–2048²、`response_format` 仅 `url`；
-  Public Model `interfaces.images` 投影为同源保守交集，preflight 解析 `n`/`size`/`response_format` 后固定。
-- **响应验证**：上游 DashScope envelope 在 commit 前完整校验——按 body `code` 字段识别业务错误、逐 choice 提取
-  非空 `image` URL、确认数量等于已解析 `n`、投影为 `{created, data: [{url}]}`；bounded JSON budget 内。
+- **下游合同（OpenAI-first）**：识别当前 OpenAI Images Create 标准字段；未知字段仍为 `invalid_request_error`，已知但 qwen 不支持的标准字段为字段级 `unsupported_model_capability`。OpenAI optional `null` 视为省略；qwen 支持 `size:"auto"`、固定 PNG 和 `stream:false`。
+- **DashScope extension**：兼容 OpenAI SDK `extra_body` 的顶层 `prompt_extend`、`prompt_extend_mode`、`enable_thinking`、
+  `negative_prompt`、`seed`、`watermark`；由 typed `DashScopeImagesCapabilities` 约束并投影到 `interfaces.images.dashscope_extensions`。
+- **请求转换**：OpenAI prompt/n/size 映射为 DashScope Native；`auto` size 省略，标准下游-only 字段不出网。DashScope 默认显式冻结为
+  prompt extension=true/direct、thinking=true、watermark=false，避免依赖上游默认漂移。
+- **能力契约**：Provider ceiling `n` 1–6、size 每边 512–2048 且面积 512²–2048²、`response_format:url`、
+  `output_format:png` 与 DashScope extension；Public Model 只在全部候选 extension profile 相等时公开扩展。
+- **响应验证**：上游 choice URL、`usage.output_image_count`、width、height 在 commit 前完整校验；成功投影为
+  `{created, data:[{url}], output_format:"png", size:"宽x高"}`，图片数量/尺寸进入独立 histogram 而非 token usage。
 - **执行边界**：单 candidate、无 Bridge、无 fallback、不自动 retry（图像生成请求可能已被计费）；`user` 仅参与
   严格目录校验，不出网。
 - **错误矩阵**：400 `invalid_request_error` / `unsupported_model_capability`、404 `model_not_found`、
@@ -20,9 +21,14 @@
 
 ## 证据
 
-- `tests/images_forwarding_contract.rs`（5 tests）：严格目录拒绝、b64_json 拒绝、size/n 超域 zero-egress、
-  OpenAI→DashScope wire 转换、数量不匹配 fail-closed、端到端 loopback。
+- `tests/images_forwarding_contract.rs`（10 tests）：OpenAI 标准字段分类/null/auto、known-but-unsupported zero-egress、
+  DashScope extension profile/default/dependency/wire、choice/usage 双重响应验证与实际 metadata 投影。
 - 2026-08-22 在本机 checkout 真实 DashScope 直连验证（loopback gateway，真实 `bailian-primary` credential）：
+  - OpenAI-first 请求同时使用 `n:null`、`size:"auto"`、`response_format:null`、`output_format:"png"`、`stream:false` 与
+    六个 DashScope extension，`qwen-image-3.0` → 200，返回一张 URL、`output_format:"png"`、实际 `size:"2048x2048"`，耗时约 31s；
+  - `quality:"high"`、`stream:true` 在约 10ms 内返回字段级 `unsupported_model_capability`；
+    `prompt_extend:false + enable_thinking:true` 返回字段级 `invalid_request_error`，均 zero egress；
+  - 扩展 Models 返回完整 `dashscope_extensions` typed defaults/domain，未暴露 Provider/Target/credential。
   - `qwen-image-3.0` T2I `1024x1024` n=1 → 200 `{created, data: [{url}]}`（24h 签名 URL），耗时约 44s；
   - n=2 → 200 两张 URL；
   - 未知字段 → 400；`b64_json` → 400 param=`response_format`；`size=4096x4096` → 400 param=`size`；

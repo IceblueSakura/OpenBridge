@@ -40,6 +40,9 @@ const DURATION_BOUNDARIES: &[f64] = &[
 const RATE_BOUNDARIES: &[f64] = &[
     0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1_000.0,
 ];
+const IMAGE_COUNT_BOUNDARIES: &[f64] = &[1.0, 2.0, 4.0, 6.0, 8.0, 10.0];
+const IMAGE_DIMENSION_BOUNDARIES: &[f64] =
+    &[256.0, 512.0, 768.0, 1_024.0, 1_536.0, 2_048.0, 4_096.0];
 
 /// Cloneable OpenTelemetry instrument handles used by one gateway process.
 #[derive(Clone)]
@@ -61,6 +64,9 @@ pub struct GatewayMetrics {
     provider_cache_read_tokens: Histogram<u64>,
     provider_cache_write_tokens: Histogram<u64>,
     provider_cache_requests: Counter<u64>,
+    images_output_count: Histogram<u64>,
+    images_output_width: Histogram<u64>,
+    images_output_height: Histogram<u64>,
 }
 
 /// Borrowed, already classified facts submitted by one downstream terminal.
@@ -180,6 +186,24 @@ impl GatewayMetrics {
             .with_unit("{token}/s")
             .with_boundaries(RATE_BOUNDARIES.to_vec())
             .build();
+        let images_output_count = meter
+            .u64_histogram("openbridge.images.output.count")
+            .with_description("Validated number of images returned by one Images request.")
+            .with_unit("{image}")
+            .with_boundaries(IMAGE_COUNT_BOUNDARIES.to_vec())
+            .build();
+        let images_output_width = meter
+            .u64_histogram("openbridge.images.output.width")
+            .with_description("Validated output image width in pixels.")
+            .with_unit("px")
+            .with_boundaries(IMAGE_DIMENSION_BOUNDARIES.to_vec())
+            .build();
+        let images_output_height = meter
+            .u64_histogram("openbridge.images.output.height")
+            .with_description("Validated output image height in pixels.")
+            .with_unit("px")
+            .with_boundaries(IMAGE_DIMENSION_BOUNDARIES.to_vec())
+            .build();
 
         Self {
             request_started,
@@ -199,6 +223,9 @@ impl GatewayMetrics {
             provider_cache_read_tokens,
             provider_cache_write_tokens,
             provider_cache_requests,
+            images_output_count,
+            images_output_width,
+            images_output_height,
         }
     }
 
@@ -211,6 +238,14 @@ impl GatewayMetrics {
                 request_kind.as_str(),
             )],
         );
+    }
+
+    /// Records validated Images usage without prompts, URLs, or token semantics.
+    pub(super) fn record_images_usage(&self, count: u64, width: u64, height: u64) {
+        let attributes = [KeyValue::new("gen_ai.operation.name", "images_generations")];
+        self.images_output_count.record(count, &attributes);
+        self.images_output_width.record(width, &attributes);
+        self.images_output_height.record(height, &attributes);
     }
 
     /// Records one downstream terminal and its elapsed lifecycle duration.

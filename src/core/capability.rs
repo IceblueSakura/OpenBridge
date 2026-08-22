@@ -30,7 +30,10 @@ pub use generation::{
     StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
     VoiceDesignProfile,
 };
-pub use images::{ImagesGenerationsCapabilities, ImagesResponseFormat, ImagesSizeDomain};
+pub use images::{
+    DashScopeImagesCapabilities, DashScopePromptExtendMode, ImagesGenerationsCapabilities,
+    ImagesOutputFormat, ImagesResponseFormat, ImagesSizeDomain,
+};
 
 /// One operation-tagged capability ceiling in a Provider contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

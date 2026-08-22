@@ -11,6 +11,8 @@
 
 ## 当前设计包
 
+- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：区分下游安全接受与
+  candidate 原生转发，定义该精确 hint 的条件转发/删除、opaque replay 边界和执行前验证矩阵。
 - [Operation 与多模态 capability 后续扩展](capability-operation-refactor/README.md)：只保留尚未实施的阶段 5B、
   通用测试/执行准备与后续决策门；已完成阶段不在设计包保存实施历史。
 

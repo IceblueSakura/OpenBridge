@@ -6,12 +6,14 @@
 Chat/Responses 图片输入和 Responses hosted tool 不在本文定义。
 
 - 官方来源：[Image generation](https://developers.openai.com/api/docs/guides/image-generation)、[Images API](https://developers.openai.com/api/reference/resources/images)
-- 原始资料复核日期：2026-08-04；本次结构整理未重新在线复核 model、size、quality、format 或 beta 状态。
+- 原始资料复核日期：2026-08-22；标准 Create 字段、response metadata 与 generation stream 在本焦点重新在线复核。
 
 ## 1. Request
 
-generation 常见为 JSON request。prompt、model、size、quality、format、background/streaming 等字段是否可用取决于 endpoint 与
-model/profile，不能从一个 model 推断到全部 Images model。
+generation 为 JSON request。当前标准字段包括 `model`、`prompt`、`n`、`size`、`quality`、`style`、
+`response_format`、`output_format`、`output_compression`、`background`、`moderation`、`stream`、`partial_images` 与 `user`。
+字段是否可用取决于 endpoint 与 model/profile，不能从一个 model 推断到全部 Images model；optional `null` 代表省略。
+Provider 私有扩展不是标准字段，gateway 必须显式建模，不能任意 passthrough。
 
 ## 2. Result
 

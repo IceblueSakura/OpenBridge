@@ -8,13 +8,14 @@ use serde::{Serialize, Serializer};
 
 use crate::core::{
     AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,
-    ChatCompletionsCapabilities, ChatFileInputProfile, EmbeddingDimensionDomain, EmbeddingEncoding,
-    EmbeddingInputForm, ExecutableAudioProfile, FileDetail, FileDetailProfile, FileInlineEncoding,
-    FileMediaType, GeneratedAudioCapabilities, ImageDetail, ImageDetailPolicy,
-    ImageInputCapabilities, ImageInputSource, ImageMediaType, ImageSourceCapabilities,
-    ImagesResponseFormat, ImagesSizeDomain, InlineAudioInputProfile, InlineImageInputProfile,
-    JsonAudioFraming, ReasoningOutput, RemoteAudioInputProfile, ResponseInclude,
-    ResponsesCapabilities, ResponsesFileInputProfile, SseAudioFraming, StructuredOutputProfile,
+    ChatCompletionsCapabilities, ChatFileInputProfile, DashScopeImagesCapabilities,
+    EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, ExecutableAudioProfile,
+    FileDetail, FileDetailProfile, FileInlineEncoding, FileMediaType, GeneratedAudioCapabilities,
+    ImageDetail, ImageDetailPolicy, ImageInputCapabilities, ImageInputSource, ImageMediaType,
+    ImageSourceCapabilities, ImagesResponseFormat, ImagesSizeDomain, InlineAudioInputProfile,
+    InlineImageInputProfile, JsonAudioFraming, ReasoningOutput, RemoteAudioInputProfile,
+    ResponseInclude, ResponsesCapabilities, ResponsesFileInputProfile, SseAudioFraming,
+    StructuredOutputProfile,
 };
 
 pub use crate::core::{StructuredOutputMode, ToolChoiceMode};
@@ -2049,9 +2050,15 @@ pub struct ImagesInterfaceCapabilities {
     default_response_format: ImagesResponseFormat,
     allowed_response_formats: Option<Vec<ImagesResponseFormat>>,
     supported_parameters: Vec<String>,
+    dashscope_extensions: Option<DashScopeImagesCapabilities>,
 }
 
 impl ImagesInterfaceCapabilities {
+    /// Returns the conservative DashScope extension profile when every candidate agrees.
+    pub(crate) const fn dashscope_extensions(&self) -> Option<DashScopeImagesCapabilities> {
+        self.dashscope_extensions
+    }
+
     /// Resolves an omitted or explicit output count against the fixed domain.
     pub(crate) fn resolve_outputs(&self, requested: Option<u32>) -> Option<u32> {
         match requested {

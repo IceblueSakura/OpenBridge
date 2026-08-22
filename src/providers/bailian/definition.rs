@@ -4,11 +4,12 @@ use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm,
-        EmbeddingsCapabilities, FunctionToolCapabilities, ImagesGenerationsCapabilities,
-        ImagesResponseFormat, ImagesSizeDomain, JsonSchemaSupport,
-        ProviderChatCompletionsCapabilities, ProviderResponsesCapabilities,
-        ProviderResponsesStateCeiling, ReasoningOutput, StructuredOutputProfile, ToolChoiceMode,
+        ALL_TOOL_CHOICE_MODES, DashScopeImagesCapabilities, DashScopePromptExtendMode,
+        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
+        FunctionToolCapabilities, ImagesGenerationsCapabilities, ImagesResponseFormat,
+        ImagesSizeDomain, JsonSchemaSupport, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -48,7 +49,19 @@ const IMAGES_CAPABILITIES: ImagesGenerationsCapabilities = ImagesGenerationsCapa
     }),
     default_response_format: ImagesResponseFormat::Url,
     allowed_response_formats: Some(&[ImagesResponseFormat::Url]),
-    supported_parameters: &["n", "response_format", "size", "user"],
+    supported_parameters: &["n", "output_format", "response_format", "size", "user"],
+    dashscope_extensions: Some(DashScopeImagesCapabilities {
+        default_prompt_extend: true,
+        prompt_extend_modes: &[
+            DashScopePromptExtendMode::Direct,
+            DashScopePromptExtendMode::Agent,
+        ],
+        default_prompt_extend_mode: DashScopePromptExtendMode::Direct,
+        default_enable_thinking: true,
+        negative_prompt: true,
+        maximum_seed: 2_147_483_647,
+        default_watermark: false,
+    }),
 };
 
 /// Bounded Model Studio operation surface confirmed independently of any model-specific target.
@@ -158,12 +171,13 @@ fn transform_images_request_body(
 
     // Collect optional parameters that the fixed interface already validated.
     let mut parameters = serde_json::Map::new();
-    if let Some(n) = document.remove("n") {
+    if let Some(n) = document.remove("n").filter(|value| !value.is_null()) {
         parameters.insert("n".to_owned(), n);
     }
     if let Some(size) = document
         .remove("size")
         .and_then(|value| value.as_str().map(str::to_owned))
+        && size != "auto"
     {
         // DashScope uses `*` between width and height instead of the OpenAI `x` separator.
         parameters.insert(
@@ -171,9 +185,62 @@ fn transform_images_request_body(
             serde_json::Value::String(size.replace('x', "*")),
         );
     }
-    // `response_format` and `user` are never part of the DashScope native wire.
-    document.remove("response_format");
-    document.remove("user");
+    // Resolve DashScope extension defaults explicitly so upstream default drift cannot change behavior.
+    let prompt_extend = document
+        .remove("prompt_extend")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    parameters.insert(
+        "prompt_extend".to_owned(),
+        serde_json::Value::Bool(prompt_extend),
+    );
+    if prompt_extend {
+        let prompt_extend_mode = document
+            .remove("prompt_extend_mode")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "direct".to_owned());
+        parameters.insert(
+            "prompt_extend_mode".to_owned(),
+            serde_json::Value::String(prompt_extend_mode),
+        );
+        let enable_thinking = document
+            .remove("enable_thinking")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
+        parameters.insert(
+            "enable_thinking".to_owned(),
+            serde_json::Value::Bool(enable_thinking),
+        );
+    } else {
+        document.remove("prompt_extend_mode");
+        document.remove("enable_thinking");
+    }
+    for extension in ["negative_prompt", "seed"] {
+        if let Some(value) = document.remove(extension).filter(|value| !value.is_null()) {
+            parameters.insert(extension.to_owned(), value);
+        }
+    }
+    let watermark = document
+        .remove("watermark")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    parameters.insert("watermark".to_owned(), serde_json::Value::Bool(watermark));
+
+    // Downstream-only OpenAI fields never enter the DashScope native wire.
+    for field in [
+        "background",
+        "moderation",
+        "output_compression",
+        "output_format",
+        "partial_images",
+        "quality",
+        "response_format",
+        "stream",
+        "style",
+        "user",
+    ] {
+        document.remove(field);
+    }
 
     // Rebuild the trusted DashScope envelope; `user` and `response_format` never leave the gateway.
     document.insert(

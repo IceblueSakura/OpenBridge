@@ -8,7 +8,8 @@
   Responses-via-Chat Bridge；Qwen3.7 Text Embedding 提供独立 Embeddings Native。
 - DeepSeek V4 Pro/Flash Target 是对应多 source Public Model 的 Chat 后备。
 - Qwen Image 3.0/Pro 现在通过独立 `bailian-native` instance（`https://dashscope.aliyuncs.com/api/v1`）绑定
-  DashScope 原生图像生成端点，并作为 Images Public Model 公开（`qwen-image-3.0`、`qwen-image-3.0-pro`）；
+  DashScope 原生图像生成端点，并作为 Images Public Model 公开（`qwen-image-3.0`、`qwen-image-3.0-pro`）；下游以
+  OpenAI Images 标准字段为主合同，并通过 typed `dashscope_extensions` 接受 prompt extension、negative prompt、seed、watermark；
   LiveTranslate 仍只有固定 Target，Qwen Audio ASR 仍只有 canonical Model，没有 executable Target。
 - Qwen3.7/3.8 的七档 reasoning、Qwen3.6 的 `none/high`、GLM 的 `none/high/xhigh` 与 DeepSeek 各自固定档位按模型级
   contract 公开；只有已确认的 Chat API 在 `none` 需要时转换为 `enable_thinking:false`。

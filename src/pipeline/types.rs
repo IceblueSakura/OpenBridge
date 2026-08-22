@@ -6,9 +6,10 @@ use crate::{
     bridge::BridgePlan,
     core::{
         ApiProtocol, ApiRequest, AsrLanguage, AudioFormat, AudioInputSource, ChatStreamUsage,
-        EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest, FileDetail, FileInlineEncoding,
-        FileMediaType, GenerationRequestField, ImageDetail, ImageInputSource, ImageMediaType,
-        ImagesRequest, ImagesResponseFormat, OperationKind, ResponseInclude, ToolChoiceMode,
+        DashScopePromptExtendMode, EmbeddingEncoding, EmbeddingInputForm, EmbeddingRequest,
+        FileDetail, FileInlineEncoding, FileMediaType, GenerationRequestField, ImageDetail,
+        ImageInputSource, ImageMediaType, ImagesOutputFormat, ImagesRequest, ImagesResponseFormat,
+        OperationKind, ResponseInclude, ToolChoiceMode,
     },
     registry::{OperationResponseBudget, ReasoningLevel, UpstreamApiKey},
 };
@@ -74,14 +75,82 @@ pub struct ImagesRequestRequirements {
     pub(super) requested_outputs: Option<u32>,
     pub(super) requested_size: Option<ImagesRequestedSize>,
     pub(super) requested_response_format: Option<ImagesResponseFormat>,
+    pub(super) requested_output_format: Option<ImagesOutputFormat>,
+    pub(super) requested_stream: Option<bool>,
+    pub(super) unsupported_standard_fields: Vec<ImagesUnsupportedStandardField>,
+    pub(super) dashscope: DashScopeImagesRequestRequirements,
     pub(super) user_present: bool,
 }
 
-/// One parsed OpenAI `WxH` size request with both dimensions in pixels.
+/// Frozen DashScope-only extension facts without retaining negative-prompt content.
+#[derive(Debug, Default)]
+pub(super) struct DashScopeImagesRequestRequirements {
+    pub(super) prompt_extend: Option<bool>,
+    pub(super) prompt_extend_mode: Option<DashScopePromptExtendMode>,
+    pub(super) enable_thinking: Option<bool>,
+    pub(super) negative_prompt_present: bool,
+    pub(super) seed: Option<u32>,
+    pub(super) watermark: Option<bool>,
+}
+
+impl DashScopeImagesRequestRequirements {
+    /// Returns the first present extension field for field-level capability errors.
+    pub(super) const fn first_present_parameter(&self) -> Option<&'static str> {
+        if self.prompt_extend.is_some() {
+            Some("prompt_extend")
+        } else if self.prompt_extend_mode.is_some() {
+            Some("prompt_extend_mode")
+        } else if self.enable_thinking.is_some() {
+            Some("enable_thinking")
+        } else if self.negative_prompt_present {
+            Some("negative_prompt")
+        } else if self.seed.is_some() {
+            Some("seed")
+        } else if self.watermark.is_some() {
+            Some("watermark")
+        } else {
+            None
+        }
+    }
+}
+
+/// Structurally valid OpenAI Images fields with no qwen execution semantics in this focus.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum ImagesUnsupportedStandardField {
+    Background,
+    Moderation,
+    OutputCompression,
+    PartialImages,
+    Quality,
+    Style,
+}
+
+impl ImagesUnsupportedStandardField {
+    /// Returns the exact downstream parameter name used in public errors.
+    pub(super) const fn parameter(self) -> &'static str {
+        match self {
+            Self::Background => "background",
+            Self::Moderation => "moderation",
+            Self::OutputCompression => "output_compression",
+            Self::PartialImages => "partial_images",
+            Self::Quality => "quality",
+            Self::Style => "style",
+        }
+    }
+}
+
+/// One parsed OpenAI size request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ImagesRequestedSize {
-    pub(super) width: u32,
-    pub(super) height: u32,
+pub enum ImagesRequestedSize {
+    /// Let the selected model choose an output size.
+    Auto,
+    /// Request exact positive pixel dimensions.
+    Exact {
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+    },
 }
 
 /// Single-candidate Native execution plan for an Images Generations request.
@@ -449,13 +518,19 @@ impl ImagesRequestRequirements {
 
 impl ImagesRequestedSize {
     /// Returns the width component in pixels.
-    pub fn width(&self) -> u32 {
-        self.width
+    pub fn width(&self) -> Option<u32> {
+        match self {
+            Self::Auto => None,
+            Self::Exact { width, .. } => Some(*width),
+        }
     }
 
     /// Returns the height component in pixels.
-    pub fn height(&self) -> u32 {
-        self.height
+    pub fn height(&self) -> Option<u32> {
+        match self {
+            Self::Auto => None,
+            Self::Exact { height, .. } => Some(*height),
+        }
     }
 }
 

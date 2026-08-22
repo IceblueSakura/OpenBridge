@@ -546,6 +546,11 @@ impl RequestObservation {
         });
     }
 
+    /// Records validated Images count and dimensions without assigning token semantics.
+    pub(crate) fn record_images_usage(&self, count: u64, width: u64, height: u64) {
+        self.inner.metrics.record_images_usage(count, width, height);
+    }
+
     /// Records the first non-empty chunk of the raw upstream body.
     pub(crate) fn record_upstream_chunk(&self, chunk: &bytes::Bytes) {
         // Claim the first byte once per Provider attempt and skip request locking for later chunks.

@@ -147,6 +147,11 @@ pub(super) fn aggregate_images_interface<'a>(
     .into_iter()
     .map(str::to_owned)
     .collect();
+    let dashscope_extensions = capabilities
+        .iter()
+        .all(|capability| capability.dashscope_extensions == first.dashscope_extensions)
+        .then_some(first.dashscope_extensions)
+        .flatten();
     Some(ImagesInterfaceCapabilities {
         max_outputs,
         default_outputs: first.default_outputs,
@@ -154,6 +159,7 @@ pub(super) fn aggregate_images_interface<'a>(
         default_response_format: first.default_response_format,
         allowed_response_formats,
         supported_parameters,
+        dashscope_extensions,
     })
 }
 

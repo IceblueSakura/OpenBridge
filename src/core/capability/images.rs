@@ -10,6 +10,77 @@
 pub enum ImagesResponseFormat {
     /// A short-lived Provider-hosted image URL.
     Url,
+    /// Base64-encoded image data in the JSON response.
+    B64Json,
+}
+
+/// Standard image containers exposed by the OpenAI Images contract.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImagesOutputFormat {
+    /// Portable Network Graphics.
+    Png,
+    /// Joint Photographic Experts Group image.
+    Jpeg,
+    /// WebP image.
+    Webp,
+}
+
+/// DashScope prompt-extension strategy accepted through OpenAI SDK `extra_body`.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DashScopePromptExtendMode {
+    /// Direct prompt optimization.
+    Direct,
+    /// Agent-guided prompt optimization.
+    Agent,
+}
+
+/// Typed DashScope-only Images extension ceiling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct DashScopeImagesCapabilities {
+    /// Stable provider default when `prompt_extend` is omitted.
+    pub default_prompt_extend: bool,
+    /// Accepted prompt-extension modes.
+    pub prompt_extend_modes: &'static [DashScopePromptExtendMode],
+    /// Stable provider default when the mode is omitted.
+    pub default_prompt_extend_mode: DashScopePromptExtendMode,
+    /// Stable provider default when `enable_thinking` is omitted.
+    pub default_enable_thinking: bool,
+    /// Whether a non-blank negative prompt is accepted.
+    pub negative_prompt: bool,
+    /// Largest accepted non-negative seed.
+    pub maximum_seed: u32,
+    /// Stable provider default when `watermark` is omitted.
+    pub default_watermark: bool,
+}
+
+impl DashScopeImagesCapabilities {
+    /// Validates extension defaults and closed domains.
+    fn validate(self) -> Result<(), &'static str> {
+        if !is_strictly_sorted(self.prompt_extend_modes)
+            || !self
+                .prompt_extend_modes
+                .contains(&self.default_prompt_extend_mode)
+        {
+            return Err("DashScope prompt_extend_modes must be ordered and contain the default");
+        }
+        Ok(())
+    }
+
+    /// Returns whether this extension contract stays inside an upper Provider ceiling.
+    fn is_subset_of(self, upper: Self) -> bool {
+        self.default_prompt_extend == upper.default_prompt_extend
+            && self.default_prompt_extend_mode == upper.default_prompt_extend_mode
+            && self.default_enable_thinking == upper.default_enable_thinking
+            && self.default_watermark == upper.default_watermark
+            && (!self.negative_prompt || upper.negative_prompt)
+            && self.maximum_seed <= upper.maximum_seed
+            && self
+                .prompt_extend_modes
+                .iter()
+                .all(|mode| upper.prompt_extend_modes.contains(mode))
+    }
 }
 
 /// Width or height bounds and pixel-area bounds accepted by the `size` request field.
@@ -103,8 +174,10 @@ pub struct ImagesGenerationsCapabilities {
     pub default_response_format: ImagesResponseFormat,
     /// Response formats clients may request explicitly; `None` forbids the request field.
     pub allowed_response_formats: Option<&'static [ImagesResponseFormat]>,
-    /// Optional top-level request parameters accepted by this API.
+    /// Optional top-level OpenAI request parameters accepted by this API.
     pub supported_parameters: &'static [&'static str],
+    /// Optional DashScope-only extension contract accepted through OpenAI SDK `extra_body`.
+    pub dashscope_extensions: Option<DashScopeImagesCapabilities>,
 }
 
 impl ImagesGenerationsCapabilities {
@@ -135,26 +208,22 @@ impl ImagesGenerationsCapabilities {
         }
 
         // Validate response-format sets contain the default and stay in the closed allowlist.
-        if let Some(formats) = self.allowed_response_formats {
-            if !is_strictly_sorted(formats) || !formats.contains(&self.default_response_format) {
-                return Err(
-                    "allowed_response_formats must be non-empty, unique, ordered, and contain the default",
-                );
-            }
-            if formats
-                .iter()
-                .any(|format| !matches!(format, ImagesResponseFormat::Url))
-            {
-                return Err("allowed_response_formats must stay in the closed format allowlist");
-            }
+        if let Some(formats) = self.allowed_response_formats
+            && (!is_strictly_sorted(formats) || !formats.contains(&self.default_response_format))
+        {
+            return Err(
+                "allowed_response_formats must be non-empty, unique, ordered, and contain the default",
+            );
         }
 
         // Keep the optional parameter set closed and consistent with explicit domains.
         if !is_sorted_unique_or_empty(self.supported_parameters)
-            || self
-                .supported_parameters
-                .iter()
-                .any(|parameter| !matches!(*parameter, "n" | "size" | "response_format" | "user"))
+            || self.supported_parameters.iter().any(|parameter| {
+                !matches!(
+                    *parameter,
+                    "n" | "output_format" | "size" | "response_format" | "user"
+                )
+            })
         {
             return Err("supported_parameters must be an ordered subset of the Images allowlist");
         }
@@ -165,6 +234,9 @@ impl ImagesGenerationsCapabilities {
             return Err(
                 "supported parameters must match the explicit size and response-format domains",
             );
+        }
+        if let Some(extensions) = self.dashscope_extensions {
+            extensions.validate()?;
         }
         Ok(())
     }
@@ -187,6 +259,15 @@ impl ImagesGenerationsCapabilities {
             })
         }) {
             return false;
+        }
+        match (self.dashscope_extensions, upper.dashscope_extensions) {
+            (Some(extensions), Some(upper_extensions))
+                if !extensions.is_subset_of(upper_extensions) =>
+            {
+                return false;
+            }
+            (Some(_), None) => return false,
+            _ => {}
         }
         match (self.allowed_sizes, upper.allowed_sizes) {
             (Some(domain), Some(upper_domain)) => domain.is_subset_of(upper_domain),

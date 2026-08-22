@@ -1,7 +1,7 @@
 //! Resolves and validates Images Generations facts against one immutable operation interface.
 
 use crate::{
-    core::{ImagesResponseFormat, OperationKind},
+    core::{ImagesOutputFormat, ImagesResponseFormat, OperationKind},
     registry::{ModelExecutionInterface, RuntimeRegistry},
 };
 
@@ -33,6 +33,39 @@ pub(super) fn preflight_public_model<'a>(
         .images_capabilities()
         .ok_or_else(|| ImagesRequestError::unsupported("model"))?;
 
+    // Structurally valid standard fields remain known even when this qwen profile cannot execute them.
+    if let Some(field) = requirements.unsupported_standard_fields.first() {
+        return Err(ImagesRequestError::unsupported(field.parameter()));
+    }
+
+    // DashScope extension fields require one explicit model-bound extension profile.
+    match capabilities.dashscope_extensions() {
+        None => {
+            if let Some(parameter) = requirements.dashscope.first_present_parameter() {
+                return Err(ImagesRequestError::unsupported(parameter));
+            }
+        }
+        Some(extensions) => {
+            if requirements
+                .dashscope
+                .prompt_extend_mode
+                .is_some_and(|mode| !extensions.prompt_extend_modes.contains(&mode))
+            {
+                return Err(ImagesRequestError::unsupported("prompt_extend_mode"));
+            }
+            if requirements.dashscope.negative_prompt_present && !extensions.negative_prompt {
+                return Err(ImagesRequestError::unsupported("negative_prompt"));
+            }
+            if requirements
+                .dashscope
+                .seed
+                .is_some_and(|seed| seed > extensions.maximum_seed)
+            {
+                return Err(ImagesRequestError::unsupported("seed"));
+            }
+        }
+    }
+
     // Validate ownership of each optional standard field before resolving its domain.
     if requirements.requested_outputs.is_some() && !capabilities.supports_parameter("n") {
         return Err(ImagesRequestError::unsupported("n"));
@@ -45,6 +78,15 @@ pub(super) fn preflight_public_model<'a>(
     {
         return Err(ImagesRequestError::unsupported("response_format"));
     }
+    if let Some(output_format) = requirements.requested_output_format
+        && (!capabilities.supports_parameter("output_format")
+            || output_format != ImagesOutputFormat::Png)
+    {
+        return Err(ImagesRequestError::unsupported("output_format"));
+    }
+    if requirements.requested_stream == Some(true) {
+        return Err(ImagesRequestError::unsupported("stream"));
+    }
     if requirements.user_present && !capabilities.supports_parameter("user") {
         return Err(ImagesRequestError::unsupported("user"));
     }
@@ -53,8 +95,8 @@ pub(super) fn preflight_public_model<'a>(
     let outputs = capabilities
         .resolve_outputs(requirements.requested_outputs)
         .ok_or_else(|| ImagesRequestError::unsupported("n"))?;
-    if let Some(requested) = requirements.requested_size
-        && !capabilities.supports_size(requested.width(), requested.height())
+    if let Some(ImagesRequestedSize::Exact { width, height }) = requirements.requested_size
+        && !capabilities.supports_size(width, height)
     {
         return Err(ImagesRequestError::unsupported("size"));
     }

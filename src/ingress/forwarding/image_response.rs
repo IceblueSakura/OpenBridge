@@ -42,6 +42,8 @@ pub(super) async fn validated_images_response(
         response_format,
         max_body_bytes,
     )?;
+    let (image_count, output_width, output_height) = validated.image_usage();
+    observation.record_images_usage(image_count, output_width, output_height);
 
     // Commit the fully validated, bounded JSON response with only allowlisted upstream headers.
     let mut response = Response::builder()

@@ -113,7 +113,19 @@ fn images_capabilities() -> ImagesGenerationsCapabilities {
         }),
         default_response_format: ImagesResponseFormat::Url,
         allowed_response_formats: Some(&[ImagesResponseFormat::Url]),
-        supported_parameters: &["n", "response_format", "size", "user"],
+        supported_parameters: &["n", "output_format", "response_format", "size", "user"],
+        dashscope_extensions: Some(openbridge::core::DashScopeImagesCapabilities {
+            default_prompt_extend: true,
+            prompt_extend_modes: &[
+                openbridge::core::DashScopePromptExtendMode::Direct,
+                openbridge::core::DashScopePromptExtendMode::Agent,
+            ],
+            default_prompt_extend_mode: openbridge::core::DashScopePromptExtendMode::Direct,
+            default_enable_thinking: true,
+            negative_prompt: true,
+            maximum_seed: 2_147_483_647,
+            default_watermark: false,
+        }),
     }
 }
 
@@ -163,7 +175,11 @@ fn dashscope_success(url: &str, count: usize) -> UpstreamResponse {
                 "message": { "role": "assistant", "content": content },
             }],
         },
-        "usage": { "output_image_count": count },
+        "usage": {
+            "output_image_count": count,
+            "output_width": 1024,
+            "output_height": 1024
+        },
         "request_id": "synthetic-request-id",
     }))
     .expect("dashscope response is serializable");
@@ -197,9 +213,9 @@ fn downstream_request(body: Value) -> Request<Body> {
 }
 
 #[test]
-fn strict_analysis_rejects_unknown_fields_and_b64_json() {
+fn strict_analysis_distinguishes_unknown_fields_from_known_standard_fields() {
     // Unknown top-level fields are rejected before egress with a stable classification.
-    let unknown = json!({ "model": "synthetic-image", "prompt": "a cat", "quality": "hd" });
+    let unknown = json!({ "model": "synthetic-image", "prompt": "a cat", "provider_magic": true });
     let error = analyze_images_request(&Bytes::from(serde_json::to_vec(&unknown).unwrap()))
         .expect_err("unknown field must be rejected");
     assert!(matches!(
@@ -207,17 +223,14 @@ fn strict_analysis_rejects_unknown_fields_and_b64_json() {
         openbridge::pipeline::ImagesRequestError::InvalidRequest { .. }
     ));
 
-    // b64_json is a closed-format rejection in the first Images contract.
-    let b64 =
-        json!({ "model": "synthetic-image", "prompt": "a cat", "response_format": "b64_json" });
-    let error = analyze_images_request(&Bytes::from(serde_json::to_vec(&b64).unwrap()))
-        .expect_err("b64_json must be rejected");
-    assert!(matches!(
-        error,
-        openbridge::pipeline::ImagesRequestError::InvalidRequest {
-            param: Some("response_format")
-        }
-    ));
+    // Known OpenAI fields parse structurally; model-bound preflight owns support rejection.
+    for known in [
+        json!({ "model": "synthetic-image", "prompt": "a cat", "quality": "hd" }),
+        json!({ "model": "synthetic-image", "prompt": "a cat", "response_format": "b64_json" }),
+    ] {
+        analyze_images_request(&Bytes::from(serde_json::to_vec(&known).unwrap()))
+            .expect("known standard field must parse before preflight");
+    }
 
     // A valid minimal request parses without complaint.
     let valid = json!({ "model": "synthetic-image", "prompt": "a cat" });
@@ -225,6 +238,43 @@ fn strict_analysis_rejects_unknown_fields_and_b64_json() {
         .expect("minimal request parses");
     assert_eq!(requirements.public_model(), "synthetic-image");
     assert_eq!(requirements.prompt_length(), 5);
+}
+
+#[tokio::test]
+async fn known_but_unsupported_standard_fields_fail_with_field_level_zero_egress() {
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::new()),
+    });
+    let (router, _) = images_router(transport.clone());
+
+    for (field, value) in [
+        ("background", json!("transparent")),
+        ("moderation", json!("auto")),
+        ("output_compression", json!(80)),
+        ("partial_images", json!(1)),
+        ("quality", json!("high")),
+        ("style", json!("vivid")),
+        ("response_format", json!("b64_json")),
+        ("output_format", json!("webp")),
+        ("stream", json!(true)),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(downstream_request(json!({
+                "model": "synthetic-image",
+                "prompt": "a cat",
+                field: value,
+            })))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{field}");
+        let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], field);
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -296,6 +346,8 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
     let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
     let downstream: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(downstream["data"].as_array().unwrap().len(), 2);
+    assert_eq!(downstream["output_format"], "png");
+    assert_eq!(downstream["size"], "1024x1024");
     assert_eq!(
         downstream["data"][0]["url"],
         "https://dashscope-result.example.com/image.png"
@@ -304,6 +356,171 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
         downstream["data"][1]["url"],
         "https://dashscope-result.example.com/image.png"
     );
+}
+
+#[tokio::test]
+async fn standard_omitted_equivalents_and_fixed_png_contract_reach_the_native_route() {
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([dashscope_success(
+            "https://dashscope-result.example.com/image.png",
+            1,
+        )])),
+    });
+    let (router, _) = images_router(transport.clone());
+
+    // OpenAI optional nulls are omission-equivalent; auto size and non-streaming PNG have exact
+    // qwen semantics and must not leak as DashScope-native parameters.
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat",
+            "n": null,
+            "size": "auto",
+            "response_format": null,
+            "user": null,
+            "output_format": "png",
+            "stream": false,
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let recorded = transport.requests.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    let request = &recorded[0].body;
+    assert!(request["parameters"].get("n").is_none());
+    assert!(request["parameters"].get("size").is_none());
+    for downstream_only in ["response_format", "user", "output_format", "stream"] {
+        assert!(request.get(downstream_only).is_none());
+    }
+}
+
+#[tokio::test]
+async fn dashscope_extensions_are_validated_and_mapped_through_extra_body_shape() {
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([dashscope_success(
+            "https://dashscope-result.example.com/image.png",
+            1,
+        )])),
+    });
+    let (router, _) = images_router(transport.clone());
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat",
+            "prompt_extend": true,
+            "prompt_extend_mode": "agent",
+            "enable_thinking": false,
+            "negative_prompt": "text, watermark",
+            "seed": 42,
+            "watermark": true,
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let recorded = transport.requests.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].body["parameters"]["prompt_extend"], true);
+    assert_eq!(
+        recorded[0].body["parameters"]["prompt_extend_mode"],
+        "agent"
+    );
+    assert_eq!(recorded[0].body["parameters"]["enable_thinking"], false);
+    assert_eq!(
+        recorded[0].body["parameters"]["negative_prompt"],
+        "text, watermark"
+    );
+    assert_eq!(recorded[0].body["parameters"]["seed"], 42);
+    assert_eq!(recorded[0].body["parameters"]["watermark"], true);
+}
+
+#[tokio::test]
+async fn dashscope_defaults_are_frozen_and_conflicting_extension_fields_fail_before_egress() {
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([dashscope_success(
+            "https://dashscope-result.example.com/image.png",
+            1,
+        )])),
+    });
+    let (router, _) = images_router(transport.clone());
+
+    // Omitted extension fields use explicit, reviewed qwen defaults rather than upstream drift.
+    let response = router
+        .clone()
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    {
+        let recorded = transport.requests.lock().unwrap();
+        let parameters = &recorded[0].body["parameters"];
+        assert_eq!(parameters["prompt_extend"], true);
+        assert_eq!(parameters["prompt_extend_mode"], "direct");
+        assert_eq!(parameters["enable_thinking"], true);
+        assert_eq!(parameters["watermark"], false);
+    }
+
+    // Explicitly disabling extension conflicts with mode/thinking children and never reaches egress.
+    for (field, value) in [
+        ("prompt_extend_mode", json!("agent")),
+        ("enable_thinking", json!(false)),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(downstream_request(json!({
+                "model": "synthetic-image",
+                "prompt": "a cat",
+                "prompt_extend": false,
+                field: value,
+            })))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_request_error");
+        assert_eq!(error["error"]["param"], field);
+    }
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn dashscope_extensions_require_a_model_bound_extension_profile() {
+    let mut definition = images_definition();
+    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    else {
+        panic!("synthetic Images target must own Images capabilities");
+    };
+    capabilities.dashscope_extensions = None;
+    let registry = build_registry(
+        parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses"),
+        definition,
+    )
+    .expect("registry without extensions remains valid");
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "model": "synthetic-image",
+            "prompt": "a cat",
+            "seed": 42
+        }))
+        .unwrap(),
+    );
+    let requirements = analyze_images_request(&body).expect("extension field parses structurally");
+    let error = plan_images_request(&registry, &requirements, body)
+        .expect_err("missing extension profile must fail preflight");
+    assert!(matches!(
+        error,
+        openbridge::pipeline::ImagesRequestError::UnsupportedModelCapability { param: "seed" }
+    ));
 }
 
 #[tokio::test]

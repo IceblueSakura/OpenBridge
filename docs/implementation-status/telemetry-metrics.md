@@ -34,7 +34,9 @@ cumulative Counter/Histogram、固定周期 reader 与 attribute-set overflow；
 - `openbridge.routing.events` Counter，使用固定 event/reason；request terminal 另带
   `openbridge.request.recovery = none | retry | credential_rotation | fallback | multiple`；
 - `gen_ai.client.token.usage` 的 input/output，以及 cached/cache-write/reasoning-output token histograms 和 cache
-  hit/miss Counter。total token 仅保留在明确 trace usage 中，不设置重复 metric。
+  hit/miss Counter。total token 仅保留在明确 trace usage 中，不设置重复 metric；
+- `openbridge.images.output.count`、`openbridge.images.output.width`、`openbridge.images.output.height` 只记录已验证
+  Images success 的图片数量和像素尺寸；不混入 token usage，也不带 prompt、URL 或 user attribute。
 
 不存在 request/attempt completed、failure 或 active instrument。terminal/failure 由对应 duration histogram 的
 count/outcome 得到；当前 cumulative temporality 下，active 由 `started - terminal_duration_count` 得到。

@@ -7,7 +7,7 @@ use http::{HeaderMap, header::CONTENT_TYPE};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::core::ImagesResponseFormat;
+use crate::core::{ImagesOutputFormat, ImagesResponseFormat};
 
 /// Fail-closed marker for any bounded Images response contract violation.
 #[derive(Debug)]
@@ -16,9 +16,17 @@ pub(crate) struct ImagesResponseError;
 /// Fully validated downstream body projected before commit.
 pub(crate) struct ValidatedImagesResponse {
     body: Vec<u8>,
+    image_count: u64,
+    output_width: u64,
+    output_height: u64,
 }
 
 impl ValidatedImagesResponse {
+    /// Returns validated, non-token image usage for low-cardinality metrics.
+    pub(crate) const fn image_usage(&self) -> (u64, u64, u64) {
+        (self.image_count, self.output_width, self.output_height)
+    }
+
     /// Consumes the validation result and returns the projected downstream JSON body.
     pub(crate) fn into_body(self) -> Vec<u8> {
         self.body
@@ -29,6 +37,8 @@ impl ValidatedImagesResponse {
 struct ImagesResponseBody {
     created: u64,
     data: Vec<ImagesData>,
+    output_format: ImagesOutputFormat,
+    size: String,
 }
 
 #[derive(Serialize)]
@@ -98,16 +108,44 @@ pub(crate) fn validate_images_response_body(
     if image_count != expected_outputs || response_format != ImagesResponseFormat::Url {
         return Err(ImagesResponseError);
     }
+    let usage = document
+        .get("usage")
+        .and_then(Value::as_object)
+        .ok_or(ImagesResponseError)?;
+    let reported_count = usage
+        .get("output_image_count")
+        .and_then(Value::as_u64)
+        .ok_or(ImagesResponseError)?;
+    let output_width = usage
+        .get("output_width")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or(ImagesResponseError)?;
+    let output_height = usage
+        .get("output_height")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or(ImagesResponseError)?;
+    if reported_count != u64::from(image_count) {
+        return Err(ImagesResponseError);
+    }
     let response = ImagesResponseBody {
         created: unix_timestamp(),
         data: urls.into_iter().map(|url| ImagesData { url }).collect(),
+        output_format: ImagesOutputFormat::Png,
+        size: format!("{output_width}x{output_height}"),
     };
     let projected = serde_json::to_vec(&response).map_err(|_| ImagesResponseError)?;
     if projected.len() > max_body_bytes {
         return Err(ImagesResponseError);
     }
     let _ = public_model;
-    Ok(ValidatedImagesResponse { body: projected })
+    Ok(ValidatedImagesResponse {
+        body: projected,
+        image_count: reported_count,
+        output_width,
+        output_height,
+    })
 }
 
 /// Returns the current unix timestamp in seconds without external clock dependency.
