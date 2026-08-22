@@ -221,7 +221,11 @@ mod tests {
         routing::{any, get},
     };
     use bytes::Bytes;
-    use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header::LOCATION};
+    use futures_util::{StreamExt, stream};
+    use http::{
+        HeaderMap, HeaderValue, Method, StatusCode, Uri,
+        header::{CONTENT_TYPE, LOCATION},
+    };
     use tokio::net::TcpListener;
     use url::Url;
 
@@ -256,6 +260,23 @@ mod tests {
     async fn never_respond() -> &'static str {
         pending::<()>().await;
         "unreachable"
+    }
+
+    async fn paced_responses_sse() -> Response {
+        // Emit each complete event within the target timeout while the full lifecycle exceeds it.
+        let chunks = [
+            Bytes::from_static(b"event: response.created\ndata: {}\n\n"),
+            Bytes::from_static(b"event: response.output_text.delta\ndata: {\"delta\":\"ok\"}\n\n"),
+            Bytes::from_static(b"event: response.completed\ndata: {}\n\n"),
+        ];
+        let body = Body::from_stream(stream::iter(chunks).then(|chunk| async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok::<_, std::io::Error>(chunk)
+        }));
+        Response::builder()
+            .header(CONTENT_TYPE, "text/event-stream")
+            .body(body)
+            .unwrap()
     }
 
     #[test]
@@ -437,6 +458,37 @@ mod tests {
             .expect("the pending endpoint must reach the target timeout");
 
         assert!(matches!(error, TransportError::Timeout));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn streaming_response_can_make_progress_beyond_the_request_timeout() {
+        // Keep every event gap below the timeout while the complete stream lifetime exceeds it.
+        let app = Router::new().route("/responses", any(paced_responses_sse));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let request = UpstreamRequest::new(
+            Url::parse(&format!("http://{address}/responses")).unwrap(),
+            Method::POST,
+            HeaderMap::new(),
+            Bytes::new(),
+            Duration::from_millis(250),
+        );
+
+        let response = client.send_request(request).await.unwrap();
+        let body = to_bytes(response.into_body(), 4096)
+            .await
+            .expect("an active SSE lifecycle must outlive the ordinary request timeout");
+
+        assert_eq!(
+            body,
+            Bytes::from_static(
+                b"event: response.created\ndata: {}\n\nevent: response.output_text.delta\ndata: {\"delta\":\"ok\"}\n\nevent: response.completed\ndata: {}\n\n"
+            )
+        );
         server.abort();
     }
 
