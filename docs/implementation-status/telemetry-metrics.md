@@ -78,8 +78,7 @@ OTLP trace layer。
 - `cargo clippy --locked -- -D warnings`：通过；
 - `git diff --check`：通过。
 
-全局 `cargo fmt -- --check` 仍会报告两个未由本轮修改的既存文件
-`src/providers/developer/openai/gpt_5_6_luna.rs` 与 `src/providers/developer/openai/gpt_5_6_terra.rs`；本轮未吸收该无关格式清理。
+全局 `cargo fmt -- --check` 现已通过；此前的两个既存格式例外文件已随 provider/model 重构收口，不再是全局格式例外。
 
 ## 未证明范围
 
