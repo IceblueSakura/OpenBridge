@@ -20,6 +20,11 @@ OpenBridge 是严格、固定契约、fail-closed 的多 Provider OpenAI-compati
 }
 ```
 
+相关 P1 设计：
+
+- [`Generation capability 错误定位设计`](generation-capability-error-diagnostics.md)定义 unsupported 请求在保留严格门禁时如何返回字段级错误；
+- [`Responses 流提前终止与 timeout 边界设计`](responses-stream-premature-termination-and-timeouts.md)独立处理 streaming total deadline、EOF 和 commit 后失败，不与 include capability 混合。
+
 ## 2. 已决定边界
 
 以下是当前产品决定，不是从 Provider capability 自动推导出的实现事实：

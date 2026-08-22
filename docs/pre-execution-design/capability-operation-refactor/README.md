@@ -1,16 +1,18 @@
-# Operation 与多模态 capability 后续扩展
+# Operation 与多模态 capability 剩余收口
 
-> **状态：保留的未完成执行前设计，不构成继续实施授权。** 阶段 0–5A 已完成，不在本包保留实施历史；当前事实以 implementation status 与 live source 为准。
+> **状态：保留的未完成执行前设计，不构成继续实施授权。** 阶段 0–5B 的功能切片已完成，不在本包保留实施历史；当前事实以 implementation status 与 live source 为准。
 
 ## 保留范围
 
-本包只保留尚未实施的阶段 5B 及其后续决策：
+本包只保留首个真实 operation 落地后仍未关闭的证明、清理与后续决策：
 
-1. [阶段 5B：首个真实新 operation 与 legacy 收口](07-stage-5-proof-and-cleanup.md)
+1. [剩余执行证明与 legacy 收口](07-remaining-proof-and-cleanup.md)
 2. [测试、证据与执行准备](08-testing-evidence-and-readiness.md)
 3. [后续决策门](09-open-questions.md)
 
-阶段 5A typed file input 的当前实现见[Native 文件输入](../../implementation-status/features/native-file-input.md)，不再作为待执行计划保存。
+阶段 5A typed file input 与阶段 5B Native Images Generations 的当前实现分别见
+[Native 文件输入](../../implementation-status/features/native-file-input.md)和
+[Native Images 生成](../../implementation-status/features/native-images-generation.md)，不再作为待执行计划保存。
 
 ## 固定边界
 

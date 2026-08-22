@@ -11,9 +11,14 @@
 
 ## 当前设计包
 
-- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：区分下游安全接受与
-  candidate 原生转发，定义该精确 hint 的条件转发/删除、opaque replay 边界和执行前验证矩阵。
-- [Operation 与多模态 capability 后续扩展](capability-operation-refactor/README.md)：只保留尚未实施的阶段 5B、
-  通用测试/执行准备与后续决策门；已完成阶段不在设计包保存实施历史。
+- P1：Hermes/OpenBridge Generation 兼容性与可靠性
+  - [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：保留 fail-closed 与零 egress，
+    将泛化 capability 400 收敛为确定性的字段级错误。
+  - [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：区分下游安全接受与
+    candidate 原生转发，定义该精确 hint 的条件转发/删除、opaque replay 边界和执行前验证矩阵。
+  - [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：记录 120 秒 total deadline、
+    incomplete chunked read、precommit/commit 生命周期、EOF 与可观测性边界。
+- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：只保留 Native Images 落地后尚未关闭的
+  执行证明、legacy 清理、通用测试/执行准备与后续决策门；已完成阶段不在设计包保存实施历史。
 
 只有在用户明确要求时才新增、替换或删除本目录的设计包。过时包必须标明状态或删除，不能与 live implementation status 并列作为事实来源。

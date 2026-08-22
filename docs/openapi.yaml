@@ -26,6 +26,8 @@ tags:
     description: Responses-compatible endpoints
   - name: embeddings
     description: JSON-only Embeddings Create endpoint
+  - name: images
+    description: JSON-only Images Generations endpoint
 paths:
   /healthz:
     get:

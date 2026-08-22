@@ -16,7 +16,8 @@
 - **执行边界**：单 candidate、无 Bridge、无 fallback、不自动 retry（图像生成请求可能已被计费）；`user` 仅参与
   严格目录校验，不出网。
 - **错误矩阵**：400 `invalid_request_error` / `unsupported_model_capability`、404 `model_not_found`、
-  413 `request_too_large`、415 `unsupported_media_type`、5xx `upstream_error`/`upstream_timeout`/`configuration_error`。
+  413 `request_too_large`、415 `unsupported_media_type`、500 `configuration_error`；非成功上游状态保留 status 但统一脱敏为
+  `upstream_error`，当前 transport failure（包括 timeout）统一返回 502 `upstream_error`。
 - **观测**：`request_kind="images"`、operation `images_generations`；原始 prompt、上游 body 与 URL 不进入 OTLP。
 
 ## 证据
@@ -40,5 +41,6 @@
 
 - 未验证真实 OpenAI `/v1/images/generations` 兼容 SDK、图像内容质量、计费语义或配额边界。
 - I2I 编辑、异步任务轮询（`X-DashScope-Async`）、stream 输出与 `b64_json` 未实现。
+- transport timeout 尚未独立映射为 504 `upstream_timeout`，Images 也尚未复用共享 execution runner。
 - 图像 URL 是 24h 临时签名 URL，OpenBridge 不下载、缓存或延长有效期。
 - 未跑负载、长期运行或生产 logging 验证。
