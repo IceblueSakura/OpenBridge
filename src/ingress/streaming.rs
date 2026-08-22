@@ -1,17 +1,126 @@
 //! Incremental processing of Native and Bridged upstream SSE bodies.
 
-use std::{collections::BTreeMap, io};
+use std::{collections::BTreeMap, error::Error, io, pin::Pin, time::Duration};
 
 use bytes::Bytes;
-use futures_util::{StreamExt, stream};
+use futures_util::{Stream, StreamExt, stream};
 use serde_json::{Map, Value};
+use tokio::time::Instant;
 
 use crate::{
     bridge::{BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
     observability::{ErrorType, RequestObservation},
     provider::{GenerationProviderAdapter, StreamEventStatus},
+    registry::UpstreamTimeoutPolicy,
     transport::sse::SseDecoder,
 };
+
+type SseBodyError = Box<dyn Error + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SseTimeoutPhase {
+    FirstEvent,
+    EventIdle,
+}
+
+struct SseLivenessDeadline {
+    deadline: Option<Instant>,
+    event_idle: Option<Duration>,
+    phase: SseTimeoutPhase,
+}
+
+impl SseLivenessDeadline {
+    fn new(policy: Option<UpstreamTimeoutPolicy>) -> Self {
+        Self {
+            deadline: policy.map(|policy| Instant::now() + policy.first_stream_event()),
+            event_idle: policy.map(UpstreamTimeoutPolicy::stream_event_idle),
+            phase: SseTimeoutPhase::FirstEvent,
+        }
+    }
+
+    async fn next<S>(&self, mut source: Pin<&mut S>) -> Result<Option<S::Item>, SseTimeoutPhase>
+    where
+        S: Stream + ?Sized,
+    {
+        match self.deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, source.next())
+                .await
+                .map_err(|_| self.phase),
+            None => Ok(source.next().await),
+        }
+    }
+
+    fn record_framed_events(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        if let Some(event_idle) = self.event_idle {
+            self.deadline = Some(Instant::now() + event_idle);
+            self.phase = SseTimeoutPhase::EventIdle;
+        }
+    }
+}
+
+/// Applies first-event and inter-event idle deadlines without changing SSE bytes or EOF semantics.
+pub(super) fn enforce_sse_liveness(
+    body: axum::body::Body,
+    max_sse_event_bytes: usize,
+    policy: Option<UpstreamTimeoutPolicy>,
+) -> axum::body::Body {
+    let Some(policy) = policy else {
+        return body;
+    };
+
+    let stream = stream::unfold(
+        (
+            Box::pin(body.into_data_stream()),
+            SseDecoder::new(max_sse_event_bytes),
+            SseLivenessDeadline::new(Some(policy)),
+            false,
+        ),
+        move |(mut source, mut decoder, mut liveness, finished)| async move {
+            if finished {
+                return None;
+            }
+            let next = match liveness.next(source.as_mut()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    return Some((
+                        Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "upstream SSE liveness deadline elapsed",
+                        ))),
+                        (source, decoder, liveness, true),
+                    ));
+                }
+            };
+            match next {
+                Some(Ok(chunk)) => {
+                    let events = match decoder.push(&chunk) {
+                        Ok(events) => events,
+                        Err(_) => {
+                            return Some((
+                                Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "upstream SSE stream is invalid",
+                                ))),
+                                (source, decoder, liveness, true),
+                            ));
+                        }
+                    };
+                    liveness.record_framed_events(events.len());
+                    Some((Ok(chunk), (source, decoder, liveness, false)))
+                }
+                Some(Err(error)) => Some((
+                    Err::<Bytes, SseBodyError>(Box::new(error)),
+                    (source, decoder, liveness, true),
+                )),
+                None => None,
+            }
+        },
+    );
+    axum::body::Body::from_stream(stream)
+}
 
 /// Buffers one bounded Responses SSE body and returns one assembled complete response object.
 ///
@@ -435,4 +544,117 @@ fn observe_sse_events(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use std::{io, time::Duration};
+
+    use axum::body::{Body, to_bytes};
+    use bytes::Bytes;
+    use futures_util::{StreamExt, stream};
+
+    use crate::registry::UpstreamTimeoutPolicy;
+
+    use super::enforce_sse_liveness;
+
+    fn paced_body(chunks: Vec<Bytes>, delay: Duration) -> Body {
+        Body::from_stream(stream::iter(chunks).then(move |chunk| async move {
+            tokio::time::sleep(delay).await;
+            Ok::<_, io::Error>(chunk)
+        }))
+    }
+
+    fn assert_timeout(error: axum::Error) {
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("TimedOut"), "{diagnostic}");
+    }
+
+    #[tokio::test]
+    async fn times_out_before_the_first_event() {
+        let body = Body::from_stream(stream::pending::<Result<Bytes, io::Error>>());
+        let guarded = enforce_sse_liveness(
+            body,
+            1024,
+            Some(UpstreamTimeoutPolicy::new(Duration::from_millis(30))),
+        );
+
+        let error = to_bytes(guarded, 4096)
+            .await
+            .expect_err("a missing first event must reach the liveness deadline");
+
+        assert_timeout(error);
+    }
+
+    #[tokio::test]
+    async fn partial_chunks_do_not_reset_the_first_event_deadline() {
+        let body = paced_body(
+            vec![
+                Bytes::from_static(b"event: response.created\n"),
+                Bytes::from_static(b"data: {\"type\":\"response.created\"}\n"),
+                Bytes::from_static(b"\n"),
+            ],
+            Duration::from_millis(40),
+        );
+        let guarded = enforce_sse_liveness(
+            body,
+            1024,
+            Some(UpstreamTimeoutPolicy::new(Duration::from_millis(100))),
+        );
+
+        let error = to_bytes(guarded, 4096)
+            .await
+            .expect_err("fragmentation without a complete event must not keep the stream alive");
+
+        assert_timeout(error);
+    }
+
+    #[tokio::test]
+    async fn framed_events_reset_the_idle_deadline() {
+        let chunks = vec![
+            Bytes::from_static(
+                b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+            ),
+            Bytes::from_static(
+                b"event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n",
+            ),
+        ];
+        let expected = chunks.iter().fold(Vec::new(), |mut bytes, chunk| {
+            bytes.extend_from_slice(chunk);
+            bytes
+        });
+        let body = paced_body(chunks, Duration::from_millis(100));
+        let guarded = enforce_sse_liveness(
+            body,
+            1024,
+            Some(UpstreamTimeoutPolicy::new(Duration::from_millis(150))),
+        );
+
+        let body = to_bytes(guarded, 4096)
+            .await
+            .expect("each complete event must refresh the idle deadline");
+
+        assert_eq!(body.as_ref(), expected);
+    }
+
+    #[tokio::test]
+    async fn times_out_after_one_event_becomes_idle() {
+        let first = stream::once(async {
+            Ok::<_, io::Error>(Bytes::from_static(
+                b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+            ))
+        });
+        let body = Body::from_stream(first.chain(stream::pending()));
+        let guarded = enforce_sse_liveness(
+            body,
+            1024,
+            Some(UpstreamTimeoutPolicy::new(Duration::from_millis(30))),
+        );
+
+        let error = to_bytes(guarded, 4096)
+            .await
+            .expect_err("a stream without another event must reach the idle deadline");
+
+        assert_timeout(error);
+    }
 }

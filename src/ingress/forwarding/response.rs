@@ -20,7 +20,9 @@ use crate::{
 
 use super::super::{
     response::{api_error, filtered_upstream_headers},
-    streaming::{bridge_sse_body, buffer_responses_sse_body, validate_sse_body},
+    streaming::{
+        bridge_sse_body, buffer_responses_sse_body, enforce_sse_liveness, validate_sse_body,
+    },
 };
 
 /// Response-conversion, SSE, and observation context for one selected candidate.
@@ -83,8 +85,11 @@ pub(super) async fn upstream_response(
     }
 
     // Add transparent Provider usage/first-byte observation to successful non-SSE bodies without changing downstream bytes.
+    let stream_timeout_policy = upstream.stream_timeout_policy();
     let upstream_body = upstream.into_body();
-    let upstream_body = if status.is_success() && !is_sse {
+    let upstream_body = if is_sse {
+        enforce_sse_liveness(upstream_body, max_sse_event_bytes, stream_timeout_policy)
+    } else if status.is_success() {
         observation.observe_upstream_json_body(upstream_body, max_json_body_bytes)
     } else {
         upstream_body

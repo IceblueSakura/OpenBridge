@@ -121,6 +121,11 @@ impl UpstreamClient {
             status,
             headers,
             body,
+            stream_timeout_policy: matches!(
+                response_delivery,
+                UpstreamResponseDelivery::ServerSentEvents
+            )
+            .then_some(timeout_policy),
         })
     }
 }
@@ -201,6 +206,7 @@ pub struct UpstreamResponse {
     status: StatusCode,
     headers: HeaderMap,
     body: Body,
+    stream_timeout_policy: Option<UpstreamTimeoutPolicy>,
 }
 
 impl UpstreamResponse {
@@ -210,6 +216,7 @@ impl UpstreamResponse {
             status,
             headers,
             body,
+            stream_timeout_policy: None,
         }
     }
 
@@ -221,6 +228,11 @@ impl UpstreamResponse {
     /// Returns upstream response headers.
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
+    }
+
+    /// Returns timeout phases when transport prepared this response as SSE.
+    pub(crate) const fn stream_timeout_policy(&self) -> Option<UpstreamTimeoutPolicy> {
+        self.stream_timeout_policy
     }
 
     /// Consumes the response and returns its streaming body.
