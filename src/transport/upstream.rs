@@ -83,15 +83,29 @@ impl UpstreamClient {
         &self,
         request: UpstreamRequest,
     ) -> Result<UpstreamResponse, TransportError> {
-        // Apply the target timeout and pooled client, sending without following redirects.
-        let response = self
-            .client
-            .request(request.method, request.url)
-            .headers(request.headers)
-            .body(request.body)
-            .timeout(request.timeout_policy.non_stream_total())
-            .send()
+        let UpstreamRequest {
+            url,
+            method,
+            headers,
+            body,
+            timeout_policy,
+            response_delivery,
+        } = request;
+
+        // Apply a body-spanning total only when the trusted delivery policy explicitly owns one.
+        let total_timeout = match response_delivery {
+            UpstreamResponseDelivery::NonStreaming => Some(timeout_policy.non_stream_total()),
+            UpstreamResponseDelivery::ServerSentEvents => timeout_policy.stream_total(),
+        };
+        let mut request = self.client.request(method, url).headers(headers).body(body);
+        if let Some(timeout) = total_timeout {
+            request = request.timeout(timeout);
+        }
+
+        // Bound connect/TLS/headers independently so an SSE body does not inherit that deadline.
+        let response = tokio::time::timeout(timeout_policy.response_headers(), request.send())
             .await
+            .map_err(|_| TransportError::Timeout)?
             .map_err(|error| {
                 if error.is_timeout() {
                     TransportError::Timeout
@@ -456,8 +470,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_request_classifies_the_target_timeout() {
-        // Keep the loopback handler pending so only the request timeout can complete the call.
+    async fn send_request_classifies_response_headers_timeout() {
+        // Keep the loopback handler pending so only the independent headers timeout can complete.
         let app = Router::new().route("/hang", get(never_respond));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -470,7 +484,7 @@ mod tests {
             HeaderMap::new(),
             Bytes::new(),
             UpstreamTimeoutPolicy::new(Duration::from_millis(50)),
-            UpstreamResponseDelivery::NonStreaming,
+            UpstreamResponseDelivery::ServerSentEvents,
         );
 
         let error = client
@@ -480,6 +494,34 @@ mod tests {
             .expect("the pending endpoint must reach the target timeout");
 
         assert!(matches!(error, TransportError::Timeout));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn non_streaming_response_body_retains_the_total_timeout() {
+        // Use the paced body with non-streaming delivery so the complete-response total still wins.
+        let app = Router::new().route("/response", any(paced_responses_sse));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client =
+            UpstreamClient::new(Duration::from_secs(2), Duration::from_secs(30), 4).unwrap();
+        let request = UpstreamRequest::new(
+            Url::parse(&format!("http://{address}/response")).unwrap(),
+            Method::POST,
+            HeaderMap::new(),
+            Bytes::new(),
+            UpstreamTimeoutPolicy::new(Duration::from_millis(250)),
+            UpstreamResponseDelivery::NonStreaming,
+        );
+
+        let response = client.send_request(request).await.unwrap();
+        let error = to_bytes(response.into_body(), 4096)
+            .await
+            .expect_err("the non-streaming total must cover the complete response body");
+
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("TimedOut"), "{diagnostic}");
         server.abort();
     }
 
