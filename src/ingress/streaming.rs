@@ -33,15 +33,25 @@ pub(super) enum SsePrecommitError {
 pub(super) struct PrecommittedSseBody {
     body: axum::body::Body,
     liveness: SseLivenessDeadline,
+    kind: PrecommittedSseKind,
+}
+
+enum PrecommittedSseKind {
+    Native,
+    Bridge {
+        rendered_prefix: Bytes,
+        renderer: Option<Box<BridgeStreamRenderer>>,
+    },
 }
 
 impl PrecommittedSseBody {
     /// Continues event-idle timing without replaying the prefix as a new first event.
-    pub(super) fn into_liveness_body(
+    pub(super) fn into_native_liveness_body(
         self,
         max_sse_event_bytes: usize,
         observation: RequestObservation,
     ) -> axum::body::Body {
+        assert!(matches!(self.kind, PrecommittedSseKind::Native));
         enforce_sse_liveness_with_state(
             self.body,
             max_sse_event_bytes,
@@ -50,25 +60,56 @@ impl PrecommittedSseBody {
             observation,
         )
     }
+
+    /// Emits the already rendered first output and continues with the same Bridge renderer.
+    pub(super) fn into_bridge_liveness_body(
+        self,
+        max_sse_event_bytes: usize,
+        observation: RequestObservation,
+    ) -> axum::body::Body {
+        let PrecommittedSseKind::Bridge {
+            rendered_prefix,
+            renderer,
+        } = self.kind
+        else {
+            unreachable!("Bridge response mode requires a Bridge precommit handoff");
+        };
+        let continuation = match renderer {
+            Some(renderer) => {
+                let source = enforce_sse_liveness_with_state(
+                    self.body,
+                    max_sse_event_bytes,
+                    self.liveness,
+                    false,
+                    observation.clone(),
+                );
+                bridge_sse_body(source, *renderer, max_sse_event_bytes, observation)
+            }
+            None => axum::body::Body::empty(),
+        };
+        let first = stream::once(async move { Ok::<Bytes, axum::Error>(rendered_prefix) });
+        axum::body::Body::from_stream(first.chain(continuation.into_data_stream()))
+    }
 }
 
 fn classify_precommit_event(
     adapter: GenerationProviderAdapter,
     renderer: Option<&mut BridgeStreamRenderer>,
     event: SseEvent,
-) -> Result<(StreamEventStatus, bool), SsePrecommitError> {
+) -> Result<(StreamEventStatus, Option<Bytes>), SsePrecommitError> {
     let status = adapter
         .classify_sse_event(event.clone())
         .map_err(|_| SsePrecommitError::Invalid)?
         .status();
-    let visible = match renderer {
-        Some(renderer) => !renderer
-            .render(event)
-            .map_err(|_| SsePrecommitError::Bridge)?
-            .is_empty(),
-        None => true,
+    let rendered = match renderer {
+        Some(renderer) => Some(
+            renderer
+                .render(event)
+                .map_err(|_| SsePrecommitError::Bridge)?,
+        ),
+        None => None,
     };
-    Ok((status, visible))
+    Ok((status, rendered))
 }
 
 struct SseLivenessDeadline {
@@ -113,13 +154,14 @@ impl SseLivenessDeadline {
     }
 }
 
-/// Reads exactly one bounded, complete, Provider-valid SSE event before downstream commit.
+/// Buffers one raw event at a time until Provider-valid downstream output is available.
 pub(super) async fn precommit_sse_body(
     body: axum::body::Body,
     max_sse_event_bytes: usize,
     policy: Option<UpstreamTimeoutPolicy>,
     adapter: GenerationProviderAdapter,
     bridge: Option<&BridgePlan>,
+    observation: &RequestObservation,
 ) -> Result<PrecommittedSseBody, SsePrecommitError> {
     let mut source = Box::pin(body.into_data_stream());
     let mut decoder = SseDecoder::new(max_sse_event_bytes);
@@ -137,6 +179,7 @@ pub(super) async fn precommit_sse_body(
             Some(Ok(chunk)) => {
                 let mut offset = 0;
                 while offset < chunk.len() {
+                    let segment_start = offset;
                     let (event, consumed) = decoder
                         .push_until_event(&chunk[offset..])
                         .map_err(|_| SsePrecommitError::Invalid)?;
@@ -145,27 +188,53 @@ pub(super) async fn precommit_sse_body(
                     }
                     prefix.extend_from_slice(&chunk[offset..offset + consumed]);
                     offset += consumed;
+                    if bridge_renderer.is_some() {
+                        observation.record_upstream_chunk(&chunk.slice(segment_start..offset));
+                    }
                     let Some(event) = event else {
                         break;
                     };
-                    let (status, visible) =
+                    if bridge_renderer.is_some() {
+                        observation.record_upstream_events(std::slice::from_ref(&event));
+                    }
+                    let (status, rendered) =
                         classify_precommit_event(adapter, bridge_renderer.as_mut(), event)?;
                     terminal_seen |= status != StreamEventStatus::Continue;
-                    if !visible {
-                        continue;
-                    }
                     liveness.record_framed_event();
 
-                    // Replay exact bytes, preserving any same-chunk suffix and the original body source.
-                    let first =
-                        stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
+                    // Preserve the same-chunk suffix and original source for the selected handoff.
                     let remainder = (offset < chunk.len()).then(|| chunk.slice(offset..));
                     let remainder =
                         stream::iter(remainder.into_iter().map(Ok::<Bytes, axum::Error>));
-                    return Ok(PrecommittedSseBody {
-                        body: axum::body::Body::from_stream(first.chain(remainder).chain(source)),
-                        liveness,
-                    });
+                    match rendered {
+                        Some(rendered_prefix) if rendered_prefix.is_empty() => {
+                            // The renderer owns this event's state, so its raw bytes need not be replayed.
+                            prefix.clear();
+                        }
+                        Some(rendered_prefix) => {
+                            return Ok(PrecommittedSseBody {
+                                body: axum::body::Body::from_stream(remainder.chain(source)),
+                                liveness,
+                                kind: PrecommittedSseKind::Bridge {
+                                    rendered_prefix,
+                                    renderer: bridge_renderer.take().map(Box::new),
+                                },
+                            });
+                        }
+                        None => {
+                            let first =
+                                stream::once(
+                                    async move { Ok::<Bytes, axum::Error>(prefix.freeze()) },
+                                );
+                            return Ok(PrecommittedSseBody {
+                                body: axum::body::Body::from_stream(
+                                    first.chain(remainder).chain(source),
+                                ),
+                                liveness,
+                                kind: PrecommittedSseKind::Native,
+                            });
+                        }
+                    }
                 }
             }
             Some(Err(error)) => {
@@ -179,38 +248,51 @@ pub(super) async fn precommit_sse_body(
                 let mut events = decoder.finish().map_err(|_| SsePrecommitError::Invalid)?;
                 if let Some(event) = events.pop() {
                     debug_assert!(events.is_empty());
-                    let (status, visible) =
+                    if bridge_renderer.is_some() {
+                        observation.record_upstream_events(std::slice::from_ref(&event));
+                    }
+                    let (status, rendered) =
                         classify_precommit_event(adapter, bridge_renderer.as_mut(), event)?;
                     terminal_seen |= status != StreamEventStatus::Continue;
-                    if visible {
-                        liveness.record_framed_event();
-                        let first =
-                            stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
-                        return Ok(PrecommittedSseBody {
-                            body: axum::body::Body::from_stream(first),
-                            liveness,
-                        });
+                    liveness.record_framed_event();
+                    match rendered {
+                        Some(rendered_prefix) if rendered_prefix.is_empty() => prefix.clear(),
+                        Some(rendered_prefix) => {
+                            return Ok(PrecommittedSseBody {
+                                body: axum::body::Body::empty(),
+                                liveness,
+                                kind: PrecommittedSseKind::Bridge {
+                                    rendered_prefix,
+                                    renderer: bridge_renderer.take().map(Box::new),
+                                },
+                            });
+                        }
+                        None => {
+                            let first =
+                                stream::once(
+                                    async move { Ok::<Bytes, axum::Error>(prefix.freeze()) },
+                                );
+                            return Ok(PrecommittedSseBody {
+                                body: axum::body::Body::from_stream(first),
+                                liveness,
+                                kind: PrecommittedSseKind::Native,
+                            });
+                        }
                     }
                 }
-                let finish_visible = if terminal_seen {
-                    match bridge_renderer.as_mut() {
-                        Some(renderer) => !renderer
-                            .finish()
-                            .map_err(|_| SsePrecommitError::Bridge)?
-                            .is_empty(),
-                        None => false,
+                if terminal_seen && let Some(mut renderer) = bridge_renderer.take() {
+                    let rendered_prefix =
+                        renderer.finish().map_err(|_| SsePrecommitError::Bridge)?;
+                    if !rendered_prefix.is_empty() {
+                        return Ok(PrecommittedSseBody {
+                            body: axum::body::Body::empty(),
+                            liveness,
+                            kind: PrecommittedSseKind::Bridge {
+                                rendered_prefix,
+                                renderer: None,
+                            },
+                        });
                     }
-                } else {
-                    false
-                };
-                if finish_visible {
-                    liveness.record_framed_event();
-                    let first =
-                        stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
-                    return Ok(PrecommittedSseBody {
-                        body: axum::body::Body::from_stream(first),
-                        liveness,
-                    });
                 }
                 return Err(SsePrecommitError::EofBeforeEvent);
             }
@@ -795,7 +877,9 @@ mod liveness_tests {
         registry::UpstreamTimeoutPolicy,
     };
 
-    use super::{PrecommittedSseBody, SseLivenessDeadline, enforce_sse_liveness};
+    use super::{
+        PrecommittedSseBody, PrecommittedSseKind, SseLivenessDeadline, enforce_sse_liveness,
+    };
 
     fn paced_body(chunks: Vec<Bytes>, delay: Duration) -> Body {
         Body::from_stream(stream::iter(chunks).then(move |chunk| async move {
@@ -842,8 +926,12 @@ mod liveness_tests {
             SseLivenessDeadline::new(Some(UpstreamTimeoutPolicy::new(Duration::from_millis(80))));
         liveness.record_framed_event();
         tokio::time::sleep(Duration::from_millis(60)).await;
-        let guarded =
-            PrecommittedSseBody { body, liveness }.into_liveness_body(1024, observation());
+        let guarded = PrecommittedSseBody {
+            body,
+            liveness,
+            kind: PrecommittedSseKind::Native,
+        }
+        .into_native_liveness_body(1024, observation());
         let mut source = guarded.into_data_stream();
 
         source

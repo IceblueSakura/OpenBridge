@@ -179,7 +179,8 @@ Native SSE validation、Bridge JSON/SSE conversion 或 passthrough；Ingress 执
 成功的 Native/Bridge SSE 在首个完整、Provider-valid 且下游可见的 event 前仍由 attempt runner 持有：first-event timeout 或 body
 transport failure 可以走既有有界 retry/fallback，非法 framing 或 event 前 EOF 则在未 commit 时返回安全 `502`。首 event 后不再
 retry/fallback；terminal 前 EOF 保留已经可见的字节并以 downstream body error 结束，不伪造 terminal。precommit 只保留受
-`max_sse_event_bytes` 限制的精确 raw prefix，同一网络 chunk 的剩余字节继续交给原 source。
+`max_sse_event_bytes` 限制的单个 raw event：Native 原样 replay；Bridge 对不可见 event 立即释放 raw bytes，并把已推进的
+renderer、首段转换输出、event-idle deadline 与同一网络 chunk 的剩余字节一起 hand off 给 postcommit body owner。
 该 family 不执行 body read、credential、transport、response-body 或 downstream commit I/O。
 
 Embeddings 的 pure analysis、fixed-interface preflight、Native planning 与 success-response validation 由

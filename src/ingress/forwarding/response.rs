@@ -112,10 +112,19 @@ pub(super) async fn upstream_response(
             stream_timeout_policy,
             adapter,
             bridge.as_ref(),
+            &observation,
         )
         .await
         {
-            Ok(body) => body.into_liveness_body(max_sse_event_bytes, observation.clone()),
+            Ok(body) => match response_mode {
+                GenerationResponseMode::BridgeSse => {
+                    body.into_bridge_liveness_body(max_sse_event_bytes, observation.clone())
+                }
+                GenerationResponseMode::ValidateNativeSse => {
+                    body.into_native_liveness_body(max_sse_event_bytes, observation.clone())
+                }
+                _ => unreachable!("precommit mode is limited to streaming response modes"),
+            },
             Err(SsePrecommitError::Timeout) => {
                 return UpstreamResponseOutcome::PrecommitFailure(TransportError::Timeout);
             }
@@ -211,13 +220,17 @@ pub(super) async fn upstream_response(
             axum::body::Body::from(downstream_body)
         }
         GenerationResponseMode::BridgeSse => {
-            let bridge = bridge.expect("response decision requires a Generation Bridge");
-            bridge_sse_body(
-                upstream_body,
-                bridge.stream_renderer(),
-                max_sse_event_bytes,
-                observation.clone(),
-            )
+            if precommit_mode {
+                upstream_body
+            } else {
+                let bridge = bridge.expect("response decision requires a Generation Bridge");
+                bridge_sse_body(
+                    upstream_body,
+                    bridge.stream_renderer(),
+                    max_sse_event_bytes,
+                    observation.clone(),
+                )
+            }
         }
         GenerationResponseMode::ValidateNativeSse => {
             validate_sse_body(upstream_body, adapter, max_sse_event_bytes, observation)

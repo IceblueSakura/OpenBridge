@@ -48,6 +48,10 @@ struct RetryThenSuccessTransport {
     attempts: Mutex<Vec<Value>>,
 }
 
+struct BridgePrecommitBodyRetryTransport {
+    attempts: Mutex<usize>,
+}
+
 impl UpstreamTransport for ExpectedTransport {
     fn send<'a>(
         &'a self,
@@ -93,6 +97,32 @@ impl UpstreamTransport for RetryThenSuccessTransport {
                 headers,
                 Body::from(self.upstream_body.clone()),
             ))
+        })
+    }
+}
+
+impl UpstreamTransport for BridgePrecommitBodyRetryTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let mut attempts = self.attempts.lock().unwrap();
+        *attempts += 1;
+        let fail_body = *attempts == 1;
+        drop(attempts);
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, "text/event-stream".parse().unwrap());
+            let body = if fail_body {
+                Body::from_stream(futures_util::stream::once(async {
+                    Err::<Bytes, _>(std::io::Error::other("synthetic precommit body failure"))
+                }))
+            } else {
+                Body::from(responses_usage_stream())
+            };
+            Ok(UpstreamResponse::new(StatusCode::OK, headers, body))
         })
     }
 }
@@ -559,6 +589,118 @@ async fn production_router_fulfills_chat_stream_usage_through_responses() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].0, "/v1/responses");
     assert!(requests[0].1.get("stream_options").is_none());
+}
+
+#[tokio::test]
+async fn invisible_bridge_events_do_not_accumulate_into_the_single_event_precommit_buffer() {
+    let source = String::from_utf8(responses_usage_stream().to_vec()).unwrap();
+    let first_event_end = source.find("\n\n").unwrap() + 2;
+    let mut upstream = String::with_capacity(source.len() + 512 * 1024);
+    upstream.push_str(&source[..first_event_end]);
+    for _ in 0..3_000 {
+        upstream.push_str(
+            "event: response.in_progress\n\
+             data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_router_usage\",\"status\":\"in_progress\"}}\n\n",
+        );
+    }
+    upstream.push_str(&source[first_event_end..]);
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/responses",
+        upstream_body: Bytes::from(upstream),
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+
+    let response = app(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+    )
+    .oneshot(
+        Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    assert!(events.iter().any(|event| event.data().contains("ok")));
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn bridge_precommit_rejects_empty_and_invalid_first_events_before_downstream_commit() {
+    for upstream_body in [Bytes::new(), Bytes::from_static(b"data: {not-json}\n\n")] {
+        let transport = Arc::new(ExpectedTransport {
+            expected_path: "/v1/responses",
+            upstream_body,
+            content_type: "text/event-stream",
+            requests: Mutex::new(Vec::new()),
+        });
+        let response = app(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            transport.clone(),
+        )
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_upstream_response");
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn bridge_precommit_body_failure_retries_before_any_downstream_bytes() {
+    let transport = Arc::new(BridgePrecommitBodyRetryTransport {
+        attempts: Mutex::new(0),
+    });
+    let response = app(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        transport.clone(),
+    )
+    .oneshot(
+        Request::post("/v1/chat/completions")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let mut decoder = SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    assert_eq!(*transport.attempts.lock().unwrap(), 2);
 }
 
 #[tokio::test]

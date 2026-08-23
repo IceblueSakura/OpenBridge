@@ -65,6 +65,8 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
 - timeout policy 只能来自受信 Target/API 与实际 upstream delivery mode，客户端不得覆盖。关闭 streaming total deadline 时仍必须保留
   bounded headers/first-event/idle policy；不得以修复长流截断为由把所有等待改成无限。
 - response headers 和 SSE bytes 的处理必须受大小、UTF-8、event 数量/长度与慢消费者资源上限保护。
+- precommit raw buffer 最多保存一个 `max_sse_event_bytes` 约束的 event。Bridge 遇到转换后不可见的合法 event 时必须推进并
+  hand off 同一个 renderer state、立即释放该 event 的 raw bytes；不得把多个 event 累积成 prefix，也不得重新渲染已消费 event。
 
 上游 API 可以通过可信类型化策略声明自己强制 `stream: true`。这种 API 面对下游非流式请求时只能选择以下一种固定行为：
 

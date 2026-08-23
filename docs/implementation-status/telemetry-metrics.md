@@ -64,6 +64,8 @@ Timeout trace 只增加闭合 phase（`response_headers | first_event | event_id
 SSE precommit 的 timeout/body-transport attempt 在未下游 commit 时按实际 retry/fallback action 终结；首个下游可见 event 后的
 invalid framing、body error 或 terminal 前 EOF 只终结当前 body/request，不生成第二次 attempt。`upstream_body_transport` 是固定
 低基数分类，不包含底层错误字符串。
+Bridge precommit 消费的 invisible events 只推进安全 event/byte/time 观察与同一个 renderer state；raw event 立即释放，postcommit
+从同一 source remainder 继续，不重复 renderer、usage 或 event observation。
 Images success-response owner 只在完整 bounded validation 后记录 count/width/height；overflow、body transport、malformed/
 contract mismatch 与 cancel 均不记录 image usage。普通 telemetry 只保留 `images_generations` 与闭合 outcome/error，不含 prompt、URL、body 或 credential。
 
