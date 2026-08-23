@@ -16,7 +16,7 @@ use super::{
     state::GatewayState,
 };
 
-use self::response::{UpstreamResponseContext, upstream_response};
+use self::response::{UpstreamResponseContext, UpstreamResponseOutcome, upstream_response};
 
 mod candidate;
 mod embedding_response;
@@ -150,7 +150,7 @@ pub(super) async fn forward_request(
     }
 
     if let Some(failure) = last_http_failure {
-        upstream_response(
+        match upstream_response(
             failure.upstream,
             UpstreamResponseContext {
                 validate_sse: plan.is_streaming(),
@@ -163,6 +163,12 @@ pub(super) async fn forward_request(
             },
         )
         .await
+        {
+            UpstreamResponseOutcome::Response(response) => response,
+            UpstreamResponseOutcome::PrecommitFailure(_) => {
+                unreachable!("stored non-success HTTP responses do not enter SSE precommit")
+            }
+        }
     } else if cooldown_skipped {
         observation.record_request_failure(
             ErrorType::UpstreamUnavailable,

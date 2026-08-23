@@ -31,7 +31,7 @@ use super::super::{
     policy::{
         http_attempt_failure, should_retry_error, should_retry_status, transport_attempt_failure,
     },
-    response::{UpstreamResponseContext, upstream_response},
+    response::{UpstreamResponseContext, UpstreamResponseOutcome, upstream_response},
 };
 use super::{
     GenerationCandidateOutcome, PreparedEmbeddingExecution, PreparedGenerationExecution,
@@ -639,7 +639,7 @@ pub(super) async fn finish_http(
     observation: &RequestObservation,
     upstream: UpstreamResponse,
     selected: &SelectedAttempt,
-) -> Response {
+) -> UpstreamResponseOutcome {
     match driver {
         OperationDriver::Generation {
             plan,
@@ -650,17 +650,7 @@ pub(super) async fn finish_http(
             adapter,
             ..
         } => {
-            if upstream.status().is_success() {
-                if let Some(credentials) = static_credentials.as_ref() {
-                    state
-                        .credential_health
-                        .record_success(credential_pool.id(), &credentials[selected.member_index]);
-                }
-                state
-                    .health
-                    .record_success(candidate.upstream_target_id(), target);
-            }
-            upstream_response(
+            let outcome = upstream_response(
                 upstream,
                 UpstreamResponseContext {
                     validate_sse: plan.is_streaming(),
@@ -672,7 +662,21 @@ pub(super) async fn finish_http(
                     observation: observation.clone(),
                 },
             )
-            .await
+            .await;
+            if matches!(
+                &outcome,
+                UpstreamResponseOutcome::Response(response) if response.status().is_success()
+            ) {
+                if let Some(credentials) = static_credentials.as_ref() {
+                    state
+                        .credential_health
+                        .record_success(credential_pool.id(), &credentials[selected.member_index]);
+                }
+                state
+                    .health
+                    .record_success(candidate.upstream_target_id(), target);
+            }
+            outcome
         }
         OperationDriver::Embeddings {
             requirements,
@@ -684,7 +688,7 @@ pub(super) async fn finish_http(
             ..
         } => {
             if !upstream.status().is_success() {
-                return normalized_embedding_upstream_error(upstream);
+                return normalized_embedding_upstream_error(upstream).into();
             }
             let response = match validated_embedding_response(
                 upstream,
@@ -705,7 +709,8 @@ pub(super) async fn finish_http(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
                         "The upstream response is invalid",
-                    );
+                    )
+                    .into();
                 }
             };
             state
@@ -714,7 +719,7 @@ pub(super) async fn finish_http(
             state
                 .health
                 .record_success(plan.candidate().upstream_target_id(), target);
-            response
+            response.into()
         }
     }
 }

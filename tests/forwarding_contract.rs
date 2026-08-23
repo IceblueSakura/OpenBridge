@@ -4,7 +4,7 @@ mod support;
 
 use std::{
     convert::Infallible,
-    fs,
+    fs, io,
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -22,7 +22,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
-use futures_util::{future::BoxFuture, stream};
+use futures_util::{StreamExt, future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
@@ -37,7 +37,8 @@ use openbridge::{
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel,
         ReasoningLevelMapping, ReasoningProfile, RegistryConfig, RouteConfig, RouteMode,
-        UpstreamApiCapabilities, UpstreamStreamingPolicy, UpstreamTarget, build_registry,
+        UpstreamApiCapabilities, UpstreamStreamingPolicy, UpstreamTarget, UpstreamTimeoutPolicy,
+        build_registry,
     },
     transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -254,6 +255,10 @@ struct InvalidSseTransport;
 
 struct EofWithoutTerminalTransport;
 
+struct EmptySseTransport;
+
+struct EofTerminatedFirstEventTransport;
+
 struct SuccessfulJsonTransport;
 
 struct OversizedResponsesSseTransport;
@@ -308,6 +313,16 @@ struct ScopedFaultTransport {
 #[derive(Default)]
 struct IncludeIsolationTransport {
     requests: Mutex<Vec<(String, Value)>>,
+}
+
+#[derive(Default)]
+struct PrecommitTimeoutFailoverTransport {
+    attempts: Mutex<Vec<String>>,
+}
+
+#[derive(Default)]
+struct PrecommitBodyFailureFailoverTransport {
+    attempts: Mutex<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -515,6 +530,54 @@ impl UpstreamTransport for IncludeIsolationTransport {
                 headers,
                 Body::from(COMPLETED_RESPONSES_STREAM),
             ))
+        })
+    }
+}
+
+impl UpstreamTransport for PrecommitTimeoutFailoverTransport {
+    fn send<'a>(
+        &'a self,
+        target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let target_id = target.id().to_owned();
+        self.attempts.lock().unwrap().push(target_id.clone());
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let body = if target_id == "openai-main" {
+                Body::from_stream(stream::pending::<Result<Bytes, Infallible>>())
+            } else {
+                Body::from(COMPLETED_RESPONSES_STREAM)
+            };
+            Ok(UpstreamResponse::new(StatusCode::OK, headers, body)
+                .with_stream_timeout_policy(UpstreamTimeoutPolicy::new(Duration::from_millis(20))))
+        })
+    }
+}
+
+impl UpstreamTransport for PrecommitBodyFailureFailoverTransport {
+    fn send<'a>(
+        &'a self,
+        target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let target_id = target.id().to_owned();
+        self.attempts.lock().unwrap().push(target_id.clone());
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            let body = if target_id == "openai-main" {
+                Body::from_stream(stream::once(async {
+                    Err::<Bytes, _>(io::Error::other("synthetic precommit body failure"))
+                }))
+            } else {
+                Body::from(COMPLETED_RESPONSES_STREAM)
+            };
+            Ok(UpstreamResponse::new(StatusCode::OK, headers, body)
+                .with_stream_timeout_policy(UpstreamTimeoutPolicy::new(Duration::from_secs(1))))
         })
     }
 }
@@ -779,6 +842,46 @@ impl UpstreamTransport for EofWithoutTerminalTransport {
     }
 }
 
+impl UpstreamTransport for EmptySseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::empty(),
+            ))
+        })
+    }
+}
+
+impl UpstreamTransport for EofTerminatedFirstEventTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        Box::pin(async {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from(Bytes::from_static(
+                    b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"visible\",\"logprobs\":[]}",
+                )),
+            ))
+        })
+    }
+}
+
 impl UpstreamTransport for SuccessfulJsonTransport {
     fn send<'a>(
         &'a self,
@@ -858,10 +961,16 @@ impl UpstreamTransport for PendingSseTransport {
         Box::pin(async move {
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            let body = Body::from_stream(stream::once(async move {
+            let first = stream::once(async {
+                Ok::<Bytes, Infallible>(Bytes::from_static(
+                    b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_pending\",\"status\":\"in_progress\"}}\n\n",
+                ))
+            });
+            let pending = stream::once(async move {
                 let _signal = signal;
                 std::future::pending::<Result<Bytes, Infallible>>().await
-            }));
+            });
+            let body = Body::from_stream(first.chain(pending));
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 response_headers,
@@ -904,6 +1013,10 @@ impl UpstreamTransport for RecordingTransport {
                 vec![
                     Ok::<_, Infallible>(Bytes::from_static(b"event: response.output_text.delta\n")),
                     Ok(Bytes::from_static(b"data: {\"delta\":\"hi\"}\n\n")),
+                    Ok(Bytes::from_static(b"event: response.completed\n")),
+                    Ok(Bytes::from_static(
+                        b"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_recording\",\"status\":\"completed\",\"output\":[]}}\n\n",
+                    )),
                 ]
             } else {
                 vec![Ok(Bytes::from_static(

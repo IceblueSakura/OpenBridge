@@ -8,6 +8,7 @@ use crate::{
     transport::upstream::TransportError,
 };
 
+use super::super::response::UpstreamResponseOutcome;
 use super::GenerationCandidateOutcome;
 use super::driver::{
     OperationDriver, attempt_exhausted, finish_http, finish_transport, http_failure,
@@ -104,55 +105,66 @@ pub(super) async fn run(
                         };
                     }
                     AttemptStep::Finish => {
-                        return GenerationCandidateOutcome::Response(
-                            finish_http(&mut driver, state, observation, upstream, &selected).await,
-                        );
+                        return match finish_http(
+                            &mut driver,
+                            state,
+                            observation,
+                            upstream,
+                            &selected,
+                        )
+                        .await
+                        {
+                            UpstreamResponseOutcome::Response(response) => {
+                                GenerationCandidateOutcome::Response(response)
+                            }
+                            UpstreamResponseOutcome::PrecommitFailure(_) => unreachable!(
+                                "non-success HTTP responses do not enter SSE precommit"
+                            ),
+                        };
                     }
                 }
             }
             Ok(upstream) => {
                 let status = upstream.status();
-                let failure = (!status.is_success())
-                    .then(|| http_failure(&driver, status, NextAction::Finish));
-                observation.record_attempt_http_result(
-                    attempts.attempts_started() as u64,
-                    status,
-                    failure,
-                );
-                return GenerationCandidateOutcome::Response(
-                    finish_http(&mut driver, state, observation, upstream, &selected).await,
-                );
+                match finish_http(&mut driver, state, observation, upstream, &selected).await {
+                    UpstreamResponseOutcome::Response(response) => {
+                        let failure = (!status.is_success())
+                            .then(|| http_failure(&driver, status, NextAction::Finish));
+                        observation.record_attempt_http_result(
+                            attempts.attempts_started() as u64,
+                            status,
+                            failure,
+                        );
+                        return GenerationCandidateOutcome::Response(response);
+                    }
+                    UpstreamResponseOutcome::PrecommitFailure(error) => {
+                        if let Some(outcome) = handle_retryable_transport(
+                            &driver,
+                            state,
+                            observation,
+                            attempts,
+                            error,
+                            TimeoutPhase::FirstEvent,
+                        )
+                        .await
+                        {
+                            return outcome;
+                        }
+                    }
+                }
             }
             Err(error) if should_retry_transport(&error) => {
-                if matches!(&error, TransportError::Timeout) {
-                    observation.record_timeout_context(TimeoutPhase::ResponseHeaders);
-                }
-                let step = retryable_transport_step(&driver, state, attempts);
-                let attempt_failure = transport_failure(&error, step.next_action());
-                observation.record_attempt_transport_failure(
-                    attempts.attempts_started() as u64,
-                    attempt_failure,
-                );
-                match step {
-                    AttemptStep::RetryCandidate => {
-                        let backoff = attempts.schedule_backoff();
-                        observation.record_retry(attempt_failure.error_type, backoff);
-                        AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                    }
-                    AttemptStep::NextCandidate => {
-                        let backoff = attempts.schedule_backoff();
-                        observation.record_fallback(attempt_failure.error_type, backoff);
-                        AttemptCoordinator::wait_before_next_attempt(backoff).await;
-                        return GenerationCandidateOutcome::NextCandidate {
-                            failure: None,
-                            cooldown_skipped: false,
-                        };
-                    }
-                    AttemptStep::Finish => {
-                        return GenerationCandidateOutcome::Response(finish_transport(
-                            &driver, error,
-                        ));
-                    }
+                if let Some(outcome) = handle_retryable_transport(
+                    &driver,
+                    state,
+                    observation,
+                    attempts,
+                    error,
+                    TimeoutPhase::ResponseHeaders,
+                )
+                .await
+                {
+                    return outcome;
                 }
             }
             Err(error) => {
@@ -166,5 +178,43 @@ pub(super) async fn run(
                 return GenerationCandidateOutcome::Response(finish_transport(&driver, error));
             }
         }
+    }
+}
+
+/// Applies the existing finite retry/fallback policy to one precommit transport-class failure.
+async fn handle_retryable_transport(
+    driver: &OperationDriver<'_>,
+    state: &GatewayState,
+    observation: &RequestObservation,
+    attempts: &mut AttemptCoordinator,
+    error: TransportError,
+    timeout_phase: TimeoutPhase,
+) -> Option<GenerationCandidateOutcome> {
+    if matches!(&error, TransportError::Timeout) {
+        observation.record_timeout_context(timeout_phase);
+    }
+    let step = retryable_transport_step(driver, state, attempts);
+    let attempt_failure = transport_failure(&error, step.next_action());
+    observation
+        .record_attempt_transport_failure(attempts.attempts_started() as u64, attempt_failure);
+    match step {
+        AttemptStep::RetryCandidate => {
+            let backoff = attempts.schedule_backoff();
+            observation.record_retry(attempt_failure.error_type, backoff);
+            AttemptCoordinator::wait_before_next_attempt(backoff).await;
+            None
+        }
+        AttemptStep::NextCandidate => {
+            let backoff = attempts.schedule_backoff();
+            observation.record_fallback(attempt_failure.error_type, backoff);
+            AttemptCoordinator::wait_before_next_attempt(backoff).await;
+            Some(GenerationCandidateOutcome::NextCandidate {
+                failure: None,
+                cooldown_skipped: false,
+            })
+        }
+        AttemptStep::Finish => Some(GenerationCandidateOutcome::Response(finish_transport(
+            driver, error,
+        ))),
     }
 }

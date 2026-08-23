@@ -1092,8 +1092,7 @@ async fn eof_without_sse_terminal_records_stream_failure() {
         .await
         .unwrap();
 
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
-    assert!(std::str::from_utf8(&body).unwrap().contains("hello"));
+    assert!(to_bytes(response.into_body(), 4096).await.is_err());
 
     let snapshot = metrics.snapshot();
     assert_eq!(snapshot.requests_completed, 0);

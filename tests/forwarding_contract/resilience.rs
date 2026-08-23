@@ -133,6 +133,96 @@ async fn response_include_omission_is_isolated_per_fallback_candidate_in_either_
 }
 
 #[tokio::test]
+async fn first_event_timeout_falls_back_before_any_downstream_sse_bytes() {
+    let mut definition =
+        streaming_definition("first-event-fallback", "public-model", "primary-model");
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = "openai-fallback".to_owned();
+    fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
+    definition.upstream_targets.push(fallback);
+    definition.routes.push(RouteConfig {
+        id: "fallback-responses".to_owned(),
+        upstream_target: "openai-fallback".to_owned(),
+        upstream_operation: OperationKind::Responses,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0]
+        .routes
+        .push("fallback-responses".to_owned());
+
+    let transport = Arc::new(PrecommitTimeoutFailoverTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert!(
+        body.windows(b"response.completed".len())
+            .any(|window| window == b"response.completed")
+    );
+    let attempts = transport.attempts.lock().unwrap();
+    assert!(attempts.iter().any(|target| target == "openai-main"));
+    assert_eq!(attempts.last().map(String::as_str), Some("openai-fallback"));
+}
+
+#[tokio::test]
+async fn precommit_body_failure_falls_back_before_any_downstream_sse_bytes() {
+    let mut definition =
+        streaming_definition("precommit-body-fallback", "public-model", "primary-model");
+    let mut fallback = definition.upstream_targets[0].clone();
+    fallback.id = "openai-fallback".to_owned();
+    fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
+    definition.upstream_targets.push(fallback);
+    definition.routes.push(RouteConfig {
+        id: "fallback-responses".to_owned(),
+        upstream_target: "openai-fallback".to_owned(),
+        upstream_operation: OperationKind::Responses,
+        downstream_operation: OperationKind::Responses,
+        mode: RouteMode::Native,
+    });
+    definition.public_models[0]
+        .routes
+        .push("fallback-responses".to_owned());
+
+    let transport = Arc::new(PrecommitBodyFailureFailoverTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert!(
+        body.windows(b"response.completed".len())
+            .any(|window| window == b"response.completed")
+    );
+    let attempts = transport.attempts.lock().unwrap();
+    assert!(attempts.iter().any(|target| target == "openai-main"));
+    assert_eq!(attempts.last().map(String::as_str), Some("openai-fallback"));
+}
+
+#[tokio::test]
 async fn transient_failures_back_off_and_fall_back_to_another_provider_with_final_error() {
     // Build an OpenAI primary target and LongCat fallback, then make both return transient failures.
     let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
@@ -537,6 +627,58 @@ async fn aborting_downstream_during_backoff_prevents_the_next_attempt() {
 }
 
 #[tokio::test]
+async fn eof_before_the_first_event_returns_a_gateway_error_before_commit() {
+    let app = app_with_streaming_transport(Arc::new(EmptySseTransport));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+}
+
+#[tokio::test]
+async fn eof_completed_first_event_commits_partial_bytes_then_returns_body_error() {
+    let app = app_with_streaming_transport(Arc::new(EofTerminatedFirstEventTransport));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut partial = Vec::new();
+    let mut body_error = false;
+    let mut body = response.into_body().into_data_stream();
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(chunk) => partial.extend_from_slice(&chunk),
+            Err(_) => {
+                body_error = true;
+                break;
+            }
+        }
+    }
+    assert!(body_error);
+    assert!(
+        partial
+            .windows(b"visible".len())
+            .any(|window| window == b"visible")
+    );
+}
+
+#[tokio::test]
 async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
     let app = app_with_streaming_transport(Arc::new(EofWithoutTerminalTransport));
     let request = Request::post("/v1/responses")
@@ -550,19 +692,7 @@ async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
     let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
-
-    assert!(
-        std::str::from_utf8(&body)
-            .unwrap()
-            .contains("response.output_text.delta")
-    );
-    assert!(
-        !std::str::from_utf8(&body)
-            .unwrap()
-            .contains("response.completed")
-    );
-    assert!(!std::str::from_utf8(&body).unwrap().contains("[DONE]"));
+    assert!(to_bytes(response.into_body(), 4096).await.is_err());
 }
 
 #[tokio::test]
@@ -680,7 +810,7 @@ async fn partial_upstream_stream_failures_close_without_a_retry() {
 }
 
 #[tokio::test]
-async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
+async fn invalid_first_upstream_sse_returns_gateway_error_before_commit() {
     let app = app_with_streaming_transport(Arc::new(InvalidSseTransport));
     let request = Request::post("/v1/responses")
         .header(CONTENT_TYPE, "application/json")
@@ -692,8 +822,10 @@ async fn invalid_upstream_sse_closes_the_stream_after_output_starts() {
 
     let response = app.oneshot(request).await.unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(to_bytes(response.into_body(), 4096).await.is_err());
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
 }
 
 #[tokio::test]

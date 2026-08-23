@@ -15,7 +15,10 @@ pub(super) fn should_retry_status(adapter: &ProviderAdapter, status: StatusCode)
 
 /// Includes only timeout/request transport failures that can be safely resent in retry.
 pub(super) fn should_retry_error(error: &TransportError) -> bool {
-    matches!(error, TransportError::Timeout | TransportError::Request(_))
+    matches!(
+        error,
+        TransportError::Timeout | TransportError::Request(_) | TransportError::ResponseBody
+    )
 }
 
 /// Maps transport errors to low-cardinality observation categories without underlying messages.
@@ -24,6 +27,7 @@ pub(super) fn transport_error_type(error: &TransportError) -> ErrorType {
         TransportError::ClientBuild(_) => ErrorType::TransportClientBuild,
         TransportError::Request(_) => ErrorType::TransportRequest,
         TransportError::Timeout => ErrorType::Timeout,
+        TransportError::ResponseBody => ErrorType::UpstreamBodyTransport,
         TransportError::InvalidTarget => ErrorType::InvalidTarget,
     }
 }

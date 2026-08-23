@@ -61,6 +61,9 @@ tracing events、正文、header 和原始错误继续排除。Bridge 转换失�
 Provider attempt 保持 completed，否则因网关终止读取而归为 cancelled，二者都不误记为 Provider stream failure。
 Timeout trace 只增加闭合 phase（`response_headers | first_event | event_idle | stream_total | non_stream_total`）、当前 response
 是否已 ready/committed 以及 request-relative last-event milliseconds；这些值不进入 metric label，也不保留底层错误字符串或 event 内容。
+SSE precommit 的 timeout/body-transport attempt 在未下游 commit 时按实际 retry/fallback action 终结；首个下游可见 event 后的
+invalid framing、body error 或 terminal 前 EOF 只终结当前 body/request，不生成第二次 attempt。`upstream_body_transport` 是固定
+低基数分类，不包含底层错误字符串。
 
 ## 安全与本地内容日志
 
@@ -75,6 +78,16 @@ OTLP trace layer。
 - `tests/otlp_metrics_contract.rs`：OTLP request/resource、instrument/aggregation、overflow 与无 credential header。
 - forwarding/SSE/Embeddings tests：success/failure/EOF/cancel/retry/fallback 的唯一 observation。
 - observability/streaming 单元测试：timeout phase、commit state、last-event timestamp、首次失败保持和内容排除。
+
+2026-08-24 在当前 checkout 执行：
+
+- `cargo test --locked --test sse_contract`、`forwarding_contract`、`bridge_forwarding_contract`、
+  `process_replay_contract`、`observability_contract`、`otlp_metrics_contract` 与 `otlp_trace_contract`：通过；
+- `cargo fmt -- --check`：通过；
+- `cargo check --locked --all-targets`：通过；
+- `cargo test --locked`：通过；
+- `cargo clippy --locked -- -D warnings`：通过；
+- `git diff --check`：通过。
 
 2026-08-23 在当前 checkout 执行：
 

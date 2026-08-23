@@ -114,6 +114,31 @@ impl SseDecoder {
         Ok(events)
     }
 
+    /// Consumes at most the raw prefix ending at the first complete non-empty SSE event.
+    ///
+    /// The returned byte count lets ingress buffer exactly one event and retain additional events
+    /// from the same network chunk for post-commit delivery without reserialization.
+    pub(crate) fn push_until_event(
+        &mut self,
+        chunk: &[u8],
+    ) -> Result<(Option<SseEvent>, usize), SseDecodeError> {
+        let mut consumed = 0_usize;
+        while let Some(relative_newline) = chunk[consumed..].iter().position(|byte| *byte == b'\n')
+        {
+            let end = consumed + relative_newline + 1;
+            let mut events = self.push(&chunk[consumed..end])?;
+            consumed = end;
+            if let Some(event) = events.pop() {
+                debug_assert!(events.is_empty());
+                return Ok((Some(event), consumed));
+            }
+        }
+        if consumed < chunk.len() {
+            debug_assert!(self.push(&chunk[consumed..])?.is_empty());
+        }
+        Ok((None, chunk.len()))
+    }
+
     /// Marks input complete and returns events completed before EOF.
     pub fn finish(&mut self) -> Result<Vec<SseEvent>, SseDecodeError> {
         // Process content remaining before EOF without a newline as the final line.
@@ -205,5 +230,23 @@ impl EventBuilder {
             retry_ms: self.retry_ms.take(),
         })
         .inspect(|_| self.has_fields = false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SseDecoder;
+
+    #[test]
+    fn precommit_decode_returns_exactly_one_raw_event_prefix() {
+        let payload = b": keepalive\n\nevent: first\ndata: one\n\nevent: second\ndata: two\n\n";
+        let expected = b": keepalive\n\nevent: first\ndata: one\n\n";
+        let mut decoder = SseDecoder::new(128);
+
+        let (event, consumed) = decoder.push_until_event(payload).unwrap();
+
+        assert_eq!(event.unwrap().event(), Some("first"));
+        assert_eq!(&payload[..consumed], expected);
+        assert_eq!(&payload[consumed..], b"event: second\ndata: two\n\n");
     }
 }

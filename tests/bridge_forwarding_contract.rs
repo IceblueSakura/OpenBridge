@@ -13,8 +13,8 @@ use std::{
 
 use axum::body::{Body, to_bytes};
 use bytes::Bytes;
-use futures_util::Stream;
 use futures_util::future::BoxFuture;
+use futures_util::{Stream, StreamExt};
 use http::{HeaderMap, Request, StatusCode, header::CONTENT_TYPE};
 use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState},
@@ -116,6 +116,7 @@ impl UpstreamTransport for PendingBridgeTransport {
                 headers,
                 Body::from_stream(PendingBridgeStream {
                     dropped: self.dropped.clone(),
+                    sent_first: false,
                 }),
             ))
         })
@@ -124,12 +125,19 @@ impl UpstreamTransport for PendingBridgeTransport {
 
 struct PendingBridgeStream {
     dropped: Arc<AtomicBool>,
+    sent_first: bool,
 }
 
 impl Stream for PendingBridgeStream {
     type Item = Result<Bytes, std::io::Error>;
 
-    fn poll_next(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if !self.sent_first {
+            self.sent_first = true;
+            return Poll::Ready(Some(Ok(Bytes::from_static(
+                b"data: {\"id\":\"chatcmpl_pending\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+            ))));
+        }
         Poll::Pending
     }
 }
@@ -1003,8 +1011,80 @@ async fn invalid_bridged_stream_closes_without_fabricating_a_terminal() {
 
     // After HTTP commitment, the body may end with an error but cannot fabricate response.completed or fallback.
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(to_bytes(response.into_body(), 1024 * 1024).await.is_err());
+    let mut body = response.into_body().into_data_stream();
+    let mut partial = Vec::new();
+    let mut body_error = false;
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(chunk) => partial.extend_from_slice(&chunk),
+            Err(_) => {
+                body_error = true;
+                break;
+            }
+        }
+    }
+    assert!(body_error);
+    assert!(
+        !partial.is_empty(),
+        "valid converted prefix must remain visible"
+    );
+    let partial = std::str::from_utf8(&partial).unwrap();
+    assert!(!partial.contains("response.completed"));
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn same_chunk_bridge_error_preserves_every_prior_converted_event() {
+    let upstream_body = Bytes::from_static(
+        br#"data: {"id":"chatcmpl_partial","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{"role":"assistant","content":"A"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_partial","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{"content":"B"},"finish_reason":null}]}
+
+data: {not-json}
+
+"#,
+    );
+    let transport = Arc::new(ExpectedTransport {
+        expected_path: "/v1/chat/completions",
+        upstream_body,
+        content_type: "text/event-stream",
+        requests: Mutex::new(Vec::new()),
+    });
+    let response = app(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        transport,
+    )
+    .oneshot(
+        Request::post("/v1/responses")
+            .header(CONTENT_TYPE, "application/json")
+            .header("authorization", "Bearer downstream-token-0000000000000000")
+            .body(Body::from(
+                r#"{"model":"public-model","input":"hello","stream":true}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    let mut partial = Vec::new();
+    let mut body_error = false;
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(chunk) => partial.extend_from_slice(&chunk),
+            Err(_) => {
+                body_error = true;
+                break;
+            }
+        }
+    }
+    assert!(body_error);
+    let partial = std::str::from_utf8(&partial).unwrap();
+    assert!(partial.contains("A"));
+    assert!(partial.contains("B"));
+    assert!(!partial.contains("response.completed"));
 }
 
 #[tokio::test]

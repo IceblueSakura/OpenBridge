@@ -272,14 +272,14 @@ async fn responses_eof_before_terminal_preserves_partial_stream_and_records_fail
     )
     .await;
 
-    // Preserve the canonical partial stream and finish at clean EOF without a synthetic terminal.
+    // Preserve the canonical partial stream, then expose terminal-free EOF as a body failure.
     assert_eq!(observation.status, StatusCode::OK);
     assert_eq!(
         observation.content_type.as_deref(),
         Some("text/event-stream")
     );
     assert!(observation.downstream_stream_matches_upstream);
-    assert!(!observation.downstream_transport_error);
+    assert!(observation.downstream_transport_error);
     assert_eq!(observation.upstream_attempts, 1);
     assert_eq!(observation.upstream_request_matches, vec![true]);
 

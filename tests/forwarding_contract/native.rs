@@ -53,7 +53,13 @@ async fn chat_and_responses_are_forwarded_natively_with_safe_response_headers() 
             "/v1/responses",
             r#"{"model":"public-model","input":"hello","stream":true}"#,
             "text/event-stream",
-            b"event: response.output_text.delta\ndata: {\"delta\":\"hi\"}\n\n".as_slice(),
+            concat!(
+                "event: response.output_text.delta\n",
+                "data: {\"delta\":\"hi\"}\n\n",
+                "event: response.completed\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_recording\",\"status\":\"completed\",\"output\":[]}}\n\n",
+            )
+            .as_bytes(),
         ),
     ];
 

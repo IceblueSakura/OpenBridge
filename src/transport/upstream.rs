@@ -220,6 +220,12 @@ impl UpstreamResponse {
         }
     }
 
+    /// Attaches the trusted streaming timeout policy used by custom transport implementations.
+    pub fn with_stream_timeout_policy(mut self, policy: UpstreamTimeoutPolicy) -> Self {
+        self.stream_timeout_policy = Some(policy);
+        self
+    }
+
     /// Returns the HTTP status.
     pub fn status(&self) -> StatusCode {
         self.status

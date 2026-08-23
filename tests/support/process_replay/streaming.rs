@@ -325,7 +325,7 @@ pub async fn replay_eof_before_terminal_case(case_id: &str) -> ReplayObservation
         metrics,
     } = start_gateway(upstream_address).await;
 
-    // Read the complete downstream body through its clean EOF boundary.
+    // Preserve partial downstream bytes until the terminal-free upstream EOF becomes a body error.
     let response = reqwest::Client::new()
         .post(format!("http://{gateway_address}/v1/responses"))
         .header(CONTENT_TYPE, "application/json")
@@ -340,10 +340,22 @@ pub async fn replay_eof_before_terminal_case(case_id: &str) -> ReplayObservation
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let downstream_body = tokio::time::timeout(Duration::from_secs(5), response.bytes())
-        .await
-        .expect("canonical EOF must arrive within the test timeout")
-        .expect("canonical EOF response body must remain readable");
+    let mut downstream_body = Vec::new();
+    let mut downstream_transport_error = false;
+    let mut downstream_stream = response.bytes_stream();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(chunk) = downstream_stream.next().await {
+            match chunk {
+                Ok(chunk) => downstream_body.extend_from_slice(&chunk),
+                Err(_) => {
+                    downstream_transport_error = true;
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .expect("canonical EOF body failure must arrive within the test timeout");
 
     // Stop listeners and return only byte comparisons, counters, and safe response metadata.
     gateway_task.abort();
@@ -361,10 +373,10 @@ pub async fn replay_eof_before_terminal_case(case_id: &str) -> ReplayObservation
         rate_limit_remaining_requests: None,
         upstream_attempts: upstream_request_matches.len(),
         upstream_request_matches,
-        downstream_body_matches: downstream_body.as_ref() == expected_client_stream.as_ref(),
-        downstream_stream_matches_upstream: downstream_body.as_ref()
+        downstream_body_matches: downstream_body.as_slice() == expected_client_stream.as_ref(),
+        downstream_stream_matches_upstream: downstream_body.as_slice()
             == expected_transparent_stream.as_ref(),
-        downstream_transport_error: false,
+        downstream_transport_error,
         upstream_cancelled: false,
         gateway_metrics,
         provider_metrics,

@@ -37,7 +37,8 @@ rotation 与状态亲和边界。已验证的实现范围只见[实施现状](..
 
 ## 3. Retry、fallback 与取消
 
-stream/non-stream 请求只可在尚未向下游提交业务 response 时执行有限 attempt：
+stream/non-stream 请求只可在尚未向下游提交业务 response 时执行有限 attempt。成功 SSE headers 本身不构成提交；首个完整合法且下游可见的 event
+仍属于 attempt-owned precommit 边界：
 
 - `429`、明确的 `5xx`、连接失败或 timeout 可按 adapter 分类进入有限 retry；
 - 所有候选共享请求级硬预算，每个候选有独立局部上限，局部 retry 不能无界挤占尚未尝试的候选；
@@ -46,6 +47,8 @@ stream/non-stream 请求只可在尚未向下游提交业务 response 时执行�
 - 有状态 Responses 不进入 Bridge 或跨 Target fallback；
 - 认证失败、无效请求和本地能力拒绝不作为普通 transient failure 重试；
 - 一旦向下游提交 response，不得 retry、fallback 或拼接另一上游响应；
+- SSE precommit 的 first-event timeout/body transport failure 按现有 transport policy 处理；首个下游 event 前的 invalid framing 或
+  terminal 前 EOF 直接完成为安全 502，不自动 retry。第一个下游可见 event 后任何 body error/EOF 均禁止 retry/fallback；
 - 下游取消必须终止 pending send、当前上游 stream、backoff timer 与尚未开始的后续 attempt。
 
 统一 attempt contract 固定为请求最多 6 次、每个 candidate 最多 2 次，并为尚未尝试的 Route 保留预算。

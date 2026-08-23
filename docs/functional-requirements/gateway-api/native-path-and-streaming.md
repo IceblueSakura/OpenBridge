@@ -55,7 +55,11 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
   `response.incomplete`、`response.failed`、`response.cancelled` 或顶层 `error` 等 response terminal。
 - `output_item.done`、tool input delta、metadata/header 到达或任意首字节都不等于请求成功。已写出首个业务 body byte 后，不得
   retry、fallback 或将其他 Upstream Target 的内容拼入当前 stream。
-- 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法但无 terminal 的 EOF 不得伪造成 completed。
+- 成功 headers 后、第一个完整合法且下游可见的 SSE event 前仍未 commit。first-event timeout 或 body transport failure 可按既有有限 attempt policy
+  retry/fallback；首 frame invalid 或 terminal 前 clean EOF 必须在零 downstream event 时返回安全 502，且不得伪装成可重放 transport failure。
+- 第一个合法且下游可见的 event 到达后才 commit 200/SSE；Native 首先下发该已验证的原始 event，Bridge 首先下发其确定性转换输出。commit 后 transport error 或 terminal 前 clean EOF 必须
+  保留已发送 bytes、以 body error 结束，禁止 retry/fallback、拼接第二条流或合成 `completed`/`failed`/`[DONE]`。
+- 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法 terminal 后的普通 close 不得反转已确认终态。
 - 上游非流式响应的 total deadline 与 SSE 生命周期必须分开表达。SSE 必须分别约束等待 response headers、等待首个有效 event、
   event 间 idle 与可选的 stream total safety deadline；普通非流式 total deadline 不得从连接开始持续覆盖一条仍在合法产生 event 的 stream。
 - timeout policy 只能来自受信 Target/API 与实际 upstream delivery mode，客户端不得覆盖。关闭 streaming total deadline 时仍必须保留

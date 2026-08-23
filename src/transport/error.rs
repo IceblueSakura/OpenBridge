@@ -19,6 +19,9 @@ pub enum TransportError {
     /// The upstream request exceeded the target timeout.
     #[error("upstream request timed out")]
     Timeout,
+    /// The upstream response body failed before any downstream SSE event committed.
+    #[error("upstream response body failed before downstream commit")]
+    ResponseBody,
     /// The adapter generated a URI with an authority, scheme, or invalid path.
     #[error("provider adapter produced an invalid relative upstream target")]
     InvalidTarget,

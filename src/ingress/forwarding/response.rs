@@ -15,15 +15,28 @@ use crate::{
         classify_generation_response,
     },
     provider::GenerationProviderAdapter,
-    transport::upstream::UpstreamResponse,
+    transport::upstream::{TransportError, UpstreamResponse},
 };
 
 use super::super::{
     response::{api_error, filtered_upstream_headers},
     streaming::{
-        bridge_sse_body, buffer_responses_sse_body, enforce_sse_liveness, validate_sse_body,
+        SsePrecommitError, bridge_sse_body, buffer_responses_sse_body, enforce_sse_liveness,
+        precommit_sse_body, validate_sse_body,
     },
 };
+
+/// Generation response handoff before the first valid SSE event commits downstream output.
+pub(super) enum UpstreamResponseOutcome {
+    Response(Response),
+    PrecommitFailure(TransportError),
+}
+
+impl From<Response> for UpstreamResponseOutcome {
+    fn from(response: Response) -> Self {
+        Self::Response(response)
+    }
+}
 
 /// Response-conversion, SSE, and observation context for one selected candidate.
 pub(super) struct UpstreamResponseContext {
@@ -45,7 +58,7 @@ pub(super) struct UpstreamResponseContext {
 pub(super) async fn upstream_response(
     upstream: UpstreamResponse,
     context: UpstreamResponseContext,
-) -> Response {
+) -> UpstreamResponseOutcome {
     // Split fixed response facts so call sites cannot omit protocol or observation boundaries.
     let UpstreamResponseContext {
         validate_sse,
@@ -76,7 +89,8 @@ pub(super) async fn upstream_response(
             StatusCode::BAD_GATEWAY,
             "invalid_upstream_response",
             "The upstream response could not be converted",
-        );
+        )
+        .into();
     }
 
     // Normalize a trusted implicit or parameterized SSE media type for downstream clients.
@@ -87,7 +101,59 @@ pub(super) async fn upstream_response(
     // Add transparent success observation or timeout-only error observation without changing downstream bytes.
     let stream_timeout_policy = upstream.stream_timeout_policy();
     let upstream_body = upstream.into_body();
-    let upstream_body = if is_sse {
+    let precommit_mode = matches!(
+        response_mode,
+        GenerationResponseMode::BridgeSse | GenerationResponseMode::ValidateNativeSse
+    );
+    let upstream_body = if precommit_mode {
+        match precommit_sse_body(
+            upstream_body,
+            max_sse_event_bytes,
+            stream_timeout_policy,
+            adapter,
+            bridge.as_ref(),
+        )
+        .await
+        {
+            Ok(body) => body.into_liveness_body(max_sse_event_bytes, observation.clone()),
+            Err(SsePrecommitError::Timeout) => {
+                return UpstreamResponseOutcome::PrecommitFailure(TransportError::Timeout);
+            }
+            Err(SsePrecommitError::Transport) => {
+                return UpstreamResponseOutcome::PrecommitFailure(TransportError::ResponseBody);
+            }
+            Err(SsePrecommitError::Invalid) => {
+                observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "invalid_upstream_response",
+                    "The upstream response is invalid",
+                )
+                .into();
+            }
+            Err(SsePrecommitError::Bridge) => {
+                observation.record_bridge_failure();
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "invalid_upstream_response",
+                    "The upstream response cannot be converted",
+                )
+                .into();
+            }
+            Err(SsePrecommitError::EofBeforeEvent) => {
+                observation.record_stream_failure(ErrorType::SseEofBeforeTerminal);
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "invalid_upstream_response",
+                    "The upstream response ended before a terminal event",
+                )
+                .into();
+            }
+        }
+    } else {
+        upstream_body
+    };
+    let upstream_body = if is_sse && !precommit_mode {
         enforce_sse_liveness(
             upstream_body,
             max_sse_event_bytes,
@@ -118,7 +184,8 @@ pub(super) async fn upstream_response(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
                         "The upstream response could not be converted",
-                    );
+                    )
+                    .into();
                 }
             };
             let downstream_body = if render_bridge {
@@ -133,7 +200,8 @@ pub(super) async fn upstream_response(
                             StatusCode::BAD_GATEWAY,
                             "invalid_upstream_response",
                             "The upstream response could not be converted",
-                        );
+                        )
+                        .into();
                     }
                 }
             } else {
@@ -164,7 +232,8 @@ pub(super) async fn upstream_response(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
                         "The upstream response could not be converted",
-                    );
+                    )
+                    .into();
                 }
             };
             match bridge.render_non_stream(upstream_body) {
@@ -175,7 +244,8 @@ pub(super) async fn upstream_response(
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_response",
                         "The upstream response could not be converted",
-                    );
+                    )
+                    .into();
                 }
             }
         }
@@ -191,5 +261,5 @@ pub(super) async fn upstream_response(
         .body(body)
         .expect("valid upstream response status");
     response.headers_mut().extend(response_headers);
-    response
+    response.into()
 }

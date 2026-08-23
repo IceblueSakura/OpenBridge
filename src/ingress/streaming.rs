@@ -2,20 +2,74 @@
 
 use std::{collections::BTreeMap, error::Error, io, pin::Pin, time::Duration};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt, stream};
 use serde_json::{Map, Value};
 use tokio::time::Instant;
 
 use crate::{
-    bridge::{BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
+    bridge::{BridgePlan, BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
     observability::{ErrorType, RequestObservation, TimeoutPhase},
     provider::{GenerationProviderAdapter, StreamEventStatus},
     registry::UpstreamTimeoutPolicy,
-    transport::{is_timeout_error, sse::SseDecoder},
+    transport::{
+        is_timeout_error,
+        sse::{SseDecoder, SseEvent},
+    },
 };
 
 type SseBodyError = Box<dyn Error + Send + Sync>;
+
+/// Outcome before a successful SSE response may commit downstream headers or bytes.
+pub(super) enum SsePrecommitError {
+    Timeout,
+    Transport,
+    Invalid,
+    Bridge,
+    EofBeforeEvent,
+}
+
+/// Exact precommitted SSE prefix plus the same liveness state that admitted it.
+pub(super) struct PrecommittedSseBody {
+    body: axum::body::Body,
+    liveness: SseLivenessDeadline,
+}
+
+impl PrecommittedSseBody {
+    /// Continues event-idle timing without replaying the prefix as a new first event.
+    pub(super) fn into_liveness_body(
+        self,
+        max_sse_event_bytes: usize,
+        observation: RequestObservation,
+    ) -> axum::body::Body {
+        enforce_sse_liveness_with_state(
+            self.body,
+            max_sse_event_bytes,
+            self.liveness,
+            true,
+            observation,
+        )
+    }
+}
+
+fn classify_precommit_event(
+    adapter: GenerationProviderAdapter,
+    renderer: Option<&mut BridgeStreamRenderer>,
+    event: SseEvent,
+) -> Result<(StreamEventStatus, bool), SsePrecommitError> {
+    let status = adapter
+        .classify_sse_event(event.clone())
+        .map_err(|_| SsePrecommitError::Invalid)?
+        .status();
+    let visible = match renderer {
+        Some(renderer) => !renderer
+            .render(event)
+            .map_err(|_| SsePrecommitError::Bridge)?
+            .is_empty(),
+        None => true,
+    };
+    Ok((status, visible))
+}
 
 struct SseLivenessDeadline {
     deadline: Option<Instant>,
@@ -53,6 +107,115 @@ impl SseLivenessDeadline {
             self.phase = TimeoutPhase::EventIdle;
         }
     }
+
+    fn record_framed_event(&mut self) {
+        self.record_framed_events(1);
+    }
+}
+
+/// Reads exactly one bounded, complete, Provider-valid SSE event before downstream commit.
+pub(super) async fn precommit_sse_body(
+    body: axum::body::Body,
+    max_sse_event_bytes: usize,
+    policy: Option<UpstreamTimeoutPolicy>,
+    adapter: GenerationProviderAdapter,
+    bridge: Option<&BridgePlan>,
+) -> Result<PrecommittedSseBody, SsePrecommitError> {
+    let mut source = Box::pin(body.into_data_stream());
+    let mut decoder = SseDecoder::new(max_sse_event_bytes);
+    let mut bridge_renderer = bridge.map(BridgePlan::stream_renderer);
+    let mut liveness = SseLivenessDeadline::new(policy);
+    let mut prefix = BytesMut::new();
+    let mut terminal_seen = false;
+
+    loop {
+        let next = liveness
+            .next(source.as_mut())
+            .await
+            .map_err(|_| SsePrecommitError::Timeout)?;
+        match next {
+            Some(Ok(chunk)) => {
+                let mut offset = 0;
+                while offset < chunk.len() {
+                    let (event, consumed) = decoder
+                        .push_until_event(&chunk[offset..])
+                        .map_err(|_| SsePrecommitError::Invalid)?;
+                    if prefix.len().saturating_add(consumed) > max_sse_event_bytes {
+                        return Err(SsePrecommitError::Invalid);
+                    }
+                    prefix.extend_from_slice(&chunk[offset..offset + consumed]);
+                    offset += consumed;
+                    let Some(event) = event else {
+                        break;
+                    };
+                    let (status, visible) =
+                        classify_precommit_event(adapter, bridge_renderer.as_mut(), event)?;
+                    terminal_seen |= status != StreamEventStatus::Continue;
+                    if !visible {
+                        continue;
+                    }
+                    liveness.record_framed_event();
+
+                    // Replay exact bytes, preserving any same-chunk suffix and the original body source.
+                    let first =
+                        stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
+                    let remainder = (offset < chunk.len()).then(|| chunk.slice(offset..));
+                    let remainder =
+                        stream::iter(remainder.into_iter().map(Ok::<Bytes, axum::Error>));
+                    return Ok(PrecommittedSseBody {
+                        body: axum::body::Body::from_stream(first.chain(remainder).chain(source)),
+                        liveness,
+                    });
+                }
+            }
+            Some(Err(error)) => {
+                return if is_timeout_error(&error) {
+                    Err(SsePrecommitError::Timeout)
+                } else {
+                    Err(SsePrecommitError::Transport)
+                };
+            }
+            None => {
+                let mut events = decoder.finish().map_err(|_| SsePrecommitError::Invalid)?;
+                if let Some(event) = events.pop() {
+                    debug_assert!(events.is_empty());
+                    let (status, visible) =
+                        classify_precommit_event(adapter, bridge_renderer.as_mut(), event)?;
+                    terminal_seen |= status != StreamEventStatus::Continue;
+                    if visible {
+                        liveness.record_framed_event();
+                        let first =
+                            stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
+                        return Ok(PrecommittedSseBody {
+                            body: axum::body::Body::from_stream(first),
+                            liveness,
+                        });
+                    }
+                }
+                let finish_visible = if terminal_seen {
+                    match bridge_renderer.as_mut() {
+                        Some(renderer) => !renderer
+                            .finish()
+                            .map_err(|_| SsePrecommitError::Bridge)?
+                            .is_empty(),
+                        None => false,
+                    }
+                } else {
+                    false
+                };
+                if finish_visible {
+                    liveness.record_framed_event();
+                    let first =
+                        stream::once(async move { Ok::<Bytes, axum::Error>(prefix.freeze()) });
+                    return Ok(PrecommittedSseBody {
+                        body: axum::body::Body::from_stream(first),
+                        liveness,
+                    });
+                }
+                return Err(SsePrecommitError::EofBeforeEvent);
+            }
+        }
+    }
 }
 
 /// Applies first-event and inter-event idle deadlines without changing SSE bytes or EOF semantics.
@@ -66,14 +229,31 @@ pub(super) fn enforce_sse_liveness(
         return body;
     };
 
+    enforce_sse_liveness_with_state(
+        body,
+        max_sse_event_bytes,
+        SseLivenessDeadline::new(Some(policy)),
+        false,
+        observation,
+    )
+}
+
+fn enforce_sse_liveness_with_state(
+    body: axum::body::Body,
+    max_sse_event_bytes: usize,
+    liveness: SseLivenessDeadline,
+    skip_replayed_prefix_events: bool,
+    observation: RequestObservation,
+) -> axum::body::Body {
     let stream = stream::unfold(
         (
             Box::pin(body.into_data_stream()),
             SseDecoder::new(max_sse_event_bytes),
-            SseLivenessDeadline::new(Some(policy)),
+            liveness,
+            skip_replayed_prefix_events,
             false,
         ),
-        move |(mut source, mut decoder, mut liveness, finished)| {
+        move |(mut source, mut decoder, mut liveness, mut skip_replayed_events, finished)| {
             let observation = observation.clone();
             async move {
                 if finished {
@@ -88,7 +268,7 @@ pub(super) fn enforce_sse_liveness(
                                 io::ErrorKind::TimedOut,
                                 "upstream SSE liveness deadline elapsed",
                             ))),
-                            (source, decoder, liveness, true),
+                            (source, decoder, liveness, skip_replayed_events, true),
                         ));
                     }
                 };
@@ -102,12 +282,19 @@ pub(super) fn enforce_sse_liveness(
                                         io::ErrorKind::InvalidData,
                                         "upstream SSE stream is invalid",
                                     ))),
-                                    (source, decoder, liveness, true),
+                                    (source, decoder, liveness, skip_replayed_events, true),
                                 ));
                             }
                         };
-                        liveness.record_framed_events(events.len());
-                        Some((Ok(chunk), (source, decoder, liveness, false)))
+                        if skip_replayed_events {
+                            skip_replayed_events = false;
+                        } else {
+                            liveness.record_framed_events(events.len());
+                        }
+                        Some((
+                            Ok(chunk),
+                            (source, decoder, liveness, skip_replayed_events, false),
+                        ))
                     }
                     Some(Err(error)) => {
                         if is_timeout_error(&error) {
@@ -115,7 +302,7 @@ pub(super) fn enforce_sse_liveness(
                         }
                         Some((
                             Err::<Bytes, SseBodyError>(Box::new(error)),
-                            (source, decoder, liveness, true),
+                            (source, decoder, liveness, skip_replayed_events, true),
                         ))
                     }
                     None => None,
@@ -318,18 +505,26 @@ pub(super) fn bridge_sse_body(
     max_sse_event_bytes: usize,
     observation: RequestObservation,
 ) -> axum::body::Body {
-    // Keep the source, decoder, and renderer together so downstream drop cancels the upstream body.
+    // Keep the source, decoder, renderer, and deferred error together so drop cancels upstream work.
     let stream = stream::unfold(
         (
             Box::pin(body.into_data_stream()),
             SseDecoder::new(max_sse_event_bytes),
             renderer,
             false,
+            false,
             observation,
         ),
-        move |(mut source, mut decoder, mut renderer, finished, observation)| async move {
+        move |(mut source, mut decoder, mut renderer, pending_error, finished, observation)| async move {
             if finished {
                 return None;
+            }
+            if pending_error {
+                tokio::task::yield_now().await;
+                return Some((
+                    Err(io::Error::other("upstream bridge stream is invalid")),
+                    (source, decoder, renderer, false, true, observation),
+                ));
             }
             match source.as_mut().next().await {
                 Some(Ok(chunk)) => {
@@ -338,9 +533,10 @@ pub(super) fn bridge_sse_body(
                         Ok(events) => events,
                         Err(_) => {
                             observation.record_upstream_failure();
+                            tokio::task::yield_now().await;
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, renderer, true, observation),
+                                (source, decoder, renderer, false, true, observation),
                             ));
                         }
                     };
@@ -351,35 +547,44 @@ pub(super) fn bridge_sse_body(
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
                                 observation.record_bridge_failure();
+                                if !output.is_empty() {
+                                    return Some((
+                                        Ok::<_, io::Error>(Bytes::from(output)),
+                                        (source, decoder, renderer, true, false, observation),
+                                    ));
+                                }
+                                tokio::task::yield_now().await;
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
-                                    (source, decoder, renderer, true, observation),
+                                    (source, decoder, renderer, false, true, observation),
                                 ));
                             }
                         }
                     }
                     Some((
                         Ok::<_, io::Error>(Bytes::from(output)),
-                        (source, decoder, renderer, false, observation),
+                        (source, decoder, renderer, false, false, observation),
                     ))
                 }
-                Some(Err(_)) => Some((
-                    Err(io::Error::other(
-                        "upstream SSE stream terminated unexpectedly",
-                    )),
-                    {
-                        observation.record_upstream_failure();
-                        (source, decoder, renderer, true, observation)
-                    },
-                )),
+                Some(Err(_)) => {
+                    observation.record_upstream_failure();
+                    tokio::task::yield_now().await;
+                    Some((
+                        Err(io::Error::other(
+                            "upstream SSE stream terminated unexpectedly",
+                        )),
+                        (source, decoder, renderer, false, true, observation),
+                    ))
+                }
                 None => {
                     let events = match decoder.finish() {
                         Ok(events) => events,
                         Err(_) => {
                             observation.record_upstream_failure();
+                            tokio::task::yield_now().await;
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
-                                (source, decoder, renderer, true, observation),
+                                (source, decoder, renderer, false, true, observation),
                             ));
                         }
                     };
@@ -390,9 +595,16 @@ pub(super) fn bridge_sse_body(
                             Ok(bytes) => output.extend_from_slice(&bytes),
                             Err(_) => {
                                 observation.record_bridge_failure();
+                                if !output.is_empty() {
+                                    return Some((
+                                        Ok::<_, io::Error>(Bytes::from(output)),
+                                        (source, decoder, renderer, true, false, observation),
+                                    ));
+                                }
+                                tokio::task::yield_now().await;
                                 return Some((
                                     Err(io::Error::other("upstream bridge stream is invalid")),
-                                    (source, decoder, renderer, true, observation),
+                                    (source, decoder, renderer, false, true, observation),
                                 ));
                             }
                         }
@@ -401,9 +613,16 @@ pub(super) fn bridge_sse_body(
                         Ok(bytes) => output.extend_from_slice(&bytes),
                         Err(_) => {
                             observation.record_bridge_failure();
+                            if !output.is_empty() {
+                                return Some((
+                                    Ok::<_, io::Error>(Bytes::from(output)),
+                                    (source, decoder, renderer, true, false, observation),
+                                ));
+                            }
+                            tokio::task::yield_now().await;
                             return Some((
                                 Err(io::Error::other("upstream bridge stream is invalid")),
-                                (source, decoder, renderer, true, observation),
+                                (source, decoder, renderer, false, true, observation),
                             ));
                         }
                     }
@@ -413,7 +632,7 @@ pub(super) fn bridge_sse_body(
                     } else {
                         Some((
                             Ok::<_, io::Error>(Bytes::from(output)),
-                            (source, decoder, renderer, true, observation),
+                            (source, decoder, renderer, false, true, observation),
                         ))
                     }
                 }
@@ -426,9 +645,9 @@ pub(super) fn bridge_sse_body(
 /// Observes the upstream SSE lifecycle without rewriting the original bytes.
 ///
 /// The decoder handles UTF-8/SSE framing across network chunks and delegates protocol-terminal
-/// detection to the Provider adapter. A clean EOF without a terminal preserves received bytes and
-/// records a warning; invalid framing, invalid UTF-8, or an upstream body error closes with a stream
-/// error. When downstream drops the body, `source` is dropped as well, cancelling the reqwest stream.
+/// detection to the Provider adapter. A clean EOF without a terminal, invalid framing, invalid
+/// UTF-8, or an upstream body error closes with a downstream body error after any visible prefix.
+/// When downstream drops the body, `source` is dropped as well, cancelling the reqwest stream.
 pub(super) fn validate_sse_body(
     body: axum::body::Body,
     adapter: GenerationProviderAdapter,
@@ -467,6 +686,7 @@ pub(super) fn validate_sse_body(
                                 )),
                                 Err(()) => {
                                     observation.record_upstream_failure();
+                                    tokio::task::yield_now().await;
                                     Some((
                                         Err(io::Error::other("upstream SSE stream is invalid")),
                                         (source, decoder, terminal_seen, true, observation),
@@ -476,6 +696,7 @@ pub(super) fn validate_sse_body(
                         }
                         Err(_) => {
                             observation.record_upstream_failure();
+                            tokio::task::yield_now().await;
                             Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
                                 (source, decoder, terminal_seen, true, observation),
@@ -485,6 +706,7 @@ pub(super) fn validate_sse_body(
                 }
                 Some(Err(_)) => {
                     observation.record_upstream_failure();
+                    tokio::task::yield_now().await;
                     Some((
                         Err(io::Error::other(
                             "upstream SSE stream terminated unexpectedly",
@@ -499,23 +721,33 @@ pub(super) fn validate_sse_body(
                             .is_err()
                         {
                             observation.record_upstream_failure();
+                            tokio::task::yield_now().await;
                             return Some((
                                 Err(io::Error::other("upstream SSE stream is invalid")),
                                 (source, decoder, terminal_seen, true, observation),
                             ));
                         }
-                        observation.record_upstream_complete();
                         if !terminal_seen {
                             observation.record_stream_failure(ErrorType::SseEofBeforeTerminal);
                             tracing::warn!(
                                 protocol = ?adapter.protocol(),
                                 "upstream SSE stream ended before a terminal event"
                             );
+                            // Yield one pending poll so already emitted data commits before the body error.
+                            tokio::task::yield_now().await;
+                            return Some((
+                                Err(io::Error::other(
+                                    "upstream SSE stream ended before a terminal event",
+                                )),
+                                (source, decoder, terminal_seen, true, observation),
+                            ));
                         }
+                        observation.record_upstream_complete();
                         None
                     }
                     Err(_) => {
                         observation.record_upstream_failure();
+                        tokio::task::yield_now().await;
                         Some((
                             Err(io::Error::other("upstream SSE stream is invalid")),
                             (source, decoder, terminal_seen, true, observation),
@@ -563,7 +795,7 @@ mod liveness_tests {
         registry::UpstreamTimeoutPolicy,
     };
 
-    use super::enforce_sse_liveness;
+    use super::{PrecommittedSseBody, SseLivenessDeadline, enforce_sse_liveness};
 
     fn paced_body(chunks: Vec<Bytes>, delay: Duration) -> Body {
         Body::from_stream(stream::iter(chunks).then(move |chunk| async move {
@@ -596,6 +828,41 @@ mod liveness_tests {
             .expect_err("a missing first event must reach the liveness deadline");
 
         assert_timeout(error);
+    }
+
+    #[tokio::test]
+    async fn precommit_handoff_keeps_the_existing_event_idle_deadline() {
+        let event = Bytes::from_static(
+            b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+        );
+        let body = Body::from_stream(
+            stream::once(async move { Ok::<_, io::Error>(event) }).chain(stream::pending()),
+        );
+        let mut liveness =
+            SseLivenessDeadline::new(Some(UpstreamTimeoutPolicy::new(Duration::from_millis(80))));
+        liveness.record_framed_event();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let guarded =
+            PrecommittedSseBody { body, liveness }.into_liveness_body(1024, observation());
+        let mut source = guarded.into_data_stream();
+
+        source
+            .next()
+            .await
+            .expect("replayed event frame")
+            .expect("replayed event bytes");
+        let wait_started = std::time::Instant::now();
+        let error = source
+            .next()
+            .await
+            .expect("event-idle timeout body error")
+            .expect_err("pending post-commit source must time out");
+
+        assert_timeout(error);
+        assert!(
+            wait_started.elapsed() < Duration::from_millis(60),
+            "handoff reset the event-idle deadline"
+        );
     }
 
     #[tokio::test]

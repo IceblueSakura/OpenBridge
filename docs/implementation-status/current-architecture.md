@@ -176,6 +176,10 @@ Generation 的 pure Chat/Responses analysis、fixed-interface preflight、reques
 response-mode decision 由 `pipeline/generation/` 单一 family 拥有，并继续通过 pipeline facade 暴露；Bridge plan 不能由
 Embeddings family 构造。response driver 根据 success、SSE media、Bridge 和 streaming takeover facts 选择 fail-closed、buffer、
 Native SSE validation、Bridge JSON/SSE conversion 或 passthrough；Ingress 执行对应 body read、decoder、observation 和 commit。
+成功的 Native/Bridge SSE 在首个完整、Provider-valid 且下游可见的 event 前仍由 attempt runner 持有：first-event timeout 或 body
+transport failure 可以走既有有界 retry/fallback，非法 framing 或 event 前 EOF 则在未 commit 时返回安全 `502`。首 event 后不再
+retry/fallback；terminal 前 EOF 保留已经可见的字节并以 downstream body error 结束，不伪造 terminal。precommit 只保留受
+`max_sse_event_bytes` 限制的精确 raw prefix，同一网络 chunk 的剩余字节继续交给原 source。
 该 family 不执行 body read、credential、transport、response-body 或 downstream commit I/O。
 
 Embeddings 的 pure analysis、fixed-interface preflight、Native planning 与 success-response validation 由
