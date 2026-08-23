@@ -11,11 +11,15 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::OperationKind,
-    observability::{ErrorType, FailureStage, RequestObservation},
+    execution::AttemptCoordinator,
+    observability::{
+        AttemptFailure, ErrorType, FailureStage, NextAction, ProviderAttemptContext,
+        RequestObservation, TimeoutPhase,
+    },
     pipeline::{analyze_images_request, plan_images_request},
     provider::{ImagesProviderAdapter, ProviderOperationAdapter},
     registry::UpstreamTarget,
-    transport::upstream::UpstreamResponse,
+    transport::upstream::{TransportError, UpstreamResponse},
 };
 
 use super::super::{
@@ -119,6 +123,22 @@ pub(in crate::ingress) async fn forward_images_request(
     };
 
     // Send exactly one attempt; Images requests are never replayed after an uncertain outcome.
+    let mut attempts = AttemptCoordinator::new();
+    attempts.begin_candidate();
+    assert!(
+        attempts.start_attempt(),
+        "a new Images request has one attempt budget"
+    );
+    let attempt = attempts.attempts_started() as u64;
+    observation.record_attempt(ProviderAttemptContext {
+        attempt,
+        route_id: candidate.route_id(),
+        upstream_target: candidate.upstream_target_id(),
+        upstream_operation: OperationKind::ImagesGenerations,
+        upstream_model: upstream_api.upstream_model(),
+        provider: target.kind(),
+        bridged: false,
+    });
     let upstream = send_single_attempt(
         &state,
         target,
@@ -130,22 +150,43 @@ pub(in crate::ingress) async fn forward_images_request(
     .await;
     let upstream = match upstream {
         Ok(upstream) => upstream,
-        Err(_) => {
-            observation.record_request_failure(
-                ErrorType::UpstreamUnavailable,
-                FailureStage::Upstream,
-                false,
+        Err(error) => {
+            let error_type = images_transport_error_type(&error);
+            let (status, code, message) = match &error {
+                TransportError::Timeout => (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "upstream_timeout",
+                    "The upstream request timed out",
+                ),
+                _ => (
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_error",
+                    "The upstream request failed",
+                ),
+            };
+            if matches!(error, TransportError::Timeout) {
+                observation.record_timeout_context(TimeoutPhase::ResponseHeaders);
+            }
+            observation.record_attempt_transport_failure(
+                attempt,
+                AttemptFailure::new(error_type, false, NextAction::Finish),
             );
-            return images_server_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_error",
-                "The upstream request failed",
-            );
+            observation.record_request_failure(error_type, FailureStage::Upstream, false);
+            return images_server_error(status, code, message);
         }
     };
 
     // Normalize a non-success status without exposing the upstream body or internal topology.
     if !upstream.status().is_success() {
+        observation.record_attempt_http_result(
+            attempt,
+            upstream.status(),
+            Some(AttemptFailure::new(
+                ErrorType::UpstreamFailure,
+                false,
+                NextAction::Finish,
+            )),
+        );
         observation.record_request_failure(
             ErrorType::UpstreamFailure,
             FailureStage::Upstream,
@@ -153,6 +194,7 @@ pub(in crate::ingress) async fn forward_images_request(
         );
         return normalized_images_upstream_error(upstream);
     }
+    observation.record_attempt_http_result(attempt, upstream.status(), None);
 
     // Validate the complete bounded upstream body before downstream commit; never retain image values.
     match validated_images_response(
@@ -200,6 +242,17 @@ async fn send_single_attempt(
     state.upstream.send(target, request, headers).await
 }
 
+/// Maps one typed transport failure into the closed observability taxonomy.
+fn images_transport_error_type(error: &TransportError) -> ErrorType {
+    match error {
+        TransportError::ClientBuild(_) => ErrorType::TransportClientBuild,
+        TransportError::Request(_) => ErrorType::TransportRequest,
+        TransportError::Timeout => ErrorType::Timeout,
+        TransportError::ResponseBody => ErrorType::UpstreamBodyTransport,
+        TransportError::InvalidTarget => ErrorType::InvalidTarget,
+    }
+}
+
 /// Replaces an upstream non-success body with a stable error while preserving only safe metadata.
 fn normalized_images_upstream_error(upstream: UpstreamResponse) -> Response {
     let status = upstream.status();
@@ -223,4 +276,23 @@ fn configuration_error(observation: &RequestObservation, message: &'static str) 
         "configuration_error",
         message,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{observability::ErrorType, transport::upstream::TransportError};
+
+    use super::images_transport_error_type;
+
+    #[test]
+    fn images_transport_failures_keep_timeout_and_invalid_target_distinct() {
+        assert_eq!(
+            images_transport_error_type(&TransportError::Timeout),
+            ErrorType::Timeout
+        );
+        assert_eq!(
+            images_transport_error_type(&TransportError::InvalidTarget),
+            ErrorType::InvalidTarget
+        );
+    }
 }

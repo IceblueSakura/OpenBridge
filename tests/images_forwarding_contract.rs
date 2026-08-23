@@ -4,7 +4,10 @@ mod support;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use axum::{
@@ -32,7 +35,7 @@ use openbridge::{
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use support::{BOOTSTRAP, users_and_credentials};
+use support::{BOOTSTRAP, metrics::TestMetrics, users_and_credential_pool};
 
 const DOWNSTREAM_KEY: &str = "downstream-token-0000000000000000";
 
@@ -143,6 +146,47 @@ struct RecordingImagesTransport {
     responses: Mutex<VecDeque<UpstreamResponse>>,
 }
 
+struct FailingImagesTransport {
+    attempts: AtomicUsize,
+    timeout: bool,
+}
+
+struct PendingImagesTransport {
+    attempts: AtomicUsize,
+    started: tokio::sync::Notify,
+}
+
+impl UpstreamTransport for PendingImagesTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        self.started.notify_one();
+        Box::pin(std::future::pending())
+    }
+}
+
+impl UpstreamTransport for FailingImagesTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            if self.timeout {
+                Err(TransportError::Timeout)
+            } else {
+                Err(TransportError::InvalidTarget)
+            }
+        })
+    }
+}
+
 impl UpstreamTransport for RecordingImagesTransport {
     fn send<'a>(
         &'a self,
@@ -193,12 +237,29 @@ fn dashscope_success(url: &str, count: usize) -> UpstreamResponse {
 fn images_router(
     transport: Arc<RecordingImagesTransport>,
 ) -> (axum::Router, Arc<openbridge::registry::RuntimeRegistry>) {
+    let (router, registry, _) = images_router_with_metrics(transport);
+    (router, registry)
+}
+
+fn images_router_with_metrics(
+    transport: Arc<dyn UpstreamTransport>,
+) -> (
+    axum::Router,
+    Arc<openbridge::registry::RuntimeRegistry>,
+    TestMetrics,
+) {
     let bootstrap = parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses");
     let registry =
         Arc::new(build_registry(bootstrap, images_definition()).expect("images registry compiles"));
-    let (users, credentials) = users_and_credentials(DOWNSTREAM_KEY, &registry, "synthetic-secret");
-    let state = GatewayState::new(registry.clone(), transport, users, credentials);
-    (build_router(state), registry)
+    let (users, credentials) = users_and_credential_pool(
+        DOWNSTREAM_KEY,
+        &registry,
+        &["synthetic-secret-a", "synthetic-secret-b"],
+    );
+    let metrics = TestMetrics::new();
+    let state = GatewayState::new(registry.clone(), transport, users, credentials)
+        .with_metrics(metrics.instruments());
+    (build_router(state), registry, metrics)
 }
 
 fn downstream_request(body: Value) -> Request<Body> {
@@ -310,7 +371,7 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
             2,
         )])),
     });
-    let (router, _) = images_router(transport.clone());
+    let (router, _, metrics) = images_router_with_metrics(transport.clone());
 
     let response = router
         .oneshot(downstream_request(json!({
@@ -358,6 +419,11 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
         downstream["data"][1]["url"],
         "https://dashscope-result.example.com/image.png"
     );
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].attempts_started, 1);
+    assert_eq!(providers[0].response_ready_ms.count, 1);
+    assert_eq!(providers[0].attempts_completed, 1);
 }
 
 #[tokio::test]
@@ -523,6 +589,105 @@ fn dashscope_extensions_require_a_model_bound_extension_profile() {
         error,
         openbridge::pipeline::ImagesRequestError::UnsupportedModelCapability { param: "seed" }
     ));
+}
+
+#[tokio::test]
+async fn cancellation_before_headers_finishes_the_only_images_attempt_once() {
+    let transport = Arc::new(PendingImagesTransport {
+        attempts: AtomicUsize::new(0),
+        started: tokio::sync::Notify::new(),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport.clone());
+    let task = tokio::spawn(router.oneshot(downstream_request(json!({
+        "model": "synthetic-image",
+        "prompt": "a cat"
+    }))));
+    transport.started.notified().await;
+
+    task.abort();
+    let _ = task.await;
+    tokio::task::yield_now().await;
+
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.upstream_attempts, 1);
+    assert_eq!(gateway.requests_cancelled, 1);
+    assert_eq!(gateway.upstream_retries, 0);
+    assert_eq!(gateway.credential_rotations, 0);
+    assert_eq!(gateway.route_fallbacks, 0);
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].attempts_started, 1);
+    assert_eq!(providers[0].attempts_cancelled, 1);
+}
+
+#[tokio::test]
+async fn non_success_headers_record_one_http_failed_attempt_without_recovery() {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            headers,
+            Body::from(r#"{"code":"RateLimit"}"#),
+        )])),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport.clone());
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.upstream_attempts, 1);
+    assert_eq!(gateway.upstream_http_failures, 1);
+    assert_eq!(gateway.upstream_retries, 0);
+    assert_eq!(gateway.credential_rotations, 0);
+    assert_eq!(gateway.route_fallbacks, 0);
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].attempts_started, 1);
+    assert_eq!(providers[0].attempts_http_failed, 1);
+}
+
+#[tokio::test]
+async fn timeout_returns_504_and_records_one_non_replayed_provider_attempt() {
+    let transport = Arc::new(FailingImagesTransport {
+        attempts: AtomicUsize::new(0),
+        timeout: true,
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport.clone());
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "upstream_timeout");
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.upstream_attempts, 1);
+    assert_eq!(gateway.upstream_transport_failures, 1);
+    assert_eq!(gateway.upstream_retries, 0);
+    assert_eq!(gateway.credential_rotations, 0);
+    assert_eq!(gateway.route_fallbacks, 0);
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].key.operation, "images_generations");
+    assert_eq!(providers[0].attempts_started, 1);
+    assert_eq!(providers[0].attempts_transport_failed, 1);
 }
 
 #[tokio::test]
