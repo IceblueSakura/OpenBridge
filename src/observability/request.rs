@@ -21,12 +21,14 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::{config::HttpLoggingConfig, core::OperationKind};
 
 use super::{
-    classification::{AttemptFailure, ErrorType, FailureStage, RequestFailure, RequestKind},
+    classification::{
+        AttemptFailure, ErrorType, FailureStage, RequestFailure, RequestKind, TimeoutPhase,
+    },
     http_jsonl::{HttpJsonlWriter, JsonlRecord},
     metrics::{GatewayMetrics, RequestMetricTerminal},
     provider::{
         AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
-        ProviderMetricAttributes, observe_json_body,
+        ProviderMetricAttributes, observe_json_body, observe_timeout_body,
     },
     usage::{TokenUsage, is_failed_terminal, is_generation_output},
 };
@@ -70,6 +72,9 @@ struct RequestState {
     active_attempt: Option<ProviderAttemptObservation>,
     failure: Option<RequestFailure>,
     failure_kind: Option<&'static str>,
+    last_upstream_event_ms: Option<u64>,
+    timeout_phase: Option<TimeoutPhase>,
+    timeout_committed: Option<bool>,
     finished: bool,
 }
 
@@ -216,7 +221,7 @@ impl RequestObservation {
         self.inner.span.set_attribute("streaming", streaming);
     }
 
-    /// Retains the latest bounded request-level cause without changing the public response.
+    /// Retains the first bounded request-level cause without changing the public response.
     pub(crate) fn record_request_failure(
         &self,
         error_type: ErrorType,
@@ -224,7 +229,9 @@ impl RequestObservation {
         retryable: bool,
     ) {
         self.with_state(|state| {
-            state.failure = Some(RequestFailure::terminal(error_type, stage, retryable));
+            state
+                .failure
+                .get_or_insert(RequestFailure::terminal(error_type, stage, retryable));
         });
     }
 
@@ -304,7 +311,9 @@ impl RequestObservation {
             provider_attempt.record_failure(failure);
             provider_attempt.finish(AttemptOutcome::HttpFailed);
             self.with_state(|state| {
-                state.failure = Some(failure.request_failure(FailureStage::Upstream));
+                state
+                    .failure
+                    .get_or_insert(failure.request_failure(FailureStage::Upstream));
             });
         }
         self.inner.span.in_scope(|| {
@@ -324,7 +333,9 @@ impl RequestObservation {
             provider_attempt.finish(AttemptOutcome::TransportFailed);
         }
         self.with_state(|state| {
-            state.failure = Some(failure.request_failure(FailureStage::Upstream));
+            state
+                .failure
+                .get_or_insert(failure.request_failure(FailureStage::Upstream));
         });
         self.inner.span.in_scope(|| {
             tracing::info!(
@@ -483,6 +494,53 @@ impl RequestObservation {
         self.record_body_failure(error_type, FailureStage::Stream, true);
     }
 
+    /// Records the first low-cardinality timeout context without changing response policy.
+    pub(crate) fn record_timeout_context(&self, phase: TimeoutPhase) {
+        let elapsed = self.elapsed_ms();
+        let (inserted, committed, last_event_ms) = self.with_state_return(|state| {
+            let committed = state.status.is_some();
+            let inserted = state.timeout_phase.is_none();
+            if inserted {
+                state.timeout_phase = Some(phase);
+                state.timeout_committed = Some(committed);
+            }
+            (inserted, committed, state.last_upstream_event_ms)
+        });
+        if let Some(provider_attempt) = self.active_attempt() {
+            provider_attempt.record_timeout_context(phase, committed, last_event_ms);
+        }
+        if !inserted {
+            return;
+        }
+
+        self.inner
+            .span
+            .set_attribute("openbridge.timeout.phase", phase.as_str());
+        self.inner
+            .span
+            .set_attribute("openbridge.timeout.committed", committed);
+        record_optional_u64(
+            &self.inner.span,
+            "openbridge.upstream.last_event_ms",
+            last_event_ms,
+        );
+        self.inner.span.in_scope(|| {
+            tracing::info!(
+                timeout_phase = phase.as_str(),
+                committed,
+                last_event_ms,
+                observed_ms = elapsed,
+                "upstream_timeout_observed"
+            );
+        });
+    }
+
+    /// Records an SSE/body timeout as the first stream failure and attaches its phase.
+    pub(crate) fn record_stream_timeout(&self, phase: TimeoutPhase) {
+        self.record_timeout_context(phase);
+        self.record_stream_failure(ErrorType::Timeout);
+    }
+
     /// Records a gateway-owned Bridge failure without changing a completed Provider terminal.
     pub(crate) fn record_bridge_failure(&self) {
         self.record_body_failure(
@@ -501,21 +559,15 @@ impl RequestObservation {
         );
     }
 
-    /// Retains the first request cause and only then marks the Provider side when applicable.
+    /// Retains the first request cause and independently marks the active Provider attempt.
     fn record_body_failure(&self, error_type: ErrorType, stage: FailureStage, mark_provider: bool) {
-        let inserted = self.with_state_return(|state| {
+        self.with_state(|state| {
             state.failure_kind.get_or_insert(error_type.as_str());
-            if state.failure.is_some() {
-                false
-            } else {
-                state.failure = Some(RequestFailure::terminal(error_type, stage, false));
-                true
-            }
+            state
+                .failure
+                .get_or_insert(RequestFailure::terminal(error_type, stage, false));
         });
-        if inserted
-            && mark_provider
-            && let Some(provider_attempt) = self.active_attempt()
-        {
+        if mark_provider && let Some(provider_attempt) = self.active_attempt() {
             provider_attempt.record_stream_failure(error_type);
         }
     }
@@ -591,6 +643,10 @@ impl RequestObservation {
 
     /// Records a group of fully framed raw upstream SSE events.
     pub(crate) fn record_upstream_events(&self, events: &[crate::transport::sse::SseEvent]) {
+        if !events.is_empty() {
+            let elapsed = self.elapsed_ms();
+            self.with_state(|state| state.last_upstream_event_ms = Some(elapsed));
+        }
         for event in events {
             if event.data() == "[DONE]" {
                 continue;
@@ -624,6 +680,11 @@ impl RequestObservation {
         } else {
             body
         }
+    }
+
+    /// Preserves a non-success body while retaining typed total-timeout attribution.
+    pub(crate) fn observe_upstream_timeout_body(&self, body: axum::body::Body) -> axum::body::Body {
+        observe_timeout_body(body, self.clone())
     }
 
     /// Submits the single terminal at normal EOF.
@@ -662,6 +723,9 @@ impl RequestObservation {
                 usage: state.usage,
                 failure: state.failure,
                 failure_kind: state.failure_kind,
+                last_upstream_event_ms: state.last_upstream_event_ms,
+                timeout_phase: state.timeout_phase,
+                timeout_committed: state.timeout_committed,
                 cancelled,
                 active_attempt: state.active_attempt.take(),
             }
@@ -760,6 +824,21 @@ impl RequestObservation {
                 .span
                 .set_attribute("next_action", failure.next_action.as_str());
         }
+        if let Some(timeout_phase) = summary.timeout_phase {
+            self.inner
+                .span
+                .set_attribute("openbridge.timeout.phase", timeout_phase.as_str());
+        }
+        if let Some(timeout_committed) = summary.timeout_committed {
+            self.inner
+                .span
+                .set_attribute("openbridge.timeout.committed", timeout_committed);
+        }
+        record_optional_u64(
+            &self.inner.span,
+            "openbridge.upstream.last_event_ms",
+            summary.last_upstream_event_ms,
+        );
         self.inner.span.in_scope(|| {
             tracing::info!(
                 outcome,
@@ -774,6 +853,9 @@ impl RequestObservation {
                 route_fallbacks = summary.fallbacks,
                 cooldown_skips = summary.cooldown_skips,
                 failure_kind = summary.failure_kind,
+                timeout_phase = summary.timeout_phase.map(TimeoutPhase::as_str),
+                timeout_committed = summary.timeout_committed,
+                last_upstream_event_ms = summary.last_upstream_event_ms,
                 input_tokens = usage.input_tokens,
                 output_tokens = usage.output_tokens,
                 reasoning_output_tokens = usage.reasoning_output_tokens,
@@ -786,6 +868,26 @@ impl RequestObservation {
     /// Returns milliseconds elapsed since request start for TTFT/TTFB and total-duration observation.
     fn elapsed_ms(&self) -> u64 {
         self.inner.started.elapsed().as_millis() as u64
+    }
+
+    #[cfg(test)]
+    pub(crate) fn timeout_context_for_test(&self) -> Option<(TimeoutPhase, bool, Option<u64>)> {
+        let state = self.lock_state();
+        Some((
+            state.timeout_phase?,
+            state.timeout_committed.unwrap_or(false),
+            state.last_upstream_event_ms,
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn failure_for_test(&self) -> Option<RequestFailure> {
+        self.lock_state().failure
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_attempt_failure_for_test(&self) -> Option<ErrorType> {
+        self.active_attempt()?.failure_for_test()
     }
 
     /// Updates this request's observation state while briefly holding the state lock.
@@ -820,6 +922,9 @@ struct CompletionSummary {
     usage: Option<TokenUsage>,
     failure: Option<RequestFailure>,
     failure_kind: Option<&'static str>,
+    last_upstream_event_ms: Option<u64>,
+    timeout_phase: Option<TimeoutPhase>,
+    timeout_committed: Option<bool>,
     cancelled: bool,
     active_attempt: Option<ProviderAttemptObservation>,
 }

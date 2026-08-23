@@ -9,24 +9,18 @@ use tokio::time::Instant;
 
 use crate::{
     bridge::{BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
-    observability::{ErrorType, RequestObservation},
+    observability::{ErrorType, RequestObservation, TimeoutPhase},
     provider::{GenerationProviderAdapter, StreamEventStatus},
     registry::UpstreamTimeoutPolicy,
-    transport::sse::SseDecoder,
+    transport::{is_timeout_error, sse::SseDecoder},
 };
 
 type SseBodyError = Box<dyn Error + Send + Sync>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SseTimeoutPhase {
-    FirstEvent,
-    EventIdle,
-}
-
 struct SseLivenessDeadline {
     deadline: Option<Instant>,
     event_idle: Option<Duration>,
-    phase: SseTimeoutPhase,
+    phase: TimeoutPhase,
 }
 
 impl SseLivenessDeadline {
@@ -34,11 +28,11 @@ impl SseLivenessDeadline {
         Self {
             deadline: policy.map(|policy| Instant::now() + policy.first_stream_event()),
             event_idle: policy.map(UpstreamTimeoutPolicy::stream_event_idle),
-            phase: SseTimeoutPhase::FirstEvent,
+            phase: TimeoutPhase::FirstEvent,
         }
     }
 
-    async fn next<S>(&self, mut source: Pin<&mut S>) -> Result<Option<S::Item>, SseTimeoutPhase>
+    async fn next<S>(&self, mut source: Pin<&mut S>) -> Result<Option<S::Item>, TimeoutPhase>
     where
         S: Stream + ?Sized,
     {
@@ -56,7 +50,7 @@ impl SseLivenessDeadline {
         }
         if let Some(event_idle) = self.event_idle {
             self.deadline = Some(Instant::now() + event_idle);
-            self.phase = SseTimeoutPhase::EventIdle;
+            self.phase = TimeoutPhase::EventIdle;
         }
     }
 }
@@ -66,6 +60,7 @@ pub(super) fn enforce_sse_liveness(
     body: axum::body::Body,
     max_sse_event_bytes: usize,
     policy: Option<UpstreamTimeoutPolicy>,
+    observation: RequestObservation,
 ) -> axum::body::Body {
     let Some(policy) = policy else {
         return body;
@@ -78,44 +73,53 @@ pub(super) fn enforce_sse_liveness(
             SseLivenessDeadline::new(Some(policy)),
             false,
         ),
-        move |(mut source, mut decoder, mut liveness, finished)| async move {
-            if finished {
-                return None;
-            }
-            let next = match liveness.next(source.as_mut()).await {
-                Ok(next) => next,
-                Err(_) => {
-                    return Some((
-                        Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            "upstream SSE liveness deadline elapsed",
-                        ))),
-                        (source, decoder, liveness, true),
-                    ));
+        move |(mut source, mut decoder, mut liveness, finished)| {
+            let observation = observation.clone();
+            async move {
+                if finished {
+                    return None;
                 }
-            };
-            match next {
-                Some(Ok(chunk)) => {
-                    let events = match decoder.push(&chunk) {
-                        Ok(events) => events,
-                        Err(_) => {
-                            return Some((
-                                Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "upstream SSE stream is invalid",
-                                ))),
-                                (source, decoder, liveness, true),
-                            ));
+                let next = match liveness.next(source.as_mut()).await {
+                    Ok(next) => next,
+                    Err(phase) => {
+                        observation.record_stream_timeout(phase);
+                        return Some((
+                            Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "upstream SSE liveness deadline elapsed",
+                            ))),
+                            (source, decoder, liveness, true),
+                        ));
+                    }
+                };
+                match next {
+                    Some(Ok(chunk)) => {
+                        let events = match decoder.push(&chunk) {
+                            Ok(events) => events,
+                            Err(_) => {
+                                return Some((
+                                    Err::<Bytes, SseBodyError>(Box::new(io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        "upstream SSE stream is invalid",
+                                    ))),
+                                    (source, decoder, liveness, true),
+                                ));
+                            }
+                        };
+                        liveness.record_framed_events(events.len());
+                        Some((Ok(chunk), (source, decoder, liveness, false)))
+                    }
+                    Some(Err(error)) => {
+                        if is_timeout_error(&error) {
+                            observation.record_stream_timeout(TimeoutPhase::StreamTotal);
                         }
-                    };
-                    liveness.record_framed_events(events.len());
-                    Some((Ok(chunk), (source, decoder, liveness, false)))
+                        Some((
+                            Err::<Bytes, SseBodyError>(Box::new(error)),
+                            (source, decoder, liveness, true),
+                        ))
+                    }
+                    None => None,
                 }
-                Some(Err(error)) => Some((
-                    Err::<Bytes, SseBodyError>(Box::new(error)),
-                    (source, decoder, liveness, true),
-                )),
-                None => None,
             }
         },
     );
@@ -554,7 +558,10 @@ mod liveness_tests {
     use bytes::Bytes;
     use futures_util::{StreamExt, stream};
 
-    use crate::registry::UpstreamTimeoutPolicy;
+    use crate::{
+        observability::{GatewayMetrics, RequestObservation},
+        registry::UpstreamTimeoutPolicy,
+    };
 
     use super::enforce_sse_liveness;
 
@@ -570,6 +577,10 @@ mod liveness_tests {
         assert!(diagnostic.contains("TimedOut"), "{diagnostic}");
     }
 
+    fn observation() -> RequestObservation {
+        RequestObservation::new(GatewayMetrics::default(), tracing::Span::none())
+    }
+
     #[tokio::test]
     async fn times_out_before_the_first_event() {
         let body = Body::from_stream(stream::pending::<Result<Bytes, io::Error>>());
@@ -577,6 +588,7 @@ mod liveness_tests {
             body,
             1024,
             Some(UpstreamTimeoutPolicy::new(Duration::from_millis(30))),
+            observation(),
         );
 
         let error = to_bytes(guarded, 4096)
@@ -600,6 +612,7 @@ mod liveness_tests {
             body,
             1024,
             Some(UpstreamTimeoutPolicy::new(Duration::from_millis(100))),
+            observation(),
         );
 
         let error = to_bytes(guarded, 4096)
@@ -628,6 +641,7 @@ mod liveness_tests {
             body,
             1024,
             Some(UpstreamTimeoutPolicy::new(Duration::from_millis(150))),
+            observation(),
         );
 
         let body = to_bytes(guarded, 4096)
@@ -649,6 +663,7 @@ mod liveness_tests {
             body,
             1024,
             Some(UpstreamTimeoutPolicy::new(Duration::from_millis(30))),
+            observation(),
         );
 
         let error = to_bytes(guarded, 4096)

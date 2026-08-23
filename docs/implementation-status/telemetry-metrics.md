@@ -59,6 +59,8 @@ Public Model 只在 registry planning 成功后进入 trace/metrics，未知或�
 retry、credential rotation、fallback 与 cooldown skip 使用四个固定名称、固定低基数字段的 allowlisted routing events；普通
 tracing events、正文、header 和原始错误继续排除。Bridge 转换失败归于 request `bridge` 阶段：已观察 upstream EOF 的
 Provider attempt 保持 completed，否则因网关终止读取而归为 cancelled，二者都不误记为 Provider stream failure。
+Timeout trace 只增加闭合 phase（`response_headers | first_event | event_idle | stream_total | non_stream_total`）、当前 response
+是否已 ready/committed 以及 request-relative last-event milliseconds；这些值不进入 metric label，也不保留底层错误字符串或 event 内容。
 
 ## 安全与本地内容日志
 
@@ -72,6 +74,14 @@ OTLP trace layer。
 - `tests/otlp_trace_contract.rs`：span hierarchy、attribute allowlist、内容 snapshot 排除和 shutdown。
 - `tests/otlp_metrics_contract.rs`：OTLP request/resource、instrument/aggregation、overflow 与无 credential header。
 - forwarding/SSE/Embeddings tests：success/failure/EOF/cancel/retry/fallback 的唯一 observation。
+- observability/streaming 单元测试：timeout phase、commit state、last-event timestamp、首次失败保持和内容排除。
+
+2026-08-23 在当前 checkout 执行：
+
+- `cargo fmt -- --check`：通过；
+- `cargo test --locked`：通过；
+- `cargo clippy --locked -- -D warnings`：通过；
+- `git diff --check`：通过。
 
 2026-08-18 在当前 checkout 执行：
 

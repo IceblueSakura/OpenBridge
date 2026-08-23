@@ -84,15 +84,20 @@ pub(super) async fn upstream_response(
         response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
     }
 
-    // Add transparent Provider usage/first-byte observation to successful non-SSE bodies without changing downstream bytes.
+    // Add transparent success observation or timeout-only error observation without changing downstream bytes.
     let stream_timeout_policy = upstream.stream_timeout_policy();
     let upstream_body = upstream.into_body();
     let upstream_body = if is_sse {
-        enforce_sse_liveness(upstream_body, max_sse_event_bytes, stream_timeout_policy)
+        enforce_sse_liveness(
+            upstream_body,
+            max_sse_event_bytes,
+            stream_timeout_policy,
+            observation.clone(),
+        )
     } else if status.is_success() {
         observation.observe_upstream_json_body(upstream_body, max_json_body_bytes)
     } else {
-        upstream_body
+        observation.observe_upstream_timeout_body(upstream_body)
     };
 
     // Execute the selected takeover while retaining body I/O, observation, and commit in ingress.

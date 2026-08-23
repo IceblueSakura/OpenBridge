@@ -9,13 +9,30 @@ use http::StatusCode;
 use serde_json::json;
 use tracing_subscriber::fmt::MakeWriter;
 
-use crate::{core::OperationKind, provider::ProviderKind};
+use crate::{core::OperationKind, provider::ProviderKind, transport::sse::SseDecoder};
 
 use super::{
-    GatewayMetrics, RequestObservation,
+    GatewayMetrics, RequestObservation, TimeoutPhase,
+    classification::{AttemptFailure, ErrorType, FailureStage, NextAction, RequestFailure},
     provider::{ProviderAttemptContext, ProviderMetricAttributes},
     usage::{TokenUsage, extract_usage, is_generation_output},
 };
+
+fn test_observation() -> RequestObservation {
+    RequestObservation::new(GatewayMetrics::default(), tracing::Span::none())
+}
+
+fn test_attempt_context(attempt: u64) -> ProviderAttemptContext<'static> {
+    ProviderAttemptContext {
+        attempt,
+        route_id: "route-test",
+        upstream_target: "target-test",
+        upstream_operation: OperationKind::Responses,
+        upstream_model: "model-test",
+        provider: ProviderKind::OpenAi,
+        bridged: false,
+    }
+}
 
 #[derive(Clone, Default)]
 struct LogBuffer(Arc<Mutex<Vec<u8>>>);
@@ -176,4 +193,75 @@ fn completion_event_contains_diagnostics_but_no_body_or_credentials() {
     assert!(output.contains("input_tokens=2"));
     assert!(!output.contains("secret-observation-sentinel"));
     assert!(!output.contains("business-body-sentinel"));
+}
+
+#[test]
+fn timeout_completion_event_records_only_bounded_phase_and_commit_context() {
+    let logs = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(logs.clone())
+        .finish();
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("downstream_request", request_id = "timeout-observed");
+        let observation = RequestObservation::new(GatewayMetrics::default(), span);
+        observation.record_response_ready(StatusCode::OK);
+        let events = SseDecoder::new(256)
+            .push(b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n")
+            .unwrap();
+        observation.record_upstream_events(&events);
+        observation.record_stream_timeout(TimeoutPhase::EventIdle);
+        observation.finish();
+    });
+
+    let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+    assert!(output.contains("timeout_phase=\"event_idle\""));
+    assert!(output.contains("timeout_committed=true"));
+    assert!(output.contains("last_upstream_event_ms="));
+    assert!(output.contains("failure_kind=\"timeout\""));
+    assert!(!output.contains("reqwest"));
+    assert!(!output.contains("response.created"));
+}
+
+#[test]
+fn failure_recording_retains_the_first_request_cause_across_attempts() {
+    let first = RequestFailure::terminal(ErrorType::InvalidRequest, FailureStage::Analysis, false);
+    let transport_failure =
+        AttemptFailure::new(ErrorType::Timeout, true, NextAction::RetryCandidate);
+
+    let transport = test_observation();
+    transport.record_request_failure(first.error_type, first.stage, first.retryable);
+    transport.record_attempt_transport_failure(1, transport_failure);
+    assert_eq!(transport.failure_for_test(), Some(first));
+
+    let http = test_observation();
+    http.record_request_failure(first.error_type, first.stage, first.retryable);
+    http.record_attempt(test_attempt_context(1));
+    http.record_attempt_http_result(
+        1,
+        StatusCode::BAD_GATEWAY,
+        Some(AttemptFailure::new(
+            ErrorType::UpstreamFailure,
+            false,
+            NextAction::Finish,
+        )),
+    );
+    assert_eq!(http.failure_for_test(), Some(first));
+}
+
+#[test]
+fn failure_recording_marks_each_active_attempt_independently() {
+    let observation = test_observation();
+    observation.record_request_failure(ErrorType::Timeout, FailureStage::Upstream, true);
+    observation.record_attempt(test_attempt_context(2));
+
+    observation.record_stream_timeout(TimeoutPhase::EventIdle);
+    observation.record_upstream_failure();
+
+    assert_eq!(
+        observation.active_attempt_failure_for_test(),
+        Some(ErrorType::Timeout)
+    );
 }

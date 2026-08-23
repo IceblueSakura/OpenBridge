@@ -14,7 +14,7 @@ mod attempt;
 mod body;
 
 pub(super) use attempt::{AttemptOutcome, AttemptSummary, ProviderAttemptObservation};
-pub(super) use body::observe_json_body;
+pub(super) use body::{observe_json_body, observe_timeout_body};
 
 /// Borrowed compile-time facts for one actual Provider attempt.
 pub(crate) struct ProviderAttemptContext<'a> {

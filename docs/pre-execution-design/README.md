@@ -17,8 +17,8 @@
 
 ## 详细设计包
 
-- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：计划 1 修正 streaming timeout
-  policy 与归因；计划 4 另行改变 precommit、EOF 和 retry/fallback 语义。
+- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：只保留计划 4 的 precommit、EOF 和
+  retry/fallback 候选语义；当前 timeout policy 与归因事实见 implementation status。
 - [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：计划 2 区分下游安全接受与
   candidate 原生转发，只为该精确 hint 定义条件转发/删除。
 - [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：计划 3 保留 fail-closed 与零 egress，将泛化

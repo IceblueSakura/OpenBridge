@@ -6,6 +6,9 @@
 - Native candidate 保留已知且固定 interface 接受的 canonical wire；Provider adapter 绑定 upstream model、相对 path、固定安全
   header 与 purpose-bound credential。未知顶层字段不透明透传。
 - Upstream streaming policy 可选或 required；ChatGPT required Responses stream 可在完整 terminal 前提下有界转换为下游 JSON。
+- Upstream timeout 使用启动期校验的 typed policy：response headers、首个 SSE event、event 间 idle、可选 stream total 与非流式 total
+  分开表达。Prepared request 只接受 planning 冻结的 upstream delivery mode；持续产生完整 SSE event 的 generation stream 不受普通
+  非流式 total deadline 截断，非流式 body 继续受 total deadline 保护。
 - `prompt_cache_key` 只按具体 Target/API exact-forward；`include` 按逐值 interface contract 处理，不保证输出 item 或缓存效果。
 - `parallel_tool_calls`、structured output、tool choice、reasoning、普通参数 ignore/disable 与 stream usage 均按全部固定 candidate
   交集公开，不根据请求跳过较弱 candidate。
@@ -25,6 +28,8 @@ Bridge 分别由独立专题拥有。
 
 - `tests/forwarding_contract.rs`：Native JSON/SSE、exact egress、参数、header、错误、takeover 和 commit point。
 - `tests/sse_contract.rs`：framing、UTF-8、terminal、EOF 与取消。
+- `src/transport/upstream.rs` 与 `src/ingress/streaming.rs` 单元测试：headers/non-stream deadline、旧 total deadline RED、first-event、
+  partial-frame 与 inter-event idle liveness。
 - `tests/provider_contract.rs`、`tests/provider_boundary_contract.rs`：Provider wire、认证、安全出站和错误分类。
 - `tests/config_contract.rs`：operation/capability/streaming policy 启动校验。
 
@@ -38,7 +43,7 @@ OpenRouter/NVIDIA/Bailian/MiMo/ChatGPT 的 include、parallel、图片与模型�
 ## 未证明范围
 
 真实矩阵未强制后备 source，也不证明外部 OpenAI SDK、Codex/Hermes runtime、其他账号、Provider 内部并行、cache hit、计费、
-负载或长期运行。
+负载或长期运行。确定性 loopback 也不证明修正后真实 Provider 的长 reasoning stream 或部署反向代理已稳定。
 
 ## 相关文档
 

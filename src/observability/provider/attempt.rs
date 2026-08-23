@@ -14,7 +14,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::ProviderMetricAttributes;
 use crate::observability::{
-    classification::{AttemptFailure, ErrorType, NextAction},
+    classification::{AttemptFailure, ErrorType, NextAction, TimeoutPhase},
     metrics::GatewayMetrics,
     usage::TokenUsage,
 };
@@ -144,14 +144,44 @@ impl ProviderAttemptObservation {
     /// Records an upstream body/SSE/protocol failure while leaving finalization to the request lifecycle.
     pub(crate) fn record_stream_failure(&self, error_type: ErrorType) {
         self.with_state(|state| {
-            state.stream_failed = true;
-            state.failure = Some(AttemptFailure::new(error_type, false, NextAction::Finish));
+            if !state.stream_failed {
+                state.stream_failed = true;
+                state.failure.get_or_insert(AttemptFailure::new(
+                    error_type,
+                    false,
+                    NextAction::Finish,
+                ));
+            }
         });
+    }
+
+    /// Attaches bounded timeout context to this attempt without storing transport details.
+    pub(crate) fn record_timeout_context(
+        &self,
+        phase: TimeoutPhase,
+        committed: bool,
+        last_event_ms: Option<u64>,
+    ) {
+        self.span
+            .set_attribute("openbridge.timeout.phase", phase.as_str());
+        self.span
+            .set_attribute("openbridge.timeout.committed", committed);
+        if let Some(last_event_ms) = last_event_ms {
+            self.span
+                .set_attribute("openbridge.upstream.last_event_ms", last_event_ms as i64);
+        }
     }
 
     /// Records the closed cause and action before finalizing a failed attempt.
     pub(crate) fn record_failure(&self, failure: AttemptFailure) {
-        self.with_state(|state| state.failure = Some(failure));
+        self.with_state(|state| {
+            state.failure.get_or_insert(failure);
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn failure_for_test(&self) -> Option<ErrorType> {
+        self.lock_state().failure.map(|failure| failure.error_type)
     }
 
     /// Merges explicit usage while preserving cache fields already collected.

@@ -1,6 +1,10 @@
 # Responses 流提前终止与 timeout 边界设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中计划 1 与计划 4 的详细设计 owner，记录 Hermes 经 OpenBridge 调用 Responses 时出现 premature termination / incomplete chunked read 的证据、已确认机制、未决根因、目标生命周期和验证矩阵。真正实施前必须重新读取 live source、部署配置、反向代理配置与工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
+> **状态：计划 4 的候选执行前设计，不构成实施授权。** Streaming timeout policy 与安全归因已经实现，当前事实见
+> [Native generation](../implementation-status/features/native-generation-forwarding.md)、[韧性与取消](../implementation-status/features/resilience-retry-fallback-and-cancellation.md)
+> 和[遥测](../implementation-status/telemetry-metrics.md)。本文保留原问题证据及尚未实施的 precommit/EOF 设计；其中描述计划 1 实施前
+> `request_timeout` 基线的段落不再是当前源码事实。真正实施计划 4 前必须重新读取 live source、部署配置、反向代理配置与工作树，只将该
+> 可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
 
 ## 1. 问题摘要
 
@@ -106,7 +110,7 @@ Responses streaming 是 typed SSE 生命周期。正常终态至少包括：
 
 必须使用 request ID、attempt 时间线和代理日志才能分解这 247–250 秒。
 
-## 5. 当前源码事实
+## 5. 计划 1 实施前源码基线（已由 implementation status 取代）
 
 ### 5.1 generation Target 使用 120 秒 request timeout
 
@@ -526,21 +530,7 @@ Hermes 的一次 API call
 - 修改 Hermes 的容错逻辑来掩盖网关错误；
 - 在没有 request ID 证据时宣称 Nginx 是根因。
 
-## 15. 候选实施切片
-
-建议分两次独立进入 current focus。
-
-### 切片 A：修正 total deadline 与增加归因
-
-1. 建立一个持续超过旧 total deadline、但持续产生合法 SSE event 的 RED；
-2. 拆分 headers/stream timeout policy；
-3. generation SSE 不再使用 120 秒 total request deadline；
-4. 保留非流式 deadline；
-5. body error 保留安全分类；
-6. 增加 attempt/timeout phase/commit/last-event observability；
-7. focused transport、streaming 和 process replay tests。
-
-### 切片 B：precommit 与 EOF 可见失败
+## 15. 唯一候选实施切片：precommit 与 EOF 可见失败
 
 1. 建立 headers 成功但首 event 前 timeout 的 RED；
 2. 引入单事件 precommit gate；
@@ -549,33 +539,29 @@ Hermes 的一次 API call
 5. 更新 canonical corpus、requirements 和 implementation status；
 6. 外部 SDK/Hermes loopback 验收。
 
-切片 A 可以独立消除已确认的 120 秒误杀；切片 B 改变 streaming commit/error 行为，风险更高，应单独评审。
+本切片改变 streaming commit/error 行为，风险高于已经完成的 timeout policy 修正，必须单独评审和授权。
 
 ## 16. 执行前诊断清单
 
-- [ ] 重新读取锁定 reqwest 源码与 Cargo.lock；
-- [ ] 确认所有 generation Target timeout；
+- [ ] 重新读取当前 typed timeout policy、transport 与 SSE liveness wrapper；
 - [ ] 导出脱敏 OpenBridge request/attempt timeline；
 - [ ] 将 Hermes `api_request_id` 与 OpenBridge request ID 对齐；
 - [ ] 读取部署 Nginx timeout/buffering 配置；
 - [ ] 区分 SDK retry、Hermes retry、OpenBridge credential retry 和 Route fallback；
 - [ ] 记录首 headers、首 event、首 output、last event、terminal 和 body error 时间；
-- [ ] 用 loopback 快时钟复现 120 秒 total deadline；
+- [ ] 用 loopback 快时钟复现 headers 后首 event 前 timeout 与 terminal 前 EOF；
 - [ ] 确认 current focus 只包含一个切片；
 - [ ] 不读取或保存 Provider credential、prompt 或 SSE 内容。
 
 ## 17. 当前验证边界
 
-已验证：
+已验证的当前实现：
 
-- Hermes 确实观察到多次 incomplete chunked read；
-- 失败周期接近 247–250 秒；
-- OpenBridge generation Target 普遍设置 120 秒 request timeout；
-- 锁定 `reqwest 0.13.4` 将该 timeout 应用于完整 response body；
-- upstream body error 会被转换为 downstream body error；
-- body error 当前丢失 timeout/reset 等具体安全分类；
-- commit 后现有测试禁止 retry/fallback 和 synthetic terminal；
-- clean EOF before terminal 当前只在 metrics 中失败、对客户端 clean EOF。
+- timeout policy 分开表达 response headers、first event、event idle、optional stream total 与 non-stream total；
+- generation SSE 默认没有 wall-clock stream total，完整 framed event 重置 idle deadline，partial chunks 不重置；
+- timeout trace 保留闭合 phase、commit state 与 last-event time，不保留底层错误字符串或 event 内容；
+- commit 后现有测试继续禁止 retry/fallback 和 synthetic terminal；
+- clean EOF before terminal 仍只在 metrics 中失败、对客户端 clean EOF，因此继续属于本计划缺口。
 
 尚未验证：
 
@@ -583,6 +569,6 @@ Hermes 的一次 API call
 - 约 248 秒是否来自 OpenAI SDK 两次 120 秒请求；
 - 线上 Nginx timeout 配置；
 - Provider 是否同时存在固定 close boundary；
-- 修正 total deadline 后真实 Provider 长流是否完全稳定。
+- 修正 timeout policy 后真实 Provider 长流是否完全稳定。
 
 真正实施前必须基于稳定 live source 和工作树重新确认 observability owner 与测试基线。

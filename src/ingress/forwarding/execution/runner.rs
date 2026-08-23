@@ -4,7 +4,8 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     execution::{AttemptCoordinator, AttemptStep},
-    observability::{ErrorType, FailureStage, NextAction, RequestObservation},
+    observability::{ErrorType, FailureStage, NextAction, RequestObservation, TimeoutPhase},
+    transport::upstream::TransportError,
 };
 
 use super::GenerationCandidateOutcome;
@@ -123,6 +124,9 @@ pub(super) async fn run(
                 );
             }
             Err(error) if should_retry_transport(&error) => {
+                if matches!(&error, TransportError::Timeout) {
+                    observation.record_timeout_context(TimeoutPhase::ResponseHeaders);
+                }
                 let step = retryable_transport_step(&driver, state, attempts);
                 let attempt_failure = transport_failure(&error, step.next_action());
                 observation.record_attempt_transport_failure(
@@ -152,6 +156,9 @@ pub(super) async fn run(
                 }
             }
             Err(error) => {
+                if matches!(&error, TransportError::Timeout) {
+                    observation.record_timeout_context(TimeoutPhase::ResponseHeaders);
+                }
                 observation.record_attempt_transport_failure(
                     attempts.attempts_started() as u64,
                     transport_failure(&error, NextAction::Finish),

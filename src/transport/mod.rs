@@ -6,3 +6,5 @@
 mod error;
 pub mod sse;
 pub mod upstream;
+
+pub(crate) use error::is_timeout_error;

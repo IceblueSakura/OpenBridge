@@ -94,6 +94,28 @@ impl ErrorType {
     }
 }
 
+/// Closed timeout phase retained without provider, URL, or request-content dimensions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TimeoutPhase {
+    ResponseHeaders,
+    FirstEvent,
+    EventIdle,
+    StreamTotal,
+    NonStreamingTotal,
+}
+
+impl TimeoutPhase {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::ResponseHeaders => "response_headers",
+            Self::FirstEvent => "first_event",
+            Self::EventIdle => "event_idle",
+            Self::StreamTotal => "stream_total",
+            Self::NonStreamingTotal => "non_stream_total",
+        }
+    }
+}
+
 /// Request-processing boundary at which a terminal cause was directly observed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FailureStage {
