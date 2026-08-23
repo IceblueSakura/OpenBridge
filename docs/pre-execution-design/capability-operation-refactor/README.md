@@ -1,18 +1,14 @@
 # Operation 与多模态 capability 剩余收口
 
-> **状态：保留的未完成执行前设计，不构成继续实施授权。** 本包对应[实现顺序](../implementation-sequence.md)中的当前阶段 4–7（原计划 5A–5D）。本包旧设计中的阶段 0–5B 功能切片已完成，不在本包保留实施历史；当前事实以 implementation status 与 live source 为准。
+> **状态：候选执行前设计，不构成继续实施授权。** 本包对应[实现顺序](../implementation-sequence.md)中的阶段 4–7，只保留未完成的证明、清理与决策门。
 
 ## 保留范围
 
 本包只保留首个真实 operation 落地后仍未关闭的证明、清理与后续决策：
 
-1. [剩余执行证明与 legacy 收口](07-remaining-proof-and-cleanup.md)
-2. [测试、证据与执行准备](08-testing-evidence-and-readiness.md)
-3. [后续决策门](09-open-questions.md)
-
-阶段 5A typed file input 与阶段 5B Native Images Generations 的当前实现分别见
-[Native 文件输入](../../implementation-status/features/native-file-input.md)和
-[Native Images 生成](../../implementation-status/features/native-images-generation.md)，不再作为待执行计划保存。
+1. [Images 剩余执行证明与 legacy 收口](images-proof-and-legacy-cleanup.md)
+2. [测试、证据与执行准备](testing-evidence-and-readiness.md)
+3. [后续决策门](future-decision-gates.md)
 
 ## 固定边界
 
@@ -27,6 +23,8 @@
 - [模型能力域](../../functional-requirements/model-capability/README.md)
 - [扩展能力共同规则](../../functional-requirements/extended-capabilities/README.md)
 - [当前架构](../../implementation-status/current-architecture.md)
+- [Native file input 实施现状](../../implementation-status/features/native-file-input.md)
+- [Native Images 实施现状](../../implementation-status/features/native-images-generation.md)
 - [当前测试资产](../../implementation-status/test-assets/protocol-corpus.md)
 
 开始任一切片前必须重新读取 live source、工作树和当前需求；源码与测试事实优先于本设计包。

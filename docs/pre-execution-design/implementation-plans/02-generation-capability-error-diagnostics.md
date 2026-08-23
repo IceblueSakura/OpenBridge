@@ -9,7 +9,7 @@ Generation 本地拒绝继续使用现有稳定 HTTP status、`error.type` 和 `
 
 ## 2. 前置条件与 owner
 
-- 阶段 1 已完成，使 `reasoning.encrypted_content` 不再成为过时首错；DeepSeek/Hermes 请求的剩余能力错误才稳定。
+- 只有阶段 1 实施完成并清空 current focus 后，`reasoning.encrypted_content` 才不再成为过时首错，DeepSeek/Hermes 请求的剩余能力错误才可作为稳定 RED。
 - `src/pipeline/error.rs::RequestPlanningError` 当前混合无字段 capability variants、`UnknownParameter(String)` 与少量 `UnsupportedParameter`。
 - `src/pipeline/generation/preflight.rs::validate_interface_request` 当前把多个无关 capability checks 合并成布尔表达式。
 - `src/ingress/response.rs` 当前把多个 Generation variants 映射为无 `param` 的统一错误。

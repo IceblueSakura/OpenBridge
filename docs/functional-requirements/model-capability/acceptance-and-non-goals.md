@@ -23,7 +23,7 @@
 | MODEL-12 | Provider 完整 audio ceiling、单个 executable profile 与 canonical task 在启动期逐层校验；VoiceClone conditioning 不进入 content-understanding input。             |
 | MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
 | MODEL-14 | generation reasoning `levels`、`accepted_levels` 与 `input_policy` 共享同一固定接口；正向归一化在 candidate 展开前执行一次，`none` 保持独立，标准 Models 投影不变。 |
-| MODEL-15 | Responses `response_includes` 按具体 wire 值保守相交并直接供 preflight 使用；接受值不保证输出 item，Bridge 只能显式安全消费；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
+| MODEL-15 | Responses `response_includes` 按具体 wire 值的 public accepted set 保守相交并直接供 preflight 使用；candidate forwarded set 保持私有；接受值不保证输出 item，唯一 approved omitted-equivalent hint 可在 Native/Bridge candidate planning 中逐值删除；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
 | MODEL-16 | 扩展 list 的 `native_protocol` 只命中含对应 Native candidate 的 Public Model；Bridge-only interface 被排除，省略参数保持完整列表，非法、重复或未知 query 显式失败且响应不泄漏拓扑。 |
 
 ## 2. 非目标

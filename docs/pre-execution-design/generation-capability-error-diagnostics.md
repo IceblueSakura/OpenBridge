@@ -1,6 +1,6 @@
 # Generation capability 错误定位设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中当前阶段 2（原计划 3）的详细设计 owner，记录 Generation 请求在 analysis/preflight 阶段返回字段级错误的目标合同、当前差距、候选结构和验证矩阵。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中阶段 2 的详细设计 owner，记录 Generation 请求在 analysis/preflight 阶段返回字段级错误的目标合同、当前差距、候选结构和验证矩阵。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
 
 ## 1. 背景与目标
 

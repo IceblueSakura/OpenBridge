@@ -17,14 +17,11 @@
 
 ## 详细设计包
 
-- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：只保留当前阶段 3（原计划 4）的 precommit、EOF 和
-  retry/fallback 候选语义；当前 timeout policy 与归因事实见 implementation status。
-- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：当前阶段 1（原计划 2）区分下游安全接受与
-  candidate 原生转发，只为该精确 hint 定义条件转发/删除。
-- [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：当前阶段 2（原计划 3）保留 fail-closed 与零 egress，将泛化
+- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：阶段 1 区分下游安全接受与
+  candidate 原生转发，只为该精确 hint 定义条件转发/删除，并由 planning 在 Bridge 前统一省略。
+- [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：阶段 2 保留 fail-closed 与零 egress，将泛化
   capability 400 收敛为确定性的字段级错误。
-- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：当前阶段 4–7（原计划 5A–5D）只保留 Native Images 落地后尚未关闭的
-  timeout/lifecycle、测试证明、profile algebra 和 legacy 清理；已完成阶段不在设计包保存实施历史。
+- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：阶段 4–7 只保留 timeout/lifecycle、测试证明、profile algebra 和 legacy 清理。
 
 ## 阶段实施计划
 

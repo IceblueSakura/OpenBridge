@@ -66,7 +66,7 @@ OpenRouter 声明的残差推导；若某个具体 Upstream API 更窄，应通�
 | audio output mode、format、voice、encoding/container、采样参数与上限                 | 按 JSON/SSE mode 分别保守相交；条件 format 不得压平，任一 mode 无完整 framing/累计预算时不得公开                      |
 | media part、URL 长度、inline 编码/解码字节上限                                      | 取全部 Route 保证值与 gateway hard limit 中的最小值；累计字节只统计 inline payload                                    |
 | reasoning 输出形态                                                                  | 全部 Route 形态相同时公开该值，否则为 `unknown`                                                                       |
-| Responses `include` 条件输出请求                                                    | Route contribution 携带逐值闭合集合，Public Model 取全部固定候选的集合交集；公开值不保证对应 item 存在，Bridge 只有显式安全消费且不伪造输出时才贡献 |
+| Responses `include` 条件输出请求                                                    | Route contribution 携带逐值 public accepted 集合，Public Model 取全部固定候选交集；candidate forwarded set 保持私有；公开值不保证对应 item 存在，唯一 approved omitted-equivalent hint 可在 Native/Bridge candidate planning 中逐值删除 |
 | function tools                                                                  | `type`、`tool_choice` mode、parallel calls 与 strict schema 分字段声明；每个集合取所有 Route 的交集，不得因 `support: supported` 自动补齐 mode；parallel 只承诺接受请求值，不保证调用数量或执行并发 |
 | structured outputs                                                              | 执行契约只保存 `JsonObject | JsonSchema(strictness) | JsonObjectAndJsonSchema(strictness)` 闭合 profile；按完整 variant 相交，空 mode 交集关闭整个能力，Models 的 support/modes/strict 只从结果投影 |
 | `Bridged` Route                                                                     | 只贡献转换器完整支持的公共子集；image/file/audio source 与 audio output 贡献空集                                     |

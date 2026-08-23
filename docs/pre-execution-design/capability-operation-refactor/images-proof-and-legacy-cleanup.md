@@ -1,10 +1,6 @@
-# 07：剩余执行证明与收口
+# Images 剩余执行证明与 legacy 收口
 
-## 状态
-
-阶段 5B 的首个真实 model-bound operation 已由 Native Images Generations 完成；当前事实见
-[Native Images 生成](../../implementation-status/features/native-images-generation.md)，本设计包不保留其实施历史。本页只保留尚未关闭的
-执行一致性、测试证明与 legacy 清理。
+本页只拥有阶段 4–7 尚未关闭的执行一致性、测试证明与 legacy 清理。
 
 ## Images 剩余执行证明
 
@@ -17,7 +13,7 @@
 - 为 `(operation, task)` 错误绑定、Provider ceiling/Target narrowing、多候选公共交集和 Bridge/resource fail-closed 建立专项证据；
 - 为 Images profile 的 subset、intersection、candidate-order 和 public projection 代数规则补齐确定性 law tests。
 
-这些缺口不否定当前单候选 Native Images 正常路径已经可用，但在完成前不能宣称原设计包的完整纵向证明已经关闭。
+本页不判断当前 Images 实现状态；可用路径、源码 owner 与已执行证据见[Native Images 实施现状](../../implementation-status/features/native-images-generation.md)，并须在进入对应 current focus 时从 live source 重新核验。上述缺口关闭前不能宣称原设计包的完整纵向证明已经完成。
 
 ## Legacy 清理
 

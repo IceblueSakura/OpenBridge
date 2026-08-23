@@ -1,6 +1,6 @@
 # Responses `reasoning.encrypted_content` 兼容提示设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中当前阶段 1（原计划 2）的详细设计 owner，记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中阶段 1 的详细设计 owner，记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
 
 ## 1. 目标
 
@@ -23,7 +23,7 @@ OpenBridge 是严格、固定契约、fail-closed 的多 Provider OpenAI-compati
 相关后续计划：
 
 - [`Generation capability 错误定位设计`](generation-capability-error-diagnostics.md)定义 unsupported 请求在保留严格门禁时如何返回字段级错误；
-- [`Responses 流提前终止与 timeout 边界设计`](responses-stream-premature-termination-and-timeouts.md)独立处理 streaming total deadline、EOF 和 commit 后失败，不与 include capability 混合。
+- [阶段 3：Responses stream precommit 与 EOF](implementation-plans/03-responses-stream-precommit-and-eof.md)独立处理 commit、EOF 和 retry/fallback，不与 include capability 混合。
 
 ## 2. 已决定边界
 
@@ -132,6 +132,8 @@ Responses→Chat Bridge 已经实现相同原则：
 
 对应 owner 是 `protocol_specific_capabilities`、`BridgePlan` 和 `tests/bridge_forwarding_contract.rs` 中的 `responses_bridge_consumes_reasoning_include_before_chat_egress`。Native 路径目前没有按 candidate 的 include 值过滤机制。
 
+这是当前实现事实，不是目标 owner。阶段 1 应把该行为迁移到 `plan_request` 的统一 candidate omission：Responses→Chat candidate 的 forwarded set 为空，hint 在进入 Bridge 前删除；converter 不再允许 active `include`，任何意外残留值都 fail closed。现有 compiler 中受 `reasoning.is_supported()` 约束的贡献门也必须删除，因为 request hint 不负责开启或保证 reasoning 输出。
+
 ## 5. 当前设计缺口
 
 当前 `response_includes` 同时承担“下游安全接受集合”和“Provider 原生转发集合”，产生三个问题：
@@ -170,10 +172,10 @@ ReasoningEncryptedContent -> ForwardOrOmit
 
 ### 6.3 分离 accepted set 与 forwarded set
 
-每条 Route contribution 应贡献“该 Route 可安全接受的 include 集合”：
+每条 Responses Route contribution 应贡献“该 Route 可安全接受的 include 集合”：
 
 ```text
-accepted = provider_native_includes ∪ gateway_forward_or_omit_includes
+accepted = native_includes ∪ gateway_forward_or_omit_includes
 ```
 
 Public Model 继续对所有 Route 的 **accepted set** 求交集，保持固定候选、保守契约和不按请求 capability routing 的架构。
@@ -181,10 +183,11 @@ Public Model 继续对所有 Route 的 **accepted set** 求交集，保持固定
 每个 `RouteExecutionCandidate` 另需冻结私有的 **forwarded set**：
 
 ```text
-forwarded = selected Upstream API 的 ProviderResponsesCapabilities.include
+Native Responses: forwarded = selected Upstream API 的 concrete Responses profile.include
+Responses→Chat:    forwarded = ∅
 ```
 
-这两个集合具有不同含义，不能再次共用一个字段。Public Models 只投影 accepted set；forwarded set 不序列化，也不泄漏执行拓扑。
+这两个集合具有不同含义，不能再次共用一个字段。Public Models 只投影 accepted set；forwarded set 只表示 upstream wire 实际收到的值，不表示 Bridge consumption，不序列化，也不泄漏执行拓扑。启动时至少保护 `forwarded ⊆ accepted`，且所有 accepted-but-not-forwarded 值都必须属于显式 `ForwardOrOmit` policy；不得通过提升 Provider ceiling 满足公共 accepted contract。
 
 ### 6.4 Candidate-specific egress 过滤
 
@@ -221,14 +224,16 @@ forwarded = selected Upstream API 的 ProviderResponsesCapabilities.include
 
 ### 6.5 Bridge 统一
 
-现有 Responses→Chat Bridge 特例应收敛到同一个 accepted/forwarded policy：
+现有 Responses→Chat Bridge 特例应收敛到同一个 accepted/forwarded policy，并把 omission owner 固定在 planning：
 
 - Responses downstream accepted set 包含 approved hint；
 - Chat upstream forwarded set 为空；
-- candidate filtering 删除 hint；
-- Bridge 不再拥有一套语义重复但仅适用于该方向的 capability 特例。
+- `plan_request` 在 Native/Bridge 分支前完成 candidate filtering；
+- compiler 删除受 `reasoning.is_supported()` 控制的 Bridge include 特例；
+- converter 删除允许该 hint 的专用 validator，并把 Responses `include` 收窄为 Bridge inactive-only source field；
+- 若任何 active `include` 意外到达 converter，Bridge 防御性 fail closed，而不是再次消费或静默删除。
 
-是否在首个实现切片中立即移除旧特例，应由 live source 和失败测试决定；不应保留长期双路径。
+该迁移必须在首个实现切片中直接完成，不保留长期双路径，也不新增 `ConsumedByBridge` 第三状态。
 
 ## 7. 请求与响应合同
 
@@ -252,7 +257,7 @@ forwarded = selected Upstream API 的 ProviderResponsesCapabilities.include
 - 任一已知值既不被所有固定 candidate 原生支持，也没有显式 `ForwardOrOmit` policy；
 - 请求其他 capability 不满足固定 Public Model interface。
 
-错误应尽量定位到 `param: "include"`，而不是只返回无字段信息的泛化 capability 错误。是否拆分完整 generation error enum 可作为同一 current focus 的错误合同切片，也可另立切片；不能为了 include 转发而扩大到所有错误重构。
+本阶段只要求现有稳定 400 与 zero egress，不把 `param: "include"` 作为完成门。Generation typed param/reason 与固定首错顺序由阶段 2 独立拥有，不能为了 include 转发提前扩大错误重构。
 
 ### 7.3 Provider egress
 
@@ -354,9 +359,9 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 1. 先用失败测试固定 Public Models accepted projection、Native 支持/删除和 fallback candidate body 差异；
 2. 分离 Route accepted include 与 candidate forwarded include；
 3. 在 planning 中增加逐值、candidate-specific 过滤；
-4. 收敛 Bridge 特例，避免长期双路径；
-5. 更新错误参数定位、功能需求、OpenAPI/Models fixture 和 implementation status 中受影响的唯一事实 owner；
-6. 最后执行 focused tests 与仓库基线。
+4. 将 Bridge omission 迁移到 planning，删除 compiler/converter 旧特例并保持 converter fail closed；
+5. 更新功能需求、必要的 Models fixture 和 implementation status 中受影响的唯一事实 owner；Models v1 schema 不变时不制造 OpenAPI schema churn；
+6. 最后执行 focused tests 与仓库基线。字段级错误定位留给阶段 2。
 
 该顺序只是执行准备，不构成当前实施授权。
 
@@ -368,8 +373,8 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 |---|---|
 | `include` 省略、`null`、`[]` | 接受；no-op 规范化后不向上游发送空字段 |
 | singleton encrypted-content | 所有 Responses Public Model 在其他字段合法时接受 |
-| 非数组、非字符串元素 | `param=include` 的 400；零 egress |
-| 未知 include 值 | `param=include` 的 400；零 egress |
+| 非数组、非字符串元素 | 现有稳定 400；零 egress；字段级 `param` 留给阶段 2 |
+| 未知 include 值 | 现有稳定 400；零 egress；字段级 `param` 留给阶段 2 |
 | encrypted-content + 不安全且不受支持值 | 整体拒绝；不能只删除不安全值后继续 |
 
 ### 13.2 Native exact egress
@@ -378,19 +383,28 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 |---|---|
 | OpenAI/ChatGPT/OpenRouter/MiMo/LongCat 支持 API | 精确保留 `reasoning.encrypted_content` |
 | Bailian/DeepSeek 不支持 API | 删除该元素；数组为空后删除顶层 `include` |
-| 混合数组 | 只删除已批准 hint，保留原生支持值和原顺序 |
+| 纯 typed filter 的混合数组 | 只删除已批准 hint，保留其他原 Value、重复项和原顺序；这是补充测试，不冒充当前不存在第二个生产 include ceiling 的端到端 RED |
 
 ### 13.3 Fallback 隔离
 
 至少验证：
 
 - candidate A 支持、B 不支持时生成两个不同的 immutable egress body；
-- A 在首输出前失败后，B 收到不含 hint 的 body；
+- A 在收到 response headers 前发生 transport failure 后，B 收到不含 hint 的 body；该场景只复用现有 fallback，不引入阶段 3 的 SSE precommit；
 - 反向 candidate 顺序也不产生 mutation 泄漏；
 - 请求事实不筛选、跳过或重排 candidate；
 - partial response commit 后不执行 fallback。
 
-### 13.4 Response
+### 13.4 Bridge request owner
+
+至少验证：
+
+- Router 路径在调用 `BridgePlan` 前已经删除 approved hint，Chat egress 不含 `include`；
+- direct converter 收到任何 active `include` 都 fail closed，`null`/空数组仍只按既有 inactive 规则处理；
+- Bridge accepted contract 不再受 `reasoning.is_supported()` 门控制；
+- omission 不合成 reasoning、summary 或 opaque item。
+
+### 13.5 Response
 
 至少验证：
 
@@ -399,7 +413,7 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 - hint 被删除时不合成 output item；
 - JSON 与 SSE terminal/error 行为不因该策略改变。
 
-### 13.5 Models 和隐私
+### 13.6 Models 和隐私
 
 至少验证：
 
@@ -415,19 +429,19 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 - `ResponseInclude` 闭合枚举和 analyzer；
 - Public Model candidate 交集与 preflight 拒绝路径；
 - Provider include ceiling 差异；
-- Responses→Chat Bridge 消费 hint 的现有测试；
+- Responses→Chat Bridge 消费 hint 的现有测试；目标实现会把该测试收口为 planning-owned omission，并增加 direct converter 残留 active include 的 fail-closed 断言；
 - ChatGPT Native 原样转发 hint 的现有测试；
 - 空 include 被规范化删除的现有测试。
 
 当前没有证明：
 
 - Native Bailian/DeepSeek 条件删除 hint 的实现；
-- 混合 include 数组的逐值过滤；
+- 混合 include 数组的逐值过滤；当前生产 ceiling 还不能提供第二个 accepted include 的端到端正例；
 - 支持/不支持 candidate fallback body 隔离；
 - opaque encrypted input 的完整内部 issuer affinity；
 - 所有 Provider、账号、区域和未来版本都保持当前 reasoning 输出观察。
 
-分析期间曾因并行中的 Images 焦点尚未完成而无法运行既有 Bridge 与 ChatGPT focused tests；该临时阻塞现已随 Images 焦点完成而解除，当前仓库全量 Rust 基线通过。本文仍未实施 Responses compatibility 行为；真正进入该切片前必须重新运行对应 focused tests，并将其回归与 Images 合同保持隔离。
+本文仍未实施 Responses compatibility 行为。进入该切片前必须从 live checkout 重新运行对应 focused tests；任何更早的通过记录都不能替代当前基线，也不能把 Images 或其他阶段的证据并入本切片。
 
 ## 15. 执行前检查
 
@@ -438,7 +452,7 @@ Hermes 会把 opaque reasoning item 与 issuer 标记保存在 sidecar，并只�
 - [ ] approved hint 仍只有 `reasoning.encrypted_content`；
 - [ ] Provider native include ceiling 与最新真实证据一致；
 - [ ] Public accepted 与 candidate forwarded 两层命名和 owner 已明确；
-- [ ] RED 覆盖 Native 删除、Native 转发、Bridge、混合数组和 fallback body 隔离；
+- [ ] RED 覆盖 Native 删除、Bridge owner 和 fallback body 隔离；mixed negative 与 Native 转发保持回归，纯 typed filter 补充覆盖混合数组保序；
 - [ ] opaque replay 明确保持在本切片之外且没有被意外放宽；
 - [ ] requirements、Models/OpenAPI、fixtures 和 implementation status 的更新 owner 已列出；
 - [ ] focused tests 先通过，再执行 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings` 和 `git diff --check`；

@@ -1,7 +1,7 @@
 # 阶段 4：Images timeout 与单 attempt 生命周期
 
 > **状态：候选实施计划，不构成实施授权。** 本阶段只建立 Images 单次不可重放 attempt 与 timeout 合同；response body lifecycle 属于阶段 5。详细缺口见
-> [Images 剩余执行证明](../capability-operation-refactor/07-remaining-proof-and-cleanup.md#images-剩余执行证明)。
+> [Images 剩余执行证明](../capability-operation-refactor/images-proof-and-legacy-cleanup.md#images-剩余执行证明)。
 
 ## 1. 可观察结果
 

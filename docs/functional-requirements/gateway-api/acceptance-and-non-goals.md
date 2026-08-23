@@ -20,7 +20,7 @@
 | API-12 | Embeddings、图片、文件与音频满足[扩展共同规则](../extended-capabilities/README.md)及各功能页的 wire、能力、资源归属和限制。 |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/generation window；非流式成功 JSON 的 gateway-visible body timing 不伪造 upstream TTFT、generation duration 或 output speed；telemetry 不含正文或身份 secret。 |
 | API-14 | 有效 token 可通过 `/mcp` 使用 `2026-07-28` stateless discovery 或 legacy initialize/session lifecycle 发现并调用唯一 `hello(name)`；两种 lifecycle 都执行相同认证、Origin 与无 Provider egress 边界，非法 metadata/session/tool/method 在执行前失败。 |
-| API-15 | `include: []` 作为 no-op 在 candidate 展开前移除；非空 `include` 按逐值交集预检，未知或 Bridge 不可保真的投影 zero-egress；`prompt_cache_key` 只在全部固定候选原样支持时转发且不承诺缓存效果。 |
+| API-15 | `include: []` 作为 no-op 在 candidate 展开前移除；非空 `include` 按 public accepted set 逐值预检，未知或未获批准的值 zero-egress；`reasoning.encrypted_content` 是唯一可按 candidate 原生转发或在 Native/Bridge planning 中删除的 hint，任何残留 active `include` 到达 Bridge 必须失败；`prompt_cache_key` 只在全部固定候选原样支持时转发且不承诺缓存效果。 |
 | API-16 | Chat `stream:true` 下空 `stream_options` 与 `include_usage:false` 作为 no-op 移除；`include_usage:true` 只有固定 interface 完整保证时接受，Native 原样保留，Chat-to-Responses Bridge 只从合法 terminal usage 生成标准 usage-only 尾块。 |
 | API-17 | 通用 Generation 只解析一次客户端 instructions 并在缺失时使用项目默认值；Native/Bridge/candidate/retry/probe 编码一致，首条合格 Chat 指令只提升删除一次，专用 task 不注入。 |
 | API-18 | Responses `reasoning.summary` 接受 `"auto"` 与兼容 `false`：Native 精确保留，Responses-to-Chat 消费且只返回真实 Chat reasoning content，不伪造 summary；非法值与 `none+auto` 在 egress 前失败。 |
