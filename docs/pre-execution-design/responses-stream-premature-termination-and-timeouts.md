@@ -1,9 +1,9 @@
 # Responses 流提前终止与 timeout 边界设计
 
-> **状态：计划 4 的候选执行前设计，不构成实施授权。** Streaming timeout policy 与安全归因已经实现，当前事实见
+> **状态：当前阶段 3（原计划 4）的候选执行前设计，不构成实施授权。** Streaming timeout policy 与安全归因已经实现，当前事实见
 > [Native generation](../implementation-status/features/native-generation-forwarding.md)、[韧性与取消](../implementation-status/features/resilience-retry-fallback-and-cancellation.md)
 > 和[遥测](../implementation-status/telemetry-metrics.md)。本文保留原问题证据及尚未实施的 precommit/EOF 设计；其中描述计划 1 实施前
-> `request_timeout` 基线的段落不再是当前源码事实。真正实施计划 4 前必须重新读取 live source、部署配置、反向代理配置与工作树，只将该
+> `request_timeout` 基线的段落不再是当前源码事实。真正实施阶段 3 前必须重新读取 live source、部署配置、反向代理配置与工作树，只将该
 > 可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。
 
 ## 1. 问题摘要

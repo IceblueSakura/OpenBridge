@@ -1,4 +1,4 @@
-# Generation 与 operation 剩余实现计划顺序
+# Generation 与 operation 剩余七阶段实现计划
 
 > **状态：候选计划族顺序，不构成除当前焦点之外的实施授权。** 本文只拥有待执行切片的顺序、依赖和提升门；详细行为仍由链接的设计与功能需求拥有。任何时刻只有
 > [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md) 中的一项可实施。
@@ -14,25 +14,25 @@
 
 ## 2. 有序计划族
 
-| 计划 | 可观察结果 | 详细设计 owner | 前置条件 | 完成门 |
-|---|---|---|---|---|
-| **2. `reasoning.encrypted_content` 精确兼容提示** | 所有 Responses Public Model 安全接受该精确 hint；candidate 原生支持时保留，不支持时只删除该值；其他 include 继续 fail closed | [`reasoning.encrypted_content` 设计](responses-reasoning-encrypted-content-compatibility.md) | 无；执行前重新核对当前 Models/preflight/planning 与 Provider ceiling | accepted/forwarded 集合分离、candidate body 独立、Bridge 收口、zero-egress 与不伪造输出证据完整 |
-| **3. Generation capability 字段级错误** | Generation 本地拒绝保留稳定 status/type/code，并返回一个确定性的标准 `param`；首错顺序不受 candidate 或集合遍历影响 | [错误定位设计](generation-capability-error-diagnostics.md) | 计划 2 完成，使 DeepSeek 剩余首错稳定；先把 `param` 与首错顺序写入正式需求 | typed param/reason、固定 validation order、OpenAPI/需求/测试一致，所有拒绝保持 zero egress |
-| **4. Responses stream precommit 与 EOF 可见失败** | 首个 event 前的失败可返回 HTTP error 并按既有 policy retry/fallback；commit 后 transport error 与 terminal 前 EOF 对客户端表现为 body failure，不伪造 terminal | [timeout 设计：唯一候选切片](responses-stream-premature-termination-and-timeouts.md#15-唯一候选实施切片precommit-与-eof-可见失败) | 当前 timeout taxonomy 和观察边界稳定；计划 2–3 已关闭直接 Hermes 阻断 | canonical replay/corpus、SSE、retry/fallback、取消和外部 loopback 全部满足新语义 |
-| **5A. Images timeout 与单 attempt 生命周期** | Images timeout 稳定映射为 504 `upstream_timeout`；单次不可重放 attempt 的 coordinator 归属、取消和 accounting 有明确合同 | [Images 剩余证明](capability-operation-refactor/07-remaining-proof-and-cleanup.md#images-剩余执行证明) | 当前共享 timeout 分类稳定 | operation-specific timeout、取消、attempt/commit tests 通过；不引入自动 retry/fallback |
-| **5B. Images response 与 telemetry 证明** | response body 超限、读取失败、提前 EOF、下游取消及 commit 后行为有专项证据；prompt、URL 和上游 body 不进入普通 telemetry | [测试与证据准备](capability-operation-refactor/08-testing-evidence-and-readiness.md) | 5A 完成 | lifecycle 与 observability focused tests 通过，状态页只记录实际证据 |
-| **5C. Images profile algebra 与 registry conformance** | subset、intersection、candidate order、public projection、Provider ceiling/Target narrowing 和错误绑定受确定性 law tests 保护 | [测试与证据准备](capability-operation-refactor/08-testing-evidence-and-readiness.md#2-profile-algebra-必测性质) | 5B 完成；仍使用 table/law tests | profile algebra、registry 与 Models projection tests 通过；不无依据引入 property-testing 依赖 |
-| **5D. Operation legacy 收口** | 对旧 capability/module/type、alias、重复 builder、orphan fixture 和 stale link 完成可复核删除审查 | [legacy 清理](capability-operation-refactor/07-remaining-proof-and-cleanup.md#legacy-清理) | 5A–5C 全部完成 | 清单逐项归属；只删除已证明残留；full baseline、OpenAPI/link 和 `git diff --check` 通过 |
+| 阶段 | 可观察结果 | 实施计划 | 详细设计 owner | 前置条件 | 完成门 |
+|---|---|---|---|---|---|
+| **1 / 原计划 2** | 所有 Responses Public Model 安全接受 `reasoning.encrypted_content`；candidate 原生支持时保留，不支持时只删除该值；其他 include 继续 fail closed | [阶段 1](implementation-plans/01-reasoning-encrypted-content-compatibility.md) | [兼容提示设计](responses-reasoning-encrypted-content-compatibility.md) | 无；执行前重新核对 Models/preflight/planning 与 Provider ceiling | accepted/forwarded 分离、candidate body 隔离、Bridge 收口、zero-egress 与不伪造输出 |
+| **2 / 原计划 3** | Generation 本地拒绝保留稳定 status/type/code，并返回确定性的标准 `param`；首错顺序不受 candidate 或集合遍历影响 | [阶段 2](implementation-plans/02-generation-capability-error-diagnostics.md) | [错误定位设计](generation-capability-error-diagnostics.md) | 阶段 1 完成；先把 `param` 与首错顺序写入正式需求 | typed param/reason、固定 validation order、OpenAPI/需求/测试一致，拒绝保持 zero egress |
+| **3 / 原计划 4** | 首 event 前失败可返回 HTTP error 并按既有 policy retry/fallback；commit 后 transport error 与 terminal 前 EOF 表现为 body failure | [阶段 3](implementation-plans/03-responses-stream-precommit-and-eof.md) | [timeout/EOF 设计](responses-stream-premature-termination-and-timeouts.md#15-唯一候选实施切片precommit-与-eof-可见失败) | 阶段 1–2 完成；当前 timeout taxonomy 稳定 | replay/corpus、SSE、retry/fallback、取消和外部 loopback满足新语义 |
+| **4 / 原计划 5A** | Images timeout 稳定映射为 504；单次不可重放 attempt 的 coordinator、取消和 accounting 有明确合同 | [阶段 4](implementation-plans/04-images-timeout-and-attempt-lifecycle.md) | [Images 剩余证明](capability-operation-refactor/07-remaining-proof-and-cleanup.md#images-剩余执行证明) | 阶段 3 完成；复用共享 timeout 分类 | operation-specific timeout、取消、attempt tests通过；不引入retry/fallback |
+| **5 / 原计划 5B** | response body 超限、读取失败、提前 EOF、取消及 commit 行为有专项证据；敏感内容不进入普通 telemetry | [阶段 5](implementation-plans/05-images-response-and-telemetry.md) | [测试与证据准备](capability-operation-refactor/08-testing-evidence-and-readiness.md) | 阶段 4 完成 | lifecycle/observability tests通过，status只记录实际证据 |
+| **6 / 原计划 5C** | subset、intersection、candidate order、public projection、ceiling/narrowing与错误绑定受确定性 law tests保护 | [阶段 6](implementation-plans/06-images-profile-algebra-and-registry-conformance.md) | [profile algebra](capability-operation-refactor/08-testing-evidence-and-readiness.md#2-profile-algebra-必测性质) | 阶段 5 完成；使用table/law tests | profile algebra、registry与Models projection tests通过；不引入property-testing依赖 |
+| **7 / 原计划 5D** | 对旧 capability/module/type、alias、重复 builder、orphan fixture和stale link完成可复核删除审查 | [阶段 7](implementation-plans/07-operation-legacy-cleanup.md) | [legacy 清理](capability-operation-refactor/07-remaining-proof-and-cleanup.md#legacy-清理) | 阶段 4–6 全部完成 | 清单逐项归属；只删除已证明残留；full baseline、OpenAPI/link与diff check通过 |
 
 `Models v2`、Shared `ModelIdentity`、resource ledger、build-time manifest 和 property testing 继续服从
 [后续决策门](capability-operation-refactor/09-open-questions.md)，当前不属于待提升计划。
 
 ## 3. 跨计划所有权
 
-- 计划 4 只拥有 precommit、terminal 前 EOF、commit 后 body failure 与其 retry/fallback 结果；不重新设计已经实现的 timeout 配置。
-- 计划 5A 复用当前 timeout taxonomy，但 Images 504、不可重放和单 attempt accounting 仍由 Images operation 自己证明。
-- 计划 2 拥有 `reasoning.encrypted_content` 的 accepted/forwarded policy；计划 3 拥有所有 Generation `param`、内部 reason 和固定首错顺序。
-- 计划 5D 只能删除前序证明已经替代的路径；名称含 `legacy`、`alias` 或旧协议并不自动构成删除依据。
+- 阶段 3 只拥有 precommit、terminal 前 EOF、commit 后 body failure 与其 retry/fallback 结果；不重新设计已经实现的 timeout 配置。
+- 阶段 4 复用当前 timeout taxonomy，但 Images 504、不可重放和单 attempt accounting 仍由 Images operation 自己证明。
+- 阶段 1 拥有 `reasoning.encrypted_content` 的 accepted/forwarded policy；阶段 2 拥有所有 Generation `param`、内部 reason 和固定首错顺序。
+- 阶段 7 只能删除前序证明已经替代的路径；名称含 `legacy`、`alias` 或旧协议并不自动构成删除依据。
 
 ## 4. 每项计划的提升流程
 

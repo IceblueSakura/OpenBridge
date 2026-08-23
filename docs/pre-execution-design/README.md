@@ -17,13 +17,19 @@
 
 ## 详细设计包
 
-- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：只保留计划 4 的 precommit、EOF 和
+- [Responses 流提前终止与 timeout 边界设计](responses-stream-premature-termination-and-timeouts.md)：只保留当前阶段 3（原计划 4）的 precommit、EOF 和
   retry/fallback 候选语义；当前 timeout policy 与归因事实见 implementation status。
-- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：计划 2 区分下游安全接受与
+- [Responses `reasoning.encrypted_content` 兼容提示设计](responses-reasoning-encrypted-content-compatibility.md)：当前阶段 1（原计划 2）区分下游安全接受与
   candidate 原生转发，只为该精确 hint 定义条件转发/删除。
-- [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：计划 3 保留 fail-closed 与零 egress，将泛化
+- [Generation capability 错误定位设计](generation-capability-error-diagnostics.md)：当前阶段 2（原计划 3）保留 fail-closed 与零 egress，将泛化
   capability 400 收敛为确定性的字段级错误。
-- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：计划 5A–5D 只保留 Native Images 落地后尚未关闭的
+- [Operation 与多模态 capability 剩余收口](capability-operation-refactor/README.md)：当前阶段 4–7（原计划 5A–5D）只保留 Native Images 落地后尚未关闭的
   timeout/lifecycle、测试证明、profile algebra 和 legacy 清理；已完成阶段不在设计包保存实施历史。
+
+## 阶段实施计划
+
+[Generation 与 operation 剩余实现计划顺序](implementation-sequence.md)是七份阶段计划的 parent index。具体计划位于
+[`implementation-plans/`](implementation-plans/)，分别拥有 scope、RED、实施步骤、非目标、验证和退出门；这些文件仍属于执行前设计，
+只有被复制并收窄到 `current-focus.md` 的一个阶段才构成实施授权。
 
 只有在用户明确要求时才新增、替换或删除本目录的设计包。过时包必须标明状态或删除，不能与 live implementation status 并列作为事实来源。

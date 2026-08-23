@@ -1,6 +1,6 @@
 # Responses `reasoning.encrypted_content` 兼容提示设计
 
-> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中计划 2 的详细设计 owner，记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
+> **状态：候选执行前设计，不构成实施授权。** 本文是[实现顺序](implementation-sequence.md)中当前阶段 1（原计划 2）的详细设计 owner，记录 `include: ["reasoning.encrypted_content"]` 的目标契约、当前实现差距、候选结构、风险与验证边界。真正实施前必须重新读取 live source 和工作树，只将一个可观察切片提升到 [`implementation-plans/current-focus.md`](../implementation-plans/current-focus.md)。当前实现事实仍以 live source、确定性测试和 [`implementation-status/`](../implementation-status/README.md) 为准。
 
 ## 1. 目标
 

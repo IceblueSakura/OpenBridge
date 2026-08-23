@@ -33,11 +33,15 @@ prompt-cache 字段、streaming mode、reasoning、tool/tool choice、Structured
 - `include` 解析为逐值的类型化条件输出请求。省略、`null` 与空数组不请求任何值；`include: []` 在一次公共
   预检后、candidate 展开前移除。未知 wire 值在 egress 前拒绝。
 - 每条 Responses Route 只贡献能安全接受的具体值，Public Model 的 `response_includes` 是全部固定候选的
-  集合交集。
-- Native 只有在 Upstream API 原样接受时才贡献；Bridge 只有在 converter 显式消费或转换该值、保持真实
-  可观察输出且不伪造 item 时才贡献。
+  公共 accepted set 交集；candidate 的私有 forwarded set 不得通过 Models API 泄漏。
+- 除下述精确例外外，Native 只有在 Upstream API 原样接受时才贡献；Bridge 只有在 converter 显式消费或
+  转换该值、保持真实可观察输出且不伪造 item 时才贡献。
+- `reasoning.encrypted_content` 是当前唯一批准的 request compatibility hint。所有固定 Responses Route 都可安全
+  接受：Native candidate 原生支持时原样转发，不支持时只删除该元素；Bridge 只能按显式 converter 消费。
+  删除后数组为空时删除顶层 `include`。该规则不得扩展到其他 include 值，也不得筛选、跳过或重排 candidate。
 - 接受某个值不保证 response 一定出现对应 item，也不表示 hosted-tool execution 或 reasoning 输出形态得到
-  额外支持。
+  额外支持；删除 hint 时不得合成 output item，也不表示 opaque encrypted content 可以跨 issuer、credential、
+  Target 或 Provider 重放。
 
 ## 3. Prompt-cache 字段
 

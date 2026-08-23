@@ -1,6 +1,6 @@
 # Operation 与多模态 capability 剩余收口
 
-> **状态：保留的未完成执行前设计，不构成继续实施授权。** 本包对应[实现顺序](../implementation-sequence.md)中的计划 5A–5D。阶段 0–5B 的功能切片已完成，不在本包保留实施历史；当前事实以 implementation status 与 live source 为准。
+> **状态：保留的未完成执行前设计，不构成继续实施授权。** 本包对应[实现顺序](../implementation-sequence.md)中的当前阶段 4–7（原计划 5A–5D）。本包旧设计中的阶段 0–5B 功能切片已完成，不在本包保留实施历史；当前事实以 implementation status 与 live source 为准。
 
 ## 保留范围
 
