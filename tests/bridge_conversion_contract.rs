@@ -1199,6 +1199,24 @@ fn bridge_rejects_provider_bound_or_unmodeled_requests_before_egress() {
 }
 
 #[test]
+fn direct_responses_to_chat_bridge_rejects_active_response_include() {
+    let result = BridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(
+            br#"{"model":"public-model","input":"hello","include":["reasoning.encrypted_content"]}"#,
+        ),
+    );
+
+    assert!(
+        result.is_err(),
+        "planning must remove active includes before direct Bridge conversion"
+    );
+}
+
+#[test]
 fn structured_outputs_convert_between_chat_and_responses_request_shapes() {
     let schema = serde_json::json!({
         "type": "object",

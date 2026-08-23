@@ -117,7 +117,7 @@ impl RouteContractContribution {
             chat_stream_usage,
             response_includes,
             mut media,
-        } = protocol_specific_capabilities(route, upstream_api, bridged, reasoning);
+        } = protocol_specific_capabilities(route, upstream_api, bridged);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
@@ -388,7 +388,6 @@ fn protocol_specific_capabilities(
     route: &Route,
     upstream_api: &UpstreamApi,
     bridged: bool,
-    reasoning: SupportState,
 ) -> ProtocolCapabilities {
     if bridged {
         let (prompt_cache_key, chat_stream_usage) = match upstream_api.capabilities() {
@@ -408,16 +407,8 @@ fn protocol_specific_capabilities(
                 unreachable!("Images Generations does not use generation protocol capabilities")
             }
         };
-        // A readable Responses-to-Chat Bridge can consume the conditional encrypted-content hint
-        // without forwarding it or fabricating an opaque output item.
-        let response_includes = if route.downstream_operation() == OperationKind::Responses
-            && upstream_api.api_protocol() == Some(ApiProtocol::ChatCompletions)
-            && reasoning.is_supported()
-        {
-            vec![ResponseInclude::ReasoningEncryptedContent]
-        } else {
-            Vec::new()
-        };
+        // Every Responses Route accepts the one omission-safe compatibility hint before conversion.
+        let response_includes = accepted_response_includes(route, &[]);
         return ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
@@ -455,7 +446,7 @@ fn protocol_specific_capabilities(
                 && capabilities.background,
             prompt_cache_key: capabilities.prompt_cache_key,
             chat_stream_usage: false,
-            response_includes: capabilities.include.to_vec(),
+            response_includes: accepted_response_includes(route, capabilities.include),
             media: InterfaceMediaCapabilities::from_responses(capabilities),
         },
         UpstreamApiCapabilities::Embeddings(_) => {
@@ -464,6 +455,39 @@ fn protocol_specific_capabilities(
         UpstreamApiCapabilities::ImagesGenerations(_) => {
             unreachable!("Images Generations does not use generation protocol capabilities")
         }
+    }
+}
+
+/// Returns the downstream-safe accepted set without widening any Native forwarded set.
+fn accepted_response_includes(
+    route: &Route,
+    native_includes: &[ResponseInclude],
+) -> Vec<ResponseInclude> {
+    if route.downstream_operation() != OperationKind::Responses {
+        return Vec::new();
+    }
+    let mut accepted = native_includes.to_vec();
+    if !accepted.contains(&ResponseInclude::ReasoningEncryptedContent) {
+        accepted.push(ResponseInclude::ReasoningEncryptedContent);
+    }
+    accepted
+}
+
+/// Freezes only the values the selected candidate's concrete Responses API handles natively.
+pub(super) fn forwarded_response_includes(
+    route: &Route,
+    upstream_api: &UpstreamApi,
+) -> Vec<ResponseInclude> {
+    if route.downstream_operation() != OperationKind::Responses
+        || !matches!(route.mode(), RouteMode::Native)
+    {
+        return Vec::new();
+    }
+    match upstream_api.capabilities() {
+        UpstreamApiCapabilities::Responses(capabilities) => capabilities.include.to_vec(),
+        UpstreamApiCapabilities::ChatCompletions(_)
+        | UpstreamApiCapabilities::Embeddings(_)
+        | UpstreamApiCapabilities::ImagesGenerations(_) => Vec::new(),
     }
 }
 

@@ -11,7 +11,6 @@ mod images;
 pub use embeddings::{
     EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
 };
-pub(crate) use generation::GenerationCapabilities;
 pub use generation::{
     ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,
     AudioUnderstandingProfile, ChatCompletionsCapabilities, ChatCompletionsProfile,
@@ -30,6 +29,7 @@ pub use generation::{
     StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode, VoiceCloneProfile,
     VoiceDesignProfile,
 };
+pub(crate) use generation::{GenerationCapabilities, ResponseIncludePolicy};
 pub use images::{
     DashScopeImagesCapabilities, DashScopePromptExtendMode, ImagesGenerationsCapabilities,
     ImagesOutputFormat, ImagesResponseFormat, ImagesSizeDomain,

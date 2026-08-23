@@ -123,6 +123,38 @@ async fn responses_native_preserves_supported_reasoning_summary_values() {
 }
 
 #[tokio::test]
+async fn deepseek_responses_native_omits_the_encrypted_content_compatibility_hint() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Accept the downstream compatibility hint even though DeepSeek's Native Responses API does not.
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    r#"{"model":"deepseek-v4-flash","input":"hello","stream":true,"include":["reasoning.encrypted_content"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+    // Omission is candidate-specific and must be visible on the final post-adapter wire body.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/responses");
+    assert!(requests[0].body.get("include").is_none());
+}
+
+#[tokio::test]
 async fn responses_native_reuses_reasoning_summary_during_credential_rotation() {
     let transport = Arc::new(CredentialRotationTransport::default());
     let (app, metrics) =

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::core::{ApiProtocol, OperationKind, ReasoningOutput};
+use crate::core::{ApiProtocol, OperationKind, ReasoningOutput, ResponseInclude};
 
 use super::{
     EmbeddingInterfaceCapabilities, ImagesInterfaceCapabilities, ModelInterfaceCapabilities,
@@ -89,6 +89,7 @@ pub(crate) struct RouteExecutionCandidate {
     pub(super) reasoning_output: ReasoningOutput,
     pub(super) streaming_policy: UpstreamStreamingPolicy,
     pub(super) ignored_parameters: Vec<IgnorableGenerationParameter>,
+    pub(super) forwarded_response_includes: Vec<ResponseInclude>,
 }
 
 impl RouteExecutionCandidate {
@@ -147,6 +148,11 @@ impl RouteExecutionCandidate {
     /// Returns the ordinary parameters removed only for this candidate before shape conversion.
     pub(crate) fn ignored_generation_parameters(&self) -> &[IgnorableGenerationParameter] {
         &self.ignored_parameters
+    }
+
+    /// Returns the Responses `include` values this candidate's Upstream API handles natively.
+    pub(crate) fn forwarded_response_includes(&self) -> &[ResponseInclude] {
+        &self.forwarded_response_includes
     }
 }
 
@@ -522,6 +528,7 @@ mod tests {
                 reasoning_output: ReasoningOutput::Unknown,
                 streaming_policy: UpstreamStreamingPolicy::Optional,
                 ignored_parameters: Vec::new(),
+                forwarded_response_includes: Vec::new(),
             }],
         }
     }

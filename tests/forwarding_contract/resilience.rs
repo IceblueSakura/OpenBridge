@@ -52,6 +52,87 @@ async fn stateless_requests_keep_fallback_across_continuation_capable_targets() 
 }
 
 #[tokio::test]
+async fn response_include_omission_is_isolated_per_fallback_candidate_in_either_order() {
+    for primary_forwards in [true, false] {
+        let mut definition = streaming_definition("forward-test", "public-model", "primary-model");
+        let UpstreamApiCapabilities::Responses(primary_capabilities) =
+            &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+        else {
+            panic!("second synthetic API must be Responses");
+        };
+        primary_capabilities.include = if primary_forwards {
+            &[ResponseInclude::ReasoningEncryptedContent]
+        } else {
+            &[]
+        };
+
+        // Give the fallback the opposite Native include contract while preserving one public interface.
+        let mut fallback = definition.upstream_targets[0].clone();
+        fallback.id = "openai-fallback".to_owned();
+        fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
+        let UpstreamApiCapabilities::Responses(fallback_capabilities) =
+            &mut fallback.upstream_apis[1].capabilities
+        else {
+            panic!("second synthetic fallback API must be Responses");
+        };
+        fallback_capabilities.include = if primary_forwards {
+            &[]
+        } else {
+            &[ResponseInclude::ReasoningEncryptedContent]
+        };
+        definition.upstream_targets.push(fallback);
+        definition.routes.push(RouteConfig {
+            id: "fallback-responses".to_owned(),
+            upstream_target: "openai-fallback".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: OperationKind::Responses,
+            mode: RouteMode::Native,
+        });
+        definition.public_models[0]
+            .routes
+            .push("fallback-responses".to_owned());
+
+        let transport = Arc::new(IncludeIsolationTransport::default());
+        let app = app_with_transport_and_definition(transport.clone(), definition);
+        let response = app
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(
+                        r#"{"model":"public-model","input":"hello","stream":true,"include":["reasoning.encrypted_content"]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+
+        // Retries of one candidate keep its own body; the fallback receives the opposite projection.
+        let requests = transport.requests.lock().unwrap();
+        assert!(requests.iter().any(|(target, _)| target == "openai-main"));
+        assert!(
+            requests
+                .iter()
+                .any(|(target, _)| target == "openai-fallback")
+        );
+        for (target, body) in requests.iter() {
+            let should_forward = if target == "openai-main" {
+                primary_forwards
+            } else {
+                !primary_forwards
+            };
+            assert_eq!(
+                body.get("include").is_some(),
+                should_forward,
+                "candidate {target} received the wrong include projection"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn transient_failures_back_off_and_fall_back_to_another_provider_with_final_error() {
     // Build an OpenAI primary target and LongCat fallback, then make both return transient failures.
     let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");

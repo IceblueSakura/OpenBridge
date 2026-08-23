@@ -14,8 +14,9 @@
 - Function tool、tool choice 与 structured output 使用闭合 typed profile；固定 candidate 没有共同 mode 时不公开相应参数。
 - `stream_options` 只建模 Chat streaming 的 `include_usage`：省略、`{}` 与 `false` 是 no-op 并从 egress 移除；`true` 才要求
   完整固定 candidate 都能履行 usage 输出合同。
-- Responses `include` 解析为闭合逐值集合并按 candidate 求交集；公开值只表示请求可安全处理，不保证对应 output item。
-  空集合是 no-op；未知或不在交集中的值 fail closed。
+- Responses `include` 解析为闭合逐值集合；公开 accepted set 与 candidate 私有 forwarded set 在启动期分别编译。
+  `reasoning.encrypted_content` 是唯一 `ForwardOrOmit` 值：原生支持的 Responses API 精确转发，其他 Native/Bridge candidate
+  在 planning 中只删除该 hint；空数组随顶层字段一起删除。未知值和其他不在公共 accepted set 的值继续 fail closed。
 - `prompt_cache_key` 只表示 exact forwarding，不承诺 cache hit、成本或延迟；options/retention/breakpoint 未实现。
 - 图片、音频与文件 capability 使用带完整 payload/limit 的 typed profile；Models flat JSON 只是只读投影，preflight 直接读取 owned typed contract。
 - Responses 当前只接受省略或 `store:false`；`store:true` 拒绝。continuation/state 只有全部 candidate 对 issuing Target/API/credential
@@ -31,8 +32,11 @@
 
 - `tests/forwarding_contract/models.rs`：标准/扩展 Models、native filter、task/capability 投影与拓扑不泄漏。
 - `tests/forwarding_contract/admission.rs`、`tests/ingress_contract.rs`：unknown/unsupported、instructions/store/state 与 zero egress。
+- `tests/forwarding_contract/native.rs`、`tests/forwarding_contract/resilience.rs`：include Native exact-forward/omission、fallback
+  candidate body 隔离与固定顺序。
 - `tests/forwarding_contract/mimo.rs`：图片、音频、tool、structured output 和非法组合。
-- `tests/bridge_forwarding_contract.rs`：Bridge 可表达性、include/cache/usage 参数。
+- `tests/bridge_forwarding_contract.rs`、`tests/bridge_conversion_contract.rs`：Router-owned include omission、direct Bridge
+  active-include fail-closed，以及其他 Bridge 可表达性、cache/usage 参数。
 - `tests/credential_store_contract.rs`、`tests/forwarding_contract/resilience.rs`：state affinity、credential 与 fallback。
 - `tests/embedding_forwarding_contract.rs`：Embeddings 输入、budget、成功体、retry/cancel。
 

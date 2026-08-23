@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     config::RuntimeLimits,
-    core::OperationKind,
+    core::{OperationKind, ResponseIncludePolicy},
     registry::{
         CanonicalTaskKind, PublicModelConfig, ReasoningLevelPolicy, RegistryError, Route,
         UpstreamApi,
@@ -31,7 +31,7 @@ use aggregate::{
     aggregate_embedding_interface, aggregate_images_interface, aggregate_interface,
     aggregate_model_capabilities, intersect_optional_string,
 };
-use contribution::RouteContractContribution;
+use contribution::{RouteContractContribution, forwarded_response_includes};
 use embedding_budget::constrain_embedding_response_budget;
 
 /// Validated Route binding used to compile one Public Model's static execution interfaces.
@@ -309,22 +309,40 @@ impl PrecompiledRouteCandidate {
         }
 
         // Freeze every planning fact that otherwise required a request-time Route/API lookup.
+        let execution = RouteExecutionCandidate {
+            route_id: binding.route_id.clone(),
+            upstream_target_id: binding.route.upstream_target().to_owned(),
+            downstream_operation: binding.route.downstream_operation(),
+            upstream_api_key: binding.upstream_api.key(),
+            mode: binding.route.mode(),
+            upstream_model: binding.upstream_api.upstream_model().to_owned(),
+            reasoning_output: binding.upstream_api.reasoning_output(),
+            streaming_policy: binding.upstream_api.streaming_policy(),
+            ignored_parameters: binding
+                .upstream_api
+                .ignored_generation_parameters()
+                .collect(),
+            forwarded_response_includes: forwarded_response_includes(
+                binding.route,
+                binding.upstream_api,
+            ),
+        };
+        let contribution = RouteContractContribution::from_binding(binding);
+
+        // Stop startup if private forwarding escapes acceptance or omission widens beyond policy.
+        assert!(
+            execution
+                .forwarded_response_includes
+                .iter()
+                .all(|include| contribution.response_includes.contains(include))
+        );
+        assert!(contribution.response_includes.iter().all(|include| {
+            execution.forwarded_response_includes.contains(include)
+                || include.policy() == ResponseIncludePolicy::ForwardOrOmit
+        }));
         Some(Self {
-            execution: RouteExecutionCandidate {
-                route_id: binding.route_id.clone(),
-                upstream_target_id: binding.route.upstream_target().to_owned(),
-                downstream_operation: binding.route.downstream_operation(),
-                upstream_api_key: binding.upstream_api.key(),
-                mode: binding.route.mode(),
-                upstream_model: binding.upstream_api.upstream_model().to_owned(),
-                reasoning_output: binding.upstream_api.reasoning_output(),
-                streaming_policy: binding.upstream_api.streaming_policy(),
-                ignored_parameters: binding
-                    .upstream_api
-                    .ignored_generation_parameters()
-                    .collect(),
-            },
-            contribution: RouteContractContribution::from_binding(binding),
+            execution,
+            contribution,
         })
     }
 }

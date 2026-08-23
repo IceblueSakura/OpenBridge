@@ -19,8 +19,8 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
     upstream_model: &str,
     reasoning_supported: bool,
 ) -> Result<Value, BridgeError> {
-    // Consume the only Responses include hint this Bridge can safely accept without inventing output.
-    validate_consumed_response_includes(source)?;
+    // Planning must remove every active include before the request reaches this converter.
+    validate_inactive_response_includes(source)?;
 
     // Expand Responses input into Chat messages and validate the call/output ledger.
     let input = source.get("input").ok_or(BridgeError::InvalidShape)?;
@@ -82,16 +82,13 @@ pub(in crate::bridge::conversion) fn responses_request_to_chat(
     Ok(Value::Object(result))
 }
 
-/// Validates the conditional reasoning include that has no Chat wire representation.
-fn validate_consumed_response_includes(source: &Map<String, Value>) -> Result<(), BridgeError> {
+/// Rejects every active Responses include because planning owns candidate-specific omission.
+fn validate_inactive_response_includes(source: &Map<String, Value>) -> Result<(), BridgeError> {
     let Some(include) = source.get("include").filter(|value| !value.is_null()) else {
         return Ok(());
     };
     let values = include.as_array().ok_or(BridgeError::InvalidShape)?;
-    if values
-        .iter()
-        .all(|value| value.as_str() == Some("reasoning.encrypted_content"))
-    {
+    if values.is_empty() {
         Ok(())
     } else {
         Err(BridgeError::UnsupportedSemantics)

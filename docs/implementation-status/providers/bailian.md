@@ -16,6 +16,8 @@
 - Structured output 按 Target 收窄：Qwen3.7 Plus Chat 支持 strict JSON Schema，Responses 只保留 `json_object`；Qwen3.6
   Chat、Bailian DeepSeek Chat 只保留 `json_object`；其他 Target 不从 Provider ceiling 自动继承。
 - GLM 与 Bailian DeepSeek Flash Chat 接受 `parallel_tool_calls`；其他 generation Target 保持关闭。
+- Generation Public Model 安全接受唯一 Responses `include` 兼容提示 `reasoning.encrypted_content`；Bailian Native Responses 与
+  Responses-via-Chat candidate 均不原生转发该值，由公共 planning 在各自 egress body 构造时删除。
 
 ## 所有权与确定性证据
 

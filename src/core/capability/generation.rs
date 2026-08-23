@@ -109,6 +109,15 @@ pub enum ResponseInclude {
     ReasoningEncryptedContent,
 }
 
+/// Closed forwarding policy for one accepted Responses `include` value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResponseIncludePolicy {
+    /// Every fixed candidate must forward the value to its Upstream API exactly.
+    NativeOnly,
+    /// A candidate may either forward the value exactly or omit only that value.
+    ForwardOrOmit,
+}
+
 impl ResponseInclude {
     /// Parses one exact Responses `include` wire value.
     pub fn from_wire(value: &str) -> Option<Self> {
@@ -134,6 +143,19 @@ impl ResponseInclude {
             Self::InputImageImageUrl => "message.input_image.image_url",
             Self::OutputTextLogprobs => "message.output_text.logprobs",
             Self::ReasoningEncryptedContent => "reasoning.encrypted_content",
+        }
+    }
+
+    /// Returns the only omission policy approved for this exact wire value.
+    pub(crate) const fn policy(self) -> ResponseIncludePolicy {
+        match self {
+            Self::ReasoningEncryptedContent => ResponseIncludePolicy::ForwardOrOmit,
+            Self::WebSearchCallSources
+            | Self::CodeInterpreterCallOutputs
+            | Self::ComputerCallOutputImageUrl
+            | Self::FileSearchCallResults
+            | Self::InputImageImageUrl
+            | Self::OutputTextLogprobs => ResponseIncludePolicy::NativeOnly,
         }
     }
 }

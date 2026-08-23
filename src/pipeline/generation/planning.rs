@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     bridge::BridgePlan,
-    core::{ApiProtocol, ApiRequest, ChatStreamUsage},
+    core::{ApiProtocol, ApiRequest, ChatStreamUsage, ResponseInclude, ResponseIncludePolicy},
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel, RouteMode,
         RuntimeRegistry, UpstreamStreamingPolicy,
@@ -72,8 +72,13 @@ pub fn plan_request(
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());
     for candidate in interface.candidates() {
         // Rebuild this candidate from the canonical body and apply only its typed omission rules.
-        let candidate_body = discard_candidate_ignored_parameters(
+        let candidate_body = filter_candidate_response_includes(
             &normalized_body,
+            requirements.protocol(),
+            candidate.forwarded_response_includes(),
+        )?;
+        let candidate_body = discard_candidate_ignored_parameters(
+            &candidate_body,
             candidate.ignored_generation_parameters(),
         )?;
         let (request, bridge) = match candidate.mode() {
@@ -120,6 +125,58 @@ pub fn plan_request(
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
         response_budget: interface.response_budget(),
     })
+}
+
+/// Removes only accepted `ForwardOrOmit` values absent from this candidate's Native contract.
+fn filter_candidate_response_includes(
+    body: &Bytes,
+    protocol: ApiProtocol,
+    forwarded: &[ResponseInclude],
+) -> Result<Bytes, RequestPlanningError> {
+    if protocol != ApiProtocol::Responses {
+        return Ok(body.clone());
+    }
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    let Some(values) = object.get_mut("include").and_then(Value::as_array_mut) else {
+        return Ok(body.clone());
+    };
+
+    // Preserve array order and duplicates while refusing to omit any exact-forward-only value.
+    let mut removed = false;
+    values.retain(|value| {
+        let Some(include) = value.as_str().and_then(ResponseInclude::from_wire) else {
+            return true;
+        };
+        if forwarded.contains(&include) {
+            return true;
+        }
+        if include.policy() == ResponseIncludePolicy::ForwardOrOmit {
+            removed = true;
+            return false;
+        }
+        true
+    });
+    if values.iter().any(|value| {
+        value
+            .as_str()
+            .and_then(ResponseInclude::from_wire)
+            .is_some_and(|include| !forwarded.contains(&include))
+    }) {
+        return Err(RequestPlanningError::UnsupportedCapabilities);
+    }
+    if !removed {
+        return Ok(body.clone());
+    }
+    if values.is_empty() {
+        object.remove("include");
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
 }
 
 /// Removes only omitted-equivalent Chat stream options before any candidate body is materialized.
@@ -284,4 +341,29 @@ fn apply_streaming_policy(
         true,
         conversion,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candidate_include_filter_removes_only_the_approved_hint_and_preserves_order() {
+        let body = Bytes::from_static(
+            br#"{"include":["file_search_call.results","reasoning.encrypted_content","file_search_call.results"],"input":"hello"}"#,
+        );
+
+        let filtered = filter_candidate_response_includes(
+            &body,
+            ApiProtocol::Responses,
+            &[ResponseInclude::FileSearchCallResults],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&filtered).unwrap();
+
+        assert_eq!(
+            value["include"],
+            serde_json::json!(["file_search_call.results", "file_search_call.results"])
+        );
+    }
 }

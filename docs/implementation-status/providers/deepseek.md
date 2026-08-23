@@ -8,8 +8,9 @@
   DeepSeek 为两个下游协议的首选。
 - 两模型 Chat 只公开 `json_object`，Responses 公开 `json_object` 与 strict JSON Schema；Direct function tools 公开完整标准 choice mode
   与 strict schema，但不公开 `parallel_tool_calls` 请求开关。
-- Direct Chat/Responses 不公开 `prompt_cache_key` 或 Responses `include`，并按受控忽略规则移除 penalties；Responses 另拒绝
-  `stop`/`logprobs`，公开 `max_output_tokens`、`top_logprobs` 与 `user`。
+- Direct Chat/Responses 不公开 `prompt_cache_key`；其 Responses API 不原生转发 `include`，但 Public Model 安全接受唯一兼容提示
+  `reasoning.encrypted_content`，由 planning 在该 candidate 的 egress body 中删除。普通 penalties 仍按受控忽略规则移除；Responses
+  另拒绝 `stop`/`logprobs`，公开 `max_output_tokens`、`top_logprobs` 与 `user`。
 - Pro/Flash 公共 reasoning 档位分别为 `none/high/max` 与 `none/low/high/max`；Chat 输出为 `PlainText`。
 
 ## 所有权与确定性证据

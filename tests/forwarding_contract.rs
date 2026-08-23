@@ -29,7 +29,7 @@ use openbridge::{
     config::parse_bootstrap_config,
     core::{
         ApiProtocol, ExecutableResponsesState, GenerationBridgeDirection, JsonSchemaSupport,
-        OperationKind, ResponsesAffinity, StorageSupport, StructuredOutputProfile,
+        OperationKind, ResponseInclude, ResponsesAffinity, StorageSupport, StructuredOutputProfile,
     },
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
@@ -305,6 +305,11 @@ struct ScopedFaultTransport {
     attempts: Mutex<Vec<String>>,
 }
 
+#[derive(Default)]
+struct IncludeIsolationTransport {
+    requests: Mutex<Vec<(String, Value)>>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SyntheticTokenGeneration {
     First,
@@ -482,6 +487,34 @@ impl UpstreamTransport for ScopedFaultTransport {
                     Body::from(r#"{"id":"healthy-response"}"#),
                 ))
             }
+        })
+    }
+}
+
+impl UpstreamTransport for IncludeIsolationTransport {
+    fn send<'a>(
+        &'a self,
+        target: &'a UpstreamTarget,
+        request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let target_id = target.id().to_owned();
+        let body = serde_json::from_slice(request.body()).unwrap();
+        self.requests
+            .lock()
+            .unwrap()
+            .push((target_id.clone(), body));
+        Box::pin(async move {
+            if target_id == "openai-main" {
+                return Err(TransportError::Timeout);
+            }
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from(COMPLETED_RESPONSES_STREAM),
+            ))
         })
     }
 }

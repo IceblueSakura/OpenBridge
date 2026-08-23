@@ -7,7 +7,6 @@ mod capability;
 mod generation_parameter;
 mod request;
 
-pub(crate) use capability::GenerationCapabilities;
 pub use capability::{
     ALL_TOOL_CHOICE_MODES, ApiCapabilities, AsrLanguage, AudioFormat, AudioInputCapabilities,
     AudioInputSource, AudioUnderstandingProfile, ChatCompletionsCapabilities,
@@ -29,6 +28,7 @@ pub use capability::{
     StorageSupport, StructuredOutputMode, StructuredOutputProfile, ToolChoiceMode,
     VoiceCloneProfile, VoiceDesignProfile,
 };
+pub(crate) use capability::{GenerationCapabilities, ResponseIncludePolicy};
 pub(crate) use generation_parameter::{
     ChatStreamUsage, GenerationRequestField, parse_chat_stream_usage,
 };

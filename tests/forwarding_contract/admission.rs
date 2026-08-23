@@ -124,6 +124,33 @@ async fn invalid_reasoning_summary_requests_fail_before_upstream() {
 }
 
 #[tokio::test]
+async fn encrypted_content_hint_does_not_hide_an_unsupported_mixed_include() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    r#"{"model":"deepseek-v4-flash","input":"hello","include":["reasoning.encrypted_content","file_search_call.results"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["error"]["code"], "unsupported_model_capability");
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn chat_stream_usage_admission_keeps_noops_but_rejects_invalid_or_unsupported_requests() {
     // Build a streaming Chat model whose fixed Native API cannot guarantee the effective usage tail.
     let mut definition =
