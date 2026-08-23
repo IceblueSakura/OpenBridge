@@ -200,7 +200,6 @@ pub(in crate::ingress) async fn forward_images_request(
     match validated_images_response(
         upstream,
         &observation,
-        requirements.public_model(),
         plan.outputs(),
         plan.response_format(),
         plan.max_json_response_body_bytes(),

@@ -8,7 +8,7 @@
 
 生产注册表使用 `ModelConfig`、`ProviderInstanceConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、
 `UpstreamApiConfig`、`RouteConfig` 与 `PublicModelConfig`；请求路径使用 operation-specific requirements/plan。
-Generation 支持 Native 与显式 Bridge，Embeddings 使用独立 Native-only plan，MCP 本地工具不进入 Provider 链路。
+Generation 支持 Native 与显式 Bridge，Embeddings 与 Images 使用各自独立的 Native-only plan，MCP 本地工具不进入 Provider 链路。
 
 ## 1. 分层与依赖方向
 
@@ -62,12 +62,12 @@ downstream response + request/attempt observations
 
 关键 facade 边界：
 
-- `core/capability.rs` 只在 `ApiCapabilities` 汇总域；generation 与 Embeddings 规则分别位于
-  `core/capability/generation.rs` 和 `core/capability/embeddings.rs`。
-- `pipeline/generation/` 与 `pipeline/embeddings/` 分别拥有 operation analyzer、preflight、planner 和 pure response policy；
+- `core/capability.rs` 只在 `ApiCapabilities` 汇总域；Generation、Embeddings 与 Images 规则分别位于
+  `core/capability/generation.rs`、`core/capability/embeddings.rs` 和 `core/capability/images.rs`。
+- `pipeline/generation/`、`pipeline/embeddings/` 与 `pipeline/images/` 分别拥有 operation analyzer、preflight、planner 和 pure response policy；
   各 analyzer 不解析 registry entity，response policy 不执行 body I/O、observation 或 downstream commit。
 - `registry/public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；私有 execution snapshot、contribution、aggregation
-  与 Embeddings response budget 由同名子模块拥有。
+  与 operation response budget 由同名子模块拥有。
 - `observability.rs` 只作 facade；request/provider/metrics/otlp/http logging 各自拥有对应生命周期。
 
 ## 3. 启动装配
@@ -128,7 +128,7 @@ immutable RuntimeRegistry
 然后从每个固定候选生成 contribution 并保守聚合。Private execution snapshot 由 deterministic
 `BTreeMap<OperationKind, ModelExecutionInterface>` 索引；每项同时保存 selected task、typed executable contract、continuation
 affinity、operation response budget 与固定顺序 candidates。Candidate 携带完整 `UpstreamApiKey`，forwarding 不再从 Target 与
-operation 重建 API identity；JSON/SSE success budget 也从同一个 interface 进入 generation/Embeddings plan。
+operation 重建 API identity；JSON/SSE success budget 也从同一个 interface 进入 Generation、Embeddings 或 Images plan。
 Public Model 只从 private map 投影固定 Models v1 DTO，并公开全部候选共同保证的能力；请求期不会因能力筛选、跳过或重排 candidate。
 
 Chat 与 Responses 分别使用完整的 operation-specific media envelope。Provider contract 声明 family ceiling，每个 executable Target
@@ -188,6 +188,11 @@ observation 或 downstream commit I/O。运行路径使用 `EmbeddingRequestRequ
 read 后调用 pure response driver，并只在验证成功后记录 usage 和构造下游响应。成功 JSON 在首次 commit 前验证 object/index/vector/usage；
 没有 Bridge、多 candidate、跨模型 fallback、向量转换、缓存、索引或 tokenizer 估算。
 
+Images 的 strict analysis、fixed-interface preflight、优先级 candidate planning 与 pure success-response projection 由
+`pipeline/images/` 拥有。多个固定 candidate 的 Public interface 是保守交集；request-time 只选择配置顺序第一项并执行一次，
+不 retry、fallback 或 rotate credential。`ingress/forwarding/images.rs` 拥有单 attempt、bounded body read、typed terminal、
+validated-only usage 与 downstream commit；image URL/bytes 不进入普通 OTLP attributes。
+
 Models list/retrieve 读取同一 immutable Public Model snapshot：标准接口只输出 OpenAI-compatible identity，扩展接口输出下游安全
 task/interface/limit/capability。preflight 读取私有 typed contract，不反向解析 Models JSON sentinel。
 
@@ -199,10 +204,10 @@ MCP 在独立 transport/discovery/tool dispatch 中处理：stateless 与 legacy
 `ProviderDefinition` 是静态 contract 与 adapter 的单一入口。OpenAI-compatible family 复用共享 wire machinery，但每个 family
 仍显式拥有 origin、Models envelope、operation path、request/header hook、terminal discriminator、credential kind 和模型级 Target。
 请求准备前先按 `OperationKind` 从 definition 选择 closed typed adapter：Generation adapter 固定 Chat Completions 或 Responses，
-Embeddings adapter 不能调用 Generation request/SSE policy。请求 body/protocol 不能隐式切换 operation；Provider headers、authentication、
+Embeddings/Images adapter 不能调用 Generation request/SSE policy。请求 body/protocol 不能隐式切换 operation；Provider headers、authentication、
 status classification 与 model-list probe 仍通过同一 operation-neutral adapter 共享。`provider/adapter.rs` 拥有 common policy，
 `provider/operation.rs` 从同一静态 surface 原子选择 relative path、capability ceiling 与 typed request/SSE policy。Generation 与
-Embeddings preparation 都必须接收 operation-matched `UpstreamApi`；不存在仅传任意 model 的第二条准备路径。
+Embeddings/Images preparation 都必须接收 operation-matched `UpstreamApi`；不存在仅传任意 model 的第二条准备路径。
 
 普通安全 header 与认证 header 分离。业务请求不能控制上游 URL、Provider、Target、credential、认证 header、代理 header 或
 转换脚本。`UpstreamClient` 只接受已解析 Target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。
@@ -222,7 +227,8 @@ API 在下游 commit 前完整校验上游 SSE，并生成非流式 JSON。非�
 Generation 和 Embeddings forwarding 共用该 state machine，operation pipeline、Provider 分类、credential 选择与 downstream commit 不进入 coordinator。
 Prepared Generation 与 Embeddings candidates 通过 `ingress/forwarding/execution/runner.rs` 的单一 send/retry loop 执行；
 closed `OperationDriver` 只分派 OAuth/replay/health/terminal policy，不读取 Public DTO、Provider 名称或重新选择 Route。
-它只在首个下游业务输出前允许有界 local retry 与固定 Route fallback；提交后不得拼接另一上游响应。429 cooldown 按 credential
+Images 在 operation handler 中以 finish-only 方式复用同一 coordinator 与 attempt observation，但不进入 replay runner。
+Generation/Embeddings runner 只在首个下游业务输出前允许有界 local retry 与固定 Route fallback；提交后不得拼接另一上游响应。429 cooldown 按 credential
 member/generation 隔离，target fault cooldown 按受信 fault domain 隔离；两者只在单进程内存在，
 不持久化、不跨进程，也不执行动态 weight/health probe。
 
@@ -255,6 +261,13 @@ Prepared-candidate runner 收敛通过 Embeddings、Generation resilience/OAuth 
 
 Operation-indexed private execution registry 完成时通过 `cargo fmt -- --check`、`cargo check --locked --all-targets`、
 `cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
+
+2026-08-24 operation legacy 审查删除了 Images pure response validator 的无效 `public_model` 参数与 model-level
+`ImageGenerationModelProfile.supported_parameters`；Images request parameters 只由 operation capability/interface 拥有。已完成的
+Stages 1–7 计划历史同步删除，未来 decision gates 与通用测试准备指南保留。MCP legacy session、Chat `max_tokens`、Provider
+compatibility adapter 和 model lifecycle `deprecated` 都有现行协议/状态职责，未被当作 legacy 删除。
+删除后 tracked Markdown relative links、cross-file anchors 与 code fences 均通过静态检查；canonical wire 51/51 与
+semantic 9/9 catalog IDs 全部有且只有一个 fixture，未发现 orphan fixture。
 
 ## 9. 未实现或未证明
 

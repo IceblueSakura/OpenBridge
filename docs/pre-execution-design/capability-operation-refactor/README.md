@@ -1,14 +1,13 @@
-# Operation 与多模态 capability 剩余收口
+# Operation 与 capability 后续决策
 
-> **状态：候选执行前设计，不构成继续实施授权。** 本包对应[实现顺序](../implementation-sequence.md)中的阶段 4–7，只保留未完成的证明、清理与决策门。
+> **状态：候选执行前设计，不构成继续实施授权。** 已完成的 Images 证明、Stages 1–7 和 legacy cleanup 历史不在本包保留；
+> 当前实现事实见 [Native Images 实施现状](../../implementation-status/features/native-images-generation.md)与
+> [当前架构](../../implementation-status/current-architecture.md)。
 
 ## 保留范围
 
-本包只保留首个真实 operation 落地后仍未关闭的证明、清理与后续决策：
-
-1. [Images 剩余执行证明与 legacy 收口](images-proof-and-legacy-cleanup.md)
-2. [测试、证据与执行准备](testing-evidence-and-readiness.md)
-3. [后续决策门](future-decision-gates.md)
+1. [测试、证据与执行准备](testing-evidence-and-readiness.md)：后续 operation/profile 的可复用证明边界；
+2. [后续决策门](future-decision-gates.md)：Models v2、shared identity、resource ledger、manifest 与 property testing 等尚未批准决策。
 
 ## 固定边界
 
@@ -27,4 +26,4 @@
 - [Native Images 实施现状](../../implementation-status/features/native-images-generation.md)
 - [当前测试资产](../../implementation-status/test-assets/protocol-corpus.md)
 
-开始任一切片前必须重新读取 live source、工作树和当前需求；源码与测试事实优先于本设计包。
+开始任一未来切片前必须重新读取 live source、工作树和当前需求；源码与测试事实优先于本设计包。

@@ -51,7 +51,6 @@ fn images_definition() -> RegistryConfig {
             knowledge_cutoff: None,
             task: CanonicalModelTask::ImageGeneration(ImageGenerationModelProfile {
                 context_length: ModelContextLength::new(None, None, None),
-                supported_parameters: Vec::new(),
             }),
         }],
         provider_instances: vec![ProviderInstanceConfig {

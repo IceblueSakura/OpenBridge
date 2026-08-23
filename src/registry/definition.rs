@@ -431,8 +431,6 @@ pub struct EmbeddingModelProfile {
 pub struct ImageGenerationModelProfile {
     /// Token limits published for the Images-native generation envelope.
     pub context_length: ModelContextLength,
-    /// Images-specific request parameters declared by the model.
-    pub supported_parameters: Vec<String>,
 }
 
 /// Canonical facts owned only by a speech-recognition task.
@@ -549,7 +547,7 @@ impl CanonicalModelTask {
         match self {
             Self::Generation(profile) => &profile.supported_parameters,
             Self::Embedding(profile) => &profile.supported_parameters,
-            Self::ImageGeneration(profile) => &profile.supported_parameters,
+            Self::ImageGeneration(_) => &[],
             Self::SpeechRecognition(profile) => &profile.supported_parameters,
             Self::SpeechSynthesis(profile) => &profile.supported_parameters,
             Self::VoiceDesign(profile) => &profile.supported_parameters,

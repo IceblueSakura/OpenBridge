@@ -68,7 +68,6 @@ pub(crate) fn validate_images_response_headers(
 /// Validates bounded upstream JSON, extracts every generated image URL, and projects the OpenAI shape.
 pub(crate) fn validate_images_response_body(
     body: &[u8],
-    public_model: &str,
     expected_outputs: u32,
     response_format: ImagesResponseFormat,
     max_body_bytes: usize,
@@ -139,7 +138,6 @@ pub(crate) fn validate_images_response_body(
     if projected.len() > max_body_bytes {
         return Err(ImagesResponseError);
     }
-    let _ = public_model;
     Ok(ValidatedImagesResponse {
         body: projected,
         image_count: reported_count,

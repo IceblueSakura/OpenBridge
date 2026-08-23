@@ -38,11 +38,9 @@ impl ImagesResponseLifecycleError {
 }
 
 /// Validates one successful Images response and projects its model for downstream delivery.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn validated_images_response(
     upstream: UpstreamResponse,
     observation: &RequestObservation,
-    public_model: &str,
     outputs: u32,
     response_format: ImagesResponseFormat,
     max_body_bytes: usize,
@@ -58,14 +56,8 @@ pub(super) async fn validated_images_response(
         observation.record_upstream_chunk(chunk);
     })
     .await?;
-    let validated = validate_images_response_body(
-        &body,
-        public_model,
-        outputs,
-        response_format,
-        max_body_bytes,
-    )
-    .map_err(|_| ImagesResponseLifecycleError::InvalidContract)?;
+    let validated = validate_images_response_body(&body, outputs, response_format, max_body_bytes)
+        .map_err(|_| ImagesResponseLifecycleError::InvalidContract)?;
     observation.record_upstream_complete();
     let (image_count, output_width, output_height) = validated.image_usage();
     observation.record_images_usage(image_count, output_width, output_height);
