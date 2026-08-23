@@ -68,6 +68,8 @@ Bridge precommit 消费的 invisible events 只推进安全 event/byte/time 观�
 从同一 source remainder 继续，不重复 renderer、usage 或 event observation。
 Images success-response owner 只在完整 bounded validation 后记录 count/width/height；overflow、body transport、malformed/
 contract mismatch 与 cancel 均不记录 image usage。普通 telemetry 只保留 `images_generations` 与闭合 outcome/error，不含 prompt、URL、body 或 credential。
+Images 的 invalid response headers 归因到 `upstream`，bounded body overflow/transport/contract validation failure 归因到
+`stream`；两类都在 downstream commit 前将唯一 Provider attempt 终结为 `stream_failed`，不得误记为 `downstream_delivery` 或 completed。
 
 ## 安全与本地内容日志
 

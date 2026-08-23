@@ -494,9 +494,17 @@ impl RequestObservation {
         self.record_body_failure(error_type, FailureStage::Stream, true);
     }
 
-    /// Records one non-replayable Images response failure before downstream commit.
-    pub(crate) fn record_images_response_failure(&self, error_type: ErrorType) {
-        self.record_body_failure(error_type, FailureStage::DownstreamDelivery, true);
+    /// Records one non-replayable Images response failure at its observed upstream boundary.
+    pub(crate) fn record_images_response_failure(
+        &self,
+        error_type: ErrorType,
+        stage: FailureStage,
+    ) {
+        debug_assert!(matches!(
+            stage,
+            FailureStage::Upstream | FailureStage::Stream
+        ));
+        self.record_body_failure(error_type, stage, true);
     }
 
     /// Records the first low-cardinality timeout context without changing response policy.
@@ -950,7 +958,7 @@ fn request_outcome(summary: &CompletionSummary) -> &'static str {
     }
 }
 
-/// Cancels an incomplete Bridge attempt while allowing its owner to preserve an observed upstream EOF.
+/// Finalizes an incomplete Provider attempt from the request-level terminal boundary.
 fn provider_outcome_for_request(
     cancelled: bool,
     failure_stage: Option<FailureStage>,
@@ -1064,7 +1072,7 @@ mod tests {
     use super::{AttemptOutcome, FailureStage, provider_outcome_for_request};
 
     #[test]
-    fn bridge_failure_cancels_only_an_incomplete_provider_attempt() {
+    fn request_failure_finalizes_an_incomplete_provider_attempt_by_boundary() {
         assert_eq!(
             provider_outcome_for_request(false, Some(FailureStage::Bridge)),
             AttemptOutcome::Cancelled
@@ -1072,6 +1080,12 @@ mod tests {
         assert_eq!(
             provider_outcome_for_request(false, Some(FailureStage::Stream)),
             AttemptOutcome::StreamFailed
+        );
+        // A request-level upstream failure can belong to an earlier retried attempt. The active
+        // attempt's own stream-failed bit remains authoritative when `finish` receives Completed.
+        assert_eq!(
+            provider_outcome_for_request(false, Some(FailureStage::Upstream)),
+            AttemptOutcome::Completed
         );
         assert_eq!(
             provider_outcome_for_request(false, Some(FailureStage::DownstreamDelivery)),

@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use crate::{
     core::ImagesResponseFormat,
     ingress::response::filtered_upstream_headers,
-    observability::{ErrorType, RequestObservation},
+    observability::{ErrorType, FailureStage, RequestObservation},
     pipeline::{validate_images_response_body, validate_images_response_headers},
     transport::upstream::UpstreamResponse,
 };
@@ -33,6 +33,14 @@ impl ImagesResponseLifecycleError {
             Self::InvalidHeaders | Self::TooLarge | Self::InvalidContract => {
                 ErrorType::InvalidUpstreamResponse
             }
+        }
+    }
+
+    /// Preserves the boundary at which the upstream response became unusable.
+    pub(super) const fn failure_stage(self) -> FailureStage {
+        match self {
+            Self::InvalidHeaders => FailureStage::Upstream,
+            Self::TooLarge | Self::BodyTransport | Self::InvalidContract => FailureStage::Stream,
         }
     }
 }
@@ -97,7 +105,7 @@ mod tests {
     use futures_util::stream;
 
     use super::{ImagesResponseLifecycleError, read_bounded_images_body};
-    use crate::observability::ErrorType;
+    use crate::observability::{ErrorType, FailureStage};
 
     #[tokio::test]
     async fn bounded_images_body_distinguishes_overflow_from_transport_failure() {
@@ -121,5 +129,20 @@ mod tests {
             ImagesResponseLifecycleError::TooLarge.error_type(),
             ErrorType::InvalidUpstreamResponse
         );
+    }
+
+    #[test]
+    fn images_response_failures_preserve_the_observation_boundary() {
+        assert_eq!(
+            ImagesResponseLifecycleError::InvalidHeaders.failure_stage(),
+            FailureStage::Upstream
+        );
+        for error in [
+            ImagesResponseLifecycleError::TooLarge,
+            ImagesResponseLifecycleError::BodyTransport,
+            ImagesResponseLifecycleError::InvalidContract,
+        ] {
+            assert_eq!(error.failure_stage(), FailureStage::Stream);
+        }
     }
 }
