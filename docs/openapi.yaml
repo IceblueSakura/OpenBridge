@@ -508,7 +508,7 @@ components:
 
   responses:
     BadRequest:
-      description: The request JSON is invalid, or the selected Public Model's fixed interface contract does not support the requested capability.
+      description: The request JSON is invalid, or the selected Public Model's fixed interface contract does not support the standard Generation field named by `error.param`.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/X-Request-Id'
@@ -518,10 +518,10 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              message: Request body is invalid
+              message: The selected model does not support the requested capability
               type: invalid_request_error
-              param: null
-              code: invalid_request_error
+              param: parallel_tool_calls
+              code: unsupported_model_capability
     ModelsQueryBadRequest:
       description: The Native protocol filter is empty, repeated, or unsupported, or the query contains an unknown parameter.
       headers:

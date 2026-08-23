@@ -11,7 +11,10 @@ use url::{Host, Url};
 
 use crate::{
     core::{ApiProtocol, ImageDetail, ImageInputSource, ImageMediaType},
-    pipeline::{error::RequestPlanningError, types::ImageInputRequirements},
+    pipeline::{
+        error::{GenerationCapabilityReason, RequestPlanningError},
+        types::ImageInputRequirements,
+    },
 };
 
 /// Parses image content parts only from their protocol-defined user-message positions.
@@ -19,10 +22,15 @@ pub(super) fn analyze_image_input(
     protocol: ApiProtocol,
     object: &serde_json::Map<String, Value>,
 ) -> Result<Option<ImageInputRequirements>, RequestPlanningError> {
-    match protocol {
+    let result = match protocol {
         ApiProtocol::ChatCompletions => analyze_chat_images(object),
         ApiProtocol::Responses => analyze_responses_images(object),
-    }
+    };
+    let param = match protocol {
+        ApiProtocol::ChatCompletions => "messages",
+        ApiProtocol::Responses => "input",
+    };
+    result.map_err(|error| error.locate_multimodal(param, GenerationCapabilityReason::ImageInput))
 }
 
 /// Parses Chat `image_url` parts from user messages and freezes their source facts.

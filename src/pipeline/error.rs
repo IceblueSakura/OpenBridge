@@ -2,6 +2,31 @@
 
 use thiserror::Error;
 
+/// Closed low-cardinality reason for one Generation fixed-interface capability rejection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenerationCapabilityReason {
+    Protocol,
+    Streaming,
+    NonStreaming,
+    Tools,
+    ToolChoice,
+    ParallelToolCalls,
+    StrictToolSchema,
+    StructuredOutput,
+    PreviousResponse,
+    Background,
+    ResponseInclude,
+    ImageInput,
+    FileInput,
+    AudioInput,
+    AudioOutput,
+    OutputLimit,
+    Reasoning,
+    ReasoningLevel,
+    OrdinaryParameter,
+    BridgeRepresentation,
+}
+
 /// Planning error returned when a request fails Public Model preflight or cannot bind to a configured Route.
 #[derive(Debug, Error)]
 pub enum RequestPlanningError {
@@ -23,51 +48,67 @@ pub enum RequestPlanningError {
     /// The request contains a top-level field outside the selected source protocol catalog.
     #[error("request contains unknown top-level parameter {0}")]
     UnknownParameter(String),
+    /// A known standard top-level field has an invalid shape or value.
+    #[error("request contains invalid parameter {0}")]
+    InvalidParameter(&'static str),
     /// The requested Public Model is not registered.
     #[error("requested model is not configured")]
     UnknownModel,
     /// The Public Model has no statically executable Route.
     #[error("configured model has no executable route")]
     NoRoute,
-    /// The Public Model has no fixed interface for the request protocol.
-    #[error("selected model does not support this protocol")]
-    UnsupportedProtocol,
-    /// The Public Model's fixed interface does not support streaming.
-    #[error("selected model does not support streaming")]
-    StreamingUnsupported,
-    /// The Public Model's fixed interface cannot deliver one complete non-streaming JSON response.
-    #[error("selected model does not support non-streaming responses")]
-    NonStreamingUnsupported,
-    /// The Public Model's fixed interface does not support the requested capability.
-    #[error("selected model does not support requested capabilities")]
-    UnsupportedCapabilities,
-    /// The Public Model's fixed interface does not accept one known top-level parameter.
-    #[error("selected model does not support parameter {0}")]
-    UnsupportedParameter(&'static str),
+    /// The Public Model's fixed interface cannot satisfy one standard Generation field.
+    #[error("selected model does not support the requested capability in {param}")]
+    UnsupportedModelCapability {
+        /// Standard top-level request field that owns the rejected requirement.
+        param: &'static str,
+        /// Internal closed classification; never serialized to downstream clients.
+        reason: GenerationCapabilityReason,
+    },
     /// The request uses a named but unimplemented reserved capability.
-    #[error("requested capabilities are reserved but not implemented")]
-    UnimplementedCapabilities,
-    /// The requested maximum output exceeds the effective limit.
-    #[error("requested maximum output exceeds the configured model limit")]
-    OutputLimitExceeded,
-    /// The model does not support the requested reasoning.
-    #[error("selected model does not support requested reasoning")]
-    ReasoningUnsupported,
-    /// The model does not support the requested reasoning level.
-    #[error("selected model does not support the requested reasoning level")]
-    ReasoningLevelUnsupported,
+    #[error("requested parameter {param} is reserved but not implemented")]
+    UnimplementedCapabilities {
+        /// Standard top-level owner of the reserved request feature.
+        param: &'static str,
+    },
+
     /// The request provides conflicting reasoning configuration sources or shapes.
-    #[error("request contains conflicting reasoning configuration")]
-    InvalidReasoningConfiguration,
+    #[error("request contains conflicting reasoning configuration in {param}")]
+    InvalidReasoningConfiguration { param: &'static str },
     /// Chat stream_options is outside the supported usage-tail and no-op request shapes.
     #[error("request contains invalid stream_options")]
     InvalidStreamOptions,
     /// A multimodal content part is malformed or appears outside its protocol-defined position.
     #[error("request contains invalid multimodal input")]
     InvalidMultimodalInput,
-    /// Locally countable multimodal input exceeds a checked arithmetic or interface limit.
-    #[error("request multimodal input exceeds the configured limit")]
+    /// Internal checked-size failure that analysis owners must locate before returning.
+    #[error("request multimodal input exceeds a checked local limit")]
     MultimodalInputLimitExceeded,
+}
+
+impl RequestPlanningError {
+    /// Creates one field-located fixed-interface capability rejection.
+    pub(super) const fn unsupported(
+        param: &'static str,
+        reason: GenerationCapabilityReason,
+    ) -> Self {
+        Self::UnsupportedModelCapability { param, reason }
+    }
+
+    /// Converts one internal multimodal analysis failure into its standard top-level owner.
+    pub(super) fn locate_multimodal(
+        self,
+        param: &'static str,
+        reason: GenerationCapabilityReason,
+    ) -> Self {
+        match self {
+            Self::InvalidMultimodalInput => Self::InvalidParameter(param),
+            Self::MultimodalInputLimitExceeded => {
+                Self::UnsupportedModelCapability { param, reason }
+            }
+            other => other,
+        }
+    }
 }
 
 /// Stable classification for Embeddings request analysis and fixed-interface planning failures.

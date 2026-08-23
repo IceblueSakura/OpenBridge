@@ -151,6 +151,182 @@ async fn encrypted_content_hint_does_not_hide_an_unsupported_mixed_include() {
 }
 
 #[tokio::test]
+async fn deepseek_capability_error_locates_parallel_tool_calls_after_include_compatibility() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let request = serde_json::json!({
+        "model": "deepseek-v4-pro",
+        "input": "hello",
+        "include": ["reasoning.encrypted_content"],
+        "tools": [{
+            "type": "function",
+            "name": "lookup",
+            "description": "Synthetic function",
+            "parameters": {"type": "object", "properties": {}}
+        }],
+        "parallel_tool_calls": true
+    });
+
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["type"], "invalid_request_error");
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(error["error"]["param"], "parallel_tool_calls");
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn generation_capability_families_return_deterministic_top_level_params() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport(transport.clone());
+    let cases = [
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","stream":true}),
+            "stream",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}),
+            "tools",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","text":{"format":{"type":"json_object"}}}),
+            "text",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","previous_response_id":"resp_previous"}),
+            "previous_response_id",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","background":true}),
+            "background",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","include":["file_search_call.results"]}),
+            "include",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.invalid/image.png"}]}]}),
+            "input",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","max_output_tokens":8193}),
+            "max_output_tokens",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","reasoning":{"effort":"high"}}),
+            "reasoning",
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"model":"public-model","input":"hello","temperature":0.5}),
+            "temperature",
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"model":"public-model","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":9000,"max_tokens":10000}),
+            "max_tokens",
+        ),
+    ];
+
+    for (path, request, expected_param) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{expected_param}"
+        );
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], expected_param);
+        assert!(error["error"].get("reason").is_none());
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn generation_capability_first_error_ignores_json_key_order() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport(transport.clone());
+    for body in [
+        r#"{"model":"public-model","input":"hello","stream":true,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"include":["file_search_call.results"]}"#,
+        r#"{"include":["file_search_call.results"],"tools":[{"parameters":{"type":"object"},"name":"lookup","type":"function"}],"stream":true,"input":"hello","model":"public-model"}"#,
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["param"], "stream");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn invalid_generation_shape_precedes_model_capability_order() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport(transport.clone());
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true,"reasoning":{"summary":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_request_error");
+    assert_eq!(error["error"]["param"], "reasoning");
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn chat_stream_usage_admission_keeps_noops_but_rejects_invalid_or_unsupported_requests() {
     // Build a streaming Chat model whose fixed Native API cannot guarantee the effective usage tail.
     let mut definition =

@@ -1979,6 +1979,11 @@ impl ModelInterfaceCapabilities {
         self.non_streaming.is_supported()
     }
 
+    /// Returns whether the interface guarantees standard function-tool declarations.
+    pub(crate) const fn supports_function_tools(&self) -> bool {
+        self.tools.support.is_supported()
+    }
+
     /// Returns whether the interface guarantees one function-tool choice mode.
     pub(crate) fn supports_tool_choice(&self, mode: ToolChoiceMode) -> bool {
         self.tools.support.is_supported() && self.tools.tool_choice_modes.contains(&mode)

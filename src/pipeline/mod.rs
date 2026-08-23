@@ -13,6 +13,7 @@ pub(crate) use embeddings::{
     EmbeddingResponseError, validate_embedding_response_body, validate_embedding_response_headers,
 };
 pub use embeddings::{analyze_embedding_request, plan_embedding_request};
+pub(crate) use error::GenerationCapabilityReason;
 pub use error::{EmbeddingRequestError, ImagesRequestError, RequestPlanningError};
 pub(crate) use generation::{
     GenerationResponseFacts, GenerationResponseMode, classify_generation_response,

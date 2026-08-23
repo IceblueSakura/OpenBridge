@@ -11,6 +11,7 @@
   `tools/call`。Origin、media type、Accept、mirror header、metadata 和 method 在独立 transport 边界校验。`hello` 不访问
   registry、credential 或 Provider。
 - Models 只输出下游安全事实；Provider、Target、Route、upstream model、endpoint、credential、健康与价格不进入 DTO。
+- Chat/Responses 本地能力拒绝保持 OpenAI-compatible 400 envelope，并以标准顶层 `param` 定位首个固定接口失败；内部 reason、candidate 与 Provider 事实不序列化。
 - 旧 `/openbridge/v1/metrics*` 路径未注册；metrics 只通过 startup-owned OTLP/HTTP exporter 输出。
 
 ## 所有权

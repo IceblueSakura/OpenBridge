@@ -18,7 +18,8 @@ use super::super::{
     error::RequestPlanningError,
     types::{
         RequestRequirements, RequestedCapabilities, RequestedJsonSchemaStrictness,
-        RequestedReasoning, RequestedReasoningSummary, RequestedStructuredOutput,
+        RequestedOutputTokens, RequestedReasoning, RequestedReasoningSummary,
+        RequestedStructuredOutput,
     },
 };
 use super::instructions::{analyze_requested_instructions, validate_stateless_store};
@@ -63,7 +64,7 @@ pub fn analyze_request(
     reject_reserved_request_fields(protocol, object)?;
 
     // Derive the capabilities actually requested from protocol fields.
-    let requested_output_tokens = requested_output_tokens(object);
+    let requested_output_tokens = requested_output_tokens(protocol, object);
     let response_includes = analyze_response_includes(protocol, object)?;
     let audio = analyze_audio(protocol, object)?;
     let requests_function_calling = object
@@ -88,6 +89,7 @@ pub fn analyze_request(
         .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode));
     let requested_capabilities = RequestedCapabilities {
         streaming: is_streaming,
+        function_tools: requests_function_calling,
         function_tool_choice,
         unknown_tool_choice,
         function_tool_strict_schema,
@@ -163,38 +165,57 @@ fn reject_reserved_request_fields(
     protocol: ApiProtocol,
     object: &serde_json::Map<String, Value>,
 ) -> Result<(), RequestPlanningError> {
-    // Use protocol-specific field sets so same-named or differently named Chat and Responses fields cannot mix.
-    match protocol {
-        ApiProtocol::ChatCompletions if requests_reserved_chat_capability(object) => {
-            Err(RequestPlanningError::UnimplementedCapabilities)
-        }
-        ApiProtocol::Responses if requests_reserved_responses_capability(object) => {
-            Err(RequestPlanningError::UnimplementedCapabilities)
-        }
-        ApiProtocol::ChatCompletions | ApiProtocol::Responses => Ok(()),
+    reserved_request_parameter(protocol, object)
+        .map(|param| Err(RequestPlanningError::UnimplementedCapabilities { param }))
+        .unwrap_or(Ok(()))
+}
+
+/// Returns the first standard top-level owner of one recognized but unimplemented feature.
+fn reserved_request_parameter(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> Option<&'static str> {
+    let fields: &[&'static str] = match protocol {
+        ApiProtocol::ChatCompletions => &[
+            "prediction",
+            "web_search_options",
+            "prompt_cache_options",
+            "prompt_cache_retention",
+            "moderation",
+        ],
+        ApiProtocol::Responses => &[
+            "modalities",
+            "audio",
+            "conversation",
+            "prompt",
+            "prompt_cache_options",
+            "prompt_cache_retention",
+            "context_management",
+            "moderation",
+        ],
+    };
+    if requests_reserved_tool(protocol, object) {
+        return Some("tools");
     }
-}
-
-/// Returns whether a Chat Completions request uses a capability reserved only in the definition.
-fn requests_reserved_chat_capability(object: &serde_json::Map<String, Value>) -> bool {
-    requests_reserved_tool(ApiProtocol::ChatCompletions, object)
-        || has_non_null_field(object, "prediction")
-        || has_non_null_field(object, "web_search_options")
-        || requests_reserved_prompt_cache_features(object)
-        || has_non_null_field(object, "moderation")
-}
-
-/// Returns whether a Responses request uses a capability reserved only in the definition.
-fn requests_reserved_responses_capability(object: &serde_json::Map<String, Value>) -> bool {
-    requests_reserved_tool(ApiProtocol::Responses, object)
-        || responses_input_contains_part_type(object, "input_audio")
-        || array_field_contains(object, "modalities", "audio")
-        || has_non_null_field(object, "audio")
-        || has_non_null_field(object, "conversation")
-        || has_non_null_field(object, "prompt")
-        || requests_reserved_prompt_cache_features(object)
-        || has_non_null_field(object, "context_management")
-        || has_non_null_field(object, "moderation")
+    if protocol == ApiProtocol::Responses
+        && responses_input_contains_part_type(object, "input_audio")
+    {
+        return Some("input");
+    }
+    for field in fields {
+        if (*field == "modalities" && array_field_contains(object, field, "audio"))
+            || (*field != "modalities" && has_non_null_field(object, field))
+        {
+            return Some(field);
+        }
+    }
+    if object.values().any(contains_prompt_cache_breakpoint) {
+        return Some(match protocol {
+            ApiProtocol::ChatCompletions => "messages",
+            ApiProtocol::Responses => "input",
+        });
+    }
+    None
 }
 
 /// Returns whether a request contains a tool named by the current protocol capability but not implemented.
@@ -268,14 +289,6 @@ fn has_non_null_field(object: &serde_json::Map<String, Value>, field: &str) -> b
     object.get(field).is_some_and(|value| !value.is_null())
 }
 
-/// Returns whether a request uses unsupported prompt-cache options, retention, or a breakpoint.
-fn requests_reserved_prompt_cache_features(object: &serde_json::Map<String, Value>) -> bool {
-    ["prompt_cache_options", "prompt_cache_retention"]
-        .iter()
-        .any(|field| has_non_null_field(object, field))
-        || object.values().any(contains_prompt_cache_breakpoint)
-}
-
 /// Parses the Responses `include` field into a closed, registry-independent projection set.
 fn analyze_response_includes(
     protocol: ApiProtocol,
@@ -292,14 +305,14 @@ fn analyze_response_includes(
     // Parse every exact wire value and fail closed for malformed or unknown projections.
     let values = value
         .as_array()
-        .ok_or(RequestPlanningError::UnsupportedCapabilities)?;
+        .ok_or(RequestPlanningError::InvalidParameter("include"))?;
     values
         .iter()
         .map(|value| {
             value
                 .as_str()
                 .and_then(ResponseInclude::from_wire)
-                .ok_or(RequestPlanningError::UnsupportedCapabilities)
+                .ok_or(RequestPlanningError::InvalidParameter("include"))
         })
         .collect()
 }
@@ -335,11 +348,27 @@ fn is_function_tool(tool: &Value) -> bool {
 /// The Chat compatibility surface has two legacy/current output-limit fields. When clients provide
 /// multiple fields, use the largest value for local ceiling validation without silently rewriting
 /// the upstream request. Non-negative-integer validation remains the upstream protocol's responsibility.
-fn requested_output_tokens(object: &serde_json::Map<String, Value>) -> Option<u64> {
-    ["max_output_tokens", "max_completion_tokens", "max_tokens"]
-        .iter()
-        .filter_map(|field| object.get(*field).and_then(Value::as_u64))
-        .max()
+fn requested_output_tokens(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+) -> Option<RequestedOutputTokens> {
+    let fields: &[&'static str] = match protocol {
+        ApiProtocol::ChatCompletions => &["max_completion_tokens", "max_tokens"],
+        ApiProtocol::Responses => &["max_output_tokens"],
+    };
+    let mut selected = None;
+    for param in fields {
+        let Some(value) = object.get(*param).and_then(Value::as_u64) else {
+            continue;
+        };
+        if selected
+            .as_ref()
+            .is_none_or(|current: &RequestedOutputTokens| value > current.value)
+        {
+            selected = Some(RequestedOutputTokens { value, param });
+        }
+    }
+    selected
 }
 
 /// Reads standard reasoning configuration by protocol; when absent, do not infer the caller's need from the model catalog.

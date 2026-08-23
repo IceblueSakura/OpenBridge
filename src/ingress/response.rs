@@ -12,7 +12,9 @@ use serde::Serialize;
 
 use crate::{
     observability::ErrorType,
-    pipeline::{EmbeddingRequestError, ImagesRequestError, RequestPlanningError},
+    pipeline::{
+        EmbeddingRequestError, GenerationCapabilityReason, ImagesRequestError, RequestPlanningError,
+    },
     transport::upstream::{TransportError, UpstreamResponse},
 };
 
@@ -43,16 +45,11 @@ pub(super) fn request_planning_error_type(error: &RequestPlanningError) -> Error
         RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => {
             ErrorType::UnknownModel
         }
-        RequestPlanningError::UnimplementedCapabilities => ErrorType::UnimplementedCapability,
-        RequestPlanningError::UnsupportedProtocol
-        | RequestPlanningError::StreamingUnsupported
-        | RequestPlanningError::NonStreamingUnsupported
-        | RequestPlanningError::UnsupportedCapabilities
-        | RequestPlanningError::OutputLimitExceeded
-        | RequestPlanningError::MultimodalInputLimitExceeded
-        | RequestPlanningError::ReasoningUnsupported
-        | RequestPlanningError::ReasoningLevelUnsupported
-        | RequestPlanningError::UnsupportedParameter(_) => ErrorType::UnsupportedCapability,
+        RequestPlanningError::UnimplementedCapabilities { .. } => {
+            ErrorType::UnimplementedCapability
+        }
+        RequestPlanningError::UnsupportedModelCapability { .. }
+        | RequestPlanningError::MultimodalInputLimitExceeded => ErrorType::UnsupportedCapability,
         _ => ErrorType::InvalidRequest,
     }
 }
@@ -82,15 +79,26 @@ pub(super) fn images_request_error_type(error: &ImagesRequestError) -> ErrorType
 /// Maps request-planning errors to stable downstream HTTP errors without exposing Route details.
 pub(super) fn route_error(error: RequestPlanningError) -> Response {
     match error {
-        RequestPlanningError::InvalidJson
-        | RequestPlanningError::MissingModel
-        | RequestPlanningError::InvalidMessages
-        | RequestPlanningError::InvalidReasoningConfiguration
-        | RequestPlanningError::InvalidStreamOptions
-        | RequestPlanningError::InvalidMultimodalInput => api_error(
+        RequestPlanningError::InvalidJson | RequestPlanningError::InvalidMultimodalInput => {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                "Request body is invalid",
+            )
+        }
+        RequestPlanningError::MissingModel => typed_api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
+            "invalid_request_error",
             "Request body is invalid",
+            Some("model"),
+        ),
+        RequestPlanningError::InvalidMessages => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Request body is invalid",
+            Some("messages"),
         ),
         RequestPlanningError::InvalidInstructions => typed_api_error(
             StatusCode::BAD_REQUEST,
@@ -106,6 +114,27 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             "Store must be false when present",
             Some("store"),
         ),
+        RequestPlanningError::InvalidStreamOptions => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Request body is invalid",
+            Some("stream_options"),
+        ),
+        RequestPlanningError::InvalidParameter(parameter) => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Request body is invalid",
+            Some(parameter),
+        ),
+        RequestPlanningError::InvalidReasoningConfiguration { param } => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "invalid_request_error",
+            "Request body is invalid",
+            Some(param),
+        ),
         RequestPlanningError::UnknownParameter(parameter) => typed_api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
@@ -114,29 +143,36 @@ pub(super) fn route_error(error: RequestPlanningError) -> Response {
             Some(&parameter),
         ),
         RequestPlanningError::UnknownModel | RequestPlanningError::NoRoute => model_not_found(),
-        RequestPlanningError::UnimplementedCapabilities => api_error(
+        RequestPlanningError::UnimplementedCapabilities { param } => typed_api_error(
             StatusCode::BAD_REQUEST,
+            "invalid_request_error",
             "unimplemented_request",
             "The request uses a capability that is not implemented",
+            Some(param),
         ),
-        RequestPlanningError::UnsupportedProtocol
-        | RequestPlanningError::StreamingUnsupported
-        | RequestPlanningError::NonStreamingUnsupported
-        | RequestPlanningError::UnsupportedCapabilities
-        | RequestPlanningError::OutputLimitExceeded
-        | RequestPlanningError::MultimodalInputLimitExceeded
-        | RequestPlanningError::ReasoningUnsupported
-        | RequestPlanningError::ReasoningLevelUnsupported => api_error(
-            StatusCode::BAD_REQUEST,
-            "unsupported_model_capability",
-            "The selected model does not support the requested capability",
-        ),
-        RequestPlanningError::UnsupportedParameter(parameter) => typed_api_error(
+        RequestPlanningError::UnsupportedModelCapability {
+            param,
+            reason: GenerationCapabilityReason::OrdinaryParameter,
+        } => typed_api_error(
             StatusCode::BAD_REQUEST,
             "invalid_request_error",
             "unsupported_model_capability",
             "The selected model does not support the requested parameter",
-            Some(parameter),
+            Some(param),
+        ),
+        RequestPlanningError::UnsupportedModelCapability { param, .. } => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "unsupported_model_capability",
+            "The selected model does not support the requested capability",
+            Some(param),
+        ),
+        RequestPlanningError::MultimodalInputLimitExceeded => typed_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "unsupported_model_capability",
+            "The selected model does not support the requested capability",
+            None,
         ),
     }
 }

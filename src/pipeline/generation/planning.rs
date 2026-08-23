@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::super::{
-    error::RequestPlanningError,
+    error::{GenerationCapabilityReason, RequestPlanningError},
     types::{RequestRequirements, RouteCandidate, RoutePlan, StreamResponseConversion},
 };
 use super::{instructions::normalize_generation_request, preflight::preflight_public_model};
@@ -96,7 +96,16 @@ pub fn plan_request(
                 requirements.chat_stream_usage,
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
-                Err(_) => return Err(RequestPlanningError::UnsupportedCapabilities),
+                Err(_) => {
+                    let param = match requirements.protocol() {
+                        ApiProtocol::ChatCompletions => "messages",
+                        ApiProtocol::Responses => "input",
+                    };
+                    return Err(RequestPlanningError::unsupported(
+                        param,
+                        GenerationCapabilityReason::BridgeRepresentation,
+                    ));
+                }
             },
         };
         let (request, upstream_streaming, stream_response_conversion) = apply_streaming_policy(
@@ -166,7 +175,10 @@ fn filter_candidate_response_includes(
             .and_then(ResponseInclude::from_wire)
             .is_some_and(|include| !forwarded.contains(&include))
     }) {
-        return Err(RequestPlanningError::UnsupportedCapabilities);
+        return Err(RequestPlanningError::unsupported(
+            "include",
+            GenerationCapabilityReason::ResponseInclude,
+        ));
     }
     if !removed {
         return Ok(body.clone());
@@ -324,7 +336,12 @@ fn apply_streaming_policy(
             UpstreamStreamingPolicy::Required {
                 non_streaming: NonStreamingConversion::Disabled,
             },
-        ) => return Err(RequestPlanningError::NonStreamingUnsupported),
+        ) => {
+            return Err(RequestPlanningError::unsupported(
+                "stream",
+                GenerationCapabilityReason::NonStreaming,
+            ));
+        }
         (_, UpstreamStreamingPolicy::Optional) => unreachable!("optional policy returned above"),
     };
 

@@ -11,7 +11,7 @@ use url::{Host, Url};
 use crate::core::{ApiProtocol, AsrLanguage, AudioFormat, AudioInputSource};
 
 use super::super::super::{
-    error::RequestPlanningError,
+    error::{GenerationCapabilityReason, RequestPlanningError},
     types::{
         AudioInputRequirements, GeneratedAudioMessageShape, InputAudioMessageShape,
         RequestedAsrLanguage, RequestedAsrOptions, RequestedAudio, RequestedAudioDelivery,
@@ -28,6 +28,24 @@ pub(super) fn analyze_audio(
         return Ok(None);
     }
 
+    let param = if object.get("audio").is_some_and(|value| !value.is_null()) {
+        "audio"
+    } else if object
+        .get("asr_options")
+        .is_some_and(|value| !value.is_null())
+    {
+        "asr_options"
+    } else {
+        "messages"
+    };
+    analyze_chat_audio(object)
+        .map_err(|error| error.locate_multimodal(param, GenerationCapabilityReason::AudioInput))
+}
+
+/// Extracts the Chat-only audio union before its public top-level field is attached.
+fn analyze_chat_audio(
+    object: &serde_json::Map<String, Value>,
+) -> Result<Option<RequestedAudio>, RequestPlanningError> {
     // Parse resource, control, delivery, and message shapes without consulting a Model or Route.
     let input = analyze_chat_audio_input(object)?;
     let generated = analyze_chat_audio_output(object)?;

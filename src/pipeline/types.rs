@@ -21,10 +21,17 @@ pub struct RequestRequirements {
     pub(super) protocol: ApiProtocol,
     pub(super) is_streaming: bool,
     pub(super) chat_stream_usage: ChatStreamUsage,
-    pub(super) requested_output_tokens: Option<u64>,
+    pub(super) requested_output_tokens: Option<RequestedOutputTokens>,
     pub(super) requested_parameters: BTreeSet<GenerationRequestField>,
     pub(super) requested_instructions: RequestedInstructions,
     pub(super) requested_capabilities: RequestedCapabilities,
+}
+
+/// Maximum Generation output request with the deterministic standard field that supplied it.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RequestedOutputTokens {
+    pub(super) value: u64,
+    pub(super) param: &'static str,
 }
 
 /// Client-owned instruction fact extracted before registry preflight.
@@ -210,6 +217,7 @@ pub(crate) enum StreamResponseConversion {
 #[derive(Debug)]
 pub(super) struct RequestedCapabilities {
     pub(super) streaming: bool,
+    pub(super) function_tools: bool,
     pub(super) function_tool_choice: Option<ToolChoiceMode>,
     pub(super) unknown_tool_choice: bool,
     pub(super) function_tool_strict_schema: bool,

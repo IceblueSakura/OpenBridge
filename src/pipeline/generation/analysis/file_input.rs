@@ -5,7 +5,10 @@ use url::Url;
 
 use crate::{
     core::{ApiProtocol, FileDetail, FileInlineEncoding, FileMediaType},
-    pipeline::{error::RequestPlanningError, types::FileInputRequirements},
+    pipeline::{
+        error::{GenerationCapabilityReason, RequestPlanningError},
+        types::FileInputRequirements,
+    },
     registry::FileInputSource,
 };
 
@@ -17,11 +20,17 @@ pub(super) fn analyze_file_input(
     object: &serde_json::Map<String, Value>,
 ) -> Result<Option<FileInputRequirements>, RequestPlanningError> {
     let mut requirements = FileInputRequirements::default();
-    match protocol {
-        ApiProtocol::ChatCompletions => analyze_chat_files(object, &mut requirements)?,
-        ApiProtocol::Responses => analyze_responses_files(object, &mut requirements)?,
-    }
-    Ok((requirements.part_count > 0).then_some(requirements))
+    let result = match protocol {
+        ApiProtocol::ChatCompletions => analyze_chat_files(object, &mut requirements),
+        ApiProtocol::Responses => analyze_responses_files(object, &mut requirements),
+    };
+    let param = match protocol {
+        ApiProtocol::ChatCompletions => "messages",
+        ApiProtocol::Responses => "input",
+    };
+    result
+        .map(|()| (requirements.part_count > 0).then_some(requirements))
+        .map_err(|error| error.locate_multimodal(param, GenerationCapabilityReason::FileInput))
 }
 
 fn analyze_chat_files(

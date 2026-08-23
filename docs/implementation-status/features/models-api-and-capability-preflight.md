@@ -9,6 +9,7 @@
 - 每个 Public Model operation interface 在启动期对全部可执行 candidate 保守求交集；未知事实保持 unknown，不猜测为 supported。
 - Chat/Responses analyzer 先按协议级闭合顶层字段目录分类。目录外字段返回 `unknown_parameter`；已知但不在固定 interface 的字段
   返回 `unsupported_model_capability`；两者都在 Provider egress 前失败。
+- Generation capability 拒绝以闭合内部 reason 与标准顶层 `param` 定位失败字段，并按固定 family 顺序返回唯一首错；JSON key、集合和 candidate 顺序不改变归因。Chat 双 output-limit 字段保留实际最大值来源，内部 reason 不进入下游 wire。
 - Generation reasoning 由 canonical `ReasoningProfile` 单源保存。Public Model 另保存 `Strict | ClampPositiveFloor` 输入策略；
   `none` 独立于正向档位，只有 interface 明确包含时才接受。planning 在 candidate 展开前只规范化一次有效 effort。
 - Function tool、tool choice 与 structured output 使用闭合 typed profile；固定 candidate 没有共同 mode 时不公开相应参数。
@@ -31,7 +32,7 @@
 ## 确定性证据
 
 - `tests/forwarding_contract/models.rs`：标准/扩展 Models、native filter、task/capability 投影与拓扑不泄漏。
-- `tests/forwarding_contract/admission.rs`、`tests/ingress_contract.rs`：unknown/unsupported、instructions/store/state 与 zero egress。
+- `tests/forwarding_contract/admission.rs`、`tests/ingress_contract.rs`：unknown/unsupported、Generation 字段级 param、确定性首错、instructions/store/state 与 zero egress。
 - `tests/forwarding_contract/native.rs`、`tests/forwarding_contract/resilience.rs`：include Native exact-forward/omission、fallback
   candidate body 隔离与固定顺序。
 - `tests/forwarding_contract/mimo.rs`：图片、音频、tool、structured output 和非法组合。
