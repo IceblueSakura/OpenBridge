@@ -156,6 +156,14 @@ struct PendingImagesTransport {
     started: tokio::sync::Notify,
 }
 
+struct ImagesBodyDropSignal(Arc<AtomicUsize>);
+
+impl Drop for ImagesBodyDropSignal {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 impl UpstreamTransport for PendingImagesTransport {
     fn send<'a>(
         &'a self,
@@ -248,7 +256,18 @@ fn images_router_with_metrics(
     Arc<openbridge::registry::RuntimeRegistry>,
     TestMetrics,
 ) {
-    let bootstrap = parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses");
+    images_router_with_bootstrap_and_metrics(transport, BOOTSTRAP)
+}
+
+fn images_router_with_bootstrap_and_metrics(
+    transport: Arc<dyn UpstreamTransport>,
+    bootstrap_document: &str,
+) -> (
+    axum::Router,
+    Arc<openbridge::registry::RuntimeRegistry>,
+    TestMetrics,
+) {
+    let bootstrap = parse_bootstrap_config(bootstrap_document).expect("bootstrap parses");
     let registry =
         Arc::new(build_registry(bootstrap, images_definition()).expect("images registry compiles"));
     let (users, credentials) = users_and_credential_pool(
@@ -423,7 +442,44 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
     assert_eq!(providers.len(), 1);
     assert_eq!(providers[0].attempts_started, 1);
     assert_eq!(providers[0].response_ready_ms.count, 1);
+    assert_eq!(providers[0].upstream_first_byte_ms.count, 1);
     assert_eq!(providers[0].attempts_completed, 1);
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.images_output_count_observations, 1);
+    assert_eq!(gateway.images_output_count, 2);
+    assert_eq!(gateway.images_output_width, 1024);
+    assert_eq!(gateway.images_output_height, 1024);
+    let telemetry = serde_json::to_string(&(gateway, providers)).unwrap();
+    assert!(!telemetry.contains("https://dashscope-result.example.com/image.png"));
+    assert!(!telemetry.contains("a cat"));
+}
+
+#[tokio::test]
+async fn dropping_validated_downstream_body_does_not_reclassify_provider_success() {
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([dashscope_success(
+            "https://dashscope-result.example.com/drop.png",
+            1,
+        )])),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport);
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "sensitive-prompt-marker"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    drop(response);
+    tokio::task::yield_now().await;
+
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_completed, 1);
+    assert_eq!(providers[0].attempts_stream_failed, 0);
+    assert_eq!(providers[0].attempts_cancelled, 0);
 }
 
 #[tokio::test]
@@ -691,6 +747,145 @@ async fn timeout_returns_504_and_records_one_non_replayed_provider_attempt() {
 }
 
 #[tokio::test]
+async fn cancellation_while_reading_images_body_drops_source_and_marks_attempt_cancelled() {
+    let body_started = Arc::new(tokio::sync::Notify::new());
+    let body_dropped = Arc::new(AtomicUsize::new(0));
+    let started = body_started.clone();
+    let dropped = body_dropped.clone();
+    let body = Body::from_stream(futures_util::stream::once(async move {
+        started.notify_one();
+        let _guard = ImagesBodyDropSignal(dropped);
+        std::future::pending::<Result<Bytes, std::io::Error>>().await
+    }));
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
+            StatusCode::OK,
+            headers,
+            body,
+        )])),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport);
+    let task = tokio::spawn(router.oneshot(downstream_request(json!({
+        "model": "synthetic-image",
+        "prompt": "a cat"
+    }))));
+    body_started.notified().await;
+
+    task.abort();
+    let _ = task.await;
+    tokio::task::yield_now().await;
+
+    assert_eq!(body_dropped.load(Ordering::SeqCst), 1);
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_cancelled, 1);
+    assert_eq!(providers[0].attempts_completed, 0);
+    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
+}
+
+#[tokio::test]
+async fn oversized_success_body_fails_before_commit_without_image_usage() {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
+            StatusCode::OK,
+            headers,
+            Body::from("x".repeat(256)),
+        )])),
+    });
+    let bootstrap = BOOTSTRAP.replace(
+        "max_json_response_body_bytes = 16777216",
+        "max_json_response_body_bytes = 128",
+    );
+    let (router, _, metrics) = images_router_with_bootstrap_and_metrics(transport, &bootstrap);
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "sensitive-prompt-marker"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_stream_failed, 1);
+    assert_eq!(providers[0].attempts_completed, 0);
+    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
+}
+
+#[tokio::test]
+async fn body_transport_failure_fails_before_commit_without_image_usage() {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let body = Body::from_stream(futures_util::stream::once(async {
+        Err::<Bytes, _>(std::io::Error::other("synthetic image body failure"))
+    }));
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
+            StatusCode::OK,
+            headers,
+            body,
+        )])),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport);
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "sensitive-prompt-marker"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_stream_failed, 1);
+    assert_eq!(providers[0].attempts_completed, 0);
+    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
+}
+
+#[tokio::test]
+async fn malformed_or_early_eof_json_fails_before_commit_without_image_usage() {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let transport = Arc::new(RecordingImagesTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
+            StatusCode::OK,
+            headers,
+            Body::from(r#"{"output":"#),
+        )])),
+    });
+    let (router, _, metrics) = images_router_with_metrics(transport);
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "sensitive-prompt-marker"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_upstream_response");
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_stream_failed, 1);
+    assert_eq!(providers[0].attempts_completed, 0);
+    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
+}
+
+#[tokio::test]
 async fn image_count_mismatch_fails_closed_before_downstream_commit() {
     let transport = Arc::new(RecordingImagesTransport {
         requests: Mutex::new(Vec::new()),
@@ -699,7 +894,7 @@ async fn image_count_mismatch_fails_closed_before_downstream_commit() {
             1,
         )])),
     });
-    let (router, _) = images_router(transport.clone());
+    let (router, _, metrics) = images_router_with_metrics(transport.clone());
 
     // The request resolves to two outputs but the upstream returns one; the gateway must fail closed.
     let response = router
@@ -712,6 +907,10 @@ async fn image_count_mismatch_fails_closed_before_downstream_commit() {
     let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
     let downstream: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(downstream["error"]["code"], "invalid_upstream_response");
+    let providers = metrics.provider_snapshots();
+    assert_eq!(providers[0].attempts_stream_failed, 1);
+    assert_eq!(providers[0].attempts_completed, 0);
+    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
 }
 
 #[tokio::test]

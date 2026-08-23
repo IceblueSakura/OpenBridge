@@ -41,6 +41,8 @@
 - 已通过 extension preflight 的六个 DashScope 字段才进入 `parameters`；省略字段使用冻结默认，禁止 adapter 接受任意 JSON passthrough。
 - 上游响应在 commit 前整体验证：按 body `code` 字段识别业务错误、逐 choice 提取非空图片 URL、`usage.output_image_count`
   与解析后的 `n` 一致、width/height 为正整数、投影后 JSON 不超过 response budget。任何违反 fail closed，不提交部分结果。
+- success body 读取按 `too_large | body_transport | invalid_contract | success` 闭合分类；超限、读取失败、提前 EOF、损坏 JSON、
+  output/usage mismatch 全部在 commit 前返回 502。读取中取消释放 body source；validated success 后的 downstream drop 不回写 Provider failure。
 - 验证后的图片数量、宽、高写入独立 Images histogram；不得伪装成 token usage。
 
 ## 4. Retry、取消与数据保护
@@ -50,7 +52,8 @@
 - connect/TLS/response-headers timeout 固定返回 504 `upstream_timeout`；其他 transport failure 返回安全
   502 `upstream_error`。每次实际 send 精确记录一个 Provider attempt，HTTP、transport、timeout、success headers 与取消各自唯一终结。
 - 下游取消终止上游请求；响应提交后不得重放或拼接。
-- prompt、上游 body、错误上下文与图片 URL 不进入普通日志、OTLP trace attribute 或 metric label。
+- prompt、上游 body、错误上下文与图片 URL 不进入普通 tracing、OTLP trace attribute 或 metric label。显式开启的有界下游
+  response-body 内容日志仍按全局开发日志策略观察最终客户端响应；它不是普通 telemetry 或原始 Provider wire dump。
 
 ## 5. 非目标
 
@@ -63,5 +66,6 @@
 - IMG-GEN-01：标准字段目录与未知字段区分；已知但不支持字段按准确 `param` zero-egress；
 - IMG-GEN-02：OpenAI `null`、`size:"auto"`、PNG 与 `stream:false` omission-equivalent 路径通过；其余标准域按 model profile 拒绝；
 - IMG-GEN-03：DashScope 六字段类型、range、依赖和缺失 extension profile 均 fail closed；冻结默认与显式值准确进入 native wire；
-- IMG-GEN-04：成功响应按 choice/usage 双重校验，投影 URL、PNG 和实际 size，图片 count/width/height 进入非 token metrics；
+- IMG-GEN-04：成功响应按 bounded body、choice/usage 双重校验，投影 URL、PNG 和实际 size；仅 validated success 的图片
+  count/width/height 进入非 token metrics，所有 body/contract failure 为零 usage；
 - IMG-GEN-05：单 attempt、无重放；prompt、negative prompt 与 URL 不进入遥测。

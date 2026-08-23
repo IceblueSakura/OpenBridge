@@ -92,6 +92,22 @@ impl TestMetrics {
                         }
                     }
                 }
+                "openbridge.images.output.count" => {
+                    for point in histogram_u64_points(metric) {
+                        snapshot.images_output_count_observations += point.count();
+                        snapshot.images_output_count += point.sum();
+                    }
+                }
+                "openbridge.images.output.width" => {
+                    for point in histogram_u64_points(metric) {
+                        snapshot.images_output_width += point.sum();
+                    }
+                }
+                "openbridge.images.output.height" => {
+                    for point in histogram_u64_points(metric) {
+                        snapshot.images_output_height += point.sum();
+                    }
+                }
                 _ => {}
             }
         }
@@ -153,6 +169,10 @@ pub struct GatewayMetricsSnapshot {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    pub images_output_count_observations: u64,
+    pub images_output_count: u64,
+    pub images_output_width: u64,
+    pub images_output_height: u64,
 }
 
 /// Test projection of one trusted Provider attribute set.

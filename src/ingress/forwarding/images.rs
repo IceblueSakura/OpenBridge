@@ -208,12 +208,8 @@ pub(in crate::ingress) async fn forward_images_request(
     .await
     {
         Ok(response) => response,
-        Err(_) => {
-            observation.record_request_failure(
-                ErrorType::UpstreamUnavailable,
-                FailureStage::DownstreamDelivery,
-                false,
-            );
+        Err(error) => {
+            observation.record_images_response_failure(error.error_type());
             images_server_error(
                 StatusCode::BAD_GATEWAY,
                 "invalid_upstream_response",

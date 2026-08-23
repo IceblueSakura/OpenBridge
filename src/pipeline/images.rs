@@ -10,6 +10,4 @@ mod response;
 
 pub use analysis::analyze_images_request;
 pub use planning::plan_images_request;
-pub(crate) use response::{
-    ImagesResponseError, validate_images_response_body, validate_images_response_headers,
-};
+pub(crate) use response::{validate_images_response_body, validate_images_response_headers};

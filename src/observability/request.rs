@@ -494,6 +494,11 @@ impl RequestObservation {
         self.record_body_failure(error_type, FailureStage::Stream, true);
     }
 
+    /// Records one non-replayable Images response failure before downstream commit.
+    pub(crate) fn record_images_response_failure(&self, error_type: ErrorType) {
+        self.record_body_failure(error_type, FailureStage::DownstreamDelivery, true);
+    }
+
     /// Records the first low-cardinality timeout context without changing response policy.
     pub(crate) fn record_timeout_context(&self, phase: TimeoutPhase) {
         let elapsed = self.elapsed_ms();

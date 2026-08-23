@@ -20,10 +20,8 @@ pub(crate) use generation::{
     normalize_probe_generation_request,
 };
 pub use generation::{analyze_request, plan_request};
-pub(crate) use images::{
-    ImagesResponseError, validate_images_response_body, validate_images_response_headers,
-};
 pub use images::{analyze_images_request, plan_images_request};
+pub(crate) use images::{validate_images_response_body, validate_images_response_headers};
 pub(crate) use types::StreamResponseConversion;
 pub use types::{
     EmbeddingRequestRequirements, EmbeddingRouteCandidate, EmbeddingRoutePlan,
