@@ -11,11 +11,16 @@
   prompt extension=true/direct、thinking=true、watermark=false，避免依赖上游默认漂移。
 - **能力契约**：Provider ceiling `n` 1–6、size 每边 512–2048 且面积 512²–2048²、`response_format:url`、
   `output_format:png` 与 DashScope extension；Public Model 只在全部候选 extension profile 相等时公开扩展。
+- **聚合证明**：多 candidate 对 max、size domain、format/parameter set 保守求交，defaults 必须一致；候选排列不改变 Models。
+  Target 的 output/response-format defaults 必须与 Provider ceiling 相等；size domain 以有界启动检查证明至少一个整数 `WxH`
+  同时满足 side/area/aspect；disjoint 或不可达 domain 同时关闭
+  `allowed_sizes` 与显式 `size`，防止 ghost capability；Target profile 必须是 Provider ceiling 子集。
 - **响应验证**：独立 body owner 区分 headers、too large、body transport、invalid contract 与 success；上游 choice URL、
   `usage.output_image_count`、width、height 在 commit 前完整校验。成功投影为
   `{created, data:[{url}], output_format:"png", size:"宽x高"}`；仅 validated success 记录图片数量/尺寸 histogram，失败为零 usage。
-- **执行边界**：单 candidate、单 credential、单 physical attempt；无 Bridge、fallback、retry 或 credential rotation
-  （图像生成请求可能已被计费）。shared `AttemptCoordinator` 只启动一次 attempt，不调用 recovery API；`user` 仅参与严格目录校验，不出网。
+- **执行边界**：Public Model 可编译多个固定 candidate，但 request-time 只选择配置优先级第一项并生成单 candidate plan；
+  单 credential、单 physical attempt，无 Bridge、fallback、retry 或 credential rotation（图像生成请求可能已被计费）。
+  shared `AttemptCoordinator` 只启动一次 attempt，不调用 recovery API；`user` 仅参与严格目录校验，不出网。
 - **错误矩阵**：400 `invalid_request_error` / `unsupported_model_capability`、404 `model_not_found`、
   413 `request_too_large`、415 `unsupported_media_type`、500 `configuration_error`；非成功上游状态保留 status 但统一脱敏为
   `upstream_error`；connect/TLS/response-headers timeout 返回 504 `upstream_timeout`，其他 transport failure 返回
@@ -26,10 +31,12 @@
 
 ## 证据
 
-- `tests/images_forwarding_contract.rs`（18 tests）：OpenAI 标准字段分类/null/auto、known-but-unsupported zero-egress、
+- `src/core/capability/images.rs`（3 law tests）：profile validate/subset 与 size-domain intersection 的幂等、交换、结合、subset。
+- `tests/images_forwarding_contract.rs`（23 tests）：OpenAI 标准字段分类/null/auto、known-but-unsupported zero-egress、
   DashScope extension profile/default/dependency/wire、typed body overflow/transport/malformed/mismatch、两侧 cancel、validated-only usage、
-  timeout/HTTP 唯一 attempt accounting 与实际 metadata 投影。
+  timeout/HTTP 唯一 attempt accounting、multi-candidate permutation/idempotence/priority、Provider ceiling、错绑拒绝与 Models 隐私投影。
 - 2026-08-24 deterministic validation：`cargo test --locked --test images_forwarding_contract`、
+  `cargo test --locked --lib core::capability::images::tests`、
   `cargo test --locked --test observability_contract`、`cargo test --locked --test otlp_trace_contract`、
   `cargo test --locked --test otlp_metrics_contract`、
   `cargo test --locked --lib transport::upstream::tests`、

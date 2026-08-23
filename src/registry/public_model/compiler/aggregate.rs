@@ -139,14 +139,19 @@ pub(super) fn aggregate_images_interface<'a>(
         .map(|capability| capability.allowed_response_formats.map(<[_]>::to_vec))
         .collect::<Option<Vec<_>>>()
         .map(|sets| intersect_sets(sets.iter().map(|set| set.as_slice())));
-    let supported_parameters = intersect_sets(
+    let mut supported_parameters = intersect_sets(
         capabilities
             .iter()
             .map(|capability| capability.supported_parameters),
-    )
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
+    );
+    // Do not advertise explicit size input when the candidate domains have no common value.
+    if allowed_sizes.is_none() {
+        supported_parameters.retain(|parameter| *parameter != "size");
+    }
+    let supported_parameters = supported_parameters
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let dashscope_extensions = capabilities
         .iter()
         .all(|capability| capability.dashscope_extensions == first.dashscope_extensions)

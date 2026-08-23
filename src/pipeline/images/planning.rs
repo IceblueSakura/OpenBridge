@@ -15,7 +15,7 @@ use super::{
     preflight::preflight_public_model,
 };
 
-/// Generates the single Native Images candidate from its precompiled execution interface.
+/// Selects the highest-priority Native Images candidate from its conservative precompiled interface.
 pub fn plan_images_request(
     registry: &RuntimeRegistry,
     requirements: &ImagesRequestRequirements,
@@ -23,7 +23,8 @@ pub fn plan_images_request(
 ) -> Result<ImagesRoutePlan, ImagesRequestError> {
     // Complete fixed-interface preflight and retain its resolved response expectations.
     let (interface, preflight) = preflight_public_model(registry, requirements)?;
-    let [candidate] = interface.candidates() else {
+    // Bind only the highest-priority fixed candidate; Images never retries or falls back to later entries.
+    let Some(candidate) = interface.candidates().first() else {
         return Err(ImagesRequestError::RouteUnavailable);
     };
 

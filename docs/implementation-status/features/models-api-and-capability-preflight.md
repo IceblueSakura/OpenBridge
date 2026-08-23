@@ -20,6 +20,8 @@
   在 planning 中只删除该 hint；空数组随顶层字段一起删除。未知值和其他不在公共 accepted set 的值继续 fail closed。
 - `prompt_cache_key` 只表示 exact forwarding，不承诺 cache hit、成本或延迟；options/retention/breakpoint 未实现。
 - 图片、音频与文件 capability 使用带完整 payload/limit 的 typed profile；Models flat JSON 只是只读投影，preflight 直接读取 owned typed contract。
+- Images profile 对固定 candidates 聚合 defaults、limits、sets 与 extension；Models 与 preflight 读取同一交集。disjoint size domain
+  不公开 `size`，request-time 只选择优先级第一项且不 recovery，Models 不序列化 Provider/Target/Route 或 candidate 顺序。
 - Responses 当前只接受省略或 `store:false`；`store:true` 拒绝。continuation/state 只有全部 candidate 对 issuing Target/API/credential
   affinity 有共同保证时才公开；opaque state 不能盲投到另一 Provider。
 - Preflight 对选定 Public Model 只执行一次能力/限制/state 校验；通过后按静态 Route 资格和顺序规划，不做 capability routing。
@@ -40,6 +42,8 @@
   active-include fail-closed，以及其他 Bridge 可表达性、cache/usage 参数。
 - `tests/credential_store_contract.rs`、`tests/forwarding_contract/resilience.rs`：state affinity、credential 与 fallback。
 - `tests/embedding_forwarding_contract.rs`：Embeddings 输入、budget、成功体、retry/cancel。
+- `src/core/capability/images.rs` 与 `tests/images_forwarding_contract.rs`：Images algebra laws、multi-candidate permutation/
+  idempotence、Provider ceiling、operation/task binding、Models/preflight 同源与单 attempt priority。
 
 ## 外部证据与未证明范围
 

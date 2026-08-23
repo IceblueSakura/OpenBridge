@@ -48,7 +48,10 @@
 ## 4. Retry、取消与数据保护
 
 - Images generation 不自动 retry/fallback：请求可能已被接受、计费或产生结果，网络不确定时不得盲目重放。
-  单 candidate 单 credential 单 attempt；即使 credential pool 有其他成员，401/429/timeout/transport failure 也不 rotation 或重放。
+  多个固定 candidate 在启动期聚合为保守公共交集，request-time 只选择配置优先级第一项；candidate 顺序不改变 Models 能力，
+  Target 的 omission defaults 必须与 Provider 相等，size domain 必须存在满足 side/area/aspect 的整数 `WxH`；disjoint 或不可达
+  domain 不公开显式 `size`。每次请求仍是单 candidate、单 credential、单 attempt；即使 credential pool
+  或 candidate set 有其他成员，401/429/timeout/transport failure 也不 rotation、fallback 或重放。
 - connect/TLS/response-headers timeout 固定返回 504 `upstream_timeout`；其他 transport failure 返回安全
   502 `upstream_error`。每次实际 send 精确记录一个 Provider attempt，HTTP、transport、timeout、success headers 与取消各自唯一终结。
 - 下游取消终止上游请求；响应提交后不得重放或拼接。

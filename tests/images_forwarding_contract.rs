@@ -267,9 +267,21 @@ fn images_router_with_bootstrap_and_metrics(
     Arc<openbridge::registry::RuntimeRegistry>,
     TestMetrics,
 ) {
+    images_router_with_definition_and_metrics(transport, bootstrap_document, images_definition())
+}
+
+fn images_router_with_definition_and_metrics(
+    transport: Arc<dyn UpstreamTransport>,
+    bootstrap_document: &str,
+    definition: RegistryConfig,
+) -> (
+    axum::Router,
+    Arc<openbridge::registry::RuntimeRegistry>,
+    TestMetrics,
+) {
     let bootstrap = parse_bootstrap_config(bootstrap_document).expect("bootstrap parses");
     let registry =
-        Arc::new(build_registry(bootstrap, images_definition()).expect("images registry compiles"));
+        Arc::new(build_registry(bootstrap, definition).expect("images registry compiles"));
     let (users, credentials) = users_and_credential_pool(
         DOWNSTREAM_KEY,
         &registry,
@@ -279,6 +291,39 @@ fn images_router_with_bootstrap_and_metrics(
     let state = GatewayState::new(registry.clone(), transport, users, credentials)
         .with_metrics(metrics.instruments());
     (build_router(state), registry, metrics)
+}
+
+fn add_images_candidate(
+    definition: &mut RegistryConfig,
+    target_id: &str,
+    route_id: &str,
+    capabilities: ImagesGenerationsCapabilities,
+) {
+    let mut target = definition.upstream_targets[0].clone();
+    target.id = target_id.to_owned();
+    target.upstream_apis[0].capabilities = UpstreamApiCapabilities::ImagesGenerations(capabilities);
+    definition.upstream_targets.push(target);
+
+    let mut route = definition.routes[0].clone();
+    route.id = route_id.to_owned();
+    route.upstream_target = target_id.to_owned();
+    definition.routes.push(route);
+    definition.public_models[0].routes.push(route_id.to_owned());
+}
+
+fn compiled_images_info(definition: RegistryConfig) -> Value {
+    let registry = build_registry(
+        parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses"),
+        definition,
+    )
+    .expect("Images registry compiles");
+    serde_json::to_value(
+        registry
+            .public_model("synthetic-image")
+            .expect("Public Model is available")
+            .info(),
+    )
+    .expect("Public Model info serializes")
 }
 
 fn downstream_request(body: Value) -> Request<Body> {
@@ -747,6 +792,39 @@ async fn timeout_returns_504_and_records_one_non_replayed_provider_attempt() {
 }
 
 #[tokio::test]
+async fn multi_candidate_images_request_sends_only_the_priority_candidate_without_recovery() {
+    let mut definition = images_definition();
+    add_images_candidate(
+        &mut definition,
+        "synthetic-images-target-2",
+        "synthetic-images-route-2",
+        images_capabilities(),
+    );
+    let transport = Arc::new(FailingImagesTransport {
+        attempts: AtomicUsize::new(0),
+        timeout: false,
+    });
+    let (router, _, metrics) =
+        images_router_with_definition_and_metrics(transport.clone(), BOOTSTRAP, definition);
+
+    let response = router
+        .oneshot(downstream_request(json!({
+            "model": "synthetic-image",
+            "prompt": "a cat"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let _ = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+    let gateway = metrics.snapshot();
+    assert_eq!(gateway.upstream_attempts, 1);
+    assert_eq!(gateway.upstream_retries, 0);
+    assert_eq!(gateway.credential_rotations, 0);
+    assert_eq!(gateway.route_fallbacks, 0);
+}
+
+#[tokio::test]
 async fn cancellation_while_reading_images_body_drops_source_and_marks_attempt_cancelled() {
     let body_started = Arc::new(tokio::sync::Notify::new());
     let body_dropped = Arc::new(AtomicUsize::new(0));
@@ -935,4 +1013,196 @@ async fn invalid_requests_are_rejected_before_any_upstream_attempt() {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn multi_candidate_images_contract_is_permutation_invariant_and_shared_with_preflight() {
+    let mut definition = images_definition();
+    let mut narrowed = images_capabilities();
+    narrowed.max_outputs = 2;
+    narrowed.allowed_sizes = Some(ImagesSizeDomain {
+        minimum_side: 1_024,
+        maximum_side: 1_536,
+        minimum_area: 1_024 * 1_024,
+        maximum_area: 1_536 * 1_536,
+    });
+    narrowed.supported_parameters = &["n", "output_format", "response_format", "size"];
+    narrowed.dashscope_extensions = None;
+    add_images_candidate(
+        &mut definition,
+        "synthetic-images-target-2",
+        "synthetic-images-route-2",
+        narrowed,
+    );
+
+    let forward = compiled_images_info(definition.clone());
+    definition.public_models[0].routes.reverse();
+    let reversed = compiled_images_info(definition.clone());
+    let forward_images = &forward["interfaces"]["images"];
+    let reversed_images = &reversed["interfaces"]["images"];
+    assert_eq!(forward_images, reversed_images);
+    assert_eq!(forward_images["max_outputs"], 2);
+    assert_eq!(forward_images["allowed_sizes"]["minimum_side"], 1_024);
+    assert_eq!(forward_images["allowed_sizes"]["maximum_side"], 1_536);
+    assert!(forward_images["dashscope_extensions"].is_null());
+    assert!(
+        !forward_images["supported_parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|parameter| parameter == "user")
+    );
+
+    let public_fields = forward_images
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        public_fields,
+        vec![
+            "allowed_response_formats",
+            "allowed_sizes",
+            "dashscope_extensions",
+            "default_outputs",
+            "default_response_format",
+            "max_outputs",
+            "supported_parameters",
+        ]
+    );
+    let serialized = serde_json::to_string(forward_images).unwrap();
+    assert!(!serialized.contains("synthetic-images-target"));
+    assert!(!serialized.contains("synthetic-images-route"));
+    assert!(!serialized.contains("dashscope.example.com"));
+
+    let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
+    let supported = Bytes::from(
+        json!({ "model": "synthetic-image", "prompt": "a cat", "n": 2, "size": "1024x1024" })
+            .to_string(),
+    );
+    let unsupported =
+        Bytes::from(json!({ "model": "synthetic-image", "prompt": "a cat", "n": 3 }).to_string());
+    let supported_requirements = analyze_images_request(&supported).unwrap();
+    let plan = plan_images_request(&registry, &supported_requirements, supported).unwrap();
+    assert_eq!(plan.candidate().route_id(), "synthetic-images-route-2");
+    let unsupported_requirements = analyze_images_request(&unsupported).unwrap();
+    assert!(plan_images_request(&registry, &unsupported_requirements, unsupported).is_err());
+}
+
+#[test]
+fn duplicate_images_candidates_leave_the_public_interface_idempotent() {
+    let single = compiled_images_info(images_definition());
+    let mut duplicated = images_definition();
+    add_images_candidate(
+        &mut duplicated,
+        "synthetic-images-target-2",
+        "synthetic-images-route-2",
+        images_capabilities(),
+    );
+    let duplicate = compiled_images_info(duplicated);
+    assert_eq!(
+        single["interfaces"]["images"],
+        duplicate["interfaces"]["images"]
+    );
+}
+
+#[test]
+fn disjoint_size_domains_do_not_publish_a_ghost_size_parameter() {
+    let mut definition = images_definition();
+    let UpstreamApiCapabilities::ImagesGenerations(first) =
+        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
+    else {
+        panic!("synthetic Images target must own Images capabilities");
+    };
+    first.allowed_sizes = Some(ImagesSizeDomain {
+        minimum_side: 512,
+        maximum_side: 768,
+        minimum_area: 512 * 512,
+        maximum_area: 768 * 768,
+    });
+    let mut disjoint = images_capabilities();
+    disjoint.allowed_sizes = Some(ImagesSizeDomain {
+        minimum_side: 1_024,
+        maximum_side: 1_536,
+        minimum_area: 1_024 * 1_024,
+        maximum_area: 1_536 * 1_536,
+    });
+    add_images_candidate(
+        &mut definition,
+        "synthetic-images-target-2",
+        "synthetic-images-route-2",
+        disjoint,
+    );
+
+    let info = compiled_images_info(definition.clone());
+    let images = &info["interfaces"]["images"];
+    assert!(images["allowed_sizes"].is_null());
+    assert!(
+        !images["supported_parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|parameter| parameter == "size")
+    );
+
+    let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
+    let omitted = Bytes::from(json!({ "model": "synthetic-image", "prompt": "a cat" }).to_string());
+    let omitted_requirements = analyze_images_request(&omitted).unwrap();
+    assert!(plan_images_request(&registry, &omitted_requirements, omitted).is_ok());
+    let explicit = Bytes::from(
+        json!({ "model": "synthetic-image", "prompt": "a cat", "size": "512x512" }).to_string(),
+    );
+    let explicit_requirements = analyze_images_request(&explicit).unwrap();
+    assert!(plan_images_request(&registry, &explicit_requirements, explicit).is_err());
+}
+
+#[test]
+fn images_registry_rejects_unreachable_defaults_ceiling_expansion_and_wrong_task_binding() {
+    let mut mismatched_defaults = images_definition();
+    let mut second = images_capabilities();
+    second.default_outputs = 2;
+    add_images_candidate(
+        &mut mismatched_defaults,
+        "synthetic-images-target-2",
+        "synthetic-images-route-2",
+        second,
+    );
+    assert!(
+        build_registry(
+            parse_bootstrap_config(BOOTSTRAP).unwrap(),
+            mismatched_defaults
+        )
+        .is_err()
+    );
+
+    let mut changed_provider_default = images_definition();
+    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
+        &mut changed_provider_default.upstream_targets[0].upstream_apis[0].capabilities
+    else {
+        panic!("synthetic Images target must own Images capabilities");
+    };
+    capabilities.default_outputs = 2;
+    assert!(
+        build_registry(
+            parse_bootstrap_config(BOOTSTRAP).unwrap(),
+            changed_provider_default
+        )
+        .is_err()
+    );
+
+    let mut exceeds_ceiling = images_definition();
+    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
+        &mut exceeds_ceiling.upstream_targets[0].upstream_apis[0].capabilities
+    else {
+        panic!("synthetic Images target must own Images capabilities");
+    };
+    capabilities.max_outputs = 7;
+    assert!(build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), exceeds_ceiling).is_err());
+
+    let mut wrong_task = images_definition();
+    wrong_task.upstream_targets[0].upstream_apis[0].key = UpstreamApiKey::new(
+        OperationKind::ImagesGenerations,
+        CanonicalTaskKind::Generation,
+    );
+    assert!(build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), wrong_task).is_err());
 }
