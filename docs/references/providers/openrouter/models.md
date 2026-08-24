@@ -1,18 +1,18 @@
-# OpenRouter 模型目录调研（2026-08-09 复核）
+# OpenRouter 模型目录调研（2026-08-24 补充模型）
 
 ## 文档元数据
 
 | 字段 | 值 |
 |---|---|
-| Source snapshot | 2026-08-09 的公开 Models/endpoint API；2026-08-10 的 Gemma 4 31B 定向请求；MiniMax 官方发布说明 |
-| Last reverified | 外部目录最后复核 2026-08-09，Gemma 定向观察 2026-08-10；2026-08-12 仅移除本地实现对照，没有刷新 OpenRouter |
-| Scope | 全模态目录计数、17 个固定模型样本、DeepSeek/MiniMax endpoint 参数差异、reasoning 元数据与 Gemma 定向 wire |
+| Source snapshot | 2026-08-09 的公开 Models/endpoint API；2026-08-10 的 Gemma 4 31B 定向请求；2026-08-24 的 GLM-5.3、DeepSeek V4 Flash Vision Exp、Qwen Audio 3.0 TTS Plus 与 Qwen3.8 27B Models/endpoint API；MiniMax 官方发布说明 |
+| Last reverified | 全目录查询及上述四个定向模型记录最后复核 2026-08-24；其余固定样本最后复核 2026-08-09，Gemma 定向观察 2026-08-10 |
+| Scope | 全模态目录计数、20 个固定模型样本、DeepSeek/MiniMax endpoint 参数差异、reasoning 元数据与 Gemma 定向 wire |
 | Evidence boundary | 聚合目录、模型级字段和一次真实请求不证明所有 endpoint、账户、路由、额度、语义质量或长期可用性 |
 | Recheck trigger | Models/endpoint schema、Provider routing、样本模型 metadata、free endpoint 政策或采用的参数集合变化时 |
 
 ## 来源与采集边界
 
-- 采集时间：2026-08-09，Asia/Shanghai。
+- 采集时间：原始样本为 2026-08-09，GLM-5.3、DeepSeek V4 Flash Vision Exp、Qwen Audio 3.0 TTS Plus、Qwen3.8 27B 补充与全模态目录计数刷新为 2026-08-24，Asia/Shanghai。
 - 公开目录：[OpenRouter `GET /api/v1/models`](https://openrouter.ai/api/v1/models) 与
   [Models API 字段说明](https://openrouter.ai/docs/api/api-reference/models/get-models)。本次显式使用
   `output_modalities=all&limit=1000`；该接口默认只返回文本输出模型，不能用默认查询代表全量目录。
@@ -26,7 +26,7 @@ reasoning effort。价格、排行、吞吐、数据策略和动态可用性属�
 
 ## 目录摘要与固定样本
 
-显式使用 `output_modalities=all` 时，本次公开目录返回 525 条记录。下表保留调研涉及的 17 个固定模型样本；它不是完整目录，
+显式使用 `output_modalities=all&limit=1000` 时，2026-08-24 的公开目录返回 556 条记录。下表保留调研涉及的 20 个固定模型样本；它不是完整目录，
 也不表示这些模型对任一账户或 endpoint 当前可用。“未声明”只表示该次目录记录没有给出字段。
 
 | OpenRouter model id | `context_length` | 最大输出 | input modalities | tokenizer | knowledge cutoff | supported efforts |
@@ -37,14 +37,17 @@ reasoning effort。价格、排行、吞吐、数据策略和动态可用性属�
 | `openai/gpt-5.5` | 1,050,000 | 128,000 | `text, image, file` | `GPT` | `2025-12-01` | `xhigh, high, medium, low, none` |
 | `deepseek/deepseek-v4-pro` | 1,048,576 | 384,000 | `text` | `DeepSeek` | 未声明 | `xhigh, high` |
 | `deepseek/deepseek-v4-flash` | 1,048,576 | 393,216 | `text` | `DeepSeek` | 未声明 | `xhigh, high` |
+| `deepseek/deepseek-v4-flash-vision-exp` | 1,048,576 | 384,000 | `text, image` | `DeepSeek` | 未声明 | `max, high, low` |
 | `xiaomi/mimo-v2.5-pro` | 1,050,000 | 131,072 | `text` | `Other` | 未声明 | 未声明离散 effort |
 | `xiaomi/mimo-v2.5` | 1,050,000 | 131,072 | `text, audio, image, video` | `Other` | 未声明 | 未声明离散 effort |
 | `meituan/longcat-2.0` | 1,048,576 | 262,144 | `text` | `Other` | 未声明 | 支持 token budget，未声明离散 effort |
-| `qwen/qwen3.6-27b` | 262,144 | 262,144 | `text, image, video` | `Qwen3` | 未声明 | 未声明离散 effort |
 | `qwen/qwen3.7-max` | 1,000,000 | 131,072 | `text` | `Qwen` | 未声明 | 未声明离散 effort |
 | `qwen/qwen3.7-plus` | 1,000,000 | 131,072 | `text, image` | `Qwen` | 未声明 | 未声明离散 effort |
+| `qwen/qwen3.8-27b` | 1,000,000 | 131,072 | `text, image, video` | `Qwen` | 未声明 | `xhigh, medium, low, none` |
 | `qwen/qwen3.8-max` | 1,000,000 | 131,072 | `text, image, video` | `Qwen` | 未声明 | `xhigh, high, medium, low, minimal` |
+| `qwen/qwen-audio-3.0-tts-plus` | 未声明 | 未声明 | `text` | `Other` | 未声明 | 不适用 |
 | `z-ai/glm-5.2` | 1,048,576 | 128,000 | `text` | `Other` | 未声明 | `xhigh, high` |
+| `z-ai/glm-5.3` | 1,048,576 | 131,072 | `text` | `Other` | 未声明 | `max, high, low`（mandatory） |
 | `moonshotai/kimi-k3` | 1,048,576 | 未声明 | `text, image` | `Other` | 未声明 | `max, high, low` |
 | `minimax/minimax-m3` | 1,048,576 | 512,000 | `text, image, video` | `Other` | 未声明 | 未声明离散 effort |
 | `openai/text-embedding-3-small` | 8,192 | 未声明 | `text` | `Other` | 未声明 | 不适用 |

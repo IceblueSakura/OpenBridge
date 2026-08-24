@@ -267,7 +267,7 @@ fn transform_request_body(
     // Convert every admitted Qwen reasoning level to its confirmed boolean Chat switch.
     let qwen_boolean_thinking = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus" | "qwen3.6-27b")
+        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus")
     );
     if qwen_boolean_thinking && let Some(enabled) = take_chat_reasoning_switch(protocol, document)?
     {

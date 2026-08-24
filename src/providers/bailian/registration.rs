@@ -23,7 +23,6 @@ const CREDENTIAL_POOL_ID: &str = "bailian-primary";
 const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const QWEN3_7_PLUS_STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
-const QWEN3_6_27B_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -79,18 +78,6 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "bailian-qwen-image-3-0-pro",
             qwen::qwen_image_3_0_pro::ID,
             "qwen-image-3.0-pro",
-        ),
-        chat_target(
-            "bailian-qwen3-5-livetranslate-flash-realtime",
-            qwen::qwen3_5_livetranslate_flash_realtime::ID,
-            "qwen3.5-livetranslate-flash-realtime",
-            ReasoningOutput::Unknown,
-        ),
-        chat_target(
-            "bailian-qwen3-6-27b",
-            qwen::qwen3_6_27b::ID,
-            "qwen3.6-27b",
-            ReasoningOutput::PlainText,
         ),
         embedding_target(),
         chat_target(
@@ -165,14 +152,13 @@ fn chat_target(
     chat_capabilities.reasoning_output = reasoning_output;
     chat_capabilities.prompt_cache_key = matches!(
         canonical_model,
-        z_ai::glm_5_2::ID | qwen::qwen3_6_27b::ID | deepseek::deepseek_v4_pro::ID
+        z_ai::glm_5_2::ID | deepseek::deepseek_v4_pro::ID
     );
     chat_capabilities.structured_outputs = match canonical_model {
         deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID => {
             Some(DEEPSEEK_STRUCTURED_OUTPUTS)
         }
         qwen::qwen3_7_plus::ID => Some(QWEN3_7_PLUS_STRUCTURED_OUTPUTS),
-        qwen::qwen3_6_27b::ID => Some(QWEN3_6_27B_STRUCTURED_OUTPUTS),
         _ => None,
     };
     // Bind Chat for every target and Responses only for the documented stable Qwen models.
