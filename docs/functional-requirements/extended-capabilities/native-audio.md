@@ -86,7 +86,7 @@ conditioning profile。TTS downstream `audio.voice` 仍可省略；省略不等�
 依赖 `stream` 才成立的 format 不能压平为无条件 allowed set。非流式 Base64 成功体必须在下游提交前受 JSON response hard limit
 约束；SSE 只有 event limit 而没有累计 audio limit 时不得开放。
 
-ASR inline bytes 同时受 typed profile 与 gateway request hard limit 约束；Provider 声明的 10 MB encoded limit 不会覆盖部署配置的 16 MiB
+ASR inline bytes 同时受 typed profile 与 gateway request hard limit 约束；Provider 声明的 10 MB encoded limit 不会覆盖部署配置的 100 MiB
 request body limit，扩展 Models 必须公开实际更小的可保证值。
 
 ## 6. 启动门禁、预检、保真与 Bridge

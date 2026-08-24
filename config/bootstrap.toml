@@ -8,10 +8,10 @@ users_file = "config/users.toml"
 upstream_credentials_file = "config/upstream-credentials.toml"
 # Supplies the fallback instruction for every active general Generation interface.
 default_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
-# Limits one downstream request body to 16 MiB and bounds its optional log capture.
-max_request_body_bytes = 16777216
-# Limits buffered JSON responses and optional response-body log capture to 16 MiB.
-max_json_response_body_bytes = 16777216
+# Limits one downstream request body to 100 MiB and bounds its optional log capture.
+max_request_body_bytes = 104857600
+# Limits buffered JSON responses and optional response-body log capture to 100 MiB.
+max_json_response_body_bytes = 104857600
 # Limits replayable request bodies to 256 KiB and must not exceed the request-body limit.
 max_replay_body_bytes = 262144
 # Limits one decoded Server-Sent Events event to 256 KiB.
