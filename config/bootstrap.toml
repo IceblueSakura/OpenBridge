@@ -12,16 +12,16 @@ default_instructions = "You are a coding agent. Follow the user's instructions c
 max_request_body_bytes = 104857600
 # Limits buffered JSON responses and optional response-body log capture to 100 MiB.
 max_json_response_body_bytes = 104857600
-# Limits replayable request bodies to 256 KiB and must not exceed the request-body limit.
-max_replay_body_bytes = 262144
-# Limits one decoded Server-Sent Events event to 256 KiB.
-max_sse_event_bytes = 262144
+# Limits replayable request bodies to 4 MiB and must not exceed the request-body limit.
+max_replay_body_bytes = 4194304
+# Limits one decoded Server-Sent Events event to 4 MiB.
+max_sse_event_bytes = 4194304
 # Limits one upstream TCP connection attempt to 5 seconds.
 upstream_connect_timeout_ms = 5000
-# Retains an idle pooled upstream connection for at most 90 seconds.
-upstream_pool_idle_timeout_ms = 90000
-# Retains at most 16 idle upstream connections for one host.
-upstream_pool_max_idle_per_host = 16
+# Retains an idle pooled upstream connection for at most 300 seconds.
+upstream_pool_idle_timeout_ms = 300000
+# Retains at most 64 idle upstream connections for one host.
+upstream_pool_max_idle_per_host = 64
 
 # Controls authenticated downstream HTTP diagnostics for the checked-in development profile.
 [logging]
@@ -29,12 +29,12 @@ upstream_pool_max_idle_per_host = 16
 http_jsonl_directory = "/var/lib/openbridge/http-logs"
 # Logs sanitized downstream request-header snapshots at the info level.
 request_headers = true
-# Logs downstream request bodies up to the configured request-body limit.
-request_body = true
+# Disables downstream request-body content logging.
+request_body = false
 # Logs sanitized final downstream response-header snapshots at the info level.
 response_headers = true
-# Logs final downstream response bodies up to the configured JSON-response limit.
-response_body = true
+# Disables downstream response-body content logging.
+response_body = false
 
 # Configures startup-owned OTLP/HTTP trace export; remove this table to disable it.
 [telemetry.traces]
