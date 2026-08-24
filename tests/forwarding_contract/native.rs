@@ -898,10 +898,12 @@ async fn mimo_text_responses_rejects_top_logprobs_before_egress() {
 }
 
 #[tokio::test]
-async fn bailian_image_models_expose_only_probed_native_media_profiles() {
+async fn bailian_image_models_expose_upstream_qwen_and_probed_kimi_profiles() {
     const REMOTE_IMAGE_URL: &str = "https://example.com/image.jpeg";
     const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=";
     const JPEG_DATA_URL: &str = "data:image/jpeg;base64,/9j/2Q==";
+    const HEIC_DATA_URL: &str = "data:image/heic;base64,AAAA";
+    const TIFF_DATA_URL: &str = "data:image/tiff;base64,AAAA";
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());
 
@@ -963,7 +965,7 @@ async fn bailian_image_models_expose_only_probed_native_media_profiles() {
         }
     }
 
-    // Preserve both admitted inline MIME shapes through their native protocol wire.
+    // Preserve existing and newly documented inline MIME shapes through native protocol wire.
     for (path, body) in [
         (
             "/v1/chat/completions",
@@ -981,6 +983,26 @@ async fn bailian_image_models_expose_only_probed_native_media_profiles() {
                 "model": "qwen3.8-27b",
                 "input": [{"role": "user", "content": [
                     {"type": "input_image", "image_url": JPEG_DATA_URL},
+                    {"type": "input_text", "text": "Describe the image."}
+                ]}]
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "qwen3.8-max",
+                "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": HEIC_DATA_URL}},
+                    {"type": "text", "text": "Describe the image."}
+                ]}]
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "qwen3.7-plus",
+                "input": [{"role": "user", "content": [
+                    {"type": "input_image", "image_url": TIFF_DATA_URL},
                     {"type": "input_text", "text": "Describe the image."}
                 ]}]
             }),
@@ -1013,10 +1035,106 @@ async fn bailian_image_models_expose_only_probed_native_media_profiles() {
             requests[cases.len() + 1].body["input"][0]["content"][0]["image_url"],
             JPEG_DATA_URL
         );
+        assert_eq!(
+            requests[cases.len() + 2].body["messages"][1]["content"][0]["image_url"]["url"],
+            HEIC_DATA_URL
+        );
+        assert_eq!(
+            requests[cases.len() + 3].body["input"][0]["content"][0]["image_url"],
+            TIFF_DATA_URL
+        );
     }
 
-    // Expose only the single-image source and MIME shapes proven across the live matrix.
-    let expected_image = serde_json::json!({
+    // Accept the common 250-part Qwen ceiling and reject the next part before egress.
+    let max_images = (0..250)
+        .map(|_| serde_json::json!({"type": "image_url", "image_url": {"url": REMOTE_IMAGE_URL}}))
+        .collect::<Vec<_>>();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "qwen3.7-plus",
+                        "messages": [{"role": "user", "content": max_images}]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let requests_after_max = transport.requests.lock().unwrap().len();
+
+    let too_many_images = (0..251)
+        .map(|_| serde_json::json!({"type": "image_url", "image_url": {"url": REMOTE_IMAGE_URL}}))
+        .collect::<Vec<_>>();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "qwen3.7-plus",
+                        "messages": [{"role": "user", "content": too_many_images}]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(transport.requests.lock().unwrap().len(), requests_after_max);
+
+    // Expose the official Qwen envelope without expanding the independently probed Kimi route.
+    let qwen_image = serde_json::json!({
+        "sources": ["remote_url", "data_url"],
+        "media_types": [
+            "image/bmp",
+            "image/jpeg",
+            "image/png",
+            "image/tiff",
+            "image/webp",
+            "image/heic"
+        ],
+        "detail": {"default": null, "allowed": []},
+        "limits": {
+            "max_parts": 250,
+            "max_url_length": 8_192,
+            "max_inline_encoded_bytes": 19_999_976,
+            "max_inline_decoded_bytes": 14_999_982,
+            "max_total_inline_encoded_bytes": 19_999_976,
+            "max_total_inline_decoded_bytes": 14_999_982
+        }
+    });
+    for model in ["qwen3.7-plus", "qwen3.8-max", "qwen3.8-27b"] {
+        let detail =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                detail["interfaces"][protocol]["multimodal_input"]["image"],
+                qwen_image
+            );
+        }
+    }
+    let kimi = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
+    let kimi_image = serde_json::json!({
         "sources": ["remote_url", "data_url"],
         "media_types": ["image/jpeg", "image/png"],
         "detail": {"default": null, "allowed": []},
@@ -1029,20 +1147,9 @@ async fn bailian_image_models_expose_only_probed_native_media_profiles() {
             "max_total_inline_decoded_bytes": 768 * 1024
         }
     });
-    for model in ["qwen3.7-plus", "qwen3.8-max", "qwen3.8-27b"] {
-        let detail =
-            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
-        for protocol in ["chat_completions", "responses"] {
-            assert_eq!(
-                detail["interfaces"][protocol]["multimodal_input"]["image"],
-                expected_image
-            );
-        }
-    }
-    let kimi = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
     assert_eq!(
         kimi["interfaces"]["chat_completions"]["multimodal_input"]["image"],
-        expected_image
+        kimi_image
     );
     assert!(kimi["interfaces"]["responses"]["multimodal_input"]["image"].is_null());
 

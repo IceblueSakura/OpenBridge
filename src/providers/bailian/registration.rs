@@ -16,7 +16,10 @@ use crate::{
     },
 };
 
-use super::{DEFINITION, media::IMAGE_INPUT};
+use super::{
+    DEFINITION,
+    media::{KIMI_IMAGE_INPUT, QWEN_IMAGE_INPUT},
+};
 
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const NATIVE_PROVIDER_INSTANCE_ID: &str = "bailian-native";
@@ -149,14 +152,13 @@ fn chat_target(
     reasoning_output: ReasoningOutput,
 ) -> UpstreamTargetConfig {
     // Narrow the Provider ceilings to the reasoning output confirmed for this specific model.
-    let image_input = matches!(
-        canonical_model,
-        qwen::qwen3_7_plus::ID
-            | qwen::qwen3_8_max::ID
-            | qwen::qwen3_8_27b::ID
-            | moonshotai::kimi_k3::ID
-    )
-    .then_some(IMAGE_INPUT);
+    let image_input = match canonical_model {
+        qwen::qwen3_7_plus::ID | qwen::qwen3_8_max::ID | qwen::qwen3_8_27b::ID => {
+            Some(QWEN_IMAGE_INPUT)
+        }
+        moonshotai::kimi_k3::ID => Some(KIMI_IMAGE_INPUT),
+        _ => None,
+    };
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()

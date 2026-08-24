@@ -53,7 +53,7 @@
 
 ### Native 图片与文件输入
 
-- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明；Bailian Qwen/Kimi 当前只公开实测的单张 remote/inline JPEG/PNG，两款 Qwen3.8 上观察到的图片边长大于 10 像素限制尚不能由本地 media 类型表达。
+- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明；Bailian Qwen 按官方共同上限公开 250 张 remote/inline BMP/JPEG/PNG/TIFF/WebP/HEIC，但 4K 以上仅 JPEG/PNG、remote 20 MB、宽高大于 10、200:1 宽高比和 8K 建议边界仍不能由本地 media 类型完整表达；Bailian Kimi 继续保持实测的单张 JPEG/PNG。
 - OpenBridge 不下载、解析、转换、转码、缓存或扫描远程图片/文件。
 - 当前生产 Public Model 不公开 file input；synthetic file loopback 不证明真实模型/backend、Provider 下载行为、解析质量、费用或 SDK/Agent 兼容。
 

@@ -35,6 +35,12 @@ pub enum ImageMediaType {
     /// BMP image data.
     #[serde(rename = "image/bmp")]
     Bmp,
+    /// TIFF image data.
+    #[serde(rename = "image/tiff")]
+    Tiff,
+    /// HEIC image data.
+    #[serde(rename = "image/heic")]
+    Heic,
 }
 
 impl ImageMediaType {
@@ -46,6 +52,8 @@ impl ImageMediaType {
             "image/gif" => Some(Self::Gif),
             "image/webp" => Some(Self::Webp),
             "image/bmp" => Some(Self::Bmp),
+            "image/tiff" => Some(Self::Tiff),
+            "image/heic" => Some(Self::Heic),
             _ => None,
         }
     }

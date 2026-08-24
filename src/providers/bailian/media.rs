@@ -1,17 +1,38 @@
-//! Provider-local image ceiling and probed Bailian Target profile.
+//! Provider-local image ceilings and model-specific Bailian Target profiles.
 
 use crate::core::{
     ImageDetailPolicy, ImageInputCapabilities, ImageMediaType, ImageSourceCapabilities,
     InlineImageInputLimits, InlineImageInputProfile, RemoteImageInputLimits,
 };
 
-/// Single-image surface proven across every registered image-capable Bailian Target.
+/// Qwen image surface documented by Alibaba Cloud Model Studio on 2026-08-24.
 ///
-/// On 2026-08-24, remote JPEG, inline JPEG, and 16x16 inline PNG succeeded through every
-/// registered native protocol for Qwen3.7 Plus, Qwen3.8 Max, Qwen3.8 27B, and Kimi K3. On both
-/// Qwen3.8 models, a 1x1 PNG reached the Provider but was rejected because each side must exceed 10
-/// pixels; the current media type system cannot express that observed pixel-dimension floor.
-pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+/// The common 250-part ceiling is valid for Base64 and stays below the larger URL-only count of
+/// selected Qwen deployments. The inline payload leaves room for the longest 23-byte Data URL
+/// prefix inside the documented 20 MB complete-URI ceiling, interpreted conservatively as
+/// 20,000,000 bytes. Resolution-dependent MIME narrowing,
+/// remote bytes, dimensions, aspect ratio, and download headers remain Provider-enforced.
+pub(super) const QWEN_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
+    250,
+    ImageSourceCapabilities::RemoteUrlAndDataUrl {
+        remote: RemoteImageInputLimits::new(8_192),
+        data: InlineImageInputProfile::new(
+            &[
+                ImageMediaType::Bmp,
+                ImageMediaType::Jpeg,
+                ImageMediaType::Png,
+                ImageMediaType::Tiff,
+                ImageMediaType::Webp,
+                ImageMediaType::Heic,
+            ],
+            InlineImageInputLimits::new(19_999_976, 14_999_982, 19_999_976, 14_999_982),
+        ),
+    },
+    ImageDetailPolicy::OmittedOnly { default: None },
+);
+
+/// Conservative Kimi K3 surface confirmed through the Bailian Chat deployment on 2026-08-24.
+pub(super) const KIMI_IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     1,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {
         remote: RemoteImageInputLimits::new(8_192),

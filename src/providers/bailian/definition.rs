@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-use super::media::IMAGE_INPUT;
+use super::media::QWEN_IMAGE_INPUT;
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
     &[EmbeddingInputForm::String, EmbeddingInputForm::StringArray];
@@ -75,7 +75,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             stream_usage: true,
             function_tools: Some(FUNCTION_TOOLS),
-            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
+            media: crate::core::ChatMediaProfile::new(Some(QWEN_IMAGE_INPUT), None, None),
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -98,7 +98,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: false,
             }),
-            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
+            media: crate::core::ResponsesMediaProfile::new(Some(QWEN_IMAGE_INPUT), None),
             structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
