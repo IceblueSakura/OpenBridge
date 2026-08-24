@@ -1,14 +1,18 @@
-# 运行期观测与 OpenTelemetry
+# 观测合同
+
+本文定义 request/attempt 观测、本地下游内容日志、OpenTelemetry signals、低基数属性和数据保护边界。
+
+## 运行期观测与 OpenTelemetry
 
 本文定义 request/attempt lifecycle、OpenTelemetry signal、安全边界与本地下游 HTTP snapshot 行为。
-Bootstrap schema、默认值和严格解析仍由[配置与凭证](../configuration-credentials/README.md)拥有；实现与验证事实只见
-[实施现状](../../implementation-status/README.md)。
+Bootstrap schema、默认值和严格解析仍由[配置与凭证](configuration-credentials.md)拥有；实现与验证事实只见
+[实施现状](../implementation-status/README.md)。
 
 OpenTelemetry 是可选的 headless 出站通道，不是下游管理 API。OpenBridge 只产生协议生命周期中无法从外部
 重建的原始事实；collector/backend 负责持久化、窗口查询、分位数、错误率、cache-token ratio、Provider/Public
 Model 比较和可视化。缺失的 usage、cache 或 upstream timing 保持“未观测”，不得补零或从 gateway body 时间伪造。
 
-## 1. Signal 所有权
+### 1. Signal 所有权
 
 - **Traces**：每个已认证业务请求形成一个 `downstream_request` root span；每个实际 Provider attempt 形成一个
   有序 child span。span 记录 request kind、稳定 operation、Public Model、编译期 Provider/Target/Route、Native/Bridged、
@@ -32,7 +36,7 @@ Model 比较和可视化。缺失的 usage、cache 或 upstream timing 保持“
 OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本或下一轮 prompt 推断 tool 是否执行成功；
 没有显式低基数客户端 outcome contract 时，不统计业务 tool error rate。
 
-## 2. 配置与运行时安全
+### 2. 配置与运行时安全
 
 - schema 省略对应 signal table 时 exporter 禁用，只能由启动 Bootstrap 显式启用并提供受限 OTLP/HTTP collector URL；随附开发
   profile 可以明确启用 loopback collector。业务请求不能选择
@@ -50,7 +54,7 @@ OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本�
   snapshot 查询/重置 API 必须保持未注册。
 - OpenBridge 不内置 collector、SQLite、历史数据库、dashboard、Prometheus endpoint 或分布式聚合。
 
-## 3. Timing 与 usage
+### 3. Timing 与 usage
 
 - downstream response headers ready、request-relative 首输出、Provider response headers ready、首 body byte、
   首个 token-bearing text/tool/reasoning delta 与 terminal 分别计时，不能互相冒充。
@@ -65,7 +69,7 @@ OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本�
 - reasoning output token 只从 Provider 明确 usage 字段单独记录；它是 output token 的子集。total token 不设置独立
   metric，trace 可以保留 Provider 明确 total，外部系统只在口径允许时由 input/output 聚合。
 
-## 4. 功能验收要求
+### 4. 功能验收要求
 
 | ID | 行为 |
 |---|---|
@@ -77,10 +81,3 @@ OpenBridge 不执行下游 Agent 的 tool，不能从 arguments、result 文本�
 | OBS-06 | signals 不包含 credential、Authorization、用户身份、业务正文、tool/reasoning 内容、原始 error body、query 或真实 endpoint URL；metric attributes 不含高基数身份。 |
 | OBS-07 | metrics snapshot HTTP endpoint 和自定义进程内聚合保持删除，不为未发布原型保留兼容垫片。 |
 | OBS-08 | 四个本地下游 HTTP 内容开关彼此独立；配置默认由配置域拥有，运行时只覆盖认证后客户端边界，敏感 header 强制脱敏、body 有界且每方向最多一个 terminal event，并保持 OTLP exclusion。 |
-
-## 关联文档
-
-- [配置与凭证](../configuration-credentials/README.md)
-- [Native Path 与流式语义](../gateway-api/native-path-and-streaming.md)
-- [路由与 Provider 韧性](../routing-resilience/README.md)
-- [实施现状](../../implementation-status/README.md)

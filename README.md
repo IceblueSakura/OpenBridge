@@ -151,7 +151,8 @@ schema 省略对应 `[telemetry.*]` table 时，traces 或 metrics exporter 分�
 OpenBridge 固定发送到 `/v1/traces` 和 `/v1/metrics`，不提供请求级 exporter 覆盖、内置 Prometheus、metrics 查询 API、持久化或
 分布式聚合。collector 故障不会改变业务响应或 Route 选择。
 
-指标口径与敏感属性边界见[运行时指标与遥测](docs/implementation-status/telemetry-metrics.md)。
+指标口径与敏感属性边界见[当前实现](docs/implementation-status/current-state.md#8-观测与测试资产)和
+[当前状态边界](docs/implementation-status/current-boundaries.md#5-观测配置与生产边界)。
 
 ## 6. ChatGPT OAuth2（可选）
 
@@ -168,7 +169,8 @@ PKCE exchange 后，命令事务性写入配置指定的 auth 文件。不要分
 自动交互登录。登录后重启服务，再以 `/v1/models` 确认当前配置会公开哪些 ChatGPT-backed Public Model；真实可调用性仍由 probe
 或实际请求确认。
 
-详细边界见 [ChatGPT OAuth2 实施现状](docs/implementation-status/features/chatgpt-oauth-startup.md)。
+详细边界见[当前实现](docs/implementation-status/current-state.md#2-配置凭证与静态注册)和
+[当前状态边界](docs/implementation-status/current-boundaries.md#4-provider-特定边界)。
 
 ## 7. 显式 Provider 探测
 
@@ -184,7 +186,7 @@ cargo run --locked --bin openbridge-probe -- --target openai-main --chat --respo
 probe；`--all` 不会遍历所有 target。
 
 一次 probe 成功只证明当时账号、网络、固定 endpoint 和最小请求可用，不证明工具、多模态、模型质量、SDK/Agent 兼容、
-retry/fallback、负载或长期稳定性。完整说明见[能力探测实施现状](docs/implementation-status/capability-probing.md)。
+retry/fallback、负载或长期稳定性。完整说明见[当前状态边界](docs/implementation-status/current-boundaries.md)。
 
 ## 8. OpenAPI 与 Swagger UI
 
@@ -195,7 +197,7 @@ retry/fallback、负载或长期稳定性。完整说明见[能力探测实施�
 
 Swagger UI 是本地测试页，页面脚本来自固定版本的 jsDelivr；规范本身由 OpenBridge 提供。OpenAPI 覆盖 system 与
 OpenAI-compatible HTTP surface，不描述 MCP dual-era transport；MCP 合同见
-[网关 API 需求](docs/functional-requirements/gateway-api/mcp.md)。仓库中的 [docs/openapi.yaml](docs/openapi.yaml)和
+[网关 API 需求](docs/functional-requirements/gateway-api.md)。仓库中的 [docs/openapi.yaml](docs/openapi.yaml)和
 [docs/swagger-ui.html](docs/swagger-ui.html)会被编译进服务，是运行时契约资产，不是派生输出。
 
 ## 9. 常见问题

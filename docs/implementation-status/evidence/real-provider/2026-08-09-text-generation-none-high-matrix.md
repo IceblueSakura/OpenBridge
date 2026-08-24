@@ -77,5 +77,5 @@ HTTP、文本或终态失败。
 - 未执行其他 reasoning level、tools、structured outputs、图片、音频、Embeddings、外部 SDK、强制 fallback、负载、
   长期运行或生产验收。
 
-当前实现解释见 [Provider 状态目录](../../providers/README.md)和
-[Models/能力预检状态](../../features/models-api-and-capability-preflight.md)。
+当前实现解释见[Provider 注册](../../current-state.md#7-provider-注册摘要)和
+[Models 与能力预检](../../current-state.md#3-public-model-与请求预检)。

@@ -1,10 +1,9 @@
 # 当前代码架构
 
-## 状态与边界
+## 文档职责
 
-本文是当前源码责任和数据流的稳定地图，不维护 Public Model、Target、Provider 能力或测试数量矩阵。客户端行为见
-[功能状态](README.md#功能状态)，Provider 当前注册与真实证据见 [Provider 状态](providers/README.md)。配置态公开且具有静态执行候选的
-模型以运行中 Models API 为准；该目录不探测 credential、网络、配额或账号状态。
+本文只维护当前源码责任、依赖方向和数据流，不维护 Public Model/Provider 动态矩阵、测试结果、完成历史或未实现清单。
+客户端行为与 Provider 注册见[当前实现](current-state.md)，未实现和未验证范围见[当前状态边界](current-boundaries.md)。
 
 生产注册表使用 `ModelConfig`、`ProviderInstanceConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、
 `UpstreamApiConfig`、`RouteConfig` 与 `PublicModelConfig`；请求路径使用 operation-specific requirements/plan。
@@ -241,48 +240,3 @@ Counter/Histogram。attributes 只来自固定 allowlist；Public Model 只在 r
 credential、endpoint URL 和高基数 identity 不进入 OTLP。
 metrics 通过 startup-owned OTLP/HTTP exporter 输出，不存在进程内 JSON metrics 查询 API。内容日志只产生本地有界
 snapshot，不进入 reviewed OTLP trace layer。
-
-## 8. Probe 与证据边界
-
-`openbridge-probe --target <id>` 只允许已注册且已激活 Target，并复用其 endpoint、adapter、operation 与 credential pool。
-它不接受 URL/model/header/credential/body 覆盖，不加载下游用户 key，不修改 `RuntimeRegistry`，也不遍历全部 pool member。
-固定观察项只有 Models、最小 Chat、Responses 与 Embeddings；结果只分为 `supported`、`unsupported` 或 `unknown`。
-
-确定性 tests 保护 registry、HTTP/SSE、Provider wire、Bridge、retry/fallback/cooldown、取消和 observability，但不自动升级为外部
-SDK、独立 Python/curl、目标 Agent、真实 Provider、负载或长期运行证据。测试资产与实际外部记录分别见
-[test-assets](test-assets/inventory.md)和 [evidence](evidence/README.md)。
-
-Generation pure pipeline family 重组通过 Generation ingress/forwarding、Bridge、registry focused contracts，并通过
-`cargo fmt -- --check`、`cargo check --locked --all-targets`、`cargo test --locked`、
-`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
-
-Prepared-candidate runner 收敛通过 Embeddings、Generation resilience/OAuth 与 Bridge focused contracts，并通过
-`cargo fmt -- --check`、`cargo check --locked --all-targets`、`cargo test --locked`、
-`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
-
-Operation-indexed private execution registry 完成时通过 `cargo fmt -- --check`、`cargo check --locked --all-targets`、
-`cargo test --locked`、`cargo clippy --locked -- -D warnings` 与 `git diff --check`；未运行外部 SDK、真实 Provider、负载或长期测试。
-
-2026-08-24 operation legacy 审查删除了 Images pure response validator 的无效 `public_model` 参数与 model-level
-`ImageGenerationModelProfile.supported_parameters`；Images request parameters 只由 operation capability/interface 拥有。已完成的
-Stages 1–7 计划历史同步删除，未来 decision gates 与通用测试准备指南保留。MCP legacy session、Chat `max_tokens`、Provider
-compatibility adapter 和 model lifecycle `deprecated` 都有现行协议/状态职责，未被当作 legacy 删除。
-删除后 tracked Markdown relative links、cross-file anchors 与 code fences 均通过静态检查；canonical wire 51/51 与
-semantic 9/9 catalog IDs 全部有且只有一个 fixture，未发现 orphan fixture。
-
-## 9. 未实现或未证明
-
-- 动态 Provider/plugin/Route DSL、request-selected endpoint/credential 与在线控制面；
-- 动态 availability/weight、持久化或分布式 cooldown；
-- 通用异构 conversion policy、完整 OpenAI endpoint/resource catalog 与状态服务；
-- 多 Embeddings candidate、Embeddings Bridge、向量转换/缓存/索引/检索和 string tokenizer；
-- OTLP logs、内置 Prometheus、指标持久化/查询和分布式 metrics 聚合；
-- Responses WebSocket、完整 Agent loop、生产负载与长期运行验收。
-
-## 相关文档
-
-- [实施现状目录](README.md)
-- [OpenTelemetry 遥测](telemetry-metrics.md)
-- [配置与凭证需求](../functional-requirements/configuration-credentials/README.md)
-- [模型能力需求](../functional-requirements/model-capability/README.md)
-- [路由与 Provider 韧性](../functional-requirements/routing-resilience/README.md)

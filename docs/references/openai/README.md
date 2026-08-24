@@ -102,11 +102,11 @@ SDK/文档版本。
 
 | 主题 | Request/response 形式 | Owner 文档 |
 |------|-----------------------|------------|
-| 全 API family 采用分析 | JSON/multipart/binary/SSE/resource/job/session 分层 | [端点采用与 fake 合同测试](endpoint-adoption-and-fake-testing.md) |
+| API family 与 fake 证据边界 | JSON/multipart/binary/SSE/resource/job/session 分层 | [API family 与 fake 证据边界](endpoint-adoption-and-fake-testing.md) |
 | Moderations create | `POST /v1/moderations` JSON → JSON classifications | [Moderations Create](moderations/create.md) |
 
-跨 family 文档只比较 endpoint、依赖与证据边界；字段级事实仍由上面各 operation owner 文档维护。它给出的采用判断是研究推论，
-不是 OpenBridge 当前实施状态或获准计划。
+跨 family 文档只比较 endpoint、transport/lifecycle 依赖与 fake 证据边界；字段级事实仍由上面各 operation owner 文档维护，
+不构成 OpenBridge 产品范围、当前实施状态或获准计划。
 
 ## 10. 测试与兼容性资产
 

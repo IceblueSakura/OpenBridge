@@ -1,9 +1,13 @@
-# 路由与 Provider 韧性
+# 路由与韧性合同
+
+本文定义固定 Route ordering、attempt、retry/fallback、credential rotation、cooldown、取消及错误边界。
+
+## 固定路由与韧性
 
 本文定义 Public Model 预检后的固定 Route 执行、有限 retry/fallback、单进程短时 cooldown、credential
-rotation 与状态亲和边界。已验证的实现范围只见[实施现状](../../implementation-status/README.md)。
+rotation 与状态亲和边界。已验证的实现范围只见[实施现状](../implementation-status/README.md)。
 
-## 1. Route ordering 的唯一规则
+### 1. Route ordering 的唯一规则
 
 - 下游只选择 Public Model，不得指定 Provider、Upstream Target、Upstream API、endpoint 或 credential。
 - 多 Provider 聚合必须由代码目录在一个 Public Model 下显式列出 route source；canonical Model 相同不会自动
@@ -19,10 +23,10 @@ rotation 与状态亲和边界。已验证的实现范围只见[实施现状](..
 - 多 source `gpt-5.6-sol` 以 `SourceFirst` 保持 ChatGPT、OpenAI 顺序；`deepseek-v4-flash` 以
   `SourceFirst` 保持 DeepSeek、Bailian、OpenRouter 顺序。具体可执行候选只由启动注册和 active credential
   收窄，不改变上述 source priority。
-- Public Model 的固定能力计算与请求预检由[模型与能力契约](../model-capability/README.md)拥有；本页不为
+- Public Model 的固定能力计算与请求预检由[模型与能力契约](model-capability.md)拥有；本页不为
   单个候选重新计算能力。
 
-## 2. State 与 RoutePlan
+### 2. State 与 RoutePlan
 
 - 进入 RoutePlan 的请求已完成一次能力预检；请求能力不得跳过、截断或重排候选。
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model。
@@ -35,7 +39,7 @@ rotation 与状态亲和边界。已验证的实现范围只见[实施现状](..
 - `store` 省略或为 `false` 才能进入 planning；`true` 在任何 Provider egress 前拒绝。每个 Responses Native
   candidate 显式编码 `store:false`，Responses-to-Chat Bridge 消费而不伪造 Chat 字段。
 
-## 3. Retry、fallback 与取消
+### 3. Retry、fallback 与取消
 
 stream/non-stream 请求只可在尚未向下游提交业务 response 时执行有限 attempt。成功 SSE headers 本身不构成提交；首个完整合法且下游可见的 event
 仍属于 attempt-owned precommit 边界：
@@ -54,7 +58,7 @@ stream/non-stream 请求只可在尚未向下游提交业务 response 时执行�
 统一 attempt contract 固定为请求最多 6 次、每个 candidate 最多 2 次，并为尚未尝试的 Route 保留预算。
 backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不得改变这些上限。
 
-## 4. Credential pool 与失败分类
+### 4. Credential pool 与失败分类
 
 | 上游结果 | 是否重试 | 下一 attempt | 跨请求健康作用域 |
 |---|---:|---|---|
@@ -76,7 +80,7 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
 - 每次后续 attempt 都执行共享 backoff；`Retry-After` 只决定失败 member 的跨请求 cooldown，不让当前请求
   等待该 member 恢复。
 
-## 5. Cooldown 与恢复
+### 5. Cooldown 与恢复
 
 - `429` 只冷却当前 credential member；暂时性 `5xx`、timeout 与 transport failure 冷却 `fault_domain`，未
   显式配置时只隔离 Target。
@@ -92,7 +96,7 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
   漂移到另一 issuer。
 - 动态权重、后台 probe、持久化健康、跨进程协调、分布式限流和动态 credential 控制面不在本契约内。
 
-## 6. 错误与观测边界
+### 6. 错误与观测边界
 
 - 下游提交前的最终失败只保留可安全传递的 HTTP status、OpenAI-compatible error 字段、request id、
   `Retry-After` 与 allowlist header；transport timeout/error 使用稳定网关错误。
@@ -101,11 +105,3 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
 - tracing 可以记录非敏感 pool/member binding ID、generation、rotation 原因与 attempt 序号；metric attribute
   不得使用 pool/member 或其他高基数身份。
 - probe 不遍历 pool、不修改 round-robin/cooldown，也不把一次探测描述为全部 credential 可用。
-
-## 关联文档
-
-- [网关 API 与客户端兼容](../gateway-api/README.md)
-- [Public Model 与模型能力契约](../model-capability/README.md)
-- [配置、凭证与受信边界](../configuration-credentials/README.md)
-- [Generation envelope 与状态](../gateway-api/generation-state.md)
-- [实施现状](../../implementation-status/README.md)

@@ -29,4 +29,4 @@
 本次没有执行外部 SDK、强制 fallback、其他 reasoning level、tools、多模态、负载、并发稳定性、长期运行或生产
 验收。结果只证明当时账号、网络、Bailian endpoint、模型、OpenBridge checkout 和固定 payload。
 
-当前实现解释见 [Bailian Provider 状态](../../providers/bailian.md)。
+当前实现解释见[Provider 注册](../../current-state.md#7-provider-注册摘要)。

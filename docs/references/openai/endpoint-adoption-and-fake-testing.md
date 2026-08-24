@@ -1,10 +1,9 @@
-# OpenAI API 端点采用与 fake 合同测试调研
+# OpenAI API family 与 fake 合同证据边界
 
 ## 来源、范围与快照
 
-本文回答两个问题：OpenAI 当前 API Reference 中有哪些尚可纳入聚合网关的 endpoint family，以及在尚未选择真实 Provider/model
-之前，哪些 wire 与 lifecycle 行为可以先用确定性 fake 验证。本文是外部协议事实与工程推论，不记录 OpenBridge 当前实现，不构成产品范围、
-实施顺序或已完成声明。
+本文记录 OpenAI 当前 API Reference 的 endpoint family，以及确定性 fake 对不同 wire/lifecycle 最多能证明什么。本文不记录
+OpenBridge 当前实现、产品范围、候选排序或实施清单。
 
 - 官方总入口：[API Overview](https://developers.openai.com/api/reference/overview)；
 - 核心补充资料：[Responses WebSocket mode](https://developers.openai.com/api/docs/guides/websocket-mode)、
@@ -213,51 +212,9 @@ identity、政策和执行能力仍必须逐 Provider 验证。
 Legacy Completions、Assistants/Threads/Runs 和 Realtime Beta 只有在明确 consumer 仍发送这些协议时才值得形成兼容 profile。为追求 path
 数量而新建 legacy facade 会引入另一套 state、stream 和 tool lifecycle，却不能提高现代 Responses 客户端兼容度。
 
-## 9. 研究推论：适合先做 fake contract 的候选
+## 9. 证据边界
 
-下面是按依赖和可验证性得到的技术选择，不是获准实施计划：
-
-| 候选 | 为什么适合先验证 | fake 验收重点 | 选择真实 model 前仍未知 |
-|------|------------------|---------------|--------------------------|
-| Moderations | 单一 JSON operation，能先验证新增 operation 的完整注册/路由/错误面 | F0 input union、批量顺序、category/result schema、错误 | 分类质量、类别/model 差异、安全政策 |
-| Images generations 非流式 | 独立且用户价值高；request JSON，result 仍为 JSON | F0 URL/Base64 分支、body budget、unknown fields、error | 真实 image model、size/quality/format、费用 |
-| Audio speech | request JSON，但 response 是 binary stream，可建立媒体输出边界 | F1 media type、byte fragmentation、取消、首 byte 后错误 | voice/codec 质量、实时播放、上游限制 |
-| Audio transcriptions/ translations | 可复用成熟的 multipart 基础，但 response union 更复杂 | F1 multipart、filename/MIME、JSON/text/subtitle/SSE | ASR/translation 质量、语言/format 支持 |
-| Images edits | 同时覆盖 multipart 输入与图片 JSON/stream 输出 | F1 image/mask validation、partial stream、budget | mask/model 语义、编辑质量、格式矩阵 |
-| Files | 后续 Responses file、Batch、Fine-tune、Vector Store 的资源前提 | F1/F2 upload/download、CRUD、分页、issuer | retention、真实托管资源与跨 endpoint 可见性 |
-
-最小依赖角度，Moderations 最简单；若目标是尽快建立媒体协议骨架，则 Images generations 非流式最合适；若目标是先解决最难复用的
-response transport，则 Audio Speech 最能暴露 binary streaming 边界。三者解决的问题不同，不应只按“代码量”排序。
-
-不建议把以下项目作为第一项 fake endpoint：Responses/Conversations resource（先需要 issuer ledger）、Batches/Evals/Fine-tuning（先需要
-F2 资源和 F3 job engine）、Realtime（先需要 F4 双向 transport）、Containers/Skills/ChatKit（先要明确是否承诺 OpenAI 平台产品）。
-
-## 10. 从 fake 转向真实 Provider/model 的准入证据
-
-在 endpoint fake contract 大致稳定后，Provider/model 调研至少应逐 operation 固定：
-
-1. 官方 base URL、method/path、认证、region 和 API version；
-2. request encoding、字段/enum、stream/binary grammar 与错误 envelope；
-3. model id、模态、输入来源、输出 format、限制和价格/配额的快照日期；
-4. resource id 的签发者、账户/region affinity、retention、cancel/delete 与重放语义；
-5. 一次最小真实成功、一个预期错误，以及适用的 stream/取消/下载样本；
-6. 该证据只覆盖哪个账户、model、operation、format 和日期，以及哪些层仍未运行。
-
-只有 Provider 官方资料写着“OpenAI-compatible”仍不足以完成接入：必须确认它兼容的是 Chat、Responses、Images、Audio 还是其他具体
-operation。一个真实样本通过后，也只能启用该样本已证明并被静态能力契约允许的切片。
-
-## 11. 横向功能缺口检查表
-
-新增 path 之外，完整兼容 profile 还必须持续覆盖：
-
-- 标准 Bearer admission、统一 OpenAI-style error、request id 与安全 header；
-- JSON/multipart/binary/SSE/WebSocket 的独立 body 和 aggregate budget；
-- unknown additive response property/event 的前向兼容，以及已知 terminal 的严格校验；
-- downstream disconnect、upstream cancel、首 byte 后失败和不可安全重放 operation；
-- opaque resource issuer、租户/credential affinity、分页、过期与删除；
-- 敏感 prompt、file、audio、image、transcript、SDP、signed URL 和 credential 的日志隔离；
-- 标准与扩展 Models projection 只公开真正可执行的 operation/capability；
-- OpenAPI、官方 SDK、独立 curl/Python、确定性 fixture 与真实 Provider 证据分层记录。
-
-结论：新增 endpoint 应从一个闭合 operation 开始，但“完整”最终由 **endpoint + schema + transport + lifecycle + capability + evidence**
-共同决定，不能由 route 数量或 fake `200` 数量决定。
+- endpoint map 只证明固定日期的官方 surface，不表示 OpenBridge 或任何 Provider 已实现对应 operation；
+- fake 只证明其覆盖级别内的 wire、budget 或 state machine，不证明真实模型质量、费用、配额、账户权限或长期稳定性；
+- Provider 标注 “OpenAI-compatible” 不能替代逐 operation 的 method/path、encoding、stream grammar、错误、模型和限制证据；
+- endpoint、schema、transport、lifecycle、capability 与 evidence 必须分开记录，不能由 path 数量或 fake `200` 数量代替。

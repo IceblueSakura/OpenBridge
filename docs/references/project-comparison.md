@@ -30,58 +30,18 @@
 | Open Responses              | 独立 Responses 规范/生态          | HTTP/SSE/WebSocket compliance scenarios                                               | 与 OpenAI 官方 Responses 完全相同或覆盖 Chat bridge                            |
 | gpt-oss compatibility-test  | model/API-shape smoke             | Chat/Responses、streaming、function-call smoke                                        | 确定性 semantic oracle                                                         |
 
-## 3. 功能分工
+## 3. 综合调研入口
 
-| 研究问题                                   | 直接项目证据                              | 综合文档                                                                               |
-|--------------------------------------------|-------------------------------------------|----------------------------------------------------------------------------------------|
-| Responses SSE 与 client tool lifecycle     | Codex                                     | [Protocol test assets](cross-project/chat-responses-sse-tool-test-suite-survey.md)     |
-| Chat/Responses request/response conversion | LiteLLM、new-api、cc-switch          | [Protocol test assets](cross-project/chat-responses-sse-tool-test-suite-survey.md)     |
-| Stateful continuation 与 opaque identity   | CLIProxyAPI、cc-switch、Codex             | 各项目 state/tool 文档；尚无单一通用 state contract                                    |
-| Credential retry/cooldown                  | CLIProxyAPI、LiteLLM、new-api、cc-switch   | [Credential retry comparison](cross-project/credential-pool-retry-analysis.md)         |
-| OAuth device login/refresh                 | Codex、CLIProxyAPI、Hermes、LiteLLM       | [OAuth comparison](cross-project/upstream-oauth-device-code-token-refresh-analysis.md) |
-| Model information                          | LiteLLM、OpenRouter                       | [Model information comparison](cross-project/model-information-comparison.md)          |
-| Observability/TTFT                         | LiteLLM、Codex                            | 各自 project document；口径尚未统一                                                    |
-| Provider protocol                          | OpenAI、OpenRouter、DeepSeek、Xiaomi MiMo | 对应官方协议目录                                                                       |
+跨项目共性、差异和未知项只由[综合调研索引](cross-project/README.md)下的主题文档维护：
 
-## 4. 互证关系
+- Chat/Responses、SSE 与 tool 测试资产；
+- credential retry/cooldown；
+- OAuth device login/refresh；
+- model information。
 
-### 4.1 Chat/Responses
+Stateful continuation、observability 与 Provider protocol 目前只有项目级或官方来源，没有独立综合 owner。
 
-- OpenAI official docs 定义公开 wire。
-- Codex 说明一个具体 Responses client 如何消费 typed SSE 和 tool lifecycle。
-- Hermes 说明完整 Agent loop 如何在 Chat history 与 Responses items 间归一化。
-- LiteLLM、new-api 和 cc-switch 提供三种不同 converter/state 实现；new-api 还显式注册 direct 与 multi-hop conversion。
-- Open Responses、gpt-oss 和 OpenAI SDK consumer tests 提供不同强度的协议与客户端测试。
-
-这些证据角色互补，但没有任何一个项目可以同时替代官方 wire、client behavior、converter contract 和真实 Provider 验证。
-
-### 4.2 OAuth
-
-- RFC 定义标准 device authorization、refresh grant 和 rotation security。
-- Codex 定义其 CLI 产品 flow。
-- CLIProxyAPI 展示后台到期调度器。
-- Hermes 展示同主机跨进程 auth-store lock。
-- LiteLLM 展示简单按需 JSON authenticator 及其并发缺口。
-
-四个项目复现相似私有 flow 不等于形成公共 client registration。
-
-### 4.3 Retry
-
-- CLIProxyAPI 的隔离单位偏 credential/account。
-- LiteLLM 的隔离单位偏 deployment。
-- new-api 的隔离单位偏 channel/group，并叠加 priority、weight、affinity 和自动禁用。
-- cc-switch 的隔离单位偏 Provider。
-
-相似的“换下一个候选”行为建立在不同资源身份和控制面上，不能只合并 status code 表。
-
-### 4.4 Model information
-
-- LiteLLM 明确区分兼容 model list、deployment、model group、global catalog 与 runtime metrics。
-- OpenRouter 用丰富 `Model` 对象组织 canonical catalog，并把 endpoint detail 和 user-filtered view 分开。
-
-两者共同说明模型身份、能力、供应、经济与运行时观测是不同信息层。
-
-## 5. 研究维护规则
+## 4. 研究维护规则
 
 1. 单项目观察先进入对应项目目录，并固定 source/date/commit。
 2. 综合文档只引用已经存在的项目级调研，不在综合文档首次引入项目事实。
