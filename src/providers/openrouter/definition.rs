@@ -58,7 +58,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: true,
             }),
-            media: crate::core::ResponsesMediaProfile::new(None, None),
+            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,

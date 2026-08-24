@@ -1,6 +1,6 @@
 # OpenRouter API 调研
 
-- Last reverified：官方 API 资料与 live wire 原始复核为 2026-08-02 至 2026-08-09；2026-08-24 仅整理本地文档，未刷新外部来源。
+- Last reverified：2026-08-24；Models、model endpoints、Chat 与 Responses 由 Gemini 3.7 Flash/Grok 4.6 接入复核。
 - Recheck trigger：Responses beta、Provider routing、Models/endpoint schema 或数据政策变化。
 
 ## 来源与范围
@@ -8,6 +8,7 @@
 - [Chat Completions API](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)
 - [Responses API](https://openrouter.ai/docs/api/reference/responses/overview)
 - [Models API](https://openrouter.ai/docs/api/api-reference/models/get-models)
+- [Model endpoints API](https://openrouter.ai/docs/api/api-reference/models/get-endpoints-for-a-model)
 - [Provider Routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 
 本文只记录入口、认证、Provider routing 与固定 wire 观察，不保存模型字段、能力表、价格或 Models 快照。

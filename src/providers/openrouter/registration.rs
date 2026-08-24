@@ -7,7 +7,7 @@ use crate::{
         ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
         StructuredOutputProfile,
     },
-    models::{deepseek, google, minimax},
+    models::{deepseek, google, minimax, xai},
     provider::ProviderKind,
     registry::{
         CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
@@ -51,6 +51,12 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             google::gemma_4_31b_it::ID,
             "google/gemma-4-31b-it:free",
         ),
+        dual_protocol_target(
+            "openrouter-gemini-3-7-flash",
+            google::gemini_3_7_flash::ID,
+            "google/gemini-3.7-flash",
+        ),
+        dual_protocol_target("openrouter-grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
     ]
 }
 
@@ -73,6 +79,11 @@ fn dual_protocol_target(
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenRouter targets require Chat Completions capabilities")
         .to_executable(chat_media);
+    let responses_image = matches!(
+        canonical_model,
+        google::gemini_3_7_flash::ID | xai::grok_4_6::ID
+    )
+    .then_some(IMAGE_INPUT);
     let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()
@@ -81,7 +92,7 @@ fn dual_protocol_target(
         .expect("OpenRouter targets require Responses capabilities")
         .to_executable(
             ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
-            crate::core::ResponsesMediaProfile::default(),
+            crate::core::ResponsesMediaProfile::new(responses_image, None),
         );
     chat_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);

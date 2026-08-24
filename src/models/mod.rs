@@ -16,6 +16,7 @@ pub(crate) mod moonshotai;
 pub(crate) mod nvidia;
 pub(crate) mod openai;
 pub(crate) mod qwen;
+pub(crate) mod xai;
 pub(crate) mod xiaomi;
 pub(crate) mod z_ai;
 

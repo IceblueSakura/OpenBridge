@@ -3,7 +3,8 @@
 use crate::registry::ModelConfig;
 
 use super::{
-    chatgpt, deepseek, google, meituan, minimax, moonshotai, nvidia, openai, qwen, xiaomi, z_ai,
+    chatgpt, deepseek, google, meituan, minimax, moonshotai, nvidia, openai, qwen, xai, xiaomi,
+    z_ai,
 };
 
 /// Returns every explicitly registered canonical model profile compiled into the binary.
@@ -21,6 +22,7 @@ pub(crate) fn compiled_configs() -> Vec<ModelConfig> {
         moonshotai::configs(),
         minimax::configs(),
         nvidia::configs(),
+        xai::configs(),
     ]
     .concat()
 }

@@ -287,7 +287,7 @@ fn bailian_probed_models_bind_exact_operations_and_public_routes() {
         .collect::<Vec<_>>();
     assert_eq!(kimi_apis, vec![(OperationKind::ChatCompletions, "kimi-k3")]);
 
-    // Publish the new Qwen model and append Bailian after Kimi CN for the existing Kimi model.
+    // Publish the new Qwen model and keep Bailian first for the existing Kimi model.
     assert_eq!(
         registry()
             .public_model("qwen3.8-27b")
@@ -301,10 +301,10 @@ fn bailian_probed_models_bind_exact_operations_and_public_routes() {
             .expect("Kimi K3 must remain public")
             .routes(),
         [
-            "kimi-k3-kimi-cn-chat",
             "kimi-k3-bailian-chat",
-            "kimi-k3-kimi-cn-responses-via-chat",
-            "kimi-k3-bailian-responses-via-chat"
+            "kimi-k3-kimi-cn-chat",
+            "kimi-k3-bailian-responses-via-chat",
+            "kimi-k3-kimi-cn-responses-via-chat"
         ]
     );
 }
@@ -334,6 +334,45 @@ fn deepseek_vision_binds_exact_dual_native_target_and_public_routes() {
             "deepseek-v4-flash-vision-exp-deepseek-responses"
         ]
     );
+}
+
+#[test]
+fn openrouter_new_models_bind_exact_dual_native_targets_and_public_routes() {
+    for (target_id, upstream_model, public_model, route_prefix) in [
+        (
+            "openrouter-gemini-3-7-flash",
+            "google/gemini-3.7-flash",
+            "gemini-3.7-flash",
+            "gemini-3-7-flash-openrouter",
+        ),
+        (
+            "openrouter-grok-4-6",
+            "x-ai/grok-4.6",
+            "grok-4.6",
+            "grok-4-6-openrouter",
+        ),
+    ] {
+        let target = registry()
+            .upstream_target(target_id)
+            .unwrap_or_else(|| panic!("missing OpenRouter target {target_id}"));
+        let apis = target
+            .upstream_apis()
+            .map(|(_, api)| (api.operation(), api.upstream_model()))
+            .collect::<Vec<_>>();
+        assert_eq!(apis.len(), 2, "{target_id}");
+        assert!(apis.contains(&(OperationKind::ChatCompletions, upstream_model)));
+        assert!(apis.contains(&(OperationKind::Responses, upstream_model)));
+        assert_eq!(
+            registry()
+                .public_model(public_model)
+                .unwrap_or_else(|| panic!("missing Public Model {public_model}"))
+                .routes(),
+            [
+                format!("{route_prefix}-chat"),
+                format!("{route_prefix}-responses")
+            ]
+        );
+    }
 }
 
 #[test]

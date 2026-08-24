@@ -1314,3 +1314,108 @@ async fn deepseek_vision_exposes_and_preserves_its_direct_image_contract() {
         }
     }
 }
+
+#[tokio::test]
+async fn openrouter_new_models_expose_probed_dual_native_image_and_reasoning_contracts() {
+    const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPac";
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let cases = [
+        (
+            "gemini-3.7-flash",
+            "google/gemini-3.7-flash",
+            "/v1/chat/completions",
+        ),
+        (
+            "gemini-3.7-flash",
+            "google/gemini-3.7-flash",
+            "/v1/responses",
+        ),
+        ("grok-4.6", "x-ai/grok-4.6", "/v1/chat/completions"),
+        ("grok-4.6", "x-ai/grok-4.6", "/v1/responses"),
+    ];
+    for (public_model, _, path) in cases {
+        let body = if path.ends_with("chat/completions") {
+            serde_json::json!({
+                "model": public_model,
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": "Describe the image."},
+                    {"type": "image_url", "image_url": {"url": PNG_DATA_URL}}
+                ]}]
+            })
+        } else {
+            serde_json::json!({
+                "model": public_model,
+                "input": [{"role": "user", "content": [
+                    {"type": "input_text", "text": "Describe the image."},
+                    {"type": "input_image", "image_url": PNG_DATA_URL}
+                ]}]
+            })
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{public_model} {path}");
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), cases.len());
+    for (request, (_, upstream_model, path)) in requests.iter().zip(cases) {
+        assert_eq!(request.body["model"], upstream_model);
+        let forwarded = if path.ends_with("chat/completions") {
+            &request.body["messages"][1]["content"][1]["image_url"]["url"]
+        } else {
+            &request.body["input"][0]["content"][1]["image_url"]
+        };
+        assert_eq!(forwarded, PNG_DATA_URL);
+    }
+    drop(requests);
+
+    let expected_image = serde_json::json!({
+        "sources": ["remote_url", "data_url"],
+        "media_types": ["image/jpeg", "image/png"],
+        "detail": {"default": null, "allowed": []},
+        "limits": {
+            "max_parts": 4,
+            "max_url_length": 8_192,
+            "max_inline_encoded_bytes": 20 * 1024 * 1024,
+            "max_inline_decoded_bytes": 15 * 1024 * 1024,
+            "max_total_inline_encoded_bytes": 20 * 1024 * 1024,
+            "max_total_inline_decoded_bytes": 15 * 1024 * 1024
+        }
+    });
+    for public_model in ["gemini-3.7-flash", "grok-4.6"] {
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
+                .await;
+        for protocol in ["chat_completions", "responses"] {
+            let interface = &model["interfaces"][protocol];
+            assert_eq!(interface["multimodal_input"]["image"], expected_image);
+            assert!(interface["multimodal_input"]["file"].is_null());
+            assert!(interface["multimodal_input"]["audio"].is_null());
+            assert_eq!(
+                interface["reasoning"]["levels"],
+                serde_json::json!(["low", "medium", "high", "xhigh"])
+            );
+            assert!(
+                !interface["reasoning"]["accepted_levels"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|level| level == "none")
+            );
+        }
+    }
+}

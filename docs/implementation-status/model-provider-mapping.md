@@ -24,8 +24,10 @@
 | `minimax-m3` | `minimax/minimax-m3` | OpenRouter | `openrouter-minimax-m3` |
 | `minimax-m3` | `minimax/minimax-m3` | NVIDIA | `nvidia-minimax-m3` |
 | `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter-gemma-4-31b-it` |
-| `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
+| `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter-gemini-3-7-flash` |
+| `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter-grok-4-6` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian-kimi-k3` |
+| `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
 | `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian-glm-5-2` |
 | `qwen3.7-plus` | `qwen/qwen3.7-plus` | Alibaba Cloud Model Studio | `bailian-qwen3-7-plus` |
 | `qwen3.7-max` | `qwen/qwen3.7-max` | Alibaba Cloud Model Studio | `bailian-qwen3-7-max` |

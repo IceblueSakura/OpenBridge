@@ -5,10 +5,10 @@ use crate::core::{
     InlineImageInputLimits, InlineImageInputProfile, RemoteImageInputLimits,
 };
 
-/// Image surface confirmed for the OpenRouter Chat family.
+/// Image surface confirmed for selected OpenRouter Chat and Responses targets.
 ///
-/// One PNG data-URL image is proven upstream on MiniMax M3 (2026-08-10); JPEG is
-/// declared by OpenAI-compatible endpoint convention, no other media type was exercised.
+/// PNG/JPEG data URLs and remote JPEGs are proven on Gemini 3.7 Flash and Grok 4.6 native Chat and
+/// Responses paths (2026-08-24); no other media type was exercised for those targets.
 pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     4,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {

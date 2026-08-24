@@ -153,18 +153,38 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
+            public_name: "gemini-3.7-flash",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "gemini-3-7-flash-openrouter",
+                upstream_target: "openrouter-gemini-3-7-flash",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "grok-4.6",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "grok-4-6-openrouter",
+                upstream_target: "openrouter-grok-4-6",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "kimi-k3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
-                    route_prefix: "kimi-k3-kimi-cn",
-                    upstream_target: "kimi-cn-kimi-k3",
+                    route_prefix: "kimi-k3-bailian",
+                    upstream_target: "bailian-kimi-k3",
                     surface: PublicModelSurface::ChatNativeOnly,
                 },
                 ProviderRouteRegistration {
-                    route_prefix: "kimi-k3-bailian",
-                    upstream_target: "bailian-kimi-k3",
+                    route_prefix: "kimi-k3-kimi-cn",
+                    upstream_target: "kimi-cn-kimi-k3",
                     surface: PublicModelSurface::ChatNativeOnly,
                 },
             ],
