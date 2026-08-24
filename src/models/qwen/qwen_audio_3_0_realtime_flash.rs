@@ -4,6 +4,8 @@
 //! Realtime Plus: up to 50 retained audio turns or 300 seconds of audio. Those limits are not token
 //! counts, so this profile keeps token limits unknown. The native Realtime API parameters are not
 //! represented as Chat Completions parameters.
+//! Qwen-Audio does not support OpenAI-compatible Chat/Responses, so this model remains unrouted
+//! until OpenBridge implements the corresponding DashScope Realtime WebSocket operation.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,

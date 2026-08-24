@@ -53,7 +53,7 @@
 
 ### Native 图片与文件输入
 
-- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明。
+- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明；Bailian Qwen/Kimi 当前只公开实测的单张 remote/inline JPEG/PNG，两款 Qwen3.8 上观察到的图片边长大于 10 像素限制尚不能由本地 media 类型表达。
 - OpenBridge 不下载、解析、转换、转码、缓存或扫描远程图片/文件。
 - 当前生产 Public Model 不公开 file input；synthetic file loopback 不证明真实模型/backend、Provider 下载行为、解析质量、费用或 SDK/Agent 兼容。
 
@@ -85,7 +85,7 @@
 | Xiaomi MiMo | video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行。 |
 | OpenRouter | 强制 DeepSeek fallback、远程/JPEG 图片实体、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行。公开目录字段不自动成为 executable capability。 |
 | NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |
-| Alibaba Cloud Model Studio | LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；更多多模态/tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
+| Alibaba Cloud Model Studio | LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
 | Kimi CN | 其他 Moonshot endpoint、原生 Responses、更多参数组合、账号权限、外部 SDK/Agent、负载与长期运行。历史 `none` 结果不证明当前可关闭 reasoning。 |
 
 Provider 外部观察见[evidence](evidence/README.md)；动态官方文档和模型目录见[references](../references/README.md)。

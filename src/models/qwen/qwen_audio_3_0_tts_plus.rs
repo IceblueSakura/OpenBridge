@@ -3,6 +3,8 @@
 //!
 //! Facts follow the OpenRouter model and endpoint records reverified on 2026-08-24. OpenRouter's
 //! zero context value is retained conservatively as an unknown token limit.
+//! Qwen-Audio does not support OpenAI-compatible Chat/Responses, so this model remains unrouted
+//! until OpenBridge implements the corresponding DashScope-native speech-synthesis operation.
 
 use crate::registry::{
     CanonicalModelTask, ModelConfig, ModelContextLength, SpeechSynthesisModelProfile,

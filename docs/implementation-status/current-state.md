@@ -74,7 +74,7 @@
 | Operation | 当前可执行合同 | 主要确定性证据 |
 |---|---|---|
 | Embeddings | `text-embedding-3-small`、`qwen3.7-text-embedding`、`nemotron-3-embed-1b` 各有独立 Public Model 和唯一 Native Route；成功 JSON 在 commit 前有界验证。 | `tests/embedding_forwarding_contract.rs` |
-| Native 图片输入 | `mimo-v2.5` 的 Chat `image_url` 与 Responses `input_image` 接受受限 HTTPS URL 或规范 Base64 data URL；只走同协议 Native Route。 | `tests/forwarding_contract.rs` |
+| Native 图片输入 | `mimo-v2.5` 及 image-capable Bailian Qwen/Kimi Native interface 接受各自有界的 HTTPS URL 或规范 Base64 data URL；Bailian 当前只公开单张 JPEG/PNG，Kimi Responses Bridge 不转换图片。 | `tests/forwarding_contract.rs` |
 | Native 文件输入 | Chat 与 Responses 使用独立 typed file profile；当前 executable Target 均显式关闭 file，因此生产 Public Model 不公开文件输入。 | `tests/forwarding_contract/file_input.rs` |
 | MiMo 音频 | `mimo-v2.5` Chat 支持有界 WAV 音频理解；ASR、TTS、VoiceDesign、VoiceClone 是独立 Chat-only task/Public Model。 | `tests/forwarding_contract.rs` |
 | Images Generations | `qwen-image-3.0` 与 `qwen-image-3.0-pro` 通过 Bailian/DashScope Native endpoint 提供同步 URL JSON；OpenAI 标准字段为主合同，typed DashScope extensions 为显式扩展。 | `tests/images_forwarding_contract.rs` |

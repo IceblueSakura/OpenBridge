@@ -24,10 +24,12 @@
 | `minimax-m3` | `minimax/minimax-m3` | NVIDIA | `nvidia-minimax-m3` |
 | `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter-gemma-4-31b-it` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
+| `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian-kimi-k3` |
 | `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian-glm-5-2` |
 | `qwen3.7-plus` | `qwen/qwen3.7-plus` | Alibaba Cloud Model Studio | `bailian-qwen3-7-plus` |
 | `qwen3.7-max` | `qwen/qwen3.7-max` | Alibaba Cloud Model Studio | `bailian-qwen3-7-max` |
 | `qwen3.8-max` | `qwen/qwen3.8-max` | Alibaba Cloud Model Studio | `bailian-qwen3-8-max` |
+| `qwen3.8-27b` | `qwen/qwen3.8-27b` | Alibaba Cloud Model Studio | `bailian-qwen3-8-27b` |
 | `mimo-v2.5-pro` | `xiaomi/mimo-v2.5-pro` | Xiaomi MiMo | `mimo-v2-5-pro` |
 | `mimo-v2.5` | `xiaomi/mimo-v2.5` | Xiaomi MiMo | `mimo-v2-5` |
 | `mimo-v2.5-asr` | `xiaomi/mimo-v2.5-asr` | Xiaomi MiMo | `mimo-v2-5-asr` |
@@ -59,7 +61,6 @@
 - `qwen/qwen-audio-3.0-realtime-flash`
 - `qwen/qwen-audio-3.0-realtime-plus`
 - `qwen/qwen-audio-3.0-tts-plus`
-- `qwen/qwen3.8-27b`
 - `z-ai/glm-5.3`
 
 ## 维护边界

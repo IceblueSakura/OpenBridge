@@ -3,6 +3,8 @@
 //! Qwen/DashScope documents text/audio input, text/audio output, Function Calling, and a native
 //! realtime session limit of 50 audio turns or 300 seconds. The profile does not convert those
 //! duration limits into token limits or invent Chat Completions parameter support.
+//! Qwen-Audio does not support OpenAI-compatible Chat/Responses, so this model remains unrouted
+//! until OpenBridge implements the corresponding DashScope Realtime WebSocket operation.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,

@@ -180,6 +180,24 @@ fn openai_compatible_adapters_build_relative_protocol_requests() {
             "qwen3.7-max",
         ),
         (
+            ProviderKind::Bailian,
+            ApiProtocol::ChatCompletions,
+            "/chat/completions",
+            "qwen3.8-27b",
+        ),
+        (
+            ProviderKind::Bailian,
+            ApiProtocol::Responses,
+            "/responses",
+            "qwen3.8-27b",
+        ),
+        (
+            ProviderKind::Bailian,
+            ApiProtocol::ChatCompletions,
+            "/chat/completions",
+            "kimi-k3",
+        ),
+        (
             ProviderKind::KimiCn,
             ApiProtocol::ChatCompletions,
             "/v1/chat/completions",
@@ -232,6 +250,63 @@ fn openai_compatible_adapters_build_relative_protocol_requests() {
         let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
         assert_eq!(body["model"], upstream_model, "{provider:?}");
     }
+}
+
+#[test]
+fn bailian_probed_models_bind_exact_operations_and_public_routes() {
+    // Replace the Bailian DeepSeek deployment outright with the approved dated snapshot.
+    let deepseek = registry()
+        .upstream_target("bailian-deepseek-v4-pro")
+        .expect("DeepSeek V4 Pro Bailian target must remain registered");
+    assert_eq!(
+        deepseek
+            .upstream_apis()
+            .map(|(_, api)| (api.operation(), api.upstream_model()))
+            .collect::<Vec<_>>(),
+        vec![(OperationKind::ChatCompletions, "deepseek-v4-pro-0813")]
+    );
+
+    // Keep Qwen3.8 27B dual-protocol and Kimi K3 Chat-only at the Provider boundary.
+    let qwen = registry()
+        .upstream_target("bailian-qwen3-8-27b")
+        .expect("Qwen3.8 27B Bailian target must be registered");
+    let qwen_apis = qwen
+        .upstream_apis()
+        .map(|(_, api)| (api.operation(), api.upstream_model()))
+        .collect::<Vec<_>>();
+    assert_eq!(qwen_apis.len(), 2);
+    assert!(qwen_apis.contains(&(OperationKind::ChatCompletions, "qwen3.8-27b")));
+    assert!(qwen_apis.contains(&(OperationKind::Responses, "qwen3.8-27b")));
+
+    let kimi = registry()
+        .upstream_target("bailian-kimi-k3")
+        .expect("Kimi K3 Bailian target must be registered");
+    let kimi_apis = kimi
+        .upstream_apis()
+        .map(|(_, api)| (api.operation(), api.upstream_model()))
+        .collect::<Vec<_>>();
+    assert_eq!(kimi_apis, vec![(OperationKind::ChatCompletions, "kimi-k3")]);
+
+    // Publish the new Qwen model and append Bailian after Kimi CN for the existing Kimi model.
+    assert_eq!(
+        registry()
+            .public_model("qwen3.8-27b")
+            .expect("Qwen3.8 27B must be public")
+            .routes(),
+        ["qwen3-8-27b-bailian-chat", "qwen3-8-27b-bailian-responses"]
+    );
+    assert_eq!(
+        registry()
+            .public_model("kimi-k3")
+            .expect("Kimi K3 must remain public")
+            .routes(),
+        [
+            "kimi-k3-kimi-cn-chat",
+            "kimi-k3-bailian-chat",
+            "kimi-k3-kimi-cn-responses-via-chat",
+            "kimi-k3-bailian-responses-via-chat"
+        ]
+    );
 }
 
 #[test]
@@ -308,6 +383,12 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
             &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
         ),
         (
+            ProviderKind::Bailian,
+            "qwen3.8-27b",
+            "enable_thinking",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+        ),
+        (
             ProviderKind::LongCat,
             "LongCat-2.0",
             "thinking",
@@ -358,7 +439,7 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
         ProviderKind::Bailian,
         ApiProtocol::ChatCompletions,
         &request,
-        "deepseek-v4-pro",
+        "deepseek-v4-pro-0813",
     )
     .unwrap();
     let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
@@ -369,7 +450,7 @@ fn reasoning_chat_profiles_emit_provider_official_switches() {
 #[test]
 fn bailian_deepseek_none_uses_boolean_switch_without_collapsing_other_efforts() {
     // Convert only the confirmed off level for both fixed Bailian DeepSeek deployments.
-    for upstream_model in ["deepseek-v4-pro", "deepseek-v4-flash-0731"] {
+    for upstream_model in ["deepseek-v4-pro-0813", "deepseek-v4-flash-0731"] {
         let request = ApiRequest::new(
             ApiProtocol::ChatCompletions,
             Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"none"}"#),
@@ -387,7 +468,7 @@ fn bailian_deepseek_none_uses_boolean_switch_without_collapsing_other_efforts() 
     }
 
     // Preserve the multi-level effort vocabulary instead of collapsing enabled levels to a boolean.
-    for upstream_model in ["deepseek-v4-pro", "deepseek-v4-flash-0731"] {
+    for upstream_model in ["deepseek-v4-pro-0813", "deepseek-v4-flash-0731"] {
         let request = ApiRequest::new(
             ApiProtocol::ChatCompletions,
             Bytes::from_static(br#"{"model":"public","messages":[],"reasoning_effort":"high"}"#),
@@ -434,6 +515,12 @@ fn native_responses_preserve_every_documented_reasoning_level() {
         (
             ProviderKind::Bailian,
             "qwen3.8-max",
+            &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
+            "/responses",
+        ),
+        (
+            ProviderKind::Bailian,
+            "qwen3.8-27b",
             &["none", "minimal", "low", "medium", "high", "xhigh", "max"][..],
             "/responses",
         ),

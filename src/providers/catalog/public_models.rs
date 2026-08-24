@@ -146,11 +146,18 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             public_name: "kimi-k3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                route_prefix: "kimi-k3-kimi-cn",
-                upstream_target: "kimi-cn-kimi-k3",
-                surface: PublicModelSurface::ChatNativeOnly,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    route_prefix: "kimi-k3-kimi-cn",
+                    upstream_target: "kimi-cn-kimi-k3",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    route_prefix: "kimi-k3-bailian",
+                    upstream_target: "bailian-kimi-k3",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "glm-5.2",
@@ -189,6 +196,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "qwen3-8-max-bailian",
                 upstream_target: "bailian-qwen3-8-max",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "qwen3.8-27b",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "qwen3-8-27b-bailian",
+                upstream_target: "bailian-qwen3-8-27b",
                 surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },

@@ -3,6 +3,8 @@
 //! Speech-recognition capabilities follow the qwen-audio-3.0-asr-flash model-market snapshot
 //! dated 2026-07-30. The profile does not infer native request parameters that are not published
 //! in the shared model metadata shape.
+//! Qwen-Audio does not support OpenAI-compatible Chat/Responses, so this model remains unrouted
+//! until OpenBridge implements the corresponding DashScope-native ASR operation and transport.
 
 use crate::registry::{
     CanonicalModelTask, ModelConfig, ModelContextLength, SpeechRecognitionModelProfile,

@@ -896,3 +896,159 @@ async fn mimo_text_responses_rejects_top_logprobs_before_egress() {
         assert!(!responses.iter().any(|value| value == "top_logprobs"));
     }
 }
+
+#[tokio::test]
+async fn bailian_image_models_expose_only_probed_native_media_profiles() {
+    const REMOTE_IMAGE_URL: &str = "https://example.com/image.jpeg";
+    const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=";
+    const JPEG_DATA_URL: &str = "data:image/jpeg;base64,/9j/2Q==";
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    // Admit one remote image through every image-capable Native interface.
+    let cases = [
+        ("qwen3.7-plus", "/v1/chat/completions"),
+        ("qwen3.7-plus", "/v1/responses"),
+        ("qwen3.8-max", "/v1/chat/completions"),
+        ("qwen3.8-max", "/v1/responses"),
+        ("qwen3.8-27b", "/v1/chat/completions"),
+        ("qwen3.8-27b", "/v1/responses"),
+        ("kimi-k3", "/v1/chat/completions"),
+    ];
+    for (model, path) in cases {
+        let body = if path.ends_with("chat/completions") {
+            serde_json::json!({
+                "model": model,
+                "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": REMOTE_IMAGE_URL}},
+                    {"type": "text", "text": "Describe the image."}
+                ]}]
+            })
+        } else {
+            serde_json::json!({
+                "model": model,
+                "input": [{"role": "user", "content": [
+                    {"type": "input_image", "image_url": REMOTE_IMAGE_URL},
+                    {"type": "input_text", "text": "Describe the image."}
+                ]}]
+            })
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{model} {path}");
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), cases.len());
+        for (request, (_, path)) in requests.iter().zip(cases) {
+            let forwarded = if path.ends_with("chat/completions") {
+                &request.body["messages"][1]["content"][0]["image_url"]["url"]
+            } else {
+                &request.body["input"][0]["content"][0]["image_url"]
+            };
+            assert_eq!(forwarded, REMOTE_IMAGE_URL, "{path}");
+        }
+    }
+
+    // Preserve both admitted inline MIME shapes through their native protocol wire.
+    for (path, body) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "qwen3.7-plus",
+                "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": PNG_DATA_URL}},
+                    {"type": "text", "text": "Describe the image."}
+                ]}]
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "qwen3.8-27b",
+                "input": [{"role": "user", "content": [
+                    {"type": "input_image", "image_url": JPEG_DATA_URL},
+                    {"type": "input_text", "text": "Describe the image."}
+                ]}]
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(
+            requests[cases.len()].body["messages"][1]["content"][0]["image_url"]["url"],
+            PNG_DATA_URL
+        );
+        assert_eq!(
+            requests[cases.len() + 1].body["input"][0]["content"][0]["image_url"],
+            JPEG_DATA_URL
+        );
+    }
+
+    // Expose only the single-image source and MIME shapes proven across the live matrix.
+    let expected_image = serde_json::json!({
+        "sources": ["remote_url", "data_url"],
+        "media_types": ["image/jpeg", "image/png"],
+        "detail": {"default": null, "allowed": []},
+        "limits": {
+            "max_parts": 1,
+            "max_url_length": 8_192,
+            "max_inline_encoded_bytes": 1024 * 1024,
+            "max_inline_decoded_bytes": 768 * 1024,
+            "max_total_inline_encoded_bytes": 1024 * 1024,
+            "max_total_inline_decoded_bytes": 768 * 1024
+        }
+    });
+    for model in ["qwen3.7-plus", "qwen3.8-max", "qwen3.8-27b"] {
+        let detail =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
+        for protocol in ["chat_completions", "responses"] {
+            assert_eq!(
+                detail["interfaces"][protocol]["multimodal_input"]["image"],
+                expected_image
+            );
+        }
+    }
+    let kimi = compiled_authenticated_get(&app, "/openbridge/v1/models/kimi-k3").await;
+    assert_eq!(
+        kimi["interfaces"]["chat_completions"]["multimodal_input"]["image"],
+        expected_image
+    );
+    assert!(kimi["interfaces"]["responses"]["multimodal_input"]["image"].is_null());
+
+    // Keep the text-only canonical Qwen3.7 Max from inheriting the Provider image ceiling.
+    let text_only = compiled_authenticated_get(&app, "/openbridge/v1/models/qwen3.7-max").await;
+    for protocol in ["chat_completions", "responses"] {
+        assert!(text_only["interfaces"][protocol]["multimodal_input"]["image"].is_null());
+    }
+}

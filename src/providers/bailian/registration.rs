@@ -7,15 +7,16 @@ use crate::{
         ExecutableResponsesState, JsonSchemaSupport, ReasoningOutput, ResponsesAffinity,
         StorageSupport, StructuredOutputProfile,
     },
-    models::{deepseek, qwen, z_ai},
+    models::{deepseek, moonshotai, qwen, z_ai},
     provider::ProviderKind,
     registry::{
-        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
+        CanonicalTaskKind, IgnorableGenerationParameter, ProviderInstanceConfig,
+        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
+        UpstreamTargetConfig,
     },
 };
 
-use super::DEFINITION;
+use super::{DEFINITION, media::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const NATIVE_PROVIDER_INSTANCE_ID: &str = "bailian-native";
@@ -42,7 +43,7 @@ pub(crate) fn native_provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed GLM-5.2, Qwen, and DeepSeek V4 targets for Model Studio.
+/// Builds the fixed GLM-5.2, Qwen, Kimi, and DeepSeek V4 targets for Model Studio.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target(
@@ -69,6 +70,19 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "qwen3.8-max",
             ReasoningOutput::PlainText,
         ),
+        chat_target(
+            "bailian-qwen3-8-27b",
+            qwen::qwen3_8_27b::ID,
+            "qwen3.8-27b",
+            ReasoningOutput::PlainText,
+        ),
+        // Keep Kimi Chat-only: the 2026-08-24 probe rejected its native Responses operation.
+        chat_target(
+            "bailian-kimi-k3",
+            moonshotai::kimi_k3::ID,
+            "kimi-k3",
+            ReasoningOutput::PlainText,
+        ),
         image_target(
             "bailian-qwen-image-3-0",
             qwen::qwen_image_3_0::ID,
@@ -83,7 +97,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         chat_target(
             "bailian-deepseek-v4-pro",
             deepseek::deepseek_v4_pro::ID,
-            "deepseek-v4-pro",
+            "deepseek-v4-pro-0813",
             ReasoningOutput::PlainText,
         ),
         chat_target(
@@ -127,7 +141,7 @@ fn embedding_target() -> UpstreamTargetConfig {
     }
 }
 
-/// Binds one canonical model to Model Studio's trusted Chat endpoint and credential pool.
+/// Binds one canonical model to its confirmed Model Studio Generation endpoints and credential pool.
 fn chat_target(
     id: &str,
     canonical_model: &str,
@@ -135,13 +149,21 @@ fn chat_target(
     reasoning_output: ReasoningOutput,
 ) -> UpstreamTargetConfig {
     // Narrow the Provider ceilings to the reasoning output confirmed for this specific model.
+    let image_input = matches!(
+        canonical_model,
+        qwen::qwen3_7_plus::ID
+            | qwen::qwen3_8_max::ID
+            | qwen::qwen3_8_27b::ID
+            | moonshotai::kimi_k3::ID
+    )
+    .then_some(IMAGE_INPUT);
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("Bailian generation targets require Chat Completions capabilities")
-        .to_executable(crate::core::ChatMediaProfile::default());
+        .to_executable(crate::core::ChatMediaProfile::new(image_input, None, None));
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
         profile.parallel_calls = matches!(
             canonical_model,
@@ -161,20 +183,23 @@ fn chat_target(
         qwen::qwen3_7_plus::ID => Some(QWEN3_7_PLUS_STRUCTURED_OUTPUTS),
         _ => None,
     };
-    // Bind Chat for every target and Responses only for the documented stable Qwen models.
+    // Bind Chat for every target and Responses only for Qwen models confirmed on that endpoint.
     let mut upstream_apis = vec![UpstreamApiConfig {
         key: UpstreamApiKey::new(
             crate::core::OperationKind::ChatCompletions,
             CanonicalTaskKind::Generation,
         ),
         upstream_model: upstream_model.to_owned(),
-        model_rules: UpstreamApiModelRules::default(),
+        model_rules: generation_model_rules(canonical_model),
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
         streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
     }];
     if matches!(
         canonical_model,
-        qwen::qwen3_8_max::ID | qwen::qwen3_7_max::ID | qwen::qwen3_7_plus::ID
+        qwen::qwen3_8_max::ID
+            | qwen::qwen3_8_27b::ID
+            | qwen::qwen3_7_max::ID
+            | qwen::qwen3_7_plus::ID
     ) {
         let mut responses_capabilities = DEFINITION
             .contract()
@@ -187,7 +212,7 @@ fn chat_target(
                     StorageSupport::Unsupported,
                     ResponsesAffinity::TargetBound,
                 ),
-                crate::core::ResponsesMediaProfile::default(),
+                crate::core::ResponsesMediaProfile::new(image_input, None),
             );
         responses_capabilities.function_tools =
             responses_capabilities.function_tools.map(|mut profile| {
@@ -196,7 +221,7 @@ fn chat_target(
             });
         // Real probing (2026-08-11) shows qwen3.7-plus Responses accepts json_object only;
         // json_schema is silently downgraded, so it is not advertised. Other Responses
-        // targets in this branch (qwen3.8-max, qwen3.7-max) are not covered by that probe
+        // targets in this branch (qwen3.8-max, qwen3.8-27b, qwen3.7-max) are not covered by that probe
         // and stay narrowed to no structured outputs despite the Provider ceiling.
         responses_capabilities.structured_outputs = if canonical_model == qwen::qwen3_7_plus::ID {
             Some(StructuredOutputProfile::JsonObject)
@@ -228,6 +253,27 @@ fn chat_target(
         enabled: true,
         upstream_apis,
     }
+}
+
+/// Applies model-specific parameter boundaries not shared by the Bailian Provider ceiling.
+fn generation_model_rules(canonical_model: &str) -> UpstreamApiModelRules {
+    if canonical_model == moonshotai::kimi_k3::ID {
+        return UpstreamApiModelRules {
+            disabled_parameters: vec![
+                "logprobs".to_owned(),
+                "n".to_owned(),
+                "top_logprobs".to_owned(),
+            ],
+            ignored_parameters: vec![
+                IgnorableGenerationParameter::FrequencyPenalty,
+                IgnorableGenerationParameter::PresencePenalty,
+                IgnorableGenerationParameter::Temperature,
+                IgnorableGenerationParameter::TopP,
+            ],
+            ..UpstreamApiModelRules::default()
+        };
+    }
+    UpstreamApiModelRules::default()
 }
 
 /// Binds one image model to the DashScope-native multimodal-generation endpoint and credential pool.

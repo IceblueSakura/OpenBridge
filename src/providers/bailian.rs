@@ -5,6 +5,7 @@
 //! request-selected endpoint or key.
 
 mod definition;
+mod media;
 mod registration;
 
 pub(crate) use definition::DEFINITION;

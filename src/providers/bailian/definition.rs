@@ -1,4 +1,5 @@
-//! Static Alibaba Cloud Model Studio Provider contract and OpenAI-compatible Chat/Embeddings profile.
+//! Static Alibaba Cloud Model Studio contract for OpenAI-compatible Chat/Responses/Embeddings and
+//! DashScope-native Images.
 
 use http::HeaderMap;
 
@@ -20,6 +21,8 @@ use crate::{
         take_chat_reasoning_switch,
     },
 };
+
+use super::media::IMAGE_INPUT;
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
     &[EmbeddingInputForm::String, EmbeddingInputForm::StringArray];
@@ -72,7 +75,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             streaming: true,
             stream_usage: true,
             function_tools: Some(FUNCTION_TOOLS),
-            media: crate::core::ChatMediaProfile::new(None, None, None),
+            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -95,7 +98,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: true,
                 strict_schema: false,
             }),
-            media: crate::core::ResponsesMediaProfile::new(None, None),
+            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,
@@ -267,7 +270,7 @@ fn transform_request_body(
     // Convert every admitted Qwen reasoning level to its confirmed boolean Chat switch.
     let qwen_boolean_thinking = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus")
+        Some("qwen3.8-max" | "qwen3.8-27b" | "qwen3.7-max" | "qwen3.7-plus")
     );
     if qwen_boolean_thinking && let Some(enabled) = take_chat_reasoning_switch(protocol, document)?
     {
@@ -280,7 +283,7 @@ fn transform_request_body(
     // Convert only DeepSeek's off level while preserving its multi-level effort vocabulary.
     let bailian_deepseek = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("deepseek-v4-pro" | "deepseek-v4-flash-0731")
+        Some("deepseek-v4-pro-0813" | "deepseek-v4-flash-0731")
     );
     if protocol == crate::core::ApiProtocol::ChatCompletions
         && bailian_deepseek
