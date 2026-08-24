@@ -83,7 +83,7 @@
 | LongCat | 更多 reasoning 档位和 tool 形状、强制 Bridge/fallback、外部 SDK/Agent、负载与长期运行。 |
 | DeepSeek | Vision Files API/`file_id`、role/像素边界本地预检、600 图与 remote/mixed 64 MiB 极限、任意 remote host 可下载性、恶意图片、视觉质量与更高阶多能力组合未证明；inline executable profile 保守限制为累计 decoded 32 MiB。Pro `low` 的官方资料仍冲突，`parallel_tool_calls` 请求开关、hosted/custom tool、structured-output SSE、强制 fallback、其他账号/区域和长期运行也未证明。 |
 | Xiaomi MiMo | video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行。 |
-| OpenRouter | Gemini/Grok file/audio/video、Grok 小图尺寸边界、更多图片格式/数量/大小、强制 DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行未证明；公开目录字段不自动成为 executable capability。 |
+| OpenRouter | MiniMax 图片输入没有模型级真实 Provider 证据；Gemma 的历史 probe 只证明单张 PNG data URL，不能支撑共享 profile 的 JPEG、remote URL、4-part 与大小上限；两者当前 executable interface 均保持 text-only。Gemini/Grok file/audio/video、Grok 小图尺寸边界、更多图片格式/数量/大小、强制 DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行未证明；公开目录字段不自动成为 executable capability。 |
 | NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |
 | Alibaba Cloud Model Studio | LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
 | Kimi CN | 其他 Moonshot endpoint、原生 Responses、更多参数组合、账号权限、外部 SDK/Agent、负载与长期运行。历史 `none` 结果不证明当前可关闭 reasoning。 |

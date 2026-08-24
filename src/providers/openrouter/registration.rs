@@ -66,12 +66,13 @@ fn dual_protocol_target(
     canonical_model: &str,
     upstream_model: &str,
 ) -> UpstreamTargetConfig {
-    // Narrow the generic OpenRouter ceiling to model-specific DeepSeek JSON Output evidence.
-    let chat_media = crate::core::ChatMediaProfile::new(
-        (canonical_model != deepseek::deepseek_v4_flash::ID).then_some(IMAGE_INPUT),
-        None,
-        None,
+    // Expose image input only for models covered by the model-specific Provider probe.
+    let supports_image_input = matches!(
+        canonical_model,
+        google::gemini_3_7_flash::ID | xai::grok_4_6::ID
     );
+    let chat_media =
+        crate::core::ChatMediaProfile::new(supports_image_input.then_some(IMAGE_INPUT), None, None);
     let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
@@ -79,11 +80,7 @@ fn dual_protocol_target(
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("OpenRouter targets require Chat Completions capabilities")
         .to_executable(chat_media);
-    let responses_image = matches!(
-        canonical_model,
-        google::gemini_3_7_flash::ID | xai::grok_4_6::ID
-    )
-    .then_some(IMAGE_INPUT);
+    let responses_image = supports_image_input.then_some(IMAGE_INPUT);
     let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()

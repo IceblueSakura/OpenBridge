@@ -1316,6 +1316,53 @@ async fn deepseek_vision_exposes_and_preserves_its_direct_image_contract() {
 }
 
 #[tokio::test]
+async fn openrouter_unprobed_models_reject_chat_images_before_egress() {
+    const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPac";
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    for public_model in ["minimax-m3", "gemma-4-31b-it"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(
+                        serde_json::json!({
+                            "model": public_model,
+                            "messages": [{"role": "user", "content": [
+                                {"type": "text", "text": "Describe the image."},
+                                {"type": "image_url", "image_url": {"url": PNG_DATA_URL}}
+                            ]}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{public_model}");
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
+                .await;
+        for protocol in ["chat_completions", "responses"] {
+            let multimodal_input = &model["interfaces"][protocol]["multimodal_input"];
+            assert_eq!(multimodal_input.get("image"), Some(&Value::Null));
+        }
+    }
+
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn openrouter_new_models_expose_probed_dual_native_image_and_reasoning_contracts() {
     const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPac";
     let transport = Arc::new(RecordingTransport::default());
