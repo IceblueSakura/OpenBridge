@@ -4,7 +4,7 @@
 
 - 调研对象：Hermes Agent 本机安装版本 `v0.20.0 (2026.8.3)`，安装目录 `C:\Users\IceblueSakura\AppData\Local\hermes\hermes-agent`。
 - 阅读范围：`hermes_cli/plugins.py`（PluginContext/PluginManager、VALID_HOOKS、VALID_MIDDLEWARE 引用）、`hermes_cli/middleware.py`（middleware 契约）、`agent/auxiliary_client.py`（aux 分派）、`plugins/model-providers/litellm`（standalone 管理工具先例）、`plugins/web/`、`plugins/platforms/`。
-- 前置文档：`hermes-provider-plugin-capabilities.md`（ProviderProfile 字段/hooks 与 aux 分派）、`hermes-models-endpoint-schema.md`（/models 数据契约）。
+- 前置文档：`hermes-provider-plugin-capabilities.md`（ProviderProfile 字段/hooks 与 aux 分派）。模型 metadata 不在本地 reference 中复制。
 - 本文评估对象：作为 Hermes 推理后端和工具提供方的自研 OpenAI-compatible 聚合网关；只比较插件系统提供的外部接入面。
 - **未覆盖**：`register_secret_source`；源码语义见 plugins.py:824，插件 source 不参与首进程 bootstrap。
 - 动态事实为 2026-08-08 阅读快照；升级 Hermes 后须重新复核。

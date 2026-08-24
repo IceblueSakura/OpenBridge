@@ -7,7 +7,6 @@ URL 与原始证据由链接的项目文档维护。本索引没有刷新任何�
 |---|---|---|
 | Chat/Responses、SSE 与 tools | [协议测试资产综合](chat-responses-sse-tool-test-suite-survey.md) | OpenAI/gpt-oss、Open Responses、Codex、LiteLLM |
 | Credential retry/cooldown | [Pool、cooldown 与有限重试](credential-pool-retry-analysis.md) | CLIProxyAPI、LiteLLM、cc-switch |
-| Model information | [LiteLLM 与 OpenRouter 模型信息](model-information-comparison.md) | LiteLLM、OpenRouter |
 | OAuth device/refresh | [设备登录与 token refresh](upstream-oauth-device-code-token-refresh-analysis.md) | RFC、Codex、CLIProxyAPI、Hermes、LiteLLM |
 
 跨项目的证据角色与互证关系见[参考项目调研总览](../project-comparison.md)。综合结论只说明可比较的共性、差异和未知项，不构成

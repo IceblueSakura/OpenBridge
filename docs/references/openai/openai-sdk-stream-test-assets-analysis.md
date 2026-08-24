@@ -18,4 +18,4 @@
 SDK 可证明特定版本客户端能否消费一个 wire response，并帮助识别 accumulator 所需字段。它不提供跨协议 golden oracle，也不证明
 Provider、gateway 或其他 SDK 的完整兼容性。使用时必须固定 SDK 版本。
 
-Chat SSE 的协议 owner 见 [Chat Completions SSE](chat-completions/streaming.md)。
+Chat SSE 的协议 owner 见 [Chat Completions SSE](chat-completions-streaming.md)。

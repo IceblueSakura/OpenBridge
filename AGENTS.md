@@ -49,6 +49,14 @@ Route maintained facts by meaning:
 - External protocol, SDK, client, and reference-project facts: `docs/references/`.
 - Local implementation rationale: module/API documentation unless it changes a cross-cutting contract.
 
+For model information that is directly available from an official model page or OpenRouter, record the source URL,
+source identity, and recheck boundary instead of copying the complete metadata payload or capability table. Current
+Model-to-Provider/Target/Public Model relationships may be documented as implementation mappings, but capability facts
+belong in `src/models/`, `src/providers/`, the runtime extended Models API, or the external source. Create a separate
+dated evidence record only when an executed test contradicts the cited official/OpenRouter claim; preserve the exact
+source claim, observed delta, endpoint, model ID, payload boundary, account/region/network boundary, and what the test
+does not prove. Do not promote a directory disagreement or untested inference into a verified discrepancy.
+
 Do not create speculative future-design, roadmap, or decision-history documents. Follow `docs/README.md` maintenance
 rules.
 

@@ -75,12 +75,12 @@ Responses `input_file` 共用一种协议。
 | Operation | Method/path | Wire 与状态 | 最低 fake | 聚合判断 |
 |-----------|-------------|-------------|-----------|----------|
 | Moderations | `POST /v1/moderations` | JSON 文本、文本数组或 text/image part → JSON `results[]` | F0 | 高适配；最小的新 operation contract |
-| Embeddings | `POST /v1/embeddings` | JSON → ordered vector list | F0 | 高适配；字段细节见[Embeddings](embeddings/create.md) |
-| Images generations | `POST /v1/images/generations` | JSON → URL/Base64；部分 profile 有专用 stream | F0，stream 为 F1 | 高适配；见[Images Generations](images/generations.md) |
+| Embeddings | `POST /v1/embeddings` | JSON → ordered vector list | F0 | 高适配；字段细节见[Embeddings](embeddings-create.md) |
+| Images generations | `POST /v1/images/generations` | JSON → URL/Base64；部分 profile 有专用 stream | F0，stream 为 F1 | 高适配；见[Images Generations](images-generations.md) |
 
 Moderations 的 `input` 是 string、string array 或多模态 text/image object array；结果包含实际 model、每项 `flagged`、categories、
 category scores 和 category-to-input-type 信息。fake 可以精确验证 union、顺序和 schema，但合成分数绝不证明安全分类质量。字段与动态
-model 快照见 [Moderations owner 文档](moderations/create.md)。
+model 快照见 [Moderations owner 文档](moderations-create.md)。
 
 ### 4.2 Multipart、binary 与专用 stream
 
@@ -92,8 +92,8 @@ model 快照见 [Moderations owner 文档](moderations/create.md)。
 | Audio transcriptions | `POST /v1/audio/transcriptions` | multipart audio → JSON/text/subtitle 或 transcription stream | F1 | 高适配；同一 path 有多种 response media type |
 | Audio translations | `POST /v1/audio/translations` | multipart audio → translated text/JSON | F1 | 高适配；与 transcription 是独立 operation |
 
-图片细节见 [Edits/Variations](images/edits-and-variations.md)；音频细节见
-[Speech](audio/speech.md)、[Transcriptions](audio/transcriptions.md)和[Translations](audio/translations.md)。这些 operation 不能复用
+图片细节见 [Edits/Variations](images-edits-and-variations.md)；音频细节见
+[Speech](audio-speech.md)、[Transcriptions](audio-transcriptions.md)和[Translations](audio-translations.md)。这些 operation 不能复用
 Chat data-only SSE 或 Responses typed SSE 的 terminal 规则。
 
 ### 4.3 同一模态但不是新 endpoint 的能力
@@ -116,10 +116,10 @@ Endpoint coverage 与 schema/tool coverage 必须分开报告，否则“path �
 | Responses utility | `POST /v1/responses/input_tokens`；`POST /v1/responses/compact` | F0/F2 | tokenizer/model contract；compaction output ownership |
 | Conversation | `POST /v1/conversations`；`GET`/`POST`/`DELETE /v1/conversations/{conversation_id}` | F2 | long-lived identity、metadata、retention |
 | Conversation items | `POST`/`GET /v1/conversations/{conversation_id}/items`；`GET`/`DELETE /v1/conversations/{conversation_id}/items/{item_id}` | F2 | ordered items、pagination、item/conversation ownership |
-| Responses WebSocket mode | `wss://api.openai.com/v1/responses`，连接内发送 `response.create` event | F4 | persistent connection、incremental input、`previous_response_id`、event terminal；见[owner 文档](responses/websocket.md) |
+| Responses WebSocket mode | `wss://api.openai.com/v1/responses`，连接内发送 `response.create` event | F4 | persistent connection、incremental input、`previous_response_id`、event terminal；见[owner 文档](responses-websocket.md) |
 
-Stored Chat 详情见 [Stored Chat resources](chat-completions/stored-resources.md)，Responses resource 见
-[Resource lifecycle](responses/resource-lifecycle.md)，conversation 语义见 [State ownership](responses/state.md)。这些 endpoint 的 id 必须
+Stored Chat 详情见 [Stored Chat resources](chat-completions-stored-resources.md)，Responses resource 见
+[Resource lifecycle](responses-resource-lifecycle.md)，conversation 语义见 [State ownership](responses-state.md)。这些 endpoint 的 id 必须
 回到原 issuer/account；随机重新选 route 会把“资源不存在”与“路由错误”混为一谈。
 
 Responses WebSocket mode 虽复用 `/v1/responses` 和 Responses event vocabulary，但它不是 HTTP SSE 的一个布尔开关。官方当前指南要求持久
@@ -136,9 +136,9 @@ transport 字段。
 | Vector Store files | CRUD/list/content `/v1/vector_stores/{vector_store_id}/files/*` | F2 | 中；file identity 与 membership identity 分离 |
 | Vector Store file batches | create/retrieve/list/cancel `/v1/vector_stores/{vector_store_id}/file_batches/*` | F2/F3 | 中到低；processing state 与批量 membership |
 
-详细 wire 与 lifecycle 分别见 [Files Create](files/create.md)、[Metadata/Delete](files/metadata-and-delete.md)、
-[Content download](files/content-download.md)、[Uploads transaction](files/uploads-transaction.md)和
-[Vector Stores](files/vector-stores.md)。Files/Uploads 是多个后续 family 的基础资源，但资源 id 不能跨 Provider 或账户透明互换。
+详细 wire 与 lifecycle 分别见 [Files Create](files-create.md)、[Metadata/Delete](files-metadata-and-delete.md)、
+[Content download](files-content-download.md)、[Uploads transaction](files-uploads-transaction.md)和
+[Vector Stores](files-vector-stores.md)。Files/Uploads 是多个后续 family 的基础资源，但资源 id 不能跨 Provider 或账户透明互换。
 
 ## 6. W 档：异步作业与回调
 
@@ -170,8 +170,8 @@ Videos 的关闭日期是强时效边界。现有 owner 文档只保留关闭前
 | WebSocket data plane | `/v1/realtime`；`/v1/realtime/translations` | F4 | 双向 typed JSON/audio event、backpressure、close/reconnect |
 | Legacy Realtime Beta | `POST /v1/realtime/sessions`；`POST /v1/realtime/transcription_sessions` | F2/F4 | 只为明确 legacy client 固定旧 schema |
 
-完整 endpoint 与 transport 边界见 [Realtime control plane](realtime/control-plane.md)和
-[Realtime transport](realtime/transport.md)。Audio Speech/Transcription 的 F1 成功不能外推为 Realtime；Responses SSE 或 Responses
+完整 endpoint 与 transport 边界见 [Realtime control plane](realtime-control-plane.md)和
+[Realtime transport](realtime-transport.md)。Audio Speech/Transcription 的 F1 成功不能外推为 Realtime；Responses SSE 或 Responses
 WebSocket 的 event vocabulary 也不能外推为 Realtime session。
 
 ## 8. B/P/A/L 档：不应默认纳入普通聚合数据面

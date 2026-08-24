@@ -32,15 +32,15 @@ OpenAPI shape 不能替代 model capability、tool lifecycle、resource retentio
 | Chat Completions          | `/chat/completions`                                                           | [Chat 文档组](README.md#1-chat-completions)   |
 | Responses                 | `/responses`、`/responses/{id}/*`                                             | [Responses 文档组](README.md#2-responses)     |
 | Responses Multi-agent Beta | 独立 beta create/resource/stream/WebSocket family                            | [跨 family 证据边界](endpoint-adoption-and-fake-testing.md) |
-| Embeddings                | `/embeddings`                                                                 | [Embeddings](embeddings/create.md)            |
+| Embeddings                | `/embeddings`                                                                 | [Embeddings](embeddings-create.md)            |
 | Images                    | `/images/generations`、`/images/edits`、`/images/variations`                  | [图片文档组](README.md#4-图片)                |
 | Files/Uploads             | `/files/*`、`/uploads/*`                                                       | [文件文档组](README.md#5-文件与检索资源)      |
-| Vector Stores             | `/vector_stores/*`                                                            | [Vector Stores](files/vector-stores.md)       |
+| Vector Stores             | `/vector_stores/*`                                                            | [Vector Stores](files-vector-stores.md)       |
 | Audio                     | `/audio/speech`、`/audio/transcriptions`、`/audio/translations`、`/audio/voice_consents/*`、`/audio/voices` | [音频文档组](README.md#6-音频与语音) |
 | Realtime                  | `/realtime`、`/realtime/client_secrets`、`/realtime/translations/*`、`/realtime/calls/*` 与 WebRTC/WebSocket/SIP | [Realtime 文档组](README.md#7-realtime) |
 | Videos                    | `/videos`、`/videos/{id}/*`、`/videos/edits`、`/videos/extensions`、`/videos/characters/*` | [视频文档组](README.md#8-视频) |
-| Conversations             | `/conversations/*`                                                            | [Responses state](responses/state.md)         |
-| Moderations               | `/moderations`                                                                | [Moderations Create](moderations/create.md)    |
+| Conversations             | `/conversations/*`                                                            | [Responses state](responses-state.md)         |
+| Moderations               | `/moderations`                                                                | [Moderations Create](moderations-create.md)    |
 | Content Provenance        | `/content_provenance_checks`                                                  | [跨 family 证据边界](endpoint-adoption-and-fake-testing.md) |
 | Models                    | `/models`、`/models/{model}`                                                   | 证据边界说明 list/retrieve 与 fine-tuned delete 的区别 |
 | Batch/Fine-tuning/Evals   | `/batches/*`、`/fine_tuning/*`、`/evals/*`                                    | [跨 family 证据边界](endpoint-adoption-and-fake-testing.md) |

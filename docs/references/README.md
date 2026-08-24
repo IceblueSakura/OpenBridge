@@ -12,20 +12,20 @@ commit 为准；目录索引只负责导航和维护规则，不用较新的索�
 | 类别 | 入口 | 内容 |
 |---|---|---|
 | OpenAI 协议与 SDK | [OpenAI 调研索引](openai/README.md) | API operation、SDK consumer、gpt-oss 与 Open Responses 测试资产 |
-| Provider | [Provider 调研索引](providers/README.md) | 各上游 API、模型目录、固定 wire 观察与脱敏原始快照 |
+| Provider | [Provider 调研索引](providers/README.md) | 各上游 API、认证、固定 wire 与专项媒体观察 |
 | MCP | [MCP Rust 生态索引](mcp/README.md) | MCP 规范、远程访问模式与 Rust SDK |
 | 参考项目 | [参考项目总览](project-comparison.md) | 项目证据角色、互证关系与局限 |
 | Codex | [Codex 调研索引](codex/README.md) | SSE、tool lifecycle、OAuth 与测试资产 |
 | Hermes Agent | [Hermes 调研索引](hermes/README.md) | Chat/Responses consumer、credential lifecycle 与插件能力 |
-| LiteLLM | [LiteLLM 调研索引](litellm/README.md) | Proxy、转换、模型信息、observability、retry 与 OAuth |
+| LiteLLM | [LiteLLM 调研索引](litellm/README.md) | Proxy、转换、observability、retry 与 OAuth |
 | new-api | [new-api 调研索引](new-api/README.md) | 多协议转换、渠道路由、计费与运维机制 |
 | cc-switch | [Chat/Responses tool conversion](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[retry/failover](cc-switch/cc-switch-retry-failover-analysis.md) | 桌面客户端 bridge 与 Provider failover |
 | CLIProxyAPI | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 订阅账号代理的 state、cooldown 与 OAuth lifecycle |
 | 跨项目综合 | [综合调研索引](cross-project/README.md) | 只汇总已经存在项目级前置文档的比较 |
 
 语音资料按证据所有权分开：标准 Audio/Speech、Chat audio 与 Realtime wire 见
-[OpenAI 音频与语音索引](openai/README.md#6-音频与语音)；MiMo 模型语音能力见
-[Xiaomi MiMo 语音能力](providers/xiaomi/audio.md)。模型具备音频能力不等于兼容某个标准 endpoint。
+[OpenAI 音频与语音索引](openai/README.md#6-音频与语音)；MiMo wire 见
+[Xiaomi MiMo 语音协议](providers/xiaomi-audio.md)。模型具备音频能力不等于兼容某个标准 endpoint。
 
 ## 2. 叶文档元数据合同
 
@@ -49,6 +49,8 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 3. OpenBridge 需求、当前代码、配置、测试结果和目标数据类型不写入参考叶文档；需要比较时只保留中性的采用边界。
 4. 原始 JSON 等非 Markdown 资产必须有一个明确的 Markdown owner，记录采集、脱敏、大小/校验或复核边界。
 5. 不为只有少量叶文档的目录机械增加 README；本页直接导航 cc-switch 与 CLIProxyAPI。
+6. 对 official website 或 OpenRouter 可直接取得的模型信息，只记录来源 URL、来源身份、`Last reverified` 与 `Recheck trigger`；不保存完整 capability metadata、字段表、价格表、Provider 全量 Models 响应或原始 payload。
+7. 当前 Model↔Provider 关系由 implementation status 维护，能力字段回到代码、运行中的扩展 Models API 或外部官方文档。只有执行测试与引用来源矛盾时，才由 implementation evidence 单独记录来源声明和观察差异；来源之间的静态字段差异本身不构成测试证据。
 
 ## 4. 固定项目基线
 
@@ -58,7 +60,7 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 |---|---|---|---|
 | Codex | [Apache-2.0](https://github.com/openai/codex/blob/main/LICENSE) | `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | device/browser auth、refresh、Responses SSE/tool tests |
 | Hermes Agent | [MIT](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) | `main` @ `a31be48030f60383bf4c1d96ba46bd4b48430218` | Chat/Responses mode 与上游请求；credential lifecycle 见专项快照 |
-| LiteLLM | [MIT；enterprise subtree 另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE) | `litellm_internal_staging` @ `23de7a15d9d40006ee596e617475ba101d60c5e9` | Responses routes、ChatGPT authenticator、model/metrics modules |
+| LiteLLM | [MIT；enterprise subtree 另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE) | `litellm_internal_staging` @ `23de7a15d9d40006ee596e617475ba101d60c5e9` | Responses routes、ChatGPT authenticator、metrics modules |
 | new-api | [GNU AGPL v3](https://github.com/QuantumNous/new-api/blob/2d8e50bf36e94200b809dfb39e73624ec48b1e23/LICENSE) | `main` @ `2d8e50bf36e94200b809dfb39e73624ec48b1e23` | 请求主链、converter registry、渠道路由、计费与后台任务 |
 | cc-switch | [MIT](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | bridge state、history、retry/failover |
 | CLIProxyAPI | [MIT](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | stateful translator、credential retry、OAuth scheduler |

@@ -25,5 +25,5 @@
 不覆盖：确定性跨协议转换、任意 SSE bytes 分片、复杂并行 call 交错、完整 terminal/cancel 或 fault injection。分别运行 Chat 与
 Responses 也不证明二者语义转换正确。
 
-对应协议 owner 见 [Chat Function tools](chat-completions/function-tools.md)与
-[Responses Function tools](responses/function-tools.md)。
+对应协议 owner 见 [Chat Function tools](chat-completions-function-tools.md)与
+[Responses Function tools](responses-function-tools.md)。

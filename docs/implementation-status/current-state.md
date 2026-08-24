@@ -21,8 +21,8 @@
 - 私有 `users.toml` 只提供下游用户/API key；私有 `upstream-credentials.toml` 只激活代码注册的 API-key pool 或 OAuth auth-file locator，不能新增 Provider、Target、Route、endpoint 或能力。
 - 未知、重复、类型/Provider 不匹配或损坏 binding 在 listener 前失败；缺失或空 API-key pool 只禁用引用它的静态 Target。
 - Rust catalog 显式注册闭合的 Provider family、canonical Model、Provider instance、credential pool、Upstream Target/API、Route 与 Public Model，并编译为 immutable `RuntimeRegistry`。
-- Canonical catalog 可以包含尚未被任何 Target、Route 或 Public Model 引用的模型事实；`z-ai/glm-5.3`、`deepseek/deepseek-v4-flash-vision-exp`、`qwen/qwen-audio-3.0-asr-flash`、`qwen/qwen-audio-3.0-realtime-flash`、`qwen/qwen-audio-3.0-realtime-plus`、`qwen/qwen-audio-3.0-tts-plus` 与 `qwen/qwen3.8-27b` 当前仅处于该状态，不会出现在运行时 Models API。
-- `models::{deepseek,qwen,z_ai}::tests` 中的 catalog contracts 固定上述模型 facts 及两个已移除 Qwen ID 的缺失状态；2026-08-24 已通过 `cargo fmt -- --check`、`cargo test --locked` 和 `cargo clippy --locked -- -D warnings`。
+- Canonical Model、Provider Target 与 Public Model 的当前关系集中维护在[Model 与 Provider 映射](model-provider-mapping.md)；本页不复制单模型清单或 capability metadata。
+- `models::{deepseek,qwen,z_ai}::tests` 中的 catalog contracts 固定近期模型 facts 及两个已移除 Qwen ID 的缺失状态；2026-08-24 已通过 `cargo fmt -- --check`、`cargo test --locked` 和 `cargo clippy --locked -- -D warnings`。
 - Provider contract 是 capability ceiling；每个 Target/API 必须显式收窄。Public Model compiler 对全部固定 candidate 保守求交，请求能力不筛选、跳过或重排 candidate。
 - Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`；只在缺失下游协议 Native coverage 时为允许的单协议 source 补充 Bridge。Embeddings、Images 和专用音频 task 使用独立 operation contract。
 - `openbridge-auth login chatgpt` 通过固定 device interaction 或 authorization-code + PKCE 取得完整 bundle，并事务写入 OpenBridge-owned auth file。常驻服务只在 guarded refresh 或首个预提交 401 recovery 中 reload/rotate。
@@ -81,23 +81,9 @@
 
 完整请求、能力和资源限制由[扩展能力需求](../functional-requirements/extended-capabilities.md)拥有；本页不复制其验收合同。
 
-## 7. Provider 注册摘要
+## 7. Provider 注册
 
-运行时 Models 可见性受 active credential pool 收窄。下表只描述 checked-in 静态注册，不表示实时可达、账号 entitlement 或真实 Provider 验收。
-
-| Provider family | 静态注册摘要 |
-|---|---|
-| ChatGPT | 五个 Responses-only Target，共享 OAuth pool；Chat 由受限 Bridge 提供；`gpt-5.6-sol` 与 OpenAI source 聚合。 |
-| OpenAI | `gpt-5.6-sol` Chat/Responses 后备 source，以及独立 `text-embedding-3-small` Route。 |
-| LongCat | `LongCat-2.0` Chat/Responses Native，并提供两个显式 Bridge surface。 |
-| DeepSeek | V4 Pro/Flash Chat/Responses Native；Flash 与 Bailian/OpenRouter source 聚合。 |
-| Xiaomi MiMo | `mimo-v2.5-pro` text；`mimo-v2.5` text/image/audio understanding；四个专用音频 task。 |
-| OpenRouter | DeepSeek V4 Flash、MiniMax M3、Gemma 4 31B 的固定 stateless Chat/Responses Target。 |
-| NVIDIA | MiniMax M3 Chat 后备，以及独立 Nemotron Embeddings Route。 |
-| Alibaba Cloud Model Studio | Qwen/GLM/DeepSeek generation、Qwen Embeddings、Qwen Images；Qwen Audio ASR/Realtime/TTS 只有 canonical Model。 |
-| Kimi CN | Kimi K3 Chat Native，并在缺少 Responses Native 时提供 Responses-via-Chat Bridge。 |
-
-Provider 的字段级能力仍以 registry source 与运行中的扩展 Models 为准；带日期的真实观察统一链接到[evidence](evidence/README.md)。
+当前 Model、Provider Target、候选顺序和 Public Model 关系见[Model 与 Provider 映射](model-provider-mapping.md)。运行时可见性还受 active credential pool 收窄；静态映射不表示实时可达、账号 entitlement 或真实 Provider 验收。字段级能力以 registry source 与运行中的扩展 Models API 为准；带日期的真实观察统一链接到[evidence](evidence/README.md)。
 
 ## 8. 观测与测试资产
 

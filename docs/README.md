@@ -9,10 +9,11 @@
 |---|---|---|
 | 安装、配置和调用 | [根 README](../README.md) | 配置模板、OpenAPI、常见问题 |
 | 判断产品应保持什么行为 | [功能需求](functional-requirements/README.md) | 对应功能域的合同、失败语义与非目标 |
-| 判断当前代码已实现什么 | [实施现状](implementation-status/README.md) | feature、Provider、test asset 与 evidence |
+| 判断当前代码已实现什么 | [实施现状](implementation-status/README.md) | 当前实现、架构、映射、边界与 evidence |
 | 查看当前保留的实施优先级 | [实施计划入口](implementation-plans/README.md) | [当前开发焦点](implementation-plans/current-focus.md)及对应需求、测试和状态页 |
 | 核验外部协议或 Provider 事实 | [参考资料](references/README.md) | 固定 source snapshot 与重新核验边界 |
 | 查看当前实现与源码 owner | [当前实现](implementation-status/current-state.md) | [当前代码架构](implementation-status/current-architecture.md) |
+| 查看 Model 与 Provider 的当前映射 | [Model 与 Provider 映射](implementation-status/model-provider-mapping.md) | Provider Target 与 Public Model 注册 |
 | 查看未实现与未验证范围 | [当前状态边界](implementation-status/current-boundaries.md) | 带日期的外部 evidence |
 
 ## 2. 文档类别与唯一职责
@@ -25,6 +26,10 @@
 | `references/` | 外部协议、SDK、Provider、客户端和参考项目事实 | OpenBridge 当前实现、产品承诺或实施步骤 |
 
 本地实现理由优先写在模块/API 文档中；只有形成跨模块产品合同或实施事实时，才进入上述文档。
+
+文档不维护单模型 context、模态、tokenizer、reasoning、参数或价格副本。对于可直接从 official website 或 OpenRouter 获取的信息，优先记录来源 URL、来源身份、最后复核日期和重新核验条件，不复制完整 payload 或能力表。当前映射只记录 Model、Provider Target 与 Public Model 关系；模型能力由代码和运行中的扩展 Models API 自描述，外部动态事实由官方文档描述。
+
+只有已执行测试与所引用的 official/OpenRouter 声明不一致时，才新增带日期 evidence；记录必须只描述来源声明与实际观察的差异，并保留 endpoint、model ID、payload、账户/地域/网络边界和“不证明什么”。目录之间的字段差异、缺失字段或未经请求验证的推论不能写成已验证差异。
 
 ## 3. 运行时契约资产
 
@@ -46,7 +51,7 @@ OpenAPI 描述当前 system 与 OpenAI-compatible HTTP surface，不包含 MCP d
 | Route ordering、retry/fallback、cooldown | [路由与韧性](functional-requirements/routing-resilience.md) | [当前实现](implementation-status/current-state.md) |
 | Embeddings、图片、文件与音频 | [扩展能力](functional-requirements/extended-capabilities.md) | [当前状态边界](implementation-status/current-boundaries.md) |
 | 本地内容日志与 OpenTelemetry | [观测需求](functional-requirements/observability.md) | [当前实现](implementation-status/current-state.md) |
-| Provider 当前接入 | 对应产品/能力需求 | [当前实现](implementation-status/current-state.md#7-provider-注册摘要) |
+| Provider 当前接入 | 对应产品/能力需求 | [当前实现](implementation-status/current-state.md#7-provider-注册) |
 | 外部 OpenAI/Provider/项目事实 | 不构成需求 | [参考资料](references/README.md) |
 
 ## 5. 变更工作流

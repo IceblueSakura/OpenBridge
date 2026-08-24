@@ -149,7 +149,7 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
 
 非目标包括 embedding Bridge、向量归一化、降维、缓存、索引、检索和根据向量能力动态选路。
 
-- [OpenAI Embeddings Create 调研](../references/openai/embeddings/create.md)
+- [OpenAI Embeddings Create 调研](../references/openai/embeddings-create.md)
 
 ## Native 图片输入
 
@@ -235,9 +235,9 @@ Data-only 的 URL limit 投影为 `0`，Both 投影两组正数。`0` 不是 cor
 
 非目标包括 Images API、图片生成/编辑/variation、file-backed resource、媒体下载代理、OCR、格式转换和多模态 Bridge。
 
-- [OpenAI Chat 图片输入调研](../references/openai/images/chat-input.md)
-- [OpenAI Responses 图片输入调研](../references/openai/images/responses-input.md)
-- [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi/image.md)
+- [OpenAI Chat 图片输入调研](../references/openai/images-chat-input.md)
+- [OpenAI Responses 图片输入调研](../references/openai/images-responses-input.md)
+- [Xiaomi MiMo 图片协议与真实观察](../references/providers/xiaomi-image.md)
 
 ## Native 文件输入
 
@@ -298,8 +298,8 @@ Search 生命周期；共同规则见[扩展共同规则](extended-capabilities.
 
 非目标包括 Files lifecycle、Uploads、Vector Stores、File Search、资源 ledger、跨 Provider migration、媒体托管与通用安全扫描。
 
-- [OpenAI Chat 文件输入调研](../references/openai/files/chat-input.md)
-- [OpenAI Responses 文件输入调研](../references/openai/files/responses-input.md)
+- [OpenAI Chat 文件输入调研](../references/openai/files-chat-input.md)
+- [OpenAI Responses 文件输入调研](../references/openai/files-responses-input.md)
 
 ## Native 音频
 
@@ -444,8 +444,8 @@ request body limit，扩展 Models 必须公开实际更小的可保证值。
 非目标包括 `/audio/*`、Responses audio、Realtime、未进入固定 profile 的 remote/multi-audio/格式、ASR 方言承诺、未单独验证的
 VoiceDesign/VoiceClone 扩展格式与 voice identity/resource 复用。
 
-- [OpenAI Chat 音频输入与输出调研](../references/openai/audio/chat-input-output.md)
-- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi/audio.md)
+- [OpenAI Chat 音频输入与输出调研](../references/openai/audio-chat-input-output.md)
+- [Xiaomi MiMo 全模型语音能力与调用途径](../references/providers/xiaomi-audio.md)
 
 ## Images Generations
 

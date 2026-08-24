@@ -1,6 +1,6 @@
 # LiteLLM 调研索引
 
-本目录记录 LiteLLM Proxy/SDK 的协议转换、请求链、模型信息、observability、retry、OAuth 与测试资产。许可证见
+本目录记录 LiteLLM Proxy/SDK 的协议转换、请求链、observability、retry、OAuth 与测试资产。许可证见
 [MIT；enterprise subtree 另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE)。本索引没有重新运行或拉取 LiteLLM。
 
 汇总模块级复核基线为 `litellm_internal_staging` @
@@ -12,7 +12,6 @@
 | Proxy 请求路径 | [Proxy 调用链](litellm-proxy-call-chain-analysis.md) |
 | 性能假设与瓶颈 | [Proxy 性能瓶颈](litellm-proxy-performance-bottlenecks.md) |
 | Metrics 与 TTFT | [调用统计与 Prometheus](litellm-observability-analysis.md) |
-| Model catalog/deployment 字段 | [模型信息接口与能力字段](litellm-model-information-analysis.md) |
 | Deployment retry/cooldown | [credential pool 与 retry](litellm-credential-pool-retry-analysis.md) |
 | ChatGPT credential lifecycle | [ChatGPT authenticator](litellm-chatgpt-oauth-refresh-analysis.md) |
 | Protocol regression assets | [Responses 与转换测试资产](litellm-protocol-test-assets-analysis.md) |
