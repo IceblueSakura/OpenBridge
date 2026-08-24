@@ -35,7 +35,8 @@
 - 每个 operation interface 在启动期由全部固定 candidate 保守聚合；未知事实保持 unknown。
 - analyzer 只冻结协议结构和请求事实，不查询 registry、不选择 Route。preflight 针对选定 Public Model 执行一次固定接口、limit 和 state 校验，通过后才按静态顺序生成 plan。
 - 协议目录外字段返回 `unknown_parameter`；标准已知但固定接口不支持的字段返回 `unsupported_model_capability`。两者都在 Provider egress 前失败。
-- reasoning、function tool、tool choice、structured output、stream usage、Responses `include`、`prompt_cache_key`、state/continuation 及图片、文件、音频能力均使用 typed profile，而不是请求时猜测或 capability routing。
+- reasoning、function tool、tool choice、structured output、stream usage、Responses `include`、prompt-cache、state/continuation 及图片、文件、音频能力均使用 typed profile，而不是请求时猜测或 capability routing。
+- `prompt_cache_key` 由公共 interface 接受并按 candidate 的 concrete API 精确转发或删除；nullable prompt-cache no-op 在 planning 前移除，active retention 仍 fail closed。`parallel_tool_calls` 只有存在可执行 function tool 时才激活，inactive 值删除；active true 要求 toggleable contract，active false 可精确转发或由显式 serial-only candidate 安全删除，未知事实继续 fail closed。
 - Responses 当前只接受省略或 `store:false`。continuation/state 只有全部 candidate 共享 issuing Target/API/credential affinity 时才可公开。
 
 主要 owner：`src/pipeline/generation/`、`src/pipeline/embeddings/`、`src/registry/public_model/`。

@@ -220,6 +220,182 @@ async fn longcat_responses_native_forwards_prompt_cache_key_and_removes_empty_in
 }
 
 #[tokio::test]
+async fn deepseek_native_omits_prompt_cache_hint_and_inactive_retention() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+
+    for (path, request) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "prompt_cache_key": "cache-test",
+                "prompt_cache_retention": null
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "hello",
+                "stream": true,
+                "prompt_cache_key": "cache-test",
+                "prompt_cache_retention": null
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        assert!(request.body.get("prompt_cache_key").is_none());
+        assert!(request.body.get("prompt_cache_retention").is_none());
+    }
+}
+
+#[tokio::test]
+async fn deepseek_native_omits_parallel_tool_control_without_executable_tools() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let cases = [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "parallel_tool_calls": true
+            }),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "parallel_tool_calls": false
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "hello",
+                "stream": true,
+                "parallel_tool_calls": null
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "hello",
+                "stream": true,
+                "tools": [{
+                    "type": "function",
+                    "name": "lookup",
+                    "parameters": {"type": "object", "properties": {}}
+                }],
+                "tool_choice": "none",
+                "parallel_tool_calls": true
+            }),
+        ),
+    ];
+
+    for (path, request) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for request in requests.iter() {
+        assert!(request.body.get("parallel_tool_calls").is_none());
+    }
+}
+
+#[tokio::test]
+async fn verified_serial_only_api_omits_active_false_parallel_tool_control() {
+    let mut definition =
+        support::definition("serial-tool-control", "public-model", "upstream-model");
+    definition.upstream_targets[0].upstream_apis[1]
+        .model_rules
+        .serial_tool_calls_only = true;
+    let UpstreamApiCapabilities::Responses(capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    capabilities.function_tools = Some(FunctionToolCapabilities {
+        choice_modes: ALL_TOOL_CHOICE_MODES,
+        parallel_calls: false,
+        strict_schema: false,
+    });
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "public-model",
+                        "input": "call the tool",
+                        "tools": [{
+                            "type": "function",
+                            "name": "lookup",
+                            "parameters": {"type": "object", "properties": {}}
+                        }],
+                        "parallel_tool_calls": false
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].body.get("parallel_tool_calls").is_none());
+}
+
+#[tokio::test]
 async fn deepseek_v4_flash_chat_native_exposes_plain_text_reasoning_content() {
     // Build the actual compiled DeepSeek route and an explicit reasoning request.
     let transport = Arc::new(DeepSeekReasoningStreamTransport::default());

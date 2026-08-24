@@ -89,7 +89,20 @@ pub(crate) struct RouteExecutionCandidate {
     pub(super) reasoning_output: ReasoningOutput,
     pub(super) streaming_policy: UpstreamStreamingPolicy,
     pub(super) ignored_parameters: Vec<IgnorableGenerationParameter>,
+    pub(super) forwards_prompt_cache_key: bool,
+    pub(super) parallel_tool_policy: ParallelToolPolicy,
     pub(super) forwarded_response_includes: Vec<ResponseInclude>,
+}
+
+/// Private executable policy for an explicit `parallel_tool_calls` control.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ParallelToolPolicy {
+    /// The API has no verified way to honor an explicit active control.
+    Unknown,
+    /// The API accepts the OpenAI boolean control exactly.
+    Toggleable,
+    /// The API guarantees serial execution and omits an explicit false control.
+    SerialOnly,
 }
 
 impl RouteExecutionCandidate {
@@ -148,6 +161,21 @@ impl RouteExecutionCandidate {
     /// Returns the ordinary parameters removed only for this candidate before shape conversion.
     pub(crate) fn ignored_generation_parameters(&self) -> &[IgnorableGenerationParameter] {
         &self.ignored_parameters
+    }
+
+    /// Returns whether this candidate's concrete Upstream API receives `prompt_cache_key`.
+    pub(crate) const fn forwards_prompt_cache_key(&self) -> bool {
+        self.forwards_prompt_cache_key
+    }
+
+    /// Returns whether this candidate can honor an explicit serial-tool request.
+    pub(crate) const fn supports_serial_tool_control(&self) -> bool {
+        !matches!(self.parallel_tool_policy, ParallelToolPolicy::Unknown)
+    }
+
+    /// Returns whether this candidate omits a serial control because execution is inherently serial.
+    pub(crate) const fn omits_serial_tool_control(&self) -> bool {
+        matches!(self.parallel_tool_policy, ParallelToolPolicy::SerialOnly)
     }
 
     /// Returns the Responses `include` values this candidate's Upstream API handles natively.
@@ -327,6 +355,13 @@ impl ModelExecutionInterface {
     /// Returns static candidates in their configured priority order.
     pub(crate) fn candidates(&self) -> &[RouteExecutionCandidate] {
         &self.candidates
+    }
+
+    /// Returns whether every fixed candidate can honor explicit serial function-tool execution.
+    pub(crate) fn supports_serial_tool_control(&self) -> bool {
+        self.candidates
+            .iter()
+            .all(RouteExecutionCandidate::supports_serial_tool_control)
     }
 }
 
@@ -528,6 +563,8 @@ mod tests {
                 reasoning_output: ReasoningOutput::Unknown,
                 streaming_policy: UpstreamStreamingPolicy::Optional,
                 ignored_parameters: Vec::new(),
+                forwards_prompt_cache_key: false,
+                parallel_tool_policy: ParallelToolPolicy::Unknown,
                 forwarded_response_includes: Vec::new(),
             }],
         }

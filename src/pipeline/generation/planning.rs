@@ -14,7 +14,10 @@ use crate::{
 
 use super::super::{
     error::{GenerationCapabilityReason, RequestPlanningError},
-    types::{RequestRequirements, RouteCandidate, RoutePlan, StreamResponseConversion},
+    types::{
+        RequestRequirements, RequestedParallelToolCalls, RouteCandidate, RoutePlan,
+        StreamResponseConversion,
+    },
 };
 use super::{instructions::normalize_generation_request, preflight::preflight_public_model};
 
@@ -57,6 +60,15 @@ pub fn plan_request(
         requirements.chat_stream_usage,
     )?;
 
+    // Remove nullable prompt-cache fields that do not request any cache behavior.
+    let normalized_body = normalize_inactive_prompt_cache_fields(&normalized_body)?;
+
+    // Remove parallel-tool controls that cannot affect an executable function tool.
+    let normalized_body = normalize_inactive_parallel_tool_calls(
+        &normalized_body,
+        requirements.requested_capabilities.parallel_tool_calls,
+    )?;
+
     // Remove the typed inactive Responses projection before any Native or Bridged egress body is built.
     let normalized_body =
         normalize_inactive_response_include(&normalized_body, requirements.protocol())?;
@@ -76,6 +88,15 @@ pub fn plan_request(
             &normalized_body,
             requirements.protocol(),
             candidate.forwarded_response_includes(),
+        )?;
+        let candidate_body = filter_candidate_prompt_cache_key(
+            &candidate_body,
+            candidate.forwards_prompt_cache_key(),
+        )?;
+        let candidate_body = filter_candidate_serial_tool_control(
+            &candidate_body,
+            requirements.requested_capabilities.parallel_tool_calls,
+            candidate.omits_serial_tool_control(),
         )?;
         let candidate_body = discard_candidate_ignored_parameters(
             &candidate_body,
@@ -185,6 +206,92 @@ fn filter_candidate_response_includes(
     }
     if values.is_empty() {
         object.remove("include");
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
+}
+
+/// Removes nullable prompt-cache fields that are semantically identical to omission.
+fn normalize_inactive_prompt_cache_fields(body: &Bytes) -> Result<Bytes, RequestPlanningError> {
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    let mut removed = false;
+    for field in ["prompt_cache_key", "prompt_cache_retention"] {
+        if object.get(field).is_some_and(Value::is_null) {
+            object.remove(field);
+            removed = true;
+        }
+    }
+    if !removed {
+        return Ok(body.clone());
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
+}
+
+/// Removes `parallel_tool_calls` only after analysis proves it cannot affect tool execution.
+fn normalize_inactive_parallel_tool_calls(
+    body: &Bytes,
+    requested: RequestedParallelToolCalls,
+) -> Result<Bytes, RequestPlanningError> {
+    if !matches!(requested, RequestedParallelToolCalls::Inactive) {
+        return Ok(body.clone());
+    }
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    if object.remove("parallel_tool_calls").is_none() {
+        return Ok(body.clone());
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
+}
+
+/// Removes the best-effort cache-routing hint from a candidate that cannot consume it.
+fn filter_candidate_prompt_cache_key(
+    body: &Bytes,
+    forwards: bool,
+) -> Result<Bytes, RequestPlanningError> {
+    if forwards {
+        return Ok(body.clone());
+    }
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    if object.remove("prompt_cache_key").is_none() {
+        return Ok(body.clone());
+    }
+    serde_json::to_vec(&document)
+        .map(Bytes::from)
+        .map_err(|_| RequestPlanningError::InvalidJson)
+}
+
+/// Removes explicit false only when this candidate is contractually serial without a wire field.
+fn filter_candidate_serial_tool_control(
+    body: &Bytes,
+    requested: RequestedParallelToolCalls,
+    omits_serial_control: bool,
+) -> Result<Bytes, RequestPlanningError> {
+    if !matches!(requested, RequestedParallelToolCalls::RequireSerial) || !omits_serial_control {
+        return Ok(body.clone());
+    }
+    let mut document: Value =
+        serde_json::from_slice(body).map_err(|_| RequestPlanningError::InvalidJson)?;
+    let object = document
+        .as_object_mut()
+        .ok_or(RequestPlanningError::InvalidJson)?;
+    if object.remove("parallel_tool_calls").is_none() {
+        return Ok(body.clone());
     }
     serde_json::to_vec(&document)
         .map(Bytes::from)

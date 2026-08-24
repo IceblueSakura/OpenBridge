@@ -20,7 +20,10 @@ use crate::{
 use super::super::{
     ContextWindow, InterfaceMediaCapabilities, ModelModalities, ReasoningOutputMode, SupportState,
 };
-use super::{super::execution::ContinuationIssuer, PublicRouteBinding};
+use super::{
+    super::execution::{ContinuationIssuer, ParallelToolPolicy},
+    PublicRouteBinding,
+};
 
 #[derive(Clone)]
 pub(super) struct RouteContractContribution {
@@ -390,16 +393,13 @@ fn protocol_specific_capabilities(
     bridged: bool,
 ) -> ProtocolCapabilities {
     if bridged {
-        let (prompt_cache_key, chat_stream_usage) = match upstream_api.capabilities() {
-            UpstreamApiCapabilities::ChatCompletions(capabilities) => {
-                (capabilities.prompt_cache_key, false)
-            }
-            UpstreamApiCapabilities::Responses(capabilities) => (
-                capabilities.prompt_cache_key,
+        let chat_stream_usage = match upstream_api.capabilities() {
+            UpstreamApiCapabilities::ChatCompletions(_) => false,
+            UpstreamApiCapabilities::Responses(capabilities) => {
                 route.downstream_operation() == OperationKind::ChatCompletions
                     && capabilities.streaming
-                    && capabilities.terminal_usage,
-            ),
+                    && capabilities.terminal_usage
+            }
             UpstreamApiCapabilities::Embeddings(_) => {
                 unreachable!("Embeddings does not use generation protocol capabilities")
             }
@@ -412,7 +412,7 @@ fn protocol_specific_capabilities(
         return ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
-            prompt_cache_key,
+            prompt_cache_key: true,
             chat_stream_usage,
             response_includes,
             media: InterfaceMediaCapabilities::default(),
@@ -422,7 +422,7 @@ fn protocol_specific_capabilities(
         UpstreamApiCapabilities::ChatCompletions(capabilities) => ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
-            prompt_cache_key: capabilities.prompt_cache_key,
+            prompt_cache_key: true,
             chat_stream_usage: route.downstream_operation() == OperationKind::ChatCompletions
                 && capabilities.streaming
                 && capabilities.stream_usage,
@@ -444,7 +444,7 @@ fn protocol_specific_capabilities(
             },
             background: route.downstream_operation() == OperationKind::Responses
                 && capabilities.background,
-            prompt_cache_key: capabilities.prompt_cache_key,
+            prompt_cache_key: true,
             chat_stream_usage: false,
             response_includes: accepted_response_includes(route, capabilities.include),
             media: InterfaceMediaCapabilities::from_responses(capabilities),
@@ -455,6 +455,35 @@ fn protocol_specific_capabilities(
         UpstreamApiCapabilities::ImagesGenerations(_) => {
             unreachable!("Images Generations does not use generation protocol capabilities")
         }
+    }
+}
+
+/// Returns whether one concrete Upstream API accepts `prompt_cache_key` exactly.
+pub(super) fn forwards_prompt_cache_key(upstream_api: &UpstreamApi) -> bool {
+    match upstream_api.capabilities() {
+        UpstreamApiCapabilities::ChatCompletions(capabilities) => capabilities.prompt_cache_key,
+        UpstreamApiCapabilities::Responses(capabilities) => capabilities.prompt_cache_key,
+        UpstreamApiCapabilities::Embeddings(_) | UpstreamApiCapabilities::ImagesGenerations(_) => {
+            false
+        }
+    }
+}
+
+/// Resolves explicit parallel-tool control without inferring serial behavior from a false ceiling.
+pub(super) fn parallel_tool_policy(upstream_api: &UpstreamApi) -> ParallelToolPolicy {
+    let Some(function_tools) = upstream_api
+        .capabilities()
+        .generation_capabilities()
+        .and_then(|capabilities| capabilities.function_tools)
+    else {
+        return ParallelToolPolicy::Unknown;
+    };
+    if function_tools.parallel_calls {
+        ParallelToolPolicy::Toggleable
+    } else if upstream_api.serial_tool_calls_only() {
+        ParallelToolPolicy::SerialOnly
+    } else {
+        ParallelToolPolicy::Unknown
     }
 }
 

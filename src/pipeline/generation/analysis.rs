@@ -18,8 +18,8 @@ use super::super::{
     error::RequestPlanningError,
     types::{
         RequestRequirements, RequestedCapabilities, RequestedJsonSchemaStrictness,
-        RequestedOutputTokens, RequestedReasoning, RequestedReasoningSummary,
-        RequestedStructuredOutput,
+        RequestedOutputTokens, RequestedParallelToolCalls, RequestedReasoning,
+        RequestedReasoningSummary, RequestedStructuredOutput,
     },
 };
 use super::instructions::{analyze_requested_instructions, validate_stateless_store};
@@ -61,6 +61,7 @@ pub fn analyze_request(
     let chat_stream_usage = analyze_chat_stream_usage(protocol, object, is_streaming)?;
 
     // Block unimplemented protocol-specific fields before Route planning can enter Native or Bridge paths.
+    validate_prompt_cache_fields(object)?;
     reject_reserved_request_fields(protocol, object)?;
 
     // Derive the capabilities actually requested from protocol fields.
@@ -87,14 +88,18 @@ pub fn analyze_request(
         .get("tools")
         .and_then(Value::as_array)
         .is_some_and(|tools| tools.iter().any(tool_requests_strict_mode));
+    let parallel_tool_calls = requested_parallel_tool_calls(
+        protocol,
+        object,
+        requests_function_calling && function_tool_choice != Some(ToolChoiceMode::None),
+    )?;
     let requested_capabilities = RequestedCapabilities {
         streaming: is_streaming,
         function_tools: requests_function_calling,
         function_tool_choice,
         unknown_tool_choice,
         function_tool_strict_schema,
-        parallel_tool_calls: requests_function_calling
-            && object.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true),
+        parallel_tool_calls,
         image_input: analyze_image_input(protocol, object)?,
         file_input: analyze_file_input(protocol, object)?,
         audio,
@@ -120,6 +125,61 @@ pub fn analyze_request(
         requested_parameters,
         requested_instructions,
         requested_capabilities,
+    })
+}
+
+/// Validates prompt-cache field shapes before active reserved capabilities are rejected.
+fn validate_prompt_cache_fields(
+    object: &serde_json::Map<String, Value>,
+) -> Result<(), RequestPlanningError> {
+    if object
+        .get("prompt_cache_key")
+        .is_some_and(|value| !value.is_null() && !value.is_string())
+    {
+        return Err(RequestPlanningError::InvalidParameter("prompt_cache_key"));
+    }
+    if let Some(value) = object
+        .get("prompt_cache_retention")
+        .filter(|value| !value.is_null())
+        && !matches!(value.as_str(), Some("in_memory" | "24h"))
+    {
+        return Err(RequestPlanningError::InvalidParameter(
+            "prompt_cache_retention",
+        ));
+    }
+    Ok(())
+}
+
+/// Classifies parallel-tool control only when a function tool can execute.
+fn requested_parallel_tool_calls(
+    protocol: ApiProtocol,
+    object: &serde_json::Map<String, Value>,
+    has_executable_function_tools: bool,
+) -> Result<RequestedParallelToolCalls, RequestPlanningError> {
+    let Some(value) = object.get("parallel_tool_calls") else {
+        return Ok(RequestedParallelToolCalls::Inactive);
+    };
+    if value.is_null() {
+        return if protocol == ApiProtocol::Responses {
+            Ok(RequestedParallelToolCalls::Inactive)
+        } else {
+            Err(RequestPlanningError::InvalidParameter(
+                "parallel_tool_calls",
+            ))
+        };
+    }
+    let Some(value) = value.as_bool() else {
+        return Err(RequestPlanningError::InvalidParameter(
+            "parallel_tool_calls",
+        ));
+    };
+    if !has_executable_function_tools {
+        return Ok(RequestedParallelToolCalls::Inactive);
+    }
+    Ok(if value {
+        RequestedParallelToolCalls::Allow
+    } else {
+        RequestedParallelToolCalls::RequireSerial
     })
 }
 

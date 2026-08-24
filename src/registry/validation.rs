@@ -223,6 +223,7 @@ pub(super) fn apply_model_rules(
         reasoning: rule_reasoning,
         disabled_parameters,
         ignored_parameters,
+        serial_tool_calls_only: _,
         reasoning_level_mappings: _,
     } = rules;
 

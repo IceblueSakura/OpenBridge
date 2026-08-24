@@ -172,8 +172,8 @@ ID 相同不能自动新增候选。聚合后每个协议的全部静态可执�
 - `StandardModel` 严格只有 `id`、`object: "model"`、`created` 和 `owned_by: "openbridge"`。
 - 扩展 generation interface 的 `reasoning.levels` 是实际可执行交集，`accepted_levels` 是下游可提交的标准词汇，`input_policy`
   明确两者间的固定解析规则；三者不得泄漏 Route、Provider 或 wire mapping。
-- 扩展 generation interface 的 `response_includes` 只包含全部固定候选共同接受且能安全处理的精确 wire 值，不构成输出 item 保证；`prompt_cache_key` 只通过
-  `supported_parameters` 表示 exact forwarding，不得重新投影为"缓存受支持"或 cache-hit 保证。
+- 扩展 generation interface 的 `response_includes` 只包含全部固定候选共同接受且能安全处理的精确 wire 值，不构成输出 item 保证；`prompt_cache_key` 通过
+  `supported_parameters` 表示下游接受，不表示每个 candidate exact-forward，也不得重新投影为"缓存受支持"或 cache-hit 保证。candidate forwarded/omitted 事实保持私有。
 - 扩展 list 接受至多一个 `native_protocol=chat_completions|responses`。省略时返回完整可见目录；存在时只保留目标 downstream
   protocol 的固定 execution interface 至少包含一条 `Native` candidate 的 Public Model。仅有 `Bridged` candidate 的同协议
   interface 不得命中；筛选不得公开 candidate、Route 或部署事实，也不得改变模型顺序或请求 Route 顺序。
@@ -267,7 +267,7 @@ state ownership 也不能选择能力更强的候选。
 | MODEL-12 | Provider 完整 audio ceiling、单个 executable profile 与 canonical task 在启动期逐层校验；VoiceClone conditioning 不进入 content-understanding input。             |
 | MODEL-13 | Structured Output 的 Provider/Target profile、Public 交集、Models 投影与请求预检共享一个闭合联合；无共同 mode 时不公开幽灵支持或参数。             |
 | MODEL-14 | generation reasoning `levels`、`accepted_levels` 与 `input_policy` 共享同一固定接口；正向归一化在 candidate 展开前执行一次，`none` 保持独立，标准 Models 投影不变。 |
-| MODEL-15 | Responses `response_includes` 按具体 wire 值的 public accepted set 保守相交并直接供 preflight 使用；candidate forwarded set 保持私有；接受值不保证输出 item，唯一 approved omitted-equivalent hint 可在 Native/Bridge candidate planning 中逐值删除；`prompt_cache_key` 只作为全部固定候选可原样转发的请求参数公开，不产生独立缓存效果字段。 |
+| MODEL-15 | Responses `response_includes` 按具体 wire 值的 public accepted set 保守相交并直接供 preflight 使用；candidate forwarded set 保持私有；接受值不保证输出 item，唯一 approved omitted-equivalent include hint 可在 Native/Bridge candidate planning 中逐值删除；`prompt_cache_key` 作为全部 generation interface 接受的 best-effort 参数公开，candidate 按 concrete API 精确转发或删除，不产生独立缓存效果字段。 |
 | MODEL-16 | 扩展 list 的 `native_protocol` 只命中含对应 Native candidate 的 Public Model；Bridge-only interface 被排除，省略参数保持完整列表，非法、重复或未知 query 显式失败且响应不泄漏拓扑。 |
 
 ### 2. 非目标

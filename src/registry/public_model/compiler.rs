@@ -31,7 +31,10 @@ use aggregate::{
     aggregate_embedding_interface, aggregate_images_interface, aggregate_interface,
     aggregate_model_capabilities, intersect_optional_string,
 };
-use contribution::{RouteContractContribution, forwarded_response_includes};
+use contribution::{
+    RouteContractContribution, forwarded_response_includes, forwards_prompt_cache_key,
+    parallel_tool_policy,
+};
 use embedding_budget::constrain_embedding_response_budget;
 
 /// Validated Route binding used to compile one Public Model's static execution interfaces.
@@ -322,6 +325,8 @@ impl PrecompiledRouteCandidate {
                 .upstream_api
                 .ignored_generation_parameters()
                 .collect(),
+            forwards_prompt_cache_key: forwards_prompt_cache_key(binding.upstream_api),
+            parallel_tool_policy: parallel_tool_policy(binding.upstream_api),
             forwarded_response_includes: forwarded_response_includes(
                 binding.route,
                 binding.upstream_api,

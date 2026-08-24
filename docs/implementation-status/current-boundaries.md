@@ -42,7 +42,8 @@
 ### Models 与 capability preflight
 
 - 没有动态 capability negotiation、request-selected Route 或运行时 capability routing。
-- `prompt_cache_key` 只表示 exact forwarding；cache hit、成本、延迟、options、retention 和 breakpoint 未实现或未证明。
+- `prompt_cache_key` 是 accepted best-effort hint，可能按 candidate 删除；cache hit、成本、延迟、active retention、options 和 breakpoint 未实现或未证明。
+- serial-only Provider 的 `parallel_tool_calls:false` 安全省略合同尚未注册；当前 active true/false 都只在固定 interface 已证明可控制并行调用时接受。
 - Models/Target catalog 不能证明 credential 可用、网络可达、配额、账号 entitlement 或模型质量。
 
 ### Embeddings

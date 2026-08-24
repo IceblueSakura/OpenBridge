@@ -80,6 +80,7 @@ async fn response_include_omission_is_isolated_per_fallback_candidate_in_either_
         } else {
             &[ResponseInclude::ReasoningEncryptedContent]
         };
+
         definition.upstream_targets.push(fallback);
         definition.routes.push(RouteConfig {
             id: "fallback-responses".to_owned(),
@@ -129,6 +130,62 @@ async fn response_include_omission_is_isolated_per_fallback_candidate_in_either_
                 "candidate {target} received the wrong include projection"
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn prompt_cache_key_omission_is_isolated_from_an_exact_forward_fallback() {
+    let mut definition =
+        streaming_definition("cache-key-fallback", "public-model", "primary-model");
+    let UpstreamApiCapabilities::Responses(primary_capabilities) =
+        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic API must be Responses");
+    };
+    primary_capabilities.prompt_cache_key = false;
+    add_responses_fallback(&mut definition, "longcat-fallback", ProviderKind::LongCat);
+    let fallback = definition
+        .upstream_targets
+        .iter_mut()
+        .find(|target| target.id == "longcat-fallback")
+        .unwrap();
+    let UpstreamApiCapabilities::Responses(fallback_capabilities) =
+        &mut fallback.upstream_apis[1].capabilities
+    else {
+        panic!("second synthetic fallback API must be Responses");
+    };
+    fallback_capabilities.prompt_cache_key = true;
+
+    let transport = Arc::new(IncludeIsolationTransport::default());
+    let app = app_with_transport_and_definition(transport.clone(), definition);
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true,"prompt_cache_key":"cache-test"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+
+    let requests = transport.requests.lock().unwrap();
+    assert!(requests.iter().any(|(target, _)| target == "openai-main"));
+    assert!(
+        requests
+            .iter()
+            .any(|(target, _)| target == "longcat-fallback")
+    );
+    for (target, body) in requests.iter() {
+        assert_eq!(
+            body.get("prompt_cache_key").is_some(),
+            target == "longcat-fallback",
+            "candidate {target} received the wrong prompt-cache projection"
+        );
     }
 }
 

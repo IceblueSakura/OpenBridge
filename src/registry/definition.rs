@@ -637,6 +637,8 @@ pub struct UpstreamApiModelRules {
     pub disabled_parameters: Vec<String>,
     /// Ordinary downstream parameters accepted by OpenBridge but omitted from upstream egress.
     pub ignored_parameters: Vec<IgnorableGenerationParameter>,
+    /// Whether function tools are explicitly guaranteed to execute serially without a wire control.
+    pub serial_tool_calls_only: bool,
     /// Explicit mapping from standard downstream reasoning levels to this Upstream API's wire values.
     pub reasoning_level_mappings: Vec<ReasoningLevelMapping>,
 }

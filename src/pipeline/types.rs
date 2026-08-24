@@ -221,7 +221,7 @@ pub(super) struct RequestedCapabilities {
     pub(super) function_tool_choice: Option<ToolChoiceMode>,
     pub(super) unknown_tool_choice: bool,
     pub(super) function_tool_strict_schema: bool,
-    pub(super) parallel_tool_calls: bool,
+    pub(super) parallel_tool_calls: RequestedParallelToolCalls,
     pub(super) image_input: Option<ImageInputRequirements>,
     pub(super) file_input: Option<FileInputRequirements>,
     pub(super) audio: Option<RequestedAudio>,
@@ -232,6 +232,17 @@ pub(super) struct RequestedCapabilities {
     pub(super) previous_response_id: bool,
     pub(super) background: bool,
     pub(super) response_includes: BTreeSet<ResponseInclude>,
+}
+
+/// Value-sensitive `parallel_tool_calls` requirement after function-tool analysis.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestedParallelToolCalls {
+    /// The field is omitted, nullable where allowed, or cannot affect any executable function tool.
+    Inactive,
+    /// Active function tools may be emitted in parallel.
+    Allow,
+    /// Active function tools must remain serial.
+    RequireSerial,
 }
 
 /// Closed structured-output requirement extracted from one downstream generation request.

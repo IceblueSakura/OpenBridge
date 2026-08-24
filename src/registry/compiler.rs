@@ -332,6 +332,21 @@ fn build_registry_internal(
                 .iter()
                 .copied()
                 .collect::<BTreeSet<_>>();
+            let serial_tool_calls_only = upstream_api.model_rules.serial_tool_calls_only;
+
+            // Accept serial-only omission only as an explicit narrowing of a function-tool API.
+            if serial_tool_calls_only
+                && !upstream_api
+                    .capabilities
+                    .generation_capabilities()
+                    .and_then(|capabilities| capabilities.function_tools)
+                    .is_some_and(|tools| !tools.parallel_calls)
+            {
+                return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                    upstream_api: api_key.clone(),
+                    detail: "serial-only tool control requires non-parallel function tools",
+                });
+            }
 
             // Keep generation-only ignore semantics out of the independently typed Embeddings operation.
             if upstream_operation == crate::core::OperationKind::EmbeddingsCreate
@@ -380,6 +395,7 @@ fn build_registry_internal(
                 streaming_policy: upstream_api.streaming_policy,
                 reasoning_level_mappings,
                 ignored_parameters,
+                serial_tool_calls_only,
             };
 
             // Build a unique typed operation/task index within the target.

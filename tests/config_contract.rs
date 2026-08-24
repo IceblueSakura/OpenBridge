@@ -636,6 +636,15 @@ fn upstream_api_ignored_parameters_remain_accepted_but_are_validated() {
         build_registry(bootstrap(BOOTSTRAP), contradictory),
         Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
     ));
+
+    let mut unverifiable_serial = definition("test", "code-primary", "test-model");
+    unverifiable_serial.upstream_targets[0].upstream_apis[1]
+        .model_rules
+        .serial_tool_calls_only = true;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), unverifiable_serial),
+        Err(RegistryError::InconsistentUpstreamApiModelRules { .. })
+    ));
 }
 
 #[test]

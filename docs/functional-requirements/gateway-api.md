@@ -195,14 +195,21 @@ prompt-cache 字段、streaming mode、reasoning、tool/tool choice、Structured
   额外支持；删除 hint 时不得合成 output item，也不表示 opaque encrypted content 可以跨 issuer、credential、
   Target 或 Provider 重放。
 
-### 3. Prompt-cache 字段
+### 3. Prompt-cache 与 parallel-tool 控制
 
-- `prompt_cache_key` 是精确转发选项，不是缓存效果能力。只有全部固定候选都能原样保留时才进入
-  `supported_parameters`；每个 candidate 从同一 canonical body 独立转发。
-- OpenBridge 不承诺 cache hit、延迟或成本变化，也不得以这种不确定性为由静默删除 key。
-- `prompt_cache_options`、`prompt_cache_retention` 和嵌套 `prompt_cache_breakpoint` 不因 key 可转发而获得
-  支持；未支持时在 egress 前返回稳定错误。
-- 任何 prompt-cache 字段都不得触发请求期 Route 筛选、跳过或重排。
+- `prompt_cache_key` 是 best-effort 请求 hint，不是缓存效果能力。Chat/Responses 固定 interface 接受 string；省略或
+  `null` 在 candidate 展开前移除。具体 Upstream API 原生支持时精确转发，不支持时只对该 candidate 删除。
+- `prompt_cache_key` 的接受合同进入 `supported_parameters`，candidate 是否精确转发保持私有；OpenBridge 不承诺
+  cache hit、延迟或成本变化，也不得用该 hint 选择、跳过或重排 Route。
+- `prompt_cache_retention` 省略或 `null` 等价。当前只识别 `in_memory` 与 `24h` 的合法 shape，但非空请求仍作为
+  未实现能力 zero-egress 拒绝；不得静默删除、猜测映射到 `prompt_cache_options.ttl` 或把 Provider 默认保留策略
+  解释为已满足。`prompt_cache_options` 与嵌套 `prompt_cache_breakpoint` 也不因 key 可接受而获得支持。
+- `parallel_tool_calls` 只在 function tool 可执行时是 active control。没有 function tool 或 `tool_choice:"none"` 时，
+  合法 boolean 值在 candidate 展开前移除；Responses `null` 也等价于省略，Chat `null` 与非 boolean shape 拒绝。
+- active `parallel_tool_calls:true` 只有固定 interface 能精确控制并行工具调用时才接受并保留；active `false`
+  可以由同一 toggleable wire 精确转发，或由每个 candidate 显式注册的 serial-only contract 保证并在 egress 删除。
+  未知或未证明 control 继续返回 `unsupported_model_capability`；不得为减少 400 删除 active control 或从
+  `parallel_calls:false` 猜测上游必然串行。
 
 ## Generation envelope 与状态
 
@@ -399,10 +406,11 @@ initialize/session lifecycle。
 | API-12 | Embeddings、图片、文件与音频满足[扩展共同规则](extended-capabilities.md)及各功能页的 wire、能力、资源归属和限制。 |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/generation window；非流式成功 JSON 的 gateway-visible body timing 不伪造 upstream TTFT、generation duration 或 output speed；telemetry 不含正文或身份 secret。 |
 | API-14 | 有效 token 可通过 `/mcp` 使用 `2026-07-28` stateless discovery 或 legacy initialize/session lifecycle 发现并调用唯一 `hello(name)`；两种 lifecycle 都执行相同认证、Origin 与无 Provider egress 边界，非法 metadata/session/tool/method 在执行前失败。 |
-| API-15 | `include: []` 作为 no-op 在 candidate 展开前移除；非空 `include` 按 public accepted set 逐值预检，未知或未获批准的值 zero-egress；`reasoning.encrypted_content` 是唯一可按 candidate 原生转发或在 Native/Bridge planning 中删除的 hint，任何残留 active `include` 到达 Bridge 必须失败；`prompt_cache_key` 只在全部固定候选原样支持时转发且不承诺缓存效果。 |
+| API-15 | `include: []` 作为 no-op 在 candidate 展开前移除；非空 `include` 按 public accepted set 逐值预检，未知或未获批准的值 zero-egress；`reasoning.encrypted_content` 是唯一可按 candidate 原生转发或在 Native/Bridge planning 中删除的 include hint，任何残留 active `include` 到达 Bridge 必须失败；`prompt_cache_key` 作为 accepted best-effort hint 按 candidate 原样转发或删除且不承诺缓存效果。 |
 | API-16 | Chat `stream:true` 下空 `stream_options` 与 `include_usage:false` 作为 no-op 移除；`include_usage:true` 只有固定 interface 完整保证时接受，Native 原样保留，Chat-to-Responses Bridge 只从合法 terminal usage 生成标准 usage-only 尾块。 |
 | API-17 | 通用 Generation 只解析一次客户端 instructions 并在缺失时使用项目默认值；Native/Bridge/candidate/retry/probe 编码一致，首条合格 Chat 指令只提升删除一次，专用 task 不注入。 |
 | API-18 | Responses `reasoning.summary` 接受 `"auto"` 与兼容 `false`：Native 精确保留，Responses-to-Chat 消费且只返回真实 Chat reasoning content，不伪造 summary；非法值与 `none+auto` 在 egress 前失败。 |
+| API-19 | nullable prompt-cache 字段与无可执行 function tool 的 `parallel_tool_calls` 在 planning 前按 typed inactive 语义删除；active retention 保持 unimplemented；active parallel true 只由 toggleable contract 接受，active false 可精确转发或由显式 serial-only candidate 安全删除，所有非法 shape 与未证明控制均 zero-egress 失败。 |
 
 ### 2. 非目标
 

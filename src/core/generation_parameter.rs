@@ -13,6 +13,7 @@ enum FieldRole {
     Envelope,
     InterfaceParameter,
     RequestOption,
+    SemanticControl,
     ResponsesInclude,
     Streaming,
     ChatStreamOptions,
@@ -107,7 +108,9 @@ impl GenerationRequestField {
             field.wire_name == wire_name
                 && matches!(
                     field.role,
-                    FieldRole::InterfaceParameter | FieldRole::ChatStreamOptions
+                    FieldRole::InterfaceParameter
+                        | FieldRole::SemanticControl
+                        | FieldRole::ChatStreamOptions
                 )
         })
     }
@@ -120,7 +123,7 @@ impl GenerationRequestField {
     /// Returns whether a present value must belong to the fixed interface parameter contract.
     pub(crate) fn requires_interface_support(self, value: &Value) -> bool {
         match self.role {
-            FieldRole::Envelope | FieldRole::Streaming => false,
+            FieldRole::Envelope | FieldRole::SemanticControl | FieldRole::Streaming => false,
             FieldRole::InterfaceParameter => true,
             FieldRole::ChatStreamOptions => {
                 value
@@ -153,6 +156,7 @@ impl GenerationRequestField {
                 value.is_null() || value.as_array().is_some_and(Vec::is_empty)
             }
             FieldRole::RequestOption => value.is_null(),
+            FieldRole::SemanticControl => false,
             FieldRole::ChatStreamOptions => value.as_object().is_some_and(|options| {
                 options.is_empty()
                     || (options.len() == 1
@@ -237,7 +241,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
     field(
         "parallel_tool_calls",
         BOTH,
-        FieldRole::InterfaceParameter,
+        FieldRole::SemanticControl,
         BOTH,
     ),
     field("max_tokens", CHAT, FieldRole::InterfaceParameter, CHAT),
@@ -295,7 +299,7 @@ const GENERATION_REQUEST_FIELDS: &[GenerationRequestField] = &[
     field(
         "prompt_cache_retention",
         BOTH,
-        FieldRole::InterfaceParameter,
+        FieldRole::RequestOption,
         NEITHER,
     ),
     field("moderation", BOTH, FieldRole::InterfaceParameter, NEITHER),

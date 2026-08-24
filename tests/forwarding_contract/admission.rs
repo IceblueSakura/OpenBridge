@@ -151,41 +151,44 @@ async fn encrypted_content_hint_does_not_hide_an_unsupported_mixed_include() {
 }
 
 #[tokio::test]
-async fn deepseek_capability_error_locates_parallel_tool_calls_after_include_compatibility() {
+async fn deepseek_rejects_active_parallel_tool_control_without_a_verified_policy() {
     let transport = Arc::new(RecordingTransport::default());
     let app = app_with_compiled_registry(transport.clone());
-    let request = serde_json::json!({
-        "model": "deepseek-v4-pro",
-        "input": "hello",
-        "include": ["reasoning.encrypted_content"],
-        "tools": [{
-            "type": "function",
-            "name": "lookup",
-            "description": "Synthetic function",
-            "parameters": {"type": "object", "properties": {}}
-        }],
-        "parallel_tool_calls": true
-    });
+    for value in [true, false] {
+        let request = serde_json::json!({
+            "model": "deepseek-v4-pro",
+            "input": "hello",
+            "include": ["reasoning.encrypted_content"],
+            "tools": [{
+                "type": "function",
+                "name": "lookup",
+                "description": "Synthetic function",
+                "parameters": {"type": "object", "properties": {}}
+            }],
+            "parallel_tool_calls": value
+        });
 
-    let response = app
-        .oneshot(
-            Request::post("/v1/responses")
-                .header(CONTENT_TYPE, "application/json")
-                .header(
-                    AUTHORIZATION,
-                    "Bearer downstream-token-00000000000000000000000000000000",
-                )
-                .body(Body::from(request.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let error: Value =
-        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-    assert_eq!(error["error"]["type"], "invalid_request_error");
-    assert_eq!(error["error"]["code"], "unsupported_model_capability");
-    assert_eq!(error["error"]["param"], "parallel_tool_calls");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["type"], "invalid_request_error");
+        assert_eq!(error["error"]["code"], "unsupported_model_capability");
+        assert_eq!(error["error"]["param"], "parallel_tool_calls");
+    }
     assert!(transport.requests.lock().unwrap().is_empty());
 }
 
@@ -323,6 +326,103 @@ async fn invalid_generation_shape_precedes_model_capability_order() {
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(error["error"]["code"], "invalid_request_error");
     assert_eq!(error["error"]["param"], "reasoning");
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn invalid_parallel_tool_control_fails_before_upstream() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    for (path, request) in [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "parallel_tool_calls": null
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash",
+                "input": "hello",
+                "parallel_tool_calls": "true"
+            }),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_request_error");
+        assert_eq!(error["error"]["param"], "parallel_tool_calls");
+    }
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn active_or_malformed_prompt_cache_retention_remains_fail_closed() {
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    for (field, value, expected_code) in [
+        (
+            "prompt_cache_key",
+            serde_json::json!({"unexpected": true}),
+            "invalid_request_error",
+        ),
+        (
+            "prompt_cache_retention",
+            serde_json::json!("forever"),
+            "invalid_request_error",
+        ),
+        (
+            "prompt_cache_retention",
+            serde_json::json!("24h"),
+            "unimplemented_request",
+        ),
+    ] {
+        let mut request = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "input": "hello"
+        });
+        request
+            .as_object_mut()
+            .unwrap()
+            .insert(field.to_owned(), value);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/responses")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error["error"]["code"], expected_code);
+        assert_eq!(error["error"]["param"], field);
+    }
     assert!(transport.requests.lock().unwrap().is_empty());
 }
 

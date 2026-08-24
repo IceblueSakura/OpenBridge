@@ -18,8 +18,8 @@ use super::super::{
         AudioInputRequirements, GeneratedAudioMessageShape, InputAudioMessageShape,
         RequestRequirements, RequestedAsrLanguage, RequestedAsrOptions, RequestedAudio,
         RequestedAudioDelivery, RequestedCapabilities, RequestedJsonSchemaStrictness,
-        RequestedOutputTokens, RequestedReasoning, RequestedReasoningSummary,
-        RequestedStructuredOutput, RequestedVoice,
+        RequestedOutputTokens, RequestedParallelToolCalls, RequestedReasoning,
+        RequestedReasoningSummary, RequestedStructuredOutput, RequestedVoice,
     },
 };
 
@@ -46,6 +46,18 @@ pub(super) fn preflight_public_model<'a>(
         interface.capabilities(),
         interface.supports_previous_response_id(),
     )?;
+
+    // Require every fixed candidate to honor explicit serial execution before candidate expansion.
+    if matches!(
+        requirements.requested_capabilities.parallel_tool_calls,
+        RequestedParallelToolCalls::RequireSerial
+    ) && !interface.supports_serial_tool_control()
+    {
+        return Err(RequestPlanningError::unsupported(
+            "parallel_tool_calls",
+            GenerationCapabilityReason::ParallelToolCalls,
+        ));
+    }
 
     // Reject known parameters outside the same fixed interface after specialized semantic checks.
     if let Some(parameter) = requirements.requested_parameters.iter().find(|parameter| {
@@ -125,7 +137,11 @@ fn validate_interface_request(
             GenerationCapabilityReason::ToolChoice,
         ));
     }
-    if requested_features.parallel_tool_calls && !interface.supports_parallel_tool_calls() {
+    if matches!(
+        requested_features.parallel_tool_calls,
+        RequestedParallelToolCalls::Allow
+    ) && !interface.supports_parallel_tool_calls()
+    {
         return Err(RequestPlanningError::unsupported(
             "parallel_tool_calls",
             GenerationCapabilityReason::ParallelToolCalls,

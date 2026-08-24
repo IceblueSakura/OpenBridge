@@ -48,6 +48,17 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
     );
     assert!(extended["interfaces"]["chat_completions"].is_object());
     assert!(extended["interfaces"]["responses"].is_object());
+    for protocol in ["chat_completions", "responses"] {
+        let parameters = extended["interfaces"][protocol]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        assert!(
+            parameters
+                .iter()
+                .any(|parameter| parameter == "prompt_cache_key"),
+            "{protocol} must advertise the downstream-safe cache hint"
+        );
+    }
 
     // Prevent internal deployment identities from entering either public representation.
     let serialized = serde_json::to_string(&extended_list).unwrap();
@@ -58,6 +69,7 @@ async fn models_endpoints_preserve_public_projection_and_hide_topology() {
         "openai-primary",
         "routes",
         "upstream_api",
+        "forwards_prompt_cache_key",
     ] {
         assert!(
             !serialized.contains(private_value),

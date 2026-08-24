@@ -374,6 +374,7 @@ pub struct UpstreamApi {
     pub(super) streaming_policy: super::UpstreamStreamingPolicy,
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
     pub(super) ignored_parameters: BTreeSet<IgnorableGenerationParameter>,
+    pub(super) serial_tool_calls_only: bool,
 }
 
 impl UpstreamApi {
@@ -460,6 +461,11 @@ impl UpstreamApi {
         &self,
     ) -> impl Iterator<Item = IgnorableGenerationParameter> + '_ {
         self.ignored_parameters.iter().copied()
+    }
+
+    /// Returns whether this API guarantees serial function-tool execution without a wire control.
+    pub(crate) const fn serial_tool_calls_only(&self) -> bool {
+        self.serial_tool_calls_only
     }
 }
 
