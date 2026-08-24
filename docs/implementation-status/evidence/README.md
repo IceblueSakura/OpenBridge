@@ -12,6 +12,14 @@
 |---|---|---|
 | 2026-08-10 | [OpenRouter Gemma strict schema 差异](2026-08-10-openrouter-gemma-strict-schema-mismatch.md) | OpenRouter structured-output 可见性与 strict JSON Schema 实测结果不一致 |
 
+## 静态代码与配置审计
+
+此类记录只证明指定 checkout 的源码注册、脱敏 configuration availability 和确定性合同测试，不替代真实 Provider 网络请求。
+
+| 日期 | 记录 | 覆盖范围 |
+|---|---|---|
+| 2026-08-25 | [全模型接入静态审计](2026-08-25-model-integration-static-audit.md) | Canonical、Target、Public Model、配置可用性、协议 surface 与证据缺口 |
+
 ## 维护规则
 
 - 文件名以实际验证日期开头；已经发布的记录不改写成当前状态，也不使用“最新”一词。
