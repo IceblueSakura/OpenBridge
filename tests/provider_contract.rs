@@ -310,6 +310,33 @@ fn bailian_probed_models_bind_exact_operations_and_public_routes() {
 }
 
 #[test]
+fn deepseek_vision_binds_exact_dual_native_target_and_public_routes() {
+    let target = registry()
+        .upstream_target("deepseek-v4-flash-vision-exp")
+        .expect("DeepSeek V4 Flash Vision Exp direct target must be registered");
+    let apis = target
+        .upstream_apis()
+        .map(|(_, api)| (api.operation(), api.upstream_model()))
+        .collect::<Vec<_>>();
+    assert_eq!(apis.len(), 2);
+    assert!(apis.contains(&(
+        OperationKind::ChatCompletions,
+        "deepseek-v4-flash-vision-exp"
+    )));
+    assert!(apis.contains(&(OperationKind::Responses, "deepseek-v4-flash-vision-exp")));
+    assert_eq!(
+        registry()
+            .public_model("deepseek-v4-flash-vision-exp")
+            .expect("DeepSeek V4 Flash Vision Exp must be public")
+            .routes(),
+        [
+            "deepseek-v4-flash-vision-exp-deepseek-chat",
+            "deepseek-v4-flash-vision-exp-deepseek-responses"
+        ]
+    );
+}
+
+#[test]
 fn longcat_adapter_directly_encodes_chat_and_responses() {
     for (protocol, body, expected_path) in [
         (

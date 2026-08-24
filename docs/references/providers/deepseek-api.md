@@ -1,7 +1,7 @@
 # DeepSeek API 协议入口
 
-- Last reverified：外部来源最后复核 2026-08-19；2026-08-24 仅整理本地文档，未刷新外部来源。
-- Recheck trigger：Chat/Responses/Anthropic endpoint、SSE 终态、认证或 JSON mode 变化。
+- Last reverified：2026-08-24。
+- Recheck trigger：Chat/Responses/Anthropic endpoint、SSE 终态、认证、JSON mode、Vision 来源/格式/detail/limit 或 Files API 变化。
 
 ## 来源与范围
 
@@ -10,6 +10,7 @@
 - [JSON Output](https://api-docs.deepseek.com/guides/json_mode/)
 - [Function Calling](https://api-docs.deepseek.com/guides/function_calling/)
 - [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode)
+- [Vision](https://api-docs.deepseek.com/guides/vision)
 
 本文只保留 endpoint、认证和协议终态，不复制逐模型能力矩阵、参数集合、context、价格或并发限制。
 

@@ -116,6 +116,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
+            public_name: "deepseek-v4-flash-vision-exp",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "deepseek-v4-flash-vision-exp-deepseek",
+                upstream_target: "deepseek-v4-flash-vision-exp",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "minimax-m3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,

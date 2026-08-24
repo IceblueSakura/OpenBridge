@@ -1,7 +1,8 @@
 //! Complete canonical model facts for DeepSeek V4 Flash Vision Exp
 //! (`deepseek/deepseek-v4-flash-vision-exp`).
 //!
-//! Facts follow the OpenRouter model and endpoint records reverified on 2026-08-24.
+//! Catalog facts follow OpenRouter records; direct image behavior follows DeepSeek's Vision records,
+//! both reverified on 2026-08-24.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,

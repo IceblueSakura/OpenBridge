@@ -17,6 +17,8 @@ use crate::{
     },
 };
 
+use super::media::IMAGE_INPUT;
+
 const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const RESPONSES_STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
@@ -33,7 +35,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: false,
                 strict_schema: true,
             }),
-            media: crate::core::ChatMediaProfile::new(None, None, None),
+            media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
             store: false,
             reasoning_output: ReasoningOutput::PlainText,
@@ -56,7 +58,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
                 parallel_calls: false,
                 strict_schema: true,
             }),
-            media: crate::core::ResponsesMediaProfile::new(None, None),
+            media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
             state: ProviderResponsesStateCeiling::Stateless,
             background: false,

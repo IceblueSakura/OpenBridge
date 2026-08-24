@@ -20,6 +20,7 @@
 | `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | DeepSeek | `deepseek-v4-flash` |
 | `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | Alibaba Cloud Model Studio | `bailian-deepseek-v4-flash` |
 | `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | OpenRouter | `openrouter-deepseek-v4-flash` |
+| `deepseek-v4-flash-vision-exp` | `deepseek/deepseek-v4-flash-vision-exp` | DeepSeek | `deepseek-v4-flash-vision-exp` |
 | `minimax-m3` | `minimax/minimax-m3` | OpenRouter | `openrouter-minimax-m3` |
 | `minimax-m3` | `minimax/minimax-m3` | NVIDIA | `nvidia-minimax-m3` |
 | `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter-gemma-4-31b-it` |
@@ -56,7 +57,6 @@
 
 以下模型只存在于 `src/models/`，没有 Provider Target、Route 或 Public Model，因此不会出现在运行时 Models API。
 
-- `deepseek/deepseek-v4-flash-vision-exp`
 - `qwen/qwen-audio-3.0-asr-flash`
 - `qwen/qwen-audio-3.0-realtime-flash`
 - `qwen/qwen-audio-3.0-realtime-plus`

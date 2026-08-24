@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-use super::DEFINITION;
+use super::{DEFINITION, media::IMAGE_INPUT};
 
 const PROVIDER_INSTANCE_ID: &str = "deepseek";
 
@@ -26,7 +26,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed upstream targets for DeepSeek V4 Pro and Flash.
+/// Builds the fixed upstream targets for DeepSeek V4 Pro, Flash, and Vision Exp.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         target(
@@ -41,6 +41,12 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "deepseek-v4-flash",
             "deepseek-primary",
         ),
+        target(
+            "deepseek-v4-flash-vision-exp",
+            deepseek::deepseek_v4_flash_vision_exp::ID,
+            "deepseek-v4-flash-vision-exp",
+            "deepseek-primary",
+        ),
     ]
 }
 
@@ -52,21 +58,29 @@ fn target(
     credential_id: &str,
 ) -> UpstreamTargetConfig {
     // Resolve the Chat profile required by every DeepSeek target.
+    let image_input =
+        (canonical_model == deepseek::deepseek_v4_flash_vision_exp::ID).then_some(IMAGE_INPUT);
     let chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("DeepSeek targets require Chat Completions capabilities")
-        .to_executable(crate::core::ChatMediaProfile::default());
-    let mut unsupported_parameters = vec![
-        "include_reasoning",
-        "logit_bias",
-        "min_p",
-        "repetition_penalty",
-        "seed",
-        "top_k",
-    ];
+        .to_executable(crate::core::ChatMediaProfile::new(image_input, None, None));
+    let is_vision = canonical_model == deepseek::deepseek_v4_flash_vision_exp::ID;
+    let mut unsupported_parameters = vec!["include_reasoning"];
+    // Pro/Flash canonical facts include these direct-API exclusions; Vision does not expose them,
+    // so adding them to Vision model rules would violate registry validation as unknown parameters.
+    if !is_vision {
+        unsupported_parameters.extend([
+            "logit_bias",
+            "min_p",
+            "repetition_penalty",
+            "seed",
+            "top_k",
+            "user",
+        ]);
+    }
     if canonical_model == deepseek::deepseek_v4_flash::ID {
         unsupported_parameters.push("top_a");
     }
@@ -85,7 +99,6 @@ fn target(
         model_rules: UpstreamApiModelRules {
             disabled_parameters: unsupported_parameters
                 .iter()
-                .chain(["user"].iter())
                 .map(|parameter| (*parameter).to_owned())
                 .collect(),
             ignored_parameters: ignored_parameters.clone(),
@@ -102,7 +115,7 @@ fn target(
         .expect("DeepSeek Responses targets require Responses capabilities")
         .to_executable(
             ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
-            crate::core::ResponsesMediaProfile::default(),
+            crate::core::ResponsesMediaProfile::new(image_input, None),
         );
     upstream_apis.push(UpstreamApiConfig {
         key: UpstreamApiKey::new(

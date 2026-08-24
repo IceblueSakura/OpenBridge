@@ -81,7 +81,7 @@
 | ChatGPT | WebSocket、Batch、Embeddings、hosted/custom tool、MCP、真实图片输入、background/stateful response、完整 Agent loop、多账户轮换、外部 SDK、负载和长期 refresh 稳定性。 |
 | OpenAI | 当前没有成功的真实账号/Provider 验证；Models、Chat/Responses、Embeddings、图片、strict/parallel tool、structured output、state、配额、负载和长期运行均不能由静态 ceiling 推断。 |
 | LongCat | 更多 reasoning 档位和 tool 形状、强制 Bridge/fallback、外部 SDK/Agent、负载与长期运行。 |
-| DeepSeek | Pro `low` 的官方资料仍冲突；`parallel_tool_calls` 请求开关、hosted/custom tool、structured-output SSE、强制 fallback、其他账号/区域和长期运行未证明。 |
+| DeepSeek | Vision Files API/`file_id`、role/像素边界本地预检、600 图与 remote/mixed 64 MiB 极限、任意 remote host 可下载性、恶意图片、视觉质量与更高阶多能力组合未证明；inline executable profile 保守限制为累计 decoded 32 MiB。Pro `low` 的官方资料仍冲突，`parallel_tool_calls` 请求开关、hosted/custom tool、structured-output SSE、强制 fallback、其他账号/区域和长期运行也未证明。 |
 | Xiaomi MiMo | video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行。 |
 | OpenRouter | 强制 DeepSeek fallback、远程/JPEG 图片实体、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行。公开目录字段不自动成为 executable capability。 |
 | NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |

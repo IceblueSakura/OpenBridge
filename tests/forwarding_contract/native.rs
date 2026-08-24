@@ -1052,3 +1052,158 @@ async fn bailian_image_models_expose_only_probed_native_media_profiles() {
         assert!(text_only["interfaces"][protocol]["multimodal_input"]["image"].is_null());
     }
 }
+
+#[tokio::test]
+async fn deepseek_vision_exposes_and_preserves_its_direct_image_contract() {
+    const REMOTE_IMAGE_URL: &str = "https://example.com/image.webp";
+    const WEBP_DATA_URL: &str = "data:image/webp;base64,UklGRgQAAABXRUJQ";
+    let transport = Arc::new(RecordingTransport::default());
+    let app = app_with_compiled_registry(transport.clone());
+    let cases = [
+        (
+            "/v1/chat/completions",
+            serde_json::json!({
+                "model": "deepseek-v4-flash-vision-exp",
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": "Describe the images."},
+                    {"type": "image_url", "image_url": {"url": REMOTE_IMAGE_URL, "detail": "low"}},
+                    {"type": "image_url", "image_url": {"url": WEBP_DATA_URL, "detail": "original"}}
+                ]}]
+            }),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({
+                "model": "deepseek-v4-flash-vision-exp",
+                "input": [{"role": "user", "content": [
+                    {"type": "input_text", "text": "Describe the images."},
+                    {"type": "input_image", "image_url": REMOTE_IMAGE_URL, "detail": "high"},
+                    {"type": "input_image", "image_url": WEBP_DATA_URL, "detail": "auto"}
+                ]}]
+            }),
+        ),
+    ];
+    for (path, body) in &cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(*path)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(
+                        AUTHORIZATION,
+                        "Bearer downstream-token-00000000000000000000000000000000",
+                    )
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    }
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), cases.len());
+    assert_eq!(
+        requests[0].body["messages"][1]["content"][1]["image_url"]["url"],
+        REMOTE_IMAGE_URL
+    );
+    assert_eq!(
+        requests[0].body["messages"][1]["content"][1]["image_url"]["detail"],
+        "low"
+    );
+    assert_eq!(
+        requests[0].body["messages"][1]["content"][2]["image_url"]["url"],
+        WEBP_DATA_URL
+    );
+    assert_eq!(
+        requests[1].body["input"][0]["content"][1]["image_url"],
+        REMOTE_IMAGE_URL
+    );
+    assert_eq!(requests[1].body["input"][0]["content"][1]["detail"], "high");
+    assert_eq!(
+        requests[1].body["input"][0]["content"][2]["image_url"],
+        WEBP_DATA_URL
+    );
+    drop(requests);
+
+    // Reject the first request beyond DeepSeek's documented 600-image ceiling before egress.
+    let too_many_images = (0..601)
+        .map(|_| {
+            serde_json::json!({
+                "type": "image_url",
+                "image_url": {"url": REMOTE_IMAGE_URL}
+            })
+        })
+        .collect::<Vec<_>>();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    AUTHORIZATION,
+                    "Bearer downstream-token-00000000000000000000000000000000",
+                )
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "deepseek-v4-flash-vision-exp",
+                        "messages": [{"role": "user", "content": too_many_images}]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(error["error"]["code"], "unsupported_model_capability");
+    assert_eq!(transport.requests.lock().unwrap().len(), cases.len());
+
+    let model =
+        compiled_authenticated_get(&app, "/openbridge/v1/models/deepseek-v4-flash-vision-exp")
+            .await;
+    let expected_image = serde_json::json!({
+        "sources": ["remote_url", "data_url"],
+        "media_types": ["image/jpeg", "image/png", "image/gif", "image/webp"],
+        "detail": {"default": null, "allowed": ["auto", "low", "high", "original"]},
+        "limits": {
+            "max_parts": 600,
+            "max_url_length": 8_192,
+            "max_inline_encoded_bytes": 44_739_244,
+            "max_inline_decoded_bytes": 32 * 1024 * 1024,
+            "max_total_inline_encoded_bytes": 44_739_244,
+            "max_total_inline_decoded_bytes": 32 * 1024 * 1024
+        }
+    });
+    for protocol in ["chat_completions", "responses"] {
+        assert_eq!(
+            model["interfaces"][protocol]["multimodal_input"]["image"],
+            expected_image
+        );
+        let parameters = model["interfaces"][protocol]["supported_parameters"]
+            .as_array()
+            .unwrap();
+        for absent in [
+            "logit_bias",
+            "min_p",
+            "repetition_penalty",
+            "seed",
+            "top_k",
+            "user",
+        ] {
+            assert!(!parameters.iter().any(|parameter| parameter == absent));
+        }
+    }
+
+    for public_model in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+        let model =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{public_model}"))
+                .await;
+        for protocol in ["chat_completions", "responses"] {
+            assert!(model["interfaces"][protocol]["multimodal_input"]["image"].is_null());
+        }
+    }
+}
