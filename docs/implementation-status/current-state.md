@@ -17,7 +17,7 @@
 
 ## 2. 配置、凭证与静态注册
 
-- `config/bootstrap.toml` 拥有 listener、limits、共享 HTTP client、默认 instructions、本地下游内容日志开关及可选 OTLP traces/metrics；省略日志字段或 signal table 分别表示关闭。
+- `config/bootstrap.toml` schema v3 拥有 listener、limits、共享 HTTP client、默认 instructions、本地下游内容日志开关及可选 OTLP traces/metrics；body/SSE limits 使用带单位 byte-size 字符串，HTTP client timeout 使用带单位 duration 字符串，并在启动时转换为严格运行时边界。省略日志字段或 signal table 分别表示关闭。
 - 私有 `users.toml` 只提供下游用户/API key；私有 `upstream-credentials.toml` 只激活代码注册的 API-key pool 或 OAuth auth-file locator，不能新增 Provider、Target、Route、endpoint 或能力。
 - 未知、重复、类型/Provider 不匹配或损坏 binding 在 listener 前失败；缺失或空 API-key pool 只禁用引用它的静态 Target。
 - Rust catalog 显式注册闭合的 Provider family、canonical Model、Provider instance、credential pool、Upstream Target/API、Route 与 Public Model，并编译为 immutable `RuntimeRegistry`。

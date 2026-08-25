@@ -184,17 +184,17 @@ enabled = true
     let bootstrap = workspace.write(
         "bootstrap.toml",
         &format!(
-            r#"schema_version = 2
+            r#"schema_version = 3
 listen = "{listen}"
 users_file = "{}"
 upstream_credentials_file = "{}"
-max_request_body_bytes = 1048576
-max_json_response_body_bytes = 16777216
-max_replay_body_bytes = 262144
-max_sse_event_bytes = 262144
+max_request_body = "1MiB"
+max_json_response_body = "16MiB"
+max_replay_body = "256KiB"
+max_sse_event = "256KiB"
 default_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
-upstream_connect_timeout_ms = 5000
-upstream_pool_idle_timeout_ms = 90000
+upstream_connect_timeout = "5s"
+upstream_pool_idle_timeout = "90s"
 upstream_pool_max_idle_per_host = 16
 "#,
             toml_path(&users),

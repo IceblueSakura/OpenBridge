@@ -21,7 +21,7 @@ pub use error::BootstrapConfigError;
 pub use parser::parse_bootstrap_config;
 pub use source::{BootstrapConfigFileError, BootstrapConfigPath};
 
-const BOOTSTRAP_SCHEMA_VERSION: u32 = 2;
+const BOOTSTRAP_SCHEMA_VERSION: u32 = 3;
 
 /// Immutable process configuration parsed during startup.
 #[derive(Debug, Clone, Eq, PartialEq)]

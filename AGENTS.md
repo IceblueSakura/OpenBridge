@@ -84,7 +84,7 @@ rules.
   it excludes anonymous failures and is not a raw upstream Provider wire dump.
 - Header snapshots must redact authentication, Cookie, token, key, secret, password, session, credential, and signature
   values before tracing. Never add a switch that disables redaction or exposes upstream credential headers.
-- Request and response captures are bounded by `max_request_body_bytes` and `max_json_response_body_bytes`. Emit at most
+- Request and response captures are bounded by `max_request_body` and `max_json_response_body`. Emit at most
   one terminal snapshot per direction with captured/observed bytes, completeness, and truncation; never buffer without
   bounds or log per SSE chunk.
 - Content snapshots use a bounded dedicated JSONL writer and must remain absent from stdout and the reviewed OTLP trace layer.

@@ -875,8 +875,8 @@ async fn oversized_success_body_fails_before_commit_without_image_usage() {
         )])),
     });
     let bootstrap = BOOTSTRAP.replace(
-        "max_json_response_body_bytes = 16777216",
-        "max_json_response_body_bytes = 128",
+        "max_json_response_body = \"16MiB\"",
+        "max_json_response_body = \"128B\"",
     );
     let (router, _, metrics) = images_router_with_bootstrap_and_metrics(transport, &bootstrap);
 

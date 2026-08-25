@@ -23,9 +23,11 @@ policy 或 routing topology。
 
 每个运行配置都有同名 `.example` 模板：`config/bootstrap.example.toml`、`config/users.example.toml` 和
 `config/upstream-credentials.example.toml`。模板不得包含真实凭证；两个 Bootstrap profile 必须解析为相同配置。Bootstrap
-schema v2 要求 `max_request_body_bytes`、`max_json_response_body_bytes`、
-`max_replay_body_bytes` 与 `max_sse_event_bytes` 均为非零值，并要求 replay limit 不大于 request limit；这些
-字段职责独立，不互相提供缺省或回退。
+schema v3 要求 `max_request_body`、`max_json_response_body`、`max_replay_body` 与
+`max_sse_event` 使用“正整数紧邻显式、大小写敏感 SI/IEC byte 单位”的字符串并解析为非零 byte 上限；`upstream_connect_timeout` 与
+`upstream_pool_idle_timeout` 使用带单位的 duration 字符串并解析为非零 `Duration`。配置应优先使用明确的 IEC 单位
+`KiB`、`MiB`、`GiB` 以及时间单位 `ms`、`s`、`m`、`h`，不得接受旧 `_bytes`/`_ms` 字段或 unitless 数字。
+Replay limit 不得大于 request limit；各字段职责独立，不互相提供缺省或回退。
 
 `default_instructions` 是项目级 Bootstrap 字符串；只要启动编译结果保留至少一个可执行的通用 Generation Chat/Responses
 interface，它就必须存在且不能是空字符串或纯空白。该值只在客户端没有有效指令来源时回落，并在候选展开前统一写入 canonical

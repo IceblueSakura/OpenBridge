@@ -98,14 +98,8 @@ async fn documentation_resources_are_public_and_cross_linked() {
 #[tokio::test]
 async fn requests_over_the_bootstrap_body_limit_are_rejected() {
     let bootstrap_document = support::BOOTSTRAP
-        .replace(
-            "max_request_body_bytes = 1048576",
-            "max_request_body_bytes = 8",
-        )
-        .replace(
-            "max_replay_body_bytes = 262144",
-            "max_replay_body_bytes = 8",
-        );
+        .replace("max_request_body = \"1MiB\"", "max_request_body = \"8B\"")
+        .replace("max_replay_body = \"256KiB\"", "max_replay_body = \"8B\"");
     let registry = build_registry(
         support::bootstrap(&bootstrap_document),
         support::definition("health-test", "code-primary", "test-model"),

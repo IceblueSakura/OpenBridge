@@ -1537,8 +1537,8 @@ fn app_with_streaming_only_responses_transport(
 
     // Build a registry with an explicit small or production-like response budget for takeover tests.
     let bootstrap_document = support::BOOTSTRAP.replace(
-        "max_json_response_body_bytes = 16777216",
-        &format!("max_json_response_body_bytes = {max_json_response_body_bytes}"),
+        "max_json_response_body = \"16MiB\"",
+        &format!("max_json_response_body = \"{max_json_response_body_bytes}B\""),
     );
     let registry = build_registry(support::bootstrap(&bootstrap_document), definition).unwrap();
     let (users, credentials) = support::users_and_credentials(

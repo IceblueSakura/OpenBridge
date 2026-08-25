@@ -1,5 +1,5 @@
 # Selects the strict Bootstrap document schema accepted by this OpenBridge build.
-schema_version = 2
+schema_version = 3
 # Binds the downstream server to a loopback-only socket address.
 listen = "127.0.0.1:8080"
 # Locates the private downstream user and API-key configuration file.
@@ -8,20 +8,20 @@ users_file = "config/users.toml"
 upstream_credentials_file = "config/upstream-credentials.toml"
 # Supplies the fallback instruction for every active general Generation interface.
 default_instructions = "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
-# Limits one downstream request body to 100 MiB and bounds its optional log capture.
-max_request_body_bytes = 104857600
-# Limits buffered JSON responses and optional response-body log capture to 100 MiB.
-max_json_response_body_bytes = 104857600
-# Limits replayable request bodies to 4 MiB and must not exceed the request-body limit.
-max_replay_body_bytes = 4194304
-# Limits one decoded Server-Sent Events event to 4 MiB.
-max_sse_event_bytes = 4194304
-# Limits one upstream TCP connection attempt to 5 seconds.
-upstream_connect_timeout_ms = 5000
-# Retains an idle pooled upstream connection for at most 300 seconds.
-upstream_pool_idle_timeout_ms = 300000
-# Retains at most 64 idle upstream connections for one host.
-upstream_pool_max_idle_per_host = 64
+# Limits one downstream request body and bounds its optional log capture.
+max_request_body = "512MiB"
+# Limits buffered JSON responses and optional response-body log capture.
+max_json_response_body = "100MiB"
+# Limits replayable request bodies and must not exceed the request-body limit.
+max_replay_body = "4MiB"
+# Limits one decoded Server-Sent Events event.
+max_sse_event = "4MiB"
+# Limits one upstream TCP connection attempt.
+upstream_connect_timeout = "5s"
+# Retains an idle pooled upstream connection for at most five minutes.
+upstream_pool_idle_timeout = "5m"
+# Retains at most 16 idle upstream connections for one host.
+upstream_pool_max_idle_per_host = 16
 
 # Controls authenticated downstream HTTP diagnostics for the checked-in development profile.
 [logging]

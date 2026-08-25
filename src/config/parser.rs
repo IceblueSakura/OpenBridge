@@ -20,32 +20,24 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
             actual: raw.schema_version,
         });
     }
-    // Validate that all memory, timeout, and connection-pool limits are usable.
-    validate_nonzero("max_request_body_bytes", raw.max_request_body_bytes)?;
-    validate_nonzero(
-        "max_json_response_body_bytes",
-        raw.max_json_response_body_bytes,
-    )?;
-    validate_nonzero("max_replay_body_bytes", raw.max_replay_body_bytes)?;
-    validate_nonzero("max_sse_event_bytes", raw.max_sse_event_bytes)?;
-    validate_nonzero(
-        "upstream_connect_timeout_ms",
-        raw.upstream_connect_timeout_ms,
-    )?;
-    validate_nonzero(
-        "upstream_pool_idle_timeout_ms",
-        raw.upstream_pool_idle_timeout_ms,
-    )?;
+    // Convert human-readable byte sizes into the runtime width and reject unusable zero values.
+    let max_request_body_bytes = byte_size_to_usize("max_request_body", &raw.max_request_body)?;
+    let max_json_response_body_bytes =
+        byte_size_to_usize("max_json_response_body", &raw.max_json_response_body)?;
+    let max_replay_body_bytes = byte_size_to_usize("max_replay_body", &raw.max_replay_body)?;
+    let max_sse_event_bytes = byte_size_to_usize("max_sse_event", &raw.max_sse_event)?;
+    validate_duration_nonzero("upstream_connect_timeout", raw.upstream_connect_timeout)?;
+    validate_duration_nonzero("upstream_pool_idle_timeout", raw.upstream_pool_idle_timeout)?;
     validate_nonzero(
         "upstream_pool_max_idle_per_host",
         raw.upstream_pool_max_idle_per_host,
     )?;
 
     // Keep replay eligibility within the already-enforced downstream request allocation boundary.
-    if raw.max_replay_body_bytes > raw.max_request_body_bytes {
+    if max_replay_body_bytes > max_request_body_bytes {
         return Err(BootstrapConfigError::ReplayLimitExceedsRequest {
-            replay: raw.max_replay_body_bytes,
-            request: raw.max_request_body_bytes,
+            replay: max_replay_body_bytes,
+            request: max_request_body_bytes,
         });
     }
 
@@ -117,14 +109,14 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         upstream_credentials_file: raw.upstream_credentials_file,
         default_instructions: raw.default_instructions,
         limits: RuntimeLimits {
-            max_request_body_bytes: raw.max_request_body_bytes,
-            max_json_response_body_bytes: raw.max_json_response_body_bytes,
-            max_replay_body_bytes: raw.max_replay_body_bytes,
-            max_sse_event_bytes: raw.max_sse_event_bytes,
+            max_request_body_bytes,
+            max_json_response_body_bytes,
+            max_replay_body_bytes,
+            max_sse_event_bytes,
         },
         http_client: HttpClientConfig {
-            connect_timeout: Duration::from_millis(raw.upstream_connect_timeout_ms),
-            pool_idle_timeout: Duration::from_millis(raw.upstream_pool_idle_timeout_ms),
+            connect_timeout: raw.upstream_connect_timeout,
+            pool_idle_timeout: raw.upstream_pool_idle_timeout,
             pool_max_idle_per_host: raw.upstream_pool_max_idle_per_host,
         },
         http_logging: HttpLoggingConfig {
@@ -137,6 +129,29 @@ pub fn parse_bootstrap_config(document: &str) -> Result<BootstrapConfig, Bootstr
         otlp_http_trace_export,
         otlp_http_metrics_export,
     })
+}
+
+/// Converts one parsed byte size to the platform runtime width without truncation.
+fn byte_size_to_usize(
+    name: &'static str,
+    value: &super::document::RawByteSize,
+) -> Result<usize, BootstrapConfigError> {
+    let value =
+        usize::try_from(value.as_u64()).map_err(|_| BootstrapConfigError::InvalidLimit { name })?;
+    validate_nonzero(name, value)?;
+    Ok(value)
+}
+
+/// Rejects zero durations while preserving the unit parsed by `humantime-serde`.
+fn validate_duration_nonzero(
+    name: &'static str,
+    value: Duration,
+) -> Result<(), BootstrapConfigError> {
+    if value.is_zero() {
+        Err(BootstrapConfigError::InvalidLimit { name })
+    } else {
+        Ok(())
+    }
 }
 
 /// Parses one startup-owned OTLP/HTTP collector base without accepting embedded routing policy.

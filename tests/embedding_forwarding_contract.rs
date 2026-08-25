@@ -807,8 +807,8 @@ async fn invalid_or_oversized_success_responses_fail_before_downstream_commit() 
 
     // Enforce the response budget before parsing and never truncate or pass through an oversized body.
     let constrained_bootstrap = BOOTSTRAP.replace(
-        "max_json_response_body_bytes = 16777216",
-        "max_json_response_body_bytes = 512",
+        "max_json_response_body = \"16MiB\"",
+        "max_json_response_body = \"512B\"",
     );
     let oversized = SyntheticEmbeddingResponse::raw(
         Some("application/json"),
@@ -868,8 +868,8 @@ async fn invalid_base64_length_is_rejected_for_the_effective_dimension() {
 #[tokio::test]
 async fn compiler_derived_response_batch_limit_is_enforced_before_egress() {
     let constrained_bootstrap = BOOTSTRAP.replace(
-        "max_json_response_body_bytes = 16777216",
-        "max_json_response_body_bytes = 400",
+        "max_json_response_body = \"16MiB\"",
+        "max_json_response_body = \"400B\"",
     );
     let (app, transport) = app_with_bootstrap_and_responses(&constrained_bootstrap, []);
 
@@ -1343,14 +1343,8 @@ async fn embedding_media_and_request_limits_use_exact_zero_egress_errors() {
 
     // Lower request and replay limits together and exceed the hard request limit before authentication parsing.
     let constrained_bootstrap = BOOTSTRAP
-        .replace(
-            "max_request_body_bytes = 1048576",
-            "max_request_body_bytes = 128",
-        )
-        .replace(
-            "max_replay_body_bytes = 262144",
-            "max_replay_body_bytes = 128",
-        );
+        .replace("max_request_body = \"1MiB\"", "max_request_body = \"128B\"")
+        .replace("max_replay_body = \"256KiB\"", "max_replay_body = \"128B\"");
     let (app, transport) = app_with_bootstrap_and_responses(&constrained_bootstrap, []);
     let response = app
         .oneshot(embedding_request(json!({

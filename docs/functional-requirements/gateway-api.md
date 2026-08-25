@@ -126,14 +126,14 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
 - timeout policy 只能来自受信 Target/API 与实际 upstream delivery mode，客户端不得覆盖。关闭 streaming total deadline 时仍必须保留
   bounded headers/first-event/idle policy；不得以修复长流截断为由把所有等待改成无限。
 - response headers 和 SSE bytes 的处理必须受大小、UTF-8、event 数量/长度与慢消费者资源上限保护。
-- precommit raw buffer 最多保存一个 `max_sse_event_bytes` 约束的 event。Bridge 遇到转换后不可见的合法 event 时必须推进并
+- precommit raw buffer 最多保存一个 `max_sse_event` 约束的 event。Bridge 遇到转换后不可见的合法 event 时必须推进并
   hand off 同一个 renderer state、立即释放该 event 的 raw bytes；不得把多个 event 累积成 prefix，也不得重新渲染已消费 event。
 
 上游 API 可以通过可信类型化策略声明自己强制 `stream: true`。这种 API 面对下游非流式请求时只能选择以下一种固定行为：
 
 - 禁用转换：该 Route 对接口贡献 `non_streaming: unsupported`；固定 Public Model 契约按全部候选相交，并在 egress 前拒绝非流式请求，
   不得跳过首选 Route 去选择后续更强候选。
-- 启用 Responses SSE buffering：规划器固定写入上游 `stream: true`，在 `max_json_response_body_bytes` 与单 event 上限内完整缓冲，使用
+- 启用 Responses SSE buffering：规划器固定写入上游 `stream: true`，在 `max_json_response_body` 与单 event 上限内完整缓冲，使用
   类型化 Responses lifecycle 校验 framing、identity 和显式 completed/failed/incomplete/cancelled terminal，并从 response snapshot 与
   有序 `response.output_item.done` 组装完整 response，之后才一次性返回 JSON；若下游为 Chat，则再执行既有非流式
   Responses→Chat Bridge。稀疏 terminal 可以补齐已验证的 completed items，但缺失 terminal 不得被补造成成功。

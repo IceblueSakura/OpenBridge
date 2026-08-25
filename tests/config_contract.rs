@@ -25,6 +25,111 @@ use openbridge::{
 use support::{BOOTSTRAP, bootstrap, definition};
 
 #[test]
+fn bootstrap_parses_human_readable_sizes_and_durations() {
+    let document = r#"
+schema_version = 3
+listen = "127.0.0.1:8080"
+users_file = "config/users.toml"
+upstream_credentials_file = "config/upstream-credentials.toml"
+max_request_body = "512MiB"
+max_json_response_body = "100MiB"
+max_replay_body = "4MiB"
+max_sse_event = "4MiB"
+upstream_connect_timeout = "5s"
+upstream_pool_idle_timeout = "5m"
+upstream_pool_max_idle_per_host = 16
+"#;
+
+    let bootstrap = parse_bootstrap_config(document).unwrap();
+
+    assert_eq!(bootstrap.limits().max_request_body_bytes(), 536_870_912);
+    assert_eq!(
+        bootstrap.limits().max_json_response_body_bytes(),
+        104_857_600
+    );
+    assert_eq!(bootstrap.limits().max_replay_body_bytes(), 4_194_304);
+    assert_eq!(bootstrap.limits().max_sse_event_bytes(), 4_194_304);
+    assert_eq!(
+        bootstrap.http_client().connect_timeout(),
+        Duration::from_secs(5)
+    );
+    assert_eq!(
+        bootstrap.http_client().pool_idle_timeout(),
+        Duration::from_secs(300)
+    );
+}
+
+#[test]
+fn bootstrap_rejects_legacy_numeric_and_invalid_human_readable_limits() {
+    for invalid in [
+        BOOTSTRAP.replace("max_request_body = \"1MiB\"", "max_request_body = 1048576"),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body = \"1048576\"",
+        ),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body = \"18446744073709551616B\"",
+        ),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body = \"18446744073709551615KiB\"",
+        ),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body = \"1.5MiB\"",
+        ),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body_bytes = 1048576",
+        ),
+        BOOTSTRAP.replace(
+            "max_request_body = \"1MiB\"",
+            "max_request_body = \"large\"",
+        ),
+        BOOTSTRAP.replace(
+            "upstream_connect_timeout = \"5s\"",
+            "upstream_connect_timeout = 5",
+        ),
+        BOOTSTRAP.replace(
+            "upstream_connect_timeout = \"5s\"",
+            "upstream_connect_timeout_ms = 5000",
+        ),
+        BOOTSTRAP.replace(
+            "upstream_connect_timeout = \"5s\"",
+            "upstream_connect_timeout = \"soon\"",
+        ),
+    ] {
+        assert!(matches!(
+            parse_bootstrap_config(&invalid),
+            Err(BootstrapConfigError::Parse)
+        ));
+    }
+
+    for (document, name) in [
+        (
+            BOOTSTRAP.replace(
+                "upstream_connect_timeout = \"5s\"",
+                "upstream_connect_timeout = \"0s\"",
+            ),
+            "upstream_connect_timeout",
+        ),
+        (
+            BOOTSTRAP.replace(
+                "upstream_pool_idle_timeout = \"90s\"",
+                "upstream_pool_idle_timeout = \"0s\"",
+            ),
+            "upstream_pool_idle_timeout",
+        ),
+    ] {
+        assert!(matches!(
+            parse_bootstrap_config(&document),
+            Err(BootstrapConfigError::InvalidLimit { name: actual }) if actual == name
+        ));
+    }
+}
+
+#[test]
 fn bootstrap_and_code_registry_resolve_runtime_boundaries() {
     let policy = bootstrap(BOOTSTRAP);
     let registry = build_registry(
@@ -214,10 +319,10 @@ fn registry_rejects_a_route_for_an_absent_upstream_operation() {
 
 #[test]
 fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
-    let old_schema = BOOTSTRAP.replace("schema_version = 2", "schema_version = 1");
+    let old_schema = BOOTSTRAP.replace("schema_version = 3", "schema_version = 2");
     assert!(matches!(
         parse_bootstrap_config(&old_schema),
-        Err(BootstrapConfigError::UnsupportedSchema { actual: 1 })
+        Err(BootstrapConfigError::UnsupportedSchema { actual: 2 })
     ));
 
     let unknown = BOOTSTRAP.replace(
@@ -235,50 +340,48 @@ fn bootstrap_rejects_unknown_fields_non_loopback_and_zero_limits() {
         Err(BootstrapConfigError::NonLoopbackListen { .. })
     ));
 
-    let zero = BOOTSTRAP.replace("max_sse_event_bytes = 262144", "max_sse_event_bytes = 0");
+    let zero = BOOTSTRAP.replace("max_sse_event = \"256KiB\"", "max_sse_event = \"0B\"");
     assert!(matches!(
         parse_bootstrap_config(&zero),
         Err(BootstrapConfigError::InvalidLimit {
-            name: "max_sse_event_bytes"
+            name: "max_sse_event"
         })
     ));
 
     // Require an independent non-zero JSON response budget instead of deriving it from requests.
-    let missing_response_limit = BOOTSTRAP.replace("max_json_response_body_bytes = 16777216\n", "");
+    let missing_response_limit = BOOTSTRAP.replace("max_json_response_body = \"16MiB\"\n", "");
     assert!(matches!(
         parse_bootstrap_config(&missing_response_limit),
         Err(BootstrapConfigError::Parse)
     ));
     let zero_response_limit = BOOTSTRAP.replace(
-        "max_json_response_body_bytes = 16777216",
-        "max_json_response_body_bytes = 0",
+        "max_json_response_body = \"16MiB\"",
+        "max_json_response_body = \"0B\"",
     );
     assert!(matches!(
         parse_bootstrap_config(&zero_response_limit),
         Err(BootstrapConfigError::InvalidLimit {
-            name: "max_json_response_body_bytes"
+            name: "max_json_response_body"
         })
     ));
 
     // Require a separate non-zero replay budget bounded by the request hard limit.
-    let missing_replay_limit = BOOTSTRAP.replace("max_replay_body_bytes = 262144\n", "");
+    let missing_replay_limit = BOOTSTRAP.replace("max_replay_body = \"256KiB\"\n", "");
     assert!(matches!(
         parse_bootstrap_config(&missing_replay_limit),
         Err(BootstrapConfigError::Parse)
     ));
-    let zero_replay_limit = BOOTSTRAP.replace(
-        "max_replay_body_bytes = 262144",
-        "max_replay_body_bytes = 0",
-    );
+    let zero_replay_limit =
+        BOOTSTRAP.replace("max_replay_body = \"256KiB\"", "max_replay_body = \"0B\"");
     assert!(matches!(
         parse_bootstrap_config(&zero_replay_limit),
         Err(BootstrapConfigError::InvalidLimit {
-            name: "max_replay_body_bytes"
+            name: "max_replay_body"
         })
     ));
     let replay_over_request = BOOTSTRAP.replace(
-        "max_replay_body_bytes = 262144",
-        "max_replay_body_bytes = 1048577",
+        "max_replay_body = \"256KiB\"",
+        "max_replay_body = \"1048577B\"",
     );
     assert!(matches!(
         parse_bootstrap_config(&replay_over_request),
