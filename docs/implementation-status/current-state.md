@@ -22,7 +22,7 @@
 - 未知、重复、类型/Provider 不匹配或损坏 binding 在 listener 前失败；缺失或空 API-key pool 只禁用引用它的静态 Target。
 - Rust catalog 显式注册闭合的 Provider family、canonical Model、Provider instance、credential pool、Upstream Target/API、Route 与 Public Model，并编译为 immutable `RuntimeRegistry`。
 - Canonical Model、Provider Target 与 Public Model 的当前关系集中维护在[Model 与 Provider 映射](model-provider-mapping.md)；本页不复制单模型清单或 capability metadata。
-- `models::{deepseek,qwen,z_ai}::tests` 中的 catalog contracts 固定近期模型 facts 及两个已移除 Qwen ID 的缺失状态；2026-08-24 已通过 `cargo fmt -- --check`、`cargo test --locked` 和 `cargo clippy --locked -- -D warnings`。
+- 生产 catalog 只由 checked-in profile 编译与通用 registry/compiler 不变量保护；默认测试不再固定完整模型 facts、retired ID 黑名单、Route 清单或 capability 快照。
 - Provider contract 是 capability ceiling；每个 Target/API 必须显式收窄。Public Model compiler 对全部固定 candidate 保守求交，请求能力不筛选、跳过或重排 candidate。
 - Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`；只在缺失下游协议 Native coverage 时为允许的单协议 source 补充 Bridge。Embeddings、Images 和专用音频 task 使用独立 operation contract。
 - `openbridge-auth login chatgpt` 通过固定 device interaction 或 authorization-code + PKCE 取得完整 bundle，并事务写入 OpenBridge-owned auth file。常驻服务只在 guarded refresh 或首个预提交 401 recovery 中 reload/rotate。
@@ -55,7 +55,7 @@
 
 主要 owner：`src/ingress/forwarding.rs`、`src/ingress/streaming.rs`、`src/pipeline/generation/`、`src/bridge/`、`src/provider/`、`src/transport/`。
 
-确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/bridge_forwarding_contract.rs`、`tests/protocol_bridge_replay.rs`、`tests/process_replay_contract.rs`。
+确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/protocol_bridge_replay.rs`、`tests/process_replay_contract.rs`。
 
 ## 5. Retry、fallback、cooldown 与取消
 
@@ -89,9 +89,9 @@
 
 - request lifecycle、Provider attempt、OTLP traces/metrics 和本地 bounded HTTP JSONL snapshot 分属独立 owner；内容 snapshot 只在认证后和显式开关下采集，并强制脱敏。
 - 普通 observation 不记录 prompt、媒体正文、向量、credential、真实 endpoint、上游 body 或 Provider request ID。
-- Rust tests 拥有 registry、routing、Provider wire、Bridge、retry/fallback/cooldown、取消和观测不变量；Python corpus/testkit 拥有 canonical corpus、fragmentation、standalone mock/client、报告与打包。
+- Rust tests 只保留独立的客户端结果、Provider wire 或安全/资源失败边界；新增 Model、Route、Provider instance 或 catalog-only capability 默认不新增测试，也不维护完整 inventory、Route 顺序或逐模型矩阵。Python corpus/testkit 拥有 canonical corpus、fragmentation、standalone mock/client、报告与打包。
 - canonical `testdata/` 是合同资产；`testdata/runtime/`、`generated/`、`reports/`、`dist/` 是可重建派生产物。
 
 主要 owner：`src/observability/`、`testdata/`、`tools/corpus/`。
 
-确定性入口：`tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`tests/metrics_contract.rs`、`tools/corpus/tests/`。
+确定性入口：`tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`src/observability/**/tests.rs`、`tools/corpus/tests/`。

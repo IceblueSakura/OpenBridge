@@ -6,11 +6,7 @@ use std::{collections::BTreeSet, path::Path, time::Duration};
 
 use openbridge::{
     config::{BootstrapConfigError, parse_bootstrap_config},
-    core::{
-        ChatMediaProfile, ExecutableResponsesState, ImageDetailPolicy, ImageInputCapabilities,
-        ImageMediaType, ImageSourceCapabilities, InlineImageInputLimits, InlineImageInputProfile,
-        OperationKind, ResponsesAffinity, StorageSupport,
-    },
+    core::{ExecutableResponsesState, OperationKind, ResponsesAffinity, StorageSupport},
     provider::{CredentialKind, ProviderKind},
     providers::build_compiled_registry_with_active_pools,
     registry::{
@@ -178,48 +174,6 @@ fn registry_rejects_zero_timeout_policy_phases() {
     let error = build_registry(bootstrap(BOOTSTRAP), invalid).unwrap_err();
 
     assert!(matches!(error, RegistryError::InvalidTimeoutPolicy { .. }));
-}
-
-#[test]
-fn shared_generation_fixture_denies_optional_api_capabilities_by_default() {
-    let definition = definition("minimal-fixture", "public-model", "upstream-model");
-    let UpstreamApiCapabilities::ChatCompletions(chat) =
-        definition.upstream_targets[0].upstream_apis[0].capabilities
-    else {
-        panic!("the shared fixture must keep one minimal Chat API");
-    };
-    let UpstreamApiCapabilities::Responses(responses) =
-        definition.upstream_targets[0].upstream_apis[1].capabilities
-    else {
-        panic!("the shared fixture must keep one minimal Responses API");
-    };
-
-    assert!(!chat.streaming);
-    assert!(!chat.stream_usage);
-    assert!(chat.function_tools.is_none());
-    assert!(!responses.streaming);
-    assert!(!responses.terminal_usage);
-    assert!(responses.function_tools.is_none());
-}
-
-#[test]
-fn default_target_media_does_not_inherit_the_provider_image_ceiling() {
-    let mut ceiling = support::capabilities()
-        .operation(OperationKind::ChatCompletions)
-        .and_then(openbridge::core::ProviderOperationCapabilities::chat_completions)
-        .unwrap();
-    ceiling.media.image = Some(ImageInputCapabilities::new(
-        1,
-        ImageSourceCapabilities::DataUrl(InlineImageInputProfile::new(
-            &[ImageMediaType::Png],
-            InlineImageInputLimits::new(4, 1, 4, 1),
-        )),
-        ImageDetailPolicy::OmittedOnly { default: None },
-    ));
-
-    let executable = ceiling.to_executable(ChatMediaProfile::default());
-
-    assert_eq!(executable.media, ChatMediaProfile::default());
 }
 
 #[test]

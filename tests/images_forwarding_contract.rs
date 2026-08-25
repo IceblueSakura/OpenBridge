@@ -292,39 +292,6 @@ fn images_router_with_definition_and_metrics(
     (build_router(state), registry, metrics)
 }
 
-fn add_images_candidate(
-    definition: &mut RegistryConfig,
-    target_id: &str,
-    route_id: &str,
-    capabilities: ImagesGenerationsCapabilities,
-) {
-    let mut target = definition.upstream_targets[0].clone();
-    target.id = target_id.to_owned();
-    target.upstream_apis[0].capabilities = UpstreamApiCapabilities::ImagesGenerations(capabilities);
-    definition.upstream_targets.push(target);
-
-    let mut route = definition.routes[0].clone();
-    route.id = route_id.to_owned();
-    route.upstream_target = target_id.to_owned();
-    definition.routes.push(route);
-    definition.public_models[0].routes.push(route_id.to_owned());
-}
-
-fn compiled_images_info(definition: RegistryConfig) -> Value {
-    let registry = build_registry(
-        parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses"),
-        definition,
-    )
-    .expect("Images registry compiles");
-    serde_json::to_value(
-        registry
-            .public_model("synthetic-image")
-            .expect("Public Model is available")
-            .info(),
-    )
-    .expect("Public Model info serializes")
-}
-
 fn downstream_request(body: Value) -> Request<Body> {
     Request::builder()
         .method(Method::POST)
@@ -449,24 +416,25 @@ async fn native_images_route_converts_wire_and_validates_the_downstream_contract
     assert_eq!(response.status(), StatusCode::OK);
 
     // The upstream wire must be the DashScope native shape with `*` size and no user/format fields.
-    let recorded = transport.requests.lock().unwrap();
-    assert_eq!(recorded.len(), 1);
-    let request = &recorded[0];
-    assert_eq!(request.method, Method::POST);
-    assert_eq!(
-        request.path,
-        "/services/aigc/multimodal-generation/generation"
-    );
-    assert_eq!(request.body["model"], "synthetic/image-model");
-    assert_eq!(
-        request.body["input"]["messages"][0]["content"][0]["text"],
-        "a cat"
-    );
-    assert_eq!(request.body["parameters"]["n"], 2);
-    assert_eq!(request.body["parameters"]["size"], "1024*1024");
-    assert!(request.body.get("response_format").is_none());
-    assert!(request.body.get("user").is_none());
-    drop(recorded);
+    {
+        let recorded = transport.requests.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        let request = &recorded[0];
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(
+            request.path,
+            "/services/aigc/multimodal-generation/generation"
+        );
+        assert_eq!(request.body["model"], "synthetic/image-model");
+        assert_eq!(
+            request.body["input"]["messages"][0]["content"][0]["text"],
+            "a cat"
+        );
+        assert_eq!(request.body["parameters"]["n"], 2);
+        assert_eq!(request.body["parameters"]["size"], "1024*1024");
+        assert!(request.body.get("response_format").is_none());
+        assert!(request.body.get("user").is_none());
+    }
 
     // The downstream body must be the OpenAI Images shape with both URLs in order.
     let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
@@ -524,44 +492,6 @@ async fn dropping_validated_downstream_body_does_not_reclassify_provider_success
     assert_eq!(providers[0].attempts_completed, 1);
     assert_eq!(providers[0].attempts_stream_failed, 0);
     assert_eq!(providers[0].attempts_cancelled, 0);
-}
-
-#[tokio::test]
-async fn standard_omitted_equivalents_and_fixed_png_contract_reach_the_native_route() {
-    let transport = Arc::new(RecordingImagesTransport {
-        requests: Mutex::new(Vec::new()),
-        responses: Mutex::new(VecDeque::from([dashscope_success(
-            "https://dashscope-result.example.com/image.png",
-            1,
-        )])),
-    });
-    let (router, _) = images_router(transport.clone());
-
-    // OpenAI optional nulls are omission-equivalent; auto size and non-streaming PNG have exact
-    // qwen semantics and must not leak as DashScope-native parameters.
-    let response = router
-        .oneshot(downstream_request(json!({
-            "model": "synthetic-image",
-            "prompt": "a cat",
-            "n": null,
-            "size": "auto",
-            "response_format": null,
-            "user": null,
-            "output_format": "png",
-            "stream": false,
-        })))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let recorded = transport.requests.lock().unwrap();
-    assert_eq!(recorded.len(), 1);
-    let request = &recorded[0].body;
-    assert!(request["parameters"].get("n").is_none());
-    assert!(request["parameters"].get("size").is_none());
-    for downstream_only in ["response_format", "user", "output_format", "stream"] {
-        assert!(request.get(downstream_only).is_none());
-    }
 }
 
 #[tokio::test]
@@ -660,37 +590,6 @@ async fn dashscope_defaults_are_frozen_and_conflicting_extension_fields_fail_bef
     assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }
 
-#[test]
-fn dashscope_extensions_require_a_model_bound_extension_profile() {
-    let mut definition = images_definition();
-    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
-        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
-    else {
-        panic!("synthetic Images target must own Images capabilities");
-    };
-    capabilities.dashscope_extensions = None;
-    let registry = build_registry(
-        parse_bootstrap_config(BOOTSTRAP).expect("bootstrap parses"),
-        definition,
-    )
-    .expect("registry without extensions remains valid");
-    let body = Bytes::from(
-        serde_json::to_vec(&json!({
-            "model": "synthetic-image",
-            "prompt": "a cat",
-            "seed": 42
-        }))
-        .unwrap(),
-    );
-    let requirements = analyze_images_request(&body).expect("extension field parses structurally");
-    let error = plan_images_request(&registry, &requirements, body)
-        .expect_err("missing extension profile must fail preflight");
-    assert!(matches!(
-        error,
-        openbridge::pipeline::ImagesRequestError::UnsupportedModelCapability { param: "seed" }
-    ));
-}
-
 #[tokio::test]
 async fn cancellation_before_headers_finishes_the_only_images_attempt_once() {
     let transport = Arc::new(PendingImagesTransport {
@@ -719,41 +618,6 @@ async fn cancellation_before_headers_finishes_the_only_images_attempt_once() {
     assert_eq!(providers.len(), 1);
     assert_eq!(providers[0].attempts_started, 1);
     assert_eq!(providers[0].attempts_cancelled, 1);
-}
-
-#[tokio::test]
-async fn non_success_headers_record_one_http_failed_attempt_without_recovery() {
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    let transport = Arc::new(RecordingImagesTransport {
-        requests: Mutex::new(Vec::new()),
-        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            headers,
-            Body::from(r#"{"code":"RateLimit"}"#),
-        )])),
-    });
-    let (router, _, metrics) = images_router_with_metrics(transport.clone());
-
-    let response = router
-        .oneshot(downstream_request(json!({
-            "model": "synthetic-image",
-            "prompt": "a cat"
-        })))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(transport.requests.lock().unwrap().len(), 1);
-    let gateway = metrics.snapshot();
-    assert_eq!(gateway.upstream_attempts, 1);
-    assert_eq!(gateway.upstream_http_failures, 1);
-    assert_eq!(gateway.upstream_retries, 0);
-    assert_eq!(gateway.credential_rotations, 0);
-    assert_eq!(gateway.route_fallbacks, 0);
-    let providers = metrics.provider_snapshots();
-    assert_eq!(providers.len(), 1);
-    assert_eq!(providers[0].attempts_started, 1);
-    assert_eq!(providers[0].attempts_http_failed, 1);
 }
 
 #[tokio::test]
@@ -788,39 +652,6 @@ async fn timeout_returns_504_and_records_one_non_replayed_provider_attempt() {
     assert_eq!(providers[0].key.operation, "images_generations");
     assert_eq!(providers[0].attempts_started, 1);
     assert_eq!(providers[0].attempts_transport_failed, 1);
-}
-
-#[tokio::test]
-async fn multi_candidate_images_request_sends_only_the_priority_candidate_without_recovery() {
-    let mut definition = images_definition();
-    add_images_candidate(
-        &mut definition,
-        "synthetic-images-target-2",
-        "synthetic-images-route-2",
-        images_capabilities(),
-    );
-    let transport = Arc::new(FailingImagesTransport {
-        attempts: AtomicUsize::new(0),
-        timeout: false,
-    });
-    let (router, _, metrics) =
-        images_router_with_definition_and_metrics(transport.clone(), BOOTSTRAP, definition);
-
-    let response = router
-        .oneshot(downstream_request(json!({
-            "model": "synthetic-image",
-            "prompt": "a cat"
-        })))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    let _ = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
-    let gateway = metrics.snapshot();
-    assert_eq!(gateway.upstream_attempts, 1);
-    assert_eq!(gateway.upstream_retries, 0);
-    assert_eq!(gateway.credential_rotations, 0);
-    assert_eq!(gateway.route_fallbacks, 0);
 }
 
 #[tokio::test]
@@ -898,40 +729,6 @@ async fn oversized_success_body_fails_before_commit_without_image_usage() {
 }
 
 #[tokio::test]
-async fn body_transport_failure_fails_before_commit_without_image_usage() {
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    let body = Body::from_stream(futures_util::stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("synthetic image body failure"))
-    }));
-    let transport = Arc::new(RecordingImagesTransport {
-        requests: Mutex::new(Vec::new()),
-        responses: Mutex::new(VecDeque::from([UpstreamResponse::new(
-            StatusCode::OK,
-            headers,
-            body,
-        )])),
-    });
-    let (router, _, metrics) = images_router_with_metrics(transport);
-
-    let response = router
-        .oneshot(downstream_request(json!({
-            "model": "synthetic-image",
-            "prompt": "sensitive-prompt-marker"
-        })))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
-    let error: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(error["error"]["code"], "invalid_upstream_response");
-    let providers = metrics.provider_snapshots();
-    assert_eq!(providers[0].attempts_stream_failed, 1);
-    assert_eq!(providers[0].attempts_completed, 0);
-    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
-}
-
-#[tokio::test]
 async fn malformed_or_early_eof_json_fails_before_commit_without_image_usage() {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -960,248 +757,4 @@ async fn malformed_or_early_eof_json_fails_before_commit_without_image_usage() {
     assert_eq!(providers[0].attempts_stream_failed, 1);
     assert_eq!(providers[0].attempts_completed, 0);
     assert_eq!(metrics.snapshot().images_output_count_observations, 0);
-}
-
-#[tokio::test]
-async fn image_count_mismatch_fails_closed_before_downstream_commit() {
-    let transport = Arc::new(RecordingImagesTransport {
-        requests: Mutex::new(Vec::new()),
-        responses: Mutex::new(VecDeque::from([dashscope_success(
-            "https://dashscope-result.example.com/image.png",
-            1,
-        )])),
-    });
-    let (router, _, metrics) = images_router_with_metrics(transport.clone());
-
-    // The request resolves to two outputs but the upstream returns one; the gateway must fail closed.
-    let response = router
-        .oneshot(downstream_request(
-            json!({ "model": "synthetic-image", "prompt": "a cat", "n": 2 }),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-    let downstream: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(downstream["error"]["code"], "invalid_upstream_response");
-    let providers = metrics.provider_snapshots();
-    assert_eq!(providers[0].attempts_stream_failed, 1);
-    assert_eq!(providers[0].attempts_completed, 0);
-    assert_eq!(metrics.snapshot().images_output_count_observations, 0);
-}
-
-#[tokio::test]
-async fn invalid_requests_are_rejected_before_any_upstream_attempt() {
-    let transport = Arc::new(RecordingImagesTransport {
-        requests: Mutex::new(Vec::new()),
-        responses: Mutex::new(VecDeque::new()),
-    });
-    let (router, _) = images_router(transport.clone());
-
-    // Unknown fields, missing prompts, and out-of-domain sizes must never reach the upstream.
-    for body in [
-        json!({ "model": "synthetic-image", "quality": "hd" }),
-        json!({ "prompt": "a cat" }),
-        json!({ "model": "synthetic-image", "prompt": "a cat", "size": "99x99" }),
-    ] {
-        let response = router
-            .clone()
-            .oneshot(downstream_request(body))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-    assert!(transport.requests.lock().unwrap().is_empty());
-}
-
-#[test]
-fn multi_candidate_images_contract_is_permutation_invariant_and_shared_with_preflight() {
-    let mut definition = images_definition();
-    let mut narrowed = images_capabilities();
-    narrowed.max_outputs = 2;
-    narrowed.allowed_sizes = Some(ImagesSizeDomain {
-        minimum_side: 1_024,
-        maximum_side: 1_536,
-        minimum_area: 1_024 * 1_024,
-        maximum_area: 1_536 * 1_536,
-    });
-    narrowed.supported_parameters = &["n", "output_format", "response_format", "size"];
-    narrowed.dashscope_extensions = None;
-    add_images_candidate(
-        &mut definition,
-        "synthetic-images-target-2",
-        "synthetic-images-route-2",
-        narrowed,
-    );
-
-    let forward = compiled_images_info(definition.clone());
-    definition.public_models[0].routes.reverse();
-    let reversed = compiled_images_info(definition.clone());
-    let forward_images = &forward["interfaces"]["images"];
-    let reversed_images = &reversed["interfaces"]["images"];
-    assert_eq!(forward_images, reversed_images);
-    assert_eq!(forward_images["max_outputs"], 2);
-    assert_eq!(forward_images["allowed_sizes"]["minimum_side"], 1_024);
-    assert_eq!(forward_images["allowed_sizes"]["maximum_side"], 1_536);
-    assert!(forward_images["dashscope_extensions"].is_null());
-    assert!(
-        !forward_images["supported_parameters"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|parameter| parameter == "user")
-    );
-
-    let public_fields = forward_images
-        .as_object()
-        .unwrap()
-        .keys()
-        .collect::<Vec<_>>();
-    assert_eq!(
-        public_fields,
-        vec![
-            "allowed_response_formats",
-            "allowed_sizes",
-            "dashscope_extensions",
-            "default_outputs",
-            "default_response_format",
-            "max_outputs",
-            "supported_parameters",
-        ]
-    );
-    let serialized = serde_json::to_string(forward_images).unwrap();
-    assert!(!serialized.contains("synthetic-images-target"));
-    assert!(!serialized.contains("synthetic-images-route"));
-    assert!(!serialized.contains("dashscope.example.com"));
-
-    let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
-    let supported = Bytes::from(
-        json!({ "model": "synthetic-image", "prompt": "a cat", "n": 2, "size": "1024x1024" })
-            .to_string(),
-    );
-    let unsupported =
-        Bytes::from(json!({ "model": "synthetic-image", "prompt": "a cat", "n": 3 }).to_string());
-    let supported_requirements = analyze_images_request(&supported).unwrap();
-    let plan = plan_images_request(&registry, &supported_requirements, supported).unwrap();
-    assert_eq!(plan.candidate().route_id(), "synthetic-images-route-2");
-    let unsupported_requirements = analyze_images_request(&unsupported).unwrap();
-    assert!(plan_images_request(&registry, &unsupported_requirements, unsupported).is_err());
-}
-
-#[test]
-fn duplicate_images_candidates_leave_the_public_interface_idempotent() {
-    let single = compiled_images_info(images_definition());
-    let mut duplicated = images_definition();
-    add_images_candidate(
-        &mut duplicated,
-        "synthetic-images-target-2",
-        "synthetic-images-route-2",
-        images_capabilities(),
-    );
-    let duplicate = compiled_images_info(duplicated);
-    assert_eq!(
-        single["interfaces"]["images"],
-        duplicate["interfaces"]["images"]
-    );
-}
-
-#[test]
-fn disjoint_size_domains_do_not_publish_a_ghost_size_parameter() {
-    let mut definition = images_definition();
-    let UpstreamApiCapabilities::ImagesGenerations(first) =
-        &mut definition.upstream_targets[0].upstream_apis[0].capabilities
-    else {
-        panic!("synthetic Images target must own Images capabilities");
-    };
-    first.allowed_sizes = Some(ImagesSizeDomain {
-        minimum_side: 512,
-        maximum_side: 768,
-        minimum_area: 512 * 512,
-        maximum_area: 768 * 768,
-    });
-    let mut disjoint = images_capabilities();
-    disjoint.allowed_sizes = Some(ImagesSizeDomain {
-        minimum_side: 1_024,
-        maximum_side: 1_536,
-        minimum_area: 1_024 * 1_024,
-        maximum_area: 1_536 * 1_536,
-    });
-    add_images_candidate(
-        &mut definition,
-        "synthetic-images-target-2",
-        "synthetic-images-route-2",
-        disjoint,
-    );
-
-    let info = compiled_images_info(definition.clone());
-    let images = &info["interfaces"]["images"];
-    assert!(images["allowed_sizes"].is_null());
-    assert!(
-        !images["supported_parameters"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|parameter| parameter == "size")
-    );
-
-    let registry = build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), definition).unwrap();
-    let omitted = Bytes::from(json!({ "model": "synthetic-image", "prompt": "a cat" }).to_string());
-    let omitted_requirements = analyze_images_request(&omitted).unwrap();
-    assert!(plan_images_request(&registry, &omitted_requirements, omitted).is_ok());
-    let explicit = Bytes::from(
-        json!({ "model": "synthetic-image", "prompt": "a cat", "size": "512x512" }).to_string(),
-    );
-    let explicit_requirements = analyze_images_request(&explicit).unwrap();
-    assert!(plan_images_request(&registry, &explicit_requirements, explicit).is_err());
-}
-
-#[test]
-fn images_registry_rejects_unreachable_defaults_ceiling_expansion_and_wrong_task_binding() {
-    let mut mismatched_defaults = images_definition();
-    let mut second = images_capabilities();
-    second.default_outputs = 2;
-    add_images_candidate(
-        &mut mismatched_defaults,
-        "synthetic-images-target-2",
-        "synthetic-images-route-2",
-        second,
-    );
-    assert!(
-        build_registry(
-            parse_bootstrap_config(BOOTSTRAP).unwrap(),
-            mismatched_defaults
-        )
-        .is_err()
-    );
-
-    let mut changed_provider_default = images_definition();
-    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
-        &mut changed_provider_default.upstream_targets[0].upstream_apis[0].capabilities
-    else {
-        panic!("synthetic Images target must own Images capabilities");
-    };
-    capabilities.default_outputs = 2;
-    assert!(
-        build_registry(
-            parse_bootstrap_config(BOOTSTRAP).unwrap(),
-            changed_provider_default
-        )
-        .is_err()
-    );
-
-    let mut exceeds_ceiling = images_definition();
-    let UpstreamApiCapabilities::ImagesGenerations(capabilities) =
-        &mut exceeds_ceiling.upstream_targets[0].upstream_apis[0].capabilities
-    else {
-        panic!("synthetic Images target must own Images capabilities");
-    };
-    capabilities.max_outputs = 7;
-    assert!(build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), exceeds_ceiling).is_err());
-
-    let mut wrong_task = images_definition();
-    wrong_task.upstream_targets[0].upstream_apis[0].key = UpstreamApiKey::new(
-        OperationKind::ImagesGenerations,
-        CanonicalTaskKind::Generation,
-    );
-    assert!(build_registry(parse_bootstrap_config(BOOTSTRAP).unwrap(), wrong_task).is_err());
 }

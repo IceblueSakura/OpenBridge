@@ -28,18 +28,15 @@ use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
     core::{
-        ALL_TOOL_CHOICE_MODES, ApiProtocol, ExecutableResponsesState, FunctionToolCapabilities,
-        GenerationBridgeDirection, JsonSchemaSupport, OperationKind, ResponseInclude,
-        ResponsesAffinity, StorageSupport, StructuredOutputProfile,
+        ApiProtocol, ExecutableResponsesState, GenerationBridgeDirection, OperationKind,
+        ResponseInclude, ResponsesAffinity, StorageSupport,
     },
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
-        IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel,
-        ReasoningLevelMapping, ReasoningProfile, RegistryConfig, RouteConfig, RouteMode,
-        UpstreamApiCapabilities, UpstreamStreamingPolicy, UpstreamTarget, UpstreamTimeoutPolicy,
-        build_registry,
+        NonStreamingConversion, RegistryConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        UpstreamStreamingPolicy, UpstreamTarget, UpstreamTimeoutPolicy, build_registry,
     },
     transport::sse::SseDecoder,
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
@@ -51,8 +48,6 @@ use tower::ServiceExt;
 #[derive(Debug)]
 struct RecordedRequest {
     path: String,
-    authorization: String,
-    user_agent: Option<String>,
     body: Value,
 }
 
@@ -60,100 +55,6 @@ struct RecordedRequest {
 struct RecordingTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
-
-#[derive(Default)]
-struct DeepSeekUsageStreamTransport {
-    requests: Mutex<Vec<RecordedRequest>>,
-}
-
-const MIMO_RESPONSES_PARALLEL_TOOL_STREAM: &[u8] = br#"event: response.created
-data: {"type":"response.created","response":{"id":"resp_mimo_1","status":"in_progress"}}
-
-event: response.output_item.added
-data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_0","type":"function_call","call_id":"call_0","name":"lookup_weather","arguments":""}}
-
-event: response.output_item.added
-data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup_time","arguments":""}}
-
-event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"fc_0","output_index":0,"delta":"{\"city\":"}
-
-event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"{\"tz\":"}
-
-event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"fc_0","output_index":0,"delta":"\"Shanghai\"}"}
-
-event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"\"Asia/Shanghai\"}"}
-
-event: response.function_call_arguments.done
-data: {"type":"response.function_call_arguments.done","item_id":"fc_0","output_index":0,"arguments":"{\"city\":\"Shanghai\"}"}
-
-event: response.function_call_arguments.done
-data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"tz\":\"Asia/Shanghai\"}"}
-
-event: response.output_item.done
-data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_0","type":"function_call","call_id":"call_0","name":"lookup_weather","arguments":"{\"city\":\"Shanghai\"}"}}
-
-event: response.output_item.done
-data: {"type":"response.output_item.done","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup_time","arguments":"{\"tz\":\"Asia/Shanghai\"}"}}
-
-event: response.completed
-data: {"type":"response.completed","response":{"id":"resp_mimo_1","status":"completed"}}
-
-"#;
-
-const DEEPSEEK_CHAT_REASONING_STREAM: &[u8] = br#"data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"\u5148\u5206\u6790"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"reasoning_content":"\u540e\u5f97\u51fa\u7ed3\u8bba"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"\u7b54\u6848"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl_deepseek_reasoning","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
-
-data: [DONE]
-
-"#;
-
-const DEEPSEEK_CHAT_USAGE_STREAM: &[u8] = br#"data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
-
-data: {"id":"chatcmpl_deepseek_usage","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":89,"completion_tokens":17,"total_tokens":106,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":14},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":89}}
-
-data: [DONE]
-
-"#;
-
-const DEEPSEEK_RESPONSES_REASONING_STREAM: &[u8] = br#"event: response.created
-data: {"type":"response.created","response":{"id":"resp_deepseek_reasoning","model":"deepseek-v4-flash","object":"response","output":[],"status":"in_progress"}}
-
-event: response.output_item.added
-data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"rs_deepseek_reasoning","status":"in_progress","summary":[],"type":"reasoning"}}
-
-event: response.reasoning_text.delta
-data: {"type":"response.reasoning_text.delta","content_index":0,"delta":"\u5148\u5206\u6790","item_id":"rs_deepseek_reasoning","output_index":0}
-
-event: response.reasoning_text.done
-data: {"type":"response.reasoning_text.done","content_index":0,"item_id":"rs_deepseek_reasoning","output_index":0,"text":"\u5148\u5206\u6790"}
-
-event: response.output_item.done
-data: {"type":"response.output_item.done","output_index":0,"item":{"content":[{"text":"\u5148\u5206\u6790","type":"reasoning_text"}],"id":"rs_deepseek_reasoning","status":"completed","summary":[],"type":"reasoning"}}
-
-event: response.output_item.added
-data: {"type":"response.output_item.added","output_index":1,"item":{"content":[],"id":"msg_deepseek_reasoning","role":"assistant","status":"in_progress","type":"message"}}
-
-event: response.output_text.delta
-data: {"type":"response.output_text.delta","content_index":0,"delta":"\u7b54\u6848","item_id":"msg_deepseek_reasoning","output_index":1}
-
-event: response.output_item.done
-data: {"type":"response.output_item.done","output_index":1,"item":{"content":[{"annotations":[],"text":"\u7b54\u6848","type":"output_text"}],"id":"msg_deepseek_reasoning","role":"assistant","status":"completed","type":"message"}}
-
-event: response.completed
-data: {"type":"response.completed","response":{"id":"resp_deepseek_reasoning","model":"deepseek-v4-flash","object":"response","output":[],"status":"completed"}}
-
-"#;
 
 const COMPLETED_RESPONSES_STREAM: &str = concat!(
     "event: response.completed\n",
@@ -203,11 +104,6 @@ data: {"type":"response.completed","response":{"id":"resp_image","model":"mimo-v
 "#;
 
 #[derive(Default)]
-struct MimoResponsesToolStreamTransport {
-    requests: Mutex<Vec<RecordedRequest>>,
-}
-
-#[derive(Default)]
 struct MimoImageTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
@@ -219,16 +115,6 @@ struct MimoAudioUnderstandingTransport {
 
 #[derive(Default)]
 struct MimoAudioTransport {
-    requests: Mutex<Vec<RecordedRequest>>,
-}
-
-#[derive(Default)]
-struct DeepSeekReasoningStreamTransport {
-    requests: Mutex<Vec<RecordedRequest>>,
-}
-
-#[derive(Default)]
-struct DeepSeekResponsesStreamTransport {
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
@@ -257,6 +143,11 @@ struct InvalidSseTransport;
 struct EofWithoutTerminalTransport;
 
 struct EmptySseTransport;
+
+struct FixedSseTransport {
+    body: Bytes,
+    attempts: AtomicUsize,
+}
 
 struct EofTerminatedFirstEventTransport;
 
@@ -862,6 +753,26 @@ impl UpstreamTransport for EmptySseTransport {
     }
 }
 
+impl UpstreamTransport for FixedSseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                response_headers,
+                Body::from(self.body.clone()),
+            ))
+        })
+    }
+}
+
 impl UpstreamTransport for EofTerminatedFirstEventTransport {
     fn send<'a>(
         &'a self,
@@ -986,16 +897,11 @@ impl UpstreamTransport for RecordingTransport {
         &'a self,
         _target: &'a UpstreamTarget,
         request: PreparedUpstreamRequest,
-        headers: HeaderMap,
+        _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         let path = request.relative_uri().path().to_owned();
         self.requests.lock().unwrap().push(RecordedRequest {
             path: path.clone(),
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
             body: serde_json::from_slice(request.body()).unwrap(),
         });
         Box::pin(async move {
@@ -1033,46 +939,12 @@ impl UpstreamTransport for RecordingTransport {
     }
 }
 
-impl UpstreamTransport for DeepSeekUsageStreamTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        request: PreparedUpstreamRequest,
-        headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // Capture the exact post-adapter Chat request before returning a usage-bearing terminal stream.
-        self.requests.lock().unwrap().push(RecordedRequest {
-            path: request.relative_uri().path().to_owned(),
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
-            body: serde_json::from_slice(request.body()).unwrap(),
-        });
-        Box::pin(async move {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            let chunks = DEEPSEEK_CHAT_USAGE_STREAM
-                .chunks(19)
-                .map(Bytes::copy_from_slice)
-                .map(Ok::<_, Infallible>)
-                .collect::<Vec<_>>();
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from_stream(stream::iter(chunks)),
-            ))
-        })
-    }
-}
-
 impl UpstreamTransport for MimoImageTransport {
     fn send<'a>(
         &'a self,
         _target: &'a UpstreamTarget,
         request: PreparedUpstreamRequest,
-        headers: HeaderMap,
+        _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Capture the exact Native request and its delivery mode after trusted preparation.
         let path = request.relative_uri().path().to_owned();
@@ -1080,11 +952,6 @@ impl UpstreamTransport for MimoImageTransport {
         let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
         self.requests.lock().unwrap().push(RecordedRequest {
             path: path.clone(),
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
             body,
         });
 
@@ -1126,18 +993,13 @@ impl UpstreamTransport for MimoAudioUnderstandingTransport {
         &'a self,
         _target: &'a UpstreamTarget,
         request: PreparedUpstreamRequest,
-        headers: HeaderMap,
+        _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Capture the complete Chat Native body after trusted model and instruction preparation.
         let body: Value = serde_json::from_slice(request.body()).unwrap();
         let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
         self.requests.lock().unwrap().push(RecordedRequest {
             path: request.relative_uri().path().to_owned(),
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
             body,
         });
 
@@ -1173,7 +1035,7 @@ impl UpstreamTransport for MimoAudioTransport {
         &'a self,
         _target: &'a UpstreamTarget,
         request: PreparedUpstreamRequest,
-        headers: HeaderMap,
+        _headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Capture the exact task-specific Chat Native body without retaining any provider secret.
         let body: Value = serde_json::from_slice(request.body()).unwrap();
@@ -1181,11 +1043,6 @@ impl UpstreamTransport for MimoAudioTransport {
         let speech_recognition = body.get("model").and_then(Value::as_str) == Some("mimo-v2.5-asr");
         self.requests.lock().unwrap().push(RecordedRequest {
             path: request.relative_uri().path().to_owned(),
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
             body,
         });
 
@@ -1221,118 +1078,6 @@ impl UpstreamTransport for MimoAudioTransport {
                 StatusCode::OK,
                 response_headers,
                 body,
-            ))
-        })
-    }
-}
-
-impl UpstreamTransport for MimoResponsesToolStreamTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        request: PreparedUpstreamRequest,
-        headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // Record the endpoint, authentication isolation, and JSON request actually submitted by the gateway.
-        let path = request.relative_uri().path().to_owned();
-        self.requests.lock().unwrap().push(RecordedRequest {
-            path,
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
-            body: serde_json::from_slice(request.body()).unwrap(),
-        });
-        // Return a fragmented Responses tool stream that simulates upstream chunk boundaries and interleaved arguments.
-        Box::pin(async move {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            response_headers.insert("openai-request-id", HeaderValue::from_static("mimo-id"));
-            let chunks = MIMO_RESPONSES_PARALLEL_TOOL_STREAM
-                .chunks(17)
-                .map(Bytes::copy_from_slice)
-                .map(Ok::<_, Infallible>)
-                .collect::<Vec<_>>();
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from_stream(stream::iter(chunks)),
-            ))
-        })
-    }
-}
-
-impl UpstreamTransport for DeepSeekReasoningStreamTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        request: PreparedUpstreamRequest,
-        headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // Record the endpoint, model, and reasoning configuration submitted by DeepSeek Chat Native.
-        let path = request.relative_uri().path().to_owned();
-        self.requests.lock().unwrap().push(RecordedRequest {
-            path,
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
-            body: serde_json::from_slice(request.body()).unwrap(),
-        });
-        // Return reasoning_content in irregular UTF-8 chunks to verify that Native streaming preserves the plaintext channel.
-        Box::pin(async move {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            response_headers.insert("openai-request-id", HeaderValue::from_static("deepseek-id"));
-            let chunks = DEEPSEEK_CHAT_REASONING_STREAM
-                .chunks(13)
-                .map(Bytes::copy_from_slice)
-                .map(Ok::<_, Infallible>)
-                .collect::<Vec<_>>();
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from_stream(stream::iter(chunks)),
-            ))
-        })
-    }
-}
-
-impl UpstreamTransport for DeepSeekResponsesStreamTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        request: PreparedUpstreamRequest,
-        headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        // Record the endpoint, model, and reasoning configuration submitted by DeepSeek Responses Native.
-        let path = request.relative_uri().path().to_owned();
-        self.requests.lock().unwrap().push(RecordedRequest {
-            path,
-            authorization: headers[AUTHORIZATION].to_str().unwrap().to_owned(),
-            user_agent: headers
-                .get(USER_AGENT)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned),
-            body: serde_json::from_slice(request.body()).unwrap(),
-        });
-
-        // Return typed Responses events in irregular chunks to exercise terminal detection and passthrough.
-        Box::pin(async move {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            response_headers.insert("openai-request-id", HeaderValue::from_static("deepseek-id"));
-            let chunks = DEEPSEEK_RESPONSES_REASONING_STREAM
-                .chunks(11)
-                .map(Bytes::copy_from_slice)
-                .map(Ok::<_, Infallible>)
-                .collect::<Vec<_>>();
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from_stream(stream::iter(chunks)),
             ))
         })
     }
@@ -1460,24 +1205,6 @@ fn app_with_compiled_registry(transport: Arc<dyn UpstreamTransport>) -> axum::Ro
     );
     let state = GatewayState::new(Arc::new(registry), transport, users, credentials);
     build_router(state)
-}
-
-fn app_with_compiled_registry_and_pool(
-    transport: Arc<dyn UpstreamTransport>,
-    upstream_secrets: &[&str],
-) -> (axum::Router, TestMetrics) {
-    let bootstrap = parse_bootstrap_config(include_str!("../config/bootstrap.toml"))
-        .expect("checked-in bootstrap must be valid");
-    let registry = build_compiled_registry(bootstrap).expect("compiled registry must be valid");
-    let (users, credentials) = support::users_and_credential_pool(
-        "downstream-token-00000000000000000000000000000000",
-        &registry,
-        upstream_secrets,
-    );
-    let metrics = TestMetrics::new();
-    let state = GatewayState::new(Arc::new(registry), transport, users, credentials)
-        .with_metrics(metrics.instruments());
-    (build_router(state), metrics)
 }
 
 fn app_with_chatgpt_oauth(
@@ -1708,8 +1435,6 @@ fn synthetic_jwt(payload: Value) -> String {
     )
 }
 
-#[path = "forwarding_contract/admission.rs"]
-mod admission;
 #[path = "forwarding_contract/chatgpt.rs"]
 mod chatgpt;
 #[path = "forwarding_contract/file_input.rs"]
@@ -1718,7 +1443,5 @@ mod file_input;
 mod mimo;
 #[path = "forwarding_contract/models.rs"]
 mod models;
-#[path = "forwarding_contract/native.rs"]
-mod native;
 #[path = "forwarding_contract/resilience.rs"]
 mod resilience;

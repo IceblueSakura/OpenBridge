@@ -2,6 +2,101 @@
 
 use super::*;
 
+fn chat_to_responses_bridge_definition() -> RegistryConfig {
+    let mut definition = streaming_definition("bridge-precommit", "public-model", "upstream-model");
+    let route = definition
+        .routes
+        .iter_mut()
+        .find(|route| route.downstream_operation == OperationKind::ChatCompletions)
+        .expect("synthetic Chat route must exist");
+    route.upstream_operation = OperationKind::Responses;
+    route.mode = RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses);
+    definition
+}
+
+fn responses_stream_with_invisible_events(count: usize) -> Bytes {
+    let mut stream = String::from(
+        "event: response.created\n\
+         data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_bridge\",\"status\":\"in_progress\"}}\n\n",
+    );
+    for _ in 0..count {
+        stream.push_str(
+            "event: response.in_progress\n\
+             data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_bridge\",\"status\":\"in_progress\"}}\n\n",
+        );
+    }
+    stream.push_str(
+        "event: response.output_item.added\n\
+         data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_bridge\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n\
+         event: response.output_text.delta\n\
+         data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_bridge\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n\
+         event: response.output_item.done\n\
+         data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_bridge\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\",\"annotations\":[]}]}}\n\n\
+         event: response.completed\n\
+         data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bridge\",\"status\":\"completed\"}}\n\n",
+    );
+    Bytes::from(stream)
+}
+
+#[tokio::test]
+async fn bridged_precommit_discards_invisible_events_without_growing_the_prefix() {
+    let transport = Arc::new(FixedSseTransport {
+        body: responses_stream_with_invisible_events(3_000),
+        attempts: AtomicUsize::new(0),
+    });
+    let app =
+        app_with_transport_and_definition(transport.clone(), chat_to_responses_bridge_definition());
+    let response = app
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let mut decoder = openbridge::transport::sse::SseDecoder::new(256 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    assert_eq!(events.last().map(|event| event.data()), Some("[DONE]"));
+    assert!(events.iter().any(|event| event.data().contains("ok")));
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn bridged_precommit_rejects_empty_and_invalid_first_events() {
+    for transport in [
+        Arc::new(EmptySseTransport) as Arc<dyn UpstreamTransport>,
+        Arc::new(InvalidSseTransport) as Arc<dyn UpstreamTransport>,
+    ] {
+        let app =
+            app_with_transport_and_definition(transport, chat_to_responses_bridge_definition());
+        let response = app
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                    .body(Body::from(
+                        r#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_upstream_response");
+    }
+}
+
 #[tokio::test]
 async fn stateless_requests_keep_fallback_across_continuation_capable_targets() {
     let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");

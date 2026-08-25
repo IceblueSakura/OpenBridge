@@ -72,6 +72,17 @@ rules.
 - Pure instruction, comment, or documentation maintenance does not require a manufactured implementation focus unless
   it changes product behavior or a compatibility commitment.
 
+## Test Governance
+
+- Every new test must protect a distinct client-visible result, Provider wire behavior, or security/resource failure
+  boundary. A new Model, Route, Provider instance, or catalog-only capability value does not by itself justify a test.
+- Do not maintain complete Model/Provider inventories, capability snapshots, Route IDs/count/order, candidate counts,
+  compiler/planner intermediate DTOs, or repeated per-model acceptance matrices in tests.
+- Test one mechanism at its lowest owning layer and add at most one production-Router smoke test when that boundary adds
+  independent value. Prefer deleting duplicate coverage over replacing it with a more elaborate parameterized harness.
+- Keep authentication, credential secrecy/ownership, bounded allocation, protocol terminal, retry/fallback/cooldown,
+  cancellation, and resource-lifetime failures covered through their real fail-closed boundary.
+
 ## Bootstrap and Local HTTP Logging
 
 - `config/bootstrap.toml` and `config/bootstrap.example.toml` are checked-in development profiles. They must parse to

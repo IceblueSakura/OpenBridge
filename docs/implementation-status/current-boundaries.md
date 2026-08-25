@@ -101,6 +101,8 @@ Provider 外部观察见[evidence](evidence/README.md)；动态官方文档和�
 
 当前确定性测试和 corpus 能证明 registry、routing、wire、Bridge state machine、SSE fragmentation、retry/fallback/cooldown、取消和有限 replay，但不证明：
 
+- 完整 Model/Provider inventory、retired ID 黑名单、Route ID/数量/顺序或每个 catalog capability fact；
+- 每个 Provider/model 组合都重复经过 Native/Bridge production Router，或 OTLP metrics exporter 拥有独立进程级集成覆盖；
 - 全部 canonical case 都经过 production Router；
 - canonical oracle 等于完整 OpenAI API；
 - hosted/custom tool、continuation、媒体和 Provider 私有扩展可转换；
