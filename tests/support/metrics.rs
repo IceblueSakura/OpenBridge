@@ -179,7 +179,6 @@ pub struct GatewayMetricsSnapshot {
 #[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ProviderMetricKey {
     pub provider: String,
-    pub route_id: String,
     pub upstream_target: String,
     pub upstream_operation: String,
     pub public_model: String,
@@ -414,12 +413,15 @@ fn snapshot_for<'a>(
     snapshots: &'a mut BTreeMap<ProviderMetricKey, ProviderMetricSnapshot>,
     attributes: &[KeyValue],
 ) -> &'a mut ProviderMetricSnapshot {
+    assert!(
+        string_attribute(attributes, "openbridge.route.id").is_none(),
+        "removed Route ID dimension must stay absent"
+    );
     let key = ProviderMetricKey {
         provider: string_attribute(attributes, "openbridge.provider.name")
             .or_else(|| string_attribute(attributes, "gen_ai.provider.name"))
             .unwrap_or_else(|| panic!("missing Provider metric attribute"))
             .to_owned(),
-        route_id: required_string(attributes, "openbridge.route.id"),
         upstream_target: required_string(attributes, "openbridge.upstream.target"),
         upstream_operation: required_string(attributes, "openbridge.upstream.operation"),
         public_model: required_string(attributes, "openbridge.public_model"),

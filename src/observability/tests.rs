@@ -25,7 +25,6 @@ fn test_observation() -> RequestObservation {
 fn test_attempt_context(attempt: u64) -> ProviderAttemptContext<'static> {
     ProviderAttemptContext {
         attempt,
-        route_id: "route-test",
         upstream_target: "target-test",
         upstream_operation: OperationKind::Responses,
         upstream_model: "model-test",
@@ -62,7 +61,6 @@ impl<'a> MakeWriter<'a> for LogBuffer {
 fn provider_metric_attributes_keep_upstream_and_downstream_operations_distinct() {
     let context = ProviderAttemptContext {
         attempt: 1,
-        route_id: "chat-via-responses",
         upstream_target: "openai-main",
         upstream_operation: OperationKind::Responses,
         upstream_model: "upstream-model",

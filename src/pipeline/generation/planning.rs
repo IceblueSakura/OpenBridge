@@ -135,7 +135,6 @@ pub fn plan_request(
             requirements.is_streaming,
         )?;
         prepared_candidates.push(RouteCandidate {
-            route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
             upstream_api_key: candidate.upstream_api_key(),
             request,

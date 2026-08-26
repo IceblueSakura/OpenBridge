@@ -12,8 +12,8 @@ use crate::{
         OperationKind, ReasoningOutput, ResponseInclude, StructuredOutputProfile, ToolChoiceMode,
     },
     registry::{
-        CanonicalTaskKind, InputModality, OutputModality, ReasoningLevel, Route, RouteMode,
-        UpstreamApi, UpstreamApiCapabilities,
+        CanonicalTaskKind, InputModality, OutputModality, ReasoningLevel, RouteMode, UpstreamApi,
+        UpstreamApiCapabilities,
     },
 };
 
@@ -88,7 +88,6 @@ impl RouteContinuationContract {
 impl RouteContractContribution {
     /// Converts a Native or Bridged Route into one fixed public-contract input.
     pub(super) fn from_binding(binding: &PublicRouteBinding<'_>) -> Self {
-        let route = binding.route;
         let upstream_api = binding.upstream_api;
         let capabilities = upstream_api.capabilities();
         if let Some(embeddings) = capabilities.embeddings() {
@@ -102,7 +101,7 @@ impl RouteContractContribution {
             .expect("generation operation has generation capabilities");
 
         // The Bridge exposes only the public subset fully supported by the current converter.
-        let bridged = matches!(route.mode(), RouteMode::GenerationBridge(_));
+        let bridged = matches!(binding.mode, RouteMode::GenerationBridge(_));
         let function_tools = generation.function_tools;
         let structured_outputs = generation.structured_outputs;
         // The gateway exposes only stateless generation even when a Native Provider can persist state.
@@ -120,7 +119,7 @@ impl RouteContractContribution {
             chat_stream_usage,
             response_includes,
             mut media,
-        } = protocol_specific_capabilities(route, upstream_api, bridged);
+        } = protocol_specific_capabilities(binding, upstream_api, bridged);
 
         // Narrow model parameters and protocol-control fields to those fully accepted by this Route.
         let model_parameters =
@@ -130,10 +129,11 @@ impl RouteContractContribution {
             .map(|parameter| parameter.as_wire_name())
             .collect::<BTreeSet<_>>();
         let interface_parameters = interface_parameters(
-            route
-                .downstream_protocol()
+            binding
+                .downstream_operation
+                .api_protocol()
                 .expect("generation Route has a downstream API protocol"),
-            route.mode(),
+            binding.mode,
             &model_parameters,
             &ignored_parameters,
             generation.streaming,
@@ -388,7 +388,7 @@ struct ProtocolCapabilities {
 
 /// Reads protocol-specific Native endpoint capabilities; the Bridge always narrows state and extra modalities.
 fn protocol_specific_capabilities(
-    route: &Route,
+    binding: &PublicRouteBinding<'_>,
     upstream_api: &UpstreamApi,
     bridged: bool,
 ) -> ProtocolCapabilities {
@@ -396,7 +396,7 @@ fn protocol_specific_capabilities(
         let chat_stream_usage = match upstream_api.capabilities() {
             UpstreamApiCapabilities::ChatCompletions(_) => false,
             UpstreamApiCapabilities::Responses(capabilities) => {
-                route.downstream_operation() == OperationKind::ChatCompletions
+                binding.downstream_operation == OperationKind::ChatCompletions
                     && capabilities.streaming
                     && capabilities.terminal_usage
             }
@@ -408,7 +408,7 @@ fn protocol_specific_capabilities(
             }
         };
         // Every Responses Route accepts the one omission-safe compatibility hint before conversion.
-        let response_includes = accepted_response_includes(route, &[]);
+        let response_includes = accepted_response_includes(binding.downstream_operation, &[]);
         return ProtocolCapabilities {
             continuation: RouteContinuationContract::Unsupported,
             background: false,
@@ -423,30 +423,33 @@ fn protocol_specific_capabilities(
             continuation: RouteContinuationContract::Unsupported,
             background: false,
             prompt_cache_key: true,
-            chat_stream_usage: route.downstream_operation() == OperationKind::ChatCompletions
+            chat_stream_usage: binding.downstream_operation == OperationKind::ChatCompletions
                 && capabilities.streaming
                 && capabilities.stream_usage,
             response_includes: Vec::new(),
             media: InterfaceMediaCapabilities::from_chat(capabilities),
         },
         UpstreamApiCapabilities::Responses(capabilities) => ProtocolCapabilities {
-            continuation: if route.downstream_operation() == OperationKind::Responses
+            continuation: if binding.downstream_operation == OperationKind::Responses
                 && upstream_api.supports_previous_response_id()
             {
                 RouteContinuationContract::Supported {
                     issuer: ContinuationIssuer::new(
-                        route.upstream_target().to_owned(),
+                        binding.upstream_target.id().to_owned(),
                         upstream_api.key(),
                     ),
                 }
             } else {
                 RouteContinuationContract::Unsupported
             },
-            background: route.downstream_operation() == OperationKind::Responses
+            background: binding.downstream_operation == OperationKind::Responses
                 && capabilities.background,
             prompt_cache_key: true,
             chat_stream_usage: false,
-            response_includes: accepted_response_includes(route, capabilities.include),
+            response_includes: accepted_response_includes(
+                binding.downstream_operation,
+                capabilities.include,
+            ),
             media: InterfaceMediaCapabilities::from_responses(capabilities),
         },
         UpstreamApiCapabilities::Embeddings(_) => {
@@ -489,10 +492,10 @@ pub(super) fn parallel_tool_policy(upstream_api: &UpstreamApi) -> ParallelToolPo
 
 /// Returns the downstream-safe accepted set without widening any Native forwarded set.
 fn accepted_response_includes(
-    route: &Route,
+    downstream_operation: OperationKind,
     native_includes: &[ResponseInclude],
 ) -> Vec<ResponseInclude> {
-    if route.downstream_operation() != OperationKind::Responses {
+    if downstream_operation != OperationKind::Responses {
         return Vec::new();
     }
     let mut accepted = native_includes.to_vec();
@@ -504,11 +507,11 @@ fn accepted_response_includes(
 
 /// Freezes only the values the selected candidate's concrete Responses API handles natively.
 pub(super) fn forwarded_response_includes(
-    route: &Route,
+    binding: &PublicRouteBinding<'_>,
     upstream_api: &UpstreamApi,
 ) -> Vec<ResponseInclude> {
-    if route.downstream_operation() != OperationKind::Responses
-        || !matches!(route.mode(), RouteMode::Native)
+    if binding.downstream_operation != OperationKind::Responses
+        || !matches!(binding.mode, RouteMode::Native)
     {
         return Vec::new();
     }

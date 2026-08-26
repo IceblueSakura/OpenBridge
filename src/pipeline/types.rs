@@ -68,7 +68,6 @@ pub struct EmbeddingRoutePlan {
 /// Trusted Native Embeddings Route candidate bound to one target and Upstream API.
 #[derive(Debug)]
 pub struct EmbeddingRouteCandidate {
-    pub(super) route_id: String,
     pub(super) upstream_target_id: String,
     pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: EmbeddingRequest,
@@ -173,7 +172,6 @@ pub struct ImagesRoutePlan {
 /// Trusted Native Images Route candidate bound to one target and Upstream API.
 #[derive(Debug)]
 pub struct ImagesRouteCandidate {
-    pub(super) route_id: String,
     pub(super) upstream_target_id: String,
     pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: ImagesRequest,
@@ -194,7 +192,6 @@ pub struct RoutePlan {
 /// Execution candidate inheriting Public Model preflight and bound to one target/Upstream API.
 #[derive(Debug)]
 pub struct RouteCandidate {
-    pub(super) route_id: String,
     pub(super) upstream_target_id: String,
     pub(super) upstream_api_key: UpstreamApiKey,
     pub(super) request: ApiRequest,
@@ -483,11 +480,6 @@ impl EmbeddingRoutePlan {
 }
 
 impl EmbeddingRouteCandidate {
-    /// Returns the candidate Route ID.
-    pub fn route_id(&self) -> &str {
-        &self.route_id
-    }
-
     /// Returns the trusted Upstream Target ID.
     pub fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
@@ -582,11 +574,6 @@ impl ImagesRoutePlan {
 }
 
 impl ImagesRouteCandidate {
-    /// Returns the candidate Route ID.
-    pub fn route_id(&self) -> &str {
-        &self.route_id
-    }
-
     /// Returns the trusted Upstream Target ID.
     pub fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
@@ -660,11 +647,6 @@ impl RoutePlan {
 }
 
 impl RouteCandidate {
-    /// Returns the candidate Route ID.
-    pub fn route_id(&self) -> &str {
-        &self.route_id
-    }
-
     /// Returns the Upstream Target ID bound to the candidate.
     pub fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id

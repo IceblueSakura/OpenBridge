@@ -9,13 +9,13 @@ use url::Url;
 
 use crate::{
     config::{BootstrapConfig, HttpClientConfig, HttpLoggingConfig, RuntimeLimits},
-    core::{ApiProtocol, OperationKind, ReasoningOutput},
+    core::{ApiProtocol, GenerationBridgeDirection, OperationKind, ReasoningOutput},
     provider::{CredentialKind, ProviderKind},
 };
 
 use super::{
     CanonicalModelTask, CanonicalTaskKind, IgnorableGenerationParameter, InputModality,
-    ModelContextLength, OutputModality, PublicModel, ReasoningLevel, ReasoningSupport, RouteMode,
+    ModelContextLength, OutputModality, PublicModel, ReasoningLevel, ReasoningSupport,
     UpstreamApiCapabilities, UpstreamApiKey, UpstreamTimeoutPolicy,
 };
 
@@ -97,6 +97,15 @@ impl ModelInfo {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Request handling mode derived from one validated Route operation pair.
+pub(crate) enum RouteMode {
+    /// Keeps downstream and upstream protocols natively identical.
+    Native,
+    /// Performs the declared restricted conversion between Generation protocols.
+    GenerationBridge(GenerationBridgeDirection),
+}
+
 /// Immutable registry snapshot read by the request path after startup.
 #[derive(Debug)]
 pub struct RuntimeRegistry {
@@ -106,7 +115,6 @@ pub struct RuntimeRegistry {
     pub(super) provider_instances: BTreeMap<String, Arc<ProviderInstance>>,
     pub(super) credential_pools: BTreeMap<String, CredentialPoolBinding>,
     pub(super) upstream_targets: BTreeMap<String, UpstreamTarget>,
-    pub(super) routes: BTreeMap<String, Route>,
     pub(super) public_models: BTreeMap<String, PublicModel>,
 }
 
@@ -186,11 +194,6 @@ impl RuntimeRegistry {
     /// Enumerates all internal target IDs.
     pub fn upstream_target_ids(&self) -> impl Iterator<Item = &str> {
         self.upstream_targets.keys().map(String::as_str)
-    }
-
-    /// Looks up a resolved Route by Route ID.
-    pub fn route(&self, id: &str) -> Option<&Route> {
-        self.routes.get(id)
     }
 
     /// Looks up a Public Model by its downstream name.
@@ -466,41 +469,5 @@ impl UpstreamApi {
     /// Returns whether this API guarantees serial function-tool execution without a wire control.
     pub(crate) const fn serial_tool_calls_only(&self) -> bool {
         self.serial_tool_calls_only
-    }
-}
-
-/// Resolved Route binding.
-#[derive(Debug)]
-pub struct Route {
-    pub(super) upstream_target: String,
-    pub(super) upstream_operation: OperationKind,
-    pub(super) downstream_operation: OperationKind,
-    pub(super) mode: RouteMode,
-}
-
-impl Route {
-    /// Returns the Upstream Target ID bound to the Route.
-    pub fn upstream_target(&self) -> &str {
-        &self.upstream_target
-    }
-
-    /// Returns the typed Upstream API operation bound to the Route.
-    pub fn upstream_operation(&self) -> OperationKind {
-        self.upstream_operation
-    }
-
-    /// Returns the downstream operation accepted by the Route.
-    pub fn downstream_operation(&self) -> OperationKind {
-        self.downstream_operation
-    }
-
-    /// Returns the generation protocol when the Route can participate in the Protocol Bridge.
-    pub fn downstream_protocol(&self) -> Option<ApiProtocol> {
-        self.downstream_operation.api_protocol()
-    }
-
-    /// Returns the Route handling mode.
-    pub fn mode(&self) -> RouteMode {
-        self.mode
     }
 }

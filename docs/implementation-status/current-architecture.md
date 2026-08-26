@@ -105,8 +105,8 @@ RegistryConfig
   ├─ CredentialPoolConfig[]
   ├─ UpstreamTargetConfig[]
   │    └─ UpstreamApiConfig[]
-  ├─ RouteConfig[]
   └─ PublicModelConfig[]
+       └─ ordered RouteConfig[]
          ↓ validate + compile
 immutable RuntimeRegistry
 ```
@@ -119,12 +119,11 @@ immutable RuntimeRegistry
 | `CredentialPoolConfig` | 非敏感 pool identity、Provider 与 credential kind |
 | `UpstreamTargetConfig` | Provider instance、canonical/provider model、credential pool、timeout、quota/fault domain 与 API 列表 |
 | `UpstreamApiConfig` | typed `(operation, task)` key、upstream model、executable capability、streaming policy 和模型级收窄 |
-| `RouteConfig` | Target/API、下游 operation 与 `Native`/`GenerationBridge(direction)` mode |
-| `PublicModelConfig` | 下游 identity、reasoning input policy、routing strategy 与有序 source registration |
+| `RouteConfig` | Public Model 私有的 Target/API 与下游 operation；不拥有 ID，mode 由 upstream/downstream operation pair 派生 |
+| `PublicModelConfig` | 下游 identity、reasoning input policy 与有序 typed Route candidates |
 | `PublicModelInfo` | 下游可序列化模型事实和每 operation 固定 interface；不含执行拓扑 |
 
-编译先验证引用、operation-indexed Provider ceiling、canonical task 与 typed Upstream API key，再验证显式 Generation Bridge direction，
-然后从每个固定候选生成 contribution 并保守聚合。Private execution snapshot 由 deterministic
+编译先验证引用、operation-indexed Provider ceiling、canonical task 与 typed Upstream API key，再从 operation pair 派生 Native 或显式 Generation Bridge direction；跨协议 pair 仅允许 canonical Generation task，非法 pair 和重复结构候选在启动时失败。编译随后从每个固定候选生成 contribution 并保守聚合。Private execution snapshot 由 deterministic
 `BTreeMap<OperationKind, ModelExecutionInterface>` 索引；每项同时保存 selected task、typed executable contract、continuation
 affinity、operation response budget 与固定顺序 candidates。Candidate 携带完整 `UpstreamApiKey`，forwarding 不再从 Target 与
 operation 重建 API identity；JSON/SSE success budget 也从同一个 interface 进入 Generation、Embeddings 或 Images plan。
@@ -148,7 +147,7 @@ Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`。前者在
 保持 source priority，再在 source 内优先 Native。只有整个 Public Model 缺少某一 downstream protocol Native coverage 时，
 compiler 才为允许的单协议 source 自动补充 Bridge；显式 Bridge surface 可独立保留。
 
-Embeddings Public Model 绑定独立 Target/API/Route，不复用 generation target，不进入 `ApiProtocol` 或 Bridge。Public Models DTO
+Embeddings Public Model 直接拥有独立 Target/API candidate，不复用 generation target，不进入 `ApiProtocol` 或 Bridge。Public Models DTO
 永不序列化 Provider、Target、Route、upstream model、endpoint、credential、健康状态或价格。
 
 ## 5. HTTP 与请求规划

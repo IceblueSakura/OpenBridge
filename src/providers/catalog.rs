@@ -23,10 +23,10 @@ use super::{bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, 
 /// Version identifier for the built-in provider and model registry.
 pub const REGISTRY_VERSION: &str = "dev-1";
 
-/// Returns all Model, Provider instance, Upstream Target, Route, and Public Model entries compiled into the binary.
+/// Returns all Model, Provider instance, Upstream Target, and Public Model entries compiled into the binary.
 pub fn compiled_config() -> RegistryConfig {
-    // Aggregate provider targets and independent Public Model route registrations.
-    let routing = routing::compiled_routing();
+    // Aggregate provider targets and Public Models with their owned Route candidates.
+    let public_models = routing::compiled_public_models();
     RegistryConfig {
         version: REGISTRY_VERSION.to_owned(),
         models: models::compiled_configs(),
@@ -69,8 +69,7 @@ pub fn compiled_config() -> RegistryConfig {
             kimi_cn::upstream_targets(),
         ]
         .concat(),
-        routes: routing.routes,
-        public_models: routing.public_models,
+        public_models,
     }
 }
 

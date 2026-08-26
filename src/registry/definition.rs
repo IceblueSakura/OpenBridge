@@ -7,8 +7,8 @@ use serde::Serialize;
 use crate::{
     core::{
         ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingsCapabilities,
-        GenerationBridgeDirection, GenerationCapabilities, ImagesGenerationsCapabilities,
-        OperationKind, ResponsesCapabilities,
+        GenerationCapabilities, ImagesGenerationsCapabilities, OperationKind,
+        ResponsesCapabilities,
     },
     provider::{CredentialKind, ProviderKind},
 };
@@ -916,28 +916,15 @@ pub struct UpstreamTargetConfig {
     pub upstream_apis: Vec<UpstreamApiConfig>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Request handling mode for a Route.
-pub enum RouteMode {
-    /// Keeps downstream and upstream protocols natively identical.
-    Native,
-    /// Performs the declared restricted conversion between Generation protocols.
-    GenerationBridge(GenerationBridgeDirection),
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Route binding a downstream protocol to an Upstream API.
 pub struct RouteConfig {
-    /// Route ID in the registry.
-    pub id: String,
     /// Upstream Target ID referenced by the Route.
     pub upstream_target: String,
     /// Typed Upstream API operation referenced by the Route.
     pub upstream_operation: OperationKind,
     /// Downstream operation accepted by the Route.
     pub downstream_operation: OperationKind,
-    /// Route handling mode.
-    pub mode: RouteMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -955,8 +942,8 @@ pub struct PublicModelConfig {
     pub lifecycle: ModelLifecycle,
     /// Static policy for resolving standard downstream reasoning levels.
     pub reasoning_level_policy: ReasoningLevelPolicy,
-    /// Complete Route IDs ordered by priority.
-    pub routes: Vec<String>,
+    /// Complete typed Route candidates ordered by priority.
+    pub routes: Vec<RouteConfig>,
 }
 
 /// Public Model lifecycle status.
@@ -1006,8 +993,6 @@ pub struct RegistryConfig {
     pub credential_pools: Vec<CredentialPoolConfig>,
     /// Complete Upstream Target definitions.
     pub upstream_targets: Vec<UpstreamTargetConfig>,
-    /// Complete Route definitions.
-    pub routes: Vec<RouteConfig>,
     /// Complete Public Model definitions.
     pub public_models: Vec<PublicModelConfig>,
 }

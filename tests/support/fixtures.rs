@@ -18,9 +18,9 @@ use openbridge::{
     registry::{
         CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, GenerationModelProfile,
         ModelConfig, ModelContextLength, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
-        ReasoningProfile, RegistryConfig, RouteConfig, RouteMode, RuntimeRegistry,
-        UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules,
-        UpstreamTargetConfig, build_registry,
+        ReasoningProfile, RegistryConfig, RouteConfig, RuntimeRegistry, UpstreamApiCapabilities,
+        UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
+        build_registry,
     },
     upstream_credentials::UpstreamCredentialConfiguration,
 };
@@ -285,22 +285,6 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
                 },
             ],
         }],
-        routes: vec![
-            RouteConfig {
-                id: "public-chat".to_owned(),
-                upstream_target: "openai-main".to_owned(),
-                upstream_operation: ApiProtocol::ChatCompletions.operation(),
-                downstream_operation: ApiProtocol::ChatCompletions.operation(),
-                mode: RouteMode::Native,
-            },
-            RouteConfig {
-                id: "public-responses".to_owned(),
-                upstream_target: "openai-main".to_owned(),
-                upstream_operation: ApiProtocol::Responses.operation(),
-                downstream_operation: ApiProtocol::Responses.operation(),
-                mode: RouteMode::Native,
-            },
-        ],
         public_models: vec![PublicModelConfig {
             id: alias.to_owned(),
             created: 1_785_715_200,
@@ -308,7 +292,18 @@ pub fn definition(version: &str, alias: &str, upstream_model: &str) -> RegistryC
             description: Some("Public model used by integration tests.".to_owned()),
             lifecycle: ModelLifecycle::active(),
             reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
-            routes: vec!["public-chat".to_owned(), "public-responses".to_owned()],
+            routes: vec![
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: ApiProtocol::ChatCompletions.operation(),
+                    downstream_operation: ApiProtocol::ChatCompletions.operation(),
+                },
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: ApiProtocol::Responses.operation(),
+                    downstream_operation: ApiProtocol::Responses.operation(),
+                },
+            ],
         }],
     }
 }

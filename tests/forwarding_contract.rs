@@ -28,14 +28,14 @@ use openbridge::{
     bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
     core::{
-        ApiProtocol, ExecutableResponsesState, GenerationBridgeDirection, OperationKind,
-        ResponseInclude, ResponsesAffinity, StorageSupport,
+        ApiProtocol, ExecutableResponsesState, OperationKind, ResponseInclude, ResponsesAffinity,
+        StorageSupport,
     },
     ingress::{GatewayState, build_router},
     provider::{PreparedUpstreamRequest, ProviderKind},
     providers::{build_compiled_registry, build_compiled_registry_with_active_pools},
     registry::{
-        NonStreamingConversion, RegistryConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
+        NonStreamingConversion, RegistryConfig, RouteConfig, UpstreamApiCapabilities,
         UpstreamStreamingPolicy, UpstreamTarget, UpstreamTimeoutPolicy, build_registry,
     },
     transport::sse::SseDecoder,
@@ -1349,15 +1349,11 @@ fn add_responses_fallback(
     definition.upstream_targets.push(fallback);
 
     // Register the new target as a complete Responses Route for the same Public Model.
-    let route_id = format!("{target_id}-responses");
-    definition.routes.push(RouteConfig {
-        id: route_id.clone(),
+    definition.public_models[0].routes.push(RouteConfig {
         upstream_target: target_id.to_owned(),
         upstream_operation: OperationKind::Responses,
         downstream_operation: ApiProtocol::Responses.operation(),
-        mode: RouteMode::Native,
     });
-    definition.public_models[0].routes.push(route_id);
 }
 
 static NEXT_CHATGPT_AUTH_TEST: AtomicUsize = AtomicUsize::new(1);

@@ -39,7 +39,6 @@ pub fn plan_images_request(
     // Bind the preserved body to the one trusted target/API identity owned by the interface.
     Ok(ImagesRoutePlan {
         candidate: ImagesRouteCandidate {
-            route_id: candidate.route_id().to_owned(),
             upstream_target_id: candidate.upstream_target_id().to_owned(),
             upstream_api_key: candidate.upstream_api_key(),
             request: ImagesRequest::new(body),

@@ -58,7 +58,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         ),
         dual_protocol_target("openrouter-grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
         dual_protocol_target(
-            "openrouter-muse-spark-1-2-contributor",
+            "openrouter/muse-spark-1.2-contributor",
             meta::muse_spark_1_2_contributor::ID,
             "meta/muse-spark-1.2-contributor",
         ),

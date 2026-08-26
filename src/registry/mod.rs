@@ -19,7 +19,7 @@ pub use definition::{
     InputModality, ModelConfig, ModelContextLength, ModelLifecycle, ModelLifecycleStatus,
     NonStreamingConversion, OutputModality, ProviderInstanceConfig, PublicModelConfig,
     ReasoningLevel, ReasoningLevelMapping, ReasoningLevelPolicy, ReasoningLevels, ReasoningProfile,
-    ReasoningSupport, RegistryConfig, RouteConfig, RouteMode, SpeechRecognitionModelProfile,
+    ReasoningSupport, RegistryConfig, RouteConfig, SpeechRecognitionModelProfile,
     SpeechSynthesisModelProfile, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
     UpstreamApiModelRules, UpstreamStreamingPolicy, UpstreamTargetConfig, UpstreamTimeoutPolicy,
     VoiceCloneModelProfile, VoiceDesignModelProfile,
@@ -37,7 +37,8 @@ pub use public_model::{
     SupportState, ToolCapabilities, ToolChoiceMode, ToolType,
 };
 pub(crate) use public_model::{FileInputSource, ModelExecutionInterface, OperationResponseBudget};
+pub(crate) use runtime::RouteMode;
 pub use runtime::{
-    CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, Route, RuntimeRegistry,
+    CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryVersion, RuntimeRegistry,
     UpstreamApi, UpstreamTarget,
 };

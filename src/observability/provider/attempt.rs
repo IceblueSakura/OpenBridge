@@ -299,7 +299,6 @@ impl ProviderAttemptObservation {
         self.span.in_scope(|| {
             tracing::info!(
                 provider = %self.attributes.provider,
-                route_id = %self.attributes.route_id,
                 upstream_target = %self.attributes.upstream_target,
                 upstream_operation = %self.attributes.upstream_operation,
                 public_model = %self.attributes.public_model,

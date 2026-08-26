@@ -83,43 +83,21 @@ async fn extended_models_filter_by_executable_native_generation_protocol() {
     // Give each Public Model one Native protocol and one opposite-direction Bridge surface.
     let mut definition = support::definition("native-filter-test", "template", "upstream-model");
     let template = definition.public_models.remove(0);
-    definition.routes = vec![
-        RouteConfig {
-            id: "chat-native-chat".to_owned(),
-            upstream_target: "openai-main".to_owned(),
-            upstream_operation: OperationKind::ChatCompletions,
-            downstream_operation: OperationKind::ChatCompletions,
-            mode: RouteMode::Native,
-        },
-        RouteConfig {
-            id: "chat-native-responses-bridge".to_owned(),
-            upstream_target: "openai-main".to_owned(),
-            upstream_operation: OperationKind::ChatCompletions,
-            downstream_operation: OperationKind::Responses,
-            mode: RouteMode::GenerationBridge(GenerationBridgeDirection::ResponsesToChat),
-        },
-        RouteConfig {
-            id: "responses-native-chat-bridge".to_owned(),
-            upstream_target: "openai-main".to_owned(),
-            upstream_operation: OperationKind::Responses,
-            downstream_operation: OperationKind::ChatCompletions,
-            mode: RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
-        },
-        RouteConfig {
-            id: "responses-native-responses".to_owned(),
-            upstream_target: "openai-main".to_owned(),
-            upstream_operation: OperationKind::Responses,
-            downstream_operation: OperationKind::Responses,
-            mode: RouteMode::Native,
-        },
-    ];
     definition.public_models = vec![
         openbridge::registry::PublicModelConfig {
             id: "chat-native".to_owned(),
             display_name: "Chat Native".to_owned(),
             routes: vec![
-                "chat-native-chat".to_owned(),
-                "chat-native-responses-bridge".to_owned(),
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: OperationKind::ChatCompletions,
+                    downstream_operation: OperationKind::ChatCompletions,
+                },
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: OperationKind::ChatCompletions,
+                    downstream_operation: OperationKind::Responses,
+                },
             ],
             ..template.clone()
         },
@@ -127,8 +105,16 @@ async fn extended_models_filter_by_executable_native_generation_protocol() {
             id: "responses-native".to_owned(),
             display_name: "Responses Native".to_owned(),
             routes: vec![
-                "responses-native-chat-bridge".to_owned(),
-                "responses-native-responses".to_owned(),
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: OperationKind::Responses,
+                    downstream_operation: OperationKind::ChatCompletions,
+                },
+                RouteConfig {
+                    upstream_target: "openai-main".to_owned(),
+                    upstream_operation: OperationKind::Responses,
+                    downstream_operation: OperationKind::Responses,
+                },
             ],
             ..template
         },

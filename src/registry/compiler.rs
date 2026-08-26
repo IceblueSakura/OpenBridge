@@ -1,7 +1,7 @@
 //! Validates the static registry at startup and compiles it into a read-only snapshot for the request path.
 //!
 //! Compilation follows registry dependencies: canonical Models, credential pools, Upstream Targets and
-//! APIs, Routes, and finally Public Models. This module accepts only compile-time Provider, endpoint,
+//! APIs, and finally Public Models with owned Routes. This module accepts only compile-time Provider, endpoint,
 //! credential-pool, and capability definitions; business requests cannot inject upstream URLs, credentials,
 //! or capabilities through this path. Each stage validates references and boundaries before writing to a
 //! runtime index; a failure at any stage returns no partial snapshot.
@@ -11,11 +11,14 @@ use std::{
     sync::Arc,
 };
 
-use crate::{config::BootstrapConfig, core::ExecutableAudioProfile};
+use crate::{
+    config::BootstrapConfig,
+    core::{ExecutableAudioProfile, GenerationBridgeDirection, OperationKind},
+};
 
 use super::{
     CanonicalTaskKind, CredentialPoolBinding, ModelInfo, ProviderInstance, RegistryConfig,
-    RegistryError, RegistryVersion, Route, RouteMode, RuntimeRegistry, UpstreamApi,
+    RegistryError, RegistryVersion, RouteMode, RuntimeRegistry, UpstreamApi,
     UpstreamApiCapabilities, UpstreamApiKey, UpstreamTarget,
     public_model::{PublicRouteBinding, compile_public_model},
     validation::{
@@ -27,7 +30,7 @@ use super::{
 
 /// Validates a complete `RegistryConfig` at startup and builds the read-only `RuntimeRegistry` snapshot used by the request path.
 ///
-/// Resolves canonical Models, credential pools, Upstream Targets/APIs, Routes, and Public Models in
+/// Resolves canonical Models, credential pools, Upstream Targets/APIs, and Public Models in
 /// dependency order. It rejects unknown references, duplicate IDs, capability elevations beyond the
 /// Provider boundary, unsafe endpoints, inconsistent protocol modes, and invalid narrowing rules.
 ///
@@ -434,62 +437,7 @@ fn build_registry_internal(
         }
     }
 
-    // Resolve Route references and validate Native operation identity and generation-only Bridge directions.
-    let mut routes = BTreeMap::new();
-    for route in definition.routes {
-        // Resolve the target first, then resolve the Upstream API from that target's local index.
-        let target = upstream_targets
-            .get(&route.upstream_target)
-            .ok_or_else(|| RegistryError::UnknownReference {
-                entity: "route",
-                id: route.id.clone(),
-                target: "upstream target",
-                reference: route.upstream_target.clone(),
-            })?;
-        let upstream_api = target
-            .upstream_api(UpstreamApiKey::new(
-                route.upstream_operation,
-                target.canonical_task(),
-            ))
-            .ok_or_else(|| RegistryError::UnknownReference {
-                entity: "route",
-                id: route.id.clone(),
-                target: "upstream operation",
-                reference: format!("{}/{}", route.upstream_target, route.upstream_operation),
-            })?;
-
-        // Validate the handling mode against both operation endpoints exactly once at compilation.
-        match route.mode {
-            RouteMode::Native if route.downstream_operation != upstream_api.operation() => {
-                return Err(RegistryError::NativeRouteOperationMismatch { route: route.id });
-            }
-            RouteMode::GenerationBridge(direction)
-                if route.downstream_operation != direction.downstream_protocol().operation()
-                    || upstream_api.operation() != direction.upstream_protocol().operation() =>
-            {
-                return Err(RegistryError::InvalidGenerationBridgeRoute { route: route.id });
-            }
-            RouteMode::Native | RouteMode::GenerationBridge(_) => {}
-        }
-
-        // Store only stable references, the downstream operation, and the handling mode.
-        let resolved = Route {
-            upstream_target: route.upstream_target,
-            upstream_operation: route.upstream_operation,
-            downstream_operation: route.downstream_operation,
-            mode: route.mode,
-        };
-
-        // Build a unique Route index; the Public Model will preserve candidate priority separately in a Vec.
-        if routes.insert(route.id.clone(), resolved).is_some() {
-            return Err(RegistryError::DuplicateId {
-                entity: "route",
-                id: route.id,
-            });
-        }
-    }
-
-    // Validate Public Model metadata and Route candidate order, then compile the complete binding for each candidate.
+    // Validate each Public Model and resolve its owned Route candidates in fixed priority order.
     let mut public_models = BTreeMap::new();
     for public_model in definition.public_models {
         // Validate the Public Model ID, display fields, and lifecycle before processing its candidate Routes.
@@ -502,60 +450,59 @@ fn build_registry_internal(
             });
         }
 
-        // Use a local set to reject duplicate candidates while a Vec preserves the configured Route priority.
+        // Reject structurally duplicate candidates while preserving the configured Route priority.
         let mut seen = BTreeSet::new();
         let mut bindings = Vec::with_capacity(public_model.routes.len());
         let mut embedding_candidates = 0_usize;
-        for route_id in &public_model.routes {
-            // Reject a repeated Route while preserving the configured order.
-            if !seen.insert(route_id) {
-                return Err(RegistryError::DuplicatePublicModelRoute {
-                    public_model: public_model.id,
-                    route: route_id.clone(),
+        for route in &public_model.routes {
+            let identity = (
+                route.upstream_target.clone(),
+                route.upstream_operation,
+                route.downstream_operation,
+            );
+            if !seen.insert(identity) {
+                return Err(RegistryError::DuplicatePublicModelCandidate {
+                    public_model: public_model.id.clone(),
+                    upstream_target: route.upstream_target.clone(),
+                    upstream_operation: route.upstream_operation,
+                    downstream_operation: route.downstream_operation,
                 });
             }
 
-            // Resolve the Route reference so the Public Model combines only Routes that passed base validation.
-            let route = routes
-                .get(route_id)
-                .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "public model",
-                    id: public_model.id.clone(),
-                    target: "route",
-                    reference: route_id.clone(),
-                })?;
-
-            // Resolve the target referenced by the Route to capture the target-owned enabled state.
+            // Resolve the target and API directly from this Public Model-owned Route.
             let target = upstream_targets
-                .get(route.upstream_target())
+                .get(&route.upstream_target)
                 .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "public model",
+                    entity: "public model route",
                     id: public_model.id.clone(),
                     target: "upstream target",
-                    reference: route.upstream_target().to_owned(),
+                    reference: route.upstream_target.clone(),
                 })?;
-
-            // Resolve the Upstream API within that target to provide complete upstream facts for the Public Model capability intersection.
             let upstream_api = target
                 .upstream_api(UpstreamApiKey::new(
-                    route.upstream_operation(),
+                    route.upstream_operation,
                     target.canonical_task(),
                 ))
                 .ok_or_else(|| RegistryError::UnknownReference {
-                    entity: "public model",
+                    entity: "public model route",
                     id: public_model.id.clone(),
                     target: "upstream operation",
-                    reference: format!(
-                        "{}/{}",
-                        route.upstream_target(),
-                        route.upstream_operation()
-                    ),
+                    reference: format!("{}/{}", route.upstream_target, route.upstream_operation),
                 })?;
+            let mode = derive_route_mode(
+                target.canonical_task(),
+                route.upstream_operation,
+                route.downstream_operation,
+            )
+            .ok_or_else(|| RegistryError::InvalidRouteOperationPair {
+                public_model: public_model.id.clone(),
+                upstream_target: route.upstream_target.clone(),
+                upstream_operation: route.upstream_operation,
+                downstream_operation: route.downstream_operation,
+            })?;
 
             // Keep the initial Embeddings execution interface to one statically selectable Native candidate.
-            if target.enabled()
-                && route.downstream_operation() == crate::core::OperationKind::EmbeddingsCreate
-            {
+            if target.enabled() && route.downstream_operation == OperationKind::EmbeddingsCreate {
                 embedding_candidates += 1;
                 if embedding_candidates > 1 {
                     return Err(RegistryError::MultipleEmbeddingsCandidates {
@@ -564,12 +511,12 @@ fn build_registry_internal(
                 }
             }
 
-            // Collect the Route, Upstream API, and target-enabled snapshot while preserving the Public Model candidate order.
+            // Collect the resolved Target/API and derived mode in the Public Model candidate order.
             bindings.push(PublicRouteBinding {
-                route_id: route_id.clone(),
-                route,
+                upstream_target: target,
                 upstream_api,
-                target_enabled: target.enabled(),
+                downstream_operation: route.downstream_operation,
+                mode,
             });
         }
 
@@ -605,9 +552,31 @@ fn build_registry_internal(
         provider_instances,
         credential_pools,
         upstream_targets,
-        routes,
         public_models,
     })
+}
+
+/// Derives the only valid execution mode from one typed downstream/upstream operation pair.
+fn derive_route_mode(
+    canonical_task: CanonicalTaskKind,
+    upstream_operation: OperationKind,
+    downstream_operation: OperationKind,
+) -> Option<RouteMode> {
+    if upstream_operation == downstream_operation {
+        return Some(RouteMode::Native);
+    }
+    if canonical_task != CanonicalTaskKind::Generation {
+        return None;
+    }
+    match (downstream_operation, upstream_operation) {
+        (OperationKind::ChatCompletions, OperationKind::Responses) => Some(
+            RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
+        ),
+        (OperationKind::Responses, OperationKind::ChatCompletions) => Some(
+            RouteMode::GenerationBridge(GenerationBridgeDirection::ResponsesToChat),
+        ),
+        _ => None,
+    }
 }
 
 /// Validates the closed canonical-task and executable-operation compatibility matrix.
@@ -679,4 +648,47 @@ fn validate_upstream_api_identity(
         profile_operation: capabilities.operation(),
         canonical_task: model.task_kind(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_mode_derivation_keeps_bridges_generation_only() {
+        assert_eq!(
+            derive_route_mode(
+                CanonicalTaskKind::Embedding,
+                OperationKind::EmbeddingsCreate,
+                OperationKind::EmbeddingsCreate,
+            ),
+            Some(RouteMode::Native)
+        );
+        assert_eq!(
+            derive_route_mode(
+                CanonicalTaskKind::Generation,
+                OperationKind::Responses,
+                OperationKind::ChatCompletions,
+            ),
+            Some(RouteMode::GenerationBridge(
+                GenerationBridgeDirection::ChatToResponses
+            ))
+        );
+        assert_eq!(
+            derive_route_mode(
+                CanonicalTaskKind::SpeechSynthesis,
+                OperationKind::ChatCompletions,
+                OperationKind::Responses,
+            ),
+            None
+        );
+        assert_eq!(
+            derive_route_mode(
+                CanonicalTaskKind::Embedding,
+                OperationKind::EmbeddingsCreate,
+                OperationKind::ImagesGenerations,
+            ),
+            None
+        );
+    }
 }

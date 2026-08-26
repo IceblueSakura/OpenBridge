@@ -20,8 +20,6 @@ pub(super) use body::{observe_json_body, observe_timeout_body};
 pub(crate) struct ProviderAttemptContext<'a> {
     /// One-based attempt index within the downstream request.
     pub(crate) attempt: u64,
-    /// Compiled Route identifier.
-    pub(crate) route_id: &'a str,
     /// Compiled Upstream Target identifier.
     pub(crate) upstream_target: &'a str,
     /// Operation selected on the Upstream Target.
@@ -39,7 +37,6 @@ pub(crate) struct ProviderAttemptContext<'a> {
 pub(super) struct ProviderMetricAttributes {
     pub(super) provider: String,
     gen_ai_provider: String,
-    pub(super) route_id: String,
     pub(super) upstream_target: String,
     pub(super) upstream_operation: String,
     pub(super) upstream_model: String,
@@ -61,7 +58,6 @@ impl ProviderMetricAttributes {
         Self {
             provider: provider_name(context.provider).to_owned(),
             gen_ai_provider: gen_ai_provider_name(context.provider).to_owned(),
-            route_id: context.route_id.to_owned(),
             upstream_target: context.upstream_target.to_owned(),
             upstream_operation: context.upstream_operation.as_str().to_owned(),
             upstream_model: context.upstream_model.to_owned(),
@@ -87,7 +83,6 @@ impl ProviderMetricAttributes {
             KeyValue::new("gen_ai.request.model", self.upstream_model.clone()),
             KeyValue::new("gen_ai.request.stream", self.streaming),
             KeyValue::new("openbridge.provider.name", self.provider.clone()),
-            KeyValue::new("openbridge.route.id", self.route_id.clone()),
             KeyValue::new("openbridge.upstream.target", self.upstream_target.clone()),
             KeyValue::new(
                 "openbridge.upstream.operation",

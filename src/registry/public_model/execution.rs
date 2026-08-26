@@ -80,7 +80,6 @@ impl PublicContinuationContract {
 /// Public Model's configured Route list during a request.
 #[derive(Clone, Debug)]
 pub(crate) struct RouteExecutionCandidate {
-    pub(super) route_id: String,
     pub(super) upstream_target_id: String,
     pub(super) downstream_operation: OperationKind,
     pub(super) upstream_api_key: UpstreamApiKey,
@@ -106,11 +105,6 @@ pub(super) enum ParallelToolPolicy {
 }
 
 impl RouteExecutionCandidate {
-    /// Returns the configured Route ID retained for forwarding diagnostics and attempt attribution.
-    pub(crate) fn route_id(&self) -> &str {
-        &self.route_id
-    }
-
     /// Returns the prevalidated Upstream Target ID used by forwarding.
     pub(crate) fn upstream_target_id(&self) -> &str {
         &self.upstream_target_id
@@ -456,23 +450,14 @@ fn collect_unique_operations<T>(
     Ok(by_operation)
 }
 
-/// Resolved downstream Public Model, fixed information object, diagnostic Route IDs, and execution interfaces.
+/// Resolved downstream Public Model with fixed information and private execution interfaces.
 #[derive(Debug)]
 pub struct PublicModel {
-    pub(super) routes: Vec<String>,
     pub(super) execution_interfaces: ModelExecutionInterfaces,
     pub(super) info: PublicModelInfo,
 }
 
 impl PublicModel {
-    /// Returns configured Route IDs ordered by priority for diagnostics and tests.
-    ///
-    /// Request planning does not read this raw list; it consumes the protocol-specific static
-    /// candidate set in [`Self::execution_interface`].
-    pub fn routes(&self) -> &[String] {
-        &self.routes
-    }
-
     /// Returns complete safe model information for the extension interface.
     pub fn info(&self) -> &PublicModelInfo {
         &self.info
@@ -551,7 +536,6 @@ mod tests {
             continuation: PublicContinuationContract::Unsupported,
             response_budget,
             candidates: vec![RouteExecutionCandidate {
-                route_id: "route".to_owned(),
                 upstream_target_id: "target".to_owned(),
                 downstream_operation: OperationKind::EmbeddingsCreate,
                 upstream_api_key: UpstreamApiKey::new(

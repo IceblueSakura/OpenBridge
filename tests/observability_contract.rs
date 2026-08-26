@@ -26,9 +26,9 @@ use openbridge::{
     provider::PreparedUpstreamRequest,
     registry::{
         CanonicalModelTask, CanonicalTaskKind, EmbeddingModelProfile, InputModality, ModelConfig,
-        ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules, UpstreamTarget,
-        UpstreamTargetConfig, build_registry,
+        ModelLifecycle, PublicModelConfig, RouteConfig, UpstreamApiCapabilities, UpstreamApiConfig,
+        UpstreamApiKey, UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig,
+        build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -515,13 +515,6 @@ fn embedding_observability_app(
             streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
         }],
     });
-    definition.routes.push(RouteConfig {
-        id: "embedding-observed-route".to_owned(),
-        upstream_target: "embedding-observed-target".to_owned(),
-        upstream_operation: OperationKind::EmbeddingsCreate,
-        downstream_operation: OperationKind::EmbeddingsCreate,
-        mode: RouteMode::Native,
-    });
     definition.public_models.push(PublicModelConfig {
         id: "embedding-observed".to_owned(),
         created: 1_785_715_200,
@@ -529,7 +522,11 @@ fn embedding_observability_app(
         description: Some("Synthetic Embeddings observability model.".to_owned()),
         lifecycle: ModelLifecycle::active(),
         reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
-        routes: vec!["embedding-observed-route".to_owned()],
+        routes: vec![RouteConfig {
+            upstream_target: "embedding-observed-target".to_owned(),
+            upstream_operation: OperationKind::EmbeddingsCreate,
+            downstream_operation: OperationKind::EmbeddingsCreate,
+        }],
     });
 
     // Compile the mixed registry and bind only synthetic user/upstream credentials.

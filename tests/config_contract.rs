@@ -11,10 +11,9 @@ use openbridge::{
     providers::build_compiled_registry_with_active_pools,
     registry::{
         CanonicalTaskKind, IgnorableGenerationParameter, ModelContextLength, ModelLifecycle,
-        ModelLifecycleStatus, NonStreamingConversion, PublicModelConfig, ReasoningLevel,
-        ReasoningLevelMapping, ReasoningProfile, ReasoningSupport, RegistryError,
-        UpstreamApiCapabilities, UpstreamApiKey, UpstreamStreamingPolicy, UpstreamTimeoutPolicy,
-        build_registry,
+        ModelLifecycleStatus, NonStreamingConversion, ReasoningLevel, ReasoningLevelMapping,
+        ReasoningProfile, ReasoningSupport, RegistryError, UpstreamApiCapabilities, UpstreamApiKey,
+        UpstreamStreamingPolicy, UpstreamTimeoutPolicy, build_registry,
     },
 };
 
@@ -263,11 +262,11 @@ fn registry_rejects_a_route_for_an_absent_upstream_operation() {
     assert!(matches!(
         error,
         RegistryError::UnknownReference {
-            entity: "route",
+            entity: "public model route",
             id,
             target: "upstream operation",
             ..
-        } if id == "public-responses"
+        } if id == "code-primary"
     ));
 }
 
@@ -951,28 +950,31 @@ fn registry_rejects_duplicate_and_unknown_references() {
     ));
 
     let mut unknown = definition("test", "code-primary", "test-model");
-    unknown.public_models[0].routes = vec!["missing".to_owned()];
+    unknown.public_models[0].routes[0].upstream_target = "missing".to_owned();
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), unknown),
         Err(RegistryError::UnknownReference {
-            entity: "public model",
+            entity: "public model route",
             ..
         })
     ));
 
     let mut duplicate_candidate = definition("test", "code-primary", "test-model");
-    duplicate_candidate.public_models = vec![PublicModelConfig {
-        id: "code-primary".to_owned(),
-        created: 1_785_715_200,
-        display_name: "Code Primary".to_owned(),
-        description: None,
-        lifecycle: ModelLifecycle::active(),
-        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
-        routes: vec!["public-chat".to_owned(), "public-chat".to_owned()],
-    }];
+    let duplicate_route = duplicate_candidate.public_models[0].routes[0].clone();
+    duplicate_candidate.public_models[0]
+        .routes
+        .push(duplicate_route);
     assert!(matches!(
         build_registry(bootstrap(BOOTSTRAP), duplicate_candidate),
-        Err(RegistryError::DuplicatePublicModelRoute { .. })
+        Err(RegistryError::DuplicatePublicModelCandidate { .. })
+    ));
+
+    let mut invalid_operation_pair = definition("test", "code-primary", "test-model");
+    invalid_operation_pair.public_models[0].routes[0].downstream_operation =
+        OperationKind::EmbeddingsCreate;
+    assert!(matches!(
+        build_registry(bootstrap(BOOTSTRAP), invalid_operation_pair),
+        Err(RegistryError::InvalidRouteOperationPair { .. })
     ));
 }
 

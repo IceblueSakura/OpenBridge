@@ -258,7 +258,6 @@ impl RequestObservation {
             "provider_attempt",
             attempt = attempt_index,
             provider = %attributes.provider,
-            route_id = %attributes.route_id,
             upstream_target = %attributes.upstream_target,
             upstream_operation = %attributes.upstream_operation,
             public_model = %attributes.public_model,
@@ -281,7 +280,6 @@ impl RequestObservation {
         self.inner.span.in_scope(|| {
             tracing::info!(
                 attempt = context.attempt,
-                route_id = context.route_id,
                 upstream_target = context.upstream_target,
                 upstream_operation = context.upstream_operation.as_str(),
                 provider = ?context.provider,

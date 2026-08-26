@@ -5,12 +5,14 @@ use super::*;
 fn chat_to_responses_bridge_definition() -> RegistryConfig {
     let mut definition = streaming_definition("bridge-precommit", "public-model", "upstream-model");
     let route = definition
+        .public_models
+        .first_mut()
+        .unwrap()
         .routes
         .iter_mut()
         .find(|route| route.downstream_operation == OperationKind::ChatCompletions)
         .expect("synthetic Chat route must exist");
     route.upstream_operation = OperationKind::Responses;
-    route.mode = RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses);
     definition
 }
 
@@ -113,16 +115,13 @@ async fn stateless_requests_keep_fallback_across_continuation_capable_targets() 
     fallback.id = "openai-fallback".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
-    definition.routes.push(openbridge::registry::RouteConfig {
-        id: "fallback-responses".to_owned(),
-        upstream_target: "openai-fallback".to_owned(),
-        upstream_operation: OperationKind::Responses,
-        downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
-        mode: openbridge::registry::RouteMode::Native,
-    });
     definition.public_models[0]
         .routes
-        .push("fallback-responses".to_owned());
+        .push(openbridge::registry::RouteConfig {
+            upstream_target: "openai-fallback".to_owned(),
+            upstream_operation: OperationKind::Responses,
+            downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
+        });
     let transport = Arc::new(FailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
     // Omit continuation state so ambiguous continuation issuers cannot disable ordinary fallback.
@@ -177,16 +176,11 @@ async fn response_include_omission_is_isolated_per_fallback_candidate_in_either_
         };
 
         definition.upstream_targets.push(fallback);
-        definition.routes.push(RouteConfig {
-            id: "fallback-responses".to_owned(),
+        definition.public_models[0].routes.push(RouteConfig {
             upstream_target: "openai-fallback".to_owned(),
             upstream_operation: OperationKind::Responses,
             downstream_operation: OperationKind::Responses,
-            mode: RouteMode::Native,
         });
-        definition.public_models[0]
-            .routes
-            .push("fallback-responses".to_owned());
 
         let transport = Arc::new(IncludeIsolationTransport::default());
         let app = app_with_transport_and_definition(transport.clone(), definition);
@@ -292,16 +286,11 @@ async fn first_event_timeout_falls_back_before_any_downstream_sse_bytes() {
     fallback.id = "openai-fallback".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
-    definition.routes.push(RouteConfig {
-        id: "fallback-responses".to_owned(),
+    definition.public_models[0].routes.push(RouteConfig {
         upstream_target: "openai-fallback".to_owned(),
         upstream_operation: OperationKind::Responses,
         downstream_operation: OperationKind::Responses,
-        mode: RouteMode::Native,
     });
-    definition.public_models[0]
-        .routes
-        .push("fallback-responses".to_owned());
 
     let transport = Arc::new(PrecommitTimeoutFailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
@@ -337,16 +326,11 @@ async fn precommit_body_failure_falls_back_before_any_downstream_sse_bytes() {
     fallback.id = "openai-fallback".to_owned();
     fallback.upstream_apis[1].upstream_model = "fallback-model".to_owned();
     definition.upstream_targets.push(fallback);
-    definition.routes.push(RouteConfig {
-        id: "fallback-responses".to_owned(),
+    definition.public_models[0].routes.push(RouteConfig {
         upstream_target: "openai-fallback".to_owned(),
         upstream_operation: OperationKind::Responses,
         downstream_operation: OperationKind::Responses,
-        mode: RouteMode::Native,
     });
-    definition.public_models[0]
-        .routes
-        .push("fallback-responses".to_owned());
 
     let transport = Arc::new(PrecommitBodyFailureFailoverTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
@@ -656,46 +640,6 @@ async fn request_attempt_budget_is_global_and_reserves_untried_fallbacks() {
             "openai-third",
             "longcat-fourth",
         ]
-    );
-}
-
-#[tokio::test]
-async fn provider_bound_streams_do_not_try_a_second_route_for_the_same_issuer() {
-    let mut definition = streaming_definition("forward-test", "public-model", "upstream-model");
-    if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
-        &mut definition.upstream_targets[0].upstream_apis[1].capabilities
-    {
-        capabilities.state = ExecutableResponsesState::new(
-            StorageSupport::Unsupported,
-            ResponsesAffinity::TargetBoundContinuation,
-        );
-    }
-    definition.routes.push(openbridge::registry::RouteConfig {
-        id: "fallback-responses".to_owned(),
-        upstream_target: "openai-main".to_owned(),
-        upstream_operation: OperationKind::Responses,
-        downstream_operation: openbridge::core::ApiProtocol::Responses.operation(),
-        mode: openbridge::registry::RouteMode::Native,
-    });
-    definition.public_models[0]
-        .routes
-        .push("fallback-responses".to_owned());
-    let transport = Arc::new(FailoverTransport::default());
-    let app = app_with_transport_and_definition(transport.clone(), definition);
-    let request = Request::post("/v1/responses")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::from(
-            r#"{"model":"public-model","input":"hello","stream":true,"previous_response_id":"resp_123"}"#,
-        ))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(
-        transport.attempted_models.lock().unwrap().as_slice(),
-        ["upstream-model", "upstream-model"]
     );
 }
 

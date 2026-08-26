@@ -132,7 +132,6 @@ pub(in crate::ingress) async fn forward_images_request(
     let attempt = attempts.attempts_started() as u64;
     observation.record_attempt(ProviderAttemptContext {
         attempt,
-        route_id: candidate.route_id(),
         upstream_target: candidate.upstream_target_id(),
         upstream_operation: OperationKind::ImagesGenerations,
         upstream_model: upstream_api.upstream_model(),

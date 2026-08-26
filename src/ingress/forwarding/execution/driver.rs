@@ -404,7 +404,6 @@ pub(super) fn record_attempt(
             ..
         } => observation.record_attempt(ProviderAttemptContext {
             attempt: attempts.attempts_started() as u64,
-            route_id: candidate.route_id(),
             provider: target.kind(),
             upstream_operation: candidate.upstream_operation(),
             upstream_model: upstream_api.upstream_model(),
@@ -420,7 +419,6 @@ pub(super) fn record_attempt(
             let candidate = plan.candidate();
             observation.record_attempt(ProviderAttemptContext {
                 attempt: attempts.attempts_started() as u64,
-                route_id: candidate.route_id(),
                 provider: target.kind(),
                 upstream_operation: candidate.upstream_operation(),
                 upstream_model: upstream_api.upstream_model(),

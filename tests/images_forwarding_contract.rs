@@ -26,9 +26,8 @@ use openbridge::{
     registry::{
         CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, ImageGenerationModelProfile,
         ModelConfig, ModelContextLength, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
-        RegistryConfig, RouteConfig, RouteMode, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiKey, UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig,
-        build_registry,
+        RegistryConfig, RouteConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
+        UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig, build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -86,13 +85,6 @@ fn images_definition() -> RegistryConfig {
                 streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
             }],
         }],
-        routes: vec![RouteConfig {
-            id: "synthetic-images-route".to_owned(),
-            upstream_target: "synthetic-images-main".to_owned(),
-            upstream_operation: OperationKind::ImagesGenerations,
-            downstream_operation: OperationKind::ImagesGenerations,
-            mode: RouteMode::Native,
-        }],
         public_models: vec![PublicModelConfig {
             id: "synthetic-image".to_owned(),
             created: 1_785_715_200,
@@ -100,7 +92,11 @@ fn images_definition() -> RegistryConfig {
             description: None,
             lifecycle: ModelLifecycle::active(),
             reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
-            routes: vec!["synthetic-images-route".to_owned()],
+            routes: vec![RouteConfig {
+                upstream_target: "synthetic-images-main".to_owned(),
+                upstream_operation: OperationKind::ImagesGenerations,
+                downstream_operation: OperationKind::ImagesGenerations,
+            }],
         }],
     }
 }

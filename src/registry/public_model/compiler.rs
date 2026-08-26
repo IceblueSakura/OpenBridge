@@ -9,8 +9,8 @@ use crate::{
     config::RuntimeLimits,
     core::{OperationKind, ResponseIncludePolicy},
     registry::{
-        CanonicalTaskKind, PublicModelConfig, ReasoningLevelPolicy, RegistryError, Route,
-        UpstreamApi,
+        CanonicalTaskKind, PublicModelConfig, ReasoningLevelPolicy, RegistryError, RouteMode,
+        UpstreamApi, UpstreamTarget,
     },
 };
 
@@ -39,10 +39,10 @@ use embedding_budget::constrain_embedding_response_budget;
 
 /// Validated Route binding used to compile one Public Model's static execution interfaces.
 pub(in crate::registry) struct PublicRouteBinding<'a> {
-    pub(in crate::registry) route_id: String,
-    pub(in crate::registry) route: &'a Route,
+    pub(in crate::registry) upstream_target: &'a UpstreamTarget,
     pub(in crate::registry) upstream_api: &'a UpstreamApi,
-    pub(in crate::registry) target_enabled: bool,
+    pub(in crate::registry) downstream_operation: OperationKind,
+    pub(in crate::registry) mode: RouteMode,
 }
 
 /// Compiles a fixed Public Model without deployment details from the complete Route set.
@@ -109,7 +109,6 @@ pub(in crate::registry) fn compile_public_model(
         interfaces: execution_interfaces.public_projection(),
     };
     Ok(PublicModel {
-        routes: config.routes,
         execution_interfaces,
         info,
     })
@@ -307,17 +306,16 @@ impl PrecompiledRouteCandidate {
     /// Includes only a statically enabled Target and preserves its validated Route and API facts.
     fn from_binding(binding: &PublicRouteBinding<'_>) -> Option<Self> {
         // Reject disabled Targets before either capability aggregation or request planning can see them.
-        if !binding.target_enabled {
+        if !binding.upstream_target.enabled() {
             return None;
         }
 
         // Freeze every planning fact that otherwise required a request-time Route/API lookup.
         let execution = RouteExecutionCandidate {
-            route_id: binding.route_id.clone(),
-            upstream_target_id: binding.route.upstream_target().to_owned(),
-            downstream_operation: binding.route.downstream_operation(),
+            upstream_target_id: binding.upstream_target.id().to_owned(),
+            downstream_operation: binding.downstream_operation,
             upstream_api_key: binding.upstream_api.key(),
-            mode: binding.route.mode(),
+            mode: binding.mode,
             upstream_model: binding.upstream_api.upstream_model().to_owned(),
             reasoning_output: binding.upstream_api.reasoning_output(),
             streaming_policy: binding.upstream_api.streaming_policy(),
@@ -327,10 +325,7 @@ impl PrecompiledRouteCandidate {
                 .collect(),
             forwards_prompt_cache_key: forwards_prompt_cache_key(binding.upstream_api),
             parallel_tool_policy: parallel_tool_policy(binding.upstream_api),
-            forwarded_response_includes: forwarded_response_includes(
-                binding.route,
-                binding.upstream_api,
-            ),
+            forwarded_response_includes: forwarded_response_includes(binding, binding.upstream_api),
         };
         let contribution = RouteContractContribution::from_binding(binding);
 

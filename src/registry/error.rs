@@ -283,17 +283,19 @@ pub enum RegistryError {
         /// Typed operation declaring excessive capabilities.
         upstream_operation: OperationKind,
     },
-    /// A Native Route downstream operation differs from its Upstream API operation.
-    #[error("native route '{route}' operation does not match its upstream API")]
-    NativeRouteOperationMismatch {
-        /// Route ID with the operation mismatch.
-        route: String,
-    },
-    /// A Generation Bridge Route conflicts with its explicit direction.
-    #[error("generation bridge route '{route}' operations must match its declared direction")]
-    InvalidGenerationBridgeRoute {
-        /// Route ID whose operations conflict with its direction.
-        route: String,
+    /// A Public Model Route operation pair is neither Native nor a supported Generation Bridge.
+    #[error(
+        "public model '{public_model}' route to target '{upstream_target}' cannot map upstream operation '{upstream_operation}' to downstream operation '{downstream_operation}'"
+    )]
+    InvalidRouteOperationPair {
+        /// Public Model owning the invalid candidate.
+        public_model: String,
+        /// Target selected by the invalid candidate.
+        upstream_target: String,
+        /// Upstream operation selected on the Target.
+        upstream_operation: OperationKind,
+        /// Downstream operation exposed by the candidate.
+        downstream_operation: OperationKind,
     },
     /// The Public Model ID is not a safe single-segment URL resource identifier.
     #[error("public model '{public_model}' id is not a safe URL path segment")]
@@ -321,13 +323,19 @@ pub enum RegistryError {
         /// Invalid Public Model ID.
         public_model: String,
     },
-    /// The Public Model references the same Route more than once.
-    #[error("public model '{public_model}' contains duplicate route '{route}'")]
-    DuplicatePublicModelRoute {
-        /// Public Model name containing the conflict.
+    /// The Public Model repeats one structurally identical Route candidate.
+    #[error(
+        "public model '{public_model}' repeats target '{upstream_target}' route from '{upstream_operation}' to '{downstream_operation}'"
+    )]
+    DuplicatePublicModelCandidate {
+        /// Public Model containing the conflict.
         public_model: String,
-        /// Duplicated Route ID.
-        route: String,
+        /// Duplicated Target ID.
+        upstream_target: String,
+        /// Duplicated upstream operation.
+        upstream_operation: OperationKind,
+        /// Duplicated downstream operation.
+        downstream_operation: OperationKind,
     },
     /// The Public Model has no Route.
     #[error("public model '{public_model}' must contain at least one route")]

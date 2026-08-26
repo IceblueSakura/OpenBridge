@@ -26,7 +26,7 @@
 | `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter-gemma-4-31b-it` |
 | `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter-gemini-3-7-flash` |
 | `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter-grok-4-6` |
-| `muse-spark-1.2-contributor` | `meta/muse-spark-1.2-contributor` | OpenRouter | `openrouter-muse-spark-1-2-contributor` |
+| `muse-spark-1.2-contributor` | `meta/muse-spark-1.2-contributor` | OpenRouter | `openrouter/muse-spark-1.2-contributor` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian-kimi-k3` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
 | `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian-glm-5-2` |

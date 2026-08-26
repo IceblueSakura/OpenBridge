@@ -5,35 +5,24 @@
 //! request-time candidate selection.
 
 use crate::{
-    core::{ApiProtocol, GenerationBridgeDirection, OperationKind},
-    registry::{ModelLifecycle, PublicModelConfig, RouteConfig, RouteMode},
+    core::{ApiProtocol, OperationKind},
+    registry::{ModelLifecycle, PublicModelConfig, RouteConfig},
 };
 
-use super::{
-    public_models::{
-        ProviderRouteRegistration, PublicModelRegistration, PublicModelRoutingStrategy,
-        PublicModelSurface,
-    },
-    routing::{CompiledPublicModel, CompiledRouting},
+use super::public_models::{
+    ProviderRouteRegistration, PublicModelRegistration, PublicModelRoutingStrategy,
+    PublicModelSurface,
 };
 
-/// Compiles generation Public Model registrations into ordered Route and Public Model entries.
+/// Compiles generation Public Model registrations with their ordered typed Route candidates.
 pub(super) fn compile_generation_routing(
     registrations: &[PublicModelRegistration],
-) -> CompiledRouting {
-    // Build Route and Public Model candidates in explicit registration order.
-    let mut routes = Vec::with_capacity(registrations.len() * 4);
-    let mut public_models = Vec::with_capacity(registrations.len());
-    for &registration in registrations {
-        let compiled = registration.compile();
-        routes.extend(compiled.routes);
-        public_models.push(compiled.public_model);
-    }
-
-    CompiledRouting {
-        routes,
-        public_models,
-    }
+) -> Vec<PublicModelConfig> {
+    registrations
+        .iter()
+        .copied()
+        .map(PublicModelRegistration::compile)
+        .collect()
 }
 
 /// Global Route phase used to keep each downstream protocol's Native candidates ahead of its Bridges.
@@ -62,7 +51,7 @@ const RESPONSES_ROUTE_PHASES: [RoutePhase; 2] =
 
 impl PublicModelRegistration {
     /// Builds one complete Public Model while preserving Provider priority inside each Route phase.
-    fn compile(self) -> CompiledPublicModel {
+    fn compile(self) -> PublicModelConfig {
         // Detect whether the Public Model already has a Native candidate for each downstream protocol.
         let has_chat_native = self
             .providers
@@ -113,20 +102,14 @@ impl PublicModelRegistration {
             }
         }
 
-        // Reuse the generated IDs as the private immutable execution order.
-        let route_ids = routes.iter().map(|route| route.id.clone()).collect();
-        let public_model = PublicModelConfig {
+        PublicModelConfig {
             id: self.public_name.to_owned(),
             created: 1_785_715_200,
             display_name: self.public_name.to_owned(),
             description: None,
             lifecycle: ModelLifecycle::active(),
             reasoning_level_policy: self.reasoning_level_policy,
-            routes: route_ids,
-        };
-        CompiledPublicModel {
             routes,
-            public_model,
         }
     }
 }
@@ -151,8 +134,8 @@ impl ProviderRouteRegistration {
         phase: RoutePhase,
         supplement_missing_protocol: bool,
     ) -> Option<RouteConfig> {
-        // Select the fixed protocol direction and handling mode for this surface and phase.
-        let (suffix, upstream_operation, downstream_protocol, mode) = match phase {
+        // Select the fixed operation pair for this surface and phase.
+        let (upstream_operation, downstream_protocol) = match phase {
             RoutePhase::ChatNative
                 if !matches!(
                     self.surface,
@@ -160,12 +143,7 @@ impl ProviderRouteRegistration {
                         | PublicModelSurface::ResponsesNativeWithChatBridge
                 ) =>
             {
-                (
-                    "chat",
-                    OperationKind::ChatCompletions,
-                    ApiProtocol::ChatCompletions,
-                    RouteMode::Native,
-                )
+                (OperationKind::ChatCompletions, ApiProtocol::ChatCompletions)
             }
             RoutePhase::ChatBridge
                 if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges)
@@ -176,12 +154,7 @@ impl ProviderRouteRegistration {
                     || (matches!(self.surface, PublicModelSurface::ResponsesNativeOnly)
                         && supplement_missing_protocol) =>
             {
-                (
-                    "chat-via-responses",
-                    OperationKind::Responses,
-                    ApiProtocol::ChatCompletions,
-                    RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
-                )
+                (OperationKind::Responses, ApiProtocol::ChatCompletions)
             }
             RoutePhase::ResponsesNative
                 if matches!(
@@ -192,54 +165,37 @@ impl ProviderRouteRegistration {
                         | PublicModelSurface::ResponsesNativeWithChatBridge
                 ) =>
             {
-                (
-                    "responses",
-                    OperationKind::Responses,
-                    ApiProtocol::Responses,
-                    RouteMode::Native,
-                )
+                (OperationKind::Responses, ApiProtocol::Responses)
             }
             RoutePhase::ResponsesBridge
                 if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges)
                     || (matches!(self.surface, PublicModelSurface::ChatNativeOnly)
                         && supplement_missing_protocol) =>
             {
-                (
-                    "responses-via-chat",
-                    OperationKind::ChatCompletions,
-                    ApiProtocol::Responses,
-                    RouteMode::GenerationBridge(GenerationBridgeDirection::ResponsesToChat),
-                )
+                (OperationKind::ChatCompletions, ApiProtocol::Responses)
             }
             _ => return None,
         };
 
-        // Bind the phase-specific Route to this Provider Target with a stable ID.
-        let id = format!("{}-{suffix}", self.route_prefix);
+        // Bind the phase-specific typed Route directly to this Provider Target.
         Some(route(
-            &id,
             self.upstream_target,
             upstream_operation,
             downstream_protocol,
-            mode,
         ))
     }
 }
 
-/// Builds a Route definition bound to a Target, upstream operation, downstream protocol, and mode.
+/// Builds a Route definition bound to a Target and one typed operation pair.
 fn route(
-    id: &str,
     upstream_target: &str,
     upstream_operation: OperationKind,
     downstream_protocol: ApiProtocol,
-    mode: RouteMode,
 ) -> RouteConfig {
-    // Freeze the call site's protocol direction and mode into an immutable Route definition.
+    // Freeze the call site's operation pair; registry compilation derives the only valid mode.
     RouteConfig {
-        id: id.to_owned(),
         upstream_target: upstream_target.to_owned(),
         upstream_operation,
         downstream_operation: downstream_protocol.operation(),
-        mode,
     }
 }

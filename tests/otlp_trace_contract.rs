@@ -24,11 +24,11 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use openbridge::{
     config::{BootstrapConfig, parse_bootstrap_config},
-    core::{ApiProtocol, GenerationBridgeDirection},
+    core::ApiProtocol,
     ingress::{GatewayState, build_router},
     observability::{GatewayMetrics, TelemetryRuntime, otlp_trace_layer},
     provider::PreparedUpstreamRequest,
-    registry::{RouteMode, UpstreamTarget, build_registry},
+    registry::{UpstreamTarget, build_registry},
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
 use opentelemetry_proto::tonic::{
@@ -266,12 +266,14 @@ fn app_with_invalid_bridged_response(
 ) -> Router {
     let mut definition = support::definition("otlp-test", "code-primary", "test-model");
     let route = definition
+        .public_models
+        .first_mut()
+        .unwrap()
         .routes
         .iter_mut()
         .find(|route| route.downstream_operation == ApiProtocol::ChatCompletions.operation())
         .unwrap();
     route.upstream_operation = ApiProtocol::Responses.operation();
-    route.mode = RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses);
     let registry = build_registry(bootstrap, definition).unwrap();
     let (users, credentials) =
         support::users_and_credentials(DOWNSTREAM_TOKEN, &registry, UPSTREAM_TOKEN);
@@ -550,10 +552,7 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
         string_value(&attempt.attributes, "provider"),
         Some("openai")
     );
-    assert_eq!(
-        string_value(&attempt.attributes, "route_id"),
-        Some("public-chat")
-    );
+    assert!(string_value(&attempt.attributes, "route_id").is_none());
     assert_eq!(
         string_value(&attempt.attributes, "upstream_target"),
         Some("openai-main")
@@ -618,7 +617,6 @@ async fn otlp_http_exports_one_redacted_request_and_attempt_trace() {
         &[
             "attempt",
             "provider",
-            "route_id",
             "upstream_target",
             "upstream_operation",
             "public_model",

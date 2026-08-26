@@ -212,14 +212,11 @@ async fn malformed_sources_media_and_limits_are_zero_egress() {
 #[tokio::test]
 async fn generation_bridge_never_contributes_file_capability() {
     let mut definition = file_input_definition();
-    definition.routes = vec![RouteConfig {
-        id: "file-bridge".to_owned(),
+    definition.public_models[0].routes = vec![RouteConfig {
         upstream_target: "openai-main".to_owned(),
         upstream_operation: OperationKind::Responses,
         downstream_operation: OperationKind::ChatCompletions,
-        mode: RouteMode::GenerationBridge(GenerationBridgeDirection::ChatToResponses),
     }];
-    definition.public_models[0].routes = vec!["file-bridge".to_owned()];
     let transport = Arc::new(MimoImageTransport::default());
     let app = app_with_transport_and_definition(transport.clone(), definition);
     let model = authenticated_get(&app, "/openbridge/v1/models/public-model").await;

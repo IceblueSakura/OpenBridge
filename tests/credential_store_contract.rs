@@ -32,7 +32,7 @@ enabled = false
 
 #[test]
 fn continuation_pool_rejects_multiple_members_without_a_public_model() {
-    // Enable continuation on the executable API while removing every Public Model and Route.
+    // Enable continuation on the executable API while removing every Public Model.
     let mut definition =
         support::definition("credential-continuation", "unused-public-model", "upstream");
     let UpstreamApiCapabilities::Responses(capabilities) =
@@ -45,7 +45,6 @@ fn continuation_pool_rejects_multiple_members_without_a_public_model() {
         ResponsesAffinity::TargetBoundContinuation,
     );
     definition.public_models.clear();
-    definition.routes.clear();
     let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
 
     // Validate the executable Target constraint directly, without relying on a public projection.
@@ -66,7 +65,6 @@ fn ordinary_target_bound_pool_accepts_multiple_members() {
     let mut definition =
         support::definition("credential-target-bound", "unused-public-model", "upstream");
     definition.public_models.clear();
-    definition.routes.clear();
     let registry = build_registry(support::bootstrap(support::BOOTSTRAP), definition).unwrap();
 
     // Storage-independent Target affinity alone must not disable credential rotation.
