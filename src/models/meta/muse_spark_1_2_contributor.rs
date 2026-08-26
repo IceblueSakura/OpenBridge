@@ -43,6 +43,7 @@ pub(crate) fn config() -> ModelConfig {
                 "max_tokens",
                 "repetition_penalty",
                 "response_format",
+                "stream_options",
                 "structured_outputs",
                 "temperature",
                 "tool_choice",
@@ -61,5 +62,20 @@ pub(crate) fn config() -> ModelConfig {
                 ReasoningLevel::Minimal,
             ]),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn muse_spark_accepts_chat_stream_usage_control() {
+        assert!(
+            config()
+                .supported_parameters()
+                .iter()
+                .any(|parameter| parameter == "stream_options")
+        );
     }
 }

@@ -154,7 +154,9 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 upstream_target: "openrouter/muse-spark-1.2-contributor",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
+                // Keep downstream Responses on the typed Chat bridge until native Responses
+                // first-event framing has a verified compatibility baseline for this model.
+                surface: PublicModelSurface::ChatNativeOnly,
             }],
         },
         PublicModelRegistration {

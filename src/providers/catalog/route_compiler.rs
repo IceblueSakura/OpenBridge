@@ -199,3 +199,34 @@ fn route(
         downstream_operation: downstream_protocol.operation(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::catalog::public_models::generation_registrations;
+
+    #[test]
+    fn muse_spark_uses_chat_native_and_responses_bridge() {
+        let models = compile_generation_routing(generation_registrations());
+        let muse = models
+            .iter()
+            .find(|model| model.id == "muse-spark-1.2-contributor")
+            .expect("Muse Spark must remain in the public model catalog");
+        let operations = muse
+            .routes
+            .iter()
+            .map(|route| (route.upstream_operation, route.downstream_operation))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            operations,
+            [
+                (
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
+                (OperationKind::ChatCompletions, OperationKind::Responses),
+            ]
+        );
+    }
+}

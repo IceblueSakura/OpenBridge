@@ -18,7 +18,7 @@ use super::{
 #[derive(Debug)]
 pub struct ChatStreamState {
     lifecycle: Lifecycle,
-    finish_reason_seen: bool,
+    finish_reason: Option<String>,
     usage_seen: bool,
     text: String,
     reasoning_text: String,
@@ -30,7 +30,7 @@ impl ChatStreamState {
     pub fn new() -> Self {
         Self {
             lifecycle: Lifecycle::AwaitingStart,
-            finish_reason_seen: false,
+            finish_reason: None,
             usage_seen: false,
             text: String::new(),
             reasoning_text: String::new(),
@@ -53,7 +53,7 @@ impl ChatStreamState {
             if matches!(self.lifecycle, Lifecycle::Terminal(_)) {
                 return Err(BridgeStreamError::DuplicateTerminal);
             }
-            if !self.finish_reason_seen {
+            if self.finish_reason.is_none() {
                 return Err(BridgeStreamError::IncompleteOutputItem);
             }
             self.validate_all_arguments()?;
@@ -71,10 +71,10 @@ impl ChatStreamState {
             .get("choices")
             .and_then(Value::as_array)
             .ok_or(BridgeStreamError::InvalidJson)?;
-        if self.finish_reason_seen {
-            if choices.is_empty()
-                && value.get("usage").is_some_and(Value::is_object)
+        if let Some(finish_reason) = self.finish_reason.as_deref() {
+            if value.get("usage").is_some_and(Value::is_object)
                 && !self.usage_seen
+                && is_post_finish_usage_choices(choices, finish_reason)?
             {
                 self.usage_seen = true;
                 return Ok(ChatStreamEventKind::Usage);
@@ -112,13 +112,13 @@ impl ChatStreamState {
             if !matches!(finish_reason, "stop" | "tool_calls") {
                 return Err(BridgeStreamError::UnexpectedEvent);
             }
-            if self.finish_reason_seen {
+            if self.finish_reason.is_some() {
                 return Err(BridgeStreamError::DuplicateTerminal);
             }
             if (finish_reason == "tool_calls") != !self.tools.is_empty() {
                 return Err(BridgeStreamError::UnexpectedEvent);
             }
-            self.finish_reason_seen = true;
+            self.finish_reason = Some(finish_reason.to_owned());
             self.validate_all_arguments()?;
         }
         Ok(ChatStreamEventKind::Chunk)
@@ -214,6 +214,37 @@ impl ChatStreamState {
         }
         Ok(())
     }
+}
+
+/// Accepts either the standard empty-choice usage tail or OpenRouter's inert repeated finish choice.
+fn is_post_finish_usage_choices(
+    choices: &[Value],
+    finish_reason: &str,
+) -> Result<bool, BridgeStreamError> {
+    if choices.is_empty() {
+        return Ok(true);
+    }
+    if choices.len() != 1 || required_u64(&choices[0], "index")? != 0 {
+        return Ok(false);
+    }
+    let choice = choices[0]
+        .as_object()
+        .ok_or(BridgeStreamError::InvalidJson)?;
+    if choice.get("finish_reason").and_then(Value::as_str) != Some(finish_reason) {
+        return Ok(false);
+    }
+    let delta = choice
+        .get("delta")
+        .and_then(Value::as_object)
+        .ok_or(BridgeStreamError::InvalidJson)?;
+    Ok(delta.iter().all(|(field, value)| match field.as_str() {
+        "content" | "reasoning" | "reasoning_content" | "refusal" => {
+            value.is_null() || value.as_str() == Some("")
+        }
+        "role" => value.is_null() || value.as_str() == Some("assistant"),
+        "tool_calls" => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
+        _ => false,
+    }))
 }
 
 /// Chat stream event classes needed by bridge renderers after lifecycle validation.

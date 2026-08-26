@@ -653,6 +653,52 @@ data: [DONE]
 }
 
 #[test]
+fn chat_to_responses_accepts_openrouter_repeated_finish_usage_chunk() {
+    let (plan, _) = BridgePlan::prepare_with_reasoning_output(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(br#"{"model":"public-model","input":"hello","stream":true}"#),
+        ReasoningOutput::PlainText,
+    )
+    .expect("Responses request should be bridgeable");
+    let upstream = Bytes::from_static(
+        br#"data: {"id":"chatcmpl_openrouter_usage","choices":[{"delta":{"role":"assistant","content":"ok"},"finish_reason":null,"index":0,"native_finish_reason":null}]}
+
+data: {"id":"chatcmpl_openrouter_usage","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":"stop","index":0,"native_finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl_openrouter_usage","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":"stop","index":0,"native_finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
+
+data: [DONE]
+
+"#,
+    );
+
+    let mut renderer = plan.stream_renderer();
+    let mut actual = Vec::new();
+    for event in decode(&upstream) {
+        actual.extend(
+            renderer
+                .render(event)
+                .expect("OpenRouter's inert repeated finish usage chunk must be accepted"),
+        );
+    }
+    actual.extend(renderer.finish().expect("stream must reach terminal"));
+
+    let mut state = ResponsesStreamState::new();
+    for event in decode(&actual) {
+        state.ingest(&event).expect("converted Responses stream");
+    }
+    state.finish().expect("converted Responses terminal");
+    assert_eq!(state.text(), "ok");
+    assert_eq!(
+        state.terminal(),
+        Some(openbridge::bridge::StreamTerminal::Completed)
+    );
+}
+
+#[test]
 fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
     let (plan, _) = BridgePlan::prepare(
         ApiProtocol::Responses,
@@ -704,6 +750,28 @@ data: {"id":"chatcmpl_duplicate_usage","choices":[],"usage":{"prompt_tokens":1,"
         .render(events[1].clone())
         .expect("first usage-only chunk should be accepted");
     assert!(renderer.render(events[2].clone()).is_err());
+
+    // A repeated finish usage chunk is accepted only when its choice is semantically inert and matches.
+    for invalid_usage in [
+        r#"data: {"id":"chatcmpl_invalid_usage","choices":[{"delta":{"content":"late"},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+"#,
+        r#"data: {"id":"chatcmpl_invalid_usage","choices":[{"delta":{"content":""},"finish_reason":"tool_calls","index":0}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+"#,
+    ] {
+        let mut renderer = plan.stream_renderer();
+        let finish = decode(
+            br#"data: {"id":"chatcmpl_invalid_usage","choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}
+
+"#,
+        );
+        renderer
+            .render(finish[0].clone())
+            .expect("finish chunk should render");
+        let usage = decode(invalid_usage.as_bytes());
+        assert!(renderer.render(usage[0].clone()).is_err());
+    }
 }
 
 #[test]
