@@ -1,6 +1,8 @@
 //! Complete canonical model facts for GLM-5.3-Flash (`z-ai/glm-5.3-flash`).
 //!
-//! Facts follow the exact OpenRouter endpoint record reverified on 2026-08-26:
+//! Facts follow the exact official model page and OpenRouter endpoint record reverified on
+//! 2026-08-27:
+//! <https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash>
 //! <https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints>.
 //! OpenRouter's `stream_options` and `max_output_tokens` support are protocol-level controls
 //! included in addition to the model-specific parameter record.
@@ -32,6 +34,7 @@ pub(crate) fn config() -> ModelConfig {
             input_modalities: Some(vec![
                 InputModality::Text,
                 InputModality::Image,
+                InputModality::File,
                 InputModality::Video,
             ]),
             output_modalities: Some(vec![OutputModality::Text]),
@@ -75,5 +78,16 @@ mod tests {
                 "missing {parameter}"
             );
         }
+    }
+
+    #[test]
+    fn glm_5_3_flash_records_official_file_input() {
+        let model = config();
+        assert!(
+            model
+                .input_modalities()
+                .expect("GLM-5.3-Flash modalities must be known")
+                .contains(&InputModality::File)
+        );
     }
 }

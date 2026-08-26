@@ -188,6 +188,7 @@ mod tests {
                     OperationKind::ChatCompletions,
                     UpstreamApiCapabilities::ChatCompletions(capabilities),
                 ) => {
+                    assert!(capabilities.media.file.is_none());
                     let tools = capabilities
                         .function_tools
                         .expect("Chat tools must remain enabled");
@@ -200,6 +201,7 @@ mod tests {
                     );
                 }
                 (OperationKind::Responses, UpstreamApiCapabilities::Responses(capabilities)) => {
+                    assert!(capabilities.media.file.is_none());
                     let tools = capabilities
                         .function_tools
                         .expect("Responses tools must remain enabled");
