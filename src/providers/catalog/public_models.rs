@@ -160,6 +160,15 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
+            public_name: "glm-5.3-flash",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                upstream_target: "openrouter/glm-5.3-flash",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "kimi-k3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,

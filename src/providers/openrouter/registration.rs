@@ -5,9 +5,9 @@ use std::time::Duration;
 use crate::{
     core::{
         ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
-        StructuredOutputProfile,
+        StructuredOutputProfile, ToolChoiceMode,
     },
-    models::{deepseek, google, meta, minimax, xai},
+    models::{deepseek, google, meta, minimax, xai, z_ai},
     provider::ProviderKind,
     registry::{
         CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
@@ -20,9 +20,9 @@ use super::{DEFINITION, media::IMAGE_INPUT};
 const PROVIDER_INSTANCE_ID: &str = "openrouter";
 const STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
-/// Gemma 4 31B returns markdown-wrapped JSON for strict schema requests, so its
-/// executable targets keep the reliable JSON-object profile only.
-const GEMMA_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const AUTO_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[ToolChoiceMode::Auto];
+/// JSON-object-only profile for targets whose strict schema behavior is not a reliable guarantee.
+const JSON_OBJECT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 
 /// Builds the trusted OpenRouter API deployment used by the checked-in target.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -62,6 +62,11 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             meta::muse_spark_1_2_contributor::ID,
             "meta/muse-spark-1.2-contributor",
         ),
+        dual_protocol_target(
+            "openrouter/glm-5.3-flash",
+            z_ai::glm_5_3_flash::ID,
+            "z-ai/glm-5.3-flash",
+        ),
     ]
 }
 
@@ -74,7 +79,7 @@ fn dual_protocol_target(
     // Expose image input only for models covered by the model-specific Provider probe.
     let supports_image_input = matches!(
         canonical_model,
-        google::gemini_3_7_flash::ID | xai::grok_4_6::ID
+        google::gemini_3_7_flash::ID | xai::grok_4_6::ID | z_ai::glm_5_3_flash::ID
     );
     let chat_media =
         crate::core::ChatMediaProfile::new(supports_image_input.then_some(IMAGE_INPUT), None, None);
@@ -100,8 +105,8 @@ fn dual_protocol_target(
     responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     // Gemma 4 31B keeps JSON-object output and does not guarantee strict schema.
     if canonical_model == google::gemma_4_31b_it::ID {
-        chat_capabilities.structured_outputs = Some(GEMMA_STRUCTURED_OUTPUTS);
-        responses_capabilities.structured_outputs = Some(GEMMA_STRUCTURED_OUTPUTS);
+        chat_capabilities.structured_outputs = Some(JSON_OBJECT_STRUCTURED_OUTPUTS);
+        responses_capabilities.structured_outputs = Some(JSON_OBJECT_STRUCTURED_OUTPUTS);
         for profile in [
             chat_capabilities.function_tools.as_mut(),
             responses_capabilities.function_tools.as_mut(),
@@ -111,6 +116,22 @@ fn dual_protocol_target(
         {
             profile.strict_schema = false;
         }
+    }
+    // GLM-5.3-Flash accepts automatic function-tool selection and JSON-object Chat output. Named
+    // tool selection is rejected, and Responses JSON Schema/object output is not reliable enough
+    // to publish as a downstream guarantee.
+    if canonical_model == z_ai::glm_5_3_flash::ID {
+        for profile in [
+            chat_capabilities.function_tools.as_mut(),
+            responses_capabilities.function_tools.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            profile.choice_modes = AUTO_TOOL_CHOICE_MODES;
+        }
+        chat_capabilities.structured_outputs = Some(JSON_OBJECT_STRUCTURED_OUTPUTS);
+        responses_capabilities.structured_outputs = None;
     }
 
     // Bind the model-specific capabilities to both stateless Native protocol endpoints.
@@ -146,5 +167,49 @@ fn dual_protocol_target(
                 streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
             },
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{OperationKind, ToolChoiceMode};
+
+    #[test]
+    fn glm_5_3_flash_uses_probed_tool_and_structured_output_profiles() {
+        let target = upstream_targets()
+            .into_iter()
+            .find(|target| target.canonical_model == z_ai::glm_5_3_flash::ID)
+            .expect("GLM-5.3-Flash OpenRouter target must remain registered");
+
+        for api in target.upstream_apis {
+            match (api.key.operation(), api.capabilities) {
+                (
+                    OperationKind::ChatCompletions,
+                    UpstreamApiCapabilities::ChatCompletions(capabilities),
+                ) => {
+                    let tools = capabilities
+                        .function_tools
+                        .expect("Chat tools must remain enabled");
+                    assert_eq!(tools.choice_modes, &[ToolChoiceMode::Auto]);
+                    assert!(tools.parallel_calls);
+                    assert!(tools.strict_schema);
+                    assert_eq!(
+                        capabilities.structured_outputs,
+                        Some(StructuredOutputProfile::JsonObject)
+                    );
+                }
+                (OperationKind::Responses, UpstreamApiCapabilities::Responses(capabilities)) => {
+                    let tools = capabilities
+                        .function_tools
+                        .expect("Responses tools must remain enabled");
+                    assert_eq!(tools.choice_modes, &[ToolChoiceMode::Auto]);
+                    assert!(tools.parallel_calls);
+                    assert!(tools.strict_schema);
+                    assert_eq!(capabilities.structured_outputs, None);
+                }
+                _ => panic!("unexpected GLM-5.3-Flash operation profile"),
+            }
+        }
     }
 }

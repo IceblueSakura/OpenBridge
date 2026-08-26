@@ -4,8 +4,13 @@ use crate::registry::ModelConfig;
 
 pub(crate) mod glm_5_2;
 pub(crate) mod glm_5_3;
+pub(crate) mod glm_5_3_flash;
 
 /// Returns all GLM model facts compiled into the binary.
 pub(crate) fn configs() -> Vec<ModelConfig> {
-    vec![glm_5_2::config(), glm_5_3::config()]
+    vec![
+        glm_5_2::config(),
+        glm_5_3::config(),
+        glm_5_3_flash::config(),
+    ]
 }

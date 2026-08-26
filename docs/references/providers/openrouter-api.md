@@ -1,6 +1,6 @@
 # OpenRouter API 调研
 
-- Last reverified：2026-08-24；Models、model endpoints、Chat 与 Responses 由 Gemini 3.7 Flash/Grok 4.6 接入复核。
+- Last reverified：2026-08-27；Models、model endpoints、Chat 与 Responses 由 Gemini 3.7 Flash、Grok 4.6 和 GLM-5.3-Flash 接入复核。
 - Recheck trigger：Responses beta、Provider routing、Models/endpoint schema 或数据政策变化。
 
 ## 来源与范围
@@ -29,6 +29,8 @@ Models 目录、用户过滤视图和单模型 endpoint 列表是不同资源；
 ## 固定 wire 观察
 
 2026-08-02 的一次 Responses streaming 请求得到 data-only SSE：终态 JSON 顶层 `type` 为 `response.completed`，嵌套 `response.status` 为 `completed`，随后另有 `[DONE]`。该结果只证明当时账户、模型、网络和 payload，不证明其他 endpoint、模型或未来版本。
+
+2026-08-27 对 `z-ai/glm-5.3-flash` 的 Chat/Responses、image、tool、structured output 与 Hermes 接入观察见[带日期证据记录](../../implementation-status/evidence/2026-08-27-openrouter-glm-5-3-flash-integration.md)；本文不复制模型级结果或当前代码结论。
 
 ## 证据边界
 

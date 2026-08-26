@@ -8,7 +8,9 @@ use crate::core::{
 /// Image surface confirmed for selected OpenRouter Chat and Responses targets.
 ///
 /// PNG/JPEG data URLs and remote JPEGs are proven on Gemini 3.7 Flash and Grok 4.6 native Chat and
-/// Responses paths (2026-08-24); no other media type was exercised for those targets.
+/// Responses paths (2026-08-24). GLM-5.3-Flash PNG data URLs are proven on both Native paths
+/// (2026-08-27); its remote-URL/image contract comes from the exact OpenRouter endpoint record and
+/// OpenRouter image request contract, while JPEG was not separately exercised for that model.
 pub(super) const IMAGE_INPUT: ImageInputCapabilities = ImageInputCapabilities::new(
     4,
     ImageSourceCapabilities::RemoteUrlAndDataUrl {

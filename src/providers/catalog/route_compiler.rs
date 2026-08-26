@@ -229,4 +229,29 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn glm_5_3_flash_exposes_native_chat_and_responses() {
+        let models = compile_generation_routing(generation_registrations());
+        let glm = models
+            .iter()
+            .find(|model| model.id == "glm-5.3-flash")
+            .expect("GLM-5.3-Flash must be published through the production routing catalog");
+        let operations = glm
+            .routes
+            .iter()
+            .map(|route| (route.upstream_operation, route.downstream_operation))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            operations,
+            [
+                (
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
+                (OperationKind::Responses, OperationKind::Responses),
+            ]
+        );
+    }
 }
