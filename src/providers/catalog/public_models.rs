@@ -18,12 +18,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                     route_prefix: "gpt-5.6-sol-chatgpt",
                     upstream_target: "chatgpt-gpt-5-6-sol",
                     surface: PublicModelSurface::ResponsesNativeWithChatBridge,
-                },
-                ProviderRouteRegistration {
-                    route_prefix: "gpt-5.6-sol-openai",
-                    upstream_target: "openai-main",
-                    surface: PublicModelSurface::DualProtocolWithBridges,
-                },
+                }
             ],
         },
         PublicModelRegistration {
@@ -78,7 +73,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
         },
         PublicModelRegistration {
             public_name: "deepseek-v4-pro",
-            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
@@ -169,6 +164,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[ProviderRouteRegistration {
                 route_prefix: "grok-4-6-openrouter",
                 upstream_target: "openrouter-grok-4-6",
+                surface: PublicModelSurface::DualProtocolNativeOnly,
+            }],
+        },
+        PublicModelRegistration {
+            public_name: "muse-spark-1.2-contributor",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                route_prefix: "muse-spark-1-2-contributor-openrouter",
+                upstream_target: "openrouter-muse-spark-1-2-contributor",
                 surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },

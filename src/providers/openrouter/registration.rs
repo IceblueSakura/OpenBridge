@@ -7,7 +7,7 @@ use crate::{
         ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
         StructuredOutputProfile,
     },
-    models::{deepseek, google, minimax, xai},
+    models::{deepseek, google, meta, minimax, xai},
     provider::ProviderKind,
     registry::{
         CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
@@ -57,6 +57,11 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "google/gemini-3.7-flash",
         ),
         dual_protocol_target("openrouter-grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
+        dual_protocol_target(
+            "openrouter-muse-spark-1-2-contributor",
+            meta::muse_spark_1_2_contributor::ID,
+            "meta/muse-spark-1.2-contributor",
+        ),
     ]
 }
 
