@@ -8,36 +8,35 @@
 
 | Public Model | Canonical Model | Provider | Target ID |
 |---|---|---|---|
-| `gpt-5.6-sol` | `chatgpt/gpt-5.6-sol` | ChatGPT | `chatgpt-gpt-5-6-sol` |
-| `gpt-5.6-sol` | `openai/gpt-5.6-sol` | OpenAI | `openai-main` |
-| `gpt-5.3-codex-spark` | `chatgpt/gpt-5.3-codex-spark` | ChatGPT | `chatgpt-gpt-5-3-codex-spark` |
-| `gpt-5.5` | `chatgpt/gpt-5.5` | ChatGPT | `chatgpt-gpt-5-5` |
-| `gpt-5.6-luna` | `chatgpt/gpt-5.6-luna` | ChatGPT | `chatgpt-gpt-5-6-luna` |
-| `gpt-5.6-terra` | `chatgpt/gpt-5.6-terra` | ChatGPT | `chatgpt-gpt-5-6-terra` |
+| `gpt-5.6-sol` | `chatgpt/gpt-5.6-sol` | ChatGPT | `chatgpt/gpt-5-6-sol` |
+| `gpt-5.6-terra` | `chatgpt/gpt-5.6-terra` | ChatGPT | `chatgpt/gpt-5-6-terra` |
+| `gpt-5.6-luna` | `chatgpt/gpt-5.6-luna` | ChatGPT | `chatgpt/gpt-5-6-luna` |
+| `gpt-5.5` | `chatgpt/gpt-5.5` | ChatGPT | `chatgpt/gpt-5-5` |
+| `gpt-5.3-codex-spark` | `chatgpt/gpt-5.3-codex-spark` | ChatGPT | `chatgpt/gpt-5-3-codex-spark` |
 | `LongCat-2.0` | `meituan/longcat-2.0` | LongCat | `longcat-2` |
+| `deepseek-v4-pro` | `deepseek/deepseek-v4-pro` | Alibaba Cloud Model Studio | `bailian/deepseek-v4-pro` |
 | `deepseek-v4-pro` | `deepseek/deepseek-v4-pro` | DeepSeek | `deepseek-v4-pro` |
-| `deepseek-v4-pro` | `deepseek/deepseek-v4-pro` | Alibaba Cloud Model Studio | `bailian-deepseek-v4-pro` |
+| `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | Alibaba Cloud Model Studio | `bailian/deepseek-v4-flash` |
 | `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | DeepSeek | `deepseek-v4-flash` |
-| `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | Alibaba Cloud Model Studio | `bailian-deepseek-v4-flash` |
-| `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | OpenRouter | `openrouter-deepseek-v4-flash` |
+| `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` | OpenRouter | `openrouter/deepseek-v4-flash` |
 | `deepseek-v4-flash-vision-exp` | `deepseek/deepseek-v4-flash-vision-exp` | DeepSeek | `deepseek-v4-flash-vision-exp` |
-| `minimax-m3` | `minimax/minimax-m3` | OpenRouter | `openrouter-minimax-m3` |
-| `minimax-m3` | `minimax/minimax-m3` | NVIDIA | `nvidia-minimax-m3` |
-| `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter-gemma-4-31b-it` |
-| `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter-gemini-3-7-flash` |
-| `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter-grok-4-6` |
+| `minimax-m3` | `minimax/minimax-m3` | NVIDIA | `nvidia/minimax-m3` |
+| `minimax-m3` | `minimax/minimax-m3` | OpenRouter | `openrouter/minimax-m3` |
+| `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter/gemma-4-31b-it` |
+| `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter/gemini-3-7-flash` |
+| `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter/grok-4-6` |
 | `muse-spark-1.2-contributor` | `meta/muse-spark-1.2-contributor` | OpenRouter | `openrouter/muse-spark-1.2-contributor` |
-| `glm-5.3` | `z-ai/glm-5.3` | Zhipu AI China | `zhipu-cn-glm-5-3` |
-| `glm-5.3-flash` | `z-ai/glm-5.3-flash` | Zhipu AI China | `zhipu-cn-glm-5-3-flash` |
+| `glm-5.3` | `z-ai/glm-5.3` | Zhipu AI China | `zhipu-cn/glm-5-3` |
+| `glm-5.3-flash` | `z-ai/glm-5.3-flash` | Zhipu AI China | `zhipu-cn/glm-5-3-flash` |
 | `glm-5.3-flash` | `z-ai/glm-5.3-flash` | OpenRouter | `openrouter/glm-5.3-flash` |
-| `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian-kimi-k3` |
+| `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian/glm-5-2` |
+| `glm-5.2` | `z-ai/glm-5.2` | Zhipu AI China | `zhipu-cn/glm-5-2` |
+| `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian/kimi-k3` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
-| `glm-5.2` | `z-ai/glm-5.2` | Zhipu AI China | `zhipu-cn-glm-5-2` |
-| `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian-glm-5-2` |
-| `qwen3.7-plus` | `qwen/qwen3.7-plus` | Alibaba Cloud Model Studio | `bailian-qwen3-7-plus` |
-| `qwen3.7-max` | `qwen/qwen3.7-max` | Alibaba Cloud Model Studio | `bailian-qwen3-7-max` |
-| `qwen3.8-max` | `qwen/qwen3.8-max` | Alibaba Cloud Model Studio | `bailian-qwen3-8-max` |
-| `qwen3.8-27b` | `qwen/qwen3.8-27b` | Alibaba Cloud Model Studio | `bailian-qwen3-8-27b` |
+| `qwen3.7-plus` | `qwen/qwen3.7-plus` | Alibaba Cloud Model Studio | `bailian/qwen3-7-plus` |
+| `qwen3.7-max` | `qwen/qwen3.7-max` | Alibaba Cloud Model Studio | `bailian/qwen3-7-max` |
+| `qwen3.8-max` | `qwen/qwen3.8-max` | Alibaba Cloud Model Studio | `bailian/qwen3-8-max` |
+| `qwen3.8-27b` | `qwen/qwen3.8-27b` | Alibaba Cloud Model Studio | `bailian/qwen3-8-27b` |
 | `mimo-v2.5-pro` | `xiaomi/mimo-v2.5-pro` | Xiaomi MiMo | `mimo-v2-5-pro` |
 | `mimo-v2.5` | `xiaomi/mimo-v2.5` | Xiaomi MiMo | `mimo-v2-5` |
 | `mimo-v2.5-asr` | `xiaomi/mimo-v2.5-asr` | Xiaomi MiMo | `mimo-v2-5-asr` |
@@ -45,10 +44,10 @@
 | `mimo-v2.5-tts-voicedesign` | `xiaomi/mimo-v2.5-tts-voicedesign` | Xiaomi MiMo | `mimo-v2-5-tts-voicedesign` |
 | `mimo-v2.5-tts-voiceclone` | `xiaomi/mimo-v2.5-tts-voiceclone` | Xiaomi MiMo | `mimo-v2-5-tts-voiceclone` |
 | `text-embedding-3-small` | `openai/text-embedding-3-small` | OpenAI | `openai-text-embedding-3-small` |
-| `qwen3.7-text-embedding` | `qwen/qwen3.7-text-embedding` | Alibaba Cloud Model Studio | `bailian-qwen3-7-text-embedding` |
+| `qwen3.7-text-embedding` | `qwen/qwen3.7-text-embedding` | Alibaba Cloud Model Studio | `bailian/qwen3-7-text-embedding` |
 | `nemotron-3-embed-1b` | `nvidia/nemotron-3-embed-1b` | NVIDIA | `nvidia-nemotron-3-embed-1b` |
-| `qwen-image-3.0` | `qwen/qwen-image-3.0` | Alibaba Cloud Model Studio | `bailian-qwen-image-3-0` |
-| `qwen-image-3.0-pro` | `qwen/qwen-image-3.0-pro` | Alibaba Cloud Model Studio | `bailian-qwen-image-3-0-pro` |
+| `qwen-image-3.0` | `qwen/qwen-image-3.0` | Alibaba Cloud Model Studio | `bailian/qwen-image-3-0` |
+| `qwen-image-3.0-pro` | `qwen/qwen-image-3.0-pro` | Alibaba Cloud Model Studio | `bailian/qwen-image-3-0-pro` |
 
 ## 已注册 Target、未发布 Public Model
 
@@ -56,6 +55,7 @@
 
 | Canonical Model | Provider | Target ID |
 |---|---|---|
+| `openai/gpt-5.6-sol` | OpenAI | `openai-main` |
 | `openai/gpt-5.5` | OpenAI | `openai-gpt-5-5` |
 | `openai/gpt-5.6-luna` | OpenAI | `openai-gpt-5-6-luna` |
 | `openai/gpt-5.6-terra` | OpenAI | `openai-gpt-5-6-terra` |

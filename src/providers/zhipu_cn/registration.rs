@@ -30,10 +30,10 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 /// Builds the fixed GLM-5.3, GLM-5.2, and GLM-5.3-Flash Chat targets for Zhipu China.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
-        chat_target("zhipu-cn-glm-5-3", z_ai::glm_5_3::ID, "glm-5.3"),
-        chat_target("zhipu-cn-glm-5-2", z_ai::glm_5_2::ID, "glm-5.2"),
+        chat_target("zhipu-cn/glm-5-3", z_ai::glm_5_3::ID, "glm-5.3"),
+        chat_target("zhipu-cn/glm-5-2", z_ai::glm_5_2::ID, "glm-5.2"),
         chat_target(
-            "zhipu-cn-glm-5-3-flash",
+            "zhipu-cn/glm-5-3-flash",
             z_ai::glm_5_3_flash::ID,
             "glm-5.3-flash",
         ),

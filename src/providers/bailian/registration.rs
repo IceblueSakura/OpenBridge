@@ -50,61 +50,61 @@ pub(crate) fn native_provider_instance() -> ProviderInstanceConfig {
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target(
-            "bailian-glm-5-2",
+            "bailian/glm-5-2",
             z_ai::glm_5_2::ID,
             "glm-5.2",
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian-qwen3-7-plus",
+            "bailian/qwen3-7-plus",
             qwen::qwen3_7_plus::ID,
             "qwen3.7-plus",
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian-qwen3-7-max",
+            "bailian/qwen3-7-max",
             qwen::qwen3_7_max::ID,
             "qwen3.7-max",
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian-qwen3-8-max",
+            "bailian/qwen3-8-max",
             qwen::qwen3_8_max::ID,
             "qwen3.8-max",
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian-qwen3-8-27b",
+            "bailian/qwen3-8-27b",
             qwen::qwen3_8_27b::ID,
             "qwen3.8-27b",
             ReasoningOutput::PlainText,
         ),
         // Keep Kimi Chat-only: the 2026-08-24 probe rejected its native Responses operation.
         chat_target(
-            "bailian-kimi-k3",
+            "bailian/kimi-k3",
             moonshotai::kimi_k3::ID,
             "kimi-k3",
             ReasoningOutput::PlainText,
         ),
         image_target(
-            "bailian-qwen-image-3-0",
+            "bailian/qwen-image-3-0",
             qwen::qwen_image_3_0::ID,
             "qwen-image-3.0",
         ),
         image_target(
-            "bailian-qwen-image-3-0-pro",
+            "bailian/qwen-image-3-0-pro",
             qwen::qwen_image_3_0_pro::ID,
             "qwen-image-3.0-pro",
         ),
         embedding_target(),
         chat_target(
-            "bailian-deepseek-v4-pro",
+            "bailian/deepseek-v4-pro",
             deepseek::deepseek_v4_pro::ID,
             "deepseek-v4-pro-0813",
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian-deepseek-v4-flash",
+            "bailian/deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek-v4-flash-0731",
             ReasoningOutput::PlainText,
@@ -115,7 +115,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
 /// Binds Qwen3.7 Text Embedding to Model Studio's trusted Embeddings endpoint.
 fn embedding_target() -> UpstreamTargetConfig {
     UpstreamTargetConfig {
-        id: "bailian-qwen3-7-text-embedding".to_owned(),
+        id: "bailian/qwen3-7-text-embedding".to_owned(),
         provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
         canonical_model: qwen::qwen3_7_text_embedding::ID.to_owned(),
         provider_model: ProviderKind::Bailian.routing_model_id(qwen::qwen3_7_text_embedding::ID),

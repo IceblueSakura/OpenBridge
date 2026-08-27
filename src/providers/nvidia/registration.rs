@@ -29,7 +29,7 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target(
-            "nvidia-minimax-m3",
+            "nvidia/minimax-m3",
             minimax::minimax_m3::ID,
             "minimaxai/minimax-m3",
         ),

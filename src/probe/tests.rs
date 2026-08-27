@@ -728,11 +728,11 @@ async fn candidate_model_can_probe_an_unregistered_protocol_within_generation() 
         StatusCode::OK,
         json!({"object": "response", "output": []}).to_string(),
     );
-    let credentials = credentials_for_target(&registry, "bailian-deepseek-v4-flash");
+    let credentials = credentials_for_target(&registry, "bailian/deepseek-v4-flash");
 
     let report = probe_upstream_target(
         &registry,
-        "bailian-deepseek-v4-flash",
+        "bailian/deepseek-v4-flash",
         &transport,
         &credentials,
         ProbeOptions {
@@ -768,7 +768,7 @@ async fn chatgpt_probe_uses_oauth2_lease_for_model_manifest() {
     // Run only the fixed model-list observation through the ChatGPT OAuth2 probe boundary.
     let report = probe_upstream_target_with_oauth2(
         &registry,
-        "chatgpt-gpt-5-6-sol",
+        "chatgpt/gpt-5-6-sol",
         &transport,
         &oauth2_credentials,
         ProbeOptions {
@@ -816,7 +816,7 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     // Keep the known unbounded backend at zero egress until the risk is explicitly selected.
     let bounded = probe_upstream_target_with_oauth2(
         &registry,
-        "chatgpt-gpt-5-6-sol",
+        "chatgpt/gpt-5-6-sol",
         &transport,
         &oauth2_credentials,
         ProbeOptions {
@@ -841,7 +841,7 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     // Observe only the registered streaming Responses API through the selected OAuth2 lease.
     let report = probe_upstream_target_with_oauth2(
         &registry,
-        "chatgpt-gpt-5-6-sol",
+        "chatgpt/gpt-5-6-sol",
         &transport,
         &oauth2_credentials,
         ProbeOptions {
@@ -973,7 +973,7 @@ async fn probe_rejects_disabled_target_before_credentials_or_egress() {
     let target = definition
         .upstream_targets
         .iter_mut()
-        .find(|target| target.id == "chatgpt-gpt-5-6-sol")
+        .find(|target| target.id == "chatgpt/gpt-5-6-sol")
         .unwrap();
     target.enabled = false;
     definition
@@ -986,7 +986,7 @@ async fn probe_rejects_disabled_target_before_credentials_or_egress() {
     // Reject the target through the generic enabled boundary before credential lookup or egress.
     let error = probe_upstream_target(
         &registry,
-        "chatgpt-gpt-5-6-sol",
+        "chatgpt/gpt-5-6-sol",
         &transport,
         &credentials,
         ProbeOptions {
@@ -999,7 +999,7 @@ async fn probe_rejects_disabled_target_before_credentials_or_egress() {
 
     assert_eq!(
         error.to_string(),
-        "configured upstream target 'chatgpt-gpt-5-6-sol' is disabled"
+        "configured upstream target 'chatgpt/gpt-5-6-sol' is disabled"
     );
     assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
 }

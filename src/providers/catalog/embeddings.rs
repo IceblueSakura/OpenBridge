@@ -17,7 +17,7 @@ pub(super) fn compiled_registrations() -> Vec<PublicModelConfig> {
             "OpenAI text embedding model with a fixed Native execution path.",
         ),
         compiled_registration(
-            "bailian-qwen3-7-text-embedding",
+            "bailian/qwen3-7-text-embedding",
             "qwen3.7-text-embedding",
             "Qwen3.7 text embedding model with a fixed Native execution path.",
         ),

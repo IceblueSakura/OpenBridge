@@ -37,26 +37,26 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         dual_protocol_target(
-            "openrouter-deepseek-v4-flash",
+            "openrouter/deepseek-v4-flash",
             deepseek::deepseek_v4_flash::ID,
             "deepseek/deepseek-v4-flash",
         ),
         dual_protocol_target(
-            "openrouter-minimax-m3",
+            "openrouter/minimax-m3",
             minimax::minimax_m3::ID,
             "minimax/minimax-m3",
         ),
         dual_protocol_target(
-            "openrouter-gemma-4-31b-it",
+            "openrouter/gemma-4-31b-it",
             google::gemma_4_31b_it::ID,
             "google/gemma-4-31b-it:free",
         ),
         dual_protocol_target(
-            "openrouter-gemini-3-7-flash",
+            "openrouter/gemini-3-7-flash",
             google::gemini_3_7_flash::ID,
             "google/gemini-3.7-flash",
         ),
-        dual_protocol_target("openrouter-grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
+        dual_protocol_target("openrouter/grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
         dual_protocol_target(
             "openrouter/muse-spark-1.2-contributor",
             meta::muse_spark_1_2_contributor::ID,

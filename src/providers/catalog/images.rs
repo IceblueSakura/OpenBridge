@@ -13,12 +13,12 @@ use crate::{
 pub(super) fn compiled_registrations() -> Vec<PublicModelConfig> {
     vec![
         compiled_registration(
-            "bailian-qwen-image-3-0",
+            "bailian/qwen-image-3-0",
             "qwen-image-3.0",
             "Qwen Image 3.0 image generation model with a fixed Native execution path.",
         ),
         compiled_registration(
-            "bailian-qwen-image-3-0-pro",
+            "bailian/qwen-image-3-0-pro",
             "qwen-image-3.0-pro",
             "Qwen Image 3.0 Pro image generation and editing model with a fixed Native execution path.",
         ),
