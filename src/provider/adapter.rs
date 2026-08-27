@@ -157,6 +157,31 @@ impl ProviderAdapter {
         Ok(headers)
     }
 
+    /// Assembles one routed operation's trusted headers before appending authentication material.
+    pub(crate) fn build_routed_outbound_headers(
+        &self,
+        credential: &UpstreamCredential<'_>,
+        downstream_headers: &HeaderMap,
+        operation: crate::core::OperationKind,
+        upstream_model: &str,
+    ) -> Result<HeaderMap, AdapterError> {
+        // Apply ordinary, fixed Provider, then trusted routed policy in override order.
+        let mut safe_headers = self.prepare_headers()?;
+        self.apply_request_header_hook(downstream_headers, &mut safe_headers)?;
+        self.apply_configured_request_headers(&mut safe_headers)?;
+        self.openai_compatible().apply_routed_request_header_hook(
+            operation,
+            upstream_model,
+            &mut safe_headers,
+        )?;
+        let mut headers = safe_headers.into_inner();
+
+        // Authentication remains the final, sensitive egress mutation.
+        self.prepare_auth_headers(credential)?
+            .append_to(&mut headers)?;
+        Ok(headers)
+    }
+
     /// Runs the Provider's trusted request-header hook.
     ///
     /// The hook may add, replace, transform, or remove ordinary headers; `SafeHeaders` still
@@ -348,6 +373,55 @@ mod tests {
             headers.expose(AUTHORIZATION),
             Some("Bearer credential-test-value")
         );
+    }
+
+    #[test]
+    fn bailian_routed_headers_apply_waiting_and_model_scoped_responses_cache() {
+        let adapter = ProviderAdapter::for_kind(ProviderKind::Bailian);
+        let mut credentials = crate::credential::CredentialStoreBuilder::new();
+        credentials
+            .insert_upstream_member(
+                ProviderKind::Bailian,
+                "pool",
+                "pool#1",
+                SecretString::from("credential-test-value".to_owned()),
+                crate::credential::CredentialMetadata::upstream(
+                    crate::provider::CredentialKind::ApiKey,
+                    crate::credential::CredentialSource::Programmatic,
+                ),
+            )
+            .unwrap();
+        let credentials = credentials.build();
+        let credential = credentials
+            .upstream_pool(
+                ProviderKind::Bailian,
+                "pool",
+                crate::provider::CredentialKind::ApiKey,
+            )
+            .unwrap()
+            .remove(0);
+
+        let responses = adapter
+            .build_routed_outbound_headers(
+                &credential,
+                &HeaderMap::new(),
+                OperationKind::Responses,
+                "qwen3.8-max",
+            )
+            .unwrap();
+        assert_eq!(responses["x-dashscope-wait-timeout"], "30");
+        assert_eq!(responses["x-dashscope-session-cache"], "enable");
+
+        let unsupported = adapter
+            .build_routed_outbound_headers(
+                &credential,
+                &HeaderMap::new(),
+                OperationKind::Responses,
+                "qwen3.8-27b",
+            )
+            .unwrap();
+        assert_eq!(unsupported["x-dashscope-wait-timeout"], "30");
+        assert!(!unsupported.contains_key("x-dashscope-session-cache"));
     }
 
     #[test]

@@ -1,14 +1,14 @@
 //! Static Alibaba Cloud Model Studio contract for OpenAI-compatible Chat/Responses/Embeddings and
 //! DashScope-native Images.
 
-use http::HeaderMap;
+use http::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
     core::{
         ALL_TOOL_CHOICE_MODES, DashScopeImagesCapabilities, DashScopePromptExtendMode,
         EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
         FunctionToolCapabilities, ImagesGenerationsCapabilities, ImagesResponseFormat,
-        ImagesSizeDomain, JsonSchemaSupport, ProviderChatCompletionsCapabilities,
+        ImagesSizeDomain, JsonSchemaSupport, OperationKind, ProviderChatCompletionsCapabilities,
         ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
         StructuredOutputProfile, ToolChoiceMode,
     },
@@ -144,6 +144,7 @@ const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models",
     transform_request_headers,
 )
+.with_routed_request_header_hook(transform_routed_request_headers)
 .with_request_body_hook(transform_request_body)
 .with_images_request_body_hook(transform_images_request_body);
 
@@ -159,6 +160,37 @@ fn transform_request_headers(
     _downstream: &HeaderMap,
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Applies fixed Model Studio queueing and model-scoped Responses session-cache policy.
+///
+/// Sources reverified on 2026-08-27:
+/// <https://help.aliyun.com/zh/model-studio/rate-limiting-best-practices> and
+/// <https://help.aliyun.com/zh/model-studio/use-context-cache>.
+fn transform_routed_request_headers(
+    operation: OperationKind,
+    upstream_model: &str,
+    upstream: &mut SafeHeaders,
+) -> Result<(), AdapterError> {
+    // Queue burst-limited requests for at most 30 seconds before returning a Provider 429.
+    upstream.insert(
+        HeaderName::from_static("x-dashscope-wait-timeout"),
+        HeaderValue::from_static("30"),
+    )?;
+
+    // Enable automatic Responses cache only for models explicitly listed by Model Studio.
+    if operation == OperationKind::Responses
+        && matches!(
+            upstream_model,
+            "qwen3.8-max" | "qwen3.7-max" | "qwen3.7-plus"
+        )
+    {
+        upstream.insert(
+            HeaderName::from_static("x-dashscope-session-cache"),
+            HeaderValue::from_static("enable"),
+        )?;
+    }
     Ok(())
 }
 
@@ -296,4 +328,40 @@ fn transform_request_body(
         document.insert("enable_thinking".to_owned(), serde_json::Value::Bool(false));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use http::HeaderName;
+
+    use super::*;
+    use crate::core::OperationKind;
+
+    const WAIT_HEADER: HeaderName = HeaderName::from_static("x-dashscope-wait-timeout");
+    const CACHE_HEADER: HeaderName = HeaderName::from_static("x-dashscope-session-cache");
+
+    #[test]
+    fn routed_headers_enable_waiting_and_scope_responses_cache_to_supported_models() {
+        // Apply server-side burst waiting to every routed Bailian operation.
+        let mut chat = SafeHeaders::default();
+        transform_routed_request_headers(OperationKind::ChatCompletions, "qwen3.8-max", &mut chat)
+            .unwrap();
+        assert_eq!(chat.get(WAIT_HEADER).unwrap(), "30");
+        assert!(chat.get(CACHE_HEADER).is_none());
+
+        // Enable session cache only for the officially listed Responses models.
+        for model in ["qwen3.8-max", "qwen3.7-max", "qwen3.7-plus"] {
+            let mut responses = SafeHeaders::default();
+            transform_routed_request_headers(OperationKind::Responses, model, &mut responses)
+                .unwrap();
+            assert_eq!(responses.get(WAIT_HEADER).unwrap(), "30");
+            assert_eq!(responses.get(CACHE_HEADER).unwrap(), "enable");
+        }
+
+        let mut unsupported = SafeHeaders::default();
+        transform_routed_request_headers(OperationKind::Responses, "qwen3.8-27b", &mut unsupported)
+            .unwrap();
+        assert_eq!(unsupported.get(WAIT_HEADER).unwrap(), "30");
+        assert!(unsupported.get(CACHE_HEADER).is_none());
+    }
 }

@@ -43,6 +43,8 @@
 
 - 没有动态 capability negotiation、request-selected Route 或运行时 capability routing。
 - `prompt_cache_key` 是 accepted best-effort hint，可能按 candidate 删除；cache hit、成本、延迟、active retention、options 和 breakpoint 未实现或未证明。
+- Bailian Responses Session cache 只表示固定 header 已进入受信 egress；cache hit、节省成本、TTL、Provider 保留策略、突发排队命中率
+  及其在真实 429 下的延迟改善均未验证。
 - serial-only Provider 的 `parallel_tool_calls:false` 安全省略合同尚未注册；当前 active true/false 都只在固定 interface 已证明可控制并行调用时接受。
 - Models/Target catalog 不能证明 credential 可用、网络可达、配额、账号 entitlement 或模型质量。
 

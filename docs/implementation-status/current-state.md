@@ -71,7 +71,10 @@ Agent runtime、负载或长期运行验证。
 ## 5. Retry、fallback、cooldown 与取消
 
 - 首个下游业务输出前按固定 candidate 顺序执行有界 retry/fallback；请求不能创建、筛选或重排 Route。
-- 429 可在同一 credential pool 轮换有序 member；member/generation cooldown 与 target fault-domain cooldown 在单进程内共享。
+- `429` 可在同一 credential pool 轮换有序 member；member/generation cooldown 与 target fault-domain cooldown 在单进程内共享。
+- Bailian routed requests 固定请求最多 30 秒服务端 burst 排队；对应 Generation/Embeddings Target timeout 为 150 秒。
+  `qwen3.8-max`、`qwen3.7-max`、`qwen3.7-plus` Native Responses 另固定启用 Provider Session cache，
+  其他 Bailian operation/model 不携带该 cache header。
 - candidate retry 耗尽后只沿同一 Public Model 的注册 Route fallback；首个业务 body byte 提交后不得切换或拼接响应。
 - 下游取消终止 send、backoff、response body 和后续 attempt；timeout、terminal、EOF-before-terminal、body error 与 cancel 各收口一次。
 - Embeddings 复用 attempt/cancel 边界；Images 使用单 candidate、单 credential、单 physical attempt，不调用 recovery API。

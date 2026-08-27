@@ -198,14 +198,19 @@ impl GenerationProviderAdapter {
         )
     }
 
-    /// Assembles shared Provider headers and authentication for this operation.
+    /// Assembles trusted routed headers and authentication for this operation.
     pub(crate) fn build_outbound_headers(
         self,
         credential: &UpstreamCredential<'_>,
         downstream_headers: &HeaderMap,
+        upstream_api: &UpstreamApi,
     ) -> Result<HeaderMap, AdapterError> {
-        self.provider
-            .build_outbound_headers(credential, downstream_headers)
+        self.provider.build_routed_outbound_headers(
+            credential,
+            downstream_headers,
+            self.protocol.operation(),
+            upstream_api.upstream_model(),
+        )
     }
 
     /// Maps an upstream status through the shared Provider policy.
@@ -278,14 +283,19 @@ impl EmbeddingsProviderAdapter {
             .prepare_routed_embeddings_request(self.path, request, upstream_api)
     }
 
-    /// Assembles shared Provider headers and authentication for this operation.
+    /// Assembles trusted routed headers and authentication for this operation.
     pub(crate) fn build_outbound_headers(
         self,
         credential: &UpstreamCredential<'_>,
         downstream_headers: &HeaderMap,
+        upstream_api: &UpstreamApi,
     ) -> Result<HeaderMap, AdapterError> {
-        self.provider
-            .build_outbound_headers(credential, downstream_headers)
+        self.provider.build_routed_outbound_headers(
+            credential,
+            downstream_headers,
+            OperationKind::EmbeddingsCreate,
+            upstream_api.upstream_model(),
+        )
     }
 
     /// Maps an upstream status through the shared Provider policy.
@@ -337,14 +347,19 @@ impl ImagesProviderAdapter {
             .prepare_routed_images_request(self.path, request, upstream_api)
     }
 
-    /// Assembles shared Provider headers and authentication for this operation.
+    /// Assembles trusted routed headers and authentication for this operation.
     pub(crate) fn build_outbound_headers(
         self,
         credential: &UpstreamCredential<'_>,
         downstream_headers: &HeaderMap,
+        upstream_api: &UpstreamApi,
     ) -> Result<HeaderMap, AdapterError> {
-        self.provider
-            .build_outbound_headers(credential, downstream_headers)
+        self.provider.build_routed_outbound_headers(
+            credential,
+            downstream_headers,
+            OperationKind::ImagesGenerations,
+            upstream_api.upstream_model(),
+        )
     }
 
     /// Maps an upstream status through the shared Provider policy.

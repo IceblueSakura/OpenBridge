@@ -45,6 +45,8 @@ stream/non-stream 请求只可在尚未向下游提交业务 response 时执行�
 仍属于 attempt-owned precommit 边界：
 
 - `429`、明确的 `5xx`、连接失败或 timeout 可按 adapter 分类进入有限 retry；
+- Provider 可以在一个物理 attempt 内使用编译期固定的服务端排队 header 缓解突发限流；该等待仍受 Target timeout 和下游取消
+  约束，不增加 AttemptCoordinator 计数、不替代 RPM/TPM 配额，也不能由业务请求调整；
 - 所有候选共享请求级硬预算，每个候选有独立局部上限，局部 retry 不能无界挤占尚未尝试的候选；
 - retry、credential rotation 与 fallback 共享同一 capped exponential backoff，等待必须随下游取消；
 - 只有 RoutePlan 允许时才能进入下一条固定候选；本层不重新比较能力或猜测模型等价性；

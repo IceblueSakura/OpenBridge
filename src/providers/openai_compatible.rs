@@ -33,6 +33,9 @@ use crate::{
 
 /// Compile-time Provider hook for transforming ordinary headers according to Provider rules.
 pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(), AdapterError>;
+/// Compile-time Provider hook for one trusted routed operation and upstream model.
+pub(crate) type RoutedRequestHeaderHook =
+    fn(OperationKind, &str, &mut SafeHeaders) -> Result<(), AdapterError>;
 /// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
 pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
@@ -184,6 +187,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     model_list_path: &'static str,
     model_list_parser: ModelListParser,
     request_header_hook: RequestHeaderHook,
+    routed_request_header_hook: RoutedRequestHeaderHook,
     request_body_hook: RequestBodyHook,
     images_request_body_hook: ImagesRequestBodyHook,
     request_headers: ProviderRequestHeaders,
@@ -208,6 +212,7 @@ impl OpenAiCompatibleAdapter {
             model_list_path,
             model_list_parser: parse_openai_model_list_ids,
             request_header_hook,
+            routed_request_header_hook: preserve_routed_request_headers,
             request_body_hook: preserve_request_body,
             images_request_body_hook: convert_images_to_openai_compatible_shape,
             request_headers: ProviderRequestHeaders::new(),
@@ -223,6 +228,15 @@ impl OpenAiCompatibleAdapter {
         request_body_hook: RequestBodyHook,
     ) -> Self {
         self.request_body_hook = request_body_hook;
+        self
+    }
+
+    /// Attaches headers selected only from a trusted routed operation and upstream model.
+    pub(crate) const fn with_routed_request_header_hook(
+        mut self,
+        routed_request_header_hook: RoutedRequestHeaderHook,
+    ) -> Self {
+        self.routed_request_header_hook = routed_request_header_hook;
         self
     }
 
@@ -509,6 +523,16 @@ impl OpenAiCompatibleAdapter {
         (self.request_header_hook)(downstream_headers, headers)
     }
 
+    /// Applies the Provider policy bound to one trusted routed operation and model.
+    pub(crate) fn apply_routed_request_header_hook(
+        self,
+        operation: OperationKind,
+        upstream_model: &str,
+        headers: &mut SafeHeaders,
+    ) -> Result<(), AdapterError> {
+        (self.routed_request_header_hook)(operation, upstream_model, headers)
+    }
+
     /// Applies fixed Provider request headers after the downstream-header hook.
     pub(crate) fn apply_configured_request_headers(
         self,
@@ -657,6 +681,15 @@ fn discard_ignored_generation_parameters(
 fn preserve_request_body(
     _protocol: ApiProtocol,
     _document: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), AdapterError> {
+    Ok(())
+}
+
+/// Keeps routed headers unchanged for Providers without operation/model-specific policy.
+fn preserve_routed_request_headers(
+    _operation: OperationKind,
+    _upstream_model: &str,
+    _headers: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
     Ok(())
 }

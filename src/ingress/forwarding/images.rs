@@ -141,6 +141,7 @@ pub(in crate::ingress) async fn forward_images_request(
     let upstream = send_single_attempt(
         &state,
         target,
+        upstream_api,
         &adapter,
         &credentials,
         &downstream_headers,
@@ -221,6 +222,7 @@ pub(in crate::ingress) async fn forward_images_request(
 async fn send_single_attempt(
     state: &GatewayState,
     target: &UpstreamTarget,
+    upstream_api: &crate::registry::UpstreamApi,
     adapter: &ImagesProviderAdapter,
     credentials: &[crate::credential::UpstreamCredential<'_>],
     downstream_headers: &HeaderMap,
@@ -231,7 +233,7 @@ async fn send_single_attempt(
         .first()
         .expect("Images targets require at least one credential member");
     let headers = adapter
-        .build_outbound_headers(credential, downstream_headers)
+        .build_outbound_headers(credential, downstream_headers, upstream_api)
         .map_err(|_| crate::transport::upstream::TransportError::InvalidTarget)?;
     state.upstream.send(target, request, headers).await
 }

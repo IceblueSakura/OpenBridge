@@ -72,6 +72,8 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 - Upstream API 独立声明一个 operation 的 upstream model、served limit、能力，以及可选的 canonical reasoning level 到安全上游
   wire 值的显式映射；Responses executable profile 以 `Unbound | TargetBound | TargetBoundContinuation` 判别联合拥有状态归属，
   Route 以 Target + typed upstream operation 引用它；
+- Provider 可以根据已选定的 typed operation 与 trusted upstream model 应用编译期固定普通 header；该 policy 必须在认证 header
+  前经 `SafeHeaders` 校验，不能由业务请求、Bootstrap、credential 文件或管理员 probe 选择、覆盖或扩展；
 - 同一 Public Model 可以显式列出多个 Provider route source；相同 canonical Model ID 本身不得触发自动发现、 隐式 Route 注册或
   Provider 聚合；
 - Public Model 必须显式选择 `NativeFirst` 或 `SourceFirst`，并保存由 route source 生成的有序完整 Route；策略的

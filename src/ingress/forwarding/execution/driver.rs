@@ -211,6 +211,7 @@ pub(super) fn select_attempt(
         OperationDriver::Generation {
             plan,
             candidate,
+            upstream_api,
             credential_pool,
             uses_oauth2,
             oauth2_lease,
@@ -288,8 +289,11 @@ pub(super) fn select_attempt(
                         ));
                     }
                 };
-                let headers = match adapter.build_outbound_headers(&credential, downstream_headers)
-                {
+                let headers = match adapter.build_outbound_headers(
+                    &credential,
+                    downstream_headers,
+                    upstream_api,
+                ) {
                     Ok(headers) => headers,
                     Err(_) => {
                         return selection_error(GenerationCandidateOutcome::Response(
@@ -305,8 +309,11 @@ pub(super) fn select_attempt(
                 let credential = static_credentials
                     .as_ref()
                     .expect("API-key target must retain static credentials")[member_index];
-                let headers = match adapter.build_outbound_headers(&credential, downstream_headers)
-                {
+                let headers = match adapter.build_outbound_headers(
+                    &credential,
+                    downstream_headers,
+                    upstream_api,
+                ) {
                     Ok(headers) => headers,
                     Err(_) => {
                         return selection_error(GenerationCandidateOutcome::Response(
@@ -326,6 +333,7 @@ pub(super) fn select_attempt(
             })
         }
         OperationDriver::Embeddings {
+            upstream_api,
             credential_pool,
             credentials,
             adapter,
@@ -365,7 +373,11 @@ pub(super) fn select_attempt(
             };
             *current_member = Some(member_index);
             let credential = &credentials[member_index];
-            let headers = match adapter.build_outbound_headers(credential, downstream_headers) {
+            let headers = match adapter.build_outbound_headers(
+                credential,
+                downstream_headers,
+                upstream_api,
+            ) {
                 Ok(headers) => headers,
                 Err(_) => {
                     return selection_error(GenerationCandidateOutcome::Response(
