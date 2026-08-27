@@ -14,6 +14,7 @@ pub mod mimo;
 pub mod nvidia;
 pub mod openai;
 pub mod openrouter;
+pub mod zhipu_cn;
 
 pub use catalog::{
     REGISTRY_VERSION, build_compiled_registry, build_compiled_registry_with_active_pools,

@@ -160,13 +160,28 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
-            public_name: "glm-5.3-flash",
+            public_name: "glm-5.3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
-                upstream_target: "openrouter/glm-5.3-flash",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
+                upstream_target: "zhipu-cn-glm-5-3",
+                surface: PublicModelSurface::ChatNativeOnly,
             }],
+        },
+        PublicModelRegistration {
+            public_name: "glm-5.3-flash",
+            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[
+                ProviderRouteRegistration {
+                    upstream_target: "zhipu-cn-glm-5-3-flash",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    upstream_target: "openrouter/glm-5.3-flash",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "kimi-k3",
@@ -187,10 +202,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             public_name: "glm-5.2",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "bailian-glm-5-2",
-                surface: PublicModelSurface::ChatNativeOnly,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    upstream_target: "zhipu-cn-glm-5-2",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    upstream_target: "bailian-glm-5-2",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "qwen3.7-plus",

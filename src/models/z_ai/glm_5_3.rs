@@ -1,6 +1,7 @@
 //! Complete canonical model facts for GLM-5.3 (`z-ai/glm-5.3`).
 //!
-//! Facts follow the OpenRouter model and endpoint records reverified on 2026-08-24.
+//! Facts follow the official model page reverified on 2026-08-27:
+//! <https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3>.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,

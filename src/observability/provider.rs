@@ -115,6 +115,7 @@ fn provider_name(provider: ProviderKind) -> &'static str {
         ProviderKind::Nvidia => "nvidia",
         ProviderKind::Bailian => "bailian",
         ProviderKind::KimiCn => "kimi-cn",
+        ProviderKind::ZhipuCn => "zhipu-cn",
     }
 }
 
@@ -129,6 +130,7 @@ fn gen_ai_provider_name(provider: ProviderKind) -> &'static str {
         ProviderKind::Nvidia => "nvidia",
         ProviderKind::Bailian => "bailian",
         ProviderKind::KimiCn => "kimi-cn",
+        ProviderKind::ZhipuCn => "zhipu-cn",
     }
 }
 

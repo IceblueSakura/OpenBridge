@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn glm_5_3_flash_exposes_native_chat_and_responses() {
+    fn glm_5_3_flash_keeps_responses_native_with_two_native_chat_candidates() {
         let models = compile_generation_routing(generation_registrations());
         let glm = models
             .iter()
@@ -246,6 +246,10 @@ mod tests {
         assert_eq!(
             operations,
             [
+                (
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
                 (
                     OperationKind::ChatCompletions,
                     OperationKind::ChatCompletions,

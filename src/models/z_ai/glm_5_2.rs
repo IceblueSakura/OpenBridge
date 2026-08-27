@@ -1,4 +1,7 @@
 //! Complete canonical model facts for GLM-5.2 (`z-ai/glm-5.2`).
+//!
+//! Facts follow the official model page reverified on 2026-08-27:
+//! <https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2>.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,

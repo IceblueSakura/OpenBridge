@@ -1327,7 +1327,8 @@ fn add_responses_fallback(
         | ProviderKind::OpenRouter
         | ProviderKind::Nvidia
         | ProviderKind::Bailian
-        | ProviderKind::KimiCn => {
+        | ProviderKind::KimiCn
+        | ProviderKind::ZhipuCn => {
             panic!("test fallback helper only accepts connected providers")
         }
     };

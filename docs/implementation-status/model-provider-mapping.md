@@ -27,9 +27,12 @@
 | `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter-gemini-3-7-flash` |
 | `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter-grok-4-6` |
 | `muse-spark-1.2-contributor` | `meta/muse-spark-1.2-contributor` | OpenRouter | `openrouter/muse-spark-1.2-contributor` |
+| `glm-5.3` | `z-ai/glm-5.3` | Zhipu AI China | `zhipu-cn-glm-5-3` |
+| `glm-5.3-flash` | `z-ai/glm-5.3-flash` | Zhipu AI China | `zhipu-cn-glm-5-3-flash` |
 | `glm-5.3-flash` | `z-ai/glm-5.3-flash` | OpenRouter | `openrouter/glm-5.3-flash` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Alibaba Cloud Model Studio | `bailian-kimi-k3` |
 | `kimi-k3` | `moonshotai/kimi-k3` | Kimi CN | `kimi-cn-kimi-k3` |
+| `glm-5.2` | `z-ai/glm-5.2` | Zhipu AI China | `zhipu-cn-glm-5-2` |
 | `glm-5.2` | `z-ai/glm-5.2` | Alibaba Cloud Model Studio | `bailian-glm-5-2` |
 | `qwen3.7-plus` | `qwen/qwen3.7-plus` | Alibaba Cloud Model Studio | `bailian-qwen3-7-plus` |
 | `qwen3.7-max` | `qwen/qwen3.7-max` | Alibaba Cloud Model Studio | `bailian-qwen3-7-max` |
@@ -65,7 +68,6 @@
 - `qwen/qwen-audio-3.0-realtime-flash`
 - `qwen/qwen-audio-3.0-realtime-plus`
 - `qwen/qwen-audio-3.0-tts-plus`
-- `z-ai/glm-5.3`
 
 ## 维护边界
 

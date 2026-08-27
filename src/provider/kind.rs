@@ -2,7 +2,9 @@
 
 use crate::{
     core::ApiCapabilities,
-    providers::{bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, openrouter},
+    providers::{
+        bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, openrouter, zhipu_cn,
+    },
 };
 
 use super::ProviderDefinition;
@@ -32,6 +34,8 @@ pub enum ProviderKind {
     Bailian,
     /// Moonshot Kimi China OpenAI-compatible Provider.
     KimiCn,
+    /// Zhipu AI China OpenAI-compatible Provider.
+    ZhipuCn,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,6 +105,7 @@ impl ProviderKind {
             Self::Nvidia => "nvidia",
             Self::Bailian => "bailian",
             Self::KimiCn => "kimi-cn",
+            Self::ZhipuCn => "zhipu-cn",
         }
     }
 
@@ -124,6 +129,7 @@ impl ProviderKind {
             Self::Nvidia => &nvidia::DEFINITION,
             Self::Bailian => &bailian::DEFINITION,
             Self::KimiCn => &kimi_cn::DEFINITION,
+            Self::ZhipuCn => &zhipu_cn::DEFINITION,
         }
     }
 
