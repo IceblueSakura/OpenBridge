@@ -5,9 +5,34 @@
 
 use thiserror::Error;
 
+/// Invalid administrative probe selection rejected before credential access or egress.
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum ProbeSelectionError {
+    /// The explicit model ID is empty, padded, oversized, or contains a control character.
+    #[error(
+        "--model must be a non-empty, unpadded upstream model id of at most 256 bytes without control characters"
+    )]
+    InvalidUpstreamModel,
+    /// The model override cannot affect any selected discovery or Generation request.
+    #[error("--model requires --list-models, --chat, or --responses")]
+    UnusedUpstreamModel,
+    /// A Generation protocol was selected without a delivery mode.
+    #[error("at least one Generation delivery mode is required")]
+    MissingGenerationMode,
+    /// A Generation protocol was selected without a reasoning-effort case.
+    #[error("at least one reasoning effort is required")]
+    MissingReasoningEffort,
+    /// One matrix axis contains the same case more than once.
+    #[error("probe matrix selections must not contain duplicates")]
+    DuplicateMatrixCase,
+}
+
 /// Probe preparation failed.
 #[derive(Debug, Error)]
 pub enum ProbeError {
+    /// The caller supplied an invalid model or matrix selection.
+    #[error(transparent)]
+    InvalidSelection(#[from] ProbeSelectionError),
     /// The requested Upstream Target is not registered.
     #[error("configured upstream target '{upstream_target}' does not exist")]
     UnknownUpstreamTarget {

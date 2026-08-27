@@ -26,10 +26,21 @@
 - Provider contract 是 capability ceiling；每个 Target/API 必须显式收窄。Public Model compiler 对全部固定 candidate 保守求交，请求能力不筛选、跳过或重排 candidate。
 - Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`；只在缺失下游协议 Native coverage 时为允许的单协议 source 补充 Bridge。Embeddings、Images 和专用音频 task 使用独立 operation contract。
 - `openbridge-auth login chatgpt` 通过固定 device interaction 或 authorization-code + PKCE 取得完整 bundle，并事务写入 OpenBridge-owned auth file。常驻服务只在 guarded refresh 或首个预提交 401 recovery 中 reload/rotate。
+- `openbridge-probe` 可在显式已启用 Target 的 trusted endpoint/credential 边界内查询 Models，并对注册或 candidate model 执行
+  Chat/Responses × streaming/non-streaming × omitted/标准 reasoning effort 矩阵；逐 case 报告只保留状态、HTTP 与有界协议元数据，
+  candidate model 只能借 Generation Target，streaming 默认携带 16-token output limit，显式 unbounded 开关会进入报告；工具不修改
+  registry，也不接受 endpoint、credential、header、prompt 或任意 JSON 覆盖。Models 报告保留完整 ID 计数和 candidate 可见性，
+  但 ID sample 最多输出 1024 项并标记截断。
 
-主要 owner：`src/config/`、`src/models/`、`src/providers/`、`src/registry/`、`src/oauth2/`。
+主要 owner：`src/config/`、`src/models/`、`src/providers/`、`src/registry/`、`src/oauth2/`、`src/probe.rs`、`src/probe/`、
+`src/bin/openbridge-probe.rs`。
 
-确定性入口：`tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs`、`tests/oauth2_login_cli.rs`。
+确定性入口：`tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs`、
+`tests/oauth2_login_cli.rs`、`src/probe/tests.rs`、`src/bin/openbridge-probe.rs`。
+
+2026-08-27 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、
+`cargo clippy --locked -- -D warnings` 与 `git diff HEAD --check`。这些命令只证明本地静态/确定性边界，不替代真实 Provider、外部 SDK、
+Agent runtime、负载或长期运行验证。
 
 ## 3. Public Model 与请求预检
 

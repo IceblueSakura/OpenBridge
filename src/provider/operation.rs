@@ -181,6 +181,23 @@ impl GenerationProviderAdapter {
         )
     }
 
+    /// Builds one fixed administrative probe without borrowing a registered model's API rules.
+    pub(crate) fn prepare_probe_request(
+        self,
+        request: &ApiRequest,
+        upstream_model: &str,
+        streaming: bool,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        self.require_request_protocol(request)?;
+        self.provider.openai_compatible().prepare_probe_request(
+            self.protocol,
+            self.path,
+            request,
+            upstream_model,
+            streaming,
+        )
+    }
+
     /// Assembles shared Provider headers and authentication for this operation.
     pub(crate) fn build_outbound_headers(
         self,

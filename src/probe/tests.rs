@@ -21,8 +21,7 @@ use secrecy::SecretString;
 use serde_json::{Value, json};
 
 use super::{
-    ProbeError, ProbeOptions, SupportStatus, probe_upstream_target,
-    probe_upstream_target_with_oauth2,
+    ProbeError, ProbeOptions, ProbeStatus, probe_upstream_target, probe_upstream_target_with_oauth2,
 };
 use crate::{
     config::parse_bootstrap_config,
@@ -141,14 +140,64 @@ impl UpstreamTransport for FixtureTransport {
                 .lock()
                 .unwrap()
                 .push(headers[AUTHORIZATION].to_str().unwrap().to_owned());
+            if body.get("stream").and_then(Value::as_bool) == Some(true) {
+                let event_stream = match request.relative_uri().path() {
+                    "/v1/chat/completions" => Some(concat!(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n",
+                        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":2},\"total_tokens\":14}}\n\n",
+                        "data: [DONE]\n\n",
+                    )),
+                    "/v1/responses" => Some(concat!(
+                        "event: response.reasoning_text.done\ndata: {\"type\":\"response.reasoning_text.done\"}\n\n",
+                        "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":4,\"output_tokens_details\":{\"reasoning_tokens\":2},\"total_tokens\":14}}}\n\n",
+                    )),
+                    _ => None,
+                };
+                if let Some(event_stream) = event_stream {
+                    let mut response_headers = HeaderMap::new();
+                    response_headers
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+                    return Ok(UpstreamResponse::new(
+                        StatusCode::OK,
+                        response_headers,
+                        Body::from(event_stream),
+                    ));
+                }
+            }
             let response = match request.relative_uri().path() {
                 "/v1/models" => {
                     json!({"object": "list", "data": [{"id": "test-model"}, {"id": "other-model"}]})
                 }
                 "/v1/chat/completions" => {
-                    json!({"object": "chat.completion", "choices": [{"message": {"role": "assistant", "content": "OK"}}]})
+                    json!({
+                        "object": "chat.completion",
+                        "choices": [{"message": {
+                            "role": "assistant",
+                            "content": "OK",
+                            "reasoning_content": "must-not-enter-report"
+                        }}],
+                        "usage": {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 4,
+                            "completion_tokens_details": {"reasoning_tokens": 2},
+                            "total_tokens": 14
+                        }
+                    })
                 }
-                "/v1/responses" => json!({"object": "response", "output": []}),
+                "/v1/responses" => json!({
+                    "object": "response",
+                    "status": "completed",
+                    "output": [
+                        {"type": "reasoning", "summary": []},
+                        {"type": "message", "content": [{"type": "output_text", "text": "OK"}]}
+                    ],
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 4,
+                        "output_tokens_details": {"reasoning_tokens": 2},
+                        "total_tokens": 14
+                    }
+                }),
                 "/v1/embeddings" => json!({
                     "object": "list",
                     "data": [{"object": "embedding", "embedding": [0.0], "index": 0}],
@@ -334,6 +383,14 @@ impl StaticTransport {
         }
     }
 
+    fn event_stream(body: impl Into<Vec<u8>>) -> Self {
+        let mut transport = Self::response(StatusCode::OK, body);
+        transport
+            .headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+        transport
+    }
+
     fn failure() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -387,20 +444,19 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
 
     let serialized_report = serde_json::to_value(&report).unwrap();
     let list_models = report.list_models.as_ref().unwrap();
-    assert_eq!(list_models.outcome.state, SupportStatus::Supported);
+    assert_eq!(list_models.outcome.state, ProbeStatus::Accepted);
     assert_eq!(list_models.configured_model_listed, Some(true));
     assert_eq!(list_models.model_ids, ["test-model", "other-model"]);
-    assert_eq!(
-        report.chat.as_ref().unwrap().state,
-        SupportStatus::Supported
-    );
-    assert_eq!(
-        report.responses.as_ref().unwrap().state,
-        SupportStatus::Supported
+    assert_eq!(report.generation.len(), 4);
+    assert!(
+        report
+            .generation
+            .iter()
+            .all(|case| case.outcome.state == ProbeStatus::Accepted)
     );
     assert_eq!(
         report.embeddings.as_ref().unwrap().state,
-        SupportStatus::Unsupported
+        ProbeStatus::Unsupported
     );
 
     // Keep the serialized report limited to discovery and basic operation observations.
@@ -462,6 +518,143 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
 }
 
 #[tokio::test]
+async fn model_list_report_caps_ids_without_losing_candidate_correlation() {
+    let registry = registry();
+    let credential_store = credentials(&registry);
+    let mut models = (0..1_025)
+        .map(|index| json!({"id": format!("model-{index}")}))
+        .collect::<Vec<_>>();
+    models.push(json!({"id": "candidate-outside-sample"}));
+    let transport = StaticTransport::response(
+        StatusCode::OK,
+        serde_json::to_vec(&json!({"object": "list", "data": models})).unwrap(),
+    );
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credential_store,
+        ProbeOptions {
+            list_models: true,
+            upstream_model: Some("candidate-outside-sample".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    let models = report.list_models.unwrap();
+
+    assert_eq!(models.model_id_count, Some(1_026));
+    assert_eq!(models.model_ids.len(), 1_024);
+    assert!(models.model_ids_truncated);
+    assert_eq!(models.requested_model_listed, Some(true));
+    assert!(
+        !models
+            .model_ids
+            .contains(&"candidate-outside-sample".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn probe_expands_a_custom_model_generation_matrix() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+
+    // Request two protocols, two delivery modes, and an omitted/high reasoning differential.
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            list_models: true,
+            chat: true,
+            responses: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            generation_modes: vec![
+                super::ProbeGenerationMode::NonStreaming,
+                super::ProbeGenerationMode::Streaming,
+            ],
+            reasoning_efforts: vec![
+                super::ProbeReasoningEffort::Omitted,
+                super::ProbeReasoningEffort::High,
+            ],
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Preserve every observation independently; one rejected case must not hide accepted peers.
+    assert_eq!(report.requested_model.as_deref(), Some("candidate-model"));
+    assert_eq!(report.generation.len(), 8);
+    assert!(report.generation.iter().all(|case| {
+        case.upstream_model.as_deref() == Some("candidate-model")
+            && case.outcome.state == super::ProbeStatus::Accepted
+    }));
+    assert!(report.generation.iter().all(|case| {
+        case.evidence
+            .as_ref()
+            .and_then(|evidence| evidence.usage.as_ref())
+            .is_some_and(|usage| usage.reasoning_tokens == Some(2))
+    }));
+    let model_list = report.list_models.as_ref().unwrap();
+    assert_eq!(model_list.requested_model_listed, Some(false));
+    let serialized_report = serde_json::to_string(&report).unwrap();
+    assert!(!serialized_report.contains("test-key"));
+    assert!(!serialized_report.contains("Reply with exactly OK."));
+    assert!(!serialized_report.contains("must-not-enter-report"));
+    assert!(serialized_report.contains("\"elapsed_ms\":"));
+
+    // Every case must retain the fixed Provider path while overriding only the model field.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 9);
+    assert!(
+        requests
+            .iter()
+            .filter(|(_, path, _)| path != "/v1/models")
+            .all(|(_, path, body)| {
+                matches!(path.as_str(), "/v1/chat/completions" | "/v1/responses")
+                    && body.get("model").and_then(Value::as_str) == Some("candidate-model")
+            })
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(_, _, body)| body.get("stream").and_then(Value::as_bool) == Some(true))
+            .count(),
+        4
+    );
+    assert!(requests.iter().all(|(_, path, body)| {
+        if body.get("stream").and_then(Value::as_bool) != Some(true) {
+            return true;
+        }
+        match path.as_str() {
+            "/v1/chat/completions" => {
+                body.get("max_completion_tokens").and_then(Value::as_u64) == Some(16)
+            }
+            "/v1/responses" => body.get("max_output_tokens").and_then(Value::as_u64) == Some(16),
+            _ => true,
+        }
+    }));
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(_, path, body)| match path.as_str() {
+                "/v1/chat/completions" =>
+                    body.get("reasoning_effort").and_then(Value::as_str) == Some("high"),
+                "/v1/responses" =>
+                    body.pointer("/reasoning/effort").and_then(Value::as_str) == Some("high"),
+                _ => false,
+            })
+            .count(),
+        4
+    );
+}
+
+#[tokio::test]
 async fn probe_smokes_the_registered_embeddings_create_api() {
     let registry = registry();
     let transport = FixtureTransport::default();
@@ -481,7 +674,7 @@ async fn probe_smokes_the_registered_embeddings_create_api() {
     .await
     .unwrap();
 
-    assert_eq!(report.embeddings.unwrap().state, SupportStatus::Supported);
+    assert_eq!(report.embeddings.unwrap().state, ProbeStatus::Accepted);
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     let (method, path, body) = &requests[0];
@@ -496,6 +689,65 @@ async fn probe_smokes_the_registered_embeddings_create_api() {
         Some("OpenBridge probe")
     );
     assert!(body.get("tools").is_none());
+}
+
+#[tokio::test]
+async fn candidate_generation_cannot_borrow_a_non_generation_target() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials_for_target(&registry, "openai-text-embedding-3-small");
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-text-embedding-3-small",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            chat: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.generation.len(), 1);
+    assert_eq!(report.generation[0].outcome.state, ProbeStatus::Unsupported);
+    assert_eq!(
+        report.generation[0].outcome.failure,
+        Some(super::ProbeFailure::OperationUnavailable)
+    );
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn candidate_model_can_probe_an_unregistered_protocol_within_generation() {
+    let registry = registry();
+    let transport = StaticTransport::response(
+        StatusCode::OK,
+        json!({"object": "response", "output": []}).to_string(),
+    );
+    let credentials = credentials_for_target(&registry, "bailian-deepseek-v4-flash");
+
+    let report = probe_upstream_target(
+        &registry,
+        "bailian-deepseek-v4-flash",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            responses: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.generation.len(), 1);
+    assert_eq!(report.generation[0].outcome.state, ProbeStatus::Accepted);
+    assert_eq!(transport.requests.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]
@@ -529,7 +781,7 @@ async fn chatgpt_probe_uses_oauth2_lease_for_model_manifest() {
 
     // Confirm the ChatGPT-specific manifest parser and configured model correlation.
     let list_models = report.list_models.unwrap();
-    assert_eq!(list_models.outcome.state, SupportStatus::Supported);
+    assert_eq!(list_models.outcome.state, ProbeStatus::Accepted);
     assert_eq!(list_models.configured_model_listed, Some(true));
     assert_eq!(list_models.model_ids, ["gpt-5.6-sol"]);
     assert_eq!(
@@ -561,8 +813,8 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     let oauth2_credentials = builder.build();
     let transport = ChatGptResponsesTransport::default();
 
-    // Observe only the registered streaming Responses API through the selected OAuth2 lease.
-    let report = probe_upstream_target_with_oauth2(
+    // Keep the known unbounded backend at zero egress until the risk is explicitly selected.
+    let bounded = probe_upstream_target_with_oauth2(
         &registry,
         "chatgpt-gpt-5-6-sol",
         &transport,
@@ -574,8 +826,55 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     )
     .await
     .unwrap();
+    let bounded_streaming = bounded
+        .generation
+        .iter()
+        .find(|case| case.mode == super::ProbeGenerationMode::Streaming)
+        .unwrap();
+    assert_eq!(bounded_streaming.outcome.state, ProbeStatus::Inconclusive);
+    assert_eq!(
+        bounded_streaming.outcome.failure,
+        Some(super::ProbeFailure::RequestPreparation)
+    );
+    assert!(transport.requests.lock().unwrap().is_empty());
 
-    assert_eq!(report.responses.unwrap().state, SupportStatus::Supported);
+    // Observe only the registered streaming Responses API through the selected OAuth2 lease.
+    let report = probe_upstream_target_with_oauth2(
+        &registry,
+        "chatgpt-gpt-5-6-sol",
+        &transport,
+        &oauth2_credentials,
+        ProbeOptions {
+            responses: true,
+            allow_unbounded_streaming_output: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.generation.len(), 2);
+    assert!(report.allow_unbounded_streaming_output);
+    let streaming = report
+        .generation
+        .iter()
+        .find(|case| case.mode == super::ProbeGenerationMode::Streaming)
+        .unwrap();
+    assert_eq!(streaming.outcome.state, ProbeStatus::Accepted);
+    assert_eq!(
+        streaming.evidence.as_ref().unwrap().terminal,
+        Some(super::ProbeTerminal::ResponsesCompleted)
+    );
+    let non_streaming = report
+        .generation
+        .iter()
+        .find(|case| case.mode == super::ProbeGenerationMode::NonStreaming)
+        .unwrap();
+    assert_eq!(non_streaming.outcome.state, ProbeStatus::Unsupported);
+    assert_eq!(
+        non_streaming.outcome.failure,
+        Some(super::ProbeFailure::DeliveryUnavailable)
+    );
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].0, "/responses");
@@ -595,6 +894,51 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     );
     assert!(requests[0].1.get("max_output_tokens").is_none());
     assert!(requests[0].1.get("tools").is_none());
+}
+
+#[tokio::test]
+async fn probe_rejects_invalid_selection_before_credentials_or_egress() {
+    let registry = registry();
+    let transport = StaticTransport::failure();
+    let credentials = CredentialStoreBuilder::new().build();
+
+    let error = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            list_models: true,
+            upstream_model: Some("invalid\nmodel".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        ProbeError::InvalidSelection(super::ProbeSelectionError::InvalidUpstreamModel)
+    ));
+
+    let error = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            embeddings: true,
+            upstream_model: Some("unused-generation-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ProbeError::InvalidSelection(super::ProbeSelectionError::UnusedUpstreamModel)
+    ));
+    assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]
@@ -727,7 +1071,7 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
     let registry = registry();
     let credentials = credentials(&registry);
 
-    // Convert a transport failure to unknown without inventing an HTTP status.
+    // Convert a transport failure to inconclusive without inventing an HTTP status.
     let failed = StaticTransport::failure();
     let report = probe_upstream_target(
         &registry,
@@ -742,13 +1086,13 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
     .await
     .unwrap();
     let outcome = report.list_models.unwrap().outcome;
-    assert_eq!(outcome.state, SupportStatus::Unknown);
+    assert_eq!(outcome.state, ProbeStatus::Inconclusive);
     assert_eq!(outcome.http_status, None);
 
-    // Reserve unsupported only for explicit endpoint statuses and keep rate limits unknown.
+    // Keep every real HTTP non-success request-scoped; a candidate-model 404 is not endpoint proof.
     for (status, expected) in [
-        (StatusCode::NOT_FOUND, SupportStatus::Unsupported),
-        (StatusCode::TOO_MANY_REQUESTS, SupportStatus::Unknown),
+        (StatusCode::NOT_FOUND, ProbeStatus::Rejected),
+        (StatusCode::TOO_MANY_REQUESTS, ProbeStatus::Rejected),
     ] {
         let transport = StaticTransport::response(status, Vec::new());
         let report = probe_upstream_target(
@@ -758,17 +1102,18 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
             &credentials,
             ProbeOptions {
                 chat: true,
+                generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
                 ..ProbeOptions::default()
             },
         )
         .await
         .unwrap();
-        let outcome = report.chat.unwrap();
+        let outcome = &report.generation[0].outcome;
         assert_eq!(outcome.state, expected);
         assert_eq!(outcome.http_status, Some(status.as_u16()));
     }
 
-    // Treat successful non-JSON and structurally invalid model lists as unknown evidence.
+    // Treat successful non-JSON and structurally invalid model lists as inconclusive evidence.
     for body in [b"not-json".to_vec(), b"{}".to_vec()] {
         let transport = StaticTransport::response(StatusCode::OK, body);
         let report = probe_upstream_target(
@@ -784,11 +1129,99 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
         .await
         .unwrap();
         let result = report.list_models.unwrap();
-        assert_eq!(result.outcome.state, SupportStatus::Unknown);
+        assert_eq!(result.outcome.state, ProbeStatus::Inconclusive);
         assert_eq!(result.outcome.http_status, Some(StatusCode::OK.as_u16()));
         assert_eq!(result.configured_model_listed, None);
         assert!(result.model_ids.is_empty());
     }
+}
+
+#[tokio::test]
+async fn probe_classifies_streaming_terminals_and_limits() {
+    let registry = registry();
+    let credential_store = credentials(&registry);
+    let options = ProbeOptions {
+        responses: true,
+        generation_modes: vec![super::ProbeGenerationMode::Streaming],
+        ..ProbeOptions::default()
+    };
+
+    // Distinguish accepted incomplete responses, explicit failures, and missing terminals.
+    for (body, state, terminal, failure) in [
+        (
+            "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n\n",
+            ProbeStatus::Accepted,
+            Some(super::ProbeTerminal::ResponsesIncomplete),
+            None,
+        ),
+        (
+            "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n",
+            ProbeStatus::Rejected,
+            Some(super::ProbeTerminal::ResponsesFailed),
+            Some(super::ProbeFailure::UpstreamTerminalFailure),
+        ),
+        (
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n",
+            ProbeStatus::Inconclusive,
+            None,
+            Some(super::ProbeFailure::MissingTerminal),
+        ),
+    ] {
+        let transport = StaticTransport::event_stream(body);
+        let report = probe_upstream_target(
+            &registry,
+            "openai-main",
+            &transport,
+            &credential_store,
+            options.clone(),
+        )
+        .await
+        .unwrap();
+        let case = &report.generation[0];
+        assert_eq!(case.outcome.state, state);
+        assert_eq!(case.outcome.failure, failure);
+        assert_eq!(
+            case.evidence
+                .as_ref()
+                .and_then(|evidence| evidence.terminal),
+            terminal
+        );
+    }
+
+    // Enforce the total response budget before accepting an unterminated stream.
+    let limited_registry = registry_with_response_limit(1_000_000);
+    let limited_credentials = credentials(&limited_registry);
+    let oversized = StaticTransport::event_stream(vec![b'x'; 1_000_001]);
+    let report = probe_upstream_target(
+        &limited_registry,
+        "openai-main",
+        &oversized,
+        &limited_credentials,
+        options.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        report.generation[0].outcome.failure,
+        Some(super::ProbeFailure::ResponseLimit)
+    );
+
+    // Enforce the single-event framing budget independently of the larger total body budget.
+    let oversized_event = format!("data: {}\n\n", "x".repeat(262_145));
+    let transport = StaticTransport::event_stream(oversized_event);
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credential_store,
+        options,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        report.generation[0].outcome.failure,
+        Some(super::ProbeFailure::InvalidSse)
+    );
 }
 
 #[tokio::test]
@@ -810,6 +1243,25 @@ async fn probe_rejects_oversized_response_bodies() {
     .await
     .unwrap();
     let outcome = report.list_models.unwrap().outcome;
-    assert_eq!(outcome.state, SupportStatus::Unknown);
+    assert_eq!(outcome.state, ProbeStatus::Inconclusive);
     assert_eq!(outcome.http_status, Some(StatusCode::OK.as_u16()));
+
+    // Preserve a real HTTP rejection without reading or reclassifying its oversized error body.
+    let rejected = StaticTransport::response(StatusCode::BAD_REQUEST, vec![b'x'; 1_000_001]);
+    let report = probe_upstream_target(
+        &limited_registry,
+        "openai-main",
+        &rejected,
+        &limited_credentials,
+        ProbeOptions {
+            list_models: true,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    let outcome = report.list_models.unwrap().outcome;
+    assert_eq!(outcome.state, ProbeStatus::Rejected);
+    assert_eq!(outcome.http_status, Some(StatusCode::BAD_REQUEST.as_u16()));
+    assert_eq!(outcome.failure, None);
 }

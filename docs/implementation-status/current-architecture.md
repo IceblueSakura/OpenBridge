@@ -56,7 +56,7 @@ downstream response + request/attempt observations
 | Protocol Bridge | `src/bridge.rs`、`src/bridge/` | Chat ↔ Responses request/response/SSE 转换；不选择 Provider/Route |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
-| Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员显式选择已注册 Target 的基础观察；不修改 registry |
+| Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 与 candidate-model Generation 矩阵；不修改 registry |
 | MCP | `src/mcp/` | transport/discovery、静态工具目录和逐工具执行；不进入 generation pipeline |
 
 关键 facade 边界：
@@ -205,8 +205,11 @@ MCP 在独立 transport/discovery/tool dispatch 中处理：stateless 与 legacy
 请求准备前先按 `OperationKind` 从 definition 选择 closed typed adapter：Generation adapter 固定 Chat Completions 或 Responses，
 Embeddings/Images adapter 不能调用 Generation request/SSE policy。请求 body/protocol 不能隐式切换 operation；Provider headers、authentication、
 status classification 与 model-list probe 仍通过同一 operation-neutral adapter 共享。`provider/adapter.rs` 拥有 common policy，
-`provider/operation.rs` 从同一静态 surface 原子选择 relative path、capability ceiling 与 typed request/SSE policy。Generation 与
-Embeddings/Images preparation 都必须接收 operation-matched `UpstreamApi`；不存在仅传任意 model 的第二条准备路径。
+`provider/operation.rs` 从同一静态 surface 原子选择 relative path、capability ceiling 与 typed request/SSE policy。
+数据面 Generation 与 Embeddings/Images preparation 都必须接收 operation-matched `UpstreamApi`。独立管理员 probe 另有窄化的 Generation
+preparation：只接受校验后的 model ID 和固定合成请求，仍由已注册 Target、Provider operation path/body hook、credential 与 timeout
+约束，拒绝借非 Generation Target 扩大 operation，且不套用另一已注册模型的 ignored-parameter 或 reasoning mapping；它不被 ingress
+或业务请求调用。Generation probe 默认保留固定 16-token upstream output limit；只有显式风险开关可为 streaming request 省略。
 
 普通安全 header 与认证 header 分离。业务请求不能控制上游 URL、Provider、Target、credential、认证 header、代理 header 或
 转换脚本。`UpstreamClient` 只接受已解析 Target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。

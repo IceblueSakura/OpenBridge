@@ -360,6 +360,64 @@ impl OpenAiCompatibleAdapter {
         )
     }
 
+    /// Binds one fixed administrative Generation probe to a declared Provider path and model.
+    ///
+    /// Unlike routed preparation, this deliberately applies no registered model's ignored-parameter
+    /// or reasoning mapping rules. The caller may probe an unregistered model, while the Provider
+    /// path and bounded body transformation remain compile-time trusted.
+    pub(crate) fn prepare_probe_request(
+        self,
+        protocol: ApiProtocol,
+        path: &'static str,
+        request: &ApiRequest,
+        upstream_model: &str,
+        streaming: bool,
+    ) -> Result<PreparedUpstreamRequest, AdapterError> {
+        // Reject protocol/delivery disagreement before selecting Provider wire behavior.
+        if request.protocol() != protocol {
+            return Err(AdapterError::UnsupportedProtocol);
+        }
+        let mut document: serde_json::Value =
+            serde_json::from_slice(request.body()).map_err(|_| AdapterError::InvalidRequestBody)?;
+        let object = document
+            .as_object_mut()
+            .ok_or(AdapterError::InvalidRequestBody)?;
+        if object.get("stream").and_then(serde_json::Value::as_bool) != Some(streaming) {
+            return Err(AdapterError::InvalidRequestBody);
+        }
+        let output_limit_field = match protocol {
+            ApiProtocol::ChatCompletions => "max_completion_tokens",
+            ApiProtocol::Responses => "max_output_tokens",
+        };
+        let expected_output_limit = object
+            .get(output_limit_field)
+            .and_then(serde_json::Value::as_u64);
+
+        // Override only the model in the built-in synthetic request, then apply Provider-wide wire rules.
+        object.insert(
+            "model".to_owned(),
+            serde_json::Value::String(upstream_model.to_owned()),
+        );
+        (self.request_body_hook)(protocol, object)?;
+        if expected_output_limit.is_some()
+            && object
+                .get(output_limit_field)
+                .and_then(serde_json::Value::as_u64)
+                != expected_output_limit
+        {
+            return Err(AdapterError::InvalidRequestBody);
+        }
+
+        // Bind only the static operation path and the caller-selected response lifecycle.
+        let body = serde_json::to_vec(&document)
+            .map(Bytes::from)
+            .map_err(|_| AdapterError::InvalidRequestBody)?;
+        Ok(
+            PreparedUpstreamRequest::new(Method::POST, Uri::from_static(path), body)
+                .with_streaming_response(streaming),
+        )
+    }
+
     /// Replaces the Public Model and binds the fixed Native Embeddings endpoint.
     pub(crate) fn prepare_embedding_routed_request(
         self,
@@ -757,6 +815,14 @@ mod tests {
         Ok(())
     }
 
+    fn remove_chat_output_limit(
+        _protocol: ApiProtocol,
+        document: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), AdapterError> {
+        document.remove("max_completion_tokens");
+        Ok(())
+    }
+
     #[test]
     fn provider_hook_and_fixed_headers_apply_in_deterministic_order() {
         const FIXED_HEADERS: &[crate::provider::StaticRequestHeader] =
@@ -823,6 +889,42 @@ mod tests {
                 .unwrap(),
             "transformed-value"
         );
+    }
+
+    #[test]
+    fn probe_body_hook_cannot_silently_remove_an_output_limit() {
+        let adapter = OpenAiCompatibleAdapter::new(
+            ProviderKind::OpenAi,
+            OpenAiCompatibleApiSurface::new(
+                Some(OpenAiCompatibleEndpoint::new(
+                    "/chat",
+                    ProviderChatCompletionsCapabilities::default(),
+                )),
+                None,
+                None,
+            ),
+            "/models",
+            transform_headers,
+        )
+        .with_request_body_hook(remove_chat_output_limit);
+        let bounded = ApiRequest::new(
+            ApiProtocol::ChatCompletions,
+            Bytes::from(
+                json!({"model": "candidate", "messages": [], "stream": true, "max_completion_tokens": 16})
+                    .to_string(),
+            ),
+        );
+
+        assert!(matches!(
+            adapter.prepare_probe_request(
+                ApiProtocol::ChatCompletions,
+                "/chat",
+                &bounded,
+                "candidate",
+                true,
+            ),
+            Err(AdapterError::InvalidRequestBody)
+        ));
     }
 
     #[test]
