@@ -202,6 +202,8 @@ MCP 在独立 transport/discovery/tool dispatch 中处理：stateless 与 legacy
 
 `ProviderDefinition` 是静态 contract 与 adapter 的单一入口。OpenAI-compatible family 复用共享 wire machinery，但每个 family
 仍显式拥有 origin、Models envelope、operation path、request/header hook、terminal discriminator、credential kind 和模型级 Target。
+共享实现由 `src/providers/openai_compatible/` facade 按 surface、request、header、response 与 registration 责任聚合，并保持
+`providers::openai_compatible` crate-internal 路径稳定。
 请求准备前先按 `OperationKind` 从 definition 选择 closed typed adapter：Generation adapter 固定 Chat Completions 或 Responses，
 Embeddings/Images adapter 不能调用 Generation request/SSE policy。请求 body/protocol 不能隐式切换 operation；Provider headers、authentication、
 status classification 与 model-list probe 仍通过同一 operation-neutral adapter 共享。`provider/adapter.rs` 拥有 common policy，
