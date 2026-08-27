@@ -6,7 +6,7 @@
 
 - 未认证入口为 `GET /healthz`、`GET /openapi.yaml`、`GET /swagger-ui` 与 `GET /swagger-ui/`。
 - Bearer 保护入口包括标准/扩展 Models、`POST /v1/chat/completions`、`POST /v1/responses`、`POST /v1/embeddings`、`POST /v1/images/generations`，以及 MCP 的 `POST /mcp` 与 legacy session `GET/DELETE /mcp`。
-- 认证、请求 ID、body budget、敏感 header 标记和 tracing middleware 在业务 handler 前执行；认证失败返回 `401` 与 `WWW-Authenticate: Bearer`。
+- 认证、请求 ID、敏感 header 标记和 tracing middleware 在业务 handler 前执行；Bootstrap `max_request_body` 同时约束全局 body hard limit 与 Axum extractor，认证失败返回 `401` 与 `WWW-Authenticate: Bearer`。
 - MCP 同时支持 `2026-07-28` stateless discovery 和 legacy initialize/session/SSE/delete lifecycle，共享静态 `hello` tool；该 tool 不访问 registry、credential 或 Provider。
 - Models DTO 只包含下游安全事实，不公开 Provider、Target、Route、upstream model、endpoint、credential、健康状态或价格。
 - 能力拒绝使用 OpenAI-compatible 400 envelope 和标准顶层 `param`；内部 candidate、Route 和 capability reason 不序列化。

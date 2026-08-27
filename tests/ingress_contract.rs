@@ -118,6 +118,32 @@ async fn requests_over_the_bootstrap_body_limit_are_rejected() {
 }
 
 #[tokio::test]
+async fn requests_between_axum_default_and_bootstrap_limit_reach_the_handler() {
+    let bootstrap_document =
+        support::BOOTSTRAP.replace("max_request_body = \"1MiB\"", "max_request_body = \"3MiB\"");
+    let registry = build_registry(
+        support::bootstrap(&bootstrap_document),
+        support::definition("extractor-limit-test", "code-primary", "test-model"),
+    )
+    .unwrap();
+    let mut body = String::from(r#"{"model":"code-primary","input":"#);
+    body.push_str(&"x".repeat(2_100_000));
+
+    let response = test_app(registry)
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-test-token-00000000000")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn protected_endpoints_reject_malformed_bearer_schemes() {
     let app = test_app(support::registry(
         "auth-boundary-test",

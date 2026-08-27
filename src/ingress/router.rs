@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     middleware::{self, Next},
     response::Response,
     routing::{get, post},
@@ -72,6 +72,8 @@ pub fn build_router(state: GatewayState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::new(request_id))
         .layer(middleware::from_fn(normalize_embedding_request_limit))
+        // Keep Axum body extractors on the same configured ceiling as the global hard limit.
+        .layer(DefaultBodyLimit::max(max_request_body_bytes))
         .layer(RequestBodyLimitLayer::new(max_request_body_bytes));
     let downstream_auth = DownstreamAuthState {
         users: state.users.clone(),
