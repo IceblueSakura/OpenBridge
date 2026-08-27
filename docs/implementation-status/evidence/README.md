@@ -10,6 +10,7 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-08-27 | [Bailian Responses 三模型兼容性对比](2026-08-27-bailian-responses-model-comparison.md) | 北京 Models API GLM 可见性及 GLM-5.2、DeepSeek V4 Flash 0731、Qwen3.8 Max 的 JSON/SSE、reasoning、structured output、工具续轮、state 与协议归因 |
 | 2026-08-27 | [OpenRouter GLM-5.3-Flash 接入验证](2026-08-27-openrouter-glm-5-3-flash-integration.md) | Chat/Responses、图片、工具、structured output、Hermes `obc`/`obr` 与能力收窄 |
 | 2026-08-10 | [OpenRouter Gemma strict schema 差异](2026-08-10-openrouter-gemma-strict-schema-mismatch.md) | OpenRouter structured-output 可见性与 strict JSON Schema 实测结果不一致 |
 
