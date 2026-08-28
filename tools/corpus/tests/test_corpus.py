@@ -8,6 +8,10 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
+import openbridge_corpus.corpuslib as corpuslib
+from openbridge_corpus import __version__
 from openbridge_corpus.corpuslib import (
     CorpusError,
     build_report,
@@ -40,6 +44,11 @@ def test_repository_corpus_lints() -> None:
     assert lint_corpus(CORPUS_ROOT) == []
 
 
+def test_package_and_corpus_versions_match() -> None:
+    """Keep the Python package metadata aligned with the canonical corpus release."""
+    assert __version__ == (CORPUS_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+
 def test_lint_reports_catalog_mismatch_and_suspected_secret(tmp_path: Path) -> None:
     """Verify that catalog mismatches and suspected credentials are reported by lint."""
     root = _copy_corpus(tmp_path)
@@ -70,8 +79,70 @@ def test_lint_rejects_duplicate_keys_and_undeclared_case_files(
     request.write_text('{"model":"one","model":"two"}\n', encoding="utf-8")
     (case_directory / "untracked-oracle.json").write_text("{}\n", encoding="utf-8")
     errors = lint_corpus(root)
-    assert any("duplicate object key 'model'" in error for error in errors)
+    assert any("duplicate object key" in error for error in errors)
+    assert all("model" not in error for error in errors if "duplicate object key" in error)
     assert any("undeclared case file untracked-oracle.json" in error for error in errors)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_strict_json_rejects_non_finite_numbers(
+    tmp_path: Path, constant: str
+) -> None:
+    """Reject non-standard numeric constants in canonical and runtime JSON."""
+    path = tmp_path / "non-finite.json"
+    path.write_text(f'{{"value":{constant}}}\n', encoding="utf-8")
+    with pytest.raises(CorpusError, match="non-finite JSON number"):
+        corpuslib.load_json(path)
+    with pytest.raises(ValueError):
+        corpuslib.dump_json({"value": float("nan")})
+
+
+def test_json_input_limits_are_enforced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bound file size, tree depth/node count, and individual string size."""
+    path = tmp_path / "bounded.json"
+
+    monkeypatch.setattr(corpuslib, "MAX_CORPUS_FILE_BYTES", 32)
+    path.write_text(json.dumps({"value": "x" * 64}), encoding="utf-8")
+    with pytest.raises(CorpusError, match="file exceeds"):
+        corpuslib.load_json(path)
+
+    monkeypatch.setattr(corpuslib, "MAX_CORPUS_FILE_BYTES", 1024)
+    monkeypatch.setattr(corpuslib, "MAX_JSON_STRING_BYTES", 4)
+    path.write_text(json.dumps({"value": "12345"}), encoding="utf-8")
+    with pytest.raises(CorpusError, match="string exceeds"):
+        corpuslib.load_json(path)
+
+    monkeypatch.setattr(corpuslib, "MAX_JSON_STRING_BYTES", 1024)
+    monkeypatch.setattr(corpuslib, "MAX_JSON_NODES", 2)
+    path.write_text(json.dumps({"one": 1, "two": 2}), encoding="utf-8")
+    with pytest.raises(CorpusError, match="node limit"):
+        corpuslib.load_json(path)
+
+    monkeypatch.setattr(corpuslib, "MAX_JSON_NODES", 100)
+    monkeypatch.setattr(corpuslib, "MAX_JSON_DEPTH", 1)
+    path.write_text(json.dumps({"outer": {"inner": 1}}), encoding="utf-8")
+    with pytest.raises(CorpusError, match="depth limit"):
+        corpuslib.load_json(path)
+
+
+def test_sse_json_and_event_limits_are_enforced() -> None:
+    """Apply strict JSON complexity and stream-count bounds inside SSE data fields."""
+    deeply_nested = ("[" * 5000 + "0" + "]" * 5000).encode("ascii")
+    with pytest.raises(CorpusError, match="strict policy"):
+        corpuslib._parse_sse_events(b"data: " + deeply_nested + b"\n\n")
+
+    with pytest.raises(CorpusError, match="strict policy"):
+        corpuslib._parse_sse_events(b"data: {\"value\":NaN}\n\n")
+
+    too_many_events = b"data: {}\n\n" * (corpuslib.MAX_SSE_EVENTS + 1)
+    with pytest.raises(CorpusError, match="event limit"):
+        corpuslib._parse_sse_events(too_many_events)
+
+    too_many_blocks = b": keepalive\n\n" * corpuslib.MAX_SSE_BLOCKS
+    with pytest.raises(CorpusError, match="block limit"):
+        corpuslib._parse_sse_events(too_many_blocks)
 
 
 def test_lint_rejects_artifact_escape_and_inconsistent_stream_contract(
@@ -152,7 +223,7 @@ def test_report_confirms_p0_feature_and_generation_coverage() -> None:
     """Verify that the coverage report includes required behavior and every generated fragment type."""
     report = build_report(CORPUS_ROOT)
     assert report["case_count"] == 51
-    assert report["semantic_case_count"] == 9
+    assert report["semantic_case_count"] == 14
     assert report["missing_required_features"] == []
     assert report["missing_required_generation_kinds"] == []
     assert report["missing_required_semantic_features"] == []

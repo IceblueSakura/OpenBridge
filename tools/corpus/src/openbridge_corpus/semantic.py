@@ -1,4 +1,4 @@
-"""Validate normalized function-tool traces against protocol-neutral semantic oracles."""
+"""Validate normalized traces against protocol-neutral semantic oracles."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from .corpuslib import (
     CorpusError,
     SemanticCase,
+    _loads_bounded_json,
     _schema_validator,
     discover_semantic_cases,
 )
@@ -53,12 +54,28 @@ def _arguments_contain(actual: Any, expected: Any) -> bool:
     return type(actual) is type(expected) and actual == expected
 
 
+def _json_equal(actual: Any, expected: Any) -> bool:
+    """Compare JSON values recursively without Python bool/number coercion."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(
+            _json_equal(actual[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _json_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def _call_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     """Return whether one normalized call satisfies an expected call matcher."""
     if expected["name"] != actual["name"]:
         return False
     if expected["arguments_match"] == "exact":
-        return expected["arguments"] == actual["arguments"]
+        return _json_equal(actual["arguments"], expected["arguments"])
     return _arguments_contain(actual["arguments"], expected["arguments"])
 
 
@@ -230,9 +247,7 @@ def _verify_results(
         result_index, observed = observed_entry
         matched_results.add(result_index)
         if expected["output_match"] == "exact":
-            matches = type(expected["output"]) is type(observed["output"]) and (
-                expected["output"] == observed["output"]
-            )
+            matches = _json_equal(observed["output"], expected["output"])
         else:
             matches = _arguments_contain(observed["output"], expected["output"])
         if not matches:
@@ -253,7 +268,9 @@ def _verify_argument_schemas(
     errors: list[str],
 ) -> None:
     """Validate normalized call arguments against their declared function schemas."""
-    tools = {tool["name"]: tool for tool in case.data["task"]["tools"]}
+    tools = {
+        tool["name"]: tool for tool in case.data["task"].get("tools", [])
+    }
 
     # Validate only declared tools and report schema locations without values.
     for index, call in enumerate(calls):
@@ -275,14 +292,33 @@ def _verify_argument_schemas(
 
 
 def _verify_final_response(
-    oracle: dict[str, Any], final_text: str | None, errors: list[str]
+    case: SemanticCase, final_text: str | None, errors: list[str]
 ) -> None:
-    """Validate required and forbidden final-response facts by deterministic substring."""
+    """Validate structured output and fixed final-response facts without exposing content."""
+    oracle = case.data["oracle"]["final_response"]
     if oracle["required"] and final_text is None:
         errors.append("final_response is required")
         return
     if final_text is None:
         return
+
+    task = case.data["task"]
+    if task.get("kind") == "structured":
+        try:
+            structured = _loads_bounded_json(final_text)
+        except CorpusError:
+            errors.append("final_response is not valid structured JSON")
+        else:
+            validator = Draft202012Validator(
+                task["response_format"]["schema"], format_checker=FormatChecker()
+            )
+            for schema_error in sorted(
+                validator.iter_errors(structured), key=lambda item: list(item.path)
+            ):
+                location = "".join(f"[{part!r}]" for part in schema_error.path)
+                errors.append(
+                    f"final_response structured output{location} fails the response schema"
+                )
 
     # Normalize case only for matching; never include the compared text in diagnostics.
     observed = final_text if oracle["case_sensitive"] else final_text.casefold()
@@ -342,7 +378,7 @@ def verify_semantic_trace(
     _verify_results(
         case.data["oracle"]["results"], assignment, calls, results, errors
     )
-    _verify_final_response(case.data["oracle"]["final_response"], final_text, errors)
+    _verify_final_response(case, final_text, errors)
 
     # Stabilize duplicate diagnostics for CLI consumers.
     return list(dict.fromkeys(errors))

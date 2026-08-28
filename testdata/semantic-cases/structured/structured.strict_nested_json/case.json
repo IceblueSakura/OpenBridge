@@ -1,0 +1,80 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "A reference trace proves the deterministic oracle only; it does not prove native Provider enforcement or stream-time fail-closed behavior."
+  ],
+  "features": [
+    "structured_output",
+    "strict_schema",
+    "semantic_json"
+  ],
+  "id": "structured.strict_nested_json",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openbridge-semantic-testing.json",
+  "proves": [
+    "Defines parse, strict nested JSON Schema, and fixed semantic value checks over one normalized assistant message."
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "kind": "structured",
+    "prompt": "Return the inventory record with quantity 12 and warehouse east.",
+    "response_format": {
+      "name": "inventory_summary",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "inventory": {
+            "additionalProperties": false,
+            "properties": {
+              "quantity": {
+                "const": 12,
+                "type": "integer"
+              },
+              "warehouse": {
+                "const": "east",
+                "type": "string"
+              }
+            },
+            "required": [
+              "quantity",
+              "warehouse"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "inventory"
+        ],
+        "type": "object"
+      },
+      "strict": true
+    }
+  },
+  "title": "Strict nested structured output"
+}

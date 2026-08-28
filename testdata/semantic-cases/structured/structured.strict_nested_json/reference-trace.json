@@ -1,0 +1,11 @@
+{
+  "case_id": "structured.strict_nested_json",
+  "events": [
+    {
+      "text": "{\"inventory\":{\"quantity\":12,\"warehouse\":\"east\"}}",
+      "turn": 0,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}

@@ -21,6 +21,12 @@ from . import __version__
 
 
 DERIVED_DIRECTORIES = {"generated", "reports", "dist", "runtime"}
+MAX_CORPUS_FILE_BYTES = 16 * 1024 * 1024
+MAX_JSON_DEPTH = 128
+MAX_JSON_NODES = 200_000
+MAX_JSON_STRING_BYTES = 8 * 1024 * 1024
+MAX_SSE_BLOCKS = 8192
+MAX_SSE_EVENTS = 4096
 STREAM_ARTIFACTS = {"upstream_stream", "expected_client_stream"}
 TERMINAL_TYPES = {
     "response.completed": "response_completed",
@@ -42,6 +48,14 @@ class CorpusError(RuntimeError):
     """Indicate invalid corpus content, schema, or derived-output boundaries."""
 
     pass
+
+
+class _DuplicateJsonKeyError(ValueError):
+    """Mark a duplicate JSON key without retaining its value in diagnostics."""
+
+
+class _NonFiniteJsonNumberError(ValueError):
+    """Mark a non-finite JSON number without retaining its token in diagnostics."""
 
 
 @dataclass(frozen=True)
@@ -81,11 +95,21 @@ class SemanticCase:
 
 
 def load_json(path: Path) -> Any:
-    """Read JSON and reject duplicate object keys or underlying text errors."""
+    """Read bounded strict JSON and reject duplicate keys, non-finite values, or deep trees."""
     try:
-        return _loads_json(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        raise CorpusError(f"{path}: cannot read JSON: {error}") from error
+        if path.stat().st_size > MAX_CORPUS_FILE_BYTES:
+            raise CorpusError("JSON file exceeds the corpus size limit")
+        return _loads_bounded_json(path.read_text(encoding="utf-8"))
+    except CorpusError as error:
+        raise CorpusError(f"{path}: {error}") from error
+    except (
+        OSError,
+        RecursionError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as error:
+        raise CorpusError(f"{path}: cannot read JSON under strict policy") from error
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -93,19 +117,73 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"duplicate object key {key!r}")
+            raise _DuplicateJsonKeyError("duplicate object key")
         result[key] = value
     return result
 
 
+def _reject_non_finite_json(_: str) -> None:
+    """Reject NaN and infinities because RFC JSON has no non-finite numbers."""
+    raise _NonFiniteJsonNumberError("non-finite JSON number")
+
+
+def _validate_json_complexity(data: Any) -> None:
+    """Bound JSON depth, node count, and individual UTF-8 string size."""
+    stack: list[tuple[Any, int]] = [(data, 0)]
+    nodes = 0
+    while stack:
+        value, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_JSON_NODES:
+            raise CorpusError("JSON document exceeds the node limit")
+        if depth > MAX_JSON_DEPTH:
+            raise CorpusError("JSON document exceeds the depth limit")
+        if isinstance(value, str):
+            if len(value.encode("utf-8")) > MAX_JSON_STRING_BYTES:
+                raise CorpusError("JSON string exceeds the size limit")
+        elif isinstance(value, dict):
+            stack.extend((item, depth + 1) for item in value.values())
+        elif isinstance(value, list):
+            stack.extend((item, depth + 1) for item in value)
+
+
 def _loads_json(text: str) -> Any:
-    """Parse JSON text with duplicate-key detection."""
-    return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+    """Parse RFC JSON with duplicate-key and non-finite-number detection."""
+    return json.loads(
+        text,
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_non_finite_json,
+    )
+
+
+def _loads_bounded_json(text: str) -> Any:
+    """Parse one bounded strict JSON value and validate its in-memory complexity."""
+    if len(text.encode("utf-8")) > MAX_CORPUS_FILE_BYTES:
+        raise CorpusError("JSON text exceeds the corpus size limit")
+    try:
+        data = _loads_json(text)
+    except _DuplicateJsonKeyError as error:
+        raise CorpusError("duplicate object key") from error
+    except _NonFiniteJsonNumberError as error:
+        raise CorpusError("non-finite JSON number") from error
+    except (RecursionError, json.JSONDecodeError, ValueError) as error:
+        raise CorpusError("cannot read JSON under strict policy") from error
+    _validate_json_complexity(data)
+    return data
 
 
 def dump_json(data: Any) -> str:
-    """Serialize JSON with stable ordering and UTF-8-friendly formatting."""
-    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    """Serialize strict JSON with stable ordering and UTF-8-friendly formatting."""
+    return (
+        json.dumps(
+            data,
+            allow_nan=False,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -129,11 +207,13 @@ def _schema_validator(root: Path, name: str) -> Draft202012Validator:
 def _schema_errors(
     validator: Draft202012Validator, data: Any, label: str
 ) -> list[str]:
-    """Convert all schema-validator errors to stable path-qualified text."""
+    """Convert schema errors to paths and rule names without instance values."""
     errors: list[str] = []
     for error in sorted(validator.iter_errors(data), key=lambda item: list(item.path)):
         location = ".".join(str(part) for part in error.path) or "(root)"
-        errors.append(f"{label}: {location}: {error.message}")
+        errors.append(
+            f"{label}: {location}: does not satisfy schema rule {error.validator!r}"
+        )
     return errors
 
 
@@ -175,8 +255,12 @@ def _derived_output(root: Path, output: Path | None, directory: str) -> Path:
 
 def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
     """Parse SSE bytes and convert each event to the dictionary required by lint."""
+    if len(data) > MAX_CORPUS_FILE_BYTES:
+        raise CorpusError("SSE artifact exceeds the corpus size limit")
     text = data.decode("utf-8")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if normalized.count("\n\n") + 1 > MAX_SSE_BLOCKS:
+        raise CorpusError("SSE artifact exceeds the block limit")
     blocks = normalized.split("\n\n")
     events: list[dict[str, Any]] = []
     for block in blocks:
@@ -202,10 +286,12 @@ def _parse_sse_events(data: bytes) -> list[dict[str, Any]]:
             payload = "[DONE]"
         else:
             try:
-                payload = _loads_json(payload_text)
-            except (json.JSONDecodeError, ValueError) as error:
-                raise CorpusError(f"invalid SSE data JSON: {error}") from error
+                payload = _loads_bounded_json(payload_text)
+            except CorpusError as error:
+                raise CorpusError("invalid SSE data JSON under strict policy") from error
         events.append({"event": event_name, "data": payload})
+        if len(events) > MAX_SSE_EVENTS:
+            raise CorpusError("SSE artifact exceeds the event limit")
     return events
 
 
@@ -417,8 +503,8 @@ def _validate_case_semantics(case: Case, root: Path) -> list[str]:
             continue
         if artifact_path.suffix == ".json":
             try:
-                _loads_json(raw.decode("utf-8"))
-            except (json.JSONDecodeError, ValueError) as error:
+                _loads_bounded_json(raw.decode("utf-8"))
+            except CorpusError as error:
                 errors.append(f"{artifact_path}: invalid JSON artifact: {error}")
         if artifact_name in STREAM_ARTIFACTS:
             try:
@@ -540,7 +626,13 @@ def _strict_schema_errors(schema: Any, path: str) -> list[str]:
                 errors.append(f"{path}.required must contain every property")
 
         # Recurse through every schema-valued keyword that can contain nested objects.
-        for keyword in ("properties", "patternProperties", "$defs", "definitions"):
+        for keyword in (
+            "properties",
+            "patternProperties",
+            "$defs",
+            "definitions",
+            "dependentSchemas",
+        ):
             children = schema.get(keyword)
             if isinstance(children, dict):
                 for name, child in children.items():
@@ -555,10 +647,36 @@ def _strict_schema_errors(schema: Any, path: str) -> list[str]:
         items = schema.get("items")
         if isinstance(items, (dict, list)):
             errors.extend(_strict_schema_errors(items, f"{path}.items"))
+        for keyword in (
+            "additionalProperties",
+            "contains",
+            "else",
+            "if",
+            "not",
+            "propertyNames",
+            "then",
+            "unevaluatedItems",
+            "unevaluatedProperties",
+        ):
+            child = schema.get(keyword)
+            if isinstance(child, (dict, list)):
+                errors.extend(_strict_schema_errors(child, f"{path}.{keyword}"))
     elif isinstance(schema, list):
         for index, child in enumerate(schema):
             errors.extend(_strict_schema_errors(child, f"{path}[{index}]"))
     return errors
+
+
+def _semantic_provenance_errors(case: SemanticCase, root: Path) -> list[str]:
+    """Resolve one semantic case provenance record inside the canonical corpus."""
+    provenance = case.data["provenance_ref"]
+    try:
+        provenance_path = _resolve_inside(root, provenance, root)
+        if not provenance_path.is_file():
+            return [f"{case.path}: missing provenance {provenance}"]
+    except CorpusError as error:
+        return [f"{case.path}: {error}"]
+    return []
 
 
 def _validate_semantic_case_semantics(
@@ -589,6 +707,66 @@ def _validate_semantic_case_semantics(
         if path.is_file() and path.resolve() not in declared_files:
             relative = path.relative_to(case.directory)
             errors.append(f"{case.path}: undeclared semantic case file {relative}")
+
+    task = data["task"]
+    task_kind = task.get("kind")
+    if task_kind == "context":
+        recipe = task["context"]
+        generation_fields = [
+            task["instruction"],
+            task["question"],
+            recipe["needle"],
+            recipe["distractor_template"],
+        ]
+        if not all(value.isascii() for value in generation_fields):
+            errors.append(f"{case.path}: context generation fields must be ASCII")
+        template = recipe["distractor_template"]
+        if "{index" not in template or "{token}" not in template:
+            errors.append(
+                f"{case.path}: distractor_template must include index and token placeholders"
+            )
+        if data["oracle"]["calls"]["required"] or data["oracle"]["results"]["required"]:
+            errors.append(f"{case.path}: context cases cannot require tool calls or results")
+        if not data["oracle"]["final_response"]["required"]:
+            errors.append(f"{case.path}: context cases require a final response")
+        if not errors:
+            from .semantic_plan import build_semantic_plan
+
+            for target_bytes in recipe["target_bytes"]:
+                for placement in recipe["placements"]:
+                    try:
+                        build_semantic_plan(
+                            root,
+                            case.case_id,
+                            target_bytes=target_bytes,
+                            placement=placement,
+                        )
+                    except CorpusError as error:
+                        errors.append(f"{case.path}: invalid context recipe: {error}")
+        errors.extend(_semantic_provenance_errors(case, root))
+        return errors
+
+    if task_kind == "structured":
+        response_format = task["response_format"]
+        response_schema = response_format["schema"]
+        try:
+            Draft202012Validator.check_schema(response_schema)
+        except SchemaError:
+            errors.append(f"{case.path}: response_format.schema is not valid JSON Schema")
+        else:
+            if response_format["strict"]:
+                for error in _strict_schema_errors(
+                    response_schema, "task.response_format.schema"
+                ):
+                    errors.append(f"{case.path}: strict response schema {error}")
+        if data["oracle"]["calls"]["required"] or data["oracle"]["results"]["required"]:
+            errors.append(
+                f"{case.path}: structured cases cannot require tool calls or results"
+            )
+        if not data["oracle"]["final_response"]["required"]:
+            errors.append(f"{case.path}: structured cases require a final response")
+        errors.extend(_semantic_provenance_errors(case, root))
+        return errors
 
     # Validate each tool schema and collect stable names for oracle cross-checks.
     tools = data["task"]["tools"]
@@ -658,14 +836,7 @@ def _validate_semantic_case_semantics(
     ):
         errors.append(f"{case.path}: required calls conflict with forced tool_choice")
 
-    # Resolve provenance within the canonical corpus boundary.
-    provenance = data["provenance_ref"]
-    try:
-        provenance_path = _resolve_inside(root, provenance, root)
-        if not provenance_path.is_file():
-            errors.append(f"{case.path}: missing provenance {provenance}")
-    except CorpusError as error:
-        errors.append(f"{case.path}: {error}")
+    errors.extend(_semantic_provenance_errors(case, root))
     return errors
 
 
@@ -684,6 +855,7 @@ def lint_corpus(root: Path) -> list[str]:
         root / "schemas" / "catalog.schema.json",
         root / "schemas" / "case.schema.json",
         root / "schemas" / "semantic-case.schema.json",
+        root / "schemas" / "semantic-plan.schema.json",
         root / "schemas" / "semantic-trace.schema.json",
         root / "schemas" / "provenance.schema.json",
         root / "schemas" / "recipe.schema.json",
@@ -699,11 +871,29 @@ def lint_corpus(root: Path) -> list[str]:
     if errors:
         return errors
 
+    # Reject oversized canonical files before any schema, wire, hash, or pack read.
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in DERIVED_DIRECTORIES:
+            continue
+        try:
+            oversized = path.stat().st_size > MAX_CORPUS_FILE_BYTES
+        except OSError:
+            errors.append(f"cannot stat canonical corpus file: {relative}")
+            continue
+        if oversized:
+            errors.append(f"canonical corpus file exceeds size limit: {relative}")
+    if errors:
+        return errors
+
     # Initialize all schema validators before reading documents that depend on them.
     try:
         catalog_validator = _schema_validator(root, "catalog")
         case_validator = _schema_validator(root, "case")
         semantic_case_validator = _schema_validator(root, "semantic-case")
+        _schema_validator(root, "semantic-plan")
         semantic_trace_validator = _schema_validator(root, "semantic-trace")
         provenance_validator = _schema_validator(root, "provenance")
         recipe_validator = _schema_validator(root, "recipe")

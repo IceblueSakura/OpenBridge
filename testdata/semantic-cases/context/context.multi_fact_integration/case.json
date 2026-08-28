@@ -1,0 +1,67 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "Synthetic pass/fail does not prove a Provider context limit, general model quality, tokenizer behavior, or production OpenBridge compatibility."
+  ],
+  "features": [
+    "context_multi_fact_integration",
+    "context_length_sweep",
+    "context_position_sweep"
+  ],
+  "id": "context.multi_fact_integration",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "C4D9"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openbridge-semantic-testing.json",
+  "proves": [
+    "Defines a synthetic multi-fact integration case instead of treating literal retrieval as reasoning."
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "context": {
+      "distractor_template": "Record {index:06d} token {token}: routine status remains nominal.\n",
+      "needle": "Route R-17 selects module Kappa.\nModule Kappa uses checksum C4D9.\n",
+      "placements": [
+        "start",
+        "middle",
+        "end"
+      ],
+      "seed": 20260830,
+      "target_bytes": [
+        4096,
+        16384,
+        65536
+      ]
+    },
+    "instruction": "Resolve the route through every relevant fact and answer only the checksum.",
+    "kind": "context",
+    "question": "What checksum belongs to the deployment selected by route R-17?"
+  },
+  "title": "Integrate two distant facts into one answer"
+}

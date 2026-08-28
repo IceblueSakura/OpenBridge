@@ -1,0 +1,69 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "Synthetic pass/fail does not prove a Provider context limit, general model quality, tokenizer behavior, or production OpenBridge compatibility."
+  ],
+  "features": [
+    "context_conflict_resolution",
+    "context_length_sweep",
+    "context_position_sweep"
+  ],
+  "id": "context.conflict_resolution",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "new.example"
+      ],
+      "contains_none": [
+        "old.example"
+      ],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openbridge-semantic-testing.json",
+  "proves": [
+    "Defines an agent-history-style stale-versus-current conflict with an explicit forbidden stale answer."
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "context": {
+      "distractor_template": "Record {index:06d} token {token}: routine status remains nominal.\n",
+      "needle": "Earlier record: service atlas used old.example.\nSuperseding record: service atlas now uses new.example.\n",
+      "placements": [
+        "start",
+        "middle",
+        "end"
+      ],
+      "seed": 20260831,
+      "target_bytes": [
+        4096,
+        16384,
+        65536
+      ]
+    },
+    "instruction": "Use the superseding record and answer only the currently active endpoint.",
+    "kind": "context",
+    "question": "Which endpoint is currently active for service atlas?"
+  },
+  "title": "Prefer the superseding fact over stale context"
+}

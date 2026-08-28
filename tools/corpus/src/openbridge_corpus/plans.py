@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from .corpuslib import (
     Case,
     CorpusError,
+    MAX_CORPUS_FILE_BYTES,
     discover_cases,
     load_json,
     sha256_bytes,
@@ -31,7 +32,8 @@ def validate_runtime_document(
         error = errors[0]
         location = ".".join(str(part) for part in error.path) or "(root)"
         raise CorpusError(
-            f"{schema_name} document is invalid at {location}: {error.message}"
+            f"{schema_name} document is invalid at {location}: "
+            f"schema rule {error.validator!r} failed"
         )
 
 
@@ -62,6 +64,8 @@ def _artifact_bytes(case: Case, artifact_name: str) -> bytes:
     path = (case.directory / relative).resolve()
     if case.directory.resolve() not in path.parents:
         raise CorpusError(f"{case.case_id}: artifact escapes case directory")
+    if path.stat().st_size > MAX_CORPUS_FILE_BYTES:
+        raise CorpusError(f"{case.case_id}: artifact exceeds the corpus size limit")
     return path.read_bytes()
 
 

@@ -15,6 +15,7 @@
 | 查看当前实现与源码 owner | [当前实现](implementation-status/current-state.md) | [当前代码架构](implementation-status/current-architecture.md) |
 | 查看 Model 与 Provider 的当前映射 | [Model 与 Provider 映射](implementation-status/model-provider-mapping.md) | Provider Target 与 Public Model 注册 |
 | 查看未实现与未验证范围 | [当前状态边界](implementation-status/current-boundaries.md) | 带日期的外部 evidence |
+| 设计或运行项目语义测试 | [Semantic testing](../testdata/semantic-testing.md) | [评测方法证据](references/semantic-testing-methods.md)与 corpus/testkit |
 
 ## 2. 文档类别与唯一职责
 

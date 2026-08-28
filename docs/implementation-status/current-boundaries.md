@@ -110,6 +110,7 @@ Provider 外部观察见[evidence](evidence/README.md)；动态官方文档和�
 - canonical oracle 等于完整 OpenAI API；
 - hosted/custom tool、continuation、媒体和 Provider 私有扩展可转换；
 - 真实 SDK、Agent、Provider、TLS/HTTP2、并发背压、负载或真实 packet boundary 兼容；
+- semantic reference trace、synthetic context byte/position sweep 或 strict JSON oracle 不证明真实 model 的 context limit、tokenizer、推理质量、Provider 原生 enforcement 或 OpenBridge production path 已执行；
 - 外部来源未来保持相同行为。
 
 corpus 中未固定 source ref、pending license 与 `reviewed` case 必须继续显式暴露，不能改写为完成状态。实际执行过的外部证据以[evidence 索引](evidence/README.md)为准。

@@ -50,10 +50,12 @@
       "additionalProperties": false,
       "properties": {
         "description": {
+          "maxLength": 4096,
           "minLength": 1,
           "type": "string"
         },
         "name": {
+          "maxLength": 128,
           "pattern": "^[A-Za-z0-9_-]+$",
           "type": "string"
         },
@@ -313,42 +315,165 @@
       ]
     },
     "task": {
-      "additionalProperties": false,
-      "properties": {
-        "controls": {
+      "oneOf": [
+        {
           "additionalProperties": false,
           "properties": {
-            "parallel_tool_calls": {
-              "type": "boolean"
+            "controls": {
+              "additionalProperties": false,
+              "properties": {
+                "parallel_tool_calls": {
+                  "type": "boolean"
+                },
+                "tool_choice": {
+                  "$ref": "#/$defs/tool_choice"
+                }
+              },
+              "required": [
+                "tool_choice",
+                "parallel_tool_calls"
+              ],
+              "type": "object"
             },
-            "tool_choice": {
-              "$ref": "#/$defs/tool_choice"
+            "prompt": {
+              "maxLength": 65536,
+              "minLength": 1,
+              "type": "string"
+            },
+            "tools": {
+              "items": {
+                "$ref": "#/$defs/function_tool"
+              },
+              "maxItems": 128,
+              "minItems": 1,
+              "type": "array"
             }
           },
           "required": [
-            "tool_choice",
-            "parallel_tool_calls"
+            "prompt",
+            "tools",
+            "controls"
           ],
           "type": "object"
         },
-        "prompt": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "tools": {
-          "items": {
-            "$ref": "#/$defs/function_tool"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "context": {
+              "additionalProperties": false,
+              "properties": {
+                "distractor_template": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "needle": {
+                  "maxLength": 65536,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "placements": {
+                  "items": {
+                    "enum": [
+                      "start",
+                      "middle",
+                      "end"
+                    ]
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "seed": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target_bytes": {
+                  "items": {
+                    "maximum": 8388608,
+                    "minimum": 1024,
+                    "type": "integer"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "needle",
+                "distractor_template",
+                "target_bytes",
+                "placements",
+                "seed"
+              ],
+              "type": "object"
+            },
+            "instruction": {
+              "maxLength": 16384,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "context"
+            },
+            "question": {
+              "maxLength": 16384,
+              "minLength": 1,
+              "type": "string"
+            }
           },
-          "minItems": 1,
-          "type": "array"
+          "required": [
+            "kind",
+            "instruction",
+            "question",
+            "context"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "structured"
+            },
+            "prompt": {
+              "maxLength": 65536,
+              "minLength": 1,
+              "type": "string"
+            },
+            "response_format": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "schema": {
+                  "type": "object"
+                },
+                "strict": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "strict",
+                "schema"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "prompt",
+            "response_format"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "prompt",
-        "tools",
-        "controls"
-      ],
-      "type": "object"
+      ]
     },
     "title": {
       "minLength": 1,

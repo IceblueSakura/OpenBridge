@@ -1,0 +1,11 @@
+{
+  "case_id": "context.literal_retrieval",
+  "events": [
+    {
+      "text": "Q7M4",
+      "turn": 0,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}

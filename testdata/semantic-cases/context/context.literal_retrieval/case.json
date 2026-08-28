@@ -1,0 +1,67 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "Synthetic pass/fail does not prove a Provider context limit, general model quality, tokenizer behavior, or production OpenBridge compatibility."
+  ],
+  "features": [
+    "context_addressability",
+    "context_length_sweep",
+    "context_position_sweep"
+  ],
+  "id": "context.literal_retrieval",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "Q7M4"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openbridge-semantic-testing.json",
+  "proves": [
+    "Defines a synthetic literal-retrieval control across declared byte and position axes."
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "context": {
+      "distractor_template": "Record {index:06d} token {token}: routine status remains nominal.\n",
+      "needle": "The cobalt archive code is Q7M4.\n",
+      "placements": [
+        "start",
+        "middle",
+        "end"
+      ],
+      "seed": 20260828,
+      "target_bytes": [
+        4096,
+        16384,
+        65536
+      ]
+    },
+    "instruction": "Answer only the requested archive code.",
+    "kind": "context",
+    "question": "What is the cobalt archive code?"
+  },
+  "title": "Literal retrieval across length and position"
+}

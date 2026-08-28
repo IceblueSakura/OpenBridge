@@ -1,0 +1,11 @@
+{
+  "case_id": "context.multi_fact_integration",
+  "events": [
+    {
+      "text": "C4D9",
+      "turn": 0,
+      "type": "assistant_message"
+    }
+  ],
+  "schema_version": "0.1"
+}

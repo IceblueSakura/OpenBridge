@@ -103,7 +103,7 @@ Agent runtime、负载或长期运行验证。
 
 - request lifecycle、Provider attempt、OTLP traces/metrics 和本地 bounded HTTP JSONL snapshot 分属独立 owner；内容 snapshot 只在认证后和显式开关下采集，并强制脱敏。
 - 普通 observation 不记录 prompt、媒体正文、向量、credential、真实 endpoint、上游 body 或 Provider request ID。
-- Rust tests 只保留独立的客户端结果、Provider wire 或安全/资源失败边界；新增 Model、Route、Provider instance 或 catalog-only capability 默认不新增测试，也不维护完整 inventory、Route 顺序或逐模型矩阵。Python corpus/testkit 拥有 canonical corpus、fragmentation、standalone mock/client、报告与打包。
+- Rust tests 只保留独立的客户端结果、Provider wire 或安全/资源失败边界；新增 Model、Route、Provider instance 或 catalog-only capability 默认不新增测试，也不维护完整 inventory、Route 顺序或逐模型矩阵。Python corpus/testkit 拥有 canonical corpus、fragmentation、standalone mock/client、function/context/structured semantic case、零网络 execution plan、normalized trace verifier、报告与打包。
 - canonical `testdata/` 是合同资产；`testdata/runtime/`、`generated/`、`reports/`、`dist/` 是可重建派生产物。
 
 主要 owner：`src/observability/`、`testdata/`、`tools/corpus/`。

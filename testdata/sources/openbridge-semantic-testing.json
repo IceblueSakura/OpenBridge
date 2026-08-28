@@ -1,0 +1,21 @@
+{
+  "adaptation_notes": [
+    "The cases are original synthetic data informed by public evaluation methods; no external benchmark payload is copied.",
+    "Reviewed cases define executable project oracles but do not claim that OpenBridge, any model, or any Provider passed them.",
+    "The null ref is intentional because this is project-design provenance for the current corpus release, not an external immutable source snapshot."
+  ],
+  "id": "openbridge.semantic-testing",
+  "license": null,
+  "license_status": "not_applicable",
+  "observed_facts": [
+    "OpenBridge separates deterministic wire and gateway semantics from explicitly approved live model-quality experiments.",
+    "The project contract requires a future protocol-specific runner to normalize Chat and Responses outputs into one semantic trace before oracle evaluation.",
+    "Synthetic context cases vary generated UTF-8 bytes and relevant-fact placement; real input token counts remain runtime evidence rather than corpus metadata.",
+    "Default corpus tooling remains credential-free and does not start OpenBridge or call a Provider."
+  ],
+  "project": "OpenBridge project semantic testing design",
+  "ref": null,
+  "retrieved_at": "2026-08-28",
+  "schema_version": "0.1",
+  "url": "https://github.com/IceblueSakura/OpenBridge/blob/main/testdata/semantic-testing.md"
+}

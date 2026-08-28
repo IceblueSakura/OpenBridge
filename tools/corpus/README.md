@@ -35,10 +35,11 @@ uv run --project tools/corpus corpus --root testdata lint
 | `build-server-scenario` | 一个有上游 attempt 的 case        | `testdata/runtime/`           | 编译一个自包含上游 HTTP scenario                                 |
 | `build-server-suite`    | 有序 case 列表                    | `testdata/runtime/`           | 编译按请求顺序消费的多 exchange suite                            |
 | `build-client-plan`     | 一个 case + SUT/base URL          | `testdata/runtime/`           | 编译 Mock Client 请求计划                                        |
+| `build-semantic-plan`   | semantic case + 可选 length/position | `testdata/runtime/`        | 编译零网络 function/context/structured execution plan           |
 | `mock-server`           | scenario 或 suite JSON            | ready/observation JSON        | 启动 HTTP/1.1 upstream fixture                                   |
 | `mock-client`           | client plan JSON                  | observation JSON              | 发送一次请求并记录结果                                           |
 | `verify-observations`   | case + client/server observations | stdout/exit code              | 用 canonical oracle 判定单 case 结果                             |
-| `verify-semantic-trace` | semantic case + normalized trace  | stdout/exit code              | 判定工具选择、参数、调用集合与固定回答事实                       |
+| `verify-semantic-trace` | semantic case + normalized trace  | stdout/exit code              | 判定工具、context 固定事实与 strict structured output            |
 
 默认 corpus root 是 `./testdata`。传递 `--root testdata` 可使脚本和 CI 的工作目录显式。
 
@@ -48,7 +49,7 @@ uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.7.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.8.0.zip
 ```
 
 `generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation
@@ -194,7 +195,19 @@ error、EOF、transport abort 与 client cancellation 是不同层次的结果�
 多 exchange Server 的 observation 用 `mock_server_run` 包装并按 suite 顺序保存。Schema 有意允许单 exchange observation
 附加字段，使工具能增加非破坏性的诊断；runner 应只依赖明确文档化或 schema 定义的稳定字段。
 
-### Function-tool semantic trace 判定
+### Semantic execution plan 与 trace 判定
+
+`build-semantic-plan` 不启动 OpenBridge、不读取 credential，也不选择 model/Provider。function 与 structured task 原样编译为 runtime
+plan；context task 根据 case seed、声明的 UTF-8 byte 长度和 start/middle/end 位置生成精确长度 prompt：
+
+```powershell
+uv run --project tools/corpus corpus --root testdata build-semantic-plan `
+  --case context.literal_retrieval `
+  --target-bytes 16384 `
+  --placement middle
+```
+
+byte 是确定性生成控制量，不是 token 声明；真实 runner 必须单独记录实际 input token usage。
 
 semantic verifier 消费已经规范化的 trace，而不解析 Chat/Responses wire。trace 只包含按时间排列的
 `assistant_tool_call`、`tool_result`、`assistant_message` event；调用参数必须已经是 JSON object。Native Chat、Native Responses、
@@ -206,9 +219,9 @@ uv run --project tools/corpus corpus --root testdata verify-semantic-trace `
   --trace testdata/semantic-cases/function/function.parallel_independent/reference-trace.json
 ```
 
-命令先校验 trace schema 和 call/result identity，再检查 function 参数 schema、精确/包含参数、有序/无序调用、额外/禁止调用、
-预置 tool result 输出与最终回答必含/禁含事实。成功返回 `0`；不匹配返回 `1`，且诊断不回显正文。schema 不合法、case 不存在或
-JSON 损坏也返回 `1`。
+命令先校验 trace schema 和 call/result identity，再检查 function 参数 schema、调用集合、预置 tool result、context 固定事实，
+以及 structured assistant text 的 JSON parse/schema。成功返回 `0`；不匹配返回 `1`，且诊断不回显正文。schema 不合法、case
+不存在或 JSON 损坏也返回 `1`。
 
 testkit 不负责从任一协议 envelope 自动提取 trace，也不调用模型生成 trace；这两个步骤属于下一阶段显式接入的 runner。
 
@@ -248,7 +261,7 @@ testkit 已能对单 case 的最终 observations 做 canonical comparison，但�
 - runtime JSON、生成 variants、coverage report 和 ZIP 都是派生物，不提交；
 - 新增 response/observation 字段时先评估 schema compatibility；破坏性 schema 改动必须升级 schema version；
 - 为新 HTTP/SSE 分类补 unit/loopback 测试，覆盖 Server 与 Client 两端；
-- 为新工具语义先补 semantic case、reference trace 与 verifier 负例；协议特定字段仍放在 wire case；
+- 为新 function/context/structured 语义先补 semantic case、reference trace 与 verifier 负例；协议特定字段仍放在 wire case；
 - 不在 corpus、plan、scenario 或 observation 中记录真实 credential；
 - 不把 tool loopback 结果描述为 OpenBridge、SDK 或真实 Provider 兼容证明。
 

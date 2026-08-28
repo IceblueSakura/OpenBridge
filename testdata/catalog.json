@@ -52,7 +52,7 @@
     "responses_to_chat.unknown_tool_result.reject",
     "responses_to_chat.unsupported_hosted_tool.reject"
   ],
-  "corpus_version": "0.7.0",
+  "corpus_version": "0.8.0",
   "default_generation_seed": 20260726,
   "required_core_features": [
     "text",
@@ -119,10 +119,22 @@
     "parallel_tools",
     "unordered_calls",
     "tool_result_grounding",
-    "final_response_facts"
+    "final_response_facts",
+    "context_addressability",
+    "context_associative_retrieval",
+    "context_multi_fact_integration",
+    "context_conflict_resolution",
+    "context_length_sweep",
+    "context_position_sweep",
+    "structured_output",
+    "semantic_json"
   ],
   "schema_version": "0.1",
   "semantic_case_ids": [
+    "context.associative_retrieval",
+    "context.conflict_resolution",
+    "context.literal_retrieval",
+    "context.multi_fact_integration",
     "function.ambiguous_selection",
     "function.forced_tool",
     "function.missing_argument_clarification",
@@ -131,7 +143,8 @@
     "function.result_grounding",
     "function.single_tool_arguments",
     "function.tool_choice_none",
-    "function.tool_choice_required"
+    "function.tool_choice_required",
+    "structured.strict_nested_json"
   ],
-  "title": "OpenBridge Chat Responses SSE Tool Corpus"
+  "title": "OpenBridge Protocol and Semantic Corpus"
 }

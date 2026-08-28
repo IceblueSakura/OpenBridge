@@ -22,6 +22,7 @@ commit 为准；目录索引只负责导航和维护规则，不用较新的索�
 | cc-switch | [Chat/Responses tool conversion](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[retry/failover](cc-switch/cc-switch-retry-failover-analysis.md) | 桌面客户端 bridge 与 Provider failover |
 | CLIProxyAPI | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 订阅账号代理的 state、cooldown 与 OAuth lifecycle |
 | 跨项目综合 | [综合调研索引](cross-project/README.md) | 只汇总已经存在项目级前置文档的比较 |
+| 语义评测方法 | [Semantic evaluation methods](semantic-testing-methods.md) | 长上下文、function-tool 与 structured-output 方法和采用边界 |
 
 语音资料按证据所有权分开：标准 Audio/Speech、Chat audio 与 Realtime wire 见
 [OpenAI 音频与语音索引](openai/README.md#6-音频与语音)；MiMo wire 见

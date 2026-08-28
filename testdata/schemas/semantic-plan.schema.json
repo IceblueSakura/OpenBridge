@@ -1,0 +1,323 @@
+{
+  "$defs": {
+    "context_task": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "context"
+        },
+        "prompt": {
+          "maxLength": 8388608,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "function_tool": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "strict": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "function"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "description",
+        "parameters",
+        "strict"
+      ],
+      "type": "object"
+    },
+    "function_task": {
+      "additionalProperties": false,
+      "properties": {
+        "controls": {
+          "additionalProperties": false,
+          "properties": {
+            "parallel_tool_calls": {
+              "type": "boolean"
+            },
+            "tool_choice": {
+              "$ref": "#/$defs/tool_choice"
+            }
+          },
+          "required": [
+            "tool_choice",
+            "parallel_tool_calls"
+          ],
+          "type": "object"
+        },
+        "kind": {
+          "const": "function"
+        },
+        "prompt": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/function_tool"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "prompt",
+        "tools",
+        "controls"
+      ],
+      "type": "object"
+    },
+    "tool_choice": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "function"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "auto",
+                  "none",
+                  "required"
+                ]
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "name"
+              ]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "auto",
+            "none",
+            "required",
+            "function"
+          ]
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
+    "structured_task": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "structured"
+        },
+        "prompt": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "response_format": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "schema": {
+              "type": "object"
+            },
+            "strict": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "strict",
+            "schema"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "prompt",
+        "response_format"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "properties": {
+              "kind": {
+                "const": "context"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "target_utf8_bytes",
+          "actual_utf8_bytes",
+          "placement",
+          "seed"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "target_utf8_bytes"
+              ]
+            },
+            {
+              "required": [
+                "actual_utf8_bytes"
+              ]
+            },
+            {
+              "required": [
+                "placement"
+              ]
+            },
+            {
+              "required": [
+                "seed"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "properties": {
+    "actual_utf8_bytes": {
+      "maximum": 8388608,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "applies_to": {
+      "items": {
+        "enum": [
+          "chat_native",
+          "responses_native",
+          "chat_to_responses",
+          "responses_to_chat"
+        ]
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "case_id": {
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+      "type": "string"
+    },
+    "placement": {
+      "enum": [
+        "start",
+        "middle",
+        "end"
+      ]
+    },
+    "role": {
+      "const": "semantic_execution_plan"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "seed": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "target_utf8_bytes": {
+      "maximum": 8388608,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "task": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/function_task"
+        },
+        {
+          "$ref": "#/$defs/context_task"
+        },
+        {
+          "$ref": "#/$defs/structured_task"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "role",
+    "case_id",
+    "applies_to",
+    "task"
+  ],
+  "type": "object"
+}

@@ -24,8 +24,9 @@ from .plans import (
     build_server_suite,
     validate_runtime_document,
 )
-from .verifier import verify_case_observations
 from .semantic import verify_semantic_trace
+from .semantic_plan import build_semantic_plan
+from .verifier import verify_case_observations
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -122,6 +123,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     semantic_verify.add_argument("--case", required=True)
     semantic_verify.add_argument("--trace", type=Path, required=True)
+
+    semantic_plan = subparsers.add_parser(
+        "build-semantic-plan",
+        help="Compile a credential-free semantic execution plan.",
+    )
+    semantic_plan.add_argument("--case", required=True)
+    semantic_plan.add_argument("--target-bytes", type=int)
+    semantic_plan.add_argument(
+        "--placement", choices=["start", "middle", "end"]
+    )
+    semantic_plan.add_argument("--output", type=Path)
     return parser
 
 
@@ -255,6 +267,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             output = _write_runtime(
                 root, args.output, f"{args.suite_id}.server-suite.json", suite
+            )
+            print(f"wrote {output}")
+            return 0
+        if args.command == "build-semantic-plan":
+            plan = build_semantic_plan(
+                root,
+                args.case,
+                target_bytes=args.target_bytes,
+                placement=args.placement,
+            )
+            validate_runtime_document(root, "semantic-plan", plan)
+            output = _write_runtime(
+                root, args.output, f"{args.case}.semantic-plan.json", plan
             )
             print(f"wrote {output}")
             return 0

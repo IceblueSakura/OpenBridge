@@ -1,0 +1,67 @@
+{
+  "applies_to": [
+    "chat_native",
+    "responses_native",
+    "chat_to_responses",
+    "responses_to_chat"
+  ],
+  "artifacts": {
+    "reference_trace": "reference-trace.json"
+  },
+  "does_not_prove": [
+    "Synthetic pass/fail does not prove a Provider context limit, general model quality, tokenizer behavior, or production OpenBridge compatibility."
+  ],
+  "features": [
+    "context_associative_retrieval",
+    "context_length_sweep",
+    "context_position_sweep"
+  ],
+  "id": "context.associative_retrieval",
+  "oracle": {
+    "calls": {
+      "allow_additional": false,
+      "forbidden_names": [],
+      "match_order": "exact",
+      "required": []
+    },
+    "final_response": {
+      "case_sensitive": false,
+      "contains_all": [
+        "Kyoto"
+      ],
+      "contains_none": [],
+      "required": true
+    },
+    "results": {
+      "allow_additional": false,
+      "required": []
+    }
+  },
+  "provenance_ref": "sources/openbridge-semantic-testing.json",
+  "proves": [
+    "Defines a synthetic association case whose query does not repeat the named entity in the relevant record."
+  ],
+  "schema_version": "0.1",
+  "status": "reviewed",
+  "task": {
+    "context": {
+      "distractor_template": "Record {index:06d} token {token}: routine status remains nominal.\n",
+      "needle": "The calibration key for Saturn is stored in Kyoto.\n",
+      "placements": [
+        "start",
+        "middle",
+        "end"
+      ],
+      "seed": 20260829,
+      "target_bytes": [
+        4096,
+        16384,
+        65536
+      ]
+    },
+    "instruction": "Use the context and common entity knowledge to answer with one city.",
+    "kind": "context",
+    "question": "Which city stores the calibration key for the planet famous for its prominent rings?"
+  },
+  "title": "Associative retrieval without a literal entity name"
+}
