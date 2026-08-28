@@ -46,7 +46,7 @@ downstream response + request/attempt observations
 |---|---|---|
 | Bootstrap 与进程策略 | `src/config/`、`src/main.rs` | 严格解析、进程启动/关闭和 composition；不拥有 Model/Provider 事实 |
 | 下游用户 | `src/identity.rs` | 私有用户表解析、API key 匹配和不可变 `UserRegistry` |
-| 上游凭证 | `src/upstream_credentials.rs`、`src/credential/`、`src/oauth2_credentials/` | 私有 binding、purpose-bound secret Store 与 OAuth lifecycle；不拥有 Route |
+| 上游凭证 | `src/upstream_credentials/`、`src/credential/`、`src/oauth2_credentials/` | 私有 document/binding/materialization/source、purpose-bound secret Store 与 OAuth lifecycle；不拥有 Route |
 | Canonical Model | `src/models/` | identity、task、limits、modalities、parameters 与 reasoning 等模型事实 |
 | Provider 抽象 | `src/provider/` | 闭合 `ProviderKind`、contract、adapter、错误、credential/header 与 terminal 边界 |
 | Provider 实现 | `src/providers/` | trusted origin、operation path、model Target、request hook 与显式 catalog registration |
@@ -63,11 +63,11 @@ downstream response + request/attempt observations
 
 - `core/capability.rs` 只在 `ApiCapabilities` 汇总域；Generation、Embeddings 与 Images 规则分别位于
   `core/capability/generation.rs`、`core/capability/embeddings.rs` 和 `core/capability/images.rs`。
-- `pipeline/generation/`、`pipeline/embeddings/` 与 `pipeline/images/` 分别拥有 operation analyzer、preflight、planner 和 pure response policy；
+- `pipeline/generation/`、`pipeline/embeddings/` 与 `pipeline/images/` 分别拥有 operation types/errors、analyzer、preflight、planner 和 pure response policy；
   各 analyzer 不解析 registry entity，response policy 不执行 body I/O、observation 或 downstream commit。
-- `registry/public_model.rs` 只拥有下游安全 DTO 与 preflight accessor；私有 execution snapshot、contribution、aggregation
-  与 operation response budget 由同名子模块拥有。
-- `observability.rs` 只作 facade；request/provider/metrics/otlp/http logging 各自拥有对应生命周期。
+- `registry/public_model.rs` 是稳定 facade；operation DTO、media algebra、private execution snapshot、contribution、aggregation
+  与 operation response budget 由 `public_model/*` owner 持有。
+- `observability.rs` 只作 facade；request terminal、request content snapshot、provider、metrics、otlp 与 http JSONL 各自拥有对应生命周期。
 
 ## 3. 启动装配
 
@@ -140,7 +140,7 @@ empty media profile。Audio remote URL、data URL 与 pure Base64 source 分别�
 per-source 与全 operation cumulative inline budgets。Models v1 继续输出原有 flat audio wire；格式取所有可达 source 的保守交集，
 因此不会比 private executable contract 更宽。
 
-Generation media algebra 位于 `core/capability/generation/media.rs`，generation envelope 通过 facade 保持原 crate path。Provider
+Generation media algebra 位于 `core/capability/generation/media/` 的 audio/image/file leaves，generation envelope 通过 facade 保持原 crate path。Provider
 media ceiling 与 named Target profile 位于同 Provider 的 `media.rs`，不由 model catalog 或 registration 重新定义。
 
 Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`。前者在同一协议先排列所有 Native，再排列 Bridge；后者先

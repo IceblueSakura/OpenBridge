@@ -5,6 +5,8 @@
 //! attempt instruments. Shared state stores pending lifecycle diagnostics and usage, and guarantees
 //! that finish/cancel is submitted at most once.
 
+mod content;
+
 use std::{
     sync::{
         Arc, Mutex,
@@ -20,11 +22,13 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{config::HttpLoggingConfig, core::OperationKind};
 
+use content::DownstreamContentObserver;
+
 use super::{
     classification::{
         AttemptFailure, ErrorType, FailureStage, RequestFailure, RequestKind, TimeoutPhase,
     },
-    http_jsonl::{HttpJsonlWriter, JsonlRecord},
+    http_jsonl::HttpJsonlWriter,
     metrics::{GatewayMetrics, RequestMetricTerminal},
     provider::{
         AttemptOutcome, ProviderAttemptContext, ProviderAttemptObservation,
@@ -43,9 +47,7 @@ struct RequestObservationInner {
     metrics: GatewayMetrics,
     span: Span,
     request_kind: RequestKind,
-    request_id: String,
-    http_logging: HttpLoggingConfig,
-    jsonl_writer: Option<HttpJsonlWriter>,
+    content: DownstreamContentObserver,
     started: Instant,
     first_body_byte_recorded: AtomicBool,
     first_output_recorded: AtomicBool,
@@ -107,9 +109,7 @@ impl RequestObservation {
                 metrics,
                 span,
                 request_kind,
-                request_id,
-                http_logging,
-                jsonl_writer,
+                content: DownstreamContentObserver::new(request_id, http_logging, jsonl_writer),
                 started: Instant::now(),
                 first_body_byte_recorded: AtomicBool::new(false),
                 first_output_recorded: AtomicBool::new(false),
@@ -122,22 +122,14 @@ impl RequestObservation {
 
     /// Emits authenticated downstream request headers when their independent switch is enabled.
     pub(crate) fn log_request_headers(&self, method: &Method, path: &str, headers: &HeaderMap) {
-        if self.inner.http_logging.request_headers()
-            && let Some(writer) = &self.inner.jsonl_writer
-        {
-            let record = JsonlRecord::request_headers(
-                &self.inner.request_id,
-                method.as_str(),
-                path,
-                headers,
-            );
-            writer.try_enqueue(record);
-        }
+        self.inner
+            .content
+            .log_request_headers(method, path, headers);
     }
 
     /// Returns whether the request body needs a bounded local capture.
     pub(crate) fn logs_request_body(&self) -> bool {
-        self.inner.http_logging.request_body()
+        self.inner.content.logs_request_body()
     }
 
     /// Emits one authenticated downstream request-body snapshot.
@@ -148,34 +140,19 @@ impl RequestObservation {
         complete: bool,
         truncated: bool,
     ) {
-        if self.inner.http_logging.request_body()
-            && let Some(writer) = &self.inner.jsonl_writer
-        {
-            let record = JsonlRecord::request_body(
-                &self.inner.request_id,
-                bytes,
-                total_bytes,
-                complete,
-                truncated,
-            );
-            writer.try_enqueue(record);
-        }
+        self.inner
+            .content
+            .log_request_body(bytes, total_bytes, complete, truncated);
     }
 
     /// Emits downstream response headers when their independent switch is enabled.
     pub(crate) fn log_response_headers(&self, status: StatusCode, headers: &HeaderMap) {
-        if self.inner.http_logging.response_headers()
-            && let Some(writer) = &self.inner.jsonl_writer
-        {
-            let record =
-                JsonlRecord::response_headers(&self.inner.request_id, status.as_u16(), headers);
-            writer.try_enqueue(record);
-        }
+        self.inner.content.log_response_headers(status, headers);
     }
 
     /// Returns whether the response body needs a bounded local capture.
     pub(crate) fn logs_response_body(&self) -> bool {
-        self.inner.http_logging.response_body()
+        self.inner.content.logs_response_body()
     }
 
     /// Emits one downstream response-body snapshot.
@@ -186,18 +163,9 @@ impl RequestObservation {
         complete: bool,
         truncated: bool,
     ) {
-        if self.inner.http_logging.response_body()
-            && let Some(writer) = &self.inner.jsonl_writer
-        {
-            let record = JsonlRecord::response_body(
-                &self.inner.request_id,
-                bytes,
-                total_bytes,
-                complete,
-                truncated,
-            );
-            writer.try_enqueue(record);
-        }
+        self.inner
+            .content
+            .log_response_body(bytes, total_bytes, complete, truncated);
     }
 
     /// Records the downstream operation and registry-validated Public Model after planning.

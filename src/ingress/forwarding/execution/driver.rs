@@ -1,5 +1,8 @@
 //! Closed operation driver state and policy for prepared-candidate execution.
 
+mod embeddings;
+mod generation;
+
 use std::collections::HashSet;
 
 use axum::response::Response;
@@ -25,23 +28,19 @@ use crate::{
 use super::super::{
     candidate::PreparedCandidate,
     configuration_error as generation_configuration_error,
-    embedding_response::validated_embedding_response,
     embeddings::configuration_error as embedding_configuration_error,
     oauth::{oauth2_authentication_error, recover_after_unauthorized},
     policy::{
         http_attempt_failure, should_retry_error, should_retry_status, transport_attempt_failure,
     },
-    response::{UpstreamResponseContext, UpstreamResponseOutcome, upstream_response},
+    response::UpstreamResponseOutcome,
 };
 use super::{
     GenerationCandidateOutcome, PreparedEmbeddingExecution, PreparedGenerationExecution,
     StoredHttpFailure,
 };
 use crate::ingress::{
-    response::{
-        api_error, embedding_server_error, embedding_upstream_error,
-        normalized_embedding_upstream_error, upstream_error,
-    },
+    response::{api_error, embedding_server_error},
     state::GatewayState,
 };
 
@@ -660,33 +659,21 @@ pub(super) async fn finish_http(
             adapter,
             ..
         } => {
-            let outcome = upstream_response(
+            generation::finish_http(
+                state,
+                observation,
                 upstream,
-                UpstreamResponseContext {
-                    validate_sse: plan.is_streaming(),
+                generation::CompletionContext {
+                    member_index: selected.member_index,
+                    plan,
+                    candidate,
+                    target,
+                    credential_pool,
+                    static_credentials: static_credentials.as_deref(),
                     adapter: *adapter,
-                    max_sse_event_bytes: plan.max_sse_event_bytes(),
-                    max_json_body_bytes: plan.max_json_response_body_bytes(),
-                    bridge: candidate.bridge().cloned(),
-                    stream_response_conversion: candidate.stream_response_conversion(),
-                    observation: observation.clone(),
                 },
             )
-            .await;
-            if matches!(
-                &outcome,
-                UpstreamResponseOutcome::Response(response) if response.status().is_success()
-            ) {
-                if let Some(credentials) = static_credentials.as_ref() {
-                    state
-                        .credential_health
-                        .record_success(credential_pool.id(), &credentials[selected.member_index]);
-                }
-                state
-                    .health
-                    .record_success(candidate.upstream_target_id(), target);
-            }
-            outcome
+            .await
         }
         OperationDriver::Embeddings {
             requirements,
@@ -697,47 +684,29 @@ pub(super) async fn finish_http(
             credentials,
             ..
         } => {
-            if !upstream.status().is_success() {
-                return normalized_embedding_upstream_error(upstream).into();
-            }
-            let response = match validated_embedding_response(
-                upstream,
+            embeddings::finish_http(
+                state,
                 observation,
-                requirements.public_model(),
-                upstream_api.upstream_model(),
-                plan.input_count(),
-                plan.encoding(),
-                plan.dimensions(),
-                plan.max_json_response_body_bytes(),
+                upstream,
+                embeddings::CompletionContext {
+                    member_index: selected.member_index,
+                    requirements,
+                    plan,
+                    target,
+                    upstream_api,
+                    credential_pool,
+                    credentials,
+                },
             )
             .await
-            {
-                Ok(response) => response,
-                Err(_) => {
-                    observation.record_stream_failure(ErrorType::InvalidUpstreamResponse);
-                    return embedding_server_error(
-                        StatusCode::BAD_GATEWAY,
-                        "invalid_upstream_response",
-                        "The upstream response is invalid",
-                    )
-                    .into();
-                }
-            };
-            state
-                .credential_health
-                .record_success(credential_pool.id(), &credentials[selected.member_index]);
-            state
-                .health
-                .record_success(plan.candidate().upstream_target_id(), target);
-            response.into()
         }
     }
 }
 
 pub(super) fn finish_transport(driver: &OperationDriver<'_>, error: TransportError) -> Response {
     match driver {
-        OperationDriver::Generation { .. } => upstream_error(error),
-        OperationDriver::Embeddings { .. } => embedding_upstream_error(error),
+        OperationDriver::Generation { .. } => generation::finish_transport(error),
+        OperationDriver::Embeddings { .. } => embeddings::finish_transport(error),
     }
 }
 
@@ -751,9 +720,5 @@ pub(super) fn stored_http_failure(
     else {
         unreachable!("Embeddings has no cross-candidate fallback")
     };
-    StoredHttpFailure {
-        upstream,
-        adapter: *adapter,
-        bridge: candidate.bridge().cloned(),
-    }
+    generation::stored_http_failure(upstream, candidate, *adapter)
 }

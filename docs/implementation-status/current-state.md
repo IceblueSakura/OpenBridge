@@ -11,7 +11,7 @@
 - Models DTO 只包含下游安全事实，不公开 Provider、Target、Route、upstream model、endpoint、credential、健康状态或价格。
 - 能力拒绝使用 OpenAI-compatible 400 envelope 和标准顶层 `param`；内部 candidate、Route 和 capability reason 不序列化。
 
-主要 owner：`src/ingress/router.rs`、`src/ingress/auth.rs`、`src/ingress/lifecycle.rs`、`src/ingress/mcp/`、`src/registry/public_model.rs`。
+主要 owner：`src/ingress/router.rs`、`src/ingress/auth.rs`、`src/ingress/lifecycle.rs`、`src/ingress/mcp/`、`src/registry/public_model/`。
 
 确定性入口：`tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs`、`tests/mcp_contract.rs`、`tests/mcp_dual_era.rs`。
 
@@ -64,7 +64,7 @@ Agent runtime、负载或长期运行验证。
 - image、file、audio、hosted/custom tool、background/state 和 opaque continuation 没有可验证等价物时，Bridge 在 egress 前拒绝。
 - SSE state machine 维护 item/call/index、fragmented arguments、terminal、EOF、body error 和 cancel；不会伪造 terminal 或把已提交 partial stream 改写为新响应。
 
-主要 owner：`src/ingress/forwarding.rs`、`src/ingress/streaming.rs`、`src/pipeline/generation/`、`src/bridge/`、`src/provider/`、`src/transport/`。
+主要 owner：`src/ingress/forwarding.rs`、`src/ingress/streaming/`、`src/pipeline/generation/`、`src/bridge/`、`src/provider/`、`src/transport/`。
 
 确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/protocol_bridge_replay.rs`、`tests/process_replay_contract.rs`。
 
@@ -79,7 +79,7 @@ Agent runtime、负载或长期运行验证。
 - 下游取消终止 send、backoff、response body 和后续 attempt；timeout、terminal、EOF-before-terminal、body error 与 cancel 各收口一次。
 - Embeddings 复用 attempt/cancel 边界；Images 使用单 candidate、单 credential、单 physical attempt，不调用 recovery API。
 
-主要 owner：`src/ingress/forwarding/`、`src/ingress/attempt.rs`、`src/ingress/health.rs`、`src/ingress/streaming.rs`。
+主要 owner：`src/ingress/forwarding/`、`src/ingress/attempt.rs`、`src/ingress/health.rs`、`src/ingress/streaming/`。
 
 确定性入口：`tests/forwarding_contract/resilience.rs`、`tests/process_replay_contract.rs`、`tests/embedding_forwarding_contract.rs`、`tests/images_forwarding_contract.rs`。
 

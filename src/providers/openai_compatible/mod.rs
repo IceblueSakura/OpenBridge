@@ -16,7 +16,8 @@ use http::HeaderMap;
 
 use crate::{
     core::{ApiProtocol, OperationKind},
-    provider::{AdapterError, ProviderKind, ProviderRequestHeaders, SafeHeaders},
+    credential::UpstreamCredential,
+    provider::{AdapterError, ProviderKind, ProviderRequestHeaders, SafeHeaders, SensitiveHeaders},
 };
 
 pub(crate) use registration::native_upstream_apis;
@@ -28,6 +29,9 @@ pub(crate) type RequestHeaderHook = fn(&HeaderMap, &mut SafeHeaders) -> Result<(
 /// Compile-time Provider hook for one trusted routed operation and upstream model.
 pub(crate) type RoutedRequestHeaderHook =
     fn(OperationKind, &str, &mut SafeHeaders) -> Result<(), AdapterError>;
+/// Compile-time Provider hook for account-bound sensitive authentication context.
+pub(crate) type AuthenticationContextHook =
+    fn(&UpstreamCredential<'_>) -> Result<SensitiveHeaders, AdapterError>;
 /// Compile-time Provider hook for narrowing one parsed protocol request to its fixed wire contract.
 pub(crate) type RequestBodyHook =
     fn(ApiProtocol, &mut serde_json::Map<String, serde_json::Value>) -> Result<(), AdapterError>;
@@ -67,6 +71,7 @@ pub(crate) struct OpenAiCompatibleAdapter {
     model_list_parser: ModelListParser,
     request_header_hook: RequestHeaderHook,
     routed_request_header_hook: RoutedRequestHeaderHook,
+    authentication_context_hook: AuthenticationContextHook,
     request_body_hook: RequestBodyHook,
     images_request_body_hook: ImagesRequestBodyHook,
     request_headers: ProviderRequestHeaders,
@@ -92,6 +97,7 @@ impl OpenAiCompatibleAdapter {
             model_list_parser: request::parse_openai_model_list_ids,
             request_header_hook,
             routed_request_header_hook: headers::preserve_routed_request_headers,
+            authentication_context_hook: headers::empty_authentication_context,
             request_body_hook: request::preserve_request_body,
             images_request_body_hook: request::convert_images_to_openai_compatible_shape,
             request_headers: ProviderRequestHeaders::new(),
@@ -116,6 +122,15 @@ impl OpenAiCompatibleAdapter {
         routed_request_header_hook: RoutedRequestHeaderHook,
     ) -> Self {
         self.routed_request_header_hook = routed_request_header_hook;
+        self
+    }
+
+    /// Attaches the concrete Provider's account-bound sensitive authentication context.
+    pub(crate) const fn with_authentication_context_hook(
+        mut self,
+        authentication_context_hook: AuthenticationContextHook,
+    ) -> Self {
+        self.authentication_context_hook = authentication_context_hook;
         self
     }
 

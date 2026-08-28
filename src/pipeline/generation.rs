@@ -5,10 +5,12 @@
 //! transport, credential, response-body, or downstream commit I/O.
 
 mod analysis;
+pub(super) mod error;
 mod instructions;
 mod planning;
 mod preflight;
 mod response;
+pub(super) mod types;
 
 pub use analysis::analyze_request;
 pub(crate) use instructions::normalize_probe_generation_request;

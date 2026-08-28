@@ -4,9 +4,11 @@
 //! performing transport, credential, response-body, or downstream commit I/O.
 
 mod analysis;
+pub(super) mod error;
 mod planning;
 mod preflight;
 mod response;
+pub(super) mod types;
 
 pub use analysis::analyze_embedding_request;
 pub use planning::plan_embedding_request;

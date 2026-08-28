@@ -1,7 +1,7 @@
 //! Ordinary and sensitive header assembly for OpenAI-compatible requests.
 
 use http::{
-    HeaderMap, HeaderName, HeaderValue,
+    HeaderMap, HeaderValue,
     header::{AUTHORIZATION, CONTENT_TYPE},
 };
 use zeroize::Zeroizing;
@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 use crate::{
     core::OperationKind,
     credential::CredentialType,
-    provider::{AdapterError, ProviderKind, SafeHeaders, SensitiveHeaders},
+    provider::{AdapterError, SafeHeaders, SensitiveHeaders},
 };
 
 use super::OpenAiCompatibleAdapter;
@@ -65,33 +65,22 @@ impl OpenAiCompatibleAdapter {
             return Err(AdapterError::CredentialKindMismatch);
         }
 
-        // Assemble the sensitive Bearer header inside a zeroizing string.
+        // Build the concrete Provider's account-bound context before the common Bearer value.
+        let mut headers = (self.authentication_context_hook)(credential)?;
+
+        // Insert the common Bearer header last so a concrete hook cannot replace authorization.
         let mut bearer = Zeroizing::new("Bearer ".to_owned());
         bearer.push_str(credential.expose_secret());
-        let mut headers = SensitiveHeaders::default();
         headers.insert(AUTHORIZATION, bearer);
-
-        // Bind ChatGPT subscription requests to the selected account and conditional FedRAMP edge.
-        if self.kind == ProviderKind::ChatGpt {
-            let account_id = credential
-                .expose_chatgpt_account_id()
-                .ok_or(AdapterError::IncompleteAuthenticationContext)?;
-            headers.insert(
-                HeaderName::from_static("chatgpt-account-id"),
-                Zeroizing::new(account_id.to_owned()),
-            );
-            let is_fedramp_account = credential
-                .is_fedramp_account()
-                .ok_or(AdapterError::IncompleteAuthenticationContext)?;
-            if is_fedramp_account {
-                headers.insert(
-                    HeaderName::from_static("x-openai-fedramp"),
-                    Zeroizing::new("true".to_owned()),
-                );
-            }
-        }
         Ok(headers)
     }
+}
+
+/// Supplies no additional authentication context for ordinary Bearer Providers.
+pub(super) fn empty_authentication_context(
+    _credential: &crate::credential::UpstreamCredential<'_>,
+) -> Result<SensitiveHeaders, AdapterError> {
+    Ok(SensitiveHeaders::default())
 }
 
 /// Keeps routed headers unchanged for Providers without operation/model-specific policy.

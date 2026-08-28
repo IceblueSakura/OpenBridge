@@ -26,15 +26,18 @@ See `docs/implementation-status/current-architecture.md` for the current module 
 - Split modules by ownership or independent protocol domain, not line count. Keep multi-responsibility roots as small
   facades and preserve public crate paths through explicit re-exports.
 - `core/capability.rs` only combines domains at `ApiCapabilities`; generation rules belong in
-  `core/capability/generation.rs`, and Embeddings input/encoding/dimension/limit rules in
-  `core/capability/embeddings.rs`.
-- `pipeline/generation/` and `pipeline/embeddings/` each own their operation analyzer, preflight, planner, and pure response
-  policy behind `pipeline/mod.rs` re-exports. Analyzers extract request facts only; they must not resolve registry entities
-  or select Routes. Response policy must not perform body I/O, observation, or downstream commit.
-- `registry/public_model.rs` owns downstream-safe Models DTOs and preflight accessors. Private execution interfaces,
-  startup compilation, contribution, aggregation, and Embeddings response-budget narrowing remain in their existing
-  `public_model/*` owners. Never serialize execution topology or move request-time routing into compiler modules.
-- `observability.rs` is a facade. `request.rs` owns downstream lifecycle, `provider.rs` attempt observation,
+  `core/capability/generation.rs`, Embeddings input/encoding/dimension/limit rules in
+  `core/capability/embeddings.rs`, and Images generation rules in `core/capability/images.rs`.
+- `pipeline/generation/`, `pipeline/embeddings/`, and `pipeline/images/` each own their operation analyzer, preflight,
+  planner, and pure response policy behind `pipeline/mod.rs` re-exports. Analyzers extract request facts only; they must
+  not resolve registry entities or select Routes. Response policy must not perform body I/O, observation, or downstream
+  commit.
+- `registry/public_model.rs` is the facade for downstream-safe Models DTOs and preflight accessors. Operation DTOs and
+  media algebra live in `public_model/*`; private execution interfaces, startup compilation, contribution, aggregation,
+  and Embeddings response-budget narrowing remain in their dedicated leaves. Never serialize execution topology or move
+  request-time routing into compiler modules.
+- `observability.rs` is a facade. `request.rs` owns downstream lifecycle, `request/content.rs` local snapshot policy,
+  `provider.rs` attempt observation,
   `metrics.rs`/`otlp.rs` SDK export, and `http_jsonl/` sanitized local snapshots. Authentication/wiring remains in
   `ingress/router.rs`; bounded body capture remains in `ingress/lifecycle.rs`.
 - Provider family roots aggregate trusted registration modules; developer roots aggregate explicit per-model leaves.

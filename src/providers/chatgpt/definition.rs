@@ -3,7 +3,8 @@
 //! This profile permits only OAuth bearer credentials and fixed Codex backend paths. It does not
 //! expose Chat Completions, Embeddings, WebSocket, or a generic OpenAI-compatible endpoint.
 
-use http::HeaderMap;
+use http::{HeaderMap, HeaderName};
+use zeroize::Zeroizing;
 
 use crate::{
     core::{
@@ -11,9 +12,10 @@ use crate::{
         ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
         ResponseInclude, StructuredOutputProfile,
     },
+    credential::UpstreamCredential,
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
-        ProviderRequestHeaders, SafeHeaders, StaticRequestHeader,
+        ProviderRequestHeaders, SafeHeaders, SensitiveHeaders, StaticRequestHeader,
     },
     providers::openai_compatible::{
         OpenAiCompatibleAdapter, OpenAiCompatibleApiSurface, OpenAiCompatibleEndpoint,
@@ -73,6 +75,7 @@ const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     "/models?client_version=0.146.0",
     transform_request_headers,
 )
+.with_authentication_context_hook(authentication_context)
 .with_request_body_hook(transform_request_body)
 .with_request_headers(CHATGPT_REQUEST_HEADERS)
 .with_openai_data_type_responses_terminal()
@@ -92,6 +95,30 @@ fn transform_request_headers(
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
     Ok(())
+}
+
+/// Binds ChatGPT subscription requests to the selected account and conditional FedRAMP edge.
+fn authentication_context(
+    credential: &UpstreamCredential<'_>,
+) -> Result<SensitiveHeaders, AdapterError> {
+    let account_id = credential
+        .expose_chatgpt_account_id()
+        .ok_or(AdapterError::IncompleteAuthenticationContext)?;
+    let mut headers = SensitiveHeaders::default();
+    headers.insert(
+        HeaderName::from_static("chatgpt-account-id"),
+        Zeroizing::new(account_id.to_owned()),
+    );
+    let is_fedramp_account = credential
+        .is_fedramp_account()
+        .ok_or(AdapterError::IncompleteAuthenticationContext)?;
+    if is_fedramp_account {
+        headers.insert(
+            HeaderName::from_static("x-openai-fedramp"),
+            Zeroizing::new("true".to_owned()),
+        );
+    }
+    Ok(headers)
 }
 
 /// Extracts ChatGPT Codex model slugs from its manifest response envelope.
