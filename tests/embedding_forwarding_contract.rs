@@ -15,21 +15,22 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header::CONTENT_TYPE},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::future::BoxFuture;
 use http::{HeaderMap, HeaderValue, Method};
 use openbridge::{
     config::parse_bootstrap_config,
     core::{
-        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
-        OperationKind,
+        EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingEncodingPolicy, EmbeddingInputForm,
+        EmbeddingsCapabilities, OperationKind,
     },
     ingress::{GatewayState, build_router},
-    provider::{PreparedUpstreamRequest, ProviderKind},
+    provider::{CredentialKind, PreparedUpstreamRequest, ProviderKind},
     registry::{
-        CanonicalModelTask, CanonicalTaskKind, EmbeddingModelProfile, InputModality, ModelConfig,
-        ModelLifecycle, PublicModelConfig, RegistryConfig, RouteConfig, UpstreamApiCapabilities,
-        UpstreamApiConfig, UpstreamApiKey, UpstreamApiModelRules, UpstreamTarget,
-        UpstreamTargetConfig, build_registry,
+        CanonicalModelTask, CanonicalTaskKind, CredentialPoolConfig, EmbeddingModelProfile,
+        InputModality, ModelConfig, ModelLifecycle, ProviderInstanceConfig, PublicModelConfig,
+        RegistryConfig, RouteConfig, UpstreamApiCapabilities, UpstreamApiConfig, UpstreamApiKey,
+        UpstreamApiModelRules, UpstreamTarget, UpstreamTargetConfig, build_registry,
     },
     transport::upstream::{TransportError, UpstreamResponse, UpstreamTransport},
 };
@@ -51,6 +52,9 @@ const LOCALLY_COUNTED_FORMS: &[EmbeddingInputForm] = &[
     EmbeddingInputForm::TokenArrayArray,
 ];
 const PARAMETERS: &[&str] = &["dimensions", "encoding_format", "user"];
+const QWEN_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
+const QWEN_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
+const QWEN_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const DOWNSTREAM_KEY: &str = "downstream-token-0000000000000000";
 
 #[derive(Debug)]
@@ -304,7 +308,11 @@ fn valid_embedding_response(request: &Value) -> SyntheticEmbeddingResponse {
         _ => unreachable!("preflighted test input has one supported shape"),
     };
     let encoding = request["encoding_format"].as_str().unwrap_or("float");
-    let dimensions = request["dimensions"].as_u64().unwrap_or(4) as usize;
+    let default_dimensions = match request["model"].as_str() {
+        Some("qwen3.7-text-embedding") => 1_024,
+        _ => 4,
+    };
+    let dimensions = request["dimensions"].as_u64().unwrap_or(default_dimensions) as usize;
 
     // Preserve one deterministic vector per logical input in canonical order.
     let data = (0..input_count)
@@ -325,10 +333,13 @@ fn valid_embedding_response(request: &Value) -> SyntheticEmbeddingResponse {
             })
         })
         .collect::<Vec<_>>();
+    let response_model = request["model"]
+        .as_str()
+        .expect("preflighted request has a model");
     SyntheticEmbeddingResponse::json(json!({
         "object": "list",
         "data": data,
-        "model": "embedding-upstream",
+        "model": response_model,
         "usage": {
             "prompt_tokens": input_count,
             "total_tokens": input_count
@@ -348,6 +359,23 @@ fn embedding_capabilities() -> EmbeddingsCapabilities {
         max_total_tokens: Some(4),
         locally_counted_input_forms: LOCALLY_COUNTED_FORMS,
         supported_parameters: PARAMETERS,
+    }
+}
+
+fn qwen_embedding_capabilities() -> EmbeddingsCapabilities {
+    EmbeddingsCapabilities {
+        input_forms: &[EmbeddingInputForm::String, EmbeddingInputForm::StringArray],
+        default_encoding: EmbeddingEncoding::Float,
+        allowed_encodings: Some(QWEN_ENCODINGS),
+        default_dimensions: 1_024,
+        allowed_dimensions: Some(EmbeddingDimensionDomain::Values {
+            values: QWEN_DIMENSIONS,
+        }),
+        max_inputs: 20,
+        max_tokens_per_input: Some(128_000),
+        max_total_tokens: None,
+        locally_counted_input_forms: &[],
+        supported_parameters: QWEN_PARAMETERS,
     }
 }
 
@@ -441,6 +469,84 @@ fn app_with_bootstrap_and_responses(
     let (users, credentials) =
         users_and_credentials(DOWNSTREAM_KEY, &registry, "upstream-test-key");
     let transport = Arc::new(RecordingEmbeddingTransport::new(responses));
+    let state = GatewayState::new(registry, transport.clone(), users, credentials);
+    (build_router(state), transport)
+}
+
+fn bailian_qwen_app() -> (axum::Router, Arc<RecordingEmbeddingTransport>) {
+    // Keep this path isolated from unrelated production routes while using the real Bailian adapter.
+    let mut definition = embedding_registry_definition();
+    definition.models.push(ModelConfig {
+        id: "qwen/qwen3.7-text-embedding".to_owned(),
+        name: "Qwen3.7 Text Embedding".to_owned(),
+        description: None,
+        tokenizer: None,
+        knowledge_cutoff: None,
+        task: CanonicalModelTask::Embedding(EmbeddingModelProfile {
+            max_input_tokens: Some(128_000),
+            input_modalities: Some(vec![InputModality::Text]),
+            supported_parameters: QWEN_PARAMETERS
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+        }),
+    });
+    definition.provider_instances.push(ProviderInstanceConfig {
+        id: "bailian".to_owned(),
+        kind: ProviderKind::Bailian,
+        base_url: "https://dashscope.example.com/compatible-mode/v1".to_owned(),
+    });
+    definition.credential_pools.push(CredentialPoolConfig {
+        id: "bailian-primary".to_owned(),
+        provider: ProviderKind::Bailian,
+        kind: CredentialKind::ApiKey,
+    });
+    let qwen_api_key = definition
+        .upstream_targets
+        .iter()
+        .find(|target| target.id == "embedding-target")
+        .and_then(|target| target.upstream_apis.first())
+        .map(|api| api.key)
+        .expect("synthetic registry must contain one Embeddings API key");
+    definition.upstream_targets.push(UpstreamTargetConfig {
+        id: "bailian/qwen3-7-text-embedding".to_owned(),
+        provider_instance: "bailian".to_owned(),
+        canonical_model: "qwen/qwen3.7-text-embedding".to_owned(),
+        provider_model: "bailian/qwen3.7-text-embedding".to_owned(),
+        credential_pool: "bailian-primary".to_owned(),
+        quota_scope: None,
+        fault_domain: None,
+        timeout_policy: openbridge::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(30)),
+        enabled: true,
+        upstream_apis: vec![UpstreamApiConfig {
+            key: qwen_api_key,
+            upstream_model: "qwen3.7-text-embedding".to_owned(),
+            model_rules: UpstreamApiModelRules {
+                embedding_encoding_policy: EmbeddingEncodingPolicy::Base64ViaFloat,
+                ..UpstreamApiModelRules::default()
+            },
+            capabilities: UpstreamApiCapabilities::Embeddings(qwen_embedding_capabilities()),
+            streaming_policy: openbridge::registry::UpstreamStreamingPolicy::Optional,
+        }],
+    });
+    definition.public_models.push(PublicModelConfig {
+        id: "qwen3.7-text-embedding".to_owned(),
+        created: 1_785_715_200,
+        display_name: "qwen3.7-text-embedding".to_owned(),
+        description: None,
+        lifecycle: ModelLifecycle::active(),
+        reasoning_level_policy: openbridge::registry::ReasoningLevelPolicy::Strict,
+        routes: vec![RouteConfig {
+            upstream_target: "bailian/qwen3-7-text-embedding".to_owned(),
+            upstream_operation: OperationKind::EmbeddingsCreate,
+            downstream_operation: OperationKind::EmbeddingsCreate,
+        }],
+    });
+    let bootstrap = parse_bootstrap_config(BOOTSTRAP).unwrap();
+    let registry = Arc::new(build_registry(bootstrap, definition).unwrap());
+    let (users, credentials) =
+        users_and_credentials(DOWNSTREAM_KEY, &registry, "upstream-test-key");
+    let transport = Arc::new(RecordingEmbeddingTransport::new([]));
     let state = GatewayState::new(registry, transport.clone(), users, credentials);
     (build_router(state), transport)
 }
@@ -554,6 +660,104 @@ async fn four_embedding_input_forms_use_one_fixed_native_egress_contract() {
 }
 
 #[tokio::test]
+async fn bailian_qwen_embedding_transcodes_hindsight_base64_wire_and_bounds_batches() {
+    let (app, transport) = bailian_qwen_app();
+
+    // Match Hindsight/OpenAI SDK's startup dimension probe, including its implicit Base64 encoding.
+    let response = app
+        .clone()
+        .oneshot(embedding_request(json!({
+            "model": "qwen3.7-text-embedding",
+            "input": ["test"],
+            "encoding_format": "base64"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 256 * 1_024).await.unwrap())
+            .unwrap();
+    assert_eq!(response["model"], "qwen3.7-text-embedding");
+    let encoded = response["data"][0]["embedding"].as_str().unwrap();
+    let decoded = STANDARD.decode(encoded).unwrap();
+    assert_eq!(decoded.len(), 1_024 * 4);
+    assert!((f32::from_le_bytes(decoded[0..4].try_into().unwrap()) - 0.1).abs() < f32::EPSILON);
+
+    // Preserve Hindsight's explicit dimension and the largest confirmed Qwen batch.
+    let inputs = (0..20)
+        .map(|index| format!("synthetic memory {index}"))
+        .collect::<Vec<_>>();
+    let response = app
+        .clone()
+        .oneshot(embedding_request(json!({
+            "model": "qwen3.7-text-embedding",
+            "input": inputs,
+            "dimensions": 512,
+            "encoding_format": "base64"
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    {
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_eq!(request.provider, ProviderKind::Bailian);
+            assert_eq!(request.path, "/embeddings");
+            assert_eq!(request.body["model"], "qwen3.7-text-embedding");
+            assert_eq!(request.body["encoding_format"], "float");
+            assert!(request.body.get("user").is_none());
+        }
+        assert_eq!(requests[1].body["dimensions"], 512);
+        assert_eq!(requests[1].body["input"].as_array().unwrap().len(), 20);
+    }
+
+    // Keep the Provider's 20-item ceiling fail-closed before a third upstream call.
+    let oversized = (0..21)
+        .map(|index| format!("synthetic memory {index}"))
+        .collect::<Vec<_>>();
+    let response = app
+        .clone()
+        .oneshot(embedding_request(json!({
+            "model": "qwen3.7-text-embedding",
+            "input": oversized,
+            "encoding_format": "base64"
+        })))
+        .await
+        .unwrap();
+    assert_embedding_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "invalid_request_error",
+        "unsupported_model_capability",
+        Some("input"),
+    )
+    .await;
+    assert_eq!(transport.requests.lock().unwrap().len(), 2);
+
+    // Keep unsupported attribution fail-closed because Bailian does not declare `user`.
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model": "qwen3.7-text-embedding",
+            "input": ["test"],
+            "encoding_format": "base64",
+            "user": "synthetic-bank"
+        })))
+        .await
+        .unwrap();
+    assert_embedding_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "invalid_request_error",
+        "unsupported_model_capability",
+        Some("user"),
+    )
+    .await;
+    assert_eq!(transport.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn bounded_success_response_projects_model_and_preserves_embedding_values() {
     let float_response = SyntheticEmbeddingResponse::json(json!({
         "id": "emb-bailian-synthetic",
@@ -616,6 +820,36 @@ async fn bounded_success_response_projects_model_and_preserves_embedding_values(
     assert_eq!(actual["data"][0]["embedding"], "AQIDBAUGBwg=");
     assert_eq!(actual["usage"], json!({"prompt_tokens":3,"total_tokens":3}));
     assert_eq!(transport.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn complete_out_of_order_embedding_indices_are_normalized_before_commit() {
+    let upstream = SyntheticEmbeddingResponse::json(json!({
+        "object": "list",
+        "data": [
+            {"object":"embedding","embedding":[0.75,-1.0],"index":1},
+            {"object":"embedding","embedding":[0.25,-0.5],"index":0}
+        ],
+        "model": "embedding-upstream",
+        "usage": {"prompt_tokens":2,"total_tokens":2}
+    }));
+    let (app, _) = app_with_responses([upstream]);
+    let response = app
+        .oneshot(embedding_request(json!({
+            "model":"embedding-test",
+            "input":["alpha", "beta"],
+            "encoding_format":"float",
+            "dimensions":2
+        })))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4_096).await.unwrap()).unwrap();
+    assert_eq!(body["data"][0]["index"], 0);
+    assert_eq!(body["data"][0]["embedding"], json!([0.25, -0.5]));
+    assert_eq!(body["data"][1]["index"], 1);
+    assert_eq!(body["data"][1]["embedding"], json!([0.75, -1.0]));
 }
 
 #[tokio::test]

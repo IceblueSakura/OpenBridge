@@ -17,15 +17,25 @@ pub enum EmbeddingInputForm {
     TokenArrayArray,
 }
 
-/// Embedding vector encodings preserved on the upstream and downstream wire.
+/// Embedding vector encodings guaranteed on the downstream wire.
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingEncoding {
     /// A JSON array of floating-point components.
     #[default]
     Float,
-    /// A Provider-produced base64 string preserved without local conversion.
+    /// A standard Base64 string produced upstream or by an explicit fixed-interface translation.
     Base64,
+}
+
+/// Target/API-scoped translation between downstream and upstream embedding encodings.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EmbeddingEncodingPolicy {
+    /// Preserve the downstream encoding in both directions.
+    #[default]
+    Preserve,
+    /// Request float vectors upstream and transcode them to Base64 only when requested downstream.
+    Base64ViaFloat,
 }
 
 /// Explicit domain accepted by the Embeddings `dimensions` request field.

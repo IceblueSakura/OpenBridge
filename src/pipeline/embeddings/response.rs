@@ -100,6 +100,8 @@ pub(crate) fn validate_embedding_response_body(
     {
         return Err(EmbeddingResponseError);
     }
+    // Normalize the complete index set before validating one vector per logical input.
+    body.data.sort_by_key(|item| item.index);
     for (position, item) in body.data.iter().enumerate() {
         let expected_index = u32::try_from(position).map_err(|_| EmbeddingResponseError)?;
         if item.object != "embedding"

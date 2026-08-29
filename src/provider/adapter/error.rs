@@ -26,6 +26,9 @@ pub enum AdapterError {
     /// The request body cannot be parsed or rewritten as a valid JSON object.
     #[error("request body could not be transformed by the provider adapter")]
     InvalidRequestBody,
+    /// The response body cannot be parsed or rewritten under the selected Provider policy.
+    #[error("response body could not be transformed by the provider adapter")]
+    InvalidResponseBody,
     /// The credential cannot be encoded as a valid HTTP header.
     #[error("provider authentication material cannot be encoded as an HTTP header")]
     InvalidAuthenticationHeader,

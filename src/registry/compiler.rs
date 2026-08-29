@@ -13,7 +13,10 @@ use std::{
 
 use crate::{
     config::BootstrapConfig,
-    core::{ExecutableAudioProfile, GenerationBridgeDirection, OperationKind},
+    core::{
+        EmbeddingEncoding, EmbeddingEncodingPolicy, ExecutableAudioProfile,
+        GenerationBridgeDirection, OperationKind,
+    },
 };
 
 use super::{
@@ -336,6 +339,29 @@ fn build_registry_internal(
                 .copied()
                 .collect::<BTreeSet<_>>();
             let serial_tool_calls_only = upstream_api.model_rules.serial_tool_calls_only;
+            let embedding_encoding_policy = upstream_api.model_rules.embedding_encoding_policy;
+
+            // Keep Embeddings wire translation scoped to one explicit API and executable encoding pair.
+            if embedding_encoding_policy != EmbeddingEncodingPolicy::Preserve {
+                let Some(capabilities) = upstream_api.capabilities.embeddings() else {
+                    return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                        upstream_api: api_key.clone(),
+                        detail: "embedding encoding translation requires an Embeddings API",
+                    });
+                };
+                let supports = |encoding| {
+                    capabilities.default_encoding == encoding
+                        || capabilities
+                            .allowed_encodings
+                            .is_some_and(|values| values.contains(&encoding))
+                };
+                if !supports(EmbeddingEncoding::Float) || !supports(EmbeddingEncoding::Base64) {
+                    return Err(RegistryError::InconsistentUpstreamApiModelRules {
+                        upstream_api: api_key.clone(),
+                        detail: "Base64-via-float translation requires float and base64 interface encodings",
+                    });
+                }
+            }
 
             // Accept serial-only omission only as an explicit narrowing of a function-tool API.
             if serial_tool_calls_only
@@ -399,6 +425,7 @@ fn build_registry_internal(
                 reasoning_level_mappings,
                 ignored_parameters,
                 serial_tool_calls_only,
+                embedding_encoding_policy,
             };
 
             // Build a unique typed operation/task index within the target.

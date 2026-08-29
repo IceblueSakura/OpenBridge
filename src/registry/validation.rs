@@ -224,6 +224,7 @@ pub(super) fn apply_model_rules(
         disabled_parameters,
         ignored_parameters,
         serial_tool_calls_only: _,
+        embedding_encoding_policy: _,
         reasoning_level_mappings: _,
     } = rules;
 

@@ -9,7 +9,10 @@ use url::Url;
 
 use crate::{
     config::{BootstrapConfig, HttpClientConfig, HttpLoggingConfig, RuntimeLimits},
-    core::{ApiProtocol, GenerationBridgeDirection, OperationKind, ReasoningOutput},
+    core::{
+        ApiProtocol, EmbeddingEncodingPolicy, GenerationBridgeDirection, OperationKind,
+        ReasoningOutput,
+    },
     provider::{CredentialKind, ProviderKind},
 };
 
@@ -378,9 +381,15 @@ pub struct UpstreamApi {
     pub(super) reasoning_level_mappings: BTreeMap<ReasoningLevel, String>,
     pub(super) ignored_parameters: BTreeSet<IgnorableGenerationParameter>,
     pub(super) serial_tool_calls_only: bool,
+    pub(super) embedding_encoding_policy: EmbeddingEncodingPolicy,
 }
 
 impl UpstreamApi {
+    /// Returns the target/API-scoped Embeddings wire translation policy.
+    pub(crate) const fn embedding_encoding_policy(&self) -> EmbeddingEncodingPolicy {
+        self.embedding_encoding_policy
+    }
+
     /// Returns the Upstream API's native operation.
     pub fn operation(&self) -> OperationKind {
         self.key.operation()

@@ -26,7 +26,10 @@ use super::media::QWEN_IMAGE_INPUT;
 
 const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] =
     &[EmbeddingInputForm::String, EmbeddingInputForm::StringArray];
-const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] = &[EmbeddingEncoding::Float];
+// Downstream executable ceiling; each concrete Upstream API chooses Preserve or an explicit
+// target-scoped wire translation policy.
+const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] =
+    &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
 const EMBEDDING_DIMENSIONS: &[u32] = &[256, 512, 768, 1_024, 1_536, 2_048, 2_560];
 const EMBEDDING_PARAMETERS: &[&str] = &["dimensions", "encoding_format"];
 const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile =

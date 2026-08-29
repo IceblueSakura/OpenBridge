@@ -9,7 +9,8 @@ mod generation;
 mod images;
 
 pub use embeddings::{
-    EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
+    EmbeddingDimensionDomain, EmbeddingEncoding, EmbeddingEncodingPolicy, EmbeddingInputForm,
+    EmbeddingsCapabilities,
 };
 pub use generation::{
     ALL_TOOL_CHOICE_MODES, AsrLanguage, AudioFormat, AudioInputCapabilities, AudioInputSource,

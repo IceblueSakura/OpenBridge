@@ -91,11 +91,14 @@ credential。接口必须：
 - 只把 Public Model 改写为 registry 中的真实 upstream model，保持该 Native profile 明确允许的其他字段；
 - 将成功响应的 `model` 归一为下游 Public Model，并保持有序 `data[]`、每项 `object`/`index`/`embedding`、响应 `object` 与
   `usage`；
-- 不改变向量数值、Base64 内容、维度、项目顺序或 index 语义；
+- 不改变向量数值、维度或 index 语义；只有具体 Target/Upstream API 的 fixed interface 明确声明时，Provider adapter 才可在
+  JSON finite number 数组与 IEEE-754 little-endian float32 标准 Base64 wire 之间做有界、确定性的表示转换，并在提交前按完整 index
+  集合规范化顺序；转换保持维度和 float32 数值语义，但不承诺保留超出 float32 的 JSON 数值精度；
 - 在没有等价 vector identity 声明时禁止跨 Provider/模型 fallback；
 - 对非法输入、不支持能力、响应形状错误和超限返回安全、稳定错误。
 
-Embeddings 是独立 operation，不得伪装成 Chat/Responses 文本生成，也不通过 Bridge、文本占位或网关本地向量变换实现。
+Embeddings 是独立 operation，不得伪装成 Chat/Responses 文本生成，也不通过 Bridge、文本占位或网关本地数值向量变换实现。固定
+Provider adapter 的 float32/Base64 wire 表示转换不改变 vector identity，不属于归一化、降维或 embedding Bridge。
 
 ### 2. `interfaces.embeddings` 公共契约
 
@@ -141,7 +144,7 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
 | ID     | 应被保护的可观察行为                                                                                                                         |
 |--------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | EMB-01 | interface 的 forms、encoding、dimension、limits 与参数列表来自同一执行接口，并与 `/v1/embeddings` preflight 一致。                           |
-| EMB-02 | 四种输入、model 双向投影、float/base64、dimensions、data/index/object/usage 满足固定 contract，向量不被转换。                               |
+| EMB-02 | 四种输入、model 双向投影、float/base64、dimensions、data/index/object/usage 满足固定 contract；允许的 wire re-encoding 按 little-endian float32 语义确定转换，完整乱序 index 被规范化，缺失/重复/越界继续拒绝。 |
 | EMB-03 | 无 vector identity 等价证明时不发生跨 Provider/模型 fallback；retry、取消、响应预算和首输出 commit 可确定复现。                             |
 | EMB-04 | 标准 Models 仍为四字段；扩展 Models 不暴露 Provider、Target、Route、upstream model、credential、vector identity 或运行状态。                |
 

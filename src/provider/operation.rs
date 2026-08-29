@@ -8,8 +8,8 @@ use http::{HeaderMap, StatusCode};
 
 use crate::{
     core::{
-        ApiProtocol, ApiRequest, EmbeddingRequest, ImagesRequest, OperationKind,
-        ProviderOperationCapabilities,
+        ApiProtocol, ApiRequest, EmbeddingEncodingPolicy, EmbeddingRequest, ImagesRequest,
+        OperationKind, ProviderOperationCapabilities,
     },
     credential::UpstreamCredential,
     registry::UpstreamApi,
@@ -281,6 +281,18 @@ impl EmbeddingsProviderAdapter {
         }
         self.provider
             .prepare_routed_embeddings_request(self.path, request, upstream_api)
+    }
+
+    /// Normalizes a bounded successful response through the Provider's Embeddings wire policy.
+    pub(crate) fn normalize_response_body(
+        self,
+        body: &[u8],
+        requested_encoding: crate::core::EmbeddingEncoding,
+        policy: EmbeddingEncodingPolicy,
+    ) -> Result<Vec<u8>, AdapterError> {
+        self.provider
+            .openai_compatible()
+            .normalize_embedding_response_body(body, requested_encoding, policy)
     }
 
     /// Assembles trusted routed headers and authentication for this operation.

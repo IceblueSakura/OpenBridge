@@ -9,7 +9,7 @@ use crate::{
     registry::{ReasoningLevel, ReasoningLevelMapping, UpstreamApi},
 };
 
-use super::OpenAiCompatibleAdapter;
+use super::{OpenAiCompatibleAdapter, embeddings};
 
 impl OpenAiCompatibleAdapter {
     /// Builds the fixed model-list request used by the administrative probe.
@@ -179,8 +179,14 @@ impl OpenAiCompatibleAdapter {
                 "model".to_owned(),
                 serde_json::Value::String(upstream_api.upstream_model().to_owned()),
             );
+        embeddings::prepare_request_body(
+            document
+                .as_object_mut()
+                .ok_or(AdapterError::InvalidRequestBody)?,
+            upstream_api.embedding_encoding_policy(),
+        )?;
 
-        // Re-serialize once without converting input, encoding, dimensions, or user fields.
+        // Re-serialize once after the Provider-scoped encoding translation.
         let body = serde_json::to_vec(&document)
             .map(Bytes::from)
             .map_err(|_| AdapterError::InvalidRequestBody)?;

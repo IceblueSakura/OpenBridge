@@ -38,8 +38,7 @@
 确定性入口：`tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs`、
 `tests/oauth2_login_cli.rs`、`src/probe/tests.rs`、`src/bin/openbridge-probe.rs`。
 
-2026-08-27 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、
-`cargo clippy --locked -- -D warnings` 与 `git diff HEAD --check`。这些命令只证明本地静态/确定性边界，不替代真实 Provider、外部 SDK、
+2026-08-29 当前 checkout 已执行并通过 `cargo test --locked`、`cargo clippy --locked -- -D warnings`、changed-file `rustfmt --check` 与 `git diff --check`。这些命令只证明本地静态/确定性边界，不替代真实 Provider、外部 SDK、
 Agent runtime、负载或长期运行验证。
 
 ## 3. Public Model 与请求预检
@@ -87,7 +86,7 @@ Agent runtime、负载或长期运行验证。
 
 | Operation | 当前可执行合同 | 主要确定性证据 |
 |---|---|---|
-| Embeddings | `text-embedding-3-small`、`qwen3.7-text-embedding`、`nemotron-3-embed-1b` 各有独立 Public Model 和唯一 Native Route；成功 JSON 在 commit 前有界验证。 | `tests/embedding_forwarding_contract.rs` |
+| Embeddings | `text-embedding-3-small`、`qwen3.7-text-embedding`、`nemotron-3-embed-1b` 各有独立 Public Model 和唯一 Native Route；成功 JSON 在 commit 前有界验证并按完整 index 集合排序。仅 `bailian/qwen3-7-text-embedding` 的 Upstream API policy 对下游 Base64 请求改用上游 float，并把有限数按 little-endian float32 bytes 重编码为标准 Base64；保持维度、float32 数值语义与 model identity，其他 Target 默认 Preserve。 | `tests/embedding_forwarding_contract.rs` |
 | Native 图片输入 | `mimo-v2.5`、DeepSeek Vision、OpenRouter Gemini/Grok/GLM-5.3-Flash 及 image-capable Bailian Qwen/Kimi Native interface 接受各自有界的 HTTPS URL 或规范 Base64 data URL；OpenRouter 为 Gemini 3.7 Flash、Grok 4.6 与 GLM-5.3-Flash 的双 Native 协议公开 JPEG/PNG remote/data URL，GLM 已真实验证两种协议的 PNG data URL，而 remote URL/JPEG 由当前官方合同支撑但未单独实测；MiniMax M3 与 Gemma 4 保持 text-only 并在 egress 前拒绝图片；Bailian Qwen 公开 250 张 BMP/JPEG/PNG/TIFF/WebP/HEIC 上游 envelope，Bailian Kimi 保持单张 JPEG/PNG；DeepSeek Vision 支持 JPEG/PNG/GIF/WebP、显式 detail 与多图。 | `tests/forwarding_contract.rs`、`src/providers/openrouter/registration.rs` |
 | Native 文件输入 | Chat 与 Responses 使用独立 typed file profile；当前 executable Target 均显式关闭 file，因此生产 Public Model 不公开文件输入。 | `tests/forwarding_contract/file_input.rs` |
 | MiMo 音频 | `mimo-v2.5` Chat 支持有界 WAV 音频理解；ASR、TTS、VoiceDesign、VoiceClone 是独立 Chat-only task/Public Model。 | `tests/forwarding_contract.rs` |

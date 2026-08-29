@@ -682,6 +682,7 @@ pub(super) async fn finish_http(
             upstream_api,
             credential_pool,
             credentials,
+            adapter,
             ..
         } => {
             embeddings::finish_http(
@@ -696,6 +697,7 @@ pub(super) async fn finish_http(
                     upstream_api,
                     credential_pool,
                     credentials,
+                    adapter: *adapter,
                 },
             )
             .await

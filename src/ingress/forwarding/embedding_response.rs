@@ -1,18 +1,20 @@
 //! Forwarding-level validation and Public Model projection for Native Embeddings success responses.
 //!
 //! The complete upstream body is validated before downstream commit. Business vectors are held
-//! only in the bounded response value, are never logged, and are serialized without conversion.
+//! only in the bounded response value, are never logged, and may undergo only the selected
+//! target/API-scoped encoding translation before final contract validation.
 
 use axum::{body::to_bytes, response::Response};
 
 use crate::{
-    core::EmbeddingEncoding,
+    core::{EmbeddingEncoding, EmbeddingEncodingPolicy},
     ingress::response::filtered_upstream_headers,
     observability::RequestObservation,
     pipeline::{
         EmbeddingResponseError, validate_embedding_response_body,
         validate_embedding_response_headers,
     },
+    provider::EmbeddingsProviderAdapter,
     transport::upstream::UpstreamResponse,
 };
 
@@ -27,6 +29,8 @@ pub(super) async fn validated_embedding_response(
     encoding: EmbeddingEncoding,
     dimensions: u32,
     max_body_bytes: usize,
+    adapter: EmbeddingsProviderAdapter,
+    encoding_policy: EmbeddingEncodingPolicy,
 ) -> Result<Response, EmbeddingResponseError> {
     // Validate response metadata before reading or interpreting the successful body.
     validate_embedding_response_headers(upstream.headers())?;
@@ -38,6 +42,9 @@ pub(super) async fn validated_embedding_response(
         .await
         .map_err(|_| EmbeddingResponseError)?;
     observation.record_upstream_complete();
+    let body = adapter
+        .normalize_response_body(&body, encoding, encoding_policy)
+        .map_err(|_| EmbeddingResponseError)?;
     let validated = validate_embedding_response_body(
         &body,
         public_model,

@@ -32,7 +32,9 @@ event。
 `float` 与 `base64` 产生不同 JSON size、decode 路径和内存预算。response budget 至少受 batch item 数、dimension、最坏序列化大小、
 envelope 和 parser/decode buffer 共同约束。
 
-没有明确 contract 时，本地 encoding 转换或降维不能宣称为上游原生兼容。
+没有明确 contract 时，本地 encoding 转换或降维不能宣称为上游原生兼容。若 fixed Provider adapter 显式将 float32 array 重编码为标准
+Base64，必须固定使用 IEEE-754 little-endian float32 bytes、保持维度、拒绝非有限或超出 float32 的值，并将其描述为网关 wire
+translation，而不是上游原生能力；JSON number 超出 float32 的额外精度不属于 Base64 wire 可保留的合同。
 
 ## 4. Vector identity 与重放
 

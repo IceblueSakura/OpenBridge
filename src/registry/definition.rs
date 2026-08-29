@@ -6,9 +6,9 @@ use serde::Serialize;
 
 use crate::{
     core::{
-        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingsCapabilities,
-        GenerationCapabilities, ImagesGenerationsCapabilities, OperationKind,
-        ResponsesCapabilities,
+        ApiCapabilities, ApiProtocol, ChatCompletionsCapabilities, EmbeddingEncodingPolicy,
+        EmbeddingsCapabilities, GenerationCapabilities, ImagesGenerationsCapabilities,
+        OperationKind, ResponsesCapabilities,
     },
     provider::{CredentialKind, ProviderKind},
 };
@@ -639,6 +639,8 @@ pub struct UpstreamApiModelRules {
     pub ignored_parameters: Vec<IgnorableGenerationParameter>,
     /// Whether function tools are explicitly guaranteed to execute serially without a wire control.
     pub serial_tool_calls_only: bool,
+    /// Embeddings encoding translation selected only for this concrete Upstream API.
+    pub embedding_encoding_policy: EmbeddingEncodingPolicy,
     /// Explicit mapping from standard downstream reasoning levels to this Upstream API's wire values.
     pub reasoning_level_mappings: Vec<ReasoningLevelMapping>,
 }

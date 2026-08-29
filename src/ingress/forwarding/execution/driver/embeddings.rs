@@ -16,6 +16,7 @@ use crate::{
     },
     observability::{ErrorType, RequestObservation},
     pipeline::{EmbeddingRequestRequirements, EmbeddingRoutePlan},
+    provider::EmbeddingsProviderAdapter,
     registry::{CredentialPoolBinding, UpstreamApi, UpstreamTarget},
     transport::upstream::{TransportError, UpstreamResponse},
 };
@@ -29,6 +30,7 @@ pub(super) struct CompletionContext<'a, 'credential> {
     pub(super) upstream_api: &'a UpstreamApi,
     pub(super) credential_pool: &'a CredentialPoolBinding,
     pub(super) credentials: &'a [UpstreamCredential<'credential>],
+    pub(super) adapter: EmbeddingsProviderAdapter,
 }
 
 pub(super) async fn finish_http(
@@ -49,6 +51,8 @@ pub(super) async fn finish_http(
         context.plan.encoding(),
         context.plan.dimensions(),
         context.plan.max_json_response_body_bytes(),
+        context.adapter,
+        context.upstream_api.embedding_encoding_policy(),
     )
     .await
     {

@@ -50,8 +50,10 @@
 
 ### Embeddings
 
-- 当前只有单 Route Native execution；没有跨 Route fallback、Bridge、向量转换、缓存、索引或检索。
-- 真实 OpenAI Embeddings、语义质量、其他账号/区域、生产配额、负载和长期网络可用性未证明。
+- 当前只有单 Route Native execution；没有跨 Route fallback、Bridge、数值向量转换、缓存、索引或检索。`bailian/qwen3-7-text-embedding` 的 target/API-scoped float32/Base64
+  wire re-encoding 只改变表示，不执行归一化、降维或模型转换。
+- `qwen3.7-text-embedding` 的北京 OpenAI-compatible float、1024/512 维、20 条 batch 和基础中英排序已有带日期小样本；Hindsight
+  SDK Base64 路径在升级前线上版本仍被 preflight 拒绝，修复后的部署态、完整 Hindsight runtime、语义 benchmark、生产配额、负载和长期网络可用性仍未验证。
 
 ### Native 图片与文件输入
 
@@ -88,7 +90,7 @@
 | Zhipu AI China | 注册 GLM-5.3、GLM-5.2 与 GLM-5.3-Flash Chat Native；`/api/paas/v4/responses` 在 2026-08-27 的 owner probe 中对 JSON/SSE 均返回 404，因此该 instance 未注册 Responses。GLM-5.3/5.2 的 JSON-object probe 在有界输出内未完成，当前不公开 structured output；文件、视频、工具续轮、外部 SDK/Agent、其他账号/区域、负载与长期运行未证明。 |
 | OpenRouter | MiniMax 图片输入没有模型级真实 Provider 证据；Gemma 的历史 probe 只证明单张 PNG data URL，不能支撑共享 profile 的 JPEG、remote URL、4-part 与大小上限；两者当前 executable interface 均保持 text-only。Muse Spark 1.2 Contributor 的文本 Chat/Responses 与 Hermes `obc`/`obr` 已真实 probe；图片、音频、视频与文件输入尚未 probe，当前 executable interface 保持 text-only。GLM-5.3-Flash 已验证 Chat/Responses streaming、non-streaming、PNG data URL、Auto function tool、parallel 请求开关与 Hermes `obc`/`obr`；named tool choice 和 Responses structured output 经 probe 后显式不公开。GLM 的 OpenRouter file input、remote image/JPEG、video、更多图片数量/大小、长上下文、负载和长期运行仍未证明。Gemini/Grok file/audio/video、Grok 小图尺寸边界、更多图片格式/数量/大小、强制 DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行未证明；公开目录字段不自动成为 executable capability。 |
 | NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |
-| Alibaba Cloud Model Studio | 2026-08-27 北京真实 Responses 对比确认基础 JSON/SSE、usage 和第一轮工具 wire 可用；在统一冲突提示下，三模型均忽略 `text.format=json_object/json_schema`，且在单一双调用提示下均未执行 `parallel_tool_calls=false`；三者都以 `response.completed` 结束且无 `[DONE]`。GLM-5.2 另有高 reasoning 400 与标准工具续轮 arguments 类型冲突，当前只适合 Chat bridge 或 Native text-only。Qwen3.8 Max 已有 executable Native Responses Target，DeepSeek V4 Flash 0731 仍是 Chat-only；二者 direct upstream 的标准 stateless/stateful 工具续轮成功，但本轮未经过 OpenBridge/Hermes 运行时验证。Qwen target 保持 `parallel_calls=false`，表示不公开可精确执行 true/false 的控制；它不是 serial-only 保证。LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
+| Alibaba Cloud Model Studio | 2026-08-27 北京真实 Responses 对比确认基础 JSON/SSE、usage 和第一轮工具 wire 可用；在统一冲突提示下，三模型均忽略 `text.format=json_object/json_schema`，且在单一双调用提示下均未执行 `parallel_tool_calls=false`；三者都以 `response.completed` 结束且无 `[DONE]`。GLM-5.2 另有高 reasoning 400 与标准工具续轮 arguments 类型冲突，当前只适合 Chat bridge 或 Native text-only。Qwen3.8 Max 已有 executable Native Responses Target；DeepSeek V4 Pro 0813 按当前官方北京 Responses 声明注册双 Native，本地管理员 JSON/SSE 与下游 OpenAI SDK probe 均已通过，但生产部署尚未验证；DeepSeek V4 Flash 0731 继续保持 Chat-only。Qwen3.8 Max 与此前受测 DeepSeek V4 Flash direct upstream 的标准 stateless/stateful 工具续轮成功，但该轮未经过 OpenBridge/Hermes 运行时验证。Qwen/DeepSeek Responses Target 保持 `parallel_calls=false`，表示不公开可精确执行 true/false 的控制；它不是 serial-only 保证。LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
 | Kimi CN | 其他 Moonshot endpoint、原生 Responses、更多参数组合、账号权限、外部 SDK/Agent、负载与长期运行。历史 `none` 结果不证明当前可关闭 reasoning。 |
 
 Provider 外部观察见[evidence](evidence/README.md)；动态官方文档和模型目录见[references](../references/README.md)。

@@ -4,6 +4,7 @@
 //! Provider's compile-time definition; this module only reuses protocol mechanics and provides no
 //! dynamic Provider DSL or runtime transform configuration.
 
+mod embeddings;
 mod headers;
 mod registration;
 mod request;
@@ -15,7 +16,7 @@ mod tests;
 use http::HeaderMap;
 
 use crate::{
-    core::{ApiProtocol, OperationKind},
+    core::{ApiProtocol, EmbeddingEncoding, EmbeddingEncodingPolicy, OperationKind},
     credential::UpstreamCredential,
     provider::{AdapterError, ProviderKind, ProviderRequestHeaders, SafeHeaders, SensitiveHeaders},
 };
@@ -114,6 +115,16 @@ impl OpenAiCompatibleAdapter {
     ) -> Self {
         self.request_body_hook = request_body_hook;
         self
+    }
+
+    /// Normalizes one bounded Embeddings response to the downstream requested encoding.
+    pub(crate) fn normalize_embedding_response_body(
+        self,
+        body: &[u8],
+        requested_encoding: EmbeddingEncoding,
+        policy: EmbeddingEncodingPolicy,
+    ) -> Result<Vec<u8>, AdapterError> {
+        embeddings::normalize_response_body(body, requested_encoding, policy)
     }
 
     /// Attaches headers selected only from a trusted routed operation and upstream model.

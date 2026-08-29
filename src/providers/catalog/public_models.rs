@@ -70,7 +70,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[
                 ProviderRouteRegistration {
                     upstream_target: "bailian/deepseek-v4-pro",
-                    surface: PublicModelSurface::ChatNativeOnly,
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
                     upstream_target: "deepseek-v4-pro",

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        ExecutableResponsesState, JsonSchemaSupport, ReasoningOutput, ResponsesAffinity,
-        StorageSupport, StructuredOutputProfile,
+        EmbeddingEncodingPolicy, ExecutableResponsesState, JsonSchemaSupport, ReasoningOutput,
+        ResponsesAffinity, StorageSupport, StructuredOutputProfile,
     },
     models::{deepseek, moonshotai, qwen, z_ai},
     provider::ProviderKind,
@@ -130,7 +130,10 @@ fn embedding_target() -> UpstreamTargetConfig {
                 CanonicalTaskKind::Embedding,
             ),
             upstream_model: "qwen3.7-text-embedding".to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
+            model_rules: UpstreamApiModelRules {
+                embedding_encoding_policy: EmbeddingEncodingPolicy::Base64ViaFloat,
+                ..UpstreamApiModelRules::default()
+            },
             capabilities: UpstreamApiCapabilities::Embeddings(
                 DEFINITION
                     .contract()
@@ -185,7 +188,7 @@ fn chat_target(
         qwen::qwen3_7_plus::ID => Some(QWEN3_7_PLUS_STRUCTURED_OUTPUTS),
         _ => None,
     };
-    // Bind Chat for every target and Responses only for Qwen models confirmed on that endpoint.
+    // Bind Chat for every target and Responses only for models confirmed on that endpoint.
     let mut upstream_apis = vec![UpstreamApiConfig {
         key: UpstreamApiKey::new(
             crate::core::OperationKind::ChatCompletions,
@@ -198,7 +201,8 @@ fn chat_target(
     }];
     if matches!(
         canonical_model,
-        qwen::qwen3_8_max::ID
+        deepseek::deepseek_v4_pro::ID
+            | qwen::qwen3_8_max::ID
             | qwen::qwen3_8_27b::ID
             | qwen::qwen3_7_max::ID
             | qwen::qwen3_7_plus::ID
@@ -208,7 +212,7 @@ fn chat_target(
             .capabilities()
             .operation(crate::core::OperationKind::Responses)
             .and_then(crate::core::ProviderOperationCapabilities::responses)
-            .expect("Bailian Qwen targets require Responses capabilities")
+            .expect("Bailian generation targets require Responses capabilities")
             .to_executable(
                 ExecutableResponsesState::new(
                     StorageSupport::Unsupported,
@@ -307,5 +311,62 @@ fn image_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstre
             capabilities: UpstreamApiCapabilities::ImagesGenerations(images_capabilities),
             streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
         }],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::OperationKind;
+
+    use super::*;
+
+    #[test]
+    fn qwen_embedding_translation_is_scoped_to_its_upstream_api() {
+        let target = embedding_target();
+        let api = target.upstream_apis.first().unwrap();
+        assert_eq!(
+            api.model_rules.embedding_encoding_policy,
+            EmbeddingEncodingPolicy::Base64ViaFloat
+        );
+
+        let generation = chat_target(
+            "bailian/deepseek-v4-pro",
+            deepseek::deepseek_v4_pro::ID,
+            "deepseek-v4-pro-0813",
+            ReasoningOutput::PlainText,
+        );
+        assert!(generation.upstream_apis.iter().all(|api| {
+            api.model_rules.embedding_encoding_policy == EmbeddingEncodingPolicy::Preserve
+        }));
+    }
+
+    #[test]
+    fn deepseek_v4_pro_binds_responses_without_broadening_flash_snapshot() {
+        let targets = upstream_targets();
+        let pro = targets
+            .iter()
+            .find(|target| target.id == "bailian/deepseek-v4-pro")
+            .unwrap();
+        let responses = pro
+            .upstream_apis
+            .iter()
+            .find(|api| api.key.operation() == OperationKind::Responses)
+            .expect("DeepSeek V4 Pro must keep its confirmed Responses API");
+        assert_eq!(responses.upstream_model, "deepseek-v4-pro-0813");
+        assert!(matches!(
+            responses.capabilities,
+            UpstreamApiCapabilities::Responses(_)
+        ));
+
+        let flash = targets
+            .iter()
+            .find(|target| target.id == "bailian/deepseek-v4-flash")
+            .unwrap();
+        assert!(
+            flash
+                .upstream_apis
+                .iter()
+                .all(|api| api.key.operation() != OperationKind::Responses)
+        );
     }
 }
