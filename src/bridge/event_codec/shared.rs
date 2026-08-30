@@ -103,15 +103,11 @@ pub(super) fn usage_from_chat(usage: &Map<String, Value>) -> Result<Usage, Stati
         Some(input),
         Some(output),
         Some(total),
-        usage
-            .get("completion_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "completion_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        usage
-            .get("prompt_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "prompt_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -131,15 +127,11 @@ pub(super) fn usage_from_responses(
         Some(input),
         Some(output),
         Some(total),
-        usage
-            .get("output_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "output_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        usage
-            .get("input_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "input_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -151,6 +143,19 @@ fn required_usage_u64(
     field: &str,
 ) -> Result<u64, StaticEventCodecError> {
     optional_u64(object, field)?.ok_or(StaticEventCodecError::InvalidJson)
+}
+
+fn optional_detail_object<'a>(
+    object: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a Map<String, Value>>, StaticEventCodecError> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_object()
+            .map(Some)
+            .ok_or(StaticEventCodecError::InvalidJson),
+    }
 }
 
 fn optional_u64(

@@ -265,6 +265,9 @@ impl StaticBridgePlan {
         }
         let source = parse_object(&body)?;
         validate_source(source_protocol, &source, source_protocol != target_protocol)?;
+        if source_protocol != target_protocol {
+            request::validate_bridge_source(source_protocol, &source)?;
+        }
         let request = request::decode_request(source_protocol, &source, limits.request_body)?;
         let (target, request_changes) = if source_protocol == target_protocol {
             let mut source = request.source.clone();
@@ -322,6 +325,9 @@ impl StaticBridgePlan {
         }
         let source = parse_object(&body)?;
         validate_source(source_protocol, &source, source_protocol != target_protocol)?;
+        if source_protocol != target_protocol {
+            request::validate_bridge_source(source_protocol, &source)?;
+        }
         let mut request = request::decode_request(source_protocol, &source, limits.request_body)?;
         let transformed = apply_tool_plan(request.semantic, tool_target.tool_plan)
             .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
@@ -329,6 +335,9 @@ impl StaticBridgePlan {
             .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
         let (semantic, mut request_changes) = transformed.into_parts();
         request.semantic = semantic;
+        if source_protocol == target_protocol && !request_changes.is_empty() {
+            request::validate_bridge_source(source_protocol, &source)?;
+        }
         let target = if source_protocol == target_protocol && request_changes.is_empty() {
             let mut source = request.source.clone();
             source.insert("model".to_owned(), Value::String(upstream_model.to_owned()));

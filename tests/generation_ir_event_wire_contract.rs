@@ -7,6 +7,7 @@ use openbridge::{
     ir::generation::EventLimits,
     transport::sse::SseDecoder,
 };
+use serde_json::{Value, json};
 
 fn decode(document: &[u8]) -> Vec<openbridge::transport::sse::SseEvent> {
     let mut decoder = SseDecoder::new(256 * 1024);
@@ -421,6 +422,57 @@ data: [DONE]
     let mut events = decode(stream);
     bridge.render(events.remove(0)).unwrap();
     assert!(bridge.render(events.remove(0)).is_err());
+}
+
+#[test]
+fn event_usage_rejects_malformed_detail_containers() {
+    for field in ["completion_tokens_details", "prompt_tokens_details"] {
+        let mut bridge = StaticEventBridge::new(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+        )
+        .unwrap();
+        let terminal = b"data: {\"id\":\"chat_usage\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\",\"index\":0}]}\n\n";
+        bridge.render(decode(terminal).remove(0)).unwrap();
+        let mut usage = json!({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2});
+        usage[field] = Value::Null;
+        let event = format!(
+            "data: {}\n\n",
+            json!({"id": "chat_usage", "choices": [], "usage": usage})
+        );
+        assert!(bridge.render(decode(event.as_bytes()).remove(0)).is_err());
+    }
+
+    for field in ["output_tokens_details", "input_tokens_details"] {
+        let mut bridge = StaticEventBridge::new(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+        )
+        .unwrap();
+        let mut usage = json!({"input_tokens": 1, "output_tokens": 1, "total_tokens": 2});
+        usage[field] = json!([]);
+        let event = format!(
+            "event: response.completed\ndata: {}\n\n",
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_usage",
+                    "status": "completed",
+                    "output": [],
+                    "usage": usage
+                }
+            })
+        );
+        assert!(bridge.render(decode(event.as_bytes()).remove(0)).is_err());
+    }
 }
 
 #[test]

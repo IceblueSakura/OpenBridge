@@ -586,15 +586,11 @@ fn decode_chat_usage(value: Option<&Value>) -> Result<Option<Usage>, StaticCodec
         Some(input),
         Some(output),
         Some(total),
-        usage
-            .get("completion_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "completion_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        usage
-            .get("prompt_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "prompt_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -614,15 +610,11 @@ fn decode_responses_usage(value: Option<&Value>) -> Result<Option<Usage>, Static
         Some(input),
         Some(output),
         Some(total),
-        usage
-            .get("output_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "output_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        usage
-            .get("input_tokens_details")
-            .and_then(Value::as_object)
+        optional_detail_object(usage, "input_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -635,6 +627,19 @@ fn optional_u64(object: &Map<String, Value>, field: &str) -> Result<Option<u64>,
         .filter(|value| !value.is_null())
         .map(|value| value.as_u64().ok_or(StaticCodecError::InvalidShape))
         .transpose()
+}
+
+fn optional_detail_object<'a>(
+    object: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a Map<String, Value>>, StaticCodecError> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_object()
+            .map(Some)
+            .ok_or(StaticCodecError::InvalidShape),
+    }
 }
 
 fn required_usage_u64(object: &Map<String, Value>, field: &str) -> Result<u64, StaticCodecError> {

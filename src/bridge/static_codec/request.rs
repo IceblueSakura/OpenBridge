@@ -155,6 +155,225 @@ pub(super) fn encode_request(target: TargetRequest) -> Result<Bytes, StaticCodec
         .map_err(|_| StaticCodecError::InvalidShape)
 }
 
+/// Rejects nested source fields that canonical IR cannot reproduce across protocols.
+pub(super) fn validate_bridge_source(
+    protocol: ApiProtocol,
+    source: &Map<String, Value>,
+) -> Result<(), StaticCodecError> {
+    match protocol {
+        ApiProtocol::ChatCompletions => validate_chat_bridge_source(source),
+        ApiProtocol::Responses => validate_responses_bridge_source(source),
+    }?;
+    validate_tool_bridge_source(protocol, source)
+}
+
+fn validate_tool_bridge_source(
+    protocol: ApiProtocol,
+    source: &Map<String, Value>,
+) -> Result<(), StaticCodecError> {
+    if let Some(tools) = source.get("tools") {
+        let tools = tools.as_array().ok_or(StaticCodecError::InvalidShape)?;
+        for tool in tools {
+            let tool = tool.as_object().ok_or(StaticCodecError::InvalidShape)?;
+            match protocol {
+                ApiProtocol::ChatCompletions => {
+                    ensure_only_fields(tool, &["type", "function"])?;
+                    let function = tool
+                        .get("function")
+                        .and_then(Value::as_object)
+                        .ok_or(StaticCodecError::InvalidShape)?;
+                    ensure_only_fields(function, &["name", "description", "parameters", "strict"])?;
+                }
+                ApiProtocol::Responses => ensure_only_fields(
+                    tool,
+                    &["type", "name", "description", "parameters", "strict"],
+                )?,
+            }
+        }
+    }
+    let Some(choice) = source.get("tool_choice").filter(|value| value.is_object()) else {
+        return Ok(());
+    };
+    let choice = choice.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    match protocol {
+        ApiProtocol::ChatCompletions => {
+            ensure_only_fields(choice, &["type", "function"])?;
+            let function = choice
+                .get("function")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            ensure_only_fields(function, &["name"])
+        }
+        ApiProtocol::Responses => ensure_only_fields(choice, &["type", "name"]),
+    }
+}
+
+fn validate_chat_bridge_source(source: &Map<String, Value>) -> Result<(), StaticCodecError> {
+    let messages = source
+        .get("messages")
+        .and_then(Value::as_array)
+        .ok_or(StaticCodecError::InvalidShape)?;
+    for message in messages {
+        let message = message.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        let role = required_string(message, "role")?;
+        let allowed = match role.as_str() {
+            "system" | "developer" | "user" => &["role", "content"][..],
+            "assistant" => &["role", "content", "reasoning_content", "tool_calls"][..],
+            "tool" => &["role", "content", "tool_call_id"][..],
+            _ => return Err(StaticCodecError::UnsupportedSemantics),
+        };
+        ensure_only_fields(message, allowed)?;
+        if let Some(Value::Array(parts)) = message.get("content") {
+            for part in parts {
+                validate_chat_bridge_part(part)?;
+            }
+        }
+        if let Some(calls) = message.get("tool_calls") {
+            let calls = calls.as_array().ok_or(StaticCodecError::InvalidShape)?;
+            for call in calls {
+                let call = call.as_object().ok_or(StaticCodecError::InvalidShape)?;
+                ensure_only_fields(call, &["id", "type", "function"])?;
+                let function = call
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .ok_or(StaticCodecError::InvalidShape)?;
+                ensure_only_fields(function, &["name", "arguments"])?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_chat_bridge_part(value: &Value) -> Result<(), StaticCodecError> {
+    let part = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    match part.get("type").and_then(Value::as_str) {
+        Some("text") => ensure_only_fields(part, &["type", "text"]),
+        Some("image_url") => {
+            ensure_only_fields(part, &["type", "image_url"])?;
+            let image = part
+                .get("image_url")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            ensure_only_fields(image, &["url", "detail"])
+        }
+        Some("input_audio") => {
+            ensure_only_fields(part, &["type", "input_audio"])?;
+            let audio = part
+                .get("input_audio")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            ensure_only_fields(audio, &["data", "format"])
+        }
+        Some("file") => {
+            ensure_only_fields(part, &["type", "file"])?;
+            let file = part
+                .get("file")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            ensure_only_fields(file, &["file_data", "filename"])
+        }
+        _ => Err(StaticCodecError::UnsupportedSemantics),
+    }
+}
+
+fn validate_responses_bridge_source(source: &Map<String, Value>) -> Result<(), StaticCodecError> {
+    let Some(items) = source.get("input").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for item in items {
+        let item = item.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        match item.get("type").and_then(Value::as_str) {
+            None => {
+                ensure_only_fields(item, &["role", "content"])?;
+                validate_responses_content(item.get("content"))
+            }
+            Some("message") => {
+                ensure_only_fields(item, &["type", "role", "content"])?;
+                validate_responses_content(item.get("content"))
+            }
+            Some("input_file") => ensure_only_fields(item, &["type", "file_url", "file_data"]),
+            Some("input_image") => ensure_only_fields(item, &["type", "image_url", "detail"]),
+            Some("reasoning") => {
+                ensure_only_fields(
+                    item,
+                    &[
+                        "type",
+                        "id",
+                        "status",
+                        "content",
+                        "summary",
+                        "encrypted_content",
+                    ],
+                )?;
+                validate_completed_status(item)?;
+                validate_reasoning_bridge_parts(item.get("content"), "reasoning_text")?;
+                validate_reasoning_bridge_parts(item.get("summary"), "summary_text")
+            }
+            Some("function_call") => {
+                ensure_only_fields(item, &["type", "id", "call_id", "name", "arguments"])
+            }
+            Some("function_call_output") => {
+                ensure_only_fields(item, &["type", "call_id", "output"])
+            }
+            _ => Err(StaticCodecError::UnsupportedSemantics),
+        }?;
+    }
+    Ok(())
+}
+
+fn validate_responses_content(value: Option<&Value>) -> Result<(), StaticCodecError> {
+    let Some(Value::Array(parts)) = value else {
+        return Ok(());
+    };
+    for part in parts {
+        let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        match part.get("type").and_then(Value::as_str) {
+            Some("input_text") => ensure_only_fields(part, &["type", "text"]),
+            Some("input_image") => ensure_only_fields(part, &["type", "image_url", "detail"]),
+            Some("input_file") => ensure_only_fields(part, &["type", "file_url", "file_data"]),
+            _ => Err(StaticCodecError::UnsupportedSemantics),
+        }?;
+    }
+    Ok(())
+}
+
+fn validate_reasoning_bridge_parts(
+    value: Option<&Value>,
+    expected_type: &str,
+) -> Result<(), StaticCodecError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let parts = value.as_array().ok_or(StaticCodecError::InvalidShape)?;
+    for part in parts {
+        let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        ensure_only_fields(part, &["type", "text"])?;
+        if part.get("type").and_then(Value::as_str) != Some(expected_type) {
+            return Err(StaticCodecError::UnsupportedSemantics);
+        }
+    }
+    Ok(())
+}
+
+fn ensure_only_fields(
+    object: &Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), StaticCodecError> {
+    if object.keys().all(|field| allowed.contains(&field.as_str())) {
+        Ok(())
+    } else {
+        Err(StaticCodecError::UnsupportedSemantics)
+    }
+}
+
+fn validate_completed_status(object: &Map<String, Value>) -> Result<(), StaticCodecError> {
+    match object.get("status") {
+        None => Ok(()),
+        Some(Value::String(status)) if status == "completed" => Ok(()),
+        _ => Err(StaticCodecError::UnsupportedSemantics),
+    }
+}
+
 fn decode_chat_input(
     source: &Map<String, Value>,
     max_bytes: usize,

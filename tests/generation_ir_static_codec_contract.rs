@@ -545,3 +545,191 @@ fn static_codecs_support_native_same_protocol_round_trips() {
         assert_eq!(rendered["model"], "upstream-model");
     }
 }
+
+#[test]
+fn cross_protocol_request_rejects_unrepresented_nested_fields() {
+    let chat_cases = [
+        (
+            json!({"role": "user", "content": "hello", "name": "alice"}),
+            "name",
+            json!("alice"),
+        ),
+        (
+            json!({"role": "assistant", "content": null, "audio": {"id": "audio_previous"}}),
+            "audio",
+            json!({"id": "audio_previous"}),
+        ),
+        (
+            json!({"role": "assistant", "content": null, "refusal": "declined"}),
+            "refusal",
+            json!("declined"),
+        ),
+    ];
+    for (message, field, expected) in chat_cases {
+        let chat = json!({"model": "public-model", "messages": [message]});
+        assert!(
+            StaticBridgePlan::prepare(
+                ApiProtocol::ChatCompletions,
+                ApiProtocol::Responses,
+                "public-model",
+                "upstream-model",
+                body(chat.clone()),
+                limits(),
+            )
+            .is_err()
+        );
+        let (_, native) = StaticBridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            "upstream-model",
+            body(chat),
+            limits(),
+        )
+        .expect("Native PreserveSource may retain a recognized nested field");
+        let native: Value = serde_json::from_slice(native.body()).unwrap();
+        assert_eq!(native["messages"][0][field], expected);
+    }
+
+    let chat_tool_extension = json!({
+        "model": "public-model",
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "parameters": {"type": "object"},
+                "cache_control": {"type": "ephemeral"}
+            }
+        }]
+    });
+    assert!(
+        StaticBridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            body(chat_tool_extension),
+            limits(),
+        )
+        .is_err()
+    );
+
+    let responses = json!({
+        "model": "public-model",
+        "input": [{
+            "type": "message",
+            "role": "user",
+            "status": "completed",
+            "content": [{"type": "input_text", "text": "hello"}]
+        }]
+    });
+    assert!(
+        StaticBridgePlan::prepare(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            "upstream-model",
+            body(responses.clone()),
+            limits(),
+        )
+        .is_err()
+    );
+    let (_, native) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(responses),
+        limits(),
+    )
+    .expect("Native PreserveSource may retain a recognized nested field");
+    let native: Value = serde_json::from_slice(native.body()).unwrap();
+    assert_eq!(native["input"][0]["status"], "completed");
+
+    let responses_shorthand_extension = json!({
+        "model": "public-model",
+        "input": [{
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "hello",
+                "unrepresented": true
+            }]
+        }]
+    });
+    assert!(
+        StaticBridgePlan::prepare(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            "upstream-model",
+            body(responses_shorthand_extension),
+            limits(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn static_response_usage_rejects_malformed_detail_containers() {
+    let (responses_plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}]})),
+        limits(),
+    )
+    .unwrap();
+    for field in ["output_tokens_details", "input_tokens_details"] {
+        for malformed in [json!([]), Value::Null] {
+            let mut usage = json!({"input_tokens": 1, "output_tokens": 1, "total_tokens": 2});
+            usage[field] = malformed;
+            let response = body(json!({
+                "id": "resp_usage",
+                "object": "response",
+                "status": "completed",
+                "output": [{
+                    "id": "msg_usage",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "ok", "annotations": []}]
+                }],
+                "usage": usage
+            }));
+            assert!(
+                responses_plan.render_non_stream(response).is_err(),
+                "{field}"
+            );
+        }
+    }
+
+    let (chat_plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        body(json!({"model": "public-model", "input": "hello"})),
+        limits(),
+    )
+    .unwrap();
+    for field in ["completion_tokens_details", "prompt_tokens_details"] {
+        for malformed in [json!(false), Value::Null] {
+            let mut usage = json!({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2});
+            usage[field] = malformed;
+            let response = body(json!({
+                "id": "chatcmpl-usage",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop"
+                }],
+                "usage": usage
+            }));
+            assert!(chat_plan.render_non_stream(response).is_err(), "{field}");
+        }
+    }
+}
