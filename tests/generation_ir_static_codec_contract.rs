@@ -733,3 +733,60 @@ fn static_response_usage_rejects_malformed_detail_containers() {
         }
     }
 }
+
+#[test]
+fn chat_non_success_finishes_cannot_be_rendered_as_completed_responses() {
+    let (plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        })),
+        limits(),
+    )
+    .unwrap();
+    for finish_reason in ["length", "content_filter"] {
+        let response = body(json!({
+            "id": "chatcmpl-incomplete",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "partial"},
+                "finish_reason": finish_reason
+            }]
+        }));
+        assert!(plan.render_non_stream(response).is_err(), "{finish_reason}");
+    }
+}
+
+#[test]
+fn chat_instruction_text_part_arrays_decode_into_canonical_instructions() {
+    for role in ["system", "developer"] {
+        let (_, request) = StaticBridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            body(json!({
+                "model": "public-model",
+                "messages": [
+                    {
+                        "role": role,
+                        "content": [
+                            {"type": "text", "text": "first "},
+                            {"type": "text", "text": "second"}
+                        ]
+                    },
+                    {"role": "user", "content": "hello"}
+                ]
+            })),
+            limits(),
+        )
+        .expect("pure text instruction parts are representable");
+        let request: Value = serde_json::from_slice(request.body()).unwrap();
+        assert_eq!(request["instructions"], "first second");
+    }
+}

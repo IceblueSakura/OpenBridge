@@ -398,7 +398,7 @@ fn decode_chat_input(
         }
         match role.as_str() {
             "system" | "developer" => {
-                let text = required_string(message, "content")?;
+                let text = decode_chat_instruction_content(message, max_bytes)?;
                 input.push(InputItem::Instruction(Instruction::new(
                     if role == "system" {
                         InstructionAuthority::System
@@ -406,7 +406,7 @@ fn decode_chat_input(
                         InstructionAuthority::Developer
                     },
                     InstructionOrigin::Downstream,
-                    text_value(text, max_bytes)?,
+                    text,
                 )));
             }
             "user" => input.push(InputItem::Message(decode_chat_message(
@@ -480,6 +480,27 @@ fn decode_chat_input(
         }
     }
     Ok(input)
+}
+
+fn decode_chat_instruction_content(
+    message: &Map<String, Value>,
+    max_bytes: usize,
+) -> Result<TextValue, StaticCodecError> {
+    match message.get("content") {
+        Some(Value::String(text)) => text_value(text.clone(), max_bytes),
+        Some(Value::Array(parts)) => {
+            let mut text = String::new();
+            for part in parts {
+                let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
+                if part.get("type").and_then(Value::as_str) != Some("text") {
+                    return Err(StaticCodecError::UnsupportedSemantics);
+                }
+                text.push_str(&required_string(part, "text")?);
+            }
+            text_value(text, max_bytes)
+        }
+        _ => Err(StaticCodecError::InvalidShape),
+    }
 }
 
 fn decode_chat_message(
