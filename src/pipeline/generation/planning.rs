@@ -4,7 +4,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    bridge::BridgePlan,
+    bridge::{BridgeLimits, BridgePlan},
     core::{ApiProtocol, ApiRequest, ChatStreamUsage, ResponseInclude, ResponseIncludePolicy},
     registry::{
         IgnorableGenerationParameter, NonStreamingConversion, ReasoningLevel, RouteMode,
@@ -80,6 +80,17 @@ pub fn plan_request(
         normalized_reasoning_level,
     )?;
 
+    // Bind every Bridge candidate to the startup-validated request, JSON, and SSE resource limits.
+    let response_budget = interface.response_budget();
+    let bridge_limits = BridgeLimits::new(
+        registry.limits().max_request_body_bytes(),
+        response_budget.max_json_body_bytes(),
+        response_budget
+            .max_sse_event_bytes()
+            .expect("Generation response budgets always include an SSE event limit"),
+    )
+    .expect("compiled runtime limits are non-zero");
+
     // Build requests in compiled priority order; request facts cannot filter or reorder candidates.
     let mut prepared_candidates = Vec::with_capacity(interface.candidates().len());
     for candidate in interface.candidates() {
@@ -115,6 +126,7 @@ pub fn plan_request(
                 candidate_body,
                 candidate.reasoning_output(),
                 requirements.chat_stream_usage,
+                bridge_limits,
             ) {
                 Ok((bridge, request)) => (request, Some(bridge)),
                 Err(_) => {
@@ -152,7 +164,7 @@ pub fn plan_request(
         candidates: prepared_candidates,
         is_streaming: requirements.is_streaming,
         allows_fallback: !requirements.requested_capabilities.previous_response_id,
-        response_budget: interface.response_budget(),
+        response_budget,
     })
 }
 

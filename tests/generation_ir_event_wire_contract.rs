@@ -323,3 +323,82 @@ data: {"type":"response.completed","response":{"id":"resp_equivalent","status":"
         *non_stream.semantic()
     );
 }
+
+#[test]
+fn chatgpt_responses_stream_replays_through_the_production_event_profile() {
+    let stream = br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_synthetic","model":"gpt-5.6-luna","object":"response","output":[],"status":"in_progress"}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_synthetic","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"encrypted_content":null,"id":"rs_synthetic","summary":[],"type":"reasoning"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"content":[],"encrypted_content":"synthetic-opaque-continuation","id":"rs_synthetic","summary":[],"type":"reasoning"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"msg_synthetic","type":"message","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","output_index":1,"item_id":"msg_synthetic","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","output_index":1,"item_id":"msg_synthetic","content_index":0,"delta":"hello"}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","output_index":1,"item_id":"msg_synthetic","content_index":0,"text":"hello"}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","output_index":1,"item_id":"msg_synthetic","content_index":0,"part":{"type":"output_text","text":"hello","annotations":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_synthetic","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_synthetic","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}
+
+"#;
+    let mut bridge = StaticEventBridge::new(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        ReasoningOutput::Summary,
+        false,
+        EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
+    for event in decode(stream) {
+        let kind = event.event().unwrap_or("data-only").to_owned();
+        bridge
+            .render(event)
+            .unwrap_or_else(|error| panic!("{kind} must render: {error:?}"));
+    }
+    bridge
+        .finish()
+        .expect("completed ChatGPT stream must finish");
+}
+
+#[test]
+fn chat_usage_snapshot_requires_complete_consistent_totals() {
+    let stream = br#"data: {"id":"chat_usage","choices":[{"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop","index":0}]}
+
+data: {"id":"chat_usage","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}
+
+data: [DONE]
+
+"#;
+    let mut bridge = StaticEventBridge::new(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        ReasoningOutput::Unsupported,
+        false,
+        EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
+    let mut events = decode(stream);
+    bridge.render(events.remove(0)).unwrap();
+    assert!(bridge.render(events.remove(0)).is_err());
+}

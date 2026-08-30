@@ -2,14 +2,14 @@
 
 ## 状态
 
-**R0-R3已完成；R4 production Bridge takeover已获准实施。**
+**R0-R4已完成；R5 trusted ToolPlan已获准实施。**
 
 ## 1. 目标
 
-在`feature/generation-ir-rewrite`继续实现R4：原子切换production Bridge到Static/Event IR，删除pairwise converter与旧mutable
-Chat/Responses stream state。R4不接管Native路径，不实现ToolPlan、Gateway web-search或Provider adapter重构；不改变下游HTTP
-API、配置schema、Registry schema、OpenAPI或canonical fixture，并保持precommit retry/fallback、postcommit禁止fallback、
-cancel、body/event bound与terminal fail-closed边界。
+在`feature/generation-ir-rewrite`继续实现R5：由trusted planning构造immutable `ToolPlan`，实现Inject/Strip与Provider-native
+lowering，并通过现有fidelity authorization显式记录每个semantic change。R5不执行Gateway web-search、不接管Native路径、不新增
+ACL/策略DSL/动态plugin；不改变下游HTTP API、配置schema、Registry schema、OpenAPI或canonical fixture，并保持precommit
+retry/fallback、postcommit禁止fallback、cancel、body/event bound与terminal fail-closed边界。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
@@ -47,8 +47,8 @@ commit 后禁止 fallback、credential secrecy 和 fail-closed unknown semantic 
 | `src/pipeline/generation/types.rs` | capability requirements、ordered candidates、fallback/state-affinity flag | request/response content model |
 | `src/pipeline/generation/preflight.rs` | Public Model fixed contract 与 value-sensitive capability validation | encoder |
 | `src/pipeline/generation/planning.rs` | normalization、candidate lowering、Native/Bridge materialization | canonical semantic owner |
-| `src/bridge/conversion/` | Chat↔Responses request/response/stream pairwise conversion | protocol-neutral transform |
-| `src/bridge/chat.rs`、`responses.rs` | terminal、identity、fragmented tool arguments 和 stream accumulation | canonical Event IR |
+| `src/bridge/static_codec/`、`event_codec/` | production Chat↔Responses lowering与per-request Event state | Route selector或transport owner |
+| `src/bridge/responses.rs` | R7前Native Responses buffering所需的terminal assembly | production Protocol Bridge state |
 | `src/provider/operation.rs` | fixed Provider operation/path、wire preparation、status/SSE classification | capability planner 或 tool executor |
 | `src/registry/public_model/` | immutable execution interface、capability aggregation、continuation issuer constraints | request-time semantic decoder |
 
@@ -57,7 +57,7 @@ commit 后禁止 fallback、credential secrecy 和 fail-closed unknown semantic 
 - `ApiRequest` 明确保存 RoutePlan 确定协议后的 JSON bytes：`src/core/request.rs:124-188`；
 - analyzer 不选 Route、不改 body：`src/pipeline/generation/analysis.rs:35-41`；
 - `RequestRequirements` 与 `RequestedCapabilities` 只保存规划事实：`src/pipeline/generation/types.rs:15-26`、`74-96`；
-- Native candidate 目前仍保留 normalized wire body，Bridge candidate 调用 pairwise `BridgePlan`：
+- Native candidate 目前仍保留normalized wire body，Bridge candidate调用IR-backed `BridgePlan`：
   `src/pipeline/generation/planning.rs:24-34`、`83-145`；
 - `previous_response_id` 使 cross-target fallback 关闭：`src/pipeline/generation/planning.rs:150-155`；
 - Provider adapter 已按 operation 固定 protocol/path，并拒绝不匹配 request：`src/provider/operation.rs:132-182`。
@@ -712,3 +712,10 @@ R3实际证据：
 - lifecycle/identity/resource：sequence、candidate/item/part hierarchy、fragmented tool arguments、usage monotonicity、terminal/EOF、opaque reasoning、event/part/turn/encoded-output bounds、child index、late child event与terminal snapshot rewrite均fail closed；
 - baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；static diff scan通过；
 - R3只增加pure canonical Event IR与test-only wire codec dual-run；production Bridge/Native、Router、Provider、transport和observability路径仍未接入。
+
+R4实际证据：
+
+- production `BridgePlan`已由bounded Static request/response lowering与per-request Event renderer唯一实现；Registry request/JSON/SSE limits显式进入plan，旧pairwise converter与Chat mutable stream state已删除；
+- focused：完整`bridge_conversion_contract`、Generation IR contracts与55个`forwarding_contract` tests通过；ChatGPT真实wire profile、stream usage、instruction preservation、precommit retry/fallback、postcommit禁止fallback、cancel与process replay保持通过；
+- sparse Responses terminal、omitted in-progress item status与`output_item.done`才交付的opaque continuation已按实际Provider lifecycle建模，同时非空terminal snapshot rewrite、invalid usage、late child event与resource amplification继续fail closed；
+- baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；Native request path、Native Responses buffering、Provider adapter、配置和observability未接管。

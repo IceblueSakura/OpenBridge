@@ -210,11 +210,15 @@ fn decode_responses_response(
     let mut has_tool_call = false;
     for item in items {
         let item = item.as_object().ok_or(StaticCodecError::InvalidShape)?;
-        if item.get("status").and_then(Value::as_str) != Some("completed") {
+        let status = item.get("status").filter(|value| !value.is_null());
+        if status.is_some_and(|value| value.as_str() != Some("completed")) {
             return Err(StaticCodecError::InvalidShape);
         }
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
+                if status.is_none() {
+                    return Err(StaticCodecError::InvalidShape);
+                }
                 let id = required_string(item, "id")?;
                 let content = decode_responses_message_content(item, max_bytes)?;
                 output.push(OutputItem::Message(
@@ -553,10 +557,14 @@ fn decode_chat_usage(value: Option<&Value>) -> Result<Option<Usage>, StaticCodec
         return Ok(None);
     };
     let usage = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    let input = required_usage_u64(usage, "prompt_tokens")?;
+    let output = required_usage_u64(usage, "completion_tokens")?;
+    let total = required_usage_u64(usage, "total_tokens")?;
+    validate_usage_total(input, output, total)?;
     Ok(Some(Usage::new(
-        optional_u64(usage, "prompt_tokens")?,
-        optional_u64(usage, "completion_tokens")?,
-        optional_u64(usage, "total_tokens")?,
+        Some(input),
+        Some(output),
+        Some(total),
         usage
             .get("completion_tokens_details")
             .and_then(Value::as_object)
@@ -577,10 +585,14 @@ fn decode_responses_usage(value: Option<&Value>) -> Result<Option<Usage>, Static
         return Ok(None);
     };
     let usage = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    let input = required_usage_u64(usage, "input_tokens")?;
+    let output = required_usage_u64(usage, "output_tokens")?;
+    let total = required_usage_u64(usage, "total_tokens")?;
+    validate_usage_total(input, output, total)?;
     Ok(Some(Usage::new(
-        optional_u64(usage, "input_tokens")?,
-        optional_u64(usage, "output_tokens")?,
-        optional_u64(usage, "total_tokens")?,
+        Some(input),
+        Some(output),
+        Some(total),
         usage
             .get("output_tokens_details")
             .and_then(Value::as_object)
@@ -602,6 +614,18 @@ fn optional_u64(object: &Map<String, Value>, field: &str) -> Result<Option<u64>,
         .filter(|value| !value.is_null())
         .map(|value| value.as_u64().ok_or(StaticCodecError::InvalidShape))
         .transpose()
+}
+
+fn required_usage_u64(object: &Map<String, Value>, field: &str) -> Result<u64, StaticCodecError> {
+    optional_u64(object, field)?.ok_or(StaticCodecError::InvalidShape)
+}
+
+fn validate_usage_total(input: u64, output: u64, total: u64) -> Result<(), StaticCodecError> {
+    if input.checked_add(output) == Some(total) {
+        Ok(())
+    } else {
+        Err(StaticCodecError::InvalidShape)
+    }
 }
 
 fn function_arguments(call: &ToolCall) -> Result<String, StaticCodecError> {

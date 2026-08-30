@@ -2,7 +2,7 @@
 
 use bytes::Bytes;
 use openbridge::{
-    bridge::{BridgePlan, StaticBridgePlan, StaticCodecError, StaticCodecLimits},
+    bridge::{BridgeLimits, BridgePlan, StaticBridgePlan, StaticCodecError, StaticCodecLimits},
     core::{ApiProtocol, ReasoningOutput},
 };
 use serde_json::{Value, json};
@@ -13,6 +13,10 @@ fn body(value: Value) -> Bytes {
 
 fn limits() -> StaticCodecLimits {
     StaticCodecLimits::new(256 * 1024, 256 * 1024).expect("test limits must be valid")
+}
+
+fn bridge_limits() -> BridgeLimits {
+    BridgeLimits::new(256 * 1024, 256 * 1024, 64 * 1024).expect("test Bridge limits must be valid")
 }
 
 #[test]
@@ -86,6 +90,7 @@ fn assert_request_parity(
         "upstream-model",
         request.clone(),
         reasoning,
+        bridge_limits(),
     )
     .expect("established Bridge must accept the characterized request");
     let (static_plan, static_ir) = StaticBridgePlan::prepare_with_reasoning_output(
@@ -202,6 +207,7 @@ fn static_codecs_preserve_readable_non_stream_reasoning_and_usage() {
         "upstream-model",
         request.clone(),
         ReasoningOutput::PlainText,
+        bridge_limits(),
     )
     .unwrap();
     let (static_ir, _) = StaticBridgePlan::prepare_with_reasoning_output(
@@ -346,6 +352,7 @@ fn static_codecs_fail_closed_on_unmodeled_or_unresolved_semantics() {
                 "public-model",
                 "upstream-model",
                 request.clone(),
+                bridge_limits(),
             )
             .is_err(),
             "established Bridge must reject the characterized loss"

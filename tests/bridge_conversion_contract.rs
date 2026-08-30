@@ -6,8 +6,8 @@
 use bytes::Bytes;
 use openbridge::{
     bridge::{
-        BridgePlan, ChatStreamState, ResponsesStreamState, StaticBridgePlan, StaticCodecLimits,
-        StaticEventBridge, StaticEventCodecError,
+        BridgeLimits, BridgePlan as ProductionBridgePlan, ResponsesStreamState, StaticBridgePlan,
+        StaticCodecLimits, StaticEventBridge, StaticEventCodecError,
     },
     core::{ApiProtocol, ReasoningOutput},
     ir::generation::EventLimits,
@@ -31,6 +31,53 @@ fn fixture(directory: &str, name: &str) -> Bytes {
 
 fn static_codec_limits() -> StaticCodecLimits {
     StaticCodecLimits::new(256 * 1024, 256 * 1024).expect("test limits must be valid")
+}
+
+fn bridge_limits() -> BridgeLimits {
+    BridgeLimits::new(256 * 1024, 4 * 1024 * 1024, 256 * 1024)
+        .expect("test Bridge limits must be valid")
+}
+
+struct BridgePlan;
+
+impl BridgePlan {
+    fn prepare(
+        downstream: ApiProtocol,
+        upstream: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        body: Bytes,
+    ) -> Result<(ProductionBridgePlan, openbridge::core::ApiRequest), openbridge::bridge::BridgeError>
+    {
+        ProductionBridgePlan::prepare(
+            downstream,
+            upstream,
+            public_model,
+            upstream_model,
+            body,
+            bridge_limits(),
+        )
+    }
+
+    fn prepare_with_reasoning_output(
+        downstream: ApiProtocol,
+        upstream: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        body: Bytes,
+        reasoning_output: ReasoningOutput,
+    ) -> Result<(ProductionBridgePlan, openbridge::core::ApiRequest), openbridge::bridge::BridgeError>
+    {
+        ProductionBridgePlan::prepare_with_reasoning_output(
+            downstream,
+            upstream,
+            public_model,
+            upstream_model,
+            body,
+            reasoning_output,
+            bridge_limits(),
+        )
+    }
 }
 
 fn assert_json_eq(actual: &[u8], expected: &[u8]) {
@@ -110,52 +157,40 @@ fn responses_stream_with_terminal_usage(document: &[u8], usage: Value) -> Bytes 
 }
 
 fn assert_sse_semantics(protocol: ApiProtocol, actual: &[u8], expected: &[u8]) {
-    match protocol {
-        ApiProtocol::ChatCompletions => {
-            let mut actual_state = ChatStreamState::new();
-            for event in decode(actual) {
-                actual_state.ingest(&event).expect("actual Chat stream");
-            }
-            actual_state.finish().expect("actual Chat terminal");
-            let mut expected_state = ChatStreamState::new();
-            for event in decode(expected) {
-                expected_state.ingest(&event).expect("expected Chat stream");
-            }
-            expected_state.finish().expect("expected Chat terminal");
-            assert_eq!(actual_state.text(), expected_state.text());
-            assert_eq!(
-                actual_state.reasoning_text(),
-                expected_state.reasoning_text()
-            );
-            assert_eq!(actual_state.tool_calls(), expected_state.tool_calls());
-            assert_eq!(actual_state.terminal(), expected_state.terminal());
+    fn materialize(
+        protocol: ApiProtocol,
+        document: &[u8],
+    ) -> openbridge::ir::generation::GenerationResponse {
+        let target = match protocol {
+            ApiProtocol::ChatCompletions => ApiProtocol::Responses,
+            ApiProtocol::Responses => ApiProtocol::ChatCompletions,
+        };
+        let reasoning = match protocol {
+            ApiProtocol::ChatCompletions => ReasoningOutput::PlainText,
+            ApiProtocol::Responses => ReasoningOutput::Summary,
+        };
+        let mut bridge = StaticEventBridge::new(
+            protocol,
+            target,
+            "public-model",
+            reasoning,
+            false,
+            EventLimits::new(256 * 1024, 1024 * 1024, 4 * 1024 * 1024).unwrap(),
+        )
+        .expect("semantic comparison bridge");
+        for event in decode(document) {
+            bridge.render(event).expect("semantic comparison stream");
         }
-        ApiProtocol::Responses => {
-            let mut actual_state = ResponsesStreamState::new();
-            for event in decode(actual) {
-                actual_state
-                    .ingest(&event)
-                    .expect("actual Responses stream");
-            }
-            actual_state.finish().expect("actual Responses terminal");
-            let mut expected_state = ResponsesStreamState::new();
-            for event in decode(expected) {
-                expected_state
-                    .ingest(&event)
-                    .expect("expected Responses stream");
-            }
-            expected_state
-                .finish()
-                .expect("expected Responses terminal");
-            assert_eq!(actual_state.text(), expected_state.text());
-            assert_eq!(
-                actual_state.reasoning_text(),
-                expected_state.reasoning_text()
-            );
-            assert_eq!(actual_state.tool_calls(), expected_state.tool_calls());
-            assert_eq!(actual_state.terminal(), expected_state.terminal());
-        }
+        bridge.finish().expect("semantic comparison terminal");
+        bridge
+            .materialized_response()
+            .expect("semantic comparison response")
     }
+
+    assert_eq!(
+        materialize(protocol, actual),
+        materialize(protocol, expected)
+    );
 }
 
 #[test]
@@ -256,6 +291,36 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
             "exact canonical response bytes must match the established Bridge"
         );
     }
+}
+
+#[test]
+fn streaming_scalar_input_requires_one_complete_text_only_message() {
+    let (_, request) = BridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        Bytes::from_static(
+            br#"{"model":"public-model","messages":[{"role":"user","content":[{"type":"text","text":"alpha"},{"type":"text","text":"beta"}]}],"stream":true}"#,
+        ),
+    )
+    .expect("ordered text parts remain bridgeable");
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+    assert_eq!(request["input"], "alphabeta");
+
+    assert!(
+        BridgePlan::prepare(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            Bytes::from_static(
+                br#"{"model":"public-model","messages":[{"role":"user","content":[{"type":"text","text":"alpha"},{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}],"stream":true}"#,
+            ),
+        )
+        .is_err(),
+        "unmodeled media must fail closed before scalar input lowering"
+    );
 }
 
 #[test]

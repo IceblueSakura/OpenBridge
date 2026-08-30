@@ -198,7 +198,10 @@ impl ResponsesEventDecoder {
             .get("item")
             .and_then(Value::as_object)
             .ok_or(StaticEventCodecError::InvalidJson)?;
-        if item.get("status").and_then(Value::as_str) != Some("in_progress") {
+        if item
+            .get("status")
+            .is_some_and(|status| status.as_str() != Some("in_progress"))
+        {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         let item_value = item_id(required_string(item, "id")?, self.limits)?;
@@ -480,9 +483,11 @@ impl ResponsesEventDecoder {
             .items
             .remove(&index)
             .ok_or(StaticEventCodecError::IdentityConflict)?;
+        let status = snapshot.get("status").filter(|value| !value.is_null());
         if item.finished
             || snapshot.get("id").and_then(Value::as_str) != Some(item.item.as_str())
-            || snapshot.get("status").and_then(Value::as_str) != Some("completed")
+            || status.is_some_and(|value| value.as_str() != Some("completed"))
+            || (item.kind == ResponsesItemKind::Message && status.is_none())
         {
             self.items.insert(index, item);
             return Err(StaticEventCodecError::IdentityConflict);
@@ -571,26 +576,31 @@ impl ResponsesEventDecoder {
         }
         let output = response
             .get("output")
-            .and_then(Value::as_array)
-            .ok_or(StaticEventCodecError::InvalidJson)?;
-        if output.len() != self.items.len() {
-            return Err(StaticEventCodecError::IdentityConflict);
-        }
-        for (index, snapshot) in output.iter().enumerate() {
-            let item = self
-                .items
-                .get(&(index as u64))
-                .ok_or(StaticEventCodecError::IdentityConflict)?;
-            let snapshot = snapshot
-                .as_object()
-                .ok_or(StaticEventCodecError::InvalidJson)?;
-            if !item.finished
-                || snapshot.get("id").and_then(Value::as_str) != Some(item.item.as_str())
-                || snapshot.get("status").and_then(Value::as_str) != Some("completed")
-            {
+            .filter(|value| !value.is_null())
+            .map(|value| value.as_array().ok_or(StaticEventCodecError::InvalidJson))
+            .transpose()?;
+        if let Some(output) = output.filter(|output| !output.is_empty()) {
+            if output.len() != self.items.len() {
                 return Err(StaticEventCodecError::IdentityConflict);
             }
-            validate_item_snapshot(item, snapshot)?;
+            for (index, snapshot) in output.iter().enumerate() {
+                let item = self
+                    .items
+                    .get(&(index as u64))
+                    .ok_or(StaticEventCodecError::IdentityConflict)?;
+                let snapshot = snapshot
+                    .as_object()
+                    .ok_or(StaticEventCodecError::InvalidJson)?;
+                let status = snapshot.get("status").filter(|value| !value.is_null());
+                if !item.finished
+                    || snapshot.get("id").and_then(Value::as_str) != Some(item.item.as_str())
+                    || status.is_some_and(|value| value.as_str() != Some("completed"))
+                    || (item.kind == ResponsesItemKind::Message && status.is_none())
+                {
+                    return Err(StaticEventCodecError::IdentityConflict);
+                }
+                validate_item_snapshot(item, snapshot)?;
+            }
         }
         let has_tools = self
             .items

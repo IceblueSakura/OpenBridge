@@ -52,9 +52,9 @@ downstream response + request/attempt observations
 | Provider 实现 | `src/providers/` | trusted origin、operation path、model Target、request hook 与显式 catalog registration |
 | Registry | `src/registry/` | 配置引用校验、immutable runtime entity、Public Model DTO/执行快照和编译 |
 | Request analysis/planning | `src/pipeline/` | operation-specific facts、preflight 与固定 Route plan；不进行 Provider 名称分支 |
-| Generation semantic IR | `src/ir/generation/` | rewrite branch 的pure Static/Event values、reducer/materializer、local validation、semantic requirements 与fidelity；不拥有wire codec、Registry、I/O或production routing |
+| Generation semantic IR | `src/ir/generation/` | pure Static/Event values、reducer/materializer、local validation、semantic requirements与fidelity；不拥有Registry、I/O或routing |
 | HTTP ingress | `src/ingress/` | 认证、body lifecycle、handler、attempt/fallback、streaming response 与错误映射 |
-| Protocol Bridge | `src/bridge.rs`、`src/bridge/` | Chat ↔ Responses request/response/SSE转换及rewrite branch的bounded Static/Event wire codec；不选择Provider/Route，rewrite codec尚未接入production |
+| Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
 | Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 与 candidate-model Generation 矩阵；不修改 registry |

@@ -165,6 +165,13 @@ fn decode_chat_input(
     for (ordinal, message) in messages.iter().enumerate() {
         let message = message.as_object().ok_or(StaticCodecError::InvalidShape)?;
         let role = required_string(message, "role")?;
+        if role != "assistant"
+            && message
+                .get("reasoning_content")
+                .is_some_and(|value| !value.is_null())
+        {
+            return Err(StaticCodecError::UnsupportedSemantics);
+        }
         match role.as_str() {
             "system" | "developer" => {
                 let text = required_string(message, "content")?;
@@ -617,7 +624,9 @@ fn decode_output(
                     .ok_or(StaticCodecError::InvalidShape)?,
                 ApiProtocol::Responses => format,
             };
-            reject_unknown_keys(schema, &["name", "description", "schema", "strict"])?;
+            if protocol == ApiProtocol::ChatCompletions {
+                reject_unknown_keys(schema, &["name", "description", "schema", "strict"])?;
+            }
             let name = text_value(required_string(schema, "name")?, max_bytes)?;
             let description = schema
                 .get("description")
@@ -877,18 +886,19 @@ fn encode_responses_input(
             InputItem::Extension(_) => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }
-    if stream
-        && instructions.is_none()
-        && items.len() == 1
-        && no_tools
-        && let Some(text) = items[0]
-            .get("content")
-            .and_then(Value::as_array)
-            .and_then(|parts| parts.first())
-            .and_then(|part| part.get("text"))
-            .and_then(Value::as_str)
-    {
-        return Ok((None, Value::String(text.to_owned())));
+    if stream && instructions.is_none() && items.len() == 1 {
+        let text = match items[0].get("content") {
+            Some(Value::String(text)) => Some(text.as_str()),
+            Some(Value::Array(parts)) if parts.len() == 1 => parts.first().and_then(|part| {
+                (part.get("type").and_then(Value::as_str) == Some("input_text"))
+                    .then(|| part.get("text").and_then(Value::as_str))
+                    .flatten()
+            }),
+            _ => None,
+        };
+        if let Some(text) = text {
+            return Ok((None, Value::String(text.to_owned())));
+        }
     }
     Ok((instructions, Value::Array(items)))
 }

@@ -111,12 +111,12 @@ Agent runtime、负载或长期运行验证。
 
 ## 9. Generation IR rewrite checkpoint
 
-- `feature/generation-ir-rewrite`已实现R0-R3的provider-neutral Static/Event Generation IR kernel与Chat/Responses Static/wire-event codecs；request/response、ordered item、content/resource/source、tool、reasoning、state/opaque affinity、usage、Provider extension、event lifecycle与fidelity均为owned values和pure validation。
+- `feature/generation-ir-rewrite`已实现R0-R4的provider-neutral Static/Event Generation IR kernel与Chat/Responses codecs；production Bridge现由canonical request/response lowering和per-request Event reducer/encoder唯一实现。
 - `project_semantic_requirements`只投影可由canonical request推导的semantic facts；Public Model、source protocol、stream delivery和wire encoded length仍由现有request analyzer/envelope owner持有。Chat/Responses test-only tracer会与现有analyzer比较共同semantic facts。
 - lossy change默认拒绝；trusted tool-directive authorization同时绑定plan、directive、semantic path和reason。R1只定义provenance/fidelity，不实现ToolPlan Inject/Strip。
-- R2的bounded decoder、canonical lowering、closed private target DTO与observable `Transform` fidelity只在tests中和旧non-stream converter dual-run；canonical fixtures保持semantic parity，exact cases保持byte parity，unknown semantics、unresolved tool identity、citation loss和body超限均fail closed。
-- R3的canonical Event reducer/materializer与bounded Chat/Responses wire-event codec只在tests中和旧stream converter dual-run；stream/non-stream materialization一致，identity/index、parent/child lifecycle、terminal/EOF、opaque state与resource amplification均fail closed。
-- 生产Native/Bridge、Provider adapter、Router、transport、配置和observability路径尚未接入IR；不存在production双栈、feature flag或兼容shim。
+- R2/R3的bounded Static/Event codecs已被production `BridgePlan`直接采用；Registry request/JSON/SSE budgets显式约束decode、part/turn与encoded output，unknown semantics、identity/index、parent/child lifecycle、terminal/EOF、opaque state和resource amplification均fail closed。
+- 旧`bridge/conversion/` pairwise converter与Chat mutable stream state已删除；precommit retry/fallback、postcommit禁止fallback、cancel、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
+- Native request path与Native Responses SSE→JSON buffering仍保持现状，待R7原子切换；Provider adapter、配置和observability未因R4改变，不存在production Bridge双栈、feature flag或compatibility shim。
 
 主要owner：`src/ir/generation/`、`src/bridge/static_codec/`与`src/bridge/event_codec/`；test-only analyzer parity位于`src/pipeline/generation/analysis.rs`。
 

@@ -1,8 +1,8 @@
-//! Test-only canonical Event IR bridge for R3 stream parity.
+//! Production canonical Event IR bridge for incremental Chat/Responses lowering.
 //!
 //! This facade decodes one upstream SSE event into canonical events, validates each transition with
-//! the pure reducer, and encodes the validated event for the downstream protocol. It performs no
-//! transport I/O, retry, routing, downstream commit, or tool execution.
+//! the pure reducer, and encodes the validated event for the downstream protocol. Transport I/O,
+//! retry, routing, downstream commit, and tool execution remain with their existing owners.
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -92,7 +92,7 @@ impl WireEncoder {
     }
 }
 
-/// Stateful R3 dual-run facade with no production wiring.
+/// Per-request production Event IR state for one fixed cross-protocol Bridge.
 pub struct StaticEventBridge {
     decoder: WireDecoder,
     encoder: WireEncoder,

@@ -125,8 +125,14 @@ async fn chatgpt_preserves_client_instructions_across_native_and_chat_bridge_pat
             .body(Body::from(body.to_string()))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let _ = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let status = response.status();
+        let response_body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response_body)
+        );
     }
 
     let requests = transport.requests.lock().unwrap();
@@ -248,8 +254,9 @@ async fn chatgpt_chat_bridge_fulfills_hermes_stream_usage_contract() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
     let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(&body).unwrap();
     events.extend(decoder.finish().unwrap());

@@ -93,10 +93,16 @@ pub(super) fn bridge_item_id(call_id: &str) -> String {
 }
 
 pub(super) fn usage_from_chat(usage: &Map<String, Value>) -> Result<Usage, StaticEventCodecError> {
+    let input = required_usage_u64(usage, "prompt_tokens")?;
+    let output = required_usage_u64(usage, "completion_tokens")?;
+    let total = required_usage_u64(usage, "total_tokens")?;
+    if input.checked_add(output) != Some(total) {
+        return Err(StaticEventCodecError::InvalidJson);
+    }
     Ok(Usage::new(
-        optional_u64(usage, "prompt_tokens")?,
-        optional_u64(usage, "completion_tokens")?,
-        optional_u64(usage, "total_tokens")?,
+        Some(input),
+        Some(output),
+        Some(total),
         usage
             .get("completion_tokens_details")
             .and_then(Value::as_object)
@@ -115,10 +121,16 @@ pub(super) fn usage_from_chat(usage: &Map<String, Value>) -> Result<Usage, Stati
 pub(super) fn usage_from_responses(
     usage: &Map<String, Value>,
 ) -> Result<Usage, StaticEventCodecError> {
+    let input = required_usage_u64(usage, "input_tokens")?;
+    let output = required_usage_u64(usage, "output_tokens")?;
+    let total = required_usage_u64(usage, "total_tokens")?;
+    if input.checked_add(output) != Some(total) {
+        return Err(StaticEventCodecError::InvalidJson);
+    }
     Ok(Usage::new(
-        optional_u64(usage, "input_tokens")?,
-        optional_u64(usage, "output_tokens")?,
-        optional_u64(usage, "total_tokens")?,
+        Some(input),
+        Some(output),
+        Some(total),
         usage
             .get("output_tokens_details")
             .and_then(Value::as_object)
@@ -132,6 +144,13 @@ pub(super) fn usage_from_responses(
             .transpose()?
             .flatten(),
     ))
+}
+
+fn required_usage_u64(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<u64, StaticEventCodecError> {
+    optional_u64(object, field)?.ok_or(StaticEventCodecError::InvalidJson)
 }
 
 fn optional_u64(

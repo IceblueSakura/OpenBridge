@@ -107,14 +107,6 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
                 state.finish().unwrap();
                 assert_eq!(state.text(), "red and blue");
                 assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
-            } else {
-                let mut state = ChatStreamState::new();
-                for event in events {
-                    state.ingest(&event).unwrap();
-                }
-                state.finish().unwrap();
-                assert_eq!(state.text(), "red and blue");
-                assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
             }
         } else {
             let response: Value =
@@ -234,16 +226,6 @@ async fn mimo_v25_chat_audio_understanding_preserves_bounded_wav_data_url() {
         let response_body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         if streaming {
             assert_eq!(response_body.as_ref(), MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM);
-            let mut decoder = SseDecoder::new(64 * 1024);
-            let mut events = decoder.push(&response_body).unwrap();
-            events.extend(decoder.finish().unwrap());
-            let mut state = ChatStreamState::new();
-            for event in events {
-                state.ingest(&event).unwrap();
-            }
-            state.finish().unwrap();
-            assert_eq!(state.text(), "understood audio");
-            assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
         } else {
             let response: Value = serde_json::from_slice(&response_body).unwrap();
             assert_eq!(response["object"], "chat.completion");

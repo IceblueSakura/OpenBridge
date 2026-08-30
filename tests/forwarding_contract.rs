@@ -25,7 +25,7 @@ use bytes::Bytes;
 use futures_util::{StreamExt, future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
-    bridge::{ChatStreamState, ResponsesStreamState, StreamTerminal},
+    bridge::{ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
     core::{
         ApiProtocol, ExecutableResponsesState, OperationKind, ResponseInclude, ResponsesAffinity,
