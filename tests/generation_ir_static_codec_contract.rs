@@ -547,6 +547,26 @@ fn static_codecs_support_native_same_protocol_round_trips() {
 }
 
 #[test]
+fn native_static_request_rejects_duplicate_json_keys_before_source_preservation() {
+    for request in [
+        br#"{"model":"public-model","model":"shadow-model","messages":[{"role":"user","content":"hello"}]}"#.as_slice(),
+        br#"{"model":"public-model","messages":[{"role":"user","content":[{"type":"text","text":"first","text":"second"}]}]}"#.as_slice(),
+    ] {
+        assert!(
+            StaticBridgePlan::prepare(
+                ApiProtocol::ChatCompletions,
+                ApiProtocol::ChatCompletions,
+                "public-model",
+                "upstream-model",
+                Bytes::copy_from_slice(request),
+                limits(),
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn cross_protocol_request_rejects_unrepresented_nested_fields() {
     let chat_cases = [
         (

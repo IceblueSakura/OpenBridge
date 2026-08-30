@@ -17,7 +17,7 @@ pub(super) fn parse_object(
     if data.len() > limits.max_event_bytes() {
         return Err(StaticEventCodecError::LimitExceeded);
     }
-    serde_json::from_str::<Value>(data)
+    super::super::strict_json::from_str(data)
         .map_err(|_| StaticEventCodecError::InvalidJson)?
         .as_object()
         .cloned()

@@ -43,6 +43,7 @@ pub(super) struct ChatEventDecoder {
     candidate: Option<crate::ir::generation::CandidateId>,
     message: Option<(ItemId, PartId)>,
     reasoning: Option<(ItemId, PartId)>,
+    opaque_parts: u64,
     reasoning_seen: bool,
     tools: BTreeMap<u64, ChatTool>,
     finish: Option<FinishReason>,
@@ -65,6 +66,7 @@ impl ChatEventDecoder {
             candidate: None,
             message: None,
             reasoning: None,
+            opaque_parts: 0,
             reasoning_seen: false,
             tools: BTreeMap::new(),
             finish: None,
@@ -277,6 +279,7 @@ impl ChatEventDecoder {
     /// Retains one bounded Provider media delta as internal state for same-protocol source preservation.
     fn opaque_delta(&mut self, value: &Value) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
         let mut events = Vec::new();
+        let part_index = self.opaque_parts;
         if self.reasoning.is_none() {
             let suffix = self
                 .upstream_id
@@ -284,7 +287,10 @@ impl ChatEventDecoder {
                 .and_then(|id| id.strip_prefix("chatcmpl_"))
                 .unwrap_or(self.upstream_id.as_deref().unwrap_or("response"));
             let item = item_id(format!("opaque_{suffix}"), self.limits)?;
-            let part = part_id(format!("{}:opaque", item.as_str()), self.limits)?;
+            let part = part_id(
+                format!("{}:opaque:{part_index}", item.as_str()),
+                self.limits,
+            )?;
             events.extend(self.start_item(
                 item.clone(),
                 part.clone(),
@@ -294,7 +300,32 @@ impl ChatEventDecoder {
             )?);
             self.reasoning = Some((item, part));
             self.reasoning_seen = true;
+        } else {
+            let (item, previous) = self.reasoning.as_ref().unwrap().clone();
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::PartFinished {
+                    part: PartRef::new(previous),
+                },
+            )?);
+            let part = part_id(
+                format!("{}:opaque:{part_index}", item.as_str()),
+                self.limits,
+            )?;
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::PartStarted {
+                    item: ItemRef::new(item.clone()),
+                    part: PartIdentity::new(part.clone(), OutputIndex::new(part_index)),
+                    kind: PartKind::Opaque,
+                },
+            )?);
+            self.reasoning = Some((item, part));
         }
+        self.opaque_parts = self
+            .opaque_parts
+            .checked_add(1)
+            .ok_or(StaticEventCodecError::LimitExceeded)?;
         let payload = serde_json::to_vec(value).map_err(|_| StaticEventCodecError::InvalidJson)?;
         let payload = BoundedBytes::new(payload, self.limits.max_part_bytes())
             .map_err(|_| StaticEventCodecError::LimitExceeded)?;

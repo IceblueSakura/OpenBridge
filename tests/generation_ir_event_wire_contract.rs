@@ -479,7 +479,7 @@ fn event_usage_rejects_malformed_detail_containers() {
 fn native_chat_stream_is_canonically_validated_without_requiring_reencoded_bytes() {
     for stream in [
         "data: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-asr\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"transcript\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-asr\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
-        "data: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"UklGRg==\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        "data: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"UklG\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"Rg==\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
     ] {
         let mut bridge = StaticEventBridge::new(
             ApiProtocol::ChatCompletions,
@@ -497,6 +497,24 @@ fn native_chat_stream_is_canonically_validated_without_requiring_reencoded_bytes
         }
         bridge.finish().unwrap();
     }
+}
+
+#[test]
+fn native_chat_stream_preserves_multiple_unknown_reasoning_deltas() {
+    let stream = b"data: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"first\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"second\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+    let mut bridge = StaticEventBridge::new(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        ReasoningOutput::Unknown,
+        false,
+        EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
+    for event in decode(stream) {
+        bridge.render(event).unwrap();
+    }
+    bridge.finish().unwrap();
 }
 
 #[test]

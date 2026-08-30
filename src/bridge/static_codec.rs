@@ -1,8 +1,10 @@
 //! Production Chat/Responses Bridge backed exclusively by canonical Generation IR.
 //!
 //! Wire delivery metadata remains outside the canonical IR. Request and response interaction
-//! semantics are decoded, validated, and encoded by pure functions; incremental SSE conversion is
-//! delegated to the canonical Event reducer/encoder without owning transport or commit policy.
+//! semantics are decoded, validated, and encoded by pure functions; same-protocol requests retain
+//! source fields while applying the trusted model binding, not JSON whitespace or key order.
+//! Incremental SSE conversion is delegated to the canonical Event reducer/encoder without owning
+//! transport or commit policy.
 
 use bytes::Bytes;
 use serde_json::{Map, Value};
@@ -663,7 +665,7 @@ fn direct_chat_stream_usage(
 }
 
 fn parse_object(body: &[u8]) -> Result<Map<String, Value>, StaticCodecError> {
-    serde_json::from_slice::<Value>(body)
+    super::strict_json::from_slice(body)
         .map_err(|_| StaticCodecError::InvalidShape)?
         .as_object()
         .cloned()

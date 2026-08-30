@@ -115,7 +115,7 @@ Agent runtime、负载或长期运行验证。
 - `project_semantic_requirements`只投影可由canonical request推导的semantic facts；Public Model、source protocol、stream delivery和wire encoded length仍由现有request analyzer/envelope owner持有。Chat/Responses test-only tracer会与现有analyzer比较共同semantic facts。
 - lossy change默认拒绝；trusted tool-directive authorization同时绑定plan、directive、semantic path和reason。ToolPlan Inject/Strip、candidate-bound Provider tool profile与Gateway web-search continuation均保持immutable/pure planning边界。
 - bounded Static/Event codecs现在同时拥有Native与Bridge production semantic path；Registry request/JSON/SSE budgets显式约束decode、part/turn与encoded output，unknown semantics、identity/index、parent/child lifecycle、terminal/EOF、opaque state和resource amplification均fail closed。
-- 同协议Native在canonical decode/reduce验证后通过typed `PreserveSource`保持原始request、JSON response与SSE bytes；跨协议或需语义转换时仍重新encode，未知可移植语义保持fail closed。
+- 同协议Native在canonical decode/reduce验证后通过typed `PreserveSource`保留request的source语义与Provider私有字段，并只执行受信model重绑定；JSON空白与键序不构成合同，重复key在构造canonical value前拒绝。完整JSON response与SSE bytes保持原样；跨协议或需语义转换时仍重新encode，未知可移植语义保持fail closed。
 - 旧pairwise converter、Chat mutable stream state、Native `ResponsesStreamState`与独立SSE→JSON assembler均已删除；buffered Responses通过Event IR materialize后由Static IR编码。
 - precommit retry/fallback、postcommit禁止fallback、cancel、失败terminal、partial EOF/body error、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
 - R6 Gateway web-search kernel固定candidate origin，独立限制turn/tool/result/attempt/deadline，传播cancel并仅聚合成功turn usage；当前仍保持`#[cfg(test)]`，不构成production web-search能力。

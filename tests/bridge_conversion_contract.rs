@@ -786,11 +786,11 @@ data: [DONE]
 
 data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"rs_reasoning","status":"in_progress","summary":[],"type":"reasoning"}}
 
-data: {"type":"response.reasoning_text.delta","content_index":0,"delta":"check args","item_id":"rs_reasoning","output_index":0,"type":"response.reasoning_text.delta"}
+data: {"content_index":0,"delta":"check args","item_id":"rs_reasoning","output_index":0,"type":"response.reasoning_text.delta"}
 
-data: {"type":"response.reasoning_text.delta","content_index":0,"delta":"call tool","item_id":"rs_reasoning","output_index":0,"type":"response.reasoning_text.delta"}
+data: {"content_index":0,"delta":"call tool","item_id":"rs_reasoning","output_index":0,"type":"response.reasoning_text.delta"}
 
-data: {"type":"response.reasoning_text.done","content_index":0,"item_id":"rs_reasoning","output_index":0,"text":"check argscall tool","type":"response.reasoning_text.done"}
+data: {"content_index":0,"item_id":"rs_reasoning","output_index":0,"text":"check argscall tool","type":"response.reasoning_text.done"}
 
 data: {"type":"response.output_item.done","output_index":0,"item":{"content":[{"text":"check argscall tool","type":"reasoning_text"}],"id":"rs_reasoning","status":"completed","summary":[],"type":"reasoning"}}
 
@@ -1255,15 +1255,15 @@ data: [DONE]
 
 data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"id":"rs_reasoning_text","status":"in_progress","summary":[],"type":"reasoning"}}
 
-data: {"type":"response.reasoning_text.delta","content_index":0,"delta":"decide","item_id":"rs_reasoning_text","output_index":0,"type":"response.reasoning_text.delta"}
+data: {"content_index":0,"delta":"decide","item_id":"rs_reasoning_text","output_index":0,"type":"response.reasoning_text.delta"}
 
-data: {"type":"response.reasoning_text.done","content_index":0,"item_id":"rs_reasoning_text","output_index":0,"text":"decide","type":"response.reasoning_text.done"}
+data: {"content_index":0,"item_id":"rs_reasoning_text","output_index":0,"text":"decide","type":"response.reasoning_text.done"}
 
 data: {"type":"response.output_item.done","output_index":0,"item":{"content":[{"text":"decide","type":"reasoning_text"}],"id":"rs_reasoning_text","status":"completed","summary":[],"type":"reasoning"}}
 
 data: {"type":"response.output_item.added","output_index":1,"item":{"content":[],"id":"msg_reasoning_text","role":"assistant","status":"in_progress","type":"message"}}
 
-data: {"type":"response.output_text.delta","content_index":0,"delta":"answer","item_id":"msg_reasoning_text","output_index":1,"type":"response.output_text.delta"}
+data: {"content_index":0,"delta":"answer","item_id":"msg_reasoning_text","output_index":1,"type":"response.output_text.delta"}
 
 data: {"type":"response.output_item.done","output_index":1,"item":{"content":[{"annotations":[],"text":"answer","type":"output_text"}],"id":"msg_reasoning_text","role":"assistant","status":"completed","type":"message"}}
 
@@ -1296,19 +1296,19 @@ fn responses_reasoning_summary_stream_maps_to_chat_reasoning_channel() {
 
 data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"encrypted_content":null,"id":"rs_summary","status":"in_progress","summary":[],"type":"reasoning"}}
 
-data: {"type":"response.reasoning_summary_part.added","item_id":"rs_summary","output_index":0,"summary_index":0,"part":{"text":"","type":"summary_text"},"type":"response.reasoning_summary_part.added"}
+data: {"item_id":"rs_summary","output_index":0,"summary_index":0,"part":{"text":"","type":"summary_text"},"type":"response.reasoning_summary_part.added"}
 
-data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"decide ","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
+data: {"summary_index":0,"delta":"decide ","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
 
-data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"tool","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
+data: {"summary_index":0,"delta":"tool","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
 
-data: {"type":"response.reasoning_summary_text.done","summary_index":0,"item_id":"rs_summary","output_index":0,"text":"decide tool","type":"response.reasoning_summary_text.done"}
+data: {"summary_index":0,"item_id":"rs_summary","output_index":0,"text":"decide tool","type":"response.reasoning_summary_text.done"}
 
 data: {"type":"response.output_item.done","output_index":0,"item":{"content":[],"encrypted_content":"opaque-continuation","id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"}}
 
 data: {"type":"response.output_item.added","output_index":1,"item":{"content":[],"id":"msg_summary","role":"assistant","status":"in_progress","type":"message"}}
 
-data: {"type":"response.output_text.delta","content_index":0,"delta":"answer","item_id":"msg_summary","output_index":1,"type":"response.output_text.delta"}
+data: {"content_index":0,"delta":"answer","item_id":"msg_summary","output_index":1,"type":"response.output_text.delta"}
 
 data: {"type":"response.output_item.done","output_index":1,"item":{"content":[{"annotations":[],"text":"answer","type":"output_text"}],"id":"msg_summary","role":"assistant","status":"completed","type":"message"}}
 
