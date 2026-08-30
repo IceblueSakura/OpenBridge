@@ -11,11 +11,15 @@ mod chat;
 mod conversion;
 mod responses;
 mod shared;
+mod static_codec;
 
 pub(crate) use chat::ChatStreamEventKind;
 pub use chat::ChatStreamState;
 pub use conversion::{BridgeError, BridgePlan, BridgeStreamRenderer};
 pub use responses::ResponsesStreamState;
+pub use static_codec::{
+    StaticBridgePlan, StaticCodecError, StaticCodecLimits, StaticRenderedResponse,
+};
 
 /// The only terminal state for a bridge stream.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

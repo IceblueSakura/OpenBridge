@@ -5,7 +5,9 @@
 
 use bytes::Bytes;
 use openbridge::{
-    bridge::{BridgePlan, ChatStreamState, ResponsesStreamState},
+    bridge::{
+        BridgePlan, ChatStreamState, ResponsesStreamState, StaticBridgePlan, StaticCodecLimits,
+    },
     core::{ApiProtocol, ReasoningOutput},
     transport::sse::{SseDecoder, SseEvent},
 };
@@ -23,6 +25,10 @@ fn fixture(directory: &str, name: &str) -> Bytes {
         .join(directory)
         .join(name);
     Bytes::from(std::fs::read(path).expect("canonical bridge artifact must exist"))
+}
+
+fn static_codec_limits() -> StaticCodecLimits {
+    StaticCodecLimits::new(256 * 1024, 256 * 1024).expect("test limits must be valid")
 }
 
 fn assert_json_eq(actual: &[u8], expected: &[u8]) {
@@ -155,7 +161,7 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
             case.upstream,
             "public-model",
             "upstream-model",
-            client_request,
+            client_request.clone(),
         )
         .expect("accepted request must be bridgeable");
         assert_json_eq(
@@ -169,6 +175,40 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
         assert_json_eq(
             &client_response,
             &fixture(case.directory, "expected-client-response.json"),
+        );
+
+        // Dual-run the Static IR path until the production Bridge takeover gate.
+        let (static_plan, static_upstream_request) = StaticBridgePlan::prepare(
+            case.downstream,
+            case.upstream,
+            "public-model",
+            "upstream-model",
+            client_request,
+            static_codec_limits(),
+        )
+        .expect("accepted request must lower through Static IR");
+        assert!(!static_plan.request_changes().is_empty());
+        assert_json_eq(
+            static_upstream_request.body(),
+            &fixture(case.directory, "expected-upstream-request.json"),
+        );
+        assert_eq!(
+            static_upstream_request.body(),
+            upstream_request.body(),
+            "exact canonical request bytes must match the established Bridge"
+        );
+        let static_client_response = static_plan
+            .render_non_stream(fixture(case.directory, "upstream-response.json"))
+            .expect("accepted response must lower through Static IR");
+        assert!(!static_client_response.changes().is_empty());
+        assert_json_eq(
+            static_client_response.body(),
+            &fixture(case.directory, "expected-client-response.json"),
+        );
+        assert_eq!(
+            static_client_response.body(),
+            &client_response,
+            "exact canonical response bytes must match the established Bridge"
         );
     }
 }

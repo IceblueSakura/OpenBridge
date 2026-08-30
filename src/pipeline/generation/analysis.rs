@@ -430,6 +430,7 @@ mod generation_ir_parity_tests {
         );
         let output = OutputConstraint::JsonSchema {
             name: bounded_text(format["name"].as_str().expect("format name must be text")),
+            description: format["description"].as_str().map(bounded_text),
             schema: JsonSchema::new(format["schema"].clone(), VALUE_LIMIT)
                 .expect("output schema must be valid"),
             strict: format["strict"].as_bool().unwrap_or(false),

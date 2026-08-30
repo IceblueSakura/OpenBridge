@@ -306,6 +306,8 @@ pub enum OutputConstraint {
     JsonSchema {
         /// Stable schema name exposed to protocols that support one.
         name: TextValue,
+        /// Optional human-readable schema description.
+        description: Option<TextValue>,
         /// Validated portable JSON Schema.
         schema: JsonSchema,
         /// Whether exact schema adherence is required.

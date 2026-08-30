@@ -92,6 +92,7 @@ fn function_tools_and_structured_output_project_typed_requirements() {
         .expect("tool configuration must be valid")
         .with_output(OutputConstraint::JsonSchema {
             name: TextValue::new("answer", 64).expect("schema name must fit"),
+            description: None,
             schema,
             strict: true,
         });
