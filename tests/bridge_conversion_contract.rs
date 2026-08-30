@@ -7,8 +7,10 @@ use bytes::Bytes;
 use openbridge::{
     bridge::{
         BridgePlan, ChatStreamState, ResponsesStreamState, StaticBridgePlan, StaticCodecLimits,
+        StaticEventBridge, StaticEventCodecError,
     },
     core::{ApiProtocol, ReasoningOutput},
+    ir::generation::EventLimits,
     transport::sse::{SseDecoder, SseEvent},
 };
 use serde_json::Value;
@@ -37,11 +39,54 @@ fn assert_json_eq(actual: &[u8], expected: &[u8]) {
     assert_eq!(actual, expected);
 }
 
+fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
+    if actual == expected {
+        return;
+    }
+    let offset = actual
+        .iter()
+        .zip(expected)
+        .position(|(left, right)| left != right)
+        .unwrap_or_else(|| actual.len().min(expected.len()));
+    let start = offset.saturating_sub(80);
+    let actual_end = (offset + 160).min(actual.len());
+    let expected_end = (offset + 160).min(expected.len());
+    panic!(
+        "{context} differs at byte {offset}; actual={:?}; expected={:?}",
+        String::from_utf8_lossy(&actual[start..actual_end]),
+        String::from_utf8_lossy(&expected[start..expected_end])
+    );
+}
+
 fn decode(document: &[u8]) -> Vec<SseEvent> {
     let mut decoder = SseDecoder::new(256 * 1024);
     let mut events = decoder.push(document).expect("fixture SSE must decode");
     events.extend(decoder.finish().expect("fixture SSE must finish"));
     events
+}
+
+fn render_static_stream(
+    upstream: ApiProtocol,
+    downstream: ApiProtocol,
+    reasoning: ReasoningOutput,
+    include_chat_usage: bool,
+    document: &[u8],
+) -> Result<Vec<u8>, StaticEventCodecError> {
+    let mut bridge = StaticEventBridge::new(
+        upstream,
+        downstream,
+        "public-model",
+        reasoning,
+        include_chat_usage,
+        EventLimits::new(256 * 1024, 1024 * 1024, 4 * 1024 * 1024).unwrap(),
+    )?;
+    let mut output = Vec::new();
+    for event in decode(document) {
+        output.extend(bridge.render(event)?);
+    }
+    output.extend(bridge.finish()?);
+    assert!(!bridge.changes().is_empty());
+    Ok(output)
 }
 
 fn responses_stream_with_terminal_usage(document: &[u8], usage: Value) -> Bytes {
@@ -258,15 +303,44 @@ fn canonical_text_and_parallel_tool_streams_render_in_both_directions() {
             &fixture(directory, "expected-upstream-request.json"),
         );
         let mut renderer = plan.stream_renderer();
+        let mut static_renderer = StaticEventBridge::new(
+            upstream,
+            downstream,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+        )
+        .expect("canonical stream direction must be supported");
         let mut actual = Vec::new();
+        let mut static_actual = Vec::new();
         for event in decode(&fixture(directory, "upstream-stream.sse")) {
-            actual.extend(renderer.render(event).expect("event must render"));
+            actual.extend(
+                renderer
+                    .render(event.clone())
+                    .expect("fixture event must render"),
+            );
+            static_actual.extend(
+                static_renderer
+                    .render(event)
+                    .expect("fixture event must render through Event IR"),
+            );
         }
-        actual.extend(renderer.finish().expect("stream must finish"));
+        actual.extend(renderer.finish().expect("fixture stream must finish"));
+        static_actual.extend(
+            static_renderer
+                .finish()
+                .expect("Event IR fixture stream must finish"),
+        );
         assert_sse_semantics(
             downstream,
             &actual,
             &fixture(directory, "expected-client-stream.sse"),
+        );
+        assert_bytes_eq(
+            &static_actual,
+            &actual,
+            "canonical Event IR stream must match the established Bridge",
         );
     }
 }
@@ -316,6 +390,16 @@ data: {"type":"response.completed","response":{"id":"resp_usage","object":"respo
         );
     }
     actual.extend(renderer.finish().expect("usage stream must finish"));
+
+    let static_actual = render_static_stream(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        ReasoningOutput::Unsupported,
+        true,
+        &upstream,
+    )
+    .expect("Event IR usage stream must finish");
+    assert_bytes_eq(&static_actual, &actual, "Event IR usage stream");
 
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
@@ -384,6 +468,16 @@ data: {"type":"response.completed","response":{"id":"resp_usage_reasoning","stat
             .expect("reasoning usage stream must finish"),
     );
 
+    let static_actual = render_static_stream(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        ReasoningOutput::PlainText,
+        true,
+        &upstream,
+    )
+    .expect("Event IR reasoning usage stream must finish");
+    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning usage stream");
+
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
     let chunks = events[..events.len() - 1]
@@ -437,6 +531,16 @@ fn chat_to_responses_stream_usage_marks_function_tool_chunks() {
         actual.extend(renderer.render(event).expect("tool event must render"));
     }
     actual.extend(renderer.finish().expect("tool usage stream must finish"));
+
+    let static_actual = render_static_stream(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        ReasoningOutput::Unsupported,
+        true,
+        &upstream,
+    )
+    .expect("Event IR tool usage stream must finish");
+    assert_bytes_eq(&static_actual, &actual, "Event IR tool usage stream");
 
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
@@ -815,6 +919,71 @@ data: {"id":"chatcmpl_duplicate_usage","choices":[],"usage":{"prompt_tokens":1,"
 }
 
 #[test]
+fn event_ir_bridge_rejects_every_non_success_responses_terminal() {
+    for (event_type, status) in [
+        ("response.failed", "failed"),
+        ("response.incomplete", "incomplete"),
+        ("response.cancelled", "cancelled"),
+    ] {
+        let document = format!(
+            "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"id\":\"resp_failure\",\"status\":\"in_progress\"}}}}\n\nevent: {event_type}\ndata: {{\"type\":\"{event_type}\",\"response\":{{\"id\":\"resp_failure\",\"status\":\"{status}\"}}}}\n\n"
+        );
+        assert!(
+            render_static_stream(
+                ApiProtocol::Responses,
+                ApiProtocol::ChatCompletions,
+                ReasoningOutput::Unsupported,
+                false,
+                document.as_bytes(),
+            )
+            .is_err()
+        );
+    }
+
+    let error = br#"event: response.created
+data: {"type":"response.created","response":{"id":"resp_error","status":"in_progress"}}
+
+event: error
+data: {"type":"error","message":"provider failure"}
+
+"#;
+    assert!(
+        render_static_stream(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            ReasoningOutput::Unsupported,
+            false,
+            error,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn event_ir_bridge_rejects_a_terminal_snapshot_that_rewrites_completed_output() {
+    let source = fixture(
+        "chat_to_responses/chat_to_responses.text.stream",
+        "upstream-stream.sse",
+    );
+    let source = String::from_utf8(source.to_vec()).unwrap();
+    let terminal = source.rfind("event: response.completed").unwrap();
+    let (prefix, terminal) = source.split_at(terminal);
+    let terminal = terminal.replacen("\"text\":\"你好\"", "\"text\":\"tampered\"", 1);
+    let tampered = format!("{prefix}{terminal}");
+
+    assert!(
+        render_static_stream(
+            ApiProtocol::Responses,
+            ApiProtocol::ChatCompletions,
+            ReasoningOutput::Unsupported,
+            false,
+            tampered.as_bytes(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn reasoning_request_and_non_stream_response_keep_a_separate_channel() {
     // Verify that standard Responses reasoning configuration and history items convert to Chat.
     let responses_request = serde_json::json!({
@@ -995,6 +1164,16 @@ data: [DONE]
             .expect("reasoning text stream should finish"),
     );
 
+    let static_actual = render_static_stream(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        ReasoningOutput::PlainText,
+        false,
+        &upstream,
+    )
+    .expect("Event IR reasoning text stream must finish");
+    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning text stream");
+
     assert_sse_semantics(
         ApiProtocol::Responses,
         &actual,
@@ -1043,13 +1222,13 @@ fn responses_reasoning_summary_stream_maps_to_chat_reasoning_channel() {
 
 data: {"type":"response.output_item.added","output_index":0,"item":{"content":[],"encrypted_content":null,"id":"rs_summary","status":"in_progress","summary":[],"type":"reasoning"}}
 
-data: {"type":"response.reasoning_summary_part.added","item_id":"rs_summary","output_index":0,"part":{"text":"","type":"summary_text"},"type":"response.reasoning_summary_part.added"}
+data: {"type":"response.reasoning_summary_part.added","item_id":"rs_summary","output_index":0,"summary_index":0,"part":{"text":"","type":"summary_text"},"type":"response.reasoning_summary_part.added"}
 
-data: {"type":"response.reasoning_summary_text.delta","content_index":0,"delta":"decide ","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
+data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"decide ","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
 
-data: {"type":"response.reasoning_summary_text.delta","content_index":0,"delta":"tool","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
+data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"tool","item_id":"rs_summary","output_index":0,"type":"response.reasoning_summary_text.delta"}
 
-data: {"type":"response.reasoning_summary_text.done","content_index":0,"item_id":"rs_summary","output_index":0,"text":"decide tool","type":"response.reasoning_summary_text.done"}
+data: {"type":"response.reasoning_summary_text.done","summary_index":0,"item_id":"rs_summary","output_index":0,"text":"decide tool","type":"response.reasoning_summary_text.done"}
 
 data: {"type":"response.output_item.done","output_index":0,"item":{"content":[],"encrypted_content":"opaque-continuation","id":"rs_summary","status":"completed","summary":[{"text":"decide tool","type":"summary_text"}],"type":"reasoning"}}
 
@@ -1077,6 +1256,16 @@ data: {"type":"response.completed","response":{"id":"resp_summary","model":"upst
             .finish()
             .expect("reasoning summary stream should finish"),
     );
+
+    let static_actual = render_static_stream(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        ReasoningOutput::Summary,
+        false,
+        &upstream,
+    )
+    .expect("Event IR reasoning summary stream must finish");
+    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning summary stream");
 
     assert_sse_semantics(
         ApiProtocol::ChatCompletions,
@@ -1436,6 +1625,17 @@ fn incomplete_stream_arguments_fail_without_a_fabricated_terminal() {
         }
     }
     assert!(failed || renderer.finish().is_err());
+    assert!(
+        render_static_stream(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::Responses,
+            ReasoningOutput::Unsupported,
+            false,
+            &fixture(directory, "upstream-stream.sse"),
+        )
+        .is_err(),
+        "Event IR must reject incomplete function arguments without a terminal"
+    );
 }
 
 #[test]

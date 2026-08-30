@@ -93,6 +93,7 @@ pub struct StaticBridgePlan {
 pub struct StaticRenderedResponse {
     body: Bytes,
     changes: Vec<SemanticChange>,
+    semantic: GenerationResponse,
 }
 
 impl StaticRenderedResponse {
@@ -104,6 +105,11 @@ impl StaticRenderedResponse {
     /// Returns semantic changes observed during target lowering.
     pub fn changes(&self) -> &[SemanticChange] {
         &self.changes
+    }
+
+    /// Returns the canonical source response decoded before target lowering.
+    pub fn semantic(&self) -> &GenerationResponse {
+        &self.semantic
     }
 }
 
@@ -192,6 +198,7 @@ impl StaticBridgePlan {
             self.reasoning_output,
             self.limits.response_body,
         )?;
+        let semantic = decoded.semantic.clone();
         let target_protocol = opposite(self.target_protocol);
         let rendered = response::lower_response(
             target_protocol,
@@ -207,6 +214,7 @@ impl StaticBridgePlan {
         Ok(StaticRenderedResponse {
             body: rendered,
             changes,
+            semantic,
         })
     }
 

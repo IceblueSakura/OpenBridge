@@ -5,6 +5,7 @@
 //! this module.
 
 mod control;
+mod event;
 mod fidelity;
 mod projection;
 mod request;
@@ -16,6 +17,7 @@ mod tool;
 mod value;
 
 pub use control::*;
+pub use event::*;
 pub use fidelity::*;
 pub use projection::*;
 pub use request::*;

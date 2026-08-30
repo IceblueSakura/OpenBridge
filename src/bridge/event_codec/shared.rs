@@ -1,0 +1,173 @@
+//! Shared bounded wire helpers for Event IR codecs.
+
+use bytes::Bytes;
+use serde_json::{Map, Value};
+
+use crate::ir::generation::{
+    CallId, CandidateId, EventEnvelope, EventLimits, GenerationEvent, ItemId, PartId, ResponseId,
+    Sequence, TextValue, ToolName, Usage,
+};
+
+use super::StaticEventCodecError;
+
+pub(super) fn parse_object(
+    data: &str,
+    limits: EventLimits,
+) -> Result<Map<String, Value>, StaticEventCodecError> {
+    if data.len() > limits.max_event_bytes() {
+        return Err(StaticEventCodecError::LimitExceeded);
+    }
+    serde_json::from_str::<Value>(data)
+        .map_err(|_| StaticEventCodecError::InvalidJson)?
+        .as_object()
+        .cloned()
+        .ok_or(StaticEventCodecError::InvalidJson)
+}
+
+pub(super) fn required_string(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<String, StaticEventCodecError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or(StaticEventCodecError::InvalidJson)
+}
+
+pub(super) fn required_u64(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<u64, StaticEventCodecError> {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or(StaticEventCodecError::InvalidJson)
+}
+
+pub(super) fn text(value: &str, limits: EventLimits) -> Result<TextValue, StaticEventCodecError> {
+    TextValue::new(value, limits.max_event_bytes())
+        .map_err(|_| StaticEventCodecError::LimitExceeded)
+}
+
+macro_rules! bounded_identity {
+    ($name:ident, $type:ty) => {
+        pub(super) fn $name(
+            value: impl Into<String>,
+            limits: EventLimits,
+        ) -> Result<$type, StaticEventCodecError> {
+            <$type>::new(value, limits.max_event_bytes())
+                .map_err(|_| StaticEventCodecError::LimitExceeded)
+        }
+    };
+}
+
+bounded_identity!(response_id, ResponseId);
+bounded_identity!(candidate_id, CandidateId);
+bounded_identity!(item_id, ItemId);
+bounded_identity!(part_id, PartId);
+bounded_identity!(call_id, CallId);
+bounded_identity!(tool_name, ToolName);
+
+pub(super) fn envelope(
+    next_sequence: &mut u64,
+    event: GenerationEvent,
+) -> Result<EventEnvelope, StaticEventCodecError> {
+    let sequence = *next_sequence;
+    *next_sequence = next_sequence
+        .checked_add(1)
+        .ok_or(StaticEventCodecError::InvalidLifecycle)?;
+    Ok(EventEnvelope::new(Sequence::new(sequence), event))
+}
+
+pub(super) fn map_id(id: &str, from: &str, to: &str) -> String {
+    format!("{to}{}", id.strip_prefix(from).unwrap_or(id))
+}
+
+pub(super) fn bridge_item_id(call_id: &str) -> String {
+    call_id
+        .strip_prefix("call_")
+        .map(|suffix| format!("fc_{suffix}"))
+        .unwrap_or_else(|| format!("fc_{call_id}"))
+}
+
+pub(super) fn usage_from_chat(usage: &Map<String, Value>) -> Result<Usage, StaticEventCodecError> {
+    Ok(Usage::new(
+        optional_u64(usage, "prompt_tokens")?,
+        optional_u64(usage, "completion_tokens")?,
+        optional_u64(usage, "total_tokens")?,
+        usage
+            .get("completion_tokens_details")
+            .and_then(Value::as_object)
+            .map(|details| optional_u64(details, "reasoning_tokens"))
+            .transpose()?
+            .flatten(),
+        usage
+            .get("prompt_tokens_details")
+            .and_then(Value::as_object)
+            .map(|details| optional_u64(details, "cached_tokens"))
+            .transpose()?
+            .flatten(),
+    ))
+}
+
+pub(super) fn usage_from_responses(
+    usage: &Map<String, Value>,
+) -> Result<Usage, StaticEventCodecError> {
+    Ok(Usage::new(
+        optional_u64(usage, "input_tokens")?,
+        optional_u64(usage, "output_tokens")?,
+        optional_u64(usage, "total_tokens")?,
+        usage
+            .get("output_tokens_details")
+            .and_then(Value::as_object)
+            .map(|details| optional_u64(details, "reasoning_tokens"))
+            .transpose()?
+            .flatten(),
+        usage
+            .get("input_tokens_details")
+            .and_then(Value::as_object)
+            .map(|details| optional_u64(details, "cached_tokens"))
+            .transpose()?
+            .flatten(),
+    ))
+}
+
+fn optional_u64(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<Option<u64>, StaticEventCodecError> {
+    object
+        .get(field)
+        .filter(|value| !value.is_null())
+        .map(|value| value.as_u64().ok_or(StaticEventCodecError::InvalidJson))
+        .transpose()
+}
+
+pub(super) fn sse_data(value: &Value, limits: EventLimits) -> Result<Bytes, StaticEventCodecError> {
+    let data = serde_json::to_vec(value).map_err(|_| StaticEventCodecError::InvalidJson)?;
+    let mut output = b"data: ".to_vec();
+    output.extend(data);
+    output.extend_from_slice(b"\n\n");
+    if output.len() > limits.max_event_bytes() {
+        return Err(StaticEventCodecError::LimitExceeded);
+    }
+    Ok(Bytes::from(output))
+}
+
+pub(super) fn response_event(
+    event: &str,
+    value: &Value,
+    limits: EventLimits,
+) -> Result<Bytes, StaticEventCodecError> {
+    let data = serde_json::to_vec(value).map_err(|_| StaticEventCodecError::InvalidJson)?;
+    let mut output = format!("event: {event}\n").into_bytes();
+    output.extend_from_slice(b"data: ");
+    output.extend(data);
+    output.extend_from_slice(b"\n\n");
+    if output.len() > limits.max_event_bytes() {
+        return Err(StaticEventCodecError::LimitExceeded);
+    }
+    Ok(Bytes::from(output))
+}

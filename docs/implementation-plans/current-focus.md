@@ -2,13 +2,14 @@
 
 ## 状态
 
-**R0-R2已完成；R3 Event kernel已获准实施。**
+**R0-R3已完成；R4 production Bridge takeover已获准实施。**
 
 ## 1. 目标
 
-在`feature/generation-ir-rewrite`继续实现R3：为Chat/Responses增加canonical Event IR、wire-event decoder、reducer、
-materializer与target event encoder。R3仍只与旧stream converter在tests中dual-run，不接入production Router、Bridge、Provider或
-transport；不改变下游HTTP API、配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
+在`feature/generation-ir-rewrite`继续实现R4：原子切换production Bridge到Static/Event IR，删除pairwise converter与旧mutable
+Chat/Responses stream state。R4不接管Native路径，不实现ToolPlan、Gateway web-search或Provider adapter重构；不改变下游HTTP
+API、配置schema、Registry schema、OpenAPI或canonical fixture，并保持precommit retry/fallback、postcommit禁止fallback、
+cancel、body/event bound与terminal fail-closed边界。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
@@ -703,3 +704,11 @@ R2实际证据：
 - focused：`generation_ir_static_codec_contract`、`generation_ir_contract`和完整`bridge_conversion_contract`通过；canonical exact cases的旧/新request与response bytes相等；
 - baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；static diff scan通过；
 - R2只增加bounded pure Static codecs、closed private target DTO与test dual-run；production Native/Bridge、stream Event IR、Router、Provider、transport和observability路径未接入。
+
+R3实际证据：
+
+- RED：canonical event contract最初因缺少Event algebra/reducer/materializer真实编译失败；wire dual-run最初因缺少`StaticEventBridge`真实编译失败；
+- focused：`generation_ir_event_contract`、`generation_ir_event_wire_contract`和完整`bridge_conversion_contract`通过；canonical stream fixtures与旧Bridge保持exact wire parity，等价stream/non-stream输入materialize为相同`GenerationResponse`；
+- lifecycle/identity/resource：sequence、candidate/item/part hierarchy、fragmented tool arguments、usage monotonicity、terminal/EOF、opaque reasoning、event/part/turn/encoded-output bounds、child index、late child event与terminal snapshot rewrite均fail closed；
+- baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；static diff scan通过；
+- R3只增加pure canonical Event IR与test-only wire codec dual-run；production Bridge/Native、Router、Provider、transport和observability路径仍未接入。

@@ -9,6 +9,7 @@ use thiserror::Error;
 
 mod chat;
 mod conversion;
+mod event_codec;
 mod responses;
 mod shared;
 mod static_codec;
@@ -16,6 +17,7 @@ mod static_codec;
 pub(crate) use chat::ChatStreamEventKind;
 pub use chat::ChatStreamState;
 pub use conversion::{BridgeError, BridgePlan, BridgeStreamRenderer};
+pub use event_codec::{StaticEventBridge, StaticEventCodecError};
 pub use responses::ResponsesStreamState;
 pub use static_codec::{
     StaticBridgePlan, StaticCodecError, StaticCodecLimits, StaticRenderedResponse,
