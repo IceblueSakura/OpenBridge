@@ -212,8 +212,9 @@ Text annotation至少预留source/citation引用；citation指向独立`SourceId
 ```text
 ToolDefinition
 ├── name: ToolName
-├── origin: ToolOrigin              # Downstream | GatewayPolicy | ProviderProfile
+├── origin: ToolOrigin              # Downstream | GatewayPolicy | UpstreamProvider
 ├── executor: ToolExecutor          # Client | Gateway | Provider(origin)
+├── visibility: ToolVisibility      # Public | Internal
 └── kind: ToolKind
 
 ToolKind
@@ -238,7 +239,7 @@ Function arguments在completed Static IR中必须是bounded JSON object；malfor
 解析失败。这样避免同时维护raw string与parsed JSON两个事实源。JSON Schema使用validated/bounded `JsonSchema` newtype；
 它可以内部包装JSON object，但不能退化成通用portable payload。
 
-`ToolOrigin`描述声明来自客户端、Gateway注入还是Provider profile；`ToolExecutor`只描述执行owner，不授予权限。两者必须分离：
+`ToolOrigin`描述声明来自客户端、Gateway注入还是upstream response；`ToolExecutor`只描述执行owner，不授予权限。两者必须分离：
 Gateway可以注入一个由Provider执行的web search，也可以把Provider-native declaration改写为Gateway执行的function loop。
 个人网关不需要ACL；可信Route/Target profile决定Provider/Gateway是否能执行。
 
@@ -399,9 +400,271 @@ D3 paper walkthrough必须验证：首个迁移切片是立即启用multiple-can
 ProviderReference resource如何约束origin；Chat多message tool history映射为ordered InputItem是否无歧义；
 `reasoning.encrypted_content`的Returnable条件；Response include应映射为输出投影请求还是wire hint。
 
-## 14. 完成与授权边界
+## 14. D3 Canonical Event IR
 
-本焦点完成条件：D1-D3 形成一份内部一致、能被现有fixture反证、明确alternatives/open questions的设计基线；所有外部
+Event IR描述一次Provider turn的canonical lifecycle，不承载HTTP/SSE framing、retry、downstream commit或tool executor。
+同一Static IR leaf types由non-stream decoder和Event materializer共享。
+
+```text
+EventEnvelope
+├── sequence: Sequence
+└── event: GenerationEvent
+
+GenerationEvent
+├── ResponseStarted { response: ResponseIdentity }
+├── CandidateStarted { candidate: CandidateIdentity }
+├── ItemStarted { candidate: CandidateRef, item: ItemIdentity, header: ItemHeader }
+├── PartStarted { item: ItemRef, part: PartIdentity, kind: PartKind }
+├── PartDelta { part: PartRef, delta: PartDelta }
+├── PartFinished { part: PartRef }
+├── ItemFinished { item: ItemRef }
+├── CandidateFinished { candidate: CandidateRef, finish }
+├── UsageSnapshot { usage }
+└── Terminal { terminal }
+
+PartDelta
+├── Text(BoundedTextDelta)
+├── ReasoningText(BoundedTextDelta)
+├── ReasoningSummary(BoundedTextDelta)
+├── ToolArguments(BoundedJsonFragment)
+├── Audio(BoundedAudioDelta)
+└── Opaque(BoundedBytes)
+```
+
+`ResponseId`、`CandidateId`、`ItemId`、`PartId`、`CallId`、`OutputIndex`和`Sequence`使用不同newtype；index/order不充当
+identity。source wire没有ID时允许生成deterministic、turn-scoped ID，但synthetic ID不进入Provider replay identity。
+
+Event中的`*Identity`/`*Ref`是lifecycle key，不是D2的完整`Candidate`、`OutputItem`或`ContentPart`。Identity在start时固定
+canonical ID、wire/provider identity和index；Ref只携带canonical ID。header只保存开始后不可变化的字段：
+
+```text
+ItemHeader
+├── Message { role }
+├── Reasoning { provider_identity }
+├── ToolCall { call, tool, origin, executor, visibility }
+├── ToolResult { call, status, origin, visibility }
+└── Extension { namespace, kind, origin }
+
+PartKind
+├── Text
+├── ReasoningText | ReasoningSummary
+├── ToolArguments | ToolOutput(ToolOutputKind)
+├── Resource(ResourceHeader)
+├── Source(SourceHeader)
+└── Opaque(OpaqueHeader)
+```
+
+ToolResult的status由ItemHeader固定，Text/Json/Content output与source/citation由其parts构造。reducer以identity key维护open
+builders；只有part/item/candidate全部结束后，materializer才构造完整Static IR值。
+
+一个`EventState`只对应一个Provider turn，最小状态为`response: Option<ResponseIdentity>`、`next_sequence`、按canonical ID索引的
+candidate/item/part builders、latest usage、terminal和`eof_state`。Sequence从decoder起点严格单调；duplicate/out-of-order
+sequence拒绝。
+任一Ref必须指向已start且尚未finish的对象，child结束后才能结束parent；同一index映射到不同identity也拒绝。
+
+每个delta先检查单event bound，reducer再检查part/turn累计bound。首个terminal前EOF记录`EofWithoutTerminal`并返回
+`EofBeforeTerminal`；terminal后首个EOF记录clean end；duplicate EOF返回`DuplicateEof`，任何EOF后event返回`InputAfterEof`。
+
+完整resource URL/reference可以在`PartStarted` header中给出并立即`PartFinished`；增量binary使用bounded delta。tool name、
+call identity和execution/visibility在`ItemStarted`固定，后续delta不能漂移。function arguments只在part完成时解析成Static IR
+的JSON object。
+
+不单独定义`Error` event：协议内failed/incomplete/cancelled/error都归一为带可选failure detail的`Terminal`；HTTP status、
+body transport error和decoder error仍由Provider/transport boundary拥有。
+
+## 15. Reducer、materializer 与 encoder
+
+```text
+reduce(state: EventState, input: EventInput) -> Result<EventState, ReduceError>
+materialize(state: &EventState) -> Result<GenerationResponse, MaterializeError>
+encode_event(state: EncoderState, event: &GenerationEvent)
+    -> Result<(EncoderState, Vec<WireFrame>), EncodeError>
+
+EventInput = Event(EventEnvelope) | Eof
+```
+
+这些API是referentially transparent的value transition；实现可在函数内部mutate owned `BTreeMap`以避免复制，但不隐藏I/O、
+task、clock或global cache。wire decoder先产生Event，reducer验证，target encoder可为internal/invisible event返回零个frame。
+
+reducer不调用encoder，materializer不解析raw JSON，encoder不决定capability/fallback。non-stream response decoder可以直接构造
+Static IR，但必须与等价Event replay的materialized结果做一致性测试。
+
+## 16. Lifecycle、terminal、EOF 与 commit
+
+必须区分：turn lifecycle、transport EOF、downstream commit和包含server-tool loop的logical operation completion。
+
+```text
+TurnTerminal
+├── status: Completed | Failed | Incomplete | Cancelled | Error
+├── finish: Stop | Length | ToolCalls | ContentFilter | Extension
+└── failure: Option<FailureDetail>
+```
+
+不变量：
+
+1. 每个turn恰好一个terminal；terminal后event一律拒绝。
+2. `Eof`不是terminal；terminal前EOF返回`EofBeforeTerminal`，terminal后EOF成功。
+3. Completed terminal要求candidate/item/part全部关闭且tool arguments已验证。
+4. failed/incomplete/cancelled/error保持区分，可以保留partial state但不能materialize为成功response。
+5. Chat `[DONE]`只是wire terminator；只有合法finish state后才能解码成Completed terminal。
+6. Responses `response.completed`携带tool calls表示turn完成且finish为ToolCalls，不代表logical operation已经结束。
+7. usage snapshot单调且最多产生一个最终client-visible usage；不得从text length或event count估算。
+
+downstream `CommitState`仍由`src/ingress/streaming/precommit.rs`拥有。commit点是第一个完整、Provider-valid且经downstream encoder
+生成的visible frame，不是第一个IR event。commit前允许现有bounded retry/fallback；commit后禁止retry/fallback、不得制造terminal，
+body error和cancellation沿现有ingress/transport路径传播。
+
+## 17. Server-side tool transform 与 execution loop
+
+D2的`ToolDefinition`同时表达origin、executor和visibility；D3只增加一个可信、编译后的小型计划，不引入规则DSL：
+
+```text
+ToolPlan
+├── directives: Vec<ToolDirective>
+├── max_turns
+├── max_tool_calls
+├── max_tool_result_bytes
+└── deadline
+
+ToolDirective
+├── Inject(ToolDefinition)
+└── Strip(ToolSelector)
+
+ToolSelector { name: ToolName, origin: ToolOrigin }
+
+apply_tool_plan(request: GenerationRequest, plan: &ToolPlan)
+    -> Result<Transform<GenerationRequest>, ToolPlanError>
+```
+
+规则：
+
+1. plan来自可信、immutable Registry compilation，不从downstream arbitrary JSON选择Provider、URL、credential或implementation。
+   Target profile不能自行向base IR注入semantic tool；它只把共同的generic server tool lowering成Provider-native wire。
+2. plan在logical operation开始时对base Request IR应用一次；retry/fallback candidate各自从同一transform结果纯lowering，不能重复注入。
+3. Inject要求tool name唯一、origin为`GatewayPolicy`并记录`Synthesized`；Strip以name+origin精确命中，只允许`GatewayPolicy`并记录`Lossy`；
+   命中downstream client tool返回错误，不得由encoder静默删除。
+   Strip directive本身只授权该ToolName的loss，不会把Route全局`LossPolicy`切成`Allow`。
+4. `visibility=Internal`允许downstream encoder隐藏Gateway/Provider server-tool lifecycle，但citation/source等public result仍保留；
+   visibility filtering不是删除Canonical IR。
+5. Provider executor由Target profile lowering成native server tool；不支持时返回Unsupported，除非plan显式选择Gateway executor。
+6. Gateway executor把canonical ToolCall交给受信local executor，再追加同一CallId的ToolResult并发起下一turn；execution不进入reducer。
+7. 首版只考虑read-only web search一类工具；mutating/approval-sensitive tool不在首个实现范围。
+
+Gateway execution发生后，logical operation固定当前candidate/credential；Provider opaque state或Provider-executed tool一旦被观察也绑定
+origin。这样无需多租户ACL，仍避免把tool result或opaque state交给另一个Provider继续生成。
+
+server-tool loop使用独立budget，不复用candidate retry count：turn count、tool-call count、result bytes、operation deadline和总upstream
+attempt上限。cancellation必须贯穿upstream、backoff和tool future；不允许detached task。第一次Gateway tool execution前不得向downstream
+commit internal turn；commit后不得隐藏tool call再拼接后续assistant answer。
+
+## 18. Usage、attempt 与 observability
+
+Event IR只接收normalized `UsageSnapshot`；decoder负责把Provider delta累计成snapshot。字段继续使用Option保留missing/zero差异，
+requested terminal usage不完整或负数时fail closed，不从payload长度估算。
+
+区分三个口径：
+
+- `TurnUsage`：一个成功Provider turn的usage；
+- `OperationUsage`：Gateway server-tool loop中所有构成最终结果的成功turn之和，作为client-visible usage；
+- `AttemptUsage`：失败retry/fallback等实际Provider消耗，只进入attempt observability，不混入client-visible response。
+
+server-tool调用次数、search context和Provider已报告的tool usage可以进入typed usage details；价格、billing和成本计算仍在IR外。
+observability从Request/Response/Event IR纯投影稳定属性，再与attempt/Route/latency等执行事实组合，不反向解析Provider raw JSON。
+
+## 19. IR-native test layers 与首批 RED
+
+测试按owner分层，不建立完整Provider/model inventory：
+
+1. algebra validation：constructor、identity、ordering、bounded value和invalid state；
+2. wire decoder：Chat/Responses JSON/SSE → Static/Event IR；
+3. requirements projection：IR → `RequestRequirements`与现有preflight parity；
+4. tool-plan transform与capability/lowering report；
+5. private target DTO encoder与same-protocol semantic round-trip；
+6. Event reducer/materializer与non-stream equivalence；
+7. ingress integration：precommit/retry/fallback/cancel/resource lifetime；
+8. 最多一个production Router smoke用于验证层间wiring。
+
+首批RED tests：
+
+- Chat和Responses的等价text/instruction/function request decode为相同Request IR；
+- ordered reasoning→text→parallel tool calls保持独立item与identity；
+- fragmented arguments按CallId独立累积，完成时只解析一次；empty/incomplete/malformed JSON拒绝；
+- duplicate item/call/terminal、event-after-terminal和EOF-before-terminal拒绝；
+- Event materialization等于对应non-stream Response IR；
+- visible reasoning、summary和opaque replay不互相污染；origin不匹配的opaque state拒绝；
+- structured output三种mode保持strict/name/schema和absent/value distinction；
+- server web-search Inject/Strip分别产生`Synthesized`/`Lossy` report，retry不重复注入；
+- internal tool event可产生零downstream frame，但public source/citation仍输出；
+- precommit failure可fallback，postcommit及tool/origin binding后不可cross-candidate fallback。
+
+直接复用现有证据场景，不复制重复断言：
+
+- `tests/bridge_conversion_contract.rs`：双向static/stream、usage、reasoning、tools、structured output；
+- `tests/protocol_bridge_replay.rs`：terminal和duplicate identity；
+- `tests/forwarding_contract/resilience.rs`：precommit、fallback、state affinity和cancellation；
+- `tests/process_replay_contract.rs`：post-output failure、cancel和EOF；
+- `testdata/cases/bridge/chat_to_responses/chat_to_responses.parallel_tools.fragmented_arguments/`；
+- `testdata/cases/bridge/responses_to_chat/responses_to_chat.incomplete_arguments.stream/`；
+- `testdata/cases/bridge/responses_to_chat/responses_to_chat.unsupported_hosted_tool.reject/`；
+- `testdata/cases/faults/responses_native.terminal_violation/`和`responses_native.eof_before_terminal/`。
+
+## 20. D3 paper walkthrough 决定
+
+1. Canonical Response支持multiple candidates；首个迁移切片继续保持当前入口的single-candidate拒绝，直到candidate encode/stream tests齐全。
+2. `ProviderReference` resource和`OpaqueState`只允许同origin profile encode；跨origin返回Unsupported，不尝试下载再上传的隐式迁移。
+3. Chat多message/tool history按wire顺序展开为InputItem；tool call/result通过CallId关联，不按role重新分组。
+4. opaque reasoning只有source decoder标记Returnable且downstream profile能exact承载同一extension时才公开；否则ReplayOnly。
+5. Responses `include`是请求输出投影的semantic requirement，进入capability projection；不是可随意丢弃的wire hint。
+6. Provider extension使用compile-time namespace/kind match，不建立runtime schema registry。
+7. server-tool stripping仅来自显式trusted ToolPlan；默认Unsupported，不使用Provider adapter的silent omission。
+
+## 21. Rewrite branch 实施阶段与 gate
+
+设计通过后，在额外branch进行大范围重写；以下是branch内部checkpoint，不表示main长期双栈：
+
+### R0：characterization
+
+增加纯IR RED tests并冻结当前fixtures，不接入production。Gate：所有当前semantic invariant都有IR表达，未知项明确拒绝。
+
+### R1：Static kernel
+
+实现`src/ir/generation/` values、validation、requirements projection和fidelity；Chat/Responses request decoder在test-only路径运行。
+Gate：projection与现有analyzer/preflight parity，纯tests不依赖Axum/network。
+
+### R2：Static codecs
+
+实现request/response lowering与private target DTO encoders；旧Bridge与新路径只在tests dual-run。
+Gate：现有non-stream fixtures semantic parity；exact case再要求byte parity。
+
+### R3：Event kernel
+
+实现wire-event decoder、reducer、materializer和target event encoder。
+Gate：stream fixtures、terminal/identity/usage/EOF tests通过，materialized结果与non-stream IR相等。
+
+### R4：Bridge takeover
+
+production Bridge原子切换到IR路径，保留transport-owned precommit/liveness/cancel。Gate：完整resilience和process replay通过；随后删除
+pairwise converters和旧mutable Bridge state，不保留production feature flag。
+
+### R5：Server-tool native policy
+
+实现ToolPlan的Inject/Strip和Provider-native lowering，先不执行Gateway loop。Gate：fallback candidates语义等价、visibility和fidelity可观察。
+
+### R6：Gateway web-search loop
+
+只实现bounded read-only web search executor；buffer internal turns，aggregate successful turn usage，传播cancel并固定candidate origin。
+Gate：turn/tool/result/deadline/attempt上限、无detached work、commit前后行为和错误语义均有测试。
+
+### R7：Native takeover 与删除
+
+Native路径也执行decode/project/check/lower；满足条件时使用`PreserveSource` typed patch fast path，否则encode。Gate：Native wire合同、Provider
+request、完整Rust baseline通过，最终只保留一个canonical production path。
+
+branch完成后一次性评审/合入；每个checkpoint独立commit并通过相称验证，但不要求中间commit可部署到main。
+
+## 22. 完成与授权边界
+
+本焦点完成条件：D1-D3形成一份内部一致、能被现有fixture反证、明确alternatives/open questions的设计基线；所有外部
 事实仍链接`docs/references/`，不复制动态Provider capability表。
 
 本焦点不授权：创建rewrite branch、定义生产Rust IR types、修改runtime、公开API、Registry schema、OpenAPI、canonical
