@@ -223,6 +223,24 @@ fn validate_chat_bridge_source(source: &Map<String, Value>) -> Result<(), Static
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         };
         ensure_only_fields(message, allowed)?;
+        if role == "assistant" {
+            let has_reasoning = message
+                .get("reasoning_content")
+                .and_then(Value::as_str)
+                .is_some_and(|text| !text.is_empty());
+            let has_content = message.get("content").is_some_and(|content| match content {
+                Value::String(text) => !text.is_empty(),
+                Value::Array(parts) => !parts.is_empty(),
+                _ => false,
+            });
+            let has_tool_calls = message
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .is_some_and(|calls| !calls.is_empty());
+            if !has_reasoning && !has_content && !has_tool_calls {
+                return Err(StaticCodecError::InvalidShape);
+            }
+        }
         if let Some(Value::Array(parts)) = message.get("content") {
             for part in parts {
                 validate_chat_bridge_part(part)?;

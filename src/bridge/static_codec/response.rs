@@ -93,6 +93,9 @@ fn decode_chat_response(
     reasoning_output: ReasoningOutput,
     max_bytes: usize,
 ) -> Result<WireResponse, StaticCodecError> {
+    if source.get("object").and_then(Value::as_str) != Some("chat.completion") {
+        return Err(StaticCodecError::InvalidShape);
+    }
     let source_id = required_string(source, "id")?;
     let choices = source
         .get("choices")

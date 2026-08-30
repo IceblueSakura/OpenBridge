@@ -790,3 +790,56 @@ fn chat_instruction_text_part_arrays_decode_into_canonical_instructions() {
         assert_eq!(request["instructions"], "first second");
     }
 }
+
+#[test]
+fn chat_bridge_rejects_empty_assistant_history_instead_of_dropping_it() {
+    let messages = [
+        json!({"role": "assistant"}),
+        json!({"role": "assistant", "content": null}),
+        json!({"role": "assistant", "content": ""}),
+    ];
+    for message in messages {
+        assert!(
+            StaticBridgePlan::prepare(
+                ApiProtocol::ChatCompletions,
+                ApiProtocol::Responses,
+                "public-model",
+                "upstream-model",
+                body(json!({"model": "public-model", "messages": [message]})),
+                limits(),
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn chat_response_requires_the_chat_completion_discriminator() {
+    let (plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "input": "hello"
+        })),
+        limits(),
+    )
+    .unwrap();
+    for object in [None, Some("response"), Some("chat.completion.chunk")] {
+        let mut response = json!({
+            "id": "chatcmpl-invalid-object",
+            "model": "upstream-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "answer"},
+                "finish_reason": "stop"
+            }]
+        });
+        if let Some(object) = object {
+            response["object"] = Value::String(object.to_owned());
+        }
+        assert!(plan.render_non_stream(body(response)).is_err());
+    }
+}
