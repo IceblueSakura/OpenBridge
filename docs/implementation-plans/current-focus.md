@@ -212,7 +212,7 @@ Text annotation至少预留source/citation引用；citation指向独立`SourceId
 ```text
 ToolDefinition
 ├── name: ToolName
-├── origin: ToolOrigin              # Downstream | GatewayPolicy | UpstreamProvider
+├── origin: ToolOrigin              # Downstream | GatewayPolicy(ToolPlanId) | UpstreamProvider(ProviderOrigin)
 ├── executor: ToolExecutor          # Client | Gateway | Provider(origin)
 ├── visibility: ToolVisibility      # Public | Internal
 └── kind: ToolKind
@@ -317,7 +317,8 @@ Transform<T> { value: T, changes: Vec<SemanticChange> }
 SemanticChange
 ├── path: SemanticPath
 ├── kind: Normalized | Synthesized | OpaquePreserved | Emulated | Lossy
-└── reason: ChangeReason
+├── reason: ChangeReason
+└── authorization: None | ToolDirective { plan: ToolPlanId, directive: ToolDirectiveId }
 
 exact(transform) := transform.changes.is_empty()
 ```
@@ -325,6 +326,9 @@ exact(transform) := transform.changes.is_empty()
 不在成功结果中再放`Unsupported`，避免“带unsupported继续encode”的无效状态。证明等价的inactive-field omission属于
 `Normalized`；合成downstream envelope/ID属于`Synthesized`；Gateway执行tool属于`Emulated`；删除有意义semantic属于
 `Lossy`。默认`LossPolicy::Reject`；若个人配置确实需要，Route只需一个简单`Reject | Allow`开关，不引入规则DSL。
+
+loss检查只有两条规则：带有效`ToolDirective` authorization的Lossy change仅授权该plan/directive产生的变化；其余Lossy change
+仍受全局`LossPolicy`控制。authorization由`apply_tool_plan`的私有constructor产生，decoder/Provider adapter不能伪造。
 
 推荐数据流和纯函数边界：
 
@@ -530,6 +534,7 @@ D2的`ToolDefinition`同时表达origin、executor和visibility；D3只增加一
 
 ```text
 ToolPlan
+├── id: ToolPlanId
 ├── directives: Vec<ToolDirective>
 ├── max_turns
 ├── max_tool_calls
@@ -537,10 +542,10 @@ ToolPlan
 └── deadline
 
 ToolDirective
-├── Inject(ToolDefinition)
-└── Strip(ToolSelector)
+├── id: ToolDirectiveId
+└── action: Inject(ToolDefinition) | Strip(ToolSelector)
 
-ToolSelector { name: ToolName, origin: ToolOrigin }
+ToolSelector { name: ToolName, origin: GatewayPolicy(ToolPlanId) }
 
 apply_tool_plan(request: GenerationRequest, plan: &ToolPlan)
     -> Result<Transform<GenerationRequest>, ToolPlanError>
@@ -551,9 +556,12 @@ apply_tool_plan(request: GenerationRequest, plan: &ToolPlan)
 1. plan来自可信、immutable Registry compilation，不从downstream arbitrary JSON选择Provider、URL、credential或implementation。
    Target profile不能自行向base IR注入semantic tool；它只把共同的generic server tool lowering成Provider-native wire。
 2. plan在logical operation开始时对base Request IR应用一次；retry/fallback candidate各自从同一transform结果纯lowering，不能重复注入。
-3. Inject要求tool name唯一、origin为`GatewayPolicy`并记录`Synthesized`；Strip以name+origin精确命中，只允许`GatewayPolicy`并记录`Lossy`；
+3. Inject要求tool name唯一、origin等于`GatewayPolicy(plan.id)`并记录带同一plan/directive authorization的`Synthesized`；
+   Strip selector必须携带同一plan.id并按
+   name+origin精确命中，只允许GatewayPolicy tool并记录`Lossy`；
    命中downstream client tool返回错误，不得由encoder静默删除。
-   Strip directive本身只授权该ToolName的loss，不会把Route全局`LossPolicy`切成`Allow`。
+   Strip change携带`ToolDirective { plan, directive }` authorization，只授权该directive命中的路径，不会把Route全局
+   `LossPolicy`切成`Allow`。
 4. `visibility=Internal`允许downstream encoder隐藏Gateway/Provider server-tool lifecycle，但citation/source等public result仍保留；
    visibility filtering不是删除Canonical IR。
 5. Provider executor由Target profile lowering成native server tool；不支持时返回Unsupported，除非plan显式选择Gateway executor。
@@ -603,7 +611,8 @@ observability从Request/Response/Event IR纯投影稳定属性，再与attempt/R
 - Event materialization等于对应non-stream Response IR；
 - visible reasoning、summary和opaque replay不互相污染；origin不匹配的opaque state拒绝；
 - structured output三种mode保持strict/name/schema和absent/value distinction；
-- server web-search Inject/Strip分别产生`Synthesized`/`Lossy` report，retry不重复注入；
+- server web-search Inject/Strip分别产生带plan/directive provenance的`Synthesized`/`Lossy` report，retry不重复注入；
+- forged/mismatched PlanId、DirectiveId或未授权Lossy change在`LossPolicy::Reject`下拒绝；
 - internal tool event可产生零downstream frame，但public source/citation仍输出；
 - precommit failure可fallback，postcommit及tool/origin binding后不可cross-candidate fallback。
 
