@@ -2,14 +2,14 @@
 
 ## 状态
 
-**R0-R4已完成；R5 trusted ToolPlan已获准实施。**
+**R0-R6已完成；R7 Native takeover与旧路径删除已获准实施。**
 
 ## 1. 目标
 
-在`feature/generation-ir-rewrite`继续实现R5：由trusted planning构造immutable `ToolPlan`，实现Inject/Strip与Provider-native
-lowering，并通过现有fidelity authorization显式记录每个semantic change。R5不执行Gateway web-search、不接管Native路径、不新增
-ACL/策略DSL/动态plugin；不改变下游HTTP API、配置schema、Registry schema、OpenAPI或canonical fixture，并保持precommit
-retry/fallback、postcommit禁止fallback、cancel、body/event bound与terminal fail-closed边界。
+在`feature/generation-ir-rewrite`继续实现R7：让Native路径也执行canonical decode/project/check/lower，满足条件时使用typed
+`PreserveSource` patch，否则重新encode，并删除旧Native request与Responses buffering语义路径。R7不新增ACL/策略DSL/动态plugin，
+不改变下游HTTP API、配置schema、Registry schema、OpenAPI或canonical fixture，并保持precommit retry/fallback、postcommit禁止
+fallback、cancel、body/event bound与terminal fail-closed边界。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
@@ -726,3 +726,16 @@ R5实际证据：
 - focused：`generation_ir_tool_plan_contract`通过；Trusted `ToolPlan`支持Inject/Strip并记录`ToolDirective`授权的fidelity changes，`lower_provider_server_tool`仅当executor origin与`ProviderToolProfile`一致且profile声明支持该server-tool kind时成功；同名strip+inject在编译期拒绝，被strip的`Specific` choice在无剩余工具时降级为`None`；
 - baseline：`cargo fmt -- --check`、`cargo test --locked`（31个suite）、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；static diff scan通过；
 - R5未接入production planner、未执行Gateway web-search loop、未改变Native/Bridge路由行为；Provider tool lowering仅通过`StaticBridgePlan::prepare_with_tool_plan`暴露，当前所有provider `web_search` capability均为false。
+
+R6实际证据：
+
+- bounded Gateway web-search kernel固定一个candidate `ProviderOrigin`、reserved tool name和exact `ToolPlanId`；仅接受
+  `Completed`单candidate、finish/tool lifecycle一致且恰好一个typed `ServerToolKind::WebSearch` call，function同名冒充、
+  downstream-origin声明、并行额外call、origin drift与call/result identity异常均fail closed；
+- internal continuation通过`GenerationRequest::with_appended_input`保留完整request controls，并按顺序追加`PriorToolCall`与相关
+  `ToolResult`；失败physical attempt不计turn/usage，retry不切换origin，缺失usage字段保持缺失且聚合溢出失败；
+- turn/tool/result/attempt continuation预算均在search前预留；预取消、await内取消、turn/search absolute deadline、32 KiB cumulative
+  output bound、result amplification和usage overflow均由deterministic fake seam测试；
+- baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`
+  通过；static diff scan通过；
+- R6 kernel在R7 production接入前保持`#[cfg(test)]`，未执行真实搜索、未改变Router/Provider/transport/observability或downstream commit。

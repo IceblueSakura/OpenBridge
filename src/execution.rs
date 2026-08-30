@@ -4,5 +4,7 @@
 //! retains downstream admission and commit boundaries.
 
 mod coordinator;
+#[cfg(test)]
+mod gateway_web_search;
 
 pub(crate) use coordinator::{AttemptCoordinator, AttemptStep};

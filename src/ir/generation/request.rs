@@ -193,6 +193,18 @@ impl GenerationRequest {
         &self.input
     }
 
+    /// Appends canonical history while preserving every request control and revalidating identities.
+    pub fn with_appended_input(
+        mut self,
+        items: impl IntoIterator<Item = InputItem>,
+    ) -> Result<Self, ValidationError> {
+        let mut input = self.input.clone();
+        input.extend(items);
+        Self::new(input.clone())?;
+        self.input = input;
+        Ok(self)
+    }
+
     /// Adds a complete tool configuration after validating name and choice invariants.
     pub fn with_tools(
         mut self,
