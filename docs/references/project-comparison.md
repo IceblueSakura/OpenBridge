@@ -5,7 +5,7 @@
 | 字段 | 值 |
 |---|---|
 | Source snapshot | 本页链接的项目级叶文档及其固定 URL、commit、版本与采集日期；本页不另行拥有源码快照 |
-| Last reverified | 2026-08-24：纳入 new-api 固定源码调研，并按当前 `docs/references/` 树核对分类、前置关系与链接；未刷新其他外部仓库、网页或 Provider |
+| Last reverified | 2026-08-30：纳入protocol gateway/semantic model固定源码调研与OpenRouter公开资料复核；旧项目的原始快照仍由各叶文档维护 |
 | Scope | 比较外部项目的证据角色、已调研主题、互证关系和不可外推项 |
 | Evidence boundary | 导航与综合比较不替代官方协议、项目叶文档、真实 Provider 验证或任何本地产品合同 |
 | Recheck trigger | 项目版本、许可证、协议面、认证 flow 或综合文档的前置集合变化时 |
@@ -22,7 +22,12 @@
 |-----------------------------|-----------------------------------|---------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
 | Codex                       | Rust CLI/Agent client             | Responses SSE consumer、tool lifecycle、browser/device auth、refresh、client tests    | 完整 OpenAI 规范、第三方 OAuth 授权、server-side tool execution contract       |
 | Hermes Agent                | Python Agent runtime              | Chat/Responses mode、history normalization、Codex credential lifecycle                | 通用 gateway IR、分布式 credential manager、所有 Agent 客户端语义              |
-| LiteLLM                     | 多 Provider Proxy/SDK             | Chat/Responses adapter、Proxy call chain、model catalog、metrics、retry、OAuth、tests | 其 deployment/team/budget/control-plane 字段是通用协议                         |
+| LiteLLM                     | 多 Provider Proxy/SDK             | Chat/Responses adapter、Proxy call chain、model catalog、metrics、retry、OAuth、tests | 其 deployment/team/budget/control-plane字段是通用协议                         |
+| [Bifrost](protocol-gateways/bifrost.md) | 多协议、多Provider gateway | operation-specific schemas、Provider converters、Responses/server-tool/stream tests | 其协议schema可直接作为protocol-neutral canonical IR |
+| [TensorZero](protocol-gateways/tensorzero.md) | LLM inference/optimization platform | semantic content、Provider tool scope、reasoning/state和Provider adapters | arbitrary Provider tool payload可跨Route安全转发 |
+| [Vercel AI SDK](protocol-gateways/vercel-ai-sdk.md) | 多Provider应用SDK | provider-neutral static content、stream parts、Provider tools/options | SDK warnings/options/headers满足不受信Gateway的fail-closed边界 |
+| [Portkey Gateway](protocol-gateways/portkey.md) | 多Provider gateway | config-driven Provider adapter、middleware、response/stream/error transforms | silent field drop、clamp或synthetic stream具有语义等价性 |
+| [Helicone AI Gateway](protocol-gateways/helicone.md) | Rust runtime gateway | weighted/latency routing、retry、cache、metrics和integration tests | endpoint相同即可证明候选capability等价 |
 | [new-api](new-api/README.md) | 多租户 LLM gateway 与运营平台    | 多协议 converter registry、渠道 priority/weight、计费结算、巡检和后台任务            | 动态控制面、余额支付、自动封禁或转换兼容行为是通用 gateway contract             |
 | cc-switch                   | 桌面 Code Agent router/bridge     | Responses↔Chat conversion、tool context、history、SSE state、retry/failover           | Provider-name heuristic、UI/config takeover 或 call-id fallback 具有通用正确性 |
 | CLIProxyAPI                 | 多协议 subscription/account proxy | state mapping、translator failures、credential cooldown、Codex OAuth scheduler        | account rotation、私有 client identity 或 WebSocket state 可移植               |
@@ -35,6 +40,7 @@
 跨项目共性、差异和未知项只由[综合调研索引](cross-project/README.md)下的主题文档维护：
 
 - Chat/Responses、SSE 与 tool 测试资产；
+- 富语义 IR、Provider extensions、server tools 与 protocol/runtime 边界；
 - credential retry/cooldown；
 - OAuth device login/refresh；
 - model information。

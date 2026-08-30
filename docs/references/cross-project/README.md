@@ -5,7 +5,8 @@ URL 与原始证据由链接的项目文档维护。本索引没有刷新任何�
 
 | 主题 | 综合文档 | 项目级前置 |
 |---|---|---|
-| Chat/Responses、SSE 与 tools | [协议测试资产综合](chat-responses-sse-tool-test-suite-survey.md) | OpenAI/gpt-oss、Open Responses、Codex、LiteLLM |
+| Chat/Responses、SSE与tools | [协议测试资产综合](chat-responses-sse-tool-test-suite-survey.md) | OpenAI/gpt-oss、Open Responses、Codex、LiteLLM |
+| 富语义IR、Provider extensions与server tools | [Protocol IR生态综合](protocol-ir-ecosystem-analysis.md) | Bifrost、LiteLLM、TensorZero、Vercel AI SDK、Portkey、Helicone、OpenRouter |
 | Credential retry/cooldown | [Pool、cooldown 与有限重试](credential-pool-retry-analysis.md) | CLIProxyAPI、LiteLLM、cc-switch |
 | OAuth device/refresh | [设备登录与 token refresh](upstream-oauth-device-code-token-refresh-analysis.md) | RFC、Codex、CLIProxyAPI、Hermes、LiteLLM |
 
