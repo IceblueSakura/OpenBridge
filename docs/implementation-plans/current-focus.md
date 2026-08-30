@@ -2,13 +2,13 @@
 
 ## 状态
 
-**R0 characterization与R1 Static IR kernel已完成；停在branch gate，R2尚未授权。**
+**R0 characterization与R1 Static IR kernel已完成；R2 Static codecs已获准实施。**
 
 ## 1. 目标
 
-在`feature/generation-ir-rewrite`实现R0/R1：先用纯tests固定Static IR行为，再实现`src/ir/generation/`的owned values、
-validation、fidelity/change authorization与requirements projection。R1不接入production Router、Bridge、Provider或transport；
-不改变下游HTTP API、配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
+在`feature/generation-ir-rewrite`继续实现R2：为Chat/Responses增加Static request/response codec、target lowering与private
+wire DTO，在tests中与旧converter dual-run。R2不接入production Router、Bridge、Provider或transport；不改变下游HTTP API、
+配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
