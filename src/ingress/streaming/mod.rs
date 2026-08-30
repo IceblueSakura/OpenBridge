@@ -6,15 +6,14 @@ mod liveness;
 mod native;
 mod precommit;
 
-use std::{collections::BTreeMap, error::Error, io, pin::Pin, time::Duration};
+use std::{error::Error, io, pin::Pin, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt, stream};
-use serde_json::{Map, Value};
 use tokio::time::Instant;
 
 use crate::{
-    bridge::{BridgePlan, BridgeStreamRenderer, ResponsesStreamState, StreamTerminal},
+    bridge::{BridgePlan, BridgeStreamRenderer},
     observability::{ErrorType, RequestObservation, TimeoutPhase},
     provider::{GenerationProviderAdapter, StreamEventStatus},
     registry::UpstreamTimeoutPolicy,

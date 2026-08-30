@@ -563,14 +563,39 @@ impl ResponsesEventDecoder {
         &mut self,
         value: &Map<String, Value>,
     ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
-        self.ensure_started()?;
         let response = value
             .get("response")
             .and_then(Value::as_object)
             .ok_or(StaticEventCodecError::InvalidJson)?;
-        if response.get("id").and_then(Value::as_str)
+        if response.get("status").and_then(Value::as_str) != Some("completed") {
+            return Err(StaticEventCodecError::InvalidLifecycle);
+        }
+        let mut events = Vec::new();
+        if self.response_id.is_none() {
+            if response
+                .get("output")
+                .is_some_and(|output| !output.as_array().is_some_and(Vec::is_empty))
+            {
+                return Err(StaticEventCodecError::UnsupportedSemantics);
+            }
+            let response = response_id(required_string(response, "id")?, self.limits)?;
+            let candidate = candidate_id("candidate_0", self.limits)?;
+            self.response_id = Some(response.clone());
+            self.candidate = Some(candidate.clone());
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::ResponseStarted {
+                    response: ResponseIdentity::new(response),
+                },
+            )?);
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::CandidateStarted {
+                    candidate: CandidateIdentity::new(candidate, OutputIndex::new(0)),
+                },
+            )?);
+        } else if response.get("id").and_then(Value::as_str)
             != self.response_id.as_ref().map(|id| id.as_str())
-            || response.get("status").and_then(Value::as_str) != Some("completed")
         {
             return Err(StaticEventCodecError::IdentityConflict);
         }
@@ -607,7 +632,7 @@ impl ResponsesEventDecoder {
             .values()
             .any(|item| item.kind == ResponsesItemKind::Tool);
         let candidate = self.candidate()?.clone();
-        let mut events = vec![envelope(
+        events.push(envelope(
             &mut self.sequence,
             GenerationEvent::CandidateFinished {
                 candidate: CandidateRef::new(candidate),
@@ -617,7 +642,7 @@ impl ResponsesEventDecoder {
                     FinishReason::Stop
                 },
             },
-        )?];
+        )?);
         if let Some(usage) = response.get("usage").filter(|usage| !usage.is_null()) {
             events.push(envelope(
                 &mut self.sequence,

@@ -63,7 +63,7 @@ impl UpstreamTransport for RetryThenUsageTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(
-                    r#"{"id":"chatcmpl-observed","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}"#,
+                    r#"{"id":"chatcmpl-observed","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}"#,
                 ),
             ))
         })
@@ -196,9 +196,12 @@ impl UpstreamTransport for FailedTerminalTransport {
             Ok(UpstreamResponse::new(
                 StatusCode::OK,
                 headers,
-                Body::from(
-                    "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n",
-                ),
+                Body::from(concat!(
+                    "event: response.created\n",
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed\",\"status\":\"in_progress\"}}\n\n",
+                    "event: response.failed\n",
+                    "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"status\":\"failed\"}}\n\n"
+                )),
             ))
         })
     }
@@ -237,7 +240,7 @@ impl UpstreamTransport for ProviderMetricsJsonTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(
-                    r#"{"id":"chatcmpl-provider-metrics","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4}}}"#,
+                    r#"{"id":"chatcmpl-provider-metrics","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"observed"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4}}}"#,
                 ),
             ))
         })
@@ -256,10 +259,10 @@ impl UpstreamTransport for ProviderMetricsStreamingTransport {
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             let chunks = stream::iter(vec![
                 Ok::<_, std::io::Error>(bytes::Bytes::from_static(
-                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"delta\":{\"reasoning_content\":\"reasoning\"}}]}\n\n",
+                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"reasoning\"}}]}\n\n",
                 )),
                 Ok(bytes::Bytes::from_static(
-                    b"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n",
+                    b"data: {\"id\":\"chatcmpl-provider-stream\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":5,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":2},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n",
                 )),
                 Ok(bytes::Bytes::from_static(b"data: [DONE]\n\n")),
             ]);
@@ -281,7 +284,7 @@ impl UpstreamTransport for JsonResponseAboveRequestLimitTransport {
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Place usage after a body section larger than the independent downstream request limit.
         let body = format!(
-            r#"{{"padding":"{}","usage":{{"prompt_tokens":13,"completion_tokens":5,"total_tokens":18}}}}"#,
+            r#"{{"id":"chatcmpl-large","object":"chat.completion","model":"test-model","padding":"{}","choices":[{{"index":0,"message":{{"role":"assistant","content":"large"}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":13,"completion_tokens":5,"total_tokens":18}}}}"#,
             "x".repeat(1_100_000)
         );
         Box::pin(async move {
@@ -376,7 +379,7 @@ impl UpstreamTransport for ContentLoggingTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(
-                    r#"{"id":"chatcmpl-log","choices":[{"message":{"role":"assistant","content":"RESPONSE_BODY_SENTINEL_6B32"}}]}"#,
+                    r#"{"id":"chatcmpl-log","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"RESPONSE_BODY_SENTINEL_6B32"},"finish_reason":"stop"}]}"#,
                 ),
             ))
         })

@@ -8,15 +8,15 @@ pub(crate) enum GenerationResponseMode {
     /// Reject a successful response whose media profile cannot satisfy the plan.
     RejectInvalidMedia,
     /// Buffer one complete Responses SSE lifecycle and return its terminal JSON response.
-    BufferResponsesSse { render_bridge: bool },
+    BufferResponsesSse,
     /// Convert upstream SSE events through the selected Generation Bridge.
     BridgeSse,
     /// Validate and transparently forward Native upstream SSE events.
     ValidateNativeSse,
-    /// Convert one bounded non-streaming body through the selected Generation Bridge.
-    BridgeJson,
-    /// Forward the selected upstream body without Generation conversion.
-    Passthrough,
+    /// Decode and render one bounded successful JSON body through the canonical Generation plan.
+    RenderJson,
+    /// Forward one non-success upstream body without Generation decoding.
+    PassthroughError,
 }
 
 /// Immutable facts needed to select Generation response handling.
@@ -25,7 +25,7 @@ pub(crate) struct GenerationResponseFacts {
     pub(crate) status_is_success: bool,
     pub(crate) downstream_streaming: bool,
     pub(crate) recognized_sse: bool,
-    pub(crate) has_bridge: bool,
+    pub(crate) preserve_source: bool,
     pub(crate) stream_response_conversion: Option<StreamResponseConversion>,
 }
 
@@ -43,31 +43,25 @@ pub(crate) fn classify_generation_response(
 
     // Preserve error bodies before selecting any successful-body takeover or conversion.
     if !facts.status_is_success {
-        return GenerationResponseMode::Passthrough;
+        return GenerationResponseMode::PassthroughError;
     }
 
     // A streaming-only upstream serving a non-streaming request must complete before commit.
     if facts.stream_response_conversion == Some(StreamResponseConversion::BufferResponsesSse) {
-        return GenerationResponseMode::BufferResponsesSse {
-            render_bridge: facts.has_bridge,
-        };
+        return GenerationResponseMode::BufferResponsesSse;
     }
 
-    // Downstream streaming selects either Bridge event conversion or Native SSE validation.
+    // Downstream streaming selects either cross-protocol encoding or Native source validation.
     if facts.downstream_streaming && facts.recognized_sse {
-        return if facts.has_bridge {
-            GenerationResponseMode::BridgeSse
-        } else {
+        return if facts.preserve_source {
             GenerationResponseMode::ValidateNativeSse
+        } else {
+            GenerationResponseMode::BridgeSse
         };
     }
 
-    // Only a successful non-streaming Bridge body needs bounded JSON conversion.
-    if facts.has_bridge {
-        GenerationResponseMode::BridgeJson
-    } else {
-        GenerationResponseMode::Passthrough
-    }
+    // Every successful non-streaming body is decoded by the canonical Generation plan.
+    GenerationResponseMode::RenderJson
 }
 
 #[cfg(test)]
@@ -79,7 +73,7 @@ mod tests {
             status_is_success: true,
             downstream_streaming: false,
             recognized_sse: false,
-            has_bridge: false,
+            preserve_source: false,
             stream_response_conversion: None,
         }
     }
@@ -105,20 +99,14 @@ mod tests {
     }
 
     #[test]
-    fn streaming_takeover_preserves_bridge_rendering() {
+    fn streaming_takeover_uses_canonical_buffering() {
         let mode = classify_generation_response(GenerationResponseFacts {
             recognized_sse: true,
-            has_bridge: true,
             stream_response_conversion: Some(StreamResponseConversion::BufferResponsesSse),
             ..success_facts()
         });
 
-        assert_eq!(
-            mode,
-            GenerationResponseMode::BufferResponsesSse {
-                render_bridge: true
-            }
-        );
+        assert_eq!(mode, GenerationResponseMode::BufferResponsesSse);
     }
 
     #[test]
@@ -126,7 +114,6 @@ mod tests {
         let mode = classify_generation_response(GenerationResponseFacts {
             downstream_streaming: true,
             recognized_sse: true,
-            has_bridge: true,
             ..success_facts()
         });
 
@@ -138,6 +125,7 @@ mod tests {
         let mode = classify_generation_response(GenerationResponseFacts {
             downstream_streaming: true,
             recognized_sse: true,
+            preserve_source: true,
             ..success_facts()
         });
 
@@ -145,13 +133,10 @@ mod tests {
     }
 
     #[test]
-    fn non_streaming_bridge_uses_json_conversion() {
-        let mode = classify_generation_response(GenerationResponseFacts {
-            has_bridge: true,
-            ..success_facts()
-        });
+    fn non_streaming_success_uses_canonical_json_rendering() {
+        let mode = classify_generation_response(success_facts());
 
-        assert_eq!(mode, GenerationResponseMode::BridgeJson);
+        assert_eq!(mode, GenerationResponseMode::RenderJson);
     }
 
     #[test]
@@ -159,11 +144,10 @@ mod tests {
         let mode = classify_generation_response(GenerationResponseFacts {
             status_is_success: false,
             downstream_streaming: true,
-            has_bridge: true,
             stream_response_conversion: Some(StreamResponseConversion::BufferResponsesSse),
             ..success_facts()
         });
 
-        assert_eq!(mode, GenerationResponseMode::Passthrough);
+        assert_eq!(mode, GenerationResponseMode::PassthroughError);
     }
 }

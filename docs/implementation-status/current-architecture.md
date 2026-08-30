@@ -7,7 +7,7 @@
 
 生产注册表使用 `ModelConfig`、`ProviderInstanceConfig`、`CredentialPoolConfig`、`UpstreamTargetConfig`、
 `UpstreamApiConfig`、`RouteConfig` 与 `PublicModelConfig`；请求路径使用 operation-specific requirements/plan。
-Generation 支持 Native 与显式 Bridge，Embeddings 与 Images 使用各自独立的 Native-only plan，MCP 本地工具不进入 Provider 链路。
+Generation 的 Native 与显式 Bridge 共用canonical Static/Event IR production path，Embeddings 与 Images 使用各自独立的 Native-only plan，MCP 本地工具不进入 Provider 链路。
 
 ## 1. 分层与依赖方向
 
@@ -23,7 +23,7 @@ HTTP admission / Models projection / MCP transport
                     ↓
 operation-specific request facts → Public Model preflight → RoutePlan
                     ↓
-optional BridgePlan → ProviderAdapter → trusted Target/API
+canonical Generation plan → ProviderAdapter → trusted Target/API
                     ↓
 shared UpstreamTransport → bounded JSON or SSE lifecycle
                     ↓
@@ -54,7 +54,7 @@ downstream response + request/attempt observations
 | Request analysis/planning | `src/pipeline/` | operation-specific facts、preflight 与固定 Route plan；不进行 Provider 名称分支 |
 | Generation semantic IR | `src/ir/generation/` | pure Static/Event values、reducer/materializer、local validation、semantic requirements与fidelity；不拥有Registry、I/O或routing |
 | HTTP ingress | `src/ingress/` | 认证、body lifecycle、handler、attempt/fallback、streaming response 与错误映射 |
-| Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
+| Generation codecs | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Native PreserveSource与Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
 | Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 与 candidate-model Generation 矩阵；不修改 registry |

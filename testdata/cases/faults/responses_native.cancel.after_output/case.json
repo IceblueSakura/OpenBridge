@@ -31,7 +31,7 @@
   "id": "responses_native.cancel.after_output",
   "provenance_ref": "sources/openbridge-design-policy.json",
   "proves": [
-    "固定第二个事件后取消的 transport transcript。"
+    "固定首个完整可见文本 delta 事件后取消的 transport transcript。"
   ],
   "recipes": [
     "recipes/sse-byte-fragmentation.json"
@@ -41,7 +41,7 @@
   "stream": true,
   "title": "Downstream cancellation after output",
   "transport": {
-    "cancellation_after_event": 2,
+    "cancellation_after_event": 4,
     "client_content_type": "text/event-stream",
     "client_end": "cancelled",
     "client_http_status": 200,

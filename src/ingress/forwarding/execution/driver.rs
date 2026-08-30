@@ -419,7 +419,7 @@ pub(super) fn record_attempt(
             upstream_operation: candidate.upstream_operation(),
             upstream_model: upstream_api.upstream_model(),
             upstream_target: candidate.upstream_target_id(),
-            bridged: candidate.bridge().is_some(),
+            bridged: !candidate.generation_plan().preserves_source(),
         }),
         OperationDriver::Embeddings {
             plan,

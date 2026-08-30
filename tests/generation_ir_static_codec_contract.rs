@@ -480,3 +480,68 @@ fn static_codecs_fail_closed_on_unmodeled_or_unresolved_semantics() {
     }));
     assert!(plan.render_non_stream(incomplete_item).is_err());
 }
+
+#[test]
+fn static_codecs_support_native_same_protocol_round_trips() {
+    let cases = [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({
+                "model": "public-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": false
+            }),
+            json!({
+                "id": "chat-native",
+                "object": "chat.completion",
+                "model": "upstream-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "answer"},
+                    "finish_reason": "stop"
+                }]
+            }),
+        ),
+        (
+            ApiProtocol::Responses,
+            json!({
+                "model": "public-model",
+                "input": [{"type": "message", "role": "user", "content": "hello"}],
+                "stream": false
+            }),
+            json!({
+                "id": "response-native",
+                "object": "response",
+                "status": "completed",
+                "model": "upstream-model",
+                "output": [{
+                    "id": "message-native",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "answer", "annotations": []}]
+                }]
+            }),
+        ),
+    ];
+
+    for (protocol, request, response) in cases {
+        let (plan, upstream) = StaticBridgePlan::prepare(
+            protocol,
+            protocol,
+            "public-model",
+            "upstream-model",
+            body(request),
+            limits(),
+        )
+        .expect("Native request must pass through canonical Static IR");
+        let upstream: Value = serde_json::from_slice(upstream.body()).unwrap();
+        assert_eq!(upstream["model"], "upstream-model");
+
+        let rendered = plan
+            .render_non_stream(body(response))
+            .expect("Native response must pass through canonical Static IR");
+        let rendered: Value = serde_json::from_slice(rendered.body()).unwrap();
+        assert_eq!(rendered["model"], "upstream-model");
+    }
+}

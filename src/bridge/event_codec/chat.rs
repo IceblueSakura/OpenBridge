@@ -8,9 +8,10 @@ use serde_json::{Map, Value, json};
 use crate::{
     core::ReasoningOutput,
     ir::generation::{
-        CandidateIdentity, CandidateRef, EventEnvelope, EventLimits, FinishReason, GenerationEvent,
-        ItemHeader, ItemId, ItemIdentity, ItemRef, MessageRole, OutputIndex, PartDelta, PartId,
-        PartIdentity, PartKind, PartRef, ResponseIdentity, TerminalStatus, TurnTerminal, Usage,
+        BoundedBytes, CandidateIdentity, CandidateRef, EventEnvelope, EventLimits, FinishReason,
+        GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef, MessageRole, OutputIndex,
+        PartDelta, PartId, PartIdentity, PartKind, PartRef, ResponseIdentity, TerminalStatus,
+        TurnTerminal, Usage,
     },
     transport::sse::SseEvent,
 };
@@ -36,6 +37,7 @@ struct ChatTool {
 pub(super) struct ChatEventDecoder {
     limits: EventLimits,
     reasoning_output: ReasoningOutput,
+    preserve_source: bool,
     sequence: u64,
     upstream_id: Option<String>,
     candidate: Option<crate::ir::generation::CandidateId>,
@@ -49,10 +51,15 @@ pub(super) struct ChatEventDecoder {
 }
 
 impl ChatEventDecoder {
-    pub(super) fn new(limits: EventLimits, reasoning_output: ReasoningOutput) -> Self {
+    pub(super) fn new(
+        limits: EventLimits,
+        reasoning_output: ReasoningOutput,
+        preserve_source: bool,
+    ) -> Self {
         Self {
             limits,
             reasoning_output,
+            preserve_source,
             sequence: 0,
             upstream_id: None,
             candidate: None,
@@ -125,13 +132,17 @@ impl ChatEventDecoder {
                 .as_str()
                 .ok_or(StaticEventCodecError::InvalidJson)?;
             if !reasoning.is_empty() {
-                if !self.reasoning_output.is_readable()
-                    || self.message.is_some()
-                    || !self.tools.is_empty()
-                {
+                if self.message.is_some() || !self.tools.is_empty() {
                     return Err(StaticEventCodecError::UnsupportedSemantics);
                 }
-                events.extend(self.reasoning_delta(reasoning)?);
+                if self.reasoning_output.is_readable() {
+                    events.extend(self.reasoning_delta(reasoning)?);
+                } else if self.preserve_source && self.reasoning_output == ReasoningOutput::Unknown
+                {
+                    events.extend(self.opaque_delta(&Value::String(reasoning.to_owned()))?);
+                } else {
+                    return Err(StaticEventCodecError::UnsupportedSemantics);
+                }
             }
         }
         if let Some(content) = delta.get("content").filter(|value| !value.is_null()) {
@@ -143,6 +154,12 @@ impl ChatEventDecoder {
                 events.extend(self.close_reasoning()?);
                 events.extend(self.message_delta(content)?);
             }
+        }
+        if let Some(audio) = delta.get("audio").filter(|value| !value.is_null()) {
+            if self.message.is_some() || !self.tools.is_empty() {
+                return Err(StaticEventCodecError::UnsupportedSemantics);
+            }
+            events.extend(self.opaque_delta(audio)?);
         }
         if let Some(tool_calls) = delta.get("tool_calls").filter(|value| !value.is_null()) {
             let tool_calls = tool_calls
@@ -252,6 +269,40 @@ impl ChatEventDecoder {
             GenerationEvent::PartDelta {
                 part: PartRef::new(part),
                 delta: PartDelta::ReasoningText(text(delta, self.limits)?),
+            },
+        )?);
+        Ok(events)
+    }
+
+    /// Retains one bounded Provider media delta as internal state for same-protocol source preservation.
+    fn opaque_delta(&mut self, value: &Value) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+        let mut events = Vec::new();
+        if self.reasoning.is_none() {
+            let suffix = self
+                .upstream_id
+                .as_deref()
+                .and_then(|id| id.strip_prefix("chatcmpl_"))
+                .unwrap_or(self.upstream_id.as_deref().unwrap_or("response"));
+            let item = item_id(format!("opaque_{suffix}"), self.limits)?;
+            let part = part_id(format!("{}:opaque", item.as_str()), self.limits)?;
+            events.extend(self.start_item(
+                item.clone(),
+                part.clone(),
+                OutputIndex::new(0),
+                ItemHeader::Reasoning,
+                PartKind::Opaque,
+            )?);
+            self.reasoning = Some((item, part));
+            self.reasoning_seen = true;
+        }
+        let payload = serde_json::to_vec(value).map_err(|_| StaticEventCodecError::InvalidJson)?;
+        let payload = BoundedBytes::new(payload, self.limits.max_part_bytes())
+            .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        events.push(envelope(
+            &mut self.sequence,
+            GenerationEvent::PartDelta {
+                part: PartRef::new(self.reasoning.as_ref().unwrap().1.clone()),
+                delta: PartDelta::Opaque(payload),
             },
         )?);
         Ok(events)

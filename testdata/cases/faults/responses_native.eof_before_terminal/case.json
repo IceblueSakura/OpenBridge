@@ -8,8 +8,7 @@
   "category": "fault",
   "direction": "responses_native",
   "does_not_prove": [
-    "不规定 HTTP 层如何向已读取部分数据的 SDK 表达 EOF。",
-    "不证明 OpenBridge 当前 Native Path 的行为。"
+    "不规定 HTTP 层如何向已读取部分数据的 SDK 表达 EOF。"
   ],
   "expectation": {
     "classification": "native_only",

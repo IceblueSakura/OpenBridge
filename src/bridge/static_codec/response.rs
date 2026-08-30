@@ -2,17 +2,19 @@
 
 use std::collections::BTreeSet;
 
+use base64::Engine;
 use bytes::Bytes;
 use serde_json::{Map, Value, json};
 
 use crate::{
     core::{ApiProtocol, ReasoningOutput},
     ir::generation::{
-        BoundedBytes, Candidate, CandidateId, ChangeAuthorization, ChangeKind, ChangeReason,
-        ContentPart, FinishReason, GenerationResponse, ItemId, JsonObject, OpaqueExposure,
-        OpaqueKind, OpaqueState, OutputItem, ProviderNamespace, ReasoningItem, ReasoningPart,
-        ResponseId, ResponseMessage, ResponseStatus, SemanticChange, SemanticPath, TextValue,
-        ToolCall, ToolInput, ToolName, Transform, Usage,
+        AudioResource, BoundedBytes, Candidate, CandidateId, ChangeAuthorization, ChangeKind,
+        ChangeReason, ContentPart, FinishReason, GenerationResponse, InlineResource, ItemId,
+        JsonObject, OpaqueExposure, OpaqueKind, OpaqueState, OutputItem, ProviderNamespace,
+        ReasoningItem, ReasoningPart, Resource, ResourceSource, ResponseId, ResponseMessage,
+        ResponseStatus, SemanticChange, SemanticPath, TextValue, ToolCall, ToolInput, ToolName,
+        Transform, Usage,
     },
 };
 
@@ -129,21 +131,40 @@ fn decode_chat_response(
             .map_err(|_| StaticCodecError::InvalidShape)?,
         ));
     }
+    let mut message_content = Vec::new();
     if let Some(content) = message.get("content").filter(|value| !value.is_null()) {
         let content = content.as_str().ok_or(StaticCodecError::InvalidShape)?;
         if !content.is_empty() {
-            output.push(OutputItem::Message(
-                ResponseMessage::new(
-                    item_id(format!("msg_{suffix}"), max_bytes)?,
-                    vec![ContentPart::text(text_value(
-                        content.to_owned(),
-                        max_bytes,
-                    )?)],
-                    None,
-                )
-                .map_err(|_| StaticCodecError::InvalidShape)?,
-            ));
+            message_content.push(ContentPart::text(text_value(
+                content.to_owned(),
+                max_bytes,
+            )?));
         }
+    }
+    if let Some(audio) = message.get("audio").filter(|value| !value.is_null()) {
+        let audio = audio.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        let data = required_string(audio, "data")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&data)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(&data))
+            .map_err(|_| StaticCodecError::InvalidShape)?;
+        let bytes =
+            BoundedBytes::new(bytes, max_bytes).map_err(StaticCodecError::from_validation)?;
+        let inline = InlineResource::new(bytes).map_err(StaticCodecError::from_validation)?;
+        message_content.push(ContentPart::Resource(Resource::Audio(AudioResource::new(
+            ResourceSource::Inline(inline),
+            None,
+        ))));
+    }
+    if !message_content.is_empty() {
+        output.push(OutputItem::Message(
+            ResponseMessage::new(
+                item_id(format!("msg_{suffix}"), max_bytes)?,
+                message_content,
+                None,
+            )
+            .map_err(|_| StaticCodecError::InvalidShape)?,
+        ));
     }
     if let Some(calls) = message.get("tool_calls") {
         let calls = calls.as_array().ok_or(StaticCodecError::InvalidShape)?;

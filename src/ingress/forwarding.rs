@@ -157,7 +157,7 @@ pub(super) async fn forward_request(
                 adapter: failure.adapter,
                 max_sse_event_bytes: plan.max_sse_event_bytes(),
                 max_json_body_bytes: plan.max_json_response_body_bytes(),
-                bridge: failure.bridge,
+                generation_plan: failure.generation_plan,
                 stream_response_conversion: None,
                 observation,
             },

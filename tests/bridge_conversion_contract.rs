@@ -6,8 +6,8 @@
 use bytes::Bytes;
 use openbridge::{
     bridge::{
-        BridgeLimits, BridgePlan as ProductionBridgePlan, ResponsesStreamState, StaticBridgePlan,
-        StaticCodecLimits, StaticEventBridge, StaticEventCodecError,
+        BridgeLimits, BridgePlan as ProductionBridgePlan, StaticBridgePlan, StaticCodecLimits,
+        StaticEventBridge, StaticEventCodecError,
     },
     core::{ApiProtocol, ReasoningOutput},
     ir::generation::EventLimits,
@@ -848,17 +848,22 @@ data: [DONE]
     actual.extend(renderer.finish().expect("stream must reach terminal"));
 
     // Validate that ignored statistics do not disturb reasoning, visible text, or the single Responses terminal.
-    let mut state = ResponsesStreamState::new();
+    let mut state = StaticEventBridge::new(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        ReasoningOutput::PlainText,
+        false,
+        EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
     for event in decode(&actual) {
-        state.ingest(&event).expect("converted Responses stream");
+        state.render(event).expect("converted Responses stream");
     }
     state.finish().expect("converted Responses terminal");
-    assert_eq!(state.reasoning_text(), "check");
-    assert_eq!(state.text(), "ok");
-    assert_eq!(
-        state.terminal(),
-        Some(openbridge::bridge::StreamTerminal::Completed)
-    );
+    let rendered = String::from_utf8(actual).unwrap();
+    assert!(rendered.contains("check"));
+    assert!(rendered.contains("ok"));
 }
 
 #[test]
@@ -895,16 +900,20 @@ data: [DONE]
     }
     actual.extend(renderer.finish().expect("stream must reach terminal"));
 
-    let mut state = ResponsesStreamState::new();
+    let mut state = StaticEventBridge::new(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        ReasoningOutput::Unsupported,
+        false,
+        EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
     for event in decode(&actual) {
-        state.ingest(&event).expect("converted Responses stream");
+        state.render(event).expect("converted Responses stream");
     }
     state.finish().expect("converted Responses terminal");
-    assert_eq!(state.text(), "ok");
-    assert_eq!(
-        state.terminal(),
-        Some(openbridge::bridge::StreamTerminal::Completed)
-    );
+    assert!(String::from_utf8(actual).unwrap().contains("ok"));
 }
 
 #[test]

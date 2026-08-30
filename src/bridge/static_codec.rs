@@ -29,6 +29,7 @@ mod response;
 #[derive(Clone, Debug)]
 struct WireRequest {
     semantic: GenerationRequest,
+    source: Map<String, Value>,
     stream: Option<bool>,
     service_tier: Option<String>,
 }
@@ -191,6 +192,7 @@ impl BridgeLimits {
 /// Immutable Static IR request/response conversion plan.
 #[derive(Clone, Debug)]
 pub struct StaticBridgePlan {
+    source_protocol: ApiProtocol,
     target_protocol: ApiProtocol,
     public_model: String,
     reasoning_output: ReasoningOutput,
@@ -255,32 +257,42 @@ impl StaticBridgePlan {
         reasoning_output: ReasoningOutput,
         limits: StaticCodecLimits,
     ) -> Result<(Self, ApiRequest), StaticCodecError> {
-        if source_protocol == target_protocol
-            || public_model.is_empty()
-            || upstream_model.is_empty()
-        {
+        if public_model.is_empty() || upstream_model.is_empty() {
             return Err(StaticCodecError::InvalidShape);
         }
         if body.len() > limits.request_body {
             return Err(StaticCodecError::LimitExceeded);
         }
         let source = parse_object(&body)?;
-        validate_source(source_protocol, &source)?;
+        validate_source(source_protocol, &source, source_protocol != target_protocol)?;
         let request = request::decode_request(source_protocol, &source, limits.request_body)?;
-        let target = request::lower_request(
-            target_protocol,
-            &request,
-            upstream_model,
-            reasoning_output == ReasoningOutput::Summary,
-            None,
-        )?;
-        let (target, request_changes) = target.into_parts();
-        let target = request::encode_request(target)?;
+        let (target, request_changes) = if source_protocol == target_protocol {
+            let mut source = request.source.clone();
+            source.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
+            (
+                Bytes::from(
+                    serde_json::to_vec(&Value::Object(source))
+                        .map_err(|_| StaticCodecError::InvalidShape)?,
+                ),
+                Vec::new(),
+            )
+        } else {
+            let target = request::lower_request(
+                target_protocol,
+                &request,
+                upstream_model,
+                reasoning_output == ReasoningOutput::Summary,
+                None,
+            )?;
+            let (target, request_changes) = target.into_parts();
+            (request::encode_request(target)?, request_changes)
+        };
         if target.len() > limits.request_body {
             return Err(StaticCodecError::LimitExceeded);
         }
         Ok((
             Self {
+                source_protocol,
                 target_protocol,
                 public_model: public_model.to_owned(),
                 reasoning_output,
@@ -302,17 +314,14 @@ impl StaticBridgePlan {
         tool_target: ProviderToolTarget<'_>,
         limits: StaticCodecLimits,
     ) -> Result<(Self, ApiRequest), StaticCodecError> {
-        if source_protocol == target_protocol
-            || public_model.is_empty()
-            || upstream_model.is_empty()
-        {
+        if public_model.is_empty() || upstream_model.is_empty() {
             return Err(StaticCodecError::InvalidShape);
         }
         if body.len() > limits.request_body {
             return Err(StaticCodecError::LimitExceeded);
         }
         let source = parse_object(&body)?;
-        validate_source(source_protocol, &source)?;
+        validate_source(source_protocol, &source, source_protocol != target_protocol)?;
         let mut request = request::decode_request(source_protocol, &source, limits.request_body)?;
         let transformed = apply_tool_plan(request.semantic, tool_target.tool_plan)
             .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
@@ -320,21 +329,31 @@ impl StaticBridgePlan {
             .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
         let (semantic, mut request_changes) = transformed.into_parts();
         request.semantic = semantic;
-        let target = request::lower_request(
-            target_protocol,
-            &request,
-            upstream_model,
-            tool_target.reasoning_output == ReasoningOutput::Summary,
-            Some(tool_target.provider_profile),
-        )?;
-        let (target, lowering_changes) = target.into_parts();
-        request_changes.extend(lowering_changes);
-        let target = request::encode_request(target)?;
+        let target = if source_protocol == target_protocol && request_changes.is_empty() {
+            let mut source = request.source.clone();
+            source.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
+            Bytes::from(
+                serde_json::to_vec(&Value::Object(source))
+                    .map_err(|_| StaticCodecError::InvalidShape)?,
+            )
+        } else {
+            let target = request::lower_request(
+                target_protocol,
+                &request,
+                upstream_model,
+                tool_target.reasoning_output == ReasoningOutput::Summary,
+                Some(tool_target.provider_profile),
+            )?;
+            let (target, lowering_changes) = target.into_parts();
+            request_changes.extend(lowering_changes);
+            request::encode_request(target)?
+        };
         if target.len() > limits.request_body {
             return Err(StaticCodecError::LimitExceeded);
         }
         Ok((
             Self {
+                source_protocol,
                 target_protocol,
                 public_model: public_model.to_owned(),
                 reasoning_output: tool_target.reasoning_output,
@@ -354,6 +373,7 @@ impl StaticBridgePlan {
         if body.len() > self.limits.response_body {
             return Err(StaticCodecError::LimitExceeded);
         }
+        let original = body.clone();
         let source = parse_object(&body)?;
         let decoded = response::decode_response(
             self.target_protocol,
@@ -362,9 +382,15 @@ impl StaticBridgePlan {
             self.limits.response_body,
         )?;
         let semantic = decoded.semantic.clone();
-        let target_protocol = opposite(self.target_protocol);
+        if self.source_protocol == self.target_protocol {
+            return Ok(StaticRenderedResponse {
+                body: original,
+                changes: Vec::new(),
+                semantic,
+            });
+        }
         let rendered = response::lower_response(
-            target_protocol,
+            self.source_protocol,
             &decoded,
             &self.public_model,
             self.reasoning_output,
@@ -379,6 +405,29 @@ impl StaticBridgePlan {
             changes,
             semantic,
         })
+    }
+
+    /// Encodes one already-materialized canonical response into the downstream wire profile.
+    fn render_semantic_response(
+        &self,
+        semantic: GenerationResponse,
+    ) -> Result<Bytes, StaticCodecError> {
+        let decoded = WireResponse {
+            source_id: semantic.id().as_str().to_owned(),
+            semantic,
+        };
+        let rendered = response::lower_response(
+            self.source_protocol,
+            &decoded,
+            &self.public_model,
+            self.reasoning_output,
+        )?;
+        let (rendered, _) = rendered.into_parts();
+        let rendered = response::encode_response(rendered)?;
+        if rendered.len() > self.limits.response_body {
+            return Err(StaticCodecError::LimitExceeded);
+        }
+        Ok(rendered)
     }
 
     /// Returns the canonical request, primarily for semantic parity assertions during R2.
@@ -476,7 +525,9 @@ impl BridgePlan {
         chat_stream_usage: ChatStreamUsage,
         limits: BridgeLimits,
     ) -> Result<(Self, ApiRequest), BridgeError> {
-        let body = if downstream_protocol == ApiProtocol::ChatCompletions {
+        let body = if downstream_protocol != upstream_protocol
+            && downstream_protocol == ApiProtocol::ChatCompletions
+        {
             let mut source = parse_object(&body)?;
             source.remove("stream_options");
             Bytes::from(
@@ -518,6 +569,11 @@ impl BridgePlan {
         self.upstream_protocol
     }
 
+    /// Returns whether validated wire bytes may remain in the same protocol envelope.
+    pub fn preserves_source(&self) -> bool {
+        self.downstream_protocol == self.upstream_protocol
+    }
+
     /// Converts one complete successful upstream response through canonical Static IR.
     pub fn render_non_stream(&self, body: Bytes) -> Result<Bytes, BridgeError> {
         self.render_non_stream_ir(body)
@@ -527,6 +583,16 @@ impl BridgePlan {
     /// Returns the complete canonical response and fidelity report for contract verification.
     pub fn render_non_stream_ir(&self, body: Bytes) -> Result<StaticRenderedResponse, BridgeError> {
         self.static_plan.render_non_stream(body).map_err(Into::into)
+    }
+
+    /// Encodes one response materialized by this plan's Event IR renderer.
+    pub fn render_semantic_response(
+        &self,
+        response: GenerationResponse,
+    ) -> Result<Bytes, BridgeError> {
+        self.static_plan
+            .render_semantic_response(response)
+            .map_err(Into::into)
     }
 
     /// Creates an incremental Event IR renderer dedicated to this request.
@@ -539,7 +605,7 @@ impl BridgePlan {
             self.chat_stream_usage.is_requested(),
             self.limits.event_limits,
         )
-        .expect("validated BridgePlan always has opposite protocols and non-empty model");
+        .expect("validated BridgePlan always has fixed protocols and a non-empty model");
         BridgeStreamRenderer { inner }
     }
 
@@ -569,6 +635,11 @@ impl BridgeStreamRenderer {
     pub fn finish(&mut self) -> Result<Bytes, BridgeError> {
         self.inner.finish().map_err(Into::into)
     }
+
+    /// Returns the canonical response after an explicit terminal and clean EOF.
+    pub fn materialized_response(&self) -> Result<GenerationResponse, BridgeError> {
+        self.inner.materialized_response().map_err(Into::into)
+    }
 }
 
 fn direct_chat_stream_usage(
@@ -593,6 +664,7 @@ fn parse_object(body: &[u8]) -> Result<Map<String, Value>, StaticCodecError> {
 fn validate_source(
     protocol: ApiProtocol,
     source: &Map<String, Value>,
+    require_bridge_representation: bool,
 ) -> Result<(), StaticCodecError> {
     if source
         .get("model")
@@ -606,7 +678,9 @@ fn validate_source(
             return false;
         }
         GenerationRequestField::from_wire(protocol, wire_name).is_none_or(|field| {
-            !field.bridge_representable(protocol) && !field.bridge_inactive(value)
+            require_bridge_representation
+                && !field.bridge_representable(protocol)
+                && !field.bridge_inactive(value)
         })
     }) {
         return Err(StaticCodecError::UnsupportedSemantics);
@@ -626,11 +700,4 @@ fn validate_source(
         return Err(StaticCodecError::UnsupportedSemantics);
     }
     Ok(())
-}
-
-const fn opposite(protocol: ApiProtocol) -> ApiProtocol {
-    match protocol {
-        ApiProtocol::ChatCompletions => ApiProtocol::Responses,
-        ApiProtocol::Responses => ApiProtocol::ChatCompletions,
-    }
 }

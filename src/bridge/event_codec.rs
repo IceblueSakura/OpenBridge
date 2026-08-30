@@ -100,6 +100,7 @@ pub struct StaticEventBridge {
     limits: EventLimits,
     encoded_bytes: usize,
     changes: Vec<SemanticChange>,
+    preserve_source: bool,
     finished: bool,
 }
 
@@ -113,13 +114,16 @@ impl StaticEventBridge {
         include_chat_usage: bool,
         limits: EventLimits,
     ) -> Result<Self, StaticEventCodecError> {
-        if upstream_protocol == downstream_protocol || public_model.is_empty() {
+        if public_model.is_empty() {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
+        let preserve_source = upstream_protocol == downstream_protocol;
         let decoder = match upstream_protocol {
-            ApiProtocol::ChatCompletions => {
-                WireDecoder::Chat(ChatEventDecoder::new(limits, reasoning_output))
-            }
+            ApiProtocol::ChatCompletions => WireDecoder::Chat(ChatEventDecoder::new(
+                limits,
+                reasoning_output,
+                preserve_source,
+            )),
             ApiProtocol::Responses => WireDecoder::Responses(ResponsesEventDecoder::new(limits)),
         };
         let encoder = match downstream_protocol {
@@ -133,18 +137,24 @@ impl StaticEventBridge {
                 WireEncoder::Responses(ResponsesEventEncoder::new(limits, public_model))
             }
         };
+        let changes = if upstream_protocol == downstream_protocol {
+            Vec::new()
+        } else {
+            vec![SemanticChange::new(
+                SemanticPath::root(),
+                ChangeKind::Normalized,
+                ChangeReason::ProtocolNormalized,
+                ChangeAuthorization::default(),
+            )]
+        };
         Ok(Self {
             decoder,
             encoder,
             state: Some(EventState::new(limits)),
             limits,
             encoded_bytes: 0,
-            changes: vec![SemanticChange::new(
-                SemanticPath::root(),
-                ChangeKind::Normalized,
-                ChangeReason::ProtocolNormalized,
-                ChangeAuthorization::default(),
-            )],
+            changes,
+            preserve_source,
             finished: false,
         })
     }
@@ -177,7 +187,11 @@ impl StaticEventBridge {
                 .take()
                 .ok_or(StaticEventCodecError::InvalidLifecycle)?;
             self.state = Some(reduce(state, EventInput::Event(Box::new(envelope)))?);
-            let encoded = self.encoder.encode(&canonical)?;
+            let encoded = if self.preserve_source {
+                Bytes::new()
+            } else {
+                self.encoder.encode(&canonical)?
+            };
             let next = self
                 .encoded_bytes
                 .checked_add(encoded.len())
@@ -205,8 +219,10 @@ impl StaticEventBridge {
             .take()
             .ok_or(StaticEventCodecError::InvalidLifecycle)?;
         let state = reduce(state, EventInput::Eof)?;
-        materialize(&state)?;
-        self.encoder.finish()?;
+        if !self.preserve_source {
+            materialize(&state)?;
+            self.encoder.finish()?;
+        }
         self.state = Some(state);
         self.finished = true;
         Ok(Bytes::new())

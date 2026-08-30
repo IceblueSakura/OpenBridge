@@ -60,7 +60,7 @@ pub struct RouteCandidate {
     pub(in crate::pipeline) upstream_api_key: UpstreamApiKey,
     pub(in crate::pipeline) request: ApiRequest,
     pub(in crate::pipeline) upstream_streaming: bool,
-    pub(in crate::pipeline) bridge: Option<BridgePlan>,
+    pub(in crate::pipeline) generation_plan: BridgePlan,
     pub(in crate::pipeline) stream_response_conversion: Option<StreamResponseConversion>,
 }
 
@@ -381,9 +381,9 @@ impl RouteCandidate {
         self.upstream_streaming
     }
 
-    /// Returns the response conversion plan for a Bridged Route; a Native candidate returns `None`.
-    pub fn bridge(&self) -> Option<&BridgePlan> {
-        self.bridge.as_ref()
+    /// Returns the canonical Static/Event plan shared by Native and Bridged Routes.
+    pub fn generation_plan(&self) -> &BridgePlan {
+        &self.generation_plan
     }
 
     /// Returns the trusted streaming-response conversion selected during planning.

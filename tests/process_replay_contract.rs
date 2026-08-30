@@ -235,13 +235,13 @@ async fn responses_transport_error_after_output_does_not_retry_or_append_termina
 }
 
 #[tokio::test]
-async fn responses_cancel_after_second_event_drops_upstream_without_retry() {
+async fn responses_cancel_after_visible_delta_drops_upstream_without_retry() {
     let observation = support::process_replay::replay_cancel_after_output_case(
         "responses_native.cancel.after_output",
     )
     .await;
 
-    // Consume exactly the canonical two-event prefix, then prove client drop reaches the upstream body.
+    // Consume through the first lifecycle-valid visible delta, then prove client drop reaches the upstream body.
     assert_eq!(observation.status, StatusCode::OK);
     assert_eq!(
         observation.content_type.as_deref(),

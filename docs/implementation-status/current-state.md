@@ -65,7 +65,7 @@ Agent runtime、负载或长期运行验证。
 
 主要 owner：`src/ingress/forwarding.rs`、`src/ingress/streaming/`、`src/pipeline/generation/`、`src/bridge/`、`src/provider/`、`src/transport/`。
 
-确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/protocol_bridge_replay.rs`、`tests/process_replay_contract.rs`。
+确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/generation_ir_event_wire_contract.rs`、`tests/process_replay_contract.rs`。
 
 ## 5. Retry、fallback、cooldown 与取消
 
@@ -109,16 +109,18 @@ Agent runtime、负载或长期运行验证。
 
 确定性入口：`tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`src/observability/**/tests.rs`、`tools/corpus/tests/`。
 
-## 9. Generation IR rewrite checkpoint
+## 9. Generation IR rewrite
 
-- `feature/generation-ir-rewrite`已实现R0-R6的provider-neutral Static/Event Generation IR、production Chat/Responses Bridge、trusted ToolPlan与test-gated bounded Gateway web-search kernel。
+- `feature/generation-ir-rewrite`已实现R0-R7的provider-neutral Static/Event Generation IR、production Chat/Responses Bridge、trusted ToolPlan、test-gated bounded Gateway web-search kernel与Native takeover。
 - `project_semantic_requirements`只投影可由canonical request推导的semantic facts；Public Model、source protocol、stream delivery和wire encoded length仍由现有request analyzer/envelope owner持有。Chat/Responses test-only tracer会与现有analyzer比较共同semantic facts。
 - lossy change默认拒绝；trusted tool-directive authorization同时绑定plan、directive、semantic path和reason。ToolPlan Inject/Strip、candidate-bound Provider tool profile与Gateway web-search continuation均保持immutable/pure planning边界。
-- R2/R3的bounded Static/Event codecs已被production `BridgePlan`直接采用；Registry request/JSON/SSE budgets显式约束decode、part/turn与encoded output，unknown semantics、identity/index、parent/child lifecycle、terminal/EOF、opaque state和resource amplification均fail closed。
-- 旧`bridge/conversion/` pairwise converter与Chat mutable stream state已删除；precommit retry/fallback、postcommit禁止fallback、cancel、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
-- R6 Gateway web-search kernel固定candidate origin，独立限制turn/tool/result/attempt/deadline，传播cancel并仅聚合成功turn usage；当前保持`#[cfg(test)]`，待R7与唯一Native IR路径原子接入。
-- Native request path与Native Responses SSE→JSON buffering仍保持现状，待R7原子切换；Provider adapter、配置和observability尚未改变，不存在production Bridge双栈、feature flag或compatibility shim。
+- bounded Static/Event codecs现在同时拥有Native与Bridge production semantic path；Registry request/JSON/SSE budgets显式约束decode、part/turn与encoded output，unknown semantics、identity/index、parent/child lifecycle、terminal/EOF、opaque state和resource amplification均fail closed。
+- 同协议Native在canonical decode/reduce验证后通过typed `PreserveSource`保持原始request、JSON response与SSE bytes；跨协议或需语义转换时仍重新encode，未知可移植语义保持fail closed。
+- 旧pairwise converter、Chat mutable stream state、Native `ResponsesStreamState`与独立SSE→JSON assembler均已删除；buffered Responses通过Event IR materialize后由Static IR编码。
+- precommit retry/fallback、postcommit禁止fallback、cancel、失败terminal、partial EOF/body error、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
+- R6 Gateway web-search kernel固定candidate origin，独立限制turn/tool/result/attempt/deadline，传播cancel并仅聚合成功turn usage；当前仍保持`#[cfg(test)]`，不构成production web-search能力。
+- Provider adapter、配置schema、Registry schema、OpenAPI与下游HTTP surface未因R7改变；不存在production Native/Bridge双栈、feature flag或compatibility shim。
 
-主要owner：`src/ir/generation/`、`src/bridge/static_codec/`、`src/bridge/event_codec/`与test-gated `src/execution/gateway_web_search.rs`；test-only analyzer parity位于`src/pipeline/generation/analysis.rs`。
+主要owner：`src/ir/generation/`、`src/bridge/static_codec/`、`src/bridge/event_codec/`、`src/ingress/streaming/`与test-gated `src/execution/gateway_web_search.rs`；test-only analyzer parity位于`src/pipeline/generation/analysis.rs`。
 
 确定性入口：`tests/generation_ir_contract.rs`、`tests/generation_ir_static_codec_contract.rs`、`tests/generation_ir_event_contract.rs`、`tests/generation_ir_event_wire_contract.rs`、`tests/bridge_conversion_contract.rs`和`pipeline::generation::analysis::generation_ir_parity_tests`。

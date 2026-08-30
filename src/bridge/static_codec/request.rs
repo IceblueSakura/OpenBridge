@@ -2,20 +2,23 @@
 
 use std::collections::BTreeSet;
 
+use base64::Engine;
 use bytes::Bytes;
 use serde_json::{Map, Value, json};
 
 use crate::{
     core::ApiProtocol,
     ir::generation::{
-        CacheDirective, CacheKey, ChangeAuthorization, ChangeKind, ChangeReason, ContentPart,
-        FunctionTool, GenerationControls, GenerationRequest, InputItem, Instruction,
+        AudioResource, BoundedBytes, CacheDirective, CacheKey, ChangeAuthorization, ChangeKind,
+        ChangeReason, ContentPart, FileResource, FunctionTool, GenerationControls,
+        GenerationRequest, ImageDetail, ImageResource, InlineResource, InputItem, Instruction,
         InstructionAuthority, InstructionOrigin, ItemId, JsonObject, JsonSchema, Message,
         MessageRole, OutputConstraint, ParallelToolCalls, ProviderServerTool, ProviderToolProfile,
         ReasoningEffort, ReasoningItem, ReasoningPart, ReasoningRequest, ReasoningSummary,
-        RequestState, SemanticChange, SemanticPath, TextValue, ToolCall, ToolChoice,
-        ToolDefinition, ToolExecutor, ToolInput, ToolKind, ToolName, ToolOrigin, ToolOutput,
-        ToolResult, ToolResultStatus, ToolVisibility, Transform, lower_provider_server_tool,
+        RequestState, Resource, ResourceSource, SemanticChange, SemanticPath, TextValue, ToolCall,
+        ToolChoice, ToolDefinition, ToolExecutor, ToolInput, ToolKind, ToolName, ToolOrigin,
+        ToolOutput, ToolResult, ToolResultStatus, ToolVisibility, Transform, UrlValue,
+        lower_provider_server_tool,
     },
 };
 
@@ -55,6 +58,7 @@ pub(super) fn decode_request(
 
     Ok(WireRequest {
         semantic: request,
+        source: source.clone(),
         stream,
         service_tier: source
             .get("service_tier")
@@ -273,20 +277,108 @@ fn decode_chat_message(
         }
         Value::Array(parts) => parts
             .iter()
-            .map(|part| {
-                let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
-                if part.get("type").and_then(Value::as_str) != Some("text") {
-                    return Err(StaticCodecError::UnsupportedSemantics);
-                }
-                Ok(ContentPart::text(text_value(
-                    required_string(part, "text")?,
-                    max_bytes,
-                )?))
-            })
+            .map(|part| decode_chat_part(part, max_bytes))
             .collect::<Result<Vec<_>, _>>()?,
         _ => return Err(StaticCodecError::InvalidShape),
     };
     Message::new(role, parts).map_err(StaticCodecError::from_validation)
+}
+
+fn decode_chat_part(value: &Value, max_bytes: usize) -> Result<ContentPart, StaticCodecError> {
+    let part = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    match part.get("type").and_then(Value::as_str) {
+        Some("text") => Ok(ContentPart::text(text_value(
+            required_string(part, "text")?,
+            max_bytes,
+        )?)),
+        Some("image_url") => {
+            let image = part
+                .get("image_url")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            Ok(ContentPart::Resource(Resource::Image(ImageResource::new(
+                resource_source(required_string(image, "url")?, max_bytes)?,
+                None,
+                image_detail(image.get("detail"))?,
+            ))))
+        }
+        Some("input_audio") => {
+            let audio = part
+                .get("input_audio")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            Ok(ContentPart::Resource(Resource::Audio(AudioResource::new(
+                resource_source(required_string(audio, "data")?, max_bytes)?,
+                None,
+            ))))
+        }
+        Some("file") => {
+            let file = part
+                .get("file")
+                .and_then(Value::as_object)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            Ok(ContentPart::Resource(Resource::File(FileResource::new(
+                resource_source(required_string(file, "file_data")?, max_bytes)?,
+                None,
+            ))))
+        }
+        _ => Err(StaticCodecError::UnsupportedSemantics),
+    }
+}
+
+fn decode_responses_part(value: &Value, max_bytes: usize) -> Result<ContentPart, StaticCodecError> {
+    let part = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+    match part.get("type").and_then(Value::as_str) {
+        Some("input_text") => Ok(ContentPart::text(text_value(
+            required_string(part, "text")?,
+            max_bytes,
+        )?)),
+        Some("input_image") => Ok(ContentPart::Resource(Resource::Image(ImageResource::new(
+            resource_source(required_string(part, "image_url")?, max_bytes)?,
+            None,
+            image_detail(part.get("detail"))?,
+        )))),
+        Some("input_file") => {
+            let source = part
+                .get("file_url")
+                .or_else(|| part.get("file_data"))
+                .and_then(Value::as_str)
+                .ok_or(StaticCodecError::InvalidShape)?;
+            Ok(ContentPart::Resource(Resource::File(FileResource::new(
+                resource_source(source.to_owned(), max_bytes)?,
+                None,
+            ))))
+        }
+        _ => Err(StaticCodecError::UnsupportedSemantics),
+    }
+}
+
+fn resource_source(value: String, max_bytes: usize) -> Result<ResourceSource, StaticCodecError> {
+    if value.contains("://") || value.starts_with("data:") {
+        return UrlValue::new(value, max_bytes)
+            .map(ResourceSource::Url)
+            .map_err(StaticCodecError::from_validation);
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&value)
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(&value))
+        .map_err(|_| StaticCodecError::InvalidShape)?;
+    let bytes = BoundedBytes::new(bytes, max_bytes).map_err(StaticCodecError::from_validation)?;
+    InlineResource::new(bytes)
+        .map(ResourceSource::Inline)
+        .map_err(StaticCodecError::from_validation)
+}
+
+fn image_detail(value: Option<&Value>) -> Result<Option<ImageDetail>, StaticCodecError> {
+    value
+        .filter(|value| !value.is_null())
+        .map(|value| match value.as_str() {
+            Some("auto") => Ok(ImageDetail::Auto),
+            Some("low") => Ok(ImageDetail::Low),
+            Some("high") => Ok(ImageDetail::High),
+            _ => Err(StaticCodecError::UnsupportedSemantics),
+        })
+        .transpose()
 }
 
 fn decode_responses_input(
@@ -334,6 +426,13 @@ fn decode_responses_input(
                 input.push(decode_responses_message(item, max_bytes)?);
             }
             None if shorthand => input.push(decode_responses_message(item, max_bytes)?),
+            Some("input_file") | Some("input_image") => {
+                let part = decode_responses_part(&Value::Object(item.clone()), max_bytes)?;
+                input.push(InputItem::Message(
+                    Message::new(MessageRole::User, vec![part])
+                        .map_err(StaticCodecError::from_validation)?,
+                ));
+            }
             Some("reasoning") => {
                 let id = required_string(item, "id")?;
                 let mut parts = Vec::new();
@@ -395,31 +494,27 @@ fn decode_responses_message(
 ) -> Result<InputItem, StaticCodecError> {
     let role = required_string(item, "role")?;
     let content = item.get("content").ok_or(StaticCodecError::InvalidShape)?;
-    let text = match content {
-        Value::String(text) => text.clone(),
-        Value::Array(parts) => {
-            let mut text = String::new();
-            for part in parts {
-                let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
-                if part.get("type").and_then(Value::as_str) != Some("input_text") {
-                    return Err(StaticCodecError::UnsupportedSemantics);
-                }
-                text.push_str(&required_string(part, "text")?);
-            }
-            text
-        }
+    let parts = match content {
+        Value::String(text) => vec![ContentPart::text(text_value(text.clone(), max_bytes)?)],
+        Value::Array(parts) => parts
+            .iter()
+            .map(|part| decode_responses_part(part, max_bytes))
+            .collect::<Result<Vec<_>, _>>()?,
         _ => return Err(StaticCodecError::InvalidShape),
     };
     match role.as_str() {
-        "system" | "developer" => Ok(InputItem::Instruction(Instruction::new(
-            if role == "system" {
-                InstructionAuthority::System
-            } else {
-                InstructionAuthority::Developer
-            },
-            InstructionOrigin::Downstream,
-            text_value(text, max_bytes)?,
-        ))),
+        "system" | "developer" => {
+            let text = flatten_text(&parts)?;
+            Ok(InputItem::Instruction(Instruction::new(
+                if role == "system" {
+                    InstructionAuthority::System
+                } else {
+                    InstructionAuthority::Developer
+                },
+                InstructionOrigin::Downstream,
+                text_value(text, max_bytes)?,
+            )))
+        }
         "user" | "assistant" => Ok(InputItem::Message(
             Message::new(
                 if role == "user" {
@@ -427,7 +522,7 @@ fn decode_responses_message(
                 } else {
                     MessageRole::Assistant
                 },
-                vec![ContentPart::text(text_value(text, max_bytes)?)],
+                parts,
             )
             .map_err(StaticCodecError::from_validation)?,
         )),

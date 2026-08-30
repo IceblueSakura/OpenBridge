@@ -25,7 +25,6 @@ use bytes::Bytes;
 use futures_util::{StreamExt, future::BoxFuture, stream};
 use http::{HeaderMap, HeaderValue};
 use openbridge::{
-    bridge::{ResponsesStreamState, StreamTerminal},
     config::parse_bootstrap_config,
     core::{
         ApiProtocol, ExecutableResponsesState, OperationKind, ResponseInclude, ResponsesAffinity,
@@ -60,6 +59,8 @@ const COMPLETED_RESPONSES_STREAM: &str = concat!(
     "event: response.completed\n",
     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"status\":\"completed\"}}\n\n",
 );
+const COMPLETED_RESPONSES_JSON: &str = r#"{"id":"resp_success","object":"response","status":"completed","output":[{"id":"msg_success","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}]}"#;
+const COMPLETED_CHAT_JSON: &str = r#"{"id":"chatcmpl_success","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
 
 const MIMO_CHAT_IMAGE_STREAM: &[u8] = br#"data: {"id":"chat_image","object":"chat.completion.chunk","model":"mimo-v2.5","choices":[{"index":0,"delta":{"role":"assistant","content":"red and blue"},"finish_reason":null}]}
 
@@ -367,7 +368,9 @@ impl UpstreamTransport for ScopedHealthTransport {
                 Ok(UpstreamResponse::new(
                     StatusCode::OK,
                     headers,
-                    Body::from(r#"{"id":"healthy-response"}"#),
+                    Body::from(
+                        r#"{"id":"healthy-response","object":"response","status":"completed","output":[{"id":"healthy-message","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}]}"#,
+                    ),
                 ))
             }
         })
@@ -391,7 +394,9 @@ impl UpstreamTransport for ScopedFaultTransport {
                 Ok(UpstreamResponse::new(
                     StatusCode::OK,
                     HeaderMap::new(),
-                    Body::from(r#"{"id":"healthy-response"}"#),
+                    Body::from(
+                        r#"{"id":"healthy-response","object":"response","status":"completed","output":[{"id":"healthy-message","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}]}"#,
+                    ),
                 ))
             }
         })
@@ -634,6 +639,7 @@ impl UpstreamTransport for CredentialRotationTransport {
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Record synthetic Authorization and make the first member trigger a rotatable 429.
         let authorization = headers[AUTHORIZATION].to_str().unwrap().to_owned();
+        let is_chat = request.relative_uri().path().ends_with("/chat/completions");
         let is_streaming = serde_json::from_slice::<Value>(request.body()).unwrap()["stream"]
             .as_bool()
             == Some(true);
@@ -656,7 +662,15 @@ impl UpstreamTransport for CredentialRotationTransport {
                     COMPLETED_RESPONSES_STREAM,
                 )
             } else {
-                (StatusCode::OK, "application/json", "{}")
+                (
+                    StatusCode::OK,
+                    "application/json",
+                    if is_chat {
+                        COMPLETED_CHAT_JSON
+                    } else {
+                        COMPLETED_RESPONSES_JSON
+                    },
+                )
             };
             let mut response_headers = HeaderMap::new();
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -673,7 +687,7 @@ impl UpstreamTransport for FixedStatusCredentialTransport {
     fn send<'a>(
         &'a self,
         _target: &'a UpstreamTarget,
-        _request: PreparedUpstreamRequest,
+        request: PreparedUpstreamRequest,
         headers: HeaderMap,
     ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
         // Record the synthetic credential for each attempt and return the fixed HTTP status.
@@ -682,11 +696,16 @@ impl UpstreamTransport for FixedStatusCredentialTransport {
             .unwrap()
             .push(headers[AUTHORIZATION].to_str().unwrap().to_owned());
         let status = self.status;
+        let body = if request.relative_uri().path().ends_with("/chat/completions") {
+            COMPLETED_CHAT_JSON
+        } else {
+            COMPLETED_RESPONSES_JSON
+        };
         Box::pin(async move {
             Ok(UpstreamResponse::new(
                 status,
                 HeaderMap::new(),
-                Body::from("{}"),
+                Body::from(body),
             ))
         })
     }

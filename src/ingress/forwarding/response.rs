@@ -44,7 +44,7 @@ pub(super) struct UpstreamResponseContext {
     pub(super) adapter: GenerationProviderAdapter,
     pub(super) max_sse_event_bytes: usize,
     pub(super) max_json_body_bytes: usize,
-    pub(super) bridge: Option<BridgePlan>,
+    pub(super) generation_plan: BridgePlan,
     pub(super) stream_response_conversion: Option<StreamResponseConversion>,
     pub(super) observation: RequestObservation,
 }
@@ -65,7 +65,7 @@ pub(super) async fn upstream_response(
         adapter,
         max_sse_event_bytes,
         max_json_body_bytes,
-        bridge,
+        generation_plan,
         stream_response_conversion,
         observation,
     } = context;
@@ -80,7 +80,7 @@ pub(super) async fn upstream_response(
         status_is_success: status.is_success(),
         downstream_streaming: validate_sse,
         recognized_sse: is_sse,
-        has_bridge: bridge.is_some(),
+        preserve_source: generation_plan.preserves_source(),
         stream_response_conversion,
     });
     if response_mode == GenerationResponseMode::RejectInvalidMedia {
@@ -111,7 +111,7 @@ pub(super) async fn upstream_response(
             max_sse_event_bytes,
             stream_timeout_policy,
             adapter,
-            bridge.as_ref(),
+            (!generation_plan.preserves_source()).then_some(&generation_plan),
             &observation,
         )
         .await
@@ -177,9 +177,10 @@ pub(super) async fn upstream_response(
 
     // Execute the selected takeover while retaining body I/O, observation, and commit in ingress.
     let body = match response_mode {
-        GenerationResponseMode::BufferResponsesSse { render_bridge } => {
-            let upstream_body = match buffer_responses_sse_body(
+        GenerationResponseMode::BufferResponsesSse => {
+            let response = match buffer_responses_sse_body(
                 upstream_body,
+                generation_plan.stream_renderer(),
                 max_sse_event_bytes,
                 max_json_body_bytes,
                 &observation,
@@ -197,24 +198,17 @@ pub(super) async fn upstream_response(
                     .into();
                 }
             };
-            let downstream_body = if render_bridge {
-                let bridge = bridge
-                    .as_ref()
-                    .expect("response decision requires a Generation Bridge");
-                match bridge.render_non_stream(upstream_body) {
-                    Ok(body) => body,
-                    Err(_) => {
-                        observation.record_bridge_failure();
-                        return api_error(
-                            StatusCode::BAD_GATEWAY,
-                            "invalid_upstream_response",
-                            "The upstream response could not be converted",
-                        )
-                        .into();
-                    }
+            let downstream_body = match generation_plan.render_semantic_response(response) {
+                Ok(body) => body,
+                Err(_) => {
+                    observation.record_bridge_failure();
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_response",
+                        "The upstream response could not be converted",
+                    )
+                    .into();
                 }
-            } else {
-                upstream_body
             };
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             axum::body::Body::from(downstream_body)
@@ -223,20 +217,22 @@ pub(super) async fn upstream_response(
             if precommit_mode {
                 upstream_body
             } else {
-                let bridge = bridge.expect("response decision requires a Generation Bridge");
                 bridge_sse_body(
                     upstream_body,
-                    bridge.stream_renderer(),
+                    generation_plan.stream_renderer(),
                     max_sse_event_bytes,
                     observation.clone(),
                 )
             }
         }
-        GenerationResponseMode::ValidateNativeSse => {
-            validate_sse_body(upstream_body, adapter, max_sse_event_bytes, observation)
-        }
-        GenerationResponseMode::BridgeJson => {
-            let bridge = bridge.expect("response decision requires a Generation Bridge");
+        GenerationResponseMode::ValidateNativeSse => validate_sse_body(
+            upstream_body,
+            adapter,
+            Some(generation_plan.stream_renderer()),
+            max_sse_event_bytes,
+            observation,
+        ),
+        GenerationResponseMode::RenderJson => {
             let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {
                 Ok(body) => body,
                 Err(_) => {
@@ -249,7 +245,7 @@ pub(super) async fn upstream_response(
                     .into();
                 }
             };
-            match bridge.render_non_stream(upstream_body) {
+            match generation_plan.render_non_stream(upstream_body) {
                 Ok(body) => axum::body::Body::from(body),
                 Err(_) => {
                     observation.record_bridge_failure();
@@ -262,7 +258,7 @@ pub(super) async fn upstream_response(
                 }
             }
         }
-        GenerationResponseMode::Passthrough => upstream_body,
+        GenerationResponseMode::PassthroughError => upstream_body,
         GenerationResponseMode::RejectInvalidMedia => {
             unreachable!("invalid media returned before body takeover")
         }

@@ -519,14 +519,14 @@ fn load_cancel_after_output_case(case_id: &str) -> CanonicalCancellationCase {
     let case = read_json(root.join("case.json"));
     assert_eq!(case["id"].as_str(), Some(case_id));
 
-    // Verify the fixture declares cancellation immediately after its two visible SSE events.
+    // Verify the fixture declares cancellation after the first lifecycle-valid visible text delta.
     let transport = &case["transport"];
     assert_eq!(transport["upstream_http_status"].as_u64(), Some(200));
     assert_eq!(
         transport["upstream_content_type"].as_str(),
         Some("text/event-stream")
     );
-    assert_eq!(transport["cancellation_after_event"].as_u64(), Some(2));
+    assert_eq!(transport["cancellation_after_event"].as_u64(), Some(4));
     assert_eq!(transport["upstream_end"].as_str(), Some("cancelled"));
     assert_eq!(transport["client_end"].as_str(), Some("cancelled"));
     assert_eq!(
@@ -542,8 +542,8 @@ fn load_cancel_after_output_case(case_id: &str) -> CanonicalCancellationCase {
     let upstream_events = split_lf_sse_events(&upstream_stream);
     assert_eq!(
         upstream_events.len(),
-        2,
-        "canonical cancellation fixture must contain two events"
+        4,
+        "canonical cancellation fixture must contain four events"
     );
 
     // Load the fixed request artifacts without exposing their contents.

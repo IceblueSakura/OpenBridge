@@ -27,7 +27,7 @@ use crate::ingress::state::GatewayState;
 pub(super) struct StoredHttpFailure {
     pub(super) upstream: UpstreamResponse,
     pub(super) adapter: GenerationProviderAdapter,
-    pub(super) bridge: Option<BridgePlan>,
+    pub(super) generation_plan: BridgePlan,
 }
 
 /// Terminal response or request to continue the outer fixed Generation candidate sequence.

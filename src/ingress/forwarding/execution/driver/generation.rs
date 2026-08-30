@@ -43,7 +43,7 @@ pub(super) async fn finish_http(
             adapter: context.adapter,
             max_sse_event_bytes: context.plan.max_sse_event_bytes(),
             max_json_body_bytes: context.plan.max_json_response_body_bytes(),
-            bridge: context.candidate.bridge().cloned(),
+            generation_plan: context.candidate.generation_plan().clone(),
             stream_response_conversion: context.candidate.stream_response_conversion(),
             observation: observation.clone(),
         },
@@ -78,6 +78,6 @@ pub(super) fn stored_http_failure(
     StoredHttpFailure {
         upstream,
         adapter,
-        bridge: candidate.bridge().cloned(),
+        generation_plan: candidate.generation_plan().clone(),
     }
 }

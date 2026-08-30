@@ -94,20 +94,6 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
             assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
             let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
             assert_eq!(body.as_ref(), *expected_stream);
-
-            // Parse the complete Native SSE lifecycle and require one successful terminal.
-            let mut decoder = SseDecoder::new(64 * 1024);
-            let mut events = decoder.push(&body).unwrap();
-            events.extend(decoder.finish().unwrap());
-            if path.ends_with("/responses") {
-                let mut state = ResponsesStreamState::new();
-                for event in events {
-                    state.ingest(&event).unwrap();
-                }
-                state.finish().unwrap();
-                assert_eq!(state.text(), "red and blue");
-                assert_eq!(state.terminal(), Some(StreamTerminal::Completed));
-            }
         } else {
             let response: Value =
                 serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap())

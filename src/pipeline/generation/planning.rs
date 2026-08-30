@@ -24,9 +24,9 @@ use super::{instructions::normalize_generation_request, preflight::preflight_pub
 /// Generates a Native or Bridged execution plan from one Public Model's precompiled interface.
 ///
 /// Planning first applies one preflight-resolved reasoning level and the gateway-owned
-/// instructions/store envelope to an immutable canonical request. Native candidates preserve that
-/// body until the adapter rewrites `model`; Bridged candidates convert only shared semantics in the
-/// explicit allowlist. A failed BridgePlan rejects the request and does not skip the Route.
+/// instructions/store envelope to an immutable canonical request. Every candidate decodes and
+/// lowers through Generation IR; cross-protocol and same-protocol plans differ only by their fixed
+/// wire profiles. A failed plan rejects the request and does not skip the Route.
 pub fn plan_request(
     registry: &RuntimeRegistry,
     requirements: &RequestRequirements,
@@ -113,33 +113,31 @@ pub fn plan_request(
             &candidate_body,
             candidate.ignored_generation_parameters(),
         )?;
-        let (request, bridge) = match candidate.mode() {
-            RouteMode::Native => (
-                ApiRequest::new(candidate.downstream_protocol(), candidate_body),
-                None,
-            ),
-            RouteMode::GenerationBridge(direction) => match BridgePlan::prepare_with_request_facts(
-                direction.downstream_protocol(),
-                direction.upstream_protocol(),
-                requirements.public_model(),
-                candidate.upstream_model(),
-                candidate_body,
-                candidate.reasoning_output(),
-                requirements.chat_stream_usage,
-                bridge_limits,
-            ) {
-                Ok((bridge, request)) => (request, Some(bridge)),
-                Err(_) => {
-                    let param = match requirements.protocol() {
-                        ApiProtocol::ChatCompletions => "messages",
-                        ApiProtocol::Responses => "input",
-                    };
-                    return Err(RequestPlanningError::unsupported(
-                        param,
-                        GenerationCapabilityReason::BridgeRepresentation,
-                    ));
-                }
-            },
+        let upstream_protocol = match candidate.mode() {
+            RouteMode::Native => candidate.downstream_protocol(),
+            RouteMode::GenerationBridge(direction) => direction.upstream_protocol(),
+        };
+        let (generation_plan, request) = match BridgePlan::prepare_with_request_facts(
+            requirements.protocol(),
+            upstream_protocol,
+            requirements.public_model(),
+            candidate.upstream_model(),
+            candidate_body,
+            candidate.reasoning_output(),
+            requirements.chat_stream_usage,
+            bridge_limits,
+        ) {
+            Ok(result) => result,
+            Err(_) => {
+                let param = match requirements.protocol() {
+                    ApiProtocol::ChatCompletions => "messages",
+                    ApiProtocol::Responses => "input",
+                };
+                return Err(RequestPlanningError::unsupported(
+                    param,
+                    GenerationCapabilityReason::BridgeRepresentation,
+                ));
+            }
         };
         let (request, upstream_streaming, stream_response_conversion) = apply_streaming_policy(
             request,
@@ -151,7 +149,7 @@ pub fn plan_request(
             upstream_api_key: candidate.upstream_api_key(),
             request,
             upstream_streaming,
-            bridge,
+            generation_plan,
             stream_response_conversion,
         });
     }

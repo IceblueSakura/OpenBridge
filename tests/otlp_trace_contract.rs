@@ -76,7 +76,7 @@ impl UpstreamTransport for SuccessfulTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(format!(
-                    r#"{{"id":"chatcmpl-otlp","choices":[{{"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}}}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"completion_tokens_details":{{"reasoning_tokens":1}}}}}}"#
+                    r#"{{"id":"chatcmpl-otlp","object":"chat.completion","model":"test-model","choices":[{{"index":0,"message":{{"role":"assistant","content":"{RESPONSE_MARKER}"}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"completion_tokens_details":{{"reasoning_tokens":1}}}}}}"#
                 )),
             ))
         })
@@ -124,7 +124,7 @@ impl UpstreamTransport for RetryThenSuccessTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(
-                    r#"{"id":"chatcmpl-retry-trace","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+                    r#"{"id":"chatcmpl-retry-trace","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
                 ),
             ))
         })

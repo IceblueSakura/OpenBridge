@@ -322,6 +322,26 @@ data: {"type":"response.completed","response":{"id":"resp_equivalent","status":"
         event_bridge.materialized_response().unwrap(),
         *non_stream.semantic()
     );
+
+    let mut native = StaticEventBridge::new(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        ReasoningOutput::Unsupported,
+        false,
+        EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .expect("Native Responses events must pass through canonical Event IR");
+    let mut encoded = Vec::new();
+    for event in decode(stream) {
+        encoded.extend_from_slice(&native.render(event).unwrap());
+    }
+    native.finish().unwrap();
+    assert!(encoded.is_empty());
+    assert_eq!(
+        native.materialized_response().unwrap(),
+        *non_stream.semantic()
+    );
 }
 
 #[test]
@@ -401,4 +421,46 @@ data: [DONE]
     let mut events = decode(stream);
     bridge.render(events.remove(0)).unwrap();
     assert!(bridge.render(events.remove(0)).is_err());
+}
+
+#[test]
+fn native_chat_stream_is_canonically_validated_without_requiring_reencoded_bytes() {
+    for stream in [
+        "data: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-asr\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"transcript\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_asr\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-asr\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        "data: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"data\":\"UklGRg==\"}},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_audio\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-v2.5-tts\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+    ] {
+        let mut bridge = StaticEventBridge::new(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+        )
+        .unwrap();
+        for (index, event) in decode(stream.as_bytes()).into_iter().enumerate() {
+            bridge
+                .render(event)
+                .unwrap_or_else(|error| panic!("event {index} failed: {error:?}"));
+        }
+        bridge.finish().unwrap();
+    }
+}
+
+#[test]
+fn native_responses_accepts_a_sparse_terminal_only_completed_lifecycle() {
+    let stream = b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"status\":\"completed\"}}\n\n";
+    let mut bridge = StaticEventBridge::new(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        ReasoningOutput::Unsupported,
+        false,
+        EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+    )
+    .unwrap();
+    for event in decode(stream) {
+        bridge.render(event).unwrap();
+    }
+    bridge.finish().unwrap();
 }

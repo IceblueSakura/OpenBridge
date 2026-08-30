@@ -354,7 +354,7 @@ fn finish_candidate(
     if builder.finished {
         return Err(ReduceError::UnknownReference);
     }
-    if builder.items.is_empty() {
+    if builder.items.is_empty() && finish != crate::ir::generation::FinishReason::Stop {
         return Err(ReduceError::InvalidItemShape);
     }
     if builder
