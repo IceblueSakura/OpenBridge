@@ -11,6 +11,7 @@ pub mod credential;
 pub(crate) mod execution;
 pub mod identity;
 pub mod ingress;
+pub mod ir;
 pub mod mcp;
 pub mod models;
 pub mod oauth2_credentials;

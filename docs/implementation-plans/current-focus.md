@@ -2,13 +2,13 @@
 
 ## 状态
 
-**已批准：额外rewrite branch上的R0 characterization与R1 Static IR kernel实现。**
+**R0 characterization与R1 Static IR kernel已完成；停在branch gate，R2尚未授权。**
 
 ## 1. 目标
 
 在`feature/generation-ir-rewrite`实现R0/R1：先用纯tests固定Static IR行为，再实现`src/ir/generation/`的owned values、
 validation、fidelity/change authorization与requirements projection。R1不接入production Router、Bridge、Provider或transport；
-不改变公开API、配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
+不改变下游HTTP API、配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
@@ -688,3 +688,11 @@ branch完成后一次性评审/合入；每个checkpoint独立commit并通过相
 R0/R1明确不实现：Chat/Responses wire decoder/encoder、Event IR、Bridge/Native takeover、server-tool执行、observability日志、历史配置
 兼容层或任何R2-R7 production wiring。内部未发布API可直接采用最佳结构，不保留legacy alias或compatibility shim。R1通过后必须
 停在branch gate，由用户另行批准进入R2。
+
+R0/R1实际证据：
+
+- RED：`cargo check --locked --test generation_ir_contract`因缺少`openbridge::ir`真实失败；
+- focused：`cargo test --locked --test generation_ir_contract`、test-only Chat/Responses analyzer parity、fidelity、extension与requirements unit tests通过；
+- baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、
+  `cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；
+- static diff scan通过；未运行live Provider、外部SDK/Agent runtime、load或long-run验证。

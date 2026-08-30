@@ -349,6 +349,246 @@ fn has_non_null_field(object: &serde_json::Map<String, Value>, field: &str) -> b
     object.get(field).is_some_and(|value| !value.is_null())
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod generation_ir_parity_tests {
+    use super::*;
+    use crate::{
+        ir::generation::{
+            ContentPart, FunctionTool, GenerationControls, GenerationRequest, InputItem,
+            Instruction, InstructionAuthority, InstructionOrigin, JsonSchema, Message, MessageRole,
+            OutputConstraint, ParallelToolCalls, ReasoningEffort, ReasoningPresence,
+            ReasoningRequest, ReasoningSummary, TextValue, ToolChoice, ToolChoiceRequirement,
+            ToolDefinition, ToolExecutor, ToolKind, ToolName, ToolOrigin, ToolVisibility,
+            project_semantic_requirements,
+        },
+        pipeline::generation::types::{
+            RequestedInstructions, RequestedJsonSchemaStrictness, RequestedParallelToolCalls,
+            RequestedReasoning, RequestedReasoningSummary, RequestedStructuredOutput,
+        },
+    };
+    use serde_json::json;
+
+    const VALUE_LIMIT: usize = 4_096;
+
+    fn bounded_text(value: &str) -> TextValue {
+        TextValue::new(value, VALUE_LIMIT).expect("fixture text must fit")
+    }
+
+    fn decode_fixture(protocol: ApiProtocol, wire: &Value) -> GenerationRequest {
+        let object = wire.as_object().expect("fixture must be an object");
+        let (instructions, input, tool, format, max_output_tokens) = match protocol {
+            ApiProtocol::ChatCompletions => {
+                let messages = object["messages"]
+                    .as_array()
+                    .expect("messages must be an array");
+                let instructions = messages[0]["content"]
+                    .as_str()
+                    .expect("system content must be text");
+                let input = messages[1]["content"]
+                    .as_str()
+                    .expect("user content must be text");
+                (
+                    instructions,
+                    input,
+                    &object["tools"][0]["function"],
+                    &object["response_format"]["json_schema"],
+                    object["max_completion_tokens"]
+                        .as_u64()
+                        .expect("output limit must be an integer"),
+                )
+            }
+            ApiProtocol::Responses => (
+                object["instructions"]
+                    .as_str()
+                    .expect("instructions must be text"),
+                object["input"].as_str().expect("input must be text"),
+                &object["tools"][0],
+                &object["text"]["format"],
+                object["max_output_tokens"]
+                    .as_u64()
+                    .expect("output limit must be an integer"),
+            ),
+        };
+
+        let schema = JsonSchema::new(tool["parameters"].clone(), VALUE_LIMIT)
+            .expect("tool schema must be valid");
+        let tool = ToolDefinition::new(
+            ToolName::new(
+                tool["name"].as_str().expect("tool name must be text"),
+                VALUE_LIMIT,
+            )
+            .expect("tool name must fit"),
+            ToolOrigin::Downstream,
+            ToolExecutor::Client,
+            ToolVisibility::Public,
+            ToolKind::Function(FunctionTool::new(
+                tool["description"].as_str().map(bounded_text),
+                schema,
+                tool["strict"].as_bool().unwrap_or(false),
+            )),
+        );
+        let output = OutputConstraint::JsonSchema {
+            name: bounded_text(format["name"].as_str().expect("format name must be text")),
+            schema: JsonSchema::new(format["schema"].clone(), VALUE_LIMIT)
+                .expect("output schema must be valid"),
+            strict: format["strict"].as_bool().unwrap_or(false),
+        };
+        let controls = GenerationControls::new(Some(max_output_tokens), None)
+            .expect("controls must be valid")
+            .with_parallel_tool_calls(ParallelToolCalls::RequireSerial);
+
+        GenerationRequest::new(vec![
+            InputItem::Instruction(Instruction::new(
+                InstructionAuthority::System,
+                InstructionOrigin::Downstream,
+                bounded_text(instructions),
+            )),
+            InputItem::Message(
+                Message::new(
+                    MessageRole::User,
+                    vec![ContentPart::text(bounded_text(input))],
+                )
+                .expect("message must be valid"),
+            ),
+        ])
+        .expect("request must be valid")
+        .with_tools(
+            vec![tool],
+            ToolChoice::Required,
+            ParallelToolCalls::RequireSerial,
+        )
+        .expect("tool configuration must be valid")
+        .with_output(output)
+        .with_controls(controls)
+        .expect("controls must match active tools")
+    }
+
+    #[test]
+    fn chat_and_responses_fixture_projection_matches_analyzer_semantics() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"]
+        });
+        let chat = json!({
+            "model": "public-model",
+            "messages": [
+                {"role": "system", "content": "follow policy"},
+                {"role": "user", "content": "hello"}
+            ],
+            "tools": [{"type": "function", "function": {
+                "name": "lookup", "description": "Lookup data",
+                "parameters": schema, "strict": true
+            }}],
+            "tool_choice": "required",
+            "parallel_tool_calls": false,
+            "response_format": {"type": "json_schema", "json_schema": {
+                "name": "answer", "schema": schema, "strict": true
+            }},
+            "max_completion_tokens": 128
+        });
+        let responses = json!({
+            "model": "public-model",
+            "instructions": "follow policy",
+            "input": "hello",
+            "tools": [{"type": "function", "name": "lookup",
+                "description": "Lookup data", "parameters": schema, "strict": true}],
+            "tool_choice": "required",
+            "parallel_tool_calls": false,
+            "text": {"format": {"type": "json_schema", "name": "answer",
+                "schema": schema, "strict": true}},
+            "max_output_tokens": 128
+        });
+
+        let chat_ir = decode_fixture(ApiProtocol::ChatCompletions, &chat);
+        let responses_ir = decode_fixture(ApiProtocol::Responses, &responses);
+        let chat_semantic = project_semantic_requirements(&chat_ir);
+        let responses_semantic = project_semantic_requirements(&responses_ir);
+        assert_eq!(chat_ir, responses_ir);
+        assert_eq!(chat_semantic, responses_semantic);
+
+        for (protocol, wire, semantic) in [
+            (ApiProtocol::ChatCompletions, chat, chat_semantic),
+            (ApiProtocol::Responses, responses, responses_semantic),
+        ] {
+            let body = Bytes::from(serde_json::to_vec(&wire).expect("fixture must serialize"));
+            let analyzed = analyze_request(protocol, &body).expect("fixture must analyze");
+            let capabilities = &analyzed.requested_capabilities;
+            assert!(matches!(
+                analyzed.requested_instructions,
+                RequestedInstructions::Client(_)
+            ));
+            assert_eq!(
+                analyzed.requested_output_tokens.map(|value| value.value),
+                semantic.controls().max_output_tokens()
+            );
+            assert_eq!(
+                capabilities.function_tools,
+                semantic.tools().function_tools()
+            );
+            assert_eq!(
+                capabilities.function_tool_strict_schema,
+                semantic.tools().strict_function_tools()
+            );
+            assert_eq!(
+                capabilities.function_tool_choice,
+                Some(ToolChoiceMode::Required)
+            );
+            assert_eq!(semantic.tools().choice(), ToolChoiceRequirement::Required);
+            assert_eq!(
+                capabilities.parallel_tool_calls,
+                RequestedParallelToolCalls::RequireSerial
+            );
+            assert_eq!(
+                semantic.tools().parallel_tool_calls(),
+                ParallelToolCalls::RequireSerial
+            );
+            assert_eq!(
+                capabilities.structured_output,
+                RequestedStructuredOutput::JsonSchema(RequestedJsonSchemaStrictness::Strict)
+            );
+            assert!(matches!(capabilities.reasoning, RequestedReasoning::None));
+            assert_eq!(semantic.reasoning().presence(), ReasoningPresence::Absent);
+        }
+    }
+
+    #[test]
+    fn empty_responses_reasoning_object_remains_present() {
+        let wire = json!({
+            "model": "public-model",
+            "input": "hello",
+            "reasoning": {}
+        });
+        let body = Bytes::from(serde_json::to_vec(&wire).expect("fixture must serialize"));
+        let analyzed =
+            analyze_request(ApiProtocol::Responses, &body).expect("fixture must analyze");
+        let ir = GenerationRequest::new(vec![InputItem::Message(
+            Message::new(
+                MessageRole::User,
+                vec![ContentPart::text(bounded_text("hello"))],
+            )
+            .expect("message must be valid"),
+        )])
+        .expect("request must be valid")
+        .with_reasoning(ReasoningRequest::new(
+            ReasoningEffort::Omitted,
+            ReasoningSummary::Omitted,
+        ));
+        let semantic = project_semantic_requirements(&ir);
+
+        assert!(matches!(
+            analyzed.requested_capabilities.reasoning,
+            RequestedReasoning::Unspecified
+        ));
+        assert_eq!(
+            analyzed.requested_capabilities.reasoning_summary,
+            RequestedReasoningSummary::Absent
+        );
+        assert_eq!(semantic.reasoning().presence(), ReasoningPresence::Present);
+    }
+}
+
 /// Parses the Responses `include` field into a closed, registry-independent projection set.
 fn analyze_response_includes(
     protocol: ApiProtocol,

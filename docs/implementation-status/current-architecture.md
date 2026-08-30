@@ -52,6 +52,7 @@ downstream response + request/attempt observations
 | Provider 实现 | `src/providers/` | trusted origin、operation path、model Target、request hook 与显式 catalog registration |
 | Registry | `src/registry/` | 配置引用校验、immutable runtime entity、Public Model DTO/执行快照和编译 |
 | Request analysis/planning | `src/pipeline/` | operation-specific facts、preflight 与固定 Route plan；不进行 Provider 名称分支 |
+| Generation semantic IR | `src/ir/generation/` | rewrite branch 的pure Static request/response values、local validation、semantic requirements 与fidelity；不拥有wire codec、Registry、I/O或production routing |
 | HTTP ingress | `src/ingress/` | 认证、body lifecycle、handler、attempt/fallback、streaming response 与错误映射 |
 | Protocol Bridge | `src/bridge.rs`、`src/bridge/` | Chat ↔ Responses request/response/SSE 转换；不选择 Provider/Route |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
