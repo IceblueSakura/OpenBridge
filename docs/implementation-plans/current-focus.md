@@ -2,14 +2,13 @@
 
 ## 状态
 
-**已批准：富语义 Generation IR 设计基线；仅文档与设计，不修改运行时。**
+**已批准：额外rewrite branch上的R0 characterization与R1 Static IR kernel实现。**
 
 ## 1. 目标
 
-结合当前 OpenBridge 源码、确定性测试以及已经固定的外部生态调研，形成后续额外 rewrite branch 可采用的
-Generation Canonical IR 设计基线。该基线必须回答静态语义、stream event、identity/state、capability/fidelity、
-Provider lowering、server-side tools 和测试迁移问题；本焦点完成前不定义生产 Rust API，也不替换现有 Bridge 或
-Native Path。
+在`feature/generation-ir-rewrite`实现R0/R1：先用纯tests固定Static IR行为，再实现`src/ir/generation/`的owned values、
+validation、fidelity/change authorization与requirements projection。R1不接入production Router、Bridge、Provider或transport；
+不改变公开API、配置schema、Registry schema、OpenAPI、canonical fixture和现有Native/Bridge执行路径。
 
 最终设计对象是一次模型交互的内部语义，不是 OpenAI Chat、Responses 或任一 Provider DTO 的重命名版本。
 
@@ -683,8 +682,9 @@ branch完成后一次性评审/合入；每个checkpoint独立commit并通过相
 
 ## 22. 完成与授权边界
 
-本焦点完成条件：D1-D3形成一份内部一致、能被现有fixture反证、明确alternatives/open questions的设计基线；所有外部
-事实仍链接`docs/references/`，不复制动态Provider capability表。
+本焦点完成条件：R0 tests先以缺失Static kernel真实失败；R1实现使其通过，并完成requirements projection parity、focused tests、
+`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`与`git diff --check`。
 
-本焦点不授权：创建rewrite branch、定义生产Rust IR types、修改runtime、公开API、Registry schema、OpenAPI、canonical
-fixtures或Provider registration。设计评审通过后，用户需另行批准rewrite branch的实现焦点。
+R0/R1明确不实现：Chat/Responses wire decoder/encoder、Event IR、Bridge/Native takeover、server-tool执行、observability日志、历史配置
+兼容层或任何R2-R7 production wiring。内部未发布API可直接采用最佳结构，不保留legacy alias或compatibility shim。R1通过后必须
+停在branch gate，由用户另行批准进入R2。
