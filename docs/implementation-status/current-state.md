@@ -120,6 +120,7 @@ Agent runtime、负载或长期运行验证。
 - precommit retry/fallback、postcommit禁止fallback、cancel、失败terminal、partial EOF/body error、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
 - R6 Gateway web-search kernel固定candidate origin，独立限制turn/tool/result/attempt/deadline，传播cancel并仅聚合成功turn usage；当前仍保持`#[cfg(test)]`，不构成production web-search能力。
 - Provider adapter、配置schema、Registry schema、OpenAPI与下游HTTP surface未因R7改变；不存在production Native/Bridge双栈、feature flag或compatibility shim。
+- 2026-08-31 通过管理员 `openbridge-probe` 对 `zhipu-cn/glm-5-3-flash`、`mimo-v2-5-pro` 与 `deepseek-v4-pro` 分别执行有界 Chat streaming/non-streaming、reasoning omitted 请求；六个case均返回HTTP 200、可识别terminal、usage与输出。该结果只证明当时所选账号、网络和固定请求可达。
 
 主要owner：`src/ir/generation/`、`src/bridge/static_codec/`、`src/bridge/event_codec/`、`src/ingress/streaming/`与test-gated `src/execution/gateway_web_search.rs`；test-only analyzer parity位于`src/pipeline/generation/analysis.rs`。
 

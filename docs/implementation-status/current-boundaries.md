@@ -80,6 +80,8 @@
 
 ## 4. Provider 特定边界
 
+- 2026-08-31 的GLM、MiMo与DeepSeek管理员probe只覆盖各一个已注册Target的Chat streaming/non-streaming固定合成请求；不证明下游Gateway端到端、Responses、reasoning参数实际生效、工具/媒体、fallback、SDK/Agent兼容、负载、长时间运行或未来可达性。
+
 | Provider family | 当前未实现或未证明边界 |
 |---|---|
 | ChatGPT | WebSocket、Batch、Embeddings、hosted/custom tool、MCP、真实图片输入、background/stateful response、完整 Agent loop、多账户轮换、外部 SDK、负载和长期 refresh 稳定性。 |
