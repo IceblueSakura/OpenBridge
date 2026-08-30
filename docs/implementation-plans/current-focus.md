@@ -469,8 +469,10 @@ sequence拒绝。
 call identity和execution/visibility在`ItemStarted`固定，后续delta不能漂移。function arguments只在part完成时解析成Static IR
 的JSON object。
 
-不单独定义`Error` event：协议内failed/incomplete/cancelled/error都归一为带可选failure detail的`Terminal`；HTTP status、
-body transport error和decoder error仍由Provider/transport boundary拥有。
+不单独定义`Error` event：Provider wire中合法、可解码的failed/incomplete/cancelled/error terminal归一为带可选failure detail的
+`Terminal`。本地malformed JSON/SSE、unknown identity、argument parse、bound、invalid lifecycle和materialization失败分别作为
+`DecodeError`、`ReduceError`、`MaterializeError`返回；它们不是canonical event，也不合成`Terminal(Error)`。HTTP status和body
+transport error仍由Provider/transport boundary拥有。
 
 ## 15. Reducer、materializer 与 encoder
 
@@ -482,6 +484,10 @@ encode_event(state: EncoderState, event: &GenerationEvent)
 
 EventInput = Event(EventEnvelope) | Eof
 ```
+
+wire codec的对应边界是`decode_wire(...) -> Result<Vec<EventEnvelope>, DecodeError>`；streaming decoder可逐frame返回零到多个
+EventEnvelope，但一次错误立即结束该attempt。`EventInput`不携带error，因为error是`decode`/`reduce`函数的失败结果，不是模型
+交互语义。
 
 这些API是referentially transparent的value transition；实现可在函数内部mutate owned `BTreeMap`以避免复制，但不隐藏I/O、
 task、clock或global cache。wire decoder先产生Event，reducer验证，target encoder可为internal/invisible event返回零个frame。
@@ -502,13 +508,17 @@ TurnTerminal
 
 不变量：
 
-1. 每个turn恰好一个terminal；terminal后event一律拒绝。
+1. 每个成功通过decode/reduce的canonical turn恰好一个terminal；terminal后event一律拒绝。
 2. `Eof`不是terminal；terminal前EOF返回`EofBeforeTerminal`，terminal后EOF成功。
 3. Completed terminal要求candidate/item/part全部关闭且tool arguments已验证。
 4. failed/incomplete/cancelled/error保持区分，可以保留partial state但不能materialize为成功response。
 5. Chat `[DONE]`只是wire terminator；只有合法finish state后才能解码成Completed terminal。
 6. Responses `response.completed`携带tool calls表示turn完成且finish为ToolCalls，不代表logical operation已经结束。
 7. usage snapshot单调且最多产生一个最终client-visible usage；不得从text length或event count估算。
+
+decode/reduce/materialize失败是上述terminal不变量的显式例外：失败state不能materialize，reducer不制造canonical error terminal。
+执行层在downstream commit前将其作为candidate failure进入现有retry/fallback；commit后转为body error并停止。若目标wire协议要求
+error frame，由downstream error mapper直接编码该局部错误；该wire frame不回流成Canonical Event IR。
 
 downstream `CommitState`仍由`src/ingress/streaming/precommit.rs`拥有。commit点是第一个完整、Provider-valid且经downstream encoder
 生成的visible frame，不是第一个IR event。commit前允许现有bounded retry/fallback；commit后禁止retry/fallback、不得制造terminal，
@@ -589,7 +599,7 @@ observability从Request/Response/Event IR纯投影稳定属性，再与attempt/R
 - Chat和Responses的等价text/instruction/function request decode为相同Request IR；
 - ordered reasoning→text→parallel tool calls保持独立item与identity；
 - fragmented arguments按CallId独立累积，完成时只解析一次；empty/incomplete/malformed JSON拒绝；
-- duplicate item/call/terminal、event-after-terminal和EOF-before-terminal拒绝；
+- duplicate item/call/terminal、event-after-terminal和EOF-before-terminal返回typed error且不制造canonical terminal；
 - Event materialization等于对应non-stream Response IR；
 - visible reasoning、summary和opaque replay不互相污染；origin不匹配的opaque state拒绝；
 - structured output三种mode保持strict/name/schema和absent/value distinction；
