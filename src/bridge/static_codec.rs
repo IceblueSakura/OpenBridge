@@ -13,7 +13,10 @@ use crate::{
         ApiProtocol, ApiRequest, ChatStreamUsage, GenerationRequestField, ReasoningOutput,
         parse_chat_stream_usage,
     },
-    ir::generation::{EventLimits, GenerationRequest, GenerationResponse, SemanticChange},
+    ir::generation::{
+        EventLimits, GenerationRequest, GenerationResponse, LossPolicy, ProviderToolProfile,
+        SemanticChange, ToolPlan, apply_tool_plan, enforce_loss_policy,
+    },
     transport::sse::SseEvent,
 };
 
@@ -79,6 +82,29 @@ impl StaticCodecLimits {
             request_body,
             response_body,
         })
+    }
+}
+
+/// Trusted Provider-native tool target fixed before request lowering.
+#[derive(Clone, Copy, Debug)]
+pub struct ProviderToolTarget<'a> {
+    tool_plan: &'a ToolPlan,
+    provider_profile: &'a ProviderToolProfile,
+    reasoning_output: ReasoningOutput,
+}
+
+impl<'a> ProviderToolTarget<'a> {
+    /// Binds one immutable plan to one fixed Provider origin and reasoning profile.
+    pub const fn new(
+        tool_plan: &'a ToolPlan,
+        provider_profile: &'a ProviderToolProfile,
+        reasoning_output: ReasoningOutput,
+    ) -> Self {
+        Self {
+            tool_plan,
+            provider_profile,
+            reasoning_output,
+        }
     }
 }
 
@@ -246,6 +272,7 @@ impl StaticBridgePlan {
             &request,
             upstream_model,
             reasoning_output == ReasoningOutput::Summary,
+            None,
         )?;
         let (target, request_changes) = target.into_parts();
         let target = request::encode_request(target)?;
@@ -257,6 +284,60 @@ impl StaticBridgePlan {
                 target_protocol,
                 public_model: public_model.to_owned(),
                 reasoning_output,
+                limits,
+                request,
+                request_changes,
+            },
+            ApiRequest::new(target_protocol, target),
+        ))
+    }
+
+    /// Applies one trusted ToolPlan before lowering to a fixed Provider-native target profile.
+    pub fn prepare_with_tool_plan(
+        source_protocol: ApiProtocol,
+        target_protocol: ApiProtocol,
+        public_model: &str,
+        upstream_model: &str,
+        body: Bytes,
+        tool_target: ProviderToolTarget<'_>,
+        limits: StaticCodecLimits,
+    ) -> Result<(Self, ApiRequest), StaticCodecError> {
+        if source_protocol == target_protocol
+            || public_model.is_empty()
+            || upstream_model.is_empty()
+        {
+            return Err(StaticCodecError::InvalidShape);
+        }
+        if body.len() > limits.request_body {
+            return Err(StaticCodecError::LimitExceeded);
+        }
+        let source = parse_object(&body)?;
+        validate_source(source_protocol, &source)?;
+        let mut request = request::decode_request(source_protocol, &source, limits.request_body)?;
+        let transformed = apply_tool_plan(request.semantic, tool_target.tool_plan)
+            .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
+        enforce_loss_policy(&transformed, LossPolicy::Reject)
+            .map_err(|_| StaticCodecError::UnsupportedSemantics)?;
+        let (semantic, mut request_changes) = transformed.into_parts();
+        request.semantic = semantic;
+        let target = request::lower_request(
+            target_protocol,
+            &request,
+            upstream_model,
+            tool_target.reasoning_output == ReasoningOutput::Summary,
+            Some(tool_target.provider_profile),
+        )?;
+        let (target, lowering_changes) = target.into_parts();
+        request_changes.extend(lowering_changes);
+        let target = request::encode_request(target)?;
+        if target.len() > limits.request_body {
+            return Err(StaticCodecError::LimitExceeded);
+        }
+        Ok((
+            Self {
+                target_protocol,
+                public_model: public_model.to_owned(),
+                reasoning_output: tool_target.reasoning_output,
                 limits,
                 request,
                 request_changes,

@@ -12,8 +12,8 @@ mod static_codec;
 pub use event_codec::{StaticEventBridge, StaticEventCodecError};
 pub use responses::ResponsesStreamState;
 pub use static_codec::{
-    BridgeError, BridgeLimits, BridgePlan, BridgeStreamRenderer, StaticBridgePlan,
-    StaticCodecError, StaticCodecLimits, StaticRenderedResponse,
+    BridgeError, BridgeLimits, BridgePlan, BridgeStreamRenderer, ProviderToolTarget,
+    StaticBridgePlan, StaticCodecError, StaticCodecLimits, StaticRenderedResponse,
 };
 
 /// Native Responses buffering terminal retained until the R7 Native takeover.

@@ -11,11 +11,11 @@ use crate::{
         CacheDirective, CacheKey, ChangeAuthorization, ChangeKind, ChangeReason, ContentPart,
         FunctionTool, GenerationControls, GenerationRequest, InputItem, Instruction,
         InstructionAuthority, InstructionOrigin, ItemId, JsonObject, JsonSchema, Message,
-        MessageRole, OutputConstraint, ParallelToolCalls, ReasoningEffort, ReasoningItem,
-        ReasoningPart, ReasoningRequest, ReasoningSummary, RequestState, SemanticChange,
-        SemanticPath, TextValue, ToolCall, ToolChoice, ToolDefinition, ToolExecutor, ToolInput,
-        ToolKind, ToolName, ToolOrigin, ToolOutput, ToolResult, ToolResultStatus, ToolVisibility,
-        Transform,
+        MessageRole, OutputConstraint, ParallelToolCalls, ProviderServerTool, ProviderToolProfile,
+        ReasoningEffort, ReasoningItem, ReasoningPart, ReasoningRequest, ReasoningSummary,
+        RequestState, SemanticChange, SemanticPath, TextValue, ToolCall, ToolChoice,
+        ToolDefinition, ToolExecutor, ToolInput, ToolKind, ToolName, ToolOrigin, ToolOutput,
+        ToolResult, ToolResultStatus, ToolVisibility, Transform, lower_provider_server_tool,
     },
 };
 
@@ -75,6 +75,7 @@ pub(super) fn lower_request(
     request: &WireRequest,
     upstream_model: &str,
     reasoning_summary: bool,
+    provider_profile: Option<&ProviderToolProfile>,
 ) -> Result<Transform<TargetRequest>, StaticCodecError> {
     let mut target = Map::new();
     target.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
@@ -103,7 +104,7 @@ pub(super) fn lower_request(
         Value::Bool(request.stream.unwrap_or(false)),
     );
     encode_controls(protocol, request.semantic.controls(), &mut target);
-    encode_tools(protocol, &request.semantic, &mut target)?;
+    encode_tools(protocol, &request.semantic, provider_profile, &mut target)?;
     encode_output(protocol, request.semantic.output(), &mut target);
     encode_reasoning(
         protocol,
@@ -906,6 +907,7 @@ fn encode_responses_input(
 fn encode_tools(
     protocol: ApiProtocol,
     request: &GenerationRequest,
+    provider_profile: Option<&ProviderToolProfile>,
     target: &mut Map<String, Value>,
 ) -> Result<(), StaticCodecError> {
     if !request.tools().is_empty() {
@@ -914,7 +916,15 @@ fn encode_tools(
             .iter()
             .map(|tool| {
                 let ToolKind::Function(function) = tool.kind() else {
-                    return Err(StaticCodecError::UnsupportedSemantics);
+                    if protocol != ApiProtocol::Responses {
+                        return Err(StaticCodecError::UnsupportedSemantics);
+                    }
+                    let profile = provider_profile.ok_or(StaticCodecError::UnsupportedSemantics)?;
+                    return match lower_provider_server_tool(tool, profile)
+                        .map_err(|_| StaticCodecError::UnsupportedSemantics)?
+                    {
+                        ProviderServerTool::WebSearch => Ok(json!({"type": "web_search"})),
+                    };
                 };
                 let mut definition = Map::new();
                 definition.insert(

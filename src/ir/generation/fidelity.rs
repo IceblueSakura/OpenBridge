@@ -244,8 +244,7 @@ enum AuthorizationKind {
 
 impl ChangeAuthorization {
     /// Creates an authorization scoped to one exact change produced by a trusted directive.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn from_tool_directive(
+    pub(in crate::ir::generation) fn from_tool_directive(
         plan: ToolPlanId,
         directive: ToolDirectiveId,
         path: SemanticPath,

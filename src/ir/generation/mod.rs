@@ -14,6 +14,7 @@ mod response;
 mod semantic;
 mod source;
 mod tool;
+mod tool_plan;
 mod value;
 
 pub use control::*;
@@ -26,4 +27,5 @@ pub use response::*;
 pub use semantic::*;
 pub use source::*;
 pub use tool::*;
+pub use tool_plan::*;
 pub use value::*;

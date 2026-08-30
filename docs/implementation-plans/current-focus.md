@@ -719,3 +719,10 @@ R4实际证据：
 - focused：完整`bridge_conversion_contract`、Generation IR contracts与55个`forwarding_contract` tests通过；ChatGPT真实wire profile、stream usage、instruction preservation、precommit retry/fallback、postcommit禁止fallback、cancel与process replay保持通过；
 - sparse Responses terminal、omitted in-progress item status与`output_item.done`才交付的opaque continuation已按实际Provider lifecycle建模，同时非空terminal snapshot rewrite、invalid usage、late child event与resource amplification继续fail closed；
 - baseline：`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；Native request path、Native Responses buffering、Provider adapter、配置和observability未接管。
+
+R5实际证据：
+
+- RED：`generation_ir_tool_plan_contract`最初因缺少`apply_tool_plan`/`ToolPlan`真实编译失败；specific-choice替换测试先因strip后保留`ToolChoice::Required`触发`InvalidRequest`而失败；
+- focused：`generation_ir_tool_plan_contract`通过；Trusted `ToolPlan`支持Inject/Strip并记录`ToolDirective`授权的fidelity changes，`lower_provider_server_tool`仅当executor origin与`ProviderToolProfile`一致且profile声明支持该server-tool kind时成功；同名strip+inject在编译期拒绝，被strip的`Specific` choice在无剩余工具时降级为`None`；
+- baseline：`cargo fmt -- --check`、`cargo test --locked`（31个suite）、`cargo clippy --locked --all-targets -- -D warnings`和`git diff --check`通过；static diff scan通过；
+- R5未接入production planner、未执行Gateway web-search loop、未改变Native/Bridge路由行为；Provider tool lowering仅通过`StaticBridgePlan::prepare_with_tool_plan`暴露，当前所有provider `web_search` capability均为false。
