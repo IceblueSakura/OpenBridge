@@ -267,7 +267,8 @@ fn probe_help_exits_before_loading_private_startup_files() {
     // Verify help succeeds and returns only static usage text.
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
-    assert!(stdout.contains("Usage: cargo run --bin openbridge-probe"));
-    assert!(stdout.contains("No probe selector runs --all"));
+    assert!(stdout.contains("cargo run --bin openbridge-probe -- models"));
+    assert!(stdout.contains("cargo run --bin openbridge-probe -- generation"));
+    assert!(stdout.contains("--capability"));
     assert!(output.stderr.is_empty());
 }

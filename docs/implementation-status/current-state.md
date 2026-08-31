@@ -26,11 +26,15 @@
 - Provider contract 是 capability ceiling；每个 Target/API 必须显式收窄。Public Model compiler 对全部固定 candidate 保守求交，请求能力不筛选、跳过或重排 candidate。
 - Generation registration 显式选择 `NativeFirst` 或 `SourceFirst`；只在缺失下游协议 Native coverage 时为允许的单协议 source 补充 Bridge。Embeddings、Images 和专用音频 task 使用独立 operation contract。
 - `openbridge-auth login chatgpt` 通过固定 device interaction 或 authorization-code + PKCE 取得完整 bundle，并事务写入 OpenBridge-owned auth file。常驻服务只在 guarded refresh 或首个预提交 401 recovery 中 reload/rotate。
-- `openbridge-probe` 可在显式已启用 Target 的 trusted endpoint/credential 边界内查询 Models，并对注册或 candidate model 执行
-  Chat/Responses × streaming/non-streaming × omitted/标准 reasoning effort 矩阵；逐 case 报告只保留状态、HTTP 与有界协议元数据，
-  candidate model 只能借 Generation Target，streaming 默认携带 16-token output limit，显式 unbounded 开关会进入报告；工具不修改
-  registry，也不接受 endpoint、credential、header、prompt 或任意 JSON 覆盖。Models 报告保留完整 ID 计数和 candidate 可见性，
-  但 ID sample 最多输出 1024 项并标记截断。
+- `openbridge-probe` 以 `models` / `generation` 子命令按 Provider 选择已启用 Generation Target，在 trusted endpoint/credential
+  边界内查询 Models，并对注册或 candidate model 执行
+  Chat/Responses × streaming/non-streaming × omitted/标准 reasoning effort × text/json-object/json-schema/json-schema-strict
+  capability 矩阵；structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema，从瞬时输出派生
+  `supported`/`not_honored`/`inconclusive` 语义结论而不保留生成文本。逐 case 报告只保留状态、HTTP、token usage、失败阶段与有界
+  协议元数据；candidate model 只能借 Generation Target，text/structured case 默认携带 16/64-token output limit，显式 streaming
+  unbounded 开关会进入
+  报告；工具不修改 registry，也不接受 endpoint、credential、header、prompt、schema 或任意 JSON 覆盖。Models 报告保留完整 ID 计数
+  和 candidate 可见性，但 ID sample 最多输出 1024 项并标记截断。多个 trusted deployment 需要 `--target` 显式消歧。
 
 主要 owner：`src/config/`、`src/models/`、`src/providers/`、`src/registry/`、`src/oauth2/`、`src/probe.rs`、`src/probe/`、
 `src/bin/openbridge-probe.rs`。

@@ -174,29 +174,29 @@ PKCE exchange 后，命令事务性写入配置指定的 auth 文件。不要分
 
 ## 7. 显式 Provider 探测
 
-`openbridge-probe` 不启动下游网关，也不修改注册表。它只从管理员显式选择、已经注册且已启用的一个 Upstream Target 取得 trusted
-origin、Provider path/body hook、timeout 和 credential binding，再执行带认证的 Models 及固定合成请求并输出脱敏 JSON：
+`openbridge-probe` 不启动下游网关，也不修改注册表。它按管理员选择的 Provider 从已经注册且已启用的 Generation Target 取得 trusted
+origin、Provider path/body hook、timeout 和 credential binding；只有多个 trusted deployment 需要 `--target` 显式消歧。随后工具执行
+带认证的 Models 或固定合成请求并输出脱敏 JSON：
 
 ```powershell
-cargo run --locked --bin openbridge-probe -- --target openai-main --list-models
-cargo run --locked --bin openbridge-probe -- --target openai-main --model candidate-model-id --list-models --chat --responses --streaming --non-streaming --reasoning all
+cargo run --locked --bin openbridge-probe -- models --provider openai
+cargo run --locked --bin openbridge-probe -- generation --provider bailian --model candidate-model-id --protocol all --delivery all --reasoning all --capability all
 ```
 
-operation 选择器为 `--list-models`、`--chat`、`--responses`、`--embeddings` 和 `--all`。省略 operation 选择器时等同 `--all`，但
-`--all` 只选择当前 target 的 operation，不遍历其他 target，也不自动选择全部 reasoning 等级。Generation 可以用
-`--streaming` / `--non-streaming` 选择 delivery；两者都省略时各跑一次。`--reasoning` 可重复指定 `omitted`、`none`、`minimal`、
-`low`、`medium`、`high`、`xhigh` 或 `max`；省略时只跑 `omitted`，显式 `--reasoning all` 才展开 omitted 基线和全部七个标准等级。
-因此两个协议、两个 delivery 和 `all` 会产生 32 个可能计费的 Generation 请求，另加显式选择的 Models/Embeddings 请求。
-所有 Generation case 默认携带固定 16-token upstream output limit。只有 backend 明确拒绝该字段时，才能显式增加
-`--allow-unbounded-streaming-output`；该开关只移除 streaming limit，可能增加 reasoning 时间和计费，不能作为普通默认值。
+`models` 输出 Provider 固定 Models endpoint 的完整计数、最多 1024 项有界 ID 样本，以及可选 `--model` 的可见性。
+`generation` 需要 `--model`，并按 `--protocol`（chat/responses/all）、`--delivery`（non-streaming/streaming/all）、
+`--reasoning`（omitted/none/minimal/low/medium/high/xhigh/max/all）与 `--capability`
+（text/json-object/json-schema/json-schema-strict/all）独立展开矩阵；默认只跑双协议、non-streaming、omitted reasoning 与
+text。Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema，按 accepted 响应的实际输出给出 `supported`、
+`not_honored` 或 `inconclusive`，不保留生成文本。`--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受
+已注册且启用的 Generation Target。所有 case 继续使用固定 16/64-token upstream output limit，只有 backend 明确拒绝该字段时才
+使用 `--allow-unbounded-streaming-output` 放开 streaming limit；这可能增加 reasoning 时间和计费。
 
-`--model` 允许在正式注册前把同一个 candidate model ID 用于所选 Generation case，并在 Models 结果中报告它是否可见；所选 Target
-必须已经是 Generation task，Embeddings/Images/Audio Target 不能借 Provider-wide path 发送 Generation。该参数不能覆盖 endpoint、
-relative path、credential、认证 header、prompt 或任意 JSON。它必须与 `--list-models`、`--chat` 或 `--responses` 至少一项配合，不能
-作为纯 Embeddings probe 的无效覆盖。未指定时，各协议仍使用该 target 已注册的 upstream model。Models 结果保留完整 ID 计数和
-candidate 可见性，但 `model_ids` 只输出最多 1024 项的有界 sample，并用 `model_ids_truncated` 标明截断。
+`--model` 允许在正式注册前把同一个 candidate model ID 用于 `models` 可见性与 `generation` case；所选 Provider 解析只接受
+Generation task Target，Embeddings/Images/Audio Target 不能借 Provider-wide path 发送 Generation。该参数不能覆盖 endpoint、
+relative path、credential、认证 header、prompt、schema 或任意 JSON。
 每个 case 独立报告 `accepted`、`rejected`、`unsupported` 或 `inconclusive`、HTTP status、耗时、标准 token usage、失败阶段及有界协议元数据；报告不包含
-credential、认证 header、完整请求正文或完整 upstream response body。
+credential、认证 header、完整请求正文、生成正文或完整 upstream response body。
 `unsupported` 只表示本地 trusted Target/profile 不允许 operation 或 delivery；真实 upstream 的所有非 2xx（包括 candidate-model 404）
 都只是该请求的 `rejected`，不会提升为 endpoint 静态结论。
 

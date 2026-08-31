@@ -1,4 +1,4 @@
-//! Errors raised while preparing an explicit basic upstream probe.
+//! Errors raised while preparing an explicit bounded upstream probe.
 //!
 //! These errors describe probe admission failures only; probe observations remain in the
 //! report types owned by the parent module.
@@ -16,12 +16,18 @@ pub enum ProbeSelectionError {
     /// The model override cannot affect any selected discovery or Generation request.
     #[error("--model requires --list-models, --chat, or --responses")]
     UnusedUpstreamModel,
+    /// The risk opt-in cannot affect any selected streaming Generation request.
+    #[error("--allow-unbounded-streaming-output requires streaming Generation")]
+    UnusedUnboundedStreamingOutput,
     /// A Generation protocol was selected without a delivery mode.
     #[error("at least one Generation delivery mode is required")]
     MissingGenerationMode,
     /// A Generation protocol was selected without a reasoning-effort case.
     #[error("at least one reasoning effort is required")]
     MissingReasoningEffort,
+    /// A Generation protocol was selected without a semantic capability case.
+    #[error("at least one Generation capability is required")]
+    MissingGenerationCapability,
     /// One matrix axis contains the same case more than once.
     #[error("probe matrix selections must not contain duplicates")]
     DuplicateMatrixCase,
@@ -44,6 +50,32 @@ pub enum ProbeError {
     DisabledUpstreamTarget {
         /// Disabled internal target ID.
         upstream_target: String,
+    },
+    /// No enabled Generation Target is available for the selected Provider.
+    #[error("provider '{provider}' has no enabled Generation target")]
+    ProviderGenerationTargetUnavailable {
+        /// Stable Provider slug.
+        provider: String,
+    },
+    /// An explicit Target belongs to another Provider or task.
+    #[error(
+        "configured upstream target '{upstream_target}' is not an enabled Generation target for provider '{provider}'"
+    )]
+    ProviderTargetMismatch {
+        /// Stable Provider slug.
+        provider: String,
+        /// Explicit mismatched Target ID.
+        upstream_target: String,
+    },
+    /// More than one trusted deployment is available and requires explicit disambiguation.
+    #[error(
+        "provider '{provider}' has multiple trusted Generation deployments; select --target from: {targets}"
+    )]
+    AmbiguousProviderTarget {
+        /// Stable Provider slug.
+        provider: String,
+        /// Safe comma-separated internal Target IDs.
+        targets: String,
     },
     /// The OAuth2 probe entry point was used with a non-ChatGPT target.
     #[error("OAuth2 probe is not supported for configured upstream target '{upstream_target}'")]

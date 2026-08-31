@@ -210,9 +210,11 @@ Embeddings/Images adapter 不能调用 Generation request/SSE policy。请求 bo
 status classification 与 model-list probe 仍通过同一 operation-neutral adapter 共享。`provider/adapter.rs` 拥有 common policy，
 `provider/operation.rs` 从同一静态 surface 原子选择 relative path、capability ceiling 与 typed request/SSE policy。
 数据面 Generation 与 Embeddings/Images preparation 都必须接收 operation-matched `UpstreamApi`。独立管理员 probe 另有窄化的 Generation
-preparation：只接受校验后的 model ID 和固定合成请求，仍由已注册 Target、Provider operation path/body hook、credential 与 timeout
-约束，拒绝借非 Generation Target 扩大 operation，且不套用另一已注册模型的 ignored-parameter 或 reasoning mapping；它不被 ingress
-或业务请求调用。Generation probe 默认保留固定 16-token upstream output limit；只有显式风险开关可为 streaming request 省略。
+preparation：只接受校验后的 model ID 和固定合成请求，仍由已注册 Generation Target、Provider operation path/body hook、credential 与
+timeout 约束；Provider selector 只在同一 trusted deployment 与 credential binding 内自动选定一个 Target，跨 deployment 必须显式
+消歧。它拒绝借非 Generation Target 扩大 operation，且不套用另一已注册模型的 ignored-parameter 或 reasoning mapping，不被 ingress
+或业务请求调用。Generation text/structured probe 分别保留固定 16/64-token upstream output limit；只有显式风险开关可为 streaming
+request 省略。structured oracle 只在完整有界 response 生命周期内瞬时组合标准 output text，report 不保留生成正文。
 
 普通安全 header 与认证 header 分离。业务请求不能控制上游 URL、Provider、Target、credential、认证 header、代理 header 或
 转换脚本。`UpstreamClient` 只接受已解析 Target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。

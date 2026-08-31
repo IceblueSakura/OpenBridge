@@ -93,11 +93,13 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 - 代码注册表只保存非敏感 pool/member id、Provider 和 credential kind，不保存 secret 或 secret locator；
 - 服务与常规 API-key probe 只从 bootstrap 指定的私有 upstream credential TOML 读取上游 API key，不读取 `*_API_KEYS`、旧单值
   环境变量或 `.env`；任何 probe 都不得发现或导入本机 Codex credential、环境或 terminal 状态；
-- 管理员 probe 只能从显式选择的已启用 Target 继承 trusted origin、Provider operation path、timeout 与 credential binding；candidate
-  model Generation probe 还要求该 Target 已注册 Generation task，不能借 Embeddings/Images/Audio Target 扩大 operation；model ID
-  只覆盖固定合成请求的 `model` 字段，不能覆盖 endpoint、path、credential、header、prompt 或任意 JSON；
-- 固定 Generation probe 默认携带 16-token upstream output limit；只有显式 `--allow-unbounded-streaming-output` 才能为拒绝该字段的
-  streaming backend 省略限制，报告和使用说明必须暴露该计费/长 reasoning 风险；
+- 管理员 probe 只能从所选 Provider 的已启用 Generation Target 继承 trusted origin、Provider operation path、timeout 与 credential
+  binding；只有全部候选归属同一 Provider instance 与 credential binding 时才能自动选定一个 Target，存在多个 trusted deployment 时
+  必须用 `--target` 显式消歧。candidate model 不能借 Embeddings/Images/Audio Target 扩大 operation；model ID 只覆盖固定合成请求的
+  `model` 字段，不能覆盖 endpoint、path、credential、header、prompt、schema 或任意 JSON；
+- 固定 Generation probe 的 text case 携带 16-token、structured-output case 携带 64-token upstream output limit；只有显式
+  `--allow-unbounded-streaming-output` 才能为拒绝该字段的 streaming backend 省略限制，报告和使用说明必须暴露该计费/长 reasoning
+  风险；structured oracle 可以在完整有界 response 生命周期内瞬时组合标准 output text，但报告、日志和错误不得保留生成正文；
 - Models probe 必须在完整有界 response 内计算总 ID 数和 candidate 可见性，但报告中的 ID sample 最多保留 1024 项并显式标记截断；
 - TOML 只允许声明 `schema_version` 与 `credential_pools`；每项包含编译期 binding id，并且可以选择有序 `api_keys` 数组、单一
   `auth_json_file` locator 或不提供 source（未激活），不能配置 Provider、credential kind、endpoint、route 或 member id；

@@ -28,22 +28,84 @@ use crate::{
 };
 
 use evidence::{
-    elapsed_millis, generation_result, json_generation_evidence, observe_sse_event,
-    probe_mode_allowed,
+    elapsed_millis, generation_capability_evidence, generation_result, json_generation_evidence,
+    json_generation_output_text, observe_sse_event, probe_mode_allowed,
 };
 use json_response::{JsonResponse, canonical_content_type, decode_json_response};
 
 use super::{
-    GenerationProbeEvidence, GenerationProbeResult, ModelListProbeResult, ProbeError, ProbeFailure,
-    ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort, ProbeResult, ProbeTerminal,
-    TargetProbeReport,
+    GenerationCaseSelection, GenerationProbeEvidence, GenerationProbeResult, ModelListProbeResult,
+    ProbeError, ProbeFailure, ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions,
+    ProbeResult, ProbeStatus, ProbeTerminal, TargetProbeReport,
     payload::{
-        is_embedding_response, is_protocol_response, probe_embedding_request, probe_text_request,
+        is_embedding_response, is_protocol_response, probe_embedding_request,
+        probe_generation_request,
     },
 };
 
-const PROBE_MAX_OUTPUT_TOKENS: u32 = 16;
 const MAX_REPORTED_MODEL_IDS: usize = 1_024;
+
+/// Resolves one enabled Generation Target for a Provider without accepting endpoint configuration.
+pub fn resolve_generation_probe_target(
+    registry: &RuntimeRegistry,
+    provider: ProviderKind,
+    explicit_target: Option<&str>,
+) -> Result<String, ProbeError> {
+    if let Some(target_id) = explicit_target {
+        let target = registry.upstream_target(target_id).ok_or_else(|| {
+            ProbeError::UnknownUpstreamTarget {
+                upstream_target: target_id.to_owned(),
+            }
+        })?;
+        if !target.enabled()
+            || target.kind() != provider
+            || target.canonical_task() != CanonicalTaskKind::Generation
+        {
+            return Err(ProbeError::ProviderTargetMismatch {
+                provider: provider.slug().to_owned(),
+                upstream_target: target_id.to_owned(),
+            });
+        }
+        return Ok(target_id.to_owned());
+    }
+
+    // Group candidate Targets by trusted deployment and credential binding before selecting one.
+    let mut candidates = registry
+        .upstream_target_ids()
+        .filter_map(|target_id| {
+            let target = registry.upstream_target(target_id)?;
+            (target.enabled()
+                && target.kind() == provider
+                && target.canonical_task() == CanonicalTaskKind::Generation)
+                .then_some((
+                    target_id,
+                    target.provider_instance_id(),
+                    target.credential_pool_id(),
+                ))
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return Err(ProbeError::ProviderGenerationTargetUnavailable {
+            provider: provider.slug().to_owned(),
+        });
+    }
+    candidates.sort_unstable();
+    let deployment = (candidates[0].1, candidates[0].2);
+    if candidates
+        .iter()
+        .any(|candidate| (candidate.1, candidate.2) != deployment)
+    {
+        return Err(ProbeError::AmbiguousProviderTarget {
+            provider: provider.slug().to_owned(),
+            targets: candidates
+                .iter()
+                .map(|candidate| candidate.0)
+                .collect::<Vec<_>>()
+                .join(", "),
+        });
+    }
+    Ok(candidates[0].0.to_owned())
+}
 
 /// Runs the selected probes with the same trusted configuration as the data plane.
 ///
@@ -182,14 +244,14 @@ async fn run_probe_session_with_headers(
     if selection.chat {
         generation.extend(
             session
-                .probe_text_matrix(ApiProtocol::ChatCompletions, &selection)
+                .probe_generation_matrix(ApiProtocol::ChatCompletions, &selection)
                 .await,
         );
     }
     if selection.responses {
         generation.extend(
             session
-                .probe_text_matrix(ApiProtocol::Responses, &selection)
+                .probe_generation_matrix(ApiProtocol::Responses, &selection)
                 .await,
         );
     }
@@ -283,8 +345,8 @@ impl ProbeSession<'_> {
         }
     }
 
-    /// Executes every selected delivery/reasoning case for one Generation protocol.
-    async fn probe_text_matrix(
+    /// Executes every selected delivery/reasoning/capability case for one Generation protocol.
+    async fn probe_generation_matrix(
         &self,
         protocol: ApiProtocol,
         selection: &ProbeOptions,
@@ -292,108 +354,112 @@ impl ProbeSession<'_> {
         let mut results = Vec::new();
         for mode in &selection.generation_modes {
             for reasoning_effort in &selection.reasoning_efforts {
-                let result = self
-                    .probe_text_case(
-                        protocol,
-                        *mode,
-                        *reasoning_effort,
-                        selection.upstream_model.as_deref(),
-                        selection.allow_unbounded_streaming_output,
-                    )
-                    .await;
-                results.push(result);
+                for capability in &selection.generation_capabilities {
+                    let result = self
+                        .probe_generation_case(
+                            &GenerationCaseSelection {
+                                protocol,
+                                mode: *mode,
+                                reasoning_effort: *reasoning_effort,
+                                capability: *capability,
+                            },
+                            selection.upstream_model.as_deref(),
+                            selection.allow_unbounded_streaming_output,
+                        )
+                        .await;
+                    results.push(result);
+                }
             }
         }
         results
     }
 
     /// Executes one fixed synthetic Generation request without registered model-specific rewrites.
-    async fn probe_text_case(
+    async fn probe_generation_case(
         &self,
-        protocol: ApiProtocol,
-        mode: ProbeGenerationMode,
-        reasoning_effort: ProbeReasoningEffort,
+        case: &GenerationCaseSelection,
         upstream_model_override: Option<&str>,
         allow_unbounded_streaming_output: bool,
     ) -> GenerationProbeResult {
         let started = Instant::now();
         if self.target.canonical_task() != CanonicalTaskKind::Generation {
             return generation_result(
-                protocol,
-                mode,
-                reasoning_effort,
+                case,
                 upstream_model_override,
                 elapsed_millis(&started),
                 ProbeResult::unsupported(ProbeFailure::OperationUnavailable),
+                None,
                 None,
             );
         }
         // Use an explicit candidate model, or the registered model for this exact protocol.
         let registered_api = self.target.upstream_api(UpstreamApiKey::new(
-            protocol.operation(),
+            case.protocol.operation(),
             self.target.canonical_task(),
         ));
         let Some(upstream_model) =
             upstream_model_override.or_else(|| registered_api.map(UpstreamApi::upstream_model))
         else {
             return generation_result(
-                protocol,
-                mode,
-                reasoning_effort,
+                case,
                 None,
                 elapsed_millis(&started),
                 ProbeResult::unsupported(ProbeFailure::ModelUnavailable),
                 None,
+                None,
             );
         };
-        if registered_api.is_some_and(|api| !probe_mode_allowed(api, mode)) {
+        if registered_api.is_some_and(|api| !probe_mode_allowed(api, case.mode)) {
             return generation_result(
-                protocol,
-                mode,
-                reasoning_effort,
+                case,
                 Some(upstream_model),
                 elapsed_millis(&started),
                 ProbeResult::unsupported(ProbeFailure::DeliveryUnavailable),
                 None,
+                None,
             );
         }
-        let request = probe_text_request(
-            protocol,
+        let request = probe_generation_request(
+            case.protocol,
             upstream_model,
             registered_api
-                .map(|api| self.probe_max_output_tokens(api))
-                .unwrap_or(PROBE_MAX_OUTPUT_TOKENS),
-            mode,
-            reasoning_effort,
+                .map(|api| self.probe_max_output_tokens(api, case.capability))
+                .unwrap_or_else(|| case.capability.max_output_tokens()),
+            case.mode,
+            case.reasoning_effort,
+            case.capability,
             allow_unbounded_streaming_output,
         );
         let request = match self.prepare_protocol_request(
-            protocol,
+            case.protocol,
             request,
             upstream_model,
-            mode == ProbeGenerationMode::Streaming,
+            case.mode == ProbeGenerationMode::Streaming,
         ) {
             Ok(request) => request,
             Err(outcome) => {
                 return generation_result(
-                    protocol,
-                    mode,
-                    reasoning_effort,
+                    case,
                     Some(upstream_model),
                     elapsed_millis(&started),
                     outcome,
+                    None,
                     None,
                 );
             }
         };
 
         // Preserve this case independently, including bounded metadata from valid responses.
-        let (outcome, evidence) = match mode {
+        let (outcome, evidence, output_text) = match case.mode {
             ProbeGenerationMode::NonStreaming => match self.send_json(request).await {
                 Ok(response) => {
-                    let evidence =
-                        json_generation_evidence(protocol, &response.body, response.content_type);
-                    let outcome = if !is_protocol_response(protocol, &response.body) {
+                    let output_text = json_generation_output_text(case.protocol, &response.body);
+                    let evidence = json_generation_evidence(
+                        case.protocol,
+                        &response.body,
+                        response.content_type,
+                    );
+                    let outcome = if !is_protocol_response(case.protocol, &response.body) {
                         ProbeResult::inconclusive(
                             Some(response.status),
                             ProbeFailure::UnexpectedResponse,
@@ -406,20 +472,26 @@ impl ProbeSession<'_> {
                     } else {
                         ProbeResult::accepted(response.status)
                     };
-                    (outcome, Some(evidence))
+                    (outcome, Some(evidence), output_text)
                 }
-                Err(outcome) => (outcome, None),
+                Err(outcome) => (outcome, None, None),
             },
-            ProbeGenerationMode::Streaming => self.send_protocol_sse(protocol, request).await,
+            ProbeGenerationMode::Streaming => self.send_protocol_sse(case.protocol, request).await,
         };
+        let capability_evidence = (outcome.state == ProbeStatus::Accepted).then(|| {
+            generation_capability_evidence(
+                case.capability,
+                output_text.as_deref(),
+                evidence.as_ref().and_then(|evidence| evidence.terminal),
+            )
+        });
         generation_result(
-            protocol,
-            mode,
-            reasoning_effort,
+            case,
             Some(upstream_model),
             elapsed_millis(&started),
             outcome,
             evidence,
+            capability_evidence,
         )
     }
 
@@ -474,7 +546,7 @@ impl ProbeSession<'_> {
         &self,
         protocol: ApiProtocol,
         request: PreparedUpstreamRequest,
-    ) -> (ProbeResult, Option<GenerationProbeEvidence>) {
+    ) -> (ProbeResult, Option<GenerationProbeEvidence>, Option<String>) {
         // Send the request and validate status and media type before consuming stream bytes.
         let response = match self
             .transport
@@ -486,18 +558,20 @@ impl ProbeSession<'_> {
                 return (
                     ProbeResult::inconclusive(None, ProbeFailure::Transport),
                     None,
+                    None,
                 );
             }
         };
         let status = response.status();
         if !status.is_success() {
-            return (ProbeResult::from_http_status(status), None);
+            return (ProbeResult::from_http_status(status), None, None);
         }
         let adapter = match self.generation_adapter(protocol) {
             Ok(adapter) => adapter,
             Err(()) => {
                 return (
                     ProbeResult::unsupported(ProbeFailure::OperationUnavailable),
+                    None,
                     None,
                 );
             }
@@ -506,10 +580,12 @@ impl ProbeSession<'_> {
             content_type: canonical_content_type(response.headers()),
             ..GenerationProbeEvidence::default()
         };
+        let mut output_text = String::new();
         if !adapter.recognizes_sse_response(response.headers()) {
             return (
                 ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSseMediaType),
                 Some(evidence),
+                None,
             );
         }
 
@@ -524,6 +600,7 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::Transport),
                         Some(evidence),
+                        None,
                     );
                 }
             };
@@ -533,6 +610,7 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::ResponseLimit),
                         Some(evidence),
+                        None,
                     );
                 }
             };
@@ -542,12 +620,14 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSse),
                         Some(evidence),
+                        None,
                     );
                 }
             };
-            if let Some(outcome) = self.classify_sse_events(protocol, status, events, &mut evidence)
+            if let Some(outcome) =
+                self.classify_sse_events(protocol, status, events, &mut evidence, &mut output_text)
             {
-                return (outcome, Some(evidence));
+                return (outcome, Some(evidence), Some(output_text));
             }
         }
 
@@ -558,15 +638,16 @@ impl ProbeSession<'_> {
                 return (
                     ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSse),
                     Some(evidence),
+                    None,
                 );
             }
         };
         let outcome = self
-            .classify_sse_events(protocol, status, events, &mut evidence)
+            .classify_sse_events(protocol, status, events, &mut evidence, &mut output_text)
             .unwrap_or_else(|| {
                 ProbeResult::inconclusive(Some(status), ProbeFailure::MissingTerminal)
             });
-        (outcome, Some(evidence))
+        (outcome, Some(evidence), Some(output_text))
     }
 
     /// Classifies framed SSE events and returns a conclusion only for a terminal event.
@@ -576,11 +657,12 @@ impl ProbeSession<'_> {
         status: StatusCode,
         events: Vec<crate::transport::sse::SseEvent>,
         evidence: &mut GenerationProbeEvidence,
+        output_text: &mut String,
     ) -> Option<ProbeResult> {
         // Delegate lifecycle semantics to the Provider adapter and stop at the first terminal.
         let adapter = self.generation_adapter(protocol).ok()?;
         for event in events {
-            let terminal = observe_sse_event(protocol, &event, evidence);
+            let terminal = observe_sse_event(protocol, &event, evidence, output_text);
             let event = adapter.classify_sse_event(event).ok()?;
             match event.status() {
                 StreamEventStatus::Continue => {}
@@ -660,12 +742,17 @@ impl ProbeSession<'_> {
     }
 
     /// Restricts probe output tokens to the intersection of the model declaration and the fixed safety limit.
-    fn probe_max_output_tokens(&self, upstream_api: &UpstreamApi) -> u32 {
+    fn probe_max_output_tokens(
+        &self,
+        upstream_api: &UpstreamApi,
+        capability: ProbeGenerationCapability,
+    ) -> u32 {
+        let safety_limit = capability.max_output_tokens();
         upstream_api
             .model()
             .context_length()
             .output_tokens()
-            .unwrap_or(PROBE_MAX_OUTPUT_TOKENS)
-            .min(PROBE_MAX_OUTPUT_TOKENS)
+            .unwrap_or(safety_limit)
+            .min(safety_limit)
     }
 }

@@ -173,7 +173,18 @@ impl UpstreamTransport for FixtureTransport {
                         "object": "chat.completion",
                         "choices": [{"message": {
                             "role": "assistant",
-                            "content": "OK",
+                            "content": if body
+                                .get("response_format")
+                                .is_some_and(|format| {
+                                    format.get("type").and_then(Value::as_str)
+                                        == Some("json_object")
+                                }) {
+                                r#"{"probe":"ok"}"#
+                            } else if body.get("response_format").is_some() {
+                                "OK"
+                            } else {
+                                "OK"
+                            },
                             "reasoning_content": "must-not-enter-report"
                         }}],
                         "usage": {
@@ -189,7 +200,7 @@ impl UpstreamTransport for FixtureTransport {
                     "status": "completed",
                     "output": [
                         {"type": "reasoning", "summary": []},
-                        {"type": "message", "content": [{"type": "output_text", "text": "OK"}]}
+                        {"type": "message", "content": [{"type": "output_text", "text": if body.pointer("/text/format/type").and_then(Value::as_str) == Some("json_object") { r#"{"probe":"ok"}"# } else { "OK" }}]}
                     ],
                     "usage": {
                         "input_tokens": 10,
@@ -655,6 +666,76 @@ async fn probe_expands_a_custom_model_generation_matrix() {
 }
 
 #[tokio::test]
+async fn structured_capability_cases_report_supported_not_honored_or_inconclusive() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+
+    // Exercise every fixed capability case through the synthetic dual-protocol backend.
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            list_models: true,
+            chat: true,
+            responses: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
+            reasoning_efforts: vec![super::ProbeReasoningEffort::None],
+            generation_capabilities: vec![
+                super::ProbeGenerationCapability::Text,
+                super::ProbeGenerationCapability::JsonObject,
+                super::ProbeGenerationCapability::JsonSchema,
+                super::ProbeGenerationCapability::JsonSchemaStrict,
+            ],
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // JSON-object cases are honored by the fixture; schema cases stay not honored without
+    // schema-following output, and every structured result carries bounded semantic evidence.
+    assert_eq!(report.generation.len(), 8);
+    for case in report.generation.clone() {
+        let capability_evidence = case
+            .capability_evidence
+            .expect("accepted cases always carry capability evidence");
+        match case.capability {
+            super::ProbeGenerationCapability::Text => {
+                assert!(capability_evidence.valid_json_object.is_none());
+            }
+            super::ProbeGenerationCapability::JsonObject => {
+                assert_eq!(
+                    capability_evidence.verdict,
+                    super::ProbeCapabilityVerdict::Supported
+                );
+                assert_eq!(capability_evidence.valid_json_object, Some(true));
+            }
+            super::ProbeGenerationCapability::JsonSchema
+            | super::ProbeGenerationCapability::JsonSchemaStrict => {
+                assert_eq!(
+                    capability_evidence.verdict,
+                    super::ProbeCapabilityVerdict::NotHonored
+                );
+                assert_eq!(capability_evidence.fixed_schema_match, Some(false));
+            }
+        }
+    }
+
+    // Generated text, schemas, and prompts never enter the serialized report.
+    let serialized_report = serde_json::to_string(&report).unwrap();
+    assert!(!serialized_report.contains("probe\\\":\\\"ok"));
+    assert!(!serialized_report.contains("Reply with exactly"));
+    assert!(!serialized_report.contains("\"schema\""));
+    assert!(!serialized_report.contains("\"response_format\""));
+    assert!(!serialized_report.contains("text.format"));
+    assert!(serialized_report.contains("\"capability\":"));
+}
+
+#[tokio::test]
 async fn probe_smokes_the_registered_embeddings_create_api() {
     let registry = registry();
     let transport = FixtureTransport::default();
@@ -938,6 +1019,26 @@ async fn probe_rejects_invalid_selection_before_credentials_or_egress() {
         error,
         ProbeError::InvalidSelection(super::ProbeSelectionError::UnusedUpstreamModel)
     ));
+
+    let error = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            chat: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            allow_unbounded_streaming_output: true,
+            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ProbeError::InvalidSelection(super::ProbeSelectionError::UnusedUnboundedStreamingOutput)
+    ));
     assert_eq!(transport.requests.load(Ordering::Relaxed), 0);
 }
 
@@ -964,6 +1065,38 @@ async fn probe_rejects_unknown_target_before_any_egress() {
         error,
         super::ProbeError::UnknownUpstreamTarget { .. }
     ));
+}
+
+#[test]
+fn provider_target_resolution_stays_within_enabled_generation_targets() {
+    let registry = registry();
+
+    // One deployment resolves without an explicit target; another provider's target is rejected.
+    let resolved = super::resolve_generation_probe_target(&registry, ProviderKind::OpenAi, None)
+        .expect("single-deployment providers must resolve without --target");
+    assert_eq!(resolved, "openai-gpt-5-5");
+    assert_eq!(
+        super::resolve_generation_probe_target(
+            &registry,
+            ProviderKind::OpenAi,
+            Some("openai-main"),
+        )
+        .unwrap(),
+        "openai-main"
+    );
+    let error = super::resolve_generation_probe_target(
+        &registry,
+        ProviderKind::Bailian,
+        Some("openai-main"),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        super::ProbeError::ProviderTargetMismatch { .. }
+    ));
+    let error = super::resolve_generation_probe_target(&registry, ProviderKind::KimiCn, None)
+        .expect("kimi-cn keeps one trusted deployment");
+    assert_eq!(error, "kimi-cn-kimi-k3");
 }
 
 #[tokio::test]

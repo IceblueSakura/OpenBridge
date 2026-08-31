@@ -15,7 +15,9 @@ mod payload;
 mod session;
 
 pub use error::{ProbeError, ProbeSelectionError};
-pub use session::{probe_upstream_target, probe_upstream_target_with_oauth2};
+pub use session::{
+    probe_upstream_target, probe_upstream_target_with_oauth2, resolve_generation_probe_target,
+};
 
 /// Delivery mode exercised by one Generation probe case.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -25,6 +27,54 @@ pub enum ProbeGenerationMode {
     NonStreaming,
     /// Requests one bounded SSE lifecycle.
     Streaming,
+}
+
+impl ProbeGenerationMode {
+    /// Stable full delivery matrix in non-streaming then streaming order.
+    pub const ALL: [Self; 2] = [Self::NonStreaming, Self::Streaming];
+}
+
+/// Fixed semantic capability exercised by one Generation probe case.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeGenerationCapability {
+    /// Baseline text generation without a structured-output request.
+    Text,
+    /// JSON Object response format.
+    JsonObject,
+    /// JSON Schema response format with `strict: false`.
+    JsonSchema,
+    /// JSON Schema response format with `strict: true`.
+    JsonSchemaStrict,
+}
+
+impl ProbeGenerationCapability {
+    /// Stable capability matrix order from baseline to strongest structured constraint.
+    pub const ALL: [Self; 4] = [
+        Self::Text,
+        Self::JsonObject,
+        Self::JsonSchema,
+        Self::JsonSchemaStrict,
+    ];
+
+    /// Parses one CLI label.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "text" => Some(Self::Text),
+            "json-object" => Some(Self::JsonObject),
+            "json-schema" => Some(Self::JsonSchema),
+            "json-schema-strict" => Some(Self::JsonSchemaStrict),
+            _ => None,
+        }
+    }
+
+    /// Returns the bounded output-token budget for this fixed oracle.
+    pub(crate) const fn max_output_tokens(self) -> u32 {
+        match self {
+            Self::Text => 16,
+            Self::JsonObject | Self::JsonSchema | Self::JsonSchemaStrict => 64,
+        }
+    }
 }
 
 /// Standard reasoning effort sent by one Generation probe case.
@@ -93,15 +143,17 @@ impl ProbeReasoningEffort {
     }
 }
 
-/// Explicit administrative probe selection. The CLI uses `all()` when no operation is supplied;
-/// library callers may independently select discovery, protocols, delivery, and reasoning cases.
+/// Explicit administrative probe selection.
+///
+/// The CLI maps its `models` and `generation` subcommands into this library shape; internal callers
+/// may also select the retained Embeddings smoke path directly.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProbeOptions {
     /// Whether to run the Provider's fixed model-list probe.
     pub list_models: bool,
-    /// Whether to run the Chat Completions text-request probe.
+    /// Whether to run the Chat Completions Generation matrix.
     pub chat: bool,
-    /// Whether to run the Responses text-request probe.
+    /// Whether to run the Responses Generation matrix.
     pub responses: bool,
     /// Whether to run the Embeddings Create probe.
     pub embeddings: bool,
@@ -113,6 +165,8 @@ pub struct ProbeOptions {
     pub generation_modes: Vec<ProbeGenerationMode>,
     /// Ordered reasoning-effort cases.
     pub reasoning_efforts: Vec<ProbeReasoningEffort>,
+    /// Ordered semantic capability cases.
+    pub generation_capabilities: Vec<ProbeGenerationCapability>,
 }
 
 impl Default for ProbeOptions {
@@ -129,6 +183,7 @@ impl Default for ProbeOptions {
                 ProbeGenerationMode::Streaming,
             ],
             reasoning_efforts: vec![ProbeReasoningEffort::Omitted],
+            generation_capabilities: vec![ProbeGenerationCapability::Text],
         }
     }
 }
@@ -164,16 +219,32 @@ impl ProbeOptions {
         if self.upstream_model.is_some() && !self.list_models && !self.chat && !self.responses {
             return Err(ProbeSelectionError::UnusedUpstreamModel);
         }
+        if self.allow_unbounded_streaming_output && !self.chat && !self.responses {
+            return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
+        }
 
         // Require non-empty, duplicate-free axes only for selected Generation protocols.
         if self.chat || self.responses {
             if self.generation_modes.is_empty() {
                 return Err(ProbeSelectionError::MissingGenerationMode);
             }
+            if self.allow_unbounded_streaming_output
+                && !self
+                    .generation_modes
+                    .contains(&ProbeGenerationMode::Streaming)
+            {
+                return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
+            }
             if self.reasoning_efforts.is_empty() {
                 return Err(ProbeSelectionError::MissingReasoningEffort);
             }
-            if has_duplicates(&self.generation_modes) || has_duplicates(&self.reasoning_efforts) {
+            if self.generation_capabilities.is_empty() {
+                return Err(ProbeSelectionError::MissingGenerationCapability);
+            }
+            if has_duplicates(&self.generation_modes)
+                || has_duplicates(&self.reasoning_efforts)
+                || has_duplicates(&self.generation_capabilities)
+            {
                 return Err(ProbeSelectionError::DuplicateMatrixCase);
             }
         }
@@ -365,6 +436,15 @@ pub struct GenerationProbeEvidence {
     pub event_types: Vec<String>,
 }
 
+/// One ordered Generation matrix case before execution.
+#[derive(Clone, Copy)]
+pub(crate) struct GenerationCaseSelection {
+    pub(crate) protocol: ApiProtocol,
+    pub(crate) mode: ProbeGenerationMode,
+    pub(crate) reasoning_effort: ProbeReasoningEffort,
+    pub(crate) capability: ProbeGenerationCapability,
+}
+
 /// One independent Generation matrix observation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct GenerationProbeResult {
@@ -374,6 +454,8 @@ pub struct GenerationProbeResult {
     pub mode: ProbeGenerationMode,
     /// Selected reasoning differential.
     pub reasoning_effort: ProbeReasoningEffort,
+    /// Selected fixed semantic capability case.
+    pub capability: ProbeGenerationCapability,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Exact model sent upstream, or absent when no registered/default model was available.
     pub upstream_model: Option<String>,
@@ -384,6 +466,34 @@ pub struct GenerationProbeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Bounded protocol evidence available after a recognizable success response.
     pub evidence: Option<GenerationProbeEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Semantic oracle result derived from transient bounded output text.
+    pub capability_evidence: Option<ProbeCapabilityEvidence>,
+}
+
+/// Semantic result for one fixed Generation capability case.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeCapabilityVerdict {
+    /// The completed response satisfied the fixed capability oracle.
+    Supported,
+    /// The request completed but the returned output did not satisfy the oracle.
+    NotHonored,
+    /// A terminal/resource condition prevented a semantic conclusion.
+    Inconclusive,
+}
+
+/// Bounded semantic evidence that never retains generated output text.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProbeCapabilityEvidence {
+    /// Conclusion for this exact fixed request and output.
+    pub verdict: ProbeCapabilityVerdict,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Whether output parsed as a JSON object for a structured-output case.
+    pub valid_json_object: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Whether output matched the fixed `{"probe":"ok"}` schema oracle.
+    pub fixed_schema_match: Option<bool>,
 }
 
 /// Model-list observation from the Provider's fixed discovery endpoint.
@@ -421,7 +531,7 @@ pub struct TargetProbeReport {
     /// Observation from the Provider's fixed model-list endpoint.
     pub list_models: Option<ModelListProbeResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    /// Independent Chat/Responses × delivery × reasoning observations.
+    /// Independent Chat/Responses × delivery × reasoning × capability observations.
     pub generation: Vec<GenerationProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Observation from the Embeddings Create probe.

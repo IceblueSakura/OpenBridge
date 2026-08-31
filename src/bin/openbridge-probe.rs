@@ -9,8 +9,8 @@ use anyhow::{Context, Result};
 use openbridge::{
     config::BootstrapConfigPath,
     probe::{
-        ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort, probe_upstream_target,
-        probe_upstream_target_with_oauth2,
+        ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort,
+        probe_upstream_target, probe_upstream_target_with_oauth2, resolve_generation_probe_target,
     },
     provider::ProviderKind,
     providers::build_compiled_registry_with_active_pools,
@@ -42,13 +42,19 @@ async fn main() -> Result<()> {
     // Compile only the statically registered Targets selected by the startup pool set.
     let registry = build_compiled_registry_with_active_pools(bootstrap, &active_pool_ids)
         .context("failed to build OpenBridge code registry")?;
+    let upstream_target_id = resolve_generation_probe_target(
+        &registry,
+        arguments.provider,
+        arguments.explicit_target.as_deref(),
+    )
+    .context("failed to select a trusted Provider deployment")?;
     let target = registry
-        .upstream_target(&arguments.upstream_target_id)
+        .upstream_target(&upstream_target_id)
         .context("selected upstream target is not registered")?;
     if !target.enabled() {
         anyhow::bail!(
             "configured upstream target '{}' is disabled",
-            arguments.upstream_target_id
+            upstream_target_id
         );
     }
 
@@ -66,7 +72,7 @@ async fn main() -> Result<()> {
             .context("failed to bind the selected ChatGPT OAuth2 credential")?;
         probe_upstream_target_with_oauth2(
             &registry,
-            &arguments.upstream_target_id,
+            &upstream_target_id,
             &upstream,
             &oauth2_credentials,
             arguments.selection,
@@ -82,7 +88,7 @@ async fn main() -> Result<()> {
             .context("selected credential pool violates registry state-affinity constraints")?;
         probe_upstream_target(
             &registry,
-            &arguments.upstream_target_id,
+            &upstream_target_id,
             &upstream,
             &credentials,
             arguments.selection,
@@ -98,103 +104,128 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 struct ProbeArguments {
-    upstream_target_id: String,
+    provider: ProviderKind,
+    explicit_target: Option<String>,
     selection: ProbeOptions,
 }
 
 impl ProbeArguments {
-    /// Parses command-line selectors into one target and a fixed set of probes.
+    /// Parses one provider-scoped discovery or Generation capability command.
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
-        // Parse target and probe selections one at a time and reject undeclared CLI arguments.
-        let mut upstream_target_id = None;
-        let mut selection = ProbeOptions::default();
-        let mut explicit_modes = Vec::new();
-        let mut explicit_reasoning = Vec::new();
-        let mut reasoning_all = false;
-        let mut seen_flags = BTreeSet::new();
         let mut arguments = arguments.into_iter();
+        let command = arguments
+            .next()
+            .context("a probe command is required; expected models or generation")?;
+        if matches!(command.as_str(), "--help" | "-h") {
+            print_usage();
+            std::process::exit(0);
+        }
+        if !matches!(command.as_str(), "models" | "generation") {
+            anyhow::bail!("unknown probe command '{command}'; expected models or generation");
+        }
+
+        // Parse only closed built-in axes; no endpoint, path, prompt, schema, or body is accepted.
+        let mut provider = None;
+        let mut explicit_target = None;
+        let mut selection = ProbeOptions::default();
+        let mut protocols = Vec::new();
+        let mut modes = Vec::new();
+        let mut capabilities = Vec::new();
+        let mut reasoning = Vec::new();
+        let mut seen_flags = BTreeSet::new();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
+                "--provider" => {
+                    reject_duplicate_flag(&mut seen_flags, "--provider")?;
+                    let value = next_value(&mut arguments, "--provider", "a Provider slug")?;
+                    provider = Some(parse_provider(&value)?);
+                }
                 "--target" => {
-                    if upstream_target_id.is_some() {
-                        anyhow::bail!("--target may be provided only once");
-                    }
-                    let value = arguments
-                        .next()
-                        .filter(|value| !value.starts_with("--"))
-                        .context("--target requires a configured upstream target id")?;
-                    upstream_target_id = Some(value);
+                    reject_duplicate_flag(&mut seen_flags, "--target")?;
+                    explicit_target = Some(next_value(
+                        &mut arguments,
+                        "--target",
+                        "a configured upstream Target ID",
+                    )?);
                 }
                 "--model" => {
-                    if selection.upstream_model.is_some() {
-                        anyhow::bail!("--model may be provided only once");
-                    }
-                    selection.upstream_model = Some(
-                        arguments
-                            .next()
-                            .filter(|value| !value.starts_with("--"))
-                            .context("--model requires an upstream model id")?,
-                    );
+                    reject_duplicate_flag(&mut seen_flags, "--model")?;
+                    selection.upstream_model = Some(next_value(
+                        &mut arguments,
+                        "--model",
+                        "an upstream model ID",
+                    )?);
                 }
-                "--list-models" => {
-                    reject_duplicate_flag(&mut seen_flags, "--list-models")?;
-                    selection.list_models = true;
-                }
-                "--chat" => {
-                    reject_duplicate_flag(&mut seen_flags, "--chat")?;
-                    selection.chat = true;
-                }
-                "--responses" => {
-                    reject_duplicate_flag(&mut seen_flags, "--responses")?;
-                    selection.responses = true;
-                }
-                "--embeddings" => {
-                    reject_duplicate_flag(&mut seen_flags, "--embeddings")?;
-                    selection.embeddings = true;
-                }
-                "--all" => {
-                    reject_duplicate_flag(&mut seen_flags, "--all")?;
-                    select_all_operations(&mut selection);
-                }
-                "--streaming" => {
-                    reject_duplicate_flag(&mut seen_flags, "--streaming")?;
-                    explicit_modes.push(ProbeGenerationMode::Streaming);
-                }
-                "--non-streaming" => {
-                    reject_duplicate_flag(&mut seen_flags, "--non-streaming")?;
-                    explicit_modes.push(ProbeGenerationMode::NonStreaming);
-                }
-                "--allow-unbounded-streaming-output" => {
+                "--allow-unbounded-streaming-output" if command == "generation" => {
                     reject_duplicate_flag(&mut seen_flags, "--allow-unbounded-streaming-output")?;
                     selection.allow_unbounded_streaming_output = true;
                 }
-                "--reasoning" => {
-                    let value = arguments
-                        .next()
-                        .context("--reasoning requires a level or 'all'")?;
+                "--protocol" if command == "generation" => {
+                    let value =
+                        next_value(&mut arguments, "--protocol", "chat, responses, or all")?;
+                    match value.as_str() {
+                        "chat" => push_unique(&mut protocols, "chat")?,
+                        "responses" => push_unique(&mut protocols, "responses")?,
+                        "all" if protocols.is_empty() => {
+                            protocols.extend(["chat", "responses"]);
+                        }
+                        "all" => {
+                            anyhow::bail!("--protocol all cannot be combined with other values")
+                        }
+                        _ => anyhow::bail!("invalid --protocol value '{value}'"),
+                    }
+                }
+                "--delivery" if command == "generation" => {
+                    let value = next_value(
+                        &mut arguments,
+                        "--delivery",
+                        "non-streaming, streaming, or all",
+                    )?;
+                    match value.as_str() {
+                        "non-streaming" => {
+                            push_unique(&mut modes, ProbeGenerationMode::NonStreaming)?
+                        }
+                        "streaming" => push_unique(&mut modes, ProbeGenerationMode::Streaming)?,
+                        "all" if modes.is_empty() => modes.extend(ProbeGenerationMode::ALL),
+                        "all" => {
+                            anyhow::bail!("--delivery all cannot be combined with other values")
+                        }
+                        _ => anyhow::bail!("invalid --delivery value '{value}'"),
+                    }
+                }
+                "--capability" if command == "generation" => {
+                    let value = next_value(
+                        &mut arguments,
+                        "--capability",
+                        "text, json-object, json-schema, json-schema-strict, or all",
+                    )?;
                     if value == "all" {
-                        if reasoning_all || !explicit_reasoning.is_empty() {
-                            anyhow::bail!(
-                                "--reasoning all cannot be repeated or combined with explicit levels"
-                            );
+                        if !capabilities.is_empty() {
+                            anyhow::bail!("--capability all cannot be combined with other values");
                         }
-                        reasoning_all = true;
+                        capabilities.extend(ProbeGenerationCapability::ALL);
                     } else {
-                        if reasoning_all {
-                            anyhow::bail!(
-                                "explicit --reasoning levels cannot be combined with --reasoning all"
-                            );
+                        let capability = ProbeGenerationCapability::from_wire(&value)
+                            .with_context(|| format!("--capability '{value}' is unknown"))?;
+                        push_unique(&mut capabilities, capability)?;
+                    }
+                }
+                "--reasoning" => {
+                    if command != "generation" {
+                        anyhow::bail!("--reasoning is valid only for generation");
+                    }
+                    let value = next_value(&mut arguments, "--reasoning", "a level or all")?;
+                    if value == "all" {
+                        if !reasoning.is_empty() {
+                            anyhow::bail!("--reasoning all cannot be combined with other values");
                         }
-                        let effort = ProbeReasoningEffort::from_wire(&value).with_context(|| {
-                            format!(
-                                "invalid --reasoning value '{value}'; expected omitted, none, minimal, low, medium, high, xhigh, max, or all"
-                            )
-                        })?;
-                        if explicit_reasoning.contains(&effort) {
-                            anyhow::bail!("--reasoning {value} may be provided only once");
-                        }
-                        explicit_reasoning.push(effort);
+                        reasoning.extend(ProbeReasoningEffort::ALL);
+                    } else {
+                        let effort = ProbeReasoningEffort::from_wire(&value)
+                            .with_context(|| format!("invalid --reasoning value '{value}'"))?;
+                        push_unique(&mut reasoning, effort)?;
                     }
                 }
                 "--help" | "-h" => {
@@ -204,32 +235,79 @@ impl ProbeArguments {
                 _ => anyhow::bail!("unknown argument '{argument}'; run with --help"),
             }
         }
-        // Require a target and default to all probes when no selection was specified.
-        let upstream_target_id = upstream_target_id.context("--target is required")?;
-        if selection.is_empty() {
-            select_all_operations(&mut selection);
-        }
-        if !explicit_modes.is_empty() {
-            selection.generation_modes = explicit_modes;
-        }
-        if reasoning_all {
-            selection.reasoning_efforts = ProbeReasoningEffort::ALL.to_vec();
-        } else if !explicit_reasoning.is_empty() {
-            selection.reasoning_efforts = explicit_reasoning;
+
+        let provider = provider.context("--provider is required")?;
+        match command.as_str() {
+            "models" => selection.list_models = true,
+            "generation" => {
+                if selection.upstream_model.is_none() {
+                    anyhow::bail!("generation requires --model");
+                }
+                if protocols.is_empty() {
+                    protocols.extend(["chat", "responses"]);
+                }
+                selection.chat = protocols.contains(&"chat");
+                selection.responses = protocols.contains(&"responses");
+                selection.generation_modes = if modes.is_empty() {
+                    vec![ProbeGenerationMode::NonStreaming]
+                } else {
+                    modes
+                };
+                selection.generation_capabilities = if capabilities.is_empty() {
+                    vec![ProbeGenerationCapability::Text]
+                } else {
+                    capabilities
+                };
+                selection.reasoning_efforts = if reasoning.is_empty() {
+                    vec![ProbeReasoningEffort::Omitted]
+                } else {
+                    reasoning
+                };
+            }
+            _ => unreachable!(),
         }
         selection.validate().context("invalid probe selection")?;
         Ok(Self {
-            upstream_target_id,
+            provider,
+            explicit_target,
             selection,
         })
     }
 }
 
-fn select_all_operations(selection: &mut ProbeOptions) {
-    selection.list_models = true;
-    selection.chat = true;
-    selection.responses = true;
-    selection.embeddings = true;
+fn next_value(
+    arguments: &mut impl Iterator<Item = String>,
+    flag: &str,
+    expected: &str,
+) -> Result<String> {
+    arguments
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .with_context(|| format!("{flag} requires {expected}"))
+}
+
+fn parse_provider(value: &str) -> Result<ProviderKind> {
+    match value {
+        "chatgpt" => Ok(ProviderKind::ChatGpt),
+        "openai" => Ok(ProviderKind::OpenAi),
+        "longcat" => Ok(ProviderKind::LongCat),
+        "deepseek" => Ok(ProviderKind::DeepSeek),
+        "mimo" => Ok(ProviderKind::MiMo),
+        "openrouter" => Ok(ProviderKind::OpenRouter),
+        "nvidia" => Ok(ProviderKind::Nvidia),
+        "bailian" => Ok(ProviderKind::Bailian),
+        "kimi-cn" => Ok(ProviderKind::KimiCn),
+        "zhipu-cn" => Ok(ProviderKind::ZhipuCn),
+        _ => anyhow::bail!("unknown Provider '{value}'"),
+    }
+}
+
+fn push_unique<T: Copy + Eq>(values: &mut Vec<T>, value: T) -> Result<()> {
+    if values.contains(&value) {
+        anyhow::bail!("probe matrix values must not be repeated");
+    }
+    values.push(value);
+    Ok(())
 }
 
 fn reject_duplicate_flag(seen: &mut BTreeSet<&'static str>, flag: &'static str) -> Result<()> {
@@ -242,9 +320,11 @@ fn reject_duplicate_flag(seen: &mut BTreeSet<&'static str>, flag: &'static str) 
 /// Prints local probe usage without credentials or runtime state.
 fn print_usage() {
     println!(
-        "Usage: cargo run --bin openbridge-probe -- --target <id> [--model <upstream-model-id>] [--list-models] [--chat] [--responses] [--embeddings] [--all] [--streaming] [--non-streaming] [--reasoning <level|all>]... [--allow-unbounded-streaming-output]\n\
+        "Usage:\n\
+         cargo run --bin openbridge-probe -- models --provider <slug> [--target <id>] [--model <upstream-model-id>]\n\
+         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses|all>]... [--capability <text|json-object|json-schema|json-schema-strict|all>]... [--delivery <non-streaming|streaming|all>]... [--reasoning <level|all>]... [--allow-unbounded-streaming-output]\n\
          \n\
-         No probe selector runs --all. Generation defaults to both delivery modes, omitted reasoning, and a 16-token upstream output limit; --reasoning all explicitly runs omitted plus none/minimal/low/medium/high/xhigh/max. --allow-unbounded-streaming-output explicitly removes that limit from streaming probes for backends that reject it and may increase cost. Candidate Generation probes require a Generation-capable target. Enabled API-key targets use configured credentials; ChatGPT targets use the selected OAuth2 auth bundle. --model correlates Models visibility and changes only the model field on fixed Generation probes; it requires --list-models, --chat, or --responses and cannot change endpoint, path, credential, headers, or prompt. The command prints a redacted report and never modifies the code registry."
+         Generation defaults to both protocols, non-streaming delivery, omitted reasoning, and the text capability. Structured cases use a fixed conflict prompt and fixed schema, then report supported, not_honored, or inconclusive without retaining generated text. Explicit all values expand potentially billable requests. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, or schema. The command prints a redacted report and never modifies the code registry."
     );
 }
 
@@ -253,163 +333,186 @@ mod tests {
     //! Verifies probe CLI target and fixed-selector parsing.
 
     use super::ProbeArguments;
-    use openbridge::probe::{ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort};
+    use openbridge::{
+        probe::{
+            ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort,
+        },
+        provider::ProviderKind,
+    };
 
     fn parse(arguments: &[&str]) -> anyhow::Result<ProbeArguments> {
         ProbeArguments::parse(arguments.iter().map(|argument| (*argument).to_owned()))
     }
 
     #[test]
-    fn parser_defaults_to_all_probes_and_preserves_explicit_selections() {
-        // Default an otherwise empty selection to every implemented probe.
-        let defaults = parse(&["--target", "openai-main"]).unwrap();
-        assert_eq!(defaults.upstream_target_id, "openai-main");
-        assert_eq!(defaults.selection, ProbeOptions::all());
-
-        // Preserve each independent selector without implicitly enabling its peers.
-        let selected = parse(&["--target", "openai-main", "--chat", "--responses"]).unwrap();
+    fn parser_defaults_to_models_discovery_or_bounded_generation() {
+        let models = parse(&["models", "--provider", "bailian", "--model", "candidate"]).unwrap();
+        assert_eq!(models.provider, ProviderKind::Bailian);
+        assert!(models.explicit_target.is_none());
         assert_eq!(
-            selected.selection,
-            ProbeOptions {
-                chat: true,
-                responses: true,
-                ..ProbeOptions::default()
-            }
-        );
-
-        let alternate =
-            parse(&["--target", "openai-main", "--list-models", "--embeddings"]).unwrap();
-        assert_eq!(
-            alternate.selection,
+            models.selection,
             ProbeOptions {
                 list_models: true,
-                embeddings: true,
+                upstream_model: Some("candidate".to_owned()),
                 ..ProbeOptions::default()
             }
         );
 
-        // Let the explicit all selector produce the same complete fixed selection.
-        let all = parse(&["--all", "--target", "openai-main"]).unwrap();
-        assert_eq!(all.selection, ProbeOptions::all());
-    }
-
-    #[test]
-    fn parser_rejects_missing_targets_and_unknown_arguments() {
-        // Require both the target flag and its following value.
-        let missing_target = parse(&[]).err().unwrap();
-        assert!(missing_target.to_string().contains("--target is required"));
-
-        let missing_value = parse(&["--target"]).err().unwrap();
-        assert!(missing_value.to_string().contains("--target requires"));
-
-        let swallowed_flag = parse(&["--target", "openai-main", "--model", "--chat"])
-            .err()
-            .unwrap();
-        assert!(swallowed_flag.to_string().contains("--model requires"));
-
-        // Reject arguments outside the closed basic-probe selector set.
-        let unknown = parse(&["--target", "openai-main", "--unknown"])
-            .err()
-            .unwrap();
-        assert!(unknown.to_string().contains("unknown argument '--unknown'"));
-
-        let removed = parse(&["--target", "openai-main", "--function-calling"])
-            .err()
-            .unwrap();
-        assert!(
-            removed
-                .to_string()
-                .contains("unknown argument '--function-calling'")
-        );
-    }
-
-    #[test]
-    fn parser_accepts_a_custom_model_generation_matrix() {
-        // Select one unregistered upstream model, both protocols, one delivery, and every effort.
-        let parsed = parse(&[
-            "--target",
-            "openai-main",
+        let generation = parse(&[
+            "generation",
+            "--provider",
+            "deepseek",
             "--model",
-            "candidate-model",
-            "--chat",
-            "--responses",
-            "--streaming",
-            "--reasoning",
-            "all",
+            "candidate",
         ])
         .unwrap();
-
+        assert!(generation.selection.chat);
+        assert!(generation.selection.responses);
         assert_eq!(
-            parsed.selection,
-            ProbeOptions {
-                chat: true,
-                responses: true,
-                upstream_model: Some("candidate-model".to_owned()),
-                generation_modes: vec![ProbeGenerationMode::Streaming],
-                reasoning_efforts: ProbeReasoningEffort::ALL.to_vec(),
-                ..ProbeOptions::default()
-            }
-        );
-
-        // Matrix-only selectors still default operations to all without losing their values.
-        let implicit_all = parse(&[
-            "--target",
-            "openai-main",
-            "--model",
-            "candidate-model",
-            "--non-streaming",
-            "--reasoning",
-            "low",
-        ])
-        .unwrap();
-        assert!(implicit_all.selection.list_models);
-        assert!(implicit_all.selection.chat);
-        assert!(implicit_all.selection.responses);
-        assert!(implicit_all.selection.embeddings);
-        assert_eq!(
-            implicit_all.selection.upstream_model.as_deref(),
-            Some("candidate-model")
-        );
-        assert_eq!(
-            implicit_all.selection.generation_modes,
+            generation.selection.generation_modes,
             [ProbeGenerationMode::NonStreaming]
         );
         assert_eq!(
-            implicit_all.selection.reasoning_efforts,
-            [ProbeReasoningEffort::Low]
+            generation.selection.generation_capabilities,
+            [ProbeGenerationCapability::Text]
         );
+    }
 
-        let unbounded = parse(&[
+    #[test]
+    fn parser_rejects_missing_provider_model_and_arbitrary_inputs() {
+        assert!(parse(&[]).is_err());
+        assert!(
+            parse(&["models"])
+                .unwrap_err()
+                .to_string()
+                .contains("--provider")
+        );
+        assert!(
+            parse(&["generation", "--provider", "bailian"])
+                .unwrap_err()
+                .to_string()
+                .contains("requires --model")
+        );
+        assert!(
+            parse(&["models", "--provider", "unknown"])
+                .unwrap_err()
+                .to_string()
+                .contains("unknown Provider")
+        );
+        assert!(
+            parse(&[
+                "models",
+                "--provider",
+                "bailian",
+                "--url",
+                "https://example.com"
+            ])
+            .unwrap_err()
+            .to_string()
+            .contains("unknown argument '--url'")
+        );
+    }
+
+    #[test]
+    fn parser_accepts_an_explicit_generation_matrix_and_target_disambiguation() {
+        let parsed = parse(&[
+            "generation",
+            "--provider",
+            "deepseek",
             "--target",
-            "openai-main",
-            "--responses",
-            "--streaming",
+            "deepseek-primary",
+            "--model",
+            "candidate-model",
+            "--protocol",
+            "responses",
+            "--delivery",
+            "streaming",
+            "--capability",
+            "json-schema-strict",
+            "--reasoning",
+            "all",
             "--allow-unbounded-streaming-output",
         ])
         .unwrap();
-        assert!(unbounded.selection.allow_unbounded_streaming_output);
+        assert_eq!(parsed.explicit_target.as_deref(), Some("deepseek-primary"));
+        assert!(!parsed.selection.chat);
+        assert!(parsed.selection.responses);
+        assert_eq!(
+            parsed.selection.generation_modes,
+            [ProbeGenerationMode::Streaming]
+        );
+        assert_eq!(
+            parsed.selection.generation_capabilities,
+            [ProbeGenerationCapability::JsonSchemaStrict]
+        );
+        assert_eq!(
+            parsed.selection.reasoning_efforts,
+            ProbeReasoningEffort::ALL.to_vec()
+        );
+        assert!(parsed.selection.allow_unbounded_streaming_output);
+
+        let parsed = parse(&[
+            "generation",
+            "--provider",
+            "deepseek",
+            "--model",
+            "candidate-model",
+            "--capability",
+            "text",
+            "--capability",
+            "json-object",
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.selection.generation_capabilities,
+            [
+                ProbeGenerationCapability::Text,
+                ProbeGenerationCapability::JsonObject,
+            ]
+        );
     }
 
     #[test]
     fn parser_rejects_invalid_or_duplicate_matrix_selectors() {
         for arguments in [
-            vec!["--target", "openai-main", "--model", ""],
-            vec!["--target", "openai-main", "--reasoning", "extreme"],
-            vec!["--target", "openai-main", "--chat", "--chat"],
+            vec!["models", "--provider", "bailian", "--reasoning", "high"],
+            vec!["models", "--provider", "bailian", "--capability", "text"],
             vec![
-                "--target",
-                "openai-main",
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
+                "--protocol",
+                "extreme",
+            ],
+            vec![
+                "models",
+                "--provider",
+                "bailian",
+                "--allow-unbounded-streaming-output",
+            ],
+            vec![
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
                 "--reasoning",
                 "all",
                 "--reasoning",
                 "high",
             ],
-            vec!["--target", "openai-main", "--streaming", "--streaming"],
             vec![
-                "--target",
-                "openai-main",
-                "--allow-unbounded-streaming-output",
-                "--allow-unbounded-streaming-output",
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
+                "--delivery",
+                "all",
+                "--delivery",
+                "streaming",
             ],
         ] {
             assert!(
