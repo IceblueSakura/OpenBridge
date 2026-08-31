@@ -500,6 +500,31 @@ fn native_chat_stream_is_canonically_validated_without_requiring_reencoded_bytes
 }
 
 #[test]
+fn native_chat_stream_accepts_standard_incomplete_finish_reasons() {
+    for finish_reason in ["length", "content_filter"] {
+        let stream = format!(
+            "data: {{\"id\":\"chat_incomplete\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}},\"finish_reason\":null}}]}}\n\ndata: {{\"id\":\"chat_incomplete\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"{finish_reason}\"}}]}}\n\ndata: [DONE]\n\n"
+        );
+        let mut bridge = StaticEventBridge::new(
+            ApiProtocol::ChatCompletions,
+            ApiProtocol::ChatCompletions,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
+        )
+        .unwrap();
+        for event in decode(stream.as_bytes()) {
+            bridge
+                .render(event)
+                .expect("Native Chat must retain a standard incomplete finish reason");
+        }
+        bridge.finish().unwrap();
+        assert!(bridge.materialized_response().is_err());
+    }
+}
+
+#[test]
 fn native_chat_stream_preserves_multiple_unknown_reasoning_deltas() {
     let stream = b"data: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"first\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"second\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_unknown_reasoning\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
     let mut bridge = StaticEventBridge::new(

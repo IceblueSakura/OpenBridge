@@ -51,6 +51,15 @@ pub(super) fn lower_response(
     {
         return Err(StaticCodecError::UnsupportedSemantics);
     }
+    let candidate = &response.semantic.candidates()[0];
+    if protocol == ApiProtocol::Responses
+        && matches!(
+            candidate.finish(),
+            Some(FinishReason::Length | FinishReason::ContentFilter)
+        )
+    {
+        return Err(StaticCodecError::UnsupportedSemantics);
+    }
     let value = match protocol {
         ApiProtocol::ChatCompletions => {
             encode_chat_response(response, public_model, reasoning_output)?
@@ -169,7 +178,7 @@ fn decode_chat_response(
             .map_err(|_| StaticCodecError::InvalidShape)?,
         ));
     }
-    if let Some(calls) = message.get("tool_calls") {
+    if let Some(calls) = message.get("tool_calls").filter(|value| !value.is_null()) {
         let calls = calls.as_array().ok_or(StaticCodecError::InvalidShape)?;
         let mut item_ids = BTreeSet::new();
         for (ordinal, call) in calls.iter().enumerate() {

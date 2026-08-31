@@ -928,13 +928,14 @@ fn chat_to_responses_rejects_non_success_finish_and_late_chunks() {
     .expect("Responses request should be bridgeable");
 
     // A Chat finish reason other than stop or tool_calls must not be fabricated as response.completed.
-    let mut renderer = plan.stream_renderer();
-    let events = decode(
-        br#"data: {"id":"chatcmpl_length","choices":[{"delta":{"content":"partial"},"finish_reason":"length","index":0}]}
-
-"#,
-    );
-    assert!(renderer.render(events[0].clone()).is_err());
+    for finish_reason in ["length", "content_filter"] {
+        let mut renderer = plan.stream_renderer();
+        let stream = format!(
+            "data: {{\"id\":\"chatcmpl_incomplete\",\"choices\":[{{\"delta\":{{\"content\":\"partial\"}},\"finish_reason\":\"{finish_reason}\",\"index\":0}}]}}\n\n"
+        );
+        let events = decode(stream.as_bytes());
+        assert!(renderer.render(events[0].clone()).is_err());
+    }
 
     // A normal chunk after the Chat finish reason must not mutate the completed Responses lifecycle.
     let mut renderer = plan.stream_renderer();

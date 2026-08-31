@@ -547,6 +547,43 @@ fn static_codecs_support_native_same_protocol_round_trips() {
 }
 
 #[test]
+fn native_chat_response_accepts_null_tool_calls_as_absent() {
+    let (plan, _) = StaticBridgePlan::prepare_with_reasoning_output(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        })),
+        ReasoningOutput::PlainText,
+        limits(),
+    )
+    .unwrap();
+    let response = body(json!({
+        "id": "chat-null-tools",
+        "object": "chat.completion",
+        "model": "upstream-model",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "partial",
+                "reasoning_content": "reasoning",
+                "tool_calls": null
+            },
+            "finish_reason": "length"
+        }]
+    }));
+
+    let rendered = plan
+        .render_non_stream(response.clone())
+        .expect("null tool_calls must have absent semantics");
+    assert_eq!(rendered.body(), &response);
+}
+
+#[test]
 fn native_static_request_rejects_duplicate_json_keys_before_source_preservation() {
     for request in [
         br#"{"model":"public-model","model":"shadow-model","messages":[{"role":"user","content":"hello"}]}"#.as_slice(),
@@ -757,13 +794,13 @@ fn static_response_usage_rejects_malformed_detail_containers() {
 #[test]
 fn chat_non_success_finishes_cannot_be_rendered_as_completed_responses() {
     let (plan, _) = StaticBridgePlan::prepare(
-        ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
         "public-model",
         "upstream-model",
         body(json!({
             "model": "public-model",
-            "messages": [{"role": "user", "content": "hello"}]
+            "input": "hello"
         })),
         limits(),
     )

@@ -38,8 +38,7 @@
 确定性入口：`tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs`、
 `tests/oauth2_login_cli.rs`、`src/probe/tests.rs`、`src/bin/openbridge-probe.rs`。
 
-2026-08-29 当前 checkout 已执行并通过 `cargo test --locked`、`cargo clippy --locked -- -D warnings`、changed-file `rustfmt --check` 与 `git diff --check`。这些命令只证明本地静态/确定性边界，不替代真实 Provider、外部 SDK、
-Agent runtime、负载或长期运行验证。
+2026-08-31 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests与corpus lint。DeepSeek、Z.ai、Xiaomi和Bailian的有界admin probe覆盖各自已注册Generation协议与delivery；关闭HTTP内容日志和OTLP的synthetic-user production Router另覆盖四家的Chat JSON/SSE。该结果不替代live Bridge、外部SDK/Agent、Responses production Router、负载或长期运行验证。
 
 ## 3. Public Model 与请求预检
 
@@ -60,6 +59,7 @@ Agent runtime、负载或长期运行验证。
 - 通过 preflight 的 Chat/Responses Native 与 Bridge candidate 都经 canonical Static/Event Generation IR；旧 pairwise converter、Native response assembler 和独立 mutable stream state 已删除。
 - Static IR 有界解码 request/response，并在 egress 前拒绝未知可移植语义、非法 identity/lifecycle 和未经授权的 lossy change。同协议 Native request 验证后保留源语义与 Provider 私有字段，仅重绑定受信 model 后重新序列化；完整 JSON response 与 SSE bytes 验证后原样保留。跨协议或需要语义转换时重新编码。
 - Event IR 统一验证 Native/Bridge SSE 的 item、call、index、arguments fragment、usage、terminal 与 EOF。Responses SSE 转非流式响应时先 materialize Event IR，再由 Static IR 编码。
+- Native Chat JSON把`tool_calls:null`解释为absent；同协议Event IR接受标准`length`/`content_filter`终态，跨协议Bridge仍在提交转换输出前拒绝不可表示的非成功终态。
 - Chat ↔ Responses 只在显式 Bridge Route 上转换已建模的 text、function tool、tool result、structured output、明文 reasoning 与 usage；媒体、hosted/custom tool、background/state 和 opaque continuation 没有可验证等价物时 fail closed。
 - Provider adapter 仍固定 upstream model、相对 path、安全 header 与 purpose-bound credential。Ingress 保留 body I/O、首事件 precommit、timeout、retry/fallback、取消、observation 和 downstream commit；提交后不得 fallback、拼接响应或伪造 terminal。
 

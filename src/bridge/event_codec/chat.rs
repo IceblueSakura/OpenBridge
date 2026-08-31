@@ -86,14 +86,18 @@ impl ChatEventDecoder {
             return Err(StaticEventCodecError::IdentityConflict);
         }
         if event.data() == "[DONE]" {
-            if self.finish.is_none() {
-                return Err(StaticEventCodecError::InvalidLifecycle);
-            }
+            let status = match self.finish.as_ref() {
+                Some(FinishReason::Length | FinishReason::ContentFilter) => {
+                    TerminalStatus::Incomplete
+                }
+                Some(_) => TerminalStatus::Completed,
+                None => return Err(StaticEventCodecError::InvalidLifecycle),
+            };
             self.terminal = true;
             return Ok(vec![envelope(
                 &mut self.sequence,
                 GenerationEvent::Terminal {
-                    terminal: TurnTerminal::new(TerminalStatus::Completed, None),
+                    terminal: TurnTerminal::new(status, None),
                 },
             )?]);
         }
@@ -181,6 +185,8 @@ impl ChatEventDecoder {
             let finish = match reason {
                 "stop" => FinishReason::Stop,
                 "tool_calls" => FinishReason::ToolCalls,
+                "length" if self.preserve_source => FinishReason::Length,
+                "content_filter" if self.preserve_source => FinishReason::ContentFilter,
                 _ => return Err(StaticEventCodecError::UnsupportedSemantics),
             };
             if (finish == FinishReason::ToolCalls) != !self.tools.is_empty() {
@@ -581,7 +587,9 @@ fn is_inert_finish_choice(
         || choice.get("finish_reason").and_then(Value::as_str)
             != Some(match finish {
                 FinishReason::Stop => "stop",
+                FinishReason::Length => "length",
                 FinishReason::ToolCalls => "tool_calls",
+                FinishReason::ContentFilter => "content_filter",
                 _ => return Ok(false),
             })
     {
