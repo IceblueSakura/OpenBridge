@@ -2,7 +2,7 @@
 //! (`deepseek/deepseek-v4-flash-vision-exp`).
 //!
 //! Catalog facts follow OpenRouter records; direct image behavior follows DeepSeek's Vision records,
-//! both reverified on 2026-08-24.
+//! both reverified on 2026-08-31. Responses parameters follow DeepSeek's current Responses guide.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
@@ -35,10 +35,12 @@ pub(crate) fn config() -> ModelConfig {
                 "frequency_penalty",
                 "include_reasoning",
                 "logprobs",
+                "max_output_tokens",
                 "max_tokens",
                 "presence_penalty",
                 "response_format",
                 "stop",
+                "structured_outputs",
                 "temperature",
                 "tool_choice",
                 "tools",
@@ -55,5 +57,24 @@ pub(crate) fn config() -> ModelConfig {
                 ReasoningLevel::None,
             ]),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vision_exposes_responses_output_and_structured_parameters() {
+        let model = config();
+        for parameter in ["max_output_tokens", "structured_outputs"] {
+            assert!(
+                model
+                    .supported_parameters()
+                    .iter()
+                    .any(|candidate| candidate == parameter),
+                "missing {parameter}"
+            );
+        }
     }
 }

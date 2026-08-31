@@ -21,7 +21,7 @@ use super::media::IMAGE_INPUT;
 
 const CHAT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const RESPONSES_STRUCTURED_OUTPUTS: StructuredOutputProfile =
-    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+    StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::NonStrictOnly);
 
 /// Single DeepSeek operation surface shared by the Provider contract and wire adapter.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
@@ -33,7 +33,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: false,
-                strict_schema: true,
+                strict_schema: false,
             }),
             media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(CHAT_STRUCTURED_OUTPUTS),
@@ -56,7 +56,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             function_tools: Some(FunctionToolCapabilities {
                 choice_modes: ALL_TOOL_CHOICE_MODES,
                 parallel_calls: false,
-                strict_schema: true,
+                strict_schema: false,
             }),
             media: crate::core::ResponsesMediaProfile::new(Some(IMAGE_INPUT), None),
             structured_outputs: Some(RESPONSES_STRUCTURED_OUTPUTS),
@@ -98,4 +98,48 @@ fn transform_request_headers(
     _upstream: &mut SafeHeaders,
 ) -> Result<(), AdapterError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::{
+        JsonSchemaSupport, OperationKind, ProviderOperationCapabilities, StructuredOutputProfile,
+    };
+
+    use super::*;
+
+    #[test]
+    fn ordinary_endpoint_does_not_advertise_beta_function_strictness() {
+        for operation in [OperationKind::ChatCompletions, OperationKind::Responses] {
+            let capabilities = DEFINITION
+                .contract()
+                .capabilities()
+                .operation(operation)
+                .unwrap();
+            let tools = match capabilities {
+                ProviderOperationCapabilities::ChatCompletions(capabilities) => {
+                    capabilities.function_tools
+                }
+                ProviderOperationCapabilities::Responses(capabilities) => {
+                    capabilities.function_tools
+                }
+                _ => unreachable!("DeepSeek generation definition has only Chat and Responses"),
+            }
+            .unwrap();
+            assert!(!tools.strict_schema);
+        }
+
+        let responses = DEFINITION
+            .contract()
+            .capabilities()
+            .operation(OperationKind::Responses)
+            .and_then(ProviderOperationCapabilities::responses)
+            .unwrap();
+        assert_eq!(
+            responses.structured_outputs,
+            Some(StructuredOutputProfile::JsonObjectAndJsonSchema(
+                JsonSchemaSupport::NonStrictOnly
+            ))
+        );
+    }
 }

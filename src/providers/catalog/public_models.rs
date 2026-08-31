@@ -85,7 +85,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             providers: &[
                 ProviderRouteRegistration {
                     upstream_target: "bailian/deepseek-v4-flash",
-                    surface: PublicModelSurface::ChatNativeOnly,
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
                     upstream_target: "deepseek-v4-flash",
@@ -165,7 +165,7 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
                 upstream_target: "zhipu-cn/glm-5-3",
-                surface: PublicModelSurface::ChatNativeOnly,
+                surface: PublicModelSurface::DualProtocolWithResponsesBridge,
             }],
         },
         PublicModelRegistration {
@@ -350,6 +350,8 @@ pub(super) struct ProviderRouteRegistration {
 pub(super) enum PublicModelSurface {
     /// Provides both Native protocols plus both reverse Bridge paths.
     DualProtocolWithBridges,
+    /// Provides both Native protocols plus the Chat-to-Responses Bridge only.
+    DualProtocolWithResponsesBridge,
     /// Provides both Native protocols without Bridge paths.
     DualProtocolNativeOnly,
     /// Provides a Chat Native path and allows automatic Responses Bridge supplementation.

@@ -13,6 +13,7 @@
 | NVIDIA API Catalog / NIM | [API](nvidia-api.md) |
 | OpenRouter | [API 与路由语义](openrouter-api.md) |
 | Xiaomi MiMo | [API](xiaomi-api.md)、[图片 wire](xiaomi-image.md)、[音频 wire](xiaomi-audio.md) |
+| Zhipu AI China / Z.AI | [API](zhipu-api.md) |
 
 OpenBridge 当前 Model、Provider Target 与 Public Model 的关系由[实施状态映射](../../implementation-status/model-provider-mapping.md)唯一维护。
 

@@ -1,16 +1,16 @@
-//! Static Zhipu AI China Provider contract and OpenAI-compatible Chat profile.
+//! Static Zhipu AI China Provider contract and OpenAI-compatible generation profile.
 //!
-//! The endpoint shape follows Zhipu's official OpenAI compatibility guide reverified on 2026-08-27:
-//! <https://docs.bigmodel.cn/cn/guide/develop/openai/introduction>. The executable GLM-5.3-Flash
-//! subset is narrowed to the owner-initiated JSON/SSE, reasoning, tool, structured-output, and image
-//! probes completed on the same date.
+//! Chat follows Zhipu's OpenAI compatibility guide. GLM-5.3 Responses follows the model page
+//! reverified on 2026-08-31 and remains narrowed to the text-only protocol subset until broader
+//! endpoint-specific probes exist.
 
 use http::HeaderMap;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
-        ReasoningOutput, StructuredOutputProfile,
+        FunctionToolCapabilities, ProviderChatCompletionsCapabilities,
+        ProviderResponsesCapabilities, ProviderResponsesStateCeiling, ReasoningOutput,
+        StructuredOutputProfile, ToolChoiceMode,
     },
     provider::{
         AdapterError, CredentialKind, ProviderAdapter, ProviderDefinition, ProviderKind,
@@ -23,17 +23,17 @@ use crate::{
 
 use super::media::IMAGE_INPUT;
 
-/// Chat-only Provider ceiling confirmed across the registered GLM family Targets.
+/// Provider ceiling shared by the registered GLM Chat targets and the GLM-5.3 Responses target.
 const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
     Some(OpenAiCompatibleEndpoint::new(
-        "/chat/completions",
+        "/api/paas/v4/chat/completions",
         ProviderChatCompletionsCapabilities {
             streaming: true,
             stream_usage: true,
             function_tools: Some(FunctionToolCapabilities {
-                choice_modes: ALL_TOOL_CHOICE_MODES,
-                parallel_calls: true,
-                strict_schema: true,
+                choice_modes: &[ToolChoiceMode::Auto],
+                parallel_calls: false,
+                strict_schema: false,
             }),
             media: crate::core::ChatMediaProfile::new(Some(IMAGE_INPUT), None, None),
             structured_outputs: Some(StructuredOutputProfile::JsonObject),
@@ -48,15 +48,36 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
             multiple_choices: false,
         },
     )),
-    None,
+    Some(OpenAiCompatibleEndpoint::new(
+        "/api/v1/responses",
+        ProviderResponsesCapabilities {
+            streaming: true,
+            terminal_usage: true,
+            function_tools: None,
+            media: crate::core::ResponsesMediaProfile::new(None, None),
+            structured_outputs: None,
+            state: ProviderResponsesStateCeiling::Stateless,
+            background: false,
+            reasoning_output: ReasoningOutput::Unknown,
+            custom_tool_calling: false,
+            hosted_tools: &[],
+            conversation: false,
+            prompt_templates: false,
+            prompt_cache_key: false,
+            context_management: false,
+            include: &[],
+            moderation: false,
+            logprobs: false,
+        },
+    )),
     None,
 );
 
-/// OpenAI-compatible Chat wire profile used by the Zhipu China endpoint.
+/// OpenAI-compatible generation wire profile used by the fixed Zhipu China paths.
 const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::ZhipuCn,
     API_SURFACE,
-    "/models",
+    "/api/paas/v4/models",
     transform_request_headers,
 );
 

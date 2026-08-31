@@ -214,3 +214,28 @@ fn deepseek_adapter_encodes_chat_and_responses() {
         assert_eq!(body["model"], "deepseek-v4-flash");
     }
 }
+
+#[test]
+fn zhipu_adapter_uses_fixed_protocol_specific_api_paths() {
+    for (protocol, body, expected_path) in [
+        (
+            ApiProtocol::ChatCompletions,
+            Bytes::from_static(br#"{"model":"glm","messages":[]}"#),
+            "/api/paas/v4/chat/completions",
+        ),
+        (
+            ApiProtocol::Responses,
+            Bytes::from_static(br#"{"model":"glm","input":"hello"}"#),
+            "/api/v1/responses",
+        ),
+    ] {
+        let request = ApiRequest::new(protocol, body);
+        let upstream =
+            prepare_request(ProviderKind::ZhipuCn, protocol, &request, "glm-5.3").unwrap();
+
+        assert_eq!(upstream.method(), Method::POST);
+        assert_eq!(upstream.relative_uri().to_string(), expected_path);
+        let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
+        assert_eq!(body["model"], "glm-5.3");
+    }
+}

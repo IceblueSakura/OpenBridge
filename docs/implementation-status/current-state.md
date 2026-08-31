@@ -38,7 +38,7 @@
 确定性入口：`tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs`、
 `tests/oauth2_login_cli.rs`、`src/probe/tests.rs`、`src/bin/openbridge-probe.rs`。
 
-2026-08-31 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests与corpus lint。DeepSeek、Z.ai、Xiaomi和Bailian的有界admin probe覆盖各自已注册Generation协议与delivery；关闭HTTP内容日志和OTLP的synthetic-user production Router另覆盖四家的Chat JSON/SSE。该结果不替代live Bridge、外部SDK/Agent、Responses production Router、负载或长期运行验证。
+2026-08-31 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests 与 corpus lint。DeepSeek、Z.AI、Xiaomi 和 Bailian 的有界管理员 probe 覆盖各自已注册 Generation 协议与 delivery；本轮另确认 Bailian DeepSeek V4 Flash 与 Zhipu GLM-5.3 Responses JSON/SSE。关闭 HTTP 内容日志和 OTLP 的 synthetic-user production Router 覆盖四家的 Chat JSON/SSE。该结果不替代 live Bridge、外部 SDK/Agent、Responses production Router、负载或长期运行验证。
 
 ## 3. Public Model 与请求预检
 

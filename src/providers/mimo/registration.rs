@@ -219,3 +219,41 @@ fn target(
         upstream_apis,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::core::OperationKind;
+
+    use super::*;
+
+    #[test]
+    fn text_generation_targets_expose_chat_json_object_only() {
+        for target in upstream_targets().into_iter().take(2) {
+            for api in &target.upstream_apis {
+                match &api.capabilities {
+                    UpstreamApiCapabilities::ChatCompletions(capabilities) => {
+                        assert_eq!(
+                            capabilities.structured_outputs,
+                            Some(crate::core::StructuredOutputProfile::JsonObject)
+                        );
+                    }
+                    UpstreamApiCapabilities::Responses(capabilities) => {
+                        assert!(capabilities.structured_outputs.is_none());
+                        assert!(!capabilities.prompt_cache_key);
+                        assert!(capabilities.include.is_empty());
+                    }
+                    _ => panic!(
+                        "unexpected generation capability for {:?}",
+                        api.key.operation()
+                    ),
+                }
+            }
+            assert!(
+                target
+                    .upstream_apis
+                    .iter()
+                    .any(|api| api.key.operation() == OperationKind::Responses)
+            );
+        }
+    }
+}

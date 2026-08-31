@@ -24,8 +24,8 @@ use super::{
 const PROVIDER_INSTANCE_ID: &str = "bailian";
 const NATIVE_PROVIDER_INSTANCE_ID: &str = "bailian-native";
 const CREDENTIAL_POOL_ID: &str = "bailian-primary";
-const DEEPSEEK_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
-const QWEN3_7_PLUS_STRUCTURED_OUTPUTS: StructuredOutputProfile =
+const JSON_OBJECT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
+const QWEN_MAX_STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
@@ -183,11 +183,23 @@ fn chat_target(
     );
     chat_capabilities.structured_outputs = match canonical_model {
         deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID => {
-            Some(DEEPSEEK_STRUCTURED_OUTPUTS)
+            Some(JSON_OBJECT_STRUCTURED_OUTPUTS)
         }
-        qwen::qwen3_7_plus::ID => Some(QWEN3_7_PLUS_STRUCTURED_OUTPUTS),
+        qwen::qwen3_7_plus::ID | qwen::qwen3_7_max::ID | qwen::qwen3_8_max::ID => {
+            Some(QWEN_MAX_STRUCTURED_OUTPUTS)
+        }
         _ => None,
     };
+    if matches!(
+        canonical_model,
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
+    ) {
+        chat_capabilities
+            .function_tools
+            .as_mut()
+            .expect("Bailian DeepSeek Chat targets require function tools")
+            .strict_schema = false;
+    }
     // Bind Chat for every target and Responses only for models confirmed on that endpoint.
     let mut upstream_apis = vec![UpstreamApiConfig {
         key: UpstreamApiKey::new(
@@ -202,6 +214,7 @@ fn chat_target(
     if matches!(
         canonical_model,
         deepseek::deepseek_v4_pro::ID
+            | deepseek::deepseek_v4_flash::ID
             | qwen::qwen3_8_max::ID
             | qwen::qwen3_8_27b::ID
             | qwen::qwen3_7_max::ID
@@ -223,6 +236,12 @@ fn chat_target(
         responses_capabilities.function_tools =
             responses_capabilities.function_tools.map(|mut profile| {
                 profile.parallel_calls = false;
+                if matches!(
+                    canonical_model,
+                    deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
+                ) {
+                    profile.strict_schema = false;
+                }
                 profile
             });
         // Real probing (2026-08-11) shows qwen3.7-plus Responses accepts json_object only;
@@ -341,32 +360,59 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_v4_pro_binds_responses_without_broadening_flash_snapshot() {
+    fn confirmed_deepseek_models_bind_responses_without_broadening_glm() {
         let targets = upstream_targets();
-        let pro = targets
+        for (target_id, upstream_model) in [
+            ("bailian/deepseek-v4-pro", "deepseek-v4-pro-0813"),
+            ("bailian/deepseek-v4-flash", "deepseek-v4-flash-0731"),
+        ] {
+            let target = targets
+                .iter()
+                .find(|target| target.id == target_id)
+                .unwrap();
+            let responses = target
+                .upstream_apis
+                .iter()
+                .find(|api| api.key.operation() == OperationKind::Responses)
+                .expect("confirmed Bailian DeepSeek models must expose Responses");
+            assert_eq!(responses.upstream_model, upstream_model);
+            assert!(matches!(
+                responses.capabilities,
+                UpstreamApiCapabilities::Responses(_)
+            ));
+        }
+
+        let glm = targets
             .iter()
-            .find(|target| target.id == "bailian/deepseek-v4-pro")
+            .find(|target| target.id == "bailian/glm-5-2")
             .unwrap();
-        let responses = pro
+        let glm_chat = glm
             .upstream_apis
             .iter()
-            .find(|api| api.key.operation() == OperationKind::Responses)
-            .expect("DeepSeek V4 Pro must keep its confirmed Responses API");
-        assert_eq!(responses.upstream_model, "deepseek-v4-pro-0813");
-        assert!(matches!(
-            responses.capabilities,
-            UpstreamApiCapabilities::Responses(_)
-        ));
+            .find(|api| api.key.operation() == OperationKind::ChatCompletions)
+            .unwrap();
+        let UpstreamApiCapabilities::ChatCompletions(glm_chat) = &glm_chat.capabilities else {
+            panic!("Bailian GLM target must bind Chat capabilities");
+        };
+        assert!(glm_chat.structured_outputs.is_none());
+        assert!(
+            glm.upstream_apis
+                .iter()
+                .all(|api| api.key.operation() != OperationKind::Responses)
+        );
 
         let flash = targets
             .iter()
             .find(|target| target.id == "bailian/deepseek-v4-flash")
             .unwrap();
-        assert!(
-            flash
-                .upstream_apis
-                .iter()
-                .all(|api| api.key.operation() != OperationKind::Responses)
-        );
+        let responses = flash
+            .upstream_apis
+            .iter()
+            .find(|api| api.key.operation() == OperationKind::Responses)
+            .unwrap();
+        let UpstreamApiCapabilities::Responses(responses) = &responses.capabilities else {
+            panic!("Bailian DeepSeek Flash must bind Responses capabilities");
+        };
+        assert!(!responses.function_tools.unwrap().strict_schema);
     }
 }

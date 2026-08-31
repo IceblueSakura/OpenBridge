@@ -160,6 +160,7 @@ impl ProviderRouteRegistration {
                 if matches!(
                     self.surface,
                     PublicModelSurface::DualProtocolWithBridges
+                        | PublicModelSurface::DualProtocolWithResponsesBridge
                         | PublicModelSurface::DualProtocolNativeOnly
                         | PublicModelSurface::ResponsesNativeOnly
                         | PublicModelSurface::ResponsesNativeWithChatBridge
@@ -168,9 +169,12 @@ impl ProviderRouteRegistration {
                 (OperationKind::Responses, ApiProtocol::Responses)
             }
             RoutePhase::ResponsesBridge
-                if matches!(self.surface, PublicModelSurface::DualProtocolWithBridges)
-                    || (matches!(self.surface, PublicModelSurface::ChatNativeOnly)
-                        && supplement_missing_protocol) =>
+                if matches!(
+                    self.surface,
+                    PublicModelSurface::DualProtocolWithBridges
+                        | PublicModelSurface::DualProtocolWithResponsesBridge
+                ) || (matches!(self.surface, PublicModelSurface::ChatNativeOnly)
+                    && supplement_missing_protocol) =>
             {
                 (OperationKind::ChatCompletions, ApiProtocol::Responses)
             }
@@ -255,6 +259,32 @@ mod tests {
                     OperationKind::ChatCompletions,
                 ),
                 (OperationKind::Responses, OperationKind::Responses),
+            ]
+        );
+    }
+
+    #[test]
+    fn glm_5_3_keeps_chat_capabilities_while_adding_native_responses() {
+        let models = compile_generation_routing(generation_registrations());
+        let glm = models
+            .iter()
+            .find(|model| model.id == "glm-5.3")
+            .expect("GLM-5.3 must be published through the production routing catalog");
+        let operations = glm
+            .routes
+            .iter()
+            .map(|route| (route.upstream_operation, route.downstream_operation))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            operations,
+            [
+                (
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
+                (OperationKind::Responses, OperationKind::Responses),
+                (OperationKind::ChatCompletions, OperationKind::Responses),
             ]
         );
     }

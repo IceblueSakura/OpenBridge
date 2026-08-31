@@ -1,4 +1,6 @@
 //! Complete canonical model facts for DeepSeek V4 Pro (`deepseek/deepseek-v4-pro`).
+//!
+//! Reasoning levels follow the official Thinking Mode guide reverified on 2026-08-31.
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
@@ -56,8 +58,24 @@ pub(crate) fn config() -> ModelConfig {
             reasoning: ReasoningProfile::supported([
                 ReasoningLevel::Max,
                 ReasoningLevel::High,
+                ReasoningLevel::Low,
                 ReasoningLevel::None,
             ]),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pro_exposes_the_official_low_reasoning_level() {
+        assert!(
+            config()
+                .task
+                .reasoning_levels()
+                .contains(&ReasoningLevel::Low)
+        );
     }
 }
