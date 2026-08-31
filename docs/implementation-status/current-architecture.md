@@ -54,7 +54,7 @@ downstream response + request/attempt observations
 | Request analysis/planning | `src/pipeline/` | operation-specific facts、preflight 与固定 Route plan；不进行 Provider 名称分支 |
 | Generation semantic IR | `src/ir/generation/` | pure Static/Event values、reducer/materializer、local validation、semantic requirements与fidelity；不拥有Registry、I/O或routing |
 | HTTP ingress | `src/ingress/` | 认证、body lifecycle、handler、attempt/fallback、streaming response 与错误映射 |
-| Generation codecs | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Native PreserveSource与Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
+| Generation codecs | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Native 语义保留与Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
 | Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 与 candidate-model Generation 矩阵；不修改 registry |
@@ -165,22 +165,22 @@ JSON admission
 → capability/state/limit preflight once
 → normalize shared request policy once
 → expand fixed RouteCandidate list
-→ optional Bridge request conversion
+→ canonical Static IR decode + candidate lowering
+  ├─ Native: validate + model rebinding
+  └─ Bridge: encode target protocol
 → GenerationProviderAdapter.prepare_routed_request
 → attempt loop / UpstreamTransport
-→ Native passthrough or Bridge response renderer
+→ canonical JSON/Event IR response handling
+→ ingress observation + downstream commit
 ```
 
-Generation 的 pure Chat/Responses analysis、fixed-interface preflight、request normalization、Native/Bridge planning 与
-response-mode decision 由 `pipeline/generation/` 单一 family 拥有，并继续通过 pipeline facade 暴露；Bridge plan 不能由
-Embeddings family 构造。response driver 根据 success、SSE media、Bridge 和 streaming takeover facts 选择 fail-closed、buffer、
-Native SSE validation、Bridge JSON/SSE conversion 或 passthrough；Ingress 执行对应 body read、decoder、observation 和 commit。
-成功的 Native/Bridge SSE 在首个完整、Provider-valid 且下游可见的 event 前仍由 attempt runner 持有：first-event timeout 或 body
-transport failure 可以走既有有界 retry/fallback，非法 framing 或 event 前 EOF 则在未 commit 时返回安全 `502`。首 event 后不再
-retry/fallback；terminal 前 EOF 保留已经可见的字节并以 downstream body error 结束，不伪造 terminal。precommit 只保留受
-`max_sse_event` 限制的单个 raw event：Native 原样 replay；Bridge 对不可见 event 立即释放 raw bytes，并把已推进的
-renderer、首段转换输出、event-idle deadline 与同一网络 chunk 的剩余字节一起 hand off 给 postcommit body owner。
-该 family 不执行 body read、credential、transport、response-body 或 downstream commit I/O。
+`pipeline/generation/` 拥有 pure analysis、preflight、normalization、fixed candidate planning 和 response-mode decision；
+`src/ir/generation/` 与 `src/bridge/` 拥有 provider-neutral semantic values、Static/Event validation、Native 语义保留
+和跨协议 lowering。IR 不选择 Registry entity、Route、Provider、credential 或 URL，也不执行 body I/O。
+
+Ingress 根据 plan 执行 bounded JSON/Event body lifecycle、attempt observation 和 downstream commit。Native 与 Bridge SSE 都在首个
+完整、Provider-valid 且下游可见的 event 前保持可重试；commit 后不再 fallback。Native 保留已验证的 source bytes，Bridge 增量编码
+Event IR；terminal 前 EOF 或 body error 终止下游 body，不伪造 terminal。
 
 Embeddings 的 pure analysis、fixed-interface preflight、Native planning 与 success-response validation 由
 `pipeline/embeddings/` 拥有，并继续通过 pipeline facade 暴露原有 API；该 family 不执行 body read、credential、transport、

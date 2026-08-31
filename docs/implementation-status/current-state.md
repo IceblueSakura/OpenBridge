@@ -57,15 +57,15 @@ Agent runtime、负载或长期运行验证。
 
 ## 4. Generation Native 与 Protocol Bridge
 
-- 已注册且通过 preflight 的 Chat/Responses 请求可执行非流式 JSON 或 SSE Native 转发；Provider adapter 固定 upstream model、相对 path、安全 header 与 purpose-bound credential。
-- response headers、首个 SSE event、event idle、可选 stream total 与非流式 total timeout 分开建模。首个有效下游事件前使用有界 single-event precommit；提交后不得 fallback 或拼接第二条响应。
-- Chat ↔ Responses 只在显式 `Bridged` Route 上转换，支持 allowlist 内 text、function tool、parallel tool call、tool result、structured output、明文 reasoning 与可证明的 usage 映射。
-- image、file、audio、hosted/custom tool、background/state 和 opaque continuation 没有可验证等价物时，Bridge 在 egress 前拒绝。
-- SSE state machine 维护 item/call/index、fragmented arguments、terminal、EOF、body error 和 cancel；不会伪造 terminal 或把已提交 partial stream 改写为新响应。
+- 通过 preflight 的 Chat/Responses Native 与 Bridge candidate 都经 canonical Static/Event Generation IR；旧 pairwise converter、Native response assembler 和独立 mutable stream state 已删除。
+- Static IR 有界解码 request/response，并在 egress 前拒绝未知可移植语义、非法 identity/lifecycle 和未经授权的 lossy change。同协议 Native request 验证后保留源语义与 Provider 私有字段，仅重绑定受信 model 后重新序列化；完整 JSON response 与 SSE bytes 验证后原样保留。跨协议或需要语义转换时重新编码。
+- Event IR 统一验证 Native/Bridge SSE 的 item、call、index、arguments fragment、usage、terminal 与 EOF。Responses SSE 转非流式响应时先 materialize Event IR，再由 Static IR 编码。
+- Chat ↔ Responses 只在显式 Bridge Route 上转换已建模的 text、function tool、tool result、structured output、明文 reasoning 与 usage；媒体、hosted/custom tool、background/state 和 opaque continuation 没有可验证等价物时 fail closed。
+- Provider adapter 仍固定 upstream model、相对 path、安全 header 与 purpose-bound credential。Ingress 保留 body I/O、首事件 precommit、timeout、retry/fallback、取消、observation 和 downstream commit；提交后不得 fallback、拼接响应或伪造 terminal。
 
-主要 owner：`src/ingress/forwarding.rs`、`src/ingress/streaming/`、`src/pipeline/generation/`、`src/bridge/`、`src/provider/`、`src/transport/`。
+主要 owner：`src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/ingress/forwarding.rs`、`src/ingress/streaming/`、`src/provider/`、`src/transport/`。
 
-确定性入口：`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/generation_ir_event_wire_contract.rs`、`tests/process_replay_contract.rs`。
+确定性入口：`tests/generation_ir_*_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/process_replay_contract.rs`。
 
 ## 5. Retry、fallback、cooldown 与取消
 
@@ -108,20 +108,3 @@ Agent runtime、负载或长期运行验证。
 主要 owner：`src/observability/`、`testdata/`、`tools/corpus/`。
 
 确定性入口：`tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`src/observability/**/tests.rs`、`tools/corpus/tests/`。
-
-## 9. Generation IR rewrite
-
-- `feature/generation-ir-rewrite`已实现R0-R7的provider-neutral Static/Event Generation IR、production Chat/Responses Bridge、trusted ToolPlan、test-gated bounded Gateway web-search kernel与Native takeover。
-- `project_semantic_requirements`只投影可由canonical request推导的semantic facts；Public Model、source protocol、stream delivery和wire encoded length仍由现有request analyzer/envelope owner持有。Chat/Responses test-only tracer会与现有analyzer比较共同semantic facts。
-- lossy change默认拒绝；trusted tool-directive authorization同时绑定plan、directive、semantic path和reason。ToolPlan Inject/Strip、candidate-bound Provider tool profile与Gateway web-search continuation均保持immutable/pure planning边界。
-- bounded Static/Event codecs现在同时拥有Native与Bridge production semantic path；Registry request/JSON/SSE budgets显式约束decode、part/turn与encoded output，unknown semantics、identity/index、parent/child lifecycle、terminal/EOF、opaque state和resource amplification均fail closed。
-- 同协议Native在canonical decode/reduce验证后通过typed `PreserveSource`保留request的source语义与Provider私有字段，并只执行受信model重绑定；JSON空白与键序不构成合同，重复key在构造canonical value前拒绝。完整JSON response与SSE bytes保持原样；跨协议或需语义转换时仍重新encode，未知可移植语义保持fail closed。
-- 旧pairwise converter、Chat mutable stream state、Native `ResponsesStreamState`与独立SSE→JSON assembler均已删除；buffered Responses通过Event IR materialize后由Static IR编码。
-- precommit retry/fallback、postcommit禁止fallback、cancel、失败terminal、partial EOF/body error、ChatGPT sparse terminal/opaque continuation和process replay deterministic contracts保持通过。
-- R6 Gateway web-search kernel固定candidate origin，独立限制turn/tool/result/attempt/deadline，传播cancel并仅聚合成功turn usage；当前仍保持`#[cfg(test)]`，不构成production web-search能力。
-- Provider adapter、配置schema、Registry schema、OpenAPI与下游HTTP surface未因R7改变；不存在production Native/Bridge双栈、feature flag或compatibility shim。
-- 2026-08-31 通过管理员 `openbridge-probe` 对 `zhipu-cn/glm-5-3-flash`、`mimo-v2-5-pro` 与 `deepseek-v4-pro` 分别执行有界 Chat streaming/non-streaming、reasoning omitted 请求；六个case均返回HTTP 200、可识别terminal、usage与输出。该结果只证明当时所选账号、网络和固定请求可达。
-
-主要owner：`src/ir/generation/`、`src/bridge/static_codec/`、`src/bridge/event_codec/`、`src/ingress/streaming/`与test-gated `src/execution/gateway_web_search.rs`；test-only analyzer parity位于`src/pipeline/generation/analysis.rs`。
-
-确定性入口：`tests/generation_ir_contract.rs`、`tests/generation_ir_static_codec_contract.rs`、`tests/generation_ir_event_contract.rs`、`tests/generation_ir_event_wire_contract.rs`、`tests/bridge_conversion_contract.rs`和`pipeline::generation::analysis::generation_ir_parity_tests`。
