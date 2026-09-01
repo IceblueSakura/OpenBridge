@@ -103,11 +103,11 @@ pub(super) fn usage_from_chat(usage: &Map<String, Value>) -> Result<Usage, Stati
         Some(input),
         Some(output),
         Some(total),
-        optional_detail_object(usage, "completion_tokens_details")?
+        optional_nullable_detail_object(usage, "completion_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        optional_detail_object(usage, "prompt_tokens_details")?
+        optional_nullable_detail_object(usage, "prompt_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -158,6 +158,17 @@ fn optional_detail_object<'a>(
     }
 }
 
+fn optional_nullable_detail_object<'a>(
+    object: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a Map<String, Value>>, StaticEventCodecError> {
+    if object.get(field).is_some_and(Value::is_null) {
+        Ok(None)
+    } else {
+        optional_detail_object(object, field)
+    }
+}
+
 fn optional_u64(
     object: &Map<String, Value>,
     field: &str,
@@ -194,4 +205,28 @@ pub(super) fn response_event(
         return Err(StaticEventCodecError::LimitExceeded);
     }
     Ok(Bytes::from(output))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn chat_usage_treats_null_detail_objects_as_absent() {
+        let usage = json!({
+            "prompt_tokens": 8,
+            "completion_tokens": 4,
+            "total_tokens": 12,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": null
+        });
+
+        assert_eq!(
+            usage_from_chat(usage.as_object().expect("fixture must be an object"))
+                .expect("nullable optional Chat details must decode"),
+            Usage::new(Some(8), Some(4), Some(12), None, None)
+        );
+    }
 }

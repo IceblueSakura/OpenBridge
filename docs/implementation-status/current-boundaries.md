@@ -81,7 +81,7 @@
 
 ## 4. Provider 特定边界
 
-- 2026-08-31 的有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，并覆盖 Bailian DeepSeek V4 Flash 和 Zhipu GLM-5.3 Responses JSON/SSE；不证明下游 Gateway 端到端、reasoning 参数实际生效、工具/媒体、structured output、fallback、SDK/Agent 兼容、负载、长时间运行或未来可达性。
+- 2026-08-31 的有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，并覆盖 Bailian DeepSeek V4 Flash 和 Zhipu GLM-5.3 Responses JSON/SSE；除 2026-09-01 单独完成的 MiMo-V2.5 Chat JSON Object JSON/SSE Gateway 验收外，不证明其他下游 Gateway 端到端、reasoning 参数实际生效、工具/媒体、structured output、fallback、SDK/Agent 兼容、负载、长时间运行或未来可达性。
 
 | Provider family | 当前未实现或未证明边界 |
 |---|---|
@@ -89,7 +89,7 @@
 | OpenAI | 当前没有成功的真实账号/Provider 验证；Models、Chat/Responses、Embeddings、图片、strict/parallel tool、structured output、state、配额、负载和长期运行均不能由静态 ceiling 推断。 |
 | LongCat | 更多 reasoning 档位和 tool 形状、强制 Bridge/fallback、外部 SDK/Agent、负载与长期运行。 |
 | DeepSeek | Vision Files API/`file_id`、role/像素边界本地预检、600 图与 remote/mixed 64 MiB 极限、任意 remote host 可下载性、恶意图片、视觉质量与更高阶多能力组合未证明；inline executable profile 保守限制为累计 decoded 32 MiB。Pro 已记录官方 `low/high/max` 档位；普通 endpoint 不公开仅 `/beta` 保证的 function strict schema。`parallel_tool_calls` 请求控制、hosted/custom tool、structured-output SSE、强制 fallback、其他账号/区域和长期运行仍未证明。 |
-| Xiaomi MiMo | 独立 Chat structured-output 专页确认 MiMo-V2.5/Pro 的 JSON Object，但 Chat API reference 同时只列 text；当前只保留专页明确的 Chat JSON Object。Responses structured output、prompt-cache/include 不公开；video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行未证明。 |
+| Xiaomi MiMo | 独立 Chat structured-output 专页确认 MiMo-V2.5/Pro 的 JSON Object，但 Chat API reference 同时只列 text；当前只保留专页明确的 Chat JSON Object。2026-09-01 已对 MiMo-V2.5 以固定 conflict prompt 完成管理员 probe，并以明确请求 JSON 的固定 prompt 完成真实下游 Gateway JSON/SSE 验收；这不证明 MiMo-V2.5-Pro、其他 schema/prompt、Responses structured output 或长期稳定性。Responses structured output、prompt-cache/include 不公开；video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行未证明。 |
 | Zhipu AI China | GLM-5.3、GLM-5.2 与 GLM-5.3-Flash 注册 Chat Native JSON Object；Chat function tools 只公开 Auto choice，不公开请求级 parallel 或 strict schema。只有官方明确列出的 GLM-5.3 注册 `/api/v1/responses` text-only Native，并保留 Chat bridge 作为更高能力请求的回退。2026-08-31 的有界 JSON/SSE Responses probe 均成功；Responses reasoning、structured output、工具、state，以及文件、视频、外部 SDK/Agent、其他账号/区域、负载与长期运行未证明。 |
 | OpenRouter | MiniMax 图片输入没有模型级真实 Provider 证据；Gemma 的历史 probe 只证明单张 PNG data URL，不能支撑共享 profile 的 JPEG、remote URL、4-part 与大小上限；两者当前 executable interface 均保持 text-only。Muse Spark 1.2 Contributor 的文本 Chat/Responses 与 Hermes `obc`/`obr` 已真实 probe；图片、音频、视频与文件输入尚未 probe，当前 executable interface 保持 text-only。GLM-5.3-Flash 已验证 Chat/Responses streaming、non-streaming、PNG data URL、Auto function tool、parallel 请求开关与 Hermes `obc`/`obr`；named tool choice 和 Responses structured output 经 probe 后显式不公开。GLM 的 OpenRouter file input、remote image/JPEG、video、更多图片数量/大小、长上下文、负载和长期运行仍未证明。Gemini/Grok file/audio/video、Grok 小图尺寸边界、更多图片格式/数量/大小、强制 DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行未证明；公开目录字段不自动成为 executable capability。 |
 | NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |

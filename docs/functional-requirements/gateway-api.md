@@ -106,6 +106,7 @@ Chat `stream_options` 只允许与 `stream:true` 组合。省略、空对象与 
 前生成唯一 `choices:[]` usage-only chunk，并使此前所有 Chat chunk 带 `usage:null`。Bridge 不估算、修正或补造 token；请求 usage 时若
 terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`。非对象、未知/额外成员、`include_obfuscation`、非布尔
 `include_usage` 和非流式组合必须在 Provider egress 前拒绝；Responses interface 继续把该 Chat-only 顶层字段视为未知参数。
+- 上游 Chat JSON/SSE usage 的 `completion_tokens_details` 与 `prompt_tokens_details` 省略或显式 `null` 都表示对应 detail absent；对象时只读取已建模 token 字段，其他值继续 fail closed。Native 验证后仍保留原始 response bytes，不把 `null` 改写为空对象。
 
 ### 2. 流式语义
 

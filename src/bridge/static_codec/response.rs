@@ -127,7 +127,6 @@ fn decode_chat_response(
     if message.get("role").and_then(Value::as_str) != Some("assistant") {
         return Err(StaticCodecError::InvalidShape);
     }
-
     let suffix = source_id.strip_prefix("chatcmpl_").unwrap_or(&source_id);
     let mut output = Vec::new();
     if let Some(reasoning) = optional_nonempty_string(message, "reasoning_content")? {
@@ -598,11 +597,11 @@ fn decode_chat_usage(value: Option<&Value>) -> Result<Option<Usage>, StaticCodec
         Some(input),
         Some(output),
         Some(total),
-        optional_detail_object(usage, "completion_tokens_details")?
+        optional_nullable_detail_object(usage, "completion_tokens_details")?
             .map(|details| optional_u64(details, "reasoning_tokens"))
             .transpose()?
             .flatten(),
-        optional_detail_object(usage, "prompt_tokens_details")?
+        optional_nullable_detail_object(usage, "prompt_tokens_details")?
             .map(|details| optional_u64(details, "cached_tokens"))
             .transpose()?
             .flatten(),
@@ -651,6 +650,17 @@ fn optional_detail_object<'a>(
             .as_object()
             .map(Some)
             .ok_or(StaticCodecError::InvalidShape),
+    }
+}
+
+fn optional_nullable_detail_object<'a>(
+    object: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a Map<String, Value>>, StaticCodecError> {
+    if object.get(field).is_some_and(Value::is_null) {
+        Ok(None)
+    } else {
+        optional_detail_object(object, field)
     }
 }
 
@@ -763,6 +773,44 @@ fn item_id(value: String, max_bytes: usize) -> Result<ItemId, StaticCodecError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_decoder_treats_null_usage_details_as_absent() {
+        let source = json!({
+            "id": "chatcmpl_nullable_usage",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"probe\":\"ok\"}",
+                    "tool_calls": null
+                }
+            }],
+            "usage": {
+                "prompt_tokens": 8,
+                "completion_tokens": 4,
+                "total_tokens": 12,
+                "prompt_tokens_details": null,
+                "completion_tokens_details": null
+            }
+        });
+        let source = source.as_object().expect("fixture must be an object");
+
+        let decoded = decode_response(
+            ApiProtocol::ChatCompletions,
+            source,
+            ReasoningOutput::PlainText,
+            1024,
+        )
+        .expect("nullable optional usage details must decode");
+
+        assert_eq!(
+            decoded.semantic.usage(),
+            Some(&Usage::new(Some(8), Some(4), Some(12), None, None))
+        );
+    }
 
     #[test]
     fn responses_decoder_keeps_opaque_reasoning_in_static_ir() {

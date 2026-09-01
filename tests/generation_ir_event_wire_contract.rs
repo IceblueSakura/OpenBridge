@@ -439,7 +439,7 @@ fn event_usage_rejects_malformed_detail_containers() {
         let terminal = b"data: {\"id\":\"chat_usage\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\",\"index\":0}]}\n\n";
         bridge.render(decode(terminal).remove(0)).unwrap();
         let mut usage = json!({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2});
-        usage[field] = Value::Null;
+        usage[field] = json!(false);
         let event = format!(
             "data: {}\n\n",
             json!({"id": "chat_usage", "choices": [], "usage": usage})

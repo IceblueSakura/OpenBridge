@@ -773,7 +773,7 @@ fn static_response_usage_rejects_malformed_detail_containers() {
     )
     .unwrap();
     for field in ["completion_tokens_details", "prompt_tokens_details"] {
-        for malformed in [json!(false), Value::Null] {
+        for malformed in [json!(false)] {
             let mut usage = json!({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2});
             usage[field] = malformed;
             let response = body(json!({
