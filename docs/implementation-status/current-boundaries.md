@@ -1,6 +1,9 @@
 # 当前状态边界
 
-本文是当前 checkout **未实现、未验证和证据适用范围**的唯一实施状态 owner。它不构成路线图或实施授权；明确非目标仍由[产品范围需求](../functional-requirements/product-scope.md)拥有，下一项获准行为只由[当前开发焦点](../implementation-plans/current-focus.md)管理。
+本文是当前 checkout **未实现、未验证和证据适用范围**的全局实施状态 owner。Provider 特定边界由
+[providers/](providers/README.md)各分页拥有。它不构成路线图或实施授权；明确非目标仍由
+[产品范围需求](../functional-requirements/product-scope.md)拥有，下一项获准行为只由
+[当前开发焦点](../implementation-plans/current-focus.md)管理。
 
 ## 1. 如何解释这些边界
 
@@ -14,7 +17,7 @@
 6. 真实 Provider；
 7. 负载、长期运行或生产环境。
 
-“未证明”只表示当前证据没有覆盖，不等于已知不可行；“未实现”表示当前 checkout 没有对应 executable contract。带日期的外部结果只适用于记录中的版本、账号、区域、网络、模型和 payload，不提升为长期能力保证。
+"未证明"只表示当前证据没有覆盖，不等于已知不可行；"未实现"表示当前 checkout 没有对应 executable contract。带日期的外部结果只适用于记录中的版本、账号、区域、网络、模型和 payload，不提升为长期能力保证。
 
 ## 2. 全局未实现范围
 
@@ -44,8 +47,6 @@
 
 - 没有动态 capability negotiation、request-selected Route 或运行时 capability routing。
 - `prompt_cache_key` 是 accepted best-effort hint，可能按 candidate 删除；cache hit、成本、延迟、active retention、options 和 breakpoint 未实现或未证明。
-- Bailian Responses Session cache 只表示固定 header 已进入受信 egress；cache hit、节省成本、TTL、Provider 保留策略、突发排队命中率
-  及其在真实 429 下的延迟改善均未验证。
 - serial-only Provider 的 `parallel_tool_calls:false` 安全省略合同尚未注册；当前 active true/false 都只在固定 interface 已证明可控制并行调用时接受。
 - Models/Target catalog 不能证明 credential 可用、网络可达、配额、账号 entitlement 或模型质量。
 
@@ -58,14 +59,15 @@
 
 ### Native 图片与文件输入
 
-- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明；Bailian Qwen 按官方共同上限公开 250 张 remote/inline BMP/JPEG/PNG/TIFF/WebP/HEIC，但 4K 以上仅 JPEG/PNG、remote 20 MB、宽高大于 10、200:1 宽高比和 8K 建议边界仍不能由本地 media 类型完整表达；Bailian Kimi 继续保持实测的单张 JPEG/PNG。
+- 图片 Bridge、Pro 图片、`file_id`/Files、image edit、Provider-side DNS/redirect/MIME/size、OCR、内容安全和显式 detail 未证明；
+  各 Provider 的具体媒体边界见[对应 provider 页](providers/README.md)。
 - OpenBridge 不下载、解析、转换、转码、缓存或扫描远程图片/文件。
 - 当前生产 Public Model 不公开 file input；synthetic file loopback 不证明真实模型/backend、Provider 下载行为、解析质量、费用或 SDK/Agent 兼容。
 
 ### Native 音频
 
 - OpenAI `/v1/audio/*`、Responses audio、Realtime、remote/multiple audio、更多格式/语言/voice、媒体质量、voice authorization/store 和跨请求 voice identity 未证明。
-- 五种 MiMo 音频 task 的真实下游网关复测、播放器/硬件验收、负载和长期运行未完成。
+- 五种 MiMo 音频 task 的真实下游网关复测、播放器/硬件验收、负载和长期运行未完成（见 [mimo](providers/mimo.md)）。
 
 ### Images Generations
 
@@ -79,26 +81,14 @@
 - 当前本地 tool 只有 `hello`；没有 hosted tool、MCP Tool Bridge 或由 generation gateway 执行普通 function tool。
 - 进程内 MCP contract 不证明外部 MCP SDK、浏览器、反向代理、工具安全、真实网络部署、负载或长期运行。
 
-## 4. Provider 特定边界
+## 4. Probe 边界
 
-- 2026-08-31 的有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，并覆盖 Bailian DeepSeek V4 Flash 和 Zhipu GLM-5.3 Responses JSON/SSE；除 2026-09-01 单独完成的 MiMo-V2.5 Chat JSON Object JSON/SSE Gateway 验收外，不证明其他下游 Gateway 端到端、reasoning 参数实际生效、工具/媒体、structured output、fallback、SDK/Agent 兼容、负载、长时间运行或未来可达性。
+- 每次 Generation probe 只执行一个显式 unit case；当前 CLI/库不拥有跨 protocol、delivery、reasoning 或 capability 的矩阵编排。
 - 当前 function-tool probe 只验证固定 prompt 下单次首轮的 tool choice、strict arguments 与 parallel call 差分；它不执行工具、不发送
-  tool result、不做续轮或 Agent loop，也不证明工具调用长期稳定。图片、文件、音频和视频 probe 尚未进入本阶段。
-
-| Provider family | 当前未实现或未证明边界 |
-|---|---|
-| ChatGPT | WebSocket、Batch、Embeddings、hosted/custom tool、MCP、真实图片输入、background/stateful response、完整 Agent loop、多账户轮换、外部 SDK、负载和长期 refresh 稳定性。 |
-| OpenAI | 当前没有成功的真实账号/Provider 验证；Models、Chat/Responses、Embeddings、图片、strict/parallel tool、structured output、state、配额、负载和长期运行均不能由静态 ceiling 推断。 |
-| LongCat | 更多 reasoning 档位和 tool 形状、强制 Bridge/fallback、外部 SDK/Agent、负载与长期运行。 |
-| DeepSeek | Vision Files API/`file_id`、role/像素边界本地预检、600 图与 remote/mixed 64 MiB 极限、任意 remote host 可下载性、恶意图片、视觉质量与更高阶多能力组合未证明；inline executable profile 保守限制为累计 decoded 32 MiB。Pro 已记录官方 `low/high/max` 档位；普通 endpoint 不公开仅 `/beta` 保证的 function strict schema。`parallel_tool_calls` 请求控制、hosted/custom tool、structured-output SSE、强制 fallback、其他账号/区域和长期运行仍未证明。 |
-| Xiaomi MiMo | 独立 Chat structured-output 专页确认 MiMo-V2.5/Pro 的 JSON Object，但 Chat API reference 同时只列 text；当前只保留专页明确的 Chat JSON Object。2026-09-01 已对 MiMo-V2.5 以固定 conflict prompt 完成管理员 probe，并以明确请求 JSON 的固定 prompt 完成真实下游 Gateway JSON/SSE 验收；这不证明 MiMo-V2.5-Pro、其他 schema/prompt、Responses structured output 或长期稳定性。Responses structured output、prompt-cache/include 不公开；video、remote/multiple audio、更多媒体格式和 limit、parallel 稳定性、ASR 方言质量、TTS 音质、外部 SDK/Agent、负载与长期运行未证明。 |
-| Zhipu AI China | GLM-5.3、GLM-5.2 与 GLM-5.3-Flash 注册 Chat Native JSON Object；Chat function tools 只公开 Auto choice，不公开请求级 parallel 或 strict schema。只有官方明确列出的 GLM-5.3 注册 `/api/v1/responses` text-only Native，并保留 Chat bridge 作为更高能力请求的回退。2026-08-31 的有界 JSON/SSE Responses probe 均成功；Responses reasoning、structured output、工具、state，以及文件、视频、外部 SDK/Agent、其他账号/区域、负载与长期运行未证明。 |
-| OpenRouter | MiniMax 图片输入没有模型级真实 Provider 证据；Gemma 的历史 probe 只证明单张 PNG data URL，不能支撑共享 profile 的 JPEG、remote URL、4-part 与大小上限；两者当前 executable interface 均保持 text-only。Muse Spark 1.2 Contributor 的文本 Chat/Responses 与 Hermes `obc`/`obr` 已真实 probe；图片、音频、视频与文件输入尚未 probe，当前 executable interface 保持 text-only。GLM-5.3-Flash 已验证 Chat/Responses streaming、non-streaming、PNG data URL、Auto function tool、parallel 请求开关与 Hermes `obc`/`obr`；named tool choice 和 Responses structured output 经 probe 后显式不公开。GLM 的 OpenRouter file input、remote image/JPEG、video、更多图片数量/大小、长上下文、负载和长期运行仍未证明。Gemini/Grok file/audio/video、Grok 小图尺寸边界、更多图片格式/数量/大小、强制 DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好、外部 SDK/Agent、负载与长期运行未证明；公开目录字段不自动成为 executable capability。 |
-| NVIDIA | MiniMax 强制 fallback、图片/tool/structured output、真实 reasoning、Embeddings 语义质量、其他账号/区域、配额、负载与长期运行。 |
-| Alibaba Cloud Model Studio | 2026-08-27 北京真实 Responses 对比确认基础 JSON/SSE、usage 和第一轮工具 wire 可用；在统一冲突提示下，三模型均忽略 Responses `text.format=json_object/json_schema`，且在单一双调用提示下均未执行 `parallel_tool_calls=false`。GLM-5.2 另有高 reasoning 400 与标准工具续轮 arguments 类型冲突，当前继续只走 Chat bridge。Qwen3.8 Max、DeepSeek V4 Pro 0813 与 DeepSeek V4 Flash 0731 已注册双 Native；2026-08-31 再次确认 Flash 的有界 Responses JSON/SSE，但未执行 production Router 或 SDK/Agent。Bailian Chat structured output 只按官方模型范围公开，Responses structured output 继续按既有差分收窄。Qwen/DeepSeek Responses Target 的 `parallel_calls=false` 表示不公开可精确执行 true/false 的控制，不是 serial-only 保证。LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现；Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。 |
-| Kimi CN | 其他 Moonshot endpoint、原生 Responses、更多参数组合、账号权限、外部 SDK/Agent、负载与长期运行。历史 `none` 结果不证明当前可关闭 reasoning。 |
-
-Provider 外部观察见[evidence](evidence/README.md)；动态官方文档和模型目录见[references](../references/README.md)。
+  tool result、不做续轮或 Agent loop，也不证明工具调用长期稳定。当前图片 probe 仅覆盖固定 inline PNG OCR case；一次识别成功不证明
+  remote URL、detail、其他格式、多图、视觉质量或长期稳定性，文件、音频和视频 probe 尚未进入本阶段。
+- 一次 `accepted` 或 capability oracle 的 `supported` 只证明该固定首轮请求当时取得相应 JSON/SSE 结果；不证明 reasoning 参数实际生效、
+  完整工具调用流程、工具执行/续轮、能力稳定、模型质量、SDK/Agent 兼容、负载或长期稳定性。
 
 ## 5. 观测、配置与生产边界
 

@@ -14,6 +14,7 @@
 | 核验外部协议或 Provider 事实 | [参考资料](references/README.md) | 固定 source snapshot 与重新核验边界 |
 | 查看当前实现与源码 owner | [当前实现](implementation-status/current-state.md) | [当前代码架构](implementation-status/current-architecture.md) |
 | 查看 Model 与 Provider 的当前映射 | [Model 与 Provider 映射](implementation-status/model-provider-mapping.md) | Provider Target 与 Public Model 注册 |
+| 查看某个 Provider 的接入进度与未证明边界 | [Provider 接入进度](implementation-status/providers/README.md) | 对应 provider 分页与 evidence |
 | 查看未实现与未验证范围 | [当前状态边界](implementation-status/current-boundaries.md) | 带日期的外部 evidence |
 | 设计或运行项目语义测试 | [Semantic testing](../testdata/semantic-testing.md) | [评测方法证据](references/semantic-testing-methods.md)与 corpus/testkit |
 
@@ -22,7 +23,7 @@
 | 类别 | 只回答什么 | 不应包含什么 |
 |---|---|---|
 | `functional-requirements/` | 产品行为、客户端结果、安全边界、非目标和验收约束 | 当前测试结果、实现日志、候选设计 |
-| `implementation-status/` | 当前 checkout 已实现的事实、源码 owner、已执行证据和未证明边界 | 未获准路线图、外部协议全文 |
+| `implementation-status/` | 实现进度、模型/Provider 关系、未证明边界、Provider 接入进度与带日期证据 | 实现细节（由代码与注释拥有）、未获准路线图、外部协议全文 |
 | `implementation-plans/` | 当前保留的开发焦点与优先级 | 第二份路线图、完成历史、状态快照 |
 | `references/` | 外部协议、SDK、Provider、客户端和参考项目事实 | OpenBridge 当前实现、产品承诺或实施步骤 |
 
@@ -30,7 +31,7 @@
 
 文档不维护单模型 context、模态、tokenizer、reasoning、参数或价格副本。对于可直接从 official website 或 OpenRouter 获取的信息，优先记录来源 URL、来源身份、最后复核日期和重新核验条件，不复制完整 payload 或能力表。当前映射只记录 Model、Provider Target 与 Public Model 关系；模型能力由代码和运行中的扩展 Models API 自描述，外部动态事实由官方文档描述。
 
-只有已执行测试与所引用的 official/OpenRouter 声明不一致时，才新增带日期 evidence；记录必须只描述来源声明与实际观察的差异，并保留 endpoint、model ID、payload、账户/地域/网络边界和“不证明什么”。目录之间的字段差异、缺失字段或未经请求验证的推论不能写成已验证差异。
+只有已执行测试与所引用的 official/OpenRouter 声明不一致时，才新增带日期 evidence；记录必须只描述来源声明与实际观察的差异，并保留 endpoint、model ID、payload、账户/地域/网络边界和“不证明什么”。目录之间的字段差异、缺失字段或未经请求验证的推论不能写成已验证差异。实现细节不写入本目录：模块行为与收窄理由由源码注释与测试拥有，implementation-status 只保留进度、关系、边界与证据指针。
 
 ## 3. 运行时契约资产
 
@@ -52,7 +53,7 @@ OpenAPI 描述当前 system 与 OpenAI-compatible HTTP surface，不包含 MCP d
 | Route ordering、retry/fallback、cooldown | [路由与韧性](functional-requirements/routing-resilience.md) | [当前实现](implementation-status/current-state.md) |
 | Embeddings、图片、文件与音频 | [扩展能力](functional-requirements/extended-capabilities.md) | [当前状态边界](implementation-status/current-boundaries.md) |
 | 本地内容日志与 OpenTelemetry | [观测需求](functional-requirements/observability.md) | [当前实现](implementation-status/current-state.md) |
-| Provider 当前接入 | 对应产品/能力需求 | [当前实现](implementation-status/current-state.md#7-provider-注册) |
+| Provider 当前接入 | 对应产品/能力需求 | [Provider 接入进度](implementation-status/providers/README.md) |
 | 外部 OpenAI/Provider/项目事实 | 不构成需求 | [参考资料](references/README.md) |
 
 ## 5. 变更工作流

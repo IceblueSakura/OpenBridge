@@ -46,8 +46,11 @@ See `docs/implementation-status/current-architecture.md` for the current module 
 
 Route maintained facts by meaning:
 
-- Product behavior, compatibility, boundaries, and non-goals: `docs/functional-requirements/`.
-- Confirmed implementation facts and actual validation evidence: `docs/implementation-status/`.
+- Product behavior, compatibility, boundaries, and non-goals: `docs/functional-requirements/`. Large contract domains are
+  split into leaf files under the same-named subdirectory; the parent page keeps only the preamble and leaf navigation.
+- Implementation progress, model/provider relationships, unproven boundaries, per-provider onboarding status, and dated
+  evidence: `docs/implementation-status/`. Implementation details belong in code and module comments (`//!`/`///`) and tests,
+  not in separate docs.
 - The one approved short-cycle behavior: `docs/implementation-plans/current-focus.md`.
 - External protocol, SDK, client, and reference-project facts: `docs/references/`.
 - Local implementation rationale: module/API documentation unless it changes a cross-cutting contract.
@@ -69,8 +72,9 @@ rules.
   OpenAPI, examples, fixtures, docs, and tests. Leave private configuration and user data untouched.
 - Within the approved focus, unpublished prototype APIs and bootstrap fields may be replaced rather than preserved with
   legacy aliases, compatibility shims, deprecation windows, or meaningless schema bumps.
-- After completion, record confirmed facts and commands in implementation status, then restore `current-focus.md` to
-  its empty state. Do not expand a narrow task into adjacent refactoring or provider/configuration work.
+- After completion, record progress and evidence pointers in implementation status, write implementation details into code
+  comments, then restore `current-focus.md` to its empty state. Do not expand a narrow task into adjacent refactoring or
+  provider/configuration work.
 - Keep dependency changes intentional. Update `Cargo.lock` with `Cargo.toml` and repeat locked validation.
 - Pure instruction, comment, or documentation maintenance does not require a manufactured implementation focus unless
   it changes product behavior or a compatibility commitment.

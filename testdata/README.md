@@ -9,7 +9,7 @@ case，新增 synthetic context length/position、strict structured output、`se
 和 runtime document 的 `schema_version` 仍为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)
-。当前已验证状态和集成边界见[当前实现](../docs/implementation-status/current-state.md#8-观测与测试资产)和
+。当前已验证状态和集成边界见[当前实现](../docs/implementation-status/current-state.md)和
 [当前状态边界](../docs/implementation-status/current-boundaries.md#6-测试资产边界)。
 
 ## 何时使用

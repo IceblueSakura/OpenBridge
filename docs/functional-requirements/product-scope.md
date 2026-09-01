@@ -45,7 +45,7 @@ Agent 或 OpenAI-compatible SDK 通过稳定的 loopback HTTP 地址和 Public M
 - opaque continuation、Provider resource 与私有 turn state 不能进入 Bridge 或跨 Target fallback。只有未来的
   功能需求明确 issuer、credential affinity 与完整状态生命周期后，才可扩大上述契约。
 
-详细 envelope 与状态规则由 [Generation envelope 与状态](gateway-api.md#generation-envelope-与状态)唯一拥有。
+详细 envelope 与状态规则由 [Generation envelope 与状态](gateway-api/generation-state.md)唯一拥有。
 
 ### 3. 路由与静态装配
 
@@ -90,7 +90,7 @@ ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3
 | `POST /v1/responses` | 在所选 Public Model 的固定 Responses 契约内提供 JSON/SSE。 |
 | `POST /v1/embeddings` | 在独立 Embedding Public Model 契约内提供有界 JSON 向量结果。 |
 | `POST /v1/images/generations` | 在独立 Images Public Model 契约内提供文本到图像的同步 JSON URL 结果；不提供 edit/variation、异步任务或 b64_json。 |
-| `/mcp` | 按 [MCP 本地服务](gateway-api.md#mcp-本地服务)提供 dual-era Streamable HTTP 生命周期。 |
+| `/mcp` | 按 [MCP 本地服务](gateway-api/mcp.md)提供 dual-era Streamable HTTP 生命周期。 |
 
 ### 6. 暂不纳入产品承诺
 
