@@ -151,7 +151,7 @@ schema 省略对应 `[telemetry.*]` table 时，traces 或 metrics exporter 分�
 OpenBridge 固定发送到 `/v1/traces` 和 `/v1/metrics`，不提供请求级 exporter 覆盖、内置 Prometheus、metrics 查询 API、持久化或
 分布式聚合。collector 故障不会改变业务响应或 Route 选择。
 
-指标口径与敏感属性边界见[当前实现](docs/implementation-status/current-state.md#8-观测与测试资产)和
+指标口径与敏感属性边界见[当前实现](docs/implementation-status/current-state.md)和
 [当前状态边界](docs/implementation-status/current-boundaries.md#5-观测配置与生产边界)。
 
 ## 6. ChatGPT OAuth2（可选）
@@ -169,8 +169,9 @@ PKCE exchange 后，命令事务性写入配置指定的 auth 文件。不要分
 自动交互登录。登录后重启服务，再以 `/v1/models` 确认当前配置会公开哪些 ChatGPT-backed Public Model；真实可调用性仍由 probe
 或实际请求确认。
 
-详细边界见[当前实现](docs/implementation-status/current-state.md#2-配置凭证与静态注册)和
-[当前状态边界](docs/implementation-status/current-boundaries.md#4-provider-特定边界)。
+详细边界见[当前实现](docs/implementation-status/current-state.md)、
+[配置与凭证合同](docs/functional-requirements/configuration/credentials.md)和
+[Provider 接入进度](docs/implementation-status/providers/chatgpt.md)。
 
 ## 7. 显式 Provider 探测
 
@@ -180,18 +181,22 @@ origin、Provider path/body hook、timeout 和 credential binding；只有多个
 
 ```powershell
 cargo run --locked --bin openbridge-probe -- models --provider openai
-cargo run --locked --bin openbridge-probe -- generation --provider bailian --model candidate-model-id --protocol chat --delivery non-streaming --reasoning omitted --capability tool-parallel-true
+cargo run --locked --bin openbridge-probe -- generation --provider bailian --model candidate-model-id --protocol chat --delivery non-streaming --case tool-parallel-true
 ```
 
 `models` 输出 Provider 固定 Models endpoint 的完整计数、最多 1024 项有界 ID 样本，以及可选 `--model` 的可见性。
-`generation` 需要 `--model`，并按 `--protocol`（chat/responses/all）、`--delivery`（non-streaming/streaming/all）、
-`--reasoning`（omitted/none/minimal/low/medium/high/xhigh/max/all）与 `--capability`
-（text/json-object/json-schema/json-schema-strict/tool-auto/tool-none/tool-required/tool-named/tool-strict/
-tool-parallel-false/tool-parallel-true/all）独立展开矩阵；默认只跑双协议、non-streaming、omitted reasoning 与 text。
+`generation` 需要 `--model`，一次只执行一个由 `--protocol`（chat/responses）、`--delivery`（non-streaming/streaming）和
+`--case` 选择的请求；默认是 Chat、non-streaming 与 text。case 为
+text/reasoning-none/reasoning-minimal/reasoning-low/reasoning-medium/reasoning-high/reasoning-xhigh/reasoning-max/json-object/
+json-schema/json-schema-strict/image-input-inline-png/tool-auto/tool-none/tool-required/tool-named/tool-strict/tool-parallel-false/
+tool-parallel-true。
+CLI 和 library 不接受 `all`、列表或内置笛卡尔矩阵；外部测试脚本通过多次独立调用编排。
 Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema；tool case 携带两个以内固定 function tools、固定 prompt 与
 固定 arguments schema，只观察单次首轮响应中的 tool choice、strict 和 parallel 差分，不执行工具、不发送 tool result，也不发起
 continuation。两类 case 都按完整 terminal 与瞬时输出给出 `supported`、`not_honored` 或 `inconclusive`，不保留生成文本、tool
 arguments、call ID 或 item ID。`auto` 未调用工具和 `parallel=true` 只返回一个调用都记为 `inconclusive`，不误报不支持。
+`image-input-inline-png` 使用内置、已视觉复核的固定 PNG data URL；Chat 发送 `image_url`，Responses 发送 `input_image`。只有完整响应
+精确返回图片中的固定 token 才记为 `supported`，请求成功但识别不匹配记为 `inconclusive`，报告不保留图片 data URL、prompt 或输出正文。
 `--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受已注册且启用的 Generation Target。所有 bounded
 Generation case 使用固定 4096-token accuracy-oriented upstream output limit；探测 Target 自身已注册 upstream model 时按其 output ceiling
 下调，显式 candidate model 不继承另一模型的 ceiling。只有 backend 明确
@@ -205,8 +210,9 @@ credential、认证 header、完整请求正文、生成正文或完整 upstream
 `unsupported` 只表示本地 trusted Target/profile 不允许 operation 或 delivery；真实 upstream 的所有非 2xx（包括 candidate-model 404）
 都只是该请求的 `rejected`，不会提升为 endpoint 静态结论。
 
-一次 `accepted` 或 tool oracle 的 `supported` 只证明该固定首轮请求当时取得相应 JSON/SSE 结果；它不证明 reasoning 参数实际生效、
-完整工具调用流程、工具执行/续轮、能力稳定、多模态、模型质量、SDK/Agent 兼容、retry/fallback、负载或长期稳定性。完整说明见
+一次 `accepted` 或 capability oracle 的 `supported` 只证明该固定首轮请求当时取得相应 JSON/SSE 结果；它不证明 reasoning 参数实际生效、
+完整工具调用流程、工具执行/续轮、能力稳定，或 inline PNG 之外的 remote/detail/其他多模态能力，也不证明模型质量、SDK/Agent 兼容、
+retry/fallback、负载或长期稳定性。完整说明见
 [当前状态边界](docs/implementation-status/current-boundaries.md)。
 
 ## 8. OpenAPI 与 Swagger UI

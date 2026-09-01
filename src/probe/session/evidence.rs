@@ -26,8 +26,7 @@ pub(super) fn generation_result(
     GenerationProbeResult {
         protocol: ProbeProtocol::from_api(selection.protocol),
         mode: selection.mode,
-        reasoning_effort: selection.reasoning_effort,
-        capability: selection.capability,
+        case: selection.case,
         upstream_model: upstream_model.map(str::to_owned),
         elapsed_ms,
         outcome,
@@ -231,6 +230,7 @@ pub(super) fn generation_capability_evidence(
             verdict: ProbeCapabilityVerdict::Inconclusive,
             valid_json_object: None,
             fixed_schema_match: None,
+            fixed_image_match: None,
             tool_call_count: None,
             fixed_tool_match: None,
             fixed_arguments_match: None,
@@ -245,10 +245,27 @@ pub(super) fn generation_capability_evidence(
             },
             valid_json_object: None,
             fixed_schema_match: None,
+            fixed_image_match: None,
             tool_call_count: None,
             fixed_tool_match: None,
             fixed_arguments_match: None,
         },
+        ProbeGenerationCapability::ImageInputInlinePng => {
+            let fixed_image_match = output.text == "OPENBRIDGE 7";
+            ProbeCapabilityEvidence {
+                verdict: if fixed_image_match {
+                    ProbeCapabilityVerdict::Supported
+                } else {
+                    ProbeCapabilityVerdict::Inconclusive
+                },
+                valid_json_object: None,
+                fixed_schema_match: None,
+                fixed_image_match: Some(fixed_image_match),
+                tool_call_count: None,
+                fixed_tool_match: None,
+                fixed_arguments_match: None,
+            }
+        }
         ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => {
@@ -264,6 +281,7 @@ pub(super) fn generation_capability_evidence(
                 ProbeGenerationCapability::JsonSchema
                 | ProbeGenerationCapability::JsonSchemaStrict => fixed_schema_match,
                 ProbeGenerationCapability::Text
+                | ProbeGenerationCapability::ImageInputInlinePng
                 | ProbeGenerationCapability::ToolAuto
                 | ProbeGenerationCapability::ToolNone
                 | ProbeGenerationCapability::ToolRequired
@@ -287,6 +305,7 @@ pub(super) fn generation_capability_evidence(
                         | ProbeGenerationCapability::JsonSchemaStrict
                 )
                 .then_some(fixed_schema_match),
+                fixed_image_match: None,
                 tool_call_count: None,
                 fixed_tool_match: None,
                 fixed_arguments_match: None,
@@ -335,6 +354,7 @@ fn tool_capability_evidence(
                 })
         }
         ProbeGenerationCapability::Text
+        | ProbeGenerationCapability::ImageInputInlinePng
         | ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => unreachable!(),
@@ -359,6 +379,7 @@ fn tool_capability_evidence(
             })
         }
         ProbeGenerationCapability::Text
+        | ProbeGenerationCapability::ImageInputInlinePng
         | ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => unreachable!(),
@@ -401,6 +422,7 @@ fn tool_capability_evidence(
             }
         }
         ProbeGenerationCapability::Text
+        | ProbeGenerationCapability::ImageInputInlinePng
         | ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => unreachable!(),
@@ -409,6 +431,7 @@ fn tool_capability_evidence(
         verdict,
         valid_json_object: None,
         fixed_schema_match: None,
+        fixed_image_match: None,
         tool_call_count: Some(output.tool_calls.len()),
         fixed_tool_match: Some(fixed_tool_match),
         fixed_arguments_match,
@@ -912,6 +935,33 @@ mod tests {
             .verdict,
             ProbeCapabilityVerdict::Inconclusive
         );
+    }
+
+    #[test]
+    fn image_oracle_is_supported_only_for_the_fixed_visible_token() {
+        let supported = generation_capability_evidence(
+            ProbeGenerationCapability::ImageInputInlinePng,
+            &GenerationOutputObservation::text("OPENBRIDGE 7"),
+            Some(ProbeTerminal::NonStreaming),
+        );
+        assert_eq!(supported.verdict, ProbeCapabilityVerdict::Supported);
+        assert_eq!(supported.fixed_image_match, Some(true));
+
+        let uncertain = generation_capability_evidence(
+            ProbeGenerationCapability::ImageInputInlinePng,
+            &GenerationOutputObservation::text("I cannot read the image"),
+            Some(ProbeTerminal::NonStreaming),
+        );
+        assert_eq!(uncertain.verdict, ProbeCapabilityVerdict::Inconclusive);
+        assert_eq!(uncertain.fixed_image_match, Some(false));
+
+        let padded = generation_capability_evidence(
+            ProbeGenerationCapability::ImageInputInlinePng,
+            &GenerationOutputObservation::text("OPENBRIDGE 7\n"),
+            Some(ProbeTerminal::NonStreaming),
+        );
+        assert_eq!(padded.verdict, ProbeCapabilityVerdict::Inconclusive);
+        assert_eq!(padded.fixed_image_match, Some(false));
     }
 
     #[test]

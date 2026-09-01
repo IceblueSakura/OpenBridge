@@ -1,7 +1,8 @@
 //! Fixed JSON requests and minimum response-shape checks for bounded upstream probes.
 //!
-//! This module generates only built-in text, structured-output, first-turn function-tool, and
-//! Embeddings inputs. The parent validates an optional model ID; no external URL, path, prompt,
+//! This module generates only built-in text, structured-output, inline-image, first-turn
+//! function-tool, and Embeddings inputs. The parent validates an optional model ID; no external
+//! URL, path, prompt,
 //! tool definition, arbitrary body, tool result, continuation state, or action is accepted.
 
 use serde_json::{Value, json};
@@ -13,6 +14,9 @@ use super::{ProbeGenerationCapability, ProbeGenerationMode, ProbeReasoningEffort
 const PROBE_PROMPT: &str = "Reply with exactly OK.";
 const STRUCTURED_PROBE_PROMPT: &str =
     "Reply with exactly the plain text OK. Do not return a JSON object.";
+const IMAGE_PROBE_PROMPT: &str =
+    "Read the exact uppercase letters and digit shown in the image. Reply with only that text.";
+const IMAGE_PROBE_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVkAAABKAQAAAAA5vBr3AAABrklEQVRIx+3Vu3HDMAwGYPBUsOQG5ibmWq5C8VJkLeYyQFagN2DJQmcEfECiTCdOkypyo/PpO5kC8MOAv//McOADH/gvcJQ4T+hBeusimAT6BmBBI4IJMJFIAIyDoKtlrBLIgidcQA3YA11NxobwlEAUDGRGTI+dQTMWdKdiGx9gyFiNmA48YpGR8nQe7aKBpOkACjPWKthWiYZvUzBuWfGctLdJ4xS0N5+MHWMZCcuMFWHPONIVH2C9x6HglH+MsWh4kekbPG94GrEk7Bgvyj3AasVvhAWfucc3ucNUZ+VfSwe1xw2DHHEs+IOwLHW+w0uPSwcr1jQbjKNkrHZYZ/xenkwdfoJNxtc6G2rA9L3HNlfjWtpN9zdcq7HHAjMOpSnPML13xrHg03pmZBxN38GGRTThohnPP+JUcS1d6nAw/dTtsEOeuhXbfp53eEae5xHnpFS8EPaXNhs5KYw99hnccI1Vy+CIKcoZU7oJAwU2vHC6ZU13yeu6Nxq+NXzmvcHYYbeROkzDH8+8kUZMu65hFGWe4+lu1+HUb9EO66TT6W6Ldvj4Azrwgf89/gKfaJFN9aplBwAAAABJRU5ErkJggg==";
 const TOOL_PROBE_PROMPT: &str =
     "Call openbridge_probe_primary exactly once with value primary. Do not answer with text.";
 const TOOL_NONE_PROMPT: &str =
@@ -40,6 +44,7 @@ pub(super) fn probe_generation_request(
         ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => STRUCTURED_PROBE_PROMPT,
+        ProbeGenerationCapability::ImageInputInlinePng => IMAGE_PROBE_PROMPT,
         ProbeGenerationCapability::ToolAuto => TOOL_PROBE_PROMPT,
         ProbeGenerationCapability::ToolNone => TOOL_NONE_PROMPT,
         ProbeGenerationCapability::ToolRequired => TOOL_PROBE_PROMPT,
@@ -119,6 +124,10 @@ fn add_generation_capability(
     capability: ProbeGenerationCapability,
     request: &mut Value,
 ) {
+    if capability == ProbeGenerationCapability::ImageInputInlinePng {
+        add_inline_png(protocol, request);
+        return;
+    }
     if matches!(
         capability,
         ProbeGenerationCapability::ToolAuto
@@ -133,7 +142,7 @@ fn add_generation_capability(
         return;
     }
     let Some(format) = (match capability {
-        ProbeGenerationCapability::Text => None,
+        ProbeGenerationCapability::Text | ProbeGenerationCapability::ImageInputInlinePng => None,
         ProbeGenerationCapability::JsonObject => Some(json!({"type": "json_object"})),
         ProbeGenerationCapability::JsonSchema | ProbeGenerationCapability::JsonSchemaStrict => {
             let strict = capability == ProbeGenerationCapability::JsonSchemaStrict;
@@ -183,6 +192,27 @@ fn add_generation_capability(
     }
 }
 
+/// Replaces the text-only user input with one fixed text-and-inline-PNG message.
+fn add_inline_png(protocol: ApiProtocol, request: &mut Value) {
+    match protocol {
+        ApiProtocol::ChatCompletions => {
+            request["messages"][0]["content"] = json!([
+                {"type": "text", "text": IMAGE_PROBE_PROMPT},
+                {"type": "image_url", "image_url": {"url": IMAGE_PROBE_DATA_URL}}
+            ]);
+        }
+        ApiProtocol::Responses => {
+            request["input"] = json!([{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": IMAGE_PROBE_PROMPT},
+                    {"type": "input_image", "image_url": IMAGE_PROBE_DATA_URL}
+                ]
+            }]);
+        }
+    }
+}
+
 /// Adds closed fixed function tools without caller-provided prompt, name, or schema.
 fn add_function_tools(
     protocol: ApiProtocol,
@@ -222,7 +252,8 @@ fn add_function_tools(
         ProbeGenerationCapability::Text
         | ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
-        | ProbeGenerationCapability::JsonSchemaStrict => unreachable!(),
+        | ProbeGenerationCapability::JsonSchemaStrict
+        | ProbeGenerationCapability::ImageInputInlinePng => unreachable!(),
     };
     let object = request
         .as_object_mut()
@@ -350,6 +381,57 @@ mod tests {
         );
         assert_eq!(responses["stream"], true);
         assert!(responses.get("response_format").is_none());
+    }
+
+    #[test]
+    fn inline_png_image_case_uses_fixed_protocol_specific_content_parts() {
+        let chat = probe_generation_request(
+            ApiProtocol::ChatCompletions,
+            "candidate",
+            4096,
+            ProbeGenerationMode::NonStreaming,
+            ProbeReasoningEffort::Omitted,
+            ProbeGenerationCapability::ImageInputInlinePng,
+            false,
+        );
+        assert_eq!(
+            chat.pointer("/messages/0/content/0/type"),
+            Some(&json!("text"))
+        );
+        assert_eq!(
+            chat.pointer("/messages/0/content/1/type"),
+            Some(&json!("image_url"))
+        );
+        assert!(
+            chat.pointer("/messages/0/content/1/image_url/url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("data:image/png;base64,iVBORw0KGgo"))
+        );
+
+        let responses = probe_generation_request(
+            ApiProtocol::Responses,
+            "candidate",
+            4096,
+            ProbeGenerationMode::Streaming,
+            ProbeReasoningEffort::Omitted,
+            ProbeGenerationCapability::ImageInputInlinePng,
+            false,
+        );
+        assert_eq!(
+            responses.pointer("/input/0/content/0/type"),
+            Some(&json!("input_text"))
+        );
+        assert_eq!(
+            responses.pointer("/input/0/content/1/type"),
+            Some(&json!("input_image"))
+        );
+        assert!(
+            responses
+                .pointer("/input/0/content/1/image_url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("data:image/png;base64,iVBORw0KGgo"))
+        );
+        assert_eq!(responses["stream"], true);
     }
 
     #[test]

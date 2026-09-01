@@ -231,7 +231,7 @@ async fn run_probe_session_with_headers(
         max_sse_event_bytes: registry.limits().max_sse_event_bytes(),
     };
 
-    // Run each probe independently so one failure affects only its outcome.
+    // Run each selected unit independently; Generation is deliberately limited to one request.
     let list_models = if selection.list_models {
         Some(
             session
@@ -241,21 +241,23 @@ async fn run_probe_session_with_headers(
     } else {
         None
     };
-    let mut generation = Vec::new();
-    if selection.chat {
-        generation.extend(
+    let generation = if let Some(generation) = selection.generation {
+        Some(
             session
-                .probe_generation_matrix(ApiProtocol::ChatCompletions, &selection)
+                .probe_generation_case(
+                    &GenerationCaseSelection {
+                        protocol: generation.protocol.as_api(),
+                        mode: generation.mode,
+                        case: generation.case,
+                    },
+                    selection.upstream_model.as_deref(),
+                    selection.allow_unbounded_streaming_output,
+                )
                 .await,
-        );
-    }
-    if selection.responses {
-        generation.extend(
-            session
-                .probe_generation_matrix(ApiProtocol::Responses, &selection)
-                .await,
-        );
-    }
+        )
+    } else {
+        None
+    };
     let embeddings = if selection.embeddings {
         Some(session.probe_embeddings().await)
     } else {
@@ -346,35 +348,6 @@ impl ProbeSession<'_> {
         }
     }
 
-    /// Executes every selected delivery/reasoning/capability case for one Generation protocol.
-    async fn probe_generation_matrix(
-        &self,
-        protocol: ApiProtocol,
-        selection: &ProbeOptions,
-    ) -> Vec<GenerationProbeResult> {
-        let mut results = Vec::new();
-        for mode in &selection.generation_modes {
-            for reasoning_effort in &selection.reasoning_efforts {
-                for capability in &selection.generation_capabilities {
-                    let result = self
-                        .probe_generation_case(
-                            &GenerationCaseSelection {
-                                protocol,
-                                mode: *mode,
-                                reasoning_effort: *reasoning_effort,
-                                capability: *capability,
-                            },
-                            selection.upstream_model.as_deref(),
-                            selection.allow_unbounded_streaming_output,
-                        )
-                        .await;
-                    results.push(result);
-                }
-            }
-        }
-        results
-    }
-
     /// Executes one fixed synthetic Generation request without registered model-specific rewrites.
     async fn probe_generation_case(
         &self,
@@ -426,15 +399,15 @@ impl ProbeSession<'_> {
             case.protocol,
             upstream_model,
             if upstream_model_override.is_some() {
-                case.capability.max_output_tokens()
+                case.capability().max_output_tokens()
             } else {
                 registered_api
-                    .map(|api| self.probe_max_output_tokens(api, case.capability))
-                    .unwrap_or_else(|| case.capability.max_output_tokens())
+                    .map(|api| self.probe_max_output_tokens(api, case.capability()))
+                    .unwrap_or_else(|| case.capability().max_output_tokens())
             },
             case.mode,
-            case.reasoning_effort,
-            case.capability,
+            case.reasoning_effort(),
+            case.capability(),
             allow_unbounded_streaming_output,
         );
         let request = match self.prepare_protocol_request(
@@ -487,7 +460,7 @@ impl ProbeSession<'_> {
         };
         let capability_evidence = (outcome.state == ProbeStatus::Accepted).then(|| {
             generation_capability_evidence(
-                case.capability,
+                case.capability(),
                 &output,
                 evidence.as_ref().and_then(|evidence| evidence.terminal),
             )

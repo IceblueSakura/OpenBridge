@@ -57,7 +57,7 @@ downstream response + request/attempt observations
 | Generation codecs | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Native 语义保留与Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
-| Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 与 candidate-model Generation 矩阵；不修改 registry |
+| Probe | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | 管理员在已注册 Generation Target 边界内执行 Models 或单一 candidate-model Generation case；不编排矩阵、不修改 registry |
 | MCP | `src/mcp/` | transport/discovery、静态工具目录和逐工具执行；不进入 generation pipeline |
 
 关键 facade 边界：

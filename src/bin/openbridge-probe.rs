@@ -9,8 +9,9 @@ use anyhow::{Context, Result};
 use openbridge::{
     config::BootstrapConfigPath,
     probe::{
-        ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort,
-        probe_upstream_target, probe_upstream_target_with_oauth2, resolve_generation_probe_target,
+        ProbeGenerationCase, ProbeGenerationMode, ProbeGenerationSelection, ProbeOptions,
+        ProbeProtocol, probe_upstream_target, probe_upstream_target_with_oauth2,
+        resolve_generation_probe_target,
     },
     provider::ProviderKind,
     providers::build_compiled_registry_with_active_pools,
@@ -126,14 +127,13 @@ impl ProbeArguments {
             anyhow::bail!("unknown probe command '{command}'; expected models or generation");
         }
 
-        // Parse only closed built-in axes; no endpoint, path, prompt, schema, or body is accepted.
+        // Parse one closed built-in case; no endpoint, path, prompt, schema, or body is accepted.
         let mut provider = None;
         let mut explicit_target = None;
         let mut selection = ProbeOptions::default();
-        let mut protocols = Vec::new();
-        let mut modes = Vec::new();
-        let mut capabilities = Vec::new();
-        let mut reasoning = Vec::new();
+        let mut protocol = None;
+        let mut mode = None;
+        let mut generation_case = None;
         let mut seen_flags = BTreeSet::new();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -163,70 +163,31 @@ impl ProbeArguments {
                     selection.allow_unbounded_streaming_output = true;
                 }
                 "--protocol" if command == "generation" => {
-                    let value =
-                        next_value(&mut arguments, "--protocol", "chat, responses, or all")?;
-                    match value.as_str() {
-                        "chat" => push_unique(&mut protocols, "chat")?,
-                        "responses" => push_unique(&mut protocols, "responses")?,
-                        "all" if protocols.is_empty() => {
-                            protocols.extend(["chat", "responses"]);
-                        }
-                        "all" => {
-                            anyhow::bail!("--protocol all cannot be combined with other values")
-                        }
+                    reject_duplicate_flag(&mut seen_flags, "--protocol")?;
+                    let value = next_value(&mut arguments, "--protocol", "chat or responses")?;
+                    protocol = Some(match value.as_str() {
+                        "chat" => ProbeProtocol::ChatCompletions,
+                        "responses" => ProbeProtocol::Responses,
                         _ => anyhow::bail!("invalid --protocol value '{value}'"),
-                    }
+                    });
                 }
                 "--delivery" if command == "generation" => {
-                    let value = next_value(
-                        &mut arguments,
-                        "--delivery",
-                        "non-streaming, streaming, or all",
-                    )?;
-                    match value.as_str() {
-                        "non-streaming" => {
-                            push_unique(&mut modes, ProbeGenerationMode::NonStreaming)?
-                        }
-                        "streaming" => push_unique(&mut modes, ProbeGenerationMode::Streaming)?,
-                        "all" if modes.is_empty() => modes.extend(ProbeGenerationMode::ALL),
-                        "all" => {
-                            anyhow::bail!("--delivery all cannot be combined with other values")
-                        }
+                    reject_duplicate_flag(&mut seen_flags, "--delivery")?;
+                    let value =
+                        next_value(&mut arguments, "--delivery", "non-streaming or streaming")?;
+                    mode = Some(match value.as_str() {
+                        "non-streaming" => ProbeGenerationMode::NonStreaming,
+                        "streaming" => ProbeGenerationMode::Streaming,
                         _ => anyhow::bail!("invalid --delivery value '{value}'"),
-                    }
+                    });
                 }
-                "--capability" if command == "generation" => {
-                    let value = next_value(
-                        &mut arguments,
-                        "--capability",
-                        "text, json-object, json-schema, json-schema-strict, or all",
-                    )?;
-                    if value == "all" {
-                        if !capabilities.is_empty() {
-                            anyhow::bail!("--capability all cannot be combined with other values");
-                        }
-                        capabilities.extend(ProbeGenerationCapability::ALL);
-                    } else {
-                        let capability = ProbeGenerationCapability::from_wire(&value)
-                            .with_context(|| format!("--capability '{value}' is unknown"))?;
-                        push_unique(&mut capabilities, capability)?;
-                    }
-                }
-                "--reasoning" => {
-                    if command != "generation" {
-                        anyhow::bail!("--reasoning is valid only for generation");
-                    }
-                    let value = next_value(&mut arguments, "--reasoning", "a level or all")?;
-                    if value == "all" {
-                        if !reasoning.is_empty() {
-                            anyhow::bail!("--reasoning all cannot be combined with other values");
-                        }
-                        reasoning.extend(ProbeReasoningEffort::ALL);
-                    } else {
-                        let effort = ProbeReasoningEffort::from_wire(&value)
-                            .with_context(|| format!("invalid --reasoning value '{value}'"))?;
-                        push_unique(&mut reasoning, effort)?;
-                    }
+                "--case" if command == "generation" => {
+                    reject_duplicate_flag(&mut seen_flags, "--case")?;
+                    let value = next_value(&mut arguments, "--case", "a built-in unit case")?;
+                    generation_case = Some(
+                        ProbeGenerationCase::from_wire(&value)
+                            .with_context(|| format!("unknown --case value '{value}'"))?,
+                    );
                 }
                 "--help" | "-h" => {
                     print_usage();
@@ -243,26 +204,11 @@ impl ProbeArguments {
                 if selection.upstream_model.is_none() {
                     anyhow::bail!("generation requires --model");
                 }
-                if protocols.is_empty() {
-                    protocols.extend(["chat", "responses"]);
-                }
-                selection.chat = protocols.contains(&"chat");
-                selection.responses = protocols.contains(&"responses");
-                selection.generation_modes = if modes.is_empty() {
-                    vec![ProbeGenerationMode::NonStreaming]
-                } else {
-                    modes
-                };
-                selection.generation_capabilities = if capabilities.is_empty() {
-                    vec![ProbeGenerationCapability::Text]
-                } else {
-                    capabilities
-                };
-                selection.reasoning_efforts = if reasoning.is_empty() {
-                    vec![ProbeReasoningEffort::Omitted]
-                } else {
-                    reasoning
-                };
+                selection.generation = Some(ProbeGenerationSelection {
+                    protocol: protocol.unwrap_or(ProbeProtocol::ChatCompletions),
+                    mode: mode.unwrap_or(ProbeGenerationMode::NonStreaming),
+                    case: generation_case.unwrap_or(ProbeGenerationCase::Text),
+                });
             }
             _ => unreachable!(),
         }
@@ -302,14 +248,6 @@ fn parse_provider(value: &str) -> Result<ProviderKind> {
     }
 }
 
-fn push_unique<T: Copy + Eq>(values: &mut Vec<T>, value: T) -> Result<()> {
-    if values.contains(&value) {
-        anyhow::bail!("probe matrix values must not be repeated");
-    }
-    values.push(value);
-    Ok(())
-}
-
 fn reject_duplicate_flag(seen: &mut BTreeSet<&'static str>, flag: &'static str) -> Result<()> {
     if !seen.insert(flag) {
         anyhow::bail!("{flag} may be provided only once");
@@ -322,20 +260,21 @@ fn print_usage() {
     println!(
         "Usage:\n\
          cargo run --bin openbridge-probe -- models --provider <slug> [--target <id>] [--model <upstream-model-id>]\n\
-         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses|all>]... [--capability <text|json-object|json-schema|json-schema-strict|tool-auto|tool-none|tool-required|tool-named|tool-strict|tool-parallel-false|tool-parallel-true|all>]... [--delivery <non-streaming|streaming|all>]... [--reasoning <level|all>]... [--allow-unbounded-streaming-output]\n\
+         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses>] [--delivery <non-streaming|streaming>] [--case <text|reasoning-none|reasoning-minimal|reasoning-low|reasoning-medium|reasoning-high|reasoning-xhigh|reasoning-max|json-object|json-schema|json-schema-strict|image-input-inline-png|tool-auto|tool-none|tool-required|tool-named|tool-strict|tool-parallel-false|tool-parallel-true>] [--allow-unbounded-streaming-output]\n\
          \n\
-         Generation defaults to both protocols, non-streaming delivery, omitted reasoning, and the text capability. Every bounded case uses a 4096-token accuracy-oriented output budget, clamped by a registered model ceiling. Structured and first-turn function-tool cases use fixed prompts, schemas, and tool definitions, then report supported, not_honored, or inconclusive without retaining generated text or arguments. Tool cases never execute a tool or send continuation state. Explicit all values expand potentially billable requests. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, schema, or tools. The command prints a redacted report and never modifies the code registry."
+         Generation executes exactly one unit case and defaults to Chat, non-streaming delivery, and text. Reasoning is encoded by reasoning-* cases rather than a separate matrix axis. Every bounded case uses a 4096-token accuracy-oriented output budget, clamped by a registered model ceiling. Structured, inline-image, and first-turn function-tool cases use fixed prompts and assets, then report supported, not_honored, or inconclusive without retaining generated text, image bytes, or arguments. Tool cases never execute a tool or send continuation state. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, schema, or tools. The command prints a redacted report and never modifies the code registry."
     );
 }
 
 #[cfg(test)]
 mod tests {
-    //! Verifies probe CLI target and fixed-selector parsing.
+    //! Verifies probe CLI target and one-case selector parsing.
 
     use super::ProbeArguments;
     use openbridge::{
         probe::{
-            ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions, ProbeReasoningEffort,
+            ProbeGenerationCase, ProbeGenerationMode, ProbeGenerationSelection, ProbeOptions,
+            ProbeProtocol,
         },
         provider::ProviderKind,
     };
@@ -345,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_defaults_to_models_discovery_or_bounded_generation() {
+    fn parser_defaults_to_models_discovery_or_one_bounded_chat_text_case() {
         let models = parse(&["models", "--provider", "bailian", "--model", "candidate"]).unwrap();
         assert_eq!(models.provider, ProviderKind::Bailian);
         assert!(models.explicit_target.is_none());
@@ -366,15 +305,13 @@ mod tests {
             "candidate",
         ])
         .unwrap();
-        assert!(generation.selection.chat);
-        assert!(generation.selection.responses);
         assert_eq!(
-            generation.selection.generation_modes,
-            [ProbeGenerationMode::NonStreaming]
-        );
-        assert_eq!(
-            generation.selection.generation_capabilities,
-            [ProbeGenerationCapability::Text]
+            generation.selection.generation,
+            Some(ProbeGenerationSelection {
+                protocol: ProbeProtocol::ChatCompletions,
+                mode: ProbeGenerationMode::NonStreaming,
+                case: ProbeGenerationCase::Text,
+            })
         );
     }
 
@@ -414,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_accepts_an_explicit_generation_matrix_and_target_disambiguation() {
+    fn parser_accepts_one_explicit_generation_case_and_target_disambiguation() {
         let parsed = parse(&[
             "generation",
             "--provider",
@@ -427,88 +364,71 @@ mod tests {
             "responses",
             "--delivery",
             "streaming",
-            "--capability",
-            "json-schema-strict",
-            "--reasoning",
-            "all",
+            "--case",
+            "reasoning-high",
             "--allow-unbounded-streaming-output",
         ])
         .unwrap();
         assert_eq!(parsed.explicit_target.as_deref(), Some("deepseek-primary"));
-        assert!(!parsed.selection.chat);
-        assert!(parsed.selection.responses);
         assert_eq!(
-            parsed.selection.generation_modes,
-            [ProbeGenerationMode::Streaming]
-        );
-        assert_eq!(
-            parsed.selection.generation_capabilities,
-            [ProbeGenerationCapability::JsonSchemaStrict]
-        );
-        assert_eq!(
-            parsed.selection.reasoning_efforts,
-            ProbeReasoningEffort::ALL.to_vec()
+            parsed.selection.generation,
+            Some(ProbeGenerationSelection {
+                protocol: ProbeProtocol::Responses,
+                mode: ProbeGenerationMode::Streaming,
+                case: ProbeGenerationCase::ReasoningHigh,
+            })
         );
         assert!(parsed.selection.allow_unbounded_streaming_output);
-
-        let parsed = parse(&[
-            "generation",
-            "--provider",
-            "deepseek",
-            "--model",
-            "candidate-model",
-            "--capability",
-            "text",
-            "--capability",
-            "json-object",
-        ])
-        .unwrap();
-        assert_eq!(
-            parsed.selection.generation_capabilities,
-            [
-                ProbeGenerationCapability::Text,
-                ProbeGenerationCapability::JsonObject,
-            ]
-        );
-
-        let parsed = parse(&[
-            "generation",
-            "--provider",
-            "deepseek",
-            "--model",
-            "candidate-model",
-            "--capability",
-            "tool-auto",
-            "--capability",
-            "tool-none",
-            "--capability",
-            "tool-required",
-            "--capability",
-            "tool-named",
-            "--capability",
-            "tool-strict",
-            "--capability",
-            "tool-parallel-false",
-            "--capability",
-            "tool-parallel-true",
-        ])
-        .unwrap();
-        assert_eq!(
-            parsed.selection.generation_capabilities,
-            [
-                ProbeGenerationCapability::ToolAuto,
-                ProbeGenerationCapability::ToolNone,
-                ProbeGenerationCapability::ToolRequired,
-                ProbeGenerationCapability::ToolNamed,
-                ProbeGenerationCapability::ToolStrict,
-                ProbeGenerationCapability::ToolParallelDisabled,
-                ProbeGenerationCapability::ToolParallelEnabled,
-            ]
-        );
     }
 
     #[test]
-    fn parser_rejects_invalid_or_duplicate_matrix_selectors() {
+    fn parser_maps_every_closed_unit_case_without_accepting_lists() {
+        for (wire, expected) in [
+            ("text", ProbeGenerationCase::Text),
+            ("reasoning-none", ProbeGenerationCase::ReasoningNone),
+            ("reasoning-minimal", ProbeGenerationCase::ReasoningMinimal),
+            ("reasoning-low", ProbeGenerationCase::ReasoningLow),
+            ("reasoning-medium", ProbeGenerationCase::ReasoningMedium),
+            ("reasoning-high", ProbeGenerationCase::ReasoningHigh),
+            ("reasoning-xhigh", ProbeGenerationCase::ReasoningXHigh),
+            ("reasoning-max", ProbeGenerationCase::ReasoningMax),
+            ("json-object", ProbeGenerationCase::JsonObject),
+            ("json-schema", ProbeGenerationCase::JsonSchema),
+            ("json-schema-strict", ProbeGenerationCase::JsonSchemaStrict),
+            (
+                "image-input-inline-png",
+                ProbeGenerationCase::ImageInputInlinePng,
+            ),
+            ("tool-auto", ProbeGenerationCase::ToolAuto),
+            ("tool-none", ProbeGenerationCase::ToolNone),
+            ("tool-required", ProbeGenerationCase::ToolRequired),
+            ("tool-named", ProbeGenerationCase::ToolNamed),
+            ("tool-strict", ProbeGenerationCase::ToolStrict),
+            (
+                "tool-parallel-false",
+                ProbeGenerationCase::ToolParallelDisabled,
+            ),
+            (
+                "tool-parallel-true",
+                ProbeGenerationCase::ToolParallelEnabled,
+            ),
+        ] {
+            let parsed = parse(&[
+                "generation",
+                "--provider",
+                "deepseek",
+                "--model",
+                "candidate-model",
+                "--case",
+                wire,
+            ])
+            .unwrap();
+            assert_eq!(parsed.selection.generation.unwrap().case, expected);
+        }
+    }
+
+    #[test]
+    fn parser_rejects_matrix_or_duplicate_selectors() {
         for arguments in [
             vec!["models", "--provider", "bailian", "--reasoning", "high"],
             vec!["models", "--provider", "bailian", "--capability", "text"],
@@ -519,7 +439,7 @@ mod tests {
                 "--model",
                 "m",
                 "--protocol",
-                "extreme",
+                "all",
             ],
             vec![
                 "models",
@@ -534,8 +454,6 @@ mod tests {
                 "--model",
                 "m",
                 "--reasoning",
-                "all",
-                "--reasoning",
                 "high",
             ],
             vec![
@@ -546,8 +464,36 @@ mod tests {
                 "m",
                 "--delivery",
                 "all",
+            ],
+            vec![
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
+                "--capability",
+                "text",
+            ],
+            vec![
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
+                "--case",
+                "text",
+                "--case",
+                "json-object",
+            ],
+            vec![
+                "generation",
+                "--provider",
+                "bailian",
+                "--model",
+                "m",
                 "--delivery",
-                "streaming",
+                "non-streaming",
+                "--allow-unbounded-streaming-output",
             ],
         ] {
             assert!(

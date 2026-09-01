@@ -590,7 +590,7 @@ impl UpstreamTransport for StaticTransport {
 }
 
 #[tokio::test]
-async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_payloads() {
+async fn probe_discovers_models_and_smokes_one_generation_case_without_tool_payloads() {
     let registry = registry();
     let transport = FixtureTransport::default();
     let credentials = credentials(&registry);
@@ -600,7 +600,16 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
         "openai-main",
         &transport,
         &credentials,
-        ProbeOptions::all(),
+        ProbeOptions {
+            list_models: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
+            embeddings: true,
+            ..ProbeOptions::default()
+        },
     )
     .await
     .unwrap();
@@ -610,12 +619,9 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
     assert_eq!(list_models.outcome.state, ProbeStatus::Accepted);
     assert_eq!(list_models.configured_model_listed, Some(true));
     assert_eq!(list_models.model_ids, ["test-model", "other-model"]);
-    assert_eq!(report.generation.len(), 4);
-    assert!(
-        report
-            .generation
-            .iter()
-            .all(|case| case.outcome.state == ProbeStatus::Accepted)
+    assert_eq!(
+        report.generation.as_ref().unwrap().outcome.state,
+        ProbeStatus::Accepted
     );
     assert_eq!(
         report.embeddings.as_ref().unwrap().state,
@@ -654,16 +660,7 @@ async fn probe_discovers_models_and_smokes_basic_generation_apis_without_tool_pa
             "content": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
         })
     );
-    let responses = requests
-        .iter()
-        .find(|(_, path, _)| path == "/v1/responses")
-        .map(|(_, _, body)| body)
-        .unwrap();
-    assert_eq!(
-        responses["instructions"],
-        "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed."
-    );
-    assert_eq!(responses["store"], false);
+
     assert!(requests.iter().all(|(_, _, body)| {
         body.get("tools").is_none()
             && body.get("tool_choice").is_none()
@@ -720,12 +717,12 @@ async fn model_list_report_caps_ids_without_losing_candidate_correlation() {
 }
 
 #[tokio::test]
-async fn probe_expands_a_custom_model_generation_matrix() {
+async fn probe_executes_exactly_one_custom_model_generation_case() {
     let registry = registry();
     let transport = FixtureTransport::default();
     let credentials = credentials(&registry);
 
-    // Request two protocols, two delivery modes, and an omitted/high reasoning differential.
+    // Select one explicit Responses streaming reasoning case.
     let report = probe_upstream_target(
         &registry,
         "openai-main",
@@ -733,36 +730,34 @@ async fn probe_expands_a_custom_model_generation_matrix() {
         &credentials,
         ProbeOptions {
             list_models: true,
-            chat: true,
-            responses: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::Responses,
+                mode: super::ProbeGenerationMode::Streaming,
+                case: super::ProbeGenerationCase::ReasoningHigh,
+            }),
             upstream_model: Some("candidate-model".to_owned()),
-            generation_modes: vec![
-                super::ProbeGenerationMode::NonStreaming,
-                super::ProbeGenerationMode::Streaming,
-            ],
-            reasoning_efforts: vec![
-                super::ProbeReasoningEffort::Omitted,
-                super::ProbeReasoningEffort::High,
-            ],
             ..ProbeOptions::default()
         },
     )
     .await
     .unwrap();
 
-    // Preserve every observation independently; one rejected case must not hide accepted peers.
+    // Report only the selected unit and preserve bounded evidence.
     assert_eq!(report.requested_model.as_deref(), Some("candidate-model"));
-    assert_eq!(report.generation.len(), 8);
-    assert!(report.generation.iter().all(|case| {
-        case.upstream_model.as_deref() == Some("candidate-model")
-            && case.outcome.state == super::ProbeStatus::Accepted
-    }));
-    assert!(report.generation.iter().all(|case| {
-        case.evidence
+    let generation = report.generation.as_ref().unwrap();
+    assert_eq!(generation.case, super::ProbeGenerationCase::ReasoningHigh);
+    assert_eq!(
+        generation.upstream_model.as_deref(),
+        Some("candidate-model")
+    );
+    assert_eq!(generation.outcome.state, super::ProbeStatus::Accepted);
+    assert!(
+        generation
+            .evidence
             .as_ref()
             .and_then(|evidence| evidence.usage.as_ref())
             .is_some_and(|usage| usage.reasoning_tokens == Some(2))
-    }));
+    );
     let model_list = report.list_models.as_ref().unwrap();
     assert_eq!(model_list.requested_model_listed, Some(false));
     let serialized_report = serde_json::to_string(&report).unwrap();
@@ -771,50 +766,83 @@ async fn probe_expands_a_custom_model_generation_matrix() {
     assert!(!serialized_report.contains("must-not-enter-report"));
     assert!(serialized_report.contains("\"elapsed_ms\":"));
 
-    // Every case must retain the fixed Provider path while overriding only the model field.
+    // The one case retains the fixed Provider path while overriding only the model field.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 9);
-    assert!(
-        requests
-            .iter()
-            .filter(|(_, path, _)| path != "/v1/models")
-            .all(|(_, path, body)| {
-                matches!(path.as_str(), "/v1/chat/completions" | "/v1/responses")
-                    && body.get("model").and_then(Value::as_str) == Some("candidate-model")
-            })
+    assert_eq!(requests.len(), 2);
+    let (_, path, body) = requests
+        .iter()
+        .find(|(_, path, _)| path != "/v1/models")
+        .unwrap();
+    assert_eq!(path, "/v1/responses");
+    assert_eq!(
+        body.get("model").and_then(Value::as_str),
+        Some("candidate-model")
+    );
+    assert_eq!(body.get("stream").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        body.get("max_output_tokens").and_then(Value::as_u64),
+        Some(4_096)
     );
     assert_eq!(
-        requests
-            .iter()
-            .filter(|(_, _, body)| body.get("stream").and_then(Value::as_bool) == Some(true))
-            .count(),
-        4
+        body.pointer("/reasoning/effort").and_then(Value::as_str),
+        Some("high")
     );
-    assert!(requests.iter().all(|(_, path, body)| {
-        if body.get("stream").and_then(Value::as_bool) != Some(true) {
-            return true;
-        }
-        match path.as_str() {
-            "/v1/chat/completions" => {
-                body.get("max_completion_tokens").and_then(Value::as_u64) == Some(4_096)
-            }
-            "/v1/responses" => body.get("max_output_tokens").and_then(Value::as_u64) == Some(4_096),
-            _ => true,
-        }
-    }));
-    assert_eq!(
-        requests
-            .iter()
-            .filter(|(_, path, body)| match path.as_str() {
-                "/v1/chat/completions" =>
-                    body.get("reasoning_effort").and_then(Value::as_str) == Some("high"),
-                "/v1/responses" =>
-                    body.pointer("/reasoning/effort").and_then(Value::as_str) == Some("high"),
-                _ => false,
-            })
-            .count(),
-        4
-    );
+}
+
+#[tokio::test]
+async fn inline_png_case_sends_one_fixed_image_request_without_retaining_image_content() {
+    let registry = registry();
+    let credentials = credentials(&registry);
+
+    for (protocol, path, image_pointer) in [
+        (
+            super::ProbeProtocol::ChatCompletions,
+            "/v1/chat/completions",
+            "/messages/1/content/1/image_url/url",
+        ),
+        (
+            super::ProbeProtocol::Responses,
+            "/v1/responses",
+            "/input/0/content/1/image_url",
+        ),
+    ] {
+        let transport = FixtureTransport::default();
+        let report = probe_upstream_target(
+            &registry,
+            "openai-main",
+            &transport,
+            &credentials,
+            ProbeOptions {
+                generation: Some(super::ProbeGenerationSelection {
+                    protocol,
+                    mode: super::ProbeGenerationMode::NonStreaming,
+                    case: super::ProbeGenerationCase::ImageInputInlinePng,
+                }),
+                upstream_model: Some("candidate-model".to_owned()),
+                ..ProbeOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            report.generation.as_ref().unwrap().case,
+            super::ProbeGenerationCase::ImageInputInlinePng
+        );
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert!(!serialized.contains("data:image/png"));
+        assert!(!serialized.contains("OPENBRIDGE 7"));
+
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let (_, actual_path, body) = &requests[0];
+        assert_eq!(actual_path, path);
+        assert!(
+            body.pointer(image_pointer)
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("data:image/png;base64,iVBORw0KGgo"))
+        );
+    }
 }
 
 #[tokio::test]
@@ -823,75 +851,65 @@ async fn structured_capability_cases_report_supported_not_honored_or_inconclusiv
     let transport = FixtureTransport::default();
     let credentials = credentials(&registry);
 
-    // Exercise every fixed capability case through the synthetic dual-protocol backend.
-    let report = probe_upstream_target(
-        &registry,
-        "openai-main",
-        &transport,
-        &credentials,
-        ProbeOptions {
-            list_models: true,
-            chat: true,
-            responses: true,
-            upstream_model: Some("candidate-model".to_owned()),
-            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
-            reasoning_efforts: vec![super::ProbeReasoningEffort::None],
-            generation_capabilities: vec![
-                super::ProbeGenerationCapability::Text,
-                super::ProbeGenerationCapability::JsonObject,
-                super::ProbeGenerationCapability::JsonSchema,
-                super::ProbeGenerationCapability::JsonSchemaStrict,
-            ],
-            ..ProbeOptions::default()
-        },
-    )
-    .await
-    .unwrap();
+    for protocol in [
+        super::ProbeProtocol::ChatCompletions,
+        super::ProbeProtocol::Responses,
+    ] {
+        for selected_case in [
+            super::ProbeGenerationCase::Text,
+            super::ProbeGenerationCase::JsonObject,
+            super::ProbeGenerationCase::JsonSchema,
+            super::ProbeGenerationCase::JsonSchemaStrict,
+        ] {
+            let report = probe_upstream_target(
+                &registry,
+                "openai-main",
+                &transport,
+                &credentials,
+                ProbeOptions {
+                    generation: Some(super::ProbeGenerationSelection {
+                        protocol,
+                        mode: super::ProbeGenerationMode::NonStreaming,
+                        case: selected_case,
+                    }),
+                    upstream_model: Some("candidate-model".to_owned()),
+                    ..ProbeOptions::default()
+                },
+            )
+            .await
+            .unwrap();
 
-    // JSON-object cases are honored by the fixture; schema cases stay not honored without
-    // schema-following output, and every structured result carries bounded semantic evidence.
-    assert_eq!(report.generation.len(), 8);
-    for case in report.generation.clone() {
-        let capability_evidence = case
-            .capability_evidence
-            .expect("accepted cases always carry capability evidence");
-        match case.capability {
-            super::ProbeGenerationCapability::Text => {
-                assert!(capability_evidence.valid_json_object.is_none());
+            let result = report.generation.as_ref().unwrap();
+            let evidence = result
+                .capability_evidence
+                .as_ref()
+                .expect("accepted cases always carry capability evidence");
+            match selected_case {
+                super::ProbeGenerationCase::Text => {
+                    assert!(evidence.valid_json_object.is_none());
+                }
+                super::ProbeGenerationCase::JsonObject => {
+                    assert_eq!(evidence.verdict, super::ProbeCapabilityVerdict::Supported);
+                    assert_eq!(evidence.valid_json_object, Some(true));
+                }
+                super::ProbeGenerationCase::JsonSchema
+                | super::ProbeGenerationCase::JsonSchemaStrict => {
+                    assert_eq!(evidence.verdict, super::ProbeCapabilityVerdict::NotHonored);
+                    assert_eq!(evidence.fixed_schema_match, Some(false));
+                }
+                _ => unreachable!(),
             }
-            super::ProbeGenerationCapability::JsonObject => {
-                assert_eq!(
-                    capability_evidence.verdict,
-                    super::ProbeCapabilityVerdict::Supported
-                );
-                assert_eq!(capability_evidence.valid_json_object, Some(true));
-            }
-            super::ProbeGenerationCapability::JsonSchema
-            | super::ProbeGenerationCapability::JsonSchemaStrict => {
-                assert_eq!(
-                    capability_evidence.verdict,
-                    super::ProbeCapabilityVerdict::NotHonored
-                );
-                assert_eq!(capability_evidence.fixed_schema_match, Some(false));
-            }
-            super::ProbeGenerationCapability::ToolAuto
-            | super::ProbeGenerationCapability::ToolNone
-            | super::ProbeGenerationCapability::ToolRequired
-            | super::ProbeGenerationCapability::ToolNamed
-            | super::ProbeGenerationCapability::ToolStrict
-            | super::ProbeGenerationCapability::ToolParallelDisabled
-            | super::ProbeGenerationCapability::ToolParallelEnabled => unreachable!(),
+
+            // Generated text, schemas, and prompts never enter the serialized report.
+            let serialized = serde_json::to_string(&report).unwrap();
+            assert!(!serialized.contains("probe\\\":\\\"ok"));
+            assert!(!serialized.contains("Reply with exactly"));
+            assert!(!serialized.contains("\"schema\""));
+            assert!(!serialized.contains("\"response_format\""));
+            assert!(!serialized.contains("text.format"));
+            assert!(serialized.contains("\"case\":"));
         }
     }
-
-    // Generated text, schemas, and prompts never enter the serialized report.
-    let serialized_report = serde_json::to_string(&report).unwrap();
-    assert!(!serialized_report.contains("probe\\\":\\\"ok"));
-    assert!(!serialized_report.contains("Reply with exactly"));
-    assert!(!serialized_report.contains("\"schema\""));
-    assert!(!serialized_report.contains("\"response_format\""));
-    assert!(!serialized_report.contains("text.format"));
-    assert!(serialized_report.contains("\"capability\":"));
 }
 
 #[tokio::test]
@@ -899,43 +917,60 @@ async fn stateless_tool_cases_probe_one_first_turn_each_across_json_and_sse() {
     let registry = registry();
     let transport = FixtureTransport::default();
     let credentials = credentials(&registry);
-    let tool_capabilities = vec![
-        super::ProbeGenerationCapability::ToolAuto,
-        super::ProbeGenerationCapability::ToolNone,
-        super::ProbeGenerationCapability::ToolRequired,
-        super::ProbeGenerationCapability::ToolNamed,
-        super::ProbeGenerationCapability::ToolStrict,
-        super::ProbeGenerationCapability::ToolParallelDisabled,
-        super::ProbeGenerationCapability::ToolParallelEnabled,
-    ];
+    for protocol in [
+        super::ProbeProtocol::ChatCompletions,
+        super::ProbeProtocol::Responses,
+    ] {
+        for mode in [
+            super::ProbeGenerationMode::NonStreaming,
+            super::ProbeGenerationMode::Streaming,
+        ] {
+            for selected_case in [
+                super::ProbeGenerationCase::ToolAuto,
+                super::ProbeGenerationCase::ToolNone,
+                super::ProbeGenerationCase::ToolRequired,
+                super::ProbeGenerationCase::ToolNamed,
+                super::ProbeGenerationCase::ToolStrict,
+                super::ProbeGenerationCase::ToolParallelDisabled,
+                super::ProbeGenerationCase::ToolParallelEnabled,
+            ] {
+                let report = probe_upstream_target(
+                    &registry,
+                    "openai-main",
+                    &transport,
+                    &credentials,
+                    ProbeOptions {
+                        generation: Some(super::ProbeGenerationSelection {
+                            protocol,
+                            mode,
+                            case: selected_case,
+                        }),
+                        upstream_model: Some("candidate-model".to_owned()),
+                        ..ProbeOptions::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert!(
+                    report
+                        .generation
+                        .as_ref()
+                        .unwrap()
+                        .capability_evidence
+                        .as_ref()
+                        .is_some_and(
+                            |evidence| evidence.verdict == super::ProbeCapabilityVerdict::Supported
+                        )
+                );
+                let serialized = serde_json::to_string(&report).unwrap();
+                assert!(!serialized.contains("openbridge_probe_primary"));
+                assert!(!serialized.contains("openbridge_probe_secondary"));
+                assert!(!serialized.contains("call_private"));
+                assert!(!serialized.contains("\"value\""));
+            }
+        }
+    }
 
-    let report = probe_upstream_target(
-        &registry,
-        "openai-main",
-        &transport,
-        &credentials,
-        ProbeOptions {
-            chat: true,
-            responses: true,
-            upstream_model: Some("candidate-model".to_owned()),
-            generation_modes: vec![
-                super::ProbeGenerationMode::NonStreaming,
-                super::ProbeGenerationMode::Streaming,
-            ],
-            reasoning_efforts: vec![super::ProbeReasoningEffort::Omitted],
-            generation_capabilities: tool_capabilities,
-            ..ProbeOptions::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(report.generation.len(), 28);
-    assert!(report.generation.iter().all(|case| {
-        case.capability_evidence
-            .as_ref()
-            .is_some_and(|evidence| evidence.verdict == super::ProbeCapabilityVerdict::Supported)
-    }));
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 28);
     for (_, _, body) in requests.iter() {
@@ -946,11 +981,6 @@ async fn stateless_tool_cases_probe_one_first_turn_each_across_json_and_sse() {
         assert!(body.get("tool_outputs").is_none());
         assert!(!body.to_string().contains("function_call_output"));
     }
-    let serialized = serde_json::to_string(&report).unwrap();
-    assert!(!serialized.contains("openbridge_probe_primary"));
-    assert!(!serialized.contains("openbridge_probe_secondary"));
-    assert!(!serialized.contains("call_private"));
-    assert!(!serialized.contains("\"value\""));
 }
 
 #[tokio::test]
@@ -1002,19 +1032,24 @@ async fn candidate_generation_cannot_borrow_a_non_generation_target() {
         &transport,
         &credentials,
         ProbeOptions {
-            chat: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
             upstream_model: Some("candidate-model".to_owned()),
-            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
             ..ProbeOptions::default()
         },
     )
     .await
     .unwrap();
 
-    assert_eq!(report.generation.len(), 1);
-    assert_eq!(report.generation[0].outcome.state, ProbeStatus::Unsupported);
     assert_eq!(
-        report.generation[0].outcome.failure,
+        report.generation.as_ref().unwrap().outcome.state,
+        ProbeStatus::Unsupported
+    );
+    assert_eq!(
+        report.generation.as_ref().unwrap().outcome.failure,
         Some(super::ProbeFailure::OperationUnavailable)
     );
     assert!(transport.requests.lock().unwrap().is_empty());
@@ -1035,17 +1070,22 @@ async fn candidate_model_can_probe_an_unregistered_protocol_within_generation() 
         &transport,
         &credentials,
         ProbeOptions {
-            responses: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::Responses,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
             upstream_model: Some("candidate-model".to_owned()),
-            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
             ..ProbeOptions::default()
         },
     )
     .await
     .unwrap();
 
-    assert_eq!(report.generation.len(), 1);
-    assert_eq!(report.generation[0].outcome.state, ProbeStatus::Accepted);
+    assert_eq!(
+        report.generation.as_ref().unwrap().outcome.state,
+        ProbeStatus::Accepted
+    );
     assert_eq!(transport.requests.load(Ordering::Relaxed), 1);
 }
 
@@ -1119,17 +1159,17 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
         &transport,
         &oauth2_credentials,
         ProbeOptions {
-            responses: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::Responses,
+                mode: super::ProbeGenerationMode::Streaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
             ..ProbeOptions::default()
         },
     )
     .await
     .unwrap();
-    let bounded_streaming = bounded
-        .generation
-        .iter()
-        .find(|case| case.mode == super::ProbeGenerationMode::Streaming)
-        .unwrap();
+    let bounded_streaming = bounded.generation.as_ref().unwrap();
     assert_eq!(bounded_streaming.outcome.state, ProbeStatus::Inconclusive);
     assert_eq!(
         bounded_streaming.outcome.failure,
@@ -1144,7 +1184,11 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
         &transport,
         &oauth2_credentials,
         ProbeOptions {
-            responses: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::Responses,
+                mode: super::ProbeGenerationMode::Streaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
             allow_unbounded_streaming_output: true,
             ..ProbeOptions::default()
         },
@@ -1152,28 +1196,14 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
     .await
     .unwrap();
 
-    assert_eq!(report.generation.len(), 2);
     assert!(report.allow_unbounded_streaming_output);
-    let streaming = report
-        .generation
-        .iter()
-        .find(|case| case.mode == super::ProbeGenerationMode::Streaming)
-        .unwrap();
+    let streaming = report.generation.as_ref().unwrap();
     assert_eq!(streaming.outcome.state, ProbeStatus::Accepted);
     assert_eq!(
         streaming.evidence.as_ref().unwrap().terminal,
         Some(super::ProbeTerminal::ResponsesCompleted)
     );
-    let non_streaming = report
-        .generation
-        .iter()
-        .find(|case| case.mode == super::ProbeGenerationMode::NonStreaming)
-        .unwrap();
-    assert_eq!(non_streaming.outcome.state, ProbeStatus::Unsupported);
-    assert_eq!(
-        non_streaming.outcome.failure,
-        Some(super::ProbeFailure::DeliveryUnavailable)
-    );
+
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].0, "/responses");
@@ -1244,10 +1274,13 @@ async fn probe_rejects_invalid_selection_before_credentials_or_egress() {
         &transport,
         &credentials,
         ProbeOptions {
-            chat: true,
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::Text,
+            }),
             upstream_model: Some("candidate-model".to_owned()),
             allow_unbounded_streaming_output: true,
-            generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
             ..ProbeOptions::default()
         },
     )
@@ -1452,14 +1485,17 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
             &transport,
             &credentials,
             ProbeOptions {
-                chat: true,
-                generation_modes: vec![super::ProbeGenerationMode::NonStreaming],
+                generation: Some(super::ProbeGenerationSelection {
+                    protocol: super::ProbeProtocol::ChatCompletions,
+                    mode: super::ProbeGenerationMode::NonStreaming,
+                    case: super::ProbeGenerationCase::Text,
+                }),
                 ..ProbeOptions::default()
             },
         )
         .await
         .unwrap();
-        let outcome = &report.generation[0].outcome;
+        let outcome = &report.generation.as_ref().unwrap().outcome;
         assert_eq!(outcome.state, expected);
         assert_eq!(outcome.http_status, Some(status.as_u16()));
     }
@@ -1492,8 +1528,11 @@ async fn probe_classifies_streaming_terminals_and_limits() {
     let registry = registry();
     let credential_store = credentials(&registry);
     let options = ProbeOptions {
-        responses: true,
-        generation_modes: vec![super::ProbeGenerationMode::Streaming],
+        generation: Some(super::ProbeGenerationSelection {
+            protocol: super::ProbeProtocol::Responses,
+            mode: super::ProbeGenerationMode::Streaming,
+            case: super::ProbeGenerationCase::Text,
+        }),
         ..ProbeOptions::default()
     };
 
@@ -1528,7 +1567,7 @@ async fn probe_classifies_streaming_terminals_and_limits() {
         )
         .await
         .unwrap();
-        let case = &report.generation[0];
+        let case = report.generation.as_ref().unwrap();
         assert_eq!(case.outcome.state, state);
         assert_eq!(case.outcome.failure, failure);
         assert_eq!(
@@ -1553,7 +1592,7 @@ async fn probe_classifies_streaming_terminals_and_limits() {
     .await
     .unwrap();
     assert_eq!(
-        report.generation[0].outcome.failure,
+        report.generation.as_ref().unwrap().outcome.failure,
         Some(super::ProbeFailure::ResponseLimit)
     );
 
@@ -1570,7 +1609,7 @@ async fn probe_classifies_streaming_terminals_and_limits() {
     .await
     .unwrap();
     assert_eq!(
-        report.generation[0].outcome.failure,
+        report.generation.as_ref().unwrap().outcome.failure,
         Some(super::ProbeFailure::InvalidSse)
     );
 }

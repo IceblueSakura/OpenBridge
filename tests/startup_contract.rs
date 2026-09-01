@@ -269,6 +269,8 @@ fn probe_help_exits_before_loading_private_startup_files() {
     assert!(output.status.success());
     assert!(stdout.contains("cargo run --bin openbridge-probe -- models"));
     assert!(stdout.contains("cargo run --bin openbridge-probe -- generation"));
-    assert!(stdout.contains("--capability"));
+    assert!(stdout.contains("--case"));
+    assert!(stdout.contains("image-input-inline-png"));
+    assert!(!stdout.contains("--capability"));
     assert!(output.stderr.is_empty());
 }

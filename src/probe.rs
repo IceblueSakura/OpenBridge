@@ -1,4 +1,4 @@
-//! Facade for explicit administrative upstream discovery and bounded API probe matrices.
+//! Facade for explicit administrative upstream discovery and bounded unit API probes.
 //!
 //! Probes reuse the Upstream Target's trusted endpoint, credential, and compile-time adapter, but
 //! do not use the downstream HTTP API or modify the code registry. `session` performs
@@ -29,15 +29,9 @@ pub enum ProbeGenerationMode {
     Streaming,
 }
 
-impl ProbeGenerationMode {
-    /// Stable full delivery matrix in non-streaming then streaming order.
-    pub const ALL: [Self; 2] = [Self::NonStreaming, Self::Streaming];
-}
-
 /// Fixed semantic capability exercised by one Generation probe case.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProbeGenerationCapability {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProbeGenerationCapability {
     /// Baseline text generation without a structured-output request.
     Text,
     /// JSON Object response format.
@@ -46,6 +40,8 @@ pub enum ProbeGenerationCapability {
     JsonSchema,
     /// JSON Schema response format with `strict: true`.
     JsonSchemaStrict,
+    /// One fixed inline PNG image-input request.
+    ImageInputInlinePng,
     /// One fixed function tool selected with `tool_choice=auto`.
     ToolAuto,
     /// One fixed function tool with calls explicitly disabled.
@@ -63,39 +59,6 @@ pub enum ProbeGenerationCapability {
 }
 
 impl ProbeGenerationCapability {
-    /// Stable capability matrix order across text, structured output, and first-turn tools.
-    pub const ALL: [Self; 11] = [
-        Self::Text,
-        Self::JsonObject,
-        Self::JsonSchema,
-        Self::JsonSchemaStrict,
-        Self::ToolAuto,
-        Self::ToolNone,
-        Self::ToolRequired,
-        Self::ToolNamed,
-        Self::ToolStrict,
-        Self::ToolParallelDisabled,
-        Self::ToolParallelEnabled,
-    ];
-
-    /// Parses one CLI label.
-    pub fn from_wire(value: &str) -> Option<Self> {
-        match value {
-            "text" => Some(Self::Text),
-            "json-object" => Some(Self::JsonObject),
-            "json-schema" => Some(Self::JsonSchema),
-            "json-schema-strict" => Some(Self::JsonSchemaStrict),
-            "tool-auto" => Some(Self::ToolAuto),
-            "tool-none" => Some(Self::ToolNone),
-            "tool-required" => Some(Self::ToolRequired),
-            "tool-named" => Some(Self::ToolNamed),
-            "tool-strict" => Some(Self::ToolStrict),
-            "tool-parallel-false" => Some(Self::ToolParallelDisabled),
-            "tool-parallel-true" => Some(Self::ToolParallelEnabled),
-            _ => None,
-        }
-    }
-
     /// Returns the accuracy-oriented bounded output-token budget for every fixed oracle.
     pub(crate) const fn max_output_tokens(self) -> u32 {
         let _ = self;
@@ -104,9 +67,8 @@ impl ProbeGenerationCapability {
 }
 
 /// Standard reasoning effort sent by one Generation probe case.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProbeReasoningEffort {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProbeReasoningEffort {
     /// Omits the protocol reasoning field to establish a baseline.
     Omitted,
     /// Explicitly disables reasoning.
@@ -120,40 +82,12 @@ pub enum ProbeReasoningEffort {
     /// Requests high reasoning.
     High,
     /// Requests extra-high reasoning.
-    #[serde(rename = "xhigh")]
     XHigh,
     /// Requests maximum reasoning.
     Max,
 }
 
 impl ProbeReasoningEffort {
-    /// Stable baseline plus every standard OpenBridge reasoning level.
-    pub const ALL: [Self; 8] = [
-        Self::Omitted,
-        Self::None,
-        Self::Minimal,
-        Self::Low,
-        Self::Medium,
-        Self::High,
-        Self::XHigh,
-        Self::Max,
-    ];
-
-    /// Parses one CLI/wire label.
-    pub fn from_wire(value: &str) -> Option<Self> {
-        match value {
-            "omitted" => Some(Self::Omitted),
-            "none" => Some(Self::None),
-            "minimal" => Some(Self::Minimal),
-            "low" => Some(Self::Low),
-            "medium" => Some(Self::Medium),
-            "high" => Some(Self::High),
-            "xhigh" => Some(Self::XHigh),
-            "max" => Some(Self::Max),
-            _ => None,
-        }
-    }
-
     /// Returns the standard protocol value, or `None` for the omitted baseline.
     pub const fn as_wire(self) -> Option<&'static str> {
         match self {
@@ -169,69 +103,165 @@ impl ProbeReasoningEffort {
     }
 }
 
+/// One closed, unit-sized Generation capability case.
+///
+/// A case owns its reasoning semantics so callers cannot form meaningless reasoning × capability
+/// combinations. Protocol and delivery remain explicit wire properties of the one request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeGenerationCase {
+    /// Baseline text with omitted reasoning controls.
+    Text,
+    /// Baseline text with reasoning explicitly disabled.
+    ReasoningNone,
+    /// Baseline text with minimal reasoning.
+    ReasoningMinimal,
+    /// Baseline text with low reasoning.
+    ReasoningLow,
+    /// Baseline text with medium reasoning.
+    ReasoningMedium,
+    /// Baseline text with high reasoning.
+    ReasoningHigh,
+    /// Baseline text with extra-high reasoning.
+    ReasoningXHigh,
+    /// Baseline text with maximum reasoning.
+    ReasoningMax,
+    /// JSON Object response format.
+    JsonObject,
+    /// Non-strict JSON Schema response format.
+    JsonSchema,
+    /// Strict JSON Schema response format.
+    JsonSchemaStrict,
+    /// Fixed inline PNG image input.
+    ImageInputInlinePng,
+    /// Function tools with automatic tool choice.
+    ToolAuto,
+    /// Function tools disabled by tool choice.
+    ToolNone,
+    /// At least one function tool required.
+    ToolRequired,
+    /// One named function tool required.
+    ToolNamed,
+    /// One strict-schema function tool.
+    ToolStrict,
+    /// Parallel tool calls explicitly disabled.
+    ToolParallelDisabled,
+    /// Parallel tool calls explicitly enabled.
+    ToolParallelEnabled,
+}
+
+impl ProbeGenerationCase {
+    /// Parses one closed CLI case name.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "text" => Some(Self::Text),
+            "reasoning-none" => Some(Self::ReasoningNone),
+            "reasoning-minimal" => Some(Self::ReasoningMinimal),
+            "reasoning-low" => Some(Self::ReasoningLow),
+            "reasoning-medium" => Some(Self::ReasoningMedium),
+            "reasoning-high" => Some(Self::ReasoningHigh),
+            "reasoning-xhigh" => Some(Self::ReasoningXHigh),
+            "reasoning-max" => Some(Self::ReasoningMax),
+            "json-object" => Some(Self::JsonObject),
+            "json-schema" => Some(Self::JsonSchema),
+            "json-schema-strict" => Some(Self::JsonSchemaStrict),
+            "image-input-inline-png" => Some(Self::ImageInputInlinePng),
+            "tool-auto" => Some(Self::ToolAuto),
+            "tool-none" => Some(Self::ToolNone),
+            "tool-required" => Some(Self::ToolRequired),
+            "tool-named" => Some(Self::ToolNamed),
+            "tool-strict" => Some(Self::ToolStrict),
+            "tool-parallel-false" => Some(Self::ToolParallelDisabled),
+            "tool-parallel-true" => Some(Self::ToolParallelEnabled),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn reasoning_effort(self) -> ProbeReasoningEffort {
+        match self {
+            Self::ReasoningNone => ProbeReasoningEffort::None,
+            Self::ReasoningMinimal => ProbeReasoningEffort::Minimal,
+            Self::ReasoningLow => ProbeReasoningEffort::Low,
+            Self::ReasoningMedium => ProbeReasoningEffort::Medium,
+            Self::ReasoningHigh => ProbeReasoningEffort::High,
+            Self::ReasoningXHigh => ProbeReasoningEffort::XHigh,
+            Self::ReasoningMax => ProbeReasoningEffort::Max,
+            Self::Text
+            | Self::JsonObject
+            | Self::JsonSchema
+            | Self::JsonSchemaStrict
+            | Self::ImageInputInlinePng
+            | Self::ToolAuto
+            | Self::ToolNone
+            | Self::ToolRequired
+            | Self::ToolNamed
+            | Self::ToolStrict
+            | Self::ToolParallelDisabled
+            | Self::ToolParallelEnabled => ProbeReasoningEffort::Omitted,
+        }
+    }
+
+    pub(crate) const fn capability(self) -> ProbeGenerationCapability {
+        match self {
+            Self::Text
+            | Self::ReasoningNone
+            | Self::ReasoningMinimal
+            | Self::ReasoningLow
+            | Self::ReasoningMedium
+            | Self::ReasoningHigh
+            | Self::ReasoningXHigh
+            | Self::ReasoningMax => ProbeGenerationCapability::Text,
+            Self::JsonObject => ProbeGenerationCapability::JsonObject,
+            Self::JsonSchema => ProbeGenerationCapability::JsonSchema,
+            Self::JsonSchemaStrict => ProbeGenerationCapability::JsonSchemaStrict,
+            Self::ImageInputInlinePng => ProbeGenerationCapability::ImageInputInlinePng,
+            Self::ToolAuto => ProbeGenerationCapability::ToolAuto,
+            Self::ToolNone => ProbeGenerationCapability::ToolNone,
+            Self::ToolRequired => ProbeGenerationCapability::ToolRequired,
+            Self::ToolNamed => ProbeGenerationCapability::ToolNamed,
+            Self::ToolStrict => ProbeGenerationCapability::ToolStrict,
+            Self::ToolParallelDisabled => ProbeGenerationCapability::ToolParallelDisabled,
+            Self::ToolParallelEnabled => ProbeGenerationCapability::ToolParallelEnabled,
+        }
+    }
+}
+
+/// Exact wire and semantic selection for one Generation request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProbeGenerationSelection {
+    /// OpenAI-compatible protocol used for the request.
+    pub protocol: ProbeProtocol,
+    /// JSON or SSE delivery mode.
+    pub mode: ProbeGenerationMode,
+    /// One closed unit capability case.
+    pub case: ProbeGenerationCase,
+}
+
 /// Explicit administrative probe selection.
 ///
 /// The CLI maps its `models` and `generation` subcommands into this library shape; internal callers
 /// may also select the retained Embeddings smoke path directly.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProbeOptions {
     /// Whether to run the Provider's fixed model-list probe.
     pub list_models: bool,
-    /// Whether to run the Chat Completions Generation matrix.
-    pub chat: bool,
-    /// Whether to run the Responses Generation matrix.
-    pub responses: bool,
+    /// Optional single Generation request selection.
+    pub generation: Option<ProbeGenerationSelection>,
     /// Whether to run the Embeddings Create probe.
     pub embeddings: bool,
     /// Optional model override used only by administrative discovery and Generation probes.
     pub upstream_model: Option<String>,
     /// Whether streaming probes may omit an upstream output-token limit.
     pub allow_unbounded_streaming_output: bool,
-    /// Ordered Generation delivery cases.
-    pub generation_modes: Vec<ProbeGenerationMode>,
-    /// Ordered reasoning-effort cases.
-    pub reasoning_efforts: Vec<ProbeReasoningEffort>,
-    /// Ordered semantic capability cases.
-    pub generation_capabilities: Vec<ProbeGenerationCapability>,
-}
-
-impl Default for ProbeOptions {
-    fn default() -> Self {
-        Self {
-            list_models: false,
-            chat: false,
-            responses: false,
-            embeddings: false,
-            upstream_model: None,
-            allow_unbounded_streaming_output: false,
-            generation_modes: vec![
-                ProbeGenerationMode::NonStreaming,
-                ProbeGenerationMode::Streaming,
-            ],
-            reasoning_efforts: vec![ProbeReasoningEffort::Omitted],
-            generation_capabilities: vec![ProbeGenerationCapability::Text],
-        }
-    }
 }
 
 impl ProbeOptions {
-    /// Selects every implemented probe.
-    pub fn all() -> Self {
-        Self {
-            list_models: true,
-            chat: true,
-            responses: true,
-            embeddings: true,
-            ..Self::default()
-        }
-    }
-
     /// Returns whether no probe is selected.
     pub const fn is_empty(&self) -> bool {
-        !self.list_models && !self.chat && !self.responses && !self.embeddings
+        !self.list_models && self.generation.is_none() && !self.embeddings
     }
 
-    /// Rejects malformed model IDs and ambiguous/empty matrix axes before sensitive work.
+    /// Rejects malformed model IDs and inapplicable risk options before sensitive work.
     pub fn validate(&self) -> Result<(), ProbeSelectionError> {
         // Keep the override a literal bounded JSON value without trimming or normalization.
         if self.upstream_model.as_ref().is_some_and(|model| {
@@ -242,47 +272,21 @@ impl ProbeOptions {
         }) {
             return Err(ProbeSelectionError::InvalidUpstreamModel);
         }
-        if self.upstream_model.is_some() && !self.list_models && !self.chat && !self.responses {
+        if self.upstream_model.is_some() && !self.list_models && self.generation.is_none() {
             return Err(ProbeSelectionError::UnusedUpstreamModel);
         }
-        if self.allow_unbounded_streaming_output && !self.chat && !self.responses {
+        if self.allow_unbounded_streaming_output && self.generation.is_none() {
             return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
         }
-
-        // Require non-empty, duplicate-free axes only for selected Generation protocols.
-        if self.chat || self.responses {
-            if self.generation_modes.is_empty() {
-                return Err(ProbeSelectionError::MissingGenerationMode);
-            }
-            if self.allow_unbounded_streaming_output
-                && !self
-                    .generation_modes
-                    .contains(&ProbeGenerationMode::Streaming)
-            {
-                return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
-            }
-            if self.reasoning_efforts.is_empty() {
-                return Err(ProbeSelectionError::MissingReasoningEffort);
-            }
-            if self.generation_capabilities.is_empty() {
-                return Err(ProbeSelectionError::MissingGenerationCapability);
-            }
-            if has_duplicates(&self.generation_modes)
-                || has_duplicates(&self.reasoning_efforts)
-                || has_duplicates(&self.generation_capabilities)
-            {
-                return Err(ProbeSelectionError::DuplicateMatrixCase);
-            }
+        if self.allow_unbounded_streaming_output
+            && self
+                .generation
+                .is_some_and(|selection| selection.mode != ProbeGenerationMode::Streaming)
+        {
+            return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
         }
         Ok(())
     }
-}
-
-fn has_duplicates<T: Eq>(values: &[T]) -> bool {
-    values
-        .iter()
-        .enumerate()
-        .any(|(index, value)| values[..index].contains(value))
 }
 
 /// Point-in-time result of one bounded upstream exchange.
@@ -404,6 +408,13 @@ impl ProbeProtocol {
             ApiProtocol::Responses => Self::Responses,
         }
     }
+
+    pub(crate) const fn as_api(self) -> ApiProtocol {
+        match self {
+            Self::ChatCompletions => ApiProtocol::ChatCompletions,
+            Self::Responses => ApiProtocol::Responses,
+        }
+    }
 }
 
 /// Recognized terminal shape for one successful Generation response.
@@ -462,26 +473,33 @@ pub struct GenerationProbeEvidence {
     pub event_types: Vec<String>,
 }
 
-/// One ordered Generation matrix case before execution.
+/// One unit Generation case before execution.
 #[derive(Clone, Copy)]
 pub(crate) struct GenerationCaseSelection {
     pub(crate) protocol: ApiProtocol,
     pub(crate) mode: ProbeGenerationMode,
-    pub(crate) reasoning_effort: ProbeReasoningEffort,
-    pub(crate) capability: ProbeGenerationCapability,
+    pub(crate) case: ProbeGenerationCase,
 }
 
-/// One independent Generation matrix observation.
+impl GenerationCaseSelection {
+    pub(crate) const fn reasoning_effort(self) -> ProbeReasoningEffort {
+        self.case.reasoning_effort()
+    }
+
+    pub(crate) const fn capability(self) -> ProbeGenerationCapability {
+        self.case.capability()
+    }
+}
+
+/// One independent Generation observation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct GenerationProbeResult {
     /// Selected protocol.
     pub protocol: ProbeProtocol,
     /// Selected delivery mode.
     pub mode: ProbeGenerationMode,
-    /// Selected reasoning differential.
-    pub reasoning_effort: ProbeReasoningEffort,
-    /// Selected fixed semantic capability case.
-    pub capability: ProbeGenerationCapability,
+    /// Selected fixed unit capability case, including any reasoning effort.
+    pub case: ProbeGenerationCase,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Exact model sent upstream, or absent when no registered/default model was available.
     pub upstream_model: Option<String>,
@@ -520,6 +538,9 @@ pub struct ProbeCapabilityEvidence {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Whether output matched the fixed `{"probe":"ok"}` schema oracle.
     pub fixed_schema_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Whether output contained the fixed token rendered into the built-in image.
+    pub fixed_image_match: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Number of first-turn function calls observed for a tool capability case.
     pub tool_call_count: Option<usize>,
@@ -565,9 +586,9 @@ pub struct TargetProbeReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Observation from the Provider's fixed model-list endpoint.
     pub list_models: Option<ModelListProbeResult>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    /// Independent Chat/Responses × delivery × reasoning × capability observations.
-    pub generation: Vec<GenerationProbeResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// One independent Generation observation.
+    pub generation: Option<GenerationProbeResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Observation from the Embeddings Create probe.
     pub embeddings: Option<ProbeResult>,

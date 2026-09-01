@@ -14,29 +14,17 @@ pub enum ProbeSelectionError {
     )]
     InvalidUpstreamModel,
     /// The model override cannot affect any selected discovery or Generation request.
-    #[error("--model requires --list-models, --chat, or --responses")]
+    #[error("--model requires models discovery or a Generation case")]
     UnusedUpstreamModel,
     /// The risk opt-in cannot affect any selected streaming Generation request.
     #[error("--allow-unbounded-streaming-output requires streaming Generation")]
     UnusedUnboundedStreamingOutput,
-    /// A Generation protocol was selected without a delivery mode.
-    #[error("at least one Generation delivery mode is required")]
-    MissingGenerationMode,
-    /// A Generation protocol was selected without a reasoning-effort case.
-    #[error("at least one reasoning effort is required")]
-    MissingReasoningEffort,
-    /// A Generation protocol was selected without a semantic capability case.
-    #[error("at least one Generation capability is required")]
-    MissingGenerationCapability,
-    /// One matrix axis contains the same case more than once.
-    #[error("probe matrix selections must not contain duplicates")]
-    DuplicateMatrixCase,
 }
 
 /// Probe preparation failed.
 #[derive(Debug, Error)]
 pub enum ProbeError {
-    /// The caller supplied an invalid model or matrix selection.
+    /// The caller supplied an invalid model or unit-case selection.
     #[error(transparent)]
     InvalidSelection(#[from] ProbeSelectionError),
     /// The requested Upstream Target is not registered.
