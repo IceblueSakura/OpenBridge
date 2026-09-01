@@ -12,9 +12,9 @@
 | API-06 | Codex Native profile 只在受限 allowlist 内保留 turn-state 扩展；Bridge、Route change 或 fallback 不复用该状态。 |
 | API-07 | Codex、OpenAI SDK 或 Hermes 等客户端专属承诺必须限定 endpoint、feature、transport 与版本，不得把专属 profile 扩大为通用兼容契约。 |
 | API-08 | 客户端只选择 Public Model 与下游协议；固定契约不支持时拒绝，普通忽略参数只按选中 API 删除，其他请求保持固定 Route 顺序。 |
-| API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；target-bound state 不因健康状态切换 issuing Target。 |
+| API-09 | 无状态请求避开短时 cooldown 的 quota/fault scope；cooldown 不因健康状态改变固定 Route 顺序。 |
 | API-10 | reasoning input 只接受 canonical vocabulary 与 Public Model `accepted_levels`；`strict` 保持精确值，`clamp_positive_floor` 只处理正向 effort，`none` 不参与转换；非法值在 egress 前失败。 |
-| API-11 | 无状态 Responses 是默认契约：`store` 省略或 false 规范化为 Native egress 的显式 false，其他显式值拒绝；`background:false`/省略与 `previous_response_id:null`/省略可用，`background:true` 与非 null `previous_response_id` 在当前固定接口中 zero-egress 拒绝。 |
+| API-11 | 无状态 Responses 是唯一支持的契约：`store` 省略或 false 规范化为 Native egress 的显式 false，其他显式值拒绝；`background:false`/省略与 `previous_response_id:null`/省略可用，`background:true` 与非 null `previous_response_id` zero-egress 拒绝；有状态 API 是永久非目标。 |
 | API-12 | Embeddings、图片、文件与音频满足[扩展共同规则](../extended-capabilities.md)及各功能页的 wire、能力、资源归属和限制。 |
 | API-13 | token-bearing text/tool/reasoning SSE delta 只触发一次 TTFT/generation window；非流式成功 JSON 的 gateway-visible body timing 不伪造 upstream TTFT、generation duration 或 output speed；telemetry 不含正文或身份 secret。 |
 | API-14 | 有效 token 可通过 `/mcp` 使用 `2026-07-28` stateless discovery 或 legacy initialize/session lifecycle 发现并调用唯一 `hello(name)`；两种 lifecycle 都执行相同认证、Origin 与无 Provider egress 边界，非法 metadata/session/tool/method 在执行前失败。 |

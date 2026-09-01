@@ -86,10 +86,9 @@ variant，且完整 payload 交集非空。VoiceClone 的 reference audio 只能
 audio input。
 
 能力不得按字段求并集，也不返回 `guaranteed + profiles`、conditional capability 或按 Route 展开的公共视图。
-`previous_response_id` 只能由 executable `TargetBoundContinuation` profile 贡献。Route contribution 必须携带 issuer 的判别联合；
-全部 Responses Route 明确支持且唯一解析到同一个 Upstream Target/API 后，Private execution interface 才保存
-`Supported { issuer }`，Public JSON 仅投影 `SupportState` 与 parameter。存在多个潜在签发者或 Bridge 时必须公开为
-`unsupported`，并从接口 `supported_parameters` 删除。
+`previous_response_id` 没有任何可贡献的 executable profile（上游有状态 API 是永久非目标，见
+[产品范围](../product-scope.md)支持层级一节）；该参数永远不得出现在任何接口 `supported_parameters` 中，
+非 `null` 请求值在预检阶段拒绝。
 
 若同一 canonical Model 由多个 Provider Target 提供，只有代码目录将对应 route source 显式列入同一 Public Model 时才形成聚合；模型
 ID 相同不能自动新增候选。聚合后每个协议的全部静态可执行 Route 仍共同参与上述 保守交集，不能只按首选 Provider 计算公共契约。

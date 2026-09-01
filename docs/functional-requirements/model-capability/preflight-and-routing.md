@@ -33,5 +33,5 @@ Route 候选资格只取决于协议匹配和静态启停；Target/API 绑定、
 RoutePlan，也不能改变候选资格或顺序。若完整 `BridgePlan` 无法表示已通过公共预检的请求，整个请求必须失败，不能跳过该
 Bridge 去选择其他 Route。运行期
 cooldown、429/5xx、timeout、credential rotation 和首输出前 fallback 属于可用性执行，不是能力路由；
-只有请求实际携带 `previous_response_id` 时才禁止跨 Target fallback；候选具备 continuation 能力本身不能改变无状态请求的 fallback，
-state ownership 也不能选择能力更强的候选。
+非 `null` `previous_response_id` 在预检阶段拒绝（有状态 API 是永久非目标），因此无状态请求的 fallback
+不受任何 state 语义影响，state ownership 也不能选择能力更强的候选。

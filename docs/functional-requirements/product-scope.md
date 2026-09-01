@@ -33,17 +33,17 @@ Agent 或 OpenAI-compatible SDK 通过稳定的 loopback HTTP 地址和 Public M
 
 ### 2. Generation 状态契约
 
-无状态请求是默认调用方式。客户端在每次请求中携带完整历史；`store` 省略或为 `false`，
-`previous_response_id` 省略或为 `null`，`background` 省略或为 `false`。
+无状态请求是唯一支持的调用方式；上游 Provider 有状态 API 是永久非目标。客户端在每次请求中携带完整历史；
+`store` 省略或为 `false`，`previous_response_id` 省略或为 `null`，`background` 省略或为 `false`。
 
 - `store:true` 以及非布尔的显式 `store` 在任何 Provider egress 前拒绝；每个 Native Responses candidate 显式
-  编码 `store:false`，Responses-to-Chat Bridge 消费该事实而不伪造 Chat 字段。
-- 当前 Public Model 固定接口不公开 background execution；`background:true` 在 egress 前拒绝，OpenBridge 也不
+  编码 `store:false`，Responses-to-Chat Bridge 消费该事实而不伪造 Chat 字段。OpenBridge 永久不提供 response
+  存储。
+- Public Model 固定接口永久不公开 background execution；`background:true` 在 egress 前拒绝，OpenBridge 也不
   提供 response retrieve/cancel 或后台 job API。
-- 当前 Public Model 固定接口不公开 response-ID continuation；非 `null` 的 `previous_response_id` 在 egress 前
+- Public Model 固定接口永久不公开 response-ID continuation；非 `null` 的 `previous_response_id` 在 egress 前
   拒绝。OpenBridge 不保存、查询、删除、迁移或恢复上游 response 状态，也不维护 continuation ledger。
-- opaque continuation、Provider resource 与私有 turn state 不能进入 Bridge 或跨 Target fallback。只有未来的
-  功能需求明确 issuer、credential affinity 与完整状态生命周期后，才可扩大上述契约。
+- opaque continuation、Provider resource 与私有 turn state 不能进入 Bridge 或跨 Target fallback。
 
 详细 envelope 与状态规则由 [Generation envelope 与状态](gateway-api/generation-state.md)唯一拥有。
 
@@ -92,7 +92,26 @@ ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3
 | `POST /v1/images/generations` | 在独立 Images Public Model 契约内提供文本到图像的同步 JSON URL 结果；不提供 edit/variation、异步任务或 b64_json。 |
 | `/mcp` | 按 [MCP 本地服务](gateway-api/mcp.md)提供 dual-era Streamable HTTP 生命周期。 |
 
-### 6. 暂不纳入产品承诺
+### 6. 支持层级与规划方向
+
+支持范围按层级推进；层级只表示方向与准入条件，不构成实施授权，具体行为必须逐个进入
+[当前开发焦点](../implementation-plans/current-focus.md)并按变更工作流执行。
+
+| 层级 | 范围 | 准入条件 |
+|---|---|---|
+| T0 | 文字生成：Chat/Responses 固定接口、结构化输出、function tool、reasoning、无状态 `include` 与 prompt-cache 扩展 | 不引入任何状态、媒体或动态路由语义；能力变化必须有 Provider 注册与确定性测试支撑 |
+| T1 | 多模态：图片输入、音频任务、文件输入、Images Generations、Embeddings | 逐 provider 探测并记录 evidence 后才公开；单 attempt、无重放与 remote 资源拒绝等安全语义不得放松 |
+| T2 | MCP 本地服务：维持 `hello` 基线与 dual-era 传输 | 不是功能性 MCP 平台；resource、prompt、notification 与 Provider Bridge 保持非目标 |
+
+以下无论处于哪个层级都是永久非目标：
+
+- 动态模型调整：运行时选模、打分、重排、请求期能力路由、模型动态发现注册、动态权重/健康、动态
+  Provider/Route DSL 与 credential 控制面；
+- 管理控制面：GUI、Web 控制台、在线用户管理、配额、计费、审计、多租户与指标查询或 dashboard；
+- 上游 Provider 有状态 API：`store`、`background`、`previous_response_id`、response 状态存储/查询/删除、
+  continuation ledger 与跨 Provider/Target 状态迁移。
+
+### 7. 暂不纳入产品承诺
 
 - image、file、audio、opaque reasoning、Provider 私有扩展或 continuation 的跨协议转换；
 - response 状态存储、查询、删除、后台 job、跨 Provider/Target 迁移和 continuation ledger；
@@ -104,7 +123,7 @@ ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3
 - hosted tool、MCP Tool Bridge、`hello` 之外的本地 MCP tool 或由 generation gateway 执行普通 function tool；
 - 多租户控制面、在线用户管理、配额、计费、审计或 GUI。
 
-### 7. 术语
+### 8. 术语
 
 - **Provider**：一类受信协议、认证和错误处理行为。
 - **Provider Instance**：一个 Provider family 的受信部署实例，唯一拥有一个 BaseURL。

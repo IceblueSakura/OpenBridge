@@ -59,6 +59,7 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
   transport 由 operation 固定，API 不再拥有字符串 ID 或 endpoint profile；
 - Upstream API 独立声明一个 operation 的 upstream model、served limit、能力，以及可选的 canonical reasoning level 到安全上游
   wire 值的显式映射；Responses executable profile 以 `Unbound | TargetBound | TargetBoundContinuation` 判别联合拥有状态归属，
+  其中 `TargetBoundContinuation` 仅供启动校验使用，不贡献任何公开能力（有状态 API 是永久非目标），
   Route 以 Target + typed upstream operation 引用它；
 - Provider 可以根据已选定的 typed operation 与 trusted upstream model 应用编译期固定普通 header；该 policy 必须在认证 header
   前经 `SafeHeaders` 校验，不能由业务请求、Bootstrap、credential 文件或管理员 probe 选择、覆盖或扩展；

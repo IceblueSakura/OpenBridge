@@ -66,8 +66,9 @@
   deadline，不保存、复制或重新读取 secret；
 - pool 选择只返回短时 credential 借用视图；每次 attempt 必须重新构造敏感认证 header，不能缓存或复用 上一次 member 的
   header；
-- 只有 `TargetBoundContinuation` Responses executable profile 可以接受 `previous_response_id`；在没有 credential affinity ledger
-  时，其启用 Target 不得引用多 member pool，避免 continuation 在不同账号/key 间漂移；普通 `TargetBound` 不虚构该限制；
+- 上游有状态 API 是永久非目标：`TargetBoundContinuation` Responses executable profile 不可用于任何公开能力；
+  若注册代码声明该变体，其启用条件仍必须像其他非法注册一样在启动时拒绝（例如多 member pool 漂移风险），
+  且该拒绝不构成对任何下游参数的放行；普通 `TargetBound` 不虚构该限制；
 - 更换 API key、改变 pool member 或顺序仍需重启。API-key pool 不承担 OAuth、余额查询、keyring、加密 secret 文件、远程 secret
   manager、动态 reload 或跨进程 pool 状态；ChatGPT OAuth 使用独立 credential kind 和生命周期要求。
 

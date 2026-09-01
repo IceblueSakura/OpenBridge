@@ -1,4 +1,4 @@
-本文拥有 Chat/Responses 的统一 instructions、无状态默认、Responses state 字段与 issuer affinity 契约。
+本文拥有 Chat/Responses 的统一 instructions、无状态默认与 Responses state 字段拒绝契约。
 
 ## 1. 统一 instructions
 
@@ -30,24 +30,19 @@ Provider adapter 不得再次覆盖。
 
 - `store:true`、`store:null` 及其他非布尔显式值稳定失败；每个 Native Responses candidate 显式编码
   `store:false`，Responses-to-Chat Bridge 消费该事实而不向 Chat wire 添加字段。
-- `background:false` 或省略表示同步请求；当前 Public Model interface 不公开 background capability，
+- `background:false` 或省略表示同步请求；Public Model interface 永久不公开 background capability，
   `background:true` 在 Provider egress 前拒绝。
-- `previous_response_id:null` 或省略表示无 continuation；当前 Public Model interface 不公开 response-ID
+- `previous_response_id:null` 或省略表示无 continuation；Public Model interface 永久不公开 response-ID
   continuation，任何非 `null` 值都在 Provider egress 前拒绝。
 - OpenBridge 不提供 response store/retrieve/cancel/delete、background job、conversation lifecycle 或
   continuation ledger。客户端不得把这些字段当作通用会话或后台任务能力。
 
-## 3. State affinity 安全不变量
+## 3. 状态拒绝的永久性
 
-如果后续需求扩大固定接口，仍必须同时满足：
+上游 Provider 有状态 API 是永久非目标（见[产品范围](../product-scope.md)支持层级一节）：`store`、
+`background`、`previous_response_id`、response 状态存储与 continuation 不存在"未来扩大"路径。
 
-- 非空 `previous_response_id` 只能原样发送给由固定接口唯一确定的 issuing Upstream Target/Upstream API；
-  `TargetBoundContinuation` 是唯一可以贡献该能力的 executable state。
-- 多个潜在 issuer、Bridge、跨 Target fallback 或缺少 credential affinity 时，固定接口必须关闭 continuation。
-- 有状态请求不得因 cooldown、权重、暂时故障或相同模型名改投另一 Target。
-- OpenBridge 不保存、翻译或迁移 Provider state，不承诺 response ID 在 credential generation、Target binding
-  或部署变更后仍可使用。
-- Provider resource、tool continuation、opaque reasoning 与 issuing call 都可能绑定 Target/API；不能证明
-  等价时必须拒绝或要求完整可转换历史，不得猜测或 replay。
-
-这些不变量不表示当前已经开放 continuation；当前公开契约仍按第 2 节拒绝。
+为此保留一条防御性启动约束：如果注册代码以可贡献 `previous_response_id` 的 executable state
+（`TargetBoundContinuation`）声明某个 Responses API，registry 必须像对待其他非法注册一样在启动时拒绝
+不完整或不安全的启用条件，而不是在请求期猜测账号/Target 亲和。该变体不构成任何公开能力，也不为任何
+下游参数放行。

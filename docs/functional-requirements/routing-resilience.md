@@ -30,10 +30,8 @@ rotation 与状态亲和边界。已验证的实现范围只见[实施现状](..
 
 - 进入 RoutePlan 的请求已完成一次能力预检；请求能力不得跳过、截断或重排候选。
 - RoutePlan 在请求开始后保持固定，不因一次上游响应重新解析 Public Model。
-- 当前 Public Model 固定接口不公开 `previous_response_id`；非 `null` 值在 RoutePlan 形成前拒绝。
-- 只有显式 `TargetBoundContinuation` executable profile 才能贡献 continuation，并且全部固定 Responses Route
-  必须唯一解析到同一 issuing Target/Upstream API。多个潜在 issuer、Bridge 或多 member credential pool 都
-  必须关闭该能力。
+- Public Model 固定接口不公开 `previous_response_id`；非 `null` 值在 RoutePlan 形成前拒绝。上游有状态
+  API 是永久非目标，没有可贡献该能力的 executable profile。
 - 任何 Provider-bound state 都禁止跨 Target fallback。不能根据 Public Model、canonical model 或 opaque ID
   猜测 issuer。
 - `store` 省略或为 `false` 才能进入 planning；`true` 在任何 Provider egress 前拒绝。每个 Responses Native
@@ -50,7 +48,8 @@ stream/non-stream 请求只可在尚未向下游提交业务 response 时执行�
 - 所有候选共享请求级硬预算，每个候选有独立局部上限，局部 retry 不能无界挤占尚未尝试的候选；
 - retry、credential rotation 与 fallback 共享同一 capped exponential backoff，等待必须随下游取消；
 - 只有 RoutePlan 允许时才能进入下一条固定候选；本层不重新比较能力或猜测模型等价性；
-- 有状态 Responses 不进入 Bridge 或跨 Target fallback；
+- 有状态 Responses 永久不存在（有状态 API 是永久非目标），因此没有可进入 Bridge 或跨 Target fallback 的
+  stateful 请求；
 - 认证失败、无效请求和本地能力拒绝不作为普通 transient failure 重试；
 - 一旦向下游提交 response，不得 retry、fallback 或拼接另一上游响应；
 - SSE precommit 的 first-event timeout/body transport failure 按现有 transport policy 处理；首个下游 event 前的 invalid framing 或
@@ -94,8 +93,6 @@ backoff 从 50 ms 开始逐次翻倍，500 ms 封顶；credential pool 大小不
 - 一个 member 成功只清除自身与当前 Target 的 cooldown，不能清除其他 member 或证明共享账号 quota 已恢复。
 - 若所有候选因既有 cooldown 未发起任何 attempt，返回稳定 `503 upstream_cooldown`；若已有安全 `429` 且无
   后续候选，保留最后一个安全 `429` 与 allowlist `Retry-After`。
-- target-bound continuation 若被契约明确启用，必须保持单 member 和原 Target，即使其处于 cooldown 也不能
-  漂移到另一 issuer。
 - 动态权重、后台 probe、持久化健康、跨进程协调、分布式限流和动态 credential 控制面不在本契约内。
 
 ### 6. 错误与观测边界
