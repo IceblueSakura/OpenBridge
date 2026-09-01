@@ -322,9 +322,9 @@ fn print_usage() {
     println!(
         "Usage:\n\
          cargo run --bin openbridge-probe -- models --provider <slug> [--target <id>] [--model <upstream-model-id>]\n\
-         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses|all>]... [--capability <text|json-object|json-schema|json-schema-strict|all>]... [--delivery <non-streaming|streaming|all>]... [--reasoning <level|all>]... [--allow-unbounded-streaming-output]\n\
+         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses|all>]... [--capability <text|json-object|json-schema|json-schema-strict|tool-auto|tool-none|tool-required|tool-named|tool-strict|tool-parallel-false|tool-parallel-true|all>]... [--delivery <non-streaming|streaming|all>]... [--reasoning <level|all>]... [--allow-unbounded-streaming-output]\n\
          \n\
-         Generation defaults to both protocols, non-streaming delivery, omitted reasoning, and the text capability. Structured cases use a fixed conflict prompt and fixed schema, then report supported, not_honored, or inconclusive without retaining generated text. Explicit all values expand potentially billable requests. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, or schema. The command prints a redacted report and never modifies the code registry."
+         Generation defaults to both protocols, non-streaming delivery, omitted reasoning, and the text capability. Every bounded case uses a 4096-token accuracy-oriented output budget, clamped by a registered model ceiling. Structured and first-turn function-tool cases use fixed prompts, schemas, and tool definitions, then report supported, not_honored, or inconclusive without retaining generated text or arguments. Tool cases never execute a tool or send continuation state. Explicit all values expand potentially billable requests. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, schema, or tools. The command prints a redacted report and never modifies the code registry."
     );
 }
 
@@ -468,6 +468,41 @@ mod tests {
             [
                 ProbeGenerationCapability::Text,
                 ProbeGenerationCapability::JsonObject,
+            ]
+        );
+
+        let parsed = parse(&[
+            "generation",
+            "--provider",
+            "deepseek",
+            "--model",
+            "candidate-model",
+            "--capability",
+            "tool-auto",
+            "--capability",
+            "tool-none",
+            "--capability",
+            "tool-required",
+            "--capability",
+            "tool-named",
+            "--capability",
+            "tool-strict",
+            "--capability",
+            "tool-parallel-false",
+            "--capability",
+            "tool-parallel-true",
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.selection.generation_capabilities,
+            [
+                ProbeGenerationCapability::ToolAuto,
+                ProbeGenerationCapability::ToolNone,
+                ProbeGenerationCapability::ToolRequired,
+                ProbeGenerationCapability::ToolNamed,
+                ProbeGenerationCapability::ToolStrict,
+                ProbeGenerationCapability::ToolParallelDisabled,
+                ProbeGenerationCapability::ToolParallelEnabled,
             ]
         );
     }

@@ -7,7 +7,7 @@ use openbridge::{
     ir::generation::EventLimits,
     transport::sse::SseDecoder,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 
 fn decode(document: &[u8]) -> Vec<openbridge::transport::sse::SseEvent> {
     let mut decoder = SseDecoder::new(256 * 1024);

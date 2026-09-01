@@ -28,12 +28,14 @@
 - `openbridge-auth login chatgpt` 通过固定 device interaction 或 authorization-code + PKCE 取得完整 bundle，并事务写入 OpenBridge-owned auth file。常驻服务只在 guarded refresh 或首个预提交 401 recovery 中 reload/rotate。
 - `openbridge-probe` 以 `models` / `generation` 子命令按 Provider 选择已启用 Generation Target，在 trusted endpoint/credential
   边界内查询 Models，并对注册或 candidate model 执行
-  Chat/Responses × streaming/non-streaming × omitted/标准 reasoning effort × text/json-object/json-schema/json-schema-strict
-  capability 矩阵；structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema，从瞬时输出派生
-  `supported`/`not_honored`/`inconclusive` 语义结论而不保留生成文本。逐 case 报告只保留状态、HTTP、token usage、失败阶段与有界
-  协议元数据；candidate model 只能借 Generation Target，text/structured case 默认携带 16/64-token output limit，显式 streaming
-  unbounded 开关会进入
-  报告；工具不修改 registry，也不接受 endpoint、credential、header、prompt、schema 或任意 JSON 覆盖。Models 报告保留完整 ID 计数
+  Chat/Responses × streaming/non-streaming × omitted/标准 reasoning effort × text/structured-output/首轮 function-tool capability 矩阵；
+  tool cases 覆盖 Auto/None/Required/Named、strict schema 与 `parallel_tool_calls=false/true`，只观察单次首轮结果，不执行工具、发送 tool
+  result 或发起 continuation。structured/tool oracle 从完整有界生命周期内的瞬时输出派生 `supported`/`not_honored`/`inconclusive`，
+  逐 case 报告只保留状态、HTTP、token usage、失败阶段、tool call count、固定名称/arguments match 与有界协议元数据，不保留生成文本、
+  arguments 或 call/item ID；candidate model 只能借 Generation Target。所有 bounded case 使用固定 4096-token output limit；已注册
+  upstream model 按自身 ceiling 下调，显式 candidate 不继承另一模型 ceiling；streaming unbounded 开关会进入报告；工具不修改
+  registry，也不接受 endpoint、credential、header、prompt、schema、
+  tool definition 或任意 JSON 覆盖。Models 报告保留完整 ID 计数
   和 candidate 可见性，但 ID sample 最多输出 1024 项并标记截断。多个 trusted deployment 需要 `--target` 显式消歧。
 - Static/Event Generation codec 对上游 Chat usage 的 nullable `completion_tokens_details` / `prompt_tokens_details` 按 absent 解释；非对象非 null 仍拒绝。该规则覆盖 Native JSON 与 SSE validation，Responses detail container 保持既有严格合同。
 
@@ -44,6 +46,8 @@
 `tests/oauth2_login_cli.rs`、`src/probe/tests.rs`、`src/bin/openbridge-probe.rs`。
 
 2026-08-31 当前 checkout 已执行并通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests 与 corpus lint。DeepSeek、Z.AI、Xiaomi 和 Bailian 的有界管理员 probe 覆盖各自已注册 Generation 协议与 delivery；本轮另确认 Bailian DeepSeek V4 Flash 与 Zhipu GLM-5.3 Responses JSON/SSE。关闭 HTTP 内容日志和 OTLP 的 synthetic-user production Router 覆盖四家的 Chat JSON/SSE。2026-09-01 进一步以固定 conflict prompt 的管理员 probe 和明确请求 JSON 的真实认证下游 Gateway 客户端确认 MiMo-V2.5 Chat JSON Object；两者均使用 64-token 上限，JSON/SSE 都返回有效 JSON object，Gateway SSE 以 `[DONE]` 完成。对应 nullable Chat usage detail 修复已通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check` 与静态 diff 扫描。本轮只覆盖单一账号/模型与各自固定 payload，不替代 live Bridge、外部 SDK/Agent、Responses production Router、负载或长期运行验证。
+
+2026-09-01 的无状态 function-tool probe 扩展已通过 `cargo fmt -- --check`、`cargo test --locked`、普通及 all-target `cargo clippy --locked -- -D warnings`、`git diff --check` 与静态 diff 扫描；确定性 fixture 覆盖 7 个 tool case × Chat/Responses × JSON/SSE 的 28 个独立首轮请求，并验证不产生 tool result 或 continuation。该验证未调用真实 Provider，不证明任何当前 Target 已支持这些能力。
 
 ## 3. Public Model 与请求预检
 

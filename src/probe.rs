@@ -46,15 +46,36 @@ pub enum ProbeGenerationCapability {
     JsonSchema,
     /// JSON Schema response format with `strict: true`.
     JsonSchemaStrict,
+    /// One fixed function tool selected with `tool_choice=auto`.
+    ToolAuto,
+    /// One fixed function tool with calls explicitly disabled.
+    ToolNone,
+    /// One fixed function tool with any call required.
+    ToolRequired,
+    /// One fixed function tool selected by name.
+    ToolNamed,
+    /// One conflicting fixed function call constrained by a strict schema.
+    ToolStrict,
+    /// Two requested tools with parallel calls explicitly disabled.
+    ToolParallelDisabled,
+    /// Two requested tools with parallel calls explicitly enabled.
+    ToolParallelEnabled,
 }
 
 impl ProbeGenerationCapability {
-    /// Stable capability matrix order from baseline to strongest structured constraint.
-    pub const ALL: [Self; 4] = [
+    /// Stable capability matrix order across text, structured output, and first-turn tools.
+    pub const ALL: [Self; 11] = [
         Self::Text,
         Self::JsonObject,
         Self::JsonSchema,
         Self::JsonSchemaStrict,
+        Self::ToolAuto,
+        Self::ToolNone,
+        Self::ToolRequired,
+        Self::ToolNamed,
+        Self::ToolStrict,
+        Self::ToolParallelDisabled,
+        Self::ToolParallelEnabled,
     ];
 
     /// Parses one CLI label.
@@ -64,16 +85,21 @@ impl ProbeGenerationCapability {
             "json-object" => Some(Self::JsonObject),
             "json-schema" => Some(Self::JsonSchema),
             "json-schema-strict" => Some(Self::JsonSchemaStrict),
+            "tool-auto" => Some(Self::ToolAuto),
+            "tool-none" => Some(Self::ToolNone),
+            "tool-required" => Some(Self::ToolRequired),
+            "tool-named" => Some(Self::ToolNamed),
+            "tool-strict" => Some(Self::ToolStrict),
+            "tool-parallel-false" => Some(Self::ToolParallelDisabled),
+            "tool-parallel-true" => Some(Self::ToolParallelEnabled),
             _ => None,
         }
     }
 
-    /// Returns the bounded output-token budget for this fixed oracle.
+    /// Returns the accuracy-oriented bounded output-token budget for every fixed oracle.
     pub(crate) const fn max_output_tokens(self) -> u32 {
-        match self {
-            Self::Text => 16,
-            Self::JsonObject | Self::JsonSchema | Self::JsonSchemaStrict => 64,
-        }
+        let _ = self;
+        4_096
     }
 }
 
@@ -494,6 +520,15 @@ pub struct ProbeCapabilityEvidence {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Whether output matched the fixed `{"probe":"ok"}` schema oracle.
     pub fixed_schema_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Number of first-turn function calls observed for a tool capability case.
+    pub tool_call_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Whether observed function names matched the fixed case oracle.
+    pub fixed_tool_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Whether observed function arguments matched the fixed schema oracle.
+    pub fixed_arguments_match: Option<bool>,
 }
 
 /// Model-list observation from the Provider's fixed discovery endpoint.

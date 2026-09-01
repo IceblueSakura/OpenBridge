@@ -28,8 +28,9 @@ use crate::{
 };
 
 use evidence::{
-    elapsed_millis, generation_capability_evidence, generation_result, json_generation_evidence,
-    json_generation_output_text, observe_sse_event, probe_mode_allowed,
+    GenerationOutputObservation, elapsed_millis, generation_capability_evidence, generation_result,
+    json_generation_evidence, json_generation_output, observe_sse_event, observe_sse_tool_event,
+    probe_mode_allowed,
 };
 use json_response::{JsonResponse, canonical_content_type, decode_json_response};
 
@@ -409,7 +410,9 @@ impl ProbeSession<'_> {
                 None,
             );
         };
-        if registered_api.is_some_and(|api| !probe_mode_allowed(api, case.mode)) {
+        if upstream_model_override.is_none()
+            && registered_api.is_some_and(|api| !probe_mode_allowed(api, case.mode))
+        {
             return generation_result(
                 case,
                 Some(upstream_model),
@@ -422,9 +425,13 @@ impl ProbeSession<'_> {
         let request = probe_generation_request(
             case.protocol,
             upstream_model,
-            registered_api
-                .map(|api| self.probe_max_output_tokens(api, case.capability))
-                .unwrap_or_else(|| case.capability.max_output_tokens()),
+            if upstream_model_override.is_some() {
+                case.capability.max_output_tokens()
+            } else {
+                registered_api
+                    .map(|api| self.probe_max_output_tokens(api, case.capability))
+                    .unwrap_or_else(|| case.capability.max_output_tokens())
+            },
             case.mode,
             case.reasoning_effort,
             case.capability,
@@ -450,10 +457,10 @@ impl ProbeSession<'_> {
         };
 
         // Preserve this case independently, including bounded metadata from valid responses.
-        let (outcome, evidence, output_text) = match case.mode {
+        let (outcome, evidence, output) = match case.mode {
             ProbeGenerationMode::NonStreaming => match self.send_json(request).await {
                 Ok(response) => {
-                    let output_text = json_generation_output_text(case.protocol, &response.body);
+                    let output = json_generation_output(case.protocol, &response.body);
                     let evidence = json_generation_evidence(
                         case.protocol,
                         &response.body,
@@ -472,16 +479,16 @@ impl ProbeSession<'_> {
                     } else {
                         ProbeResult::accepted(response.status)
                     };
-                    (outcome, Some(evidence), output_text)
+                    (outcome, Some(evidence), output)
                 }
-                Err(outcome) => (outcome, None, None),
+                Err(outcome) => (outcome, None, GenerationOutputObservation::default()),
             },
             ProbeGenerationMode::Streaming => self.send_protocol_sse(case.protocol, request).await,
         };
         let capability_evidence = (outcome.state == ProbeStatus::Accepted).then(|| {
             generation_capability_evidence(
                 case.capability,
-                output_text.as_deref(),
+                &output,
                 evidence.as_ref().and_then(|evidence| evidence.terminal),
             )
         });
@@ -546,7 +553,11 @@ impl ProbeSession<'_> {
         &self,
         protocol: ApiProtocol,
         request: PreparedUpstreamRequest,
-    ) -> (ProbeResult, Option<GenerationProbeEvidence>, Option<String>) {
+    ) -> (
+        ProbeResult,
+        Option<GenerationProbeEvidence>,
+        GenerationOutputObservation,
+    ) {
         // Send the request and validate status and media type before consuming stream bytes.
         let response = match self
             .transport
@@ -558,13 +569,17 @@ impl ProbeSession<'_> {
                 return (
                     ProbeResult::inconclusive(None, ProbeFailure::Transport),
                     None,
-                    None,
+                    GenerationOutputObservation::default(),
                 );
             }
         };
         let status = response.status();
         if !status.is_success() {
-            return (ProbeResult::from_http_status(status), None, None);
+            return (
+                ProbeResult::from_http_status(status),
+                None,
+                GenerationOutputObservation::default(),
+            );
         }
         let adapter = match self.generation_adapter(protocol) {
             Ok(adapter) => adapter,
@@ -572,7 +587,7 @@ impl ProbeSession<'_> {
                 return (
                     ProbeResult::unsupported(ProbeFailure::OperationUnavailable),
                     None,
-                    None,
+                    GenerationOutputObservation::default(),
                 );
             }
         };
@@ -580,12 +595,12 @@ impl ProbeSession<'_> {
             content_type: canonical_content_type(response.headers()),
             ..GenerationProbeEvidence::default()
         };
-        let mut output_text = String::new();
+        let mut output = GenerationOutputObservation::new();
         if !adapter.recognizes_sse_response(response.headers()) {
             return (
                 ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSseMediaType),
                 Some(evidence),
-                None,
+                GenerationOutputObservation::default(),
             );
         }
 
@@ -600,7 +615,7 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::Transport),
                         Some(evidence),
-                        None,
+                        GenerationOutputObservation::default(),
                     );
                 }
             };
@@ -610,7 +625,7 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::ResponseLimit),
                         Some(evidence),
-                        None,
+                        GenerationOutputObservation::default(),
                     );
                 }
             };
@@ -620,14 +635,14 @@ impl ProbeSession<'_> {
                     return (
                         ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSse),
                         Some(evidence),
-                        None,
+                        GenerationOutputObservation::default(),
                     );
                 }
             };
             if let Some(outcome) =
-                self.classify_sse_events(protocol, status, events, &mut evidence, &mut output_text)
+                self.classify_sse_events(protocol, status, events, &mut evidence, &mut output)
             {
-                return (outcome, Some(evidence), Some(output_text));
+                return (outcome, Some(evidence), output);
             }
         }
 
@@ -638,16 +653,16 @@ impl ProbeSession<'_> {
                 return (
                     ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidSse),
                     Some(evidence),
-                    None,
+                    GenerationOutputObservation::default(),
                 );
             }
         };
         let outcome = self
-            .classify_sse_events(protocol, status, events, &mut evidence, &mut output_text)
+            .classify_sse_events(protocol, status, events, &mut evidence, &mut output)
             .unwrap_or_else(|| {
                 ProbeResult::inconclusive(Some(status), ProbeFailure::MissingTerminal)
             });
-        (outcome, Some(evidence), Some(output_text))
+        (outcome, Some(evidence), output)
     }
 
     /// Classifies framed SSE events and returns a conclusion only for a terminal event.
@@ -657,16 +672,18 @@ impl ProbeSession<'_> {
         status: StatusCode,
         events: Vec<crate::transport::sse::SseEvent>,
         evidence: &mut GenerationProbeEvidence,
-        output_text: &mut String,
+        output: &mut GenerationOutputObservation,
     ) -> Option<ProbeResult> {
         // Delegate lifecycle semantics to the Provider adapter and stop at the first terminal.
         let adapter = self.generation_adapter(protocol).ok()?;
         for event in events {
-            let terminal = observe_sse_event(protocol, &event, evidence, output_text);
+            observe_sse_tool_event(protocol, &event, output);
+            let terminal = observe_sse_event(protocol, &event, evidence, &mut output.text);
             let event = adapter.classify_sse_event(event).ok()?;
             match event.status() {
                 StreamEventStatus::Continue => {}
                 StreamEventStatus::Completed => {
+                    output.finish_stream_tool_calls();
                     evidence.terminal = terminal.or(Some(match protocol {
                         ApiProtocol::ChatCompletions => ProbeTerminal::ChatDone,
                         ApiProtocol::Responses => ProbeTerminal::ResponsesCompleted,
@@ -674,6 +691,7 @@ impl ProbeSession<'_> {
                     return Some(ProbeResult::accepted(status));
                 }
                 StreamEventStatus::Failed => {
+                    output.finish_stream_tool_calls();
                     evidence.terminal = terminal;
                     return Some(if terminal == Some(ProbeTerminal::ResponsesIncomplete) {
                         ProbeResult::accepted(status)

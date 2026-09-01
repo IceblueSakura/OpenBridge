@@ -82,6 +82,8 @@
 ## 4. Provider 特定边界
 
 - 2026-08-31 的有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，并覆盖 Bailian DeepSeek V4 Flash 和 Zhipu GLM-5.3 Responses JSON/SSE；除 2026-09-01 单独完成的 MiMo-V2.5 Chat JSON Object JSON/SSE Gateway 验收外，不证明其他下游 Gateway 端到端、reasoning 参数实际生效、工具/媒体、structured output、fallback、SDK/Agent 兼容、负载、长时间运行或未来可达性。
+- 当前 function-tool probe 只验证固定 prompt 下单次首轮的 tool choice、strict arguments 与 parallel call 差分；它不执行工具、不发送
+  tool result、不做续轮或 Agent loop，也不证明工具调用长期稳定。图片、文件、音频和视频 probe 尚未进入本阶段。
 
 | Provider family | 当前未实现或未证明边界 |
 |---|---|

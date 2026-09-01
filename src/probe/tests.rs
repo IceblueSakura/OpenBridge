@@ -118,6 +118,136 @@ struct FixtureTransport {
     authorizations: Mutex<Vec<String>>,
 }
 
+fn fixture_tool_calls(body: &Value) -> Option<Vec<(String, String)>> {
+    let tools = body.get("tools")?.as_array()?;
+    if body.get("tool_choice").and_then(Value::as_str) == Some("none") {
+        return Some(Vec::new());
+    }
+    let count = if body.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true) {
+        2
+    } else {
+        1
+    };
+    Some(
+        tools
+            .iter()
+            .take(count)
+            .filter_map(|tool| {
+                let function = tool.get("function").unwrap_or(tool);
+                let name = function.get("name")?.as_str()?.to_owned();
+                let value = if name.ends_with("secondary") {
+                    "secondary"
+                } else {
+                    "primary"
+                };
+                Some((name, json!({"value": value}).to_string()))
+            })
+            .collect(),
+    )
+}
+
+fn fixture_tool_json(path: &str, body: &Value) -> Option<Value> {
+    let calls = fixture_tool_calls(body)?;
+    Some(match path {
+        "/v1/chat/completions" => json!({
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "finish_reason": if calls.is_empty() { "stop" } else { "tool_calls" },
+                "message": {
+                    "role": "assistant",
+                    "content": if calls.is_empty() { Value::String("OK".to_owned()) } else { Value::Null },
+                    "tool_calls": calls.iter().enumerate().map(|(index, (name, arguments))| json!({
+                        "index": index,
+                        "id": format!("call_{index}"),
+                        "type": "function",
+                        "function": {"name": name, "arguments": arguments}
+                    })).collect::<Vec<_>>()
+                }
+            }]
+        }),
+        "/v1/responses" => json!({
+            "object": "response",
+            "status": "completed",
+            "output": if calls.is_empty() {
+                vec![json!({
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "OK"}]
+                })]
+            } else {
+                calls.iter().enumerate().map(|(index, (name, arguments))| json!({
+                    "type": "function_call",
+                    "id": format!("fc_{index}"),
+                    "call_id": format!("call_{index}"),
+                    "name": name,
+                    "arguments": arguments
+                })).collect::<Vec<_>>()
+            }
+        }),
+        _ => return None,
+    })
+}
+
+fn fixture_tool_sse(path: &str, body: &Value) -> Option<String> {
+    let calls = fixture_tool_calls(body)?;
+    match path {
+        "/v1/chat/completions" => {
+            let first = json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": if calls.is_empty() {
+                        json!({"role": "assistant", "content": "OK"})
+                    } else {
+                        json!({"role": "assistant", "tool_calls": calls.iter().enumerate().map(|(index, (name, arguments))| json!({
+                            "index": index,
+                            "id": format!("call_{index}"),
+                            "type": "function",
+                            "function": {"name": name, "arguments": arguments}
+                        })).collect::<Vec<_>>()})
+                    },
+                    "finish_reason": Value::Null
+                }]
+            });
+            let terminal = json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": if calls.is_empty() { "stop" } else { "tool_calls" }
+                }]
+            });
+            Some(format!(
+                "data: {first}\n\ndata: {terminal}\n\ndata: [DONE]\n\n"
+            ))
+        }
+        "/v1/responses" => {
+            let mut stream = String::new();
+            for (index, (name, arguments)) in calls.iter().enumerate() {
+                let event = json!({
+                    "type": "response.output_item.added",
+                    "output_index": index,
+                    "item": {
+                        "id": format!("fc_{index}"),
+                        "type": "function_call",
+                        "call_id": format!("call_{index}"),
+                        "name": name,
+                        "arguments": arguments
+                    }
+                });
+                stream.push_str(&format!(
+                    "event: response.output_item.added\ndata: {event}\n\n"
+                ));
+            }
+            let terminal = json!({
+                "type": "response.completed",
+                "response": {"status": "completed", "output": []}
+            });
+            stream.push_str(&format!("event: response.completed\ndata: {terminal}\n\n"));
+            Some(stream)
+        }
+        _ => None,
+    }
+}
+
 impl UpstreamTransport for FixtureTransport {
     fn send<'a>(
         &'a self,
@@ -140,6 +270,30 @@ impl UpstreamTransport for FixtureTransport {
                 .lock()
                 .unwrap()
                 .push(headers[AUTHORIZATION].to_str().unwrap().to_owned());
+            if body.get("tools").is_some() {
+                if body.get("stream").and_then(Value::as_bool) == Some(true) {
+                    if let Some(event_stream) =
+                        fixture_tool_sse(request.relative_uri().path(), &body)
+                    {
+                        let mut response_headers = HeaderMap::new();
+                        response_headers
+                            .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+                        return Ok(UpstreamResponse::new(
+                            StatusCode::OK,
+                            response_headers,
+                            Body::from(event_stream),
+                        ));
+                    }
+                } else if let Some(response) =
+                    fixture_tool_json(request.relative_uri().path(), &body)
+                {
+                    return Ok(UpstreamResponse::new(
+                        StatusCode::OK,
+                        HeaderMap::new(),
+                        Body::from(response.to_string()),
+                    ));
+                }
+            }
             if body.get("stream").and_then(Value::as_bool) == Some(true) {
                 let event_stream = match request.relative_uri().path() {
                     "/v1/chat/completions" => Some(concat!(
@@ -180,8 +334,6 @@ impl UpstreamTransport for FixtureTransport {
                                         == Some("json_object")
                                 }) {
                                 r#"{"probe":"ok"}"#
-                            } else if body.get("response_format").is_some() {
-                                "OK"
                             } else {
                                 "OK"
                             },
@@ -644,9 +796,9 @@ async fn probe_expands_a_custom_model_generation_matrix() {
         }
         match path.as_str() {
             "/v1/chat/completions" => {
-                body.get("max_completion_tokens").and_then(Value::as_u64) == Some(16)
+                body.get("max_completion_tokens").and_then(Value::as_u64) == Some(4_096)
             }
-            "/v1/responses" => body.get("max_output_tokens").and_then(Value::as_u64) == Some(16),
+            "/v1/responses" => body.get("max_output_tokens").and_then(Value::as_u64) == Some(4_096),
             _ => true,
         }
     }));
@@ -722,6 +874,13 @@ async fn structured_capability_cases_report_supported_not_honored_or_inconclusiv
                 );
                 assert_eq!(capability_evidence.fixed_schema_match, Some(false));
             }
+            super::ProbeGenerationCapability::ToolAuto
+            | super::ProbeGenerationCapability::ToolNone
+            | super::ProbeGenerationCapability::ToolRequired
+            | super::ProbeGenerationCapability::ToolNamed
+            | super::ProbeGenerationCapability::ToolStrict
+            | super::ProbeGenerationCapability::ToolParallelDisabled
+            | super::ProbeGenerationCapability::ToolParallelEnabled => unreachable!(),
         }
     }
 
@@ -733,6 +892,65 @@ async fn structured_capability_cases_report_supported_not_honored_or_inconclusiv
     assert!(!serialized_report.contains("\"response_format\""));
     assert!(!serialized_report.contains("text.format"));
     assert!(serialized_report.contains("\"capability\":"));
+}
+
+#[tokio::test]
+async fn stateless_tool_cases_probe_one_first_turn_each_across_json_and_sse() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+    let tool_capabilities = vec![
+        super::ProbeGenerationCapability::ToolAuto,
+        super::ProbeGenerationCapability::ToolNone,
+        super::ProbeGenerationCapability::ToolRequired,
+        super::ProbeGenerationCapability::ToolNamed,
+        super::ProbeGenerationCapability::ToolStrict,
+        super::ProbeGenerationCapability::ToolParallelDisabled,
+        super::ProbeGenerationCapability::ToolParallelEnabled,
+    ];
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            chat: true,
+            responses: true,
+            upstream_model: Some("candidate-model".to_owned()),
+            generation_modes: vec![
+                super::ProbeGenerationMode::NonStreaming,
+                super::ProbeGenerationMode::Streaming,
+            ],
+            reasoning_efforts: vec![super::ProbeReasoningEffort::Omitted],
+            generation_capabilities: tool_capabilities,
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.generation.len(), 28);
+    assert!(report.generation.iter().all(|case| {
+        case.capability_evidence
+            .as_ref()
+            .is_some_and(|evidence| evidence.verdict == super::ProbeCapabilityVerdict::Supported)
+    }));
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 28);
+    for (_, _, body) in requests.iter() {
+        assert!(body.get("tools").is_some());
+        assert!(body.get("previous_response_id").is_none());
+        assert!(body.get("background").is_none());
+        assert!(body.get("conversation").is_none());
+        assert!(body.get("tool_outputs").is_none());
+        assert!(!body.to_string().contains("function_call_output"));
+    }
+    let serialized = serde_json::to_string(&report).unwrap();
+    assert!(!serialized.contains("openbridge_probe_primary"));
+    assert!(!serialized.contains("openbridge_probe_secondary"));
+    assert!(!serialized.contains("call_private"));
+    assert!(!serialized.contains("\"value\""));
 }
 
 #[tokio::test]

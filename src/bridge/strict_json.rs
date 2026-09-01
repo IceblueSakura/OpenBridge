@@ -5,14 +5,14 @@ use std::fmt;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 
-pub(super) fn from_slice(input: &[u8]) -> Result<Value, serde_json::Error> {
+pub(crate) fn from_slice(input: &[u8]) -> Result<Value, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_slice(input);
     let value = StrictValue::deserialize(&mut deserializer)?.0;
     deserializer.end()?;
     Ok(value)
 }
 
-pub(super) fn from_str(input: &str) -> Result<Value, serde_json::Error> {
+pub(crate) fn from_str(input: &str) -> Result<Value, serde_json::Error> {
     from_slice(input.as_bytes())
 }
 

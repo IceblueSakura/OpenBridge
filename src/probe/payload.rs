@@ -1,7 +1,8 @@
 //! Fixed JSON requests and minimum response-shape checks for bounded upstream probes.
 //!
-//! This module generates only built-in text and Embeddings inputs. The parent validates an optional
-//! model ID; no external URL, path, prompt, tool definition, arbitrary body, or action is accepted.
+//! This module generates only built-in text, structured-output, first-turn function-tool, and
+//! Embeddings inputs. The parent validates an optional model ID; no external URL, path, prompt,
+//! tool definition, arbitrary body, tool result, continuation state, or action is accepted.
 
 use serde_json::{Value, json};
 
@@ -12,6 +13,16 @@ use super::{ProbeGenerationCapability, ProbeGenerationMode, ProbeReasoningEffort
 const PROBE_PROMPT: &str = "Reply with exactly OK.";
 const STRUCTURED_PROBE_PROMPT: &str =
     "Reply with exactly the plain text OK. Do not return a JSON object.";
+const TOOL_PROBE_PROMPT: &str =
+    "Call openbridge_probe_primary exactly once with value primary. Do not answer with text.";
+const TOOL_NONE_PROMPT: &str =
+    "Call openbridge_probe_primary exactly once with value primary. Do not answer with text.";
+const TOOL_FORCED_PROMPT: &str = "Reply with exactly OK without calling any tool.";
+const TOOL_STRICT_PROMPT: &str =
+    "Call openbridge_probe_primary exactly once with value wrong. Do not answer with text.";
+const TOOL_PARALLEL_PROMPT: &str = "Call openbridge_probe_primary with value primary and openbridge_probe_secondary with value secondary in the same response. Do not answer with text.";
+const PRIMARY_TOOL_NAME: &str = "openbridge_probe_primary";
+const SECONDARY_TOOL_NAME: &str = "openbridge_probe_secondary";
 const EMBEDDING_PROBE_INPUT: &str = "OpenBridge probe";
 
 /// Builds one fixed Generation request for a registered or explicitly selected upstream model.
@@ -29,6 +40,13 @@ pub(super) fn probe_generation_request(
         ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
         | ProbeGenerationCapability::JsonSchemaStrict => STRUCTURED_PROBE_PROMPT,
+        ProbeGenerationCapability::ToolAuto => TOOL_PROBE_PROMPT,
+        ProbeGenerationCapability::ToolNone => TOOL_NONE_PROMPT,
+        ProbeGenerationCapability::ToolRequired => TOOL_PROBE_PROMPT,
+        ProbeGenerationCapability::ToolNamed => TOOL_FORCED_PROMPT,
+        ProbeGenerationCapability::ToolStrict => TOOL_STRICT_PROMPT,
+        ProbeGenerationCapability::ToolParallelDisabled
+        | ProbeGenerationCapability::ToolParallelEnabled => TOOL_PARALLEL_PROMPT,
     };
     let mut request = match (protocol, mode) {
         (ApiProtocol::ChatCompletions, ProbeGenerationMode::NonStreaming) => json!({
@@ -101,6 +119,19 @@ fn add_generation_capability(
     capability: ProbeGenerationCapability,
     request: &mut Value,
 ) {
+    if matches!(
+        capability,
+        ProbeGenerationCapability::ToolAuto
+            | ProbeGenerationCapability::ToolNone
+            | ProbeGenerationCapability::ToolRequired
+            | ProbeGenerationCapability::ToolNamed
+            | ProbeGenerationCapability::ToolStrict
+            | ProbeGenerationCapability::ToolParallelDisabled
+            | ProbeGenerationCapability::ToolParallelEnabled
+    ) {
+        add_function_tools(protocol, capability, request);
+        return;
+    }
     let Some(format) = (match capability {
         ProbeGenerationCapability::Text => None,
         ProbeGenerationCapability::JsonObject => Some(json!({"type": "json_object"})),
@@ -129,6 +160,13 @@ fn add_generation_capability(
                 }),
             })
         }
+        ProbeGenerationCapability::ToolAuto
+        | ProbeGenerationCapability::ToolNone
+        | ProbeGenerationCapability::ToolRequired
+        | ProbeGenerationCapability::ToolNamed
+        | ProbeGenerationCapability::ToolStrict
+        | ProbeGenerationCapability::ToolParallelDisabled
+        | ProbeGenerationCapability::ToolParallelEnabled => unreachable!(),
     }) else {
         return;
     };
@@ -141,6 +179,88 @@ fn add_generation_capability(
         }
         ApiProtocol::Responses => {
             object.insert("text".to_owned(), json!({"format": format}));
+        }
+    }
+}
+
+/// Adds closed fixed function tools without caller-provided prompt, name, or schema.
+fn add_function_tools(
+    protocol: ApiProtocol,
+    capability: ProbeGenerationCapability,
+    request: &mut Value,
+) {
+    let strict = capability == ProbeGenerationCapability::ToolStrict;
+    let mut tools = vec![fixed_function_tool(
+        protocol,
+        PRIMARY_TOOL_NAME,
+        "primary",
+        strict,
+    )];
+    if capability != ProbeGenerationCapability::ToolStrict {
+        tools.push(fixed_function_tool(
+            protocol,
+            SECONDARY_TOOL_NAME,
+            "secondary",
+            false,
+        ));
+    }
+    let tool_choice = match capability {
+        ProbeGenerationCapability::ToolAuto => json!("auto"),
+        ProbeGenerationCapability::ToolNone => json!("none"),
+        ProbeGenerationCapability::ToolRequired
+        | ProbeGenerationCapability::ToolStrict
+        | ProbeGenerationCapability::ToolParallelDisabled
+        | ProbeGenerationCapability::ToolParallelEnabled => json!("required"),
+        ProbeGenerationCapability::ToolNamed => match protocol {
+            ApiProtocol::ChatCompletions => {
+                json!({"type": "function", "function": {"name": PRIMARY_TOOL_NAME}})
+            }
+            ApiProtocol::Responses => {
+                json!({"type": "function", "name": PRIMARY_TOOL_NAME})
+            }
+        },
+        ProbeGenerationCapability::Text
+        | ProbeGenerationCapability::JsonObject
+        | ProbeGenerationCapability::JsonSchema
+        | ProbeGenerationCapability::JsonSchemaStrict => unreachable!(),
+    };
+    let object = request
+        .as_object_mut()
+        .expect("built-in probe request is an object");
+    object.insert("tools".to_owned(), Value::Array(tools));
+    object.insert("tool_choice".to_owned(), tool_choice);
+    match capability {
+        ProbeGenerationCapability::ToolParallelDisabled => {
+            object.insert("parallel_tool_calls".to_owned(), Value::Bool(false));
+        }
+        ProbeGenerationCapability::ToolParallelEnabled => {
+            object.insert("parallel_tool_calls".to_owned(), Value::Bool(true));
+        }
+        _ => {}
+    }
+}
+
+fn fixed_function_tool(protocol: ApiProtocol, name: &str, value: &str, strict: bool) -> Value {
+    let schema = json!({
+        "type": "object",
+        "properties": {"value": {"type": "string", "const": value}},
+        "required": ["value"],
+        "additionalProperties": false
+    });
+    let mut function = json!({
+        "name": name,
+        "description": "Returns one fixed probe value.",
+        "parameters": schema
+    });
+    if strict {
+        function["strict"] = Value::Bool(true);
+    }
+    match protocol {
+        ApiProtocol::ChatCompletions => json!({"type": "function", "function": function}),
+        ApiProtocol::Responses => {
+            let mut tool = function;
+            tool["type"] = json!("function");
+            tool
         }
     }
 }
@@ -230,5 +350,126 @@ mod tests {
         );
         assert_eq!(responses["stream"], true);
         assert!(responses.get("response_format").is_none());
+    }
+
+    #[test]
+    fn tool_auto_case_uses_fixed_protocol_specific_function_wire() {
+        let chat = probe_generation_request(
+            ApiProtocol::ChatCompletions,
+            "candidate",
+            4096,
+            ProbeGenerationMode::NonStreaming,
+            ProbeReasoningEffort::Omitted,
+            ProbeGenerationCapability::ToolAuto,
+            false,
+        );
+        assert_eq!(chat["tool_choice"], "auto");
+        assert_eq!(chat["tools"][0]["type"], "function");
+        assert_eq!(
+            chat["tools"][0]["function"]["name"],
+            "openbridge_probe_primary"
+        );
+        assert_eq!(
+            chat["tools"][0]["function"]["parameters"]["properties"]["value"]["const"],
+            "primary"
+        );
+        assert!(chat["tools"][0]["function"].get("strict").is_none());
+
+        let responses = probe_generation_request(
+            ApiProtocol::Responses,
+            "candidate",
+            4096,
+            ProbeGenerationMode::Streaming,
+            ProbeReasoningEffort::Omitted,
+            ProbeGenerationCapability::ToolAuto,
+            false,
+        );
+        assert_eq!(responses["tool_choice"], "auto");
+        assert_eq!(responses["tools"][0]["type"], "function");
+        assert_eq!(responses["tools"][0]["name"], "openbridge_probe_primary");
+        assert_eq!(
+            responses["tools"][0]["parameters"]["properties"]["value"]["const"],
+            "primary"
+        );
+        assert!(responses["tools"][0].get("strict").is_none());
+    }
+
+    #[test]
+    fn tool_choice_strict_and_parallel_cases_use_closed_fixed_wire() {
+        let cases = [
+            (ProbeGenerationCapability::ToolNone, "none"),
+            (ProbeGenerationCapability::ToolRequired, "required"),
+        ];
+        for (capability, choice) in cases {
+            for protocol in [ApiProtocol::ChatCompletions, ApiProtocol::Responses] {
+                let request = probe_generation_request(
+                    protocol,
+                    "candidate",
+                    4096,
+                    ProbeGenerationMode::NonStreaming,
+                    ProbeReasoningEffort::Omitted,
+                    capability,
+                    false,
+                );
+                assert_eq!(request["tool_choice"], choice);
+                assert_eq!(request["tools"].as_array().unwrap().len(), 2);
+            }
+        }
+
+        for protocol in [ApiProtocol::ChatCompletions, ApiProtocol::Responses] {
+            let named = probe_generation_request(
+                protocol,
+                "candidate",
+                4096,
+                ProbeGenerationMode::NonStreaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ToolNamed,
+                false,
+            );
+            match protocol {
+                ApiProtocol::ChatCompletions => assert_eq!(
+                    named["tool_choice"],
+                    json!({"type": "function", "function": {"name": PRIMARY_TOOL_NAME}})
+                ),
+                ApiProtocol::Responses => assert_eq!(
+                    named["tool_choice"],
+                    json!({"type": "function", "name": PRIMARY_TOOL_NAME})
+                ),
+            }
+
+            let strict = probe_generation_request(
+                protocol,
+                "candidate",
+                4096,
+                ProbeGenerationMode::NonStreaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ToolStrict,
+                false,
+            );
+            let tool = match protocol {
+                ApiProtocol::ChatCompletions => &strict["tools"][0]["function"],
+                ApiProtocol::Responses => &strict["tools"][0],
+            };
+            assert_eq!(tool["strict"], true);
+            assert_eq!(strict["tool_choice"], "required");
+
+            for (capability, enabled) in [
+                (ProbeGenerationCapability::ToolParallelDisabled, false),
+                (ProbeGenerationCapability::ToolParallelEnabled, true),
+            ] {
+                let parallel = probe_generation_request(
+                    protocol,
+                    "candidate",
+                    4096,
+                    ProbeGenerationMode::NonStreaming,
+                    ProbeReasoningEffort::Omitted,
+                    capability,
+                    false,
+                );
+                assert_eq!(parallel["tool_choice"], "required");
+                assert_eq!(parallel["parallel_tool_calls"], enabled);
+                assert_eq!(parallel["tools"].as_array().unwrap().len(), 2);
+            }
+        }
     }
 }

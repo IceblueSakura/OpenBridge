@@ -212,9 +212,13 @@ status classification 与 model-list probe 仍通过同一 operation-neutral ada
 数据面 Generation 与 Embeddings/Images preparation 都必须接收 operation-matched `UpstreamApi`。独立管理员 probe 另有窄化的 Generation
 preparation：只接受校验后的 model ID 和固定合成请求，仍由已注册 Generation Target、Provider operation path/body hook、credential 与
 timeout 约束；Provider selector 只在同一 trusted deployment 与 credential binding 内自动选定一个 Target，跨 deployment 必须显式
-消歧。它拒绝借非 Generation Target 扩大 operation，且不套用另一已注册模型的 ignored-parameter 或 reasoning mapping，不被 ingress
-或业务请求调用。Generation text/structured probe 分别保留固定 16/64-token upstream output limit；只有显式风险开关可为 streaming
-request 省略。structured oracle 只在完整有界 response 生命周期内瞬时组合标准 output text，report 不保留生成正文。
+消歧。它拒绝借非 Generation Target 扩大 operation；显式 candidate model 不套用另一已注册模型的 ignored-parameter、reasoning
+mapping、output ceiling 或 delivery narrowing，不被 ingress
+或业务请求调用。所有 bounded Generation case 使用固定 4096-token upstream output limit；Target 自身的 registered upstream model 按其
+output ceiling 下调，显式 candidate model 不继承另一模型的 ceiling；
+只有显式风险开关可为 streaming request 省略。structured oracle 只在完整有界 response 生命周期内瞬时组合标准 output text；tool
+oracle 只聚合同一首轮 JSON/SSE 中最多 16 个 function-call fragment，以固定 prompt、最多两个固定工具和 strict JSON arguments 验证
+tool choice、strict 与 parallel 差分，不执行工具或 continuation。report 只保留计数和布尔结论，不保留正文、arguments 或 call/item ID。
 
 普通安全 header 与认证 header 分离。业务请求不能控制上游 URL、Provider、Target、credential、认证 header、代理 header 或
 转换脚本。`UpstreamClient` 只接受已解析 Target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。

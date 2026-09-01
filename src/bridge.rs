@@ -6,7 +6,7 @@
 
 mod event_codec;
 mod static_codec;
-mod strict_json;
+pub(crate) mod strict_json;
 
 pub use event_codec::{StaticEventBridge, StaticEventCodecError};
 pub use static_codec::{

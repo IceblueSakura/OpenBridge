@@ -180,17 +180,22 @@ origin、Provider path/body hook、timeout 和 credential binding；只有多个
 
 ```powershell
 cargo run --locked --bin openbridge-probe -- models --provider openai
-cargo run --locked --bin openbridge-probe -- generation --provider bailian --model candidate-model-id --protocol all --delivery all --reasoning all --capability all
+cargo run --locked --bin openbridge-probe -- generation --provider bailian --model candidate-model-id --protocol chat --delivery non-streaming --reasoning omitted --capability tool-parallel-true
 ```
 
 `models` 输出 Provider 固定 Models endpoint 的完整计数、最多 1024 项有界 ID 样本，以及可选 `--model` 的可见性。
 `generation` 需要 `--model`，并按 `--protocol`（chat/responses/all）、`--delivery`（non-streaming/streaming/all）、
 `--reasoning`（omitted/none/minimal/low/medium/high/xhigh/max/all）与 `--capability`
-（text/json-object/json-schema/json-schema-strict/all）独立展开矩阵；默认只跑双协议、non-streaming、omitted reasoning 与
-text。Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema，按 accepted 响应的实际输出给出 `supported`、
-`not_honored` 或 `inconclusive`，不保留生成文本。`--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受
-已注册且启用的 Generation Target。所有 case 继续使用固定 16/64-token upstream output limit，只有 backend 明确拒绝该字段时才
-使用 `--allow-unbounded-streaming-output` 放开 streaming limit；这可能增加 reasoning 时间和计费。
+（text/json-object/json-schema/json-schema-strict/tool-auto/tool-none/tool-required/tool-named/tool-strict/
+tool-parallel-false/tool-parallel-true/all）独立展开矩阵；默认只跑双协议、non-streaming、omitted reasoning 与 text。
+Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema；tool case 携带两个以内固定 function tools、固定 prompt 与
+固定 arguments schema，只观察单次首轮响应中的 tool choice、strict 和 parallel 差分，不执行工具、不发送 tool result，也不发起
+continuation。两类 case 都按完整 terminal 与瞬时输出给出 `supported`、`not_honored` 或 `inconclusive`，不保留生成文本、tool
+arguments、call ID 或 item ID。`auto` 未调用工具和 `parallel=true` 只返回一个调用都记为 `inconclusive`，不误报不支持。
+`--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受已注册且启用的 Generation Target。所有 bounded
+Generation case 使用固定 4096-token accuracy-oriented upstream output limit；探测 Target 自身已注册 upstream model 时按其 output ceiling
+下调，显式 candidate model 不继承另一模型的 ceiling。只有 backend 明确
+拒绝该字段时才使用 `--allow-unbounded-streaming-output` 放开 streaming limit，这可能增加 reasoning 时间和计费。
 
 `--model` 允许在正式注册前把同一个 candidate model ID 用于 `models` 可见性与 `generation` case；所选 Provider 解析只接受
 Generation task Target，Embeddings/Images/Audio Target 不能借 Provider-wide path 发送 Generation。该参数不能覆盖 endpoint、
@@ -200,8 +205,9 @@ credential、认证 header、完整请求正文、生成正文或完整 upstream
 `unsupported` 只表示本地 trusted Target/profile 不允许 operation 或 delivery；真实 upstream 的所有非 2xx（包括 candidate-model 404）
 都只是该请求的 `rejected`，不会提升为 endpoint 静态结论。
 
-一次 `accepted` 只证明该固定请求当时取得可识别的 JSON/SSE 结果；它不证明 reasoning 参数实际生效、能力稳定、工具、多模态、模型质量、
-SDK/Agent 兼容、retry/fallback、负载或长期稳定性。完整说明见[当前状态边界](docs/implementation-status/current-boundaries.md)。
+一次 `accepted` 或 tool oracle 的 `supported` 只证明该固定首轮请求当时取得相应 JSON/SSE 结果；它不证明 reasoning 参数实际生效、
+完整工具调用流程、工具执行/续轮、能力稳定、多模态、模型质量、SDK/Agent 兼容、retry/fallback、负载或长期稳定性。完整说明见
+[当前状态边界](docs/implementation-status/current-boundaries.md)。
 
 ## 8. OpenAPI 与 Swagger UI
 

@@ -47,7 +47,7 @@ pub(super) async fn decode_json_response(
         .map_err(|_| ProbeResult::inconclusive(Some(status), ProbeFailure::ResponseLimit))?;
 
     // Accept only valid JSON so an error page cannot be reported as protocol success.
-    let body = serde_json::from_slice(&body)
+    let body = crate::bridge::strict_json::from_slice(&body)
         .map_err(|_| ProbeResult::inconclusive(Some(status), ProbeFailure::InvalidJson))?;
     Ok(JsonResponse {
         status,
