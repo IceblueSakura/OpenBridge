@@ -24,6 +24,8 @@ commit 为准；目录索引只负责导航和维护规则，不用较新的索�
 | CLIProxyAPI | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 订阅账号代理的 state、cooldown 与 OAuth lifecycle |
 | 跨项目综合 | [综合调研索引](cross-project/README.md) | 只汇总已经存在项目级前置文档的比较 |
 | 语义评测方法 | [Semantic evaluation methods](semantic-testing-methods.md) | 长上下文、function-tool 与 structured-output 方法和采用边界 |
+| 设计关注点导航 | [设计关注点矩阵](topics/design-concerns.md) | 按关注点跨类别查阅已有事实；纯指针，不拥有事实 |
+| 测试资产吸收 | [测试资产登记表](topics/test-assets-registry.md) | 外部测试资产登记、可吸收场景与采用义务 |
 
 语音资料按证据所有权分开：标准 Audio/Speech、Chat audio 与 Realtime wire 见
 [OpenAI 音频与语音索引](openai/README.md#6-音频与语音)；MiMo wire 见
@@ -51,8 +53,10 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 3. OpenBridge 需求、当前代码、配置、测试结果和目标数据类型不写入参考叶文档；需要比较时只保留中性的采用边界。
 4. 原始 JSON 等非 Markdown 资产必须有一个明确的 Markdown owner，记录采集、脱敏、大小/校验或复核边界。
 5. 不为只有少量叶文档的目录机械增加 README；本页直接导航 cc-switch 与 CLIProxyAPI。
-6. 对 official website 或 OpenRouter 可直接取得的模型信息，只记录来源 URL、来源身份、`Last reverified` 与 `Recheck trigger`；不保存完整 capability metadata、字段表、价格表、Provider 全量 Models 响应或原始 payload。
-7. 当前 Model↔Provider 关系由 implementation status 维护，能力字段回到代码、运行中的扩展 Models API 或外部官方文档。只有执行测试与引用来源矛盾时，才由 implementation evidence 单独记录来源声明和观察差异；来源之间的静态字段差异本身不构成测试证据。
+6. [topics/](topics/design-concerns.md) 是按关注点查阅的纯指针导航层：只链接已有事实，不引入新事实或结论；比较性结论属于 [cross-project](cross-project/README.md)。
+7. 吸收外部调研的固定流程：先在对应来源目录新建或更新叶文档并补齐元数据合同，再在 [设计关注点矩阵](topics/design-concerns.md) 登记入口；外部测试资产同时登记进 [测试资产登记表](topics/test-assets-registry.md)，采用决定落地后更新其状态与去向记录。
+8. 对 official website 或 OpenRouter 可直接取得的模型信息，只记录来源 URL、来源身份、`Last reverified` 与 `Recheck trigger`；不保存完整 capability metadata、字段表、价格表、Provider 全量 Models 响应或原始 payload。
+9. 当前 Model↔Provider 关系由 implementation status 维护，能力字段回到代码、运行中的扩展 Models API 或外部官方文档。只有执行测试与引用来源矛盾时，才由 implementation evidence 单独记录来源声明和观察差异；来源之间的静态字段差异本身不构成测试证据。
 
 ## 4. 固定项目基线
 
@@ -75,6 +79,7 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 ## 5. 维护检查
 
 - 相对链接、锚点和非 Markdown 资产 owner 可达；
+- topics/ 导航层的深链接锚点指向叶文档标题；调整被链接文档标题时同步更新；
 - source URL、snapshot date/commit、阅读范围与复核触发条件完整；
 - 观察事实、推论、未知项和采用边界分开；
 - 综合文档链接全部项目级前置，不在综合页首次引入项目事实；
