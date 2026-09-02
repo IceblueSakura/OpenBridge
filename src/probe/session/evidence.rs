@@ -520,6 +520,24 @@ pub(super) fn json_generation_evidence(
                 }),
             ApiProtocol::Responses => response_output_has_type(body, "reasoning"),
         },
+        // A summary is observed when some reasoning output item carries a non-empty summary
+        // array; summary text itself is never retained.
+        reasoning_summary_observed: match protocol {
+            ApiProtocol::ChatCompletions => false,
+            ApiProtocol::Responses => {
+                body.get("output")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| {
+                        items.iter().any(|item| {
+                            item.get("type").and_then(Value::as_str) == Some("reasoning")
+                                && item
+                                    .get("summary")
+                                    .and_then(Value::as_array)
+                                    .is_some_and(|summary| !summary.is_empty())
+                        })
+                    })
+            }
+        },
         event_types: Vec::new(),
     }
 }
@@ -850,6 +868,10 @@ pub(super) fn observe_sse_event(
         }
         evidence.reasoning_observed |= event_type.contains("reasoning");
         evidence.output_text_observed |= event_type.contains("output_text");
+        // Summary-specific SSE events (e.g. response.reasoning_summary_part.done) mark an
+        // observed summary without retaining any summary text.
+        evidence.reasoning_summary_observed |=
+            event_type.contains("reasoning") && event_type.contains("summary");
     }
 
     if let Some(document) = document.as_ref() {
@@ -1278,5 +1300,73 @@ mod tests {
             .verdict,
             ProbeCapabilityVerdict::Inconclusive
         );
+    }
+
+    #[test]
+    fn sse_summary_event_marks_summary_observed_without_retaining_text() {
+        let mut decoder = SseDecoder::new(64 * 1024);
+        let events = decoder
+            .push(
+                b"event: response.reasoning_summary_text.done\ndata: {\"type\":\"response.reasoning_summary_text.done\",\"item_id\":\"rs_private\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+            )
+            .unwrap();
+        let mut evidence = GenerationProbeEvidence::default();
+        let mut output_text = String::new();
+        for event in &events {
+            observe_sse_event(
+                ApiProtocol::Responses,
+                event,
+                &mut evidence,
+                &mut output_text,
+            );
+        }
+        assert!(evidence.reasoning_observed);
+        assert!(evidence.reasoning_summary_observed);
+        assert!(
+            evidence
+                .event_types
+                .iter()
+                .all(|value| !value.contains("must-not"))
+        );
+    }
+
+    #[test]
+    fn json_generation_evidence_detects_summary_parts_and_ignores_plain_reasoning() {
+        let with_summary = json_generation_evidence(
+            ApiProtocol::Responses,
+            &json!({
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "private"}]},
+                    {"type": "message", "content": [{"type": "output_text", "text": "OK"}]}
+                ]
+            }),
+            None,
+        );
+        assert!(with_summary.reasoning_summary_observed);
+
+        let without_summary = json_generation_evidence(
+            ApiProtocol::Responses,
+            &json!({
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "summary": []},
+                    {"type": "message", "content": [{"type": "output_text", "text": "OK"}]}
+                ]
+            }),
+            None,
+        );
+        assert!(!without_summary.reasoning_summary_observed);
+
+        let chat_never = json_generation_evidence(
+            ApiProtocol::ChatCompletions,
+            &json!({
+                "choices": [{"message": {"role": "assistant", "content": "OK"}}]
+            }),
+            None,
+        );
+        assert!(!chat_never.reasoning_summary_observed);
     }
 }

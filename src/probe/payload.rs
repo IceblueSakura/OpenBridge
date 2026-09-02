@@ -143,6 +143,33 @@ pub(super) fn probe_generation_request(
         }
     }
     add_generation_capability(protocol, capability, overrides, &mut request);
+    // Add only the Responses-only wire differential selected by the closed case; selection
+    // validation guarantees these cases never reach the Chat wire shape.
+    if protocol == ApiProtocol::Responses {
+        let object = request
+            .as_object_mut()
+            .expect("built-in probe request is an object");
+        match selection.case {
+            crate::probe::ProbeGenerationCase::ReasoningSummary => {
+                if let Some(reasoning) = object.get_mut("reasoning") {
+                    reasoning
+                        .as_object_mut()
+                        .expect("Responses reasoning is an object")
+                        .insert("summary".to_owned(), json!("auto"));
+                }
+            }
+            crate::probe::ProbeGenerationCase::IncludeEncryptedContent => {
+                object.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
+            }
+            crate::probe::ProbeGenerationCase::PromptCacheKey => {
+                object.insert(
+                    "prompt_cache_key".to_owned(),
+                    Value::String("openbridge-probe-cache-key".to_owned()),
+                );
+            }
+            _ => {}
+        }
+    }
     request
 }
 

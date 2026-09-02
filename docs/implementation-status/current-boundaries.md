@@ -84,6 +84,8 @@
 ## 4. Probe 边界
 
 - 每次 Generation probe 只执行一个显式 unit case；当前 CLI/库不拥有跨 protocol、delivery、reasoning 或 capability 的矩阵编排。
+- `reasoning-summary`、`include-encrypted-content`、`prompt-cache-key` 是 Responses-only 单字段差分：只发送被探测字段，接受性由
+  outcome 体现；它们不验证 summary 质量、加密内容语义或缓存效果，与 Chat 协议组合在选择阶段拒绝。
 - 管理员可以为非 tool case 覆盖固定用户 prompt，为 JSON Schema case 覆盖响应格式对象与名称；覆盖只改变请求文本，不改变
   闭合 case 集合、tool 定义、图片负载、output ceiling 或 oracle 结构。带自定义 `--schema` 的 case 因无固定 oracle 恒为
   `inconclusive`，报告只携带覆盖内容指纹与 `--schema-name`，evidence 归属由外部脚本记录指纹与原文的对应。

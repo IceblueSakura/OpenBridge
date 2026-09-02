@@ -163,6 +163,12 @@ pub enum ProbeGenerationCase {
     ToolParallelDisabled,
     /// Parallel tool calls explicitly enabled.
     ToolParallelEnabled,
+    /// Responses-only reasoning summary request with `summary: "auto"`.
+    ReasoningSummary,
+    /// Responses-only `include: ["reasoning.encrypted_content"]` request.
+    IncludeEncryptedContent,
+    /// Responses-only fixed `prompt_cache_key` hint request.
+    PromptCacheKey,
 }
 
 impl ProbeGenerationCase {
@@ -188,8 +194,19 @@ impl ProbeGenerationCase {
             "tool-strict" => Some(Self::ToolStrict),
             "tool-parallel-false" => Some(Self::ToolParallelDisabled),
             "tool-parallel-true" => Some(Self::ToolParallelEnabled),
+            "reasoning-summary" => Some(Self::ReasoningSummary),
+            "include-encrypted-content" => Some(Self::IncludeEncryptedContent),
+            "prompt-cache-key" => Some(Self::PromptCacheKey),
             _ => None,
         }
+    }
+
+    /// Returns whether this case only exists on the Responses wire shape.
+    pub(crate) const fn is_responses_only(self) -> bool {
+        matches!(
+            self,
+            Self::ReasoningSummary | Self::IncludeEncryptedContent | Self::PromptCacheKey
+        )
     }
 
     pub(crate) const fn reasoning_effort(self) -> ProbeReasoningEffort {
@@ -201,11 +218,15 @@ impl ProbeGenerationCase {
             Self::ReasoningHigh => ProbeReasoningEffort::High,
             Self::ReasoningXHigh => ProbeReasoningEffort::XHigh,
             Self::ReasoningMax => ProbeReasoningEffort::Max,
+            // Both Responses-only differential cases pair a medium reasoning budget with the
+            // single field under test; effort is fixed so the wire diff stays one-dimensional.
+            Self::ReasoningSummary | Self::IncludeEncryptedContent => ProbeReasoningEffort::Medium,
             Self::Text
             | Self::JsonObject
             | Self::JsonSchema
             | Self::JsonSchemaStrict
             | Self::ImageInputInlinePng
+            | Self::PromptCacheKey
             | Self::ToolAuto
             | Self::ToolNone
             | Self::ToolRequired
@@ -225,7 +246,10 @@ impl ProbeGenerationCase {
             | Self::ReasoningMedium
             | Self::ReasoningHigh
             | Self::ReasoningXHigh
-            | Self::ReasoningMax => ProbeGenerationCapability::Text,
+            | Self::ReasoningMax
+            | Self::ReasoningSummary
+            | Self::IncludeEncryptedContent
+            | Self::PromptCacheKey => ProbeGenerationCapability::Text,
             Self::JsonObject => ProbeGenerationCapability::JsonObject,
             Self::JsonSchema => ProbeGenerationCapability::JsonSchema,
             Self::JsonSchemaStrict => ProbeGenerationCapability::JsonSchemaStrict,
@@ -317,6 +341,10 @@ impl ProbeOptions {
 impl ProbeGenerationSelection {
     /// Validates admin-authored prompt/schema overrides against the selected closed case.
     fn validate_overrides(&self) -> Result<(), ProbeSelectionError> {
+        // Responses-only differential cases cannot run on the Chat wire shape.
+        if self.protocol == ProbeProtocol::ChatCompletions && self.case.is_responses_only() {
+            return Err(ProbeSelectionError::ResponsesOnlyCase);
+        }
         let custom_prompt = self.custom_prompt.as_deref().unwrap_or_default();
         let custom_schema = self.custom_schema.as_deref().unwrap_or_default();
         let custom_schema_name = self.custom_schema_name.as_deref().unwrap_or_default();
@@ -543,6 +571,9 @@ pub struct GenerationProbeEvidence {
     pub output_text_observed: bool,
     /// Whether a standard reasoning field or event appeared; reasoning text is never retained.
     pub reasoning_observed: bool,
+    /// Whether a reasoning summary appeared (Responses `summary` parts or summary SSE events);
+    /// summary text is never retained.
+    pub reasoning_summary_observed: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     /// Ordered unique SSE event-type tokens, capped by the probe implementation.
     pub event_types: Vec<String>,

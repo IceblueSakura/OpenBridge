@@ -351,7 +351,11 @@ impl UpstreamTransport for FixtureTransport {
                     "object": "response",
                     "status": "completed",
                     "output": [
-                        {"type": "reasoning", "summary": []},
+                        {"type": "reasoning", "summary": if body.pointer("/reasoning/summary").is_some() {
+                            vec![json!({"type": "summary_text", "text": "must-not-enter-report"})]
+                        } else {
+                            Vec::new()
+                        }},
                         {"type": "message", "content": [{"type": "output_text", "text": if body.pointer("/text/format/type").and_then(Value::as_str) == Some("json_object") { r#"{"probe":"ok"}"# } else { "OK" }}]}
                     ],
                     "usage": {
@@ -1951,4 +1955,147 @@ async fn canonical_cases_remain_unaffected_without_overrides() {
         body.pointer("/response_format/json_schema/schema/properties/probe/const"),
         Some(&serde_json::json!("ok"))
     );
+}
+
+async fn run_responses_only_case(
+    case: super::ProbeGenerationCase,
+) -> (super::TargetProbeReport, FixtureTransport) {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::Responses,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    (report, transport)
+}
+
+#[tokio::test]
+async fn reasoning_summary_case_sends_only_summary_and_observes_summary_evidence() {
+    let (report, transport) =
+        run_responses_only_case(super::ProbeGenerationCase::ReasoningSummary).await;
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (_, path, body) = &requests[0];
+    assert_eq!(path, "/v1/responses");
+    assert_eq!(body.pointer("/reasoning/effort"), Some(&json!("medium")));
+    assert_eq!(body.pointer("/reasoning/summary"), Some(&json!("auto")));
+    // Exactly one differential field; no other Responses-only fields leak in.
+    assert!(body.get("include").is_none());
+    assert!(body.get("prompt_cache_key").is_none());
+
+    let result = report.generation.as_ref().unwrap();
+    assert_eq!(result.outcome.state, ProbeStatus::Accepted);
+    let evidence = result.evidence.as_ref().unwrap();
+    assert!(evidence.reasoning_observed);
+    assert!(evidence.reasoning_summary_observed);
+    // Generated summary text must never enter the report.
+    let serialized = serde_json::to_string(&report).unwrap();
+    assert!(!serialized.contains("must-not-enter-report"));
+}
+
+#[tokio::test]
+async fn baseline_responses_case_reports_no_summary_observation() {
+    let (report, transport) = run_responses_only_case(super::ProbeGenerationCase::Text).await;
+
+    let requests = transport.requests.lock().unwrap();
+    let (_, _, body) = &requests[0];
+    assert!(body.get("reasoning").is_none());
+
+    let evidence = report
+        .generation
+        .as_ref()
+        .unwrap()
+        .evidence
+        .as_ref()
+        .unwrap();
+    assert!(!evidence.reasoning_summary_observed);
+}
+
+#[tokio::test]
+async fn include_encrypted_content_case_sends_only_the_fixed_include_hint() {
+    let (_report, transport) =
+        run_responses_only_case(super::ProbeGenerationCase::IncludeEncryptedContent).await;
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (_, _, body) = &requests[0];
+    assert_eq!(
+        body.get("include"),
+        Some(&json!(["reasoning.encrypted_content"]))
+    );
+    assert_eq!(body.pointer("/reasoning/effort"), Some(&json!("medium")));
+    assert!(body.pointer("/reasoning/summary").is_none());
+    assert!(body.get("prompt_cache_key").is_none());
+}
+
+#[tokio::test]
+async fn prompt_cache_key_case_sends_only_the_fixed_cache_hint() {
+    let (_report, transport) =
+        run_responses_only_case(super::ProbeGenerationCase::PromptCacheKey).await;
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (_, _, body) = &requests[0];
+    assert_eq!(
+        body.get("prompt_cache_key"),
+        Some(&json!("openbridge-probe-cache-key"))
+    );
+    assert!(body.get("include").is_none());
+    assert!(body.get("reasoning").is_none());
+}
+
+#[tokio::test]
+async fn responses_only_cases_reject_chat_protocol_before_any_egress() {
+    for case in [
+        super::ProbeGenerationCase::ReasoningSummary,
+        super::ProbeGenerationCase::IncludeEncryptedContent,
+        super::ProbeGenerationCase::PromptCacheKey,
+    ] {
+        let registry = registry();
+        let transport = FixtureTransport::default();
+        let credentials = CredentialStoreBuilder::new().build();
+        let error = probe_upstream_target(
+            &registry,
+            "openai-main",
+            &transport,
+            &credentials,
+            ProbeOptions {
+                generation: Some(super::ProbeGenerationSelection {
+                    protocol: super::ProbeProtocol::ChatCompletions,
+                    mode: super::ProbeGenerationMode::NonStreaming,
+                    case,
+                    custom_prompt: None,
+                    custom_schema: None,
+                    custom_schema_name: None,
+                }),
+                upstream_model: Some("candidate-model".to_owned()),
+                ..ProbeOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ProbeError::InvalidSelection(super::ProbeSelectionError::ResponsesOnlyCase)
+        ));
+        assert!(transport.requests.lock().unwrap().is_empty());
+    }
 }

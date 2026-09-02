@@ -19,6 +19,9 @@ pub enum ProbeSelectionError {
     /// The risk opt-in cannot affect any selected streaming Generation request.
     #[error("--allow-unbounded-streaming-output requires streaming Generation")]
     UnusedUnboundedStreamingOutput,
+    /// The selected case only exists on the Responses wire.
+    #[error("the selected case requires --protocol responses")]
+    ResponsesOnlyCase,
     /// The admin-authored overrides cannot affect any selected Generation request.
     #[error("--prompt/--schema/--schema-name require a Generation case")]
     UnusedGenerationOverrides,

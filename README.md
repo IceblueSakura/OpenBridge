@@ -189,7 +189,8 @@ cargo run --locked --bin openbridge-probe -- generation --provider bailian --mod
 `--case` 选择的请求；默认是 Chat、non-streaming 与 text。case 为
 text/reasoning-none/reasoning-minimal/reasoning-low/reasoning-medium/reasoning-high/reasoning-xhigh/reasoning-max/json-object/
 json-schema/json-schema-strict/image-input-inline-png/tool-auto/tool-none/tool-required/tool-named/tool-strict/tool-parallel-false/
-tool-parallel-true。
+tool-parallel-true/reasoning-summary/include-encrypted-content/prompt-cache-key。
+其中后三个为 Responses-only 单字段差分 case。
 CLI 和 library 不接受 `all`、列表或内置笛卡尔矩阵；外部测试脚本通过多次独立调用编排。
 Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema；tool case 携带两个以内固定 function tools、固定 prompt 与
 固定 arguments schema，只观察单次首轮响应中的 tool choice、strict 和 parallel 差分，不执行工具、不发送 tool result，也不发起
@@ -201,10 +202,11 @@ arguments、call ID 或 item ID。`auto` 未调用工具和 `parallel=true` 只�
 `--prompt` 对 tool case 拒绝，`--schema`/`--schema-name` 对其他 case 拒绝。带自定义 `--schema` 的 case 因无固定 oracle 而
 恒为 `inconclusive` verdict，schema 接受性由 `accepted`/`rejected` outcome 体现；报告为每个生效覆盖记录
 `custom_prompt_fingerprint`、`custom_schema_fingerprint`（各自内容的 SHA-256 前 16 位十六进制）与 `custom_schema_name`，
-evidence 归属由外部脚本记录指纹与原文的对应，报告本体从不包含覆盖文本。无覆盖时全部 19 个 case 的 wire、oracle 与 verdict 保持
+evidence 归属由外部脚本记录指纹与原文的对应，报告本体从不包含覆盖文本。无覆盖时全部 22 个 case 的 wire、oracle 与 verdict 保持
 canonical 不变。
 `image-input-inline-png` 使用内置、已视觉复核的固定 PNG data URL；Chat 发送 `image_url`，Responses 发送 `input_image`。只有完整响应
 精确返回图片中的固定 token 才记为 `supported`，请求成功但识别不匹配记为 `inconclusive`，报告不保留图片 data URL、prompt 或输出正文。
+`reasoning-summary` 发送固定 `reasoning: {"effort":"medium","summary":"auto"}` 并只观察响应是否出现非空 reasoning summary（`reasoning_summary_observed` 布尔），不保留 summary 文本；`include-encrypted-content` 发送固定 `include: ["reasoning.encrypted_content"]` 并观察接受性，不验证加密内容本身；`prompt-cache-key` 发送固定 `prompt_cache_key` hint 并观察接受性，不承诺也不验证缓存效果。三者均为单字段差分：除被探测字段外其余 wire 形状保持与对应 baseline 一致，接受性由 `accepted`/`rejected` outcome 体现。
 `--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受已注册且启用的 Generation Target。所有 bounded
 Generation case 使用固定 4096-token accuracy-oriented upstream output limit；探测 Target 自身已注册 upstream model 时按其 output ceiling
 下调，显式 candidate model 不继承另一模型的 ceiling。只有 backend 明确
