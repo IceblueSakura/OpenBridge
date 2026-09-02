@@ -17,7 +17,7 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
-| 2026-09-02 | [四模型 Chat/Responses 双协议能力探测矩阵](2026-09-02-dual-protocol-capability-matrix.md) | DeepSeek V4 Flash Vision、MiMo-V2.5、GLM-5.3-Flash、Qwen3.8-Max 双协议 × 双交付 328 次固定 case 探测；Responses-only 差分首测；含三处与注册声明的差异 |
+| 2026-09-02 | [双协议能力探测记录（持续追加）](2026-09-02-dual-protocol-capability-matrix.md) | 第 1 轮：DeepSeek V4 Flash Vision、MiMo-V2.5、GLM-5.3-Flash、Qwen3.8-Max 双协议 × 双交付 328 次固定 case 探测；Responses-only 差分首测；含三处与注册声明的差异 |
 | 2026-08-29 | [Bailian DeepSeek V4 Pro Responses 接入验证](2026-08-29-bailian-deepseek-v4-pro-responses.md) | 官方北京 Responses 声明、Target 注册修复、管理员 JSON/SSE probe 与本地下游 OpenAI SDK 请求 |
 | 2026-08-29 | [OpenBridge Qwen3.7 Embeddings 与 Hindsight 兼容性验证](2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md) | 模型发现、float/维度、20/21 batch、归一化/稳定性、中英语义小样本，以及 Hindsight SDK Base64/user 阻断与本地确定性修复边界 |
 | 2026-08-27 | [Bailian Responses 三模型兼容性对比](2026-08-27-bailian-responses-model-comparison.md) | 北京 Models API GLM 可见性及 GLM-5.2、DeepSeek V4 Flash 0731、Qwen3.8 Max 的 JSON/SSE、reasoning、structured output、工具续轮、state 与协议归因 |
