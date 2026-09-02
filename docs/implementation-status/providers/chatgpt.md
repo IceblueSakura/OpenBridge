@@ -5,7 +5,9 @@ OAuth credential 生命周期合同见 [configuration/oauth-chatgpt.md](../../fu
 
 ## 当前边界
 
-- WebSocket、Batch、Embeddings、hosted/custom tool、MCP、真实图片输入、background/stateful response、完整 Agent loop、
+- 已注册 Responses 单张内联图片输入（仅 data URL，JPEG/PNG/GIF/WebP，20 MiB encoded / 15 MiB decoded 上限，无显式
+  detail）；remote URL、多图、真实图片质量未证明。
+- WebSocket、Batch、Embeddings、hosted/custom tool、MCP、background/stateful response、完整 Agent loop、
   多账户轮换、外部 SDK、负载和长期 refresh 稳定性未实现或未证明。
 - 真实登录、refresh 与 401 recovery 的长期稳定性只有确定性测试覆盖，未形成真实账号长期运行验收。
 

@@ -7,9 +7,10 @@
 - 2026-08-27 北京真实 Responses 对比确认基础 JSON/SSE、usage 和第一轮工具 wire 可用；在统一冲突提示下，三模型均忽略 Responses
   `text.format=json_object/json_schema`，且在单一双调用提示下均未执行 `parallel_tool_calls=false`。GLM-5.2 另有高 reasoning 400
   与标准工具续轮 arguments 类型冲突，当前继续只走 Chat bridge。
-- Qwen3.8 Max、DeepSeek V4 Pro 0813 与 DeepSeek V4 Flash 0731 已注册双 Native；2026-08-31 再次确认 Flash 的有界 Responses
-  JSON/SSE，但未执行 production Router 或 SDK/Agent。
-- Bailian Chat structured output 只按官方模型范围公开，Responses structured output 继续按既有差分收窄。
+- Qwen3.8 Max、Qwen3.8 27B、Qwen3.7 Max、Qwen3.7 Plus、DeepSeek V4 Pro 0813 与 DeepSeek V4 Flash 0731 已注册双
+  Native；2026-08-31 再次确认 Flash 的有界 Responses JSON/SSE，但未执行 production Router 或 SDK/Agent。
+- Bailian Chat structured output 只按官方模型范围公开；Responses structured output 继续按既有差分收窄：仅
+  Qwen3.7 Plus 公开 JSON Object（2026-08-11 probe 确认 `json_schema` 被静默降级），其余 Responses Target 不公开。
 - Qwen/DeepSeek Responses Target 的 `parallel_calls=false` 表示不公开可精确执行 true/false 的控制，不是 serial-only 保证。
 - LiveTranslate 没有下游 executable interface；Images I2I/async/stream/`b64_json` 未实现。
 - Qwen/Kimi video、多图、更多图片格式/尺寸/detail、多模态 tool 组合、强制 DeepSeek fallback、其他账号/区域、质量、计费、负载与长期运行未证明。

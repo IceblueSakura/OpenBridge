@@ -54,6 +54,7 @@ downstream response + request/attempt observations
 | Request analysis/planning | `src/pipeline/` | operation-specific facts、preflight 与固定 Route plan；不进行 Provider 名称分支 |
 | Generation semantic IR | `src/ir/generation/` | pure Static/Event values、reducer/materializer、local validation、semantic requirements与fidelity；不拥有Registry、I/O或routing |
 | HTTP ingress | `src/ingress/` | 认证、body lifecycle、handler、attempt/fallback、streaming response 与错误映射 |
+| Execution 协调 | `src/execution.rs`、`src/execution/` | 共享 attempt coordinator 与 `#[cfg(test)]` 的 bounded gateway web-search loop；不拥有 operation pipeline、Provider 选择或 downstream commit |
 | Generation codecs | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | production Native 语义保留与Chat ↔ Responses request/response/SSE lowering；只消费固定Route与显式budgets，不选择Provider、credential、URL或commit policy |
 | Transport | `src/transport/` | 共享 HTTP client、相对 URI、timeout、safe headers 与 SSE framing |
 | Observability | `src/observability.rs`、`src/observability/` | downstream lifecycle、Provider attempt、usage、SDK metrics、OTLP 和本地脱敏 snapshot |
