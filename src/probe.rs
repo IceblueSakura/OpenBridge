@@ -7,6 +7,7 @@
 
 use http::StatusCode;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::core::ApiProtocol;
 
@@ -59,6 +60,20 @@ pub(crate) enum ProbeGenerationCapability {
 }
 
 impl ProbeGenerationCapability {
+    /// Returns whether this capability exercises one fixed first-turn function-tool oracle.
+    pub(crate) const fn is_tool_capability(self) -> bool {
+        matches!(
+            self,
+            Self::ToolAuto
+                | Self::ToolNone
+                | Self::ToolRequired
+                | Self::ToolNamed
+                | Self::ToolStrict
+                | Self::ToolParallelDisabled
+                | Self::ToolParallelEnabled
+        )
+    }
+
     /// Returns the accuracy-oriented bounded output-token budget for every fixed oracle.
     pub(crate) const fn max_output_tokens(self) -> u32 {
         let _ = self;
@@ -226,8 +241,8 @@ impl ProbeGenerationCase {
     }
 }
 
-/// Exact wire and semantic selection for one Generation request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// One unit Generation case selection with optional admin-authored prompt/schema overrides.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProbeGenerationSelection {
     /// OpenAI-compatible protocol used for the request.
     pub protocol: ProbeProtocol,
@@ -235,6 +250,12 @@ pub struct ProbeGenerationSelection {
     pub mode: ProbeGenerationMode,
     /// One closed unit capability case.
     pub case: ProbeGenerationCase,
+    /// Optional admin-authored replacement for the case's fixed user prompt.
+    pub custom_prompt: Option<String>,
+    /// Optional admin-authored replacement for a JSON Schema case's response-format schema.
+    pub custom_schema: Option<String>,
+    /// Optional admin-authored replacement for the fixed response-format schema name.
+    pub custom_schema_name: Option<String>,
 }
 
 /// Explicit administrative probe selection.
@@ -281,9 +302,63 @@ impl ProbeOptions {
         if self.allow_unbounded_streaming_output
             && self
                 .generation
+                .as_ref()
                 .is_some_and(|selection| selection.mode != ProbeGenerationMode::Streaming)
         {
             return Err(ProbeSelectionError::UnusedUnboundedStreamingOutput);
+        }
+        if let Some(selection) = self.generation.as_ref() {
+            selection.validate_overrides()?;
+        }
+        Ok(())
+    }
+}
+
+impl ProbeGenerationSelection {
+    /// Validates admin-authored prompt/schema overrides against the selected closed case.
+    fn validate_overrides(&self) -> Result<(), ProbeSelectionError> {
+        let custom_prompt = self.custom_prompt.as_deref().unwrap_or_default();
+        let custom_schema = self.custom_schema.as_deref().unwrap_or_default();
+        let custom_schema_name = self.custom_schema_name.as_deref().unwrap_or_default();
+        if custom_prompt.is_empty() && custom_schema.is_empty() && custom_schema_name.is_empty() {
+            return Ok(());
+        }
+        // Prompt overrides bind only to cases whose oracle tolerates a reworded request.
+        if !custom_prompt.is_empty() {
+            if self.case.capability().is_tool_capability() {
+                return Err(ProbeSelectionError::UnsupportedPromptOverride);
+            }
+            if custom_prompt.len() > 4_096 {
+                return Err(ProbeSelectionError::InvalidCustomPrompt);
+            }
+        }
+        // A schema name is meaningful only together with the schema it names.
+        if custom_schema.is_empty() && !custom_schema_name.is_empty() {
+            return Err(ProbeSelectionError::InvalidCustomSchema);
+        }
+        if !custom_schema.is_empty() {
+            if custom_schema.len() > 8_192 {
+                return Err(ProbeSelectionError::InvalidCustomSchema);
+            }
+            let parsed_schema: Option<serde_json::Value> = serde_json::from_str(custom_schema).ok();
+            if parsed_schema.is_none_or(|value| !value.is_object()) {
+                return Err(ProbeSelectionError::InvalidCustomSchema);
+            }
+            if !matches!(
+                self.case,
+                ProbeGenerationCase::JsonSchema | ProbeGenerationCase::JsonSchemaStrict
+            ) {
+                return Err(ProbeSelectionError::UnsupportedSchemaOverride);
+            }
+        }
+        if !custom_schema_name.is_empty()
+            && (custom_schema_name.len() > 64
+                || custom_schema_name.trim() != custom_schema_name
+                || custom_schema_name
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control()))
+        {
+            return Err(ProbeSelectionError::InvalidCustomSchemaName);
         }
         Ok(())
     }
@@ -474,19 +549,25 @@ pub struct GenerationProbeEvidence {
 }
 
 /// One unit Generation case before execution.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct GenerationCaseSelection {
     pub(crate) protocol: ApiProtocol,
     pub(crate) mode: ProbeGenerationMode,
     pub(crate) case: ProbeGenerationCase,
+    /// Validated admin-authored prompt replacement, when provided.
+    pub(crate) custom_prompt: Option<String>,
+    /// Validated admin-authored schema replacement, when provided.
+    pub(crate) custom_schema: Option<String>,
+    /// Validated admin-authored schema name replacement, when provided.
+    pub(crate) custom_schema_name: Option<String>,
 }
 
 impl GenerationCaseSelection {
-    pub(crate) const fn reasoning_effort(self) -> ProbeReasoningEffort {
+    pub(crate) fn reasoning_effort(&self) -> ProbeReasoningEffort {
         self.case.reasoning_effort()
     }
 
-    pub(crate) const fn capability(self) -> ProbeGenerationCapability {
+    pub(crate) fn capability(&self) -> ProbeGenerationCapability {
         self.case.capability()
     }
 }
@@ -513,6 +594,25 @@ pub struct GenerationProbeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Semantic oracle result derived from transient bounded output text.
     pub capability_evidence: Option<ProbeCapabilityEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Fingerprint of an admin-authored prompt override; the override text is never retained.
+    pub custom_prompt_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Fingerprint of an admin-authored schema override; the override text is never retained.
+    pub custom_schema_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Admin-authored schema name when it differs from the fixed default.
+    pub custom_schema_name: Option<String>,
+}
+
+/// Returns a bounded hex fingerprint (first 16 SHA-256 hex chars) of one admin-authored override.
+fn override_fingerprint(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Semantic result for one fixed Generation capability case.

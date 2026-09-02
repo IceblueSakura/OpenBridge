@@ -606,6 +606,9 @@ async fn probe_discovers_models_and_smokes_one_generation_case_without_tool_payl
                 protocol: super::ProbeProtocol::ChatCompletions,
                 mode: super::ProbeGenerationMode::NonStreaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             embeddings: true,
             ..ProbeOptions::default()
@@ -734,6 +737,9 @@ async fn probe_executes_exactly_one_custom_model_generation_case() {
                 protocol: super::ProbeProtocol::Responses,
                 mode: super::ProbeGenerationMode::Streaming,
                 case: super::ProbeGenerationCase::ReasoningHigh,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             upstream_model: Some("candidate-model".to_owned()),
             ..ProbeOptions::default()
@@ -817,6 +823,9 @@ async fn inline_png_case_sends_one_fixed_image_request_without_retaining_image_c
                     protocol,
                     mode: super::ProbeGenerationMode::NonStreaming,
                     case: super::ProbeGenerationCase::ImageInputInlinePng,
+                    custom_prompt: None,
+                    custom_schema: None,
+                    custom_schema_name: None,
                 }),
                 upstream_model: Some("candidate-model".to_owned()),
                 ..ProbeOptions::default()
@@ -871,6 +880,9 @@ async fn structured_capability_cases_report_supported_not_honored_or_inconclusiv
                         protocol,
                         mode: super::ProbeGenerationMode::NonStreaming,
                         case: selected_case,
+                        custom_prompt: None,
+                        custom_schema: None,
+                        custom_schema_name: None,
                     }),
                     upstream_model: Some("candidate-model".to_owned()),
                     ..ProbeOptions::default()
@@ -944,6 +956,9 @@ async fn stateless_tool_cases_probe_one_first_turn_each_across_json_and_sse() {
                             protocol,
                             mode,
                             case: selected_case,
+                            custom_prompt: None,
+                            custom_schema: None,
+                            custom_schema_name: None,
                         }),
                         upstream_model: Some("candidate-model".to_owned()),
                         ..ProbeOptions::default()
@@ -1036,6 +1051,9 @@ async fn candidate_generation_cannot_borrow_a_non_generation_target() {
                 protocol: super::ProbeProtocol::ChatCompletions,
                 mode: super::ProbeGenerationMode::NonStreaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             upstream_model: Some("candidate-model".to_owned()),
             ..ProbeOptions::default()
@@ -1074,6 +1092,9 @@ async fn candidate_model_can_probe_an_unregistered_protocol_within_generation() 
                 protocol: super::ProbeProtocol::Responses,
                 mode: super::ProbeGenerationMode::NonStreaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             upstream_model: Some("candidate-model".to_owned()),
             ..ProbeOptions::default()
@@ -1163,6 +1184,9 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
                 protocol: super::ProbeProtocol::Responses,
                 mode: super::ProbeGenerationMode::Streaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             ..ProbeOptions::default()
         },
@@ -1188,6 +1212,9 @@ async fn chatgpt_probe_smokes_the_fixed_streaming_responses_api() {
                 protocol: super::ProbeProtocol::Responses,
                 mode: super::ProbeGenerationMode::Streaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             allow_unbounded_streaming_output: true,
             ..ProbeOptions::default()
@@ -1278,6 +1305,9 @@ async fn probe_rejects_invalid_selection_before_credentials_or_egress() {
                 protocol: super::ProbeProtocol::ChatCompletions,
                 mode: super::ProbeGenerationMode::NonStreaming,
                 case: super::ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             }),
             upstream_model: Some("candidate-model".to_owned()),
             allow_unbounded_streaming_output: true,
@@ -1489,6 +1519,9 @@ async fn probe_classifies_transport_http_and_json_failures_conservatively() {
                     protocol: super::ProbeProtocol::ChatCompletions,
                     mode: super::ProbeGenerationMode::NonStreaming,
                     case: super::ProbeGenerationCase::Text,
+                    custom_prompt: None,
+                    custom_schema: None,
+                    custom_schema_name: None,
                 }),
                 ..ProbeOptions::default()
             },
@@ -1532,6 +1565,9 @@ async fn probe_classifies_streaming_terminals_and_limits() {
             protocol: super::ProbeProtocol::Responses,
             mode: super::ProbeGenerationMode::Streaming,
             case: super::ProbeGenerationCase::Text,
+            custom_prompt: None,
+            custom_schema: None,
+            custom_schema_name: None,
         }),
         ..ProbeOptions::default()
     };
@@ -1654,4 +1690,265 @@ async fn probe_rejects_oversized_response_bodies() {
     assert_eq!(outcome.state, ProbeStatus::Rejected);
     assert_eq!(outcome.http_status, Some(StatusCode::BAD_REQUEST.as_u16()));
     assert_eq!(outcome.failure, None);
+}
+
+#[tokio::test]
+async fn custom_prompt_override_replaces_fixed_prompt_and_fingerprints_without_retaining_text() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+    let custom_prompt = "ADMIN AUTHORED PROMPT MARKER 12345";
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::Text,
+                custom_prompt: Some(custom_prompt.to_owned()),
+                custom_schema: None,
+                custom_schema_name: None,
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = report.generation.as_ref().unwrap();
+    assert_eq!(result.outcome.state, super::ProbeStatus::Accepted);
+    let fingerprint = result
+        .custom_prompt_fingerprint
+        .as_ref()
+        .expect("prompt override must be fingerprinted");
+    assert_eq!(fingerprint.len(), 16);
+    assert!(result.custom_schema_fingerprint.is_none());
+
+    // The override text must not enter the serialized report.
+    let serialized = serde_json::to_string(&report).unwrap();
+    assert!(!serialized.contains("ADMIN AUTHORED PROMPT MARKER"));
+
+    // The sent wire request carries only the override prompt.
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (_, _, body) = &requests[0];
+    // The override replaces the user message; the trusted system instruction stays first.
+    assert_eq!(
+        body.pointer("/messages/1/content"),
+        Some(&serde_json::json!(custom_prompt))
+    );
+    assert_eq!(
+        body.pointer("/messages/0/role"),
+        Some(&serde_json::json!("system"))
+    );
+}
+
+#[tokio::test]
+async fn custom_schema_override_replaces_response_format_and_forces_inconclusive_verdict() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+    let custom_schema = r#"{"type":"object","properties":{"answer":{"type":"string"}}"#;
+    // Close the JSON object to keep the fixture valid.
+    let custom_schema = format!("{custom_schema}}}");
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::JsonSchema,
+                custom_prompt: None,
+                custom_schema: Some(custom_schema.clone()),
+                custom_schema_name: Some("admin_probe_schema".to_owned()),
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = report.generation.as_ref().unwrap();
+    assert_eq!(result.outcome.state, super::ProbeStatus::Accepted);
+
+    // An arbitrary schema removes the fixed oracle: verdict stays inconclusive.
+    let evidence = result.capability_evidence.as_ref().unwrap();
+    assert_eq!(
+        evidence.verdict,
+        super::ProbeCapabilityVerdict::Inconclusive
+    );
+    assert_eq!(evidence.fixed_schema_match, None);
+    // The fixture echoes non-JSON text for json_schema requests; the oracle must not be fooled.
+    assert_eq!(evidence.valid_json_object, Some(false));
+
+    assert_eq!(
+        result.custom_schema_name.as_deref(),
+        Some("admin_probe_schema")
+    );
+    assert!(result.custom_schema_fingerprint.is_some());
+    assert!(result.custom_prompt_fingerprint.is_none());
+
+    // The override schema text must not enter the serialized report.
+    let serialized = serde_json::to_string(&report).unwrap();
+    assert!(!serialized.contains("\"answer\""));
+
+    let requests = transport.requests.lock().unwrap();
+    let (_, _, body) = &requests[0];
+    assert_eq!(
+        body.pointer("/response_format/json_schema/name"),
+        Some(&serde_json::json!("admin_probe_schema"))
+    );
+    assert_eq!(
+        body.pointer("/response_format/json_schema/schema/properties/answer/type"),
+        Some(&serde_json::json!("string"))
+    );
+    // The case keeps its non-strict wire flag.
+    assert_eq!(
+        body.pointer("/response_format/json_schema/strict"),
+        Some(&serde_json::json!(false))
+    );
+}
+
+#[tokio::test]
+async fn invalid_or_inapplicable_overrides_fail_before_credentials_or_egress() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+
+    // A prompt override is rejected for tool cases.
+    let error = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::ToolAuto,
+                custom_prompt: Some("override".to_owned()),
+                custom_schema: None,
+                custom_schema_name: None,
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        super::ProbeError::InvalidSelection(super::ProbeSelectionError::UnsupportedPromptOverride)
+    ));
+
+    // A schema override is rejected outside json-schema cases.
+    let error = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::JsonObject,
+                custom_prompt: None,
+                custom_schema: Some("{}".to_owned()),
+                custom_schema_name: None,
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        super::ProbeError::InvalidSelection(super::ProbeSelectionError::UnsupportedSchemaOverride)
+    ));
+
+    // A non-object or oversized schema is rejected.
+    for bad_schema in ["[1,2]", "\"text\"", "null"] {
+        let error = probe_upstream_target(
+            &registry,
+            "openai-main",
+            &transport,
+            &credentials,
+            ProbeOptions {
+                generation: Some(super::ProbeGenerationSelection {
+                    protocol: super::ProbeProtocol::ChatCompletions,
+                    mode: super::ProbeGenerationMode::NonStreaming,
+                    case: super::ProbeGenerationCase::JsonSchema,
+                    custom_prompt: None,
+                    custom_schema: Some(bad_schema.to_owned()),
+                    custom_schema_name: None,
+                }),
+                upstream_model: Some("candidate-model".to_owned()),
+                ..ProbeOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            super::ProbeError::InvalidSelection(super::ProbeSelectionError::InvalidCustomSchema)
+        ));
+    }
+
+    // No request must have been sent.
+    assert!(transport.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn canonical_cases_remain_unaffected_without_overrides() {
+    let registry = registry();
+    let transport = FixtureTransport::default();
+    let credentials = credentials(&registry);
+
+    let report = probe_upstream_target(
+        &registry,
+        "openai-main",
+        &transport,
+        &credentials,
+        ProbeOptions {
+            generation: Some(super::ProbeGenerationSelection {
+                protocol: super::ProbeProtocol::ChatCompletions,
+                mode: super::ProbeGenerationMode::NonStreaming,
+                case: super::ProbeGenerationCase::JsonSchemaStrict,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
+            }),
+            upstream_model: Some("candidate-model".to_owned()),
+            ..ProbeOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = report.generation.as_ref().unwrap();
+    assert!(result.custom_prompt_fingerprint.is_none());
+    assert!(result.custom_schema_fingerprint.is_none());
+    assert!(result.custom_schema_name.is_none());
+
+    let requests = transport.requests.lock().unwrap();
+    let (_, _, body) = &requests[0];
+    assert_eq!(
+        body.pointer("/response_format/json_schema/name"),
+        Some(&serde_json::json!("openbridge_probe"))
+    );
+    assert_eq!(
+        body.pointer("/response_format/json_schema/schema/properties/probe/const"),
+        Some(&serde_json::json!("ok"))
+    );
 }

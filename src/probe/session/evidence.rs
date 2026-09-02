@@ -32,6 +32,15 @@ pub(super) fn generation_result(
         outcome,
         evidence,
         capability_evidence,
+        custom_prompt_fingerprint: selection
+            .custom_prompt
+            .as_deref()
+            .map(crate::probe::override_fingerprint),
+        custom_schema_fingerprint: selection
+            .custom_schema
+            .as_deref()
+            .map(crate::probe::override_fingerprint),
+        custom_schema_name: selection.custom_schema_name.clone(),
     }
 }
 

@@ -10,18 +10,25 @@
   binding；只有全部候选归属同一 Provider instance 与 credential binding 时才能自动选定一个 Target，存在多个 trusted deployment 时
   必须用 `--target` 显式消歧。candidate model 不能借 Embeddings/Images/Audio Target 扩大 operation；model ID 只覆盖固定合成请求的
   `model` 字段，并且不继承所借 Target 现有模型的 ignored-parameter、reasoning mapping、output ceiling 或 delivery narrowing；它仍不能
-  覆盖 endpoint、path、credential、header、prompt、schema 或任意 JSON；
+  覆盖 endpoint、path、credential、header 或任意 JSON 结构；
+- 管理员可以对固定合成请求追加两个有界输入维度：`--prompt`（≤ 4 KiB 文本）只替换非 tool case 的固定用户 prompt；
+  `--schema`（≤ 8 KiB 的 JSON object）与 `--schema-name`（≤ 64 字节、无空白/控制字符）只替换 `json-schema` /
+  `json-schema-strict` case 的响应格式对象与名称，保留该 case 的 `strict` 标志。`--prompt` 对 tool case 拒绝；
+  `--schema`/`--schema-name` 对其他 case 拒绝；不满足大小/形状约束在凭证访问与 egress 前失败。带自定义 `--schema` 的 case
+  恒为 `inconclusive` verdict（无固定 oracle），schema 接受性由 `accepted`/`rejected` outcome 体现。报告为每个生效覆盖记录
+  内容指纹（SHA-256 前 16 位十六进制）与非默认 `--schema-name`，不记录覆盖原文；无覆盖时所有闭合 case 的 wire、oracle 与
+  verdict 保持 canonical 不变；
 - 每次 Generation probe 只能选择一个协议、一个 delivery 和一个闭合 `case`，并只发送一个请求；CLI/库不接受 `all`、列表或
   reasoning × capability 笛卡尔积。reasoning level 必须编码在 `reasoning-*` case 中，外部矩阵脚本通过多次独立调用编排。
 - 固定 Generation probe 的所有 bounded case 使用 4096-token accuracy-oriented upstream output limit；探测 Target 自身已注册 upstream
   model 时按其 trusted output ceiling 下调，显式 candidate model 不得继承另一模型的 ceiling。不能仅为减少 token 消耗使用易截断的
   默认上限。只有显式 `--allow-unbounded-streaming-output` 才能为拒绝该字段的
   streaming backend 省略限制，报告和使用说明必须暴露该计费/长 reasoning 风险；
-- structured oracle 可以在完整有界 response 生命周期内瞬时组合标准 output text；无状态 function-tool oracle 只能用内置固定 prompt、
-  最多两个固定工具和固定 schema 探测首轮 Auto/None/Required/Named、strict schema 与 `parallel_tool_calls=false/true`。它不得执行工具、
-  发送 tool result、构造 continuation，或发送 `previous_response_id`、background/conversation 等状态字段。除下述固定 inline PNG case
-  外，其他多模态不在本阶段。报告、日志和
-  错误不得保留生成正文、tool arguments、call/item identity、固定 prompt/schema 或完整请求/响应；
+- structured oracle 可以在完整有界 response 生命周期内瞬时组合标准 output text；无状态 function-tool oracle 只能用默认固定
+  prompt（该维度不接受 `--prompt` 覆盖）、最多两个固定工具和固定 schema 探测首轮 Auto/None/Required/Named、strict schema 与
+  `parallel_tool_calls=false/true`。它不得执行工具、发送 tool result、构造 continuation，或发送 `previous_response_id`、
+  background/conversation 等状态字段。除下述固定 inline PNG case 外，其他多模态不在本阶段。报告、日志和
+  错误不得保留生成正文、tool arguments、call/item identity、覆盖原文或完整请求/响应；
 - `image-input-inline-png` 只能发送代码内固定、已视觉复核的 PNG data URL 与 OCR prompt；Chat/Responses 使用各自标准 image content part。
   只有完整响应精确匹配固定可见 token 才能记为 `supported`；请求成功但未匹配必须保守记为 `inconclusive`。报告、日志和错误不得保留
   图片 data URL、图片 bytes、prompt 或输出正文；remote URL、detail 差分与其他媒体必须作为后续独立 case。

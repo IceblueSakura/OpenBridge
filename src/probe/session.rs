@@ -36,8 +36,9 @@ use json_response::{JsonResponse, canonical_content_type, decode_json_response};
 
 use super::{
     GenerationCaseSelection, GenerationProbeEvidence, GenerationProbeResult, ModelListProbeResult,
-    ProbeError, ProbeFailure, ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions,
-    ProbeResult, ProbeStatus, ProbeTerminal, TargetProbeReport,
+    ProbeCapabilityEvidence, ProbeCapabilityVerdict, ProbeError, ProbeFailure,
+    ProbeGenerationCapability, ProbeGenerationMode, ProbeOptions, ProbeResult, ProbeStatus,
+    ProbeTerminal, TargetProbeReport,
     payload::{
         is_embedding_response, is_protocol_response, probe_embedding_request,
         probe_generation_request,
@@ -249,6 +250,9 @@ async fn run_probe_session_with_headers(
                         protocol: generation.protocol.as_api(),
                         mode: generation.mode,
                         case: generation.case,
+                        custom_prompt: generation.custom_prompt,
+                        custom_schema: generation.custom_schema,
+                        custom_schema_name: generation.custom_schema_name,
                     },
                     selection.upstream_model.as_deref(),
                     selection.allow_unbounded_streaming_output,
@@ -396,7 +400,6 @@ impl ProbeSession<'_> {
             );
         }
         let request = probe_generation_request(
-            case.protocol,
             upstream_model,
             if upstream_model_override.is_some() {
                 case.capability().max_output_tokens()
@@ -405,10 +408,8 @@ impl ProbeSession<'_> {
                     .map(|api| self.probe_max_output_tokens(api, case.capability()))
                     .unwrap_or_else(|| case.capability().max_output_tokens())
             },
-            case.mode,
-            case.reasoning_effort(),
-            case.capability(),
             allow_unbounded_streaming_output,
+            case,
         );
         let request = match self.prepare_protocol_request(
             case.protocol,
@@ -459,11 +460,22 @@ impl ProbeSession<'_> {
             ProbeGenerationMode::Streaming => self.send_protocol_sse(case.protocol, request).await,
         };
         let capability_evidence = (outcome.state == ProbeStatus::Accepted).then(|| {
-            generation_capability_evidence(
+            let evidence = generation_capability_evidence(
                 case.capability(),
                 &output,
                 evidence.as_ref().and_then(|evidence| evidence.terminal),
-            )
+            );
+            // An admin-authored schema removes the fixed oracle; acceptance stays observable,
+            // but no compliance verdict can be rendered against an arbitrary schema.
+            if case.custom_schema.is_some() {
+                ProbeCapabilityEvidence {
+                    verdict: ProbeCapabilityVerdict::Inconclusive,
+                    fixed_schema_match: None,
+                    ..evidence
+                }
+            } else {
+                evidence
+            }
         });
         generation_result(
             case,

@@ -215,7 +215,8 @@ preparation：只接受校验后的 model ID 和固定合成请求，仍由已�
 timeout 约束；Provider selector 只在同一 trusted deployment 与 credential binding 内自动选定一个 Target，跨 deployment 必须显式
 消歧。它拒绝借非 Generation Target 扩大 operation；显式 candidate model 不套用另一已注册模型的 ignored-parameter、reasoning
 mapping、output ceiling 或 delivery narrowing，不被 ingress
-或业务请求调用。所有 bounded Generation case 使用固定 4096-token upstream output limit；Target 自身的 registered upstream model 按其
+或业务请求调用。管理员另有 `--prompt`（≤ 4 KiB）替换非 tool case 的固定用户 prompt、`--schema`/`--schema-name`（≤ 8 KiB JSON
+object）替换 JSON Schema case 的响应格式对象与名称两个有界覆盖维度；带自定义 `--schema` 的 case 恒为 `inconclusive`，报告记录覆盖内容指纹。所有 bounded Generation case 使用固定 4096-token upstream output limit；Target 自身的 registered upstream model 按其
 output ceiling 下调，显式 candidate model 不继承另一模型的 ceiling；
 只有显式风险开关可为 streaming request 省略。structured oracle 只在完整有界 response 生命周期内瞬时组合标准 output text；tool
 oracle 只聚合同一首轮 JSON/SSE 中最多 16 个 function-call fragment，以固定 prompt、最多两个固定工具和 strict JSON arguments 验证

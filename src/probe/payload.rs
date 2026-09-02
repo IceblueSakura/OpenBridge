@@ -1,15 +1,15 @@
 //! Fixed JSON requests and minimum response-shape checks for bounded upstream probes.
 //!
 //! This module generates only built-in text, structured-output, inline-image, first-turn
-//! function-tool, and Embeddings inputs. The parent validates an optional model ID; no external
-//! URL, path, prompt,
-//! tool definition, arbitrary body, tool result, continuation state, or action is accepted.
+//! function-tool, and Embeddings inputs. The parent validates an optional model ID and bounded
+//! admin-authored prompt/schema overrides; no external URL, path, tool definition, arbitrary
+//! body, tool result, continuation state, or action is accepted.
 
 use serde_json::{Value, json};
 
 use crate::core::ApiProtocol;
 
-use super::{ProbeGenerationCapability, ProbeGenerationMode, ProbeReasoningEffort};
+use super::{ProbeGenerationCapability, ProbeGenerationMode};
 
 const PROBE_PROMPT: &str = "Reply with exactly OK.";
 const STRUCTURED_PROBE_PROMPT: &str =
@@ -29,17 +29,43 @@ const PRIMARY_TOOL_NAME: &str = "openbridge_probe_primary";
 const SECONDARY_TOOL_NAME: &str = "openbridge_probe_secondary";
 const EMBEDDING_PROBE_INPUT: &str = "OpenBridge probe";
 
+/// Fixed default name of the built-in response-format JSON schema.
+pub(super) const DEFAULT_SCHEMA_NAME: &str = "openbridge_probe";
+
+/// Validated admin-authored replacements for one closed Generation case.
+///
+/// The parent validates these overrides against the selected case before credential access; the
+/// payload module trusts them to be bounded literal values.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ProbeGenerationOverrides<'a> {
+    /// Replaces the case's fixed user prompt text.
+    pub(super) prompt: Option<&'a str>,
+    /// Replaces a JSON Schema case's response-format schema object (parsed JSON text).
+    pub(super) schema: Option<&'a str>,
+    /// Replaces the fixed response-format schema name.
+    pub(super) schema_name: Option<&'a str>,
+}
+
 /// Builds one fixed Generation request for a registered or explicitly selected upstream model.
+///
+/// The selection carries the closed case, delivery mode, and any validated admin-authored
+/// overrides; wire policy stays fixed for every axis the admin cannot override.
 pub(super) fn probe_generation_request(
-    protocol: ApiProtocol,
     model: &str,
     max_output_tokens: u32,
-    mode: ProbeGenerationMode,
-    reasoning_effort: ProbeReasoningEffort,
-    capability: ProbeGenerationCapability,
     allow_unbounded_streaming_output: bool,
+    selection: &crate::probe::GenerationCaseSelection,
 ) -> Value {
-    let prompt = match capability {
+    let protocol = selection.protocol;
+    let mode = selection.mode;
+    let capability = selection.capability();
+    let reasoning_effort = selection.reasoning_effort();
+    let overrides = ProbeGenerationOverrides {
+        prompt: selection.custom_prompt.as_deref(),
+        schema: selection.custom_schema.as_deref(),
+        schema_name: selection.custom_schema_name.as_deref(),
+    };
+    let default_prompt = match capability {
         ProbeGenerationCapability::Text => PROBE_PROMPT,
         ProbeGenerationCapability::JsonObject
         | ProbeGenerationCapability::JsonSchema
@@ -53,6 +79,8 @@ pub(super) fn probe_generation_request(
         ProbeGenerationCapability::ToolParallelDisabled
         | ProbeGenerationCapability::ToolParallelEnabled => TOOL_PARALLEL_PROMPT,
     };
+    // Apply only the validated prompt override; tool cases bind their oracle to the fixed prompt.
+    let prompt = overrides.prompt.unwrap_or(default_prompt);
     let mut request = match (protocol, mode) {
         (ApiProtocol::ChatCompletions, ProbeGenerationMode::NonStreaming) => json!({
             "model": model,
@@ -114,14 +142,16 @@ pub(super) fn probe_generation_request(
             }
         }
     }
-    add_generation_capability(protocol, capability, &mut request);
+    add_generation_capability(protocol, capability, overrides, &mut request);
     request
 }
 
-/// Adds one closed response-format differential without caller-provided schema or prompt.
+/// Adds one closed response-format differential; the validated schema override replaces only the
+/// fixed JSON Schema case's response-format object, never the fixed tool or image payloads.
 fn add_generation_capability(
     protocol: ApiProtocol,
     capability: ProbeGenerationCapability,
+    overrides: ProbeGenerationOverrides<'_>,
     request: &mut Value,
 ) {
     if capability == ProbeGenerationCapability::ImageInputInlinePng {
@@ -146,24 +176,31 @@ fn add_generation_capability(
         ProbeGenerationCapability::JsonObject => Some(json!({"type": "json_object"})),
         ProbeGenerationCapability::JsonSchema | ProbeGenerationCapability::JsonSchemaStrict => {
             let strict = capability == ProbeGenerationCapability::JsonSchemaStrict;
-            let schema = json!({
-                "type": "object",
-                "properties": {"probe": {"type": "string", "const": "ok"}},
-                "required": ["probe"],
-                "additionalProperties": false
-            });
+            // Apply only the validated schema override; keep the fixed conflict schema otherwise.
+            let schema = overrides
+                .schema
+                .and_then(|custom| serde_json::from_str::<Value>(custom).ok())
+                .unwrap_or_else(|| {
+                    json!({
+                        "type": "object",
+                        "properties": {"probe": {"type": "string", "const": "ok"}},
+                        "required": ["probe"],
+                        "additionalProperties": false
+                    })
+                });
+            let name = overrides.schema_name.unwrap_or(DEFAULT_SCHEMA_NAME);
             Some(match protocol {
                 ApiProtocol::ChatCompletions => json!({
                     "type": "json_schema",
                     "json_schema": {
-                        "name": "openbridge_probe",
+                        "name": name,
                         "strict": strict,
                         "schema": schema
                     }
                 }),
                 ApiProtocol::Responses => json!({
                     "type": "json_schema",
-                    "name": "openbridge_probe",
+                    "name": name,
                     "strict": strict,
                     "schema": schema
                 }),
@@ -339,19 +376,82 @@ pub(super) fn is_embedding_response(response: &Value, upstream_model: &str) -> b
 
 #[cfg(test)]
 mod tests {
+
+    fn selection(
+        protocol: ApiProtocol,
+        mode: ProbeGenerationMode,
+        reasoning_effort: ProbeReasoningEffort,
+        capability: ProbeGenerationCapability,
+    ) -> crate::probe::GenerationCaseSelection {
+        let case = match (capability, reasoning_effort) {
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::Omitted) => {
+                ProbeGenerationCase::Text
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::None) => {
+                ProbeGenerationCase::ReasoningNone
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::Minimal) => {
+                ProbeGenerationCase::ReasoningMinimal
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::Low) => {
+                ProbeGenerationCase::ReasoningLow
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::Medium) => {
+                ProbeGenerationCase::ReasoningMedium
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::High) => {
+                ProbeGenerationCase::ReasoningHigh
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::XHigh) => {
+                ProbeGenerationCase::ReasoningXHigh
+            }
+            (ProbeGenerationCapability::Text, ProbeReasoningEffort::Max) => {
+                ProbeGenerationCase::ReasoningMax
+            }
+            (ProbeGenerationCapability::JsonObject, _) => ProbeGenerationCase::JsonObject,
+            (ProbeGenerationCapability::JsonSchema, _) => ProbeGenerationCase::JsonSchema,
+            (ProbeGenerationCapability::JsonSchemaStrict, _) => {
+                ProbeGenerationCase::JsonSchemaStrict
+            }
+            (ProbeGenerationCapability::ImageInputInlinePng, _) => {
+                ProbeGenerationCase::ImageInputInlinePng
+            }
+            (ProbeGenerationCapability::ToolAuto, _) => ProbeGenerationCase::ToolAuto,
+            (ProbeGenerationCapability::ToolNone, _) => ProbeGenerationCase::ToolNone,
+            (ProbeGenerationCapability::ToolRequired, _) => ProbeGenerationCase::ToolRequired,
+            (ProbeGenerationCapability::ToolNamed, _) => ProbeGenerationCase::ToolNamed,
+            (ProbeGenerationCapability::ToolStrict, _) => ProbeGenerationCase::ToolStrict,
+            (ProbeGenerationCapability::ToolParallelDisabled, _) => {
+                ProbeGenerationCase::ToolParallelDisabled
+            }
+            (ProbeGenerationCapability::ToolParallelEnabled, _) => {
+                ProbeGenerationCase::ToolParallelEnabled
+            }
+        };
+        crate::probe::GenerationCaseSelection {
+            protocol,
+            mode,
+            case,
+            custom_prompt: None,
+            custom_schema: None,
+            custom_schema_name: None,
+        }
+    }
     use super::*;
-    use crate::probe::ProbeGenerationCapability;
+    use crate::probe::{ProbeGenerationCapability, ProbeGenerationCase, ProbeReasoningEffort};
 
     #[test]
     fn structured_cases_use_fixed_protocol_specific_formats() {
         let chat = probe_generation_request(
-            ApiProtocol::ChatCompletions,
             "candidate",
             64,
-            ProbeGenerationMode::NonStreaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::JsonSchemaStrict,
             false,
+            &selection(
+                ApiProtocol::ChatCompletions,
+                ProbeGenerationMode::NonStreaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::JsonSchemaStrict,
+            ),
         );
         assert_eq!(
             chat.pointer("/response_format/type"),
@@ -367,13 +467,15 @@ mod tests {
         );
 
         let responses = probe_generation_request(
-            ApiProtocol::Responses,
             "candidate",
             64,
-            ProbeGenerationMode::Streaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::JsonObject,
             false,
+            &selection(
+                ApiProtocol::Responses,
+                ProbeGenerationMode::Streaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::JsonObject,
+            ),
         );
         assert_eq!(
             responses.pointer("/text/format/type"),
@@ -386,13 +488,15 @@ mod tests {
     #[test]
     fn inline_png_image_case_uses_fixed_protocol_specific_content_parts() {
         let chat = probe_generation_request(
-            ApiProtocol::ChatCompletions,
             "candidate",
             4096,
-            ProbeGenerationMode::NonStreaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::ImageInputInlinePng,
             false,
+            &selection(
+                ApiProtocol::ChatCompletions,
+                ProbeGenerationMode::NonStreaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ImageInputInlinePng,
+            ),
         );
         assert_eq!(
             chat.pointer("/messages/0/content/0/type"),
@@ -409,13 +513,15 @@ mod tests {
         );
 
         let responses = probe_generation_request(
-            ApiProtocol::Responses,
             "candidate",
             4096,
-            ProbeGenerationMode::Streaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::ImageInputInlinePng,
             false,
+            &selection(
+                ApiProtocol::Responses,
+                ProbeGenerationMode::Streaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ImageInputInlinePng,
+            ),
         );
         assert_eq!(
             responses.pointer("/input/0/content/0/type"),
@@ -437,13 +543,15 @@ mod tests {
     #[test]
     fn tool_auto_case_uses_fixed_protocol_specific_function_wire() {
         let chat = probe_generation_request(
-            ApiProtocol::ChatCompletions,
             "candidate",
             4096,
-            ProbeGenerationMode::NonStreaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::ToolAuto,
             false,
+            &selection(
+                ApiProtocol::ChatCompletions,
+                ProbeGenerationMode::NonStreaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ToolAuto,
+            ),
         );
         assert_eq!(chat["tool_choice"], "auto");
         assert_eq!(chat["tools"][0]["type"], "function");
@@ -458,13 +566,15 @@ mod tests {
         assert!(chat["tools"][0]["function"].get("strict").is_none());
 
         let responses = probe_generation_request(
-            ApiProtocol::Responses,
             "candidate",
             4096,
-            ProbeGenerationMode::Streaming,
-            ProbeReasoningEffort::Omitted,
-            ProbeGenerationCapability::ToolAuto,
             false,
+            &selection(
+                ApiProtocol::Responses,
+                ProbeGenerationMode::Streaming,
+                ProbeReasoningEffort::Omitted,
+                ProbeGenerationCapability::ToolAuto,
+            ),
         );
         assert_eq!(responses["tool_choice"], "auto");
         assert_eq!(responses["tools"][0]["type"], "function");
@@ -485,13 +595,15 @@ mod tests {
         for (capability, choice) in cases {
             for protocol in [ApiProtocol::ChatCompletions, ApiProtocol::Responses] {
                 let request = probe_generation_request(
-                    protocol,
                     "candidate",
                     4096,
-                    ProbeGenerationMode::NonStreaming,
-                    ProbeReasoningEffort::Omitted,
-                    capability,
                     false,
+                    &selection(
+                        protocol,
+                        ProbeGenerationMode::NonStreaming,
+                        ProbeReasoningEffort::Omitted,
+                        capability,
+                    ),
                 );
                 assert_eq!(request["tool_choice"], choice);
                 assert_eq!(request["tools"].as_array().unwrap().len(), 2);
@@ -500,13 +612,15 @@ mod tests {
 
         for protocol in [ApiProtocol::ChatCompletions, ApiProtocol::Responses] {
             let named = probe_generation_request(
-                protocol,
                 "candidate",
                 4096,
-                ProbeGenerationMode::NonStreaming,
-                ProbeReasoningEffort::Omitted,
-                ProbeGenerationCapability::ToolNamed,
                 false,
+                &selection(
+                    protocol,
+                    ProbeGenerationMode::NonStreaming,
+                    ProbeReasoningEffort::Omitted,
+                    ProbeGenerationCapability::ToolNamed,
+                ),
             );
             match protocol {
                 ApiProtocol::ChatCompletions => assert_eq!(
@@ -520,13 +634,15 @@ mod tests {
             }
 
             let strict = probe_generation_request(
-                protocol,
                 "candidate",
                 4096,
-                ProbeGenerationMode::NonStreaming,
-                ProbeReasoningEffort::Omitted,
-                ProbeGenerationCapability::ToolStrict,
                 false,
+                &selection(
+                    protocol,
+                    ProbeGenerationMode::NonStreaming,
+                    ProbeReasoningEffort::Omitted,
+                    ProbeGenerationCapability::ToolStrict,
+                ),
             );
             let tool = match protocol {
                 ApiProtocol::ChatCompletions => &strict["tools"][0]["function"],
@@ -540,13 +656,15 @@ mod tests {
                 (ProbeGenerationCapability::ToolParallelEnabled, true),
             ] {
                 let parallel = probe_generation_request(
-                    protocol,
                     "candidate",
                     4096,
-                    ProbeGenerationMode::NonStreaming,
-                    ProbeReasoningEffort::Omitted,
-                    capability,
                     false,
+                    &selection(
+                        protocol,
+                        ProbeGenerationMode::NonStreaming,
+                        ProbeReasoningEffort::Omitted,
+                        capability,
+                    ),
                 );
                 assert_eq!(parallel["tool_choice"], "required");
                 assert_eq!(parallel["parallel_tool_calls"], enabled);

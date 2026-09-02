@@ -134,6 +134,9 @@ impl ProbeArguments {
         let mut protocol = None;
         let mut mode = None;
         let mut generation_case = None;
+        let mut custom_prompt = None;
+        let mut custom_schema = None;
+        let mut custom_schema_name = None;
         let mut seen_flags = BTreeSet::new();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -189,6 +192,33 @@ impl ProbeArguments {
                             .with_context(|| format!("unknown --case value '{value}'"))?,
                     );
                 }
+                "--prompt" if command == "generation" => {
+                    reject_duplicate_flag(&mut seen_flags, "--prompt")?;
+                    let value = next_value(
+                        &mut arguments,
+                        "--prompt",
+                        "an admin-authored prompt of at most 4096 bytes",
+                    )?;
+                    custom_prompt = Some(value);
+                }
+                "--schema" if command == "generation" => {
+                    reject_duplicate_flag(&mut seen_flags, "--schema")?;
+                    let value = next_value(
+                        &mut arguments,
+                        "--schema",
+                        "an admin-authored JSON schema object of at most 8192 bytes",
+                    )?;
+                    custom_schema = Some(value);
+                }
+                "--schema-name" if command == "generation" => {
+                    reject_duplicate_flag(&mut seen_flags, "--schema-name")?;
+                    let value = next_value(
+                        &mut arguments,
+                        "--schema-name",
+                        "an admin-authored response-format schema name",
+                    )?;
+                    custom_schema_name = Some(value);
+                }
                 "--help" | "-h" => {
                     print_usage();
                     std::process::exit(0);
@@ -208,6 +238,9 @@ impl ProbeArguments {
                     protocol: protocol.unwrap_or(ProbeProtocol::ChatCompletions),
                     mode: mode.unwrap_or(ProbeGenerationMode::NonStreaming),
                     case: generation_case.unwrap_or(ProbeGenerationCase::Text),
+                    custom_prompt,
+                    custom_schema,
+                    custom_schema_name,
                 });
             }
             _ => unreachable!(),
@@ -260,9 +293,9 @@ fn print_usage() {
     println!(
         "Usage:\n\
          cargo run --bin openbridge-probe -- models --provider <slug> [--target <id>] [--model <upstream-model-id>]\n\
-         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses>] [--delivery <non-streaming|streaming>] [--case <text|reasoning-none|reasoning-minimal|reasoning-low|reasoning-medium|reasoning-high|reasoning-xhigh|reasoning-max|json-object|json-schema|json-schema-strict|image-input-inline-png|tool-auto|tool-none|tool-required|tool-named|tool-strict|tool-parallel-false|tool-parallel-true>] [--allow-unbounded-streaming-output]\n\
+         cargo run --bin openbridge-probe -- generation --provider <slug> --model <upstream-model-id> [--target <id>] [--protocol <chat|responses>] [--delivery <non-streaming|streaming>] [--case <text|reasoning-none|reasoning-minimal|reasoning-low|reasoning-medium|reasoning-high|reasoning-xhigh|reasoning-max|json-object|json-schema|json-schema-strict|image-input-inline-png|tool-auto|tool-none|tool-required|tool-named|tool-strict|tool-parallel-false|tool-parallel-true>] [--prompt <text>] [--schema <json>] [--schema-name <name>] [--allow-unbounded-streaming-output]\n\
          \n\
-         Generation executes exactly one unit case and defaults to Chat, non-streaming delivery, and text. Reasoning is encoded by reasoning-* cases rather than a separate matrix axis. Every bounded case uses a 4096-token accuracy-oriented output budget, clamped by a registered model ceiling. Structured, inline-image, and first-turn function-tool cases use fixed prompts and assets, then report supported, not_honored, or inconclusive without retaining generated text, image bytes, or arguments. Tool cases never execute a tool or send continuation state. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, prompt, schema, or tools. The command prints a redacted report and never modifies the code registry."
+         Generation executes exactly one unit case and defaults to Chat, non-streaming delivery, and text. Reasoning is encoded by reasoning-* cases rather than a separate matrix axis. Every bounded case uses a 4096-token accuracy-oriented output budget, clamped by a registered model ceiling. Structured, inline-image, and first-turn function-tool cases use fixed prompts and assets, then report supported, not_honored, or inconclusive without retaining generated text, image bytes, or arguments. Tool cases never execute a tool or send continuation state. --prompt overrides the case's fixed user prompt (not allowed for tool cases); --schema and --schema-name override only a json-schema/json-schema-strict case's response-format object and name, and force an inconclusive verdict because no fixed oracle can judge an arbitrary schema. The report carries SHA-256 fingerprints of any override so evidence stays attributable, but never the override text. --allow-unbounded-streaming-output removes only the fixed streaming output budget and may increase cost. Provider selection resolves only registered enabled Generation Targets; --target disambiguates trusted deployments and cannot change endpoint, path, credential, headers, or tools. The command prints a redacted report and never modifies the code registry."
     );
 }
 
@@ -311,6 +344,9 @@ mod tests {
                 protocol: ProbeProtocol::ChatCompletions,
                 mode: ProbeGenerationMode::NonStreaming,
                 case: ProbeGenerationCase::Text,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             })
         );
     }
@@ -376,6 +412,9 @@ mod tests {
                 protocol: ProbeProtocol::Responses,
                 mode: ProbeGenerationMode::Streaming,
                 case: ProbeGenerationCase::ReasoningHigh,
+                custom_prompt: None,
+                custom_schema: None,
+                custom_schema_name: None,
             })
         );
         assert!(parsed.selection.allow_unbounded_streaming_output);

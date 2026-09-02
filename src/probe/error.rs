@@ -19,6 +19,28 @@ pub enum ProbeSelectionError {
     /// The risk opt-in cannot affect any selected streaming Generation request.
     #[error("--allow-unbounded-streaming-output requires streaming Generation")]
     UnusedUnboundedStreamingOutput,
+    /// The admin-authored overrides cannot affect any selected Generation request.
+    #[error("--prompt/--schema/--schema-name require a Generation case")]
+    UnusedGenerationOverrides,
+    /// The selected case binds its oracle to the fixed prompt, so no prompt override applies.
+    #[error("--prompt cannot replace the fixed prompt of the selected tool case")]
+    UnsupportedPromptOverride,
+    /// Only JSON Schema cases expose a response-format schema to override.
+    #[error("--schema/--schema-name require a json-schema or json-schema-strict case")]
+    UnsupportedSchemaOverride,
+    /// The admin-authored prompt is empty or oversized.
+    #[error("--prompt must be a non-empty value of at most 4096 bytes")]
+    InvalidCustomPrompt,
+    /// The admin-authored schema is oversized, not a JSON object, or required by a schema name.
+    #[error(
+        "--schema must be a JSON object of at most 8192 bytes, and is required when --schema-name is provided"
+    )]
+    InvalidCustomSchema,
+    /// The admin-authored schema name is empty, oversized, padded, or contains a separator.
+    #[error(
+        "--schema-name must be a non-empty value of at most 64 bytes without whitespace or control characters"
+    )]
+    InvalidCustomSchemaName,
 }
 
 /// Probe preparation failed.

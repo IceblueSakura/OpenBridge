@@ -84,6 +84,9 @@
 ## 4. Probe 边界
 
 - 每次 Generation probe 只执行一个显式 unit case；当前 CLI/库不拥有跨 protocol、delivery、reasoning 或 capability 的矩阵编排。
+- 管理员可以为非 tool case 覆盖固定用户 prompt，为 JSON Schema case 覆盖响应格式对象与名称；覆盖只改变请求文本，不改变
+  闭合 case 集合、tool 定义、图片负载、output ceiling 或 oracle 结构。带自定义 `--schema` 的 case 因无固定 oracle 恒为
+  `inconclusive`，报告只携带覆盖内容指纹与 `--schema-name`，evidence 归属由外部脚本记录指纹与原文的对应。
 - 当前 function-tool probe 只验证固定 prompt 下单次首轮的 tool choice、strict arguments 与 parallel call 差分；它不执行工具、不发送
   tool result、不做续轮或 Agent loop，也不证明工具调用长期稳定。当前图片 probe 仅覆盖固定 inline PNG OCR case；一次识别成功不证明
   remote URL、detail、其他格式、多图、视觉质量或长期稳定性，文件、音频和视频 probe 尚未进入本阶段。

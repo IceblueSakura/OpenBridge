@@ -195,6 +195,14 @@ Structured case 携带固定冲突 prompt 与固定 `{"probe":"ok"}` schema；to
 固定 arguments schema，只观察单次首轮响应中的 tool choice、strict 和 parallel 差分，不执行工具、不发送 tool result，也不发起
 continuation。两类 case 都按完整 terminal 与瞬时输出给出 `supported`、`not_honored` 或 `inconclusive`，不保留生成文本、tool
 arguments、call ID 或 item ID。`auto` 未调用工具和 `parallel=true` 只返回一个调用都记为 `inconclusive`，不误报不支持。
+
+管理员可以为非 tool case 用 `--prompt <text>`（≤ 4 KiB）替换该 case 的固定用户 prompt，并可以为 `json-schema` /
+`json-schema-strict` case 用 `--schema <json>`（≤ 8 KiB 的 JSON object）与 `--schema-name <name>` 替换响应格式对象与名称；
+`--prompt` 对 tool case 拒绝，`--schema`/`--schema-name` 对其他 case 拒绝。带自定义 `--schema` 的 case 因无固定 oracle 而
+恒为 `inconclusive` verdict，schema 接受性由 `accepted`/`rejected` outcome 体现；报告为每个生效覆盖记录
+`custom_prompt_fingerprint`、`custom_schema_fingerprint`（各自内容的 SHA-256 前 16 位十六进制）与 `custom_schema_name`，
+evidence 归属由外部脚本记录指纹与原文的对应，报告本体从不包含覆盖文本。无覆盖时全部 19 个 case 的 wire、oracle 与 verdict 保持
+canonical 不变。
 `image-input-inline-png` 使用内置、已视觉复核的固定 PNG data URL；Chat 发送 `image_url`，Responses 发送 `input_image`。只有完整响应
 精确返回图片中的固定 token 才记为 `supported`，请求成功但识别不匹配记为 `inconclusive`，报告不保留图片 data URL、prompt 或输出正文。
 `--target` 仅在多个 trusted deployment 之间显式消歧；Provider 解析只接受已注册且启用的 Generation Target。所有 bounded
@@ -204,7 +212,8 @@ Generation case 使用固定 4096-token accuracy-oriented upstream output limit�
 
 `--model` 允许在正式注册前把同一个 candidate model ID 用于 `models` 可见性与 `generation` case；所选 Provider 解析只接受
 Generation task Target，Embeddings/Images/Audio Target 不能借 Provider-wide path 发送 Generation。该参数不能覆盖 endpoint、
-relative path、credential、认证 header、prompt、schema 或任意 JSON。
+relative path、credential、认证 header 或任意 JSON 结构；`--prompt` 与 `--schema`/`--schema-name` 只替换上述固定合成请求的
+用户 prompt 文本与响应格式对象，不改变 operation、工具定义或图片负载。
 每个 case 独立报告 `accepted`、`rejected`、`unsupported` 或 `inconclusive`、HTTP status、耗时、标准 token usage、失败阶段及有界协议元数据；报告不包含
 credential、认证 header、完整请求正文、生成正文或完整 upstream response body。
 `unsupported` 只表示本地 trusted Target/profile 不允许 operation 或 delivery；真实 upstream 的所有非 2xx（包括 candidate-model 404）
