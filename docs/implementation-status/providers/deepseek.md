@@ -12,6 +12,9 @@
 ## 验证与证据
 
 - 2026-08-31 有界管理员 probe 覆盖 Chat；Bailian 侧 Responses 验证见 [bailian.md](bailian.md)。
+- 2026-09-02 双协议矩阵实测（[evidence](../evidence/2026-09-02-dual-protocol-capability-matrix.md)）：
+  vision-exp 实测仅接受 `tool_choice` auto/none，required/named/strict 与 `parallel_tool_calls` 显式控制全部 400；
+  Chat json-schema 400、Responses json-schema 接受但不强制（与注册一致）。该 Target 注册的工具选择模式声明疑似过宽，待独立获准变更复核。
 - 官方模型事实来源见 [references/providers/deepseek-api.md](../../references/providers/deepseek-api.md)。
 
 ## 代码 owner

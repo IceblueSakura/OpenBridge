@@ -30,5 +30,6 @@
 - 2026-09-01 MiMo-V2.5 Chat JSON Object 完成管理员 probe 与真实下游 Gateway JSON/SSE 验收（64-token 上限）。
 - 2026-09-02 probe 接受管理员自定义 `--prompt`（≤ 4 KiB，非 tool case）与 `--schema`/`--schema-name`（≤ 8 KiB JSON object，仅 JSON Schema case）两个有界覆盖维度：自定义 `--schema` 的 case 恒为 `inconclusive`，报告记录覆盖内容指纹（SHA-256 前 16 位）而不保留原文；无覆盖时全部 canonical case 保持不变。
 - 2026-09-02 probe 以 Responses 协议为基准新增三个 Responses-only 单字段差分 case：`reasoning-summary`（`summary:"auto"` + 非空 summary 观测）、`include-encrypted-content`、`prompt-cache-key`；Generation case 总数 22，完整基线与静态扫描通过。
+- 2026-09-02 `tools/probe/matrix.py` 编排 4 Target × 双协议 × 双交付 × 22 case 共 328 次真实探测（deepseek-v4-flash-vision-exp、mimo-v2.5、glm-5.3-flash、qwen3.8-max），结果与差异记录见 [evidence](evidence/2026-09-02-dual-protocol-capability-matrix.md)；原始报告在 `testdata/runtime/probe-2026-09-02/`（gitignored，不入库）。
 
 以上只覆盖单一账号/模型与固定 payload，不替代 live Bridge、外部 SDK/Agent、Responses production Router、负载或长期运行验证；真实外部记录以 [evidence](evidence/README.md) 为准。

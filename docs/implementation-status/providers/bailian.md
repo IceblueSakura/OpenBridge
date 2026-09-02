@@ -22,7 +22,12 @@
 - [2026-08-27 Bailian Responses 三模型兼容性对比](../evidence/2026-08-27-bailian-responses-model-comparison.md)
 - [2026-08-29 Bailian DeepSeek V4 Pro Responses 接入验证](../evidence/2026-08-29-bailian-deepseek-v4-pro-responses.md)
 - [2026-08-29 Qwen3.7 Embeddings 与 Hindsight 兼容性验证](../evidence/2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md)（Embeddings）
+- [2026-09-02 四模型 Chat/Responses 双协议能力探测矩阵](../evidence/2026-09-02-dual-protocol-capability-matrix.md)（qwen3.8-max）
 - 2026-08-31 有界管理员 probe 覆盖 DeepSeek V4 Flash Responses JSON/SSE；production Router 与 SDK/Agent 未执行。
+- 2026-09-02 qwen3.8-max 矩阵实测：Chat 全 case `supported`（个别 SSE 侧 oracle 未命中）；
+  Responses 工具仅 auto/none/strict 生效，`tool-required`/`parallel_tool_calls` 显式控制被拒绝（与注册
+  `RESPONSES_TOOL_CHOICE_MODES=[None,Auto]` 吻合）；structured 接受但不强制（注册 JsonObject 一致）；
+  `reasoning-summary` JSON 侧观测到非空 summary，三个 Responses-only 差分 case 均被接受。
 
 ## 代码 owner
 

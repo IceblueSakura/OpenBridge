@@ -13,6 +13,10 @@
 ## 验证与证据
 
 - 2026-08-31 有界管理员 probe 覆盖 GLM-5.3 Responses JSON/SSE。
+- 2026-09-02 双协议矩阵实测（[evidence](../evidence/2026-09-02-dual-protocol-capability-matrix.md)）：
+  GLM-5.3-Flash 的 reasoning effort 实测仅接受 `low/high/max`（`none/minimal/medium/xhigh` 被拒绝），
+  Responses `reasoning-summary` 与 `include-encrypted-content` 被拒绝而 `prompt-cache-key` 被接受；
+  tool-none/named/strict 接受但未命中固定 oracle。该 effort 子集收窄未在注册中体现，待独立获准变更复核。
 - 官方模型事实来源见 [references/providers/zhipu-api.md](../../references/providers/zhipu-api.md)。
 
 ## 代码 owner

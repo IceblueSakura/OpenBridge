@@ -14,6 +14,10 @@
 ## 验证与证据
 
 - 2026-08-31 有界管理员 probe 覆盖 Chat；2026-09-01 MiMo-V2.5 Chat JSON Object JSON/SSE Gateway 验收（见 [current-state](../current-state.md)）。
+- 2026-09-02 双协议矩阵实测（[evidence](../evidence/2026-09-02-dual-protocol-capability-matrix.md)）：
+  Chat 全量 structured/tool `supported`（tool-none/named/strict/parallel-false 接受但未命中固定 oracle）；
+  Responses `reasoning-max` 与 json-schema/json-schema-strict 被 400 拒绝（后者与注册 `structured_outputs: None` 一致，
+  reasoning-max 上限为新发现）；三个 Responses-only 差分 case 均被接受。
 - 官方模型事实来源见 [references/providers/xiaomi-api.md](../../references/providers/xiaomi-api.md)、
   [xiaomi-image.md](../../references/providers/xiaomi-image.md)、[xiaomi-audio.md](../../references/providers/xiaomi-audio.md)。
 
