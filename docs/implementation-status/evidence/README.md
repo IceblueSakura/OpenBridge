@@ -30,6 +30,7 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-09-02 | [Generation IR 协议转换语义覆盖静态审计](2026-09-02-generation-ir-semantic-coverage-audit.md) | Generation Static/Event IR 转换路径、语义映射挂钩点、stateless Responses 语义覆盖与缺口 |
 | 2026-08-25 | [全模型接入静态审计](2026-08-25-model-integration-static-audit.md) | Canonical、Target、Public Model、配置可用性、协议 surface 与证据缺口 |
 
 ## 维护规则
